@@ -8050,5 +8050,622 @@
         ]
       }
     }
+  ],
+  "fuzzCases": [
+    {
+      "name": "fuzz_4242_g0009_c02",
+      "spec": "concern:data",
+      "depth": 1,
+      "kind": "project",
+      "digest": {
+        "nodes": [
+          [
+            "n:010925c7114e",
+            "core",
+            [
+              "i:0108615805a4"
+            ]
+          ],
+          [
+            "n:010925c71153",
+            "core",
+            [
+              "i:0108615805a6"
+            ]
+          ]
+        ],
+        "edges": [
+          [
+            "e:0108879f9c05",
+            [
+              "i:0108615805a4"
+            ]
+          ]
+        ],
+        "issues": [
+          [
+            "i:0108615805a4",
+            [
+              "n:010925c7114e"
+            ],
+            [
+              "e:0108879f9c05"
+            ]
+          ],
+          [
+            "i:0108615805a6",
+            [
+              "n:010925c71153"
+            ],
+            []
+          ]
+        ],
+        "stages": [
+          {
+            "id": "config",
+            "label": "Config",
+            "order": 0,
+            "present": false,
+            "nodeCount": 0,
+            "issueCounts": {
+              "low": 0,
+              "medium": 0,
+              "high": 0
+            },
+            "maxSeverity": null
+          },
+          {
+            "id": "data",
+            "label": "Data",
+            "order": 1,
+            "present": false,
+            "nodeCount": 0,
+            "issueCounts": {
+              "low": 0,
+              "medium": 0,
+              "high": 0
+            },
+            "maxSeverity": null
+          },
+          {
+            "id": "preprocess",
+            "label": "Preprocess",
+            "order": 2,
+            "present": true,
+            "nodeCount": 2,
+            "issueCounts": {
+              "low": 0,
+              "medium": 0,
+              "high": 1
+            },
+            "maxSeverity": "high"
+          },
+          {
+            "id": "model",
+            "label": "Model",
+            "order": 3,
+            "present": false,
+            "nodeCount": 0,
+            "issueCounts": {
+              "low": 0,
+              "medium": 0,
+              "high": 0
+            },
+            "maxSeverity": null
+          },
+          {
+            "id": "objective",
+            "label": "Objective",
+            "order": 4,
+            "present": false,
+            "nodeCount": 0,
+            "issueCounts": {
+              "low": 0,
+              "medium": 0,
+              "high": 0
+            },
+            "maxSeverity": null
+          },
+          {
+            "id": "train",
+            "label": "Train",
+            "order": 5,
+            "present": false,
+            "nodeCount": 0,
+            "issueCounts": {
+              "low": 0,
+              "medium": 0,
+              "high": 0
+            },
+            "maxSeverity": null
+          },
+          {
+            "id": "eval",
+            "label": "Eval",
+            "order": 6,
+            "present": false,
+            "nodeCount": 0,
+            "issueCounts": {
+              "low": 0,
+              "medium": 0,
+              "high": 0
+            },
+            "maxSeverity": null
+          },
+          {
+            "id": "deliver",
+            "label": "Deliver",
+            "order": 7,
+            "present": true,
+            "nodeCount": 0,
+            "issueCounts": {
+              "low": 0,
+              "medium": 0,
+              "high": 1
+            },
+            "maxSeverity": "high"
+          }
+        ],
+        "stats": {
+          "nodes": 2,
+          "edges": 1,
+          "issues": {
+            "low": 0,
+            "medium": 0,
+            "high": 2
+          },
+          "suppressed": 0,
+          "durationMs": 12,
+          "truncated": false
+        },
+        "view": {
+          "scope": "concern:data",
+          "label": "Data & preprocessing",
+          "depth": 1,
+          "counts": {
+            "core": 2,
+            "boundary": 0,
+            "context": 0
+          },
+          "of": {
+            "nodes": 3,
+            "edges": 1,
+            "issues": {
+              "low": 0,
+              "medium": 0,
+              "high": 2
+            }
+          },
+          "hidden": {
+            "nodes": 1,
+            "edges": 0,
+            "inboundEdges": 0,
+            "outboundEdges": 0
+          },
+          "resolvedTo": [
+            {
+              "id": "n:010925c7114e",
+              "qualname": "fit",
+              "label": "fit()",
+              "file": "main.py",
+              "line": 8
+            },
+            {
+              "id": "n:010925c71153",
+              "qualname": "fit",
+              "label": "fit",
+              "file": "pkg/mod1.py",
+              "line": 30
+            }
+          ],
+          "ambiguous": false,
+          "empty": false
+        }
+      }
+    },
+    {
+      "name": "fuzz_4242_g0020_c02",
+      "spec": "concern:training",
+      "depth": 1,
+      "kind": "project",
+      "digest": {
+        "nodes": [
+          [
+            "n:01101663db36",
+            "core",
+            []
+          ],
+          [
+            "n:01101663db56",
+            "core",
+            [
+              "i:011152f2ce34"
+            ]
+          ]
+        ],
+        "edges": [
+          [
+            "e:0111b43b5152",
+            [
+              "i:011152f2ce34"
+            ]
+          ]
+        ],
+        "issues": [
+          [
+            "i:011152f2ce34",
+            [
+              "n:01101663db56"
+            ],
+            [
+              "e:0111b43b5152"
+            ]
+          ]
+        ],
+        "stages": [
+          {
+            "id": "config",
+            "label": "Config",
+            "order": 0,
+            "present": false,
+            "nodeCount": 0,
+            "issueCounts": {
+              "low": 0,
+              "medium": 0,
+              "high": 0
+            },
+            "maxSeverity": null
+          },
+          {
+            "id": "data",
+            "label": "Data",
+            "order": 1,
+            "present": true,
+            "nodeCount": 0,
+            "issueCounts": {
+              "low": 1,
+              "medium": 0,
+              "high": 0
+            },
+            "maxSeverity": "low"
+          },
+          {
+            "id": "preprocess",
+            "label": "Preprocess",
+            "order": 2,
+            "present": false,
+            "nodeCount": 0,
+            "issueCounts": {
+              "low": 0,
+              "medium": 0,
+              "high": 0
+            },
+            "maxSeverity": null
+          },
+          {
+            "id": "model",
+            "label": "Model",
+            "order": 3,
+            "present": true,
+            "nodeCount": 1,
+            "issueCounts": {
+              "low": 0,
+              "medium": 0,
+              "high": 0
+            },
+            "maxSeverity": null
+          },
+          {
+            "id": "objective",
+            "label": "Objective",
+            "order": 4,
+            "present": true,
+            "nodeCount": 1,
+            "issueCounts": {
+              "low": 0,
+              "medium": 0,
+              "high": 0
+            },
+            "maxSeverity": null
+          },
+          {
+            "id": "train",
+            "label": "Train",
+            "order": 5,
+            "present": false,
+            "nodeCount": 0,
+            "issueCounts": {
+              "low": 0,
+              "medium": 0,
+              "high": 0
+            },
+            "maxSeverity": null
+          },
+          {
+            "id": "eval",
+            "label": "Eval",
+            "order": 6,
+            "present": false,
+            "nodeCount": 0,
+            "issueCounts": {
+              "low": 0,
+              "medium": 0,
+              "high": 0
+            },
+            "maxSeverity": null
+          },
+          {
+            "id": "deliver",
+            "label": "Deliver",
+            "order": 7,
+            "present": false,
+            "nodeCount": 0,
+            "issueCounts": {
+              "low": 0,
+              "medium": 0,
+              "high": 0
+            },
+            "maxSeverity": null
+          }
+        ],
+        "stats": {
+          "nodes": 2,
+          "edges": 1,
+          "issues": {
+            "low": 1,
+            "medium": 0,
+            "high": 0
+          },
+          "suppressed": 0,
+          "durationMs": 12,
+          "truncated": false
+        },
+        "view": {
+          "scope": "concern:optimization",
+          "label": "Model & optimization",
+          "depth": 1,
+          "counts": {
+            "core": 2,
+            "boundary": 0,
+            "context": 0
+          },
+          "of": {
+            "nodes": 3,
+            "edges": 1,
+            "issues": {
+              "low": 1,
+              "medium": 0,
+              "high": 0
+            }
+          },
+          "hidden": {
+            "nodes": 1,
+            "edges": 0,
+            "inboundEdges": 0,
+            "outboundEdges": 0
+          },
+          "resolvedTo": [
+            {
+              "id": "n:01101663db36",
+              "qualname": "pkg.mod7.BatchLoop",
+              "label": "BatchLoop",
+              "file": "pkg/mod7.py",
+              "line": 38
+            },
+            {
+              "id": "n:01101663db56",
+              "qualname": "pkg.mod4.Load",
+              "label": "Load()",
+              "file": "pkg/mod4.py",
+              "line": 6
+            }
+          ],
+          "ambiguous": false,
+          "empty": false
+        }
+      }
+    },
+    {
+      "name": "fuzz_55_g0015_c03",
+      "spec": "file:pkg/mod3.py",
+      "depth": null,
+      "kind": "project",
+      "digest": {
+        "nodes": [
+          [
+            "n:84d1bdffbd1f",
+            "core",
+            [
+              "i:84d0f96ea9c1"
+            ]
+          ],
+          [
+            "n:84d1bdffbdff",
+            "core",
+            []
+          ]
+        ],
+        "edges": [
+          [
+            "e:84d01fa637cf",
+            [
+              "i:84d0f96ea9c1"
+            ]
+          ]
+        ],
+        "issues": [
+          [
+            "i:84d0f96ea9c1",
+            [
+              "n:84d1bdffbd1f"
+            ],
+            [
+              "e:84d01fa637cf"
+            ]
+          ]
+        ],
+        "stages": [
+          {
+            "id": "config",
+            "label": "Config",
+            "order": 0,
+            "present": true,
+            "nodeCount": 1,
+            "issueCounts": {
+              "low": 0,
+              "medium": 0,
+              "high": 0
+            },
+            "maxSeverity": null
+          },
+          {
+            "id": "data",
+            "label": "Data",
+            "order": 1,
+            "present": false,
+            "nodeCount": 0,
+            "issueCounts": {
+              "low": 0,
+              "medium": 0,
+              "high": 0
+            },
+            "maxSeverity": null
+          },
+          {
+            "id": "preprocess",
+            "label": "Preprocess",
+            "order": 2,
+            "present": false,
+            "nodeCount": 0,
+            "issueCounts": {
+              "low": 0,
+              "medium": 0,
+              "high": 0
+            },
+            "maxSeverity": null
+          },
+          {
+            "id": "model",
+            "label": "Model",
+            "order": 3,
+            "present": false,
+            "nodeCount": 0,
+            "issueCounts": {
+              "low": 0,
+              "medium": 0,
+              "high": 0
+            },
+            "maxSeverity": null
+          },
+          {
+            "id": "objective",
+            "label": "Objective",
+            "order": 4,
+            "present": true,
+            "nodeCount": 0,
+            "issueCounts": {
+              "low": 1,
+              "medium": 0,
+              "high": 0
+            },
+            "maxSeverity": "low"
+          },
+          {
+            "id": "train",
+            "label": "Train",
+            "order": 5,
+            "present": false,
+            "nodeCount": 0,
+            "issueCounts": {
+              "low": 0,
+              "medium": 0,
+              "high": 0
+            },
+            "maxSeverity": null
+          },
+          {
+            "id": "eval",
+            "label": "Eval",
+            "order": 6,
+            "present": true,
+            "nodeCount": 1,
+            "issueCounts": {
+              "low": 0,
+              "medium": 0,
+              "high": 0
+            },
+            "maxSeverity": null
+          },
+          {
+            "id": "deliver",
+            "label": "Deliver",
+            "order": 7,
+            "present": false,
+            "nodeCount": 0,
+            "issueCounts": {
+              "low": 0,
+              "medium": 0,
+              "high": 0
+            },
+            "maxSeverity": null
+          }
+        ],
+        "stats": {
+          "nodes": 2,
+          "edges": 1,
+          "issues": {
+            "low": 1,
+            "medium": 0,
+            "high": 0
+          },
+          "suppressed": 0,
+          "durationMs": 12,
+          "truncated": false
+        },
+        "view": {
+          "scope": "file:pkg/mod3.py",
+          "label": "pkg/mod3.py",
+          "depth": 0,
+          "counts": {
+            "core": 2,
+            "boundary": 0,
+            "context": 0
+          },
+          "of": {
+            "nodes": 3,
+            "edges": 1,
+            "issues": {
+              "low": 1,
+              "medium": 0,
+              "high": 0
+            }
+          },
+          "hidden": {
+            "nodes": 1,
+            "edges": 0,
+            "inboundEdges": 0,
+            "outboundEdges": 0
+          },
+          "resolvedTo": [
+            {
+              "id": "n:84d1bdffbd1f",
+              "qualname": "evaluate",
+              "label": "evaluate",
+              "file": "pkg/mod3.py",
+              "line": 46
+            },
+            {
+              "id": "n:84d1bdffbdff",
+              "qualname": "pkg.mod3.build_model",
+              "label": "build_model",
+              "file": "pkg/mod3.py",
+              "line": 39
+            }
+          ],
+          "ambiguous": false,
+          "empty": false
+        }
+      }
+    }
   ]
 }

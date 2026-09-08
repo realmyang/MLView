@@ -91,6 +91,12 @@ const UI_PATHS: Record<string, string> = {
   flow: 'M2.4 8h8.4M8.4 5.2 11.6 8l-3.2 2.8M13.2 6.4v3.2',
   /** The legend key (VIEW-10): a list with a swatch beside each row. */
   legend: 'M2.4 3.6h2.4v2.4H2.4ZM2.4 10h2.4v2.4H2.4ZM6.8 4.8h6.8M6.8 11.2h6.8',
+  /** MLV-P10: two sheets — "copy the ignore comment". */
+  copy: 'M5.8 5.8h7.6v7.6H5.8ZM2.6 10.2V2.6h7.6v3.2',
+  /** MLV-P10: a struck-through disc — "disable this rule". */
+  mute: 'M8 2.4a5.6 5.6 0 1 0 0 11.2 5.6 5.6 0 0 0 0-11.2ZM4 12 12 4',
+  /** VIEW-12: the keyboard's copy of the minimap's pointer-only chevron. */
+  minimap: 'M2.4 3.6h11.2v8.8H2.4ZM8.4 7.4h4.4v4.4H8.4Z',
 };
 
 export function uiIcon(name: string, size = 14): SVGElement {

@@ -12,8 +12,10 @@ import { uiIcon } from '../icons.js';
 import { severityGlyph, SEVERITY_ORDER, normalizeSeverity } from '../markers.js';
 import { appendTrustSections, confidenceChip } from './evidence.js';
 import { defaultExpanded, groupIssues, needsHeader, occurrenceText, RAIL_GROUP_LABEL, RAIL_GROUP_MODES } from './railgroup.js';
+import { appendSuppressActions, stateChip, suppressedSummary } from './suppress.js';
 import type { IssueGroup } from './railgroup.js';
 import type { GraphIndex } from '../layout/model.js';
+import { isKnownIssueChange, isSetAside } from '../types.js';
 import type { Issue, Loc, RailGroupBy, RelatedLoc } from '../types.js';
 
 export interface IssueListCallbacks {
@@ -23,6 +25,10 @@ export interface IssueListCallbacks {
   onClearScope(): void;
   onGroupBy(mode: RailGroupBy): void;
   onToggleGroup(key: string): void;
+  /** MLV-P10: copy `# mlview: ignore[CODE]` through the host's clipboard. */
+  onCopyIgnore(code: string): void;
+  /** MLV-P10: post `suppressRule` for this code. */
+  onDisableRule(code: string): void;
 }
 
 export interface IssueListState {
@@ -34,15 +40,30 @@ export interface IssueListState {
   groupBy: RailGroupBy;
   /** Group keys the user has opened. Session-local; only the mode persists. */
   expanded: Set<string>;
+  /**
+   * Everything `keep` tests EXCEPT suppression and baselining (MLV-P10). The
+   * collapsed "N suppressed" section is an audit trail of what was set aside,
+   * so it must still honour the severity chips, the stage chips and a host's
+   * `setFilter` codes — otherwise a finding the user filtered away reappears
+   * there.
+   */
+  keepBase(issue: Issue): boolean;
 }
 
 export function renderIssuePanel(panel: HTMLElement, s: IssueListState, cb: IssueListCallbacks): void {
   clear(panel);
+  // VIEW-12: the panel's own heading, so the outline reads h1 -> h2 -> h3 -> h4
+  // top-down instead of starting at a rail `h3` above the two `h2`s. Visually
+  // hidden: the tab strip already names the panel on screen.
+  add(panel, el('h3', 'mlv-sr', 'Findings'));
   if (!s.index) {
     add(panel, el('div', 'mlv-empty-note', 'No analysis loaded yet.'));
     return;
   }
   const visible = s.issues.filter(s.keep);
+  // MLV-P10 + CI-ADOPT: what suppression and the baseline set aside, minus
+  // anything the ordinary filters would have removed anyway.
+  const setAside = s.issues.filter((i) => isSetAside(i) && !s.keep(i) && s.keepBase(i));
   if (s.scope) panel.appendChild(scopeLine(s.scope, cb));
   // The control is offered whenever the DOCUMENT has findings, so switching
   // back out of a grouping that filtered to nothing is always one click away.
@@ -53,9 +74,17 @@ export function renderIssuePanel(panel: HTMLElement, s: IssueListState, cb: Issu
     // (MLV-R1-013, MLV-R2-W05, FEATURES 3.7). Getting these apart is what stops
     // a scope from reading as a clean bill of health.
     if (s.scope && s.scope.hidden > 0) panel.appendChild(scopeEmptyState(s.scope, cb));
-    else if (s.issues.length) panel.appendChild(filteredEmptyState(cb));
+    // A FIFTH zero (MLV-P10): every finding was silenced. "No issues match
+    // these filters" would be false — no filter is doing it — and "No issues
+    // found" would be a clean bill of health over N suppressions.
+    else if (setAside.length && s.issues.every((i) => !s.keepBase(i) || isSetAside(i))) {
+      panel.appendChild(allSuppressedState(setAside.length));
+    } else if (s.issues.length) panel.appendChild(filteredEmptyState(cb));
     else if ((s.index.graph.nodes || []).length === 0) panel.appendChild(nothingAnalyzedState(s));
     else panel.appendChild(cleanState(s));
+    // "No issues found" over a document where three findings were silenced is
+    // not a clean bill of health, so the section is drawn here too (MLV-P10).
+    if (setAside.length) panel.appendChild(suppressedSection(setAside, s, cb));
     return;
   }
   for (const sev of SEVERITY_ORDER) {
@@ -63,12 +92,45 @@ export function renderIssuePanel(panel: HTMLElement, s: IssueListState, cb: Issu
     if (!group.length) continue;
     const section = add(panel, el('section', 'mlv-rail__section'));
     section.setAttribute('data-severity-section', sev);
-    const heading = add(section, el('h3', 'mlv-rail__heading'));
+    // h4 under the panel's h3 (VIEW-12).
+    const heading = add(section, el('h4', 'mlv-rail__heading'));
     heading.appendChild(severityGlyph(sev, 12, ''));
     add(heading, el('span', '', sev + ' · ' + group.length));
     if (s.groupBy === 'none') section.appendChild(flatList(group, sev, s, cb));
     else renderGroups(section, group, sev, s, cb);
   }
+  if (setAside.length) panel.appendChild(suppressedSection(setAside, s, cb));
+}
+
+/* ── the collapsed "N suppressed" section (MLV-P10, CI-ADOPT) ──────────── */
+
+/**
+ * Everything suppression and the baseline set aside, folded away but present.
+ *
+ * A suppression that is invisible is not auditable — that is the whole reason
+ * this section exists — and CI-ADOPT's baselined findings arrive through the
+ * same door, "marked, not deleted", each row carrying the chip that says which
+ * of the two it was.
+ */
+function suppressedSection(rows: Issue[], s: IssueListState, cb: IssueListCallbacks): HTMLElement {
+  const box = el('section', 'mlv-rail__section mlv-rail__suppressed');
+  box.setAttribute('data-suppressed-section', String(rows.length));
+  const open = s.expanded.has('suppressed');
+  if (open) box.classList.add('is-open');
+  let baselined = 0;
+  for (const issue of rows) if (issue.baselined) baselined++;
+  const head = el('button', 'mlv-railgroup__head mlv-rail__suppressed-head') as HTMLButtonElement;
+  head.type = 'button';
+  head.setAttribute('aria-expanded', open ? 'true' : 'false');
+  head.setAttribute('data-group-toggle', 'suppressed');
+  head.setAttribute('data-suppressed-toggle', String(rows.length));
+  head.appendChild(uiIcon('chevron', 12));
+  add(head, el('span', 'mlv-railgroup__title', suppressedSummary(rows.length - baselined, baselined)));
+  head.setAttribute('aria-label', suppressedSummary(rows.length - baselined, baselined) + ' — findings hidden from the list above');
+  on(head, 'click', () => cb.onToggleGroup('suppressed'));
+  box.appendChild(head);
+  if (open) box.appendChild(flatList(rows, 'suppressed', s, cb, 'Suppressed findings'));
+  return box;
 }
 
 /* ── the group-by control ──────────────────────────────────────────────── */
@@ -155,7 +217,22 @@ function groupBlock(group: IssueGroup, sev: string, s: IssueListState, cb: Issue
     group.title + ' — ' + occurrenceText(group, s.groupBy) + (group.subtitle ? ' — ' + group.subtitle : ''),
   );
   on(head, 'click', () => cb.onToggleGroup(toggleKey));
-  box.appendChild(head);
+
+  // MLV-P10: the same two actions on the GROUP header, so a whole class is
+  // silenced in one gesture — the case the 111-row list actually needs. Only
+  // under `rule` grouping: a file group's key is a path, and "disable this
+  // rule" over eleven different codes would be a lie about what it does.
+  if (s.groupBy === 'rule') {
+    const bar = add(box, el('div', 'mlv-railgroup__bar'));
+    bar.appendChild(head);
+    const n = group.issues.length;
+    appendSuppressActions(bar, group.key, cb, {
+      compact: true,
+      subject: 'all ' + n + ' ' + group.key + (n === 1 ? ' finding' : ' findings'),
+    });
+  } else {
+    box.appendChild(head);
+  }
 
   if (open) box.appendChild(flatList(group.issues, sev, s, cb, group.title + ' occurrences'));
   return box;
@@ -203,7 +280,16 @@ function issueRow(issue: Issue, s: IssueListState, cb: IssueListCallbacks): HTML
   // reviewer most needs — and made a missing chip ambiguous between "sure" and
   // "the renderer forgot".
   meta.appendChild(confidenceChip(issue));
-  if (issue.suppressed) add(meta, el('span', 'mlv-chip', 'suppressed'));
+  if (issue.suppressed) stateChip(meta, 'mlv-chip--suppressed', 'suppressed', 'Silenced by a comment or by .mlview.toml');
+  // CI-ADOPT: baselined is MARKED, never deleted.
+  if (issue.baselined) stateChip(meta, 'mlv-chip--baselined', 'baselined', 'Already in the baseline file, so it does not fail the build');
+  // CI-ADOPT: new / touched / existing, when the run was attributed at all.
+  if (isKnownIssueChange(issue.change)) {
+    stateChip(meta, 'mlv-chip--change mlv-chip--change-' + issue.change, issue.change as string, changeTitle(issue.change as string)).setAttribute(
+      'data-change',
+      issue.change as string,
+    );
+  }
   on(row, 'click', () => cb.onSelectIssue(issue.id));
   li.appendChild(row);
 
@@ -216,11 +302,23 @@ function issueRow(issue: Issue, s: IssueListState, cb: IssueListCallbacks): HTML
   });
   li.appendChild(open);
 
+  // MLV-P10: on EVERY row, siblings of the option like "Open" is — never
+  // children of it, because `role="option"` may not contain a focusable
+  // descendant (MLV-R2-W03).
+  appendSuppressActions(li, issue.code, cb, { compact: true });
+
   // The selected row expands in place with the message, the why line, the fix
   // hint and a Go to button per location — the most valuable content in the
   // product used to be unreachable from the Issues tab entirely (MLV-R1-006).
   if (selected) li.appendChild(issueDetail(issue, cb));
   return li;
+}
+
+/** What each CI-ADOPT attribution means, in the reader's words. */
+function changeTitle(change: string): string {
+  if (change === 'new') return 'On a line this change added';
+  if (change === 'touched') return 'In a file this change touched, outside the added lines';
+  return 'Already there before this change';
 }
 
 /** The expanded body of a selected issue row. */
@@ -371,6 +469,23 @@ function scopeEmptyState(scope: { hidden: number; total: number }, cb: IssueList
   const all = button('mlv-btn', 'Show all');
   on(all, 'click', () => cb.onClearScope());
   box.appendChild(all);
+  return box;
+}
+
+/** Everything there was, suppressed. Stated as suppression, not as silence. */
+function allSuppressedState(count: number): HTMLElement {
+  const box = el('div', 'mlv-empty-note');
+  box.setAttribute('role', 'status');
+  box.setAttribute('data-all-suppressed', String(count));
+  add(box, el('div', 'mlv-clean__title', 'No unsuppressed findings'));
+  add(
+    box,
+    el(
+      'div',
+      'mlv-clean__detail',
+      count + (count === 1 ? ' finding is' : ' findings are') + ' silenced by a comment, by .mlview.toml or by the baseline — listed below.',
+    ),
+  );
   return box;
 }
 

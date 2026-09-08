@@ -36,6 +36,15 @@ const SAMPLES = {
   action: { v: 1, type: 'action', id: 'retry' },
   askAssistant: { v: 1, type: 'askAssistant', nodeId: 'n:1', prompt: 'why?' },
   log: { v: 1, type: 'log', level: 'warn', message: 'hi' },
+  // MLV-P10: the rail's suppression gesture (docs/CONTRACTS.md §11.27).
+  suppressRule: {
+    v: 1,
+    type: 'suppressRule',
+    code: 'MLV201',
+    action: 'insert',
+    absFile: 'C:/repo/train.py',
+    line: 44
+  },
   // CONTRACTS.md 11.7: the selector field is `spec`, never `scope`.
   scopeChanged: {
     v: 1,

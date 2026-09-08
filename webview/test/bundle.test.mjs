@@ -92,34 +92,34 @@ test('dist/mlview.css IS the minification of dist/mlview.dev.css (BUILD-01)', as
 /*
  * BUILD-01's size ratchet.
  *
- * MEASURED ON THIS TREE, 2026-09-08, after the eight NOW-tier viewer items and
- * the Track B fixes:
- *   dist/mlview.js       219 359 B (214.2 KB)
- *   dist/mlview.css       54 052 B  (52.8 KB), minified from 89 296 B (-39%)
- *   dist/mlview.dev.css   89 296 B  (87.2 KB, never shipped)
+ * MEASURED ON THIS TREE, 2026-09-09, after the Sprint 4 viewer drop (VIEW-03
+ * label placement, VIEW-12 accessibility scaffolding, MLV-P1's answer card,
+ * MLV-P10's suppression actions and CI-ADOPT's change chips):
+ *   dist/mlview.js       237 749 B (232.2 KB)
+ *   dist/mlview.css       57 243 B  (55.9 KB), minified from 95 541 B (-40%)
+ *   dist/mlview.dev.css   95 541 B  (93.3 KB, never shipped)
  *
- * WHERE THIS LANDS AGAINST THE ROADMAP, which is the number a lead looks for:
- * BUILD-01 proposed a JS ratchet of 210 KB and an acceptance of "dist/mlview.css
- * under 50 KB". NEITHER is met -- 214.2 KB and 52.8 KB -- because those figures
- * were measured when the bundle was 198 KB and the stylesheet 46.9 KB, i.e.
- * BEFORE this sprint added the legend, the evidence and rule-doc disclosures,
- * the rail grouping, the gesture normalization and the location search (~16 KB
- * of JS, ~6 KB of minified CSS). The CSS cap is therefore kept at the proposed
- * 55 KB and the JS cap set to 216 KB: a ratchet exists to make the NEXT growth
- * visible, and a cap the tree already exceeds makes nothing visible at all.
+ * WHY BOTH CAPS MOVE, which is the number a lead looks for. Sprint 3 shipped
+ * 219 359 B of JS under a 216 KB cap and 54 052 B of CSS under a 55 KB cap, with
+ * 0.8 % and 4.0 % of headroom left. This round adds five roadmap items that are
+ * all rendering: +18.4 KB of JS (the label planner, the roving toolbar, the
+ * answer card, the suppression actions and their types) and +3.1 KB of minified
+ * CSS. Neither cap could absorb that, and a cap the tree already exceeds gates
+ * nothing — so both are re-set ONCE, here, against a measured tree: JS 236 KB
+ * and CSS 58 KB, which is the same ~1.6 % / ~3.6 % of headroom the previous
+ * ratchet held. The ratchet's job is unchanged: make the NEXT growth visible.
  *
  * The two figures above are GATED, not just written down: `JS_RECORDED` /
  * `CSS_RECORDED` are asserted against the built files with a 2 KB tolerance, so
  * a rebuild that moves the bundle forces this block to be re-measured instead of
- * quietly outliving it (TB-14: it already had -- the block quoted 218 038 B and
- * "~2 % headroom" against a tree that shipped 219 208 B and 0.9 %). Every
- * assertion below names the measured size and the remaining headroom.
+ * quietly outliving it (TB-14). Every assertion below names the measured size
+ * and the remaining headroom.
  */
-const JS_RECORDED = 219359;
-const CSS_RECORDED = 54052;
+const JS_RECORDED = 237749;
+const CSS_RECORDED = 57243;
 const DRIFT = 2 * 1024;
-const JS_MAX_BYTES = 216 * 1024;
-const CSS_MAX_BYTES = 55 * 1024;
+const JS_MAX_BYTES = 236 * 1024;
+const CSS_MAX_BYTES = 58 * 1024;
 
 const headroom = (size, cap) =>
   size + ' B, ' + (cap - size) + ' B (' + (((cap - size) / cap) * 100).toFixed(1) + ' %) under the ' + cap + ' B ratchet';

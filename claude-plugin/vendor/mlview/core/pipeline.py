@@ -9,7 +9,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import List, Optional, Sequence, Tuple
+from typing import Callable, List, Optional, Sequence, Tuple
 
 from ..ingest.discover import discover
 from ..ingest.parse import parse_file
@@ -19,8 +19,9 @@ from ..rules.context import GraphContext
 from .build import GraphBuilder
 from .coverage import note_untraced_sites, single_file_diagnostic
 from .graph import Diagnostic, MLGraph, SEVERITY_RANK
+from .progress import safe_call
 
-__all__ = ["AnalyzeOptions", "run", "AnalysisResult"]
+__all__ = ["AnalyzeOptions", "run", "AnalysisResult", "drop_orphan_ghosts"]
 
 
 @dataclass(frozen=True)
@@ -43,6 +44,12 @@ class AnalyzeOptions:
     #: `api.analyze_to_dict()`, never a smaller analysis.
     scope: Optional[str] = None
     depth: Optional[int] = None
+    #: H3 - an optional `(done, total, relpath)` sink called once per analyzed
+    #: file. Appended last and defaulted to `None`, so the frozen surface is
+    #: unchanged and `analyze()` still performs no I/O of its own: the CLI
+    #: passes `core.progress.ProgressWriter()` for `--progress-json`, an
+    #: in-process host passes its own callable, and nobody else pays anything.
+    progress: Optional[Callable[[int, int, str], None]] = None
 
 
 @dataclass
@@ -78,8 +85,14 @@ def run(options: AnalyzeOptions) -> AnalysisResult:
     diagnostics: List[Diagnostic] = []
     parsed_files = []
     failures = 0
-    for relpath in found.files:
+    total_files = len(found.files)
+    sink = options.progress
+    for index, relpath in enumerate(found.files, start=1):
         ok, bad = parse_file(found.abspath(relpath), relpath)
+        # H3: one frame per file, after the file is read, so `done` counts work
+        # completed rather than work started. A sink that raises is dropped for
+        # the rest of the run - a progress bar never fails an analysis.
+        sink = safe_call(sink, index, total_files, relpath)
         if ok is not None:
             parsed_files.append(ok)
         else:
@@ -177,7 +190,7 @@ def run(options: AnalyzeOptions) -> AnalysisResult:
     note_untraced_sites(context)
 
     _filter_issues(graph, options)
-    _drop_orphan_ghosts(graph)
+    drop_orphan_ghosts(graph)
     _apply_node_cap(graph, options.max_nodes)
     graph.generatedAt = _now_iso()
     graph.durationMs = int((time.perf_counter() - started) * 1000)
@@ -301,8 +314,14 @@ def _apply_node_cap(graph: MLGraph, max_nodes: int) -> None:
         count=len(dropped)))
 
 
-def _drop_orphan_ghosts(graph: MLGraph) -> None:
-    """Invariant 1.1.8: a ghost node always carries at least one issue."""
+def drop_orphan_ghosts(graph: MLGraph) -> None:
+    """Invariant 1.1.8: a ghost node always carries at least one issue.
+
+    Public because CI-ADOPT drops issues **after** the pipeline has finished
+    (`--changed-only`), and a ghost whose only finding just went would violate
+    1.1.8 on the way out. Re-run this, then `finalize()`, after any late edit
+    to `graph.issues`.
+    """
     live = {issue.id for issue in graph.issues}
     keep = []
     dropped = set()

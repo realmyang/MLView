@@ -11,6 +11,7 @@ import { GraphIndex } from './layout/model.js';
 import { layoutGraph } from './layout/layout.js';
 import { LANE_MIN_W, LANE_PAD, MAX_RANK_H, MAX_RANK_W, RANK_ROW_GAP } from './layout/constants.js';
 import { routeEdges } from './layout/routing.js';
+import { alwaysVisible, labelTextOf, labelWidth, planLabels, LABEL_METRICS } from './layout/labels.js';
 import { buildNodeCard } from './render/nodes.js';
 import { severityGlyph, SEVERITY_SHAPE, emptyCounts } from './markers.js';
 import { KNOWN_KINDS } from './icons.js';
@@ -21,6 +22,7 @@ import { searchGraph, searchGraphDetailed } from './search.js';
 import { locationHit, parseLocationQuery, pathMatches } from './searchloc.js';
 import { normalizeWheel, panDelta, wheelIntent, wheelZoomFactor, COARSE_PX, LINE_PX, PINCH_GAIN, ZOOM_BASE } from './ui/gestures.js';
 import { groupIssues, occurrenceText, sanitizeGroupBy } from './ui/railgroup.js';
+import { disableSnippet, ignoreComment, suppressedSummary } from './ui/suppress.js';
 import { ruleDocFor, setRuleDocs } from './ui/ruledocs.js';
 import { legendModel } from './ui/legend.js';
 import { FLOW, lineageHops, polylineLength, pulseDurationMs, streamGapPx } from './render/flow.js';
@@ -94,6 +96,72 @@ export function layoutForTest(graph: MLGraph, collapsed?: string[]): PlainLayout
     })),
     width: frame.width,
     height: frame.height,
+  };
+}
+
+export interface PlainLabel {
+  id: string;
+  text: string;
+  x: number;
+  y: number;
+  rect: { x: number; y: number; w: number; h: number };
+  hidden: boolean;
+  flipped: boolean;
+  fallback: boolean;
+  axis: string;
+  laneId: string | null;
+  always: boolean;
+  marker: { x: number; y: number };
+}
+
+export interface PlainLabelPlan {
+  labels: PlainLabel[];
+  stats: Record<string, number>;
+  /** Wall-clock cost of each pass, so a gate can state the relayout budget. */
+  ms: { layout: number; route: number; labels: number };
+}
+
+/**
+ * VIEW-03's placement pass with no DOM at all, plus the three timings.
+ *
+ * The gate re-derives every overlap itself from `layoutForTest`'s boxes and
+ * these rectangles, so the assertion is arithmetic the test owns rather than a
+ * self-report from the code under test.
+ */
+export function labelsForTest(graph: MLGraph, collapsed?: string[]): PlainLabelPlan {
+  const clock = typeof performance !== 'undefined' && performance.now ? () => performance.now() : () => Date.now();
+  const index = new GraphIndex(graph);
+  const set = new Set(collapsed || []);
+  const t0 = clock();
+  const frame = layoutGraph(index, set);
+  const t1 = clock();
+  const routes = routeEdges(index, frame, set);
+  const t2 = clock();
+  const plan = planLabels(frame, routes);
+  const t3 = clock();
+  const labels: PlainLabel[] = [];
+  for (const route of routes) {
+    const placement = plan.placements.get(route.id);
+    if (!placement) continue;
+    labels.push({
+      id: placement.id,
+      text: placement.text,
+      x: placement.x,
+      y: placement.y,
+      rect: { x: placement.rect.x, y: placement.rect.y, w: placement.rect.w, h: placement.rect.h },
+      hidden: placement.hidden,
+      flipped: placement.flipped,
+      fallback: placement.fallback,
+      axis: placement.axis,
+      laneId: placement.laneId,
+      always: placement.always,
+      marker: { x: placement.marker.x, y: placement.marker.y },
+    });
+  }
+  return {
+    labels,
+    stats: { ...plan.stats },
+    ms: { layout: t1 - t0, route: t2 - t1, labels: t3 - t2 },
   };
 }
 
@@ -216,6 +284,10 @@ export const internals = {
   viewport: { fitPlan, MIN_ZOOM, TALL_SCREENS, MIN_FIT_ZOOM },
   /** VIEW-01: the lane wrap budget, for the width gates. */
   layoutConstants: { MAX_RANK_W, MAX_RANK_H, LANE_MIN_W, LANE_PAD, RANK_ROW_GAP },
+  /** VIEW-03: label placement, its metrics and which labels are always drawn. */
+  labels: { plan: labelsForTest, metrics: LABEL_METRICS, textOf: labelTextOf, widthOf: labelWidth, alwaysVisible },
+  /** MLV-P10: the two strings the rail, the Inspector and the bridge all use. */
+  suppression: { ignoreComment, disableSnippet, suppressedSummary },
   tooltipPlacement,
   searchGraph,
   /** VIEW-09ab: the detailed result and the `path:line` resolver behind it. */

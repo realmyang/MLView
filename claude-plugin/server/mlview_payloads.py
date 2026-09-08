@@ -173,11 +173,19 @@ def issues_payload(
 
     counts = {"low": 0, "medium": 0, "high": 0}
     suppressed = 0
+    baselined = 0
     rows: List[Dict[str, Any]] = []
 
     for issue in graph.get("issues", []):
         if issue.get("suppressed"):
             suppressed += 1
+            continue
+        # CI-ADOPT: a baselined finding is MARKED, never deleted — it is still in the
+        # document, and `mlview issues --show-suppressed` still lists it. Here it is
+        # excluded from the rows and from the counts for the same reason the CLI
+        # excludes it from `--fail-on`: the ratchet says it was already known.
+        if issue.get("baselined"):
+            baselined += 1
             continue
         severity = issue.get("severity", "low")
         if severity in counts:
@@ -200,6 +208,10 @@ def issues_payload(
                 "fixHint": issue.get("fixHint"),
                 "file": loc.get("file"),
                 "line": loc.get("line"),
+                # CI-ADOPT: present only on an attributed run. `new` = inside an added
+                # hunk, `touched` = a changed file (or a related location inside a
+                # hunk), `existing` = neither.
+                **({"change": issue["change"]} if issue.get("change") else {}),
                 "related": [
                     {"role": r.get("role"), "file": r.get("file"), "line": r.get("line")}
                     for r in (issue.get("relatedLocs") or [])
@@ -229,6 +241,7 @@ def issues_payload(
     out: Dict[str, Any] = {
         "countBySeverity": counts,
         "suppressedCount": suppressed,
+        **({"baselinedCount": baselined} if baselined else {}),
         # Without these three, "0 issues" from an empty directory, from a directory
         # whose every file failed to parse, and from genuinely clean code are the
         # same payload — and the command body turns that into a clean bill of health.

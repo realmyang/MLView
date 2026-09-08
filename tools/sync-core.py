@@ -1,31 +1,41 @@
 #!/usr/bin/env python
-"""Vendor everything the Claude Code plugin must SHIP: the core, and the rule docs.
+"""Vendor everything the two installable hosts must SHIP: the core, and the rule docs.
+
+Two hosts ship a copy of the analyzer, for the same reason and under the same rule:
+
+    analyzer/src/mlview/**   ->  claude-plugin/vendor/mlview/**      (PYTHONPATH for .mcp.json)
+    analyzer/src/mlview/**   ->  vscode-extension/core/mlview/**     (PYTHONPATH for the VSIX)
+    docs/rules/MLV*.md       ->  claude-plugin/docs/rules/MLV*.md
 
 `claude-plugin/vendor` is what `.mcp.json` puts on PYTHONPATH, so a vendored core
 is what lets the plugin work with **no pip install at all** (CONTRACTS A1, 6.2).
+`vscode-extension/core` is the same idea for a marketplace install: PACKAGING's
+precedence chain prefers an installed core and falls back to this one, so a user
+with a bare Python 3.10+ and no MLView checkout still gets a diagram
+(`docs/CONTRACTS.md §11.25`). Three copies of one analyzer only stay one
+analyzer because `--check` is a gate: `tools/verify.py --all` runs it as the
+`vendor: synced core` and `vsix: synced core` rows, and CI runs it directly.
 
-    analyzer/src/mlview/**   ->  claude-plugin/vendor/mlview/**
-    docs/rules/MLV*.md       ->  claude-plugin/docs/rules/MLV*.md
+The rule-doc copy is the plugin's equivalent of
+`vscode-extension/tools/sync-rule-docs.mjs`. `mlview_explain(code=...)` resolves
+`docs/rules/<CODE>.md` under the PLUGIN root and then the repo root; only the
+first of those exists in a real `claude plugin install`, so without this step
+every installed plugin returns an empty `doc` — and `skills/mlview-triage/SKILL.md`
+builds its whole method on that page being there ("it carries the known
+false-positive traps, which is what stops you from confidently reporting a
+non-bug").
 
-The second copy is the plugin's equivalent of `vscode-extension/tools/sync-rule-docs.mjs`.
-`mlview_explain(code=...)` resolves `docs/rules/<CODE>.md` under the PLUGIN root and
-then the repo root; only the first of those exists in a real
-`claude plugin install`, so without this step every installed plugin returns an empty
-`doc` — and `skills/mlview-triage/SKILL.md` builds its whole method on that page being
-there ("it carries the known false-positive traps, which is what stops you from
-confidently reporting a non-bug").
-
-    python tools/sync-core.py            # copy both
-    python tools/sync-core.py --check    # exit 1 if either copy has drifted
+    python tools/sync-core.py            # copy all three
+    python tools/sync-core.py --check    # exit 1 if any copy has drifted
     python tools/sync-core.py --quiet    # only report problems
 
 The copy is idempotent and byte-exact: `__pycache__`, `*.pyc` and any `tests`
 directory are skipped, files that already match are left alone, and files that
 exist in the target but no longer exist in the source are deleted so a removed
 module or a withdrawn rule page cannot linger.  Any `__pycache__` tree already
-under `claude-plugin/vendor/` is pruned on every run: `claude plugin install` copies
-the directory verbatim, and bytecode compiled from a different revision must never
-ship beside the sources.
+under a vendored root is pruned on every run: `claude plugin install` and
+`vsce package` both copy the directory verbatim, and bytecode compiled from a
+different revision must never ship beside the sources.
 """
 
 from __future__ import annotations
@@ -37,12 +47,16 @@ import os
 import re
 import shutil
 import sys
-from typing import Dict, List, Tuple
+from typing import Dict, List, NamedTuple, Tuple
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SOURCE = os.path.join(REPO_ROOT, "analyzer", "src", "mlview")
 TARGET = os.path.join(REPO_ROOT, "claude-plugin", "vendor", "mlview")
 VENDOR_ROOT = os.path.join(REPO_ROOT, "claude-plugin", "vendor")
+#: PACKAGING: the VSIX's bundled core. `pythonEnv.ts` puts this directory (not
+#: `core/mlview`) on PYTHONPATH, exactly as `.mcp.json` does with `vendor`.
+VSIX_TARGET = os.path.join(REPO_ROOT, "vscode-extension", "core", "mlview")
+VSIX_ROOT = os.path.join(REPO_ROOT, "vscode-extension", "core")
 
 DOCS_SOURCE = os.path.join(REPO_ROOT, "docs", "rules")
 DOCS_TARGET = os.path.join(REPO_ROOT, "claude-plugin", "docs", "rules")
@@ -50,6 +64,26 @@ DOC_PAGE = re.compile(r"^MLV[0-9]{3}\.md$")
 
 SKIP_DIRS = {"__pycache__", ".pytest_cache", ".mypy_cache", "tests"}
 SKIP_SUFFIXES = (".pyc", ".pyo", ".pyd")
+
+
+class Copy(NamedTuple):
+    """One vendored tree: where it goes, and what to call it in a message."""
+
+    #: `vendor` / `vsix` — the word `tools/verify.py` names its gate row after.
+    key: str
+    #: `analyzer/src/mlview` -> this directory.
+    target: str
+    #: The directory that goes on PYTHONPATH (the target's parent), pruned of bytecode.
+    root: str
+    #: Repo-relative spelling, for the human-readable messages.
+    label: str
+
+
+#: Every copy of `analyzer/src/mlview` this script owns, in table order.
+COPIES: Tuple[Copy, ...] = (
+    Copy("vendor", TARGET, VENDOR_ROOT, "claude-plugin/vendor/mlview"),
+    Copy("vsix", VSIX_TARGET, VSIX_ROOT, "vscode-extension/core/mlview"),
+)
 
 
 def _rel_files(root: str) -> Dict[str, str]:
@@ -105,9 +139,10 @@ def docs_plan() -> Tuple[List[str], List[str], List[str]]:
 def prune_bytecode(root: str = VENDOR_ROOT) -> int:
     """Delete every `__pycache__` tree under ``root``; return how many were removed.
 
-    `tools/sync-core.py` owns `claude-plugin/vendor/` exclusively, and running the
-    MCP server out of it used to leave ~48 .pyc files behind that
-    `claude plugin install` then copied into the distributed plugin.
+    `tools/sync-core.py` owns `claude-plugin/vendor/` and `vscode-extension/core/`
+    exclusively, and running the MCP server out of the first used to leave ~48 .pyc
+    files behind that `claude plugin install` then copied into the distributed
+    plugin.
     """
     removed = 0
     if not os.path.isdir(root):
@@ -120,16 +155,16 @@ def prune_bytecode(root: str = VENDOR_ROOT) -> int:
     return removed
 
 
-def plan() -> Tuple[List[str], List[str], List[str]]:
+def plan(target: str = TARGET) -> Tuple[List[str], List[str], List[str]]:
     """Return (to_copy, to_delete, unchanged) as relative paths."""
     src = _rel_files(SOURCE)
-    dst = _rel_files(TARGET)
+    dst = _rel_files(target)
     to_copy, unchanged = [], []
     for rel, full in src.items():
-        target = dst.get(rel)
-        if target is None:
+        existing = dst.get(rel)
+        if existing is None:
             to_copy.append(rel)
-        elif filecmp.cmp(full, target, shallow=False):
+        elif filecmp.cmp(full, existing, shallow=False):
             unchanged.append(rel)
         else:
             to_copy.append(rel)
@@ -137,29 +172,45 @@ def plan() -> Tuple[List[str], List[str], List[str]]:
     return sorted(to_copy), to_delete, sorted(unchanged)
 
 
-def sync(quiet: bool = False) -> int:
-    if not os.path.isdir(SOURCE):
-        print("sync-core: source not found: %s" % SOURCE, file=sys.stderr)
-        return 1
-    to_copy, to_delete, unchanged = plan()
+def _sync_tree(copy: Copy) -> Tuple[int, int, int, int]:
+    """Copy the core into one target. Returns (copied, deleted, unchanged, pruned)."""
+    to_copy, to_delete, unchanged = plan(copy.target)
     for rel in to_copy:
         src_file = os.path.join(SOURCE, rel.replace("/", os.sep))
-        dst_file = os.path.join(TARGET, rel.replace("/", os.sep))
+        dst_file = os.path.join(copy.target, rel.replace("/", os.sep))
         os.makedirs(os.path.dirname(dst_file), exist_ok=True)
         shutil.copyfile(src_file, dst_file)
     for rel in to_delete:
         try:
-            os.remove(os.path.join(TARGET, rel.replace("/", os.sep)))
+            os.remove(os.path.join(copy.target, rel.replace("/", os.sep)))
         except OSError as exc:
             print("sync-core: could not remove %s: %s" % (rel, exc), file=sys.stderr)
     # Prune directories that the deletions emptied.
-    for dirpath, dirnames, filenames in os.walk(TARGET, topdown=False):
+    for dirpath, dirnames, filenames in os.walk(copy.target, topdown=False):
         if not dirnames and not filenames:
             try:
                 os.rmdir(dirpath)
             except OSError:
                 pass
-    pruned = prune_bytecode()
+    return len(to_copy), len(to_delete), len(unchanged), prune_bytecode(copy.root)
+
+
+def sync(quiet: bool = False) -> int:
+    if not os.path.isdir(SOURCE):
+        print("sync-core: source not found: %s" % SOURCE, file=sys.stderr)
+        return 1
+    for copy in COPIES:
+        copied, deleted, unchanged, pruned = _sync_tree(copy)
+        if not quiet:
+            print(
+                "sync-core: %d copied, %d deleted, %d already current -> %s"
+                % (copied, deleted, unchanged, copy.label)
+            )
+            if pruned:
+                print(
+                    "sync-core: pruned %d __pycache__ directories under %s"
+                    % (pruned, os.path.dirname(copy.label))
+                )
 
     doc_copy, doc_delete, doc_same = docs_plan()
     if _doc_pages(DOCS_SOURCE):
@@ -177,34 +228,54 @@ def sync(quiet: bool = False) -> int:
 
     if not quiet:
         print(
-            "sync-core: %d copied, %d deleted, %d already current -> %s"
-            % (len(to_copy), len(to_delete), len(unchanged), TARGET.replace("\\", "/"))
-        )
-        print(
             "sync-core: %d rule pages copied, %d deleted, %d already current -> %s"
             % (len(doc_copy), len(doc_delete), len(doc_same), DOCS_TARGET.replace("\\", "/"))
         )
-        if pruned:
-            print("sync-core: pruned %d __pycache__ directories under vendor/" % pruned)
     return 0
 
 
-def check(quiet: bool = False) -> int:
-    if not os.path.isdir(TARGET):
-        print("sync-core: FAIL vendor/mlview does not exist — run tools/sync-core.py", file=sys.stderr)
-        return 1
-    to_copy, to_delete, unchanged = plan()
+def _report_tree_drift(copy: Copy, to_copy: List[str], to_delete: List[str]) -> None:
+    print(
+        "sync-core: FAIL %s has drifted from analyzer/src/mlview" % copy.label,
+        file=sys.stderr,
+    )
+    for rel in to_copy[:20]:
+        print("  stale or missing: %s" % rel, file=sys.stderr)
+    for rel in to_delete[:20]:
+        print("  extra in copy:    %s" % rel, file=sys.stderr)
+    extra = len(to_copy) + len(to_delete) - 40
+    if extra > 0:
+        print("  ... and %d more" % extra, file=sys.stderr)
+    print("  fix: python tools/sync-core.py", file=sys.stderr)
+
+
+def check_tree(copy: Copy) -> Tuple[bool, str]:
+    """`(ok, detail)` for ONE vendored copy. Used by `tools/verify.py`'s gate rows."""
+    if not os.path.isdir(copy.target):
+        return False, "%s does not exist — run tools/sync-core.py" % copy.label
+    to_copy, to_delete, unchanged = plan(copy.target)
     if to_copy or to_delete:
-        print("sync-core: FAIL vendored core has drifted from analyzer/src/mlview", file=sys.stderr)
-        for rel in to_copy[:20]:
-            print("  stale or missing: %s" % rel, file=sys.stderr)
-        for rel in to_delete[:20]:
-            print("  extra in vendor:  %s" % rel, file=sys.stderr)
-        extra = len(to_copy) + len(to_delete) - 40
-        if extra > 0:
-            print("  ... and %d more" % extra, file=sys.stderr)
-        print("  fix: python tools/sync-core.py", file=sys.stderr)
-        return 1
+        return (
+            False,
+            "%s has drifted (%d stale/missing, %d extra) — run tools/sync-core.py"
+            % (copy.label, len(to_copy), len(to_delete)),
+        )
+    return True, "%d files match analyzer/src/mlview" % len(unchanged)
+
+
+def check(quiet: bool = False) -> int:
+    for copy in COPIES:
+        if not os.path.isdir(copy.target):
+            print(
+                "sync-core: FAIL %s does not exist — run tools/sync-core.py" % copy.label,
+                file=sys.stderr,
+            )
+            return 1
+        to_copy, to_delete, _unchanged = plan(copy.target)
+        if to_copy or to_delete:
+            _report_tree_drift(copy, to_copy, to_delete)
+            return 1
+
     doc_copy, doc_delete, doc_same = docs_plan()
     if doc_copy or doc_delete:
         print(
@@ -218,21 +289,23 @@ def check(quiet: bool = False) -> int:
         print("  fix: python tools/sync-core.py", file=sys.stderr)
         return 1
 
-    # Bytecode residue is not drift. Importing the vendored core in-process (a test,
+    # Bytecode residue is not drift. Importing a vendored core in-process (a test,
     # the MCP server, `claude plugin validate`) writes `__pycache__` trees whenever
     # PYTHONDONTWRITEBYTECODE is unset; deleting them is always safe, so --check
     # prunes them and says so instead of turning the gate red (ROADMAP HEALTH-01).
-    pruned = prune_bytecode(VENDOR_ROOT)
+    pruned = sum(prune_bytecode(copy.root) for copy in COPIES)
     if pruned and not quiet:
         print(
-            "sync-core: pruned %d __pycache__ directories under claude-plugin/vendor "
+            "sync-core: pruned %d __pycache__ directories under the vendored cores "
             "(bytecode residue, not source drift)" % pruned
         )
 
     if not quiet:
+        matched = len(plan(TARGET)[2])
         print(
-            "sync-core: OK %d files match analyzer/src/mlview, %d rule pages match docs/rules"
-            % (len(unchanged), len(doc_same))
+            "sync-core: OK %d files match analyzer/src/mlview in each of %d copies, "
+            "%d rule pages match docs/rules"
+            % (matched, len(COPIES), len(doc_same))
         )
     return 0
 
@@ -242,7 +315,8 @@ def main(argv: List[str] | None = None) -> int:
         prog="sync-core",
         description=(
             "Vendor analyzer/src/mlview into claude-plugin/vendor/mlview and "
-            "docs/rules/MLV*.md into claude-plugin/docs/rules."
+            "vscode-extension/core/mlview, and docs/rules/MLV*.md into "
+            "claude-plugin/docs/rules."
         ),
     )
     parser.add_argument("--check", action="store_true", help="verify only; exit 1 on drift")

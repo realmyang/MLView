@@ -36,9 +36,28 @@ let spawns = [];
 /** EVERY child process the extension asked for: the probe and the handshake included. */
 let childProcesses = [];
 
-function fakeChild() {
+/**
+ * H3: `stderrChunks` lets a test play the analyzer's `--progress-json` stream. The
+ * chunks are delivered on the next tick, exactly like a real child's stderr, so the
+ * ordering against the callback that ends the run is the ordering production sees.
+ */
+function fakeChild(stderrChunks = [], delayMs = 1) {
+  const listeners = { data: [], end: [] };
+  if (stderrChunks.length > 0) {
+    setTimeout(() => {
+      for (const chunk of stderrChunks) {
+        for (const listener of listeners.data) listener(chunk);
+      }
+      for (const listener of listeners.end) listener();
+    }, delayMs);
+  }
   return {
-    stderr: { setEncoding() {}, on() {} },
+    stderr: {
+      setEncoding() {},
+      on(event, listener) {
+        if (listeners[event]) listeners[event].push(listener);
+      }
+    },
     stdout: { setEncoding() {}, on() {} },
     on() {},
     kill() {},
@@ -69,7 +88,10 @@ function installExecFileStub(graph, options = {}) {
       }
     }
     setTimeout(() => done(failure, stdout, ''), 5);
-    return fakeChild();
+    return fakeChild(
+      args.includes('--progress-json') ? options.stderrChunks ?? [] : [],
+      options.stderrDelayMs ?? 1
+    );
   };
 }
 
@@ -647,9 +669,17 @@ test('the status bar and the issue quick pick agree with the Problems panel', as
       .map((sev) => `${counts[sev]} ${sev === 'medium' ? 'med' : sev}`);
     const bar = vscode.__recorded.statusBarItems[vscode.__recorded.statusBarItems.length - 1];
     assert.equal(bar.text, `$(graph) MLView: ${parts.join(' · ')}`);
+    // PACKAGING appends the core line, so the count is asserted as the FIRST line and
+    // the core line is asserted for what it must always say: which analyzer answered.
+    const [headline, ...rest] = String(bar.tooltip).split('\n');
     assert.equal(
-      bar.tooltip,
+      headline,
       `MLView: ${counts.high} high, ${counts.medium} medium, ${counts.low} low`
+    );
+    assert.match(
+      rest.join('\n'),
+      /^core: mlview 0\.1\.0 (installed in the interpreter|bundled with the extension)/,
+      `the tooltip must name which core is in use, got ${JSON.stringify(bar.tooltip)}`
     );
   } finally {
     vscode.window.showQuickPick = realQuickPick;
@@ -955,6 +985,110 @@ test('a blind run says so on the panel tab, not just inside the canvas', async (
     await sleep(20);
     assert.equal(created.description, '9 of 45 nodes · coverage: incomplete (1 blind spot)');
   } finally {
+    shutdown();
+  }
+});
+
+// ---------------------------------------------------------------- H3 + MLV-P10
+
+test('progress frames are asked for only when a panel is live, and reach the viewer', async () => {
+  const frames = [
+    '{"t":"progress","done":1,"total":3,"file":"a.py"}\n',
+    'mlview: INFO a note that is not a frame\n',
+    '{"t":"progress","done":3,"total":3,"file":"c.py"}\n'
+  ];
+  boot({ stderrChunks: frames });
+  try {
+    // The headless path first: `mlview.showIssues` analyzes with no panel open.
+    await run('mlview.showIssues');
+    await sleep(120);
+    assert.equal(spawns.length, 1);
+    assert.ok(
+      !spawns[0].includes('--progress-json'),
+      `a headless run must emit the bytes it always emitted: ${spawns[0]}`
+    );
+
+    await run('mlview.visualizeWorkspace');
+    await sleep(60);
+    const created = panel();
+    created.fire({ v: 1, type: 'ready' });
+    await sleep(200);
+
+    const withPanel = spawns[spawns.length - 1];
+    assert.ok(withPanel.includes('--progress-json'), `expected the flag, got: ${withPanel}`);
+    const progress = created.posted.filter((m) => m.type === 'analysisProgress');
+    assert.deepEqual(
+      progress.map((m) => [m.done, m.total, m.file]),
+      [
+        [1, 3, 'a.py'],
+        [3, 3, 'c.py']
+      ]
+    );
+    for (const message of progress) {
+      assert.equal(message.v, 1);
+      assert.match(message.requestId, /^analyze-/, 'every frame is correlated with its run');
+    }
+    // The non-frame stderr line still reached the output channel.
+    const channel = vscode.__recorded.outputChannels[0];
+    const logged = (channel?.lines ?? []).join('\n');
+    assert.ok(
+      logged.includes('a note that is not a frame'),
+      'ordinary stderr must still reach the log'
+    );
+    assert.ok(!logged.includes('"t":"progress"'), 'a frame is not a log line');
+  } finally {
+    shutdown();
+  }
+});
+
+test('a progress frame that arrives after the run failed never reaches the viewer', async () => {
+  // The child's stderr and its exit are two separate events: a buffered chunk can land
+  // after the banner is up, and a progress bar drawn over an error message is worse
+  // than no bar at all. `failAnalyze` settles the run at ~5 ms; the frames arrive at 80.
+  boot({
+    failAnalyze: true,
+    stderrDelayMs: 80,
+    stderrChunks: ['{"t":"progress","done":2,"total":9,"file":"late.py"}\n']
+  });
+  try {
+    await run('mlview.visualizeWorkspace');
+    await sleep(60);
+    const created = panel();
+    created.fire({ v: 1, type: 'ready' });
+    await sleep(300);
+
+    const types = created.postedTypes();
+    assert.ok(types.includes('analysisFailed'), `the run must have failed: ${types.join(', ')}`);
+    const failedAt = types.indexOf('analysisFailed');
+    const late = types.slice(failedAt).filter((t) => t === 'analysisProgress');
+    assert.deepEqual(late, [], `a frame was drawn over the error banner: ${types.join(', ')}`);
+  } finally {
+    shutdown();
+  }
+});
+
+test('a suppressRule message from the diagram runs the same host code as the lightbulb', async () => {
+  boot();
+  const copied = [];
+  const realClipboard = vscode.env.clipboard.writeText;
+  vscode.env.clipboard.writeText = async (text) => void copied.push(text);
+  try {
+    await run('mlview.visualizeWorkspace');
+    await sleep(60);
+    const created = panel();
+    created.fire({ v: 1, type: 'ready' });
+    await sleep(150);
+
+    created.fire({ v: 1, type: 'suppressRule', code: 'MLV201', action: 'copy' });
+    await sleep(60);
+    assert.deepEqual(copied, ['# mlview: ignore[MLV201]']);
+
+    // A malformed message is logged and ignored, never acted on.
+    created.fire({ v: 1, type: 'suppressRule', code: 'nonsense', action: 'copy' });
+    await sleep(60);
+    assert.equal(copied.length, 1, 'only a real rule code is ever acted on');
+  } finally {
+    vscode.env.clipboard.writeText = realClipboard;
     shutdown();
   }
 });

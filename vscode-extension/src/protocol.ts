@@ -104,11 +104,31 @@ export type UiToHost =
   | { v: 1; type: 'askAssistant'; nodeId: string; prompt: string }
   | { v: 1; type: 'log'; level: 'debug' | 'info' | 'warn' | 'error'; message: string }
   /**
+   * MLV-P10 (docs/contracts/11.27-suppression-actions.md). The rail's "this is a false
+   * positive" gesture. `copy` puts the ignore comment on the clipboard, `insert` writes
+   * it at `absFile:line`, `disable` adds the code to `.mlview.toml` behind a confirm.
+   * The host runs the SAME code path the editor lightbulb runs; a viewer that does not
+   * send this message is unaffected, which is what keeps the field additive.
+   */
+  | SuppressRuleMessage
+  /**
    * CONTRACTS.md §11.7. Posted on EVERY scope change including a clear (then `spec: null`,
    * `label: "Everything"`, `nodes === of`). The host uses it for the panel title and
    * description; it must NEVER trigger a re-analysis.
    */
   | ScopeChangedMessage;
+
+export interface SuppressRuleMessage {
+  v: 1;
+  type: 'suppressRule';
+  /** `MLV201`. Anything else is rejected by `isUiToHost`, not by the handler. */
+  code: string;
+  action: 'copy' | 'insert' | 'disable';
+  /** Absolute path of the file the finding is anchored in; required by `insert`. */
+  absFile?: string;
+  /** 1-based, like every `Loc.line` in the document (CONTRACTS §0). */
+  line?: number;
+}
 
 export interface ScopeChangedMessage {
   v: 1;
@@ -137,7 +157,8 @@ export const UI_TO_HOST_TYPES: readonly UiToHostType[] = [
   'action',
   'askAssistant',
   'log',
-  'scopeChanged'
+  'scopeChanged',
+  'suppressRule'
 ];
 
 export const HOST_TO_UI_TYPES: readonly HostToUiType[] = [
@@ -213,6 +234,14 @@ export function isUiToHost(value: unknown): value is UiToHost {
       return (
         typeof value['message'] === 'string' &&
         ['debug', 'info', 'warn', 'error'].includes(String(value['level']))
+      );
+    case 'suppressRule':
+      return (
+        typeof value['code'] === 'string' &&
+        /^MLV[0-9]{3}$/.test(value['code']) &&
+        ['copy', 'insert', 'disable'].includes(String(value['action'])) &&
+        (value['absFile'] === undefined || typeof value['absFile'] === 'string') &&
+        (value['line'] === undefined || (isFiniteNumber(value['line']) && value['line'] >= 1))
       );
     case 'scopeChanged':
       return (

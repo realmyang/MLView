@@ -15,6 +15,8 @@ import { FilterModel } from './filters.js';
 import { Chrome } from './ui/chrome.js';
 import { Rail } from './ui/rail.js';
 import { Legend } from './ui/legend.js';
+import { AnswersCard } from './ui/answers.js';
+import { ignoreComment } from './ui/suppress.js';
 import { sanitizeGroupBy } from './ui/railgroup.js';
 import { LoadingState } from './ui/states.js';
 import { buildShell, claimPage } from './ui/shell.js';
@@ -36,6 +38,7 @@ import type {
   HostToUi,
   Issue,
   IssueCounts,
+  AnswerLoc,
   Loc,
   MLGraph,
   MLViewApp,
@@ -91,6 +94,8 @@ export class App implements MLViewApp {
   private railTab: RailTab = 'issues';
   private railGroupBy: RailGroupBy = 'none';
   private legendOpen = false;
+  /** MLV-P1: the answer card starts open, so the four answers are the first read. */
+  private answersOpen = true;
 
   private stale: string[] = [];
   private dismissed = new Set<string>();
@@ -105,6 +110,7 @@ export class App implements MLViewApp {
   private rail!: Rail;
   private sheet!: ShortcutSheet;
   private legend!: Legend;
+  private answers!: AnswersCard;
   private scopeBar!: ScopeBar;
   private scrim!: HTMLElement;
   private releasePage: () => void = () => undefined;
@@ -168,6 +174,8 @@ export class App implements MLViewApp {
       onScope: () => this.toggleScopePicker(),
       onToggleFlow: (next) => this.setFlow(next),
       onToggleLegend: (next) => this.setLegend(next),
+      onToggleMinimap: (next) => this.setMinimapCollapsed(next),
+      onChangedOnly: (next) => this.setFilters({ changedOnly: next }),
     });
 
     this.scopeBar = new ScopeBar({
@@ -184,12 +192,23 @@ export class App implements MLViewApp {
     });
     this.chrome.scopeSlot.appendChild(this.scopeBar.breadcrumb.root);
 
-    this.root.appendChild(this.chrome.toolbar);
-    this.root.appendChild(this.chrome.filterRow);
+    // One roving `role="toolbar"` over the toolbar row and the stage-filter row
+    // (VIEW-12), so the whole control strip is a single tab stop.
+    this.root.appendChild(this.chrome.bar);
     this.root.appendChild(this.chrome.chipRow);
     this.root.appendChild(this.chrome.banners);
     this.root.appendChild(shell.body);
-    shell.body.appendChild(shell.canvas);
+    shell.body.appendChild(shell.main);
+
+    // MLV-P1. Appended AFTER the canvas and lifted above it by `order: -1`
+    // (styles/chrome.css): the canvas has to stay within four Tab presses of the
+    // top of the document (VIEW-12), and a card with five controls in front of
+    // it would put it at nine.
+    this.answers = new AnswersCard({
+      onToggle: (open) => this.setAnswersOpen(open),
+      onOpen: (loc) => this.openLocation(completeLoc(loc, this.graph)),
+    });
+    shell.main.appendChild(this.answers.root);
 
     this.search = new SearchController(this.chrome.searchInput, this.chrome.results, {
       index: () => this.index,
@@ -221,6 +240,8 @@ export class App implements MLViewApp {
       onClearScope: () => this.setScope(null),
       onScopeToNode: (id) => this.scopeToNode(id),
       onGroupBy: (mode) => this.setRailGroupBy(mode),
+      onCopyIgnore: (code) => this.copyIgnore(code),
+      onDisableRule: (code) => this.disableRule(code),
     });
     shell.body.appendChild(this.rail.root);
 
@@ -262,7 +283,12 @@ export class App implements MLViewApp {
         this.viewportState = { x: vp.x, y: vp.y, zoom: vp.zoom };
         this.saveSoon();
       },
-      onMinimapCollapsed: () => this.saveSoon(),
+      onMinimapCollapsed: () => {
+        // The toolbar carries the accessible copy of this toggle (VIEW-12), so
+        // the pointer affordance inside the panel has to keep it in step.
+        this.renderChrome();
+        this.saveSoon();
+      },
       onKeyDown: (ev) => this.onKeyDown(ev),
       onBackgroundClick: () => this.clearSelection(),
       widenScope: () => this.stepDepth(1),
@@ -480,7 +506,10 @@ export class App implements MLViewApp {
       dismissed: this.dismissed,
       visibleCounts: this.visibleCounts(),
       dynamicNodes: this.graph ? this.graph.nodes.filter((n) => n.dynamic).length : 0,
+      minimapCollapsed: this.view.minimapCollapsed,
     });
+    // MLV-P1: hidden outright when the document carries no `answers` block.
+    this.answers.update(this.graph ? this.graph.answers : undefined, this.answersOpen);
   }
 
   private renderRail(): void {
@@ -499,9 +528,48 @@ export class App implements MLViewApp {
       selectedIssueId: sel && sel.kind === 'issue' ? sel.id : null,
       collapsed: this.view.collapsed,
       keep: this.filters.keep,
+      keepBase: this.filters.keepBase,
       scope: railScopeCounts(this.graph),
       groupBy: this.railGroupBy,
     });
+  }
+
+  /**
+   * MLV-P10, "Copy ignore comment". It goes through the SAME `copy` message the
+   * scope breadcrumb uses, so the standalone report answers with the clipboard
+   * plus its copy toast (CONTRACTS 11.17.1) and VS Code with its own clipboard.
+   * Nothing is written to any file by the viewer, ever.
+   */
+  private copyIgnore(code: string): void {
+    const text = ignoreComment(code);
+    this.bridge.post({ v: 1, type: 'copy', text });
+    this.view.toast('Copied ' + text);
+    this.announce('Copied the ignore comment for ' + code + '.');
+  }
+
+  /**
+   * MLV-P10, "Disable this rule". A REQUEST, not an edit: the host decides
+   * whether and how to write `.mlview.toml`. A host predating the message drops
+   * it, which leaves the viewer exactly as it was.
+   */
+  private disableRule(code: string): void {
+    this.bridge.post({ v: 1, type: 'suppressRule', code, scope: 'workspace', action: 'disable' });
+    this.announce('Asked the host to disable ' + code + ' for this workspace.');
+  }
+
+  /** VIEW-12: the toolbar's copy of the minimap chevron. */
+  private setMinimapCollapsed(next: boolean): void {
+    this.view.setMinimapCollapsed(next);
+    this.renderChrome();
+    this.saveSoon();
+    this.announce('Overview minimap ' + (next ? 'hidden' : 'shown') + '.');
+  }
+
+  /** MLV-P1: the card's disclosure, persisted as ViewState.answersOpen. */
+  private setAnswersOpen(open: boolean): void {
+    this.answersOpen = open;
+    this.answers.update(this.graph ? this.graph.answers : undefined, open);
+    this.saveSoon();
   }
 
 
@@ -847,6 +915,7 @@ export class App implements MLViewApp {
     if (typeof state.flow === 'boolean') this.setFlow(state.flow);
     if (state.railGroupBy) this.railGroupBy = sanitizeGroupBy(state.railGroupBy);
     if (typeof state.legendOpen === 'boolean') this.setLegend(state.legendOpen);
+    if (typeof state.answersOpen === 'boolean') this.answersOpen = state.answersOpen;
     const scope = sanitizeScope(state.scope);
     // No graph yet? The host mounts the viewer empty and restores state before
     // it posts one, so applying here would drop the scope on the floor (R2H-03).
@@ -966,6 +1035,9 @@ export class App implements MLViewApp {
     // documented default rather than to whatever `undefined` renders as.
     if (this.railGroupBy !== 'none') state.railGroupBy = this.railGroupBy;
     if (this.legendOpen) state.legendOpen = true;
+    // Absent at its default (open), exactly as `flow` is absent while on: an
+    // older host round-trips a state it has never seen (CONTRACTS 11.9).
+    if (!this.answersOpen) state.answersOpen = false;
     return state;
   }
 
@@ -982,11 +1054,36 @@ export class App implements MLViewApp {
     }
     this.disposers = [];
     this.themes.destroy();
+    this.chrome.destroy();
     this.view.destroy();
     this.releasePage();
     clear(this.root);
     this.root.classList.remove('mlv-root');
   }
+}
+
+/**
+ * Complete an answer citation into a real `Loc` (MLV-P1).
+ *
+ * `emit/answers.py` writes `{file, line}` — an answer cites a place to look, not
+ * a range to select — while `openLocation` is contracted to carry six fields
+ * (CONTRACTS §4). The absolute path is rebuilt from `workspace.root`, which is
+ * the only place the viewer can learn it, so a citation still reaches VS Code
+ * instead of posting `absFile: undefined`.
+ */
+function completeLoc(loc: AnswerLoc, graph: MLGraph | null): Loc {
+  const line = typeof loc.line === 'number' ? loc.line : 1;
+  const col = typeof loc.col === 'number' ? loc.col : 0;
+  const root = graph && graph.workspace ? String(graph.workspace.root || '') : '';
+  const absFile = loc.absFile || (root ? root.replace(/[\\/]+$/, '') + '/' + loc.file : '');
+  return {
+    file: loc.file,
+    absFile,
+    line,
+    col,
+    endLine: typeof loc.endLine === 'number' ? loc.endLine : line,
+    endCol: typeof loc.endCol === 'number' ? loc.endCol : col,
+  };
 }
 
 function safeLoad(bridge: HostBridge): ViewState | null {

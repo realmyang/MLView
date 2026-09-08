@@ -105,6 +105,8 @@ def digest(graph: Dict[str, Any], limit_bytes: int = 4096) -> Dict[str, Any]:
             "confidenceBucket": i.get("confidenceBucket"), "title": i.get("title"),
             "file": i.get("loc", {}).get("file"), "line": i.get("loc", {}).get("line")}
            for i in issues[:10]]
+    from .emit.answers import digest_answers
+
     out: Dict[str, Any] = {
         "schemaVersion": graph.get("schemaVersion", SCHEMA_VERSION),
         "root": ws.get("root", ""),
@@ -118,6 +120,12 @@ def digest(graph: Dict[str, Any], limit_bytes: int = 4096) -> Dict[str, Any]:
         "topIssues": top,
         "truncated": bool(stats.get("truncated")),
     }
+    # MLV-P1: four sentences (~450 B) are worth more to an agent than the two
+    # extra lanes the same bytes would buy, so they go in before the budget
+    # ladder rather than after it.
+    answers = digest_answers(graph.get("answers"))
+    if answers:
+        out["answers"] = answers
     view = graph.get("view")
     if isinstance(view, dict):                       # CONTRACTS 11.6, ~110 bytes
         spec = view.get("scope", "")
@@ -134,6 +142,19 @@ def digest(graph: Dict[str, Any], limit_bytes: int = 4096) -> Dict[str, Any]:
     while _size(out) > limit_bytes and out["lanes"]:
         out["lanes"].pop()
         out["truncatedDigest"] = True
+    # Last resort, in this order: `dataEntry` and `objective` are the two an
+    # agent can re-derive most cheaply from `lanes` and `topIssues`, so they go
+    # first; `evaluation` and `verdict` are the answers nothing else in the
+    # digest carries, and they go only for a budget far under the contractual
+    # 4096 (at 4096 on every corpus measured, none of the four is dropped).
+    # The cap is hard: it outranks every field, answers included.
+    for field in ("dataEntry", "objective", "evaluation", "verdict"):
+        if _size(out) <= limit_bytes:
+            break
+        if out.get("answers", {}).pop(field, None) is not None:
+            out["truncatedDigest"] = True
+    if "answers" in out and not out["answers"]:
+        out.pop("answers")
     return out
 
 

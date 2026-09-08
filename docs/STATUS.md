@@ -10,12 +10,13 @@ flow visibility and scoped views.** Both are additive — `schemaVersion` stays
 `"1.0"`, no existing field, message, argument or return shape changed, and an
 unscoped run still emits the bytes it emitted before. `docs/CONTRACTS.md` §11
 binds; `docs/FEATURES_FLOW_AND_SCOPE.md` is the design. The e2e driver grew
-four steps (17 at the time; 18 today, since ANA-12 added the accuracy corpus)
-and `tools/verify.py` grew two gate rows (9 in total).
+four steps (17 at the time; 19 today, since ANA-12 added the accuracy corpus
+and PACKAGING added the wheel row) and `tools/verify.py` grew two gate rows
+(10 today, the tenth being PACKAGING's `vsix: synced core`).
 
 ```
 powershell -ExecutionPolicy Bypass -File scripts/build.ps1   # BUILD OK
-powershell -ExecutionPolicy Bypass -File scripts/e2e.ps1     # E2E OK - 18 steps, 0 failed
+powershell -ExecutionPolicy Bypass -File scripts/e2e.ps1     # E2E OK - 19 steps, 0 failed
 ```
 
 ## Components
@@ -24,14 +25,14 @@ powershell -ExecutionPolicy Bypass -File scripts/e2e.ps1     # E2E OK - 18 steps
 |---|---|
 | Design docs | `docs/REQUIREMENTS.md`, `ARCHITECTURE.md`, `ISSUE_RULES.md`, `UX_DESIGN.md`, `CONTRACTS.md` (§10 amendments are the overriding lead decisions) |
 | Contracts | `contracts/graph.schema.json`, `contracts/graph.sample.json` (golden), `contracts/validate_sample.py` (schema + 10 invariant groups) |
-| Analyzer `analyzer/` | Complete. 20 rules, zero runtime dependencies, `python -m mlview` installed editable. **1218 passed, 3 skipped.** `analyze --demo --json -` is byte-identical to the golden sample. Scoped views live in `analyzer/src/mlview/core/project.py` + `core/selectors.py`. |
-| Viewer `webview/` | Complete. `dist/mlview.{js,css}` built. **300 tests pass**, `tsc --noEmit` clean. Flow animation (`src/render/flow.ts`) and the TypeScript half of the projection (`src/scope/project.ts`) ship here. |
-| VS Code extension | Complete. **205 tests pass**, `tsc --noEmit` clean, `out/extension.js` bundled. Copilot participant + LM tools are compile- and unit-verified only (Copilot is not installed here). |
-| Claude Code plugin | Complete. MCP server on the `mcp` SDK v2, **still exactly five tools**, each result ≤ 4 KB. **286 tests pass**, with `python tools/sync-core.py` having run after the analyzer changes (`test_vendor_bytecode.py` is the row that checks it); `claude plugin validate ./claude-plugin --strict` passes. |
+| Analyzer `analyzer/` | Complete. 20 rules, zero runtime dependencies, `python -m mlview` installed editable. **1290 passed, 3 skipped.** `analyze --demo --json -` is byte-identical to the golden sample. Scoped views live in `analyzer/src/mlview/core/project.py` + `core/selectors.py`. |
+| Viewer `webview/` | Complete. `dist/mlview.{js,css}` built. **341 tests pass**, `tsc --noEmit` clean. Flow animation (`src/render/flow.ts`) and the TypeScript half of the projection (`src/scope/project.ts`) ship here. |
+| VS Code extension | Complete. **255 tests pass**, `tsc --noEmit` clean, `out/extension.js` bundled, `npm run package` produces a 464 KB VSIX carrying the bundled analyzer. Copilot participant + LM tools are compile- and unit-verified only (Copilot is not installed here). |
+| Claude Code plugin | Complete. MCP server on the `mcp` SDK v2, **still exactly five tools**, each result ≤ 4 KB. **294 passed, 5 skipped**, with `python tools/sync-core.py` having run after the analyzer changes (`test_vendor_bytecode.py` is the row that checks it); `claude plugin validate ./claude-plugin --strict` passes. |
 | Samples | `samples/vision_pipeline` (54 nodes, 51 edges, exactly 15 issues: 5 high / 6 medium / 4 low) and `samples/vision_pipeline_clean` (64 nodes, 0 issues). `expected_issues.json` is machine-checked. |
 | Rule docs | `docs/rules/` — 20 pages plus an index, generated from the registry. Every `Issue.docs` deep link resolves. |
 | Demo artifacts | `.mlview/graph.json`, `report.html`, `graph_clean.json`, `report_clean.html`, plus the three scoped reports `split.html`, `optimization.html`, `evaluation.html` — self-contained, zero external references, each inside amendment A4's contracted **100 KB – 2 MB** band. No KB figure is quoted here on purpose: the viewer bundle moves, the band does not, and `scripts/e2e` now measures every emitted report against it and prints the range it found (MLV-R1-H06). Each scoped report embeds the **whole** graph and merely opens at its scope. |
-| Scope fixtures | `contracts/scope.cases.json` (10 selectors + 6 error codes) and `contracts/scope.expected.json`, generated from the Python `project()` over the frozen golden and consumed by the TypeScript port — the parity gate for one algorithm written twice. |
+| Scope fixtures | `contracts/scope.cases.json` (10 selectors + 6 error codes) and `contracts/scope.expected.json`, generated from the Python `project()` over the frozen golden and consumed by the TypeScript port — the parity gate for one algorithm written twice. `scope.cases.json` also carries a growing `fuzzCases` array of counterexamples promoted by `analyzer/tools/scope_fuzz.py`, each minimized to a handful of nodes and carrying its **own** generated graph. |
 
 ## What the integration pass changed
 
@@ -298,6 +299,133 @@ Files split to stay inside the ~600-line budget while doing it:
 `mlview_payloads.py`. Every one is a move plus a re-export; no behaviour moved
 with them.
 
+## Sprint 4 — hosts, wave 1 (2026-09-09)
+
+Four roadmap items, all additive; `schemaVersion` stays `"1.0"`, the five MCP
+tools are still five, and `contracts/graph.sample.json` is untouched.
+`docs/CONTRACTS.md` §11.25 and §11.27 are the amendments.
+
+1. **PACKAGING.** `tools/sync-core.py` now vendors `analyzer/src/mlview` into
+   `vscode-extension/core/mlview` as well as `claude-plugin/vendor/mlview`, and
+   `tools/verify.py --all` grew a **`vsix: synced core`** row (10 rows) that also
+   refuses a `.vscodeignore` which would drop `core/` out of the package — the
+   condition the lead attached to accepting a third copy of the analyzer.
+   `vscode-extension/src/bundledCore.ts` holds the precedence chain: an installed
+   core wins when its schema major matches and it is not older, otherwise the
+   bundled copy runs with `<extension>/core` on `PYTHONPATH`, and the status-bar
+   tooltip names which of the two answered. `installCore()` now offers
+   `pip install --upgrade mlview` rather than a checkout path nobody has.
+   `package.json` dropped `private` and gained `repository`, `bugs`, `homepage`,
+   `icon`, `galleryBanner`, `preview` and `extensionKind: ["workspace"]`, so
+   `npm run package` succeeds **without** `--allow-missing-repository`. The icon
+   is rendered by `vscode-extension/tools/make_icon.py` (pure stdlib) and its
+   `--check` mode gates the committed PNG. `scripts/build.sh` / `build.ps1` gained
+   step 6/6, `python -m build --wheel analyzer`, and both e2e drivers gained the
+   row `wheel installs and runs` (`tools/wheel_check.py`: a throwaway venv, the
+   console script, then one real analysis). `.claude-plugin/marketplace.json`
+   keeps the local entry and adds a `github` source.
+2. **MLV-P10 (host half).** A `CodeActionProvider` on MLView diagnostics offering
+   `Copy ignore comment`, `Add ignore comment on this line` (a `WorkspaceEdit`,
+   so it is one undo away) and `Disable rule MLVxxx in .mlview.toml` behind a
+   modal confirm, inside the workspace only
+   (`vscode-extension/src/codeActions.ts`, `src/suppression.ts`). The viewer's new
+   `suppressRule` message runs the same `runSuppression` entry point, so the two
+   surfaces cannot drift. The comment MERGES into an existing
+   `# mlview: ignore[...]` list rather than stacking a second dead comment.
+3. **H3 (host half).** `CoreClient` passes `--progress-json` **only when a panel is
+   live**, parses `{"t":"progress"` stderr lines into `postAnalysisProgress`
+   (`vscode-extension/src/progress.ts`), leaves every other stderr byte going to
+   the output channel, and drops a frame that arrives after `analysisFailed` for
+   that `requestId`. The viewer's `done / total` bar has had a receiver since the
+   first release and had never been sent a frame.
+4. **CI-ADOPT (host half).** `tools/action/action.yml` is a composite GitHub
+   Action (install, `analyze --changed-since <base> --changed-only --sarif`, a
+   `sarif` output for `github/codeql-action/upload-sarif`);
+   `.pre-commit-hooks.yaml` exposes `mlview` and `mlview-changed`, both with
+   `pass_filenames: false` because per-file invocation is the fidelity bug
+   COVERAGE measured; `mlview_issues` takes `changedSince` and `baseline`
+   (`claude-plugin/server/mlview_adopt.py`, which delegates every decision to the
+   analyzer's own `mlview.adopt.cli_glue`), and `/mlview-issues` documents both.
+   README gained an "Adopt on an existing repo" section.
+
+**CI cost.** `smoke-macos` now runs only on push to `main` and on pull requests:
+macOS minutes are billed 10x and were 42% of the bill for two suites ubuntu
+already runs, and this Mac runs the whole table locally before every push. A new
+`packaging (wheel + vsix)` ubuntu job builds and proves both artifacts.
+
+## Sprint 4 — analyzer, viewer and contracts, wave 1 (2026-09-09)
+
+Six more roadmap items, all additive. `schemaVersion` stays `"1.0"`,
+`contracts/graph.sample.json` is untouched, and `analyze --demo --json -` is
+still byte-identical to it. `docs/CONTRACTS.md` §11.21, §11.22, §11.30, §11.31
+and §11.32 are the amendments.
+
+1. **CI-ADOPT (analyzer half).** §10 A6's `"baseline"` trim is lifted — and only
+   that one — because a realistic repository starts at more findings than any
+   `--fail-on` gate can survive. The new `mlview.adopt` package reads
+   `git diff -M --unified=0` in the analyzed root and stamps each finding of the
+   **whole-workspace** analysis with the optional `Issue.change`
+   (`new` / `touched` / `existing`); `--changed-only` keeps the findings that
+   intersect an added hunk. `mlview baseline write` records `(code, symbol,
+   snippetHash)` and `--baseline FILE` sets the optional `Issue.baselined`, which
+   is excluded from the counts and from `--fail-on` but still **emitted** and
+   still visible under `--show-suppressed`. `--sarif FILE|-` writes SARIF 2.1.0
+   validated against the official OASIS schema, with no absolute path in the
+   bytes and fingerprints that survive a file moving. Every attribution failure —
+   no git, no repo, unknown rev, timeout — degrades to showing everything plus a
+   `config_warning`; it is never an error and never an empty list.
+2. **MLV-P1 (Pipeline Answer Card).** `emit/answers.py` composes the optional
+   root-level `answers` block — where data enters, what is optimised, how it is
+   evaluated, and the verdict — deterministically from the finished document.
+   Absences are stated as absences, nothing under 0.6 node confidence is
+   asserted, a ghost node is never cited as evidence, and the verdict says "so
+   this is not a clean bill of health" whenever a coverage diagnostic is present.
+   It surfaces as the first block of `--format summary`/`text`, four sentences in
+   `api.digest`, and a collapsible card above the canvas in every host
+   (`webview/src/ui/answers.ts`).
+3. **H3 (analyzer half).** `--progress-json` writes one NDJSON frame per file to
+   **stderr**, throttled to one per 50 ms with a guaranteed final frame
+   (`analyzer/src/mlview/core/progress.py`). `AnalyzeOptions.progress` is appended
+   last and defaults to `None`, so `api.analyze()` still does no I/O of its own.
+4. **VIEW-03 (edge labels).** `webview/src/layout/labels.ts` anchors each label to
+   the longest axis-aligned run of its own route lying strictly inside one lane
+   band, then makes one greedy declutter pass over a fixed cap of 20 candidate
+   positions per label. On the flagship report that is **0 label-label overlaps,
+   0 labels over a card and 0 within the lane padding of a boundary**, measured in
+   Chromium, against 5 / 6 / 3-stacked before.
+5. **VIEW-12 (accessibility scaffolding).** A skip link as the document's first
+   tab stop, a `<main>` landmark, one `role="toolbar"` with arrow/Home/End roving
+   (`webview/src/ui/roving.ts`), one `h1` and a real heading outline, and a
+   `:focus-visible` ring on node cards. The canvas is now the **4th** tab stop,
+   or the 2nd through the skip link.
+6. **MLV-P10 (suppression as an action).** `webview/src/ui/suppress.ts` owns the
+   two strings and offers copy / disable from every rail row, from rule group
+   headers and from the Inspector; suppressed and baselined findings render in a
+   collapsed "N suppressed" section.
+7. **HEALTH-02 (differential fuzzer over the two `project()` ports).**
+   `analyzer/tools/scope_gen.py` generates seeded, schema-valid documents and
+   `analyzer/tools/scope_fuzz.py` compares the Python projection against the
+   TypeScript one. **It found a real divergence on its first 200 cases**, in the
+   one branch §11.2 step 6 never spelled out: an issue retained through the edge
+   rule whose every `nodeIds` entry fell outside `kept`. Python promoted the
+   retaining edge's source and linked it both ways; TypeScript left `nodeIds: []`
+   and broke invariant 1.1.3. §11.30 makes the Python behaviour normative, the
+   port is fixed, three minimized counterexamples are frozen into
+   `contracts/scope.cases.json`, and `python tools/verify.py --scopes --fuzz N` is
+   the gate. `.github/workflows/nightly.yml` runs 2000 cases a day. The fuzzer was
+   proved to bite by building a viewer with one line removed: caught by all eight
+   seeds tried, inside 50 cases every time.
+
+**What none of this could analyze.** Change attribution is only as good as
+`git diff`: a finding whose own line is unchanged but whose `relatedLoc` sits in
+a hunk is `touched`, never dropped, which means an in-place edit of two adjacent
+lines can keep two findings rather than one. The baseline key deliberately omits
+the file, so a finding that moves file keeps its entry; counted matching bounds
+the blast radius. The SARIF declares no `columnKind`, because `Loc.col` is a
+UTF-8 byte offset and neither SARIF enumeration is true of it. And the fuzzer
+does **not** compare `diagnostics`: §11.1 leaves that prose free, so a divergence
+in diagnostic wording or order would still pass.
+
 ## Known gaps
 
 None block the demo. In rough order of how likely they are to matter:
@@ -341,8 +469,6 @@ None block the demo. In rough order of how likely they are to matter:
   prints the scopable-unit catalogue; the four concerns and the eight stage ids
   are discovered from this document, from the MCP tool docstring, or from the
   candidate list an unusable selector prints.
-- **`analysisProgress` is never posted** — the CLI emits no progress frames, so
-  the viewer shows an indeterminate load rather than "Parsing 42 of 128 files".
 - **The host's coverage caveat is text, not a banner.** `single_file_analysis` and
   `untagged_dataflow` reach the status-bar tooltip, the panel tab description and
   the model digests through `vscode-extension/src/coverage.ts`. The in-canvas

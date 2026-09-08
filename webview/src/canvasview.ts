@@ -14,6 +14,7 @@ import { clear, on } from './dom.js';
 import { GraphIndex } from './layout/model.js';
 import { layoutGraph, LayoutFrame } from './layout/layout.js';
 import { routeEdges, RoutedEdge } from './layout/routing.js';
+import { planLabels, LabelPlan } from './layout/labels.js';
 import { firstBox, nextBox } from './layout/navigate.js';
 import { minimapDots, renderScene } from './render/scene.js';
 import { nextMountSerial } from './render/edges.js';
@@ -99,6 +100,8 @@ export class CanvasView {
   private index: GraphIndex | null = null;
   private frameData: LayoutFrame | null = null;
   private routes: RoutedEdge[] = [];
+  /** VIEW-03: where every edge label and severity marker goes. */
+  private labelPlan: LabelPlan | null = null;
   private collapsedSet = new Set<string>();
   private staleFiles: string[] = [];
   private hoverId: string | null = null;
@@ -145,7 +148,13 @@ export class CanvasView {
       },
       (collapsed) => this.host.onMinimapCollapsed(collapsed),
     );
-    this.canvasEl.appendChild(this.minimap.root);
+    // VIEW-12: BEFORE the canvas, and outside it. The minimap duplicates a
+    // diagram that is already fully navigable from the keyboard, so it is
+    // `aria-hidden` — and an `aria-hidden` subtree may not contain a tab stop,
+    // which is why its in-panel chevron is pointer-only and the keyboard's
+    // toggle lives in the toolbar. It is absolutely positioned either way, so
+    // it is drawn exactly where it always was.
+    shell.main.insertBefore(this.minimap.root, this.canvasEl);
 
     this.toasts = new Toasts();
     this.canvasEl.appendChild(this.toasts.root);
@@ -238,6 +247,9 @@ export class CanvasView {
     if (!this.index) return;
     this.frameData = layoutGraph(this.index, this.collapsedSet);
     this.routes = routeEdges(this.index, this.frameData, this.collapsedSet);
+    // VIEW-03. Pure geometry over the frame and the routes, so it costs one
+    // O(labels) pass with grid bucketing and moves no box.
+    this.labelPlan = planLabels(this.frameData, this.routes);
     this.viewport.setContent(this.frameData.width, this.frameData.height);
     // A SCOPE is small by construction, so the "fit the width and let them pan
     // down" rule written for a whole workspace does not apply to it: it opened a
@@ -263,6 +275,7 @@ export class CanvasView {
         index: this.index,
         frame: this.frameData,
         routes: this.routes,
+        labels: this.labelPlan ? this.labelPlan.placements : null,
         mountSerial: this.mountSerial,
         keep: (issue) => this.host.keep(issue),
         staleFiles: this.staleFiles,

@@ -2,6 +2,9 @@
 node_modules/
 vscode-extension/out/
 *.vsix
+# PACKAGING: `python -m build --wheel analyzer` (scripts/build.sh step 6) writes both.
+analyzer/dist/
+analyzer/build/
 *.egg-info/
 __pycache__/
 *.py[cod]

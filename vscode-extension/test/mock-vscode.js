@@ -99,6 +99,46 @@ class CodeLens {
   }
 }
 
+/**
+ * MLV-P10 needs three APIs the mock never had: the quick-fix classes, a workspace
+ * edit the host can apply, and a `showWarningMessage` that can answer. All three are
+ * recorded so a test can assert what the confirm dialog said, not just that it opened.
+ */
+const CodeActionKind = {
+  QuickFix: { value: 'quickfix' },
+  Refactor: { value: 'refactor' },
+  Empty: { value: '' }
+};
+
+class CodeAction {
+  constructor(title, kind) {
+    this.title = title;
+    this.kind = kind;
+    this.command = undefined;
+    this.diagnostics = undefined;
+    this.isPreferred = undefined;
+    this.edit = undefined;
+  }
+}
+
+class WorkspaceEdit {
+  constructor() {
+    this.edits = [];
+  }
+  replace(uri, range, newText) {
+    this.edits.push({ kind: 'replace', uri, range, newText });
+  }
+  insert(uri, position, newText) {
+    this.edits.push({ kind: 'insert', uri, position, newText });
+  }
+  createFile(uri, options) {
+    this.edits.push({ kind: 'create', uri, options });
+  }
+  get size() {
+    return this.edits.length;
+  }
+}
+
 class EventEmitter {
   constructor() {
     this.listeners = new Set();
@@ -157,6 +197,10 @@ function recordingEvent(store) {
 }
 
 const recorded = {
+  /** Every `WorkspaceEdit` handed to `workspace.applyEdit`, newest last. */
+  appliedEdits: [],
+  /** Every `registerCodeActionsProvider` registration: {selector, provider, metadata}. */
+  codeActionProviders: [],
   outputChannels: [],
   diagnosticCollections: [],
   statusBarItems: [],
@@ -177,6 +221,32 @@ const recorded = {
 
 const configValues = new Map();
 let workspaceFolders;
+/** FIFO of answers `show*Message` returns, set by `__answerMessage`. */
+const messageAnswers = [];
+/** Virtual documents keyed by fsPath, set by `__setDocument`. */
+const documents = new Map();
+
+function makeDocument(uri) {
+  const key = String(uri && uri.fsPath ? uri.fsPath : uri).replace(/\\/g, '/');
+  const text = documents.get(key);
+  if (text === undefined) {
+    return { uri, lineCount: 400, languageId: 'python', getText: () => '' };
+  }
+  const lines = text.split('\n');
+  return {
+    uri,
+    languageId: 'python',
+    lineCount: lines.length,
+    getText: () => text,
+    lineAt(line) {
+      const value = lines[line];
+      if (value === undefined) {
+        throw new Error('Illegal value for line: ' + line);
+      }
+      return { text: value, lineNumber: line, range: new Range(line, 0, line, value.length) };
+    }
+  };
+}
 
 /**
  * A stand-in for a `WebviewPanel`: it records everything the host posts (`panel.posted`) and
@@ -233,6 +303,9 @@ const vscode = {
   ThemeColor,
   ThemeIcon,
   CodeLens,
+  CodeAction,
+  CodeActionKind,
+  WorkspaceEdit,
   EventEmitter,
   LanguageModelTextPart,
   LanguageModelToolResult,
@@ -280,9 +353,18 @@ const vscode = {
       return { dispose() {} };
     },
     onDidChangeActiveColorTheme: recordingEvent(recorded.themeListeners),
-    showInformationMessage: async (m) => void recorded.messages.push(['info', m]),
-    showWarningMessage: async (m) => void recorded.messages.push(['warn', m]),
-    showErrorMessage: async (m) => void recorded.messages.push(['error', m]),
+    showInformationMessage: async (m, ...rest) => {
+      recorded.messages.push(['info', m, ...rest]);
+      return messageAnswers.length ? messageAnswers.shift() : undefined;
+    },
+    showWarningMessage: async (m, ...rest) => {
+      recorded.messages.push(['warn', m, ...rest]);
+      return messageAnswers.length ? messageAnswers.shift() : undefined;
+    },
+    showErrorMessage: async (m, ...rest) => {
+      recorded.messages.push(['error', m, ...rest]);
+      return messageAnswers.length ? messageAnswers.shift() : undefined;
+    },
     showQuickPick: async () => undefined,
     showInputBox: async () => undefined,
     showSaveDialog: async () => undefined,
@@ -320,7 +402,23 @@ const vscode = {
         target.startsWith(folder.uri.path.toLowerCase())
       );
     },
-    openTextDocument: async (uri) => ({ uri, lineCount: 400, languageId: 'python' }),
+    openTextDocument: async (uri) => makeDocument(uri),
+    applyEdit: async (edit) => {
+      recorded.appliedEdits.push(edit);
+      // Apply single-line replacements to the virtual document so a test can read back
+      // exactly what the user would see in the editor.
+      for (const change of edit.edits || []) {
+        if (change.kind !== 'replace') continue;
+        const key = String(change.uri && change.uri.fsPath).replace(/\\/g, '/');
+        const text = documents.get(key);
+        if (text === undefined) continue;
+        const lines = text.split('\n');
+        if (change.range.start.line !== change.range.end.line) continue;
+        lines[change.range.start.line] = change.newText;
+        documents.set(key, lines.join('\n'));
+      }
+      return true;
+    },
     onDidSaveTextDocument: recordingEvent(recorded.saveListeners),
     onDidChangeTextDocument: recordingEvent(recorded.changeListeners),
     onDidChangeWorkspaceFolders: recordingEvent(recorded.folderListeners),
@@ -341,7 +439,11 @@ const vscode = {
       recorded.diagnosticCollections.push(collection);
       return collection;
     },
-    registerCodeLensProvider: () => ({ dispose() {} })
+    registerCodeLensProvider: () => ({ dispose() {} }),
+    registerCodeActionsProvider: (selector, provider, metadata) => {
+      recorded.codeActionProviders.push({ selector, provider, metadata });
+      return { dispose() {} };
+    }
   },
   commands: {
     registerCommand(id, handler) {
@@ -360,6 +462,17 @@ const vscode = {
   chat: undefined,
   lm: undefined,
   __recorded: recorded,
+  /** Queue what the next `show*Message` returns (a button label, or undefined). */
+  __answerMessage(value) {
+    messageAnswers.push(value);
+  },
+  /** Give `openTextDocument` real text for one absolute path. */
+  __setDocument(fsPath, text) {
+    documents.set(String(fsPath).replace(/\\/g, '/'), text);
+  },
+  __getDocument(fsPath) {
+    return documents.get(String(fsPath).replace(/\\/g, '/'));
+  },
   __setConfig(section, key, value, resource) {
     const scope = resource ? `${String(resource).replace(/\\/g, '/').toLowerCase()}|` : '';
     configValues.set(`${scope}${section}.${key}`, value);
@@ -400,7 +513,11 @@ const vscode = {
     recorded.statusBarItems.length = 0;
     recorded.commands.clear();
     recorded.messages.length = 0;
+    recorded.appliedEdits.length = 0;
+    recorded.codeActionProviders.length = 0;
     recorded.panels.length = 0;
+    messageAnswers.length = 0;
+    documents.clear();
     recorded.tools.clear();
     recorded.participants.length = 0;
     recorded.serializers.clear();

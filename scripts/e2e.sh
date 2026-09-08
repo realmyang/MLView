@@ -227,6 +227,15 @@ else
   step "cross-host scope handshake" "$REPO_ROOT/webview" node test/crosshost.mjs "$OUT/graph.json"
 fi
 
+# ------------------------------------------------------------ the shipped wheel
+# PACKAGING. `pip install mlview` is what the extension's install prompt, the
+# CI-ADOPT composite action and the pre-commit hook all name, and until this step
+# existed nothing had ever installed the artifact those three promise. The tool
+# builds the wheel when `build` is available, installs it into a throwaway venv,
+# runs the CONSOLE SCRIPT (`mlview --version --json`) and then one real analysis --
+# because a wheel missing `schema/*.json` installs perfectly and fails on first use.
+step "wheel installs and runs" "$REPO_ROOT" "$PYTHON" tools/wheel_check.py
+
 # ------------------------------------------------------------------ parity gates
 # CONTRACTS 11.15 puts the scope gate BETWEEN the CLI-vs-MCP parity gate and the
 # bundle-hash gate; `--all` runs it in exactly that position. It is also named on

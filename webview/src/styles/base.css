@@ -223,3 +223,46 @@ html.mlv-fills-page > body > .mlv-root {
     transition-duration: 0.01ms !important;
   }
 }
+
+/*
+ * VIEW-12: the skip link — the document's FIRST tab stop.
+ *
+ * Off-screen until it takes the focus, which is the conventional shape: a
+ * sighted mouse user never sees it, and a keyboard user's first press reveals a
+ * real control that lands them on the diagram. Reaching the canvas used to cost
+ * 22 presses; it now costs one press and one Enter.
+ */
+.mlv-skiplink {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 100;
+  padding: var(--mlv-s3) var(--mlv-s5);
+  border: 1px solid var(--mlv-border-strong);
+  border-radius: var(--mlv-r-btn);
+  background: var(--mlv-surface);
+  color: var(--mlv-text);
+  font-size: var(--mlv-fs-12);
+  text-decoration: none;
+}
+
+.mlv-skiplink:focus,
+.mlv-skiplink:focus-visible {
+  left: var(--mlv-s4);
+  top: var(--mlv-s4);
+}
+
+/* VIEW-12: the <main> landmark around the diagram. A column, because the
+ * Pipeline Answer Card (MLV-P1) shares it with the canvas. */
+.mlv-main {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.mlv-main > .mlv-canvas {
+  min-height: 0;
+}

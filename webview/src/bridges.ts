@@ -34,6 +34,7 @@
  */
 
 import { el, on } from './dom.js';
+import { disableSnippet, disableToast } from './ui/suppress.js';
 import type { Capabilities, HostBridge, HostToUi, ThemeKind, UiToHost, ViewState } from './types.js';
 
 const STATE_KEY = 'mlview.viewState.v1';
@@ -145,6 +146,11 @@ export function standaloneBridge(opts?: StandaloneOptions): HostBridge {
       }
       if (msg.type === 'openLocation') openInEditor(msg.absFile, msg.file, msg.line, msg.col);
       else if (msg.type === 'copy') copyText(msg.text, 'Copied');
+      // MLV-P10. This host has no workspace and cannot write `.mlview.toml`, so
+      // the honest answer to "disable this rule" is the snippet that does it,
+      // delivered through the copy toast the deep-link path already owns
+      // (CONTRACTS 11.17.1) — never a claim that something was configured.
+      else if (msg.type === 'suppressRule') copyText(disableSnippet(msg.code), disableToast(msg.code));
     },
     onMessage(cb) {
       return listenToWindow(cb);

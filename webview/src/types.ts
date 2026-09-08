@@ -122,7 +122,93 @@ export interface Issue {
   evidence: Evidence[];
   suppressed: boolean;
   docs: string;
+  /**
+   * CI-ADOPT. How this finding relates to the diff the run was attributed
+   * against: `new` (inside an added hunk), `touched` (changed file, outside the
+   * hunks) or `existing`. ABSENT means the run was not attributed at all — the
+   * documented degradation when git is missing, the workspace is not a repo or
+   * the base ref does not exist — and the viewer then shows every finding with
+   * no chip, never an empty list.
+   *
+   * Typed `string`, like every other enum-ish field here: invariant 1.1/6 says
+   * an unknown value renders generically instead of throwing.
+   */
+  change?: string;
+  /**
+   * CI-ADOPT. True when a baseline file already carried this finding. Baselined
+   * is MARKED, never deleted: the row moves into the rail's collapsed
+   * "N suppressed" section with a `baselined` chip, so the ratchet stays
+   * auditable.
+   */
+  baselined?: boolean;
 }
+
+/**
+ * The three attributions CI-ADOPT emits. `Issue.change` stays `string`; this is
+ * the list the renderer draws a chip for, and anything else falls through
+ * unchipped rather than throwing.
+ */
+export const KNOWN_ISSUE_CHANGES = ['new', 'touched', 'existing'] as const;
+
+export type IssueChange = (typeof KNOWN_ISSUE_CHANGES)[number];
+
+export function isKnownIssueChange(value: unknown): value is IssueChange {
+  return typeof value === 'string' && (KNOWN_ISSUE_CHANGES as readonly string[]).indexOf(value) >= 0;
+}
+
+/** True when a finding is hidden from the main list but still auditable. */
+export function isSetAside(issue: Issue): boolean {
+  return !!issue.suppressed || !!issue.baselined;
+}
+
+/**
+ * A citation inside an answer sentence.
+ *
+ * The emitter writes `{file, line}` and nothing else — an answer cites a place
+ * to look, not a range to select — so this is a `Loc` with everything but those
+ * two optional. `app.ts` completes it against `workspace.root` before posting
+ * `openLocation`, which is what keeps the deep link working from a citation.
+ */
+export interface AnswerLoc {
+  file: string;
+  line: number;
+  absFile?: string;
+  col?: number;
+  endLine?: number;
+  endCol?: number;
+}
+
+/**
+ * MLV-P1. One of the four answers, composed deterministically from the graph by
+ * `analyzer/src/mlview/emit/answers.py` — no model, so it is identical in all
+ * three hosts and stays offline.
+ */
+export interface Answer {
+  sentence: string;
+  nodeIds?: string[];
+  locs?: AnswerLoc[];
+  confidence?: number;
+}
+
+/**
+ * MLV-P1. The optional `answers` block: the product's four headline questions,
+ * answered in words. Every field is optional — an absent one is an answer the
+ * emitter could not compose, and the card simply does not draw that row.
+ */
+export interface Answers {
+  dataEntry?: Answer;
+  objective?: Answer;
+  evaluation?: Answer;
+  verdict?: Answer;
+}
+
+/** The four answers in the order the card lists them, with their questions. */
+export const ANSWER_ROWS: { key: keyof Answers; question: string }[] = [
+  { key: 'dataEntry', question: 'Where does the data come in?' },
+  { key: 'objective', question: 'What is being optimised?' },
+  { key: 'evaluation', question: 'How is it evaluated?' },
+  { key: 'verdict', question: 'What should I look at first?' },
+];
 
 /**
  * Every `Diagnostic.kind` the analyzer is known to emit today.
@@ -241,6 +327,11 @@ export interface MLGraph {
   issues: Issue[];
   diagnostics: Diagnostic[];
   stats: Stats;
+  /**
+   * MLV-P1. Optional four-sentence summary of the pipeline. Absent means the
+   * emitter wrote none — the card is not drawn at all rather than drawn empty.
+   */
+  answers?: Answers;
   /** Appended as the LAST key by a projection; absent in a whole-workspace document. */
   view?: View;
 }
@@ -263,6 +354,14 @@ export interface Filters {
   stages: string[];
   showSuppressed: boolean;
   query: string;
+  /**
+   * CI-ADOPT. Optional, absent at its default (off) exactly as `flow` and
+   * `scope` are on `ViewState`: an older host round-trips a state it has never
+   * seen. On it drops findings explicitly attributed `existing`, and NEVER an
+   * unattributed one — a run that could not be attributed degrades to showing
+   * everything, it does not degrade to an empty list.
+   */
+  changedOnly?: boolean;
 }
 
 export type RailTab = 'issues' | 'inspector' | 'outline';
@@ -286,6 +385,12 @@ export interface ViewState {
   railGroupBy?: RailGroupBy;
   /** Optional: the legend panel's open state, remembered per viewer (VIEW-10). */
   legendOpen?: boolean;
+  /**
+   * Optional: whether the Pipeline Answer Card is expanded (MLV-P1). Absent =
+   * open, so a document that carries `answers` answers its four questions on
+   * the first screen without anyone opening anything.
+   */
+  answersOpen?: boolean;
 }
 
 /* ── host protocol (CONTRACTS section 4) ───────────────────────────────── */
@@ -329,6 +434,29 @@ export type UiToHost =
   | { v: 1; type: 'action'; id: string }
   | { v: 1; type: 'askAssistant'; nodeId: string; prompt: string }
   | { v: 1; type: 'log'; level: 'debug' | 'info' | 'warn' | 'error'; message: string }
+  /**
+   * MLV-P10. "Disable this rule": the viewer asks its host to turn one rule off
+   * for the whole workspace. It is a REQUEST, never an edit — the host decides
+   * (VS Code writes `.mlview.toml` behind an explicit confirm; the standalone
+   * report cannot write anything and answers with a copy-toast carrying the
+   * snippet). A host predating this drops the message silently, which leaves the
+   * viewer exactly as it was.
+   *
+   * Two fields say the same thing to two readers, and both are always sent.
+   * `scope` is what the viewer means: workspace-wide, never one file. `action`
+   * is the discriminator `vscode-extension/src/protocol.ts` validates against —
+   * its `isUiToHost` REJECTS a `suppressRule` without one — and the viewer only
+   * ever sends `disable`: "copy the comment" goes through the generic `copy`
+   * message that already owns the clipboard path, and `insert` belongs to the
+   * editor's own lightbulb, which has a cursor to insert at.
+   */
+  | {
+      v: 1;
+      type: 'suppressRule';
+      code: string;
+      scope: 'workspace';
+      action?: 'copy' | 'insert' | 'disable';
+    }
   /**
    * Posted on EVERY scope change including a clear (then `spec: null`,
    * `label: "Everything"`, `nodes === of`). The field is named `spec`, not

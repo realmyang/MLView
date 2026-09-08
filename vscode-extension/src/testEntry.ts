@@ -82,3 +82,32 @@ export {
 } from './currentFile';
 export { readSettings, DEFAULT_SETTINGS, SETTINGS_SECTION } from './settings';
 export { chatAvailable } from './chatSurfaces';
+// PACKAGING — the bundled-core precedence chain (docs/CONTRACTS.md §11.25).
+export { readBundledCore, chooseCore, compareVersions, coreLabel } from './bundledCore';
+// H3 — the stderr progress frames.
+export { parseProgressLine, ProgressSplitter, PROGRESS_PREFIX } from './progress';
+// MLV-P10 — suppression as a one-click action (docs/CONTRACTS.md §11.27).
+export {
+  ignoreComment,
+  withIgnoreComment,
+  addDisabledRule,
+  isInsideWorkspace,
+  isRuleCode
+} from './suppression';
+export {
+  MlviewCodeActionProvider,
+  mlviewCodesIn,
+  diagnosticCode,
+  copyActionTitle,
+  addActionTitle,
+  disableActionTitle,
+  copyIgnoreComment,
+  addIgnoreComment,
+  disableRule,
+  configPathFor,
+  runSuppression,
+  COPY_IGNORE_COMMAND,
+  ADD_IGNORE_COMMAND,
+  DISABLE_RULE_COMMAND,
+  CONFIG_FILE
+} from './codeActions';

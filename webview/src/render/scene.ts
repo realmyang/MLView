@@ -11,6 +11,7 @@ import { highestSeverity } from '../markers.js';
 import { buildEdge } from './edges.js';
 import { buildGroupBox, buildLane, buildNodeCard, NodeVisual } from './nodes.js';
 import type { GraphIndex, IssuePredicate } from '../layout/model.js';
+import type { LabelPlacement } from '../layout/labels.js';
 import type { LayoutFrame } from '../layout/layout.js';
 import type { RoutedEdge } from '../layout/routing.js';
 import type { Issue, MLNode } from '../types.js';
@@ -28,6 +29,8 @@ export interface SceneOptions {
   index: GraphIndex;
   frame: LayoutFrame;
   routes: RoutedEdge[];
+  /** VIEW-03: the label placements for those routes, keyed by route id. */
+  labels?: Map<string, LabelPlacement> | null;
   /** This view's serial — it qualifies every edge path id (CONTRACTS 11.13.1). */
   mountSerial: number;
   keep: IssuePredicate;
@@ -102,6 +105,7 @@ export function renderScene(layers: SceneLayers, opts: SceneOptions): SceneResul
       sourceLabel: src ? src.label || src.qualname : undefined,
       targetLabel: dst ? dst.label || dst.qualname : undefined,
       mountSerial: opts.mountSerial,
+      placement: opts.labels ? opts.labels.get(route.id) : undefined,
     });
     if ((src && opts.isFilteredOut(src)) || (dst && opts.isFilteredOut(dst))) element.classList.add('is-filtered');
     opts.wireEdge(element, route);

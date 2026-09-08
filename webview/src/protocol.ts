@@ -88,10 +88,14 @@ export function sanitizeScope(scope: any): { spec: string; depth: number } | nul
 /** Coerce whatever the host handed back into a ViewState we can trust. */
 export function sanitizeFilters(filters: any, fallback: Filters): Filters {
   if (!filters || typeof filters !== 'object') return { ...fallback, severities: fallback.severities.slice() };
-  return {
+  const out: Filters = {
     severities: Array.isArray(filters.severities) ? filters.severities.slice() : fallback.severities.slice(),
     stages: Array.isArray(filters.stages) ? filters.stages.slice() : [],
     showSuppressed: !!filters.showSuppressed,
     query: typeof filters.query === 'string' ? filters.query : '',
   };
+  // Written only when it is ON, so a restored state keeps the exact key set an
+  // older host round-trips (CI-ADOPT, and the same rule as `flow` in 11.9).
+  if (filters.changedOnly) out.changedOnly = true;
+  return out;
 }

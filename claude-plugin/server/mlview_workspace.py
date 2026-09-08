@@ -26,6 +26,7 @@ import hashlib
 import json
 import logging
 import os
+import sys
 from typing import Any, Dict, List, Optional
 
 from mlview.api import AnalyzeOptions, analyze_to_dict
@@ -39,7 +40,7 @@ _REPO_ROOT = os.path.dirname(_PLUGIN_ROOT)
 __all__ = [
     "project_dir", "data_dir", "resolve_path", "resolve_out",
     "analyzer_identity", "file_signature", "graph_file_for",
-    "load_graph", "load_graph_or_file",
+    "load_graph", "load_graph_or_file", "load_attributed",
     "read_source", "rule_doc", "rule_spec", "RULE_DOC_ROOTS",
 ]
 
@@ -300,6 +301,49 @@ def load_graph(
     except OSError as exc:  # a read-only data dir must not fail the tool
         log.warning("could not write %s: %s", graph_path, exc)
     return {"graph": graph, "graphPath": graph_path, "cached": False}
+
+
+def load_attributed(
+    path: Optional[str],
+    changed_since: Optional[str] = None,
+    baseline: Optional[str] = None,
+    framework: str = "auto",
+    max_nodes: int = 400,
+) -> Dict[str, Any]:
+    """CI-ADOPT: analyze the whole project, then attribute against a diff or a baseline.
+
+    **Never cached, and deliberately so.** Every other analysis in this server is
+    keyed on `(path, framework, maxNodes, file signature)` because the document is a
+    function of the sources. An attributed document is not: `git checkout` moves HEAD
+    without touching one byte of any file, and a baseline file can be rewritten
+    underneath us. Serving a cached attribution would answer "what did this PR
+    introduce" with yesterday's diff, which is worse than not answering.
+
+    The attributed document is written beside the plain one as
+    `<graph>.attributed.json` rather than over it, so `mlview_analyze`'s `graphPath`
+    keeps pointing at the FULL, unattributed graph the rest of the tools read.
+    """
+    if _SERVER_DIR not in sys.path:
+        sys.path.insert(0, _SERVER_DIR)
+    import mlview_adopt  # noqa: PLC0415 - sibling module, after the sys.path bootstrap
+
+    resolved = resolve_path(path)
+    log.info("analyzing %s with attribution (changedSince=%s baseline=%s)",
+             resolved, changed_since, baseline)
+    graph, notes = mlview_adopt.analyze_attributed(
+        resolved, framework=framework or "auto", max_nodes=int(max_nodes),
+        changed_since=changed_since, baseline=baseline,
+    )
+    plain = graph_file_for(resolved)
+    graph_path = plain[: -len(".json")] + ".attributed.json" if plain.endswith(".json") else plain
+    try:
+        os.makedirs(os.path.dirname(graph_path), exist_ok=True)
+        with open(graph_path, "w", encoding="utf-8", newline="\n") as fh:
+            json.dump(graph, fh, ensure_ascii=False, indent=2, sort_keys=False)
+            fh.write("\n")
+    except OSError as exc:  # a read-only data dir must not fail the tool
+        log.warning("could not write %s: %s", graph_path, exc)
+    return {"graph": graph, "graphPath": graph_path, "cached": False, "notes": notes}
 
 
 def load_graph_or_file(

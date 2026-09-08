@@ -21,6 +21,30 @@ __all__ = ["build_parser", "FORMATS", "GROUP_BY"]
 FORMATS = ("summary", "json", "mermaid", "text")
 
 
+def _add_adopt_flags(parser: argparse.ArgumentParser) -> None:
+    """CI-ADOPT. Five flags that make MLView adoptable on a repo which already
+    has findings; every one of them is additive and off by default, so a
+    command that does not name them prints exactly what it always printed."""
+    parser.add_argument("--changed-since", dest="changed_since", metavar="REV",
+                        help="classify each finding as new / touched / existing "
+                             "against `git diff -M --unified=0 REV`; the whole "
+                             "workspace is still analyzed")
+    parser.add_argument("--changed-paths", dest="changed_paths", metavar="FILE",
+                        help="the same, from a diff (or a newline-separated path "
+                             "list) a CI runner already has, instead of shelling git")
+    parser.add_argument("--changed-only", dest="changed_only", action="store_true",
+                        help="drop `existing` findings from the output and from "
+                             "--fail-on; needs a change source")
+    parser.add_argument("--baseline", dest="baseline_path", metavar="FILE",
+                        help="mark findings recorded in FILE as baselined: still "
+                             "emitted, excluded from the counts and from --fail-on")
+    parser.add_argument("--sarif", dest="sarif_out", metavar="FILE|-",
+                        help="also write SARIF 2.1.0 ('-' means stdout)")
+    parser.add_argument("--progress-json", dest="progress_json", action="store_true",
+                        help="write NDJSON progress frames to stderr, one per "
+                             "analyzed file (H3); stdout is untouched")
+
+
 def _add_group_flag(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--group-by", dest="group_by", choices=GROUP_BY,
                         default="none",
@@ -85,6 +109,7 @@ def build_parser() -> argparse.ArgumentParser:
                          help="emit the golden contracts/graph.sample.json")
     analyze.add_argument("--no-color", action="store_true")
     _add_group_flag(analyze)
+    _add_adopt_flags(analyze)
     _add_scope_flags(analyze)
     analyze.add_argument("--list-scopes", dest="list_scopes", action="store_true",
                          help="print the scopable-unit catalogue and exit 0")
@@ -111,7 +136,23 @@ def build_parser() -> argparse.ArgumentParser:
     issues.add_argument("--strict", action="store_true")
     issues.add_argument("--no-color", action="store_true")
     _add_group_flag(issues)
+    _add_adopt_flags(issues)
     _add_scope_flags(issues)
+
+    # CI-ADOPT (b): the ratchet. `write` is the only action there is; it is a
+    # positional rather than a flag so `mlview baseline write` reads as the
+    # sentence it is, and so a later `check` / `prune` needs no new command.
+    baseline = sub.add_parser("baseline", help="record today's findings as a baseline")
+    baseline.add_argument("action", choices=("write",))
+    baseline.add_argument("paths", nargs="*", default=[])
+    baseline.add_argument("--out", dest="out_file", metavar="FILE",
+                          help="where to write it (default: <root>/.mlview/baseline.json)")
+    baseline.add_argument("--include", action="append", default=[], metavar="GLOB")
+    baseline.add_argument("--exclude", action="append", default=[], metavar="GLOB")
+    baseline.add_argument("--max-files", type=int, default=500)
+    baseline.add_argument("--max-nodes", type=int, default=400)
+    baseline.add_argument("--config", dest="config_path", metavar="FILE")
+    baseline.add_argument("--no-color", action="store_true")
 
     render = sub.add_parser("render", help="render an existing or fresh graph")
     render.add_argument("paths", nargs="*", default=[])

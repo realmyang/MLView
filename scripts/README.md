@@ -24,7 +24,11 @@ sh)` CI job exercises.
 [![CI](https://github.com/realmyang/MLView/actions/workflows/ci.yml/badge.svg)](https://github.com/realmyang/MLView/actions/workflows/ci.yml)
 
 Every gate below runs in CI on every push — ubuntu across Python 3.10-3.13 and
-Node 20/22, plus one Windows end-to-end job and one macOS smoke job (see
+Node 20/22, plus one Windows end-to-end job, one packaging job and one macOS
+smoke job (the macOS one **only on push to `main` and on pull requests** — macOS
+minutes are billed 10x and this Mac now runs the whole table locally before every
+push, so paying tenfold for a signal a laptop already produced bought nothing;
+the pre-merge coverage is unchanged) (see
 `.github/workflows/ci.yml`, and the "Continuous integration" section of the root
 README for the job table). There are three exceptions. Rows 10 and 11: `claude
 plugin validate` is not available on a hosted runner, so that test skips itself
@@ -40,17 +44,19 @@ that one.
 
 | # | Gate | Command | Result |
 |---|---|---|---|
-| 1 | Build | `powershell -ExecutionPolicy Bypass -File scripts/build.ps1` | `BUILD OK` — 5/5 steps |
-| 2 | Analyzer + rules | `python -m pytest analyzer/tests -q` | 1218 passed, 3 skipped (the third needs Python 3.10, where tomllib is absent) |
-| 3 | Viewer tests | `npm test` in `webview` | 300 pass, 0 fail |
+| 1 | Build | `powershell -ExecutionPolicy Bypass -File scripts/build.ps1` | `BUILD OK` — 6/6 steps (step 6 is PACKAGING's wheel; it says so and carries on when `build` is not installed) |
+| 2 | Analyzer + rules | `python -m pytest analyzer/tests -q` | 1290 passed, 3 skipped (the third needs Python 3.10, where tomllib is absent) |
+| 3 | Viewer tests | `npm test` in `webview` | 341 pass, 0 fail |
 | 4 | Viewer typecheck | `npm run check` in `webview` | `tsc --noEmit`, clean |
 | 5 | Extension typecheck | `npm run check` in `vscode-extension` | `tsc --noEmit`, clean |
-| 6 | Extension bundle | `npm run compile` in `vscode-extension` | `out/extension.js` 121.6 kb |
-| 7 | Extension tests | `npm test` in `vscode-extension` | 205 pass, 0 fail |
-| 8 | Plugin / MCP tests | `python -m pytest claude-plugin/tests -q -n auto` | 286 passed in ~12 s (~36 s without `-n auto`) |
-| 9 | Parity gates | `python tools/verify.py --all` | all 9 gates passed |
-| 9a | Scope parity (Python == TypeScript) | `python tools/verify.py --scopes` | 10 projections + 6 error cases, python == typescript |
-| 9b | Scope fixtures current | `python analyzer/tools/gen_scope_fixtures.py --check` | 10 projecting + 6 error cases over the golden |
+| 6 | Extension bundle | `npm run compile` in `vscode-extension` | `out/extension.js` 143.6 kb |
+| 7 | Extension tests | `npm test` in `vscode-extension` | 255 pass, 0 fail |
+| 8 | Plugin / MCP tests | `python -m pytest claude-plugin/tests -q -n auto` | 294 passed, 5 skipped in ~11 s (~36 s without `-n auto`) |
+| 9 | Parity gates | `python tools/verify.py --all` | all 10 gates passed |
+| 9a | Scope parity (Python == TypeScript) | `python tools/verify.py --scopes` | 10 projections + 6 error cases, python == typescript (24 assertions) |
+| 9b | Scope fixtures current | `python analyzer/tools/gen_scope_fixtures.py --check` | 10 projecting + 6 error cases over the golden, plus the promoted `fuzzCases` on their own graphs |
+| 9c | Scope fuzz — promoted counterexamples | `python tools/verify.py --scopes --fuzz 200` | 3 promoted counterexamples replay, python == typescript — each is a minimized document the fuzzer once found the two ports disagreeing on (HEALTH-02) |
+| 9d | Scope fuzz — generated graphs | (same command) | 200 cases over 40 generated graphs (5-500 nodes), python == typescript, ~2 s; the seed is printed so `MLVIEW_FUZZ_SEED=<n>` replays it. `.github/workflows/nightly.yml` runs 2000 cases (~16 s) once a day |
 | 10 | Plugin manifest | `claude plugin validate ./claude-plugin --strict` | Validation passed |
 | 11 | Marketplace manifest | `claude plugin validate ./.claude-plugin/marketplace.json --strict` | Validation passed |
 | 12 | Report renders | `node test/render_report.mjs` in `webview` | 20/20 assertions |
@@ -62,24 +68,30 @@ that one.
 | 15 | Sample issues current | `python analyzer/tools/gen_expected_issues.py --check` | 15 issues — 5/6/4 |
 | 16 | Golden parity | `python -m mlview analyze --demo --json -` vs `contracts/graph.sample.json` | byte-identical, 46 078 bytes |
 | 17 | Emitted docs valid | `python contracts/validate_sample.py .mlview/graph.json` | schema 1.0 + 10 invariant groups, 54 nodes / 51 edges / 15 issues |
-| 18 | Docs match the tree | `python scripts/check_docs.py` | 20 files (17 docs + 3 shell scripts), no dead paths, every known gap anchored, no build state in a plan doc, LF in every shell script, one graph size, the accuracy headline equal to the baseline, no silent artifact upload, one e2e step count |
-| 19 | End to end | `powershell -ExecutionPolicy Bypass -File scripts/e2e.ps1` | `E2E OK` — 18 steps, 0 failed |
+| 18 | Docs match the tree | `python scripts/check_docs.py` | 19 files (16 docs + 3 shell scripts), no dead paths, every known gap anchored, no build state in a plan doc, LF in every shell script, one graph size, the accuracy headline equal to the baseline, no silent artifact upload, one e2e step count |
+| 19 | End to end | `powershell -ExecutionPolicy Bypass -File scripts/e2e.ps1` | `E2E OK` — 19 steps, 0 failed |
 | 20 | Scoped demo artifacts | `python -m mlview analyze samples/vision_pipeline --scope concern:evaluation --depth 1 --html .mlview/evaluation.html` | 17 of 54 nodes (7 core / 7 boundary / 3 context), `data-mlview-scope` and `data-mlview-depth` set on the root |
 | 21 | Scope catalogue | `python -m mlview analyze samples/vision_pipeline --list-scopes` | 10 scopable units, biggest first |
 | 22 | Bytecode residue never poisons the vendor gate | `python -m pytest claude-plugin/tests/test_vendor_bytecode.py -q` | 3 passed — pytest over a throwaway vendored tree writes no `__pycache__` with the flag set and does write one without it, and `sync-core --check` prunes planted residue and stays green |
 | 23 | Accuracy corpus (also a row in `scripts/e2e`) | `python tools/accuracy.py` | `accuracy gate: PASS` — 10 labelled programs, precision 100.0%, unseen recall 51.1% raw / 38.3% visible, graph fidelity 86.3%; zero `forbidden` findings, nothing below `analyzer/tests/accuracy/baseline.json` |
 | 23a | The same three gates, asserted | `python -m pytest analyzer/tests/accuracy -q` | 35 passed — corpus lint plus the matcher's own semantics |
 | 24 | Analyzer byte-equivalence | `python tools/perf_equiv.py --baseline DIR --diff --bench` | both shipped samples byte-identical to `main`; `analyzer/tests/clean` gains exactly one `ValueTag` (PERF-02's fifth IR round), 200-file corpus 2.25x faster |
+| 26 | Wheel installs and runs | `python tools/wheel_check.py` (also a row in `scripts/e2e`) | `wheel-check: OK mlview-0.1.0-py3-none-any.whl -> mlview 0.1.0, 4 node(s), 2 issue(s) in a clean venv` — built with `python -m build --wheel analyzer`, installed into a throwaway venv, run through the **console script**, then one real analysis so a wheel missing `schema/*.json` cannot pass |
+| 27 | VSIX packages and stays small | `npm run package` in `vscode-extension` | `Packaged: mlview-0.1.0.vsix (99 files, 464.29 KB)` — no `--allow-missing-repository`, `core/mlview` (60 files) included, under the 1 MB ceiling |
+| 28 | The icon is what its script renders | `python vscode-extension/tools/make_icon.py --check` | `make_icon: OK ... matches (890 bytes, 128x128)` |
 | 25 | CI matrix | `.github/workflows/ci.yml` | 12 jobs green: 3 OSes, Python 3.10-3.13, Node 20/22, plus the accuracy corpus — 6m0s wall, ~48 billable minutes (~16 ubuntu at 1x + 12 windows at 2x + 20 macos at 10x), and both e2e jobs now really do archive `mlview-reports-*` (CI-ARTIFACTS-01) |
 
 Rows 16–18 are also asserted inside rows 2 and 19; they are listed separately
 because each is a one-line command that answers a question a reviewer asks
 directly ("is the golden still the golden?", "does what it just wrote validate?").
 
-`tools/verify.py --all` is itself nine rows, in this order: one version row, the
+`tools/verify.py --all` is itself ten rows, in this order: one version row, the
 `plugin: rule docs` row, the CLI-vs-MCP graph parity row, `vendor: synced core`,
-the two scope rows (`scopes: fixtures` and `scopes: python == ts`), and three
-renderer-hash rows. The scope rows sit **between** the analyzer-parity row and
+`vsix: synced core` (PACKAGING's condition for a third copy of the analyzer — it
+also fails when `.vscodeignore` would drop `core/` out of the package), the two
+scope rows (`scopes: fixtures` and `scopes: python == ts`), and three
+renderer-hash rows. `--fuzz N` adds two more scope rows to `--scopes`, and only
+when asked for: `--all` never fuzzes, so no existing gate got slower. The scope rows sit **between** the analyzer-parity row and
 the renderer rows because a projection divergence is an analyzer fact, not a
 bundle fact (CONTRACTS 11.15).
 
@@ -100,10 +112,14 @@ sh scripts/build.sh --skip-npm-install --skip-pip-install
 1. `webview` — `npm install` + `npm run build` → `webview/dist/mlview.{js,css}`
 2. `tools/sync-assets.py` → copies that bundle into `vscode-extension/media/` and
    `analyzer/src/mlview/emit/assets/`
-3. `tools/sync-core.py` → copies `analyzer/src/mlview` into
-   `claude-plugin/vendor/mlview`
+3. `tools/sync-core.py` → copies `analyzer/src/mlview` into **both**
+   `claude-plugin/vendor/mlview` and `vscode-extension/core/mlview` (PACKAGING)
 4. `vscode-extension` — `npm install` + `npm run compile` + `npm run check`
 5. `analyzer` — `pip install -e analyzer`, then `python -m mlview --version`
+6. `analyzer` — `python -m build --wheel analyzer` → `analyzer/dist/*.whl`, the
+   artifact `pip install mlview`, the CI-ADOPT action and `installCore()` all
+   name. A missing `build` prints one line and the build carries on: a publishing
+   tool nobody has installed must never redden a developer's build
 
 **The order is not arbitrary.** `generator.rendererSha` is the SHA-256 of the
 `mlview.js` the analyzer ships, computed at runtime, so the viewer must be built
@@ -113,8 +129,9 @@ fallback with a visible "Viewer bundle not synced" banner.
 
 **Step 3 is the one people forget.** Nothing about the Claude Code path fails
 loudly when `claude-plugin/vendor/` is stale — the MCP server simply runs an old
-analyzer. `tools/verify.py --all` reports it as its own row for exactly that
-reason.
+analyzer, and a stale `vscode-extension/core/` ships an old analyzer inside the
+VSIX. `tools/verify.py --all` reports each of the two as its own row
+(`vendor: synced core`, `vsix: synced core`) for exactly that reason.
 
 ## e2e
 
@@ -169,15 +186,21 @@ sh scripts/e2e.sh --skip-build
     posts into a recording bridge, the extension reads a hand-written object — so
     nothing else would catch the selector field drifting from `spec` to `scope`.
     SKIPs, with the reason, when the extension's test bundle is not built
-13. `python tools/verify.py --scopes` — the Python projection and the TypeScript
+13. `python tools/wheel_check.py` — PACKAGING's row: build the wheel, install it
+    into a throwaway venv, run `mlview --version --json` through the **console
+    script**, then one real analysis, so a wheel missing its package data cannot
+    pass. Reports SKIP, with the reason, when there is no wheel to test
+14. `python tools/verify.py --scopes` — the Python projection and the TypeScript
     port project the same battery identically
-14. `python tools/verify.py --all` — the parity gates
-15. `python scripts/test_check_docs.py` — the doc gate's own self-test
-16. `python scripts/check_docs.py` — the docs still match the tree
-17. the PASS/FAIL table
+15. `python tools/verify.py --all` — the parity gates
+16. `python tools/accuracy.py` — the labelled accuracy corpus (ANA-12's referee):
+    zero forbidden findings, nothing below `analyzer/tests/accuracy/baseline.json`
+17. `python scripts/test_check_docs.py` — the doc gate's own self-test
+18. `python scripts/check_docs.py` — the docs still match the tree
+19. the PASS/FAIL table
 
 **Every step runs even when an earlier one failed.** A run that stops at the
-first failure hides the other sixteen, and the whole point of the table is to see
+first failure hides the other eighteen, and the whole point of the table is to see
 the state of the system in one screen. The exit code is 1 if anything failed.
 
 **SKIP is not FAIL.** Both sample workspaces are present now, so they run; the
@@ -321,12 +344,17 @@ require them.
 | Tool | Purpose |
 |---|---|
 | `tools/sync-assets.py [--check]` | The only writer of `vscode-extension/media/` and `analyzer/src/mlview/emit/assets/`. |
-| `tools/sync-core.py [--check]` | The only writer of `claude-plugin/vendor/`. |
-| `tools/verify.py [--parity\|--scopes\|--hashes\|--versions\|--all]` | The parity gates: one analyzer, one projection, one renderer, one version — nine rows, including `plugin: rule docs`, `vendor: synced core` and the two scope rows. |
+| `tools/sync-core.py [--check]` | The only writer of `claude-plugin/vendor/` **and `vscode-extension/core/`** — the two vendored analyzers that let the plugin and the VSIX run with no pip install. |
+| `tools/wheel_check.py [--no-build]` | PACKAGING's acceptance: build `analyzer/dist/*.whl`, install it into a throwaway venv, run `mlview --version --json` through the console script, then one real analysis. Exits 0 with a message when there is no wheel to test, non-zero when there is a broken one. |
+| `tools/action/action.yml` | CI-ADOPT's composite GitHub Action: install MLView, `analyze --changed-since <base> --changed-only --sarif`, and a `sarif` output for `github/codeql-action/upload-sarif`. |
+| `vscode-extension/tools/make_icon.py [--check]` | Renders `media/icon.png` (128x128) from arithmetic, so the marketplace icon is source rather than a binary nobody can regenerate. |
+| `tools/verify.py [--parity\|--scopes\|--hashes\|--versions\|--vsix\|--all]` | The parity gates: one analyzer, one projection, one renderer, one version — ten rows, including `plugin: rule docs`, `vendor: synced core`, `vsix: synced core` and the two scope rows. |
 | `tools/accuracy.py` / `tools/accuracy_corpus.py` | ANA-12's referee: scores the labelled corpus under `analyzer/tests/accuracy/corpus/` for precision, recall, graph fidelity and calibration, and gates on `baseline.json`. `docs/ACCURACY.md` says what the numbers mean. |
 | `tools/perf_equiv.py [--baseline DIR\|--record FILE\|--compare FILE]` | PERF-01/02's referee: proves an analyzer optimisation moved no byte, over three corpora, each tree in its own subprocess. |
 | `tools/gate_scopes.py` | Gate 5's implementation, called by `tools/verify.py --scopes`: the fixture drift check plus the viewer's parity test. |
 | `analyzer/tools/gen_scope_fixtures.py [--check]` | Regenerates `contracts/scope.cases.json` and `contracts/scope.expected.json` from the Python `project()`. |
+| `analyzer/tools/scope_gen.py` | HEALTH-02's generator: seeded, schema-valid documents (5-500 nodes, hierarchies, ghosts, colliding names, edge-anchored issues), every one validated by `contracts/validate_sample.py` before it is projected. |
+| `analyzer/tools/scope_fuzz.py [--cases N] [--seed N] [--promote]` | HEALTH-02's differential fuzzer over the two `project()` ports. `--promote` minimizes a counterexample by delta debugging and appends it to `contracts/scope.cases.json`'s `fuzzCases`. It found the §11.30 divergence on its first 200 cases. |
 | `analyzer/tools/gen_rule_docs.py [--check]` | Regenerates `docs/rules/*.md` from the rule registry. |
 | `analyzer/tools/gen_expected_issues.py [--check]` | Regenerates `samples/vision_pipeline/expected_issues.json`. |
 | `webview/test/render_report.mjs` | Renders a standalone report in jsdom and checks what it drew. |

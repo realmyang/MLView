@@ -16,6 +16,7 @@ import sys
 from typing import Any, Dict, List, Optional, Sequence
 
 from . import api
+from .adopt import cli_glue
 from .cli_parser import FORMATS, GROUP_BY, build_parser
 from .core.graph import SEVERITY_RANK
 from .core.pipeline import AnalyzeOptions
@@ -32,6 +33,15 @@ EXIT_OK, EXIT_USAGE, EXIT_FAIL_ON, EXIT_INTERNAL, EXIT_EMPTY = 0, 1, 2, 3, 4
 
 
 # ----------------------------------------------------------------- helpers
+def _progress_sink(args):
+    """H3: `--progress-json` is the only thing that opens the stderr sink; the
+    library itself never writes a byte of progress on its own."""
+    if not getattr(args, "progress_json", False):
+        return None
+    from .core.progress import ProgressWriter
+    return ProgressWriter()
+
+
 def _options(args, paths: Sequence[str]) -> AnalyzeOptions:
     return AnalyzeOptions(
         paths=tuple(paths),
@@ -43,7 +53,8 @@ def _options(args, paths: Sequence[str]) -> AnalyzeOptions:
         min_severity=getattr(args, "min_severity", "low"),
         min_confidence=float(getattr(args, "min_confidence", 0.0)),
         config_path=getattr(args, "config_path", None),
-        strict=bool(getattr(args, "strict", False)))
+        strict=bool(getattr(args, "strict", False)),
+        progress=_progress_sink(args))
 
 
 def _scope_from_args(args) -> Optional[Scope]:
@@ -98,11 +109,43 @@ def _reject_reprojection(doc: Dict[str, Any], scope: Optional[Scope],
 
 
 def _fail_on_hit(doc: Dict[str, Any], threshold: str) -> bool:
+    """CI-ADOPT: a baselined finding does not trip the gate - that is the whole
+    point of the ratchet - and `--changed-only` has already removed `existing`
+    findings from `issues[]` by the time this runs."""
     if threshold in (None, "none"):
         return False
     floor = SEVERITY_RANK[threshold]
     return any(SEVERITY_RANK.get(i["severity"], 0) >= floor
-               for i in doc.get("issues", []) if not i.get("suppressed"))
+               for i in doc.get("issues", [])
+               if not i.get("suppressed") and not i.get("baselined"))
+
+
+def _adopt_usage_error(args) -> Optional[str]:
+    """Flag-combination errors for the CI-ADOPT surface (exit 1, clean stdout)."""
+    error = cli_glue.validate_args(args)
+    if error:
+        return error
+    if getattr(args, "sarif_out", None) == "-":
+        json_target = getattr(args, "json_out", None)
+        claimed = (json_target == "-") if isinstance(json_target, str) else bool(json_target)
+        if claimed:
+            return ("--sarif - and --json both write to stdout; send one of them "
+                    "to a file.")
+    return None
+
+
+def _emit_sarif(doc: Dict[str, Any], args) -> bool:
+    """Write `--sarif`. Returns True when the SARIF went to **stdout**, which
+    is what tells the caller not to print a second payload after it."""
+    target = getattr(args, "sarif_out", None)
+    if not target:
+        return False
+    path, payload = cli_glue.write_sarif_output(doc, target)
+    if payload:
+        write_stdout_bytes(payload)
+        return True
+    write_stderr("mlview: wrote %s" % path)
+    return False
 
 
 def _open_path(path: str) -> None:
@@ -146,6 +189,10 @@ def _emit_payload(doc: Dict[str, Any], args, full: Optional[Dict[str, Any]] = No
 # ---------------------------------------------------------------- commands
 def _cmd_analyze(args) -> int:
     scope = _scope_from_args(args)          # raises ScopeError -> exit 1, clean stdout
+    usage = _adopt_usage_error(args)
+    if usage:
+        write_stderr("mlview: " + usage)
+        return EXIT_USAGE
     if getattr(args, "list_scopes", False):
         return _cmd_list_scopes(args, scope)
     if args.demo:
@@ -165,9 +212,13 @@ def _cmd_analyze(args) -> int:
 
     paths = args.paths or ["."]
     result = api.analyze_full(_options(args, paths))
+    # CI-ADOPT: the analysis above saw the WHOLE workspace; attribution and the
+    # baseline are applied to the finished graph, never to the analysis.
+    cli_glue.apply_to_graph(result.graph, args)
     full = result.graph.to_dict()
     doc = _apply_scope(full, scope)         # raises ScopeError -> exit 1
     wrote_stdout = _emit_payload(doc, args, full=full, scope=scope)
+    wrote_stdout = _emit_sarif(doc, args) or wrote_stdout
     if not wrote_stdout:
         _print_format(doc, args)
     note = scope_out.empty_note(doc)
@@ -216,16 +267,31 @@ def _print_format(doc: Dict[str, Any], args) -> None:
 
 def _cmd_issues(args) -> int:
     scope = _scope_from_args(args)          # raises ScopeError -> exit 1
+    usage = _adopt_usage_error(args)
+    if usage:
+        write_stderr("mlview: " + usage)
+        return EXIT_USAGE
     paths = args.paths or ["."]
     result = api.analyze_full(_options(args, paths))
+    cli_glue.apply_to_graph(result.graph, args)
     doc = _apply_scope(result.graph.to_dict(), scope)
     codes = {c.strip().upper() for c in (args.code or "").split(",") if c.strip()}
-    issues = [i for i in doc.get("issues", [])
-              if (args.show_suppressed or not i.get("suppressed"))
-              and (not codes or i["code"] in codes)]
+    issues = [i for i in cli_glue.visible_issues(doc.get("issues", []),
+                                                 args.show_suppressed)
+              if not codes or i["code"] in codes]
     if args.limit and args.limit > 0:
         issues = issues[:args.limit]
-    if args.json_out:
+    baselined = cli_glue.baselined_count(doc.get("issues", []))
+    # The SARIF honours `--code` - it is a statement about which rules were
+    # asked for - but not `--limit` or the suppressed/baselined hiding: a limit
+    # is a reading convenience, and a suppressed finding ships as a *suppressed
+    # result* so the consumer does not read it as fixed and then as new again.
+    sarif_doc = dict(doc, issues=[i for i in doc.get("issues", [])
+                                  if not codes or i["code"] in codes])
+    sarif_to_stdout = _emit_sarif(sarif_doc, args)
+    if sarif_to_stdout:
+        pass                                # the SARIF *is* the payload
+    elif args.json_out:
         counts = {"low": 0, "medium": 0, "high": 0}
         for issue in issues:
             counts[issue["severity"]] = counts.get(issue["severity"], 0) + 1
@@ -234,13 +300,17 @@ def _cmd_issues(args) -> int:
             "suppressedCount": sum(1 for i in doc.get("issues", []) if i.get("suppressed")),
             "issues": issues,
         }
+        if baselined:
+            payload["baselinedCount"] = baselined
         if isinstance(doc.get("view"), dict):
             payload["scope"] = doc["view"]["scope"]
         write_stdout(json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
     else:
         from .emit.text_out import issue_lines, render_findings
         scoped = scope_out.issues_scope_suffix(doc)   # names the denominator
-        header = "%d issue(s) in %s%s\n" % (len(issues), doc["workspace"]["root"], scoped)
+        marked = (" · %d baselined" % baselined) if baselined else ""
+        header = "%d issue(s) in %s%s%s\n" % (len(issues), doc["workspace"]["root"],
+                                              scoped, marked)
         if not issues:
             body = "  none found\n"
         elif getattr(args, "text_out", False):
@@ -264,6 +334,22 @@ def _cmd_issues(args) -> int:
                          % (args.fail_on, suffix))
         return EXIT_FAIL_ON
     return EXIT_OK
+
+
+def _cmd_baseline(args) -> int:
+    """`mlview baseline write` (CI-ADOPT b). The payload is the file, so stdout
+    stays empty and the path goes to stderr like every other written artifact."""
+
+    def analyze():
+        return api.analyze_full(_options(args, args.paths or ["."])).graph
+
+    try:
+        code, message = cli_glue.cmd_baseline(args, analyze)
+    except OSError as exc:
+        write_stderr("mlview: cannot write the baseline: %s" % exc)
+        return EXIT_USAGE
+    write_stderr(message)
+    return code
 
 
 def _cmd_render(args) -> int:
@@ -444,6 +530,7 @@ def _cmd_version(args) -> int:
 _COMMANDS = {
     "analyze": _cmd_analyze,
     "issues": _cmd_issues,
+    "baseline": _cmd_baseline,
     "render": _cmd_render,
     "explain": _cmd_explain,
     "rules": _cmd_rules,

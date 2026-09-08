@@ -37,9 +37,11 @@ def test_analyze_options_defaults_match_the_contract():
     fields = {f.name: f for f in dataclasses.fields(api.AnalyzeOptions)}
     # CONTRACTS 11.6: `scope` and `depth` are APPENDED LAST, both defaulted, so
     # positional construction, `frozen=True` and hashability are unchanged.
+    # H3 appends `progress` under the same rule: a defaulted `None` sink, so
+    # `analyze()` still performs no I/O of its own unless a caller asks.
     assert list(fields) == ["paths", "include", "exclude", "max_files", "max_nodes",
                             "framework", "min_severity", "min_confidence",
-                            "config_path", "strict", "scope", "depth"]
+                            "config_path", "strict", "scope", "depth", "progress"]
     assert fields["paths"].default is dataclasses.MISSING, "paths is required"
     assert fields["include"].default == ()
     assert fields["exclude"].default == ()
@@ -52,6 +54,7 @@ def test_analyze_options_defaults_match_the_contract():
     assert fields["strict"].default is False
     assert fields["scope"].default is None
     assert fields["depth"].default is None
+    assert fields["progress"].default is None
 
 
 def test_analyze_options_is_frozen_and_hashable():

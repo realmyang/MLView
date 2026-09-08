@@ -22,6 +22,13 @@ FORBIDDEN = (
 )
 #: `rules/registry.py` imports rule modules - our own code, never the user's.
 ALLOWED_IMPORT_MODULE = {os.path.join("rules", "registry.py")}
+#: CI-ADOPT: `adopt/gitdiff.py` runs `git diff` and nothing else. The exemption
+#: is one file wide and is paid for by
+#: `test_the_only_program_the_core_can_launch_is_git`, which asserts the argv
+#: literally starts with "git", never interpolates analyzed source, and never
+#: uses a shell. The analyzed program is still never imported, executed or
+#: `exec`ed - that is the promise this module exists to keep.
+ALLOWED_SUBPROCESS = {os.path.join("adopt", "gitdiff.py")}
 
 TORCH_SOURCE = ("import torch\n"
                 "import torch.nn as nn\n"
@@ -61,14 +68,57 @@ def test_core_contains_no_dynamic_execution_or_network():
                                          % (relpath, node.lineno))
                 elif isinstance(node, ast.Import):
                     for alias in node.names:
-                        if alias.name.split(".")[0] in banned_modules:
+                        root_module = alias.name.split(".")[0]
+                        if root_module == "subprocess" and relpath in ALLOWED_SUBPROCESS:
+                            continue
+                        if root_module in banned_modules:
                             offenders.append("%s:%d imports %s"
                                              % (relpath, node.lineno, alias.name))
                 elif isinstance(node, ast.ImportFrom):
-                    if (node.module or "").split(".")[0] in banned_modules:
+                    root_module = (node.module or "").split(".")[0]
+                    if root_module == "subprocess" and relpath in ALLOWED_SUBPROCESS:
+                        continue
+                    if root_module in banned_modules:
                         offenders.append("%s:%d imports from %s"
                                          % (relpath, node.lineno, node.module))
     assert offenders == [], "dynamic execution / network in the core:\n" + "\n".join(offenders)
+
+
+def test_the_only_program_the_core_can_launch_is_git():
+    """The price of `ALLOWED_SUBPROCESS`, charged in full.
+
+    Every `subprocess` call in the core must be a list whose **first element is
+    the literal string "git"**, with no `shell=`. That is what keeps the one
+    exemption from becoming a general "the analyzer may run programs" licence:
+    a future `subprocess.run(user_string, shell=True)` fails here even though
+    the import is allowed.
+    """
+    import ast
+
+    calls = 0
+    offenders = []
+    for relpath in sorted(ALLOWED_SUBPROCESS):
+        with open(os.path.join(CORE_DIR, relpath), encoding="utf-8") as fh:
+            tree = ast.parse(fh.read(), filename=relpath)
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            if not (isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name)
+                    and func.value.id == "subprocess"):
+                continue
+            calls += 1
+            for keyword in node.keywords:
+                if keyword.arg == "shell":
+                    offenders.append("%s:%d passes shell=" % (relpath, node.lineno))
+            argv = node.args[0] if node.args else None
+            while isinstance(argv, ast.BinOp):       # ["git"] + list(args)
+                argv = argv.left
+            first = argv.elts[0] if isinstance(argv, ast.List) and argv.elts else None
+            if not (isinstance(first, ast.Constant) and first.value == "git"):
+                offenders.append("%s:%d does not launch git" % (relpath, node.lineno))
+    assert calls >= 1, "the exemption is unused; delete it"
+    assert offenders == [], "\n".join(offenders)
 
 
 def test_analysis_never_imports_the_analyzed_frameworks(make_workspace):

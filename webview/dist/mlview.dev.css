@@ -521,6 +521,49 @@ html.mlv-fills-page > body > .mlv-root {
   }
 }
 
+/*
+ * VIEW-12: the skip link — the document's FIRST tab stop.
+ *
+ * Off-screen until it takes the focus, which is the conventional shape: a
+ * sighted mouse user never sees it, and a keyboard user's first press reveals a
+ * real control that lands them on the diagram. Reaching the canvas used to cost
+ * 22 presses; it now costs one press and one Enter.
+ */
+.mlv-skiplink {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 100;
+  padding: var(--mlv-s3) var(--mlv-s5);
+  border: 1px solid var(--mlv-border-strong);
+  border-radius: var(--mlv-r-btn);
+  background: var(--mlv-surface);
+  color: var(--mlv-text);
+  font-size: var(--mlv-fs-12);
+  text-decoration: none;
+}
+
+.mlv-skiplink:focus,
+.mlv-skiplink:focus-visible {
+  left: var(--mlv-s4);
+  top: var(--mlv-s4);
+}
+
+/* VIEW-12: the <main> landmark around the diagram. A column, because the
+ * Pipeline Answer Card (MLV-P1) shares it with the canvas. */
+.mlv-main {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.mlv-main > .mlv-canvas {
+  min-height: 0;
+}
+
 /* ---- chrome.css ---- */
 /* Toolbar, chip row, banners, status bar, search, minimap, toasts, states. */
 
@@ -1308,6 +1351,126 @@ html.mlv-fills-page > body > .mlv-root {
   }
 }
 
+/*
+ * VIEW-12: the two chrome rows as ONE `role="toolbar"`.
+ *
+ * Purely structural — both rows keep the exact box model they had, and the
+ * wrapper only exists so the roving tabindex has a single container to own.
+ */
+.mlv-chromebar {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* The brand is now the document's only <h1> (VIEW-12): reset the UA heading
+ * box, keep the type it always had. */
+h1.mlv-brand {
+  margin: 0;
+  font-size: var(--mlv-fs-11);
+  font-weight: var(--mlv-fw-regular);
+}
+
+/*
+ * MLV-P1 — the Pipeline Answer Card, pinned above the canvas.
+ *
+ * `order: -1` lifts it above the canvas VISUALLY while it stays after the
+ * canvas in DOM order, which is what keeps the canvas within four Tab presses
+ * of the top of the document (VIEW-12).
+ */
+.mlv-answers {
+  order: -1;
+  flex: none;
+  max-height: 40%;
+  overflow: auto;
+  border-bottom: 1px solid var(--mlv-border);
+  background: var(--mlv-surface);
+}
+
+.mlv-answers[hidden] {
+  display: none;
+}
+
+.mlv-answers__head {
+  display: flex;
+  align-items: center;
+  gap: var(--mlv-s3);
+  width: 100%;
+  padding: var(--mlv-s3) var(--mlv-s5);
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mlv-answers__head:hover {
+  background: var(--mlv-surface-2);
+}
+
+.mlv-answers__head .mlv-uicon {
+  flex: none;
+  transition: transform var(--mlv-dur-1) var(--mlv-ease);
+}
+
+.mlv-answers.is-open .mlv-answers__head .mlv-uicon {
+  transform: rotate(90deg);
+}
+
+.mlv-answers__title {
+  color: var(--mlv-text);
+  font-size: var(--mlv-fs-12);
+  font-weight: var(--mlv-fw-semi);
+}
+
+.mlv-answers__count {
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-11);
+}
+
+.mlv-answers__body[hidden] {
+  display: none;
+}
+
+.mlv-answers__list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--mlv-s3) var(--mlv-s5);
+  margin: 0;
+  padding: 0 var(--mlv-s5) var(--mlv-s4);
+  list-style: none;
+}
+
+.mlv-answers__item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.mlv-answers__q {
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-10);
+  letter-spacing: var(--mlv-track-caps);
+  text-transform: uppercase;
+}
+
+.mlv-answers__sentence {
+  margin: 0;
+  color: var(--mlv-text);
+  font-size: var(--mlv-fs-12);
+}
+
+.mlv-answers__cites {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--mlv-s3);
+  font-family: var(--mlv-font-mono);
+  font-size: var(--mlv-fs-10);
+}
+
 /* ---- canvas.css ---- */
 /* Canvas viewport, stage lanes and group boxes. */
 
@@ -1887,6 +2050,22 @@ body.vscode-high-contrast-light .mlv-glyph__ink,
 [data-sev="high"] { --mlv-sev: var(--mlv-sev-high); }
 [data-sev="medium"] { --mlv-sev: var(--mlv-sev-medium); }
 [data-sev="low"] { --mlv-sev: var(--mlv-sev-low); }
+
+/*
+ * VIEW-12: a visible focus ring on the cards themselves.
+ *
+ * The canvas drives selection with `aria-activedescendant`, so a card is
+ * `tabindex="-1"` and only ever focused programmatically — by the arrow keys
+ * and by "reveal this node". Without a ring of its own it took the generic
+ * `.mlv-root :focus-visible` rectangle, whose 6 px button radius cuts the
+ * corners of a 10 px card.
+ */
+.mlv-node:focus-visible,
+.mlv-group__header:focus-visible {
+  outline: 2px solid var(--mlv-focus);
+  outline-offset: 2px;
+  border-radius: var(--mlv-r-node);
+}
 
 /* ---- edge.css ---- */
 /* Edge layer: one stroke style per kind — dash pattern and arrowhead, never
@@ -2854,7 +3033,6 @@ body.vscode-high-contrast-light .mlv-edge__charge-halo,
 .mlv-issue__open {
   flex: none;
   align-self: center;
-  margin-right: var(--mlv-s3);
 }
 
 .mlv-issue__detail {
@@ -3392,4 +3570,92 @@ body.vscode-high-contrast-light .mlv-edge__charge-halo,
   .mlv-railgroup__head .mlv-uicon {
     transition: none;
   }
+}
+
+/*
+ * MLV-P10: the two suppression actions, on every row and on every rule group
+ * header. Icon-only in the list, spelled out in the Inspector.
+ *
+ * `.mlv-issues__item` wraps, and a row with three trailing buttons wrapped the
+ * FIRST of them onto a second line — an "open in editor" glyph left-aligned
+ * under the meta, reading as a stray control belonging to nothing (the same
+ * failure `.mlv-issue`'s `flex: 1 1 0` comment describes). The three actions are
+ * therefore centred with the row and given the same zero basis, so they stay
+ * together on one line at any title length.
+ */
+.mlv-railgroup__bar {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.mlv-railgroup__bar .mlv-railgroup__head {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: auto;
+}
+
+.mlv-issue__ignore,
+.mlv-issue__disable {
+  flex: none;
+  align-self: center;
+  color: var(--mlv-text-2);
+}
+
+.mlv-issue__disable {
+  margin-right: var(--mlv-s3);
+}
+
+.mlv-issue__ignore:hover,
+.mlv-issue__disable:hover {
+  color: var(--mlv-text);
+}
+
+.mlv-insp__suppress {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--mlv-s3);
+  margin-top: var(--mlv-s3);
+}
+
+/*
+ * The collapsed "N suppressed" section (MLV-P10) and its two chips. A
+ * suppression that is invisible is not auditable, and a baselined finding is
+ * marked, not deleted (CI-ADOPT).
+ */
+.mlv-rail__suppressed {
+  border-top: 1px solid var(--mlv-border);
+}
+
+.mlv-rail__suppressed-head .mlv-railgroup__title {
+  color: var(--mlv-text-2);
+  font-weight: var(--mlv-fw-regular);
+}
+
+.mlv-rail__suppressed.is-open .mlv-rail__suppressed-head .mlv-uicon {
+  transform: rotate(90deg);
+}
+
+.mlv-chip--suppressed,
+.mlv-chip--baselined {
+  color: var(--mlv-text-2);
+}
+
+/* CI-ADOPT: new / touched / existing, tinted but never colour-only — the word
+ * is always present, which is what survives a greyscale screenshot (R1.3). */
+.mlv-chip--change {
+  font-family: var(--mlv-font-mono);
+}
+
+.mlv-chip--change-new {
+  border-color: var(--mlv-sev-high);
+  color: var(--mlv-text);
+}
+
+.mlv-chip--change-touched {
+  border-color: var(--mlv-sev-medium);
+}
+
+.mlv-chip--changed[aria-pressed="true"] {
+  border-color: var(--mlv-accent);
 }

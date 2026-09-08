@@ -1,6 +1,6 @@
 ---
 description: Print only the MLView issue table for a path — headless, for agent loops and PR descriptions
-argument-hint: "[path] [low|medium|high] [--scope <SPEC>] [--depth <0-2>] [--group-by rule|file|severity]"
+argument-hint: "[path] [low|medium|high] [--scope <SPEC>] [--depth <0-2>] [--group-by rule|file|severity] [--changed-since <rev>] [--baseline <file>]"
 allowed-tools: [Bash, Read, Glob]
 ---
 
@@ -14,7 +14,8 @@ Minimum severity: `$1` — when it is empty, use `low`.
 
 **Two of the tokens in `$ARGUMENTS` are never the path and never the severity:**
 a token starting with `--` is a flag, and the token **immediately after
-`--scope`, `--depth` or `--group-by` is that flag's value** — a flag occupies two
+`--scope`, `--depth`, `--group-by`, `--changed-since` or `--baseline` is that
+flag's value** — a flag occupies two
 positional slots, so with the path omitted its value lands in `$1`. Read the two
 arguments this way instead of trusting the slots blindly:
 
@@ -46,8 +47,24 @@ because a flag and its value occupy two of them):
   the same as no flag at all: the flat table is already ordered worst-first, and
   the grouped one replaces it with three rows.
 
-Omit all three entirely when the user did not ask for them; an unscoped, ungrouped
-table is the default and is a statement about the whole path.
+- `--changed-since <rev>` — CI-ADOPT. Analyze the whole path as usual, then list
+  only the findings that touch what changed since `<rev>` (`HEAD`, `origin/main`,
+  a SHA). Each row is attributed `new` (its line is inside an added hunk) or
+  `touched` (its file changed, or a related location such as the split site is
+  inside a hunk); everything else is dropped and counted in the payload's `note`.
+  This is the flag for "what did this PR introduce" on a repo that already has
+  findings — it is **never** an answer to "is this project clean". If git is
+  absent, the directory is not a repo, or the revision does not exist, every
+  finding comes back and the `note` says attribution failed; report that line.
+- `--baseline <file>` — the ratchet. Findings already recorded in a
+  `mlview baseline write` file are marked, excluded from the counts and reported
+  as `baselinedCount`, so the table shows only what is new since the baseline was
+  frozen. Baseline entries that no longer match any finding are named in the
+  `note` rather than silently forgiven; pass that line on, because a stale
+  baseline is a permissive one.
+
+Omit all five entirely when the user did not ask for them; an unscoped, ungrouped,
+unattributed table is the default and is a statement about the whole path.
 
 This command is **headless**: no diagram, no browser, no prose beyond the table.
 It exists so an agent loop or a PR description can consume the findings directly.
@@ -57,7 +74,8 @@ It exists so an agent loop or a PR description can consume the findings directly
 **If the `mlview_*` MCP tools are available**, call `mlview_issues` with
 `path` set to the target and `minSeverity` set to `$1` (use `"low"` when that is
 empty; `minSeverity` accepts only `low`, `medium` or `high`), plus `scope`,
-`depth` and `groupBy` when the user gave them. `groupBy` takes the same three
+`depth`, `groupBy`, `changedSince` and `baseline` when the user gave them
+(`changedSince` takes the revision, `baseline` the file path). `groupBy` takes the same three
 words as `--group-by`; the result then carries `groups` **instead of** `issues`,
 each row `{key, count, maxSeverity, worstBucket, sites}` (plus `title` and a
 `files` count under `groupBy: "rule"`).
@@ -82,7 +100,14 @@ python -m mlview issues "$0" --json --min-severity "$1"
 ```
 
 Append ` --scope <SPEC>` and ` --depth <N>` to either line only when the user
-gave them; with none, the two lines above are exactly what runs. A scoped run
+gave them; with none, the two lines above are exactly what runs. The two
+adoption flags are spelled the same way on the CLI, and `--changed-since`
+carries `--changed-only` with it:
+
+```bash
+python -m mlview issues "$0" --min-severity "$1" --changed-since origin/main --changed-only
+python -m mlview issues "$0" --min-severity "$1" --baseline .mlview/baseline.json
+``` A scoped run
 looks like this — a real selector, not a placeholder:
 
 ```bash
@@ -109,7 +134,10 @@ Emit **only** this, and nothing before or after it:
 | MLV201 | high | certain | train.py:44 | Gradients are never zeroed |
 
 Then one final line: `N high · N medium · N low` (plus `· N suppressed` when
-`suppressedCount` is non-zero). When a scope was used, that line ends with
+`suppressedCount` is non-zero, and `· N baselined` when `baselinedCount` is).
+Under `--changed-since` that line ends with ` · changed since <rev>`, and a row's
+`change` value (`new` / `touched`) is worth quoting when it is present: "1 new,
+2 touched" is the sentence a PR description needs. When a scope was used, that line ends with
 ` · scope: <SPEC>` — the counts describe the scope, not the project, and the
 payload's own `scope` field and `note` say so.
 
@@ -149,7 +177,10 @@ different answers and only one of them is good news:
   `<N> file(s) failed to parse; their issues are missing from this table.`
 
 Under a `--scope`, a clean table means "nothing was found **in this scope**" and
-must be said that way; it is never a clean bill of health for the project.
+must be said that way; it is never a clean bill of health for the project. The
+same applies twice over under `--changed-since`: an empty table means "this
+change introduced nothing", never "this project is clean" — the payload's `note`
+names how many findings were withheld, and that number belongs in the answer.
 
 The payload's own `note` field says which case you are in; when it is present,
 never emit the clean line.

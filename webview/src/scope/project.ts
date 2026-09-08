@@ -213,7 +213,13 @@ export function project(graph: MLGraph, scope: Scope): MLGraph {
   let keptEdges = edges.filter((e) => kept.has(e.source) && kept.has(e.target));
   const coreEdgeIds = new Set(keptEdges.filter((e) => core.has(e.source) && core.has(e.target)).map((e) => e.id));
 
-  let retained = retainIssues(issues, core, kept, new Set(keptEdges.map((e) => e.id)), coreEdgeIds);
+  // CONTRACTS 11.30 F1-F2: `retainIssues` may PROMOTE a retaining edge's source
+  // into an issue's `nodeIds`, so it needs the kept edges by id and hands back
+  // the promotions the reverse link is built from.
+  const edgesById = new Map<string, MLEdge>(keptEdges.map((e) => [e.id, e]));
+  const retention = retainIssues(issues, core, kept, new Set(keptEdges.map((e) => e.id)), coreEdgeIds, edgesById);
+  let retained = retention.retained;
+  const promoted = retention.promoted;
   const pruned = pruneGhosts(retained, kept, keptEdges, byId);
   retained = pruned.retained;
   kept = pruned.kept;
@@ -227,6 +233,10 @@ export function project(graph: MLGraph, scope: Scope): MLGraph {
     if (!kept.has(node.id)) continue;
     const copied = clone(node) as MLNode;
     copied.issueIds = (node.issueIds || []).filter((id) => liveIssueIds.has(id));
+    for (const issueId of promoted.get(node.id) || []) {
+      // 11.30 F2: a promoted anchor keeps the node <-> issue link two-way.
+      if (liveIssueIds.has(issueId) && copied.issueIds.indexOf(issueId) < 0) copied.issueIds.push(issueId);
+    }
     copied.viewRole = (core.has(node.id) ? 'core' : boundary.has(node.id) ? 'boundary' : 'context') as ViewRole;
     outNodes.push(copied);
   }
@@ -297,8 +307,10 @@ function retainIssues(
   kept: Set<string>,
   keptEdgeIds: Set<string>,
   coreEdgeIds: Set<string>,
-): Issue[] {
+  edgesById: Map<string, MLEdge>,
+): { retained: Issue[]; promoted: Map<string, string[]> } {
   const out: Issue[] = [];
+  const promoted = new Map<string, string[]>();
   for (const issue of issues) {
     const nodeIds = issue.nodeIds || [];
     const edgeIds = issue.edgeIds || [];
@@ -306,11 +318,28 @@ function retainIssues(
     const throughEdge = edgeIds.some((e) => coreEdgeIds.has(e));
     if (!throughNode && !throughEdge) continue;
     const copied = clone(issue) as Issue;
-    copied.nodeIds = rotateToCore(nodeIds.filter((n) => kept.has(n)), core);
-    copied.edgeIds = edgeIds.filter((e) => keptEdgeIds.has(e));
+    let liveNodes = nodeIds.filter((n) => kept.has(n));
+    const liveEdges = edgeIds.filter((e) => keptEdgeIds.has(e));
+    if (!liveNodes.length) {
+      // CONTRACTS 11.30 F1/F3, and the branch the differential fuzzer found the
+      // two ports disagreeing on: an issue retained through the EDGE rule whose
+      // every cited node fell outside `kept` would end with `nodeIds: []`, which
+      // breaks invariant 1.1.3 and leaves the renderer nowhere to draw a badge.
+      // Promote the retaining edge's `source` -- a `core` node by construction,
+      // so a legal `nodeIds[0]` needing no rotation -- and drop the issue if it
+      // was not retained through a live core edge after all.
+      const retaining = liveEdges.filter((e) => coreEdgeIds.has(e))[0];
+      if (retaining === undefined) continue;
+      liveNodes = [(edgesById.get(retaining) as MLEdge).source];
+      const already = promoted.get(liveNodes[0]);
+      if (already) already.push(issue.id);
+      else promoted.set(liveNodes[0], [issue.id]);
+    }
+    copied.nodeIds = rotateToCore(liveNodes, core);
+    copied.edgeIds = liveEdges;
     out.push(copied);
   }
-  return out;
+  return { retained: out, promoted };
 }
 
 /**

@@ -2125,3 +2125,497 @@ settings that do not exist and omitting one that does — and 11.9's listing was
 in place would leave no trace that the surface changed, so a reader of a shipped extension could not tell a
 deletion from a documentation error. This is the shape §11.18 used for the `Diagnostic.kind` enum, for the same
 reason.
+
+---
+
+### 11.21 CI adoption: change attribution, the baseline ratchet, SARIF (2026-09-09) — amends §3 and §10 A6, analyzer-owned
+
+**§10 A6's `"baseline"` trim is lifted, and only that one.** A6 was a correct prototype scope
+decision and is now the measured blocker to adoption: a realistic 50-file repository starts at
+**111** findings, so `--fail-on high` exits 2 forever and the only way to use MLView on an
+existing codebase is never to gate on it. The other three A6 challengers stay refused — fuzzy
+search, a third LOD tier, and implementing `followCursor`. Nothing else in A6 changes.
+
+Three additive mechanisms land together because they are one product: attribute the findings a
+change is responsible for, forgive the ones that predate the decision to adopt, and hand both to
+the review tool the team already reads.
+
+| # | Surface | Where |
+|---|---|---|
+| **a** | `--changed-since REV`, `--changed-paths FILE`, `--changed-only` on `analyze` and `issues`; optional `Issue.change` | `adopt/gitdiff.py`, `adopt/attribute.py` |
+| **b** | `mlview baseline write [PATHS] [--out FILE]`, `--baseline FILE` on `analyze` and `issues`; optional `Issue.baselined` | `adopt/baseline.py` |
+| **c** | `--sarif FILE\|-` on `analyze` and `issues` | `emit/sarif_out.py` |
+
+**A0 — the analysis is never narrowed.** Every one of these flags runs after a **whole-workspace**
+analysis and edits the finished document. Narrowing the analysis to the changed files is the exact
+fidelity loss §11.18 C3 reports (`mlview issues train.py` finds 3 of the 7 findings the directory
+finds), and it would be invisible: the output would simply be smaller.
+
+#### A — change attribution
+
+| # | Rule |
+|---|---|
+| **A1** | The diff is `git -c core.quotepath=false diff -M --unified=0 --no-color <rev> --`, run in the analyzed root. `-M` is normative: without rename detection a moved file reads as entirely new and a refactoring PR inherits every finding in it. `--unified=0` is what makes line attribution possible at all. |
+| **A2** | `Issue.change` is a closed three-value enum. **`new`** — the primary `loc` is inside an added hunk. **`touched`** — a `relatedLoc` is inside an added hunk, **or** the primary `loc` is in a changed file outside every hunk. **`existing`** — neither. The field is emitted **only** when attribution succeeded; its absence means *unattributed*, and never *old*. |
+| **A3** | **`--changed-only` keeps exactly the findings that intersect an added hunk** — `new`, plus the `touched` whose evidence is inside one — and drops `existing` together with the `touched` that merely share a file with the change. On the audit's PR fixture (7 lines appended to `train.py`) the plain run reports 15 findings and `--changed-since HEAD --changed-only` reports **0**, exit 0; those 7 same-file findings sit on lines the pull request never saw, and failing a gate on them is the adoption blocker this amendment exists to remove. `change` therefore stays a three-value **display** classification — a reviewer wants to know that a file they edited also carries old findings — while `--changed-only` is the **gate** filter. A finding whose `relatedLoc` lands in a hunk is `touched` and is **never** dropped: that is how a leak introduced upstream of an untouched `fit()` site still surfaces on the pull request that caused it. |
+| **A4** | `--changed-paths FILE` accepts **either** a unified diff (a runner that already has one does not re-shell git) **or** a newline-separated path list. A path list has no hunks, so nothing can be `new`; the run says so through a `config_warning` rather than under-reporting in silence, and `--changed-only` then keeps every finding in a changed file. |
+| **A5** | **Every failure degrades to "unattributed, showing everything" with a `config_warning`, never to an error and never to an empty list.** No `git` on PATH, not a repository, an unknown revision, a git that does not answer within 20 s, a `--changed-paths` file that cannot be read: no issue carries `change`, nothing is dropped, `--changed-only` is inert and says so, and the exit code is whatever the findings themselves justify. A gate that passes because git was missing is worse than no gate. |
+| **A6** | Paths are mapped through `git rev-parse --show-toplevel` into **workspace-relative** form, and a changed file outside the analyzed root is discarded — a monorepo diff touching another package never marks this package's findings as changed. |
+| **A7** | `--changed-only` may remove the only finding a ghost node carried, so the ghost sweep and `finalize()` re-run afterwards: invariant 1.1.8 and every §0 ordering rule hold on the emitted document exactly as they do without the flag. |
+
+#### B — the baseline ratchet
+
+| # | Rule |
+|---|---|
+| **B1** | The match key is **`(code, symbol, snippetHash)`**, where `snippetHash` is `sha1(" ".join(snippet.split()))[:12]` — the whitespace-normalised primary snippet. Not the line, because a baseline that dies on an edit above the finding is a baseline nobody keeps; not the file, because a renamed module carries the same finding, which is the same lesson `git diff -M` teaches in part A. |
+| **B2** | **Matching is counted, not keyed alone.** A key recorded *n* times forgives the first *n* findings carrying it, in document order; the *n+1*th is reported. Two textually identical findings do share a key, so without the count a copied training loop would arrive pre-forgiven — the one hole a ratchet cannot have. |
+| **B3** | A matched finding is **marked, never deleted**: `Issue.baselined` is emitted `true`, the issue stays in `issues[]`, and `--show-suppressed` lists it. It is excluded from the **rendered** counts and from `--fail-on`. `stats.issues` is unchanged and keeps counting every unsuppressed finding — it is the document's project-level truth — and the summary line nets the baselined ones out and prints `· N baselined` so one number never silently stands for two. |
+| **B4** | **Unmatched entries are reported**, always: `N baseline entries no longer match: …` as a `config_warning` naming up to three. A baseline that has silently stopped matching is a gate that has silently stopped gating. |
+| **B5** | The baseline document is `{"version": 1, "tool": "mlview", "entries": [...]}` , sorted, with **no timestamp and no analyzer version**: it is committed and reviewed, and a byte that changes for no reason is a byte somebody has to read. `file`, `line` and `title` are written for that reviewer and are **never** matched on. |
+| **B6** | A baseline that cannot be read, is not JSON, or declares another format version is a `config_warning` and every finding is reported — the safe direction for a gate to fail in. Never an exit code. |
+| **B7** | `mlview baseline write` writes the file and nothing to **stdout**; the path goes to stderr like every other written artifact. Default `--out` is `<root>/.mlview/baseline.json`. |
+
+#### C — SARIF 2.1.0
+
+| # | Rule |
+|---|---|
+| **C1** | `--sarif FILE` writes SARIF 2.1.0; `--sarif -` writes it to stdout, and combining that with a `--json` that also claims stdout is a **usage error** (exit 1, stdout untouched), never two payloads in one stream. On `issues` the SARIF honours `--code` — a statement about which rules were asked for — but not `--limit` and not the suppressed/baselined hiding: a limit is a reading convenience, and a suppressed finding ships as a *suppressed result* (C5) so the consumer never reads it as fixed and then as new again. |
+| **C2** | **No absolute path is ever emitted.** Every `artifactLocation.uri` is the workspace-relative `Loc.file` with `uriBaseId: "%SRCROOT%"`, and `originalUriBaseIds["%SRCROOT%"]` carries a `description` and **no `uri`**: the importer supplies the checkout location. GitHub rejects an absolute URI, and a CI log must not leak the runner's layout. |
+| **C3** | `partialFingerprints.mlviewIssueId` is `Issue.id`, which §0 defines as `sha1(code\|file\|qualname\|symbol)` — content-addressed, never line-derived. `test_id_stability.py` already gates that; the SARIF test re-asserts it end to end across 20 inserted blank lines, so the consumer's own new/existing agrees with `--changed-since`. |
+| **C4** | `tool.driver.rules[]` is the **whole registry**, not the rules that fired, so `ruleIndex` is stable between runs and every `helpUri` (`docs/rules/<CODE>.md`, relative to the same `%SRCROOT%`, restated in `properties.helpUriBaseId` because SARIF has no per-field base) resolves whether or not the rule fired. |
+| **C5** | Severity maps `high → error`, `medium → warning`, `low → note`; `rank` is `confidence × 100`. A **suppressed or baselined** finding ships as a result carrying `suppressions[{kind: "external"}]`, not as a missing one — deleting it would make the SARIF disagree with `--show-suppressed`. `change` maps to `baselineState` (`new` → `new`, otherwise `unchanged`). |
+| **C6** | The document deliberately declares **no `columnKind`**. `Loc.col` is CPython's `ast.col_offset`, a UTF-8 byte offset, which is neither of SARIF's two enumerations; claiming one would be a false precision on a non-ASCII source line. Columns are `col + 1`, SARIF being 1-based. |
+| **C7** | `runs[0].properties.diagnostics` carries every `Diagnostic` kind and message. What the analyzer could **not** see travels with the findings instead of being dropped at the CI boundary. |
+
+**Schema (§11.16 mirrors).** Three optional additions, mirrored byte-identically in
+`contracts/graph.schema.json` and `analyzer/src/mlview/schema/graph.schema.json` and carried to
+both vendored copies by `tools/sync-core.py`: `Issue.baselined` (boolean) and `Issue.change`
+(the three-value enum), neither in `required`; plus §11.22's `answers`.
+`contracts/graph.sample.json` is **not** regenerated and `analyze --demo --json -` stays
+byte-identical to it — a document that names none of these flags emits exactly the bytes it
+emitted before they existed.
+
+**One existing gate is narrowed, not weakened.** `tests/core/test_no_exec.py` banned `subprocess`
+outright. `adopt/gitdiff.py` is now the single allowed importer, and the exemption is paid for by
+a new assertion that every `subprocess` call in the core is a list literal beginning `"git"` with
+no `shell=`. The promise that survives untouched is the one that mattered: **the analyzed program
+is never imported, executed or `exec`ed.**
+
+**Gates:** `analyzer/tests/core/test_ci_adopt.py` (25 cases over a real `git init` of
+`samples/vision_pipeline`, including all four degradation paths), `analyzer/tests/core/test_sarif.py`
+(15 cases, validating against the official OASIS schema vendored at
+`analyzer/tests/fixtures/sarif-schema-2.1.0.json`), and the unchanged
+`contracts/validate_sample.py` on every attributed and baselined document.
+
+---
+
+### 11.22 The Pipeline Answer Card (2026-09-09) — amends §2 and §3, analyzer-owned
+
+MLView's headline is answering four questions in ninety seconds. The practitioner walkthrough
+measured **two of four** answered from the first screen — both by the rail rather than the diagram,
+with Q2 and Q3 roughly 1600 px below the fold — and **nothing in any host stating the answers in
+words**. This amendment adds the words.
+
+**A new OPTIONAL root-level key, `answers`**, composed by `emit/answers.py` and attached by
+`core/graph.MLGraph.to_dict()` to every document the analyzer builds:
+
+```json
+"answers": {
+  "dataEntry":  {"sentence": "...", "nodeIds": ["n:..."], "locs": [{"file": "data.py", "line": 26}], "confidence": 0.95},
+  "objective":  {...}, "evaluation": {...}, "verdict": {...}
+}
+```
+
+| # | Rule |
+|---|---|
+| **P1** | **Deterministic and offline.** The four sentences are composed from the finished document by lookups over an already-sorted `nodes[]` — no model, no network, no clock — so all three hosts print the same bytes for the same graph. `compose(doc)` is a pure `dict -> dict`. |
+| **P2** | **An absence is stated as an absence.** A workspace with no eval stage gets *"No evaluation stage was detected: nothing computes a metric or runs the model in eval mode, so this pipeline's quality is not measured anywhere MLView can see."* Printing nothing is not an option: not being able to tell *"I checked and it is fine"* from *"I could not check"* is the failure this round exists to end. |
+| **P3** | **Nothing under `MIN_CONFIDENCE` (0.6) is asserted as fact.** A candidate below the floor is dropped from the citation and **counted**: the sentence then ends *"N further candidate(s) were below the 0.6 confidence floor and are not asserted."* Silence about a dropped candidate would be the same failure one level down. |
+| **P4** | **A ghost node is never cited.** A ghost is the analyzer's marker for something it expected and did **not** find, so citing one as a located fact inverts its meaning. Ghosts are read in exactly one place — the eval guard — and there the absence itself is the answer. |
+| **P5** | `confidence` is the **weakest** node the sentence rests on, so a long citation list cannot inflate it, and it is `0.0` exactly when nothing is cited — which is exactly when the sentence states an absence. The `verdict`'s confidence is the weakest **finding** it names, because a verdict is a claim about findings, not about nodes. |
+| **P6** | The **guard clause is stated only where a guard was found**, present or missing. A sklearn-only pipeline has no eval mode to guard, and inventing the absence of one would be a finding MLView did not make. On `samples/vision_pipeline` the clause reads *"the eval path is NOT guarded — no `model.eval()` or `torch.no_grad()` covers train.py:44"* (from the MLV301 ghost); on `samples/vision_pipeline_clean` it reads *"the eval path is guarded by eval() at train.py:48"*. |
+| **P7** | The `verdict` names the top three findings by **severity × confidence** and appends the coverage caveat when any coverage diagnostic (§11.18) is present: *"MLView also reported N coverage gap(s) (…), so this is not a clean bill of health."* A clean verdict on a blind run is the one sentence this card must never print. |
+| **P8** | **Project-level truth.** `core/project.project()` carries unknown root keys through verbatim, so a projection keeps the whole-project answers — exactly as `stages[].present` does (§11.4 F1) — and `view` remains the **last** key of a projected document. |
+
+**Surfaces (§3, additive).**
+
+* `--format summary` and `--format text` gain an **`Answers`** block, printed as the first block
+  after the header lines and above `Stages`, wrapped deterministically at 96 columns. A document
+  carrying no `answers` key prints no block, which is why `analyze --demo` — the hand-authored
+  `contracts/graph.sample.json`, which has no `answers` — is textually unchanged and
+  `analyze --demo --json -` stays **byte-identical** to the golden.
+* `api.digest()` gains an `answers` key holding the four **sentences** only — **866 B** measured
+  on `samples/vision_pipeline`, taking the digest from **2507 B to 3373 B** of the 4096 B budget,
+  with nothing shed (`topIssues` stays at 10, `lanes` at 7, no `truncatedDigest`). The
+  budget stays a hard cap: after the existing ladder empties `topIssues` and then `lanes`, the
+  answers are shed in the stated order **`dataEntry`, `objective`, `evaluation`, `verdict`** —
+  the first two are the ones an agent can most cheaply re-derive from `lanes` and `topIssues`.
+  At the contractual 4096 B none of the four is dropped on any corpus measured.
+* `emit/answers.py` exports `compose`, `render_block` and `digest_answers`. `api.render_summary`
+  and `api.render_text` keep their pinned signatures.
+
+**Schema (§11.16 mirrors).** `answers` is added to the root `properties` (never to `required`)
+with `$defs/Answers`, `$defs/Answer` and `$defs/AnswerLoc`, byte-identically in
+`contracts/graph.schema.json` and `analyzer/src/mlview/schema/graph.schema.json`.
+`contracts/graph.sample.json` is not regenerated and does not gain the key.
+
+**Measured on `samples/vision_pipeline`** (54 nodes / 51 edges / 15 findings, the §11.19
+re-baseline): the four sentences cite `data.py:26` and `data.py:31` (dataset and split),
+`train.py:22` and `train.py:23` (loss and optimizer), `train.py:41` and `train.py:44` (the eval
+loop), and `model.py:34`, `sklearn_baseline.py:24`, `train.py:29` (the verdict's three). The four
+`file:line` pairs ROADMAP MLV-P1 names — `data.py:26`, `data.py:31`, `train.py:23`, `train.py:44`
+— are all among them.
+
+**Gates:** `analyzer/tests/core/test_answers.py` (21 cases: the acceptance lines, the guarded and
+unguarded twins, an absent eval stage, an empty workspace answering all four as absences, the
+ghost exclusion, the confidence floor, determinism, the summary ordering, the digest budget, and
+the projection carrying answers verbatim), plus `contracts/validate_sample.py` on every document.
+
+---
+
+### 11.25 Packaging: the bundled core, the wheel and the precedence chain (2026-09-09) — amends §3, §6 and §9, host-owned
+
+A marketplace install **could not work**. The VSIX was 30 entries of `media/`, `out/` and 20 rule
+docs with **no analyzer**; `package.json` carried `private: true` (vsce refuses to publish), no
+`repository`, no `icon`, no `extensionKind`, and its package script carried
+`--allow-missing-repository`; `installCore()` offered `pip install -e <repo>/analyzer`, naming a
+checkout a marketplace user does not have; and there was no wheel at all — `analyzer/dist` did not
+exist. Two audits then asked for opposite things: *bundle the analyzer so no pip is needed*, and
+*pip install from PyPI*. Shipping both as first-class produces two support stories, so this
+amendment makes them **one precedence chain**.
+
+**P1 — a third copy of the analyzer is authorised, and only under its gate.** `tools/sync-core.py`
+now vendors `analyzer/src/mlview` into **both** `claude-plugin/vendor/mlview` and
+`vscode-extension/core/mlview`, byte-exactly and under the same skip rules (`__pycache__`,
+`*.pyc`, any `tests` directory). `tools/verify.py` grows a **`vsix: synced core`** row beside
+`vendor: synced core`, and that row additionally fails when `.vscodeignore` would exclude `core/`
+from the package — a VSIX that ships without its analyzer is green in every other gate and broken
+on install. The gate is not optional here; it is the whole safety story for the third copy, and it
+was the condition attached to authorising one.
+
+**P2 — the precedence chain, stated once.** `vscode-extension/src/bundledCore.ts` decides, purely:
+
+| Order | Chosen | When |
+|---|---|---|
+| 1 | the **installed** core | it is present, `schemaMajor(installed) == schemaMajor(extension)`, and `compareVersions(installed, bundled) >= 0` |
+| 2 | the **bundled** core at `<extension>/core` | there is no installed core, or its schema major differs, or it is older |
+| 3 | neither — the install prompt | no bundled copy in this build **and** no installed core |
+
+`compareVersions` is numeric per dotted component (`0.10.0` is newer than `0.9.0`) and sorts any
+pre-release suffix **below** the same release, so a release candidate installed for testing never
+silently outranks the bundled stable core.
+
+**P3 — the bundled core runs through `PYTHONPATH`, never through a copied interpreter.** When the
+chain chooses the bundled core, `CoreClient` prepends `<extension>/core` to `PYTHONPATH` for that
+spawn and sets `PYTHONDONTWRITEBYTECODE=1`; it prepends rather than replaces, so a user's own
+`PYTHONPATH` still works, and the bytecode flag keeps a read-only install free of `__pycache__`
+trees inside the VSIX's own directory. This is exactly how `.mcp.json` already runs the plugin's
+`vendor/` copy (§6.2, A1). Nothing else about the spawn changes: same argv, same `-X utf8`, same
+`shell: false`, same absolute interpreter.
+
+**P4 — a schema-major mismatch stops being fatal.** It used to be a hard failure with an install
+prompt. With a bundled core present the extension uses the copy it shipped and reports the
+mismatch as a **warning**, because a working diagram plus a warning is strictly better than a
+banner. With no bundled core the old fatal path is unchanged.
+
+**P5 — the host says which core answered.** `pythonEnv.coreDescription()` returns one line
+(`core: mlview 0.1.0 bundled with the extension (no mlview installed in the interpreter) · /usr/bin/python3`)
+and the status-bar tooltip carries it under the issue counts. A user who pip-installs a newer core
+and sees no change must be able to find out which analyzer produced the number they are reading,
+without opening the output channel.
+
+**P6 — `installCore()` offers the published wheel.** `python -m pip install --upgrade mlview`, in
+a terminal, on the interpreter MLView actually resolved — never a checkout path. With a bundled
+core the prompt is an upgrade path rather than a rescue.
+
+**P7 — the manifest is publishable.** `private` is dropped; `repository` (with
+`directory: "vscode-extension"`), `bugs`, `homepage`, `icon` (`media/icon.png`, 128×128),
+`galleryBanner`, `preview: true` and `extensionKind: ["workspace"]` are added.
+`extensionKind` is now **declared** rather than relied upon, so Remote-SSH, WSL and
+Dev-Container installs land on the machine that owns the files and the interpreter. `npm run
+package` succeeds with **no `--allow-missing-repository`**, and the VSIX stays **under 1 MB**
+(measured: 464 KB, 99 files). `preview: true` de-risks a publish that cannot be undone.
+
+**P8 — the icon is source, not a binary somebody once drew.**
+`vscode-extension/tools/make_icon.py` renders `media/icon.png` from thirty lines of arithmetic
+using only `zlib` and `struct`, and its `--check` mode re-renders into memory and byte-compares,
+so an edited PNG that no longer matches the script fails instead of drifting.
+
+**P9 — the wheel is built and proved, every run.** `scripts/build.sh` / `build.ps1` gain step
+**6/6**, `python -m build --wheel analyzer` into `analyzer/dist` (gitignored); the step **skips
+with a message** when `build` is not installed, because a missing publishing tool must never
+redden a developer's build. `tools/wheel_check.py` is the acceptance, and both e2e drivers run it
+as the row **`wheel installs and runs`**: a fresh venv, `pip install` of the wheel, `mlview
+--version --json` through the **console script** (a broken entry point is invisible to `python -m
+mlview`), and then one real analysis on a planted leak — because a wheel missing `schema/*.json`
+or `emit/assets/*` installs perfectly and fails on first use.
+
+**P10 — the plugin gains a hosted source.** `.claude-plugin/marketplace.json` keeps its local
+`./claude-plugin` entry (a checkout is not an install channel, but it is how this repo's own
+tests install) and adds `mlview-github`, using the github source object
+(`{"source": "github", "repo": "realmyang/MLView"}`). Two entries may never share a name.
+
+**Gates.** `tools/verify.py --all` is **10 rows** (the new `vsix: synced core`);
+`vscode-extension/test/packaging.test.js` (16 cases: the chain, the manifest, the icon's IHDR,
+`.vscodeignore`, and the bundled core's own byte-identity);
+`claude-plugin/tests/test_plugin_manifest.py` (the two marketplace entries); the `wheel installs
+and runs` e2e row; and a new `packaging (wheel + vsix)` CI job that builds both artifacts,
+re-checks the icon and the synced core, and fails if the VSIX crosses 1 MB.
+
+**Nothing about the document changes.** No schema field, no graph key, no exit code, and
+`contracts/graph.sample.json` is untouched. A user with an installed core that is current sees
+exactly the behaviour they saw before this amendment.
+
+---
+
+### 11.27 Suppression as an action: `suppressRule` and the quick fixes (2026-09-09) — amends §4, host-owned
+
+Suppression works exactly as documented on the CLI — `# mlview: ignore[MLV201]` and
+`[rules] disable = [...]` both behave, and `--show-suppressed` restores the row — and is
+**unreachable from any UI**. Rail rows expose only "Open file:line", and the comment syntax lives
+only in rule docs the report cannot reach. So the workflow for *"this one is a false positive"* is:
+find a doc in the repo, memorise the syntax, switch to the editor, type it.
+
+**S0 — this stays inside `REQUIREMENTS.md` §5 non-goal 5.** That non-goal bars quick fixes that
+edit the user's ML logic. A suppression comment and a config key edit neither, and §5 already
+notes the diagnostic `code` field is shaped so quick fixes can be added later. Nothing here writes
+a line of Python that changes what a program does.
+
+**S1 — one new `UiToHost` message, additive.** `HOST_TO_UI_TYPES` is unchanged; `UI_TO_HOST_TYPES`
+gains `suppressRule`:
+
+```ts
+{ v: 1; type: 'suppressRule'; code: string;
+  action: 'copy' | 'insert' | 'disable';
+  absFile?: string;      // required by `insert`
+  line?: number }        // 1-based, like every Loc.line in the document
+```
+
+`isUiToHost` accepts it only when `code` matches `^MLV[0-9]{3}$` and `action` is one of the three
+words; anything else is rejected by the guard, not by the handler, and a viewer that never sends
+the message is unaffected. §4's rule that an unknown message type is logged and ignored is
+unchanged, so an older host and a newer viewer still interoperate.
+
+**S2 — three actions, one implementation.** The VS Code `CodeActionProvider`
+(`src/codeActions.ts`, `QuickFix` kind, `python` selector) and the `suppressRule` message both
+call `runSuppression`, so the confirm dialog, the containment check and the "already ignored"
+message cannot differ between the lightbulb and the diagram rail.
+
+| Action | Title | Effect |
+|---|---|---|
+| `copy` | `Copy ignore comment for MLV201` | `# mlview: ignore[MLV201]` to the clipboard, with the existing copy toast |
+| `insert` | `Add ignore comment on this line (MLV201)` | a `WorkspaceEdit` replacing the diagnostic's own line; **preferred** |
+| `disable` | `Disable rule MLV201 in .mlview.toml` | `[rules] disable` at the workspace root, behind a modal confirm |
+
+**S3 — the comment MERGES, it never stacks.** The analyzer reads the **first**
+`# mlview: ignore[...]` on a line, so a second comment appended after the first is dead text.
+`withIgnoreComment` adds the code to the existing bracket list
+(`# mlview: ignore[MLV101, MLV301]`), refuses to edit a line already covered by a blanket
+`ignore` / `ignore-file`, and reports "already listed" rather than writing a duplicate.
+
+**S4 — the config write is confirmed, contained and conservative.** The dialog is **modal**, names
+the file it will write, says the rule stops being reported for everyone who opens the repo and for
+CI, and points at the narrower gesture. The path is always `<workspace root>/.mlview.toml`,
+checked with the same containment rule every other write path in this repo uses; with no folder
+open the action refuses and says so. The edit is a **line transform**, never a TOML round-trip: an
+existing `[rules]` section keeps its comments, its key order and its CRLF, and an unterminated
+array is refused rather than half-written.
+
+**S5 — the boundary conversion stays where §0 put it.** `suppressRule.line` is 1-based like every
+`Loc.line`; `src/location.ts` is still the only module that converts to the editor's 0-based
+lines (`toEditorLine` / `toGraphLine`), and `test/invariants.test.js` enforces it.
+
+**S6 — three commands, registered but not contributed.** `mlview.copyIgnoreComment`,
+`mlview.addIgnoreComment` and `mlview.disableRule` register unconditionally at activation and are
+deliberately **absent from `contributes.commands`**: they take arguments and would be broken if
+invoked from the palette. The eleven contributed commands are unchanged.
+
+**Gates.** `vscode-extension/test/suppression.test.js` (23 cases: the byte-exact comment against
+the analyzer's own `IGNORE_RE`, the TOML transforms, containment, the lightbulb's menu, the
+confirm dialog's two answers, and the 1-based conversion through `runSuppression`),
+`vscode-extension/test/protocol.test.js` (the message has a sample and survives a JSON round
+trip), and one host-level test driving the message through a real panel.
+
+**Nothing about the document changes.** No schema field, no graph key, no analyzer flag — a
+suppression takes effect the next time the analyzer runs, exactly as it does from the CLI.
+
+---
+
+### 11.30 The edge-retained issue, and differential fuzzing of the two projections (2026-09-09) — amends §11.2 step 6 and §11.15, contracts-owned
+
+HEALTH-02 asked for a fuzzer over the two `project()` implementations. Building it found a **real divergence on
+its first two-hundred cases**, in the one branch §11.2 step 6 does not spell out, so this amendment does two
+things: it closes the specification gap, and it makes the fuzzer a gate so the next gap is found by a machine
+rather than by a reader.
+
+---
+
+#### A. The edge-retained issue (amends §11.2 step 6)
+
+Step 6 retains an issue when **any** `nodeIds` entry or **any** `edgeIds` entry is in `core`, and then filters
+both lists to what survived. It does not say what happens when an issue is retained **through the edge rule**
+and every one of its `nodeIds` fell outside `kept`. The two ports answered differently and both answers were
+defensible from the text:
+
+| | Python `core/project.py` | TypeScript `webview/src/scope/project.ts` (before this amendment) |
+|---|---|---|
+| `issue.nodeIds` | the retaining edge's `source`, promoted in | `[]` |
+| that node's `issueIds` | gains the issue — the link stays two-way | unchanged |
+| no live core edge either | the issue is dropped | kept, with `nodeIds: []` |
+
+`nodeIds: []` breaks graph invariant **1.1.3** (`issue.nodeIds[0]` always names a node in `nodes[]`) and leaves
+the renderer with nowhere to draw the badge. The schema cannot catch it, because `Issue.nodeIds` carries no
+`minItems`. **The Python behaviour is now normative**, and it is normative in three parts:
+
+| # | Rule |
+|---|---|
+| **F1** | An issue retained through the edge rule whose `nodeIds` all fell outside `kept` **promotes** the first live retaining edge's `source` — a `core` node by construction, so it is a legal `nodeIds[0]` and needs no rotation — and becomes that issue's whole `nodeIds`. |
+| **F2** | The promotion is the one place a projection *adds* an id, so the **reverse link travels with it**: the promoted node's `issueIds` gains the issue id, appended after the filtered ones, and only if the issue survived step 7. A one-way link would break `contracts/validate_sample.py`'s node ↔ issue check in place of invariant 1.1.3, which is not an improvement. |
+| **F3** | If there is no live retaining core edge after all, the issue is **dropped**. A retained issue always ends with at least one node. |
+
+No shipped rule can reach this branch today — every rule that cites an edge also cites its two endpoints — but
+§11.2 contracts the projection as **total over any schema-valid document**, and `contracts/graph.schema.json`
+permits the shape. This is a port fix, not a behaviour change: no document any emitter produces today changes
+by one byte, `contracts/graph.sample.json` and `contracts/scope.expected.json`'s sixteen `cases` are untouched,
+and `--demo` byte parity is unaffected.
+
+**Mirrors (§11.16).** `webview/src/scope/project.ts` moves in the same change as this file, and
+`webview/dist/mlview.js` plus its two synced copies (`tools/sync-assets.py`) are rebuilt with it.
+
+---
+
+#### B. The differential fuzz gate (amends §11.15)
+
+§11.15's battery is 16 selectors over **one** frozen 45-node document. It has never seen a ghost-heavy
+document, a disconnected component, a cross-stage parent, an issue anchored on four nodes, an issue anchored on
+an edge, or a 400-node graph — which is exactly why A above survived two implementations, a schema, a
+ten-group validator and a parity gate. §11.15 is extended with a second, generated battery.
+
+| # | Rule |
+|---|---|
+| **G1** | `analyzer/tools/scope_fuzz.py` generates documents from a **seed**: node counts 5–500, hierarchy depth, cross-stage parents, ghost density, orphan density, issue arity 1–4, issues anchored on an edge whose nodes sit elsewhere, and 1–3 disconnected components. The same seed reproduces the same run byte for byte, so a failure is replayable from its printed seed. |
+| **G2** | Every generated document is checked by `contracts/validate_sample.py` — the schema **and** all ten invariant groups — *before* it is projected. A document that does not validate **fails the run as a generator bug**: the harness must never compare two projections of garbage, and the generator is held to the same standard as the analyzer. |
+| **G3** | Selectors are drawn across **every** kind in §11.1 (`all`, `stage:`, `concern:` including its aliases, `file:` exact / basename / case-folded, `unit:` by qualname / bare name / label / case-folded / unmatched, `node:`) at every legal depth (unset, 0, 1, 2), plus the rejected forms — so `ScopeError` parity is fuzzed too, on its contractual triple `{code, term, candidates}` and never on its prose. |
+| **G4** | The comparison is the **digest**: the `nodes` / `edges` / `issues` id lists in order, every `issue.nodeIds` and `edgeIds` (so the stable rotation of step 6 is checked), every node's `viewRole` and filtered `issueIds`, each edge's filtered `issueIds`, all eight stage rows, `stats`, and the whole `view`. Written exactly twice — `digest_of` in `analyzer/tools/gen_scope_fixtures.py` and `digestOf` in `webview/test/scope_fuzz.test.mjs` — and those two functions move together. `diagnostics` is deliberately excluded: step 10 appends resolution warnings whose wording §11.1 leaves free. |
+| **G5** | Every counterexample is **promoted, not merely reported**: `--promote` minimizes it by delta debugging (each pass proposes random subsets *and* every one-element deletion, and one node process answers them all, so the shrink is geometric: the three promoted so far came from 79-, 115- and 300-node documents and are **3 nodes / 1 edge** each) and appends it to `contracts/scope.cases.json` under a new **`fuzzCases`** array, carrying its own graph inline because it is not the frozen golden. `contracts/scope.expected.json` gains the matching array of digests, generated from the Python side by `gen_scope_fixtures.py` like everything else. The fixture battery **grows**; the fuzzer never replaces it. |
+| **G6** | `cases` in both files is untouched by G5, so `webview/test/scope_parity.test.mjs`, `analyzer/tests/core/scope_support.py` and the gate row's "10 projections + 6 error cases" all keep their exact shape. `webview/test/scope_fuzz.test.mjs` replays `fuzzCases` with no Python in the loop. |
+| **G7** | The gate is `python tools/verify.py --scopes --fuzz N`, which adds **two** rows: `scopes: promoted` (replay the `fuzzCases`) and `scopes: fuzz` (N fresh graphs). **200 locally** — measured **4.9 s** for both rows on this tree against a 60 s budget — and **2000 nightly**, measured 14.8–17.7 s over five seeds, in `.github/workflows/nightly.yml`. `--fuzz` is inert unless asked for, so `--all` and `--scopes` cost exactly what they cost today. |
+| **G8** | The fuzzer must be **proved to bite** whenever its comparison changes: build the viewer from a copy of `webview/src` with one line of `project.ts` removed and aim `MLVIEW_FUZZ_BUNDLE` at it. Dropping the `rotateToCore` call is the reference injection: measured over eight seeds it is caught by **every** one inside 50 cases — earliest at the 2nd generated case, latest at the 28th. This is why the harness takes a bundle path at all — never edit the repository to test the tester. |
+
+**Gates:** `tools/verify.py --scopes --fuzz 200` (new rows `scopes: promoted` and `scopes: fuzz`), `webview/test/scope_fuzz.test.mjs`
+(both modes), `analyzer/tools/gen_scope_fixtures.py --check` (now also byte-diffs the promoted expectations),
+and `.github/workflows/nightly.yml`. Nothing in `contracts/graph.sample.json`, `contracts/graph.schema.json` or
+its mirror changes.
+
+---
+
+### 11.31 `--progress-json` frames (2026-09-09) — amends §3, analyzer-owned
+
+`analysisProgress` is fully specified in `vscode-extension/src/protocol.ts`, listed in
+`HOST_TO_UI_TYPES`, and rendered by a working `done / total` bar with a per-file label in
+`webview/src/ui/states.ts` — and **no host had ever sent one**, while a 445-file workspace showed
+an indeterminate spinner for 5.64 s. This is the core half.
+
+**`--progress-json` on `analyze` and `issues`** writes NDJSON frames to **stderr**, one per
+analyzed file:
+
+```
+{"t":"progress","done":3,"total":45,"file":"src/train.py"}
+```
+
+| # | Rule |
+|---|---|
+| **H1** | **stdout is never touched.** Progress is a log, and §3's stdout-purity gate (`tests/core/test_stdout_purity.py`) is frozen. The frame is exactly the object above — no spaces, key order `t, done, total, file`, one trailing newline, `file` workspace-relative with forward slashes. |
+| **H2** | **The library never opens the sink.** `AnalyzeOptions.progress` is an optional `(done, total, relpath)` callable, **appended last and defaulted to `None`** under the same rule §11.6 used for `scope` and `depth`, so the frozen surface, `frozen=True` and hashability are unchanged. `core/progress.ProgressWriter` is what the CLI passes for `--progress-json`; an in-process host passes its own function and no bytes are written anywhere. `api.analyze()` performs no I/O of its own. |
+| **H3** | **Throttled to one frame per 50 ms (`INTERVAL_MS`), with a guaranteed final frame** at `done == total` that the throttle never suppresses — a consumer sees 100% exactly once even when the whole analysis fits inside one interval. |
+| **H4** | **A frame can never break an analysis.** A sink that raises is dropped for the rest of the run, silently: one bad frame costs one frame, never an exit code. A progress bar is not worth an exit code. |
+| **H5** | `done` counts files whose **parse has completed**, so it is work finished rather than work started, and `total` is the discovered file count after `--max-files`. Frames are emitted only for Python files that reach the parser; a skipped notebook is not a frame (it is already a `notebook_skipped` diagnostic). |
+
+**Nothing else changes.** No schema field, no document key, no exit code, and a run without the
+flag emits the bytes it emitted before the flag existed — asserted, not assumed
+(`test_without_the_flag_stderr_carries_no_frames`).
+
+**The host half is separate and optional.** `CoreClient.spawn` already buffers stderr line by
+line, so a host parses the lines prefixed `{"t":"progress"`, forwards them as
+`postAnalysisProgress`, leaves every other stderr line going to the log exactly as today, and
+ignores frames arriving after `analysisFailed` for that `requestId`. Passing the flag only when a
+panel is live keeps the headless and export paths byte-identical.
+
+**Gates:** `analyzer/tests/core/test_progress.py` (9 cases: the exact frame text, the throttle
+driven by a hand-cranked clock, the guaranteed final frame, the raising sink, one call per file,
+silence without the flag, and stdout purity under `--json -` with the flag on).
+
+---
+
+### 11.32 Viewer: label placement, accessibility scaffolding, answers and suppression (2026-09-09) — amends §4, §8 and 11.9, renderer-local
+
+Five NEXT-tier items land in `webview/` together — VIEW-03, VIEW-12, MLV-P1, MLV-P10 and CI-ADOPT's rendering
+half. Nothing here changes the graph document's *required* shape: every schema field named below is **optional**,
+every message is **additive**, and a document, host or saved state predating this amendment renders exactly as it
+did before. `contracts/graph.sample.json` is unchanged.
+
+**One message is added to §4 (webview → host).** Both sides still ignore unknown types.
+
+```ts
+// Webview → host
+| { v: 1; type: 'suppressRule'; code: string; scope: 'workspace';
+    action?: 'copy' | 'insert' | 'disable' }
+```
+
+| # | Rule |
+|---|---|
+| **V1** | `suppressRule` is a **request, never an edit**. The viewer writes no file, ever. The host decides: VS Code runs the same `runSuppression` path its lightbulb runs, behind an explicit confirm and never outside the workspace; the standalone report, which has no workspace, answers with the existing copy toast (11.17.1) carrying the `.mlview.toml` snippet. A host predating the message drops it, which leaves the viewer exactly as it was. |
+| **V2** | The message carries **both** `scope` and `action`, and both are always sent. `scope` is what the viewer means — workspace-wide, never one file. `action` is the discriminator `vscode-extension/src/protocol.ts` validates against; its `isUiToHost` **rejects** a `suppressRule` without one. The viewer only ever sends `action: 'disable'`: "Copy ignore comment" goes through the generic `copy` message that already owns the clipboard path, and `insert` belongs to the editor's own lightbulb, which has a cursor to insert at. |
+| **V3** | The two suppression strings have exactly one definition, `webview/src/ui/suppress.ts`: `ignoreComment(code)` is `# mlview: ignore[<code>]` and `disableSnippet(code)` is `[rules]\n<code> = "off"`. The rail, the Inspector, the group headers and the standalone bridge all read them from there, so no surface can teach a user a syntax the analyzer does not accept. |
+
+**Three optional document fields, and two optional state fields.** The schema mirror for `Issue.change` /
+`Issue.baselined` / `answers` belongs to the amendments that emit them (CI-ADOPT, MLV-P1); this clause fixes what
+the renderer does with them.
+
+| # | Rule |
+|---|---|
+| **V4** | `Issue.change` is typed `string` in `webview/src/types.ts`, never narrowed — invariant 1.1/6. `new`, `touched` and `existing` draw a chip; anything else renders unchipped rather than throwing. **Absent means the run was not attributed**, and an unattributed finding is never hidden: the `only changed` filter drops an explicit `existing` and nothing else, which is the documented degradation ("unattributed, showing everything") expressed in the viewer. |
+| **V5** | `Issue.baselined` is treated exactly as `suppressed`: **marked, not deleted**. Both are removed from the severity sections by `FilterModel.keep` and both are listed in the rail's collapsed `N suppressed` section, each row carrying its own chip. `FilterModel.keepBase` is `keep` without the suppression and baseline tests, so that section still honours the severity chips, the stage chips and a host's `setFilter` codes. |
+| **V6** | `MLGraph.answers` is optional and every field inside it is optional. **Absent means absent**: no card is drawn, never an empty one, and a block carrying two of the four answers draws two rows in the fixed order `dataEntry, objective, evaluation, verdict`. A row whose `confidence` is under **0.6** is marked as low confidence rather than dropped, matching the emitter's own guard. |
+| **V7** | An `answers` citation is `{file, line}` — an answer cites a place to look, not a range to select. The viewer completes it into the six fields §4's `openLocation` requires, rebuilding `absFile` from `workspace.root` when the emitter did not write one, so a citation reaches VS Code instead of posting `absFile: undefined`. |
+| **V8** | `ViewState` gains `answersOpen?: boolean` and `Filters` gains `changedOnly?: boolean`, both **absent at their defaults** (open, off) exactly as `flow` is absent while on (11.9). `getState()`'s key set is therefore unchanged for a document that uses neither, and an older host round-trips both untouched. |
+
+**VIEW-03 — edge labels are placed, not centred.** `render/edges.ts` drew every label at the route midpoint;
+since ~70 % of edges cross a lane, that midpoint *is* the lane seam.
+
+| # | Rule |
+|---|---|
+| **V9** | A label is anchored to the **longest axis-aligned run of its own route that lies strictly inside one lane band**, where a band is the lane box inset by `LANE_PAD` at the top and the bottom. Horizontal runs are preferred over vertical ones; when no run survives the clip the **outlet-adjacent segment** (the leg leaving the source card) is used and the placement is marked `fallback`. |
+| **V10** | **No drawn label may sit within `LANE_PAD` of a lane boundary, overlap a node card, or overlap another drawn label.** One greedy declutter pass, in **document order**, with a **fixed** cap of 20 candidate positions — 10 per run (on the spot, pushed two thirds of the way to each end, pushed all the way to each end, each flipped across the stroke) over the route's runs longest-first. When the cap is reached the label is **hidden**, and its `<g class="mlv-edge">` carries `data-label-hidden="1"` so the drop is auditable rather than silent. |
+| **V11** | Only labels drawn **without hovering** — data and control labels at LOD `full`, plus back-edges and merged routes at every zoom, exactly as `styles/edge.css` decides — participate in the collision set and can be hidden by it. A call or config label appears one at a time under the pointer, where it cannot collide with a sibling that is not drawn; it obeys V9 and V10's band and card rules and is never dropped. |
+| **V12** | The pass is **pure geometry over (frame, routes)**: no DOM, no text measurement, no randomness, every collection walked in document order. Two runs over the same bytes place every label identically — the parity and golden-render gates depend on it. The label box model is calibrated against Chromium's measured ink (13.68 px tall, sitting ~1 px above the declared `y` at 10 px), because a model smaller than the ink enforces `LANE_PAD` against a box nobody draws. |
+| **V13** | The severity marker is walked **along its own polyline** until its disc clears the label box, instead of being centred on the same point. The label keeps the anchor it earned; a glyph anywhere on its own stroke still reads as belonging to that edge. |
+
+**VIEW-12 — the scaffolding around the diagram.** The keyboard model *inside* the canvas is unchanged: one focus
+stop, `aria-activedescendant` roving, a polite live region.
+
+| # | Rule |
+|---|---|
+| **V14** | The **skip link is the document's first tab stop** and lands focus on the canvas. It is a real anchor (`href="#<canvas id>"`) whose click is `preventDefault`ed: the report never navigates its own document, not even to a fragment (11.17). |
+| **V15** | The canvas is reachable in **≤ 3 presses via the skip link and ≤ 4 without it**. That budget is what fixes the chrome's shape: the toolbar row and the stage-filter row are ONE `role="toolbar"` with arrow-key roving (one tab stop), the search input keeps its own stop because its own arrow keys drive the caret and the results listbox, and **nothing else may be added between them and the canvas**. Anything new that would take a stop there goes *after* the canvas in DOM order — which is why MLV-P1's card is lifted above the canvas with `order: -1` instead of preceding it. |
+| **V16** | Exactly **one `h1`**, carrying the workspace name, and a monotonic outline below it: `h2` for the `<main>` diagram region and for the rail, `h3` per rail panel, `h4` for the severity sections and the inspected node, `h5` for that node's subsections. No level is skipped. |
+| **V17** | The canvas sits inside a **`<main>`** landmark; the rail stays a sibling `<aside>`. |
+| **V18** | The minimap is **`aria-hidden="true"`** — it duplicates a canvas that is already fully navigable — and it moves out of the canvas element to sit **before** it inside `<main>`. An `aria-hidden` subtree may not hold a tab stop, so its in-panel chevron becomes pointer-only (`tabindex="-1"`) and the keyboard's copy of it is a labelled `Minimap` toggle in the toolbar, before the canvas in DOM order. The two stay in step in both directions. |
+| **V19** | Node cards carry their own `:focus-visible` ring, at the card's radius. |
+
+**One new empty state.** The rail already told four zeros apart (nothing analysed, nothing wrong, filtered out,
+out of scope). A fifth is added: **every finding suppressed**. "No issues match these filters" would be false — no
+filter is doing it — and "No issues found" would be a clean bill of health over N suppressions, which is exactly
+the failure mode this product is trying to end.
+
+**Mirrors (§11.16).** `webview/src/types.ts` carries the TypeScript copy of `Issue.change`, `Issue.baselined` and
+`answers`; the JSON Schema copy belongs to the amendments that emit them, and the two must land in the same
+release. `vscode-extension/src/protocol.ts` already validates `suppressRule` and is unchanged by this amendment.
+
+**Gates added** (`webview/npm test`, 300 → 341):
+
+| New gate | Command | Asserts |
+|---|---|---|
+| Label placement | `node --test test/labels.test.mjs` | On the demo graph: **0** label-label overlaps, **0** labels over cards, **0** labels within `LANE_PAD` of a boundary, 0 hidden — each re-derived by the test from the boxes and rectangles, not self-reported. On a 300-node synthetic: 0 label-label overlaps among the labels drawn at zoom ≥ 0.62. Plus determinism over the same bytes, the marker nudge, and the placement cost against the relayout it rides on. |
+| Accessibility scaffolding | `node --test test/a11y.test.mjs` | The tab order to the canvas, the skip link, one `h1`, a monotonic outline, the `main` landmark, the roving toolbar (including that the search box keeps its keys and the stage chips still filter), the `aria-hidden` minimap with its labelled toolbar toggle, and the card focus ring. |
+| Suppression, answers and attribution | `node --test test/adopt.test.mjs` | Both actions on every row, on rule group headers and in the Inspector; the exact `copy` text and `suppressRule` shape; the standalone bridge's snippet toast; the collapsed `N suppressed` section including baselined rows; the change chips and the `only changed` filter including the unattributed degradation; the answer card's rows, citations, low-confidence marking, collapse state and its DOM position after the canvas. |

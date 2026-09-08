@@ -6,7 +6,9 @@
 import { add, button, clear, el, iconButton, on } from '../dom.js';
 import { uiIcon } from '../icons.js';
 import { severityGlyph, SEVERITY_ORDER } from '../markers.js';
-import type { Capabilities, Diagnostic, Filters, MLGraph, Severity, Stage } from '../types.js';
+import { RovingGroup } from './roving.js';
+import { coverageChipText, coverageHeadline, describe, stat } from './chromenotes.js';
+import type { Capabilities, Filters, MLGraph, Severity, Stage } from '../types.js';
 
 /**
  * Diagnostic kinds the chrome surfaces somewhere OTHER than the generic note
@@ -58,6 +60,15 @@ export interface ChromeCallbacks {
   onToggleFlow(next: boolean): void;
   /** Open or close the legend (VIEW-10); persisted as ViewState.legendOpen. */
   onToggleLegend(next: boolean): void;
+  /**
+   * VIEW-12: the keyboard's minimap toggle. The panel itself is `aria-hidden`
+   * and its chevron is pointer-only, so this button is the only accessible way
+   * to collapse the overview — and it is before the canvas in DOM order,
+   * instead of the tab stop after it that the chevron used to be.
+   */
+  onToggleMinimap(next: boolean): void;
+  /** CI-ADOPT: "only changed" — drops findings attributed `existing`. */
+  onChangedOnly(next: boolean): void;
 }
 
 export interface ChromeState {
@@ -80,11 +91,23 @@ export interface ChromeState {
   laneIds: string[];
   /** Present in the FULL analysis, absent from THIS projection (11.4 F3). */
   outOfScopeStages: Stage[];
+  /** Whether the minimap is collapsed, for the toolbar's toggle (VIEW-12). */
+  minimapCollapsed: boolean;
 }
 
 let chromeSeq = 0;
 
 export class Chrome {
+  /**
+   * The whole control strip as ONE `role="toolbar"` (VIEW-12).
+   *
+   * The toolbar row and the stage-filter row are two visual rows of the same
+   * widget: leaving them as separate tab stops kept seven stage chips, four
+   * theme chips and eleven buttons in the Tab order ahead of the canvas. Under
+   * one roving group the strip costs one press, and the search input inside it
+   * keeps the second.
+   */
+  readonly bar: HTMLElement;
   readonly toolbar: HTMLElement;
   readonly filterRow: HTMLElement;
   readonly chipRow: HTMLElement;
@@ -102,6 +125,8 @@ export class Chrome {
   private scopeBtn: HTMLButtonElement;
   private flowBtn: HTMLButtonElement;
   private legendBtn: HTMLButtonElement;
+  private minimapBtn: HTMLButtonElement;
+  private roving: RovingGroup | null = null;
   /** Where the App mounts the scope breadcrumb: first element after the brand. */
   readonly scopeSlot: HTMLElement;
   private cb: ChromeCallbacks;
@@ -109,10 +134,16 @@ export class Chrome {
   constructor(cb: ChromeCallbacks) {
     this.cb = cb;
     const uid = 'mlv' + ++chromeSeq;
-    this.toolbar = el('div', 'mlv-toolbar');
+    this.bar = el('div', 'mlv-chromebar');
+    this.bar.setAttribute('role', 'toolbar');
+    this.bar.setAttribute('aria-label', 'Diagram controls');
+    this.bar.setAttribute('aria-orientation', 'horizontal');
+    this.toolbar = add(this.bar, el('div', 'mlv-toolbar'));
 
-
-    const brand = add(this.toolbar, el('div', 'mlv-brand'));
+    // VIEW-12: the document's ONE `h1`, and it carries the workspace name —
+    // which existed only in `<title>` and in the brand text, so heading
+    // navigation started mid-document at a rail `h3`.
+    const brand = add(this.toolbar, el('h1', 'mlv-brand'));
     add(brand, el('span', 'mlv-brand__name', 'MLView'));
     this.rootLabel = add(brand, el('span', 'mlv-brand__root', ''));
 
@@ -199,6 +230,15 @@ export class Chrome {
     on(this.legendBtn, 'click', () => cb.onToggleLegend(this.legendBtn.getAttribute('aria-pressed') !== 'true'));
     this.toolbar.appendChild(this.legendBtn);
 
+    // The minimap's keyboard toggle (VIEW-12). `aria-pressed` reads "the
+    // overview is shown", so it is pressed while the panel is EXPANDED.
+    this.minimapBtn = el('button', 'mlv-btn mlv-btn--icon mlv-btn--minimap') as HTMLButtonElement;
+    this.minimapBtn.type = 'button';
+    this.minimapBtn.appendChild(uiIcon('minimap'));
+    this.minimapBtn.setAttribute('aria-pressed', 'true');
+    on(this.minimapBtn, 'click', () => cb.onToggleMinimap(this.minimapBtn.getAttribute('aria-pressed') === 'true'));
+    this.toolbar.appendChild(this.minimapBtn);
+
     const zoomOut = iconButton('mlv-btn mlv-btn--icon', 'Zoom out');
     zoomOut.appendChild(uiIcon('minus'));
     on(zoomOut, 'click', () => cb.onZoom(-1));
@@ -234,10 +274,20 @@ export class Chrome {
     on(rail, 'click', () => cb.onToggleRail());
     this.toolbar.appendChild(rail);
 
-    this.filterRow = el('div', 'mlv-filterrow');
+    this.filterRow = add(this.bar, el('div', 'mlv-filterrow'));
     this.chipRow = el('div', 'mlv-chiprow');
     this.banners = el('div', 'mlv-banners');
     this.status = el('div', 'mlv-status');
+
+    // One roving group over both rows. Built last, so every control the strip
+    // ships with is already in it; `update()` re-syncs it after the stage chips
+    // are rebuilt.
+    this.roving = new RovingGroup(this.bar);
+  }
+
+  destroy(): void {
+    if (this.roving) this.roving.destroy();
+    this.roving = null;
   }
 
   update(s: ChromeState): void {
@@ -273,6 +323,10 @@ export class Chrome {
     this.flowBtn.title = 'Connection flow animation is ' + (s.flowOn ? 'on' : 'off') + ' — press A to toggle';
     this.flowBtn.setAttribute('aria-label', 'Connection flow animation is ' + (s.flowOn ? 'on' : 'off'));
     this.legendBtn.setAttribute('aria-pressed', s.legendOpen ? 'true' : 'false');
+    const shown = !s.minimapCollapsed;
+    this.minimapBtn.setAttribute('aria-pressed', shown ? 'true' : 'false');
+    this.minimapBtn.title = 'Overview minimap is ' + (shown ? 'shown' : 'hidden');
+    this.minimapBtn.setAttribute('aria-label', this.minimapBtn.title);
 
     this.refreshBtn.hidden = !s.capabilities.canReanalyze;
     this.exportBtn.hidden = !s.capabilities.canExport;
@@ -282,6 +336,9 @@ export class Chrome {
     this.renderChips(s);
     this.renderBanners(s);
     this.renderStatus(s);
+    // The stage chip row was just rebuilt: put the strip's single tab stop back
+    // (VIEW-12).
+    if (this.roving) this.roving.sync();
   }
 
   /** Stage chips: every present band, toggleable. Empty selection means "all". */
@@ -300,6 +357,22 @@ export class Chrome {
       this.filterRow.hidden = true;
       return;
     }
+    // CI-ADOPT: offered only when the run was actually attributed against a
+    // base revision. An unattributed document must not grow a filter that can
+    // only ever hide nothing.
+    const attributed = (g.issues || []).some((i) => typeof i.change === 'string' && i.change);
+    if (attributed) {
+      const changed = el('button', 'mlv-chip mlv-chip--btn mlv-chip--changed') as HTMLButtonElement;
+      changed.type = 'button';
+      changed.textContent = 'only changed';
+      changed.setAttribute('data-changed-filter', '1');
+      const on_ = !!s.filters.changedOnly;
+      changed.setAttribute('aria-pressed', on_ ? 'true' : 'false');
+      changed.title = 'Show only findings on lines this change touched';
+      changed.setAttribute('aria-label', changed.title);
+      on(changed, 'click', () => this.cb.onChangedOnly(!s.filters.changedOnly));
+      this.filterRow.appendChild(changed);
+    }
     add(this.filterRow, el('span', 'mlv-chiprow__label', 'stages'));
     const active = s.filters.stages;
     for (const stage of stages) {
@@ -315,7 +388,11 @@ export class Chrome {
       this.filterRow.appendChild(chip);
     }
     const dirty =
-      active.length > 0 || s.filters.severities.length < 3 || s.filters.showSuppressed || s.filters.query.length > 0;
+      active.length > 0 ||
+      s.filters.severities.length < 3 ||
+      s.filters.showSuppressed ||
+      !!s.filters.changedOnly ||
+      s.filters.query.length > 0;
     if (dirty) {
       const clearBtn = button('mlv-btn', 'Clear filters');
       on(clearBtn, 'click', () => this.cb.onClearFilters());
@@ -500,41 +577,4 @@ export class Chrome {
     const notes = (g.diagnostics || []).length;
     if (notes) add(this.status, el('span', '', notes + (notes === 1 ? ' note' : ' notes')));
   }
-}
-
-function stat(value: string, label: string): HTMLElement {
-  const wrap = el('span', 'mlv-stat');
-  add(wrap, el('span', 'mlv-stat__value', value));
-  add(wrap, el('span', '', label));
-  return wrap;
-}
-
-/** The chip text for one coverage diagnostic — short, countable, honest. */
-function coverageChipText(d: Diagnostic): string {
-  if (d.kind === 'single_file_analysis') {
-    const codes = d.codes && d.codes.length ? ' — ' + d.codes.join(', ') + ' need more files' : '';
-    return 'single-file analysis' + codes;
-  }
-  const n = d.count || 0;
-  return n > 0 ? n + (n === 1 ? ' value not traced' : ' values not traced') : 'dataflow not traced';
-}
-
-/** The banner headline: what was not checked, in the reader's words. */
-function coverageHeadline(diags: Diagnostic[]): string {
-  const single = diags.some((d) => d.kind === 'single_file_analysis');
-  const untagged = diags.filter((d) => d.kind === 'untagged_dataflow');
-  const parts: string[] = [];
-  if (single) parts.push('only part of this project was analyzed, so cross-file rules could not run');
-  if (untagged.length) {
-    const n = untagged.reduce((sum, d) => sum + (d.count || 1), 0);
-    parts.push(n + (n === 1 ? ' value' : ' values') + ' reaching a fit or split could not be traced');
-  }
-  return 'Coverage: ' + parts.join('; ') + '. A clean result here is not a clean bill of health.';
-}
-
-function describe(diags: Diagnostic[]): string {
-  return diags
-    .slice(0, 8)
-    .map((d) => (d.file ? d.file + (d.line ? ':' + d.line : '') + ' — ' : '') + d.message)
-    .join('\n');
 }

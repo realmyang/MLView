@@ -5,7 +5,24 @@
   "version": "0.1.0",
   "publisher": "mlview",
   "license": "MIT",
-  "private": true,
+  "icon": "media/icon.png",
+  "preview": true,
+  "galleryBanner": {
+    "color": "#0E1420",
+    "theme": "dark"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/realmyang/MLView.git",
+    "directory": "vscode-extension"
+  },
+  "bugs": {
+    "url": "https://github.com/realmyang/MLView/issues"
+  },
+  "homepage": "https://github.com/realmyang/MLView#readme",
+  "extensionKind": [
+    "workspace"
+  ],
   "engines": {
     "vscode": "^1.100.0",
     "node": ">=20"
@@ -369,7 +386,7 @@
     "sync:rule-docs": "node tools/sync-rule-docs.mjs",
     "pretest": "node tools/sync-rule-docs.mjs && node esbuild.mjs",
     "test": "node tools/run-tests.mjs",
-    "package": "npx --yes @vscode/vsce package --no-dependencies --allow-missing-repository",
+    "package": "npx --yes @vscode/vsce package --no-dependencies",
     "check:panel": "node --test test/panelhtml.test.js"
   },
   "devDependencies": {

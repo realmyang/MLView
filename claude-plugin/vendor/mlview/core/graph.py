@@ -175,6 +175,15 @@ class Issue:
     evidence: List[Evidence] = field(default_factory=list)
     suppressed: bool = False
     docs: str = ""
+    #: CI-ADOPT, both appended last and defaulted so every existing positional
+    #: construction still works, and both emitted **only when set** so a run
+    #: without `--baseline` / `--changed-since` is byte-identical to what it
+    #: was before the flags existed.
+    #: `baselined` - matched an entry in the baseline file: still emitted, and
+    #: excluded from the rendered counts and from `--fail-on`.
+    baselined: bool = False
+    #: `change` - `new` / `touched` / `existing` against a diff.
+    change: Optional[str] = None
 
     @property
     def confidenceBucket(self) -> str:
@@ -182,7 +191,7 @@ class Issue:
 
     def to_dict(self) -> Dict[str, Any]:
         confidence = clamp_confidence(self.confidence)
-        return {
+        out: Dict[str, Any] = {
             "id": self.id,
             "code": self.code,
             "ruleVersion": self.ruleVersion,
@@ -202,8 +211,13 @@ class Issue:
             "tags": list(self.tags),
             "evidence": [e.to_dict() for e in self.evidence],
             "suppressed": self.suppressed,
-            "docs": self.docs or ("docs/rules/%s.md" % self.code),
         }
+        if self.baselined:
+            out["baselined"] = True
+        if self.change:
+            out["change"] = self.change
+        out["docs"] = self.docs or ("docs/rules/%s.md" % self.code)
+        return out
 
     @property
     def sort_key(self):
@@ -351,7 +365,7 @@ class MLGraph:
         }
         if self.configPath:
             workspace["configPath"] = self.configPath
-        return {
+        doc = {
             "schemaVersion": SCHEMA_VERSION,
             "generator": {
                 "name": GENERATOR_NAME,
@@ -374,6 +388,13 @@ class MLGraph:
                 "truncated": bool(self.truncated),
             },
         }
+        # MLV-P1: the four answers are composed from the finished document, so
+        # every host gets the same four sentences without asking for them. The
+        # import is local because `emit` is a layer above `core` - nothing in
+        # `core` may depend on it at import time.
+        from ..emit.answers import compose
+        doc["answers"] = compose(doc)
+        return doc
 
 
 def _dedup(values: Sequence[str]) -> List[str]:

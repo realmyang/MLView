@@ -145,6 +145,7 @@ import mlview_scope as scopes  # noqa: E402  (the section 11.1 selector grammar)
 from mlview_workspace import (  # noqa: E402  (imports the core, so bootstrap first)
     RULE_DOC_ROOTS as _RULE_DOC_ROOTS,
     data_dir,
+    load_attributed,
     load_graph,
     load_graph_or_file,
     project_dir,
@@ -302,6 +303,8 @@ def mlview_issues(
     scope: Optional[str] = None,
     depth: Optional[int] = None,
     groupBy: Optional[str] = None,
+    changedSince: Optional[str] = None,
+    baseline: Optional[str] = None,
 ) -> dict[str, Any]:
     """List the ML correctness and hygiene issues detected under `path`.
 
@@ -338,11 +341,30 @@ def mlview_issues(
             rows, it never filters them — the counts still describe every finding
             that passed minSeverity / minConfidence / code / scope.
 
+        changedSince: optional — a git revision (`HEAD`, `origin/main`, a SHA).
+            The WHOLE project is analyzed either way; the findings are then
+            attributed against `git diff -M --unified=0 <rev>` and only the ones
+            that touch the change are listed, each row carrying `change`: `new`
+            (inside an added hunk) or `touched` (a changed file, or a related
+            location such as the split site inside one). This is the answer to
+            "what did this PR introduce" on a repo that already has findings —
+            never use it to answer "is this project clean". When git is absent,
+            the directory is not a repo, or the revision does not exist, every
+            finding is listed and the `note` says so.
+        baseline: optional — path to a `mlview baseline write` file. Findings it
+            already records are marked and excluded from the counts (they come
+            back as `baselinedCount`), so only what is NEW since the baseline is
+            listed. Entries that no longer match any finding are reported in the
+            `note` rather than silently forgiven.
+
     Returns countBySeverity, suppressedCount and issues[] (or groups[] under
     groupBy); the payload is capped at 4 KB, so a large workspace comes back
     truncated with the full list in the graph document that mlview_analyze wrote.
     """
-    loaded = load_graph(path)
+    if changedSince or baseline:
+        loaded = load_attributed(path, changedSince, baseline)
+    else:
+        loaded = load_graph(path)
     spec, view, notes, _hops = scopes.apply_scope(loaded["graph"], scope, depth)
     return payloads.issues_payload(
         view,
@@ -352,7 +374,7 @@ def mlview_issues(
         limit=int(limit),
         graph_path=loaded["graphPath"],
         scope=spec,
-        extra_notes=notes,
+        extra_notes=list(loaded.get("notes") or ()) + list(notes),
         group_by=groupBy,
     )
 

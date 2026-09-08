@@ -281,11 +281,21 @@ export class Minimap {
 
   constructor(onJump: (x: number, y: number) => void, onToggle?: (collapsed: boolean) => void) {
     this.root = el('div', 'mlv-minimap');
+    // VIEW-12. The minimap is a DUPLICATE of a canvas that is already fully
+    // navigable — one focus stop, `aria-activedescendant` roving, a live region
+    // announcing every selection — so it is hidden from assistive tech rather
+    // than described twice.
+    this.root.setAttribute('aria-hidden', 'true');
     // The widget sits on top of live diagram, so it must be dismissable
     // (UX_DESIGN section 1: "collapsible to a 28 px chevron tab") — MLV-R2-W12.
     this.toggleBtn = iconButton('mlv-btn mlv-btn--icon mlv-minimap__toggle', 'Collapse minimap');
     this.toggleBtn.appendChild(uiIcon('chevron', 12));
     this.toggleBtn.setAttribute('aria-expanded', 'true');
+    // ...and an `aria-hidden` subtree may not hold a tab stop, so this chevron
+    // is the POINTER affordance only. The keyboard's copy of it is the labelled
+    // "Minimap" toggle in the toolbar, which is before the canvas in DOM order
+    // instead of the tab stop after it that this button used to be (VIEW-12).
+    this.toggleBtn.tabIndex = -1;
     on(this.toggleBtn, 'click', (ev: MouseEvent) => {
       ev.preventDefault();
       ev.stopPropagation();

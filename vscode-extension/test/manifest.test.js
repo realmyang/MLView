@@ -228,14 +228,17 @@ test('media/ holds the sync placeholder, plus the bundle once sync-assets.py has
   const mediaDir = path.join(__dirname, '..', 'media');
   const entries = fs.readdirSync(mediaDir).sort();
   assert.ok(entries.includes('README.md'), 'the A13 placeholder README must survive the sync');
+  // PACKAGING adds exactly one more file: the marketplace icon, whose source is
+  // `tools/make_icon.py` and whose bytes that script's --check mode owns.
+  assert.ok(entries.includes('icon.png'), 'the 128x128 marketplace icon must be committed');
   if (!entries.includes('mlview.js')) {
-    // Pre-sync state: the placeholder is the only thing there.
-    assert.deepEqual(entries, ['README.md']);
+    // Pre-sync state: the placeholder and the icon are the only things there.
+    assert.deepEqual(entries, ['README.md', 'icon.png']);
     return;
   }
-  // Post-sync state: tools/sync-assets.py is the sole writer of this directory and
-  // it writes exactly two files, so nothing else may appear alongside the README.
-  assert.deepEqual(entries, ['README.md', 'mlview.css', 'mlview.js']);
+  // Post-sync state: tools/sync-assets.py is the sole writer of the two bundle files
+  // and nothing else may appear alongside them, the README and the icon.
+  assert.deepEqual(entries, ['README.md', 'icon.png', 'mlview.css', 'mlview.js']);
   for (const name of ['mlview.js', 'mlview.css']) {
     assert.ok(fs.statSync(path.join(mediaDir, name)).size > 1024, name + ' looks truncated');
   }

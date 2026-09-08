@@ -8,6 +8,7 @@
 
 import { normalizeSeverity } from './markers.js';
 import { sanitizeFilters } from './protocol.js';
+import { isSetAside } from './types.js';
 import type { Filters, Issue, MLNode, Severity } from './types.js';
 
 export const ALL_SEVERITIES: Severity[] = ['low', 'medium', 'high'];
@@ -40,6 +41,10 @@ export class FilterModel {
     if (f.stages !== undefined) next.stages = f.stages.slice();
     if (f.showSuppressed !== undefined) next.showSuppressed = !!f.showSuppressed;
     if (f.query !== undefined) next.query = String(f.query);
+    if (f.changedOnly !== undefined) {
+      if (f.changedOnly) next.changedOnly = true;
+      else delete next.changedOnly;
+    }
     this.current = next;
   }
 
@@ -59,21 +64,47 @@ export class FilterModel {
 
   /** A defensive copy for ViewState. */
   snapshot(): Filters {
-    return {
+    const out: Filters = {
       severities: this.current.severities.slice(),
       stages: this.current.stages.slice(),
       showSuppressed: this.current.showSuppressed,
       query: this.current.query,
     };
+    // Absent at its default, like `ViewState.flow` (CI-ADOPT).
+    if (this.current.changedOnly) out.changedOnly = true;
+    return out;
   }
 
-  /** True when this finding should be counted, listed and marked. */
+  /**
+   * True when this finding should be counted, listed and marked.
+   *
+   * A BASELINED finding is set aside exactly as a suppressed one is (CI-ADOPT:
+   * "a baselined issue is marked, not deleted, so the existing show-suppressed
+   * affordance carries it") — the rail still lists it, in the collapsed
+   * "N suppressed" section, with its own chip.
+   */
   keep = (issue: Issue): boolean => {
     const f = this.current;
-    if (!f.showSuppressed && issue.suppressed) return false;
+    if (!f.showSuppressed && isSetAside(issue)) return false;
+    return this.keepBase(issue);
+  };
+
+  /**
+   * Everything `keep` tests EXCEPT suppression and baselining.
+   *
+   * The rail's collapsed suppressed section lists the findings the first rule
+   * removed, and it must still honour the severity chips, the stage chips and a
+   * host's `setFilter` codes -- otherwise a filtered-away finding reappears in
+   * the section that is supposed to be an audit trail of suppressions.
+   */
+  keepBase = (issue: Issue): boolean => {
+    const f = this.current;
     if (f.severities.indexOf(normalizeSeverity(issue.severity)) < 0) return false;
     if (this.codes.length && this.codes.indexOf(issue.code) < 0) return false;
     if (f.stages.length && f.stages.indexOf(issue.stage) < 0) return false;
+    // CI-ADOPT: only an EXPLICIT `existing` is dropped. An unattributed run has
+    // no `change` at all and must show everything rather than nothing.
+    if (f.changedOnly && issue.change === 'existing') return false;
     return true;
   };
 

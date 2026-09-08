@@ -11,6 +11,7 @@ import sys
 from typing import Any, Dict, List, Optional, Sequence
 
 from ..core.coverage import COVERAGE_KINDS
+from .answers import render_block as render_answers_block
 from .group_out import render_grouped
 
 __all__ = ["render_text", "render_summary", "render_issue_table", "issue_lines",
@@ -93,16 +94,31 @@ def render_summary(doc: Dict[str, Any], show_suppressed: bool = False,
     entrypoints = ws.get("entrypoints") or []
     if entrypoints:
         lines.append("entrypoints: %s" % ", ".join(entrypoints[:5]))
-    lines.append("%s nodes · %s edges · %s high / %s medium / %s low"
+    # CI-ADOPT: `stats.issues` is the document's project-level truth and counts
+    # every unsuppressed finding, baselined or not. The printed line is what a
+    # reader is being asked to act on, so it nets the baselined ones out and
+    # says how many they were - never one number silently standing for two.
+    counts, baselined = _visible_counts(doc, counts)
+    lines.append("%s nodes · %s edges · %s high / %s medium / %s low%s"
                  % (_fmt_int(stats.get("nodes")), _fmt_int(stats.get("edges")),
                     _fmt_int(counts.get("high")), _fmt_int(counts.get("medium")),
-                    _fmt_int(counts.get("low"))))
+                    _fmt_int(counts.get("low")),
+                    (" · %d baselined" % baselined) if baselined else ""))
     scoped = scope_line(doc)
     if scoped:
         lines.append(scoped)
     if stats.get("truncated"):
         lines.append("! graph truncated (--max-nodes reached)")
     lines.append("")
+
+    # MLV-P1: the four questions, answered in words, as the first block - a CI
+    # log and a terminal both put the answer above the evidence. Absent on a
+    # document that carries no `answers` key (the hand-authored golden), and
+    # then the block simply is not there.
+    answers = render_answers_block(doc.get("answers"))
+    if answers:
+        lines.extend(answers)
+        lines.append("")
 
     lines.append("Stages")
     # Under a scope, a present stage with nothing kept means "not in THIS
@@ -132,7 +148,8 @@ def render_summary(doc: Dict[str, Any], show_suppressed: bool = False,
         lines.append("  not detected: %s" % ", ".join(absent))
     lines.append("")
 
-    issues = [i for i in doc.get("issues", []) if show_suppressed or not i.get("suppressed")]
+    issues = [i for i in doc.get("issues", [])
+              if show_suppressed or not (i.get("suppressed") or i.get("baselined"))]
     lines.append("Issues (%d)" % len(issues))
     lines.extend(issue_lines(issues, group_by) if issues else ["  none found"])
 
@@ -151,6 +168,20 @@ def render_summary(doc: Dict[str, Any], show_suppressed: bool = False,
         lines.append("Notes (%d)" % len(other))
         lines.extend(_diagnostic_lines(other[:10]))
     return "\n".join(lines) + "\n"
+
+
+def _visible_counts(doc: Dict[str, Any],
+                    counts: Dict[str, Any]) -> tuple:
+    """`(counts minus the baselined findings, how many those were)`."""
+    baselined = [i for i in doc.get("issues", [])
+                 if i.get("baselined") and not i.get("suppressed")]
+    if not baselined:
+        return counts, 0
+    adjusted = {sev: int(counts.get(sev, 0) or 0) for sev in ("low", "medium", "high")}
+    for issue in baselined:
+        severity = issue.get("severity", "low")
+        adjusted[severity] = max(0, adjusted.get(severity, 0) - 1)
+    return adjusted, len(baselined)
 
 
 def _diagnostic_lines(diagnostics: Sequence[Dict[str, Any]]) -> List[str]:
@@ -221,7 +252,8 @@ def render_text(doc: Dict[str, Any]) -> str:
             parts.append("    %-6s %-22s %-30s %s:%d%s"
                          % (node["level"], node["kind"], _clip(node["label"], 30),
                             node["loc"]["file"], node["loc"]["line"], ghost + (" " + marks if marks else "")))
-    issues = [i for i in doc.get("issues", []) if not i.get("suppressed")]
+    issues = [i for i in doc.get("issues", [])
+              if not (i.get("suppressed") or i.get("baselined"))]
     if issues:
         parts.append("")
         parts.append("Findings")

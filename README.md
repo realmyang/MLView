@@ -124,6 +124,18 @@ F5 launches an Extension Development Host. Open a Python ML project in it, then:
 - **Copilot agent mode** — `#mlviewAnalyze`, `#mlviewIssues` and `#mlviewDiagram`
   reference the three language-model tools directly in a prompt.
 
+- **Suppress a false positive without leaving the editor.** The lightbulb on any
+  MLView diagnostic offers `Copy ignore comment`, `Add ignore comment on this
+  line` (a `WorkspaceEdit`, so it is one undo away) and `Disable rule MLVxxx in
+  .mlview.toml` behind a modal confirm that says the rule stops being reported for
+  everyone who opens the repo. The diagram's own rail reaches the same three
+  through one message, so both surfaces behave identically.
+- **No pip install required.** The VSIX ships the analyzer in
+  `vscode-extension/core`. An `mlview` installed in the interpreter wins when its
+  schema major matches and it is not older than the bundled copy; otherwise the
+  bundled one runs, with `<extension>/core` on `PYTHONPATH`. The status-bar
+  tooltip names which of the two answered.
+
 Both chat surfaces register behind a feature check and a `try`/`catch`, so a
 chat-API change can never break activation of the diagram, the diagnostics or the
 reveal.
@@ -160,6 +172,75 @@ along it; press `e` / `Shift+E` to walk the selected node's connections; press
 Exit codes: `0` ok · `1` usage or I/O · `2` `--fail-on` threshold exceeded ·
 `3` internal error · `4` nothing analyzable. stdout carries **only** the requested
 payload; every log line goes to stderr.
+
+### Adopt on an existing repo
+
+A repository that already has findings cannot be gated on: a realistic 50-file
+project starts at **111** of them, so `--fail-on high` exits `2` forever and the
+only usable setting is "never gate". The adoption flags fix the arithmetic without
+lowering the bar — MLView still analyses the **whole** project, because narrowing
+the analysis to the changed files is exactly the fidelity loss that makes a single
+file report 3 findings where its directory reports 7 — and then attributes.
+
+```bash
+# 1. What did THIS change introduce? (the whole project is still analyzed)
+python -m mlview issues . --changed-since origin/main --changed-only
+
+# 2. Or freeze today's list and gate on what comes next.
+python -m mlview baseline write --out .mlview/baseline.json
+python -m mlview analyze . --baseline .mlview/baseline.json --fail-on high
+
+# 3. Either way, hand the result to the review tool the team already reads.
+python -m mlview analyze . --sarif mlview.sarif
+```
+
+Every failure path degrades to *"unattributed, showing everything"* with a
+diagnostic — never to an error and never to an empty list. If git is missing, the
+directory is not a repository, or the base revision is not in the clone, you get
+every finding and a line saying so, because a gate that goes green because git was
+absent is the one failure a CI gate must never have.
+
+**GitHub Actions.** `tools/action/action.yml` is a composite action. Check the
+code out with `fetch-depth: 0` — a shallow clone has no base commit to diff
+against — and upload the SARIF with the step GitHub documents for it:
+
+```yaml
+permissions:
+  contents: read
+  security-events: write   # required by upload-sarif
+steps:
+  - uses: actions/checkout@v5
+    with: { fetch-depth: 0 }
+  - id: mlview
+    uses: realmyang/MLView/tools/action@main
+    with:
+      base: ${{ github.event.pull_request.base.sha }}
+      fail-on: high
+  - uses: github/codeql-action/upload-sarif@v3
+    if: always()
+    with:
+      sarif_file: ${{ steps.mlview.outputs.sarif }}
+```
+
+Inputs: `path`, `base`, `fail-on` (`high` by default, `none` to report without
+ever failing), `baseline`, `sarif`, `version`, `args` and `python-version`.
+Outputs: `sarif` and `exit-code`. Inside this repository the action installs the
+checkout rather than the release, so it always tests the code it ships with.
+
+**pre-commit.** `.pre-commit-hooks.yaml` exposes two hooks, both with
+`pass_filenames: false`, because per-file invocation is the same fidelity bug:
+
+```yaml
+repos:
+  - repo: https://github.com/realmyang/MLView
+    rev: v0.1.0
+    hooks:
+      - id: mlview-changed    # or `mlview` for the whole project
+```
+
+**Claude Code.** `/mlview-issues . --changed-since origin/main` and
+`/mlview-issues . --baseline .mlview/baseline.json` do the same thing through the
+MCP server; `mlview_issues` takes `changedSince` and `baseline` directly.
 
 ---
 
@@ -213,13 +294,14 @@ MLView/
     src/mlview/             ingest · ir · core · knowledge · rules · emit · schema
     tests/                  core · rules · fixtures · clean corpus
   webview/                  the ONE renderer; dist/mlview.{js,css} is the bundle
-  vscode-extension/         panel · diagnostics · reveal · chat · LM tools
+  vscode-extension/         panel · diagnostics · reveal · chat · LM tools · core (the bundled analyzer)
   claude-plugin/            plugin.json · .mcp.json · commands · skills · server · vendor
   samples/                  vision_pipeline (dirty) + vision_pipeline_clean (twin)
-  tools/                    sync-assets.py · sync-core.py · verify.py
+  tools/                    sync-assets.py · sync-core.py · verify.py · wheel_check.py · action/
   scripts/                  build · e2e (PowerShell and sh) · the doc gate
   .claude-plugin/           marketplace.json — the repo doubles as a local marketplace
   .github/workflows/        ci.yml — the CI matrix (see "Continuous integration")
+                            nightly.yml — the 2000-case scope fuzz, once a day
   .workflows/               multi-agent orchestration scripts; not part of the product
   .mlview/                  generated output (graph.json, report.html)
 ```
@@ -227,7 +309,9 @@ MLView/
 **One agent owns each directory** and no agent writes into another's.
 `tools/sync-assets.py` is the only thing that writes `vscode-extension/media/`
 and `analyzer/src/mlview/emit/assets/`; `tools/sync-core.py` is the only thing
-that writes `claude-plugin/vendor/`.
+that writes `claude-plugin/vendor/` **and `vscode-extension/core/`**, the two
+vendored copies of the analyzer that let the plugin and the VSIX work with no pip
+install at all. Both are gated: `tools/verify.py --all` fails on either drifting.
 
 ---
 
@@ -253,7 +337,7 @@ sh scripts/e2e.sh
 ### Continuous integration
 
 `.github/workflows/ci.yml` runs the gate table on every push and pull request,
-so "it works" is a statement about eight machines rather than about one:
+so "it works" is a statement about nine jobs rather than about one machine:
 
 | Job | Runner | What it runs |
 |---|---|---|
@@ -261,10 +345,18 @@ so "it works" is a statement about eight machines rather than about one:
 | `claude-plugin` | ubuntu, Python 3.13 | the plugin suite under `pytest -n auto`, then `tools/sync-core.py --check` |
 | `webview` | ubuntu x Node 20 / 22 | `npm run check`, `build`, `test`, then `tools/sync-assets.py --check` against the bundle just built |
 | `vscode-extension` | ubuntu, Node 20 | `npm run check`, `compile`, `test`, and the doc gate with its self-test |
-| `e2e (ubuntu, sh)` | ubuntu, Python 3.13 + Node 20 | `sh scripts/e2e.sh` — all 18 steps, uploading the emitted reports |
-| `e2e (windows, powershell)` | windows, Python 3.13 + Node 20 | `scripts/e2e.ps1` — the same 18 steps under the other driver |
-| `smoke (macos)` | macos, Python 3.13 + Node 20 | the analyzer and viewer suites |
+| `e2e (ubuntu, sh)` | ubuntu, Python 3.13 + Node 20 | `sh scripts/e2e.sh` — all 19 steps, uploading the emitted reports |
+| `e2e (windows, powershell)` | windows, Python 3.13 + Node 20 | `scripts/e2e.ps1` — the same 19 steps under the other driver |
+| `smoke (macos)` | macos, Python 3.13 + Node 20 | the analyzer and viewer suites — **only on push to `main` and on pull requests** |
+| `packaging (wheel + vsix)` | ubuntu, Python 3.13 + Node 20 | `tools/wheel_check.py` (build the wheel, `pip install` it into a throwaway venv, analyze with it), `sync-core.py --check`, `make_icon.py --check`, `npm run package`, and the VSIX under 1 MB |
 | `accuracy corpus` | ubuntu, Python 3.13 | `tools/accuracy.py` over the ten labelled programs, then `pytest analyzer/tests/accuracy` — zero `forbidden` findings, and recall and graph fidelity may only ratchet up |
+
+`.github/workflows/nightly.yml` is separate and deliberately not on the push
+path: `python tools/verify.py --scopes --fuzz 2000` builds the viewer from that
+commit's source and fuzzes the two `project()` ports for about 16 s, on a 04:17
+UTC schedule plus `workflow_dispatch`. A failing run prints the seed that
+reproduces it (`MLVIEW_FUZZ_SEED=<n>`). GitHub only schedules cron from the
+default branch, so it starts firing once this lands on `main`.
 
 The matrix is deliberately lopsided: the repository is private, so minutes are
 metered and weighted (windows 2x, macos 10x), and the fan-out is therefore
@@ -274,9 +366,11 @@ billed as 6 min at 2x), and 20 the single 93-second macOS job, whose every
 started minute is billed tenfold and rounded up. That last figure is 42% of the
 bill for two suites ubuntu already runs; because the multiplier and the
 rounding, not the job's contents, are what cost the 20, trimming it cannot help.
-Moving it off the per-push path (nightly `schedule` plus `workflow_dispatch`)
-would take a push to ~28 minutes and is an open lead decision, recorded against
-CI-01 in `docs/ROADMAP.md`. `claude plugin validate` is not available on a hosted runner;
+That decision was taken in Sprint 4: macOS is now covered locally on a
+development machine that runs the full e2e table before every push, so the job
+runs **only on push to `main` and on pull requests** — the two moments where
+nobody's laptop is the referee — which takes a branch push to roughly 28 billable
+minutes and leaves the pre-merge signal intact. `claude plugin validate` is not available on a hosted runner;
 the test that would call it skips itself when the CLI is absent, so gates 10 and
 11 of `scripts/README.md` are still Windows-desk gates.
 
@@ -374,9 +468,10 @@ VS Code 1.136):**
   `notebooksSkipped` and a `notebook_skipped` diagnostic, and no cell is parsed.
 - Bindings are flow-insensitive within a scope (`analyzer/src/mlview/ir/bindings.py`);
   rules that care about ordering compare line numbers explicitly.
-- `analysisProgress` is never posted. The CLI emits no progress frames, so the
-  viewer shows an indeterminate spinner rather than "Parsing 42 of 128 files".
-  The webview handler for the frame exists and is tested; nothing sends it.
+- `analysisProgress` is posted only when the diagram panel is open. The extension
+  passes `--progress-json` exactly then (`vscode-extension/src/progress.ts`), so a
+  headless run — `Show ML Issues`, the chat digests, the language-model tools —
+  still shows an indeterminate spinner and emits the bytes it always emitted.
 - The host renders the coverage caveat as text only — the status-bar tooltip, the
   panel tab description and the digests (`vscode-extension/src/coverage.ts`). The
   in-canvas banner and chip are the viewer's, drawn from `graph.diagnostics` in

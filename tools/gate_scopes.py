@@ -39,14 +39,25 @@ PARITY_TEST = "test/scope_parity.test.mjs"
 
 
 def _tap_count(text: str, marker: str) -> int:
-    """`# pass 24` -> 24. Node's TAP summary, read without a parser."""
+    """`# pass 24` -> 24. Node's run summary, read without a parser.
+
+    Node prints that summary two ways and which one you get is not a flag we
+    set: the TAP reporter writes `# pass 24`, and the `spec` reporter -- the
+    default on a non-TTY stdout since Node 20 -- writes `\u2139 pass 24`. Reading
+    only the TAP spelling made the row report "(0 assertions)" on a machine
+    whose Node had moved on, which is a gate quietly understating its own work.
+    Both spellings are accepted; a run that matches neither still counts 0, and
+    the row still fails on a non-zero exit.
+    """
+    markers = (marker, marker.replace("# ", "\u2139 ", 1))
     for line in text.splitlines():
         stripped = line.strip()
-        if stripped.startswith(marker):
-            try:
-                return int(stripped[len(marker):].strip())
-            except ValueError:
-                return 0
+        for m in markers:
+            if stripped.startswith(m):
+                try:
+                    return int(stripped[len(m):].strip())
+                except ValueError:
+                    return 0
     return 0
 
 
