@@ -1989,3 +1989,79 @@ A4's size band is now enforced inside `emit/html_out.write_html` at runtime (BUI
 demo artifacts in `scripts/e2e`: an out-of-band report is still written, with a warning on **stderr** naming
 `--max-nodes` as the lever. The fallback report emitted when the viewer bundle is absent is exempt, because A4
 words the band "when the bundle is present".
+
+---
+
+### 11.19 Class-method ops and resolution fixes (2026-09-08) — amends §7.1, analyzer-owned
+
+**This is a re-baseline.** `samples/vision_pipeline` grows from **45 nodes and 45 edges** to **54 nodes and 52
+edges** and carries **exactly the same fifteen findings, at the same lines, in the same 5 / 6 / 4 split**. Every
+document that quotes the demo's size must be updated in this same change — `scripts/check_docs.py` enforces that
+no two docs disagree about it, and the canonical count is whatever
+`python -m mlview analyze samples/vision_pipeline --format summary` prints. Three
+analyzer fixes land together, deliberately, so one golden regeneration covers all three (ROADMAP §(e), Track A);
+`contracts/graph.sample.json` is **hand-authored and unchanged**, so `mlview --demo`, `contracts/scope.cases.json`
+and `contracts/scope.expected.json` are byte-identical and §11.15's parity battery is untouched.
+
+| # | Change | Where |
+|---|---|---|
+| **ANA-1** | `CallSite.class_ir` carried two facts and `core/build.py` read the wrong one, so **every op written inside a class method was dropped**. The two facts are now two fields. | `ir/model.py`, `ir/scopes.py`, `core/build.py` |
+| **ANA-2** | `self.loss_fn(...)` resolved to `torch.nn.Module.loss_fn` — a symbol nobody declared — instead of to the value the attribute holds. | `ir/resolve.py` |
+| **ANA-3** | `_relative_base` trimmed the last dotted component of a package `__init__`, whose name **is** the package, and a re-exported symbol resolved to nothing. | `ir/symbols.py`, `ir/build_ir.py`, `ir/resolve.py` |
+
+**A1 — the two fields are normative.** `CallSite.class_ir` means *the workspace class this call **resolves to***
+and is written **only** by `ir/resolve.py`. `CallSite.enclosing_class` means *the class whose body this call is
+**written in*** and is written **only** by `ir/scopes.py`. No reader may use one for the other. `_create_op`'s
+early return (a call onto the class's own unit node) fires on `class_ir` alone; `_owning_unit` then parents an op
+written in a method onto the enclosing class unit, or onto a method-level `epoch`/`batch`/`fold` loop unit when
+one exists. Node ids stay content-addressed (`file`, `qualname`, `kind`) and therefore deterministic.
+**Issue anchoring follows for free**, which was the point: on `analyzer/tests/accuracy/corpus/lightning_tabular`
+MLV602, MLV110 and MLV111 used to carry the **same** `nodeIds` — the `TabularDataModule` class node, drawn in the
+config lane — and now anchor on the `random_split()` and the two `DataLoader()` ops that actually carry them,
+with the program's stage line going from four present stages to seven. Receiver resolution stops minting
+`datamodule.TabularDataModule.float` / `.long` for torch tensor methods in the same program, because a value
+bound inside a method no longer inherits the enclosing class as its `class_ir`.
+
+**A2 — the candidate still comes from a binding, never from a name (iron law 1).** When the callee is
+`<recv>.<attr>` and `binding_of("<recv>.<attr>", scope)` yields a `ValueRef` with a producer FQN, a `via_fqns`
+or a workspace `class_ir`, that value becomes the receiver and the method becomes `__call__`. A binding with
+nothing behind it (`self.threshold = 0.5`) is refused, and a name with no binding at all (`self.encode(x)`, a
+real method) resolves exactly as before. This is also what stops `torch.nn.Module.<any attr>` being minted for a
+self-held layer: `self.stem(x)` is now `torch.nn.Conv2d.__call__` → role `FORWARD`, which §1 already draws
+through its receiver instead of as a second node.
+
+**A3 — the hop is bounded and the bound is stated.** `pkg/__init__.py` publishing `from .net import Net` makes
+the class reachable as `pkg.Net`, a name no `ClassIR` carries. `WorkspaceIR.reexports` maps such an alias to the
+definition, following at most **3** hops (`ir/build_ir._MAX_REEXPORT_HOPS`), cycle-safe, workspace-internal only.
+A chain that outruns the cap is reported as a **`dynamic_scope`** diagnostic naming the symbol and the cap —
+the kind `_unresolved_imports` already uses for exactly this failure; **§11.18's enum is not extended.**
+
+**Why 54 and not the 63 the audit measured.** The ANA-1 prototype was measured with the fabrication still in
+place: on its own the demo is **61 nodes / 54 edges**, seven of which are FQNs invented under `torch.nn.Module.`
+for the forward calls in `ConvBlock.forward` and `SmallCNN.forward` — `torch.nn.Module.conv`, `.norm`, `.drop`,
+`.stem`, `.pool`, `.head` and `.pool.flatten`. ANA-2 resolves those seven to the real layer objects
+built in `__init__`, where role `FORWARD` is transparent by design (`core/build.TRANSPARENT_ROLES`). 54 is
+therefore the same graph with the duplicates removed: `model.py` goes from **2 nodes (its two classes, no
+layers)** to **11**, and the Model lane from 3 to 12.
+
+**What is pinned.** `samples/vision_pipeline/expected_issues.json` is **unchanged** — same fifteen rows, same
+lines — and `analyzer/tools/gen_expected_issues.py --check`, `gen_scope_fixtures.py --check` and
+`gen_rule_docs.py --check` all pass without regeneration. Both clean corpora stay at **0 issues**
+(`samples/vision_pipeline_clean` 55 → 64 nodes, `analyzer/tests/clean` 108 → 127), and `analyzer/tests/clean`
+keeps **0 high**. `tools/accuracy.py` keeps precision 1.0 and every recall number to four decimals; its
+**graph-fidelity ratchet moves 0.6619 → 0.8633** (92 → 120 of 139 labelled human-diagram ops), which is
+re-recorded in `analyzer/tests/accuracy/baseline.json` — the one number this change is allowed to move.
+
+**Files that must change together (§11.16 addendum).** A graph-shape change regenerates
+`vscode-extension/test/fixtures/vision_pipeline.graph.json` in the **same** commit: it is a real analyzer run
+over the sample and `vscode-extension/test/scope.test.js` resolves against the shape the analyzer actually
+emits. `contracts/graph.sample.json` is **not** regenerated by anything, ever.
+
+**`tools/perf_equiv.py` is expected to report DIFFERENT on all three corpora for this change and only this
+change.** It is the byte-identity gate for optimisations (§PERF-01/02), and a re-baseline is the one thing it
+exists to catch; the wall-time is unchanged (0.92x–1.02x, inside noise).
+
+**Gates:** `analyzer/tests/core/test_class_method_ops.py` (12), `analyzer/tests/rules/test_attr_callable.py` (8),
+`analyzer/tests/core/test_pkg_reexport.py` (10) with the `analyzer/tests/fixtures/pkgreexport/` package and the
+`analyzer/tests/fixtures/rules/MLV401_self_attr_bad.py` fixture, plus the unchanged
+`analyzer/tests/rules/test_samples.py` battery and `contracts/validate_sample.py` on the regenerated document.

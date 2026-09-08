@@ -415,7 +415,7 @@ class _Walker:
             method=method, args=tuple(node.args), kwargs=kwargs, kwarg_nodes=kwarg_nodes,
             short_name=short or "call", loop=self.loop, inside_no_grad=self.no_grad > 0,
             inside_autocast=self.autocast > 0, stmt_index=index, block_id=block_id,
-            function=self.func, class_ir=self.cls)
+            function=self.func, enclosing_class=self.cls)
         setattr(call, "has_kwargs_forward", has_forward)
         self.module.calls.append(call)
         if self.func is not None:

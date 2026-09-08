@@ -9,11 +9,12 @@
 
 import { GraphIndex } from './layout/model.js';
 import { layoutGraph } from './layout/layout.js';
+import { LANE_MIN_W, LANE_PAD, MAX_RANK_H, MAX_RANK_W, RANK_ROW_GAP } from './layout/constants.js';
 import { routeEdges } from './layout/routing.js';
 import { buildNodeCard } from './render/nodes.js';
 import { severityGlyph, SEVERITY_SHAPE, emptyCounts } from './markers.js';
 import { KNOWN_KINDS } from './icons.js';
-import { minimapFit, minimapFromWorld, minimapToWorld } from './render/canvas.js';
+import { MIN_FIT_ZOOM, MIN_ZOOM, TALL_SCREENS, fitPlan, minimapFit, minimapFromWorld, minimapToWorld } from './render/canvas.js';
 import { KEYMAP } from './ui/keymap.js';
 import { tooltipPlacement } from './render/tooltip.js';
 import { searchGraph, searchGraphDetailed } from './search.js';
@@ -208,6 +209,13 @@ export const internals = {
   deepLinkPlan,
   keymap: KEYMAP,
   minimap: { fit: minimapFit, toWorld: minimapToWorld, fromWorld: minimapFromWorld },
+  /**
+   * VIEW-01: the first-paint zoom decision as a pure function, plus the two
+   * constants that bound it, so a gate states the rule rather than a number.
+   */
+  viewport: { fitPlan, MIN_ZOOM, TALL_SCREENS, MIN_FIT_ZOOM },
+  /** VIEW-01: the lane wrap budget, for the width gates. */
+  layoutConstants: { MAX_RANK_W, MAX_RANK_H, LANE_MIN_W, LANE_PAD, RANK_ROW_GAP },
   tooltipPlacement,
   searchGraph,
   /** VIEW-09ab: the detailed result and the `path:line` resolver behind it. */

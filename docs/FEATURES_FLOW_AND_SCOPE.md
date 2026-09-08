@@ -6,7 +6,7 @@ explains, §11 binds. Where the two disagree, §11 wins.
 **Requirements:** `docs/REQUIREMENTS.md` **R2.11** (flow) and **R1.12** (scoped views).
 
 Every number in §8 was produced by running the real projection algorithm over the real analyzed document
-(`.mlview/graph.json` — `samples/vision_pipeline`, 45 nodes / 45 edges / 15 issues) and over the frozen
+(`.mlview/graph.json` — `samples/vision_pipeline`, 54 nodes / 52 edges / 15 issues) and over the frozen
 `contracts/graph.sample.json` (12 / 14 / 6). Nothing here is estimated.
 
 ---
@@ -594,10 +594,10 @@ Plus `s` on a selection, `Shift+S` to clear, `]`/`[` to step depth, and — only
 component the inventory at `docs/UX_DESIGN.md:559` already reserves:
 
 ```
-⤢  Scoped to baseline()  ·  depth 1  ·  13 of 45 nodes    [−] [+]    [×]
+⤢  Scoped to baseline()  ·  depth 1  ·  13 of 54 nodes    [−] [+]    [×]
 ```
 
-- The `13 of 45` comes from `view.of.nodes` — **project-level truth**, so a scoped view can never be read as a
+- The `13 of 54` comes from `view.of.nodes` — **project-level truth**, so a scoped view can never be read as a
   statement about the project.
 - `title` carries the raw selector; an overflow item **Copy scope** puts `unit:sklearn_baseline.baseline` on the
   clipboard, ready to paste into `/mlview --scope`.
@@ -763,7 +763,7 @@ report already emits:
 Both bodies live in a new `src/scopeCommands.ts` mirroring `revealInDiagram.ts:29-76`, so `panel.ts` grows only
 `postSetScope` plus an `onScopeChanged` handler.
 
-**Panel title** reflects the scope: `MLView — validate()` with description `4 of 45 nodes`, from the
+**Panel title** reflects the scope: `MLView — validate()` with description `4 of 54 nodes`, from the
 `scopeChanged` message. Three lines, and it is what makes the feature feel real.
 
 **Settings: none added.** Deliberate. The flow toggle is renderer-owned and rides the existing
@@ -987,7 +987,7 @@ validate() · train.py:41 · 4`, `unit:model.SmallCNN`, `unit:model.ConvBlock`, 
 can answer "show me the evaluation path" without guessing a file name. Then `mlview_analyze {scope:
 "concern:evaluation"}` (digest ≤4 KB, carrying the `scope` block and the filtered-view note) and
 `mlview_open_diagram {scope:"concern:evaluation"}`, which writes and opens the report. `graphPath` still points at
-the full 45-node document, so widening back is free.
+the full 54-node document, so widening back is free.
 
 ### Demo F — VS Code, cursor to scope
 
@@ -995,7 +995,7 @@ Put the caret on `samples/vision_pipeline/train.py:44` (inside `validate`) and r
 Symbol** (`Alt+Shift+M`). `findNodeAtLine` returns the narrowest node (the batch loop `n:e37b3b62a066`);
 the parent climb reaches `train.validate`. The panel posts `setScope("unit:train.validate")`.
 
-Panel tab: **MLView — validate()**, description **9 of 45 nodes**. In scope: `validate()`, its batch loop, `preds`,
+Panel tab: **MLView — validate()**, description **9 of 54 nodes**. In scope: `validate()`, its batch loop, `preds`,
 and the `model.eval()` ghost (4 core); boundary `model.SmallCNN`, `data.val_loader`, `train.train.epoch_loop`;
 context `train.train`, `data.__main__`. Rail: MLV301 + MLV302, with
 *"2 of 15 findings shown · 13 outside this scope — Show all"*.

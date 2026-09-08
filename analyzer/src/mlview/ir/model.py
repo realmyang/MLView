@@ -167,7 +167,16 @@ class CallSite:
     stmt_index: int = 0
     block_id: str = ""
     function: Optional["FunctionIR"] = None
+    #: The workspace class this call *resolves to* - `Net()` inside `train()`.
+    #: ANA-1: strictly the resolution, never the enclosing class. `ir/resolve.py`
+    #: is the only writer; `core/build.py` maps such a call onto the class's own
+    #: unit node instead of minting an op.
     class_ir: Optional["ClassIR"] = None   # workspace class being instantiated
+    #: The class whose body this call is *written in* - `nn.Conv2d(...)` inside
+    #: `SmallCNN.__init__`. Set by `ir/scopes.py` at record time. Before ANA-1
+    #: both meanings shared `class_ir`, and `_create_op` read the second one as
+    #: the first, so every op written inside a method was silently dropped.
+    enclosing_class: Optional["ClassIR"] = None
     target_function: Optional["FunctionIR"] = None  # workspace function being called
 
     def matches(self, *fqns: str) -> bool:
@@ -301,6 +310,9 @@ class WorkspaceIR:
     frameworks: Tuple[str, ...] = ()
     wrappers: Tuple[str, ...] = ()          # detected framework wrappers (labels)
     dynamic_scopes: List[ScopeIR] = field(default_factory=list)
+    #: ANA-3: `pkg.Net` -> `pkg.net.Net` for every symbol a workspace module
+    #: re-exports, already followed to the definition (cap `_MAX_REEXPORT_HOPS`).
+    reexports: Dict[str, str] = field(default_factory=dict)
     #: (relpath, line, message) for every import that resolved to nothing while
     #: a module of that name does exist somewhere in the workspace - the
     #: degradation is reported instead of silently shrinking the graph.

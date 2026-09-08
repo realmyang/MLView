@@ -1,11 +1,11 @@
 /**
  * The scope breadcrumb — the first element after the brand, `role="status"`.
  *
- *   Scoped to baseline()  ·  depth 1  ·  13 of 45 nodes   [−] [+]   [×]
+ *   Scoped to baseline()  ·  depth 1  ·  13 of 54 nodes   [−] [+]   [×]
  *
  * Two things it must never get wrong:
  *
- *  - `13 of 45` comes from `view.of.nodes`, which is PROJECT-LEVEL truth, so a
+ *  - `13 of 54` comes from `view.of.nodes`, which is PROJECT-LEVEL truth, so a
  *    scoped view can never be read as a statement about the project;
  *  - `[×]`'s tooltip says "Filters are separate", because a scope and the stage
  *    filter chips are two narrowings living on one screen and that one sentence

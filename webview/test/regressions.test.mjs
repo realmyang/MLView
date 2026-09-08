@@ -1,6 +1,7 @@
 /**
- * Round-2 review regressions (MLV-R2-W01 … W12). One test per finding, each
- * failing against the code as it was reported and passing against the fix.
+ * Review regressions: round 2 (MLV-R2-W01 … W12) and the roadmap findings that
+ * followed. One test per finding, each failing against the code as it was
+ * reported and passing against the fix.
  */
 
 import test from 'node:test';
@@ -375,4 +376,40 @@ test('the minimap appears only above 30 nodes and collapses away (MLV-R2-W12)', 
   assert.equal(toggle.getAttribute('aria-expanded'), 'false');
   assert.equal(instance.getState().minimapCollapsed, true, 'and the flag survives a reload');
   instance.destroy();
+});
+
+/* ── VIEW-01: `fit()` and `0` were verified no-ops ──────────────────── */
+
+test('Fit to view is not a no-op on the shipped sample (VIEW-01)', async () => {
+  const ctx = await app();
+  const world = ctx.document.querySelector('.mlv-world');
+  const read = () => {
+    const m = /translate\((-?[\d.]+)px,\s*(-?[\d.]+)px\)\s*scale\(([\d.]+)\)/.exec(world.style.transform);
+    assert.ok(m, 'the world carries a transform: ' + world.style.transform);
+    return { x: Number(m[1]), y: Number(m[2]), zoom: Number(m[3]), raw: world.style.transform };
+  };
+  const { MIN_ZOOM, MIN_FIT_ZOOM } = ctx.MLView.__internal.viewport;
+
+  // The audit clicked `Fit to view`, then pressed `0`, and read the SAME
+  // `matrix(1,0,0,1,126,24)` all three times: the tall branch returned
+  // min(zw, 1), the sample is narrow, so "fit" meant "leave it at 1".
+  const fitted = read();
+  assert.ok(fitted.zoom !== 1, 'the first paint is a real fit, not the identity transform');
+  assert.ok(fitted.zoom > MIN_ZOOM, 'and not the zoom floor either: ' + fitted.zoom);
+  assert.ok(fitted.zoom >= MIN_FIT_ZOOM - 1e-9, 'a 12-node sample opens at or above the fit floor');
+
+  // Move somewhere else through the real UI, then fit from there.
+  key(ctx, ctx.canvas, '-');
+  key(ctx, ctx.canvas, 'ArrowRight');
+  const moved = read();
+  assert.notEqual(moved.raw, fitted.raw, 'the viewport actually moved');
+
+  const fitBtn = Array.from(ctx.document.querySelectorAll('.mlv-btn')).find(
+    (b) => (b.getAttribute('aria-label') || b.title || '').indexOf('Fit') >= 0,
+  );
+  assert.ok(fitBtn, 'the chrome offers a Fit control');
+  click(ctx, fitBtn);
+  const refit = read();
+  assert.equal(refit.raw, fitted.raw, 'Fit returns to the first-paint transform');
+  assert.notEqual(refit.raw, moved.raw, 'and it is not a no-op from where the user was');
 });

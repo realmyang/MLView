@@ -325,8 +325,52 @@ def _chained_receiver(call: CallSite, module: ModuleIR) -> Optional[ValueRef]:
     return None
 
 
+def _attribute_callable(receiver_name: str, method: str,
+                        scope: ScopeIR) -> Optional[ValueRef]:
+    """ANA-2: the value held in `<receiver>.<attr>`, when it is callable.
+
+    `self.loss_fn(logits, labels)` is not *a method named `loss_fn` on an
+    `nn.Module`* - it is a **call on the value bound to that attribute**, and
+    that value is already in the IR: `binding_of("self.loss_fn", scope)` hands
+    back a `ValueRef` whose producer is `torch.nn.CrossEntropyLoss`. Before
+    this, the resolver never consulted the binding and proposed
+    `torch.nn.Module.loss_fn`, which prefix-matches to role LAYER - so the same
+    criterion fired MLV401 when held in a local and nothing at all when held on
+    `self`.
+
+    Iron law 1 holds: the candidate comes from a **real binding**, never from a
+    name. A binding with nothing behind it (`self.threshold = 0.5`) is refused,
+    so no FQN is invented for it.
+    """
+    if not receiver_name or not method or method == "__call__":
+        return None
+    ref = binding_of("%s.%s" % (receiver_name, method), scope)
+    if ref is None:
+        return None
+    if ref.class_ir is not None or ref.via_fqns:
+        return ref
+    producer = ref.producer
+    if producer is not None and (producer.canonical_fqns or producer.fqn):
+        return ref
+    return None
+
+
+def _workspace_fqn(workspace, fqn: Optional[str]) -> Optional[str]:
+    """ANA-3: the definition a workspace name points at, through re-exports.
+
+    `from pkg import Net` resolves to `pkg.Net`, which no `ClassIR` carries -
+    the class is `pkg.net.Net`. `workspace.reexports` holds the already-walked
+    chain, so this is one dict hit and never a search.
+    """
+    if not fqn or workspace is None:
+        return fqn
+    if fqn in workspace.classes or fqn in workspace.functions:
+        return fqn
+    return getattr(workspace, "reexports", {}).get(fqn, fqn)
+
+
 def _resolve_one(call: CallSite, module: ModuleIR, workspace) -> None:
-    fqn = getattr(call, "import_fqn", call.fqn)
+    fqn = _workspace_fqn(workspace, getattr(call, "import_fqn", call.fqn))
     node = call.node
     func = node.func
 
@@ -371,7 +415,15 @@ def _resolve_one(call: CallSite, module: ModuleIR, workspace) -> None:
     if ref is None:
         if receiver_name is None or method is None:
             return
-        ref = binding_of(receiver_name, call.scope)
+        # ANA-2: an attribute that *holds* a callable answers before the
+        # receiver's own family does - `self.loss_fn` is the criterion, not a
+        # method on the module that stores it.
+        held = _attribute_callable(receiver_name, method, call.scope)
+        if held is not None:
+            call.receiver_name = "%s.%s" % (receiver_name, method)
+            ref, method = held, "__call__"
+        else:
+            ref = binding_of(receiver_name, call.scope)
     elif method is None:
         return
     if ref is None and receiver_name == "self":

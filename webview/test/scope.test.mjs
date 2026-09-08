@@ -435,10 +435,20 @@ test('a scoped report fits whole; the whole workspace still fits its width', asy
   const PAD = 24;
 
   const full = ctx.MLView.__internal.layout(sample);
+  const { fitPlan, TALL_SCREENS } = ctx.MLView.__internal.viewport;
   const unscoped = read();
+  // VIEW-01 re-baselines this assertion. A whole workspace is still opened
+  // top-anchored and read by panning down, but the tall branch is no longer a
+  // bare width fit -- that is what made `fit()` a no-op on both shipped samples.
+  // It is now the width fit BOUNDED to TALL_SCREENS canvas-heights, so what the
+  // test states is the rule, not the arithmetic of one branch of it.
+  const plan = fitPlan(full.width, full.height, CANVAS.w, CANVAS.h, PAD);
+  assert.ok(plan.tall, 'a whole workspace is taller than it is wide');
+  assert.ok(Math.abs(unscoped.zoom - plan.zoom) < 0.001, 'opens at the planned zoom ' + plan.zoom);
+  assert.ok(unscoped.zoom * full.width <= CANVAS.w - PAD, 'the full width is on screen');
   assert.ok(
-    Math.abs(unscoped.zoom - Math.min((CANVAS.w - PAD * 2) / full.width, 1)) < 0.001,
-    'a whole workspace is taller than it is wide: it fits the WIDTH and is read by panning down',
+    unscoped.zoom * full.height <= CANVAS.h * TALL_SCREENS + 1,
+    'and no more than ' + TALL_SCREENS + ' screens of it: ' + (unscoped.zoom * full.height).toFixed(0) + 'px of ' + CANVAS.h,
   );
 
   ctx.app.setScope('concern:evaluation', { depth: 1 });

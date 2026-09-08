@@ -36,8 +36,8 @@ that one.
 | # | Gate | Command | Result |
 |---|---|---|---|
 | 1 | Build | `powershell -ExecutionPolicy Bypass -File scripts/build.ps1` | `BUILD OK` — 5/5 steps |
-| 2 | Analyzer + rules | `python -m pytest analyzer/tests -q` | 1152 passed, 3 skipped (the third needs Python 3.10, where tomllib is absent) |
-| 3 | Viewer tests | `npm test` in `webview` | 289 pass, 0 fail |
+| 2 | Analyzer + rules | `python -m pytest analyzer/tests -q` | 1184 passed, 3 skipped (the third needs Python 3.10, where tomllib is absent) |
+| 3 | Viewer tests | `npm test` in `webview` | 295 pass, 0 fail |
 | 4 | Viewer typecheck | `npm run check` in `webview` | `tsc --noEmit`, clean |
 | 5 | Extension typecheck | `npm run check` in `vscode-extension` | `tsc --noEmit`, clean |
 | 6 | Extension bundle | `npm run compile` in `vscode-extension` | `out/extension.js` 121.6 kb |
@@ -56,13 +56,13 @@ that one.
 | 14 | Rule docs current | `python analyzer/tools/gen_rule_docs.py --check` | 21 pages current |
 | 15 | Sample issues current | `python analyzer/tools/gen_expected_issues.py --check` | 15 issues — 5/6/4 |
 | 16 | Golden parity | `python -m mlview analyze --demo --json -` vs `contracts/graph.sample.json` | byte-identical, 46 078 bytes |
-| 17 | Emitted docs valid | `python contracts/validate_sample.py .mlview/graph.json` | schema 1.0 + 10 invariant groups, 45 nodes / 45 edges / 15 issues |
+| 17 | Emitted docs valid | `python contracts/validate_sample.py .mlview/graph.json` | schema 1.0 + 10 invariant groups, 54 nodes / 52 edges / 15 issues |
 | 18 | Docs match the tree | `python scripts/check_docs.py` | 19 files (16 docs + 3 shell scripts), no dead paths, every known gap anchored, no build state in a plan doc, LF in every shell script, one graph size |
 | 19 | End to end | `powershell -ExecutionPolicy Bypass -File scripts/e2e.ps1` | `E2E OK` — 17 steps, 0 failed |
-| 20 | Scoped demo artifacts | `python -m mlview analyze samples/vision_pipeline --scope concern:evaluation --depth 1 --html .mlview/evaluation.html` | 17 of 45 nodes (7 core / 7 boundary / 3 context), `data-mlview-scope` and `data-mlview-depth` set on the root |
+| 20 | Scoped demo artifacts | `python -m mlview analyze samples/vision_pipeline --scope concern:evaluation --depth 1 --html .mlview/evaluation.html` | 17 of 54 nodes (7 core / 7 boundary / 3 context), `data-mlview-scope` and `data-mlview-depth` set on the root |
 | 21 | Scope catalogue | `python -m mlview analyze samples/vision_pipeline --list-scopes` | 10 scopable units, biggest first |
 | 22 | Bytecode residue never poisons the vendor gate | `python -m pytest claude-plugin/tests/test_vendor_bytecode.py -q` | 3 passed — pytest over a throwaway vendored tree writes no `__pycache__` with the flag set and does write one without it, and `sync-core --check` prunes planted residue and stays green |
-| 23 | Accuracy corpus | `python tools/accuracy.py` | `accuracy gate: PASS` — 10 labelled programs, precision 100.0%, unseen recall 51.1% raw / 38.3% visible, graph fidelity 66.2%; zero `forbidden` findings, nothing below `analyzer/tests/accuracy/baseline.json` |
+| 23 | Accuracy corpus | `python tools/accuracy.py` | `accuracy gate: PASS` — 10 labelled programs, precision 100.0%, unseen recall 51.1% raw / 38.3% visible, graph fidelity 86.3%; zero `forbidden` findings, nothing below `analyzer/tests/accuracy/baseline.json` |
 | 23a | The same three gates, asserted | `python -m pytest analyzer/tests/accuracy -q` | 27 passed — corpus lint plus the matcher's own semantics |
 | 24 | Analyzer byte-equivalence | `python tools/perf_equiv.py --baseline DIR --diff --bench` | both shipped samples byte-identical to `main`; `analyzer/tests/clean` gains exactly one `ValueTag` (PERF-02's fifth IR round), 200-file corpus 2.25x faster |
 | 25 | CI matrix | `.github/workflows/ci.yml` | 12 jobs green: 3 OSes, Python 3.10-3.13, Node 20/22, plus the accuracy corpus — 4m32s wall, ~45 billable minutes |

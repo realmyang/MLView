@@ -447,7 +447,7 @@ class GraphBuilder:
         elif isinstance(owner, FunctionIR):
             calls = owner.calls
         elif isinstance(owner, ModuleIR):
-            calls = [c for c in owner.calls if c.function is None and c.class_ir is None]
+            calls = [c for c in owner.calls if c.function is None and c.enclosing_class is None]
         elif isinstance(owner, LoopIR):
             calls = [c for c in owner.module.calls if within_loop(c.loop, owner)]
         else:

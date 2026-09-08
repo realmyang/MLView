@@ -27,10 +27,10 @@
   },
   "graphFidelity": {
     "opsLabelled": 139,
-    "opsRecovered": 92,
-    "score": 0.6619
+    "opsRecovered": 120,
+    "score": 0.8633
   },
-  "note": "ANA-12 day one. Recall may only ratchet up; a forbidden finding is never tolerated. Regenerate with `python tools/accuracy.py --update-baseline` and say in the commit body which rule change earned the new number.",
+  "note": "ANA-12 day one, re-recorded by the ANA-1/2/3 re-baseline (2026-09-08): graph fidelity 0.6619 -> 0.8633 (92 -> 120 of 139 labelled ops recovered) because ops written inside class methods are no longer dropped; every recall and precision number is unchanged. Recall may only ratchet up; a forbidden finding is never tolerated. Regenerate with `python tools/accuracy.py --update-baseline` and say in the commit body which rule change earned the new number.",
   "overall": {
     "expectedLabels": 62,
     "falsePositives": 0,

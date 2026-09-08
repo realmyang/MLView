@@ -23,10 +23,13 @@ from .returns import infer_returns
 from .scopes import classify_loops, walk_module
 from .symbols import build_symbol_table
 
-__all__ = ["build_workspace", "dotted_for", "FRAMEWORK_ORDER"]
+__all__ = ["build_workspace", "dotted_for", "is_package", "FRAMEWORK_ORDER"]
 
 FRAMEWORK_ORDER = {name: i for i, name in enumerate(K.FRAMEWORKS)}
 _MAX_BASE_ROUNDS = 5
+#: ANA-3: how many `from . import X` hops a re-export chain may take before
+#: the analyzer stops following it and says so.
+_MAX_REEXPORT_HOPS = 3
 
 
 def dotted_for(relpath: str) -> str:
@@ -38,6 +41,11 @@ def dotted_for(relpath: str) -> str:
     return ".".join(parts)
 
 
+def is_package(relpath: str) -> bool:
+    """`pkg/__init__.py` - the module whose dotted name *is* its package."""
+    return relpath.replace("\\", "/").endswith("__init__.py")
+
+
 def build_workspace(root: str, parsed_files: Sequence[ParsedFile]) -> WorkspaceIR:
     """Build the full workspace IR from parsed files."""
     workspace = WorkspaceIR(root=root)
@@ -46,7 +54,8 @@ def build_workspace(root: str, parsed_files: Sequence[ParsedFile]) -> WorkspaceI
 
     for parsed in parsed_files:
         dotted = dotted_for(parsed.relpath)
-        symbols = build_symbol_table(parsed.tree, dotted, dotted_names)
+        symbols = build_symbol_table(parsed.tree, dotted, dotted_names,
+                                     is_package=is_package(parsed.relpath))
         module = walk_module(parsed, symbols, dotted)
         workspace.modules[parsed.relpath] = module
         if dotted:
@@ -57,6 +66,9 @@ def build_workspace(root: str, parsed_files: Sequence[ParsedFile]) -> WorkspaceI
             workspace.classes[qualname] = cls
         for qualname, func in module.functions.items():
             workspace.functions[qualname] = func
+
+    reexports, capped = _reexport_map(workspace)
+    workspace.reexports = reexports
 
     _resolve_class_bases(workspace)
 
@@ -71,7 +83,7 @@ def build_workspace(root: str, parsed_files: Sequence[ParsedFile]) -> WorkspaceI
             func.loops = [l for l in module.loops if l.function is func]
         _mark_kwargs_forwarding(module)
 
-    workspace.unresolved_imports = _unresolved_imports(workspace, dotted_names)
+    workspace.unresolved_imports = _unresolved_imports(workspace, dotted_names) + capped
     workspace.frameworks = _detect_frameworks(workspace)
     workspace.wrappers = _detect_wrappers(workspace)
     workspace.dynamic_scopes = [s for relpath in sorted(workspace.modules)
@@ -116,6 +128,67 @@ def _run_rounds(workspace: WorkspaceIR) -> None:
             workspace.ir_converged = True
             return
         previous = current
+
+
+def _reexport_map(workspace: WorkspaceIR) -> Tuple[Dict[str, str],
+                                                   List[Tuple[str, int, str]]]:
+    """ANA-3: `pkg.Net` -> `pkg.net.Net`, the symbol a re-export points at.
+
+    `pkg/__init__.py` doing `from .net import Net` publishes the class under
+    `pkg.Net`, a name no `ClassIR` carries, so `from pkg import Net` in a
+    sibling module resolved to nothing and the class was drawn as an orphan.
+    The walk is capped at `_MAX_REEXPORT_HOPS` and is cycle-safe; a chain that
+    outruns the cap is *reported* (as a `dynamic_scope` note) rather than
+    silently dropped, so the bound is stated instead of discovered.
+
+    Returns the resolved map and the (relpath, line, message) rows for the
+    chains that hit the cap.
+    """
+    raw: Dict[str, str] = {}
+    owner: Dict[str, Tuple[str, int]] = {}
+    for relpath in sorted(workspace.modules):
+        module = workspace.modules[relpath]
+        symbols = getattr(module, "symbols", None)
+        dotted = module.dotted
+        if symbols is None or not dotted:
+            continue
+        for local in sorted(symbols.aliases):
+            target = symbols.aliases[local]
+            key = "%s.%s" % (dotted, local)
+            if not target or target == key or "." not in target:
+                continue
+            if key in workspace.classes or key in workspace.functions:
+                continue          # the module defines it itself; not a re-export
+            if target.rpartition(".")[0] not in workspace.by_dotted:
+                continue          # not a workspace symbol - a third-party import
+            raw[key] = target
+            owner[key] = (relpath, symbols.alias_sites.get(local, 1))
+
+    resolved: Dict[str, str] = {}
+    capped: List[Tuple[str, int, str]] = []
+    for key in sorted(raw):
+        current, seen, landed = key, {key}, False
+        for _hop in range(_MAX_REEXPORT_HOPS):
+            nxt = raw.get(current)
+            if nxt is None or nxt in seen:
+                break
+            current = nxt
+            seen.add(current)
+            if current in workspace.classes or current in workspace.functions:
+                landed = True
+                break
+        if landed:
+            if current != key:
+                resolved[key] = current
+        elif raw.get(current) is not None:
+            relpath, line = owner[key]
+            capped.append((relpath, line,
+                           "`%s` is re-exported through more than %d modules "
+                           "(line %d); MLView stops following the chain there, so "
+                           "symbols imported under that name stay unresolved."
+                           % (key, _MAX_REEXPORT_HOPS, line)))
+    capped.sort()
+    return resolved, capped
 
 
 def _unresolved_imports(workspace: WorkspaceIR, dotted_names) -> List[Tuple[str, int, str]]:

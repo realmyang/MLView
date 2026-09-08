@@ -11,6 +11,60 @@ import type { Viewport } from '../types.js';
 export const MIN_ZOOM = 0.15;
 export const MAX_ZOOM = 2.5;
 
+/**
+ * How many canvas-heights of document a top-anchored `fit()` may open (VIEW-01).
+ *
+ * The tall branch used to be a pure width fit, so the demo — 45 nodes when this
+ * was measured, before the ANA-1/2/3 re-baseline — opened at 0.756 in a 1240x848
+ * canvas with 22 of its 45 cards and 3 of its 7 lanes below the fold, and `fit()`
+ * was a measured no-op, because it chose exactly the transform the viewer had
+ * already mounted with. Bounding that width fit to one and three-quarter screens
+ * of height opened the same document at 0.575 — 27 of the 45 cards and 5 of the 7
+ * lanes, measured in Chromium at 1600x1000. The re-baselined demo is 54 nodes in
+ * a 1576x2630 world and opens at 0.548 there, 0.5 at 1280x800;
+ * `test/measure_geometry.mjs` re-measures any document against the same plan.
+ */
+export const TALL_SCREENS = 1.75;
+
+/**
+ * The zoom a first paint never goes below (VIEW-01).
+ *
+ * Not a legibility threshold — `data-lod` already concedes at 0.62 that cards
+ * below it are read as shapes rather than text. It is the point where a card
+ * stops being a recognisable object at all: at the 0.15 floor the 300-node
+ * project used to land on, a 216x72 card is 32x11 px, which is smaller than the
+ * severity glyph drawn on it. Opening a document smaller than this buys no
+ * information, so a document too deep for TALL_SCREENS opens here and is read
+ * by panning instead.
+ */
+export const MIN_FIT_ZOOM = 0.5;
+
+export interface FitPlan {
+  zoom: number;
+  /** True when the document was opened top-anchored rather than whole. */
+  tall: boolean;
+}
+
+/**
+ * The zoom `fit()` will choose, as a pure function of the two rectangles — so a
+ * gate can state the first-paint geometry of a document without a DOM, and the
+ * viewer and the gate can never drift (VIEW-01).
+ */
+export function fitPlan(
+  contentW: number,
+  contentH: number,
+  w: number,
+  h: number,
+  padding = 24,
+  projected = false,
+): FitPlan {
+  const zw = (w - padding * 2) / Math.max(1, contentW);
+  const zh = (h - padding * 2) / Math.max(1, contentH);
+  const tall = !projected && zh < zw * 0.6 && zh < 0.6;
+  const bounded = Math.min(zw, Math.max(zh * TALL_SCREENS, MIN_FIT_ZOOM));
+  return { zoom: clamp(tall ? Math.min(bounded, 1) : Math.min(zw, zh), MIN_ZOOM, 1.2), tall };
+}
+
 export interface Rect {
   x: number;
   y: number;
@@ -97,18 +151,23 @@ export class ViewportController {
    * scaling its full height into a wide panel lands at the zoom floor with the
    * card text at 3 px and 80 % of the canvas empty (MLV-R1-002). So when the
    * height-bound fit would be both far tighter than the width-bound one and
-   * illegible on its own, fit the WIDTH, anchor at the top, and let the user pan
-   * down — which is how a swimlane diagram is read anyway.
+   * illegible on its own, anchor at the top and let the user pan down — which is
+   * how a swimlane diagram is read anyway.
+   *
+   * That branch used to fit the WIDTH outright, which on the demo as it stood
+   * before the re-baseline (45 nodes) meant zoom 0.756, 22 of the 45 cards and 3
+   * of the 7 lanes below the fold, and a Fit button that changed nothing
+   * (VIEW-01). It is now bounded: never more than
+   * TALL_SCREENS canvas-heights of document, never under MIN_FIT_ZOOM, and never
+   * wider than the document itself — so a deeper document opens smaller until a
+   * card would stop being a recognisable object, and then stops.
    *
    * A PROJECTION never takes that branch: the user asked for one part of the
    * pipeline, and the answer must open showing it (MLV-R3-001).
    */
   fit(padding = 24): void {
     const { w, h } = this.size();
-    const zw = (w - padding * 2) / this.contentW;
-    const zh = (h - padding * 2) / this.contentH;
-    const tall = !this.projected && zh < zw * 0.6 && zh < 0.6;
-    const zoom = clamp(tall ? Math.min(zw, 1) : Math.min(zw, zh), MIN_ZOOM, 1.2);
+    const { zoom, tall } = fitPlan(this.contentW, this.contentH, w, h, padding, this.projected);
     this.vp.zoom = zoom;
     this.vp.x = (w - this.contentW * zoom) / 2;
     this.vp.y = tall ? padding : Math.max(padding, (h - this.contentH * zoom) / 2);

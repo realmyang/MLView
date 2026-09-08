@@ -30,12 +30,10 @@ import {
   NODE_W_LG,
   BACK_EDGE_DROP,
   LANE_ROUTE_BAND,
-  MAX_RANK_H,
-  RANK_COL_GAP,
-  RANK_ROW_GAP,
   edgeWeight,
   nodeSize,
 } from './constants.js';
+import { wrapTallRanks, wrapWideRows } from './wrap.js';
 
 export interface LayoutBox {
   id: string;
@@ -153,8 +151,12 @@ export function layoutGraph(index: GraphIndex, collapsed: Set<string>): LayoutFr
     cursorY += laneH + LANE_GUTTER;
   });
 
-  for (const lane of lanes) lane.w = maxContentW;
-
+  // Lane boxes are NOT normalised to the widest lane (VIEW-01). `lane.w =
+  // maxContentW` made the world as wide as its widest band and left the others
+  // 56-87 % empty, so `fit()` scaled the whole document down to the one lane
+  // that needed the room. A lane now ends where its own content ends; the world
+  // is still as wide as the widest lane, which is what the band striping and
+  // the minimap letterbox measure themselves against.
   const width = laneX + maxContentW + CANVAS_MARGIN;
   const height = Math.max(cursorY - LANE_GUTTER + CANVAS_MARGIN, CANVAS_MARGIN * 2);
 
@@ -230,6 +232,7 @@ function layoutContainer(
 
   dagre.layout(g);
   wrapTallRanks(g, ids);
+  wrapWideRows(g, ids);
 
   let minX = Infinity;
   let minY = Infinity;
@@ -290,72 +293,6 @@ function layoutContainer(
       }
     },
   };
-}
-
-/**
- * Wrap over-tall ranks into sub-columns (MLV-R1-002).
- *
- * Under `rankdir: 'LR'` a dagre rank is a column, and every sibling with no
- * incident edge lands in rank 0 — so a lane of fifteen unconnected calls becomes
- * one 1400 px column, the document turns into a 4:1 ribbon and `fit()` picks the
- * zoom floor. Any rank whose stacked height exceeds MAX_RANK_H is re-flowed into
- * ceil(H / MAX_RANK_H) sub-columns and every later rank is shifted right by the
- * width that added, so the lane grows across the axis the canvas has room in.
- *
- * Runs on dagre's OUTPUT coordinates only: edge points are recomputed from the
- * boxes by routing.ts, so nothing downstream depends on dagre's own routing.
- */
-function wrapTallRanks(g: any, ids: string[]): void {
-  const placed: { id: string; n: any }[] = [];
-  for (const id of ids) {
-    const n = g.node(id);
-    if (n && isFinite(n.x) && isFinite(n.y)) placed.push({ id, n });
-  }
-  if (placed.length < 2) return;
-
-  // Same rank => same centre x, so the rounded centre is the rank key.
-  const columns = new Map<number, { id: string; n: any }[]>();
-  for (const entry of placed) {
-    const key = Math.round(entry.n.x * 100) / 100;
-    const bucket = columns.get(key);
-    if (bucket) bucket.push(entry);
-    else columns.set(key, [entry]);
-  }
-
-  const keys = Array.from(columns.keys()).sort((a, b) => a - b);
-  let shift = 0;
-  for (const key of keys) {
-    const members = columns.get(key)!;
-    for (const m of members) m.n.x += shift;
-    if (members.length < 2) continue;
-
-    members.sort((a, b) => a.n.y - b.n.y || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-    let stacked = 0;
-    let colW = 0;
-    for (const m of members) {
-      stacked += m.n.height;
-      colW = Math.max(colW, m.n.width);
-    }
-    stacked += (members.length - 1) * RANK_ROW_GAP;
-    if (stacked <= MAX_RANK_H) continue;
-
-    const subColumns = Math.ceil(stacked / MAX_RANK_H);
-    const rows = Math.max(1, Math.ceil(members.length / subColumns));
-    const top = Math.min.apply(null, members.map((m) => m.n.y - m.n.height / 2));
-    let column = 0;
-    let cursor = top;
-    for (let i = 0; i < members.length; i++) {
-      if (i > 0 && i % rows === 0) {
-        column++;
-        cursor = top;
-      }
-      const m = members[i];
-      m.n.x = key + shift + column * (colW + RANK_COL_GAP);
-      m.n.y = cursor + m.n.height / 2;
-      cursor += m.n.height + RANK_ROW_GAP;
-    }
-    shift += column * (colW + RANK_COL_GAP);
-  }
 }
 
 function liftTo(index: GraphIndex, id: string, member: Set<string>): string | null {
