@@ -6,6 +6,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadBundle, readSample, makeSyntheticGraph } from './helpers.mjs';
+import { afterDeferredClick } from './until.mjs';
 
 const sample = await readSample();
 
@@ -366,12 +367,14 @@ test('double-clicking a group header collapses without opening the file twice (M
   header.dispatchEvent(new ctx.window.MouseEvent('click', { bubbles: true, cancelable: true, detail: 2 }));
   header.dispatchEvent(new ctx.window.MouseEvent('dblclick', { bubbles: true, cancelable: true, detail: 2 }));
   assert.deepEqual(JSON.parse(JSON.stringify(ctx.app.getState().collapsed)), ['n:5500cc66dd77'], 'it collapsed');
-  await new Promise((r) => setTimeout(r, 320));
-  assert.equal(
-    ctx.posted.filter((m) => m.type === 'openLocation').length,
-    before,
-    'and posted no openLocation at all',
-  );
+  // A control single click on the collapsed group, waited on until ITS deferred
+  // openLocation lands: equal-delay timers fire in registration order, so a
+  // stray from the double click would already be in the log (HEALTH-03). A
+  // collapsed group re-renders as a plain node, so re-query rather than reuse
+  // the now-detached header.
+  const collapsed = ctx.document.querySelector('[data-node-id="n:5500cc66dd77"]');
+  const after = await afterDeferredClick(ctx, collapsed);
+  assert.equal(after, before + 1, 'the double click posted no openLocation of its own');
 });
 
 test('the chevron is its own collapse target (MLV-R1-010)', async () => {
@@ -381,8 +384,10 @@ test('the chevron is its own collapse target (MLV-R1-010)', async () => {
   const before = ctx.posted.filter((m) => m.type === 'openLocation').length;
   click(ctx, chevron);
   assert.deepEqual(JSON.parse(JSON.stringify(ctx.app.getState().collapsed)), ['n:5500cc66dd77']);
-  await new Promise((r) => setTimeout(r, 320));
-  assert.equal(ctx.posted.filter((m) => m.type === 'openLocation').length, before);
+  // Same control-click proof as the double-click test above (HEALTH-03).
+  const collapsed = ctx.document.querySelector('[data-node-id="n:5500cc66dd77"]');
+  const after = await afterDeferredClick(ctx, collapsed);
+  assert.equal(after, before + 1, 'the chevron click posted no openLocation of its own');
 });
 
 test('a denied clipboard write never claims success (MLV-R1-007)', async () => {

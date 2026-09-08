@@ -68,7 +68,12 @@ fi
 step "analyzer tests"          "$REPO_ROOT"                  "$PYTHON" -m pytest analyzer/tests -q
 step "webview tests"           "$REPO_ROOT/webview"          npm test
 step "vscode-extension tests"  "$REPO_ROOT/vscode-extension" npm test
-step "claude-plugin tests"     "$REPO_ROOT"                  "$PYTHON" -m pytest claude-plugin/tests -q
+# HEALTH-03: the plugin suite is subprocess-bound, not compute-bound -- 234
+# tests take 38 s serially and 11 s under xdist, with the same outcome. `-n auto`
+# only when xdist is installed, so a bare interpreter still runs the gate.
+XDIST=""
+if "$PYTHON" -c "import importlib.util, sys; sys.exit(0 if importlib.util.find_spec('xdist') else 1)"; then XDIST="-n auto"; fi
+step "claude-plugin tests"     "$REPO_ROOT"                  "$PYTHON" -m pytest claude-plugin/tests -q $XDIST
 
 # ------------------------------------------------------------------ the samples
 OUT="$REPO_ROOT/.mlview"

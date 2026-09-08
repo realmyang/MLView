@@ -78,7 +78,15 @@ if ($SkipBuild) {
 Invoke-Step 'analyzer tests' $RepoRoot { & $Python -m pytest analyzer/tests -q }
 Invoke-Step 'webview tests' (Join-Path $RepoRoot 'webview') { npm test }
 Invoke-Step 'vscode-extension tests' (Join-Path $RepoRoot 'vscode-extension') { npm test }
-Invoke-Step 'claude-plugin tests' $RepoRoot { & $Python -m pytest claude-plugin/tests -q }
+# HEALTH-03: the plugin suite is subprocess-bound, not compute-bound -- 234
+# tests take 38 s serially and 11 s under xdist, with the same outcome. `-n auto`
+# only when xdist is installed, so a bare interpreter still runs the gate.
+# find_spec instead of `import xdist` so a missing plugin prints nothing at all:
+# redirecting a native command's stderr in PowerShell 5.1 turns clean output into
+# a NativeCommandError.
+& $Python -c "import importlib.util, sys; sys.exit(0 if importlib.util.find_spec('xdist') else 1)"
+$Xdist = if ($LASTEXITCODE -eq 0) { @('-n', 'auto') } else { @() }
+Invoke-Step 'claude-plugin tests' $RepoRoot { & $Python -m pytest claude-plugin/tests -q @Xdist }
 
 # ------------------------------------------------------------------ the samples
 $Dirty = Join-Path $RepoRoot 'samples/vision_pipeline'

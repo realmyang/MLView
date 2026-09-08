@@ -8,6 +8,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadBundle, readSample, makeSyntheticGraph } from './helpers.mjs';
+import { budgetMs, budgetReport } from './perfbudget.mjs';
+
+// The 300 ms in A7 is a budget for THE REFERENCE MACHINE. `budgetMs` scales it by
+// a calibration workload run in this same process, so a slower or a loaded runner
+// is measured rather than guessed at, and a machine as fast as the reference gets
+// exactly 300 ms (HEALTH-03).
+const LAYOUT_BASE_MS = 300;
 
 const ctx = await loadBundle();
 const { MLView } = ctx;
@@ -177,12 +184,12 @@ test('150 nodes / 300 edges lay out in under 300 ms', () => {
   const graph = makeSyntheticGraph(150, 300);
   // One warm-up pass so the measurement is steady-state, not JIT warm-up.
   MLView.__internal.layout(graph);
-  const started = Date.now();
+  const started = performance.now();
   const layout = MLView.__internal.layout(graph);
-  const elapsed = Date.now() - started;
+  const elapsed = Math.round(performance.now() - started);
   assert.equal(layout.nodes.length, 150);
   assert.ok(layout.edges.length > 0);
-  assert.ok(elapsed < 300, 'layout took ' + elapsed + ' ms (budget 300 ms)');
+  assert.ok(elapsed < budgetMs(LAYOUT_BASE_MS), budgetReport('layout', elapsed, LAYOUT_BASE_MS));
 });
 
 test('150 nodes / 300 edges still lay out under budget WITH a scope applied', () => {
@@ -192,11 +199,11 @@ test('150 nodes / 300 edges still lay out under budget WITH a scope applied', ()
   // layout budget: the scoped frame is strictly smaller than the full one.
   const scoped = project(graph, parseScope('stage:train', 1));
   MLView.__internal.layout(scoped);
-  const started = Date.now();
+  const started = performance.now();
   const layout = MLView.__internal.layout(scoped);
-  const elapsed = Date.now() - started;
+  const elapsed = Math.round(performance.now() - started);
   assert.ok(layout.nodes.length > 0 && layout.nodes.length < 150, layout.nodes.length + ' nodes drawn');
-  assert.ok(elapsed < 300, 'scoped layout took ' + elapsed + ' ms (budget 300 ms)');
+  assert.ok(elapsed < budgetMs(LAYOUT_BASE_MS), budgetReport('scoped layout', elapsed, LAYOUT_BASE_MS));
   // And no lane is drawn without content, which is the whole point of 11.4 F3.
   for (const lane of layout.lanes) {
     const inside = layout.nodes.filter((n) => n.lane === lane.id);

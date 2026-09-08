@@ -12,6 +12,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadBundle, readSample } from './helpers.mjs';
+import { until } from './until.mjs';
 
 const sample = await readSample();
 
@@ -284,7 +285,7 @@ test('an unresolvable selector is a no-op plus a toast, never a throw', async ()
 test('ViewState.scope round-trips through the bridge (CONTRACTS 11.9)', async () => {
   const ctx = await app();
   ctx.app.setScope('unit:train.train', { depth: 2 });
-  await new Promise((r) => setTimeout(r, 320));
+  await until(() => ctx.bridge.saved && ctx.bridge.saved.scope, 'the debounced saveState to carry a scope');
   assert.deepEqual(JSON.parse(JSON.stringify(ctx.bridge.saved.scope)), { spec: 'unit:train.train', depth: 2 });
 
   const back = await app({ state: JSON.parse(JSON.stringify(ctx.bridge.saved)) });
@@ -378,7 +379,14 @@ test('scope and flow round-trip through BOTH real bridges', async () => {
   const first = ctx.MLView.mount(root, sample, ctx.MLView.bridges.standalone({ theme: 'light' }));
   first.setScope('stage:train', { depth: 1 });
   ctx.document.querySelector('.mlv-btn--flow').dispatchEvent(new ctx.window.MouseEvent('click', { bubbles: true }));
-  await new Promise((r) => setTimeout(r, 320));
+  // The standalone bridge debounces into localStorage; wait for the write that
+  // carries BOTH changes rather than for a fixed interval (HEALTH-03).
+  await until(() => {
+    const raw = ctx.window.localStorage.getItem('mlview.viewState.v1');
+    if (!raw) return null;
+    const state = JSON.parse(raw);
+    return state.scope && state.flow === false ? state : null;
+  }, 'the debounced localStorage write carrying the scope and the flow toggle');
   first.destroy();
 
   const saved = JSON.parse(ctx.window.localStorage.getItem('mlview.viewState.v1'));
