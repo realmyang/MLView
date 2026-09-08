@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 
 import pytest
 
@@ -265,11 +266,25 @@ def test_ignore_file_below_the_header_does_nothing(make_workspace):
 
 
 # ---------------------------------------------------------------- .mlview.toml
+# `.mlview.toml` needs a TOML parser, and tomllib is stdlib only from 3.11.
+# `rules/suppress.py:53-55` degrades on 3.10 by appending a `config_warning` and
+# ignoring the file, so on 3.10 these tests would be asserting the behaviour of a
+# parser that is not there. The degradation itself is asserted by
+# `test_a_missing_tomllib_says_so_instead_of_pretending`
+# (analyzer/tests/rules/test_suppression.py). CI-01 put 3.10 in the matrix and
+# this is what it found.
+NEEDS_TOMLLIB = pytest.mark.skipif(
+    sys.version_info < (3, 11),
+    reason="tomllib is stdlib from 3.11; .mlview.toml is ignored with a config_warning below that",
+)
+
+
 def _with_config(make_workspace, toml: str, files=None):
     root = make_workspace({**(files or {"t.py": TRAIN}), ".mlview.toml": toml})
     return analyze_to_dict(AnalyzeOptions(paths=(root,)))
 
 
+@NEEDS_TOMLLIB
 def test_config_disable_suppresses_but_still_emits(make_workspace):
     doc = _with_config(make_workspace, '[rules]\ndisable = ["MLV201"]\n')
     assert doc["workspace"]["configPath"].endswith(".mlview.toml")
@@ -278,6 +293,7 @@ def test_config_disable_suppresses_but_still_emits(make_workspace):
     assert doc["stats"]["suppressed"] >= 1
 
 
+@NEEDS_TOMLLIB
 def test_config_path_excludes_are_applied(make_workspace):
     doc = _with_config(make_workspace, '[paths]\nexclude = ["skipme/**"]\n',
                        files={"t.py": TRAIN, "skipme/other.py": TRAIN})
@@ -285,6 +301,7 @@ def test_config_path_excludes_are_applied(make_workspace):
     assert all(not n["loc"]["file"].startswith("skipme/") for n in doc["nodes"])
 
 
+@NEEDS_TOMLLIB
 def test_an_unparseable_config_is_a_warning_not_a_crash(make_workspace):
     doc = _with_config(make_workspace, "[rules\ndisable = nope\n")
     warnings = _diagnostics(doc, "config_warning")
@@ -293,6 +310,7 @@ def test_an_unparseable_config_is_a_warning_not_a_crash(make_workspace):
     assert validate(doc) == []
 
 
+@NEEDS_TOMLLIB
 def test_an_explicit_config_path_is_honoured(make_workspace, tmp_path):
     root = make_workspace({"t.py": TRAIN})
     config = tmp_path / "custom.toml"

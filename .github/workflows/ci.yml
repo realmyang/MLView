@@ -66,10 +66,6 @@ jobs:
         run: |
           python -m mlview analyze --demo --json - > "${RUNNER_TEMP}/demo.json"
           cmp "${RUNNER_TEMP}/demo.json" contracts/graph.sample.json
-      - name: the doc gate and its self-test
-        run: |
-          python scripts/test_check_docs.py
-          python scripts/check_docs.py
 
   # -------------------------------------------------------------------- plugin
   plugin:
@@ -151,6 +147,15 @@ jobs:
         working-directory: vscode-extension
       - run: npm test
         working-directory: vscode-extension
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: the doc gate and its self-test
+        # Here rather than in the analyzer job because scripts/README.md cites
+        # vscode-extension/out/test-entry.cjs, which exists only after compile.
+        run: |
+          python scripts/test_check_docs.py
+          python scripts/check_docs.py
 
   # ---------------------------------------------------------------------- e2e
   # The whole 17-step table, both drivers, so neither can rot.

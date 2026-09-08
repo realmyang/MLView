@@ -8,6 +8,7 @@ it out of the Problems panel. That distinction is what these tests pin down.
 from __future__ import annotations
 
 import os
+import sys
 
 import pytest
 
@@ -128,6 +129,20 @@ def test_ignore_file_below_the_header_does_nothing(workspace):
 
 
 # --------------------------------------------------------------- .mlview.toml
+# `.mlview.toml` needs a TOML parser, and tomllib is stdlib only from 3.11.
+# `rules/suppress.py:53-55` degrades on 3.10 by appending a `config_warning` and
+# ignoring the file, so on 3.10 these tests would be asserting the behaviour of a
+# parser that is not there. The degradation itself is asserted by
+# `test_a_missing_tomllib_says_so_instead_of_pretending`
+# (analyzer/tests/rules/test_suppression.py). CI-01 put 3.10 in the matrix and
+# this is what it found.
+NEEDS_TOMLLIB = pytest.mark.skipif(
+    sys.version_info < (3, 11),
+    reason="tomllib is stdlib from 3.11; .mlview.toml is ignored with a config_warning below that",
+)
+
+
+@NEEDS_TOMLLIB
 def test_mlview_toml_disable_marks_the_issue_suppressed(workspace):
     doc = workspace(BAD_TRAIN, config='[rules]\ndisable = ["MLV201"]\n')
     assert doc["workspace"]["configPath"].endswith(".mlview.toml")
@@ -135,16 +150,19 @@ def test_mlview_toml_disable_marks_the_issue_suppressed(workspace):
     assert _issue(doc, "MLV110")["suppressed"] is False
 
 
+@NEEDS_TOMLLIB
 def test_mlview_toml_disable_is_case_insensitive(workspace):
     doc = workspace(BAD_TRAIN, config='[rules]\ndisable = ["mlv201"]\n')
     assert _issue(doc, "MLV201")["suppressed"] is True
 
 
+@NEEDS_TOMLLIB
 def test_mlview_toml_key_off_form(workspace):
     doc = workspace(BAD_TRAIN, config='[rules]\nMLV201 = "off"\n')
     assert _issue(doc, "MLV201")["suppressed"] is True
 
 
+@NEEDS_TOMLLIB
 def test_mlview_toml_cannot_regrade_a_severity(workspace):
     """Severities are fixed; an override is a `config_warning`, not a change."""
     doc = workspace(BAD_TRAIN, config='[rules]\nMLV201 = "low"\n')
@@ -154,6 +172,7 @@ def test_mlview_toml_cannot_regrade_a_severity(workspace):
     assert "severit" in warnings[0]["message"].lower()
 
 
+@NEEDS_TOMLLIB
 def test_mlview_toml_path_exclude_removes_the_file(workspace, tmp_path):
     root = write_workspace(str(tmp_path), {
         "experiments/scratch.py": BAD_TRAIN,
@@ -163,6 +182,25 @@ def test_mlview_toml_path_exclude_removes_the_file(workspace, tmp_path):
     doc = analyze_paths(root)
     files = {n["loc"]["file"] for n in doc["nodes"]}
     assert not any(f.startswith("experiments/") for f in files), files
+
+
+@pytest.mark.skipif(
+    sys.version_info >= (3, 11),
+    reason="tomllib is present from 3.11, so there is no degradation to observe",
+)
+def test_a_missing_tomllib_says_so_instead_of_pretending(workspace):
+    """On 3.10 the config is ignored -- loudly, and the analysis still stands.
+
+    `rules/suppress.py:53-55` carries a `pragma: no cover` for this branch
+    because the only interpreter it runs on was not in any test matrix until
+    CI-01. It matters: a user on 3.10 whose `.mlview.toml` does nothing must be
+    told so, not left to conclude the rule is broken.
+    """
+    doc = workspace(BAD_TRAIN, config='[rules]\ndisable = ["MLV201"]\n')
+    warnings = [d for d in doc["diagnostics"] if d["kind"] == "config_warning"]
+    assert warnings, doc["diagnostics"]
+    assert "tomllib is unavailable" in warnings[0]["message"], warnings[0]
+    assert _issue(doc, "MLV201")["suppressed"] is False, "the rule is not silently disabled"
 
 
 # ---------------------------------------------------------------- the contract

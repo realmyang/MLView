@@ -334,7 +334,11 @@ test('the language-model tools refuse a model-supplied path outside the workspac
     const tool = vscode.__recorded.tools.get('mlview_analyzeWorkspace');
     assert.ok(tool, 'the analyze tool is registered when vscode.lm exists');
     const source = new vscode.CancellationTokenSource();
-    for (const escape of ['../..', '../../analyzer/src/mlview', 'C:/Windows/System32', '../../../']) {
+    // An absolute path outside the workspace, spelled the way the platform
+    // spells one: `C:/...` is not absolute on POSIX, so there it resolves INSIDE
+    // the workspace and the refusal under test is never reached (CI-01).
+    const outside = process.platform === 'win32' ? 'C:/Windows/System32' : '/etc';
+    for (const escape of ['../..', '../../analyzer/src/mlview', outside, '../../../']) {
       await assert.rejects(
         () => tool.invoke({ input: { path: escape } }, source.token),
         /only analyzes paths inside the open workspace/,
