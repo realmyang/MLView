@@ -42,7 +42,7 @@ that one.
 | 5 | Extension typecheck | `npm run check` in `vscode-extension` | `tsc --noEmit`, clean |
 | 6 | Extension bundle | `npm run compile` in `vscode-extension` | `out/extension.js` 111.4 kb |
 | 7 | Extension tests | `npm test` in `vscode-extension` | 180 pass, 0 fail |
-| 8 | Plugin / MCP tests | `python -m pytest claude-plugin/tests -q -n auto` | 234 passed in ~11 s (~38 s without `-n auto`) |
+| 8 | Plugin / MCP tests | `python -m pytest claude-plugin/tests -q -n auto` | 235 passed in ~10 s (~33 s without `-n auto`) |
 | 9 | Parity gates | `python tools/verify.py --all` | all 9 gates passed |
 | 9a | Scope parity (Python == TypeScript) | `python tools/verify.py --scopes` | 10 projections + 6 error cases, python == typescript |
 | 9b | Scope fixtures current | `python analyzer/tools/gen_scope_fixtures.py --check` | 10 projecting + 6 error cases over the golden |
