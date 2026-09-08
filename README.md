@@ -1,5 +1,7 @@
 # MLView
 
+[![CI](https://github.com/realmyang/MLView/actions/workflows/ci.yml/badge.svg)](https://github.com/realmyang/MLView/actions/workflows/ci.yml)
+
 **Turn a Python machine-learning codebase into one interactive, issue-annotated
 workflow diagram — and serve that identical diagram to two hosts: Claude Code and
 GitHub Copilot / VS Code.**
@@ -224,6 +226,28 @@ powershell -ExecutionPolicy Bypass -File scripts/e2e.ps1
 ```sh
 sh scripts/e2e.sh
 ```
+
+### Continuous integration
+
+`.github/workflows/ci.yml` runs the gate table on every push and pull request,
+so "it works" is a statement about seven machines rather than about one:
+
+| Job | Runner | What it runs |
+|---|---|---|
+| `analyzer` | ubuntu x Python 3.10 / 3.11 / 3.12 / 3.13 | the analyzer suite, `contracts/validate_sample.py`, and `--demo` compared byte for byte against `contracts/graph.sample.json` |
+| `claude-plugin` | ubuntu, Python 3.13 | the plugin suite under `pytest -n auto`, then `tools/sync-core.py --check` |
+| `webview` | ubuntu x Node 20 / 22 | `npm run check`, `build`, `test`, then `tools/sync-assets.py --check` against the bundle just built |
+| `vscode-extension` | ubuntu, Node 20 | `npm run check`, `compile`, `test`, and the doc gate with its self-test |
+| `e2e (ubuntu, sh)` | ubuntu, Python 3.13 + Node 20 | `sh scripts/e2e.sh` — all 17 steps, uploading the emitted reports |
+| `e2e (windows, powershell)` | windows, Python 3.13 + Node 20 | `scripts/e2e.ps1` — the same 17 steps under the other driver |
+| `smoke (macos)` | macos, Python 3.13 + Node 20 | the analyzer and viewer suites |
+
+The matrix is deliberately lopsided: the repository is private, so minutes are
+metered and weighted (windows 2x, macos 10x), and the fan-out is therefore
+ubuntu-only. A full green run is about 3m40s of wall time and ~41 billable
+minutes. `claude plugin validate` is not available on a hosted runner; the test
+that would call it skips itself when the CLI is absent, so gates 10 and 11 of
+`scripts/README.md` are still Windows-desk gates.
 
 ### The three parity gates
 

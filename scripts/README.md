@@ -5,32 +5,44 @@ they both call. The two flavours do the same thing; pick whichever shell you are
 in. Both are Windows-safe: no `shell: true`, no
 symlinks, no `chmod`, and the PowerShell versions are Windows PowerShell 5.1
 compatible (no `&&`, no `||`, no ternaries — every step checks `$LASTEXITCODE`).
+The `.sh` flavour also runs on Linux and macOS, which is what the `e2e (ubuntu,
+sh)` CI job exercises.
 
 | Script | What it does |
 |---|---|
 | `build.ps1` / `build.sh` | Build everything, in the only order that works. |
 | `e2e.ps1` / `e2e.sh` | Build, run every suite, analyze the samples, write the scoped demo reports, render them, run the parity, scope and doc gates, print a PASS/FAIL table. |
 | `check_docs.py` | The doc gate: dead paths, dead Markdown links, "known gap" bullets that still describe a failure somebody already fixed, gap bullets that cite nothing checkable or cite a symbol that has been renamed away, a frozen design record that has started reporting build state, a POSIX shell script written with CRLF, and two docs that disagree about the size of the demo graph. |
+| `pythonpick.sh` | Sourced by both `.sh` drivers: finds a Python 3.10+ and exports `PYTHON`. `python` first under Git Bash, `python3` first elsewhere, because on Windows `python3.exe` is usually the Store alias and on Linux/macOS `python` usually does not exist. |
 | `test_check_docs.py` | The doc gate's own test suite — twenty-six cases: twenty-two throwaway trees, one unit test for the symbol parser, three that read the real repo. |
 
 ---
 
 ## The gate table
 
-Every gate below is green on this machine (Windows 11, Python 3.13 / miniconda,
-Node 20.9, VS Code 1.136, Claude Code CLI 2.1.186). `scripts/e2e` runs all of
-them in one pass; the middle column is how to run just that one.
+[![CI](https://github.com/realmyang/MLView/actions/workflows/ci.yml/badge.svg)](https://github.com/realmyang/MLView/actions/workflows/ci.yml)
+
+Every gate below runs in CI on every push — ubuntu across Python 3.10-3.13 and
+Node 20/22, plus one Windows end-to-end job and one macOS smoke job (see
+`.github/workflows/ci.yml`, and the "Continuous integration" section of the root
+README for the job table). The two exceptions are rows 10 and 11: `claude plugin
+validate` is not available on a hosted runner, so that test skips itself there
+and those two rows are still verified from a desk (Windows 11, Python 3.13 /
+miniconda, Node 20.9, VS Code 1.136, Claude Code CLI 2.1.186).
+
+`scripts/e2e` runs all of them in one pass; the middle column is how to run just
+that one.
 
 | # | Gate | Command | Result |
 |---|---|---|---|
 | 1 | Build | `powershell -ExecutionPolicy Bypass -File scripts/build.ps1` | `BUILD OK` — 5/5 steps |
-| 2 | Analyzer + rules | `python -m pytest analyzer/tests -q` | 1075 passed, 2 skipped |
+| 2 | Analyzer + rules | `python -m pytest analyzer/tests -q` | 1075 passed, 3 skipped (the third needs Python 3.10, where tomllib is absent) |
 | 3 | Viewer tests | `npm test` in `webview` | 246 pass, 0 fail |
 | 4 | Viewer typecheck | `npm run check` in `webview` | `tsc --noEmit`, clean |
 | 5 | Extension typecheck | `npm run check` in `vscode-extension` | `tsc --noEmit`, clean |
 | 6 | Extension bundle | `npm run compile` in `vscode-extension` | `out/extension.js` 111.4 kb |
 | 7 | Extension tests | `npm test` in `vscode-extension` | 180 pass, 0 fail |
-| 8 | Plugin / MCP tests | `python -m pytest claude-plugin/tests -q` | 231 passed |
+| 8 | Plugin / MCP tests | `python -m pytest claude-plugin/tests -q -n auto` | 234 passed in ~11 s (~38 s without `-n auto`) |
 | 9 | Parity gates | `python tools/verify.py --all` | all 9 gates passed |
 | 9a | Scope parity (Python == TypeScript) | `python tools/verify.py --scopes` | 10 projections + 6 error cases, python == typescript |
 | 9b | Scope fixtures current | `python analyzer/tools/gen_scope_fixtures.py --check` | 10 projecting + 6 error cases over the golden |
@@ -45,10 +57,12 @@ them in one pass; the middle column is how to run just that one.
 | 15 | Sample issues current | `python analyzer/tools/gen_expected_issues.py --check` | 15 issues — 5/6/4 |
 | 16 | Golden parity | `python -m mlview analyze --demo --json -` vs `contracts/graph.sample.json` | byte-identical, 46 078 bytes |
 | 17 | Emitted docs valid | `python contracts/validate_sample.py .mlview/graph.json` | schema 1.0 + 10 invariant groups, 45 nodes / 45 edges / 15 issues |
-| 18 | Docs match the tree | `python scripts/check_docs.py` | 18 files (16 docs + 2 shell scripts), no dead paths, every known gap anchored, no build state in a plan doc, LF in every shell script, one graph size |
+| 18 | Docs match the tree | `python scripts/check_docs.py` | 19 files (16 docs + 3 shell scripts), no dead paths, every known gap anchored, no build state in a plan doc, LF in every shell script, one graph size |
 | 19 | End to end | `powershell -ExecutionPolicy Bypass -File scripts/e2e.ps1` | `E2E OK` — 17 steps, 0 failed |
 | 20 | Scoped demo artifacts | `python -m mlview analyze samples/vision_pipeline --scope concern:evaluation --depth 1 --html .mlview/evaluation.html` | 17 of 45 nodes (7 core / 7 boundary / 3 context), `data-mlview-scope` and `data-mlview-depth` set on the root |
 | 21 | Scope catalogue | `python -m mlview analyze samples/vision_pipeline --list-scopes` | 10 scopable units, biggest first |
+| 22 | Bytecode residue never poisons the vendor gate | `python -m pytest claude-plugin/tests/test_vendor_bytecode.py -q` | 3 passed — pytest over a throwaway vendored tree writes no `__pycache__` with the flag set and does write one without it, and `sync-core --check` prunes planted residue and stays green |
+| 23 | CI matrix | `.github/workflows/ci.yml` | 11 jobs green: 3 OSes, Python 3.10-3.13, Node 20/22, ~3m40s wall |
 
 Rows 16–18 are also asserted inside rows 2 and 19; they are listed separately
 because each is a one-line command that answers a question a reviewer asks
@@ -262,8 +276,17 @@ python scripts/test_check_docs.py         # the gate's own tests
 
 Both scripts export `PYTHONUTF8=1` and `PYTHONIOENCODING=utf-8` before running
 anything. The Windows console is cp1252, and without those a single non-ASCII
-identifier or path corrupts the JSON on stdout. Set `PYTHON=/path/to/python` to
-choose an interpreter for the `.sh` scripts.
+identifier or path corrupts the JSON on stdout.
+
+They also export `PYTHONDONTWRITEBYTECODE=1`. The plugin suite imports the
+vendored analyzer in-process, and the `__pycache__` trees CPython would leave
+under `claude-plugin/vendor/` are bytecode that would ship with the plugin —
+which the vendor gate, running right after, used to report as drift (HEALTH-01).
+
+Set `PYTHON=/path/to/python` to choose an interpreter for the `.sh` scripts;
+otherwise `pythonpick.sh` finds one. `MLVIEW_PERF_BUDGET_MS` overrides the
+viewer's layout budget, which otherwise scales itself against a calibration
+workload run in the same process and doubles under `CI`.
 
 Everything runs offline. `npm install` resolves entirely from the local npm
 cache, `pip install -e analyzer` has no dependencies, and neither `torch` nor
