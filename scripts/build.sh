@@ -20,7 +20,10 @@ REPO_ROOT=$(dirname "$SCRIPT_DIR")
 
 PYTHONUTF8=1
 PYTHONIOENCODING=utf-8
-export PYTHONUTF8 PYTHONIOENCODING
+# Never leave bytecode behind: step 3 vendors the analyzer into the plugin and
+# any __pycache__ under claude-plugin/vendor would ship with it (HEALTH-01).
+PYTHONDONTWRITEBYTECODE=1
+export PYTHONUTF8 PYTHONIOENCODING PYTHONDONTWRITEBYTECODE
 
 SKIP_NPM=0
 SKIP_PIP=0

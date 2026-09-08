@@ -20,6 +20,10 @@ $RepoRoot = Split-Path -Parent $PSScriptRoot
 $env:PYTHONUTF8 = '1'
 $env:PYTHONIOENCODING = 'utf-8'
 $env:MLVIEW_NO_OPEN = '1'
+# Step 5 (the plugin suite) imports the vendored core and step 14
+# (tools/verify.py --all) checks that vendor/ is clean. Without this, the first
+# poisons the second and the run is not reproducible (HEALTH-01).
+$env:PYTHONDONTWRITEBYTECODE = '1'
 
 $script:Results = @()
 

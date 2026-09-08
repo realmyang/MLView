@@ -14,7 +14,11 @@ REPO_ROOT=$(dirname "$SCRIPT_DIR")
 PYTHONUTF8=1
 PYTHONIOENCODING=utf-8
 MLVIEW_NO_OPEN=1
-export PYTHONUTF8 PYTHONIOENCODING MLVIEW_NO_OPEN
+# Step 5 (the plugin suite) imports the vendored core and step 14
+# (tools/verify.py --all) checks that vendor/ is clean. Without this, the first
+# poisons the second and the run is not reproducible (HEALTH-01).
+PYTHONDONTWRITEBYTECODE=1
+export PYTHONUTF8 PYTHONIOENCODING MLVIEW_NO_OPEN PYTHONDONTWRITEBYTECODE
 
 SKIP_BUILD=0
 NPM_FLAG=""
