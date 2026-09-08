@@ -281,3 +281,118 @@ def test_graph_fidelity_needs_a_node_anchored_on_the_op_not_merely_containing_it
     assert accuracy.score_graph(program, {"nodes": [enclosing], "stats": {}})["score"] == 0.0
     anchored = {"loc": {"file": "m.py", "line": 20, "endLine": 20}}
     assert accuracy.score_graph(program, {"nodes": [anchored], "stats": {}})["score"] == 1.0
+
+
+# --------------------------------------------------------- the gates' own flags
+# TB-02: both stated tolerances used to have a one-flag escape. `--no-gate`
+# returned 0 on a forbidden finding, and `--update-baseline` rewrote the file
+# from the current run without ever loading the one it replaced - so a recall
+# regression was erased by one command, under a note that still claimed
+# "recall may only ratchet up". These pin that neither is true any more.
+def _fake_report(recall=0.60, forbidden=0, unlabelled=0, per_rule=None,
+                 graph=0.5):
+    scope = {"expectedLabels": 10, "recall": recall, "visibleRecall": recall,
+             "highValueRecall": recall, "precision": 1.0}
+    return {
+        "programs": 3,
+        "forbiddenFindings": forbidden,
+        "unlabelledFindings": unlabelled,
+        "overall": dict(scope),
+        "unseen": dict(scope),
+        "perRule": per_rule if per_rule is not None else {"MLV101": {"recall": 0.5}},
+        "graphFidelity": {"score": graph, "opsLabelled": 4, "opsRecovered": 2,
+                          "perProgram": {}},
+        "calibration": {},
+    }
+
+
+def _write_baseline(tmp_path, report):
+    path = str(tmp_path / "baseline.json")
+    with open(path, "w", encoding="utf-8", newline="\n") as handle:
+        json.dump(accuracy.build_baseline(report), handle, indent=2, sort_keys=True)
+        handle.write("\n")
+    return path
+
+
+def _run(monkeypatch, report, argv):
+    monkeypatch.setattr(accuracy, "run_corpus", lambda *a, **k: ([], report))
+    return accuracy.main(argv)
+
+
+def test_baseline_moves_names_every_number_that_moved_in_both_directions():
+    was = accuracy.build_baseline(_fake_report(recall=0.60, graph=0.5))
+    now = _fake_report(recall=0.55, graph=0.9,
+                       per_rule={"MLV101": {"recall": 0.8}})
+    down, up = accuracy.baseline_moves(now, was)
+    assert [label for label, _w, _n in down] == [
+        "overall highValueRecall", "overall recall", "overall visibleRecall",
+        "unseen highValueRecall", "unseen recall", "unseen visibleRecall"]
+    assert [label for label, _w, _n in up] == ["MLV101 recall", "graph fidelity"]
+
+
+def test_a_rule_the_report_stopped_scoring_counts_as_a_downward_move():
+    """A rule that vanishes from the report is a silent recall loss, not a wash."""
+    was = accuracy.build_baseline(_fake_report(per_rule={"MLV101": {"recall": 0.5}}))
+    down, _up = accuracy.baseline_moves(_fake_report(per_rule={}), was)
+    assert ("MLV101 recall", 0.5, 0.0) in down
+
+
+def test_update_baseline_refuses_to_ratchet_a_number_down(tmp_path, monkeypatch,
+                                                          capsys):
+    path = _write_baseline(tmp_path, _fake_report(recall=0.60))
+    before = open(path, encoding="utf-8").read()
+    code = _run(monkeypatch, _fake_report(recall=0.55),
+                ["--baseline", path, "--update-baseline", "--quiet"])
+    assert code == accuracy.EXIT_REGRESSION
+    assert open(path, encoding="utf-8").read() == before, "the file was rewritten"
+    out = capsys.readouterr()
+    assert "baseline DOWN  overall recall               0.6000 -> 0.5500" in out.out
+    assert "--allow-regression" in out.err
+
+
+def test_a_downward_move_needs_an_explicit_reason_and_records_it(tmp_path,
+                                                                 monkeypatch):
+    path = _write_baseline(tmp_path, _fake_report(recall=0.60))
+    code = _run(monkeypatch, _fake_report(recall=0.55),
+                ["--baseline", path, "--update-baseline", "--quiet",
+                 "--allow-regression", "MLV101 was retired by the lead"])
+    assert code == accuracy.EXIT_OK
+    written = json.load(open(path, encoding="utf-8"))
+    assert written["overall"]["recall"] == 0.55
+    assert "SANCTIONED REGRESSION" in written["note"]
+    assert "MLV101 was retired by the lead" in written["note"]
+
+
+def test_update_baseline_still_ratchets_up_without_a_flag(tmp_path, monkeypatch):
+    path = _write_baseline(tmp_path, _fake_report(recall=0.60))
+    code = _run(monkeypatch, _fake_report(recall=0.70),
+                ["--baseline", path, "--update-baseline", "--quiet"])
+    assert code == accuracy.EXIT_OK
+    assert json.load(open(path, encoding="utf-8"))["overall"]["recall"] == 0.70
+
+
+def test_update_baseline_refuses_while_a_forbidden_finding_fires(tmp_path,
+                                                                 monkeypatch):
+    path = _write_baseline(tmp_path, _fake_report(recall=0.60))
+    before = open(path, encoding="utf-8").read()
+    code = _run(monkeypatch, _fake_report(recall=0.90, forbidden=1),
+                ["--baseline", path, "--update-baseline", "--quiet",
+                 "--allow-regression", "irrelevant"])
+    assert code == accuracy.EXIT_FORBIDDEN
+    assert open(path, encoding="utf-8").read() == before
+
+
+def test_no_gate_does_not_swallow_a_forbidden_finding(tmp_path, monkeypatch):
+    """Gate 1 is not a ratchet, so the flag that relaxes the ratchet misses it."""
+    path = _write_baseline(tmp_path, _fake_report(recall=0.60))
+    code = _run(monkeypatch, _fake_report(recall=0.60, forbidden=1),
+                ["--baseline", path, "--no-gate", "--quiet"])
+    assert code == accuracy.EXIT_FORBIDDEN
+
+
+def test_no_gate_still_swallows_a_plain_ratchet_regression(tmp_path, monkeypatch):
+    path = _write_baseline(tmp_path, _fake_report(recall=0.60))
+    assert _run(monkeypatch, _fake_report(recall=0.55),
+                ["--baseline", path, "--quiet"]) == accuracy.EXIT_REGRESSION
+    assert _run(monkeypatch, _fake_report(recall=0.55),
+                ["--baseline", path, "--no-gate", "--quiet"]) == accuracy.EXIT_OK

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from typing import Iterable, List, Optional
 
+from ..core.coverage import untraced_reason
 from ..core.graph import Issue
 from ..ir.model import CallSite
 from ..ir.symbols import dotted_text
@@ -77,17 +78,9 @@ def fit_before_split(ctx) -> Iterable[Issue]:
     return issues
 
 
-def _untraced_reason(fit: CallSite, name, ref) -> str:
-    """Why the analyzer has no tag for this value - the honest short answer."""
-    scope = fit.scope
-    function = getattr(fit, "function", None)
-    if name and function is not None and name in (function.params or ()):
-        return "it arrives as a parameter of %s" % function.qualname
-    if ref is None:
-        return "it is not bound to any value the analyzer could follow"
-    if scope is not None and scope.is_dynamic:
-        return "%s is a dynamic scope" % scope.qualname
-    return "its producer resolved to nothing the knowledge tables recognise"
+#: TB-10: the wording lives in `core/coverage` now, because the post-rule sweep
+#: explains the same blind spots and the two must not diverge.
+_untraced_reason = untraced_reason
 
 
 def _label(call: CallSite) -> str:

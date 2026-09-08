@@ -117,9 +117,10 @@ export function searchGraphDetailed(index: GraphIndex, query: string, limit = 40
   byRelevance(kept);
   const hits = kept.map((s) => s.hit);
 
-  // VIEW-09a. The pin is added AFTER ranking and only for a query that parses
-  // as a location AND resolves, so every query that returns hits today returns
-  // the identical ordered list.
+  // VIEW-09a. The pin is added AFTER ranking, and only for a query carrying an
+  // explicit `:line` that also RESOLVES — so every query that returned hits
+  // before this item returns the identical ordered list, which is the third
+  // clause of its acceptance.
   const pinned = locationPin(index, query);
   if (pinned) {
     const at = hits.findIndex((h) => h.kind === 'node' && h.id === pinned.id);
@@ -140,11 +141,21 @@ export function searchGraphDetailed(index: GraphIndex, query: string, limit = 40
 
 /**
  * The node a `path:line` query means, as a pinnable hit — or null when the
- * query is not a location, or names a file this graph has no node in.
+ * query carries no line number, is not a location at all, or names a file this
+ * graph has no node in.
+ *
+ * The LINE is required. `parseLocationQuery` also accepts a bare `train.py`,
+ * and pinning that reordered a plain substring query the box had always
+ * answered by relevance: `train.py` began with *"validate() train.py:11 —
+ * nearest to first in file"*, a row that ranked tenth before, silently breaking
+ * VIEW-09a's own "every query that returns hits today returns the identical
+ * ordered list" (TB-05). A pasted location — the thing this item exists to
+ * make navigable — always carries its line, because `file:line` is what the
+ * CLI prints, what the Problems panel shows and what a stack trace carries.
  */
 function locationPin(index: GraphIndex, query: string): SearchHit | null {
   const parsed = parseLocationQuery(query);
-  if (!parsed) return null;
+  if (!parsed || parsed.line === null) return null;
   const match = locationHit(index, parsed);
   if (!match) return null;
   const node = match.node;

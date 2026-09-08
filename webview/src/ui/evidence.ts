@@ -15,6 +15,7 @@
 
 import { add, el } from '../dom.js';
 import { ruleDocFor } from './ruledocs.js';
+import type { RuleDoc } from './ruledocs.js';
 import type { Evidence, Issue } from '../types.js';
 
 const BUCKETS = ['certain', 'likely', 'possible', 'speculative'];
@@ -99,18 +100,39 @@ export function evidenceDisclosure(issue: Issue): HTMLElement | null {
 }
 
 /**
- * "About MLV301" — the rule card: why / how it is detected / how to fix, plus
- * the false positives the rule deliberately avoids when the sidecar supplies
- * them. Self-contained and offline: every string comes from the document.
+ * The rows of the rule card, MINUS anything the surface above already printed.
+ *
+ * Both callers — the expanded rail row and the Inspector — render `message`,
+ * `why` and `fixHint` immediately above this card. While no rule-doc sidecar
+ * exists (see `ruledocs.ts`), `ruleDocFor` composes those same three strings, so
+ * the disclosure re-printed the three paragraphs of the row it sat under: a
+ * click that bought the reader nothing (TB-01). A row survives only when the
+ * sidecar actually said something different — and `falsePositives`, the one
+ * section that has no composed fallback at all, always survives.
+ */
+export function ruleDocRows(issue: Issue, doc: RuleDoc): { label: string; text: string }[] {
+  const rows: { label: string; text: string }[] = [];
+  const add_ = (label: string, text: string | undefined, shown: string | undefined) => {
+    if (text && text !== shown) rows.push({ label, text });
+  };
+  add_('Why it matters', doc.why, issue.why);
+  add_('How it is detected', doc.detection, issue.message);
+  add_('How to fix it', doc.fix, issue.fixHint);
+  add_('False positives it avoids', doc.falsePositives, undefined);
+  return rows;
+}
+
+/**
+ * "About MLV301" — the rule card: what the rule knows that this row does not.
+ *
+ * Self-contained and offline: every string comes from the document. Null when
+ * there is nothing to add — no sidecar text beyond the finding's own and no
+ * document to cite — so a report never ships an empty or duplicating twisty.
  */
 export function ruleDocDisclosure(issue: Issue): HTMLElement | null {
   const doc = ruleDocFor(issue);
-  const rows: { label: string; text: string }[] = [];
-  if (doc.why) rows.push({ label: 'Why it matters', text: doc.why });
-  if (doc.detection) rows.push({ label: 'How it is detected', text: doc.detection });
-  if (doc.fix) rows.push({ label: 'How to fix it', text: doc.fix });
-  if (doc.falsePositives) rows.push({ label: 'False positives it avoids', text: doc.falsePositives });
-  if (!rows.length) return null;
+  const rows = ruleDocRows(issue, doc);
+  if (!rows.length && !doc.docs) return null;
 
   const box = disclosure('About ' + doc.code, 'mlv-disclosure mlv-disclosure--rule');
   box.setAttribute('data-rule-doc', doc.code);

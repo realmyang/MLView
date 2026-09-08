@@ -33,6 +33,11 @@ PROTECTED_KEYS = frozenset(
         # Provenance and "this is not a clean bill of health" text: short, and the
         # whole point of the payload when it is present.
         "note", "docNote", "docPath", "diagnostics",
+        # ROADMAP COVERAGE: the rules that could NOT run. Bounded by
+        # `mlview_notes.MAX_CODES` / `MAX_MESSAGE` to ~1 KB worst case, so
+        # protecting it cannot starve the payload — and shedding it would leave
+        # the model a finding count it has no way to know is a floor.
+        "coverage",
         "filesAnalyzed", "filesFailed", "notebooksSkipped",
     }
 )

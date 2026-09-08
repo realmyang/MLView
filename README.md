@@ -219,6 +219,8 @@ MLView/
   tools/                    sync-assets.py · sync-core.py · verify.py
   scripts/                  build · e2e (PowerShell and sh) · the doc gate
   .claude-plugin/           marketplace.json — the repo doubles as a local marketplace
+  .github/workflows/        ci.yml — the CI matrix (see "Continuous integration")
+  .workflows/               multi-agent orchestration scripts; not part of the product
   .mlview/                  generated output (graph.json, report.html)
 ```
 
@@ -259,18 +261,24 @@ so "it works" is a statement about eight machines rather than about one:
 | `claude-plugin` | ubuntu, Python 3.13 | the plugin suite under `pytest -n auto`, then `tools/sync-core.py --check` |
 | `webview` | ubuntu x Node 20 / 22 | `npm run check`, `build`, `test`, then `tools/sync-assets.py --check` against the bundle just built |
 | `vscode-extension` | ubuntu, Node 20 | `npm run check`, `compile`, `test`, and the doc gate with its self-test |
-| `e2e (ubuntu, sh)` | ubuntu, Python 3.13 + Node 20 | `sh scripts/e2e.sh` — all 17 steps, uploading the emitted reports |
-| `e2e (windows, powershell)` | windows, Python 3.13 + Node 20 | `scripts/e2e.ps1` — the same 17 steps under the other driver |
+| `e2e (ubuntu, sh)` | ubuntu, Python 3.13 + Node 20 | `sh scripts/e2e.sh` — all 18 steps, uploading the emitted reports |
+| `e2e (windows, powershell)` | windows, Python 3.13 + Node 20 | `scripts/e2e.ps1` — the same 18 steps under the other driver |
 | `smoke (macos)` | macos, Python 3.13 + Node 20 | the analyzer and viewer suites |
 | `accuracy corpus` | ubuntu, Python 3.13 | `tools/accuracy.py` over the ten labelled programs, then `pytest analyzer/tests/accuracy` — zero `forbidden` findings, and recall and graph fidelity may only ratchet up |
 
 The matrix is deliberately lopsided: the repository is private, so minutes are
 metered and weighted (windows 2x, macos 10x), and the fan-out is therefore
-ubuntu-only. A full green run is about 4m30s of wall time and ~45 billable
-minutes — 15 of them the ten ubuntu jobs, 10 the one Windows job, and 20 the
-single 78-second macOS job, which every runner minute is billed tenfold. `claude plugin validate` is not available on a hosted runner; the test
-that would call it skips itself when the CLI is absent, so gates 10 and 11 of
-`scripts/README.md` are still Windows-desk gates.
+ubuntu-only. A full green run is about **4m50s of wall time and ~46 billable
+minutes** — ~16 of them the ten ubuntu jobs, 10 the one Windows job (5 min at
+2x), and 20 the single 111-second macOS job, whose every started minute is
+billed tenfold and rounded up. That last figure is 43% of the bill for two
+suites ubuntu already runs; because the multiplier and the rounding, not the
+job's contents, are what cost the 20, trimming it cannot help. Moving it off the
+per-push path (nightly `schedule` plus `workflow_dispatch`) would take a push to
+~26 minutes and is an open lead decision, recorded against CI-01 in
+`docs/ROADMAP.md`. `claude plugin validate` is not available on a hosted runner;
+the test that would call it skips itself when the CLI is absent, so gates 10 and
+11 of `scripts/README.md` are still Windows-desk gates.
 
 ### The three parity gates
 

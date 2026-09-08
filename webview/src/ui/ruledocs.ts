@@ -4,23 +4,29 @@
  * `docs/rules/MLV201.md` holds the one paragraph that answers *"why should I
  * believe this"* — how the rule detects the defect, and the false positives it
  * deliberately avoids (gradient accumulation, LBFGS, factory-built optimizers).
- * The standalone report could reach none of it: `grep -c "How it is detected"
+ * The standalone report can reach none of it: `grep -c "How it is detected"
  * .mlview/report.html` is 0 and the report contains zero anchor elements.
  *
- * THE HOOK. The analyzer will expose a compact per-rule JSON sidecar
- * (`gen_rule_docs.py`, ~1–2 KB per rule) and `emit/html_out.py` will inline the
- * entries for the rules that actually fired. This module is the single place
- * that reads it, under two clearly named, entirely optional sources:
+ * THE HOOK — AND IT IS STILL ONLY A HOOK. This module is the READER. The writer
+ * does not exist yet: `analyzer/tools/gen_rule_docs.py` emits no JSON sidecar,
+ * `emit/html_out.py` writes no `#mlview-rule-docs` element, and no host assigns
+ * `window.MLViewRuleDocs`, so `falsePositives` is `undefined` for every finding
+ * in every host today and MLV-P6's "the Inspector shows MLV301's *false
+ * positives it avoids* text" is NOT met (TB-01). Two entirely optional sources
+ * light it up the day the analyzer half lands, with no viewer change:
  *
  *   1. `<script type="application/json" id="mlview-rule-docs">{ "MLV201": … }`
  *      — the element the emitter will write, beside `#mlview-graph`.
  *   2. `window.MLViewRuleDocs` — the same map assigned by a host that builds
  *      the page some other way (the VS Code webview, `dev/*.html`).
  *
- * Until that lands, `ruleDocFor` composes the same three sections out of the
- * finding itself, so the disclosure is useful today and gets richer for free the
- * day the sidecar appears. Nothing here throws: a missing, malformed or
- * partially-typed sidecar degrades to the composed form (invariant 1.1/6).
+ * Until then `ruleDocFor` still composes the three sections out of the finding
+ * itself, because that is the honest content of a rule card for a host that has
+ * nothing else — but a composed section is NOT rendered beside the row that
+ * already printed it (`ruleDocRows` in `evidence.ts`), or the disclosure would
+ * repeat the paragraphs two lines above it and inform nobody. Nothing here
+ * throws: a missing, malformed or partially-typed sidecar degrades to the
+ * composed form (invariant 1.1/6).
  */
 
 import type { Issue } from '../types.js';

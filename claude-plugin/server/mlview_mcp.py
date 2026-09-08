@@ -49,12 +49,14 @@ MIN_PYTHON = (3, 10)
 def python_version_problem(version, executable):
     """The actionable stderr lines for an interpreter too old to run this server.
 
-    CLEANUP 7: `.mcp.json` has to spell ONE command, and the only spelling that
-    works out of the box on Windows is `python` — which on most macOS and Linux
+    CLEANUP 7: `.mcp.json` has to spell ONE default command, and the only spelling
+    that works out of the box on Windows is `python` — which on most macOS and Linux
     boxes is either absent or a Python 2. The failure mode without this check is a
     SyntaxError from deep inside the vendored analyzer, or "MCP server mlview
-    failed" with nothing to act on. So the check is here, before the first
-    `mlview` import, and the message names the file to edit and what to put in it.
+    failed" with nothing to act on. So the check is here, before the first `mlview`
+    import, and the message names BOTH fixes: the `MLVIEW_PYTHON` environment
+    variable the config honours (`"command": "${MLVIEW_PYTHON:-python}"`, which is
+    the fix for a plugin installed read-only), and the one-field edit.
 
     Returns an EMPTY list when the interpreter is fine. Pure, so
     `tests/test_server_bootstrap.py` asserts the message without a subprocess.
@@ -65,9 +67,10 @@ def python_version_problem(version, executable):
         "mlview-mcp: this server needs Python %d.%d or newer; %s is %d.%d."
         % (MIN_PYTHON[0], MIN_PYTHON[1], executable or "the interpreter",
            version[0], version[1]),
-        'mlview-mcp: edit claude-plugin/.mcp.json and set "command" to "python3" '
-        '(or the absolute path of a Python %d.%d+ interpreter), then restart Claude Code.'
-        % MIN_PYTHON,
+        "mlview-mcp: set MLVIEW_PYTHON to a Python %d.%d+ interpreter (e.g. "
+        'MLVIEW_PYTHON=python3, or an absolute path) and restart Claude Code; '
+        '.mcp.json reads "command": "${MLVIEW_PYTHON:-python}". Editing that '
+        'field to "python3" works too.' % MIN_PYTHON,
     ]
 
 
@@ -237,11 +240,12 @@ def mlview_analyze(
     PREFER A DIRECTORY OVER A SINGLE FILE. Four rules — MLV301, MLV302, MLV401 and
     MLV501 — need a sibling module to fire at all, so analyzing `train.py` alone
     reports fewer findings than analyzing the directory that contains it (measured:
-    3 against 7). When the caller names one file, the result carries a
-    `single_file_analysis` diagnostic saying which rules could not run; repeat that
-    caveat to the user rather than reporting the shorter list as a clean file. The
-    same applies to `untagged_dataflow`, which says a key argument could not be
-    traced, so the leakage rules could not check it. Analyze the directory and pass
+    3 against 7). When the caller names one file, the result carries a `coverage`
+    row of kind `single_file_analysis` whose `codes` name the rules that could not
+    run; quote those codes to the user rather than reporting the shorter list as a
+    clean file. The same applies to `untagged_dataflow`, which says a key argument
+    could not be traced, so the leakage rules could not check it. Analyze the
+    directory and pass
     `scope="file:<name>.py"` when the question really is about one file: that
     recovers the cross-file rules and still answers about the file.
 

@@ -9,20 +9,24 @@ from __future__ import annotations
 
 import argparse
 
+#: RAIL-GROUP. `none` is the default on every command, so every existing
+#: invocation - and every snapshot taken of one - prints what it always did.
+#: Re-exported from `emit/group_out`, which is the single source of truth: the
+#: two lists had drifted, and `severity` - named in RAIL-GROUP's own
+#: `rule|file|severity` - was an argparse error here until 2026-09-08 (TB-12).
+from .emit.group_out import GROUP_BY
+
 __all__ = ["build_parser", "FORMATS", "GROUP_BY"]
 
 FORMATS = ("summary", "json", "mermaid", "text")
-
-#: RAIL-GROUP. `none` is the default on every command, so every existing
-#: invocation - and every snapshot taken of one - prints what it always did.
-GROUP_BY = ("none", "rule", "file")
 
 
 def _add_group_flag(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--group-by", dest="group_by", choices=GROUP_BY,
                         default="none",
-                        help="collapse the issue table: one row per rule or "
-                             "per file, with occurrence counts (default: none)")
+                        help="collapse the issue table: one row per rule, per "
+                             "file or per severity, with occurrence counts "
+                             "(default: none)")
 
 
 # ---------------------------------------------------------------- parser

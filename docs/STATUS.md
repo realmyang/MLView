@@ -1,6 +1,7 @@
 # MLView — Build status
 
-**Complete and integrated (2026-09-07).** The multi-agent build finished with two review → verify → fix rounds (48 confirmed findings fixed) and a final verification pass; `scripts/e2e.ps1` was re-run by hand afterwards: 13 steps, 0 failed. Every component is built, every gate is
+**Complete and integrated (2026-09-07).** The multi-agent build finished with two review → verify → fix rounds (48 confirmed findings fixed) and a final verification pass; `scripts/e2e.ps1` was re-run by hand afterwards and every one of the thirteen
+rows it had then passed. Every component is built, every gate is
 green on this machine, and the demo artifacts are produced. `scripts/README.md`
 holds the gate table with the command for each row.
 
@@ -9,11 +10,12 @@ flow visibility and scoped views.** Both are additive — `schemaVersion` stays
 `"1.0"`, no existing field, message, argument or return shape changed, and an
 unscoped run still emits the bytes it emitted before. `docs/CONTRACTS.md` §11
 binds; `docs/FEATURES_FLOW_AND_SCOPE.md` is the design. The e2e driver grew
-four steps (17 in total) and `tools/verify.py` grew two gate rows (9 in total).
+four steps (17 at the time; 18 today, since ANA-12 added the accuracy corpus)
+and `tools/verify.py` grew two gate rows (9 in total).
 
 ```
 powershell -ExecutionPolicy Bypass -File scripts/build.ps1   # BUILD OK
-powershell -ExecutionPolicy Bypass -File scripts/e2e.ps1     # E2E OK - 17 steps, 0 failed
+powershell -ExecutionPolicy Bypass -File scripts/e2e.ps1     # E2E OK - 18 steps, 0 failed
 ```
 
 ## Components
@@ -22,11 +24,11 @@ powershell -ExecutionPolicy Bypass -File scripts/e2e.ps1     # E2E OK - 17 steps
 |---|---|
 | Design docs | `docs/REQUIREMENTS.md`, `ARCHITECTURE.md`, `ISSUE_RULES.md`, `UX_DESIGN.md`, `CONTRACTS.md` (§10 amendments are the overriding lead decisions) |
 | Contracts | `contracts/graph.schema.json`, `contracts/graph.sample.json` (golden), `contracts/validate_sample.py` (schema + 10 invariant groups) |
-| Analyzer `analyzer/` | Complete. 20 rules, zero runtime dependencies, `python -m mlview` installed editable. **1184 passed, 3 skipped.** `analyze --demo --json -` is byte-identical to the golden sample. Scoped views live in `analyzer/src/mlview/core/project.py` + `core/selectors.py`. |
-| Viewer `webview/` | Complete. `dist/mlview.{js,css}` built. **295 tests pass**, `tsc --noEmit` clean. Flow animation (`src/render/flow.ts`) and the TypeScript half of the projection (`src/scope/project.ts`) ship here. |
+| Analyzer `analyzer/` | Complete. 20 rules, zero runtime dependencies, `python -m mlview` installed editable. **1218 passed, 3 skipped.** `analyze --demo --json -` is byte-identical to the golden sample. Scoped views live in `analyzer/src/mlview/core/project.py` + `core/selectors.py`. |
+| Viewer `webview/` | Complete. `dist/mlview.{js,css}` built. **300 tests pass**, `tsc --noEmit` clean. Flow animation (`src/render/flow.ts`) and the TypeScript half of the projection (`src/scope/project.ts`) ship here. |
 | VS Code extension | Complete. **205 tests pass**, `tsc --noEmit` clean, `out/extension.js` bundled. Copilot participant + LM tools are compile- and unit-verified only (Copilot is not installed here). |
-| Claude Code plugin | Complete. MCP server on the `mcp` SDK v2, **still exactly five tools**, each result ≤ 4 KB. **273 tests pass**, with `python tools/sync-core.py` having run after the analyzer changes (`test_vendor_bytecode.py` is the row that checks it); `claude plugin validate ./claude-plugin --strict` passes. |
-| Samples | `samples/vision_pipeline` (54 nodes, 52 edges, exactly 15 issues: 5 high / 6 medium / 4 low) and `samples/vision_pipeline_clean` (64 nodes, 0 issues). `expected_issues.json` is machine-checked. |
+| Claude Code plugin | Complete. MCP server on the `mcp` SDK v2, **still exactly five tools**, each result ≤ 4 KB. **286 tests pass**, with `python tools/sync-core.py` having run after the analyzer changes (`test_vendor_bytecode.py` is the row that checks it); `claude plugin validate ./claude-plugin --strict` passes. |
+| Samples | `samples/vision_pipeline` (54 nodes, 51 edges, exactly 15 issues: 5 high / 6 medium / 4 low) and `samples/vision_pipeline_clean` (64 nodes, 0 issues). `expected_issues.json` is machine-checked. |
 | Rule docs | `docs/rules/` — 20 pages plus an index, generated from the registry. Every `Issue.docs` deep link resolves. |
 | Demo artifacts | `.mlview/graph.json`, `report.html`, `graph_clean.json`, `report_clean.html`, plus the three scoped reports `split.html`, `optimization.html`, `evaluation.html` — self-contained, zero external references, each inside amendment A4's contracted **100 KB – 2 MB** band. No KB figure is quoted here on purpose: the viewer bundle moves, the band does not, and `scripts/e2e` now measures every emitted report against it and prints the range it found (MLV-R1-H06). Each scoped report embeds the **whole** graph and merely opens at its scope. |
 | Scope fixtures | `contracts/scope.cases.json` (10 selectors + 6 error codes) and `contracts/scope.expected.json`, generated from the Python `project()` over the frozen golden and consumed by the TypeScript port — the parity gate for one algorithm written twice. |
@@ -202,6 +204,61 @@ analyzer suite against a freshly synced viewer bundle:
    one of which asserts against the shipped `scripts/*.sh` directly rather
    than against a fixture.
 
+## Sprint 3 — analyzer and viewer, Track A (2026-09-08)
+
+**The re-baseline.** Four roadmap items land as one graph change, because one
+golden regeneration has to cover all of them. `docs/CONTRACTS.md` §11.19 is the
+amendment and carries the reasoning and the bounds; this is the summary.
+
+`samples/vision_pipeline` grows from 45 nodes and 45 edges to **54 nodes / 52
+edges** — **51** after REV-01, on 2026-09-08, dropped the one data edge that
+pointed backwards through `SmallCNN.forward` — and carries **exactly the same
+fifteen findings**, at the same lines, in
+the same 5 / 6 / 4 split — `samples/vision_pipeline/expected_issues.json` is
+unchanged and `analyzer/tools/gen_expected_issues.py --check` passes without
+regeneration. Both clean corpora stay at **0 issues**
+(`samples/vision_pipeline_clean` 55 → 64 nodes, `analyzer/tests/clean` 108 →
+127, and 137 once ANA-12's sixth clean file — the `TimeSeriesSplit` walk-forward
+script R3.7 asks for — landed on 2026-09-08).
+`contracts/graph.sample.json` is hand-authored and was **not** regenerated,
+so `--demo`, `contracts/scope.cases.json` and `contracts/scope.expected.json` are
+byte-identical and the parity battery is untouched.
+
+1. **ANA-1 — ops written inside a class method were dropped.** `CallSite.class_ir`
+   carried two different facts and `analyzer/src/mlview/core/build.py` read the
+   wrong one. They are now two fields: `class_ir` (what the call *resolves to*,
+   written only by `ir/resolve.py`) and `enclosing_class` (what class the call is
+   *written in*, written only by `ir/scopes.py`). No reader may use one for the
+   other.
+2. **ANA-2 — `self.<attr>(...)` resolved to a symbol nobody declared.**
+   `self.loss_fn(...)` became `torch.nn.Module.loss_fn`; it now resolves through
+   the binding to the value the attribute actually holds (`ir/resolve.py`).
+3. **ANA-3 — a package `__init__` re-export resolved to nothing**, because
+   `_relative_base` trimmed the last dotted component of a name that *is* the
+   package (`ir/symbols.py`, `ir/build_ir.py`).
+4. **VIEW-01 — lane boxes are no longer normalised to the widest lane**, and
+   `LANE_MIN_W` drops 420 → 320 with a new `MAX_RANK_W` wrap beside the existing
+   `MAX_RANK_H`. On the demo the world goes 2636×2484 → 1576×2630 and `fit()`
+   0.322 → 0.532 at a 1240×848 canvas; worst lane emptiness 91% → 32%. The wrap
+   itself never fires on the demo (widest lane content 1400 px against a 2000 px
+   threshold) — the win is the trimming.
+
+**Measured after.** Precision stays **100%** and every recall reading is
+unchanged to four decimals — this was a graph change, not a rule change: unseen
+recall **51.1%** raw / **38.3%** visible / **31.2%** high+medium. Graph fidelity
+is the one number the re-baseline was allowed to move, and it ratchets **66.2% →
+86.3%** (92 → 120 of 139 hand-labelled ops), re-recorded in
+`analyzer/tests/accuracy/baseline.json`. `docs/ACCURACY.md` is the record, and
+`scripts/check_docs.py` now holds it to that baseline.
+
+**Also on this branch, outside both host tracks:** PERF-01 and PERF-02 (memoised
+knowledge lookup, a role index, and a convergence loop replacing `range(4)` —
+byte-identical output on three corpora, proved by `tools/perf_equiv.py`), ANA-12
+(the labelled accuracy corpus, `tools/accuracy.py` and `docs/ACCURACY.md`),
+BUILD-01 (minified report CSS, −38% on `webview/dist/mlview.css`, under a size
+ratchet in `webview/test/bundle.test.mjs`), CI-01 (`.github/workflows/ci.yml`)
+and HEALTH-01 / HEALTH-03.
+
 ## Sprint 3 — hosts, Track B (2026-09-08)
 
 Three roadmap items, all additive; `schemaVersion` stays `"1.0"` and no message,
@@ -326,11 +383,26 @@ Five auditors measured the shipped system (analysis accuracy on four unseen
 projects, viewer layout on a 360-node graph, host workflow fit, analyzer and
 viewer timings on 50/200/500-file synthetic repos, a practitioner walkthrough),
 two judges ranked 59 proposals, and the result is `docs/ROADMAP.md` (42 ranked,
-11 declined). Headline: 0 false positives on unseen code but roughly 26 % recall,
-because `core/build.py` drops every op written inside a class method; the first
-screen opens a real repo at 20 % zoom; and the tool cannot yet say "I could not
-check this". The one item already applied from the NOW tier is HEALTH-01:
-`tools/sync-core.py --check` prunes `__pycache__` residue under
-`claude-plugin/vendor` instead of failing on it (source drift still fails), and
-`claude-plugin/tests/conftest.py` sets `sys.dont_write_bytecode`, so
-`tools/verify.py --all` stays 9/9 after any test run.
+11 declined).
+
+**The pre-sprint baseline, as the audit found it.** 0 false positives on unseen
+code but roughly 26 % recall, because `core/build.py` dropped every op written
+inside a class method; the first screen opened a real repo at 20 % zoom; and the
+tool could not say "I could not check this". Those three sentences described the
+tree on 2026-09-08 *before* Sprint 3 and are kept here as the measurement they
+were, not as a description of the build.
+
+**After Sprint 3, measured on this branch.** Eleven NOW-tier items landed —
+HEALTH-01, HEALTH-03, CI-01, PERF-01, PERF-02, ANA-12, BUILD-01, COVERAGE,
+RAIL-GROUP, CLEANUP and ANA-1/ANA-2/ANA-3 with VIEW-01 — recorded in the two
+Sprint-3 sections above. All three audit headlines moved:
+
+| The audit's headline | Where it stands now |
+|---|---|
+| ~26 % recall, class-method ops dropped | precision **100 %** and unseen recall **51.1 %** raw / **38.3 %** visible / **31.2 %** high+medium over ten labelled programs, with **graph fidelity 86.3 %** (was 66.2 %). ANA-1 is the fix; `docs/ACCURACY.md` is the record and `analyzer/tests/accuracy/baseline.json` the ratchet. The high+medium reading is the one comparable to the audit's ~26 %. |
+| the first screen opens a real repo at 20 % zoom | VIEW-01: `fit()` **0.322 → 0.532** on the demo at a 1240×848 canvas, worst lane emptiness 91 % → 32 %. |
+| the tool cannot say "I could not check this" | COVERAGE: `untagged_dataflow` and `single_file_analysis` diagnostics, emitted by the analyzer and surfaced in all three hosts (`docs/CONTRACTS.md` §11.18). |
+
+Recall is still the product's weakness — 51.1 % raw on unseen code means roughly
+half of the planted defects produce nothing — and `docs/ACCURACY.md` §5 says what
+that measurement does and does not cover.

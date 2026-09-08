@@ -10,7 +10,7 @@ than at a fixed count (PERF-02, `ir/converge.py`).
 
 from __future__ import annotations
 
-from typing import Dict, Iterable, List, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Sequence, Tuple
 
 from .. import knowledge as K
 from ..ingest.parse import ParsedFile
@@ -142,7 +142,22 @@ def _reexport_map(workspace: WorkspaceIR) -> Tuple[Dict[str, str],
     silently dropped, so the bound is stated instead of discovered.
 
     Returns the resolved map and the (relpath, line, message) rows for the
-    chains that hit the cap.
+    chains that did not land.
+
+    Two things `raw` is used for, and only one of them may see every module
+    (REV-02). **Resolution** needs every module, because a plain consumer
+    re-importing a name is a legitimate hop. **Blame** does not: reporting one
+    row per unlanded key turned a single over-long chain rooted in one
+    `pkg/__init__.py` into one honest note plus one note per importer, each
+    naming a file that re-exports nothing and a relationship that does not
+    exist - measured at 1 cause + 4 importers = 5 notes, and 41 for a facade
+    imported from 40 modules. Only a package `__init__` is blamed now, and only
+    once per distinct terminal chain.
+
+    REV-03: the hop loop exits for two different reasons and they used to share
+    one message, so a two-module cycle was reported as "re-exported through
+    more than 3 modules" - a diagnostic whose whole job is to say *why* MLView
+    stopped, telling the reader to shorten a chain that is two modules long.
     """
     raw: Dict[str, str] = {}
     owner: Dict[str, Tuple[str, int]] = {}
@@ -166,27 +181,53 @@ def _reexport_map(workspace: WorkspaceIR) -> Tuple[Dict[str, str],
 
     resolved: Dict[str, str] = {}
     capped: List[Tuple[str, int, str]] = []
+    blamed: Dict[Any, str] = {}
     for key in sorted(raw):
-        current, seen, landed = key, {key}, False
+        current, seen, landed, cycle = key, {key}, False, False
+        chain = [key]
         for _hop in range(_MAX_REEXPORT_HOPS):
             nxt = raw.get(current)
-            if nxt is None or nxt in seen:
+            if nxt is None:
+                break
+            if nxt in seen:
+                cycle = True
+                chain.append(nxt)
                 break
             current = nxt
             seen.add(current)
+            chain.append(current)
             if current in workspace.classes or current in workspace.functions:
                 landed = True
                 break
         if landed:
             if current != key:
                 resolved[key] = current
-        elif raw.get(current) is not None:
-            relpath, line = owner[key]
-            capped.append((relpath, line,
-                           "`%s` is re-exported through more than %d modules "
-                           "(line %d); MLView stops following the chain there, so "
-                           "symbols imported under that name stay unresolved."
-                           % (key, _MAX_REEXPORT_HOPS, line)))
+            continue
+        if not cycle and raw.get(current) is None:
+            continue                      # the chain simply ran out; not our note
+        relpath, line = owner[key]
+        if not is_package(relpath):
+            # A plain consumer module re-importing the name is a hop, never the
+            # cause. Blaming it names the wrong file and the wrong symbol.
+            continue
+        # One row per distinct terminal chain: a cycle is identified by the set
+        # of names in it (every member would otherwise report the same loop
+        # from its own starting point), a cap by where the walk stopped.
+        mark = (frozenset(seen), "cycle") if cycle else (current, "cap")
+        if mark in blamed:
+            continue
+        blamed[mark] = key
+        if cycle:
+            message = ("`%s` re-exports in a cycle (%s) (line %d); MLView stops "
+                       "following the chain there, so symbols imported under "
+                       "that name stay unresolved."
+                       % (key, " -> ".join(chain), line))
+        else:
+            message = ("`%s` is re-exported through more than %d modules "
+                       "(line %d); MLView stops following the chain there, so "
+                       "symbols imported under that name stay unresolved."
+                       % (key, _MAX_REEXPORT_HOPS, line))
+        capped.append((relpath, line, message))
     capped.sort()
     return resolved, capped
 

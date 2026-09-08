@@ -115,19 +115,62 @@ test('a finding with no evidence grows no empty twisty (MLV-P6)', async () => {
 
 /* ── MLV-P6: the rule-doc sidecar and its hook ─────────────────────────── */
 
-test('the rule card is composed from the finding when no sidecar exists (MLV-P6)', async () => {
+test('the rule card never repeats the row it sits under (MLV-P6, TB-01)', async () => {
+  // The sidecar has no writer yet (see ruledocs.ts), so `ruleDocFor` composes
+  // `why` / `message` / `fixHint` -- the exact three paragraphs the expanded row
+  // and the Inspector print two lines above the card. Rendering them again cost
+  // a click and told the reader nothing, so a composed section is not drawn.
   const ctx = await mount();
   const issue = sample.issues[0];
   click(ctx, rowOf(ctx, issue.id));
+  const detail = ctx.document.querySelector('[data-issue-detail="' + issue.id + '"]');
+  const count = (hay, needle) => hay.split(needle).length - 1;
+  for (const text of [issue.why, issue.message, issue.fixHint]) {
+    assert.equal(count(detail.textContent, text), 1, 'printed twice: ' + text.slice(0, 60));
+  }
   const card = ctx.document.querySelector('[data-rule-doc="' + issue.code + '"]');
-  assert.ok(card, 'a rule card for ' + issue.code);
+  assert.ok(card, 'the card still exists, because it cites the rule document');
   assert.ok(card.querySelector('.mlv-disclosure__summary').textContent.indexOf('About ' + issue.code) >= 0);
-  const section = (label) => card.querySelector('[data-ruledoc-section="' + label + '"]');
-  assert.ok(section('Why it matters').textContent.indexOf(issue.why) >= 0);
-  assert.ok(section('How it is detected').textContent.indexOf(issue.message) >= 0);
-  assert.ok(section('How to fix it').textContent.indexOf(issue.fixHint) >= 0);
-  assert.equal(section('False positives it avoids'), null, 'that section needs the sidecar');
+  for (const label of ['Why it matters', 'How it is detected', 'How to fix it', 'False positives it avoids']) {
+    assert.equal(card.querySelector('[data-ruledoc-section="' + label + '"]'), null, label + ' needs the sidecar');
+  }
   assert.equal(card.querySelector('[data-ruledoc-source]').getAttribute('data-ruledoc-source'), issue.docs);
+});
+
+test('a finding with nothing to add grows no rule card at all (MLV-P6, TB-01)', async () => {
+  const graph = JSON.parse(JSON.stringify(sample));
+  delete graph.issues[0].docs;
+  const ctx = await mount(graph);
+  click(ctx, rowOf(ctx, graph.issues[0].id));
+  assert.ok(ctx.document.querySelector('[data-issue-detail="' + graph.issues[0].id + '"]'), 'the row still expands');
+  assert.equal(ctx.document.querySelector('[data-rule-doc="' + graph.issues[0].code + '"]'), null);
+});
+
+test('the sidecar puts "false positives it avoids" in the Inspector (MLV-P6, TB-01)', async () => {
+  // The acceptance clause the analyzer half has yet to make reachable: when a
+  // sidecar IS installed -- through either documented source -- the disclosure
+  // carries what the row cannot, and only what the row cannot.
+  const ctx = await mount();
+  const issue = sample.issues[0];
+  const { setRuleDocs } = ctx.MLView.__internal.ruleDocs;
+  setRuleDocs({
+    [issue.code]: {
+      why: issue.why,
+      detection: 'MLV301 fires when a module with BatchNorm or Dropout is evaluated without .eval().',
+      falsePositives: 'gradient accumulation, LBFGS and factory-built optimizers',
+    },
+  });
+  try {
+    ctx.app.focusIssue(issue.id);
+    const inspector = ctx.document.querySelector('[id$="-panel-inspector"]');
+    const card = inspector.querySelector('[data-rule-doc="' + issue.code + '"]');
+    const section = (label) => card.querySelector('[data-ruledoc-section="' + label + '"]');
+    assert.ok(section('False positives it avoids').textContent.indexOf('LBFGS') >= 0);
+    assert.ok(section('How it is detected').textContent.indexOf('without .eval()') >= 0);
+    assert.equal(section('Why it matters'), null, 'the sidecar repeated the row here, so it is not drawn twice');
+  } finally {
+    setRuleDocs(null);
+  }
 });
 
 test('the sidecar hook supplies the false-positive text when it lands (MLV-P6)', async () => {

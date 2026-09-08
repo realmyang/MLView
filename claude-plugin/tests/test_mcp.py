@@ -560,3 +560,60 @@ def test_the_analyze_tool_warns_the_model_off_a_single_file(listed):
     for code in ("MLV301", "MLV302", "MLV401", "MLV501"):
         assert code in description
     assert "DIRECTORY" in description
+
+
+# ------------------------------------------------- COVERAGE over the wire (TB-06)
+def _one_file_package(root):
+    """A two-module package where the analyzed file imports its sibling.
+
+    That import is what makes the run genuinely incomplete (see
+    `mlview.core.coverage.single_file_diagnostic`), so this is the smallest input
+    that reproduces what a user gets when they point the command at one file.
+    """
+    package = root / "one_file_pkg"
+    package.mkdir(parents=True)
+    (package / "helper.py").write_text(
+        "def load(path):\n    return path\n", encoding="utf-8"
+    )
+    entry = package / "entry.py"
+    entry.write_text(
+        "import helper\n\n\ndef go(path):\n    return helper.load(path)\n",
+        encoding="utf-8",
+    )
+    return str(entry)
+
+
+@pytest.mark.parametrize("tool", ["mlview_analyze", "mlview_issues"])
+def test_a_single_file_payload_names_the_rules_that_could_not_run(
+    session_data_dir, tmp_path, tool
+):
+    """`commands/mlview.md` promises the payload names them, and tells the model to
+    report them before the count. A `{kind, count}` tally cannot carry a rule code,
+    so the model could only satisfy that instruction by inventing one."""
+    target = _one_file_package(tmp_path / tool)
+
+    async def go(session):
+        return await session.call_tool(tool, {"path": target})
+
+    result = _run(go, session_data_dir)
+    assert result.is_error is False, result.content
+    payload = result.structured_content
+    coverage = payload.get("coverage")
+    assert coverage, payload
+    assert [row["kind"] for row in coverage] == ["single_file_analysis"]
+    for code in ("MLV301", "MLV302", "MLV401", "MLV501"):
+        assert code in coverage[0]["codes"], coverage
+        assert code in payload["note"], payload["note"]
+    # the caveat is the ANALYZER's sentence, not a host paraphrase: compare it
+    # against the diagnostic in the document the same call just wrote
+    with open(payload["graphPath"], "r", encoding="utf-8") as fh:
+        document = json.load(fh)
+    emitted = next(
+        d for d in document["diagnostics"] if d["kind"] == "single_file_analysis"
+    )
+    assert coverage[0]["message"] == emitted["message"], "carried verbatim"
+    assert coverage[0]["codes"] == emitted["codes"]
+    assert coverage[0]["count"] == emitted["count"]
+    # and it is still a legal payload: under the cap in the encoding the model reads
+    assert _text_size(result) <= LIMIT, _text_size(result)
+    assert _size(payload) <= LIMIT

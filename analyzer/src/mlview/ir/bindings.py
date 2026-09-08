@@ -36,17 +36,60 @@ _FEATURE_NAME_RE = re.compile(r"(?i)^(x|features?|inputs?|data)([_0-9].*)?$")
 # lookup
 # ---------------------------------------------------------------------------
 
-def binding_of(name: Optional[str], scope: Optional[ScopeIR]) -> Optional[ValueRef]:
-    """The `ValueRef` a name resolves to, walking the scope chain outwards."""
+def binding_of(name: Optional[str], scope: Optional[ScopeIR],
+               at: Optional[int] = None, in_loop: bool = False) -> Optional[ValueRef]:
+    """The `ValueRef` a name resolves to, walking the scope chain outwards.
+
+    With `at` (the 1-based line of the *consumer*) the name is resolved against
+    the store in effect at that line rather than against the last store in the
+    scope - REV-01. `bindings` is a flat `name -> one ValueRef` map, so a
+    rebound name kept only its last producer, and `x = self.pool(x)` at line 42
+    was handed to the consumer `self.stem(x)` at line 39: the shipped demo drew
+    `self.pool -> self.stem`, one of four forward edges pointing backwards, and
+    the real `relu -> self.pool` edge missing.
+
+    The ordered lookup applies only to the consumer's **own** scope, and never
+    to a class scope: a `self.x` store lives in the class scope and is read
+    from methods that run in any order, so statement order says nothing there.
+    When a name has several stores in that scope and none precedes the
+    consumer, the value is a parameter (or a previous iteration): inside a loop
+    the last store is the honest answer, and outside one the name is local and
+    unwritten, so nothing is returned rather than an outer scope's value.
+    """
     if not name or scope is None:
         return None
     cur: Optional[ScopeIR] = scope
+    first = True
     while cur is not None:
+        if first and at is not None and cur.kind != "class":
+            history = cur.binding_history.get(name)
+            if history is not None and len(history) > 1:
+                picked = _store_before(history, at)
+                if picked is not None:
+                    return picked
+                return cur.bindings.get(name) if in_loop else None
         ref = cur.bindings.get(name)
         if ref is not None:
             return ref
         cur = cur.parent
+        first = False
     return None
+
+
+def _store_before(history: Sequence[ValueRef], line: int) -> Optional[ValueRef]:
+    """The last store written strictly above `line`, else None.
+
+    Strictly above, because the right-hand side of `x = f(x)` is evaluated
+    before the name is rebound: the consumer on that line reads the *previous*
+    value, which is exactly the edge the flat map inverted.
+    """
+    picked: Optional[ValueRef] = None
+    for ref in history:
+        loc = ref.loc
+        if loc is None or loc.line >= line:
+            continue
+        picked = ref
+    return picked
 
 
 def _class_scope(scope: ScopeIR) -> Optional[ScopeIR]:
@@ -64,6 +107,11 @@ def _store(scope: ScopeIR, name: str, ref: ValueRef) -> None:
         target = _class_scope(scope) or scope
     ref.scope = target
     target.bindings[name] = ref
+    # REV-01: the ordered record, appended in the source order `bind_module`
+    # walks `module.assignments` in. `bindings` keeps its last-wins meaning, so
+    # every caller that does not pass a consumer line is byte-for-byte
+    # unchanged.
+    target.binding_history.setdefault(name, []).append(ref)
 
 
 def names_in(node: Optional[ast.AST]) -> Tuple[str, ...]:
@@ -233,6 +281,7 @@ def bind_module(module: ModuleIR, workspace) -> None:
     """(Re)build every binding in a module from its assignment records."""
     for scope in module.scopes:
         scope.bindings.clear()
+        scope.binding_history.clear()
     for record in module.assignments:
         try:
             _bind_record(record, module, workspace)

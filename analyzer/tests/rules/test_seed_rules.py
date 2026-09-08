@@ -149,3 +149,23 @@ def test_every_seed_fixture_declares_a_header():
         good = analyze_fixture("%s_good" % code)
         assert bad.expected and bad.expected[0].code == code
         assert good.silent == [code]
+
+
+def test_mlv401_anchors_on_the_softmax_op_node_ana1_created():
+    """REV-06. ANA-1's headline claim is that "issue anchoring follows for
+    free" once a `forward()` body mints op nodes - but MLV401's anchor set was
+    byte-identical before and after: the reader still landed on the whole class
+    card rather than on the line that applies the softmax. The op node exists;
+    the rule now names it."""
+    run = assert_fires("MLV401_bad")
+    issue = run.of("MLV401")[0]
+    nodes = {n["id"]: n for n in run.doc["nodes"]}
+    anchored = [nodes[i] for i in issue["nodeIds"]]
+    softmax = [n for n in anchored
+               if (n.get("fqn") or "").endswith(("softmax", "log_softmax"))]
+    assert softmax, [(n["label"], n.get("fqn")) for n in anchored]
+    # the same line the `final_layer` related location already cited
+    related = {r["role"]: r for r in issue["relatedLocs"]}
+    assert softmax[0]["loc"]["line"] == related["final_layer"]["line"]
+    # ... and the primary anchor did not move: `nodeIds[0]` is still the loss
+    assert nodes[issue["nodeIds"][0]]["id"] != softmax[0]["id"]

@@ -153,3 +153,54 @@ def test_a_self_held_estimator_keeps_its_sklearn_family(tmp_path):
     )})
     call = call_named(root, "fit_transform")
     assert call.fqn == "sklearn.base.BaseEstimator.fit_transform", call.canonical_fqns
+
+
+def test_a_correct_self_held_pipeline_fires_nothing(tmp_path):
+    """REV-05: the one regression risk ANA-2's own proposal named - "self-held
+    sklearn estimators gaining estimator receivers could newly fire MLV101 /
+    MLV102 ... it needs a clean-corpus file to pin it". Neither clean corpus
+    holds a class with an estimator on `self`, so the guard was missing on the
+    exact axis the roadmap flagged, in a product whose claim is 100% precision.
+
+    The program is correct: the split happens first, and only the training half
+    is ever fitted. It rides here rather than in `analyzer/tests/clean/` because
+    the split is done in a method, so the fitted value arrives untagged and the
+    file would add an honest `untagged_dataflow` note to a corpus whose whole
+    job is to carry none.
+    """
+    root = write_workspace(str(tmp_path), {"m.py": (
+        "import numpy as np\n"
+        "from sklearn.linear_model import LogisticRegression\n"
+        "from sklearn.model_selection import train_test_split\n"
+        "from sklearn.pipeline import Pipeline\n"
+        "from sklearn.preprocessing import StandardScaler\n"
+        "\n"
+        "\n"
+        "class Experiment:\n"
+        "    def __init__(self, seed: int = 3) -> None:\n"
+        "        self.seed = seed\n"
+        "        self.pipeline = Pipeline([\n"
+        "            ('scale', StandardScaler()),\n"
+        "            ('clf', LogisticRegression(max_iter=500)),\n"
+        "        ])\n"
+        "\n"
+        "    def split(self, X, y):\n"
+        "        return train_test_split(X, y, test_size=0.25, random_state=self.seed)\n"
+        "\n"
+        "    def run(self, X, y) -> float:\n"
+        "        X_train, X_test, y_train, y_test = self.split(X, y)\n"
+        "        self.pipeline.fit(X_train, y_train)\n"
+        "        return self.pipeline.score(X_test, y_test)\n"
+        "\n"
+        "\n"
+        "if __name__ == '__main__':\n"
+        "    exp = Experiment()\n"
+        "    print(exp.run(np.load('X.npy'), np.load('y.npy')))\n"
+    )})
+    doc = analyze_paths(root)
+    assert [i["code"] for i in doc["issues"]] == [], describe(doc)
+    # ... and it is silent because it is correct, not because nothing resolved
+    assert call_named(root, "fit").fqn == "sklearn.base.BaseEstimator.fit"
+    # the honest half: MLView says out loud that it could not trace the split
+    kinds = [d["kind"] for d in doc["diagnostics"]]
+    assert "untagged_dataflow" in kinds, doc["diagnostics"]

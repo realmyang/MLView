@@ -120,16 +120,115 @@ test('train.py:29 returns the node at that line as the first hit (VIEW-09a)', as
   assert.ok(first.querySelector('[data-search-jump]'), 'the row says it is a jump');
 });
 
-test('every query that returns hits today returns the identical ordered list (VIEW-09a)', async () => {
+/**
+ * VIEW-09a's third acceptance clause — "every query that returns hits today
+ * returns the identical ordered list" — frozen as LITERALS.
+ *
+ * It used to be gated by comparing `searchGraph(index, q)` with
+ * `detailed(index, q).hits`. But `searchGraph` IS `searchGraphDetailed(…).hits`
+ * (search.ts), so the test compared one function's output with itself and could
+ * never fail — and the invariant was in fact broken (TB-05): a bare `train.py`
+ * parses as a location, so it grew a pinned first row, `validate() train.py:11`,
+ * which had ranked TENTH. These are the lists the ranking produces with no pin
+ * applied, i.e. the lists main returned before this item; `train.py` and
+ * `data.py` are in the set precisely because they are the queries that moved.
+ */
+const RANKED = {
+  train: [
+    'MLV201 · Gradients are never zeroed',
+    'MLV601 · No random seed is set anywhere in the workspace',
+    'train()',
+    'MLV401 · Softmax output is fed to CrossEntropyLoss',
+    'MLV302 · Evaluation loop is not wrapped in torch.no_grad()',
+    'CrossEntropyLoss',
+    'Adam',
+    'for images, labels in train_loader',
+    'zero_grad()',
+    'validate()',
+    'train_loader',
+    'TrainConfig()',
+    'train_test_split()',
+    'MLV110 · Training DataLoader does not shuffle',
+    'MLV602 · Split without random_state',
+  ],
+  MLV: [
+    'MLV401 · Softmax output is fed to CrossEntropyLoss',
+    'MLV201 · Gradients are never zeroed',
+    'MLV110 · Training DataLoader does not shuffle',
+    'MLV302 · Evaluation loop is not wrapped in torch.no_grad()',
+    'MLV602 · Split without random_state',
+    'MLV601 · No random seed is set anywhere in the workspace',
+  ],
+  loss: [
+    'CrossEntropyLoss',
+    'MLV401 · Softmax output is fed to CrossEntropyLoss',
+    'MLV201 · Gradients are never zeroed',
+  ],
+  SmallNet: [
+    'SmallNet',
+    'MLV401 · Softmax output is fed to CrossEntropyLoss',
+    'MLV601 · No random seed is set anywhere in the workspace',
+  ],
+  preprocess: [
+    'StandardScaler',
+  ],
+  zzz: [],
+  // The two queries a bare-filename pin reordered.
+  'train.py': [
+    'MLV401 · Softmax output is fed to CrossEntropyLoss',
+    'MLV201 · Gradients are never zeroed',
+    'MLV302 · Evaluation loop is not wrapped in torch.no_grad()',
+    'MLV601 · No random seed is set anywhere in the workspace',
+    'CrossEntropyLoss',
+    'train()',
+    'Adam',
+    'for images, labels in train_loader',
+    'zero_grad()',
+    'validate()',
+    'MLV110 · Training DataLoader does not shuffle',
+  ],
+  'data.py': [
+    'build_loaders()',
+    'train_loader',
+    'MLV110 · Training DataLoader does not shuffle',
+    'MLV601 · No random seed is set anywhere in the workspace',
+  ],
+};
+
+test('every query that returns hits today returns the identical ordered list (VIEW-09a, TB-05)', async () => {
   const ctx = await loadBundle();
   const { searchGraph, GraphIndex } = ctx.MLView.__internal;
   const { detailed } = ctx.MLView.__internal.search;
   const index = new GraphIndex(sample);
-  for (const query of ['train', 'MLV', 'loss', 'SmallNet', 'preprocess', 'zzz']) {
-    const before = searchGraph(index, query).map((h) => h.kind + ':' + h.id);
-    const now = detailed(index, query).hits.map((h) => h.kind + ':' + h.id);
-    assert.deepEqual(now, before, 'the ranked list moved for ' + query);
+  // `Array.from` in THIS realm: the hits come from the bundle's realm, and a
+  // cross-realm array is never deep-strict-equal to a local one.
+  const labels = (hits) => Array.from(hits, (h) => h.label);
+  for (const query of Object.keys(RANKED)) {
+    const hits = detailed(index, query).hits;
+    assert.deepEqual(labels(hits), RANKED[query], 'the ranked list moved for ' + query);
+    // Nothing in this set is a location jump, so nothing here may be pinned.
+    for (const hit of hits) assert.equal(hit.location, undefined, query + ' pinned ' + hit.label);
+    // ...and the list form every host publishes is still the same list.
+    assert.deepEqual(labels(searchGraph(index, query)), RANKED[query]);
   }
+});
+
+test('a bare filename ranks; only path:line pins (VIEW-09a, TB-05)', async () => {
+  const ctx = await loadBundle();
+  const { GraphIndex } = ctx.MLView.__internal;
+  const { detailed, parseLocation } = ctx.MLView.__internal.search;
+  const index = new GraphIndex(sample);
+  // The parser still reads a bare name as a location — the resolver takes it —
+  // but the SEARCH BOX pins only a query that carries its line, which is what a
+  // pasted CLI location, Problems entry or stack frame always does.
+  assert.ok(parseLocation('train.py'), 'the parser still accepts it');
+  const bare = detailed(index, 'train.py').hits;
+  assert.equal(bare[0].label, RANKED['train.py'][0], 'a bare filename is ranked, not pinned');
+
+  const pinned = detailed(index, 'train.py:11').hits;
+  assert.equal(pinned[0].kind, 'node');
+  assert.equal(pinned[0].label, 'validate()');
+  assert.equal(pinned[0].location.line, 11);
 });
 
 /* ── truncation ────────────────────────────────────────────────────────── */

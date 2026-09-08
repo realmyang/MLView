@@ -156,3 +156,72 @@ def test_a_third_party_import_is_never_treated_as_a_re_export(make_workspace):
     })
     workspace = analyze_full(AnalyzeOptions(paths=(root,))).workspace
     assert "pkg.Linear" not in workspace.reexports
+
+
+# ------------------------------------------------ REV-02 / REV-03: the blame
+def _deep_chain(importers: int) -> dict:
+    """One over-long chain rooted in `a/__init__.py`, plus N plain consumers."""
+    files = {
+        "a/__init__.py": "from .b import Net\n",
+        "a/b/__init__.py": "from .c import Net\n",
+        "a/b/c/__init__.py": "from .d import Net\n",
+        "a/b/c/d/__init__.py": "from .net import Net\n",
+        "a/b/c/d/net.py": ("import torch.nn as nn\n\n\n"
+                           "class Net(nn.Module):\n"
+                           "    def __init__(self):\n"
+                           "        super().__init__()\n"
+                           "        self.fc = nn.Linear(8, 2)\n"),
+    }
+    for index in range(importers):
+        files["consumer%d.py" % index] = (
+            "from a import Net\n\n\ndef use%d():\n    return Net()\n" % index)
+    return files
+
+
+def _cap_notes(doc):
+    return [d for d in doc["diagnostics"] if d["kind"] == "dynamic_scope"
+            and "stops following the chain" in d["message"]]
+
+
+@pytest.mark.parametrize("importers", [0, 1, 3, 8])
+def test_one_over_long_chain_is_one_note_however_many_modules_import_it(
+        make_workspace, importers):
+    """REV-02: it was 1 + one per importer, each naming a file that re-exports
+    nothing. A package facade imported from 40 modules produced 41 notes, 40 of
+    them wrong."""
+    root = make_workspace(_deep_chain(importers))
+    notes = _cap_notes(analyze_to_dict(AnalyzeOptions(paths=(root,))))
+    assert len(notes) == 1, [d["message"] for d in notes]
+    assert notes[0]["file"] == "a/__init__.py"
+    assert "`a.Net`" in notes[0]["message"]
+
+
+def test_no_plain_consumer_module_is_ever_blamed(make_workspace):
+    root = make_workspace(_deep_chain(3))
+    notes = _cap_notes(analyze_to_dict(AnalyzeOptions(paths=(root,))))
+    blamed = {d["file"] for d in notes}
+    assert not any(name.startswith("consumer") for name in blamed), blamed
+    for note in notes:
+        assert "consumer" not in note["message"]
+
+
+def test_a_cycle_says_cycle_and_not_more_than_three_modules(make_workspace):
+    """REV-03: the walk stopped for a reason the message did not name."""
+    root = make_workspace({
+        "p/__init__.py": "from .q import Net\n",
+        "p/q/__init__.py": "from .. import Net\n",
+        "run.py": "from p import Net\n\n\ndef use():\n    return Net()\n",
+    })
+    notes = _cap_notes(analyze_to_dict(AnalyzeOptions(paths=(root,))))
+    assert len(notes) == 1, [d["message"] for d in notes]
+    message = notes[0]["message"]
+    assert "re-exports in a cycle" in message
+    assert "more than %d modules" % _MAX_REEXPORT_HOPS not in message
+    assert "p.Net -> p.q.Net -> p.Net" in message
+
+
+def test_the_cap_wording_survives_for_a_genuine_cap(make_workspace):
+    root = make_workspace(_deep_chain(1))
+    message = _cap_notes(analyze_to_dict(AnalyzeOptions(paths=(root,))))[0]["message"]
+    assert "re-exported through more than %d modules" % _MAX_REEXPORT_HOPS in message
+    assert "cycle" not in message

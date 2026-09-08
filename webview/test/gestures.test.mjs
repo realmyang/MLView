@@ -182,6 +182,38 @@ test('a two-pointer pinch zooms and its midpoint pans (VIEW-06)', async () => {
   pointer(ctx, ctx.canvas, 'pointerup', { pointerId: 1, clientX: 600, clientY: 500 });
 });
 
+test('a pinch whose first finger lands on a card still zooms (VIEW-06, TB-04)', async () => {
+  // The card guard used to run BEFORE `pinch.down`, so a pointer that landed on
+  // a node was never registered: `active()` stayed false and the second finger
+  // began an ordinary one-pointer PAN. Pinching into a card is the normal touch
+  // gesture and cards cover most of the canvas, so a tablet -- where the
+  // browser's own pinch is suppressed by `touch-action: none` -- panned
+  // sideways instead of zooming. The gesture suite only ever pinched on empty
+  // background, so it passed.
+  const ctx = await app();
+  sizeCanvas(ctx.canvas);
+  const card = ctx.document.querySelector('.mlv-node');
+  assert.ok(card, 'the demo draws cards to land a finger on');
+  const start = { ...vp(ctx) };
+
+  pointer(ctx, card, 'pointerdown', { pointerId: 3, clientX: 700, clientY: 500 });
+  assert.equal(ctx.canvas.classList.contains('is-panning'), false, 'a card is still not a pan handle');
+  pointer(ctx, ctx.canvas, 'pointerdown', { pointerId: 4, clientX: 900, clientY: 500 });
+  // The same 200 px -> 400 px spread the background pinch above performs.
+  pointer(ctx, ctx.canvas, 'pointermove', { pointerId: 4, clientX: 1100, clientY: 500 });
+  const after = vp(ctx);
+  assert.ok(after.zoom > start.zoom * 1.5, 'the pinch was dropped: ' + after.zoom + ' from ' + start.zoom);
+  pointer(ctx, ctx.canvas, 'pointerup', { pointerId: 4, clientX: 1100, clientY: 500 });
+  pointer(ctx, card, 'pointerup', { pointerId: 3, clientX: 700, clientY: 500 });
+
+  // ...and one finger on a card still drags nothing: the guard is intact.
+  const settled = { ...vp(ctx) };
+  pointer(ctx, card, 'pointerdown', { pointerId: 5, clientX: 700, clientY: 500 });
+  pointer(ctx, ctx.canvas, 'pointermove', { pointerId: 5, clientX: 900, clientY: 500 });
+  assert.equal(vp(ctx).x, settled.x, 'dragging a card must not pan the canvas');
+  pointer(ctx, ctx.canvas, 'pointerup', { pointerId: 5, clientX: 900, clientY: 500 });
+});
+
 test('a second finger takes the gesture away from the one-pointer pan (VIEW-06)', async () => {
   const ctx = await app();
   sizeCanvas(ctx.canvas);

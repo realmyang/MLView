@@ -298,3 +298,156 @@ def test_the_counts_survive_a_payload_that_has_to_shed_rows():
     assert payload["truncated"] is True
     assert payload["filesAnalyzed"] == 0 and payload["filesFailed"] == 4
     assert "NOT a clean bill of health" in payload["note"]
+
+
+# --------------------------------------------------------------- TB-06 (COVERAGE)
+# `commands/mlview.md` tells the model: "The payload carries a `single_file_analysis`
+# diagnostic **naming the rules that could not run**" and "name the rules that could
+# not run before you report the count". The payload used to carry `{kind, count}` and
+# nothing else, so that instruction could only be met by INVENTING rule codes - and
+# `count: 4` is sibling modules, not rules, so the tally read as a rule tally was
+# wrong too. The rules the analyzer named have to be in the payload.
+SINGLE_FILE_MESSAGE = (
+    "Only train.py was analyzed: 4 sibling module(s) in the same package were not "
+    "(config.py, data.py, model.py, sklearn_baseline.py), and train.py imports 3 of "
+    "them. Rules that need cross-file evidence (MLV301, MLV302, MLV401, MLV501) "
+    "cannot see those definitions, so a clean result here is not a clean result for "
+    "the package - analyze the directory to widen."
+)
+UNTAGGED_MESSAGE = (
+    "MLV101 stayed silent in prep.make_splits: `X` (line 5) carries no dataflow tag "
+    "(it arrives as a parameter of prep.make_splits), so leakage through it is "
+    "neither confirmed nor ruled out - a gap in coverage, not a clean result."
+)
+SINGLE_FILE_DIAGNOSTIC = {
+    "kind": "single_file_analysis",
+    "message": SINGLE_FILE_MESSAGE,
+    "file": "train.py",
+    "codes": ["MLV301", "MLV302", "MLV401", "MLV501"],
+    "count": 4,
+}
+UNTAGGED_DIAGNOSTIC = {
+    "kind": "untagged_dataflow",
+    "message": UNTAGGED_MESSAGE,
+    "file": "prep.py",
+    "line": 5,
+    "scope": "prep.make_splits",
+    "codes": ["MLV101"],
+    "count": 1,
+}
+
+
+def test_the_issues_payload_names_the_rules_that_could_not_run():
+    payload = payloads.issues_payload(_corpus(1, 0, [SINGLE_FILE_DIAGNOSTIC]))
+    coverage = payload["coverage"]
+    assert [c["kind"] for c in coverage] == ["single_file_analysis"]
+    assert coverage[0]["codes"] == ["MLV301", "MLV302", "MLV401", "MLV501"]
+    assert coverage[0]["message"] == SINGLE_FILE_MESSAGE, "the analyzer's own wording"
+    # and the note says what to do with them, in the order the command body asks
+    for code in ("MLV301", "MLV302", "MLV401", "MLV501"):
+        assert code in payload["note"], payload["note"]
+    assert "floor" in payload["note"] and "clean bill of health" in payload["note"]
+
+
+def test_the_analyze_payload_names_the_rules_that_could_not_run():
+    from mlview.api import digest
+
+    graph = _corpus(1, 0, [SINGLE_FILE_DIAGNOSTIC])
+    payload = payloads.analyze_payload(
+        digest(graph, limit_bytes=3200), "C:/proj/.mlview/graph.json", graph=graph
+    )
+    assert payload["coverage"][0]["codes"] == ["MLV301", "MLV302", "MLV401", "MLV501"]
+    assert "MLV501" in payload["note"]
+    # the tally stays too: it is the only thing that carries the OTHER kinds
+    assert payload["diagnostics"] == [{"kind": "single_file_analysis", "count": 4}]
+
+
+def test_a_coverage_count_is_never_presented_as_a_count_of_rules():
+    """`count: 4` is four sibling MODULES; four rules is a coincidence of this
+    fixture. The message that explains what the number counts must travel with it."""
+    payload = payloads.issues_payload(_corpus(1, 0, [SINGLE_FILE_DIAGNOSTIC]))
+    note = payload["coverage"][0]
+    assert note["count"] == 4
+    assert "sibling module(s)" in note["message"]
+    assert "could not run" in payload["note"]
+
+
+def test_both_coverage_kinds_are_carried_in_a_stable_order():
+    graph = _corpus(3, 0, [UNTAGGED_DIAGNOSTIC, SINGLE_FILE_DIAGNOSTIC])
+    payload = payloads.issues_payload(graph)
+    assert [c["kind"] for c in payload["coverage"]] == [
+        "single_file_analysis",
+        "untagged_dataflow",
+    ]
+    assert payload["coverage"][1]["codes"] == ["MLV101"]
+    assert "MLV101" in payload["note"]
+    assert mlview_budget.payload_size(payload) <= LIMIT
+
+
+def test_untagged_sites_in_many_scopes_collapse_to_one_row_with_the_union_of_codes():
+    graph = _corpus(
+        3,
+        0,
+        [
+            dict(UNTAGGED_DIAGNOSTIC, codes=["MLV101"], count=2),
+            dict(UNTAGGED_DIAGNOSTIC, codes=["MLV102", "MLV101"], count=3, file="b.py"),
+        ],
+    )
+    note = payloads.issues_payload(graph)["coverage"][0]
+    assert note["kind"] == "untagged_dataflow"
+    assert note["count"] == 5, "five untraced sites, not two rows"
+    assert note["codes"] == ["MLV101", "MLV102"]
+
+
+def test_a_clean_document_carries_no_coverage_block_at_all():
+    payload = payloads.issues_payload(_corpus(7, 0))
+    assert "coverage" not in payload
+    assert "note" not in payload
+
+
+def test_a_parse_error_is_not_mistaken_for_a_coverage_caveat():
+    payload = payloads.issues_payload(
+        _corpus(0, 1, [{"kind": "parse_error", "message": "boom", "count": 1}])
+    )
+    assert "coverage" not in payload
+    assert "could not run" not in payload["note"]
+
+
+def test_the_coverage_block_survives_a_payload_that_has_to_shed_rows():
+    """The budget walk sheds issue ROWS; it must never shed the reason the row
+    count is a floor. `coverage` is in PROTECTED_KEYS for exactly this."""
+    graph = _corpus(1, 0, [SINGLE_FILE_DIAGNOSTIC, UNTAGGED_DIAGNOSTIC])
+    graph["issues"] = synthetic_graph(nodes=8, edges=4, issues=60)["issues"]
+    payload = payloads.issues_payload(graph, limit=60, limit_bytes=1800)
+    assert payload["truncated"] is True
+    assert len(payload["issues"]) < 60
+    assert [c["kind"] for c in payload["coverage"]] == [
+        "single_file_analysis",
+        "untagged_dataflow",
+    ]
+    assert "MLV301" in payload["note"] and "MLV101" in payload["note"]
+
+
+def test_the_coverage_block_is_bounded_so_protecting_it_cannot_starve_a_payload():
+    """A hostile document - forty codes, a kilobyte of message - must still leave
+    room for the rest of the payload, or `fit` would give up above the cap."""
+    huge = dict(
+        SINGLE_FILE_DIAGNOSTIC,
+        message="x" * 4000,
+        codes=["MLV%03d" % n for n in range(101, 141)],
+    )
+    graph = _corpus(1, 0, [huge, dict(UNTAGGED_DIAGNOSTIC, message="y" * 4000)])
+    payload = payloads.issues_payload(graph)
+    assert mlview_budget.payload_size(payload) <= LIMIT
+    for note in payload["coverage"]:
+        assert len(note["codes"]) <= 6
+        assert len(note["message"]) <= 400
+    assert payload["coverage"][0]["message"].endswith("...")
+
+
+def test_a_diagnostic_with_no_message_or_codes_still_says_the_run_was_blind():
+    graph = _corpus(1, 0, [{"kind": "untagged_dataflow", "count": 1}])
+    note = payloads.issues_payload(graph)["coverage"][0]
+    assert "leakage rules could not check it" in note["message"]
+    assert note["codes"] == []
+    assert "some rules could not run" in payloads.issues_payload(graph)["note"]

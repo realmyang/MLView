@@ -32,8 +32,10 @@ from mlview_groups import (  # RAIL-GROUP: one row per rule / file / severity
     group_issues,
     group_note,
 )
-from mlview_notes import (  # the two "is an empty result good news?" helpers
+from mlview_notes import (  # the "is an empty result good news?" helpers
     corpus_note as _corpus_note,
+    coverage_note as _coverage_note,
+    coverage_notes,
     diagnostics_summary,
 )
 import mlview_scope as scopes  # the section 11.1 grammar at the tool boundary
@@ -101,6 +103,12 @@ def analyze_payload(
     diagnostics = diagnostics_summary(graph) if graph else []
     if diagnostics:
         out["diagnostics"] = diagnostics
+    # ROADMAP COVERAGE: the tally above says a kind fired and how many times; only
+    # this block says WHICH RULES stayed silent, which is what `commands/mlview.md`
+    # tells the model to report before the finding count.
+    coverage = coverage_notes(graph)
+    if coverage:
+        out["coverage"] = coverage
     notes = [n for n in extra_notes if n]
     if scope:
         # `digest()` already emits the richer CONTRACTS 11.6 block
@@ -112,10 +120,15 @@ def analyze_payload(
         if not isinstance(out.get("scope"), dict):
             out["scope"] = scope
         notes.append(scopes.filtered_view_note(scope))
+    blind = _coverage_note(coverage)
+    if blind:
+        notes.insert(0, blind)
     note = _corpus_note(
         int(out.get("filesAnalyzed") or 0), int(out.get("filesFailed") or 0), diagnostics
     )
     if note:
+        # "nothing was analyzed" leads, then the coverage caveat: the order the
+        # command body tells the model to speak them in.
         notes.insert(0, note)
     if notes:
         out["note"] = "; ".join(notes)
@@ -232,12 +245,19 @@ def issues_payload(
     diagnostics = diagnostics_summary(graph)
     if diagnostics:
         out["diagnostics"] = diagnostics
+    # ROADMAP COVERAGE: see `analyze_payload`; the tally cannot carry a rule code.
+    coverage = coverage_notes(graph)
+    if coverage:
+        out["coverage"] = coverage
     notes = [n for n in extra_notes if n]
     if groups is not None:
         notes.append(group_note(out["groupBy"], groups, matched))
     if scope:
         out["scope"] = scope
         notes.append(scopes.filtered_view_note(scope))
+    blind = _coverage_note(coverage)
+    if blind:
+        notes.insert(0, blind)
     note = _corpus_note(files_analyzed, files_failed, diagnostics)
     if note:
         notes.insert(0, note)
@@ -566,6 +586,7 @@ __all__ = [
     # the accepted argument values, and the per-tool builders
     "SEVERITY_ORDER", "STAGE_IDS", "GRAPH_FORMATS", "scopes",
     "analyze_payload", "issues_payload", "graph_payload", "diagnostics_summary",
+    "coverage_notes",  # re-exported from mlview_notes: the COVERAGE reader
     # re-exported from mlview_views so callers and tests keep one import
     "subgraph", "stage_scope_ids", "neighbourhood_ids",
     "explain_node_payload", "explain_rule_payload", "open_diagram_payload",

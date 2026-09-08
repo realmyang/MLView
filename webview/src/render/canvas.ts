@@ -166,8 +166,29 @@ export class ViewportController {
    * pipeline, and the answer must open showing it (MLV-R3-001).
    */
   fit(padding = 24): void {
+    this.applyFit(padding, false);
+  }
+
+  /**
+   * Fit the WHOLE document, never top-anchored (VIEW-10 Overview).
+   *
+   * Overview mode folds every group to its card and then asks for the picture a
+   * reviewer can paste — which is by definition the whole document. Routing it
+   * through `fit()` handed it the `tall` branch: the folded demo is still much
+   * taller than it is wide, so `Shift+0` opened top-anchored at 0.837 with
+   * `CrossEntropyLoss`, `train()` and `validate()` entirely below the fold at
+   * 1440x900 — it zoomed IN, and clipped the one picture the feature exists to
+   * produce. The `tall` branch is deliberate for a first paint (MLV-R3-001) and
+   * is untouched here; it is simply not what "fit everything" means, exactly as
+   * a projection already opts out of it through `setProjected`.
+   */
+  fitWhole(padding = 24): void {
+    this.applyFit(padding, true);
+  }
+
+  private applyFit(padding: number, whole: boolean): void {
     const { w, h } = this.size();
-    const { zoom, tall } = fitPlan(this.contentW, this.contentH, w, h, padding, this.projected);
+    const { zoom, tall } = fitPlan(this.contentW, this.contentH, w, h, padding, this.projected || whole);
     this.vp.zoom = zoom;
     this.vp.x = (w - this.contentW * zoom) / 2;
     this.vp.y = tall ? padding : Math.max(padding, (h - this.contentH * zoom) / 2);

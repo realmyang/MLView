@@ -93,6 +93,13 @@ class ScopeIR:
     node: Optional[ast.AST] = None
     parent: Optional["ScopeIR"] = None
     bindings: Dict[str, "ValueRef"] = field(default_factory=dict)
+    #: REV-01. `bindings` keeps the LAST store for a name, which is what a
+    #: consumer *after* every store wants; `binding_history` keeps them all, in
+    #: source order, so a consumer can be resolved against the store in effect
+    #: at its own line. `x = layer(x)` twice in one `forward` is the universal
+    #: PyTorch idiom, and the flat map wired its first consumer to its last
+    #: producer - a data edge pointing backwards through the model.
+    binding_history: Dict[str, List["ValueRef"]] = field(default_factory=dict)
     loc: Optional[Loc] = None
 
     def mark_dynamic(self, reason: str) -> None:

@@ -100,17 +100,26 @@ def test_an_issue_anchored_on_a_boundary_node_is_dropped():
 
 
 def test_the_stable_rotation_puts_the_badge_on_a_core_card():
-    """F2-A5: MLV401's anchors are `[criterion, SmallCNN]`; under
-    `unit:SmallCNN` they rotate to `[SmallCNN, criterion]`."""
+    """F2-A5: MLV401's anchors are `[criterion, SmallCNN, softmax()]`; under
+    `unit:SmallCNN` they rotate to `[SmallCNN, softmax(), criterion]`.
+
+    Written as a rotation of whatever the anchor list is, rather than against a
+    hard-coded pair: REV-06 added the `softmax()` op node ANA-1 mints for the
+    offending call as a third anchor, and a rotation is a property of the list,
+    not of its length.
+    """
     full = sample()
     smallcnn = next(n for n in full["nodes"] if n["qualname"] == "model.SmallCNN")
     before = next(i for i in full["issues"] if i["code"] == "MLV401")
     assert before["nodeIds"][0] != smallcnn["id"], "the unscoped order is unchanged"
+    assert smallcnn["id"] in before["nodeIds"]
+    assert len(before["nodeIds"]) >= 3, "the offending softmax op is an anchor too"
 
     doc = scoped("unit:SmallCNN", 1)
     after = next(i for i in doc["issues"] if i["code"] == "MLV401")
     assert after["nodeIds"][0] == smallcnn["id"]
-    assert after["nodeIds"] == [before["nodeIds"][1], before["nodeIds"][0]], \
+    pivot = before["nodeIds"].index(smallcnn["id"])
+    assert after["nodeIds"] == before["nodeIds"][pivot:] + before["nodeIds"][:pivot], \
         "a rotation, not a sort: the rest keeps its relative order"
 
 

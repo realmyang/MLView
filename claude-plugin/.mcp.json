@@ -2,7 +2,7 @@
   "mcpServers": {
     "mlview": {
       "type": "stdio",
-      "command": "python",
+      "command": "${MLVIEW_PYTHON:-python}",
       "args": ["${CLAUDE_PLUGIN_ROOT}/server/mlview_mcp.py"],
       "env": {
         "PYTHONPATH": "${CLAUDE_PLUGIN_ROOT}/vendor",

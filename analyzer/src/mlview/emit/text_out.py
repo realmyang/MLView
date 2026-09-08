@@ -165,7 +165,7 @@ def _diagnostic_lines(diagnostics: Sequence[Dict[str, Any]]) -> List[str]:
 
 def issue_lines(issues: Sequence[Dict[str, Any]], group_by: str = "none") -> List[str]:
     """The issue table as lines - flat (`none`) or grouped by rule / file."""
-    if group_by in ("rule", "file"):
+    if group_by in ("rule", "file", "severity"):
         return render_grouped(issues, group_by, SEVERITY_MARK).splitlines()
     return render_issue_table(issues).splitlines()
 

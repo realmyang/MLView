@@ -75,6 +75,18 @@ test('the legend is generated from what actually draws (VIEW-10)', async () => {
   }
   // Every row explains itself; a swatch with no words is not a key.
   for (const dd of legend.querySelectorAll('.mlv-legend__desc')) assert.ok(dd.textContent.length > 10, dd.textContent);
+
+  // ...and no row says its own name twice (TB-16). The Confidence chip already
+  // SPELLS the bucket, so the label beside it made every row in that section
+  // read "certain / certain / Every factor the rule wants is present." -- the
+  // only self-repeating row in the legend, in the section a first-time reader
+  // is most likely to be reading.
+  for (const dt of legend.querySelectorAll('[data-legend-row]')) {
+    const words = dt.textContent.trim().split(/\s+/).filter((w) => w.length);
+    assert.ok(words.length < 2 || words[0] !== words[1], 'row repeats itself: ' + dt.textContent);
+  }
+  const conf = legend.querySelector('[data-legend-row="confidence:certain"]');
+  assert.equal(conf.textContent.trim(), 'certain', 'the chip is the label: ' + conf.textContent);
 });
 
 test('the legend opens from the toolbar and from a key, and persists (VIEW-10)', async () => {
@@ -130,6 +142,43 @@ test('Shift+0 collapses every group and fits (VIEW-10)', async () => {
   assert.ok(ctx.document.querySelector('.mlv-badge, .mlv-cluster'), 'severity is still visible on the folded cards');
   const live = ctx.document.querySelector('[aria-live="polite"]');
   assert.ok(live.textContent.indexOf('Overview') >= 0, live.textContent);
+});
+
+test('Overview fits the WHOLE diagram inside the canvas at 1440x900 (VIEW-10, TB-03)', async () => {
+  // VIEW-10(c)'s acceptance, stated directly. `overview()` used to call
+  // `viewport.fit()`, which routes through `fitPlan`'s `tall` branch: the folded
+  // demo is still much taller than it is wide, so Shift+0 inherited the
+  // deliberate MLV-R3-001 top anchoring, zoomed IN from 0.747 to 0.837, and left
+  // CrossEntropyLoss, train() and validate() -- 454 px of content -- entirely
+  // below the fold at 1440x900, with nothing on screen saying so.
+  const ctx = await mount();
+  const canvas = ctx.canvas;
+  const W = 1440;
+  const H = 900;
+  canvas.getBoundingClientRect = () => ({ left: 0, top: 0, right: W, bottom: H, width: W, height: H, x: 0, y: 0 });
+
+  key(ctx, canvas, ')');
+  const cards = ctx.document.querySelectorAll('[data-node-id]').length;
+  assert.ok(cards <= 14, 'a screenful, not a wall: ' + cards + ' cards');
+
+  // jsdom has no layout, so the geometry is read where the browser reads it:
+  // the world's own size and the transform the viewport wrote on it. Every card
+  // is inside the world by construction, so world-inside-canvas IS the
+  // acceptance -- and it is the same arithmetic Chromium applies.
+  const world = ctx.document.querySelector('.mlv-world');
+  const size = { w: parseFloat(world.style.width), h: parseFloat(world.style.height) };
+  const m = /translate\((-?[\d.]+)px,(-?[\d.]+)px\) scale\(([\d.]+)\)/.exec(world.style.transform);
+  assert.ok(m, world.style.transform);
+  const [x, y, zoom] = [parseFloat(m[1]), parseFloat(m[2]), parseFloat(m[3])];
+  assert.ok(x >= -0.5 && y >= -0.5, 'the diagram starts inside the canvas: ' + x + ',' + y);
+  assert.ok(x + size.w * zoom <= W + 0.5, 'clipped on the right: ' + (x + size.w * zoom));
+  assert.ok(y + size.h * zoom <= H + 0.5, 'clipped below the fold: ' + (y + size.h * zoom) + ' of ' + H);
+
+  // And the fix is the branch, not a lucky number: the same content fitted the
+  // ordinary way still takes the top-anchored path.
+  const { fitPlan } = ctx.MLView.__internal.viewport;
+  assert.equal(fitPlan(size.w, size.h, W, H, 24, true).tall, false, 'a whole fit never top-anchors');
+  assert.ok(zoom <= fitPlan(size.w, size.h, W, H, 24, false).zoom, 'Overview zooms out, never in');
 });
 
 test('Shift+0 and 0 are different commands (VIEW-10)', async () => {

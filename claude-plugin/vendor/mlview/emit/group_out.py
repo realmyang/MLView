@@ -17,7 +17,9 @@ from typing import Any, Dict, List, Optional, Sequence
 __all__ = ["GROUP_BY", "render_grouped", "group_rows"]
 
 #: Accepted `--group-by` values. `none` is the default everywhere.
-GROUP_BY = ("none", "rule", "file")
+#: `severity` completes RAIL-GROUP's stated set (`rule|file|severity`, TB-12);
+#: it was an argparse error until 2026-09-08, so a documented mode did not run.
+GROUP_BY = ("none", "rule", "file", "severity")
 
 _SEV_ORDER = {"high": 0, "medium": 1, "low": 2}
 _BUCKET_ORDER = ("certain", "likely", "possible", "speculative")
@@ -51,12 +53,16 @@ def group_rows(issues: Sequence[Dict[str, Any]], by: str) -> List[Dict[str, Any]
     and `title`, so a caller that is not the text emitter (a host, a test) can
     render the same grouping without re-deriving it.
     """
-    if by not in ("rule", "file"):
+    if by not in ("rule", "file", "severity"):
         return []
     buckets: Dict[str, List[Dict[str, Any]]] = {}
     for issue in issues:
-        key = (issue.get("code", "?") if by == "rule"
-               else (issue.get("loc", {}) or {}).get("file", "?"))
+        if by == "rule":
+            key = issue.get("code", "?")
+        elif by == "file":
+            key = (issue.get("loc", {}) or {}).get("file", "?")
+        else:
+            key = issue.get("severity", "low")
         buckets.setdefault(key, []).append(issue)
     rows: List[Dict[str, Any]] = []
     for key in sorted(buckets):
@@ -73,7 +79,12 @@ def group_rows(issues: Sequence[Dict[str, Any]], by: str) -> List[Dict[str, Any]
             "title": members[0].get("title", "") if by == "rule" else "",
             "lines": sorted((i.get("loc", {}) or {}).get("line", 0) for i in members),
         })
-    rows.sort(key=lambda r: (_SEV_ORDER.get(r["severity"], 3), r["key"]))
+    if by == "severity":
+        # The key *is* the severity, so sorting by key alphabetically would
+        # print high after medium. One sort key, worst first.
+        rows.sort(key=lambda r: _SEV_ORDER.get(r["key"], 3))
+    else:
+        rows.sort(key=lambda r: (_SEV_ORDER.get(r["severity"], 3), r["key"]))
     return rows
 
 
@@ -86,6 +97,9 @@ def render_grouped(issues: Sequence[Dict[str, Any]], by: str,
     if by == "rule":
         header = "  %-4s %-7s %-11s %-28s %s" % ("SEV", "CODE", "CONFIDENCE",
                                                  "OCCURRENCES", "TITLE")
+    elif by == "severity":
+        header = "  %-4s %-28s %-11s %-28s %s" % ("SEV", "SEVERITY", "WORST",
+                                                  "OCCURRENCES", "RULES")
     else:
         header = "  %-4s %-28s %-11s %-28s %s" % ("SEV", "FILE", "WORST",
                                                   "OCCURRENCES", "RULES")
@@ -101,7 +115,9 @@ def render_grouped(issues: Sequence[Dict[str, Any]], by: str,
                             row["title"]))
         else:
             where = "%s · %s" % (_plural(row["count"], "occurrence"),
-                                      _plural(len(row["codes"]), "rule"))
+                                      _plural(len(row["codes"]), "rule")
+                                      if by == "file"
+                                      else _plural(len(row["files"]), "file"))
             lines.append("  %-4s %-28s %-11s %-28s %s"
                          % (mark, _clip(row["key"], 28), row["bucket"],
                             _clip(where, 28), ", ".join(row["codes"])))

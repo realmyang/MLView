@@ -119,7 +119,36 @@ def test_analyze_summary_default_is_unchanged(run, repeats):
 
 
 def test_a_bad_group_by_is_a_usage_error(run, repeats):
-    assert run("issues", repeats, "--group-by", "severity")[0] == cli.EXIT_USAGE
+    """`severity` used to be the value asserted here - RAIL-GROUP's proposal
+    names `rule|file|severity` and only two of the three were wired, so the
+    suite pinned the gap instead of the contract (TB-12, fixed 2026-09-08).
+    A value that is genuinely not a mode is still a usage error."""
+    assert run("issues", repeats, "--group-by", "stage")[0] == cli.EXIT_USAGE
+    assert run("issues", repeats, "--group-by", "")[0] == cli.EXIT_USAGE
+
+
+def test_group_by_severity_prints_one_row_per_severity(run, repeats):
+    code, out, _err = run("issues", repeats, "--group-by", "severity")
+    assert code == 0
+    rows = [line for line in out.splitlines()
+            if line.startswith("  [") and "occurrence" in line]
+    assert len(rows) <= 3
+    assert [line.split()[1] for line in rows] == sorted(
+        (line.split()[1] for line in rows),
+        key=lambda name: {"high": 0, "medium": 1, "low": 2}[name])
+    assert "SEVERITY" in out and "OCCURRENCES" in out
+
+
+def test_every_mode_the_parser_accepts_is_a_mode_the_emitter_renders(run, repeats):
+    """The two `GROUP_BY` lists had drifted; they are one list now."""
+    from mlview.cli_parser import GROUP_BY as PARSER_MODES
+    from mlview.emit.group_out import GROUP_BY as EMITTER_MODES
+
+    assert PARSER_MODES is EMITTER_MODES
+    for mode in PARSER_MODES:
+        code, out, _err = run("issues", repeats, "--group-by", mode)
+        assert code == 0, mode
+        assert out.strip(), mode
 
 
 # ------------------------------------------------------------------- unit

@@ -187,3 +187,142 @@ def test_cross_file_class_instantiation(analyze_ir):
     assert ref.class_ir is not None and ref.class_ir.name == "Net"
     call = [c for c in module.calls if c.method == "eval"][0]
     assert "torch.nn.Module.eval" in call.canonical_fqns
+
+
+# ------------------------------------------------- REV-01: rebound names
+#: `x = layer(x)` three times in one `forward` - the universal PyTorch idiom.
+#: The flat `name -> one ValueRef` map kept only the LAST store, so the
+#: consumer at line 13 was wired to the producer at line 15 and the emitted
+#: graph drew the last layer feeding the first two.
+REBOUND_SRC = """
+import torch.nn as nn
+import torch.nn.functional as F
+
+
+class Seq(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.a = nn.Linear(8, 16)
+        self.b = nn.Linear(16, 32)
+        self.c = nn.Linear(32, 2)
+
+    def forward(self, x):
+        x = F.relu(self.a(x))
+        x = F.relu(self.b(x))
+        x = self.c(x)
+        return x
+"""
+
+
+def _edges(doc):
+    """`(source label@line, target label@line)` for every data edge."""
+    nodes = {n["id"]: n for n in doc["nodes"]}
+
+    def name(node_id):
+        node = nodes[node_id]
+        return "%s@%d" % (node["label"], node["loc"]["line"])
+
+    return sorted((name(e["source"]), name(e["target"]))
+                  for e in doc["edges"] if e["kind"] == "data")
+
+
+def test_a_rebound_name_resolves_to_the_store_in_effect_at_the_consumer(analyze_ir):
+    module = analyze_ir({"m.py": REBOUND_SRC}).workspace.modules["m.py"]
+    scope = scope_of(module, "m.Seq.forward")
+    history = scope.binding_history["x"]
+    assert len(history) == 3, [r.loc.line for r in history]
+    lines = [r.loc.line for r in history]
+    # the consumer on line 14 must see the store on line 13, not the one on 15
+    assert binding_of("x", scope, at=lines[1]) is history[0]
+    assert binding_of("x", scope, at=lines[2]) is history[1]
+    # nothing precedes the first consumer: `x` is the parameter, not layer c
+    assert binding_of("x", scope, at=lines[0]) is None
+    # and the un-ordered call is byte-for-byte what it always was
+    assert binding_of("x", scope) is history[-1]
+
+
+def test_the_forward_chain_is_drawn_forwards(analyze_ws):
+    """No edge may point from a later layer back to an earlier one."""
+    doc = analyze_ws({"m.py": REBOUND_SRC})
+    edges = _edges(doc)
+    # the two edges the flat map lost entirely
+    assert ("x@14", "self.b@10") in edges
+    assert ("x@15", "self.c@11") in edges
+    # the two it drew backwards: the last layer feeding the first two
+    assert ("self.c@11", "self.a@9") not in edges
+    assert ("self.c@11", "self.b@10") not in edges
+    # and the whole forward chain, in order
+    assert edges == [("self.a@9", "x@14"), ("self.b@10", "x@15"),
+                     ("x@14", "self.b@10"), ("x@15", "self.c@11")]
+
+
+def test_a_name_rebound_at_module_scope_has_the_same_ordering(analyze_ir):
+    module = analyze_ir({"m.py": (
+        "import numpy as np\n"
+        "from sklearn.preprocessing import StandardScaler\n"
+        "\n"
+        "raw = np.load('d.npy')\n"
+        "X = raw[:, :-1]\n"
+        "X = StandardScaler().fit_transform(X)\n"
+    )}).workspace.modules["m.py"]
+    scope = scope_of(module, "m")
+    history = scope.binding_history["X"]
+    assert len(history) == 2
+    # `StandardScaler().fit_transform(X)` on line 6 reads the line-5 store
+    assert binding_of("X", scope, at=6) is history[0]
+    assert binding_of("X", scope, at=99) is history[1]
+
+
+def test_a_loop_carried_rebinding_still_resolves_to_the_previous_iteration(analyze_ir):
+    """`h = cell(h)` inside a loop has no store above it; the last one is right."""
+    module = analyze_ir({"m.py": (
+        "import torch.nn as nn\n"
+        "\n"
+        "def run(cell, h, steps):\n"
+        "    for _ in range(steps):\n"
+        "        h = cell(h)\n"
+        "    return h\n"
+    )}).workspace.modules["m.py"]
+    scope = scope_of(module, "m.run")
+    history = scope.binding_history["h"]
+    assert len(history) == 1                     # one store, so ordering is moot
+    assert binding_of("h", scope, at=5) is history[0]
+
+
+def test_the_self_attribute_map_is_not_reordered(analyze_ir):
+    """A `self.x` store lives in the class scope and is read from methods that
+    run in any order, so statement order says nothing about it."""
+    module = analyze_ir({"m.py": (
+        "import torch.nn as nn\n"
+        "\n"
+        "\n"
+        "class Net(nn.Module):\n"
+        "    def forward(self, x):\n"
+        "        return self.fc(x)\n"
+        "\n"
+        "    def __init__(self):\n"
+        "        super().__init__()\n"
+        "        self.fc = nn.Linear(4, 2)\n"
+    )}).workspace.modules["m.py"]
+    scope = scope_of(module, "m.Net.forward")
+    # `self.fc` is stored at line 10 and read at line 6, above it
+    assert binding_of("self.fc", scope, at=6) is not None
+
+
+def test_the_shipped_demo_no_longer_draws_pool_into_stem():
+    """The measured REV-01 instance: `samples/vision_pipeline/model.py` shipped
+    `data self.pool -> self.stem`, an arrow pointing three lines backwards
+    through the model, in the one lane the Model view exists to get right."""
+    import os
+
+    from core_support import REPO_ROOT
+    from mlview.api import AnalyzeOptions, analyze_to_dict
+
+    doc = analyze_to_dict(AnalyzeOptions(
+        paths=(os.path.join(REPO_ROOT, "samples", "vision_pipeline"),)))
+    nodes = {n["id"]: n for n in doc["nodes"]}
+    pairs = {(nodes[e["source"]]["label"], nodes[e["target"]]["label"])
+             for e in doc["edges"] if e["kind"] == "data"}
+    assert ("self.pool", "self.stem") not in pairs
+    assert ("self.stem", "x") in pairs           # stem still feeds the relu
+    assert ("self.pool", "self.head") in pairs   # and pool still feeds the head

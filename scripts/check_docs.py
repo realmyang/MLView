@@ -1,7 +1,10 @@
 #!/usr/bin/env python
 """Documentation gate: keep the prose honest about the tree it describes.
 
-Eight checks, all offline and stdlib-only:
+Eleven checks, all offline and stdlib-only. Checks 1-8 live here; checks 9-11 --
+the ones that compare a number in the prose with the machine-readable copy the
+tree already holds -- live in `scripts/doc_numbers.py` and are summarised at the
+bottom of this list:
 
 1. **Dead paths.** Every repo-relative path written in backticks or in a Markdown
    link inside a current-state doc must exist on disk. Catches renamed modules,
@@ -49,6 +52,13 @@ Eight checks, all offline and stdlib-only:
    run produces one graph, so every `N nodes / M edges` claim about
    `samples/vision_pipeline` (or the `.mlview/graph.json` it emits) has to
    agree with every other. This is the regression gate for MLV-R2-H05.
+9. **A headline that disagrees with its own gate.** `docs/ACCURACY.md` quotes
+   figures whose authoritative copy is `analyzer/tests/accuracy/baseline.json`.
+10. **An artifact upload that silently uploads nothing**, because its path is
+    hidden and `include-hidden-files` was not set.
+11. **A step count that is not the number of steps** either e2e driver runs.
+
+`scripts/doc_numbers.py` carries all three, with the incident behind each.
 
 Usage:  python scripts/check_docs.py [--root DIR] [--quiet]
 Exit 0 when clean, 1 when a problem is found. The report goes to stdout.
@@ -61,12 +71,15 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import doc_numbers  # noqa: E402  - sibling module, after the sys.path fix above
+
 DEFAULT_ROOT = Path(__file__).resolve().parent.parent
 
 # Docs that describe the tree as it *is*: every path they name must exist, and
 # they may not claim a green test fails.
-CURRENT_GLOBS = ("README.md", "docs/STATUS.md", "scripts/README.md",
-                 "*/README.md", "docs/rules/README.md")
+CURRENT_GLOBS = ("README.md", "docs/STATUS.md", "docs/ACCURACY.md",
+                 "scripts/README.md", "*/README.md", "docs/rules/README.md")
 # Docs that describe the tree as it was *planned*: frozen design records, checked
 # for dead Markdown links only. Rewriting them to match the build would erase the
 # record of what was decided. docs/CONTRACTS.md is normative and frozen, and is
@@ -425,6 +438,8 @@ def run(root: Path):
     check_graph_sizes(sizes, problems)
     scripts = list(shell_scripts(root))
     check_line_endings(root, scripts + current + plan, problems)
+    # Checks 9-11: the numbers the prose shares with a machine-readable file.
+    doc_numbers.run(root, current, problems)
     return problems, current + plan + scripts
 
 
@@ -443,8 +458,9 @@ def main(argv=None) -> int:
     if not args.quiet:
         print("DOC CHECK OK (%d files, no dead paths, no stale claims, "
               "every known gap anchored, no build state in a plan doc, "
-              "LF in every shell script, one graph size)"
-              % len(files))
+              "LF in every shell script, one graph size, the accuracy headline "
+              "matches the baseline, no silent artifact upload, one e2e step "
+              "count)" % len(files))
     return 0
 
 

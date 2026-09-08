@@ -6,7 +6,7 @@ explains, §11 binds. Where the two disagree, §11 wins.
 **Requirements:** `docs/REQUIREMENTS.md` **R2.11** (flow) and **R1.12** (scoped views).
 
 Every number in §8 was produced by running the real projection algorithm over the real analyzed document
-(`.mlview/graph.json` — `samples/vision_pipeline`, 54 nodes / 52 edges / 15 issues) and over the frozen
+(`.mlview/graph.json` — `samples/vision_pipeline`, 54 nodes / 51 edges / 15 issues) and over the frozen
 `contracts/graph.sample.json` (12 / 14 / 6). Nothing here is estimated.
 
 ---

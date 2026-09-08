@@ -235,6 +235,14 @@ fi
 step "scope parity (tools/verify.py --scopes)" "$REPO_ROOT" "$PYTHON" tools/verify.py --scopes
 step "parity gates (tools/verify.py --all)" "$REPO_ROOT" "$PYTHON" tools/verify.py --all
 
+# ------------------------------------------------------------------ the referee
+# ANA-12. The analyzer over `analyzer/tests/accuracy/corpus/`, scored against its
+# hand-written labels: zero `forbidden` findings ever, and recall and graph
+# fidelity may only ratchet up against analyzer/tests/accuracy/baseline.json.
+# It runs in well under a second, so the acceptance run carries it rather than
+# leaving the only accuracy signal on a machine that can reach GitHub Actions.
+step "accuracy corpus" "$REPO_ROOT" "$PYTHON" tools/accuracy.py
+
 # --------------------------------------------------------------------- the docs
 # Dead paths, dead links, and "known gap" bullets that still describe a failure
 # somebody already fixed. The gate's own self-test runs first.

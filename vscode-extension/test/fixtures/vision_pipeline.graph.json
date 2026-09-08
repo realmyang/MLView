@@ -3,8 +3,8 @@
   "generator": {
     "name": "mlview",
     "version": "0.1.0",
-    "rendererSha": "a28c36f1dba58a49de440e406c63341bfef20556fc942dd05e6906f9087e960b",
-    "generatedAt": "2026-09-08T18:36:05Z"
+    "rendererSha": "c7fcdac3c67f1ac0393714fd3844a878130c3a9479d53081cd83e252fd6b270f",
+    "generatedAt": "2026-09-08T20:22:36Z"
   },
   "workspace": {
     "root": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline",
@@ -1871,7 +1871,9 @@
       "dynamic": false,
       "confidence": 0.95,
       "confidenceBucket": "certain",
-      "issueIds": [],
+      "issueIds": [
+        "i:da22948c4710"
+      ],
       "collapsedByDefault": false,
       "stageEvidence": [
         {
@@ -3108,26 +3110,6 @@
       "issueIds": []
     },
     {
-      "id": "e:4e007bf598f1",
-      "kind": "data",
-      "source": "n:4e252244ce33",
-      "target": "n:818db64b6a28",
-      "label": "x",
-      "loc": {
-        "file": "model.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/model.py",
-        "line": 39,
-        "col": 29,
-        "endLine": 39,
-        "endCol": 30,
-        "symbol": "x",
-        "snippet": "        x = F.relu(self.stem(x))"
-      },
-      "tags": [],
-      "confidence": 0.9,
-      "issueIds": []
-    },
-    {
       "id": "e:2e5e9c32b271",
       "kind": "data",
       "source": "n:4e252244ce33",
@@ -4256,7 +4238,8 @@
       ],
       "nodeIds": [
         "n:096816f94864",
-        "n:3e1a658e7bad"
+        "n:3e1a658e7bad",
+        "n:5b88d52bab14"
       ],
       "edgeIds": [
         "e:be0648ecd817"
@@ -5133,14 +5116,14 @@
   "diagnostics": [],
   "stats": {
     "nodes": 54,
-    "edges": 52,
+    "edges": 51,
     "issues": {
       "low": 4,
       "medium": 6,
       "high": 5
     },
     "suppressed": 0,
-    "durationMs": 30,
+    "durationMs": 18,
     "truncated": false
   }
 }

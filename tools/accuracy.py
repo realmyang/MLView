@@ -16,9 +16,20 @@ and prints four tables:
     python tools/accuracy.py --program hydra_research --no-gate
     python tools/accuracy.py --json report.json
 
-Exit codes: `0` green, `2` a **forbidden** finding fired (never tolerated),
-`3` a recall or graph-fidelity regression against the committed baseline,
-`4` the corpus or a `labels.json` is malformed.
+Neither tolerance has an escape hatch, and both flags that used to be one
+are now closed (TB-02):
+
+* `--no-gate` suppresses the **ratchet** gate only. A `forbidden` finding
+  still exits 2, because the tolerance for it is zero and is not a baseline.
+* `--update-baseline` refuses to record a number that moved **down**; it
+  prints the before/after of every number that moved and exits 3. Recording
+  a downward move takes `--allow-regression "<reason>"`, and the reason is
+  written into the baseline's `note` so the file says why it went backwards.
+
+Exit codes: `0` green, `2` a **forbidden** finding fired (never tolerated,
+and `--no-gate` does not tolerate it either), `3` a recall or graph-fidelity
+regression against the committed baseline - or a `--update-baseline` that
+would have recorded one - `4` the corpus or a `labels.json` is malformed.
 
 Labelling model (ROADMAP ANA-12, three verdicts, not two):
 
@@ -40,7 +51,7 @@ import argparse
 import json
 import os
 import sys
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -53,6 +64,7 @@ from accuracy_corpus import (  # noqa: E402  - after the sys.path fix above
 # file and reach the whole surface: the tool a human runs and the module the
 # suite asserts are then provably the same code.
 __all__ = ["main", "render", "check", "build_baseline", "load_baseline",
+           "baseline_moves", "gated_numbers",
            "run_corpus", "load_programs", "score_program", "score_graph",
            "aggregate", "matches", "Program", "CorpusError", "EPSILON",
            "VISIBLE_THRESHOLD", "CORPUS_DIR", "BASELINE_PATH"]
@@ -192,6 +204,51 @@ def load_baseline(path: str = BASELINE_PATH) -> Optional[Dict[str, Any]]:
         return json.load(handle)
 
 
+def gated_numbers(data: Dict[str, Any]) -> Dict[str, float]:
+    """Every number the ratchet gate reads, flattened to one label -> value map.
+
+    `check()` and `--update-baseline` must agree on *exactly* which numbers may
+    only go up; sharing this function is how they are kept from drifting apart
+    (TB-02: they had drifted all the way to "one gates, the other does not").
+    A baseline and a fresh report have the same shape here, so the same call
+    flattens either one.
+    """
+    out: Dict[str, float] = {}
+    for scope in ("overall", "unseen"):
+        for key in ("recall", "visibleRecall", "highValueRecall", "precision"):
+            out["%s %s" % (scope, key)] = float(
+                (data.get(scope) or {}).get(key, 0.0))
+    for code, values in sorted((data.get("perRule") or {}).items()):
+        out["%s recall" % code] = float((values or {}).get("recall", 0.0))
+    out["graph fidelity"] = float((data.get("graphFidelity") or {}).get("score", 0.0))
+    return out
+
+
+def baseline_moves(report: Dict[str, Any], baseline: Optional[Dict[str, Any]]
+                   ) -> Tuple[List[Tuple[str, float, float]],
+                              List[Tuple[str, float, float]]]:
+    """`(down, up)` - every gated number that moved, as `(label, was, now)`.
+
+    A per-rule number the baseline records and the report no longer has counts
+    as a move to 0.0, which is a regression: a rule that stopped being scored
+    at all is exactly the silent recall loss the ratchet exists to catch.
+    """
+    if baseline is None:
+        return [], []
+    was_all = gated_numbers(baseline)
+    now_all = gated_numbers(report)
+    down: List[Tuple[str, float, float]] = []
+    up: List[Tuple[str, float, float]] = []
+    for label in sorted(set(was_all) | set(now_all)):
+        was = was_all.get(label, 0.0)
+        now = now_all.get(label, 0.0)
+        if now + EPSILON < was:
+            down.append((label, was, now))
+        elif was + EPSILON < now:
+            up.append((label, was, now))
+    return down, up
+
+
 def check(report: Dict[str, Any], baseline: Optional[Dict[str, Any]]) -> List[str]:
     """Every gate failure, most serious first. Empty means green."""
     failures: List[str] = []
@@ -225,14 +282,22 @@ def check(report: Dict[str, Any], baseline: Optional[Dict[str, Any]]) -> List[st
     return failures
 
 
-def build_baseline(report: Dict[str, Any], note: str = "") -> Dict[str, Any]:
+def build_baseline(report: Dict[str, Any], note: str = "",
+                   regression_reason: str = "") -> Dict[str, Any]:
     import datetime
+    note = note or ("ANA-12 day one. Recall may only ratchet up; a forbidden "
+                    "finding is never tolerated. Regenerate with "
+                    "`python tools/accuracy.py --update-baseline` and say in "
+                    "the commit body which rule change earned the new number.")
+    if regression_reason:
+        # A sanctioned downward move is recorded *in the file*, not only in a
+        # commit body: the next reader of this baseline has to be able to see
+        # that a number was lowered on purpose, and why.
+        note += (" SANCTIONED REGRESSION (--allow-regression): %s"
+                 % regression_reason)
     return {
         "recordedOn": datetime.date.today().isoformat(),
-        "note": note or ("ANA-12 day one. Recall may only ratchet up; a forbidden "
-                         "finding is never tolerated. Regenerate with "
-                         "`python tools/accuracy.py --update-baseline` and say in "
-                         "the commit body which rule change earned the new number."),
+        "note": note,
         "programs": report["programs"],
         "overall": report["overall"],
         "unseen": report["unseen"],
@@ -244,6 +309,53 @@ def build_baseline(report: Dict[str, Any], note: str = "") -> Dict[str, Any]:
 
 
 # ----------------------------------------------------------------------- CLI
+def _update_baseline(args, report: Dict[str, Any]) -> int:
+    """`--update-baseline`, with the ratchet actually enforced (TB-02).
+
+    The flag used to rewrite the file from whatever the current run produced,
+    which made "recall may only ratchet up" a comment rather than a rule: one
+    command erased a regression, and the file it wrote still carried the note
+    claiming the invariant. It now loads the baseline it is about to
+    overwrite, prints every gated number that moved in either direction, and
+    refuses a downward move unless `--allow-regression REASON` says so in as
+    many words - and then writes that reason into the baseline's own note.
+    """
+    if args.program:
+        sys.stderr.write("accuracy: refusing to rebaseline from a subset "
+                         "(--program was given)\n")
+        return EXIT_CORPUS
+    if report["forbiddenFindings"]:
+        sys.stderr.write("accuracy: refusing to rebaseline while %d forbidden "
+                         "finding(s) fire - fix the rule, not the baseline\n"
+                         % report["forbiddenFindings"])
+        return EXIT_FORBIDDEN
+
+    previous = load_baseline(args.baseline)
+    down, up = baseline_moves(report, previous)
+    for label, was, now in down:
+        print("baseline DOWN  %-28s %.4f -> %.4f" % (label, was, now))
+    for label, was, now in up:
+        print("baseline up    %-28s %.4f -> %.4f" % (label, was, now))
+    if down and not args.allow_regression:
+        sys.stderr.write(
+            "accuracy: refusing to record %d number(s) that moved down - recall "
+            "may only ratchet up. Fix the regression, or re-run with "
+            "--allow-regression \"why this is correct\".\n" % len(down))
+        return EXIT_REGRESSION
+    if down:
+        print("recording %d downward move(s): %s" % (len(down), args.allow_regression))
+    elif not up and previous is not None:
+        print("no gated number moved")
+
+    with open(args.baseline, "w", encoding="utf-8", newline="\n") as handle:
+        json.dump(build_baseline(report,
+                                 regression_reason=args.allow_regression or ""),
+                  handle, indent=2, sort_keys=True)
+        handle.write("\n")
+    print("baseline written to %s" % args.baseline)
+    return EXIT_OK
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(
         prog="tools/accuracy.py", description="ANA-12 labelled-accuracy referee")
@@ -252,11 +364,17 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--program", action="append", default=[],
                         help="score only this program (repeatable)")
     parser.add_argument("--update-baseline", action="store_true",
-                        help="rewrite the baseline from this run (ratchet up)")
+                        help="rewrite the baseline from this run; refuses when "
+                             "any gated number would move down")
+    parser.add_argument("--allow-regression", dest="allow_regression",
+                        metavar="REASON", default=None,
+                        help="with --update-baseline: record a downward move, "
+                             "writing REASON into the baseline's note")
     parser.add_argument("--json", dest="json_path", default=None,
                         help="also write the machine-readable report here")
     parser.add_argument("--no-gate", action="store_true",
-                        help="print the report without failing on a regression")
+                        help="print the report without failing on a ratchet "
+                             "regression; a forbidden finding still exits 2")
     parser.add_argument("--verbose", action="store_true",
                         help="also list every missed label and missing graph op")
     parser.add_argument("--quiet", action="store_true")
@@ -277,15 +395,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             handle.write("\n")
 
     if args.update_baseline:
-        if args.program:
-            sys.stderr.write("accuracy: refusing to rebaseline from a subset "
-                             "(--program was given)\n")
-            return EXIT_CORPUS
-        with open(args.baseline, "w", encoding="utf-8", newline="\n") as handle:
-            json.dump(build_baseline(report), handle, indent=2, sort_keys=True)
-            handle.write("\n")
-        print("baseline written to %s" % args.baseline)
-        return EXIT_FORBIDDEN if report["forbiddenFindings"] else EXIT_OK
+        return _update_baseline(args, report)
 
     baseline = None if args.program else load_baseline(args.baseline)
     failures = check(report, baseline)
@@ -297,9 +407,18 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return EXIT_OK
     for line in failures:
         print("accuracy gate: FAIL - %s" % line)
+    if report["forbiddenFindings"]:
+        # Gate 1 has no flag. `--no-gate` suppresses the *ratchet*, which is a
+        # comparison against a baseline; a forbidden finding is not a
+        # regression against anything, it is the corpus saying a rule fired
+        # where it must never fire, and the tolerance for that is zero always.
+        if args.no_gate:
+            print("accuracy: --no-gate covers the ratchet gate only - a "
+                  "forbidden finding is never tolerated")
+        return EXIT_FORBIDDEN
     if args.no_gate:
         return EXIT_OK
-    return EXIT_FORBIDDEN if report["forbiddenFindings"] else EXIT_REGRESSION
+    return EXIT_REGRESSION
 
 
 if __name__ == "__main__":

@@ -2065,3 +2065,63 @@ exists to catch; the wall-time is unchanged (0.92x–1.02x, inside noise).
 `analyzer/tests/core/test_pkg_reexport.py` (10) with the `analyzer/tests/fixtures/pkgreexport/` package and the
 `analyzer/tests/fixtures/rules/MLV401_self_attr_bad.py` fixture, plus the unchanged
 `analyzer/tests/rules/test_samples.py` battery and `contracts/validate_sample.py` on the regenerated document.
+
+
+### 11.20 Host surface drift (2026-09-08) — amends §6 and 11.9, host-owned
+
+Two normative listings fell out of step with the tree during Sprint 3 and are corrected here rather than in
+place: overwriting §6 or 11.9 would erase the record of what they used to say, which is the whole reason §11
+exists. Both listings are **superseded by this section**; nothing else in either changes.
+
+**A — the extension's contributed settings (§6).** §6's `Settings:` line names `mlview.showSpeculative` and
+`mlview.followCursor`, and omits the setting COVERAGE added. CLEANUP deleted the first two in this sprint — both
+shipped in the Settings UI reading *"Not implemented in this prototype"*, and A6 cut `followCursor` outright, so
+deleting them is the contract-compliant move rather than a reduction in surface. The contributed set is now
+**exactly these thirteen**, and `vscode-extension/package.json` is the authority:
+
+| Setting | Type | Default |
+|---|---|---|
+| `mlview.pythonPath` | string | `""` |
+| `mlview.analyzeOnSave` | boolean | `true` |
+| `mlview.exclude` | array | `[]` |
+| `mlview.maxFiles` | integer | `500` |
+| `mlview.maxNodes` | integer | `400` |
+| `mlview.minSeverity` | `low` \| `medium` \| `high` | `low` |
+| `mlview.minConfidence` | number | `0.6` |
+| `mlview.currentFileAnalysisScope` | `file` \| `package` \| `workspace` | `package` |
+| `mlview.diagnosticsEnabled` | boolean | `true` |
+| `mlview.diagnosticSeverity` | `warning` \| `error` | `warning` |
+| `mlview.disabledRules` | array | `[]` |
+| `mlview.codeLens` | boolean | `true` |
+| `mlview.trace` | `off` \| `messages` \| `verbose` | `off` |
+
+`mlview.currentFileAnalysisScope` is COVERAGE's: it decides what **MLView: Visualize (Current File)** hands the
+analyzer before narrowing the diagram back to the file through the existing §11.7 `setScope` path. `package` is
+the default because analysing a file alone cannot fire MLV301, MLV302, MLV401 or MLV501 — each needs a sibling
+module — so the old single-file path lost four of `train.py`'s seven findings in silence. `file` restores the old
+behaviour and earns a `single_file_analysis` diagnostic (§11.18) for doing so. **Nothing removed here may come
+back under the same name with different meaning**; a future speculative-findings toggle needs a new name.
+
+**B — `ViewState` (11.9).** Two fields were added by RAIL-GROUP and VIEW-10 and belong in the listing:
+
+```ts
+export interface ViewState {
+  // ... 11.9, unchanged ...
+  /** Optional: the Issues rail's grouping. Absent = 'none'. */
+  railGroupBy?: 'none' | 'rule' | 'file';
+  /** Optional: the legend panel's open state. Absent = closed. */
+  legendOpen?: boolean;
+}
+```
+
+Both follow 11.9's rule exactly and gain no new one: **optional, absent at their default, sanitized on restore**
+(`railGroupBy` through `sanitizeGroupBy` in `webview/src/ui/railgroup.ts`, which folds any unknown value to
+`'none'`; `legendOpen` through a `typeof === 'boolean'` guard in `applyState`), and **a host predating them
+round-trips them untouched** because the host stores `ViewState` opaquely. An older saved state restores to
+`'none'` and closed. `webview/src/types.ts` is the authority for the interface.
+
+**Why an amendment and not an edit.** §6 has been wrong in *both* directions since CLEANUP landed — naming two
+settings that do not exist and omitting one that does — and 11.9's listing was incomplete. Editing the two lines
+in place would leave no trace that the surface changed, so a reader of a shipped extension could not tell a
+deletion from a documentation error. This is the shape §11.18 used for the `Diagnostic.kind` enum, for the same
+reason.

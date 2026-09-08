@@ -92,22 +92,37 @@ test('dist/mlview.css IS the minification of dist/mlview.dev.css (BUILD-01)', as
 /*
  * BUILD-01's size ratchet.
  *
- * MEASURED ON THIS TREE, 2026-09-08, after the eight NOW-tier viewer items:
- *   dist/mlview.js       218 038 B (212.9 KB)
- *   dist/mlview.css       54 052 B  (52.8 KB), minified from 89 296 B (-38%)
+ * MEASURED ON THIS TREE, 2026-09-08, after the eight NOW-tier viewer items and
+ * the Track B fixes:
+ *   dist/mlview.js       219 359 B (214.2 KB)
+ *   dist/mlview.css       54 052 B  (52.8 KB), minified from 89 296 B (-39%)
  *   dist/mlview.dev.css   89 296 B  (87.2 KB, never shipped)
  *
- * The roadmap proposed 210 KB / 55 KB, measured when the bundle was 198 KB and
- * the stylesheet 46.9 KB -- i.e. BEFORE this sprint added the legend, the
- * evidence and rule-doc disclosures, the rail grouping, the gesture
- * normalization and the location search (~15 KB of JS, ~6 KB of minified CSS).
- * The CSS cap is kept at the proposed 55 KB. The JS cap is set to 216 KB, the
- * same ~2 % headroom over the real number that 210 KB gave over 198 KB: a
- * ratchet exists to make the NEXT growth visible, and a cap the tree already
- * exceeds makes nothing visible at all.
+ * WHERE THIS LANDS AGAINST THE ROADMAP, which is the number a lead looks for:
+ * BUILD-01 proposed a JS ratchet of 210 KB and an acceptance of "dist/mlview.css
+ * under 50 KB". NEITHER is met -- 214.2 KB and 52.8 KB -- because those figures
+ * were measured when the bundle was 198 KB and the stylesheet 46.9 KB, i.e.
+ * BEFORE this sprint added the legend, the evidence and rule-doc disclosures,
+ * the rail grouping, the gesture normalization and the location search (~16 KB
+ * of JS, ~6 KB of minified CSS). The CSS cap is therefore kept at the proposed
+ * 55 KB and the JS cap set to 216 KB: a ratchet exists to make the NEXT growth
+ * visible, and a cap the tree already exceeds makes nothing visible at all.
+ *
+ * The two figures above are GATED, not just written down: `JS_RECORDED` /
+ * `CSS_RECORDED` are asserted against the built files with a 2 KB tolerance, so
+ * a rebuild that moves the bundle forces this block to be re-measured instead of
+ * quietly outliving it (TB-14: it already had -- the block quoted 218 038 B and
+ * "~2 % headroom" against a tree that shipped 219 208 B and 0.9 %). Every
+ * assertion below names the measured size and the remaining headroom.
  */
+const JS_RECORDED = 219359;
+const CSS_RECORDED = 54052;
+const DRIFT = 2 * 1024;
 const JS_MAX_BYTES = 216 * 1024;
 const CSS_MAX_BYTES = 55 * 1024;
+
+const headroom = (size, cap) =>
+  size + ' B, ' + (cap - size) + ' B (' + (((cap - size) / cap) * 100).toFixed(1) + ' %) under the ' + cap + ' B ratchet';
 
 test('the shipped bundle stays inside its size ratchet (BUILD-01)', async () => {
   const js = await stat(DIST_JS);
@@ -121,9 +136,20 @@ test('the shipped bundle stays inside its size ratchet (BUILD-01)', async () => 
     'dist/mlview.css is ' + style.size + ' B, over the ' + CSS_MAX_BYTES + ' B ratchet',
   );
   // A ratchet only ratchets while it is snug: a cap far above the real number is
-  // a cap nobody will ever trip.
-  assert.ok(js.size > JS_MAX_BYTES * 0.8, 'the JS ratchet has gone slack -- lower it to the current size');
-  assert.ok(style.size > CSS_MAX_BYTES * 0.7, 'the CSS ratchet has gone slack -- lower it to the current size');
+  // a cap nobody will ever trip. These two messages are the ONLY place the real
+  // figures are stated at run time, so they are printed on every run.
+  assert.ok(js.size > JS_MAX_BYTES * 0.8, 'the JS ratchet has gone slack -- ' + headroom(js.size, JS_MAX_BYTES));
+  assert.ok(style.size > CSS_MAX_BYTES * 0.7, 'the CSS ratchet has gone slack -- ' + headroom(style.size, CSS_MAX_BYTES));
+
+  // ...and the comment above says what the tree actually ships.
+  assert.ok(
+    Math.abs(js.size - JS_RECORDED) < DRIFT,
+    'the block above records ' + JS_RECORDED + ' B; dist/mlview.js is ' + headroom(js.size, JS_MAX_BYTES) + ' -- re-measure it',
+  );
+  assert.ok(
+    Math.abs(style.size - CSS_RECORDED) < DRIFT,
+    'the block above records ' + CSS_RECORDED + ' B; dist/mlview.css is ' + headroom(style.size, CSS_MAX_BYTES) + ' -- re-measure it',
+  );
 });
 
 test('the stylesheet removes the charge under prefers-reduced-motion (F1-A6)', () => {

@@ -202,6 +202,7 @@ def test_a_python_too_old_to_run_this_server_is_named_and_told_what_to_edit():
     assert "2.7" in text, "and what it actually got"
     assert "/usr/bin/python" in text, "and which interpreter that was"
     assert ".mcp.json" in text and "python3" in text, "and the one-field fix"
+    assert "MLVIEW_PYTHON" in text, "and the override that needs no file edited"
     assert "3.9" in "\n".join(module.python_version_problem((3, 9, 7), "py"))
 
 

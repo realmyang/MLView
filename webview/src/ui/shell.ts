@@ -125,16 +125,25 @@ export function wireCanvasGestures(
 
   disposers.push(
     on(canvas, 'pointerdown', (ev: PointerEvent) => {
-      const target = ev.target as HTMLElement;
-      if (target.closest && target.closest('.mlv-node, .mlv-group__header, .mlv-minimap, .mlv-zoom, .mlv-edge__hit')) {
-        return;
-      }
-      // A second finger turns a drag into a pinch (VIEW-06): the one-pointer pan
-      // must let go, or the canvas would pan and scale from the same travel.
+      // EVERY pointer joins the pinch, wherever it landed (VIEW-06). This used
+      // to sit below the card guard, so a finger placed on a node card was never
+      // registered: `active()` stayed false and the second finger started an
+      // ordinary one-pointer PAN. Pinching to zoom into a card is the normal
+      // touch gesture and cards cover most of the canvas, so on a tablet — where
+      // `canvas.css` sets `touch-action: none` and the browser's own pinch is
+      // therefore suppressed — the diagram slid sideways instead of zooming.
       pinch.down(ev);
       if (pinch.active()) {
+        // A second finger turns a drag into a pinch: the one-pointer pan must
+        // let go, or the canvas would pan and scale from the same travel.
         panning = false;
         canvas.classList.remove('is-panning');
+        return;
+      }
+      // The guard still decides whether a DRAG-PAN may start: dragging a card,
+      // the minimap, the zoom cluster or an edge is that widget's gesture.
+      const target = ev.target as HTMLElement;
+      if (target.closest && target.closest('.mlv-node, .mlv-group__header, .mlv-minimap, .mlv-zoom, .mlv-edge__hit')) {
         return;
       }
       panning = true;

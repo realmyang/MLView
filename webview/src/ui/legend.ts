@@ -185,8 +185,16 @@ export class Legend {
       for (const row of section.rows) {
         const term = add(list, el('dt', 'mlv-legend__term'));
         term.setAttribute('data-legend-row', row.group + ':' + row.key);
-        term.appendChild(swatchFor(row));
-        add(term, el('span', 'mlv-legend__label', row.label));
+        const swatch = swatchFor(row);
+        term.appendChild(swatch);
+        // A swatch that already SPELLS the row's name is the label. The
+        // confidence chip is a word-shaped pill, so adding the name beside it
+        // made every Confidence row read "certain / certain / Every factor the
+        // rule wants is present." — the only self-repeating row in the legend,
+        // in the section a first-time reader is most likely to be reading.
+        if ((swatch.textContent || '').trim() !== row.label) {
+          add(term, el('span', 'mlv-legend__label', row.label));
+        }
         add(list, el('dd', 'mlv-legend__desc', row.detail));
       }
     }
