@@ -268,15 +268,15 @@ so "it works" is a statement about eight machines rather than about one:
 
 The matrix is deliberately lopsided: the repository is private, so minutes are
 metered and weighted (windows 2x, macos 10x), and the fan-out is therefore
-ubuntu-only. A full green run is about **4m50s of wall time and ~46 billable
-minutes** — ~16 of them the ten ubuntu jobs, 10 the one Windows job (5 min at
-2x), and 20 the single 111-second macOS job, whose every started minute is
-billed tenfold and rounded up. That last figure is 43% of the bill for two
-suites ubuntu already runs; because the multiplier and the rounding, not the
-job's contents, are what cost the 20, trimming it cannot help. Moving it off the
-per-push path (nightly `schedule` plus `workflow_dispatch`) would take a push to
-~26 minutes and is an open lead decision, recorded against CI-01 in
-`docs/ROADMAP.md`. `claude plugin validate` is not available on a hosted runner;
+ubuntu-only. A full green run is about **6m0s of wall time and ~48 billable
+minutes** — ~16 of them the ten ubuntu jobs, 12 the one Windows job (5m56s,
+billed as 6 min at 2x), and 20 the single 93-second macOS job, whose every
+started minute is billed tenfold and rounded up. That last figure is 42% of the
+bill for two suites ubuntu already runs; because the multiplier and the
+rounding, not the job's contents, are what cost the 20, trimming it cannot help.
+Moving it off the per-push path (nightly `schedule` plus `workflow_dispatch`)
+would take a push to ~28 minutes and is an open lead decision, recorded against
+CI-01 in `docs/ROADMAP.md`. `claude plugin validate` is not available on a hosted runner;
 the test that would call it skips itself when the CLI is absent, so gates 10 and
 11 of `scripts/README.md` are still Windows-desk gates.
 

@@ -70,7 +70,7 @@ that one.
 | 23 | Accuracy corpus (also a row in `scripts/e2e`) | `python tools/accuracy.py` | `accuracy gate: PASS` — 10 labelled programs, precision 100.0%, unseen recall 51.1% raw / 38.3% visible, graph fidelity 86.3%; zero `forbidden` findings, nothing below `analyzer/tests/accuracy/baseline.json` |
 | 23a | The same three gates, asserted | `python -m pytest analyzer/tests/accuracy -q` | 35 passed — corpus lint plus the matcher's own semantics |
 | 24 | Analyzer byte-equivalence | `python tools/perf_equiv.py --baseline DIR --diff --bench` | both shipped samples byte-identical to `main`; `analyzer/tests/clean` gains exactly one `ValueTag` (PERF-02's fifth IR round), 200-file corpus 2.25x faster |
-| 25 | CI matrix | `.github/workflows/ci.yml` | 12 jobs green: 3 OSes, Python 3.10-3.13, Node 20/22, plus the accuracy corpus — 4m50s wall, ~46 billable minutes (~16 ubuntu at 1x + 10 windows at 2x + 20 macos at 10x) |
+| 25 | CI matrix | `.github/workflows/ci.yml` | 12 jobs green: 3 OSes, Python 3.10-3.13, Node 20/22, plus the accuracy corpus — 6m0s wall, ~48 billable minutes (~16 ubuntu at 1x + 12 windows at 2x + 20 macos at 10x), and both e2e jobs now really do archive `mlview-reports-*` (CI-ARTIFACTS-01) |
 
 Rows 16–18 are also asserted inside rows 2 and 19; they are listed separately
 because each is a one-line command that answers a question a reviewer asks
