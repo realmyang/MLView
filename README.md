@@ -266,8 +266,9 @@ so "it works" is a statement about eight machines rather than about one:
 
 The matrix is deliberately lopsided: the repository is private, so minutes are
 metered and weighted (windows 2x, macos 10x), and the fan-out is therefore
-ubuntu-only. A full green run is about 3m40s of wall time and ~41 billable
-minutes. `claude plugin validate` is not available on a hosted runner; the test
+ubuntu-only. A full green run is about 4m30s of wall time and ~45 billable
+minutes — 15 of them the ten ubuntu jobs, 10 the one Windows job, and 20 the
+single 78-second macOS job, which every runner minute is billed tenfold. `claude plugin validate` is not available on a hosted runner; the test
 that would call it skips itself when the CLI is absent, so gates 10 and 11 of
 `scripts/README.md` are still Windows-desk gates.
 
