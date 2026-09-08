@@ -14,9 +14,10 @@ from typing import List, Optional, Sequence, Tuple
 from ..ingest.discover import discover
 from ..ingest.parse import parse_file
 from ..ir.build_ir import build_workspace
-from ..rules import Suppressor, load_config, run_all
+from ..rules import Suppressor, cross_file_codes, load_config, run_all
 from ..rules.context import GraphContext
 from .build import GraphBuilder
+from .coverage import single_file_diagnostic
 from .graph import Diagnostic, MLGraph, SEVERITY_RANK
 
 __all__ = ["AnalyzeOptions", "run", "AnalysisResult"]
@@ -131,14 +132,38 @@ def run(options: AnalyzeOptions) -> AnalysisResult:
             message="%s: %s" % (scope.qualname, "; ".join(scope.reasons) or "dynamic scope"),
             file=scope.module, line=diagnostics_line, scope=scope.qualname))
 
+    if not getattr(workspace, "ir_converged", True):
+        # PERF-02: the IR rounds stopped on the cap, not on a fixed point, so
+        # some cross-module resolution is incomplete. Silence here means the
+        # graph just comes back smaller with nothing to point at.
+        graph.diagnostics.append(Diagnostic(
+            kind="truncated",
+            message="Cross-module resolution stopped after %d rounds without "
+                    "reaching a fixed point; some imported symbols may be "
+                    "unresolved. Narrow the analyzed path, or file the workspace "
+                    "shape as a bug." % getattr(workspace, "ir_rounds", 0),
+            count=getattr(workspace, "ir_rounds", 0)))
+
     for relpath, line, message in workspace.unresolved_imports:
         graph.diagnostics.append(Diagnostic(
             kind="dynamic_scope", message=message, file=relpath, line=line,
             scope=workspace.modules[relpath].dotted or relpath))
 
+    # COVERAGE: one file of a package answers a smaller question than the
+    # reader thinks it does - 3 findings where the directory yields 7, measured
+    # on samples/vision_pipeline/train.py.
+    narrow = single_file_diagnostic(found, workspace, cross_file_codes(),
+                                    include=options.include, exclude=excludes)
+    if narrow is not None:
+        graph.diagnostics.append(narrow)
+
     suppressor = Suppressor(config)
     for relpath in sorted(workspace.modules):
         suppressor.index_module(relpath, workspace.modules[relpath].lines)
+    # CLEANUP 3: an ignore comment naming a code that does not exist suppresses
+    # nothing; saying nothing about it is how a typo'd suppression hides.
+    for warning in suppressor.warnings:
+        graph.diagnostics.append(Diagnostic(kind="config_warning", message=warning))
 
     context = GraphContext(graph, workspace, builder, suppressor, options,
                            graph.diagnostics)

@@ -1,15 +1,17 @@
 /**
  * Build: src/main.ts -> dist/mlview.js (IIFE, global name MLView) and
- * src/styles/*.css -> dist/mlview.css, concatenated in a fixed order.
+ * src/styles/*.css -> dist/mlview.css, concatenated in a fixed order and
+ * MINIFIED (BUILD-01), with the readable concatenation kept beside it as
+ * dist/mlview.dev.css.
  *
  * Offline, no plugins, no network. The bundle must contain no innerHTML, no
  * eval, no dynamic import and no absolute URL — test/bundle.test.mjs enforces
  * that against the built file.
  */
 
-import { build } from 'esbuild';
+import { build, transform } from 'esbuild';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -28,15 +30,42 @@ const CSS_FILES = [
   'rail.css',
 ];
 
+/**
+ * The ONE transform the shipped stylesheet goes through (BUILD-01).
+ *
+ * Exported so `test/bundle.test.mjs` can prove `dist/mlview.css` really is the
+ * minification of `dist/mlview.dev.css` — which is what keeps every assertion
+ * that reads the readable file an assertion about what actually ships.
+ */
+export async function minifyCss(source) {
+  const result = await transform(source, { loader: 'css', minify: true });
+  return result.code;
+}
+
+/**
+ * The stylesheet ships minified.
+ *
+ * This function used to concatenate the nine layers verbatim while the JS beside
+ * it was minified, so every emitted report — and four checked-in copies —
+ * carried 78 214 B where 46 957 B says the same thing: −39 %, −30 KB, against a
+ * contracted 100 KB–2 MB report size band (amendment A4).
+ *
+ * The readable concatenation, its `/* ---- file ---- *` markers and all, is
+ * written beside it as `dist/mlview.dev.css`: it is what `dev/*.html` load and
+ * what the structural CSS gates read. `tools/sync-assets.py` copies only the two
+ * NAMED assets, so the dev file never reaches a host.
+ */
 async function buildCss() {
   const parts = [];
   for (const name of CSS_FILES) {
     const text = await readFile(join(here, 'src', 'styles', name), 'utf8');
     parts.push('/* ---- ' + name + ' ---- */\n' + text.replace(/\r\n/g, '\n').trim() + '\n');
   }
-  const css = parts.join('\n');
-  await writeFile(join(dist, 'mlview.css'), css, 'utf8');
-  return css.length;
+  const source = parts.join('\n');
+  const minified = await minifyCss(source);
+  await writeFile(join(dist, 'mlview.dev.css'), source, 'utf8');
+  await writeFile(join(dist, 'mlview.css'), minified, 'utf8');
+  return { bytes: minified.length, sourceBytes: source.length };
 }
 
 async function main() {
@@ -57,13 +86,19 @@ async function main() {
     logLevel: 'warning',
   });
   const jsBytes = Object.values(result.metafile.outputs)[0].bytes;
-  const cssBytes = await buildCss();
+  const css = await buildCss();
+  const cut = ((css.sourceBytes - css.bytes) / css.sourceBytes) * 100;
   process.stdout.write(
-    'mlview.js  ' + (jsBytes / 1024).toFixed(1) + ' KB\n' + 'mlview.css ' + (cssBytes / 1024).toFixed(1) + ' KB\n',
+    'mlview.js  ' + (jsBytes / 1024).toFixed(1) + ' KB\n' +
+      'mlview.css ' + (css.bytes / 1024).toFixed(1) + ' KB  (minified from ' +
+      (css.sourceBytes / 1024).toFixed(1) + ' KB, -' + cut.toFixed(0) + '%)\n',
   );
 }
 
-main().catch((err) => {
-  process.stderr.write(String((err && err.stack) || err) + '\n');
-  process.exit(1);
-});
+// `import { minifyCss }` must not run a build, so only a direct invocation does.
+if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
+  main().catch((err) => {
+    process.stderr.write(String((err && err.stack) || err) + '\n');
+    process.exit(1);
+  });
+}

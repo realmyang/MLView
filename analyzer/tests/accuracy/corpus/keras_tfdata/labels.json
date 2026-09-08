@@ -1,0 +1,61 @@
+{
+  "name": "keras_tfdata",
+  "title": "Keras functional classifier fed by a tf.data pipeline",
+  "origin": "re-created from the Sprint-2 audit's Keras / tf.data probe (ROADMAP b.1)",
+  "tuned": false,
+  "labelledBy": "ANA-12, 2026-09-08",
+  "expected": [
+    {"code": "MLV101", "file": "pipeline.py", "line": 31, "symbol": "scaler.fit_transform",
+     "severity": "high", "verdict": "expected",
+     "defect": "the scaler is fitted on the whole matrix two lines before train_test_split",
+     "why": "the validation half's statistics are already inside the training features"},
+    {"code": "MLV101", "file": "pipeline.py", "line": 40, "symbol": "features.mean(axis=0)",
+     "severity": "high", "verdict": "expected",
+     "defect": "the tf.data normalise closure captures a mean and std computed over every row, then maps it over both splits",
+     "why": "a second, quieter leak on the tf.data path - the constants baked into the graph saw the validation rows"},
+    {"code": "MLV602", "file": "pipeline.py", "line": 33, "symbol": "train_test_split",
+     "severity": "low", "verdict": "expected",
+     "defect": "train_test_split without random_state",
+     "why": "the AUC reported changes run to run for reasons that have nothing to do with the model"},
+    {"code": "MLV402", "file": "model.py", "line": 16, "symbol": "Dense(1, activation=sigmoid)",
+     "severity": "high", "verdict": "expected",
+     "defect": "a sigmoid output layer paired with BinaryCrossentropy(from_logits=True)",
+     "why": "the loss applies its own sigmoid to an already-squashed value, so the gradients vanish and the model trains to nothing"},
+    {"code": "MLV601", "file": "train.py", "anchor": "project", "symbol": "no tf.random.set_seed anywhere",
+     "severity": "low", "verdict": "expected",
+     "defect": "nothing seeds tensorflow, numpy or the split",
+     "why": "shuffle(4096), the split and the layer initialisers are all unseeded"}
+  ],
+  "forbidden": [
+    {"code": "MLV201", "file": "train.py",
+     "why": "Keras model.fit owns the loop - there is no hand-written gradient update in this project"},
+    {"code": "MLV202", "file": "train.py",
+     "why": "same - no backward()/step() pair exists here"},
+    {"code": "MLV301", "file": "train.py",
+     "why": "model.eval() is a torch idiom; a Keras model has no such call and model.evaluate is not an inference-mode bug"},
+    {"code": "MLV302", "file": "train.py",
+     "why": "torch.no_grad() has no meaning in a TensorFlow program"},
+    {"code": "MLV702", "file": "model.py",
+     "why": "the functional API composes layers by call, not by registering submodules on an nn.Module"}
+  ],
+  "graph": {
+    "edges": 14,
+    "ops": [
+      {"file": "pipeline.py", "line": 21, "symbol": "read_csv", "kind": "dataset"},
+      {"file": "pipeline.py", "line": 31, "symbol": "fit_transform", "kind": "scaler"},
+      {"file": "pipeline.py", "line": 33, "symbol": "train_test_split", "kind": "split"},
+      {"file": "pipeline.py", "line": 46, "symbol": "from_tensor_slices", "kind": "dataset"},
+      {"file": "pipeline.py", "line": 47, "symbol": "map", "kind": "transform"},
+      {"file": "pipeline.py", "line": 48, "symbol": "shuffle", "kind": "augment"},
+      {"file": "pipeline.py", "line": 49, "symbol": "batch", "kind": "dataloader"},
+      {"file": "pipeline.py", "line": 51, "symbol": "from_tensor_slices", "kind": "dataset"},
+      {"file": "model.py", "line": 13, "symbol": "Dense", "kind": "layer"},
+      {"file": "model.py", "line": 16, "symbol": "Dense", "kind": "layer"},
+      {"file": "model.py", "line": 20, "symbol": "Adam", "kind": "optimizer"},
+      {"file": "model.py", "line": 21, "symbol": "BinaryCrossentropy", "kind": "loss"},
+      {"file": "train.py", "line": 13, "symbol": "model.fit", "kind": "train_loop"},
+      {"file": "train.py", "line": 19, "symbol": "model.evaluate", "kind": "eval_loop"},
+      {"file": "train.py", "line": 20, "symbol": "model.predict", "kind": "predict"}
+    ]
+  }
+}

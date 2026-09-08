@@ -63,6 +63,14 @@ Then, in the session:
 /mlview-issues samples/vision_pipeline low --scope stage:train
 ```
 
+**Grouping from an agent.** `mlview_issues {groupBy: "rule"}` (and
+`/mlview-issues --group-by rule|file|severity`) folds the findings into one row
+per rule, file or severity with an occurrence count, the worst severity and
+confidence, and up to three citable `file:line` sites. On an inherited repo the
+flat list is eleven codes repeated ten times, and the 4 KB payload budget then
+sheds rows until the answer is both long and incomplete. Grouping **folds** the
+rows, it never filters them, and the payload's `note` says so.
+
 **Scoping from an agent.** `mlview_graph {scope: "units"}` returns the catalogue
 of everything that can be scoped to — one row per class, function and loop with
 its file, line, node count and worst severity — so the model picks a real name
@@ -97,6 +105,19 @@ F5 launches an Extension Development Host. Open a Python ML project in it, then:
   are published as diagnostics with `source: "MLView"`, the rule code linking to
   a **local** offline doc page, and `relatedInformation` for every related site.
   Analysis runs on save by default (`mlview.analyzeOnSave`).
+- **Current file, whole picture.** `Visualize (Current File)` analyses the
+  **package directory** around the file and then scopes the diagram to the file
+  (`mlview.currentFileAnalysisScope`, default `package`; `file` and `workspace`
+  are the other two). Analysing a file alone cannot fire MLV301, MLV302, MLV401
+  or MLV501 — each needs a sibling module — so the old behaviour lost four of
+  seven findings on `train.py` and said nothing about it. Set it back to `file`
+  and the analyzer's `single_file_analysis` diagnostic says which rules could not
+  run.
+- **A blind run says so.** `single_file_analysis` and `untagged_dataflow` reach
+  the status-bar tooltip, the panel tab (`coverage: incomplete (N blind spots)`)
+  and the chat / language-model digests, which tell the model the count is a floor
+  rather than a clean bill of health
+  (`vscode-extension/src/coverage.ts`).
 - **Copilot Chat** — `@mlview` with `/diagram`, `/issues` and `/explain`. Every
   finding streamed into chat is followed by an anchor, so it is a click into the
   source.
@@ -230,7 +251,7 @@ sh scripts/e2e.sh
 ### Continuous integration
 
 `.github/workflows/ci.yml` runs the gate table on every push and pull request,
-so "it works" is a statement about seven machines rather than about one:
+so "it works" is a statement about eight machines rather than about one:
 
 | Job | Runner | What it runs |
 |---|---|---|
@@ -241,6 +262,7 @@ so "it works" is a statement about seven machines rather than about one:
 | `e2e (ubuntu, sh)` | ubuntu, Python 3.13 + Node 20 | `sh scripts/e2e.sh` — all 17 steps, uploading the emitted reports |
 | `e2e (windows, powershell)` | windows, Python 3.13 + Node 20 | `scripts/e2e.ps1` — the same 17 steps under the other driver |
 | `smoke (macos)` | macos, Python 3.13 + Node 20 | the analyzer and viewer suites |
+| `accuracy corpus` | ubuntu, Python 3.13 | `tools/accuracy.py` over the ten labelled programs, then `pytest analyzer/tests/accuracy` — zero `forbidden` findings, and recall and graph fidelity may only ratchet up |
 
 The matrix is deliberately lopsided: the repository is private, so minutes are
 metered and weighted (windows 2x, macos 10x), and the fan-out is therefore
@@ -343,12 +365,18 @@ VS Code 1.136):**
   `notebooksSkipped` and a `notebook_skipped` diagnostic, and no cell is parsed.
 - Bindings are flow-insensitive within a scope (`analyzer/src/mlview/ir/bindings.py`);
   rules that care about ordering compare line numbers explicitly.
-- `mlview.showSpeculative` is contributed and read, but inert: the frozen
-  `setFilter` message carries no confidence field, so there is no way to ask the
-  webview for speculative findings. Turning the setting on changes nothing.
 - `analysisProgress` is never posted. The CLI emits no progress frames, so the
   viewer shows an indeterminate spinner rather than "Parsing 42 of 128 files".
   The webview handler for the frame exists and is tested; nothing sends it.
+- The host renders the coverage caveat as text only — the status-bar tooltip, the
+  panel tab description and the digests (`vscode-extension/src/coverage.ts`). The
+  in-canvas banner and chip are the viewer's, drawn from `graph.diagnostics` in
+  `webview/src/ui/chrome.ts`, which the host passes through untouched.
+- `mlview_issues`'s `groupBy` folds the rows inside the MCP server
+  (`claude-plugin/server/mlview_groups.py`), which is where the plugin's grouping
+  lives. `/mlview-issues --group-by` therefore groups through the MCP tool; its
+  `Bash` fallback line groups only once the matching `--group-by` flag lands on
+  `analyzer/src/mlview/cli.py`.
 - The framework gate on the absence rules (`MLV301`, `MLV302`, `MLV501`, ...)
   reaches one import hop, no further. `ctx.wrappers_for()` in
   `analyzer/src/mlview/rules/context.py` de-rates a finding only when a

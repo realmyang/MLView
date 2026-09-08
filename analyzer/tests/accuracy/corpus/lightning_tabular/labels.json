@@ -1,0 +1,184 @@
+{
+  "name": "lightning_tabular",
+  "title": "LightningModule + LightningDataModule for tabular churn",
+  "origin": "re-created from the Sprint-2 audit's Lightning probe (ROADMAP b.1)",
+  "tuned": false,
+  "labelledBy": "ANA-12, 2026-09-08",
+  "expected": [
+    {
+      "code": "MLV101",
+      "file": "datamodule.py",
+      "line": 27,
+      "symbol": "self.scaler.fit_transform",
+      "severity": "high",
+      "verdict": "expected",
+      "defect": "the scaler is fitted on the whole frame inside setup(), five lines before random_split",
+      "why": "every validation row has already contributed its mean and variance to the training features"
+    },
+    {
+      "code": "MLV602",
+      "file": "datamodule.py",
+      "line": 32,
+      "symbol": "random_split",
+      "severity": "low",
+      "verdict": "expected",
+      "defect": "random_split without a generator",
+      "why": "the train/val partition changes every run, so val_loss is not comparable between runs"
+    },
+    {
+      "code": "MLV110",
+      "file": "datamodule.py",
+      "line": 35,
+      "symbol": "DataLoader(self.train_set, ...)",
+      "severity": "medium",
+      "verdict": "expected",
+      "defect": "the training DataLoader does not shuffle",
+      "why": "the batches follow CSV order, so every epoch sees the same correlated batches"
+    },
+    {
+      "code": "MLV111",
+      "file": "datamodule.py",
+      "line": 38,
+      "symbol": "DataLoader(self.val_set, shuffle=True)",
+      "severity": "low",
+      "verdict": "expected",
+      "defect": "the validation DataLoader shuffles",
+      "why": "validation order should be stable so per-batch logs line up run to run"
+    },
+    {
+      "code": "MLV401",
+      "file": "module.py",
+      "line": 29,
+      "symbol": "F.softmax(...)",
+      "severity": "high",
+      "verdict": "expected",
+      "defect": "forward returns a softmax and training_step feeds it to F.cross_entropy",
+      "why": "cross_entropy log-softmaxes its input again, so the gradient is wrong and the model barely learns"
+    },
+    {
+      "code": "MLV601",
+      "file": "train.py",
+      "anchor": "project",
+      "symbol": "no seed_everything anywhere",
+      "severity": "low",
+      "verdict": "expected",
+      "defect": "nothing calls pl.seed_everything",
+      "why": "neither the split nor the initialisation can be repeated"
+    }
+  ],
+  "forbidden": [
+    {
+      "code": "MLV201",
+      "file": "module.py",
+      "why": "Lightning owns the optimisation loop - training_step returns a loss and the framework zeroes, backwards and steps"
+    },
+    {
+      "code": "MLV202",
+      "file": "module.py",
+      "why": "same - a LightningModule that never calls backward() itself is correct, not broken"
+    },
+    {
+      "code": "MLV301",
+      "file": "module.py",
+      "why": "Lightning switches to eval mode around validation_step; a hand-written model.eval() here would be redundant"
+    },
+    {
+      "code": "MLV302",
+      "file": "module.py",
+      "why": "Lightning already wraps validation_step in inference mode"
+    },
+    {
+      "code": "MLV112",
+      "file": "datamodule.py",
+      "why": "num_workers=4 is fine here: the only entrypoint is guarded by an if __name__ block in train.py"
+    },
+    {
+      "code": "MLV701",
+      "file": "module.py",
+      "why": "ChurnClassifier.__init__ does call super().__init__() on its first line"
+    }
+  ],
+  "graph": {
+    "edges": 12,
+    "ops": [
+      {
+        "file": "datamodule.py",
+        "line": 26,
+        "symbol": "read_csv",
+        "kind": "dataset"
+      },
+      {
+        "file": "datamodule.py",
+        "line": 27,
+        "symbol": "fit_transform",
+        "kind": "scaler"
+      },
+      {
+        "file": "datamodule.py",
+        "line": 30,
+        "symbol": "TensorDataset",
+        "kind": "dataset"
+      },
+      {
+        "file": "datamodule.py",
+        "line": 32,
+        "symbol": "random_split",
+        "kind": "split"
+      },
+      {
+        "file": "datamodule.py",
+        "line": 35,
+        "symbol": "DataLoader",
+        "kind": "dataloader"
+      },
+      {
+        "file": "datamodule.py",
+        "line": 38,
+        "symbol": "DataLoader",
+        "kind": "dataloader"
+      },
+      {
+        "file": "module.py",
+        "line": 20,
+        "symbol": "nn.Linear",
+        "kind": "layer"
+      },
+      {
+        "file": "module.py",
+        "line": 25,
+        "symbol": "nn.Linear",
+        "kind": "layer"
+      },
+      {
+        "file": "module.py",
+        "line": 29,
+        "symbol": "F.softmax",
+        "kind": "layer"
+      },
+      {
+        "file": "module.py",
+        "line": 33,
+        "symbol": "F.cross_entropy",
+        "kind": "loss"
+      },
+      {
+        "file": "module.py",
+        "line": 45,
+        "symbol": "AdamW",
+        "kind": "optimizer"
+      },
+      {
+        "file": "train.py",
+        "line": 22,
+        "symbol": "trainer.fit",
+        "kind": "train_loop"
+      },
+      {
+        "file": "train.py",
+        "line": 23,
+        "symbol": "trainer.validate",
+        "kind": "eval_loop"
+      }
+    ]
+  }
+}

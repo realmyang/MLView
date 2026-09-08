@@ -5,11 +5,12 @@
  * nested tree with the same labels and jump targets as the canvas.
  */
 
-import { add, button, clear, el, fileLine, iconButton, on } from '../dom.js';
-import { uiIcon } from '../icons.js';
-import { severityGlyph, SEVERITY_ORDER, normalizeSeverity } from '../markers.js';
+import { add, button, clear, el, fileLine, on } from '../dom.js';
+import { severityGlyph } from '../markers.js';
+import { appendTrustSections, confidenceChip } from './evidence.js';
+import { renderIssuePanel } from './issuelist.js';
 import { renderOutlineTree } from './outline.js';
-import type { Issue, Loc, MLNode, RailTab, RelatedLoc } from '../types.js';
+import type { Issue, Loc, MLNode, RailGroupBy, RailTab, RelatedLoc } from '../types.js';
 import type { GraphIndex } from '../layout/model.js';
 
 export interface RailCallbacks {
@@ -29,6 +30,8 @@ export interface RailCallbacks {
   onClearScope(): void;
   /** Inspector: scope the diagram to the selected unit or step. */
   onScopeToNode(nodeId: string): void;
+  /** The Issues rail's "Group by" control; persisted as ViewState.railGroupBy. */
+  onGroupBy(mode: RailGroupBy): void;
 }
 
 export interface RailState {
@@ -47,6 +50,8 @@ export interface RailState {
    * reads as a clean bill of health (FEATURES 3.7).
    */
   scope: { shown: number; hidden: number; total: number } | null;
+  /** How the Issues tab groups its rows (RAIL-GROUP). */
+  groupBy: RailGroupBy;
 }
 
 let railSeq = 0;
@@ -56,6 +61,13 @@ export class Rail {
   private tabs = new Map<RailTab, HTMLButtonElement>();
   private panels = new Map<RailTab, HTMLElement>();
   private cb: RailCallbacks;
+  /**
+   * Which rule / file groups the user has opened. Session-local by design: only
+   * the MODE is persisted (§11.9's pattern), because a group set is derived from
+   * a document that the next analysis may not contain.
+   */
+  private expanded = new Set<string>();
+  private lastState: RailState | null = null;
 
   constructor(cb: RailCallbacks) {
     this.cb = cb;
@@ -127,6 +139,7 @@ export class Rail {
   }
 
   update(s: RailState): void {
+    this.lastState = s;
     // Every render replaces the panel's DOM, so a row the user is standing on
     // would take the keyboard focus down with it. Put it back on the same row.
     const restoreFocus = this.captureFocus();
@@ -180,248 +193,53 @@ export class Rail {
   }
 
   private renderIssues(s: RailState): void {
-    const panel = this.panels.get('issues')!;
-    clear(panel);
-    if (!s.index) {
-      add(panel, el('div', 'mlv-empty-note', 'No analysis loaded yet.'));
-      return;
-    }
-    const visible = s.issues.filter(s.keep);
-    if (s.scope) panel.appendChild(this.scopeLine(s.scope));
-    if (!visible.length) {
-      // FOUR very different results, told apart: nothing was analysed, nothing
-      // was wrong, the filters excluded everything, or the SCOPE excludes them
-      // (MLV-R1-013, MLV-R2-W05, FEATURES 3.7). Getting these apart is what
-      // stops a scope from reading as a clean bill of health.
-      if (s.scope && s.scope.hidden > 0) panel.appendChild(this.scopeEmptyState(s.scope));
-      else if (s.issues.length) panel.appendChild(this.filteredEmptyState());
-      else if ((s.index.graph.nodes || []).length === 0) panel.appendChild(this.nothingAnalyzedState(s));
-      else panel.appendChild(this.cleanState(s));
-      return;
-    }
-    for (const sev of SEVERITY_ORDER) {
-      const group = visible.filter((i) => normalizeSeverity(i.severity) === sev);
-      if (!group.length) continue;
-      const section = add(panel, el('section', 'mlv-rail__section'));
-      const heading = add(section, el('h3', 'mlv-rail__heading'));
-      heading.appendChild(severityGlyph(sev, 12, ''));
-      add(heading, el('span', '', sev + ' · ' + group.length));
-      const list = add(section, el('ul', 'mlv-issues'));
-      list.setAttribute('role', 'listbox');
-      list.setAttribute('aria-label', sev + ' severity issues');
-      for (const issue of group) list.appendChild(this.issueRow(issue, s));
-      this.wireListbox(list);
-    }
-  }
-
-  /**
-   * The listbox is one composite widget with ONE tab stop: the selected option,
-   * or the first. Arrow keys move the focus inside it. Before this the row was a
-   * real <button> with a second <button> nested in it, which is invalid HTML,
-   * illegal under `role="option"`, and cost two Tab presses per finding
-   * (MLV-R2-W03).
-   */
-  private wireListbox(list: HTMLElement): void {
-    const options = () => Array.prototype.slice.call(list.querySelectorAll('[role="option"]')) as HTMLElement[];
-    const all = options();
-    let active = all.filter((o) => o.getAttribute('aria-selected') === 'true')[0] || all[0] || null;
-    for (const option of all) option.tabIndex = option === active ? 0 : -1;
-
-    on(list, 'keydown', (ev: KeyboardEvent) => {
-      const target = ev.target as HTMLElement | null;
-      if (!target || typeof target.closest !== 'function') return;
-      const option = target.closest('[role="option"]') as HTMLElement | null;
-      if (!option || !list.contains(option)) return;
-      const items = options();
-      const at = items.indexOf(option);
-      let next: HTMLElement | null = null;
-      if (ev.key === 'ArrowDown') next = items[Math.min(items.length - 1, at + 1)];
-      else if (ev.key === 'ArrowUp') next = items[Math.max(0, at - 1)];
-      else if (ev.key === 'Home') next = items[0];
-      else if (ev.key === 'End') next = items[items.length - 1];
-      else if (ev.key === 'Enter' || ev.key === ' ') {
-        ev.preventDefault();
-        const id = option.getAttribute('data-issue-id');
-        if (id) this.cb.onSelectIssue(id);
-        return;
-      } else return;
-      ev.preventDefault();
-      if (!next) return;
-      for (const item of items) item.tabIndex = item === next ? 0 : -1;
-      active = next;
-      next.focus();
+    renderIssuePanel(this.panels.get('issues')!, {
+      index: s.index,
+      issues: s.issues,
+      keep: s.keep,
+      selectedIssueId: s.selectedIssueId,
+      scope: s.scope,
+      groupBy: s.groupBy,
+      expanded: this.expanded,
+    }, {
+      onSelectIssue: (id) => this.cb.onSelectIssue(id),
+      onOpen: (loc) => this.cb.onOpen(loc),
+      onClearFilters: () => this.cb.onClearFilters(),
+      onClearScope: () => this.cb.onClearScope(),
+      onGroupBy: (mode) => this.cb.onGroupBy(mode),
+      onToggleGroup: (key) => this.toggleGroup(key),
     });
   }
 
-  /** The zero-issue result: good news, stated as good news. */
-  private cleanState(s: RailState): HTMLElement {
-    const box = el('div', 'mlv-clean');
-    box.setAttribute('role', 'status');
-    box.appendChild(uiIcon('check', 20));
-    add(box, el('div', 'mlv-clean__title', 'No issues found'));
-    const index = s.index;
-    if (index) {
-      const nodes = (index.graph.nodes || []).length;
-      const stages = (index.graph.stages || []).filter((st) => st.present).length;
-      add(
-        box,
-        el(
-          'div',
-          'mlv-clean__detail',
-          nodes + (nodes === 1 ? ' node' : ' nodes') + ' across ' + stages + (stages === 1 ? ' stage' : ' stages') + ' checked — nothing to flag.',
-        ),
-      );
-    }
-    return box;
-  }
-
   /**
-   * Nothing was analysed at all. The canvas already says "No ML pipeline found";
-   * a rail that answers "No issues found" beside it reads as a clean bill of
-   * health for a run that never looked at anything (MLV-R2-W05).
+   * Expand or collapse one rule / file group. A group that is open BY DEFAULT
+   * (fewer than three occurrences) is closed by remembering its negation, so the
+   * two states are both reachable without persisting a whole open-set.
    */
-  private nothingAnalyzedState(s: RailState): HTMLElement {
-    const box = el('div', 'mlv-empty-note');
-    box.setAttribute('role', 'status');
-    add(box, el('div', 'mlv-clean__title', 'Nothing analyzed'));
-    const graph = s.index ? s.index.graph : null;
-    const diags = graph ? graph.diagnostics || [] : [];
-    const files = graph ? graph.workspace.filesAnalyzed : 0;
-    add(
-      box,
-      el(
-        'div',
-        'mlv-clean__detail',
-        'No ML pipeline was found, so there is nothing to flag. ' +
-          files +
-          (files === 1 ? ' file' : ' files') +
-          ' analyzed.',
-      ),
-    );
-    if (diags.length) {
-      const list = add(box, el('ul', 'mlv-state__list'));
-      for (const d of diags.slice(0, 5)) {
-        add(list, el('li', '', (d.file ? d.file + ': ' : '') + d.kind + ' — ' + d.message));
+  private toggleGroup(key: string): void {
+    const negated = '!' + key;
+    if (this.expanded.has(key)) {
+      this.expanded.delete(key);
+      this.expanded.add(negated);
+    } else if (this.expanded.has(negated)) {
+      this.expanded.delete(negated);
+      this.expanded.add(key);
+    } else {
+      this.expanded.add(key);
+    }
+    if (this.lastState) this.renderIssues(this.lastState);
+    // The panel's DOM was just replaced, so the header the user activated went
+    // with it. Put the focus back on its replacement, exactly as `captureFocus`
+    // does for a row -- a keyboard user must not be dumped on <body> for
+    // opening a group.
+    const back = this.root.querySelector('[data-group-toggle="' + key + '"]') as HTMLElement | null;
+    if (back) {
+      try {
+        back.focus();
+      } catch (_e) {
+        /* a host may have detached the panel already */
       }
     }
-    return box;
-  }
-
-  /** "3 of 15 findings shown · 12 outside this scope — Show all". */
-  private scopeLine(scope: { shown: number; hidden: number; total: number }): HTMLElement {
-    const box = el('div', 'mlv-rail__scopeline');
-    box.setAttribute('role', 'status');
-    box.setAttribute('data-scope-line', '1');
-    add(
-      box,
-      el(
-        'span',
-        '',
-        scope.shown + ' of ' + scope.total + (scope.total === 1 ? ' finding' : ' findings') + ' shown · ' + scope.hidden + ' outside this scope',
-      ),
-    );
-    const all = button('mlv-link mlv-link--inline', 'Show all', 'Clear the scope. Filters are separate.');
-    on(all, 'click', () => this.cb.onClearScope());
-    box.appendChild(all);
-    return box;
-  }
-
-  /** The fourth empty state: in scope, but nothing is wrong HERE. */
-  private scopeEmptyState(scope: { hidden: number; total: number }): HTMLElement {
-    const box = el('div', 'mlv-empty-note');
-    box.setAttribute('role', 'status');
-    box.setAttribute('data-scope-empty-rail', '1');
-    add(box, el('div', 'mlv-clean__title', 'No findings in this scope'));
-    add(box, el('div', 'mlv-clean__detail', scope.hidden + ' elsewhere in this project.'));
-    const all = button('mlv-btn', 'Show all');
-    on(all, 'click', () => this.cb.onClearScope());
-    box.appendChild(all);
-    return box;
-  }
-
-  /** The filters excluded everything: say so, and offer the way back. */
-  private filteredEmptyState(): HTMLElement {
-    const box = el('div', 'mlv-empty-note');
-    add(box, el('div', '', 'No issues match these filters.'));
-    const clear = button('mlv-btn', 'Clear filters');
-    on(clear, 'click', () => this.cb.onClearFilters());
-    box.appendChild(clear);
-    return box;
-  }
-
-  private issueRow(issue: Issue, s: RailState): HTMLElement {
-    const selected = s.selectedIssueId === issue.id;
-    const li = el('li', 'mlv-issues__item');
-    li.setAttribute('role', 'presentation');
-    // A div, not a <button>: `role="option"` may not contain a focusable
-    // descendant, and the "open in editor" control beside it is a real button
-    // (the same reasoning nodes.ts already applies to the group header).
-    const row = el('div', 'mlv-issue');
-    row.setAttribute('role', 'option');
-    row.tabIndex = -1;
-    row.setAttribute('data-issue-id', issue.id);
-    row.setAttribute('aria-selected', selected ? 'true' : 'false');
-    row.setAttribute(
-      'aria-label',
-      issue.code + ' ' + issue.severity + ' severity, ' + issue.title + ', ' + fileLine(issue.loc) + ', confidence ' + issue.confidenceBucket,
-    );
-    if (selected) row.classList.add('is-selected');
-    if (issue.suppressed) row.classList.add('is-suppressed');
-    row.appendChild(severityGlyph(issue.severity, 14, ''));
-    const text = add(row, el('div', 'mlv-issue__text'));
-    add(text, el('div', 'mlv-issue__title', issue.title));
-    const meta = add(text, el('div', 'mlv-issue__meta'));
-    add(meta, el('span', '', issue.code));
-    add(meta, el('span', '', fileLine(issue.loc)));
-    // The bucket chip is the flag for DOUBT (UX_DESIGN section 7). Printing it on
-    // every certain finding drains the signal from the rows that need it.
-    if (issue.confidenceBucket === 'possible' || issue.confidenceBucket === 'speculative') {
-      add(meta, el('span', 'mlv-chip', issue.confidenceBucket));
-    }
-    if (issue.suppressed) add(meta, el('span', 'mlv-chip', 'suppressed'));
-    on(row, 'click', () => this.cb.onSelectIssue(issue.id));
-    li.appendChild(row);
-
-    // A sibling of the option, never a child of it (MLV-R2-W03).
-    const open = iconButton('mlv-btn mlv-btn--icon mlv-issue__open', 'Open ' + fileLine(issue.loc));
-    open.appendChild(uiIcon('open', 12));
-    on(open, 'click', (ev: Event) => {
-      ev.stopPropagation();
-      this.cb.onOpen(issue.loc);
-    });
-    li.appendChild(open);
-
-    // The selected row expands in place with the message, the why line, the fix
-    // hint and a Go to button per location — the most valuable content in the
-    // product used to be unreachable from the Issues tab entirely (MLV-R1-006).
-    if (selected) li.appendChild(this.issueDetail(issue));
-    return li;
-  }
-
-  /** The expanded body of a selected issue row. */
-  private issueDetail(issue: Issue): HTMLElement {
-    const box = el('div', 'mlv-issue__detail');
-    box.setAttribute('data-issue-detail', issue.id);
-    if (issue.message) add(box, el('p', 'mlv-insp__line', issue.message));
-    if (issue.why) add(box, el('p', 'mlv-insp__line mlv-insp__why', issue.why));
-    if (issue.fixHint) add(box, el('div', 'mlv-insp__fix', issue.fixHint));
-    const actions = add(box, el('div', 'mlv-issue__goto'));
-    const primary = button('mlv-btn', 'Go to ' + fileLine(issue.loc));
-    on(primary, 'click', (ev: Event) => {
-      ev.stopPropagation();
-      this.cb.onOpen(issue.loc);
-    });
-    actions.appendChild(primary);
-    for (const rel of issue.relatedLocs || []) {
-      const label = 'Go to ' + (rel.message || rel.role.replace(/_/g, ' ')) + ' — ' + fileLine(rel);
-      const b = button('mlv-btn', label);
-      on(b, 'click', (ev: Event) => {
-        ev.stopPropagation();
-        this.cb.onOpen(rel);
-      });
-      actions.appendChild(b);
-    }
-    return box;
   }
 
   private renderInspector(s: RailState): void {
@@ -524,9 +342,13 @@ export class Rail {
     head.appendChild(severityGlyph(issue.severity, 14, ''));
     add(head, el('span', 'mlv-mono', issue.code));
     add(head, el('span', '', issue.title));
+    head.appendChild(confidenceChip(issue));
     add(box, el('p', 'mlv-insp__line', issue.message));
     add(box, el('p', 'mlv-insp__line', issue.why));
     add(box, el('div', 'mlv-insp__fix', issue.fixHint));
+    // MLV-P6: the same two disclosures the rail row carries, so "why should I
+    // believe this" is answerable from whichever surface the user is on.
+    appendTrustSections(box, issue);
     if ((issue.relatedLocs || []).length) {
       const list = add(box, el('ul', 'mlv-insp__related'));
       for (const rel of issue.relatedLocs) {

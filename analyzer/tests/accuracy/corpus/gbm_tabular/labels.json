@@ -1,0 +1,61 @@
+{
+  "name": "gbm_tabular",
+  "title": "An XGBoost tabular baseline with no torch anywhere",
+  "origin": "the GBM script the ROADMAP's ANA-12 entry asks the corpus to contain",
+  "tuned": false,
+  "labelledBy": "ANA-12, 2026-09-08",
+  "expected": [
+    {"code": "MLV101", "file": "train.py", "line": 25, "symbol": "encoder.fit_transform",
+     "severity": "high", "verdict": "expected",
+     "defect": "the ordinal encoder is fitted on the whole frame seven lines before the split",
+     "why": "category codes are assigned from the held-out rows as well, so an unseen category is never unseen"},
+    {"code": "MLV101", "file": "train.py", "line": 28, "symbol": "scaler.fit_transform",
+     "severity": "high", "verdict": "expected",
+     "defect": "the scaler is fitted on the whole frame before the split",
+     "why": "held-out means and variances are inside the training features"},
+    {"code": "MLV102", "file": "train.py", "line": 39, "symbol": "scaler.fit_transform(test_x)",
+     "severity": "high", "verdict": "expected",
+     "defect": "the same scaler is re-fitted on the held-out half and used to transform it",
+     "why": "the model is scored on features standardised by their own statistics, not by the training statistics it learned from"},
+    {"code": "MLV602", "file": "train.py", "line": 32, "symbol": "train_test_split",
+     "severity": "low", "verdict": "expected",
+     "defect": "train_test_split without random_state",
+     "why": "the AUC printed is not reproducible"},
+    {"code": "MLV601", "file": "train.py", "anchor": "project", "symbol": "no seed anywhere",
+     "severity": "low", "verdict": "expected",
+     "defect": "XGBClassifier is constructed without random_state and nothing seeds numpy",
+     "why": "column subsampling and the split both move between runs"}
+  ],
+  "forbidden": [
+    {"code": "MLV201", "file": "train.py",
+     "why": "there is no torch in this project and no hand-written gradient step to zero"},
+    {"code": "MLV202", "file": "train.py",
+     "why": "same - no backward() exists here"},
+    {"code": "MLV301", "file": "train.py",
+     "why": "model.eval() is a torch idiom with no xgboost equivalent"},
+    {"code": "MLV302", "file": "train.py",
+     "why": "torch.no_grad() has no meaning in an xgboost program"},
+    {"code": "MLV501", "file": "train.py",
+     "why": "no device is ever named in this project"},
+    {"code": "MLV701", "file": "train.py",
+     "why": "no class is defined in this file at all"},
+    {"code": "MLV702", "file": "train.py",
+     "why": "no submodule container is built here"},
+    {"code": "MLV103", "file": "train.py",
+     "why": "there is no cross-validation in this script for the preprocessing to sit outside of"}
+  ],
+  "graph": {
+    "edges": 9,
+    "ops": [
+      {"file": "train.py", "line": 22, "symbol": "read_csv", "kind": "dataset"},
+      {"file": "train.py", "line": 25, "symbol": "fit_transform", "kind": "transform"},
+      {"file": "train.py", "line": 28, "symbol": "fit_transform", "kind": "scaler"},
+      {"file": "train.py", "line": 32, "symbol": "train_test_split", "kind": "split"},
+      {"file": "train.py", "line": 39, "symbol": "fit_transform", "kind": "scaler"},
+      {"file": "train.py", "line": 41, "symbol": "XGBClassifier", "kind": "model"},
+      {"file": "train.py", "line": 42, "symbol": "model.fit", "kind": "train_loop"},
+      {"file": "train.py", "line": 43, "symbol": "roc_auc_score", "kind": "metric"},
+      {"file": "train.py", "line": 43, "symbol": "predict_proba", "kind": "predict"}
+    ]
+  }
+}

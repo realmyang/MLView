@@ -13,6 +13,17 @@ export const WEBVIEW_ROOT = join(HERE, '..');
 export const REPO_ROOT = join(WEBVIEW_ROOT, '..');
 export const DIST_JS = join(WEBVIEW_ROOT, 'dist', 'mlview.js');
 export const DIST_CSS = join(WEBVIEW_ROOT, 'dist', 'mlview.css');
+/**
+ * The readable concatenation of the nine source layers (BUILD-01).
+ *
+ * `dist/mlview.css` is now MINIFIED, so a gate that asserts authored structure
+ * -- a selector written a particular way, a layer marker, a declaration spelled
+ * with its space after the colon -- reads this file instead. It is not a
+ * different stylesheet: `bundle.test.mjs` proves byte for byte that the shipped
+ * file is exactly `minifyCss(dev)`, so an assertion here is an assertion about
+ * what ships.
+ */
+export const DIST_CSS_DEV = join(WEBVIEW_ROOT, 'dist', 'mlview.dev.css');
 export const SAMPLE_PATH = join(REPO_ROOT, 'contracts', 'graph.sample.json');
 
 export async function readBundle() {

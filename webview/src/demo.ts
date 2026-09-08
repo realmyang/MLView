@@ -16,7 +16,12 @@ import { KNOWN_KINDS } from './icons.js';
 import { minimapFit, minimapFromWorld, minimapToWorld } from './render/canvas.js';
 import { KEYMAP } from './ui/keymap.js';
 import { tooltipPlacement } from './render/tooltip.js';
-import { searchGraph } from './search.js';
+import { searchGraph, searchGraphDetailed } from './search.js';
+import { locationHit, parseLocationQuery, pathMatches } from './searchloc.js';
+import { normalizeWheel, panDelta, wheelIntent, wheelZoomFactor, COARSE_PX, LINE_PX, PINCH_GAIN, ZOOM_BASE } from './ui/gestures.js';
+import { groupIssues, occurrenceText, sanitizeGroupBy } from './ui/railgroup.js';
+import { ruleDocFor, setRuleDocs } from './ui/ruledocs.js';
+import { legendModel } from './ui/legend.js';
 import { FLOW, lineageHops, polylineLength, pulseDurationMs, streamGapPx } from './render/flow.js';
 import { nearestRoute, routeDistance } from './render/edgepick.js';
 import { cappedTraceMessage } from './render/flowbinding.js';
@@ -205,6 +210,31 @@ export const internals = {
   minimap: { fit: minimapFit, toWorld: minimapToWorld, fromWorld: minimapFromWorld },
   tooltipPlacement,
   searchGraph,
+  /** VIEW-09ab: the detailed result and the `path:line` resolver behind it. */
+  search: {
+    detailed: searchGraphDetailed,
+    parseLocation: parseLocationQuery,
+    locationHit,
+    pathMatches,
+  },
+  /**
+   * VIEW-06: wheel normalization and its branch, so a test states the device
+   * mode rather than a magic number (the same reasoning as `flow` above).
+   */
+  gestures: {
+    normalizeWheel,
+    wheelIntent,
+    wheelZoomFactor,
+    panDelta,
+    LINE_PX,
+    COARSE_PX,
+    PINCH_GAIN,
+    ZOOM_BASE,
+  },
+  /** RAIL-GROUP, MLV-P6 and VIEW-10: the data behind three rendered surfaces. */
+  rail: { groupIssues, occurrenceText, sanitizeGroupBy },
+  ruleDocs: { ruleDocFor, setRuleDocs },
+  legendModel,
   buildDemoCard,
   severityGlyph,
   severityShapes: SEVERITY_SHAPE,

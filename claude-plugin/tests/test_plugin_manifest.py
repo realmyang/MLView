@@ -15,7 +15,7 @@ import subprocess
 
 import pytest
 
-from plugin_support import PLUGIN_ROOT, REPO_ROOT
+from plugin_support import PLUGIN_ROOT, REPO_ROOT, SERVER_SCRIPT
 
 PLUGIN_JSON = os.path.join(PLUGIN_ROOT, ".claude-plugin", "plugin.json")
 MCP_JSON = os.path.join(PLUGIN_ROOT, ".mcp.json")
@@ -117,6 +117,23 @@ def test_mcp_json_env_makes_the_plugin_work_without_a_pip_install():
     assert env["PYTHONIOENCODING"] == "utf-8"
     assert env["MLVIEW_PROJECT_DIR"] == "${CLAUDE_PROJECT_DIR}"
     assert env["MLVIEW_DATA_DIR"] == "${CLAUDE_PLUGIN_DATA}"
+
+
+# CLEANUP 7: `.mcp.json` can only spell ONE command, and `python` is the only
+# spelling that works out of the box on Windows. JSON has no comments, so the note
+# that belongs beside that field lives in the README - and it has to stay there.
+def test_the_python3_caveat_is_documented_where_the_reader_will_look():
+    with open(os.path.join(PLUGIN_ROOT, "README.md"), "r", encoding="utf-8") as fh:
+        readme = fh.read()
+    assert '"command"' in readme and "python3" in readme, (
+        "the README must tell a macOS / Linux reader to change .mcp.json's command "
+        "to python3; JSON cannot carry the comment itself"
+    )
+    assert ".mcp.json" in readme
+    # And the server must not merely document it: it has to say so at startup.
+    with open(SERVER_SCRIPT, "r", encoding="utf-8") as fh:
+        server = fh.read()
+    assert "python_version_problem" in server
 
 
 def test_the_server_path_in_mcp_json_actually_exists():

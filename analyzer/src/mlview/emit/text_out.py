@@ -10,8 +10,12 @@ from __future__ import annotations
 import sys
 from typing import Any, Dict, List, Optional, Sequence
 
-__all__ = ["render_text", "render_summary", "render_issue_table", "scope_line",
-           "write_stdout", "write_stdout_bytes", "write_stderr", "SEVERITY_MARK"]
+from ..core.coverage import COVERAGE_KINDS
+from .group_out import render_grouped
+
+__all__ = ["render_text", "render_summary", "render_issue_table", "issue_lines",
+           "render_findings", "scope_line", "write_stdout", "write_stdout_bytes",
+           "write_stderr", "SEVERITY_MARK"]
 
 SEVERITY_MARK = {"high": "[!!]", "medium": "[!]", "low": "[i]"}
 _SEV_ORDER = {"high": 0, "medium": 1, "low": 2}
@@ -68,8 +72,14 @@ def scope_line(doc: Dict[str, Any]) -> Optional[str]:
                _fmt_int(view.get("of", {}).get("nodes"))))
 
 
-def render_summary(doc: Dict[str, Any], show_suppressed: bool = False) -> str:
-    """Header + per-stage counts + the issue table."""
+def render_summary(doc: Dict[str, Any], show_suppressed: bool = False,
+                   group_by: str = "none") -> str:
+    """Header + per-stage counts + the issue table.
+
+    `group_by` is RAIL-GROUP's CLI half. It defaults to `none`, which prints
+    exactly what this function printed before the flag existed, so every
+    snapshot and every host that parses this text is untouched.
+    """
     ws = doc.get("workspace", {})
     gen = doc.get("generator", {})
     stats = doc.get("stats", {})
@@ -124,19 +134,40 @@ def render_summary(doc: Dict[str, Any], show_suppressed: bool = False) -> str:
 
     issues = [i for i in doc.get("issues", []) if show_suppressed or not i.get("suppressed")]
     lines.append("Issues (%d)" % len(issues))
-    lines.extend(render_issue_table(issues).splitlines() if issues
-                 else ["  none found"])
+    lines.extend(issue_lines(issues, group_by) if issues else ["  none found"])
 
     diagnostics = doc.get("diagnostics") or []
-    if diagnostics:
+    # COVERAGE: what the analyzer could *not* check gets its own block, above
+    # the notes and outside the ten-note clip. Burying "I was blind here" among
+    # the housekeeping is the failure this block exists to end.
+    coverage = [d for d in diagnostics if d.get("kind") in COVERAGE_KINDS]
+    other = [d for d in diagnostics if d.get("kind") not in COVERAGE_KINDS]
+    if coverage:
         lines.append("")
-        lines.append("Notes (%d)" % len(diagnostics))
-        for diagnostic in diagnostics[:10]:
-            where = diagnostic.get("file")
-            prefix = "  %s" % diagnostic.get("kind", "note")
-            lines.append("%s: %s%s" % (prefix, diagnostic.get("message", ""),
-                                       (" (%s)" % where) if where else ""))
+        lines.append("Coverage (%d)" % len(coverage))
+        lines.extend(_diagnostic_lines(coverage))
+    if other:
+        lines.append("")
+        lines.append("Notes (%d)" % len(other))
+        lines.extend(_diagnostic_lines(other[:10]))
     return "\n".join(lines) + "\n"
+
+
+def _diagnostic_lines(diagnostics: Sequence[Dict[str, Any]]) -> List[str]:
+    out: List[str] = []
+    for diagnostic in diagnostics:
+        where = diagnostic.get("file")
+        out.append("  %s: %s%s" % (diagnostic.get("kind", "note"),
+                                   diagnostic.get("message", ""),
+                                   (" (%s)" % where) if where else ""))
+    return out
+
+
+def issue_lines(issues: Sequence[Dict[str, Any]], group_by: str = "none") -> List[str]:
+    """The issue table as lines - flat (`none`) or grouped by rule / file."""
+    if group_by in ("rule", "file"):
+        return render_grouped(issues, group_by, SEVERITY_MARK).splitlines()
+    return render_issue_table(issues).splitlines()
 
 
 def render_issue_table(issues: Sequence[Dict[str, Any]]) -> str:
@@ -165,7 +196,14 @@ def render_issue_table(issues: Sequence[Dict[str, Any]]) -> str:
 
 
 def render_text(doc: Dict[str, Any]) -> str:
-    """A longer plain-text view: the summary plus node lanes and fix hints."""
+    """A longer plain-text view: the summary plus node lanes and fix hints.
+
+    Deliberately takes no `group_by`: `api.render_text`'s one-argument
+    signature is pinned by `tests/core/test_api.py::test_render_signatures`,
+    and `--format text` is the *per-issue* form - its `Findings` block is one
+    entry per issue by definition, so collapsing the table above it would only
+    disagree with the block below.
+    """
     parts = [render_summary(doc)]
     parts.append("Nodes")
     by_stage: Dict[str, List[Dict[str, Any]]] = {}
@@ -187,18 +225,31 @@ def render_text(doc: Dict[str, Any]) -> str:
     if issues:
         parts.append("")
         parts.append("Findings")
-        for issue in issues:
-            loc = issue.get("loc", {})
-            parts.append("  %s %s  %s:%s" % (SEVERITY_MARK.get(issue["severity"], "[i]"),
-                                             issue["code"], loc.get("file"), loc.get("line")))
-            parts.append("      %s" % issue.get("title", ""))
-            parts.append("      %s" % issue.get("message", ""))
-            parts.append("      why: %s" % issue.get("why", ""))
-            parts.append("      fix: %s" % issue.get("fixHint", ""))
-            for related in issue.get("relatedLocs", []) or []:
-                parts.append("      %s -> %s:%s" % (related.get("role"), related.get("file"),
-                                                    related.get("line")))
+        parts.extend(render_findings(issues).splitlines())
     return "\n".join(parts) + "\n"
+
+
+def render_findings(issues: Sequence[Dict[str, Any]]) -> str:
+    """The rich per-issue block: title, message, why, fix, related locations.
+
+    Extracted so `mlview issues --text` reaches it too. CLEANUP 1: `--text`
+    was declared on `issues` and read by nobody, so the obvious command for
+    "show me the issues" was the one that hid the fix hints.
+    """
+    parts: List[str] = []
+    for issue in issues:
+        loc = issue.get("loc", {})
+        parts.append("  %s %s  %s:%s" % (SEVERITY_MARK.get(issue.get("severity"), "[i]"),
+                                         issue.get("code", ""), loc.get("file"),
+                                         loc.get("line")))
+        parts.append("      %s" % issue.get("title", ""))
+        parts.append("      %s" % issue.get("message", ""))
+        parts.append("      why: %s" % issue.get("why", ""))
+        parts.append("      fix: %s" % issue.get("fixHint", ""))
+        for related in issue.get("relatedLocs", []) or []:
+            parts.append("      %s -> %s:%s" % (related.get("role"), related.get("file"),
+                                                related.get("line")))
+    return "\n".join(parts)
 
 
 def _severity_of(doc: Dict[str, Any], issue_id: str) -> str:

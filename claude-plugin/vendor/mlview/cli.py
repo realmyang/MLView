@@ -16,6 +16,7 @@ import sys
 from typing import Any, Dict, List, Optional, Sequence
 
 from . import api
+from .cli_parser import FORMATS, GROUP_BY, build_parser
 from .core.graph import SEVERITY_RANK
 from .core.pipeline import AnalyzeOptions
 from .core.project import Scope, ScopeError, parse_scope, project, scope_catalog
@@ -23,122 +24,11 @@ from .emit import html_out, json_out, mermaid_out, scope_out
 from .emit.text_out import write_stderr, write_stdout, write_stdout_bytes
 from .version import SCHEMA_VERSION, __version__
 
-__all__ = ["main", "build_parser"]
+#: `build_parser` is re-exported: it lives in `cli_parser` now, but every
+#: caller outside this package reaches it as `mlview.cli.build_parser`.
+__all__ = ["main", "build_parser", "FORMATS", "GROUP_BY"]
 
 EXIT_OK, EXIT_USAGE, EXIT_FAIL_ON, EXIT_INTERNAL, EXIT_EMPTY = 0, 1, 2, 3, 4
-_FORMATS = ("summary", "json", "mermaid", "text")
-
-
-# ---------------------------------------------------------------- parser
-def _add_scope_flags(parser: argparse.ArgumentParser) -> None:
-    """`--scope` / `--depth` (CONTRACTS 11.5). Both optional; the defaults
-    reproduce today's behaviour exactly.
-
-    `--depth` is taken as text, not `type=int`, so a bad value comes back as
-    the contractual `bad_depth` code on stderr instead of argparse's own
-    usage error.
-    """
-    parser.add_argument("--scope", dest="scope", metavar="SPEC", default=None,
-                        help="project the graph before emitting: "
-                             "unit:|stage:|file:|concern:|node:<target>, or 'all'")
-    parser.add_argument("--depth", dest="depth", metavar="N", default=None,
-                        help="boundary hops 0..2 (default: 1 for unit/node, "
-                             "0 for stage/file/concern)")
-
-
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="mlview",
-        description="Visualize and audit Python ML pipelines - static analysis only.")
-    parser.add_argument("--version", action="store_true",
-                        help="print the core version and exit")
-    parser.add_argument("--json", dest="version_json", action="store_true",
-                        help="with --version: print JSON")
-    sub = parser.add_subparsers(dest="command")
-
-    analyze = sub.add_parser("analyze", help="analyze a workspace and emit the graph")
-    analyze.add_argument("paths", nargs="*", default=[])
-    analyze.add_argument("--json", dest="json_out", metavar="FILE|-",
-                         help="write the graph JSON ('-' means stdout)")
-    analyze.add_argument("--html", dest="html_out", metavar="FILE",
-                         help="write a self-contained HTML report")
-    analyze.add_argument("--open", dest="open_report", action="store_true")
-    analyze.add_argument("--format", dest="fmt", choices=_FORMATS, default="summary")
-    analyze.add_argument("--include", action="append", default=[], metavar="GLOB")
-    analyze.add_argument("--exclude", action="append", default=[], metavar="GLOB")
-    analyze.add_argument("--min-severity", choices=("low", "medium", "high"), default="low")
-    analyze.add_argument("--min-confidence", type=float, default=0.0)
-    analyze.add_argument("--show-suppressed", action="store_true")
-    analyze.add_argument("--max-files", type=int, default=500)
-    analyze.add_argument("--max-nodes", type=int, default=400,
-                          help="operation-node budget; units and ghost nodes "
-                               "are never dropped, so the emitted document may "
-                               "hold more nodes than this. Sets stats.truncated.")
-    analyze.add_argument("--framework",
-                         choices=("auto", "torch", "sklearn", "keras", "hf", "lightning"),
-                         default="auto")
-    analyze.add_argument("--config", dest="config_path", metavar="FILE")
-    analyze.add_argument("--fail-on", choices=("none", "low", "medium", "high"),
-                         default="none")
-    analyze.add_argument("--strict", action="store_true")
-    analyze.add_argument("--demo", action="store_true",
-                         help="emit the golden contracts/graph.sample.json")
-    analyze.add_argument("--no-color", action="store_true")
-    _add_scope_flags(analyze)
-    analyze.add_argument("--list-scopes", dest="list_scopes", action="store_true",
-                         help="print the scopable-unit catalogue and exit 0")
-
-    issues = sub.add_parser("issues", help="list detected issues")
-    issues.add_argument("paths", nargs="*", default=[])
-    issues.add_argument("--json", dest="json_out", action="store_true")
-    issues.add_argument("--text", dest="text_out", action="store_true")
-    issues.add_argument("--min-severity", choices=("low", "medium", "high"), default="low")
-    issues.add_argument("--min-confidence", type=float, default=0.0)
-    issues.add_argument("--code", default="", help="comma-separated rule codes")
-    issues.add_argument("--limit", type=int, default=0)
-    issues.add_argument("--max-files", type=int, default=500)
-    issues.add_argument("--max-nodes", type=int, default=400,
-                          help="operation-node budget; units and ghost nodes "
-                               "are never dropped, so the emitted document may "
-                               "hold more nodes than this. Sets stats.truncated.")
-    issues.add_argument("--include", action="append", default=[], metavar="GLOB")
-    issues.add_argument("--exclude", action="append", default=[], metavar="GLOB")
-    issues.add_argument("--config", dest="config_path", metavar="FILE")
-    issues.add_argument("--show-suppressed", action="store_true")
-    issues.add_argument("--fail-on", choices=("none", "low", "medium", "high"),
-                        default="none")
-    issues.add_argument("--strict", action="store_true")
-    issues.add_argument("--no-color", action="store_true")
-    _add_scope_flags(issues)
-
-    render = sub.add_parser("render", help="render an existing or fresh graph")
-    render.add_argument("paths", nargs="*", default=[])
-    render.add_argument("--graph", dest="graph_file", metavar="FILE")
-    render.add_argument("--out", dest="out_file", metavar="FILE")
-    render.add_argument("--format", dest="fmt", choices=("html", "mermaid", "text"),
-                        default="html")
-    render.add_argument("--open", dest="open_report", action="store_true")
-    render.add_argument("--max-files", type=int, default=500)
-    render.add_argument("--max-nodes", type=int, default=400,
-                          help="operation-node budget; units and ghost nodes "
-                               "are never dropped, so the emitted document may "
-                               "hold more nodes than this. Sets stats.truncated.")
-    render.add_argument("--config", dest="config_path", metavar="FILE")
-    render.add_argument("--no-color", action="store_true")
-    _add_scope_flags(render)
-
-    explain = sub.add_parser("explain", help="explain a node id or a rule code")
-    explain.add_argument("target")
-    explain.add_argument("--graph", dest="graph_file", metavar="FILE")
-    explain.add_argument("--json", dest="json_out", action="store_true")
-
-    rules = sub.add_parser("rules", help="list the registered rules")
-    rules.add_argument("--list", dest="list_rules", action="store_true")
-    rules.add_argument("--json", dest="json_out", action="store_true")
-    rules.add_argument("--explain", dest="explain_code", metavar="MLV201")
-
-    sub.add_parser("schema", help="print the MLGraph JSON Schema")
-    return parser
 
 
 # ----------------------------------------------------------------- helpers
@@ -320,7 +210,8 @@ def _print_format(doc: Dict[str, Any], args) -> None:
         write_stdout(api.render_text(doc))
     else:
         write_stdout(api.render_summary(
-            doc, show_suppressed=bool(getattr(args, "show_suppressed", False))))
+            doc, show_suppressed=bool(getattr(args, "show_suppressed", False)),
+            group_by=getattr(args, "group_by", "none")))
 
 
 def _cmd_issues(args) -> int:
@@ -347,11 +238,20 @@ def _cmd_issues(args) -> int:
             payload["scope"] = doc["view"]["scope"]
         write_stdout(json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
     else:
-        from .emit.text_out import render_issue_table
+        from .emit.text_out import issue_lines, render_findings
         scoped = scope_out.issues_scope_suffix(doc)   # names the denominator
         header = "%d issue(s) in %s%s\n" % (len(issues), doc["workspace"]["root"], scoped)
-        write_stdout(header + (render_issue_table(issues) + "\n" if issues
-                               else "  none found\n"))
+        if not issues:
+            body = "  none found\n"
+        elif getattr(args, "text_out", False):
+            # CLEANUP 1: `--text` was declared with `dest="text_out"` and read
+            # by nobody, so the two invocations were byte-identical and the
+            # obvious command for "show me the issues" was the one that hid the
+            # why / fix text.
+            body = render_findings(issues) + "\n"
+        else:
+            body = "\n".join(issue_lines(issues, getattr(args, "group_by", "none"))) + "\n"
+        write_stdout(header + body)
     if result.empty:
         return EXIT_EMPTY
     note = scope_out.empty_note(doc)
@@ -497,14 +397,32 @@ def _cmd_rules(args) -> int:
                    for s in specs]
         write_stdout(json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
         return EXIT_OK
+    # CLEANUP 6: the framework column used to be sliced to 9 characters, which
+    # cut names mid-word (`sklearn,p`, `torch,lig`). Width it to the widest
+    # value actually present and elide on a comma, never inside a name.
+    frameworks = [_framework_column(spec) for spec in specs]
+    width = max([len(f) for f in frameworks] + [len("FRAMEWORKS")])
     lines = ["%d rule(s) registered" % len(specs)]
-    for spec in specs:
-        lines.append("  %-7s %-7s %-9s %s%s"
-                     % (spec.code, spec.severity,
-                        ",".join(spec.frameworks)[:9] or "any", spec.title,
+    for spec, column in zip(specs, frameworks):
+        lines.append("  %-7s %-7s %-*s %s%s"
+                     % (spec.code, spec.severity, width, column, spec.title,
                         "" if spec.enabled else "  (disabled)"))
     write_stdout("\n".join(lines) + "\n")
     return EXIT_OK
+
+
+def _framework_column(spec, limit: int = 24) -> str:
+    """`torch, lightning` - whole names only, `+N` when there are too many."""
+    names = list(spec.frameworks)
+    if not names:
+        return "any"
+    out = ""
+    for index, name in enumerate(names):
+        candidate = name if not out else "%s, %s" % (out, name)
+        if len(candidate) > limit and out:
+            return "%s +%d" % (out, len(names) - index)
+        out = candidate
+    return out
 
 
 def _cmd_schema(_args) -> int:

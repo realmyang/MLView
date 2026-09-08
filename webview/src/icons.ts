@@ -89,6 +89,8 @@ const UI_PATHS: Record<string, string> = {
   check: 'M3 8.4 6.4 11.8 13 5.2',
   scope: 'M2.4 3.2h11.2v9.6H2.4ZM5.6 6.2h4.8v3.6H5.6Z',
   flow: 'M2.4 8h8.4M8.4 5.2 11.6 8l-3.2 2.8M13.2 6.4v3.2',
+  /** The legend key (VIEW-10): a list with a swatch beside each row. */
+  legend: 'M2.4 3.6h2.4v2.4H2.4ZM2.4 10h2.4v2.4H2.4ZM6.8 4.8h6.8M6.8 11.2h6.8',
 };
 
 export function uiIcon(name: string, size = 14): SVGElement {

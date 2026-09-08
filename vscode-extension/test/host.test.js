@@ -795,3 +795,166 @@ test('an unknown message from a newer viewer is still dropped, scope or not', as
     shutdown();
   }
 });
+
+// ------------------------------------------------------- ROADMAP COVERAGE / CLEANUP (host)
+
+/** Put the cursor in a Python file that is NOT at the workspace root. */
+function focusPackageFile(relative) {
+  vscode.window.activeTextEditor = {
+    document: {
+      uri: vscode.Uri.file(`${WORKSPACE}/${relative}`),
+      languageId: 'python',
+      fileName: relative.split('/').pop()
+    },
+    selection: { active: { line: 0, character: 0 } }
+  };
+}
+
+test('Visualize (Current File) analyses the containing directory, then scopes to the file', async () => {
+  // COVERAGE: analysing `train.py` alone reports 3 findings where its directory reports 7, and
+  // MLV301/302/401/501 cannot fire at all. The default `package` scope analyses the directory
+  // and narrows the DIAGRAM instead, so the user sees the same file and gets the real findings.
+  boot();
+  try {
+    focusPackageFile('pkg/train.py');
+    void run('mlview.visualize');
+    await sleep(80);
+    const created = panel();
+    created.fire({ v: 1, type: 'ready' });
+    await sleep(150);
+
+    assert.equal(spawns.length, 1, 'one analysis, not one per surface');
+    const argv = spawns[0];
+    assert.ok(
+      argv.includes(`${WORKSPACE}/pkg`) || argv.includes(`${WORKSPACE}\pkg`),
+      `the analyzer was pointed at the package directory, got: ${argv}`
+    );
+    assert.ok(!/train\.py/.test(argv), `the file itself must not be the analyzed path: ${argv}`);
+
+    const scopes = created.posted.filter((m) => m.type === 'setScope');
+    assert.deepEqual(scopes, [{ v: 1, type: 'setScope', spec: 'file:pkg/train.py' }]);
+    const types = created.postedTypes();
+    assert.ok(
+      types.indexOf('setScope') > types.indexOf('graph'),
+      `the projection must arrive after the document it projects: ${types.join(', ')}`
+    );
+  } finally {
+    vscode.window.activeTextEditor = undefined;
+    shutdown();
+  }
+});
+
+test('currentFileAnalysisScope="file" keeps the old single-file run and posts no scope', async () => {
+  boot({ config: { currentFileAnalysisScope: 'file' } });
+  try {
+    focusPackageFile('pkg/train.py');
+    void run('mlview.visualize');
+    await sleep(80);
+    const created = panel();
+    created.fire({ v: 1, type: 'ready' });
+    await sleep(150);
+
+    assert.ok(/train\.py/.test(spawns[0]), `the file itself is the analyzed path: ${spawns[0]}`);
+    assert.deepEqual(created.posted.filter((m) => m.type === 'setScope'), []);
+  } finally {
+    vscode.window.activeTextEditor = undefined;
+    shutdown();
+  }
+});
+
+test('a save-triggered re-analysis does not re-post the file scope over the user\'s own', async () => {
+  boot();
+  try {
+    focusPackageFile('pkg/train.py');
+    void run('mlview.visualize');
+    await sleep(80);
+    const created = panel();
+    created.fire({ v: 1, type: 'ready' });
+    await sleep(150);
+    assert.equal(created.posted.filter((m) => m.type === 'setScope').length, 1);
+
+    void run('mlview.refresh');
+    await sleep(200);
+    assert.equal(
+      created.posted.filter((m) => m.type === 'setScope').length,
+      1,
+      'the scope is posted once per command; after that the viewer owns it'
+    );
+  } finally {
+    vscode.window.activeTextEditor = undefined;
+    shutdown();
+  }
+});
+
+test('canAskAssistant follows the chat API, and askAssistant opens chat with the prompt', async () => {
+  // CLEANUP 5: the viewer composed the prompt and posted it; the host logged it and stopped.
+  boot();
+  try {
+    void run('mlview.visualizeWorkspace');
+    await sleep(60);
+    const created = panel();
+    created.fire({ v: 1, type: 'ready' });
+    await sleep(150);
+    const init = created.posted.find((m) => m.type === 'init');
+    assert.equal(init.capabilities.canAskAssistant, false, 'no chat API in this build');
+  } finally {
+    shutdown();
+  }
+
+  vscode.__enableChatAndLm();
+  const executed = [];
+  const realExecute = vscode.commands.executeCommand;
+  vscode.commands.executeCommand = async (id, arg) => void executed.push([id, arg]);
+  boot();
+  try {
+    void run('mlview.visualizeWorkspace');
+    await sleep(60);
+    const created = panel();
+    created.fire({ v: 1, type: 'ready' });
+    await sleep(150);
+    const init = created.posted.find((m) => m.type === 'init');
+    assert.equal(init.capabilities.canAskAssistant, true, 'the chat API is present');
+
+    created.fire({ v: 1, type: 'askAssistant', nodeId: 'n:1', prompt: 'Explain SmallCNN.' });
+    await sleep(40);
+    const opened = executed.find(([id]) => id === 'workbench.action.chat.open');
+    assert.ok(opened, `chat was never opened: ${executed.map(([id]) => id).join(', ')}`);
+    assert.equal(opened[1].query, '@mlview Explain SmallCNN.');
+  } finally {
+    vscode.commands.executeCommand = realExecute;
+    shutdown();
+  }
+});
+
+test('a blind run says so on the panel tab, not just inside the canvas', async () => {
+  const graph = sampleGraph();
+  graph.diagnostics = [
+    {
+      kind: 'single_file_analysis',
+      message: 'Only train.py was analyzed; 4 cross-file rules could not run.',
+      codes: ['MLV301', 'MLV302', 'MLV401', 'MLV501']
+    }
+  ];
+  boot({ graph });
+  try {
+    void run('mlview.visualizeWorkspace');
+    await sleep(60);
+    const created = panel();
+    created.fire({ v: 1, type: 'ready' });
+    await sleep(150);
+    assert.equal(created.description, 'coverage: incomplete (1 blind spot)');
+
+    created.fire({
+      v: 1,
+      type: 'scopeChanged',
+      spec: 'file:train.py',
+      label: 'train.py',
+      nodes: 9,
+      of: 45
+    });
+    await sleep(20);
+    assert.equal(created.description, '9 of 45 nodes · coverage: incomplete (1 blind spot)');
+  } finally {
+    shutdown();
+  }
+});

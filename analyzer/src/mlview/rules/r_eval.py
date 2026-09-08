@@ -191,7 +191,7 @@ def _needs_gradients(region: EvalRegion) -> bool:
 # MLV301
 # ---------------------------------------------------------------------------
 @rule(code="MLV301", severity="high", base_prior=0.85, frameworks=["torch"],
-      rule_version=1, tags=["correctness", "eval"], absence=True,
+      rule_version=1, tags=["correctness", "eval"], absence=True, cross_file=True,
       title="Evaluation runs without model.eval()",
       why="Dropout keeps dropping activations and BatchNorm keeps updating its running "
           "statistics, so the reported validation score is noisy and the model you "
@@ -372,7 +372,7 @@ def _sensitive_layers(ctx, cls: Optional[ClassIR], depth: int = 0) -> List[str]:
 # MLV302
 # ---------------------------------------------------------------------------
 @rule(code="MLV302", severity="medium", base_prior=0.85, frameworks=["torch"],
-      rule_version=1, tags=["performance", "eval"],
+      rule_version=1, tags=["performance", "eval"], cross_file=True,
       title="Evaluation loop not wrapped in torch.no_grad()",
       why="Autograd keeps every intermediate activation alive for a backward pass that "
           "never happens, so evaluation uses several times the memory it needs and can "

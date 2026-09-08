@@ -36,21 +36,21 @@ that one.
 | # | Gate | Command | Result |
 |---|---|---|---|
 | 1 | Build | `powershell -ExecutionPolicy Bypass -File scripts/build.ps1` | `BUILD OK` — 5/5 steps |
-| 2 | Analyzer + rules | `python -m pytest analyzer/tests -q` | 1075 passed, 3 skipped (the third needs Python 3.10, where tomllib is absent) |
-| 3 | Viewer tests | `npm test` in `webview` | 246 pass, 0 fail |
+| 2 | Analyzer + rules | `python -m pytest analyzer/tests -q` | 1152 passed, 3 skipped (the third needs Python 3.10, where tomllib is absent) |
+| 3 | Viewer tests | `npm test` in `webview` | 289 pass, 0 fail |
 | 4 | Viewer typecheck | `npm run check` in `webview` | `tsc --noEmit`, clean |
 | 5 | Extension typecheck | `npm run check` in `vscode-extension` | `tsc --noEmit`, clean |
-| 6 | Extension bundle | `npm run compile` in `vscode-extension` | `out/extension.js` 111.4 kb |
-| 7 | Extension tests | `npm test` in `vscode-extension` | 180 pass, 0 fail |
-| 8 | Plugin / MCP tests | `python -m pytest claude-plugin/tests -q -n auto` | 235 passed in ~10 s (~33 s without `-n auto`) |
+| 6 | Extension bundle | `npm run compile` in `vscode-extension` | `out/extension.js` 121.6 kb |
+| 7 | Extension tests | `npm test` in `vscode-extension` | 205 pass, 0 fail |
+| 8 | Plugin / MCP tests | `python -m pytest claude-plugin/tests -q -n auto` | 273 passed in ~11 s (~35 s without `-n auto`) |
 | 9 | Parity gates | `python tools/verify.py --all` | all 9 gates passed |
 | 9a | Scope parity (Python == TypeScript) | `python tools/verify.py --scopes` | 10 projections + 6 error cases, python == typescript |
 | 9b | Scope fixtures current | `python analyzer/tools/gen_scope_fixtures.py --check` | 10 projecting + 6 error cases over the golden |
 | 10 | Plugin manifest | `claude plugin validate ./claude-plugin --strict` | Validation passed |
 | 11 | Marketplace manifest | `claude plugin validate ./.claude-plugin/marketplace.json --strict` | Validation passed |
-| 12 | Report renders | `node test/render_report.mjs` in `webview` | 15/15 assertions |
-| 12b | Clean report renders | `node test/render_report.mjs ../.mlview/report_clean.html --min-ghosts=0` | 15/15 assertions |
-| 12c | Scoped report renders | `node test/render_report.mjs ../.mlview/evaluation.html --scope=concern:evaluation` | 18/18 assertions — no empty band, badge-free boundary stubs, the breadcrumb still names the project total |
+| 12 | Report renders | `node test/render_report.mjs` in `webview` | 20/20 assertions |
+| 12b | Clean report renders | `node test/render_report.mjs ../.mlview/report_clean.html --min-ghosts=0` | 20/20 assertions |
+| 12c | Scoped report renders | `node test/render_report.mjs ../.mlview/evaluation.html --scope=concern:evaluation` | 23/23 assertions — no empty band, badge-free boundary stubs, the breadcrumb still names the project total |
 | 13 | Panel + media bundle | `node --test test/panelhtml.test.js` in `vscode-extension` | 4 pass |
 | 13b | Cross-host scope handshake | `node test/crosshost.mjs ../.mlview/graph.json` in `webview` | 28/28 assertions — the real viewer bundle answers the real extension's `setScope`, and `parseUiToHost` / `scopeChrome` accept what it posts |
 | 14 | Rule docs current | `python analyzer/tools/gen_rule_docs.py --check` | 21 pages current |
@@ -62,7 +62,10 @@ that one.
 | 20 | Scoped demo artifacts | `python -m mlview analyze samples/vision_pipeline --scope concern:evaluation --depth 1 --html .mlview/evaluation.html` | 17 of 45 nodes (7 core / 7 boundary / 3 context), `data-mlview-scope` and `data-mlview-depth` set on the root |
 | 21 | Scope catalogue | `python -m mlview analyze samples/vision_pipeline --list-scopes` | 10 scopable units, biggest first |
 | 22 | Bytecode residue never poisons the vendor gate | `python -m pytest claude-plugin/tests/test_vendor_bytecode.py -q` | 3 passed — pytest over a throwaway vendored tree writes no `__pycache__` with the flag set and does write one without it, and `sync-core --check` prunes planted residue and stays green |
-| 23 | CI matrix | `.github/workflows/ci.yml` | 11 jobs green: 3 OSes, Python 3.10-3.13, Node 20/22, ~3m40s wall |
+| 23 | Accuracy corpus | `python tools/accuracy.py` | `accuracy gate: PASS` — 10 labelled programs, precision 100.0%, unseen recall 51.1% raw / 38.3% visible, graph fidelity 66.2%; zero `forbidden` findings, nothing below `analyzer/tests/accuracy/baseline.json` |
+| 23a | The same three gates, asserted | `python -m pytest analyzer/tests/accuracy -q` | 27 passed — corpus lint plus the matcher's own semantics |
+| 24 | Analyzer byte-equivalence | `python tools/perf_equiv.py --baseline DIR --diff --bench` | both shipped samples byte-identical to `main`; `analyzer/tests/clean` gains exactly one `ValueTag` (PERF-02's fifth IR round), 200-file corpus 2.25x faster |
+| 25 | CI matrix | `.github/workflows/ci.yml` | 12 jobs: 3 OSes, Python 3.10-3.13, Node 20/22, plus the accuracy corpus |
 
 Rows 16–18 are also asserted inside rows 2 and 19; they are listed separately
 because each is a one-line command that answers a question a reviewer asks
@@ -300,6 +303,8 @@ require them.
 | `tools/sync-assets.py [--check]` | The only writer of `vscode-extension/media/` and `analyzer/src/mlview/emit/assets/`. |
 | `tools/sync-core.py [--check]` | The only writer of `claude-plugin/vendor/`. |
 | `tools/verify.py [--parity\|--scopes\|--hashes\|--versions\|--all]` | The parity gates: one analyzer, one projection, one renderer, one version — nine rows, including `plugin: rule docs`, `vendor: synced core` and the two scope rows. |
+| `tools/accuracy.py` / `tools/accuracy_corpus.py` | ANA-12's referee: scores the labelled corpus under `analyzer/tests/accuracy/corpus/` for precision, recall, graph fidelity and calibration, and gates on `baseline.json`. `docs/ACCURACY.md` says what the numbers mean. |
+| `tools/perf_equiv.py [--baseline DIR\|--record FILE\|--compare FILE]` | PERF-01/02's referee: proves an analyzer optimisation moved no byte, over three corpora, each tree in its own subprocess. |
 | `tools/gate_scopes.py` | Gate 5's implementation, called by `tools/verify.py --scopes`: the fixture drift check plus the viewer's parity test. |
 | `analyzer/tools/gen_scope_fixtures.py [--check]` | Regenerates `contracts/scope.cases.json` and `contracts/scope.expected.json` from the Python `project()`. |
 | `analyzer/tools/gen_rule_docs.py [--check]` | Regenerates `docs/rules/*.md` from the rule registry. |

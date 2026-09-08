@@ -22,7 +22,10 @@ claude-plugin/
 
 ## Prerequisites
 
-- **Python 3.10 or newer** on `PATH` as `python`. That is all the CLI fallback needs.
+- **Python 3.10 or newer** on `PATH` as `python`. That is all the CLI fallback
+  needs. On macOS and Linux the interpreter is usually `python3`, and `.mcp.json`
+  spells `python` — see [Troubleshooting](#troubleshooting-on-windows-and-posix)
+  below for the one-field edit.
 - **`pip install mcp`** (v2; verified against `mcp==2.1.1`) for the MCP tools.
   Without it the five `mlview_*` tools are unavailable — the server fails to
   start — but `/mlview` and `/mlview-issues` still work, because both command
@@ -231,7 +234,7 @@ PYTHONUTF8=1 python -m pytest claude-plugin/tests -q
 - `test_plugin_manifest.py` — manifest shapes, plus `claude plugin validate
   ./claude-plugin --strict` when the CLI is on `PATH`.
 
-## Troubleshooting on Windows
+## Troubleshooting on Windows and POSIX
 
 **The `mlview_*` tools do not appear.** Run `/mcp` in Claude Code. If `mlview`
 is not listed, start the server by hand and read the stderr:
@@ -245,9 +248,29 @@ It should print `MLView MCP server 0.1.0 starting (core from vendor, …)` and t
 block waiting for frames. `ModuleNotFoundError: mcp` means `pip install mcp`;
 `ModuleNotFoundError: mlview` means `python tools/sync-core.py`.
 
-**`python` is not on PATH.** `.mcp.json` uses the bare name `python` so it
-resolves through your shell. On a machine where only `py` exists, edit the
-`command` field to an absolute interpreter path.
+**`python` is not on PATH, or it is a Python 2.** `.mcp.json` uses the bare name
+`python` so it resolves through your shell, and JSON has no comments, so the note
+that belongs beside that field lives here:
+
+> `"command": "python"` is the only spelling that works out of the box on Windows.
+> On most macOS and Linux boxes the 3.x interpreter is called **`python3`** and
+> the bare `python` is missing or is a Python 2. **Edit `.mcp.json` and change
+> `"command"` to `"python3"`** — or to the absolute path of the interpreter you
+> want (`/usr/bin/python3.12`, `C:/Python313/python.exe`, a virtualenv's
+> `bin/python`). Nothing else in the file changes; the `args` and `env` are
+> already interpreter-independent.
+
+`server/mlview_mcp.py` checks this for you before it imports anything: an
+interpreter older than 3.10 exits 1 with
+
+```
+mlview-mcp: this server needs Python 3.10 or newer; /usr/bin/python is 2.7.
+mlview-mcp: edit claude-plugin/.mcp.json and set "command" to "python3" (or the
+absolute path of a Python 3.10+ interpreter), then restart Claude Code.
+```
+
+rather than a SyntaxError from somewhere inside `vendor/mlview`. On a machine
+where only `py` exists, point `command` at an absolute interpreter path.
 
 **Mangled output or a `UnicodeEncodeError`.** The Windows console is cp1252.
 `.mcp.json` already sets `PYTHONUTF8=1` and `PYTHONIOENCODING=utf-8`; keep them,

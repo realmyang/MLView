@@ -1915,3 +1915,77 @@ what keeps the copied `file:line` and its explanatory sentence on screen after s
 three seconds later.
 
 **Gates:** `webview/test/bridges.test.mjs` (R3-DL-01 … R3-DL-04), over the same real nested browsing context.
+
+---
+
+### 11.18 Diagnostic kinds and coverage diagnostics (2026-09-08) — amends §2, core-owned
+
+`Diagnostic.kind` was a **closed seven-value enum** (`parse_error`, `dynamic_scope`, `rule_error`, `truncated`,
+`notebook_skipped`, `framework_suppressed`, `config_warning`) and five separate proposals in `docs/ROADMAP.md`
+want to extend it. Adding one value at a time would mean five amendments, five mirrored edits per §11.16 and
+five gate passes, so all five land here at once. **The §2 listing of the enum is superseded by this table.**
+
+| New value | Meaning | Emitted today |
+|---|---|---|
+| `untagged_dataflow` | A rule reached a value it never traced — no `ValueTag` at all — and stayed silent. Coverage gap, not a finding. | **yes** (`rules/r_leakage.py` → `GraphContext.untraced`) |
+| `single_file_analysis` | One file of a larger package was analyzed, so the cross-file rules could not see the sibling definitions they need. | **yes** (`core/coverage.single_file_diagnostic`) |
+| `unresolved_callee` | A call the analyzer could not resolve was dropped from the graph (ANA-5a). | no — reserved |
+| `config_unresolved` | A configuration value referenced by the pipeline could not be resolved to a literal (ANA-10). | no — reserved |
+| `notebook_analyzed` | A `.ipynb` **was** analyzed, carrying the execution-order caveat (NB). | no — reserved |
+
+A reserved value is part of the enum from this amendment: every consumer must already accept it, and no consumer
+may assume the three unemitted kinds never arrive. Nothing about the existing seven changes.
+
+**The two emitted now.** Both exist because MLView's worst failure mode is that it cannot distinguish *"I checked
+and it is fine"* from *"I could not check"*. Neither is an `Issue`, neither changes a rule's gate, and neither
+costs precision: `samples/vision_pipeline` still carries exactly its fifteen findings and both clean corpora stay
+at zero, with **zero coverage diagnostics on all three** (`tests/core/test_coverage.py`).
+
+| # | Rule |
+|---|---|
+| **C1** | `untagged_dataflow` is emitted **once per `(file, scope)`**, never once per site: `codes` lists every rule code that gave up in that scope, `count` is the number of untraced values, `line` is the earliest of them, and the message names up to three of them with their lines and says *why* the tag is missing (a parameter, an unresolved binding, a dynamic scope). This is the `framework_suppressed` shape, for the same reason — a rule looping over sites must not emit a diagnostic per iteration. |
+| **C2** | A rule declares a coverage gap through `GraphContext.untraced(call, name, reason)` and never by appending a `Diagnostic` itself, exactly as it emits findings only through `ctx.issue()`. The gate a rule bails on is **unchanged**: `r_leakage` still requires `FEATURES` / `RAW_DATA`; the new branch fires only where the value carries *no tags at all*, which is the measured blind spot (a bare function parameter) and cannot be confused with a value that was traced and found innocent. |
+| **C3** | `single_file_analysis` fires only when all three hold: exactly one module was analyzed, sibling Python modules exist under the same package root (the nearest ancestor without an `__init__.py`), and the analyzed module **imports at least one of them**. The import is what turns "you asked about one file" into "the answer you got is incomplete"; a standalone script with siblings it never imports is not warned about, because crying wolf costs more than it buys. |
+| **C4** | Its `codes` are derived from `RuleSpec.cross_file`, a declared boolean on the spec — never a hand-maintained list in the diagnostic. `cross_file` means *this rule's finding is anchored in the analyzed file but its evidence lives in a sibling module*. Today: **MLV301, MLV302, MLV401, MLV501** — exactly the set `mlview issues samples/vision_pipeline/train.py` loses against `mlview issues samples/vision_pipeline --scope file:train.py` (3 findings against 7), asserted as an equality, not as a literal, in `tests/core/test_coverage.py`. |
+| **C5** | `count` is the number of sibling modules **not** analyzed, and the message names up to four of them by relpath plus how many of them the analyzed module imports. |
+| **C6** | The summary emitter gives coverage diagnostics **their own block**, `Coverage (N)`, above `Notes (N)` and outside the ten-note clip that `Notes` applies. A coverage gap buried under housekeeping is the failure the block exists to end. |
+| **C7** | `RuleSpec.cross_file` is appended **last** and defaults to `False`, so every existing construction of the frozen dataclass — including the one in `tests/core/test_robustness.py` — still works. `rules.cross_file_codes()` is the only supported way to read the set. |
+
+**Two more kinds gain an emitter, both inside the existing seven.** PERF-02 replaced `ir/build_ir.py`'s literal
+`range(4)` with a convergence loop (`ir/converge.py`, cap `MAX_ROUNDS = 8`); when the loop stops on the cap
+rather than on a fixed point, the pipeline appends a **`truncated`** diagnostic naming the round count, because
+resolution that quietly gave up is exactly the "smaller graph with nothing to point at" this contract already
+refuses elsewhere. CLEANUP 3 makes a typo'd rule code — in `.mlview.toml` or in a `# mlview: ignore[...]`
+comment — a **`config_warning`** carrying up to three near misses; it used to be accepted in total silence, so a
+suppression that never took effect looked exactly like one that did.
+
+**Mirrors (§11.16).** `contracts/graph.schema.json` and `analyzer/src/mlview/schema/graph.schema.json` are
+byte-identical, and `claude-plugin/vendor/mlview/schema/graph.schema.json` follows through `tools/sync-core.py`.
+`webview/src/types.ts` and `webview/src/ui/chrome.ts` carry the TypeScript copy of this enum and are amended in
+the same change.
+
+**Gates:** `analyzer/tests/core/test_coverage.py` (14 cases, including the both-mirrors enum check and the
+three-corpus negative), `analyzer/tests/core/test_ir_converge.py` (the round-cap diagnostic),
+`analyzer/tests/core/test_cleanup.py` (the two `config_warning` paths), and `contracts/validate_sample.py`,
+which reads the enum from the schema and therefore needs no edit.
+
+**Alongside, in the same change — three additive surfaces §3 does not yet list.** Recorded here so the §3 table
+is not silently out of date; a later amendment may re-home them.
+
+* `--group-by rule|file|none` on `analyze` and on `issues` (RAIL-GROUP), **default `none`**, which prints exactly
+  what those commands printed before the flag existed. It is a rendering choice, never a filter: `--json` is
+  byte-identical with and without it, and the `N issue(s)` header keeps counting occurrences, not groups.
+  `api.render_summary` gains a matching `group_by="none"` third argument, appended last and defaulted, so the
+  frozen two-argument call returns exactly what it always returned. `--format text` and `api.render_text` are
+  deliberately **not** grouped: that form's `Findings` block is one entry per issue by definition, and
+  `render_text`'s one-argument signature is pinned by `tests/core/test_api.py::test_render_signatures`.
+* `issues --text` now renders (CLEANUP 1). It was declared with `dest="text_out"` and read by nobody, so the two
+  invocations were byte-identical; it reaches `emit/text_out.render_findings`, the same message / why / fix block
+  `analyze --format text` prints.
+* `GraphContext` gains `ctx.untraced(call, name, reason)`, additive beside the §3 listing exactly as
+  `ctx.calls_with_role` already is. It emits no `Issue` and touches no gate.
+
+A4's size band is now enforced inside `emit/html_out.write_html` at runtime (BUILD-01) instead of only over the
+demo artifacts in `scripts/e2e`: an out-of-band report is still written, with a warning on **stderr** naming
+`--max-nodes` as the lever. The fallback report emitted when the viewer bundle is absent is exempt, because A4
+words the band "when the bundle is present".

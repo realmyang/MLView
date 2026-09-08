@@ -7,6 +7,7 @@
  * always returns something under the limit, even for a graph with hundreds of issues.
  */
 
+import { coverageFor } from './coverage';
 import { countIssues, type IssueCounts, type MLGraph, type Severity } from './graph';
 import { selectIssues, truncate, type IssueFilter } from './issues';
 
@@ -39,6 +40,12 @@ export interface AnalyzeDigest {
   lanes: LaneDigest[];
   topIssues: TopIssueDigest[];
   truncated: boolean;
+  /**
+   * COVERAGE: the analyzer's `single_file_analysis` / `untagged_dataflow` caveats, verbatim.
+   * A model that is handed a finding count and nothing else reports a clean file; this is the
+   * sentence that stops it, and it is why the shedding ladder drops it last of all.
+   */
+  coverage: string[];
   /** True when this digest itself had to shed detail to fit the 4 KB budget. */
   digestTruncated: boolean;
   graphPath?: string;
@@ -68,6 +75,8 @@ export interface IssuesDigest {
   countBySeverity: IssueCounts;
   suppressedCount: number;
   issues: IssueDigestRow[];
+  /** COVERAGE: see `AnalyzeDigest.coverage`. An empty issue list is not a clean file. */
+  coverage: string[];
   digestTruncated: boolean;
 }
 
@@ -131,6 +140,7 @@ export function buildAnalyzeDigest(graph: MLGraph, opts: AnalyzeDigestOptions = 
       line: issue.loc.line
     })),
     truncated: graph.stats.truncated === true,
+    coverage: coverageFor(graph),
     digestTruncated: false,
     ...(opts.graphPath ? { graphPath: opts.graphPath } : {}),
     ...(opts.reportPath ? { reportPath: opts.reportPath } : {})
@@ -163,6 +173,13 @@ export function buildAnalyzeDigest(graph: MLGraph, opts: AnalyzeDigestOptions = 
       d.digestTruncated = true;
       return true;
     }
+    if (d.coverage.length > 0) {
+      // Last resort only: a payload that cannot hold one more sentence is already useless,
+      // but the budget is a hard contract and something has to give.
+      d.coverage.pop();
+      d.digestTruncated = true;
+      return true;
+    }
     return false;
   });
 }
@@ -179,6 +196,7 @@ export function buildIssuesDigest(graph: MLGraph, opts: IssuesDigestOptions = {}
   const digest: IssuesDigest = {
     countBySeverity: countIssues(graph.issues),
     suppressedCount: graph.issues.filter((i) => i.suppressed).length,
+    coverage: coverageFor(graph),
     issues: selected.slice(0, rowLimit).map((issue) => ({
       id: issue.id,
       code: issue.code,
@@ -201,6 +219,11 @@ export function buildIssuesDigest(graph: MLGraph, opts: IssuesDigestOptions = {}
   return fitToBudget(digest, limitBytes, (d) => {
     const last = d.issues[d.issues.length - 1];
     if (!last) {
+      if (d.coverage.length > 0) {
+        d.coverage.pop();
+        d.digestTruncated = true;
+        return true;
+      }
       return false;
     }
     if (d.issues.length > 1) {
@@ -262,7 +285,23 @@ export function analyzeDigestToText(digest: AnalyzeDigest): string {
   if (digest.notebooksSkipped > 0) {
     lines.push(`${digest.notebooksSkipped} notebook(s) were detected but not analyzed.`);
   }
+  lines.push(...coverageTextLines(digest.coverage));
   return lines.join('\n');
+}
+
+/**
+ * COVERAGE: the paragraph that stops a model reporting a blind run as a clean one. It is
+ * addressed to the model in the imperative because the LM tools hand this text to it verbatim.
+ */
+function coverageTextLines(coverage: string[]): string[] {
+  if (coverage.length === 0) {
+    return [];
+  }
+  return [
+    'Coverage caveat - this analysis was INCOMPLETE, so the counts above are a floor and ' +
+      'not a clean bill of health. Say so when you report them:',
+    ...coverage.map((line) => `  - ${line}`)
+  ];
 }
 
 export function issuesDigestToText(digest: IssuesDigest): string {
@@ -275,6 +314,7 @@ export function issuesDigestToText(digest: IssuesDigest): string {
   );
   if (digest.issues.length === 0) {
     lines.push('No matching issues.');
+    lines.push(...coverageTextLines(digest.coverage));
     return lines.join('\n');
   }
   for (const issue of digest.issues) {
@@ -288,5 +328,6 @@ export function issuesDigestToText(digest: IssuesDigest): string {
   if (digest.digestTruncated) {
     lines.push('(list truncated to stay within the 4 KB tool budget)');
   }
+  lines.push(...coverageTextLines(digest.coverage));
   return lines.join('\n');
 }

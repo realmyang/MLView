@@ -3,8 +3,9 @@
     parse -> symbols -> scopes/calls -> bindings -> receiver resolution
           -> class-base closure -> loop classification
 
-Two binding rounds run because receiver resolution needs bindings and binding
-tags need resolved receivers; the second round is the fixed point in practice.
+Binding rounds repeat because receiver resolution needs bindings and binding
+tags need resolved receivers; `_run_rounds` stops at the fixed point rather
+than at a fixed count (PERF-02, `ir/converge.py`).
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ from typing import Dict, Iterable, List, Sequence, Tuple
 from .. import knowledge as K
 from ..ingest.parse import ParsedFile
 from .bindings import bind_module, binding_of
+from .converge import MAX_ROUNDS, state_digest
 from .resolve import (mark_fitted, propagate_parameters, resolve_calls,
                       seed_annotations)
 from .model import ClassIR, ModuleIR, WorkspaceIR
@@ -58,21 +60,7 @@ def build_workspace(root: str, parsed_files: Sequence[ParsedFile]) -> WorkspaceI
 
     _resolve_class_bases(workspace)
 
-    # bindings need resolved receivers, receiver resolution needs bindings and
-    # return inference needs both: four rounds reach the fixed point on every
-    # fixture, and the final bind makes the tags agree with the final resolution.
-    for _round in range(4):
-        for relpath in sorted(workspace.modules):
-            bind_module(workspace.modules[relpath], workspace)
-        for relpath in sorted(workspace.modules):
-            seed_annotations(workspace.modules[relpath], workspace)
-        for relpath in sorted(workspace.modules):
-            propagate_parameters(workspace.modules[relpath], workspace)
-        for relpath in sorted(workspace.modules):
-            resolve_calls(workspace.modules[relpath], workspace)
-        # one level of return-type inference, so the *next* binding round can
-        # type `opt = build_optimizer(model, cfg)` (see ir/returns.py)
-        infer_returns(workspace)
+    _run_rounds(workspace)
     for relpath in sorted(workspace.modules):
         mark_fitted(workspace.modules[relpath])
 
@@ -89,6 +77,45 @@ def build_workspace(root: str, parsed_files: Sequence[ParsedFile]) -> WorkspaceI
     workspace.dynamic_scopes = [s for relpath in sorted(workspace.modules)
                                 for s in workspace.modules[relpath].scopes if s.dynamic]
     return workspace
+
+
+def _ir_round(workspace: WorkspaceIR) -> None:
+    """One binding / annotation / parameter / resolution / return pass."""
+    for relpath in sorted(workspace.modules):
+        bind_module(workspace.modules[relpath], workspace)
+    for relpath in sorted(workspace.modules):
+        seed_annotations(workspace.modules[relpath], workspace)
+    for relpath in sorted(workspace.modules):
+        propagate_parameters(workspace.modules[relpath], workspace)
+    for relpath in sorted(workspace.modules):
+        resolve_calls(workspace.modules[relpath], workspace)
+    # one level of return-type inference, so the *next* binding round can
+    # type `opt = build_optimizer(model, cfg)` (see ir/returns.py)
+    infer_returns(workspace)
+
+
+def _run_rounds(workspace: WorkspaceIR) -> None:
+    """Run the IR passes to their fixed point (PERF-02).
+
+    Bindings need resolved receivers, receiver resolution needs bindings and
+    return inference needs both, so the passes run in rounds. The count used to
+    be a literal `range(4)`: three rounds wasted on a small workspace, one too
+    few for a 5-deep cross-module chain. The loop now stops the round after
+    `state_digest` stops moving - which is the fixed point by definition,
+    because every pass is a deterministic function of that state - and records
+    whether it stopped there or on `MAX_ROUNDS`.
+    """
+    previous = None
+    workspace.ir_rounds = 0
+    workspace.ir_converged = False
+    for _iteration in range(MAX_ROUNDS):
+        _ir_round(workspace)
+        workspace.ir_rounds += 1
+        current = state_digest(workspace)
+        if current == previous:
+            workspace.ir_converged = True
+            return
+        previous = current
 
 
 def _unresolved_imports(workspace: WorkspaceIR, dotted_names) -> List[Tuple[str, int, str]]:

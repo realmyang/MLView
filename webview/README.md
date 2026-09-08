@@ -19,6 +19,17 @@ npm run refresh-sample   # re-inline the sample into dev/index.html
 `dist/` is a build product that is **committed**, because both hosts load it and
 the analyzer hashes it into `generator.rendererSha`.
 
+`dist/mlview.css` is **minified** (BUILD-01): one `esbuild.transform` call takes
+the nine concatenated layers from 85 KB to 53 KB, -38 %, in every emitted report
+and in all three checked-in copies. The readable concatenation, its
+`/* ---- file ---- */` markers and all, is written beside it as
+`dist/mlview.dev.css`. That file is **never shipped** -- `tools/sync-assets.py`
+copies only `mlview.js` and `mlview.css` -- and exists for two consumers: the
+`dev/*.html` harness pages, and the CSS gates that assert authored structure.
+`test/bundle.test.mjs` proves `mlview.css` is byte-for-byte the minification of
+`mlview.dev.css`, so an assertion about the readable file is an assertion about
+what ships, and holds both to a size ratchet (JS 216 KB, CSS 55 KB).
+
 ## Public API (CONTRACTS section 8, amendment A3)
 
 ```ts
@@ -39,7 +50,10 @@ window.MLView = {
   first `graph` message arrives — the shape amendment A5 needs.
 - `ready` is posted on mount. Every `HostToUi` type in CONTRACTS section 4 is
   handled; unknown types are posted back as a `log` message and ignored.
-- `ViewState` = `{ viewport, selection, collapsed, filters, railTab }`, saved
+- `ViewState` = `{ viewport, selection, collapsed, filters, railTab }` plus the
+  optional `minimapCollapsed`, `scope`, `flow`, `railGroupBy` and `legendOpen`
+  -- each absent at its default, so a host predating one round-trips it
+  untouched (CONTRACTS 11.9's pattern). Saved
   through `bridge.saveState` debounced at 250 ms and restored from
   `bridge.loadState()` on mount.
 - Capabilities drive the chrome: `canReanalyze` shows the refresh button,
@@ -78,7 +92,14 @@ package's tests and `dev/states.html`. **Hosts must not depend on it.**
 | `src/filters.ts` | the filter model (severities, stages, suppressed, query, rule codes) and its predicates |
 | `src/layout/` | `model` (index), `layout` (swimlanes + dagre), `routing` (elbows, loops), `navigate` (arrow keys) |
 | `src/render/` | `scene`, `nodes`, `edges`, `canvas` (viewport + minimap), `trace`, `tooltip`, `connectors` |
-| `src/ui/` | `shell`, `chrome`, `rail`, `states`, `keymap`, `searchbox`, `searchcontroller` |
+| `src/ui/` | `shell`, `chrome`, `rail`, `issuelist`, `railgroup`, `evidence`, `ruledocs`, `legend`, `gestures`, `states`, `keymap`, `searchbox`, `searchcontroller` |
+| `src/ui/issuelist.ts` | the Issues panel: the "Group by" control, the severity sections, the rows and the four empty states |
+| `src/ui/railgroup.ts` | grouping findings by rule or by file, with occurrence counts (RAIL-GROUP) |
+| `src/ui/evidence.ts` | the confidence chip on every row, the `issue.evidence[]` checklist and the rule card (MLV-P6) |
+| `src/ui/ruledocs.ts` | **the rule-doc sidecar hook**: reads `<script id="mlview-rule-docs">` or `window.MLViewRuleDocs`, and composes the same sections from the finding until the analyzer emits one |
+| `src/ui/legend.ts` | the legend, generated from `markers.ts`, the edge-kind table and the real card classes (VIEW-10) |
+| `src/ui/gestures.ts` | wheel `deltaMode` normalization, the ctrl/pinch branch, two-axis pan and two-pointer pinch (VIEW-06) |
+| `src/searchloc.ts` | a pasted `path:line` resolved to the narrowest node containing that line (VIEW-09a) |
 | `src/markers.ts` | the three severity shapes, badges, clusters and edge markers |
 | `src/icons.ts` | one inline SVG symbol per `NodeKind`, plus the chrome glyphs |
 | `src/bridges.ts` | `vscode()` and `standalone()` host bridges, plus `deepLinkPlan` — the standalone report never navigates itself (CONTRACTS 11.17) |

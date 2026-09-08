@@ -38,6 +38,9 @@ export interface KeyContext {
   openSelection(): boolean;
   zoomToSelection(): void;
   move(key: string): void;
+  /** VIEW-10: the legend panel and the flow animation, both keyboard-reachable. */
+  toggleLegend(): void;
+  toggleFlow(): void;
   toggleSeverity(sev: Severity): void;
   toggleRail(): void;
   setRailTab(tab: RailTab): void;
@@ -82,6 +85,9 @@ export function commandPortFor(ctx: KeyContext): CommandPort {
     fit: () => ctx.view().fit(),
     toggleFocusMode: () => ctx.view().toggleFocusMode(ctx.selection()),
     zoomToSelection: () => ctx.zoomToSelection(),
+    overview: () => ctx.view().overview(),
+    toggleLegend: () => ctx.toggleLegend(),
+    toggleFlow: () => ctx.toggleFlow(),
 
     collapseSelection: () => {
       const sel = ctx.selection();

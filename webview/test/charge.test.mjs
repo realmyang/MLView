@@ -319,7 +319,7 @@ test('the dot is painted from --mlv-flow-color, so severity still runs RED (F1-A
   assert.equal(g.getAttribute('data-sev'), 'high', 'this is the softmax -> CrossEntropyLoss edge');
   assert.ok(g.classList.contains('has-issue'), 'so --mlv-flow-color resolves to var(--mlv-sev)');
 
-  const css = await readFile(join(WEBVIEW_ROOT, 'dist', 'mlview.css'), 'utf8');
+  const css = await readFile(join(WEBVIEW_ROOT, 'dist', 'mlview.dev.css'), 'utf8');
   const ruleFor = (cls) => {
     const at = css.indexOf('.' + cls + ' {');
     assert.ok(at > 0, cls + ' has no rule in the stylesheet');
@@ -342,7 +342,7 @@ test('the dot is painted from --mlv-flow-color, so severity still runs RED (F1-A
 test('the halo is opacity, never a filter primitive (F1-A16)', async () => {
   // A filter on a moving element re-rasterizes its filter region every frame,
   // which is precisely the cost flow.css's header rules out.
-  const css = await readFile(join(WEBVIEW_ROOT, 'dist', 'mlview.css'), 'utf8');
+  const css = await readFile(join(WEBVIEW_ROOT, 'dist', 'mlview.dev.css'), 'utf8');
   // Comments stripped first: this file's own header NAMES the things it bans.
   const flowLayer = css
     .slice(css.indexOf('---- flow.css ----'), css.indexOf('---- scope.css ----'))
@@ -365,7 +365,7 @@ test('the stylesheet removes the DOT under reduced motion and under flow-off (F1
   // SMIL is not CSS: the blanket `animation-duration: 0.01ms` clamp in base.css
   // does not touch `<animateMotion>` at all, so the charge needs its own removal
   // rather than relying on the clamp that covers the dash stream.
-  const css = await readFile(join(WEBVIEW_ROOT, 'dist', 'mlview.css'), 'utf8');
+  const css = await readFile(join(WEBVIEW_ROOT, 'dist', 'mlview.dev.css'), 'utf8');
   const blocks = css.split('@media (prefers-reduced-motion: reduce)');
   const naming = blocks.slice(1).filter((b) => b.slice(0, 600).indexOf('mlv-edge__charge') >= 0);
   assert.equal(naming.length, 1, 'exactly one reduced-motion block removes the charge');
@@ -377,7 +377,7 @@ test('the stylesheet removes the DOT under reduced motion and under flow-off (F1
 });
 
 test('the pulse underlay no longer animates a dash (F1-A12)', async () => {
-  const css = await readFile(join(WEBVIEW_ROOT, 'dist', 'mlview.css'), 'utf8');
+  const css = await readFile(join(WEBVIEW_ROOT, 'dist', 'mlview.dev.css'), 'utf8');
   const at = css.indexOf('.mlv-edge.is-flowing--pulse .mlv-edge__flow');
   assert.ok(at > 0, 'the pulse underlay still has a rule');
   const rule = css.slice(at, css.indexOf('}', at)).replace(/\s+/g, ' ');
@@ -490,7 +490,7 @@ test('the dot fades in at the outlet and out at the inlet (R3-CHG-03)', async ()
   // the charge blinked out at the inlet and in at the outlet one frame later, at
   // full strength: a ~190 px jump on a short cable, ~640 px on a long one, once
   // per cycle for as long as the pointer rested.
-  const css = await readFile(join(WEBVIEW_ROOT, 'dist', 'mlview.css'), 'utf8');
+  const css = await readFile(join(WEBVIEW_ROOT, 'dist', 'mlview.dev.css'), 'utf8');
   const frames = css.slice(css.indexOf('@keyframes mlv-charge-ends'));
   assert.ok(frames.indexOf('@keyframes mlv-charge-ends') === 0, 'the fade keyframe exists');
   const body = frames.slice(0, frames.indexOf('}\n}') + 3).replace(/\s+/g, ' ');
@@ -520,7 +520,7 @@ test('high contrast rings the dot in ink instead of an invisible halo (R3-CHG-05
   // In hc `--mlv-flow-color` is `--mlv-text`, so the halo was the same white as
   // the cable it rode: the "hue around the dot" the feature is about, delivered
   // as white on white. HC has ruled hue out, so the ring comes back as geometry.
-  const css = await readFile(join(WEBVIEW_ROOT, 'dist', 'mlview.css'), 'utf8');
+  const css = await readFile(join(WEBVIEW_ROOT, 'dist', 'mlview.dev.css'), 'utf8');
   const at = css.indexOf('[data-theme="hc"] .mlv-edge__charge-halo');
   assert.ok(at > 0, 'no high-contrast rule for the halo');
   const rule = css.slice(css.lastIndexOf('}', at) + 1, css.indexOf('}', at)).replace(/\s+/g, ' ');

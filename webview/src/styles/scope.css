@@ -202,7 +202,14 @@
 /* A boundary stub is DASHED and carries a declared foreground — never opacity
  * alone, which is how the contrast gate is passed. It has no severity badge:
  * its findings are out of scope, and a badge you cannot open is a lie. */
-.mlv-node[data-view-role="boundary"] {
+/*
+ * The legend's boundary swatch (VIEW-10) is keyed on `data-legend-role`, not on
+ * `data-view-role`: the latter is PROJECTION data, and a key that carries it
+ * would answer `querySelectorAll('[data-view-role="boundary"]')` -- the query
+ * that checks every boundary stub is badge-free and named as out of scope.
+ */
+.mlv-node[data-view-role="boundary"],
+.mlv-legend__card[data-legend-role="boundary"] {
   border-style: dashed;
   color: var(--mlv-fg-boundary);
 }

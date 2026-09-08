@@ -18,6 +18,12 @@ export interface KeyCommands {
   fit(): void;
   toggleFocusMode(): void;
   zoomToSelection(): void;
+  /** `Shift+0`: collapse every group and fit — the one-screen picture. */
+  overview(): void;
+  /** `l`: show or hide the legend. */
+  toggleLegend(): void;
+  /** `a`: turn the connection-flow animation on or off. */
+  toggleFlow(): void;
   toggleCollapse(): boolean;
   openSelection(): boolean;
   move(key: string): void;
@@ -50,10 +56,13 @@ export const KEYMAP: KeyBinding[] = [
   { keys: ['Space'], action: 'collapse', description: 'Collapse or expand the selected group' },
   { keys: ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'], action: 'move', description: 'Move the selection' },
   { keys: ['0'], action: 'fit', description: 'Fit the whole diagram' },
+  { keys: ['Shift+0'], action: 'overview', description: 'Overview: collapse every group and fit' },
   { keys: ['+', '='], action: 'zoomIn', description: 'Zoom in' },
   { keys: ['-', '_'], action: 'zoomOut', description: 'Zoom out' },
   { keys: ['z'], action: 'zoomToSelection', description: 'Zoom to the selection' },
   { keys: ['f'], action: 'focusMode', description: 'Focus mode on the selection' },
+  { keys: ['l'], action: 'legend', description: 'Show or hide the legend' },
+  { keys: ['a'], action: 'flow', description: 'Turn the connection flow animation on or off' },
   { keys: ['e', 'Shift+E'], action: 'cycleConnections', description: 'Next / previous connection of the selected node' },
   { keys: ['s', 'Shift+S'], action: 'scope', description: 'Scope the diagram to the selection / clear the scope' },
   { keys: ['[', ']'], action: 'scopeDepth', description: 'Narrow / widen the scope by one hop' },
@@ -124,6 +133,12 @@ export function handleCanvasKey(ev: KeyboardEvent, cmd: KeyCommands): boolean {
     cmd.zoom(-1);
     return consume();
   }
+  // Shift+0 arrives as ')' on a US layout and as '0' with `shiftKey` elsewhere;
+  // both mean Overview, and the plain `0` below must not swallow either.
+  if (key === ')' || (key === '0' && ev.shiftKey)) {
+    cmd.overview();
+    return consume();
+  }
   if (key === '0') {
     cmd.fit();
     return consume();
@@ -134,6 +149,14 @@ export function handleCanvasKey(ev: KeyboardEvent, cmd: KeyCommands): boolean {
   }
   if (key === 'f' || key === 'F') {
     cmd.toggleFocusMode();
+    return consume();
+  }
+  if (key === 'l' || key === 'L') {
+    cmd.toggleLegend();
+    return consume();
+  }
+  if (key === 'a' || key === 'A') {
+    cmd.toggleFlow();
     return consume();
   }
   // `f`/`p` fold case above, so this pair must branch on shiftKey EXPLICITLY or

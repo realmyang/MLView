@@ -31,7 +31,13 @@ def fit_before_split(ctx) -> Iterable[Issue]:
         if _stateless(fit):
             continue
         name, ref = arg_ref(ctx, fit, 0)
-        if ref is None or not ref.has("FEATURES", "RAW_DATA"):
+        if ref is None or not ref.tags:
+            # COVERAGE: no tag at all means the analyzer never traced this
+            # value - a bare function parameter is the measured case. Staying
+            # silent is right; looking clean is not.
+            ctx.untraced(fit, name, _untraced_reason(fit, name, ref))
+            continue
+        if not ref.has("FEATURES", "RAW_DATA"):
             continue
         if ref.has("TRAIN_SPLIT"):
             continue
@@ -69,6 +75,19 @@ def fit_before_split(ctx) -> Iterable[Issue]:
             loc=fit.loc, node_ids=nodes, related=related, evidence=evidence,
             dynamic=fit.scope.is_dynamic))
     return issues
+
+
+def _untraced_reason(fit: CallSite, name, ref) -> str:
+    """Why the analyzer has no tag for this value - the honest short answer."""
+    scope = fit.scope
+    function = getattr(fit, "function", None)
+    if name and function is not None and name in (function.params or ()):
+        return "it arrives as a parameter of %s" % function.qualname
+    if ref is None:
+        return "it is not bound to any value the analyzer could follow"
+    if scope is not None and scope.is_dynamic:
+        return "%s is a dynamic scope" % scope.qualname
+    return "its producer resolved to nothing the knowledge tables recognise"
 
 
 def _label(call: CallSite) -> str:
@@ -121,7 +140,10 @@ def fit_on_held_out(ctx) -> Iterable[Issue]:
         if _semi_supervised(fit.module):
             continue
         name, ref = arg_ref(ctx, fit, 0)
-        if ref is None or not ref.has(*_HELD_OUT):
+        if ref is None or not ref.tags:
+            ctx.untraced(fit, name, _untraced_reason(fit, name, ref))
+            continue
+        if not ref.has(*_HELD_OUT):
             continue
         if ref.has("TRAIN_SPLIT"):
             continue

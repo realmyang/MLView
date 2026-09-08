@@ -6,7 +6,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { loadBundle, readSample, makeSyntheticGraph, DIST_CSS } from './helpers.mjs';
+import { loadBundle, readSample, makeSyntheticGraph, DIST_CSS_DEV } from './helpers.mjs';
 
 const sample = await readSample();
 
@@ -79,7 +79,7 @@ test('a cross-lane child is listed under its OWN stage, once (MLV-R2-W01)', asyn
 /* ── MLV-R2-W02: the high-contrast marker rule never matched ─────────────── */
 
 test('every theme rule is keyed on the mount root as well as :root (MLV-R2-W02)', async () => {
-  const css = await readFile(DIST_CSS, 'utf8');
+  const css = await readFile(DIST_CSS_DEV, 'utf8');
   const selectors = css
     .split('}')
     .map((block) => block.slice(block.lastIndexOf('{') === -1 ? 0 : 0, block.indexOf('{')))
@@ -102,7 +102,7 @@ test('every theme rule is keyed on the mount root as well as :root (MLV-R2-W02)'
 });
 
 test('the high-contrast marker treatment fires from the mount root (MLV-R2-W02)', async () => {
-  const css = await readFile(DIST_CSS, 'utf8');
+  const css = await readFile(DIST_CSS_DEV, 'utf8');
   const start = css.indexOf('.mlv-glyph__shape {');
   assert.ok(start > 0);
   const hcRule = css.slice(css.indexOf('.mlv-glyph--high'));

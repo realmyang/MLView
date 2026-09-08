@@ -19,7 +19,7 @@ _SOFTMAX_ROLES = ("SOFTMAX", "LOG_SOFTMAX")
 
 
 @rule(code="MLV401", severity="high", base_prior=0.95, frameworks=["torch"],
-      rule_version=1, tags=["correctness", "objective"],
+      rule_version=1, tags=["correctness", "objective"], cross_file=True,
       title="Softmax applied before CrossEntropyLoss",
       why="CrossEntropyLoss applies log-softmax internally, so a second softmax "
           "flattens the gradients and the model trains far worse than it should.",

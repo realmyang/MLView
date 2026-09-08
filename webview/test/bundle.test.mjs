@@ -8,10 +8,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile, stat } from 'node:fs/promises';
-import { readBundle, DIST_CSS, DIST_JS } from './helpers.mjs';
+import { readBundle, DIST_CSS, DIST_CSS_DEV, DIST_JS } from './helpers.mjs';
+import { minifyCss } from '../build.mjs';
 
 const bundle = await readBundle();
+/** What SHIPS: minified (BUILD-01). */
 const css = await readFile(DIST_CSS, 'utf8');
+/** The same stylesheet before minification -- what the structural gates read. */
+const devCss = await readFile(DIST_CSS_DEV, 'utf8');
 
 test('dist/mlview.js exists and is a single IIFE exposing MLView', async () => {
   const info = await stat(DIST_JS);
@@ -56,11 +60,70 @@ test('the SVG namespace is still reachable at runtime', async () => {
 });
 
 test('stylesheet carries the token layer and both theme branches', () => {
+  // Authored form. The shipped file says the same thing in the minifier's
+  // spelling -- asserted separately below, so neither form can drift alone.
+  assert.ok(devCss.indexOf('--mlv-sev-high') >= 0);
+  assert.ok(devCss.indexOf('[data-theme="dark"]') >= 0);
+  assert.ok(devCss.indexOf('[data-theme="hc"]') >= 0);
+  assert.ok(devCss.indexOf('prefers-color-scheme: dark') >= 0);
+  assert.ok(devCss.indexOf('prefers-reduced-motion') >= 0);
+});
+
+test('the SHIPPED stylesheet carries the same layers in minified spelling (BUILD-01)', () => {
+  // esbuild unquotes attribute values and drops the space after a colon, so the
+  // shipped file is grepped in ITS spelling -- proving the minifier did not eat
+  // a theme branch on the way into the report.
   assert.ok(css.indexOf('--mlv-sev-high') >= 0);
-  assert.ok(css.indexOf('[data-theme="dark"]') >= 0);
-  assert.ok(css.indexOf('[data-theme="hc"]') >= 0);
-  assert.ok(css.indexOf('prefers-color-scheme: dark') >= 0);
+  assert.ok(css.indexOf('[data-theme=dark]') >= 0);
+  assert.ok(css.indexOf('[data-theme=hc]') >= 0);
+  assert.ok(css.indexOf('prefers-color-scheme:dark') >= 0);
   assert.ok(css.indexOf('prefers-reduced-motion') >= 0);
+  assert.ok(css.indexOf('.mlv-root[data-theme=hc]') >= 0, 'the mount-root hc block survives');
+});
+
+test('dist/mlview.css IS the minification of dist/mlview.dev.css (BUILD-01)', async () => {
+  // The gate that makes every dev-CSS assertion an assertion about what ships:
+  // one esbuild.transform call stands between the two files, and nothing else.
+  const expected = await minifyCss(devCss);
+  assert.equal(css, expected, 'the shipped stylesheet is not the minified dev stylesheet');
+  assert.ok(css.length < devCss.length * 0.75, 'minification cut at least 25%: ' + css.length + ' of ' + devCss.length);
+});
+
+/*
+ * BUILD-01's size ratchet.
+ *
+ * MEASURED ON THIS TREE, 2026-09-08, after the eight NOW-tier viewer items:
+ *   dist/mlview.js       218 038 B (212.9 KB)
+ *   dist/mlview.css       54 052 B  (52.8 KB), minified from 89 296 B (-38%)
+ *   dist/mlview.dev.css   89 296 B  (87.2 KB, never shipped)
+ *
+ * The roadmap proposed 210 KB / 55 KB, measured when the bundle was 198 KB and
+ * the stylesheet 46.9 KB -- i.e. BEFORE this sprint added the legend, the
+ * evidence and rule-doc disclosures, the rail grouping, the gesture
+ * normalization and the location search (~15 KB of JS, ~6 KB of minified CSS).
+ * The CSS cap is kept at the proposed 55 KB. The JS cap is set to 216 KB, the
+ * same ~2 % headroom over the real number that 210 KB gave over 198 KB: a
+ * ratchet exists to make the NEXT growth visible, and a cap the tree already
+ * exceeds makes nothing visible at all.
+ */
+const JS_MAX_BYTES = 216 * 1024;
+const CSS_MAX_BYTES = 55 * 1024;
+
+test('the shipped bundle stays inside its size ratchet (BUILD-01)', async () => {
+  const js = await stat(DIST_JS);
+  const style = await stat(DIST_CSS);
+  assert.ok(
+    js.size <= JS_MAX_BYTES,
+    'dist/mlview.js is ' + js.size + ' B, over the ' + JS_MAX_BYTES + ' B ratchet -- justify the growth or trim it',
+  );
+  assert.ok(
+    style.size <= CSS_MAX_BYTES,
+    'dist/mlview.css is ' + style.size + ' B, over the ' + CSS_MAX_BYTES + ' B ratchet',
+  );
+  // A ratchet only ratchets while it is snug: a cap far above the real number is
+  // a cap nobody will ever trip.
+  assert.ok(js.size > JS_MAX_BYTES * 0.8, 'the JS ratchet has gone slack -- lower it to the current size');
+  assert.ok(style.size > CSS_MAX_BYTES * 0.7, 'the CSS ratchet has gone slack -- lower it to the current size');
 });
 
 test('the stylesheet removes the charge under prefers-reduced-motion (F1-A6)', () => {
@@ -68,7 +131,7 @@ test('the stylesheet removes the charge under prefers-reduced-motion (F1-A6)', (
   // and this block removes a stale one from a mid-session preference change.
   // The blanket clamp in base.css only FREEZES an animation, which would park a
   // 12 px stub at the outlet of every lit edge (CONTRACTS 11.13 rule 3).
-  const blocks = css.split('@media (prefers-reduced-motion: reduce)');
+  const blocks = devCss.split('@media (prefers-reduced-motion: reduce)');
   assert.ok(blocks.length > 1, 'the stylesheet has a reduced-motion block');
   const naming = blocks.slice(1).filter((b) => b.slice(0, 400).indexOf('mlv-edge__flow') >= 0);
   assert.equal(naming.length, 1, 'exactly one reduced-motion block names mlv-edge__flow');
@@ -76,8 +139,8 @@ test('the stylesheet removes the charge under prefers-reduced-motion (F1-A6)', (
 });
 
 test('the two flow-colour rules cannot be decided by source order (F1-A9)', () => {
-  assert.ok(/\.mlv-edge\.has-issue\s*\{[^}]*--mlv-flow-color:\s*var\(--mlv-sev\)/.test(css));
-  assert.ok(/\.mlv-edge\[data-stage\]:not\(\.has-issue\)\s*\{[^}]*--mlv-flow-color:\s*var\(--mlv-stage\)/.test(css));
+  assert.ok(/\.mlv-edge\.has-issue\s*\{[^}]*--mlv-flow-color:\s*var\(--mlv-sev\)/.test(devCss));
+  assert.ok(/\.mlv-edge\[data-stage\]:not\(\.has-issue\)\s*\{[^}]*--mlv-flow-color:\s*var\(--mlv-stage\)/.test(devCss));
 });
 
 test('no source file measures a path through the DOM (F1-A3)', async () => {
@@ -106,10 +169,17 @@ test('no source file measures a path through the DOM (F1-A3)', async () => {
 });
 
 test('the flow and scope layers reached the built stylesheet', () => {
-  assert.ok(css.indexOf('---- flow.css ----') >= 0, 'flow.css is concatenated');
-  assert.ok(css.indexOf('---- scope.css ----') >= 0, 'scope.css is concatenated');
-  assert.ok(css.indexOf('--mlv-flow-dur-data: 210ms') >= 0, 'the stream period tokens ship');
-  assert.ok(css.indexOf('--mlv-fg-boundary') >= 0, 'the boundary foreground is a DECLARED token, not opacity');
+  // The `---- file ----` markers live only in the dev build now (BUILD-01); the
+  // shipped file is checked for the DECLARATIONS those layers contribute, which
+  // is the thing that actually has to arrive.
+  assert.ok(devCss.indexOf('---- flow.css ----') >= 0, 'flow.css is concatenated');
+  assert.ok(devCss.indexOf('---- scope.css ----') >= 0, 'scope.css is concatenated');
+  assert.ok(devCss.indexOf('--mlv-flow-dur-data: 210ms') >= 0, 'the stream period tokens ship');
+  assert.ok(devCss.indexOf('--mlv-fg-boundary') >= 0, 'the boundary foreground is a DECLARED token, not opacity');
+  // The minifier rewrites 210ms as .21s -- the same duration, and the reason the
+  // structural assertions above read the authored file rather than this one.
+  assert.ok(css.indexOf('--mlv-flow-dur-data: .21s') >= 0, 'the stream period survives into the shipped file');
+  assert.ok(css.indexOf('--mlv-fg-boundary') >= 0);
 });
 
 test('every component the viewer hides has a [hidden] rule in the stylesheet', () => {
@@ -120,15 +190,15 @@ test('every component the viewer hides has a [hidden] rule in the stylesheet', (
   // switcher, the unscoped toolbar drew an empty breadcrumb pill, and
   // "0 suppressed" was painted while the code believed it had hidden it.
   // Every class below is toggled through `.hidden = ...` in src/.
-  for (const cls of ['mlv-chip', 'mlv-breadcrumb', 'mlv-scopepicker']) {
-    const base = css.indexOf('.' + cls + ' {');
+  for (const cls of ['mlv-chip', 'mlv-breadcrumb', 'mlv-scopepicker', 'mlv-legend']) {
+    const base = devCss.indexOf('.' + cls + ' {');
     assert.ok(base >= 0, '.' + cls + ' has no rule at all');
-    const baseBlock = css.slice(base, css.indexOf('}', base)).split(' ').join('');
+    const baseBlock = devCss.slice(base, devCss.indexOf('}', base)).split(' ').join('');
     assert.ok(baseBlock.indexOf('display:') >= 0,
       '.' + cls + ' no longer declares a display -- drop it from this list');
-    const at = css.indexOf('.' + cls + '[hidden]');
+    const at = devCss.indexOf('.' + cls + '[hidden]');
     assert.ok(at >= 0, '.' + cls + '[hidden] is missing from the stylesheet');
-    const block = css.slice(at, css.indexOf('}', at)).split(' ').join('');
+    const block = devCss.slice(at, devCss.indexOf('}', at)).split(' ').join('');
     assert.ok(block.indexOf('display:none') >= 0,
       '.' + cls + '[hidden] must set display:none');
   }

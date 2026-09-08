@@ -342,7 +342,7 @@ test('the charge takes the severity colour on a finding edge and the stage hue e
   assert.equal(plain.getAttribute('data-stage'), 'data');
   assert.equal(plain.classList.contains('has-issue'), false);
 
-  const css = await readFile(join(WEBVIEW_ROOT, 'dist', 'mlview.css'), 'utf8');
+  const css = await readFile(join(WEBVIEW_ROOT, 'dist', 'mlview.dev.css'), 'utf8');
   const bySeverity = /\.mlv-edge\.has-issue\s*\{[^}]*--mlv-flow-color:\s*var\(--mlv-sev\)/.test(css);
   const byStage = /\.mlv-edge\[data-stage\]:not\(\.has-issue\)\s*\{[^}]*--mlv-flow-color:\s*var\(--mlv-stage\)/.test(css);
   assert.ok(bySeverity, 'the severity rule exists');
@@ -390,7 +390,7 @@ test('the canvas advertises its motion and flow modes at rest', async () => {
 /* ── review round 1: the regressions, one per confirmed finding ───────── */
 
 test('high contrast paints the charge in ink, ON the edge (MLV-R1-FLOW-001)', async () => {
-  const css = await readFile(join(WEBVIEW_ROOT, 'dist', 'mlview.css'), 'utf8');
+  const css = await readFile(join(WEBVIEW_ROOT, 'dist', 'mlview.dev.css'), 'utf8');
   // The hc TOKEN block cannot win this one: a custom property declared on the
   // element itself always beats one inherited from an ancestor, whatever the
   // ancestor selector's specificity — so `.mlv-edge.has-issue` on the edge kept
@@ -669,7 +669,7 @@ test('no keyframe animating stroke-dashoffset contains a calc (R2-FLOW-01 gate)'
   // `mlv-flow-pulse` keyframe was deleted with the line it drove. The STREAM
   // still animates `stroke-dashoffset`, and it is still the one that must never
   // see a calc() on the animated side.
-  const css = await readFile(join(WEBVIEW_ROOT, 'dist', 'mlview.css'), 'utf8');
+  const css = await readFile(join(WEBVIEW_ROOT, 'dist', 'mlview.dev.css'), 'utf8');
   const blocks = css.match(/@keyframes\s+[\w-]+\s*\{[\s\S]*?\n\}/g) || [];
   assert.ok(blocks.length >= 2, 'found ' + blocks.length + ' keyframe blocks');
   const dashing = blocks.filter((b) => b.indexOf('stroke-dashoffset') >= 0);
@@ -691,7 +691,7 @@ test('the two endpoint rings differ by GEOMETRY, not only hue (R2-FLOW-02)', asy
   // target rings resolved to the same colour and the direction cue died. Measured
   // in Chromium 1243 after the fix: source `rgb(59,108,246) 0 0 0 2px`, target
   // `rgb(255,255,255) 0 0 0 2px, rgb(59,108,246) 0 0 0 4px`.
-  const css = await readFile(join(WEBVIEW_ROOT, 'dist', 'mlview.css'), 'utf8');
+  const css = await readFile(join(WEBVIEW_ROOT, 'dist', 'mlview.dev.css'), 'utf8');
   const decl = (cls) => {
     const at = css.indexOf('.mlv-group.' + cls);
     assert.ok(at > 0, cls + ' has no rule');
@@ -776,7 +776,7 @@ test('the arrowhead stands down for the inlet dot while a charge runs (R2-FLOW-0
   // exactly where `marker-end` draws the arrowhead: on a horizontal arrival the
   // 9 px arrow covered the 7 px dot and the pair read as one dark smudge, losing
   // the filled-inlet half of the direction cue FEATURES 2.8 counts on.
-  const css = await readFile(join(WEBVIEW_ROOT, 'dist', 'mlview.css'), 'utf8');
+  const css = await readFile(join(WEBVIEW_ROOT, 'dist', 'mlview.dev.css'), 'utf8');
   const at = css.indexOf('marker-end: none');
   assert.ok(at > 0, 'no rule stands the marker down');
   const rule = css.slice(css.lastIndexOf('}', at) + 1, css.indexOf('}', at)).replace(/\s+/g, ' ');

@@ -246,3 +246,29 @@ jobs:
         working-directory: webview
       - run: npm test
         working-directory: webview
+
+  # ----------------------------------------------------------------- accuracy
+  # ANA-12. The referee: the analyzer over `analyzer/tests/accuracy/corpus/`,
+  # scored against its labels. Three gates - zero `forbidden` findings ever,
+  # recall only ratchets up against `analyzer/tests/accuracy/baseline.json`, and
+  # graph fidelity only ratchets up. `docs/ACCURACY.md` says what the numbers
+  # mean. One ubuntu job on 3.13: the corpus is ten small projects and the whole
+  # run is under a second, so a matrix would buy nothing but minutes.
+  accuracy:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    name: accuracy corpus
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: analyzer/pyproject.toml
+      - name: install the analyzer
+        run: python -m pip install --upgrade pip && python -m pip install -e "analyzer[dev]"
+      - name: precision, recall, graph fidelity and calibration
+        run: python tools/accuracy.py --verbose
+      - name: the same three gates, asserted
+        run: python -m pytest analyzer/tests/accuracy -q

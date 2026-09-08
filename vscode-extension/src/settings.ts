@@ -4,6 +4,7 @@
  */
 
 import * as vscode from 'vscode';
+import { CURRENT_FILE_SCOPES, type CurrentFileAnalysisScope } from './currentFile';
 import type { Severity } from './graph';
 import type { TraceLevel } from './log';
 
@@ -12,17 +13,17 @@ export type DiagnosticSeverityMode = 'warning' | 'error';
 export interface MlviewSettings {
   pythonPath: string;
   analyzeOnSave: boolean;
+  /** What `MLView: Visualize (Current File)` analyzes before scoping to the file (COVERAGE). */
+  currentFileAnalysisScope: CurrentFileAnalysisScope;
   exclude: string[];
   maxFiles: number;
   maxNodes: number;
   minSeverity: Severity;
   minConfidence: number;
-  showSpeculative: boolean;
   diagnosticsEnabled: boolean;
   diagnosticSeverity: DiagnosticSeverityMode;
   disabledRules: string[];
   codeLens: boolean;
-  followCursor: boolean;
   trace: TraceLevel;
 }
 
@@ -31,17 +32,16 @@ export const SETTINGS_SECTION = 'mlview';
 export const DEFAULT_SETTINGS: MlviewSettings = {
   pythonPath: '',
   analyzeOnSave: true,
+  currentFileAnalysisScope: 'package',
   exclude: [],
   maxFiles: 500,
   maxNodes: 400,
   minSeverity: 'low',
   minConfidence: 0.6,
-  showSpeculative: false,
   diagnosticsEnabled: true,
   diagnosticSeverity: 'warning',
   disabledRules: [],
   codeLens: true,
-  followCursor: false,
   trace: 'off'
 };
 
@@ -74,12 +74,16 @@ export function readSettings(resource?: vscode.Uri): MlviewSettings {
   return {
     pythonPath: (cfg.get<string>('pythonPath') ?? d.pythonPath).trim(),
     analyzeOnSave: cfg.get<boolean>('analyzeOnSave') ?? d.analyzeOnSave,
+    currentFileAnalysisScope: oneOf(
+      cfg.get('currentFileAnalysisScope'),
+      CURRENT_FILE_SCOPES,
+      d.currentFileAnalysisScope
+    ),
     exclude: stringArray(cfg.get('exclude'), d.exclude),
     maxFiles: positiveInt(cfg.get('maxFiles'), d.maxFiles),
     maxNodes: positiveInt(cfg.get('maxNodes'), d.maxNodes),
     minSeverity: oneOf(cfg.get('minSeverity'), ['low', 'medium', 'high'] as const, d.minSeverity),
     minConfidence: clamped(cfg.get('minConfidence'), d.minConfidence),
-    showSpeculative: cfg.get<boolean>('showSpeculative') ?? d.showSpeculative,
     diagnosticsEnabled: cfg.get<boolean>('diagnosticsEnabled') ?? d.diagnosticsEnabled,
     diagnosticSeverity: oneOf(
       cfg.get('diagnosticSeverity'),
@@ -90,7 +94,6 @@ export function readSettings(resource?: vscode.Uri): MlviewSettings {
       c.trim().toUpperCase()
     ),
     codeLens: cfg.get<boolean>('codeLens') ?? d.codeLens,
-    followCursor: cfg.get<boolean>('followCursor') ?? d.followCursor,
     trace: oneOf(cfg.get('trace'), ['off', 'messages', 'verbose'] as const, d.trace)
   };
 }

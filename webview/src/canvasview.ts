@@ -584,6 +584,26 @@ export class CanvasView {
     );
   }
 
+  /**
+   * Overview mode (VIEW-10, `Shift+0`): every group folded to its card, then a
+   * fit. On the demo that is roughly a dozen cards, which genuinely fits one
+   * screen — the picture a reviewer actually wants to paste. The aggregated
+   * severity markers survive, because a collapsed group already carries them.
+   */
+  overview(): number {
+    if (!this.index) return 0;
+    const groups: string[] = [];
+    for (const node of this.index.graph.nodes || []) {
+      if (this.index.isGroup(node.id)) groups.push(node.id);
+    }
+    this.collapsedSet = new Set(groups);
+    this.relayout();
+    this.viewport.fit();
+    this.host.afterCollapse();
+    this.host.announce('Overview: ' + groups.length + (groups.length === 1 ? ' group' : ' groups') + ' collapsed, whole diagram fitted.');
+    return groups.length;
+  }
+
   /** Expand every collapsed ancestor of `id`. Returns true when it relaid out. */
   expandAncestors(id: string): boolean {
     if (!this.index) return false;

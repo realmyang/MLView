@@ -303,17 +303,36 @@ test('a filtered-empty result offers the way back (MLV-R1-013)', async () => {
   assert.ok(ctx.document.querySelector('.mlv-issue[data-issue-id]'), 'the rows came back');
 });
 
-test('the confidence chip flags doubt only (MLV-R1-014)', async () => {
+/*
+ * MLV-P6 REVERSES the second half of MLV-R1-014.
+ *
+ * The chip used to be drawn only for `possible` / `speculative` -- "flag doubt
+ * only". Measured consequence: `certain` and `likely`, the two buckets a
+ * reviewer acts on, rendered identically, and a row with no chip was ambiguous
+ * between "the analyzer is sure" and "the renderer forgot". MLV-P6's acceptance
+ * is "every rail row shows its bucket chip", so the assertion is inverted here
+ * on purpose. What MLV-R1-014 actually protected -- that the bucket is never
+ * colour-only and always reaches assistive technology -- is kept and extended.
+ */
+test('every row shows its confidence bucket, styled by bucket (MLV-P6, was MLV-R1-014)', async () => {
   const ctx = await loadBundle();
   const graph = JSON.parse(JSON.stringify(sample));
   graph.issues[0].confidenceBucket = 'certain';
   graph.issues[1].confidenceBucket = 'speculative';
   const instance = ctx.MLView.mount(ctx.document.getElementById('mlview-root'), graph, ctx.MLView.bridges.standalone());
   const rowOf = (id) => ctx.document.querySelector('.mlv-issue[data-issue-id="' + id + '"]');
-  assert.equal(rowOf(graph.issues[0].id).textContent.indexOf('certain'), -1, 'no chip on a certain finding');
-  assert.ok(rowOf(graph.issues[1].id).textContent.indexOf('speculative') >= 0, 'a chip on a speculative one');
-  // the bucket still reaches assistive tech on every row
+  const chipOf = (id) => rowOf(id).querySelector('.mlv-chip--conf');
+  assert.ok(chipOf(graph.issues[0].id), 'a certain finding carries its chip too');
+  assert.equal(chipOf(graph.issues[0].id).getAttribute('data-confidence'), 'certain');
+  assert.equal(chipOf(graph.issues[1].id).getAttribute('data-confidence'), 'speculative');
+  assert.ok(rowOf(graph.issues[0].id).textContent.indexOf('certain') >= 0);
+  assert.ok(rowOf(graph.issues[1].id).textContent.indexOf('speculative') >= 0);
+  // Styled by bucket, so the four are told apart by more than the word...
+  assert.ok(chipOf(graph.issues[0].id).className.indexOf('mlv-chip--conf-certain') >= 0);
+  assert.ok(chipOf(graph.issues[1].id).className.indexOf('mlv-chip--conf-speculative') >= 0);
+  // ...and the bucket still reaches assistive tech on every row.
   assert.ok(rowOf(graph.issues[0].id).getAttribute('aria-label').indexOf('confidence certain') >= 0);
+  assert.ok(chipOf(graph.issues[0].id).getAttribute('aria-label').indexOf('Confidence: certain') >= 0);
   instance.destroy();
 });
 

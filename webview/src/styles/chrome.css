@@ -619,3 +619,167 @@
 .mlv-themeswitch .mlv-chip--btn + .mlv-chip--btn {
   border-left: 1px solid var(--mlv-border);
 }
+
+/* ── VIEW-09b: the search list says when it was cut ─────────────────────── */
+
+.mlv-result__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--mlv-s4);
+  padding: var(--mlv-s3) var(--mlv-s4);
+  border-top: 1px solid var(--mlv-border);
+  color: var(--mlv-text-3);
+  font-size: var(--mlv-fs-10);
+}
+
+/* The pinned `path:line` hit says why it is first (VIEW-09a). */
+.mlv-result__jump {
+  flex: none;
+  padding: 1px var(--mlv-s3);
+  border-radius: var(--mlv-r-chip);
+  background: var(--mlv-surface-2);
+  color: var(--mlv-accent);
+  font-size: var(--mlv-fs-10);
+  font-weight: var(--mlv-fw-medium);
+}
+
+/* ── VIEW-10: the labelled flow toggle ─────────────────────────────────── */
+
+/*
+ * The marquee feature of the product shipped behind an icon-only button with no
+ * visible label and no keyboard binding. It carries both now; the label folds
+ * away below 1280 px, where the toolbar genuinely has no room for it, and the
+ * title and aria-label carry the state at every width.
+ */
+.mlv-btn--flow,
+.mlv-btn--legend {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--mlv-s2);
+}
+
+.mlv-btn--flow[aria-pressed="false"] {
+  color: var(--mlv-text-3);
+}
+
+.mlv-btn--flow[aria-pressed="true"],
+.mlv-btn--legend[aria-pressed="true"] {
+  border-color: var(--mlv-accent);
+  color: var(--mlv-accent);
+}
+
+@media (max-width: 1280px) {
+  .mlv-btn--flow .mlv-btn__label,
+  .mlv-btn--legend .mlv-btn__label {
+    display: none;
+  }
+}
+
+/* ── VIEW-10: the legend ───────────────────────────────────────────────── */
+
+.mlv-legend {
+  position: absolute;
+  right: var(--mlv-s5);
+  bottom: var(--mlv-s5);
+  z-index: 45;
+  display: flex;
+  flex-direction: column;
+  width: min(320px, calc(100% - 2 * var(--mlv-s5)));
+  max-height: min(560px, calc(100% - 2 * var(--mlv-s5)));
+  border: 1px solid var(--mlv-border-strong);
+  border-radius: var(--mlv-r-panel);
+  background: var(--mlv-surface);
+  box-shadow: var(--mlv-shadow-panel, 0 8px 24px rgba(0, 0, 0, 0.18));
+}
+
+/*
+ * An author `display` outranks the UA stylesheet's `[hidden]`, so the panel
+ * needs its own rule -- the same trap `.mlv-chip[hidden]` documents.
+ */
+.mlv-legend[hidden] {
+  display: none;
+}
+
+.mlv-legend__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--mlv-s4) var(--mlv-s5);
+  border-bottom: 1px solid var(--mlv-border);
+}
+
+.mlv-legend__title {
+  margin: 0;
+  font-size: var(--mlv-fs-12);
+  font-weight: var(--mlv-fw-semi);
+}
+
+.mlv-legend__body {
+  overflow-y: auto;
+  padding: var(--mlv-s4) var(--mlv-s5) var(--mlv-s5);
+}
+
+.mlv-legend__section + .mlv-legend__section {
+  margin-top: var(--mlv-s5);
+}
+
+.mlv-legend__heading {
+  margin: 0 0 var(--mlv-s3);
+  color: var(--mlv-text-3);
+  font-size: var(--mlv-fs-10);
+  font-weight: var(--mlv-fw-semi);
+  letter-spacing: var(--mlv-track-caps);
+  text-transform: uppercase;
+}
+
+.mlv-legend__list {
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+  gap: var(--mlv-s2) var(--mlv-s4);
+  margin: 0;
+}
+
+.mlv-legend__term {
+  display: flex;
+  align-items: center;
+  gap: var(--mlv-s3);
+  color: var(--mlv-text);
+  font-size: var(--mlv-fs-11);
+  font-weight: var(--mlv-fw-medium);
+}
+
+.mlv-legend__desc {
+  margin: 0;
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-11);
+  line-height: var(--mlv-lh-tight);
+}
+
+.mlv-legend__swatch {
+  flex: none;
+  overflow: visible;
+}
+
+/* A miniature of the real card, so the key and the picture cannot disagree. */
+.mlv-legend__card.mlv-node {
+  position: static;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  min-width: 0;
+  height: 16px;
+  min-height: 0;
+  padding: 0;
+  transform: none;
+  font-size: var(--mlv-fs-10);
+}
+
+@media (max-width: 900px) {
+  .mlv-legend {
+    right: var(--mlv-s3);
+    bottom: var(--mlv-s3);
+    width: calc(100% - 2 * var(--mlv-s3));
+  }
+}

@@ -305,6 +305,12 @@ class WorkspaceIR:
     #: a module of that name does exist somewhere in the workspace - the
     #: degradation is reported instead of silently shrinking the graph.
     unresolved_imports: List[Tuple[str, int, str]] = field(default_factory=list)
+    #: How many IR rounds `build_workspace` ran, and whether it stopped because
+    #: the state stopped moving (PERF-02). `False` means the round cap was hit
+    #: and some cross-module resolution may be incomplete; the pipeline reports
+    #: that rather than letting the graph come back quietly smaller.
+    ir_rounds: int = 0
+    ir_converged: bool = True
 
     def all_calls(self) -> List[CallSite]:
         out: List[CallSite] = []

@@ -13,7 +13,16 @@
   cursor: pointer;
 }
 
-.mlv-edge__path {
+/*
+ * The legend's swatch (VIEW-10) is drawn with `.mlv-legend__edge`, not with
+ * `.mlv-edge__path`: it is a KEY, not a routed edge, and a decoy in the scene's
+ * own class would answer `document.querySelectorAll('.mlv-edge__path')` -- the
+ * query that checks every drawn cable carries a unique motion-path id. Listing
+ * both selectors on every kind rule is what keeps the key showing the real
+ * stroke, dash and opacity rather than a hand-copied imitation.
+ */
+.mlv-edge__path,
+.mlv-legend__edge {
   fill: none;
   stroke: var(--mlv-edge);
   stroke-width: 1.5;
@@ -22,28 +31,33 @@
   transition: stroke var(--mlv-dur-1) var(--mlv-ease);
 }
 
-.mlv-edge--data .mlv-edge__path {
+.mlv-edge--data .mlv-edge__path,
+.mlv-edge--data .mlv-legend__edge {
   stroke-width: 1.5;
 }
 
-.mlv-edge--call .mlv-edge__path {
+.mlv-edge--call .mlv-edge__path,
+.mlv-edge--call .mlv-legend__edge {
   stroke-dasharray: 4 3;
   opacity: 0.75;
 }
 
-.mlv-edge--control .mlv-edge__path {
+.mlv-edge--control .mlv-edge__path,
+.mlv-edge--control .mlv-legend__edge {
   stroke-dasharray: 1 4;
   stroke-linecap: round;
   opacity: 0.65;
 }
 
-.mlv-edge--config .mlv-edge__path {
+.mlv-edge--config .mlv-edge__path,
+.mlv-edge--config .mlv-legend__edge {
   stroke-width: 1;
   stroke-dasharray: 2 4;
   opacity: 0.5;
 }
 
-.mlv-edge--unknown .mlv-edge__path {
+.mlv-edge--unknown .mlv-edge__path,
+.mlv-edge--unknown .mlv-legend__edge {
   stroke-dasharray: 3 3;
   opacity: 0.6;
 }

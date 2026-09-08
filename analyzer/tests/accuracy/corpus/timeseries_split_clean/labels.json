@@ -1,0 +1,76 @@
+{
+  "name": "timeseries_split_clean",
+  "title": "The correct walk-forward twin: every transform inside a Pipeline",
+  "origin": "clean twin of timeseries_split; the negative REQUIREMENTS R3.7 asks for",
+  "tuned": false,
+  "labelledBy": "ANA-12, 2026-09-08",
+  "expected": [],
+  "forbidden": [
+    {
+      "code": "MLV101",
+      "file": "train.py",
+      "why": "the StandardScaler is a Pipeline step, so cross_val_score refits it inside every fold - nothing is fitted before the split"
+    },
+    {
+      "code": "MLV102",
+      "file": "train.py",
+      "why": "no transformer is ever fitted on a test fold; the Pipeline owns every fit"
+    },
+    {
+      "code": "MLV103",
+      "file": "train.py",
+      "why": "the preprocessing is inside the estimator handed to cross_val_score, which is exactly the fix MLV103 asks for"
+    },
+    {
+      "code": "MLV602",
+      "file": "train.py",
+      "why": "TimeSeriesSplit is deterministic and the estimator already carries random_state=0"
+    },
+    {
+      "code": "MLV601",
+      "file": "train.py",
+      "why": "the only stochastic component, the boosted regressor, is seeded at line 30"
+    }
+  ],
+  "graph": {
+    "edges": 6,
+    "ops": [
+      {
+        "file": "train.py",
+        "line": 20,
+        "symbol": "read_csv",
+        "kind": "dataset"
+      },
+      {
+        "file": "train.py",
+        "line": 22,
+        "symbol": "shift",
+        "kind": "transform"
+      },
+      {
+        "file": "train.py",
+        "line": 29,
+        "symbol": "StandardScaler",
+        "kind": "scaler"
+      },
+      {
+        "file": "train.py",
+        "line": 30,
+        "symbol": "HistGradientBoostingRegressor",
+        "kind": "model"
+      },
+      {
+        "file": "train.py",
+        "line": 40,
+        "symbol": "cross_val_score",
+        "kind": "metric"
+      },
+      {
+        "file": "train.py",
+        "line": 41,
+        "symbol": "TimeSeriesSplit",
+        "kind": "split"
+      }
+    ]
+  }
+}

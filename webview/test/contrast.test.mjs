@@ -13,11 +13,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { WEBVIEW_ROOT, DIST_CSS } from './helpers.mjs';
+import { WEBVIEW_ROOT, DIST_CSS_DEV } from './helpers.mjs';
 
 const TOKENS_PATH = join(WEBVIEW_ROOT, 'src', 'styles', 'tokens.css');
 const tokensCss = await readFile(TOKENS_PATH, 'utf8');
-const distCss = await readFile(DIST_CSS, 'utf8');
+const distCss = await readFile(DIST_CSS_DEV, 'utf8');
 
 /** Split a stylesheet into { selector, body } blocks, honouring one nesting level. */
 function blocks(css) {
@@ -196,7 +196,7 @@ test('every --vscode-* reference in tokens.css carries a literal fallback', () =
 });
 
 test('the built stylesheet contains the token layer verbatim', () => {
-  assert.ok(distCss.indexOf('--mlv-sev-medium-ink: #3A2500') >= 0, 'dist/mlview.css carries the tokens');
+  assert.ok(distCss.indexOf('--mlv-sev-medium-ink: #3A2500') >= 0, 'the built stylesheet carries the tokens');
   assert.ok(distCss.indexOf('---- tokens.css ----') >= 0, 'tokens are the first concatenated layer');
 });
 
