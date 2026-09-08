@@ -368,7 +368,7 @@
     "check": "tsc --noEmit",
     "sync:rule-docs": "node tools/sync-rule-docs.mjs",
     "pretest": "node tools/sync-rule-docs.mjs && node esbuild.mjs",
-    "test": "node --test test/",
+    "test": "node tools/run-tests.mjs",
     "package": "npx --yes @vscode/vsce package --no-dependencies --allow-missing-repository",
     "check:panel": "node --test test/panelhtml.test.js"
   },

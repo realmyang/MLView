@@ -17,3 +17,6 @@ webview/.mlview/
 *.log
 .DS_Store
 Thumbs.db
+
+# local virtual environment (macOS setup)
+.venv/

@@ -217,7 +217,9 @@ test('npm scripts cover compile, check, test and packaging', () => {
   const scripts = manifest.scripts;
   assert.match(scripts.compile, /esbuild/);
   assert.equal(scripts.check, 'tsc --noEmit');
-  assert.match(scripts.test, /node --test/);
+  // tools/run-tests.mjs enumerates test/*.test.js and spawns `node --test` itself:
+  // Node 21+ rejects a bare directory argument and cmd.exe does not expand globs.
+  assert.equal(scripts.test, 'node tools/run-tests.mjs');
   assert.match(scripts.pretest, /esbuild/, 'pretest must build the bundles node --test loads');
   assert.match(scripts.package, /vsce package/);
 });
