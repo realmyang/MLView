@@ -137,21 +137,26 @@ test('all mlview.* settings are contributed with the contract defaults', () => {
   const expected = {
     'mlview.pythonPath': '',
     'mlview.analyzeOnSave': true,
+    'mlview.currentFileAnalysisScope': 'package',
     'mlview.exclude': [],
     'mlview.maxFiles': 500,
     'mlview.maxNodes': 400,
     'mlview.minSeverity': 'low',
     'mlview.minConfidence': 0.6,
-    'mlview.showSpeculative': false,
     'mlview.diagnosticsEnabled': true,
     'mlview.diagnosticSeverity': 'warning',
     'mlview.disabledRules': [],
     'mlview.codeLens': true,
-    'mlview.followCursor': false,
     'mlview.trace': 'off'
   };
-  // CONTRACTS.md 11.11: "Settings: none added." The flow preference is renderer-owned
-  // (ViewState.flow) and mlview.defaultScope is cut, so this set must not grow.
+  // CHANGED by ROADMAP CLEANUP 4 and COVERAGE (2026-09-08). Two rows LEFT: mlview.showSpeculative
+  // and mlview.followCursor both shipped in the Settings UI with a description reading "Not
+  // implemented in this prototype", and A6 cut followCursor outright - a settings row that says
+  // it does nothing is worse than not shipping it. One row JOINED:
+  // mlview.currentFileAnalysisScope, which COVERAGE names explicitly, because "Visualize
+  // (Current File)" analysing the file alone loses 4 of 7 findings silently. Nothing else may
+  // grow this set: CONTRACTS.md 11.11 is still "Settings: none added", the flow preference is
+  // renderer-owned (ViewState.flow) and mlview.defaultScope is cut.
   assert.deepEqual(Object.keys(props).sort(), Object.keys(expected).sort());
   for (const [key, value] of Object.entries(expected)) {
     assert.deepEqual(props[key].default, value, `${key} default`);
@@ -159,6 +164,13 @@ test('all mlview.* settings are contributed with the contract defaults', () => {
   assert.deepEqual(props['mlview.minSeverity'].enum, ['low', 'medium', 'high']);
   assert.deepEqual(props['mlview.diagnosticSeverity'].enum, ['warning', 'error']);
   assert.deepEqual(props['mlview.trace'].enum, ['off', 'messages', 'verbose']);
+  assert.deepEqual(props['mlview.currentFileAnalysisScope'].enum, [
+    'file',
+    'package',
+    'workspace'
+  ]);
+  // The enum is only half a setting: a row whose values are undocumented is a row nobody picks.
+  assert.equal(props['mlview.currentFileAnalysisScope'].enumDescriptions.length, 3);
 });
 
 test('the chat participant matches the registered id', () => {

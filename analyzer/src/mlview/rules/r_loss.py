@@ -19,7 +19,7 @@ _SOFTMAX_ROLES = ("SOFTMAX", "LOG_SOFTMAX")
 
 
 @rule(code="MLV401", severity="high", base_prior=0.95, frameworks=["torch"],
-      rule_version=1, tags=["correctness", "objective"],
+      rule_version=1, tags=["correctness", "objective"], cross_file=True,
       title="Softmax applied before CrossEntropyLoss",
       why="CrossEntropyLoss applies log-softmax internally, so a second softmax "
           "flattens the gradients and the model trains far worse than it should.",
@@ -43,6 +43,15 @@ def softmax_before_cross_entropy(ctx) -> Iterable[Issue]:
         edge = ctx.edge_between(model_node, loss_node, "data")
         nodes = [loss_node] + ([model_node] if model_node is not None
                                and model_node is not loss_node else [])
+        # REV-06: ANA-1 mints an op node for the offending `softmax()` call
+        # itself, so anchor on that too - a reader who clicked this finding
+        # landed on the whole class card rather than on the line that applies
+        # the softmax. Appended last, so `nodeIds[0]` (which
+        # `contracts/validate_sample.py` and the rail's "Open" both key on)
+        # does not move.
+        softmax_node = ctx.node_for_call(softmax_call)
+        if softmax_node is not None and softmax_node.id not in {n.id for n in nodes}:
+            nodes.append(softmax_node)
         evidence = [
             ("fqn_resolved", "%s resolved through the import table"
              % (loss_call.fqn or "cross_entropy"), 1.0),

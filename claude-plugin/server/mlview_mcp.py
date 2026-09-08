@@ -42,6 +42,44 @@ import sys
 import webbrowser
 from typing import Any, List, Optional
 
+#: The floor `pyproject.toml` declares and the vendored core is written against.
+MIN_PYTHON = (3, 10)
+
+
+def python_version_problem(version, executable):
+    """The actionable stderr lines for an interpreter too old to run this server.
+
+    CLEANUP 7: `.mcp.json` has to spell ONE default command, and the only spelling
+    that works out of the box on Windows is `python` — which on most macOS and Linux
+    boxes is either absent or a Python 2. The failure mode without this check is a
+    SyntaxError from deep inside the vendored analyzer, or "MCP server mlview
+    failed" with nothing to act on. So the check is here, before the first `mlview`
+    import, and the message names BOTH fixes: the `MLVIEW_PYTHON` environment
+    variable the config honours (`"command": "${MLVIEW_PYTHON:-python}"`, which is
+    the fix for a plugin installed read-only), and the one-field edit.
+
+    Returns an EMPTY list when the interpreter is fine. Pure, so
+    `tests/test_server_bootstrap.py` asserts the message without a subprocess.
+    """
+    if tuple(version[:2]) >= MIN_PYTHON:
+        return []
+    return [
+        "mlview-mcp: this server needs Python %d.%d or newer; %s is %d.%d."
+        % (MIN_PYTHON[0], MIN_PYTHON[1], executable or "the interpreter",
+           version[0], version[1]),
+        "mlview-mcp: set MLVIEW_PYTHON to a Python %d.%d+ interpreter (e.g. "
+        'MLVIEW_PYTHON=python3, or an absolute path) and restart Claude Code; '
+        '.mcp.json reads "command": "${MLVIEW_PYTHON:-python}". Editing that '
+        'field to "python3" works too.' % MIN_PYTHON,
+    ]
+
+
+_VERSION_PROBLEM = python_version_problem(sys.version_info, sys.executable)
+if _VERSION_PROBLEM:  # pragma: no cover - needs a <3.10 interpreter to reach
+    for _line in _VERSION_PROBLEM:
+        print(_line, file=sys.stderr)
+    raise SystemExit(1)
+
 # Running the core out of `vendor/` must not litter the *distributed* plugin with
 # __pycache__ trees: `claude plugin install` copies the directory verbatim, so a
 # stale .pyc compiled from a different revision would ship beside the .py files.
@@ -199,9 +237,22 @@ def mlview_analyze(
     Nothing is imported or executed and neither torch nor scikit-learn needs to
     be installed — the analysis is pure `ast` work on source text.
 
+    PREFER A DIRECTORY OVER A SINGLE FILE. Four rules — MLV301, MLV302, MLV401 and
+    MLV501 — need a sibling module to fire at all, so analyzing `train.py` alone
+    reports fewer findings than analyzing the directory that contains it (measured:
+    3 against 7). When the caller names one file, the result carries a `coverage`
+    row of kind `single_file_analysis` whose `codes` name the rules that could not
+    run; quote those codes to the user rather than reporting the shorter list as a
+    clean file. The same applies to `untagged_dataflow`, which says a key argument
+    could not be traced, so the leakage rules could not check it. Analyze the
+    directory and pass
+    `scope="file:<name>.py"` when the question really is about one file: that
+    recovers the cross-file rules and still answers about the file.
+
     Args:
         path: file or directory, absolute or relative to the project. Defaults to
-            the whole project directory.
+            the whole project directory. A DIRECTORY is the honest default — see
+            the single-file caveat above.
         framework: "auto" (default), or one of torch, sklearn, keras, hf, lightning
             to restrict the extractors.
         maxNodes: graph cap; the result sets truncated=true when it is exceeded.
@@ -250,6 +301,7 @@ def mlview_issues(
     limit: int = 20,
     scope: Optional[str] = None,
     depth: Optional[int] = None,
+    groupBy: Optional[str] = None,
 ) -> dict[str, Any]:
     """List the ML correctness and hygiene issues detected under `path`.
 
@@ -276,10 +328,19 @@ def mlview_issues(
             about the project — omit it when asked "what is wrong with this code".
         depth: optional — 0, 1 or 2 boundary hops around the scope; it widens the
             picture, never the findings (only core anchors retain an issue).
+        groupBy: optional — "rule", "file" or "severity". Folds the findings into
+            one row per key with an occurrence count, the worst severity and
+            confidence in the group and up to three example `file:line` sites, and
+            returns `groups` INSTEAD of `issues`. Use it on any workspace that
+            answers with more than about twenty findings: a legacy repo is
+            typically eleven distinct rules repeated ten times each, and the flat
+            list spends the whole 4 KB budget on the repeats. Grouping folds the
+            rows, it never filters them — the counts still describe every finding
+            that passed minSeverity / minConfidence / code / scope.
 
-    Returns countBySeverity, suppressedCount and issues[]; the payload is capped
-    at 4 KB, so a large workspace comes back truncated with the full list in the
-    graph document that mlview_analyze wrote.
+    Returns countBySeverity, suppressedCount and issues[] (or groups[] under
+    groupBy); the payload is capped at 4 KB, so a large workspace comes back
+    truncated with the full list in the graph document that mlview_analyze wrote.
     """
     loaded = load_graph(path)
     spec, view, notes, _hops = scopes.apply_scope(loaded["graph"], scope, depth)
@@ -292,6 +353,7 @@ def mlview_issues(
         graph_path=loaded["graphPath"],
         scope=spec,
         extra_notes=notes,
+        group_by=groupBy,
     )
 
 

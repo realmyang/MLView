@@ -130,7 +130,10 @@ def test_every_tool_description_tells_the_model_when_to_call_it(listed):
 def test_tool_inputs_match_the_contract(listed):
     by_name = {tool["name"]: set(tool["schema"].get("properties", {})) for tool in listed}
     assert {"path", "framework", "maxNodes", "includeHtml"} <= by_name["mlview_analyze"]
-    assert {"path", "minSeverity", "minConfidence", "code", "limit"} <= by_name["mlview_issues"]
+    # CHANGED by ROADMAP RAIL-GROUP (2026-09-08): `groupBy` joined the contract set.
+    assert {
+        "path", "minSeverity", "minConfidence", "code", "limit", "groupBy"
+    } <= by_name["mlview_issues"]
     assert {"path", "format", "scope", "depth"} <= by_name["mlview_graph"]
     assert {"nodeId", "code", "graphPath"} <= by_name["mlview_explain"]
     assert {"path", "graphPath", "out"} <= by_name["mlview_open_diagram"]
@@ -502,3 +505,115 @@ def test_a_stage_the_project_lacks_is_answered_with_a_note(session_data_dir):
     assert absent in payload.get("note", ""), (
         "an undetected lane must say so, not look like a mistyped stage id"
     )
+
+
+def test_issues_can_fold_a_workspace_into_one_row_per_rule(session_data_dir):
+    """RAIL-GROUP over the wire: the real server, the real corpus, one row per code.
+
+    The flat list on an inherited repo is eleven codes repeated ten times; the whole
+    value of the flag is that the model reads twelve rows and still learns the true
+    occurrence counts, so this asserts the counts and the folding note as well as
+    the shape."""
+    corpus = corpus_path()
+
+    async def go(session):
+        return await session.call_tool(
+            "mlview_issues", {"path": corpus, "groupBy": "rule", "limit": 200}
+        )
+
+    result = _run(go, session_data_dir)
+    assert result.is_error is False, result.content
+    payload = result.structured_content
+    assert _size(payload) <= LIMIT
+    assert payload["groupBy"] == "rule"
+    assert "issues" not in payload, "groups replace the rows; both would blow the budget"
+    codes = [row["key"] for row in payload["groups"]]
+    assert codes and all(code.startswith("MLV") for code in codes)
+    assert len(codes) == len(set(codes)), "one row per code"
+    assert all(row["count"] >= 1 and row["sites"] for row in payload["groups"])
+    assert "folded" in payload["note"] and "not filtered" in payload["note"]
+
+
+def test_an_unknown_group_by_is_an_error_not_an_ungrouped_list(session_data_dir):
+    corpus = corpus_path()
+
+    async def go(session):
+        return await session.call_tool(
+            "mlview_issues", {"path": corpus, "groupBy": "rules"}
+        )
+
+    result = _run(go, session_data_dir)
+    assert result.is_error is True
+    text = " ".join(getattr(block, "text", "") for block in result.content)
+    assert "groupBy" in text
+    for accepted in ("rule", "file", "severity"):
+        assert accepted in text
+
+
+def test_the_analyze_tool_warns_the_model_off_a_single_file(listed):
+    """COVERAGE: the docstring IS the instruction Claude reads before choosing a
+    path. MLV301/302/401/501 cannot fire on a lone file, so a single-file call is
+    the quiet way to get a shorter, wrong answer."""
+    description = next(t["description"] for t in listed if t["name"] == "mlview_analyze")
+    assert "single_file_analysis" in description
+    assert "untagged_dataflow" in description
+    for code in ("MLV301", "MLV302", "MLV401", "MLV501"):
+        assert code in description
+    assert "DIRECTORY" in description
+
+
+# ------------------------------------------------- COVERAGE over the wire (TB-06)
+def _one_file_package(root):
+    """A two-module package where the analyzed file imports its sibling.
+
+    That import is what makes the run genuinely incomplete (see
+    `mlview.core.coverage.single_file_diagnostic`), so this is the smallest input
+    that reproduces what a user gets when they point the command at one file.
+    """
+    package = root / "one_file_pkg"
+    package.mkdir(parents=True)
+    (package / "helper.py").write_text(
+        "def load(path):\n    return path\n", encoding="utf-8"
+    )
+    entry = package / "entry.py"
+    entry.write_text(
+        "import helper\n\n\ndef go(path):\n    return helper.load(path)\n",
+        encoding="utf-8",
+    )
+    return str(entry)
+
+
+@pytest.mark.parametrize("tool", ["mlview_analyze", "mlview_issues"])
+def test_a_single_file_payload_names_the_rules_that_could_not_run(
+    session_data_dir, tmp_path, tool
+):
+    """`commands/mlview.md` promises the payload names them, and tells the model to
+    report them before the count. A `{kind, count}` tally cannot carry a rule code,
+    so the model could only satisfy that instruction by inventing one."""
+    target = _one_file_package(tmp_path / tool)
+
+    async def go(session):
+        return await session.call_tool(tool, {"path": target})
+
+    result = _run(go, session_data_dir)
+    assert result.is_error is False, result.content
+    payload = result.structured_content
+    coverage = payload.get("coverage")
+    assert coverage, payload
+    assert [row["kind"] for row in coverage] == ["single_file_analysis"]
+    for code in ("MLV301", "MLV302", "MLV401", "MLV501"):
+        assert code in coverage[0]["codes"], coverage
+        assert code in payload["note"], payload["note"]
+    # the caveat is the ANALYZER's sentence, not a host paraphrase: compare it
+    # against the diagnostic in the document the same call just wrote
+    with open(payload["graphPath"], "r", encoding="utf-8") as fh:
+        document = json.load(fh)
+    emitted = next(
+        d for d in document["diagnostics"] if d["kind"] == "single_file_analysis"
+    )
+    assert coverage[0]["message"] == emitted["message"], "carried verbatim"
+    assert coverage[0]["codes"] == emitted["codes"]
+    assert coverage[0]["count"] == emitted["count"]
+    # and it is still a legal payload: under the cap in the encoding the model reads
+    assert _text_size(result) <= LIMIT, _text_size(result)
+    assert _size(payload) <= LIMIT

@@ -131,7 +131,10 @@ def test_substitution_puts_the_path_in_the_analyze_slot_for_mlview():
 
 # ------------------------------------------- a flag's VALUE is not the severity slot
 SEVERITIES = ("low", "medium", "high")
-VALUE_FLAGS = ("--scope", "--depth")
+#: CHANGED by ROADMAP RAIL-GROUP (2026-09-08): `--group-by` joined the grammar, and
+#: it is a VALUE flag, so `/mlview-issues --group-by rule` must not read `rule` as
+#: the path — the same class of bug `--scope stage:train` produced.
+VALUE_FLAGS = ("--scope", "--depth", "--group-by")
 
 
 def resolve_path_and_severity(args):
@@ -169,6 +172,12 @@ def resolve_path_and_severity(args):
         (("--depth", "1", "medium"), (".", "medium")),
         (("samples/vision_pipeline", "high", "--scope", "concern:evaluation"),
          ("samples/vision_pipeline", "high")),
+        # RAIL-GROUP: the mode word is never the path and never the severity.
+        (("--group-by", "rule"), (".", "low")),
+        (("--group-by", "severity"), (".", "low")),
+        (("samples/vision_pipeline", "--group-by", "file"),
+         ("samples/vision_pipeline", "low")),
+        (("--group-by", "rule", "high"), (".", "high")),
     ],
 )
 def test_a_flag_value_never_lands_in_the_path_or_the_severity_slot(args, expected):
@@ -181,7 +190,7 @@ def test_a_flag_value_never_lands_in_the_path_or_the_severity_slot(args, expecte
 def test_mlview_issues_documents_the_flag_value_rule():
     body = read_command("mlview-issues.md")
     lowered = body.lower()
-    assert "--scope" in body and "--depth" in body
+    assert "--scope" in body and "--depth" in body and "--group-by" in body
     assert "immediately after" in lowered, (
         "the body must say that the token after --scope/--depth is that flag's "
         "value, not the path and not the severity"
@@ -252,3 +261,36 @@ def test_every_documented_fallback_command_actually_runs(name, tmp_path):
             "%s documents a fallback that fails:\n  %s\n  exit=%d\n%s\n%s"
             % (name, " ".join(argv), proc.returncode, proc.stdout[-2000:], proc.stderr[-2000:])
         )
+
+
+# --------------------------------------------------------------- ROADMAP RAIL-GROUP
+def test_mlview_issues_documents_every_group_by_mode_and_the_mcp_argument():
+    body = read_command("mlview-issues.md")
+    for mode in ("rule", "file", "severity"):
+        assert "--group-by" in body and mode in body
+    assert "groupBy" in body, "the MCP argument name must be spelled, not guessed"
+    assert "argument-hint" in body and "--group-by" in body.split("---")[1], (
+        "the flag belongs in the frontmatter hint the user sees while typing"
+    )
+
+
+def test_the_grouped_output_contract_never_calls_a_group_count_an_issue_count():
+    body = read_command("mlview-issues.md")
+    assert "occurrences" in body, (
+        "a group row is N occurrences of one rule, not N issues found"
+    )
+    assert "folds" in body or "folded" in body
+
+
+# ------------------------------------------------------------------ ROADMAP COVERAGE
+@pytest.mark.parametrize("name", COMMAND_FILES)
+def test_a_single_file_target_is_reported_as_incomplete_not_as_clean(name):
+    body = read_command(name)
+    assert "single_file_analysis" in body, (
+        "%s must tell the model what the diagnostic means; a shorter finding list "
+        "from a narrower run is not a cleaner project" % name
+    )
+    assert "untagged_dataflow" in body
+    for code in ("MLV301", "MLV302", "MLV401", "MLV501"):
+        assert code in body, "%s must name the rules that cannot fire on one file" % name
+    assert "file:" in body, "%s must offer the directory + --scope file: workaround" % name

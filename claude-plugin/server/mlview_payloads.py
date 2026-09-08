@@ -27,6 +27,17 @@ from mlview_budget import (  # the shared 4 KB budget machinery
     payload_size,
     serialize,
 )
+from mlview_groups import (  # RAIL-GROUP: one row per rule / file / severity
+    GROUP_BY_MODES,
+    group_issues,
+    group_note,
+)
+from mlview_notes import (  # the "is an empty result good news?" helpers
+    corpus_note as _corpus_note,
+    coverage_note as _coverage_note,
+    coverage_notes,
+    diagnostics_summary,
+)
 import mlview_scope as scopes  # the section 11.1 grammar at the tool boundary
 from mlview_views import (  # filtered views + the shapes they render into
     json_index,
@@ -65,53 +76,6 @@ def _reject(argument: str, value: Any, accepted: Sequence[str], extra: str = "")
 
 
 # ------------------------------------------------------------------- mlview_analyze
-def diagnostics_summary(graph: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """`[{kind, count}]` for the document's diagnostics, worst-first by count.
-
-    ``mlview.api.digest`` drops ``graph["diagnostics"]`` wholesale, so without this
-    a `parse_error` never reaches the model through any tool and "0 issues" cannot
-    be told apart from "every file failed to parse". It costs ~30 bytes per kind.
-    """
-    tally: Dict[str, int] = {}
-    for entry in graph.get("diagnostics") or []:
-        kind = entry.get("kind") or "unknown"
-        tally[kind] = tally.get(kind, 0) + max(1, int(entry.get("count") or 1))
-    return [
-        {"kind": kind, "count": count}
-        for kind, count in sorted(tally.items(), key=lambda kv: (-kv[1], kv[0]))
-    ]
-
-
-def _corpus_note(
-    files_analyzed: int, files_failed: int, diagnostics: Sequence[Dict[str, Any]] = ()
-) -> Optional[str]:
-    """The sentence that stops "0 issues" from being read as "clean".
-
-    A directory with no Python, and a directory whose every file failed to parse,
-    otherwise produce byte-identical payloads to a genuinely clean workspace — and
-    `commands/mlview-issues.md` tells the model to answer the latter with a
-    positive clean bill of health.
-    """
-    parts: List[str] = []
-    if not files_analyzed:
-        parts.append(
-            "no analyzable Python was found at this path, so an empty result is "
-            "NOT a clean bill of health"
-        )
-    if files_failed:
-        parts.append(
-            "%d file(s) failed to parse; any issues they contain are missing from "
-            "this result" % files_failed
-        )
-    if not parts:
-        return None
-    kinds = ", ".join(
-        "%s x%d" % (d.get("kind"), d.get("count", 0)) for d in diagnostics
-    )
-    note = "; ".join(parts)
-    return note + ((" (diagnostics: %s)" % kinds) if kinds else "")
-
-
 def analyze_payload(
     digest_dict: Dict[str, Any],
     graph_path: str,
@@ -139,6 +103,12 @@ def analyze_payload(
     diagnostics = diagnostics_summary(graph) if graph else []
     if diagnostics:
         out["diagnostics"] = diagnostics
+    # ROADMAP COVERAGE: the tally above says a kind fired and how many times; only
+    # this block says WHICH RULES stayed silent, which is what `commands/mlview.md`
+    # tells the model to report before the finding count.
+    coverage = coverage_notes(graph)
+    if coverage:
+        out["coverage"] = coverage
     notes = [n for n in extra_notes if n]
     if scope:
         # `digest()` already emits the richer CONTRACTS 11.6 block
@@ -150,10 +120,15 @@ def analyze_payload(
         if not isinstance(out.get("scope"), dict):
             out["scope"] = scope
         notes.append(scopes.filtered_view_note(scope))
+    blind = _coverage_note(coverage)
+    if blind:
+        notes.insert(0, blind)
     note = _corpus_note(
         int(out.get("filesAnalyzed") or 0), int(out.get("filesFailed") or 0), diagnostics
     )
     if note:
+        # "nothing was analyzed" leads, then the coverage caveat: the order the
+        # command body tells the model to speak them in.
         notes.insert(0, note)
     if notes:
         out["note"] = "; ".join(notes)
@@ -172,6 +147,7 @@ def issues_payload(
     limit_bytes: int = LIMIT_BYTES,
     scope: Optional[str] = None,
     extra_notes: Sequence[str] = (),
+    group_by: Optional[str] = None,
 ) -> Dict[str, Any]:
     """The `mlview_issues` result: counts plus the ranked, filtered issue rows.
 
@@ -181,6 +157,12 @@ def issues_payload(
     With ``scope`` set, ``graph`` is expected to be the PROJECTION and only the
     retained findings are listed; the selector is echoed and the filtered-view
     note is added, so "3 issues" cannot be read as "this project has 3 issues".
+
+    With ``group_by`` set (RAIL-GROUP) the surviving rows are folded into one row
+    per rule / file / severity and ``issues`` is omitted: eleven codes repeated ten
+    times is one answer, not a hundred and ten, and the fold happens BEFORE the
+    4 KB budget sheds anything. The note says the rows were folded and not
+    filtered, so a grouped answer is never read as a shorter finding list.
     """
     if min_severity is None:
         min_severity = "low"
@@ -225,6 +207,20 @@ def issues_payload(
             }
         )
 
+    # RAIL-GROUP: fold BEFORE the row limit and before `fit`, or the group counts
+    # would describe the rows that survived a cap rather than the findings.
+    groups: Optional[List[Dict[str, Any]]] = None
+    mode = None
+    if group_by is not None:
+        # A blank or misspelled mode is a caller mistake, exactly like a bad
+        # minSeverity: coercing it to "no grouping" would answer a different
+        # question in the shape the caller asked for, which is undetectable.
+        mode = str(group_by).strip().lower()
+        if mode not in GROUP_BY_MODES:
+            _reject("groupBy", group_by, GROUP_BY_MODES)
+        groups = group_issues(rows, mode)
+
+    matched = len(rows)
     rows = rows[: max(0, int(limit))]
     workspace = graph.get("workspace") or {}
     files_analyzed = int(workspace.get("filesAnalyzed") or 0)
@@ -239,16 +235,29 @@ def issues_payload(
         "filesAnalyzed": files_analyzed,
         "filesFailed": files_failed,
         "notebooksSkipped": notebooks_skipped,
-        "issues": rows,
         "truncated": False,
     }
+    if groups is None:
+        out["issues"] = rows
+    else:
+        out["groupBy"] = mode
+        out["groups"] = groups
     diagnostics = diagnostics_summary(graph)
     if diagnostics:
         out["diagnostics"] = diagnostics
+    # ROADMAP COVERAGE: see `analyze_payload`; the tally cannot carry a rule code.
+    coverage = coverage_notes(graph)
+    if coverage:
+        out["coverage"] = coverage
     notes = [n for n in extra_notes if n]
+    if groups is not None:
+        notes.append(group_note(out["groupBy"], groups, matched))
     if scope:
         out["scope"] = scope
         notes.append(scopes.filtered_view_note(scope))
+    blind = _coverage_note(coverage)
+    if blind:
+        notes.insert(0, blind)
     note = _corpus_note(files_analyzed, files_failed, diagnostics)
     if note:
         notes.insert(0, note)
@@ -577,6 +586,7 @@ __all__ = [
     # the accepted argument values, and the per-tool builders
     "SEVERITY_ORDER", "STAGE_IDS", "GRAPH_FORMATS", "scopes",
     "analyze_payload", "issues_payload", "graph_payload", "diagnostics_summary",
+    "coverage_notes",  # re-exported from mlview_notes: the COVERAGE reader
     # re-exported from mlview_views so callers and tests keep one import
     "subgraph", "stage_scope_ids", "neighbourhood_ids",
     "explain_node_payload", "explain_rule_payload", "open_diagram_payload",

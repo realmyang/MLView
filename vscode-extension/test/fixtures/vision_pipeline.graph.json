@@ -3,8 +3,8 @@
   "generator": {
     "name": "mlview",
     "version": "0.1.0",
-    "rendererSha": "b11b026447e4e4f2b1cf13f7170af81c2126b587d0e409d98cd6cff8ee79c478",
-    "generatedAt": "2026-09-07T17:52:40Z"
+    "rendererSha": "c7fcdac3c67f1ac0393714fd3844a878130c3a9479d53081cd83e252fd6b270f",
+    "generatedAt": "2026-09-08T20:22:36Z"
   },
   "workspace": {
     "root": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline",
@@ -68,7 +68,7 @@
       "label": "Model",
       "order": 3,
       "present": true,
-      "nodeCount": 3,
+      "nodeCount": 12,
       "issueCounts": {
         "low": 0,
         "medium": 0,
@@ -1409,6 +1409,191 @@
       ]
     },
     {
+      "id": "n:b4a5be7255b7",
+      "kind": "layer",
+      "level": "op",
+      "stage": "model",
+      "label": "self.conv",
+      "sublabel": "Conv2d · kernel_size=3 · padding=1",
+      "qualname": "model.ConvBlock.__init__.self.conv",
+      "fqn": "torch.nn.Conv2d",
+      "framework": "torch",
+      "var": "self.conv",
+      "loc": {
+        "file": "model.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/model.py",
+        "line": 19,
+        "col": 20,
+        "endLine": 19,
+        "endCol": 66,
+        "symbol": "nn.Conv2d",
+        "snippet": "        self.conv = nn.Conv2d(cin, cout, kernel_size=3, padding=1)"
+      },
+      "parent": "n:c07d62f5a608",
+      "attrs": {
+        "kernel_size": "3",
+        "padding": "1"
+      },
+      "produces": [
+        {
+          "name": "self.conv",
+          "tags": [
+            "MODEL"
+          ]
+        }
+      ],
+      "consumes": [],
+      "ghost": false,
+      "dynamic": false,
+      "confidence": 0.95,
+      "confidenceBucket": "certain",
+      "issueIds": [],
+      "collapsedByDefault": false,
+      "stageEvidence": [
+        {
+          "kind": "knowledge_table",
+          "detail": "torch.nn.Conv2d -> model",
+          "weight": 1.0
+        }
+      ]
+    },
+    {
+      "id": "n:c4217c9e05b3",
+      "kind": "layer",
+      "level": "op",
+      "stage": "model",
+      "label": "self.norm",
+      "sublabel": "BatchNorm2d",
+      "qualname": "model.ConvBlock.__init__.self.norm",
+      "fqn": "torch.nn.BatchNorm2d",
+      "framework": "torch",
+      "var": "self.norm",
+      "loc": {
+        "file": "model.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/model.py",
+        "line": 20,
+        "col": 20,
+        "endLine": 20,
+        "endCol": 40,
+        "symbol": "nn.BatchNorm2d",
+        "snippet": "        self.norm = nn.BatchNorm2d(cout)"
+      },
+      "parent": "n:c07d62f5a608",
+      "attrs": {},
+      "produces": [
+        {
+          "name": "self.norm",
+          "tags": [
+            "MODEL"
+          ]
+        }
+      ],
+      "consumes": [],
+      "ghost": false,
+      "dynamic": false,
+      "confidence": 0.95,
+      "confidenceBucket": "certain",
+      "issueIds": [],
+      "collapsedByDefault": false,
+      "stageEvidence": [
+        {
+          "kind": "knowledge_table",
+          "detail": "torch.nn.BatchNorm2d -> model",
+          "weight": 1.0
+        }
+      ]
+    },
+    {
+      "id": "n:222ac48a6f6b",
+      "kind": "layer",
+      "level": "op",
+      "stage": "model",
+      "label": "self.drop",
+      "sublabel": "Dropout",
+      "qualname": "model.ConvBlock.__init__.self.drop",
+      "fqn": "torch.nn.Dropout",
+      "framework": "torch",
+      "var": "self.drop",
+      "loc": {
+        "file": "model.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/model.py",
+        "line": 21,
+        "col": 20,
+        "endLine": 21,
+        "endCol": 35,
+        "symbol": "nn.Dropout",
+        "snippet": "        self.drop = nn.Dropout(0.1)"
+      },
+      "parent": "n:c07d62f5a608",
+      "attrs": {},
+      "produces": [
+        {
+          "name": "self.drop",
+          "tags": [
+            "MODEL"
+          ]
+        }
+      ],
+      "consumes": [],
+      "ghost": false,
+      "dynamic": false,
+      "confidence": 0.95,
+      "confidenceBucket": "certain",
+      "issueIds": [],
+      "collapsedByDefault": false,
+      "stageEvidence": [
+        {
+          "kind": "knowledge_table",
+          "detail": "torch.nn.Dropout -> model",
+          "weight": 1.0
+        }
+      ]
+    },
+    {
+      "id": "n:f54d6a5a9e11",
+      "kind": "layer",
+      "level": "op",
+      "stage": "model",
+      "label": "relu()",
+      "qualname": "model.ConvBlock.forward.relu",
+      "fqn": "torch.nn.functional.relu",
+      "framework": "torch",
+      "loc": {
+        "file": "model.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/model.py",
+        "line": 24,
+        "col": 25,
+        "endLine": 24,
+        "endCol": 56,
+        "symbol": "F.relu",
+        "snippet": "        return self.drop(F.relu(self.norm(self.conv(x))))"
+      },
+      "parent": "n:c07d62f5a608",
+      "attrs": {},
+      "produces": [],
+      "consumes": [
+        {
+          "name": "self.norm",
+          "tags": [
+            "MODEL"
+          ]
+        }
+      ],
+      "ghost": false,
+      "dynamic": false,
+      "confidence": 0.95,
+      "confidenceBucket": "certain",
+      "issueIds": [],
+      "collapsedByDefault": false,
+      "stageEvidence": [
+        {
+          "kind": "knowledge_table",
+          "detail": "torch.nn.functional.relu -> model",
+          "weight": 1.0
+        }
+      ]
+    },
+    {
       "id": "n:3e1a658e7bad",
       "kind": "model",
       "level": "unit",
@@ -1453,6 +1638,247 @@
         {
           "kind": "class_base",
           "detail": "class derives torch.nn.Module",
+          "weight": 1.0
+        }
+      ]
+    },
+    {
+      "id": "n:818db64b6a28",
+      "kind": "layer",
+      "level": "op",
+      "stage": "model",
+      "label": "self.stem",
+      "sublabel": "Conv2d · kernel_size=3 · padding=1",
+      "qualname": "model.SmallCNN.__init__.self.stem",
+      "fqn": "torch.nn.Conv2d",
+      "framework": "torch",
+      "var": "self.stem",
+      "loc": {
+        "file": "model.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/model.py",
+        "line": 33,
+        "col": 20,
+        "endLine": 33,
+        "endCol": 65,
+        "symbol": "nn.Conv2d",
+        "snippet": "        self.stem = nn.Conv2d(3, width, kernel_size=3, padding=1)"
+      },
+      "parent": "n:3e1a658e7bad",
+      "attrs": {
+        "kernel_size": "3",
+        "padding": "1"
+      },
+      "produces": [
+        {
+          "name": "self.stem",
+          "tags": [
+            "MODEL"
+          ]
+        }
+      ],
+      "consumes": [],
+      "ghost": false,
+      "dynamic": false,
+      "confidence": 0.95,
+      "confidenceBucket": "certain",
+      "issueIds": [],
+      "collapsedByDefault": false,
+      "stageEvidence": [
+        {
+          "kind": "knowledge_table",
+          "detail": "torch.nn.Conv2d -> model",
+          "weight": 1.0
+        }
+      ]
+    },
+    {
+      "id": "n:4e252244ce33",
+      "kind": "layer",
+      "level": "op",
+      "stage": "model",
+      "label": "self.pool",
+      "sublabel": "AdaptiveAvgPool2d",
+      "qualname": "model.SmallCNN.__init__.self.pool",
+      "fqn": "torch.nn.AdaptiveAvgPool2d",
+      "framework": "torch",
+      "var": "self.pool",
+      "loc": {
+        "file": "model.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/model.py",
+        "line": 35,
+        "col": 20,
+        "endLine": 35,
+        "endCol": 43,
+        "symbol": "nn.AdaptiveAvgPool2d",
+        "snippet": "        self.pool = nn.AdaptiveAvgPool2d(1)"
+      },
+      "parent": "n:3e1a658e7bad",
+      "attrs": {},
+      "produces": [
+        {
+          "name": "self.pool",
+          "tags": [
+            "MODEL"
+          ]
+        }
+      ],
+      "consumes": [],
+      "ghost": false,
+      "dynamic": false,
+      "confidence": 0.95,
+      "confidenceBucket": "certain",
+      "issueIds": [],
+      "collapsedByDefault": false,
+      "stageEvidence": [
+        {
+          "kind": "knowledge_table",
+          "detail": "torch.nn.AdaptiveAvgPool2d -> model",
+          "weight": 1.0
+        }
+      ]
+    },
+    {
+      "id": "n:d61522ec566b",
+      "kind": "layer",
+      "level": "op",
+      "stage": "model",
+      "label": "self.head",
+      "sublabel": "Linear",
+      "qualname": "model.SmallCNN.__init__.self.head",
+      "fqn": "torch.nn.Linear",
+      "framework": "torch",
+      "var": "self.head",
+      "loc": {
+        "file": "model.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/model.py",
+        "line": 36,
+        "col": 20,
+        "endLine": 36,
+        "endCol": 45,
+        "symbol": "nn.Linear",
+        "snippet": "        self.head = nn.Linear(width, classes)"
+      },
+      "parent": "n:3e1a658e7bad",
+      "attrs": {},
+      "produces": [
+        {
+          "name": "self.head",
+          "tags": [
+            "MODEL"
+          ]
+        }
+      ],
+      "consumes": [],
+      "ghost": false,
+      "dynamic": false,
+      "confidence": 0.95,
+      "confidenceBucket": "certain",
+      "issueIds": [],
+      "collapsedByDefault": false,
+      "stageEvidence": [
+        {
+          "kind": "knowledge_table",
+          "detail": "torch.nn.Linear -> model",
+          "weight": 1.0
+        }
+      ]
+    },
+    {
+      "id": "n:6d02bfdd9962",
+      "kind": "layer",
+      "level": "op",
+      "stage": "model",
+      "label": "x",
+      "sublabel": "relu",
+      "qualname": "model.SmallCNN.forward.x",
+      "fqn": "torch.nn.functional.relu",
+      "framework": "torch",
+      "var": "x",
+      "loc": {
+        "file": "model.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/model.py",
+        "line": 39,
+        "col": 12,
+        "endLine": 39,
+        "endCol": 32,
+        "symbol": "F.relu",
+        "snippet": "        x = F.relu(self.stem(x))"
+      },
+      "parent": "n:3e1a658e7bad",
+      "attrs": {},
+      "produces": [
+        {
+          "name": "x",
+          "tags": []
+        }
+      ],
+      "consumes": [
+        {
+          "name": "self.stem",
+          "tags": [
+            "MODEL"
+          ]
+        }
+      ],
+      "ghost": false,
+      "dynamic": false,
+      "confidence": 0.95,
+      "confidenceBucket": "certain",
+      "issueIds": [],
+      "collapsedByDefault": false,
+      "stageEvidence": [
+        {
+          "kind": "knowledge_table",
+          "detail": "torch.nn.functional.relu -> model",
+          "weight": 1.0
+        }
+      ]
+    },
+    {
+      "id": "n:5b88d52bab14",
+      "kind": "layer",
+      "level": "op",
+      "stage": "model",
+      "label": "softmax()",
+      "sublabel": "dim=1",
+      "qualname": "model.SmallCNN.forward.softmax",
+      "fqn": "torch.nn.functional.softmax",
+      "framework": "torch",
+      "loc": {
+        "file": "model.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/model.py",
+        "line": 43,
+        "col": 15,
+        "endLine": 43,
+        "endCol": 45,
+        "symbol": "F.softmax",
+        "snippet": "        return F.softmax(self.head(x), dim=1)"
+      },
+      "parent": "n:3e1a658e7bad",
+      "attrs": {
+        "dim": "1"
+      },
+      "produces": [],
+      "consumes": [
+        {
+          "name": "self.head",
+          "tags": [
+            "MODEL"
+          ]
+        }
+      ],
+      "ghost": false,
+      "dynamic": false,
+      "confidence": 0.95,
+      "confidenceBucket": "certain",
+      "issueIds": [
+        "i:da22948c4710"
+      ],
+      "collapsedByDefault": false,
+      "stageEvidence": [
+        {
+          "kind": "knowledge_table",
+          "detail": "torch.nn.functional.softmax -> model",
           "weight": 1.0
         }
       ]
@@ -2684,6 +3110,26 @@
       "issueIds": []
     },
     {
+      "id": "e:2e5e9c32b271",
+      "kind": "data",
+      "source": "n:4e252244ce33",
+      "target": "n:d61522ec566b",
+      "label": "x",
+      "loc": {
+        "file": "model.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/model.py",
+        "line": 43,
+        "col": 35,
+        "endLine": 43,
+        "endCol": 36,
+        "symbol": "x",
+        "snippet": "        return F.softmax(self.head(x), dim=1)"
+      },
+      "tags": [],
+      "confidence": 0.9,
+      "issueIds": []
+    },
+    {
       "id": "e:9f3e024049be",
       "kind": "data",
       "source": "n:549c65db0c23",
@@ -3000,6 +3446,28 @@
       "issueIds": []
     },
     {
+      "id": "e:b2678e0f10c8",
+      "kind": "data",
+      "source": "n:818db64b6a28",
+      "target": "n:6d02bfdd9962",
+      "label": "self.stem",
+      "loc": {
+        "file": "model.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/model.py",
+        "line": 39,
+        "col": 19,
+        "endLine": 39,
+        "endCol": 31,
+        "symbol": "self.stem",
+        "snippet": "        x = F.relu(self.stem(x))"
+      },
+      "tags": [
+        "MODEL"
+      ],
+      "confidence": 0.9,
+      "issueIds": []
+    },
+    {
       "id": "e:47ad8c0fb4a5",
       "kind": "data",
       "source": "n:81ba8f7992dc",
@@ -3133,6 +3601,28 @@
       "issueIds": []
     },
     {
+      "id": "e:146b3fed19de",
+      "kind": "data",
+      "source": "n:b4a5be7255b7",
+      "target": "n:c4217c9e05b3",
+      "label": "self.conv",
+      "loc": {
+        "file": "model.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/model.py",
+        "line": 24,
+        "col": 42,
+        "endLine": 24,
+        "endCol": 54,
+        "symbol": "self.conv",
+        "snippet": "        return self.drop(F.relu(self.norm(self.conv(x))))"
+      },
+      "tags": [
+        "MODEL"
+      ],
+      "confidence": 0.9,
+      "issueIds": []
+    },
+    {
       "id": "e:ff637d4d0d5c",
       "kind": "data",
       "source": "n:bd90f63fbb7d",
@@ -3149,6 +3639,28 @@
         "snippet": "                                          transform=TRAIN_TRANSFORM)"
       },
       "tags": [],
+      "confidence": 0.9,
+      "issueIds": []
+    },
+    {
+      "id": "e:6099ac58c850",
+      "kind": "data",
+      "source": "n:c4217c9e05b3",
+      "target": "n:f54d6a5a9e11",
+      "label": "self.norm",
+      "loc": {
+        "file": "model.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/model.py",
+        "line": 24,
+        "col": 32,
+        "endLine": 24,
+        "endCol": 55,
+        "symbol": "self.norm",
+        "snippet": "        return self.drop(F.relu(self.norm(self.conv(x))))"
+      },
+      "tags": [
+        "MODEL"
+      ],
       "confidence": 0.9,
       "issueIds": []
     },
@@ -3194,6 +3706,28 @@
       "tags": [
         "RAW_DATA",
         "VAL_SPLIT"
+      ],
+      "confidence": 0.9,
+      "issueIds": []
+    },
+    {
+      "id": "e:bc1a6d368ff5",
+      "kind": "data",
+      "source": "n:d61522ec566b",
+      "target": "n:5b88d52bab14",
+      "label": "self.head",
+      "loc": {
+        "file": "model.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/model.py",
+        "line": 43,
+        "col": 25,
+        "endLine": 43,
+        "endCol": 37,
+        "symbol": "self.head",
+        "snippet": "        return F.softmax(self.head(x), dim=1)"
+      },
+      "tags": [
+        "MODEL"
       ],
       "confidence": 0.9,
       "issueIds": []
@@ -3378,6 +3912,26 @@
         "endCol": 33,
         "symbol": "images",
         "snippet": "            logits = model(images)"
+      },
+      "tags": [],
+      "confidence": 0.9,
+      "issueIds": []
+    },
+    {
+      "id": "e:dbd7fab170a0",
+      "kind": "data",
+      "source": "n:f54d6a5a9e11",
+      "target": "n:222ac48a6f6b",
+      "label": "relu",
+      "loc": {
+        "file": "model.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/model.py",
+        "line": 24,
+        "col": 25,
+        "endLine": 24,
+        "endCol": 56,
+        "symbol": "F.relu",
+        "snippet": "        return self.drop(F.relu(self.norm(self.conv(x))))"
       },
       "tags": [],
       "confidence": 0.9,
@@ -3684,7 +4238,8 @@
       ],
       "nodeIds": [
         "n:096816f94864",
-        "n:3e1a658e7bad"
+        "n:3e1a658e7bad",
+        "n:5b88d52bab14"
       ],
       "edgeIds": [
         "e:be0648ecd817"
@@ -4560,8 +5115,8 @@
   ],
   "diagnostics": [],
   "stats": {
-    "nodes": 45,
-    "edges": 45,
+    "nodes": 54,
+    "edges": 51,
     "issues": {
       "low": 4,
       "medium": 6,

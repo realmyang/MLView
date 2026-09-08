@@ -170,6 +170,21 @@
           "default": true,
           "description": "Re-analyze (debounced by 400 ms) when a Python file in the workspace is saved."
         },
+        "mlview.currentFileAnalysisScope": {
+          "type": "string",
+          "enum": [
+            "file",
+            "package",
+            "workspace"
+          ],
+          "enumDescriptions": [
+            "Analyze only the file itself. Fastest, and the least accurate: the cross-file rules (MLV301, MLV302, MLV401, MLV501) cannot fire, and the analyzer reports that as a single_file_analysis diagnostic.",
+            "Analyze the package directory that contains the file, then scope the diagram to the file. Recovers the cross-file rules at a fraction of workspace cost.",
+            "Analyze the whole workspace, then scope the diagram to the file."
+          ],
+          "default": "package",
+          "markdownDescription": "What `MLView: Visualize (Current File)` actually analyzes. `package` (default) analyzes the outermost directory of the package chain containing the file (the file's own directory when it is not in a package) and then scopes the diagram to the file, so the cross-file rules still fire. `file` analyzes the file alone and is reported as incomplete."
+        },
         "mlview.exclude": {
           "type": "array",
           "items": {
@@ -207,11 +222,6 @@
           "maximum": 1,
           "description": "Lowest issue confidence published as a diagnostic. Lower-confidence findings stay on the canvas only."
         },
-        "mlview.showSpeculative": {
-          "type": "boolean",
-          "default": false,
-          "description": "Reserved: show speculative (lowest confidence) findings on the diagram canvas. Not implemented in this prototype - the frozen setFilter message carries no confidence channel."
-        },
         "mlview.diagnosticsEnabled": {
           "type": "boolean",
           "default": true,
@@ -239,11 +249,6 @@
           "type": "boolean",
           "default": true,
           "description": "Show a \"MLView: show in diagram\" CodeLens above analyzed units."
-        },
-        "mlview.followCursor": {
-          "type": "boolean",
-          "default": false,
-          "description": "Reserved: highlight the node under the editor cursor in the diagram. Not implemented in this prototype."
         },
         "mlview.trace": {
           "type": "string",

@@ -1,6 +1,7 @@
 # MLView — Build status
 
-**Complete and integrated (2026-09-07).** The multi-agent build finished with two review → verify → fix rounds (48 confirmed findings fixed) and a final verification pass; `scripts/e2e.ps1` was re-run by hand afterwards: 13 steps, 0 failed. Every component is built, every gate is
+**Complete and integrated (2026-09-07).** The multi-agent build finished with two review → verify → fix rounds (48 confirmed findings fixed) and a final verification pass; `scripts/e2e.ps1` was re-run by hand afterwards and every one of the thirteen
+rows it had then passed. Every component is built, every gate is
 green on this machine, and the demo artifacts are produced. `scripts/README.md`
 holds the gate table with the command for each row.
 
@@ -9,11 +10,12 @@ flow visibility and scoped views.** Both are additive — `schemaVersion` stays
 `"1.0"`, no existing field, message, argument or return shape changed, and an
 unscoped run still emits the bytes it emitted before. `docs/CONTRACTS.md` §11
 binds; `docs/FEATURES_FLOW_AND_SCOPE.md` is the design. The e2e driver grew
-four steps (17 in total) and `tools/verify.py` grew two gate rows (9 in total).
+four steps (17 at the time; 18 today, since ANA-12 added the accuracy corpus)
+and `tools/verify.py` grew two gate rows (9 in total).
 
 ```
 powershell -ExecutionPolicy Bypass -File scripts/build.ps1   # BUILD OK
-powershell -ExecutionPolicy Bypass -File scripts/e2e.ps1     # E2E OK - 17 steps, 0 failed
+powershell -ExecutionPolicy Bypass -File scripts/e2e.ps1     # E2E OK - 18 steps, 0 failed
 ```
 
 ## Components
@@ -22,11 +24,11 @@ powershell -ExecutionPolicy Bypass -File scripts/e2e.ps1     # E2E OK - 17 steps
 |---|---|
 | Design docs | `docs/REQUIREMENTS.md`, `ARCHITECTURE.md`, `ISSUE_RULES.md`, `UX_DESIGN.md`, `CONTRACTS.md` (§10 amendments are the overriding lead decisions) |
 | Contracts | `contracts/graph.schema.json`, `contracts/graph.sample.json` (golden), `contracts/validate_sample.py` (schema + 10 invariant groups) |
-| Analyzer `analyzer/` | Complete. 20 rules, zero runtime dependencies, `python -m mlview` installed editable. **1075 passed, 2 skipped.** `analyze --demo --json -` is byte-identical to the golden sample. Scoped views live in `analyzer/src/mlview/core/project.py` + `core/selectors.py`. |
-| Viewer `webview/` | Complete. `dist/mlview.{js,css}` built. **246 tests pass**, `tsc --noEmit` clean. Flow animation (`src/render/flow.ts`) and the TypeScript half of the projection (`src/scope/project.ts`) ship here. |
-| VS Code extension | Complete. **180 tests pass**, `tsc --noEmit` clean, `out/extension.js` bundled (111.4 kb). Copilot participant + LM tools are compile- and unit-verified only (Copilot is not installed here). |
-| Claude Code plugin | Complete. MCP server on the `mcp` SDK v2, **still exactly five tools**, each result ≤ 4 KB. **231 tests pass**; `claude plugin validate ./claude-plugin --strict` passes. |
-| Samples | `samples/vision_pipeline` (45 nodes, 45 edges, exactly 15 issues: 5 high / 6 medium / 4 low) and `samples/vision_pipeline_clean` (55 nodes, 0 issues). `expected_issues.json` is machine-checked. |
+| Analyzer `analyzer/` | Complete. 20 rules, zero runtime dependencies, `python -m mlview` installed editable. **1218 passed, 3 skipped.** `analyze --demo --json -` is byte-identical to the golden sample. Scoped views live in `analyzer/src/mlview/core/project.py` + `core/selectors.py`. |
+| Viewer `webview/` | Complete. `dist/mlview.{js,css}` built. **300 tests pass**, `tsc --noEmit` clean. Flow animation (`src/render/flow.ts`) and the TypeScript half of the projection (`src/scope/project.ts`) ship here. |
+| VS Code extension | Complete. **205 tests pass**, `tsc --noEmit` clean, `out/extension.js` bundled. Copilot participant + LM tools are compile- and unit-verified only (Copilot is not installed here). |
+| Claude Code plugin | Complete. MCP server on the `mcp` SDK v2, **still exactly five tools**, each result ≤ 4 KB. **286 tests pass**, with `python tools/sync-core.py` having run after the analyzer changes (`test_vendor_bytecode.py` is the row that checks it); `claude plugin validate ./claude-plugin --strict` passes. |
+| Samples | `samples/vision_pipeline` (54 nodes, 51 edges, exactly 15 issues: 5 high / 6 medium / 4 low) and `samples/vision_pipeline_clean` (64 nodes, 0 issues). `expected_issues.json` is machine-checked. |
 | Rule docs | `docs/rules/` — 20 pages plus an index, generated from the registry. Every `Issue.docs` deep link resolves. |
 | Demo artifacts | `.mlview/graph.json`, `report.html`, `graph_clean.json`, `report_clean.html`, plus the three scoped reports `split.html`, `optimization.html`, `evaluation.html` — self-contained, zero external references, each inside amendment A4's contracted **100 KB – 2 MB** band. No KB figure is quoted here on purpose: the viewer bundle moves, the band does not, and `scripts/e2e` now measures every emitted report against it and prints the range it found (MLV-R1-H06). Each scoped report embeds the **whole** graph and merely opens at its scope. |
 | Scope fixtures | `contracts/scope.cases.json` (10 selectors + 6 error codes) and `contracts/scope.expected.json`, generated from the Python `project()` over the frozen golden and consumed by the TypeScript port — the parity gate for one algorithm written twice. |
@@ -173,7 +175,7 @@ analyzer suite against a freshly synced viewer bundle:
    root, so the absence is now asserted on the root element itself — stricter,
    since it checks `data-mlview-depth` too.
 3. **`.mlview/evaluation.html` was written at the per-kind default depth 0.**
-   Demo D and F2-A5/F2-A6 are `concern:evaluation --depth 1` — 17 of 45 nodes,
+   Demo D and F2-A5/F2-A6 are `concern:evaluation --depth 1` — 17 of 54 nodes,
    7 core / 7 boundary / 3 context — which is the ring that shows *what feeds*
    evaluation. Both e2e drivers now pass the demos' own depths.
 
@@ -201,6 +203,100 @@ analyzer suite against a freshly synced viewer bundle:
    demo graph. Nine new cases in `scripts/test_check_docs.py` (26 total),
    one of which asserts against the shipped `scripts/*.sh` directly rather
    than against a fixture.
+
+## Sprint 3 — analyzer and viewer, Track A (2026-09-08)
+
+**The re-baseline.** Four roadmap items land as one graph change, because one
+golden regeneration has to cover all of them. `docs/CONTRACTS.md` §11.19 is the
+amendment and carries the reasoning and the bounds; this is the summary.
+
+`samples/vision_pipeline` grows from 45 nodes and 45 edges to **54 nodes / 52
+edges** — **51** after REV-01, on 2026-09-08, dropped the one data edge that
+pointed backwards through `SmallCNN.forward` — and carries **exactly the same
+fifteen findings**, at the same lines, in
+the same 5 / 6 / 4 split — `samples/vision_pipeline/expected_issues.json` is
+unchanged and `analyzer/tools/gen_expected_issues.py --check` passes without
+regeneration. Both clean corpora stay at **0 issues**
+(`samples/vision_pipeline_clean` 55 → 64 nodes, `analyzer/tests/clean` 108 →
+127, and 137 once ANA-12's sixth clean file — the `TimeSeriesSplit` walk-forward
+script R3.7 asks for — landed on 2026-09-08).
+`contracts/graph.sample.json` is hand-authored and was **not** regenerated,
+so `--demo`, `contracts/scope.cases.json` and `contracts/scope.expected.json` are
+byte-identical and the parity battery is untouched.
+
+1. **ANA-1 — ops written inside a class method were dropped.** `CallSite.class_ir`
+   carried two different facts and `analyzer/src/mlview/core/build.py` read the
+   wrong one. They are now two fields: `class_ir` (what the call *resolves to*,
+   written only by `ir/resolve.py`) and `enclosing_class` (what class the call is
+   *written in*, written only by `ir/scopes.py`). No reader may use one for the
+   other.
+2. **ANA-2 — `self.<attr>(...)` resolved to a symbol nobody declared.**
+   `self.loss_fn(...)` became `torch.nn.Module.loss_fn`; it now resolves through
+   the binding to the value the attribute actually holds (`ir/resolve.py`).
+3. **ANA-3 — a package `__init__` re-export resolved to nothing**, because
+   `_relative_base` trimmed the last dotted component of a name that *is* the
+   package (`ir/symbols.py`, `ir/build_ir.py`).
+4. **VIEW-01 — lane boxes are no longer normalised to the widest lane**, and
+   `LANE_MIN_W` drops 420 → 320 with a new `MAX_RANK_W` wrap beside the existing
+   `MAX_RANK_H`. On the demo the world goes 2636×2484 → 1576×2630 and `fit()`
+   0.322 → 0.532 at a 1240×848 canvas; worst lane emptiness 91% → 32%. The wrap
+   itself never fires on the demo (widest lane content 1400 px against a 2000 px
+   threshold) — the win is the trimming.
+
+**Measured after.** Precision stays **100%** and every recall reading is
+unchanged to four decimals — this was a graph change, not a rule change: unseen
+recall **51.1%** raw / **38.3%** visible / **31.2%** high+medium. Graph fidelity
+is the one number the re-baseline was allowed to move, and it ratchets **66.2% →
+86.3%** (92 → 120 of 139 hand-labelled ops), re-recorded in
+`analyzer/tests/accuracy/baseline.json`. `docs/ACCURACY.md` is the record, and
+`scripts/check_docs.py` now holds it to that baseline.
+
+**Also on this branch, outside both host tracks:** PERF-01 and PERF-02 (memoised
+knowledge lookup, a role index, and a convergence loop replacing `range(4)` —
+byte-identical output on three corpora, proved by `tools/perf_equiv.py`), ANA-12
+(the labelled accuracy corpus, `tools/accuracy.py` and `docs/ACCURACY.md`),
+BUILD-01 (minified report CSS, −38% on `webview/dist/mlview.css`, under a size
+ratchet in `webview/test/bundle.test.mjs`), CI-01 (`.github/workflows/ci.yml`)
+and HEALTH-01 / HEALTH-03.
+
+## Sprint 3 — hosts, Track B (2026-09-08)
+
+Three roadmap items, all additive; `schemaVersion` stays `"1.0"` and no message,
+tool count or return shape changed.
+
+1. **COVERAGE (host half).** `mlview.currentFileAnalysisScope`
+   (`file` | `package` | `workspace`, default `package`) makes
+   `MLView: Visualize (Current File)` analyse the package directory around the
+   file and then narrow the diagram to the file through the existing §11.7
+   `setScope` path (`vscode-extension/src/currentFile.ts`). Analysing a file alone
+   cannot fire MLV301, MLV302, MLV401 or MLV501 — each needs a sibling module — so
+   the old path lost four of seven findings on `train.py` silently. The analyzer's
+   `single_file_analysis` / `untagged_dataflow` diagnostics are surfaced in the
+   status-bar tooltip, the panel tab description and the chat / language-model
+   digests (`vscode-extension/src/coverage.ts`), and both slash commands and the
+   `mlview_analyze` docstring repeat the caveat for a single-file path.
+2. **RAIL-GROUP (host half).** `mlview_issues` takes `groupBy: rule|file|severity`
+   and answers with `groups` instead of `issues` — one row per key with an
+   occurrence count, the worst severity and confidence in the group and up to
+   three citable `file:line` sites (`claude-plugin/server/mlview_groups.py`).
+   `/mlview-issues --group-by` carries the same three words through the argument
+   grammar. Grouping folds the rows and never filters them, and the payload's
+   `note` says exactly that.
+3. **CLEANUP (host bits).** `mlview.showSpeculative` and `mlview.followCursor`
+   were deleted — both shipped in the Settings UI reading "Not implemented in this
+   prototype", and A6 cut `followCursor` outright.
+   `capabilities.canAskAssistant` is now true exactly when `vscode.chat` exists,
+   and `askAssistant` opens chat seeded with the viewer's own prompt
+   (`vscode-extension/src/panel.ts`). `claude-plugin/server/mlview_mcp.py` refuses
+   an interpreter older than 3.10 with a message naming `.mcp.json`, the
+   `command` field and `python3`, because JSON cannot carry that comment itself;
+   `claude-plugin/README.md` carries the long form.
+
+Files split to stay inside the ~600-line budget while doing it:
+`vscode-extension/src/panelHtml.ts`, `src/toolAnalyze.ts`, `src/failure.ts` out of
+`extension.ts` / `panel.ts`, and `claude-plugin/server/mlview_notes.py` out of
+`mlview_payloads.py`. Every one is a move plus a re-export; no behaviour moved
+with them.
 
 ## Known gaps
 
@@ -235,8 +331,6 @@ None block the demo. In rough order of how likely they are to matter:
   `from config import N` resolves; `import config` then `config.N` does not.
   `analyzer/src/mlview/ir/resolve.py` sets `target_function` for the first hop
   and stops.
-- **`mlview.showSpeculative` has no effect.** The frozen `setFilter` message has
-  no confidence field, so the setting is contributed but inert.
 - **The scoped jsdom render step needs a synced bundle.** `scripts/e2e.sh` reports
   SKIP for `render scoped report (jsdom)` while
   `analyzer/src/mlview/emit/assets/mlview.js` differs from `webview/dist/mlview.js`
@@ -249,6 +343,17 @@ None block the demo. In rough order of how likely they are to matter:
   candidate list an unusable selector prints.
 - **`analysisProgress` is never posted** — the CLI emits no progress frames, so
   the viewer shows an indeterminate load rather than "Parsing 42 of 128 files".
+- **The host's coverage caveat is text, not a banner.** `single_file_analysis` and
+  `untagged_dataflow` reach the status-bar tooltip, the panel tab description and
+  the model digests through `vscode-extension/src/coverage.ts`. The in-canvas
+  banner and chip are the viewer's own, drawn from `graph.diagnostics` in
+  `webview/src/ui/chrome.ts` — the host passes those through untouched and adds
+  nothing to the canvas.
+- **`groupBy` folds inside the MCP server**, in
+  `claude-plugin/server/mlview_groups.py`. `/mlview-issues --group-by` therefore
+  groups through the MCP tool; the command body tells the model to fold the table
+  itself on the `Bash` fallback until the matching CLI flag lands on
+  `analyzer/src/mlview/cli.py`.
 - **`CONTRACTS.md` §7.5 fixture directories** (`multifile/`, `dynamic/`,
   `malformed/`, `frameworks/`) do not exist as directories; that ground is covered
   inline by `analyzer/tests/core/test_robustness.py` and
@@ -278,11 +383,26 @@ Five auditors measured the shipped system (analysis accuracy on four unseen
 projects, viewer layout on a 360-node graph, host workflow fit, analyzer and
 viewer timings on 50/200/500-file synthetic repos, a practitioner walkthrough),
 two judges ranked 59 proposals, and the result is `docs/ROADMAP.md` (42 ranked,
-11 declined). Headline: 0 false positives on unseen code but roughly 26 % recall,
-because `core/build.py` drops every op written inside a class method; the first
-screen opens a real repo at 20 % zoom; and the tool cannot yet say "I could not
-check this". The one item already applied from the NOW tier is HEALTH-01:
-`tools/sync-core.py --check` prunes `__pycache__` residue under
-`claude-plugin/vendor` instead of failing on it (source drift still fails), and
-`claude-plugin/tests/conftest.py` sets `sys.dont_write_bytecode`, so
-`tools/verify.py --all` stays 9/9 after any test run.
+11 declined).
+
+**The pre-sprint baseline, as the audit found it.** 0 false positives on unseen
+code but roughly 26 % recall, because `core/build.py` dropped every op written
+inside a class method; the first screen opened a real repo at 20 % zoom; and the
+tool could not say "I could not check this". Those three sentences described the
+tree on 2026-09-08 *before* Sprint 3 and are kept here as the measurement they
+were, not as a description of the build.
+
+**After Sprint 3, measured on this branch.** Eleven NOW-tier items landed —
+HEALTH-01, HEALTH-03, CI-01, PERF-01, PERF-02, ANA-12, BUILD-01, COVERAGE,
+RAIL-GROUP, CLEANUP and ANA-1/ANA-2/ANA-3 with VIEW-01 — recorded in the two
+Sprint-3 sections above. All three audit headlines moved:
+
+| The audit's headline | Where it stands now |
+|---|---|
+| ~26 % recall, class-method ops dropped | precision **100 %** and unseen recall **51.1 %** raw / **38.3 %** visible / **31.2 %** high+medium over ten labelled programs, with **graph fidelity 86.3 %** (was 66.2 %). ANA-1 is the fix; `docs/ACCURACY.md` is the record and `analyzer/tests/accuracy/baseline.json` the ratchet. The high+medium reading is the one comparable to the audit's ~26 %. |
+| the first screen opens a real repo at 20 % zoom | VIEW-01: `fit()` **0.322 → 0.532** on the demo at a 1240×848 canvas, worst lane emptiness 91 % → 32 %. |
+| the tool cannot say "I could not check this" | COVERAGE: `untagged_dataflow` and `single_file_analysis` diagnostics, emitted by the analyzer and surfaced in all three hosts (`docs/CONTRACTS.md` §11.18). |
+
+Recall is still the product's weakness — 51.1 % raw on unseen code means roughly
+half of the planted defects produce nothing — and `docs/ACCURACY.md` §5 says what
+that measurement does and does not cover.

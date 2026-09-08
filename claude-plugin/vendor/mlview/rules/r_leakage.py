@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from typing import Iterable, List, Optional
 
+from ..core.coverage import untraced_reason
 from ..core.graph import Issue
 from ..ir.model import CallSite
 from ..ir.symbols import dotted_text
@@ -31,7 +32,13 @@ def fit_before_split(ctx) -> Iterable[Issue]:
         if _stateless(fit):
             continue
         name, ref = arg_ref(ctx, fit, 0)
-        if ref is None or not ref.has("FEATURES", "RAW_DATA"):
+        if ref is None or not ref.tags:
+            # COVERAGE: no tag at all means the analyzer never traced this
+            # value - a bare function parameter is the measured case. Staying
+            # silent is right; looking clean is not.
+            ctx.untraced(fit, name, _untraced_reason(fit, name, ref))
+            continue
+        if not ref.has("FEATURES", "RAW_DATA"):
             continue
         if ref.has("TRAIN_SPLIT"):
             continue
@@ -69,6 +76,11 @@ def fit_before_split(ctx) -> Iterable[Issue]:
             loc=fit.loc, node_ids=nodes, related=related, evidence=evidence,
             dynamic=fit.scope.is_dynamic))
     return issues
+
+
+#: TB-10: the wording lives in `core/coverage` now, because the post-rule sweep
+#: explains the same blind spots and the two must not diverge.
+_untraced_reason = untraced_reason
 
 
 def _label(call: CallSite) -> str:
@@ -121,7 +133,10 @@ def fit_on_held_out(ctx) -> Iterable[Issue]:
         if _semi_supervised(fit.module):
             continue
         name, ref = arg_ref(ctx, fit, 0)
-        if ref is None or not ref.has(*_HELD_OUT):
+        if ref is None or not ref.tags:
+            ctx.untraced(fit, name, _untraced_reason(fit, name, ref))
+            continue
+        if not ref.has(*_HELD_OUT):
             continue
         if ref.has("TRAIN_SPLIT"):
             continue

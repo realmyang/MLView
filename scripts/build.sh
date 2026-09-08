@@ -20,7 +20,10 @@ REPO_ROOT=$(dirname "$SCRIPT_DIR")
 
 PYTHONUTF8=1
 PYTHONIOENCODING=utf-8
-export PYTHONUTF8 PYTHONIOENCODING
+# Never leave bytecode behind: step 3 vendors the analyzer into the plugin and
+# any __pycache__ under claude-plugin/vendor would ship with it (HEALTH-01).
+PYTHONDONTWRITEBYTECODE=1
+export PYTHONUTF8 PYTHONIOENCODING PYTHONDONTWRITEBYTECODE
 
 SKIP_NPM=0
 SKIP_PIP=0
@@ -33,32 +36,31 @@ for arg in "$@"; do
   esac
 done
 
-PYTHON=${PYTHON:-python}
-if ! command -v "$PYTHON" >/dev/null 2>&1; then
-  echo "FAIL: no python interpreter on PATH" >&2
-  exit 1
-fi
+. "$SCRIPT_DIR/pythonpick.sh"
+mlview_pick_python || exit 1
 
-head() { printf '\n== %s\n' "$1"; }
+# Not named `head`: a shell function by that name shadows the real /usr/bin/head
+# for the rest of the script, on every platform.
+section() { printf '\n== %s\n' "$1"; }
 
 echo "MLView build — repo $REPO_ROOT"
 echo "python: $(command -v "$PYTHON")"
 
-head "1/5 webview — install and build the viewer bundle"
+section "1/5 webview — install and build the viewer bundle"
 cd "$REPO_ROOT/webview"
 if [ "$SKIP_NPM" -eq 0 ]; then
   npm install --no-audit --no-fund --prefer-offline
 fi
 npm run build
 
-head "2/5 tools/sync-assets.py — one renderer in all three places"
+section "2/5 tools/sync-assets.py — one renderer in all three places"
 cd "$REPO_ROOT"
 "$PYTHON" tools/sync-assets.py
 
-head "3/5 tools/sync-core.py — vendor the analyzer into the plugin"
+section "3/5 tools/sync-core.py — vendor the analyzer into the plugin"
 "$PYTHON" tools/sync-core.py
 
-head "4/5 vscode-extension — install, compile and type-check"
+section "4/5 vscode-extension — install, compile and type-check"
 cd "$REPO_ROOT/vscode-extension"
 if [ "$SKIP_NPM" -eq 0 ]; then
   npm install --no-audit --no-fund --prefer-offline
@@ -68,10 +70,10 @@ npm run check
 
 cd "$REPO_ROOT"
 if [ "$SKIP_PIP" -eq 0 ]; then
-  head "5/5 analyzer — editable install"
+  section "5/5 analyzer — editable install"
   "$PYTHON" -m pip install -e analyzer --quiet
 else
-  head "5/5 analyzer — skipped (--skip-pip-install)"
+  section "5/5 analyzer — skipped (--skip-pip-install)"
 fi
 
 "$PYTHON" -m mlview --version

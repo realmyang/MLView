@@ -8,6 +8,35 @@ import { uiIcon } from '../icons.js';
 import { severityGlyph, SEVERITY_ORDER } from '../markers.js';
 import type { Capabilities, Diagnostic, Filters, MLGraph, Severity, Stage } from '../types.js';
 
+/**
+ * Diagnostic kinds the chrome surfaces somewhere OTHER than the generic note
+ * chip: as a banner, as a purpose-built chip, or folded into the status bar.
+ * Anything not listed here — including a kind invented by a newer analyzer —
+ * falls through to the generic chip, which is what invariant 1.1/6 asks for.
+ */
+const SPECIALLY_RENDERED = [
+  'parse_error',
+  'dynamic_scope',
+  'truncated',
+  'notebook_skipped',
+  'framework_suppressed',
+  'config_warning',
+  'config_unresolved',
+  'untagged_dataflow',
+  'single_file_analysis',
+  'notebook_analyzed',
+];
+
+/**
+ * COVERAGE. The product's worst failure mode is that it cannot tell *"I checked
+ * and it is fine"* from *"I could not check"*: MLV101 is silent whenever
+ * features arrive as a function parameter, and analysing `train.py` alone yields
+ * 3 findings where its directory yields 7 — a 57 % loss, with nothing said. Both
+ * now arrive as diagnostics, and both get a banner that says what was NOT
+ * looked at.
+ */
+const COVERAGE_KINDS = ['untagged_dataflow', 'single_file_analysis'];
+
 export interface ChromeCallbacks {
   onQuery(q: string): void;
   onStage(stageId: string): void;
@@ -27,6 +56,8 @@ export interface ChromeCallbacks {
   onScope(): void;
   /** Toggle the flow animation entirely off/on; persisted as ViewState.flow. */
   onToggleFlow(next: boolean): void;
+  /** Open or close the legend (VIEW-10); persisted as ViewState.legendOpen. */
+  onToggleLegend(next: boolean): void;
 }
 
 export interface ChromeState {
@@ -43,6 +74,8 @@ export interface ChromeState {
   scopeLabel: string;
   scopeActive: boolean;
   flowOn: boolean;
+  /** Whether the legend panel is open (VIEW-10). */
+  legendOpen: boolean;
   /** Lanes actually drawn — under a scope the filter chips follow them. */
   laneIds: string[];
   /** Present in the FULL analysis, absent from THIS projection (11.4 F3). */
@@ -68,6 +101,7 @@ export class Chrome {
   private rootLabel: HTMLElement;
   private scopeBtn: HTMLButtonElement;
   private flowBtn: HTMLButtonElement;
+  private legendBtn: HTMLButtonElement;
   /** Where the App mounts the scope breadcrumb: first element after the brand. */
   readonly scopeSlot: HTMLElement;
   private cb: ChromeCallbacks;
@@ -141,11 +175,29 @@ export class Chrome {
 
     // A real aria-pressed toggle whose title names the CURRENT state, so the
     // one thing that moves on the canvas is one keystroke from being stopped.
-    this.flowBtn = iconButton('mlv-btn mlv-btn--icon mlv-btn--flow', 'Connection flow animation is on');
+    //
+    // VIEW-10: it carries a VISIBLE text label, not only an aria-label. The
+    // marquee feature of the product sat behind an unlabelled icon at tab stop
+    // 5 with no binding and no hint that hovering anything did anything. The
+    // label is hidden by CSS below 1280 px, where the toolbar has no room.
+    this.flowBtn = el('button', 'mlv-btn mlv-btn--flow') as HTMLButtonElement;
+    this.flowBtn.type = 'button';
     this.flowBtn.appendChild(uiIcon('flow'));
+    add(this.flowBtn, el('span', 'mlv-btn__label', 'Flow'));
     this.flowBtn.setAttribute('aria-pressed', 'true');
     on(this.flowBtn, 'click', () => cb.onToggleFlow(this.flowBtn.getAttribute('aria-pressed') !== 'true'));
     this.toolbar.appendChild(this.flowBtn);
+
+    // The legend, likewise labelled: a key nobody can find is not a key.
+    this.legendBtn = el('button', 'mlv-btn mlv-btn--legend') as HTMLButtonElement;
+    this.legendBtn.type = 'button';
+    this.legendBtn.appendChild(uiIcon('legend'));
+    add(this.legendBtn, el('span', 'mlv-btn__label', 'Legend'));
+    this.legendBtn.setAttribute('aria-pressed', 'false');
+    this.legendBtn.title = 'Show what every glyph, stroke and card state means';
+    this.legendBtn.setAttribute('aria-label', this.legendBtn.title);
+    on(this.legendBtn, 'click', () => cb.onToggleLegend(this.legendBtn.getAttribute('aria-pressed') !== 'true'));
+    this.toolbar.appendChild(this.legendBtn);
 
     const zoomOut = iconButton('mlv-btn mlv-btn--icon', 'Zoom out');
     zoomOut.appendChild(uiIcon('minus'));
@@ -218,8 +270,9 @@ export class Chrome {
     this.scopeBtn.setAttribute('aria-pressed', s.scopeActive ? 'true' : 'false');
     this.scopeBtn.setAttribute('aria-label', 'Scope diagram — currently ' + s.scopeLabel);
     this.flowBtn.setAttribute('aria-pressed', s.flowOn ? 'true' : 'false');
-    this.flowBtn.title = 'Connection flow animation is ' + (s.flowOn ? 'on' : 'off');
-    this.flowBtn.setAttribute('aria-label', this.flowBtn.title);
+    this.flowBtn.title = 'Connection flow animation is ' + (s.flowOn ? 'on' : 'off') + ' — press A to toggle';
+    this.flowBtn.setAttribute('aria-label', 'Connection flow animation is ' + (s.flowOn ? 'on' : 'off'));
+    this.legendBtn.setAttribute('aria-pressed', s.legendOpen ? 'true' : 'false');
 
     this.refreshBtn.hidden = !s.capabilities.canReanalyze;
     this.exportBtn.hidden = !s.capabilities.canExport;
@@ -301,9 +354,22 @@ export class Chrome {
         any = true;
         const text = d.message + (d.codes && d.codes.length ? ' (' + d.codes.join(', ') + ')' : '');
         add(this.chipRow, el('span', 'mlv-chip', text));
-      } else if (d.kind === 'config_warning') {
+      } else if (d.kind === 'config_warning' || d.kind === 'config_unresolved') {
         any = true;
         add(this.chipRow, el('span', 'mlv-chip', d.message));
+      } else if (COVERAGE_KINDS.indexOf(d.kind) >= 0) {
+        // COVERAGE: a chip that says the analysis was BLIND here, distinct from
+        // the "not detected" row beside it, which says it looked and found none.
+        any = true;
+        const chip = add(this.chipRow, el('span', 'mlv-chip mlv-chip--coverage', coverageChipText(d)));
+        chip.setAttribute('data-coverage', d.kind);
+        chip.title = d.message;
+      } else if (SPECIALLY_RENDERED.indexOf(d.kind) < 0) {
+        // A kind this renderer has never heard of still says what it says
+        // (invariant 1.1/6) rather than vanishing into the "N notes" count.
+        any = true;
+        const chip = add(this.chipRow, el('span', 'mlv-chip', d.message || d.kind));
+        chip.setAttribute('data-diagnostic-kind', d.kind);
       }
     }
     if ((g.workspace.filesFailed || 0) > 0) {
@@ -353,6 +419,18 @@ export class Chrome {
         any = true;
         const b = this.banner('warn', parseErrors.length + ' file(s) could not be parsed', describe(parseErrors));
         add(b, el('div', 'mlv-banner__actions')).appendChild(this.dismissButton('parse'));
+        this.banners.appendChild(b);
+      }
+
+      // COVERAGE. One banner for everything the run could NOT see, above the
+      // "partial understanding" note, because "I did not look" outranks "I
+      // looked and was unsure".
+      const coverage = (g.diagnostics || []).filter((d) => COVERAGE_KINDS.indexOf(d.kind) >= 0);
+      if (coverage.length && !s.dismissed.has('coverage')) {
+        any = true;
+        const b = this.banner('warn', coverageHeadline(coverage), describe(coverage));
+        b.setAttribute('data-coverage-banner', String(coverage.length));
+        add(b, el('div', 'mlv-banner__actions')).appendChild(this.dismissButton('coverage'));
         this.banners.appendChild(b);
       }
 
@@ -429,6 +507,29 @@ function stat(value: string, label: string): HTMLElement {
   add(wrap, el('span', 'mlv-stat__value', value));
   add(wrap, el('span', '', label));
   return wrap;
+}
+
+/** The chip text for one coverage diagnostic — short, countable, honest. */
+function coverageChipText(d: Diagnostic): string {
+  if (d.kind === 'single_file_analysis') {
+    const codes = d.codes && d.codes.length ? ' — ' + d.codes.join(', ') + ' need more files' : '';
+    return 'single-file analysis' + codes;
+  }
+  const n = d.count || 0;
+  return n > 0 ? n + (n === 1 ? ' value not traced' : ' values not traced') : 'dataflow not traced';
+}
+
+/** The banner headline: what was not checked, in the reader's words. */
+function coverageHeadline(diags: Diagnostic[]): string {
+  const single = diags.some((d) => d.kind === 'single_file_analysis');
+  const untagged = diags.filter((d) => d.kind === 'untagged_dataflow');
+  const parts: string[] = [];
+  if (single) parts.push('only part of this project was analyzed, so cross-file rules could not run');
+  if (untagged.length) {
+    const n = untagged.reduce((sum, d) => sum + (d.count || 1), 0);
+    parts.push(n + (n === 1 ? ' value' : ' values') + ' reaching a fit or split could not be traced');
+  }
+  return 'Coverage: ' + parts.join('; ') + '. A clean result here is not a clean bill of health.';
 }
 
 function describe(diags: Diagnostic[]): string {

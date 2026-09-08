@@ -30,6 +30,18 @@ argument entirely and analyze the whole project.
 MLView reads Python source statically. It never imports or runs the user's code,
 and it does not need torch or scikit-learn to be installed.
 
+**A single file is not a project.** If the target is one `.py` file, say so in the
+answer: MLV301, MLV302, MLV401 and MLV501 each need a sibling module and cannot
+fire on a lone file — measured, `train.py` alone yields 3 findings where its own
+directory yields 7. The payload carries a `coverage` block for this: one row per
+caveat — `single_file_analysis`, and `untagged_dataflow` when a key argument could
+not be traced so the leakage rules could not check it — each with the analyzer's own
+`message` and a `codes` list naming the rules that could not run. Quote those codes
+from `coverage[].codes`; never guess which rules they were. Repeat those caveats; a shorter
+list from a narrower run is not a cleaner project. The better move is to analyze
+the **directory** and pass `--scope file:<name>.py`, which recovers the cross-file
+rules and still answers about that one file.
+
 ## Step 1 — analyze
 
 **If the `mlview_*` MCP tools are available**, prefer them; they are in-process,
@@ -99,7 +111,12 @@ Tell the user, in this order and no longer than a short paragraph plus a table:
    summary. When you used a scope, say which one, in the same sentence as the
    counts.
    If `filesAnalyzed` is 0, or `filesFailed` is above 0, say that first: an empty
-   finding list from a path with no parsable Python is not a clean result.
+   finding list from a path with no parsable Python is not a clean result. The
+   same goes for a `coverage` block (`single_file_analysis`, `untagged_dataflow`):
+   read the rule codes out of `coverage[].codes` and name them before you report
+   the count, which that block makes a floor rather than a verdict. `count` there
+   is the number of blind spots — sibling modules, or untraced sites — never a
+   number of rules.
 2. **Findings** — the issues, worst first, each as `MLVxxx · severity · file:line ·
    title`. Quote the rule's own message; it already cites the variable names and
    line numbers. Under a scope these are the findings **anchored inside** it;

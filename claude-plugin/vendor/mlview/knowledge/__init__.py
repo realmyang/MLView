@@ -7,6 +7,7 @@ unlisted member of a known family still lands in the right stage.
 
 from __future__ import annotations
 
+from functools import lru_cache
 from typing import Dict, Optional, Tuple
 
 from .entries import E, Entry
@@ -106,6 +107,24 @@ _PREFIX_RULES: Tuple[Tuple[str, Entry], ...] = (
 
 _ALIAS_PREFIXES = (("tf.", "tensorflow."),)
 
+#: The prefix rules again, as a dict. Every key ends at a dotted boundary, so a
+#: probe over the progressively shorter dotted prefixes of an FQN - longest
+#: first - answers exactly what the 26-entry `startswith` scan answered: the
+#: tuple is written specific-before-general within each family, and "longest
+#: prefix wins" is the same order. `_PREFIX_DOTTED` guards the shortcut, so a
+#: future rule that does not end in "." silently falls back to the scan.
+_PREFIX_MAP: Dict[str, Entry] = {}
+for _prefix, _row in _PREFIX_RULES:
+    _PREFIX_MAP.setdefault(_prefix, _row)
+_PREFIX_DOTTED = all(p.endswith(".") for p, _ in _PREFIX_RULES)
+
+#: `lookup` is the hottest function in the analyzer - 2.3M calls on a 210-file
+#: workspace before PERF-01 - and the tables it reads are immutable module
+#: state built once at import, so memoising it is safe by construction. The
+#: bound is generous (an FQN universe that large means a workspace far past
+#: `--max-files`) and keeps a long-lived MCP server from growing without limit.
+_LOOKUP_CACHE = 32768
+
 
 def _normalize(fqn: str) -> str:
     for src, dst in _ALIAS_PREFIXES:
@@ -114,6 +133,22 @@ def _normalize(fqn: str) -> str:
     return fqn
 
 
+def _prefix_entry(fqn: str) -> Optional[Entry]:
+    """The prefix-rule row for an FQN, or None."""
+    if not _PREFIX_DOTTED:  # pragma: no cover - guard for a future rule shape
+        for prefix, row in _PREFIX_RULES:
+            if fqn.startswith(prefix):
+                return row
+        return None
+    parts = fqn.split(".")
+    for cut in range(len(parts) - 1, 0, -1):
+        row = _PREFIX_MAP.get(".".join(parts[:cut]) + ".")
+        if row is not None:
+            return row
+    return None
+
+
+@lru_cache(maxsize=_LOOKUP_CACHE)
 def lookup(fqn: Optional[str]) -> Optional[Entry]:
     """The knowledge row for a canonical FQN, or None."""
     if not fqn:
@@ -126,12 +161,10 @@ def lookup(fqn: Optional[str]) -> Optional[Entry]:
         entry = ALL.get(alt)
         if entry is not None:
             return entry
-    for prefix, row in _PREFIX_RULES:
-        if fqn.startswith(prefix):
-            return row
-    return None
+    return _prefix_entry(fqn)
 
 
+@lru_cache(maxsize=_LOOKUP_CACHE)
 def lookup_exact(fqn: Optional[str]) -> Optional[Entry]:
     """Exact-table hit only - no prefix fallback."""
     if not fqn:
@@ -260,6 +293,7 @@ _MODULE_FRAMEWORK = {
 }
 
 
+@lru_cache(maxsize=4096)
 def framework_for_module(module: str) -> Optional[str]:
     """Framework enum value for a top-level imported module name, or None."""
     if not module:

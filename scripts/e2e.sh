@@ -14,7 +14,11 @@ REPO_ROOT=$(dirname "$SCRIPT_DIR")
 PYTHONUTF8=1
 PYTHONIOENCODING=utf-8
 MLVIEW_NO_OPEN=1
-export PYTHONUTF8 PYTHONIOENCODING MLVIEW_NO_OPEN
+# Step 5 (the plugin suite) imports the vendored core and step 14
+# (tools/verify.py --all) checks that vendor/ is clean. Without this, the first
+# poisons the second and the run is not reproducible (HEALTH-01).
+PYTHONDONTWRITEBYTECODE=1
+export PYTHONUTF8 PYTHONIOENCODING MLVIEW_NO_OPEN PYTHONDONTWRITEBYTECODE
 
 SKIP_BUILD=0
 NPM_FLAG=""
@@ -27,12 +31,14 @@ for arg in "$@"; do
   esac
 done
 
-PYTHON=${PYTHON:-python}
-command -v "$PYTHON" >/dev/null 2>&1 || { echo "FAIL: no python on PATH" >&2; exit 1; }
+. "$SCRIPT_DIR/pythonpick.sh"
+mlview_pick_python || exit 1
 
-RESULTS_FILE=$(mktemp 2>/dev/null || echo "$REPO_ROOT/.mlview/e2e-results.txt")
-: > "$RESULTS_FILE"
+# BSD mktemp (macOS) needs a template, GNU mktemp accepts one, and the fallback
+# path's directory has to exist before anything is written into it.
 mkdir -p "$REPO_ROOT/.mlview"
+RESULTS_FILE=$(mktemp "${TMPDIR:-/tmp}/mlview-e2e.XXXXXX" 2>/dev/null || echo "$REPO_ROOT/.mlview/e2e-results.txt")
+: > "$RESULTS_FILE"
 
 record() {  # record <status> <name> <detail>
   printf '%s\t%s\t%s\n' "$1" "$2" "$3" >> "$RESULTS_FILE"
@@ -64,7 +70,12 @@ fi
 step "analyzer tests"          "$REPO_ROOT"                  "$PYTHON" -m pytest analyzer/tests -q
 step "webview tests"           "$REPO_ROOT/webview"          npm test
 step "vscode-extension tests"  "$REPO_ROOT/vscode-extension" npm test
-step "claude-plugin tests"     "$REPO_ROOT"                  "$PYTHON" -m pytest claude-plugin/tests -q
+# HEALTH-03: the plugin suite is subprocess-bound, not compute-bound -- 234
+# tests take 38 s serially and 11 s under xdist, with the same outcome. `-n auto`
+# only when xdist is installed, so a bare interpreter still runs the gate.
+XDIST=""
+if "$PYTHON" -c "import importlib.util, sys; sys.exit(0 if importlib.util.find_spec('xdist') else 1)"; then XDIST="-n auto"; fi
+step "claude-plugin tests"     "$REPO_ROOT"                  "$PYTHON" -m pytest claude-plugin/tests -q $XDIST
 
 # ------------------------------------------------------------------ the samples
 OUT="$REPO_ROOT/.mlview"
@@ -223,6 +234,14 @@ fi
 # disagree" deserves its own row in the table rather than one word inside another.
 step "scope parity (tools/verify.py --scopes)" "$REPO_ROOT" "$PYTHON" tools/verify.py --scopes
 step "parity gates (tools/verify.py --all)" "$REPO_ROOT" "$PYTHON" tools/verify.py --all
+
+# ------------------------------------------------------------------ the referee
+# ANA-12. The analyzer over `analyzer/tests/accuracy/corpus/`, scored against its
+# hand-written labels: zero `forbidden` findings ever, and recall and graph
+# fidelity may only ratchet up against analyzer/tests/accuracy/baseline.json.
+# It runs in well under a second, so the acceptance run carries it rather than
+# leaving the only accuracy signal on a machine that can reach GitHub Actions.
+step "accuracy corpus" "$REPO_ROOT" "$PYTHON" tools/accuracy.py
 
 # --------------------------------------------------------------------- the docs
 # Dead paths, dead links, and "known gap" bullets that still describe a failure

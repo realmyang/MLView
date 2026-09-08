@@ -18,7 +18,7 @@ from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 from ..core.graph import Diagnostic
 
 __all__ = ["RuleSpec", "rule", "REGISTRY", "discover_rules", "all_rules", "run_all",
-           "rule_for", "reset_registry"]
+           "rule_for", "reset_registry", "cross_file_codes"]
 
 REGISTRY: Dict[str, "RuleSpec"] = {}
 _DISCOVERED = False
@@ -41,6 +41,12 @@ class RuleSpec:
     fix_hint: str
     func: Callable
     module: str = ""
+    #: This rule's finding is anchored in the file under analysis but its
+    #: evidence lives in a *sibling* module - a model class, a DataLoader.
+    #: Analysing one file of a package therefore loses the finding silently,
+    #: which is what `core/coverage.single_file_diagnostic` reports (COVERAGE).
+    #: Appended last and defaulted, so every existing construction still works.
+    cross_file: bool = False
 
     @property
     def docs(self) -> str:
@@ -50,6 +56,7 @@ class RuleSpec:
 def rule(code: str, severity: str = "medium", base_prior: float = 0.8,
          frameworks: Sequence[str] = (), rule_version: int = 1,
          tags: Sequence[str] = (), absence: bool = False, enabled: bool = True,
+         cross_file: bool = False,
          title: str = "", why: str = "", fix_hint: str = ""):
     """Register a rule function. See `docs/ISSUE_RULES.md` section 5."""
 
@@ -58,6 +65,7 @@ def rule(code: str, severity: str = "medium", base_prior: float = 0.8,
             code=code, severity=severity, base_prior=float(base_prior),
             frameworks=tuple(frameworks), rule_version=int(rule_version),
             tags=tuple(tags), absence=bool(absence), enabled=bool(enabled),
+            cross_file=bool(cross_file),
             title=title, why=why, fix_hint=fix_hint, func=func,
             module=getattr(func, "__module__", ""))
         REGISTRY[code] = spec
@@ -91,6 +99,11 @@ def all_rules() -> List[RuleSpec]:
     """Every registered rule, ordered by code."""
     discover_rules()
     return [REGISTRY[code] for code in sorted(REGISTRY)]
+
+
+def cross_file_codes() -> List[str]:
+    """Every enabled rule whose evidence routinely lives in another module."""
+    return [spec.code for spec in all_rules() if spec.enabled and spec.cross_file]
 
 
 def rule_for(code: str) -> Optional[RuleSpec]:

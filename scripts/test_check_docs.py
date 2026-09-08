@@ -361,7 +361,10 @@ def test_a_vendored_shell_script_is_left_alone():
 def test_the_real_shell_scripts_are_lf():
     """The regression assertion for R2-REG-01, against the tree as it ships."""
     scripts = list(check_docs.shell_scripts(REPO))
-    assert [p.name for p in scripts] == ["build.sh", "e2e.sh"], scripts
+    # pythonpick.sh joined the two drivers when CI-01 taught them to find an
+    # interpreter on Linux and macOS. The list is spelled out rather than counted
+    # so a new shell file cannot slip in without someone confirming it is LF.
+    assert [p.name for p in scripts] == ["build.sh", "e2e.sh", "pythonpick.sh"], scripts
     for path in scripts:
         assert b"\r" not in path.read_bytes(), path
 
@@ -443,10 +446,10 @@ def test_another_graph_is_not_compared_against_the_demo():
     finally:
         shutil.rmtree(root, ignore_errors=True)
 
-
-def main() -> int:
-    failed = 0
-    for name, fn in sorted(globals().items()):
+def run_module(module, failed: int = 0) -> int:
+    """Run every `test_*` in one module, printing a line each. Shared with
+    `scripts/test_doc_numbers.py`, which holds the cases for checks 9-11."""
+    for name, fn in sorted(vars(module).items()):
         if not name.startswith("test_") or not callable(fn):
             continue
         try:
@@ -455,6 +458,16 @@ def main() -> int:
         except AssertionError as exc:
             failed += 1
             print("FAIL " + name + ": " + str(exc))
+    return failed
+
+
+def main() -> int:
+    # Checks 1-8 here, checks 9-11 next door: one self-test entry point, so the
+    # e2e drivers and the CI job keep running the whole gate's own suite.
+    import test_doc_numbers
+
+    failed = run_module(sys.modules[__name__])
+    failed = run_module(test_doc_numbers, failed)
     print(("%d test(s) failed" % failed) if failed else "check_docs self-test OK")
     return 1 if failed else 0
 

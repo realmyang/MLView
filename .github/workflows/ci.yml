@@ -1,0 +1,284 @@
+name: CI
+
+# CI-01. Until this file existed, `scripts/README.md` qualified all 21 gate rows
+# with "green on this machine (Windows 11, Python 3.13 / miniconda, Node 20.9)"
+# while `analyzer/pyproject.toml` declared `requires-python = ">=3.10"` on the
+# strength of nothing.
+#
+# COST. The repository is private, so minutes are metered and weighted: ubuntu
+# 1x, windows 2x, macos 10x. That is why the fan-out is ubuntu-only (four
+# Pythons, two Node majors), Windows is a single end-to-end job and macOS is a
+# single smoke job. Every job caches pip and npm, and `concurrency` cancels a
+# superseded run rather than paying for it twice.
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+# One run per ref. A second push to the same branch cancels the first, which is
+# what keeps a rapid fix-push-watch loop from multiplying the bill.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONUTF8: '1'
+  # HEALTH-01: importing the vendored analyzer must never leave __pycache__ under
+  # claude-plugin/vendor, because the vendor gate runs after the plugin suite.
+  PYTHONDONTWRITEBYTECODE: '1'
+  CI: 'true'
+
+permissions:
+  contents: read
+
+jobs:
+  # ------------------------------------------------------------------ analyzer
+  # The only claim `requires-python = ">=3.10"` has ever had behind it.
+  analyzer:
+    # A branch push and a pull request from the same repository are two events
+    # for one commit; without this every job below would be billed twice. A PR
+    # from a fork has no push event of its own, so it still runs.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    name: analyzer (py${{ matrix.python }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.10', '3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: analyzer/pyproject.toml
+      - name: install the analyzer
+        run: python -m pip install --upgrade pip && python -m pip install -e "analyzer[dev]"
+      - name: analyzer suite
+        run: python -m pytest analyzer/tests -q
+      - name: the golden document satisfies the frozen contracts
+        run: python contracts/validate_sample.py
+      - name: --demo is byte-identical to contracts/graph.sample.json
+        # The golden is a fixed artefact (CONTRACTS section 0): one byte of drift
+        # on any interpreter is a broken contract, not a rounding difference.
+        run: |
+          python -m mlview analyze --demo --json - > "${RUNNER_TEMP}/demo.json"
+          cmp "${RUNNER_TEMP}/demo.json" contracts/graph.sample.json
+
+  # -------------------------------------------------------------------- plugin
+  plugin:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    name: claude-plugin
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: analyzer/pyproject.toml
+      - name: install the plugin's dependencies
+        # The suite imports the core from `analyzer/src` via conftest, so the
+        # analyzer itself is not installed here. pytest-xdist is what takes the
+        # suite from ~38 s to ~11 s (HEALTH-03).
+        run: python -m pip install --upgrade pip && python -m pip install mcp pytest pytest-xdist jsonschema
+      - name: plugin suite
+        # `claude plugin validate` is not available on a runner; the test that
+        # would use it skips itself when the CLI is not on PATH.
+        run: python -m pytest claude-plugin/tests -q -n auto
+      - name: the vendored core matches analyzer/src
+        run: python tools/sync-core.py --check
+
+  # ------------------------------------------------------------------- webview
+  webview:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    name: webview (node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['20', '22']
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+          cache-dependency-path: webview/package-lock.json
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - run: npm ci
+        working-directory: webview
+      - run: npm run check
+        working-directory: webview
+      - run: npm run build
+        working-directory: webview
+      - run: npm test
+        working-directory: webview
+      - name: the three checked-in copies of the bundle match the build
+        # `npm run build` has just rewritten webview/dist. If the copies inside
+        # the analyzer and the extension no longer match it, every report's
+        # `generator.rendererSha` is a claim about a bundle nobody ships.
+        run: python tools/sync-assets.py --check
+
+  # ----------------------------------------------------------------- extension
+  extension:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    name: vscode-extension
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: vscode-extension/package-lock.json
+      - run: npm ci
+        working-directory: vscode-extension
+      - run: npm run check
+        working-directory: vscode-extension
+      - run: npm run compile
+        working-directory: vscode-extension
+      - run: npm test
+        working-directory: vscode-extension
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: the doc gate and its self-test
+        # Here rather than in the analyzer job because scripts/README.md cites
+        # vscode-extension/out/test-entry.cjs, which exists only after compile.
+        run: |
+          python scripts/test_check_docs.py
+          python scripts/check_docs.py
+
+  # ---------------------------------------------------------------------- e2e
+  # The whole 18-step e2e table, both drivers, so neither can rot.
+  e2e-linux:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    name: e2e (ubuntu, sh)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: analyzer/pyproject.toml
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: webview/package-lock.json
+      - name: install the python dependencies
+        run: python -m pip install --upgrade pip && python -m pip install mcp pytest pytest-xdist jsonschema
+      - name: sh scripts/e2e.sh
+        run: sh scripts/e2e.sh
+      - name: upload the emitted reports
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: mlview-reports-linux
+          # `.mlview` is a dot-directory and upload-artifact skips hidden paths
+          # unless this is set, so without it the glob matched nothing, the step
+          # warned rather than failed, and no run ever archived a report
+          # (CI-ARTIFACTS-01).
+          include-hidden-files: true
+          path: .mlview/*.html
+          if-no-files-found: warn
+
+  e2e-windows:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    name: e2e (windows, powershell)
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: analyzer/pyproject.toml
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: webview/package-lock.json
+      - name: install the python dependencies
+        run: python -m pip install --upgrade pip; python -m pip install mcp pytest pytest-xdist jsonschema
+      - name: powershell scripts/e2e.ps1
+        shell: powershell
+        run: .\scripts\e2e.ps1
+      - name: upload the emitted reports
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: mlview-reports-windows
+          # `.mlview` is a dot-directory and upload-artifact skips hidden paths
+          # unless this is set, so without it the glob matched nothing, the step
+          # warned rather than failed, and no run ever archived a report
+          # (CI-ARTIFACTS-01).
+          include-hidden-files: true
+          path: .mlview/*.html
+          if-no-files-found: warn
+
+  # ------------------------------------------------------------------- macOS
+  # 10x minutes, so one job and only the two suites where a platform difference
+  # would actually show: the analyzer's path handling and the viewer's layout.
+  smoke-macos:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    name: smoke (macos)
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: analyzer/pyproject.toml
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: webview/package-lock.json
+      - name: install the analyzer
+        run: python -m pip install --upgrade pip && python -m pip install -e "analyzer[dev]"
+      - name: analyzer suite
+        run: python -m pytest analyzer/tests -q
+      - run: npm ci
+        working-directory: webview
+      - run: npm test
+        working-directory: webview
+
+  # ----------------------------------------------------------------- accuracy
+  # ANA-12. The referee: the analyzer over `analyzer/tests/accuracy/corpus/`,
+  # scored against its labels. Three gates - zero `forbidden` findings ever,
+  # recall only ratchets up against `analyzer/tests/accuracy/baseline.json`, and
+  # graph fidelity only ratchets up. `docs/ACCURACY.md` says what the numbers
+  # mean. One ubuntu job on 3.13: the corpus is ten small projects and the whole
+  # run is under a second, so a matrix would buy nothing but minutes.
+  accuracy:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    name: accuracy corpus
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: analyzer/pyproject.toml
+      - name: install the analyzer
+        run: python -m pip install --upgrade pip && python -m pip install -e "analyzer[dev]"
+      - name: precision, recall, graph fidelity and calibration
+        run: python tools/accuracy.py --verbose
+      - name: the same three gates, asserted
+        run: python -m pytest analyzer/tests/accuracy -q

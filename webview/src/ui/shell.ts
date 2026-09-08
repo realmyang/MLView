@@ -7,6 +7,7 @@
  */
 
 import { add, clear, el, on, svg } from '../dom.js';
+import { PinchTracker, wireWheel } from './gestures.js';
 import { buildDefs } from '../render/edges.js';
 import type { ThemeKind } from '../types.js';
 import type { ViewportController } from '../render/canvas.js';
@@ -117,12 +118,30 @@ export function wireCanvasGestures(
   handlers: GestureHandlers,
 ): (() => void)[] {
   const disposers: (() => void)[] = [];
+  const pinch = new PinchTracker(canvas, viewport);
   let panning = false;
   let lastX = 0;
   let lastY = 0;
 
   disposers.push(
     on(canvas, 'pointerdown', (ev: PointerEvent) => {
+      // EVERY pointer joins the pinch, wherever it landed (VIEW-06). This used
+      // to sit below the card guard, so a finger placed on a node card was never
+      // registered: `active()` stayed false and the second finger started an
+      // ordinary one-pointer PAN. Pinching to zoom into a card is the normal
+      // touch gesture and cards cover most of the canvas, so on a tablet — where
+      // `canvas.css` sets `touch-action: none` and the browser's own pinch is
+      // therefore suppressed — the diagram slid sideways instead of zooming.
+      pinch.down(ev);
+      if (pinch.active()) {
+        // A second finger turns a drag into a pinch: the one-pointer pan must
+        // let go, or the canvas would pan and scale from the same travel.
+        panning = false;
+        canvas.classList.remove('is-panning');
+        return;
+      }
+      // The guard still decides whether a DRAG-PAN may start: dragging a card,
+      // the minimap, the zoom cluster or an edge is that widget's gesture.
       const target = ev.target as HTMLElement;
       if (target.closest && target.closest('.mlv-node, .mlv-group__header, .mlv-minimap, .mlv-zoom, .mlv-edge__hit')) {
         return;
@@ -141,6 +160,7 @@ export function wireCanvasGestures(
 
   disposers.push(
     on(canvas, 'pointermove', (ev: PointerEvent) => {
+      if (pinch.move(ev)) return;
       if (!panning) return;
       viewport.panBy(ev.clientX - lastX, ev.clientY - lastY);
       lastX = ev.clientX;
@@ -148,7 +168,8 @@ export function wireCanvasGestures(
     }),
   );
 
-  const endPan = () => {
+  const endPan = (ev?: PointerEvent) => {
+    if (ev) pinch.up(ev);
     panning = false;
     canvas.classList.remove('is-panning');
   };
@@ -156,13 +177,8 @@ export function wireCanvasGestures(
   disposers.push(on(canvas, 'pointercancel', endPan));
   disposers.push(on(canvas, 'pointerleave', endPan));
 
-  disposers.push(
-    on(canvas, 'wheel', (ev: WheelEvent) => {
-      ev.preventDefault();
-      const rect = canvas.getBoundingClientRect();
-      viewport.zoomAt(Math.pow(0.999, ev.deltaY), ev.clientX - rect.left, ev.clientY - rect.top);
-    }),
-  );
+  // Wheel: deltaMode-normalized, ctrl-branched, two-axis (VIEW-06).
+  disposers.push(wireWheel(canvas, viewport));
 
   disposers.push(on(canvas, 'keydown', (ev: KeyboardEvent) => handlers.onKeyDown(ev)));
 
@@ -199,5 +215,6 @@ export function wireCanvasGestures(
     disposers.push(on(window, 'resize', () => viewport.apply()));
   }
 
+  disposers.push(() => pinch.clear());
   return disposers;
 }

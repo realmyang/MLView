@@ -1915,3 +1915,213 @@ what keeps the copied `file:line` and its explanatory sentence on screen after s
 three seconds later.
 
 **Gates:** `webview/test/bridges.test.mjs` (R3-DL-01 … R3-DL-04), over the same real nested browsing context.
+
+---
+
+### 11.18 Diagnostic kinds and coverage diagnostics (2026-09-08) — amends §2, core-owned
+
+`Diagnostic.kind` was a **closed seven-value enum** (`parse_error`, `dynamic_scope`, `rule_error`, `truncated`,
+`notebook_skipped`, `framework_suppressed`, `config_warning`) and five separate proposals in `docs/ROADMAP.md`
+want to extend it. Adding one value at a time would mean five amendments, five mirrored edits per §11.16 and
+five gate passes, so all five land here at once. **The §2 listing of the enum is superseded by this table.**
+
+| New value | Meaning | Emitted today |
+|---|---|---|
+| `untagged_dataflow` | A rule reached a value it never traced — no `ValueTag` at all — and stayed silent. Coverage gap, not a finding. | **yes** (`rules/r_leakage.py` → `GraphContext.untraced`) |
+| `single_file_analysis` | One file of a larger package was analyzed, so the cross-file rules could not see the sibling definitions they need. | **yes** (`core/coverage.single_file_diagnostic`) |
+| `unresolved_callee` | A call the analyzer could not resolve was dropped from the graph (ANA-5a). | no — reserved |
+| `config_unresolved` | A configuration value referenced by the pipeline could not be resolved to a literal (ANA-10). | no — reserved |
+| `notebook_analyzed` | A `.ipynb` **was** analyzed, carrying the execution-order caveat (NB). | no — reserved |
+
+A reserved value is part of the enum from this amendment: every consumer must already accept it, and no consumer
+may assume the three unemitted kinds never arrive. Nothing about the existing seven changes.
+
+**The two emitted now.** Both exist because MLView's worst failure mode is that it cannot distinguish *"I checked
+and it is fine"* from *"I could not check"*. Neither is an `Issue`, neither changes a rule's gate, and neither
+costs precision: `samples/vision_pipeline` still carries exactly its fifteen findings and both clean corpora stay
+at zero, with **zero coverage diagnostics on all three** (`tests/core/test_coverage.py`).
+
+| # | Rule |
+|---|---|
+| **C1** | `untagged_dataflow` is emitted **once per `(file, scope)`**, never once per site: `codes` lists every rule code that gave up in that scope, `count` is the number of untraced values, `line` is the earliest of them, and the message names up to three of them with their lines and says *why* the tag is missing (a parameter, an unresolved binding, a dynamic scope). This is the `framework_suppressed` shape, for the same reason — a rule looping over sites must not emit a diagnostic per iteration. |
+| **C2** | A rule declares a coverage gap through `GraphContext.untraced(call, name, reason)` and never by appending a `Diagnostic` itself, exactly as it emits findings only through `ctx.issue()`. The gate a rule bails on is **unchanged**: `r_leakage` still requires `FEATURES` / `RAW_DATA`; the new branch fires only where the value carries *no tags at all*, which is the measured blind spot (a bare function parameter) and cannot be confused with a value that was traced and found innocent. |
+| **C3** | `single_file_analysis` fires only when all three hold: exactly one module was analyzed, sibling Python modules exist under the same package root (the nearest ancestor without an `__init__.py`), and the analyzed module **imports at least one of them**. The import is what turns "you asked about one file" into "the answer you got is incomplete"; a standalone script with siblings it never imports is not warned about, because crying wolf costs more than it buys. |
+| **C4** | Its `codes` are derived from `RuleSpec.cross_file`, a declared boolean on the spec — never a hand-maintained list in the diagnostic. `cross_file` means *this rule's finding is anchored in the analyzed file but its evidence lives in a sibling module*. Today: **MLV301, MLV302, MLV401, MLV501** — exactly the set `mlview issues samples/vision_pipeline/train.py` loses against `mlview issues samples/vision_pipeline --scope file:train.py` (3 findings against 7), asserted as an equality, not as a literal, in `tests/core/test_coverage.py`. |
+| **C5** | `count` is the number of sibling modules **not** analyzed, and the message names up to four of them by relpath plus how many of them the analyzed module imports. |
+| **C6** | The summary emitter gives coverage diagnostics **their own block**, `Coverage (N)`, above `Notes (N)` and outside the ten-note clip that `Notes` applies. A coverage gap buried under housekeeping is the failure the block exists to end. |
+| **C7** | `RuleSpec.cross_file` is appended **last** and defaults to `False`, so every existing construction of the frozen dataclass — including the one in `tests/core/test_robustness.py` — still works. `rules.cross_file_codes()` is the only supported way to read the set. |
+
+**Two more kinds gain an emitter, both inside the existing seven.** PERF-02 replaced `ir/build_ir.py`'s literal
+`range(4)` with a convergence loop (`ir/converge.py`, cap `MAX_ROUNDS = 8`); when the loop stops on the cap
+rather than on a fixed point, the pipeline appends a **`truncated`** diagnostic naming the round count, because
+resolution that quietly gave up is exactly the "smaller graph with nothing to point at" this contract already
+refuses elsewhere. CLEANUP 3 makes a typo'd rule code — in `.mlview.toml` or in a `# mlview: ignore[...]`
+comment — a **`config_warning`** carrying up to three near misses; it used to be accepted in total silence, so a
+suppression that never took effect looked exactly like one that did.
+
+**Mirrors (§11.16).** `contracts/graph.schema.json` and `analyzer/src/mlview/schema/graph.schema.json` are
+byte-identical, and `claude-plugin/vendor/mlview/schema/graph.schema.json` follows through `tools/sync-core.py`.
+`webview/src/types.ts` and `webview/src/ui/chrome.ts` carry the TypeScript copy of this enum and are amended in
+the same change.
+
+**Gates:** `analyzer/tests/core/test_coverage.py` (14 cases, including the both-mirrors enum check and the
+three-corpus negative), `analyzer/tests/core/test_ir_converge.py` (the round-cap diagnostic),
+`analyzer/tests/core/test_cleanup.py` (the two `config_warning` paths), and `contracts/validate_sample.py`,
+which reads the enum from the schema and therefore needs no edit.
+
+**Alongside, in the same change — three additive surfaces §3 does not yet list.** Recorded here so the §3 table
+is not silently out of date; a later amendment may re-home them.
+
+* `--group-by rule|file|none` on `analyze` and on `issues` (RAIL-GROUP), **default `none`**, which prints exactly
+  what those commands printed before the flag existed. It is a rendering choice, never a filter: `--json` is
+  byte-identical with and without it, and the `N issue(s)` header keeps counting occurrences, not groups.
+  `api.render_summary` gains a matching `group_by="none"` third argument, appended last and defaulted, so the
+  frozen two-argument call returns exactly what it always returned. `--format text` and `api.render_text` are
+  deliberately **not** grouped: that form's `Findings` block is one entry per issue by definition, and
+  `render_text`'s one-argument signature is pinned by `tests/core/test_api.py::test_render_signatures`.
+* `issues --text` now renders (CLEANUP 1). It was declared with `dest="text_out"` and read by nobody, so the two
+  invocations were byte-identical; it reaches `emit/text_out.render_findings`, the same message / why / fix block
+  `analyze --format text` prints.
+* `GraphContext` gains `ctx.untraced(call, name, reason)`, additive beside the §3 listing exactly as
+  `ctx.calls_with_role` already is. It emits no `Issue` and touches no gate.
+
+A4's size band is now enforced inside `emit/html_out.write_html` at runtime (BUILD-01) instead of only over the
+demo artifacts in `scripts/e2e`: an out-of-band report is still written, with a warning on **stderr** naming
+`--max-nodes` as the lever. The fallback report emitted when the viewer bundle is absent is exempt, because A4
+words the band "when the bundle is present".
+
+---
+
+### 11.19 Class-method ops and resolution fixes (2026-09-08) — amends §7.1, analyzer-owned
+
+**This is a re-baseline.** `samples/vision_pipeline` grows from **45 nodes and 45 edges** to **54 nodes and 52
+edges** and carries **exactly the same fifteen findings, at the same lines, in the same 5 / 6 / 4 split**. Every
+document that quotes the demo's size must be updated in this same change — `scripts/check_docs.py` enforces that
+no two docs disagree about it, and the canonical count is whatever
+`python -m mlview analyze samples/vision_pipeline --format summary` prints. Three
+analyzer fixes land together, deliberately, so one golden regeneration covers all three (ROADMAP §(e), Track A);
+`contracts/graph.sample.json` is **hand-authored and unchanged**, so `mlview --demo`, `contracts/scope.cases.json`
+and `contracts/scope.expected.json` are byte-identical and §11.15's parity battery is untouched.
+
+| # | Change | Where |
+|---|---|---|
+| **ANA-1** | `CallSite.class_ir` carried two facts and `core/build.py` read the wrong one, so **every op written inside a class method was dropped**. The two facts are now two fields. | `ir/model.py`, `ir/scopes.py`, `core/build.py` |
+| **ANA-2** | `self.loss_fn(...)` resolved to `torch.nn.Module.loss_fn` — a symbol nobody declared — instead of to the value the attribute holds. | `ir/resolve.py` |
+| **ANA-3** | `_relative_base` trimmed the last dotted component of a package `__init__`, whose name **is** the package, and a re-exported symbol resolved to nothing. | `ir/symbols.py`, `ir/build_ir.py`, `ir/resolve.py` |
+
+**A1 — the two fields are normative.** `CallSite.class_ir` means *the workspace class this call **resolves to***
+and is written **only** by `ir/resolve.py`. `CallSite.enclosing_class` means *the class whose body this call is
+**written in*** and is written **only** by `ir/scopes.py`. No reader may use one for the other. `_create_op`'s
+early return (a call onto the class's own unit node) fires on `class_ir` alone; `_owning_unit` then parents an op
+written in a method onto the enclosing class unit, or onto a method-level `epoch`/`batch`/`fold` loop unit when
+one exists. Node ids stay content-addressed (`file`, `qualname`, `kind`) and therefore deterministic.
+**Issue anchoring follows for free**, which was the point: on `analyzer/tests/accuracy/corpus/lightning_tabular`
+MLV602, MLV110 and MLV111 used to carry the **same** `nodeIds` — the `TabularDataModule` class node, drawn in the
+config lane — and now anchor on the `random_split()` and the two `DataLoader()` ops that actually carry them,
+with the program's stage line going from four present stages to seven. Receiver resolution stops minting
+`datamodule.TabularDataModule.float` / `.long` for torch tensor methods in the same program, because a value
+bound inside a method no longer inherits the enclosing class as its `class_ir`.
+
+**A2 — the candidate still comes from a binding, never from a name (iron law 1).** When the callee is
+`<recv>.<attr>` and `binding_of("<recv>.<attr>", scope)` yields a `ValueRef` with a producer FQN, a `via_fqns`
+or a workspace `class_ir`, that value becomes the receiver and the method becomes `__call__`. A binding with
+nothing behind it (`self.threshold = 0.5`) is refused, and a name with no binding at all (`self.encode(x)`, a
+real method) resolves exactly as before. This is also what stops `torch.nn.Module.<any attr>` being minted for a
+self-held layer: `self.stem(x)` is now `torch.nn.Conv2d.__call__` → role `FORWARD`, which §1 already draws
+through its receiver instead of as a second node.
+
+**A3 — the hop is bounded and the bound is stated.** `pkg/__init__.py` publishing `from .net import Net` makes
+the class reachable as `pkg.Net`, a name no `ClassIR` carries. `WorkspaceIR.reexports` maps such an alias to the
+definition, following at most **3** hops (`ir/build_ir._MAX_REEXPORT_HOPS`), cycle-safe, workspace-internal only.
+A chain that outruns the cap is reported as a **`dynamic_scope`** diagnostic naming the symbol and the cap —
+the kind `_unresolved_imports` already uses for exactly this failure; **§11.18's enum is not extended.**
+
+**Why 54 and not the 63 the audit measured.** The ANA-1 prototype was measured with the fabrication still in
+place: on its own the demo is **61 nodes / 54 edges**, seven of which are FQNs invented under `torch.nn.Module.`
+for the forward calls in `ConvBlock.forward` and `SmallCNN.forward` — `torch.nn.Module.conv`, `.norm`, `.drop`,
+`.stem`, `.pool`, `.head` and `.pool.flatten`. ANA-2 resolves those seven to the real layer objects
+built in `__init__`, where role `FORWARD` is transparent by design (`core/build.TRANSPARENT_ROLES`). 54 is
+therefore the same graph with the duplicates removed: `model.py` goes from **2 nodes (its two classes, no
+layers)** to **11**, and the Model lane from 3 to 12.
+
+**What is pinned.** `samples/vision_pipeline/expected_issues.json` is **unchanged** — same fifteen rows, same
+lines — and `analyzer/tools/gen_expected_issues.py --check`, `gen_scope_fixtures.py --check` and
+`gen_rule_docs.py --check` all pass without regeneration. Both clean corpora stay at **0 issues**
+(`samples/vision_pipeline_clean` 55 → 64 nodes, `analyzer/tests/clean` 108 → 127), and `analyzer/tests/clean`
+keeps **0 high**. `tools/accuracy.py` keeps precision 1.0 and every recall number to four decimals; its
+**graph-fidelity ratchet moves 0.6619 → 0.8633** (92 → 120 of 139 labelled human-diagram ops), which is
+re-recorded in `analyzer/tests/accuracy/baseline.json` — the one number this change is allowed to move.
+
+**Files that must change together (§11.16 addendum).** A graph-shape change regenerates
+`vscode-extension/test/fixtures/vision_pipeline.graph.json` in the **same** commit: it is a real analyzer run
+over the sample and `vscode-extension/test/scope.test.js` resolves against the shape the analyzer actually
+emits. `contracts/graph.sample.json` is **not** regenerated by anything, ever.
+
+**`tools/perf_equiv.py` is expected to report DIFFERENT on all three corpora for this change and only this
+change.** It is the byte-identity gate for optimisations (§PERF-01/02), and a re-baseline is the one thing it
+exists to catch; the wall-time is unchanged (0.92x–1.02x, inside noise).
+
+**Gates:** `analyzer/tests/core/test_class_method_ops.py` (12), `analyzer/tests/rules/test_attr_callable.py` (8),
+`analyzer/tests/core/test_pkg_reexport.py` (10) with the `analyzer/tests/fixtures/pkgreexport/` package and the
+`analyzer/tests/fixtures/rules/MLV401_self_attr_bad.py` fixture, plus the unchanged
+`analyzer/tests/rules/test_samples.py` battery and `contracts/validate_sample.py` on the regenerated document.
+
+
+### 11.20 Host surface drift (2026-09-08) — amends §6 and 11.9, host-owned
+
+Two normative listings fell out of step with the tree during Sprint 3 and are corrected here rather than in
+place: overwriting §6 or 11.9 would erase the record of what they used to say, which is the whole reason §11
+exists. Both listings are **superseded by this section**; nothing else in either changes.
+
+**A — the extension's contributed settings (§6).** §6's `Settings:` line names `mlview.showSpeculative` and
+`mlview.followCursor`, and omits the setting COVERAGE added. CLEANUP deleted the first two in this sprint — both
+shipped in the Settings UI reading *"Not implemented in this prototype"*, and A6 cut `followCursor` outright, so
+deleting them is the contract-compliant move rather than a reduction in surface. The contributed set is now
+**exactly these thirteen**, and `vscode-extension/package.json` is the authority:
+
+| Setting | Type | Default |
+|---|---|---|
+| `mlview.pythonPath` | string | `""` |
+| `mlview.analyzeOnSave` | boolean | `true` |
+| `mlview.exclude` | array | `[]` |
+| `mlview.maxFiles` | integer | `500` |
+| `mlview.maxNodes` | integer | `400` |
+| `mlview.minSeverity` | `low` \| `medium` \| `high` | `low` |
+| `mlview.minConfidence` | number | `0.6` |
+| `mlview.currentFileAnalysisScope` | `file` \| `package` \| `workspace` | `package` |
+| `mlview.diagnosticsEnabled` | boolean | `true` |
+| `mlview.diagnosticSeverity` | `warning` \| `error` | `warning` |
+| `mlview.disabledRules` | array | `[]` |
+| `mlview.codeLens` | boolean | `true` |
+| `mlview.trace` | `off` \| `messages` \| `verbose` | `off` |
+
+`mlview.currentFileAnalysisScope` is COVERAGE's: it decides what **MLView: Visualize (Current File)** hands the
+analyzer before narrowing the diagram back to the file through the existing §11.7 `setScope` path. `package` is
+the default because analysing a file alone cannot fire MLV301, MLV302, MLV401 or MLV501 — each needs a sibling
+module — so the old single-file path lost four of `train.py`'s seven findings in silence. `file` restores the old
+behaviour and earns a `single_file_analysis` diagnostic (§11.18) for doing so. **Nothing removed here may come
+back under the same name with different meaning**; a future speculative-findings toggle needs a new name.
+
+**B — `ViewState` (11.9).** Two fields were added by RAIL-GROUP and VIEW-10 and belong in the listing:
+
+```ts
+export interface ViewState {
+  // ... 11.9, unchanged ...
+  /** Optional: the Issues rail's grouping. Absent = 'none'. */
+  railGroupBy?: 'none' | 'rule' | 'file';
+  /** Optional: the legend panel's open state. Absent = closed. */
+  legendOpen?: boolean;
+}
+```
+
+Both follow 11.9's rule exactly and gain no new one: **optional, absent at their default, sanitized on restore**
+(`railGroupBy` through `sanitizeGroupBy` in `webview/src/ui/railgroup.ts`, which folds any unknown value to
+`'none'`; `legendOpen` through a `typeof === 'boolean'` guard in `applyState`), and **a host predating them
+round-trips them untouched** because the host stores `ViewState` opaquely. An older saved state restores to
+`'none'` and closed. `webview/src/types.ts` is the authority for the interface.
+
+**Why an amendment and not an edit.** §6 has been wrong in *both* directions since CLEANUP landed — naming two
+settings that do not exist and omitting one that does — and 11.9's listing was incomplete. Editing the two lines
+in place would leave no trace that the surface changed, so a reader of a shipped extension could not tell a
+deletion from a documentation error. This is the shape §11.18 used for the `Diagnostic.kind` enum, for the same
+reason.

@@ -8,6 +8,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadBundle, readSample, makeSyntheticGraph } from './helpers.mjs';
+import { budgetMs, budgetReport } from './perfbudget.mjs';
+
+// The 300 ms in A7 is a budget for THE REFERENCE MACHINE. `budgetMs` scales it by
+// a calibration workload run in this same process, so a slower or a loaded runner
+// is measured rather than guessed at, and a machine as fast as the reference gets
+// exactly 300 ms (HEALTH-03).
+const LAYOUT_BASE_MS = 300;
 
 const ctx = await loadBundle();
 const { MLView } = ctx;
@@ -177,12 +184,12 @@ test('150 nodes / 300 edges lay out in under 300 ms', () => {
   const graph = makeSyntheticGraph(150, 300);
   // One warm-up pass so the measurement is steady-state, not JIT warm-up.
   MLView.__internal.layout(graph);
-  const started = Date.now();
+  const started = performance.now();
   const layout = MLView.__internal.layout(graph);
-  const elapsed = Date.now() - started;
+  const elapsed = Math.round(performance.now() - started);
   assert.equal(layout.nodes.length, 150);
   assert.ok(layout.edges.length > 0);
-  assert.ok(elapsed < 300, 'layout took ' + elapsed + ' ms (budget 300 ms)');
+  assert.ok(elapsed < budgetMs(LAYOUT_BASE_MS), budgetReport('layout', elapsed, LAYOUT_BASE_MS));
 });
 
 test('150 nodes / 300 edges still lay out under budget WITH a scope applied', () => {
@@ -192,11 +199,11 @@ test('150 nodes / 300 edges still lay out under budget WITH a scope applied', ()
   // layout budget: the scoped frame is strictly smaller than the full one.
   const scoped = project(graph, parseScope('stage:train', 1));
   MLView.__internal.layout(scoped);
-  const started = Date.now();
+  const started = performance.now();
   const layout = MLView.__internal.layout(scoped);
-  const elapsed = Date.now() - started;
+  const elapsed = Math.round(performance.now() - started);
   assert.ok(layout.nodes.length > 0 && layout.nodes.length < 150, layout.nodes.length + ' nodes drawn');
-  assert.ok(elapsed < 300, 'scoped layout took ' + elapsed + ' ms (budget 300 ms)');
+  assert.ok(elapsed < budgetMs(LAYOUT_BASE_MS), budgetReport('scoped layout', elapsed, LAYOUT_BASE_MS));
   // And no lane is drawn without content, which is the whole point of 11.4 F3.
   for (const lane of layout.lanes) {
     const inside = layout.nodes.filter((n) => n.lane === lane.id);
@@ -366,4 +373,127 @@ test('the minimap draws and hit-tests with ONE transform (MLV-R1-008)', () => {
   // and a wide document letterboxes vertically instead
   const wide = fit(200, 130, 4000, 500);
   assert.ok(wide.oy > 0 && Math.abs(wide.ox) < 1e-9);
+});
+
+/* ── VIEW-01: lane width, row wrapping and the first-paint zoom ─────────── */
+
+const { MAX_RANK_W, LANE_MIN_W, LANE_PAD } = MLView.__internal.layoutConstants;
+
+/** Left edge, right edge and widest sibling of everything drawn in one lane. */
+function laneContent(layout, laneId) {
+  const inside = layout.nodes.filter((n) => n.lane === laneId);
+  if (inside.length === 0) return null;
+  const left = Math.min.apply(null, inside.map((n) => n.x));
+  const right = Math.max.apply(null, inside.map((n) => n.x + n.w));
+  const roots = inside.filter((n) => !n.parent);
+  return { w: right - left, widest: Math.max.apply(null, (roots.length ? roots : inside).map((n) => n.w)), count: inside.length };
+}
+
+test('a lane box ends where its own content ends (VIEW-01)', () => {
+  // `lane.w = maxContentW` made every band as wide as the widest one: on the
+  // 360-node project the objective band was 87 % empty and the world was as
+  // wide as the one lane that needed the room, which is what dragged `fit()`
+  // onto the zoom floor.
+  for (const [name, graph] of [['sample', sample], ['wide lane', wideLaneGraph(15)], ['synthetic', makeSyntheticGraph(150, 300)]]) {
+    const layout = MLView.__internal.layout(graph);
+    const widths = new Set();
+    for (const lane of layout.lanes) {
+      const content = laneContent(layout, lane.id);
+      assert.ok(content, name + ': lane ' + lane.id + ' is drawn with content');
+      widths.add(Math.round(lane.w));
+      const expected = Math.max(content.w + 2 * LANE_PAD, LANE_MIN_W);
+      assert.ok(
+        Math.abs(lane.w - expected) < 1,
+        name + ': lane ' + lane.id + ' is ' + Math.round(lane.w) + ' px for ' + Math.round(content.w) + ' px of content',
+      );
+      // Which is the number the audit measured: no band is mostly padding.
+      assert.ok(
+        content.w / lane.w >= 0.6,
+        name + ': lane ' + lane.id + ' is ' + Math.round((1 - content.w / lane.w) * 100) + '% empty (budget 40%)',
+      );
+    }
+    assert.ok(widths.size > 1, name + ': lanes are no longer normalised to one width');
+  }
+});
+
+test('the world is still as wide as its widest lane (VIEW-01)', () => {
+  // Ragged lane boxes must not make the document narrower than its content:
+  // the minimap letterbox and the edge SVG both measure against frame.width.
+  for (const graph of [sample, makeSyntheticGraph(150, 300)]) {
+    const layout = MLView.__internal.layout(graph);
+    const widest = Math.max.apply(null, layout.lanes.map((l) => l.x + l.w));
+    assert.ok(layout.width >= widest, 'world ' + layout.width + ' < widest lane edge ' + widest);
+    for (const node of layout.nodes) {
+      assert.ok(node.x + node.w <= layout.width, node.id + ' is drawn outside the world');
+    }
+  }
+});
+
+test('an over-wide lane wraps into stacked rank rows (VIEW-01)', () => {
+  // Nine sibling groups in a row measured 10 232 px in the 300-node project.
+  // Ranks are never split, so the bound is MAX_RANK_W or one very wide box,
+  // whichever is larger.
+  for (const [name, graph] of [['synthetic 150', makeSyntheticGraph(150, 300)], ['synthetic 360', makeSyntheticGraph(360, 720)]]) {
+    const layout = MLView.__internal.layout(graph);
+    let wrapped = 0;
+    for (const lane of layout.lanes) {
+      const content = laneContent(layout, lane.id);
+      if (!content) continue;
+      const budget = Math.max(MAX_RANK_W, content.widest);
+      assert.ok(
+        content.w <= budget + 1,
+        name + ': lane ' + lane.id + ' is ' + Math.round(content.w) + ' px wide (budget ' + Math.round(budget) + ')',
+      );
+      if (content.count >= 8) wrapped++;
+    }
+    assert.ok(wrapped > 0, name + ': lanes actually carry the content that used to be one wide row');
+  }
+});
+
+test('the wrap threshold leaves the shipped sample alone (VIEW-01)', () => {
+  // The gate the re-baseline depends on: the demo and the contracts sample are
+  // both under budget, so wrapWideRows is inert on them and their node
+  // positions are exactly the ones dagre produced.
+  const layout = MLView.__internal.layout(sample);
+  for (const lane of layout.lanes) {
+    const content = laneContent(layout, lane.id);
+    assert.ok(content.w < MAX_RANK_W, 'lane ' + lane.id + ' is ' + Math.round(content.w) + ' px, under the ' + MAX_RANK_W + ' px wrap budget');
+  }
+});
+
+test('fit() is not a no-op on the shipped sample (VIEW-01)', () => {
+  const { fitPlan, MIN_ZOOM, TALL_SCREENS, MIN_FIT_ZOOM } = MLView.__internal.viewport;
+  const layout = MLView.__internal.layout(sample);
+  // The canvas the standalone report actually gets inside a 1600x1000 window:
+  // the rail and the chrome take the rest.
+  const W = 1240;
+  const H = 848;
+  const plan = fitPlan(layout.width, layout.height, W, H);
+  assert.ok(plan.tall, 'a whole pipeline is taller than it is wide');
+  // `Fit to view` and `0` were verified no-ops because the tall branch returned
+  // min(zw, 1) and a narrow sample made that exactly 1 — the transform the
+  // viewer was already mounted with.
+  assert.ok(plan.zoom < 1 && plan.zoom > MIN_ZOOM, 'fit rescales the document: ' + plan.zoom);
+  assert.ok(plan.zoom * layout.width <= W - 48 + 1, 'the whole width is on screen');
+  assert.ok(
+    plan.zoom * layout.height <= H * TALL_SCREENS + 1,
+    'and at most ' + TALL_SCREENS + ' screens of height: ' + (plan.zoom * layout.height).toFixed(0) + ' px of ' + H,
+  );
+
+  // A 300-node project used to land on MIN_ZOOM at every viewport: 5672x2706
+  // of world, cards 32 px wide, the text at 3 px.
+  const deep = fitPlan(2116, 8580, W, H);
+  assert.equal(deep.zoom, MIN_FIT_ZOOM, 'a deep document opens at the fit floor, not the zoom floor');
+  assert.ok(deep.zoom > MIN_ZOOM * 3);
+
+  // A document wider than it is tall is not the shape the bound was written
+  // for: it takes the whole-fit branch, which stays the ONLY one that can still
+  // reach MIN_ZOOM.
+  const veryWide = fitPlan(40000, 900, W, H);
+  assert.ok(!veryWide.tall, 'a wide document is not top-anchored');
+  assert.equal(veryWide.zoom, MIN_ZOOM, 'and the whole fit is the only branch that reaches the zoom floor');
+
+  // A projection is never top-anchored: the scope must open showing its subject.
+  const projected = fitPlan(1000, 3000, W, H, 24, true);
+  assert.ok(!projected.tall && projected.zoom * 3000 <= H, 'a projection fits whole');
 });

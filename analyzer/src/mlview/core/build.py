@@ -447,7 +447,7 @@ class GraphBuilder:
         elif isinstance(owner, FunctionIR):
             calls = owner.calls
         elif isinstance(owner, ModuleIR):
-            calls = [c for c in owner.calls if c.function is None and c.class_ir is None]
+            calls = [c for c in owner.calls if c.function is None and c.enclosing_class is None]
         elif isinstance(owner, LoopIR):
             calls = [c for c in owner.module.calls if within_loop(c.loop, owner)]
         else:
@@ -516,7 +516,13 @@ class GraphBuilder:
         by_node = getattr(module, "_calls_by_node", {})
         for arg in list(call.args) + [call.kwarg_nodes[k] for k in sorted(call.kwarg_nodes)]:
             name = dotted_text(arg)
-            ref = binding_of(name, call.scope) if name else None
+            # REV-01: resolved against the store in effect *at this call*, not
+            # the last store in the scope. `x = layer(x)` three times in one
+            # `forward` used to wire every consumer to the final producer, so
+            # the demo drew `self.pool -> self.stem` - a backwards arrow in the
+            # one lane the Model view exists to get right.
+            ref = binding_of(name, call.scope, at=call.loc.line,
+                             in_loop=call.loop is not None) if name else None
             tags: Sequence[str] = ()
             if ref is not None:
                 source = self._producer_node(ref)

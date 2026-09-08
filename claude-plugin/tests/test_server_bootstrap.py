@@ -175,3 +175,42 @@ def test_the_project_directory_is_not_in_the_doc_search_order():
 
     module = importlib.import_module("mlview_mcp")
     assert module._RULE_DOC_ROOTS == (module._PLUGIN_ROOT, module._REPO_ROOT)
+
+
+# ------------------------------------------------------------------ CLEANUP 7 (python3)
+def _server_module():
+    """Import the server module in-process, the way `.mcp.json` would."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("mlview_mcp_version_probe", SERVER_SCRIPT)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_a_python_too_old_to_run_this_server_is_named_and_told_what_to_edit():
+    """`.mcp.json` hardcodes `python`, which on most macOS / Linux boxes is absent
+    or is a Python 2. Without this the failure is a SyntaxError from somewhere
+    inside `vendor/mlview`, or a bare "MCP server mlview failed" with nothing to
+    act on. The message has to name the file, the field and the value."""
+    module = _server_module()
+    lines = module.python_version_problem((2, 7, 18), "/usr/bin/python")
+    assert lines, "a Python 2 must not be accepted"
+    text = "\n".join(lines)
+    assert "3.10" in text, "the message must state the floor"
+    assert "2.7" in text, "and what it actually got"
+    assert "/usr/bin/python" in text, "and which interpreter that was"
+    assert ".mcp.json" in text and "python3" in text, "and the one-field fix"
+    assert "MLVIEW_PYTHON" in text, "and the override that needs no file edited"
+    assert "3.9" in "\n".join(module.python_version_problem((3, 9, 7), "py"))
+
+
+def test_a_supported_interpreter_produces_no_startup_noise():
+    module = _server_module()
+    assert module.python_version_problem((3, 10, 0), "python") == []
+    assert module.python_version_problem((3, 13, 2), "python") == []
+    assert module.python_version_problem(sys.version_info, sys.executable) == [], (
+        "the interpreter running this suite must not be refused by our own check"
+    )
+    assert module.MIN_PYTHON == (3, 10), "the floor pyproject.toml declares"

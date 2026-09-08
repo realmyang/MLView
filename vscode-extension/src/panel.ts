@@ -8,15 +8,17 @@
  * getState/setState plus a WebviewPanelSerializer registered for 'mlview.diagram'.
  */
 
-import { randomBytes } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
+import { chatAvailable } from './chatSurfaces';
+import { coverageChip, coverageNotes } from './coverage';
 import type { MLGraph } from './graph';
 import { SCHEMA_VERSION } from './graph';
 import { resolveOpenTarget, toRangeTuple } from './location';
 import type { Logger } from './log';
 import { DeferredMessages, preserveFromState, type PreserveState } from './panelState';
+import { buildPanelHtml, createNonce, type PanelHtmlOptions } from './panelHtml';
 import {
   activeScopeFrom,
   PANEL_TITLE,
@@ -35,118 +37,15 @@ import {
 } from './protocol';
 
 // Re-exported so `./panel` keeps the exact public surface it had before the scope helpers
-// moved out (src/panelScope.ts) - every importer, and test/scope.test.js, is unchanged.
+// (src/panelScope.ts) and the webview document (src/panelHtml.ts) moved out - every importer,
+// and test/scope.test.js, is unchanged.
 export { activeScopeFrom, PANEL_TITLE, scopeChrome };
 export type { ActiveScope, ScopeChrome };
+export { buildPanelHtml, createNonce };
+export type { PanelHtmlOptions };
 
 export const VIEW_TYPE = 'mlview.diagram';
 export const VIEW_STATE_KEY = 'mlview.viewState';
-
-export interface PanelHtmlOptions {
-  cspSource: string;
-  nonce: string;
-  scriptUri: string;
-  styleUri: string;
-  /** False before `tools/sync-assets.py` has run — A13 requires a message, not a throw. */
-  bundlePresent: boolean;
-}
-
-export function createNonce(): string {
-  return randomBytes(24).toString('base64');
-}
-
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
-/**
- * The frozen webview document. `'unsafe-inline'` is granted for STYLES ONLY (nodes carry
- * positional styles); scripts are nonce-locked and `default-src 'none'` is the CSP-level
- * enforcement of the offline requirement.
- */
-export function buildPanelHtml(opts: PanelHtmlOptions): string {
-  const csp =
-    `default-src 'none'; ` +
-    `img-src ${opts.cspSource} data:; ` +
-    `style-src ${opts.cspSource} 'unsafe-inline'; ` +
-    `font-src ${opts.cspSource}; ` +
-    `script-src 'nonce-${opts.nonce}';`;
-
-  const head =
-    `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">` +
-    `<meta name="viewport" content="width=device-width, initial-scale=1.0">` +
-    `<meta http-equiv="Content-Security-Policy" content="${csp}">` +
-    `<title>${PANEL_TITLE}</title>` +
-    `<link rel="stylesheet" href="${escapeHtml(opts.styleUri)}">`;
-
-  if (!opts.bundlePresent) {
-    // A13: tolerate a missing bundle with a designed message instead of a blank, broken panel.
-    return (
-      head +
-      `<style nonce="${opts.nonce}">
-        body { font-family: var(--vscode-font-family, sans-serif); padding: 2.5rem; line-height: 1.55; }
-        code { background: rgba(127,127,127,0.16); padding: 0.1rem 0.35rem; border-radius: 3px; }
-        .hint { opacity: 0.8; max-width: 46rem; }
-      </style></head><body><div id="mlview-root">
-        <h2>MLView viewer bundle not built</h2>
-        <p class="hint">The diagram renderer has not been synced into this extension yet, so there is
-        nothing to draw. Build the viewer and sync the assets:</p>
-        <p><code>powershell -ExecutionPolicy Bypass -File scripts/build.ps1</code></p>
-        <p class="hint">That writes <code>webview/dist/mlview.js</code> and <code>mlview.css</code> into
-        <code>vscode-extension/media/</code>. Analysis, the Problems panel and
-        <em>Reveal in Diagram</em> keep working without it.</p>
-      </div>
-      <!-- referenced so the resource roots and the sync target stay visible: ${escapeHtml(
-        opts.scriptUri
-      )} -->
-      </body></html>`
-    );
-  }
-
-  return (
-    head +
-    `</head><body><div id="mlview-root"></div>` +
-    `<script nonce="${opts.nonce}" src="${escapeHtml(opts.scriptUri)}"></script>` +
-    `<script nonce="${opts.nonce}">
-(function () {
-  var root = document.getElementById('mlview-root');
-  if (!window.MLView || typeof window.MLView.mount !== 'function') {
-    var box = document.createElement('p');
-    box.textContent = 'MLView viewer bundle failed to load. Run scripts/build.ps1 and reopen the panel.';
-    root.appendChild(box);
-    return;
-  }
-  var bridge = window.MLView.bridges.vscode();
-  // The viewer posts 'ready' from its own constructor; wrap post so we never send it twice.
-  var readyPosted = false;
-  var post = bridge.post.bind(bridge);
-  bridge.post = function (msg) {
-    if (msg && msg.type === 'ready') { readyPosted = true; }
-    post(msg);
-  };
-  var app = null;
-  try {
-    // Mount immediately with no graph: the viewer owns the loading, empty and hard-error states,
-    // so an interpreter failure shows a designed banner instead of a blank panel.
-    app = window.MLView.mount(root, null, bridge);
-  } catch (e) {
-    // A viewer that requires a graph at mount time: mount on the first 'graph' message instead,
-    // and keep the subscription so every later graph updates in place.
-    bridge.onMessage(function (msg) {
-      if (!msg || msg.type !== 'graph') { return; }
-      if (app) { app.update(msg.graph, msg.preserve); return; }
-      app = window.MLView.mount(root, msg.graph, bridge);
-    });
-  }
-  if (!readyPosted) { bridge.post({ v: 1, type: 'ready' }); }
-}());
-</script></body></html>`
-  );
-}
 
 export function themeKindOf(kind: vscode.ColorThemeKind): ThemeKind {
   switch (kind) {
@@ -183,6 +82,10 @@ export class MlviewPanel implements vscode.Disposable {
   private lastViewState: ViewState | undefined;
   /** The selector from the last `scopeChanged`; `null` while the diagram is unscoped. */
   private scopeSpec: string | null = null;
+  /** The last `scopeChanged` chrome, so a new graph can redraw the description without one. */
+  private lastScopeChrome: ScopeChrome | undefined;
+  /** COVERAGE: "coverage: incomplete (N blind spots)", or undefined when the run saw everything. */
+  private coverageChipText: string | undefined;
   private readonly disposables: vscode.Disposable[] = [];
   private readonly decoration: vscode.TextEditorDecorationType;
 
@@ -333,8 +236,10 @@ export class MlviewPanel implements vscode.Disposable {
         canOpenSource: true,
         canReanalyze: true,
         canExport: true,
-        // A3: askAssistant is posted by the bridge but ignored by both hosts in the prototype.
-        canAskAssistant: false
+        // CLEANUP 5: the diagram -> chat path was fully wired on both sides and dropped on the
+        // floor here. It is offered exactly when the chat API this build would open is present,
+        // so a VS Code without `vscode.chat` still hides the button instead of showing a dead one.
+        canAskAssistant: chatAvailable()
       }
     });
   }
@@ -347,6 +252,10 @@ export class MlviewPanel implements vscode.Disposable {
    * that has never reported a position gets the initial fit.
    */
   postGraph(requestId: string, graph: MLGraph, preserve?: PreserveState): void {
+    // COVERAGE: the caveat rides the panel chrome as well as the viewer's own diagnostics,
+    // because the tab strip is visible when the canvas is scrolled away from the banner.
+    this.coverageChipText = coverageChip(coverageNotes(graph));
+    this.refreshDescription();
     const carried = preserve ?? this.preserve();
     this.post({
       v: 1,
@@ -469,8 +378,7 @@ export class MlviewPanel implements vscode.Disposable {
         this.delegate.onAction(msg.id);
         return;
       case 'askAssistant':
-        // Ignored in the prototype; the button is hidden via capabilities.canAskAssistant.
-        this.delegate.log.info(`askAssistant ignored for node ${msg.nodeId}`);
+        await this.askAssistant(msg.nodeId, msg.prompt);
         return;
       case 'log':
         this.delegate.log.info(`[webview] ${msg.level}: ${msg.message}`);
@@ -493,16 +401,54 @@ export class MlviewPanel implements vscode.Disposable {
     // instead of silently falling back to the whole workspace.
     this.scopeSpec = msg.spec;
     const chrome = scopeChrome(msg);
+    this.lastScopeChrome = chrome;
     this.panel.title = chrome.title;
-    // `description` is declared on `WebviewView`, not on `WebviewPanel` (@types/vscode
-    // 1.100.0), so the contractual assignment goes through a narrow cast: VS Code ignores the
-    // extra property today and would pick it up unchanged if the API ever grows it. The same
-    // count is drawn by the viewer's own scope breadcrumb, so nothing is lost meanwhile.
-    (this.panel as vscode.WebviewPanel & { description?: string }).description =
-      chrome.description;
+    this.refreshDescription();
     this.delegate.log.info(
       `scope ${msg.spec ?? '(cleared)'}: ${msg.nodes} of ${msg.of} nodes`
     );
+  }
+
+  /**
+   * `<drawn> of <analyzed> nodes · coverage: incomplete (N blind spots)`.
+   *
+   * `description` is declared on `WebviewView`, not on `WebviewPanel` (@types/vscode 1.100.0),
+   * so the contractual assignment goes through a narrow cast: VS Code ignores the extra
+   * property today and would pick it up unchanged if the API ever grows it. The same count is
+   * drawn by the viewer's own scope breadcrumb, so nothing is lost meanwhile.
+   */
+  private refreshDescription(): void {
+    const parts = [this.lastScopeChrome?.description, this.coverageChipText].filter(
+      (part): part is string => typeof part === 'string' && part.length > 0
+    );
+    if (parts.length === 0) {
+      return;
+    }
+    (this.panel as vscode.WebviewPanel & { description?: string }).description = parts.join(' · ');
+  }
+
+  /**
+   * CLEANUP 5 — the diagram-to-chat path. The viewer composes the prompt (UX_DESIGN section 7)
+   * and posts it; the host's whole job is to open chat with it, addressed to the `@mlview`
+   * participant this extension already registers.
+   *
+   * `workbench.action.chat.open` is a built-in command, not a typed API, so a build that does
+   * not have it must degrade to the same "nothing happened, and we said why" the rest of the
+   * optional surfaces use — never to a failed promise the webview cannot see.
+   */
+  private async askAssistant(nodeId: string, prompt: string): Promise<void> {
+    if (!chatAvailable()) {
+      this.delegate.log.info(`askAssistant ignored for node ${nodeId}: no chat API in this build`);
+      return;
+    }
+    try {
+      await vscode.commands.executeCommand('workbench.action.chat.open', {
+        query: `@mlview ${prompt}`
+      });
+      this.delegate.log.debug(`askAssistant opened chat for node ${nodeId}`);
+    } catch (err) {
+      this.delegate.log.warn(`askAssistant could not open chat: ${String(err)}`);
+    }
   }
 
   /**

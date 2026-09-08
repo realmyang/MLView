@@ -84,8 +84,12 @@ def render_text(graph: Dict[str, Any]) -> str:
     return text_out.render_text(graph)
 
 
-def render_summary(graph: Dict[str, Any], show_suppressed: bool = False) -> str:
-    return text_out.render_summary(graph, show_suppressed=show_suppressed)
+def render_summary(graph: Dict[str, Any], show_suppressed: bool = False,
+                   group_by: str = "none") -> str:
+    """`group_by` (RAIL-GROUP) is appended last and defaulted to `none`, so the
+    frozen two-argument call still returns exactly what it always returned."""
+    return text_out.render_summary(graph, show_suppressed=show_suppressed,
+                                   group_by=group_by)
 
 
 # ----------------------------------------------------------------- digest

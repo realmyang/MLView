@@ -15,7 +15,7 @@ import subprocess
 
 import pytest
 
-from plugin_support import PLUGIN_ROOT, REPO_ROOT
+from plugin_support import PLUGIN_ROOT, REPO_ROOT, SERVER_SCRIPT
 
 PLUGIN_JSON = os.path.join(PLUGIN_ROOT, ".claude-plugin", "plugin.json")
 MCP_JSON = os.path.join(PLUGIN_ROOT, ".mcp.json")
@@ -106,8 +106,29 @@ def test_mcp_json_is_at_the_plugin_root_in_the_windows_safe_form():
     config = _load(MCP_JSON)
     server = config["mcpServers"]["mlview"]
     assert server["type"] == "stdio"
-    assert server["command"] == "python"
+    # TB-13 / CLEANUP 7 widened this from the bare "python" to the same
+    # ${VAR:-default} expansion the args and env already rely on. The DEFAULT is
+    # still the Windows-safe `python`, so an unset MLVIEW_PYTHON spawns exactly
+    # what it spawned before; the variable is the fix for a plugin installed
+    # read-only, where editing this file is not an option.
+    assert server["command"] == "${MLVIEW_PYTHON:-python}"
     assert server["args"] == ["${CLAUDE_PLUGIN_ROOT}/server/mlview_mcp.py"]
+
+
+def test_the_interpreter_override_defaults_to_the_windows_safe_spelling():
+    """CLEANUP 7 asked for `python3` to be documented AND an `MLVIEW_PYTHON`
+    override to be honoured. Only the documentation half shipped (TB-13): a
+    macOS / Linux user still had to edit a checked-in file. Both halves now hold,
+    and the default may not regress to something absent on Windows."""
+    command = _load(MCP_JSON)["mcpServers"]["mlview"]["command"]
+    name, _, default = command.strip("${}").partition(":-")
+    assert name == "MLVIEW_PYTHON"
+    assert default == "python", "the default must stay the one spelling Windows has"
+    with open(os.path.join(PLUGIN_ROOT, "README.md"), "r", encoding="utf-8") as fh:
+        readme = fh.read()
+    assert "MLVIEW_PYTHON" in readme, "the override has to be documented to be usable"
+    with open(SERVER_SCRIPT, "r", encoding="utf-8") as fh:
+        assert "MLVIEW_PYTHON" in fh.read(), "and named by the too-old-Python message"
 
 
 def test_mcp_json_env_makes_the_plugin_work_without_a_pip_install():
@@ -117,6 +138,23 @@ def test_mcp_json_env_makes_the_plugin_work_without_a_pip_install():
     assert env["PYTHONIOENCODING"] == "utf-8"
     assert env["MLVIEW_PROJECT_DIR"] == "${CLAUDE_PROJECT_DIR}"
     assert env["MLVIEW_DATA_DIR"] == "${CLAUDE_PLUGIN_DATA}"
+
+
+# CLEANUP 7: `.mcp.json` can only spell ONE command, and `python` is the only
+# spelling that works out of the box on Windows. JSON has no comments, so the note
+# that belongs beside that field lives in the README - and it has to stay there.
+def test_the_python3_caveat_is_documented_where_the_reader_will_look():
+    with open(os.path.join(PLUGIN_ROOT, "README.md"), "r", encoding="utf-8") as fh:
+        readme = fh.read()
+    assert '"command"' in readme and "python3" in readme, (
+        "the README must tell a macOS / Linux reader to change .mcp.json's command "
+        "to python3; JSON cannot carry the comment itself"
+    )
+    assert ".mcp.json" in readme
+    # And the server must not merely document it: it has to say so at startup.
+    with open(SERVER_SCRIPT, "r", encoding="utf-8") as fh:
+        server = fh.read()
+    assert "python_version_problem" in server
 
 
 def test_the_server_path_in_mcp_json_actually_exists():

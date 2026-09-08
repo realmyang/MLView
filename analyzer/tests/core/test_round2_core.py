@@ -92,6 +92,23 @@ def test_the_cap_keeps_the_findings_it_would_otherwise_hide():
     assert {i["code"] for i in tight["issues"]} == {i["code"] for i in wide["issues"]}
 
 
+def test_the_cap_holds_even_when_the_anchors_outnumber_the_budget():
+    """The invariant above used to hold only *by luck*: the cap spent its
+    budget on second and third anchors of one finding while another lost every
+    anchor it had and was dropped. Measured on this tree the day MLV401 gained
+    a third anchor: 56 anchors, a 50-node budget, MLV203 and MLV204 silenced.
+    Each issue's first anchor now outranks every issue's later ones."""
+    wide = analyze_to_dict(AnalyzeOptions(paths=(_TESTS_TREE,), max_nodes=100000))
+    anchors = {node_id for issue in wide["issues"] for node_id in issue["nodeIds"]}
+    budget = len(wide["issues"])
+    assert len(anchors) > budget, "the interesting case is anchors > budget"
+    tight = analyze_to_dict(AnalyzeOptions(paths=(_TESTS_TREE,), max_nodes=budget))
+    assert {i["id"] for i in tight["issues"]} == {i["id"] for i in wide["issues"]}
+    for issue in tight["issues"]:
+        assert issue["nodeIds"], issue["code"]
+    assert validate(tight) == []
+
+
 def test_every_surviving_node_still_has_a_real_parent():
     doc = analyze_to_dict(AnalyzeOptions(paths=(_TESTS_TREE,), max_nodes=60))
     ids = {n["id"] for n in doc["nodes"]}

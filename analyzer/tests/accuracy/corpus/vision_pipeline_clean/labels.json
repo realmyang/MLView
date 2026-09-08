@@ -1,0 +1,195 @@
+{
+  "name": "vision_pipeline_clean",
+  "title": "The shipped clean twin: the same five files, the same shape, no defects",
+  "origin": "samples/vision_pipeline_clean",
+  "tuned": true,
+  "tunedWhy": "the rules were developed against this project's dirty twin, so its precision is a ceiling; it is kept in the corpus because a clean twin is the strongest forbidden-label carrier there is",
+  "labelledBy": "ANA-12, 2026-09-08",
+  "root": "../../../../../samples/vision_pipeline_clean",
+  "expected": [],
+  "forbidden": [
+    {
+      "code": "MLV101",
+      "file": "sklearn_baseline.py",
+      "why": "the scaler is a Pipeline step, refitted inside every fold"
+    },
+    {
+      "code": "MLV102",
+      "file": "sklearn_baseline.py",
+      "why": "nothing is fitted on the held-out half"
+    },
+    {
+      "code": "MLV103",
+      "file": "sklearn_baseline.py",
+      "why": "the preprocessing is inside the estimator handed to the cross-validator"
+    },
+    {
+      "code": "MLV110",
+      "file": "data.py",
+      "why": "the training loader shuffles"
+    },
+    {
+      "code": "MLV111",
+      "file": "data.py",
+      "why": "the evaluation loaders do not shuffle"
+    },
+    {
+      "code": "MLV112",
+      "file": "data.py",
+      "why": "the workers are constructed under a __main__ guard"
+    },
+    {
+      "code": "MLV201",
+      "file": "train.py",
+      "why": "zero_grad() is called at the head of every batch"
+    },
+    {
+      "code": "MLV202",
+      "file": "train.py",
+      "why": "step() follows backward() in the same batch"
+    },
+    {
+      "code": "MLV203",
+      "file": "train.py",
+      "why": "the order is backward() then step()"
+    },
+    {
+      "code": "MLV204",
+      "file": "train.py",
+      "why": "no backward() call is inside a no_grad block"
+    },
+    {
+      "code": "MLV205",
+      "file": "train.py",
+      "why": "the running loss accumulates loss.item()"
+    },
+    {
+      "code": "MLV301",
+      "file": "train.py",
+      "why": "validate() calls model.eval() first"
+    },
+    {
+      "code": "MLV302",
+      "file": "train.py",
+      "why": "the validation loop is wrapped in torch.no_grad()"
+    },
+    {
+      "code": "MLV401",
+      "file": "model.py",
+      "why": "forward returns logits and the loss is CrossEntropyLoss"
+    },
+    {
+      "code": "MLV402",
+      "file": "model.py",
+      "why": "no sigmoid/BCE pairing exists here"
+    },
+    {
+      "code": "MLV501",
+      "file": "train.py",
+      "why": "both the model and every batch move to the same device"
+    },
+    {
+      "code": "MLV601",
+      "file": "train.py",
+      "why": "the workspace seeds torch, numpy and python"
+    },
+    {
+      "code": "MLV602",
+      "file": "data.py",
+      "why": "the split carries a generator and the sklearn split a random_state"
+    },
+    {
+      "code": "MLV701",
+      "file": "model.py",
+      "why": "every nn.Module subclass calls super().__init__()"
+    },
+    {
+      "code": "MLV702",
+      "file": "model.py",
+      "why": "the blocks live in an nn.ModuleList"
+    }
+  ],
+  "graph": {
+    "edges": 45,
+    "ops": [
+      {
+        "file": "data.py",
+        "line": 17,
+        "symbol": "transforms.Compose",
+        "kind": "transform"
+      },
+      {
+        "file": "data.py",
+        "line": 36,
+        "symbol": "random_split",
+        "kind": "split"
+      },
+      {
+        "file": "data.py",
+        "line": 39,
+        "symbol": "DataLoader",
+        "kind": "dataloader"
+      },
+      {
+        "file": "data.py",
+        "line": 41,
+        "symbol": "DataLoader",
+        "kind": "dataloader"
+      },
+      {
+        "file": "data.py",
+        "line": 42,
+        "symbol": "DataLoader",
+        "kind": "dataloader"
+      },
+      {
+        "file": "model.py",
+        "line": 19,
+        "symbol": "nn.Conv2d",
+        "kind": "layer"
+      },
+      {
+        "file": "model.py",
+        "line": 33,
+        "symbol": "nn.Conv2d",
+        "kind": "layer"
+      },
+      {
+        "file": "model.py",
+        "line": 34,
+        "symbol": "nn.ModuleList",
+        "kind": "layer"
+      },
+      {
+        "file": "model.py",
+        "line": 35,
+        "symbol": "nn.AdaptiveAvgPool2d",
+        "kind": "layer"
+      },
+      {
+        "file": "model.py",
+        "line": 36,
+        "symbol": "nn.Linear",
+        "kind": "layer"
+      },
+      {
+        "file": "sklearn_baseline.py",
+        "line": 21,
+        "symbol": "Pipeline",
+        "kind": "transform"
+      },
+      {
+        "file": "sklearn_baseline.py",
+        "line": 33,
+        "symbol": "train_test_split",
+        "kind": "split"
+      },
+      {
+        "file": "train.py",
+        "line": 24,
+        "symbol": "CrossEntropyLoss",
+        "kind": "loss"
+      }
+    ]
+  }
+}

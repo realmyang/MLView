@@ -11,6 +11,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadBundle, readSample } from './helpers.mjs';
+import { until } from './until.mjs';
 
 const sample = await readSample();
 
@@ -175,7 +176,12 @@ test('view state round-trips through the bridge', async () => {
   assert.equal(ctx.document.querySelector('[data-node-id="n:9c8d7e6f5a4b"]'), null, 'collapsed group hides its children');
 
   app.setFilters({ severities: ['low', 'medium', 'high'] });
-  await new Promise((r) => setTimeout(r, 320));
+  // The debounce interval is the viewer's business; what this test is about is
+  // that the change eventually reaches saveState (HEALTH-03).
+  await until(
+    () => saved && saved.filters.severities.length === 3,
+    'the debounced saveState carrying all three severities',
+  );
   assert.ok(saved, 'state was saved (debounced) after a change');
   assert.equal(saved.filters.severities.length, 3);
   app.destroy();

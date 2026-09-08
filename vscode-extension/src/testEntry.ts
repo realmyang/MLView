@@ -65,4 +65,20 @@ export {
 export { isTrusted, ensureTrusted, RESTRICTED_MESSAGE } from './trust';
 export { CODELENS_TITLE } from './codelens';
 export { PARTICIPANT_ID, handleChatRequest } from './chat';
-export { statusBarText, statusBarTooltip } from './statusBar';
+export { statusBarText, statusBarTooltip, renderStatusBar } from './statusBar';
+export {
+  coverageChip,
+  coverageFor,
+  coverageLines,
+  coverageNotes,
+  COVERAGE_DIAGNOSTIC_KINDS
+} from './coverage';
+export {
+  fileScopeSpec,
+  focusScopeSpec,
+  packageRootFor,
+  resolveCurrentFileTarget,
+  CURRENT_FILE_SCOPES
+} from './currentFile';
+export { readSettings, DEFAULT_SETTINGS, SETTINGS_SECTION } from './settings';
+export { chatAvailable } from './chatSurfaces';

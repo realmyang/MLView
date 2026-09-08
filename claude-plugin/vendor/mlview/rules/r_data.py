@@ -279,7 +279,7 @@ def _runs_at_import(call: CallSite) -> Optional[str]:
     """
     module = call.module
     guard = module.main_guard
-    if call.function is None and call.class_ir is None:
+    if call.function is None and call.enclosing_class is None:
         if guard is not None and _inside(guard, call.node):
             return None
         if guard is not None:
@@ -292,7 +292,7 @@ def _runs_at_import(call: CallSite) -> Optional[str]:
     for caller in module.calls:
         if caller.target_function is not func:
             continue
-        if caller.function is not None or caller.class_ir is not None:
+        if caller.function is not None or caller.enclosing_class is not None:
             continue
         if guard is not None and _inside(guard, caller.node):
             continue

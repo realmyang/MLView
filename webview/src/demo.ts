@@ -9,14 +9,20 @@
 
 import { GraphIndex } from './layout/model.js';
 import { layoutGraph } from './layout/layout.js';
+import { LANE_MIN_W, LANE_PAD, MAX_RANK_H, MAX_RANK_W, RANK_ROW_GAP } from './layout/constants.js';
 import { routeEdges } from './layout/routing.js';
 import { buildNodeCard } from './render/nodes.js';
 import { severityGlyph, SEVERITY_SHAPE, emptyCounts } from './markers.js';
 import { KNOWN_KINDS } from './icons.js';
-import { minimapFit, minimapFromWorld, minimapToWorld } from './render/canvas.js';
+import { MIN_FIT_ZOOM, MIN_ZOOM, TALL_SCREENS, fitPlan, minimapFit, minimapFromWorld, minimapToWorld } from './render/canvas.js';
 import { KEYMAP } from './ui/keymap.js';
 import { tooltipPlacement } from './render/tooltip.js';
-import { searchGraph } from './search.js';
+import { searchGraph, searchGraphDetailed } from './search.js';
+import { locationHit, parseLocationQuery, pathMatches } from './searchloc.js';
+import { normalizeWheel, panDelta, wheelIntent, wheelZoomFactor, COARSE_PX, LINE_PX, PINCH_GAIN, ZOOM_BASE } from './ui/gestures.js';
+import { groupIssues, occurrenceText, sanitizeGroupBy } from './ui/railgroup.js';
+import { ruleDocFor, setRuleDocs } from './ui/ruledocs.js';
+import { legendModel } from './ui/legend.js';
 import { FLOW, lineageHops, polylineLength, pulseDurationMs, streamGapPx } from './render/flow.js';
 import { nearestRoute, routeDistance } from './render/edgepick.js';
 import { cappedTraceMessage } from './render/flowbinding.js';
@@ -203,8 +209,40 @@ export const internals = {
   deepLinkPlan,
   keymap: KEYMAP,
   minimap: { fit: minimapFit, toWorld: minimapToWorld, fromWorld: minimapFromWorld },
+  /**
+   * VIEW-01: the first-paint zoom decision as a pure function, plus the two
+   * constants that bound it, so a gate states the rule rather than a number.
+   */
+  viewport: { fitPlan, MIN_ZOOM, TALL_SCREENS, MIN_FIT_ZOOM },
+  /** VIEW-01: the lane wrap budget, for the width gates. */
+  layoutConstants: { MAX_RANK_W, MAX_RANK_H, LANE_MIN_W, LANE_PAD, RANK_ROW_GAP },
   tooltipPlacement,
   searchGraph,
+  /** VIEW-09ab: the detailed result and the `path:line` resolver behind it. */
+  search: {
+    detailed: searchGraphDetailed,
+    parseLocation: parseLocationQuery,
+    locationHit,
+    pathMatches,
+  },
+  /**
+   * VIEW-06: wheel normalization and its branch, so a test states the device
+   * mode rather than a magic number (the same reasoning as `flow` above).
+   */
+  gestures: {
+    normalizeWheel,
+    wheelIntent,
+    wheelZoomFactor,
+    panDelta,
+    LINE_PX,
+    COARSE_PX,
+    PINCH_GAIN,
+    ZOOM_BASE,
+  },
+  /** RAIL-GROUP, MLV-P6 and VIEW-10: the data behind three rendered surfaces. */
+  rail: { groupIssues, occurrenceText, sanitizeGroupBy },
+  ruleDocs: { ruleDocFor, setRuleDocs },
+  legendModel,
   buildDemoCard,
   severityGlyph,
   severityShapes: SEVERITY_SHAPE,

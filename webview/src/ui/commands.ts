@@ -21,6 +21,10 @@ export interface CommandPort {
   fit(): void;
   toggleFocusMode(): void;
   zoomToSelection(): void;
+  /** Collapse every group and fit (VIEW-10). */
+  overview(): void;
+  toggleLegend(): void;
+  toggleFlow(): void;
   /** Collapse the selected group, or the selected node's parent group. */
   collapseSelection(): boolean;
   openSelection(): boolean;
@@ -54,6 +58,9 @@ export function canvasCommands(port: CommandPort): KeyCommands {
     fit: () => port.fit(),
     toggleFocusMode: () => port.toggleFocusMode(),
     zoomToSelection: () => port.zoomToSelection(),
+    overview: () => port.overview(),
+    toggleLegend: () => port.toggleLegend(),
+    toggleFlow: () => port.toggleFlow(),
     toggleCollapse: () => port.collapseSelection(),
     openSelection: () => port.openSelection(),
     move: (key) => port.move(key),

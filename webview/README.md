@@ -19,6 +19,17 @@ npm run refresh-sample   # re-inline the sample into dev/index.html
 `dist/` is a build product that is **committed**, because both hosts load it and
 the analyzer hashes it into `generator.rendererSha`.
 
+`dist/mlview.css` is **minified** (BUILD-01): one `esbuild.transform` call takes
+the nine concatenated layers from 85 KB to 53 KB, -38 %, in every emitted report
+and in all three checked-in copies. The readable concatenation, its
+`/* ---- file ---- */` markers and all, is written beside it as
+`dist/mlview.dev.css`. That file is **never shipped** -- `tools/sync-assets.py`
+copies only `mlview.js` and `mlview.css` -- and exists for two consumers: the
+`dev/*.html` harness pages, and the CSS gates that assert authored structure.
+`test/bundle.test.mjs` proves `mlview.css` is byte-for-byte the minification of
+`mlview.dev.css`, so an assertion about the readable file is an assertion about
+what ships, and holds both to a size ratchet (JS 216 KB, CSS 55 KB).
+
 ## Public API (CONTRACTS section 8, amendment A3)
 
 ```ts
@@ -39,7 +50,10 @@ window.MLView = {
   first `graph` message arrives — the shape amendment A5 needs.
 - `ready` is posted on mount. Every `HostToUi` type in CONTRACTS section 4 is
   handled; unknown types are posted back as a `log` message and ignored.
-- `ViewState` = `{ viewport, selection, collapsed, filters, railTab }`, saved
+- `ViewState` = `{ viewport, selection, collapsed, filters, railTab }` plus the
+  optional `minimapCollapsed`, `scope`, `flow`, `railGroupBy` and `legendOpen`
+  -- each absent at its default, so a host predating one round-trips it
+  untouched (CONTRACTS 11.9's pattern). Saved
   through `bridge.saveState` debounced at 250 ms and restored from
   `bridge.loadState()` on mount.
 - Capabilities drive the chrome: `canReanalyze` shows the refresh button,
@@ -76,9 +90,16 @@ package's tests and `dev/states.html`. **Hosts must not depend on it.**
 | `src/app.ts` | the controller: view state, chrome, rail, search, keys, host protocol |
 | `src/canvasview.ts` | the diagram surface: layout frame, scene DOM, viewport, hover, focus, collapse |
 | `src/filters.ts` | the filter model (severities, stages, suppressed, query, rule codes) and its predicates |
-| `src/layout/` | `model` (index), `layout` (swimlanes + dagre), `routing` (elbows, loops), `navigate` (arrow keys) |
+| `src/layout/` | `model` (index), `layout` (swimlanes + dagre), `wrap` (rank re-flow), `routing` (elbows, loops), `navigate` (arrow keys) |
 | `src/render/` | `scene`, `nodes`, `edges`, `canvas` (viewport + minimap), `trace`, `tooltip`, `connectors` |
-| `src/ui/` | `shell`, `chrome`, `rail`, `states`, `keymap`, `searchbox`, `searchcontroller` |
+| `src/ui/` | `shell`, `chrome`, `rail`, `issuelist`, `railgroup`, `evidence`, `ruledocs`, `legend`, `gestures`, `states`, `keymap`, `searchbox`, `searchcontroller` |
+| `src/ui/issuelist.ts` | the Issues panel: the "Group by" control, the severity sections, the rows and the four empty states |
+| `src/ui/railgroup.ts` | grouping findings by rule or by file, with occurrence counts (RAIL-GROUP) |
+| `src/ui/evidence.ts` | the confidence chip on every row, the `issue.evidence[]` checklist and the rule card (MLV-P6) |
+| `src/ui/ruledocs.ts` | **the rule-doc sidecar hook**: reads `<script id="mlview-rule-docs">` or `window.MLViewRuleDocs`, and composes the same sections from the finding until the analyzer emits one |
+| `src/ui/legend.ts` | the legend, generated from `markers.ts`, the edge-kind table and the real card classes (VIEW-10) |
+| `src/ui/gestures.ts` | wheel `deltaMode` normalization, the ctrl/pinch branch, two-axis pan and two-pointer pinch (VIEW-06) |
+| `src/searchloc.ts` | a pasted `path:line` resolved to the narrowest node containing that line (VIEW-09a) |
 | `src/markers.ts` | the three severity shapes, badges, clusters and edge markers |
 | `src/icons.ts` | one inline SVG symbol per `NodeKind`, plus the chrome glyphs |
 | `src/bridges.ts` | `vscode()` and `standalone()` host bridges, plus `deepLinkPlan` — the standalone report never navigates itself (CONTRACTS 11.17) |
@@ -97,6 +118,32 @@ afterwards as loops routed below the construct they return to; cross-lane edges
 are orthogonal elbows through the gutters, with a left channel for hops that
 skip a band. Given the same document and the same collapsed set, the layout is
 byte-identical run to run.
+
+dagre optimises neither axis against a canvas, so `layout/wrap.ts` re-flows its
+output twice before a container is measured. `MAX_RANK_H` splits an over-tall
+rank into sub-columns (a lane of edge-less siblings otherwise becomes one very
+long column). `MAX_RANK_W` (2000 px) wraps an over-wide rank *sequence* into
+stacked rows — nine sibling groups in a 300-node project used to lay one
+10 232 px row, which made the world 10 408 x 3 234 and put `fit()` on the 0.15
+zoom floor (VIEW-01). Ranks are never split, both budgets are constants rather
+than functions of the viewport (the layout must be identical in every host), and
+both are above every lane in the shipped samples, so those documents are laid
+out exactly as dagre produced them.
+
+A lane box ends where its own content ends. It used to be stretched to the
+widest lane, which left the emptiest band 87 % padding and made the world as
+wide as the one lane that needed the room; `LANE_MIN_W` is now only a floor for
+the lane header. The world is still as wide as its widest lane, which is what
+`frame.width`, the edge SVG and the minimap letterbox measure against.
+
+`fit()` (`render/canvas.ts`) fits the width of a document taller than it is wide
+and anchors it at the top — a swimlane diagram is read by panning down — but
+bounds that to `TALL_SCREENS` (1.75) canvas-heights and never goes below
+`MIN_FIT_ZOOM` (0.5). The unbounded version opened the demo at 0.756 with three
+lanes below the fold and was a measured no-op on both shipped samples; the
+re-baselined 54-node demo opens at 0.548 in Chromium at 1600x1000 and at the
+0.5 floor at 1280x800. `fitPlan()` is the same decision as a pure function, which is what the
+gates assert. A projection always fits WHOLE (MLV-R3-001).
 
 ## Development pages
 

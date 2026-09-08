@@ -14,6 +14,8 @@ import { CanvasView, CanvasHost } from './canvasview.js';
 import { FilterModel } from './filters.js';
 import { Chrome } from './ui/chrome.js';
 import { Rail } from './ui/rail.js';
+import { Legend } from './ui/legend.js';
+import { sanitizeGroupBy } from './ui/railgroup.js';
 import { LoadingState } from './ui/states.js';
 import { buildShell, claimPage } from './ui/shell.js';
 import { handleCanvasKey } from './ui/keymap.js';
@@ -37,6 +39,7 @@ import type {
   Loc,
   MLGraph,
   MLViewApp,
+  RailGroupBy,
   RailTab,
   RelatedLoc,
   Sel,
@@ -86,6 +89,8 @@ export class App implements MLViewApp {
   private selection: Sel | null = null;
   private collapsedState: string[] = [];
   private railTab: RailTab = 'issues';
+  private railGroupBy: RailGroupBy = 'none';
+  private legendOpen = false;
 
   private stale: string[] = [];
   private dismissed = new Set<string>();
@@ -99,6 +104,7 @@ export class App implements MLViewApp {
   private chrome!: Chrome;
   private rail!: Rail;
   private sheet!: ShortcutSheet;
+  private legend!: Legend;
   private scopeBar!: ScopeBar;
   private scrim!: HTMLElement;
   private releasePage: () => void = () => undefined;
@@ -161,6 +167,7 @@ export class App implements MLViewApp {
       },
       onScope: () => this.toggleScopePicker(),
       onToggleFlow: (next) => this.setFlow(next),
+      onToggleLegend: (next) => this.setLegend(next),
     });
 
     this.scopeBar = new ScopeBar({
@@ -213,8 +220,14 @@ export class App implements MLViewApp {
       },
       onClearScope: () => this.setScope(null),
       onScopeToNode: (id) => this.scopeToNode(id),
+      onGroupBy: (mode) => this.setRailGroupBy(mode),
     });
     shell.body.appendChild(this.rail.root);
+
+    // Anchored inside the canvas, beside the minimap, so the key sits with the
+    // picture it explains rather than in a modal over it (VIEW-10).
+    this.legend = new Legend((open) => this.setLegend(open));
+    shell.canvas.appendChild(this.legend.root);
 
     this.sheet = new ShortcutSheet(() => this.toggleShortcuts(false));
     this.root.appendChild(this.sheet.root);
@@ -456,6 +469,7 @@ export class App implements MLViewApp {
       scopeLabel: summary.label,
       scopeActive: summary.spec !== null,
       flowOn: this.flowOn,
+      legendOpen: this.legendOpen,
       laneIds: this.laneIds(),
       outOfScopeStages: this.index ? this.index.outOfScopeStages : [],
       hasSelection: !!this.selection,
@@ -486,9 +500,25 @@ export class App implements MLViewApp {
       collapsed: this.view.collapsed,
       keep: this.filters.keep,
       scope: railScopeCounts(this.graph),
+      groupBy: this.railGroupBy,
     });
   }
 
+
+  /** The rail's "Group by" control (RAIL-GROUP). Persisted like `railTab`. */
+  private setRailGroupBy(mode: RailGroupBy): void {
+    this.railGroupBy = sanitizeGroupBy(mode);
+    this.renderRail();
+    this.saveSoon();
+    this.announce('Findings grouped by ' + this.railGroupBy + '.');
+  }
+
+  private setLegend(next: boolean): void {
+    this.legendOpen = next;
+    this.legend.setOpen(next);
+    this.renderChrome();
+    this.saveSoon();
+  }
 
   private setRailTab(tab: RailTab): void {
     this.railTab = tab;
@@ -730,6 +760,8 @@ export class App implements MLViewApp {
       openScopePicker: () => this.toggleScopePicker(),
       selectedNodeId: () => this.selectedNodeId(),
       announce: (text) => this.announce(text),
+      toggleLegend: () => this.setLegend(!this.legendOpen),
+      toggleFlow: () => this.setFlow(!this.flowOn),
     });
   }
 
@@ -813,6 +845,8 @@ export class App implements MLViewApp {
     if (state.selection) this.selection = state.selection;
     if (typeof state.minimapCollapsed === 'boolean') this.view.setMinimapCollapsed(state.minimapCollapsed);
     if (typeof state.flow === 'boolean') this.setFlow(state.flow);
+    if (state.railGroupBy) this.railGroupBy = sanitizeGroupBy(state.railGroupBy);
+    if (typeof state.legendOpen === 'boolean') this.setLegend(state.legendOpen);
     const scope = sanitizeScope(state.scope);
     // No graph yet? The host mounts the viewer empty and restores state before
     // it posts one, so applying here would drop the scope on the floor (R2H-03).
@@ -927,6 +961,11 @@ export class App implements MLViewApp {
     const spec = this.scopes.spec;
     if (spec) state.scope = { spec, depth: this.scopes.depth };
     if (!this.flowOn) state.flow = false;
+    // Both absent at their defaults, like `scope` and `flow`: an older host
+    // round-trips a state it has never seen, and a newer one restores to the
+    // documented default rather than to whatever `undefined` renders as.
+    if (this.railGroupBy !== 'none') state.railGroupBy = this.railGroupBy;
+    if (this.legendOpen) state.legendOpen = true;
     return state;
   }
 

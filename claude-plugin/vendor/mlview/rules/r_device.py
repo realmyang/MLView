@@ -25,7 +25,7 @@ _LOSS_ROLES = ("LOSS_CLS", "LOSS_FN")
 
 
 @rule(code="MLV501", severity="medium", base_prior=0.90, frameworks=["torch"],
-      rule_version=1, tags=["correctness", "device"],
+      rule_version=1, tags=["correctness", "device"], cross_file=True,
       title="Model and batches are on different devices",
       why="The forward pass raises \"Expected all tensors to be on the same device\" on "
           "the first batch - and when it does not, the whole run silently falls back to "

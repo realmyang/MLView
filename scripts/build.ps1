@@ -22,6 +22,9 @@ $ErrorActionPreference = 'Continue'
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $env:PYTHONUTF8 = '1'
 $env:PYTHONIOENCODING = 'utf-8'
+# Never leave bytecode behind: step 3 vendors the analyzer into the plugin and
+# any __pycache__ under claude-plugin/vendor would ship with it (HEALTH-01).
+$env:PYTHONDONTWRITEBYTECODE = '1'
 
 function Write-Head {
     param([string]$Text)

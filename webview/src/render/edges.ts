@@ -9,7 +9,13 @@ import { edgeMarker } from '../markers.js';
 import type { RoutedEdge } from '../layout/routing.js';
 import type { Severity } from '../types.js';
 
-const KNOWN_EDGE_KINDS = ['data', 'call', 'control', 'config'];
+/**
+ * The four contracted edge kinds. Exported because the legend (VIEW-10) is
+ * GENERATED from this table and `buildDefs`'s arrowheads rather than
+ * hand-written, so a key can never describe a stroke the renderer stopped
+ * drawing.
+ */
+export const KNOWN_EDGE_KINDS = ['data', 'call', 'control', 'config'];
 
 /**
  * One serial per MOUNTED view, handed out here because this is where the ids it
@@ -67,14 +73,27 @@ function marker(id: string, cls: string, d: string, filled: boolean): SVGElement
   return m;
 }
 
-/** Arrowheads: filled triangle for data, open chevrons for call and control. */
+/**
+ * Arrowheads: filled triangle for data, open chevrons for call and control.
+ *
+ * One table, two consumers: `buildDefs()` turns it into the scene's <marker>
+ * elements, and the legend (VIEW-10) draws the same paths inline — a <marker>
+ * id may exist only once per document, so the key cannot reuse the scene's.
+ */
+export const ARROW_HEADS: Record<string, { d: string; filled: boolean }> = {
+  data: { d: 'M0.5 1 L9 5 L0.5 9 Z', filled: true },
+  unknown: { d: 'M0.5 1 L9 5 L0.5 9 Z', filled: true },
+  call: { d: 'M1 1.2 L8.4 5 L1 8.8', filled: false },
+  control: { d: 'M2 2 L7.6 5 L2 8', filled: false },
+  config: { d: 'M2 2 L7.6 5 L2 8', filled: false },
+};
+
 export function buildDefs(): SVGElement {
   const defs = svg('defs');
-  defs.appendChild(marker('mlv-arrow-data', 'mlv-arrow mlv-arrow--data', 'M0.5 1 L9 5 L0.5 9 Z', true));
-  defs.appendChild(marker('mlv-arrow-unknown', 'mlv-arrow mlv-arrow--unknown', 'M0.5 1 L9 5 L0.5 9 Z', true));
-  defs.appendChild(marker('mlv-arrow-call', 'mlv-arrow mlv-arrow--call', 'M1 1.2 L8.4 5 L1 8.8', false));
-  defs.appendChild(marker('mlv-arrow-control', 'mlv-arrow mlv-arrow--control', 'M2 2 L7.6 5 L2 8', false));
-  defs.appendChild(marker('mlv-arrow-config', 'mlv-arrow mlv-arrow--config', 'M2 2 L7.6 5 L2 8', false));
+  for (const kind of Object.keys(ARROW_HEADS)) {
+    const head = ARROW_HEADS[kind];
+    defs.appendChild(marker('mlv-arrow-' + kind, 'mlv-arrow mlv-arrow--' + kind, head.d, head.filled));
+  }
   return defs;
 }
 

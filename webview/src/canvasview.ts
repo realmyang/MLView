@@ -584,6 +584,32 @@ export class CanvasView {
     );
   }
 
+  /**
+   * Overview mode (VIEW-10, `Shift+0`): every group folded to its card, then a
+   * WHOLE fit — the picture a reviewer actually wants to paste. The aggregated
+   * severity markers survive, because a collapsed group already carries them.
+   *
+   * Measured on the emitted demo in Chromium after the ANA-1 re-baseline: 22
+   * cards, all of them inside the canvas at 1440x900 and at 1600x1000. VIEW-10's
+   * "<= 14 visible cards" was written against the 45-node demo; the count is a
+   * property of how many top-level units the workspace has, not of this method.
+   */
+  overview(): number {
+    if (!this.index) return 0;
+    const groups: string[] = [];
+    for (const node of this.index.graph.nodes || []) {
+      if (this.index.isGroup(node.id)) groups.push(node.id);
+    }
+    this.collapsedSet = new Set(groups);
+    this.relayout();
+    // fitWhole, not fit: Overview must never take the top-anchored tall branch,
+    // or the whole-diagram picture it exists to produce opens clipped.
+    this.viewport.fitWhole();
+    this.host.afterCollapse();
+    this.host.announce('Overview: ' + groups.length + (groups.length === 1 ? ' group' : ' groups') + ' collapsed, whole diagram fitted.');
+    return groups.length;
+  }
+
   /** Expand every collapsed ancestor of `id`. Returns true when it relaid out. */
   expandAncestors(id: string): boolean {
     if (!this.index) return false;

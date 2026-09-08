@@ -839,7 +839,12 @@
             "truncated",
             "notebook_skipped",
             "framework_suppressed",
-            "config_warning"
+            "config_warning",
+            "untagged_dataflow",
+            "single_file_analysis",
+            "unresolved_callee",
+            "config_unresolved",
+            "notebook_analyzed"
           ]
         },
         "message": {

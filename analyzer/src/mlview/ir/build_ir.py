@@ -3,17 +3,19 @@
     parse -> symbols -> scopes/calls -> bindings -> receiver resolution
           -> class-base closure -> loop classification
 
-Two binding rounds run because receiver resolution needs bindings and binding
-tags need resolved receivers; the second round is the fixed point in practice.
+Binding rounds repeat because receiver resolution needs bindings and binding
+tags need resolved receivers; `_run_rounds` stops at the fixed point rather
+than at a fixed count (PERF-02, `ir/converge.py`).
 """
 
 from __future__ import annotations
 
-from typing import Dict, Iterable, List, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Sequence, Tuple
 
 from .. import knowledge as K
 from ..ingest.parse import ParsedFile
 from .bindings import bind_module, binding_of
+from .converge import MAX_ROUNDS, state_digest
 from .resolve import (mark_fitted, propagate_parameters, resolve_calls,
                       seed_annotations)
 from .model import ClassIR, ModuleIR, WorkspaceIR
@@ -21,10 +23,13 @@ from .returns import infer_returns
 from .scopes import classify_loops, walk_module
 from .symbols import build_symbol_table
 
-__all__ = ["build_workspace", "dotted_for", "FRAMEWORK_ORDER"]
+__all__ = ["build_workspace", "dotted_for", "is_package", "FRAMEWORK_ORDER"]
 
 FRAMEWORK_ORDER = {name: i for i, name in enumerate(K.FRAMEWORKS)}
 _MAX_BASE_ROUNDS = 5
+#: ANA-3: how many `from . import X` hops a re-export chain may take before
+#: the analyzer stops following it and says so.
+_MAX_REEXPORT_HOPS = 3
 
 
 def dotted_for(relpath: str) -> str:
@@ -36,6 +41,11 @@ def dotted_for(relpath: str) -> str:
     return ".".join(parts)
 
 
+def is_package(relpath: str) -> bool:
+    """`pkg/__init__.py` - the module whose dotted name *is* its package."""
+    return relpath.replace("\\", "/").endswith("__init__.py")
+
+
 def build_workspace(root: str, parsed_files: Sequence[ParsedFile]) -> WorkspaceIR:
     """Build the full workspace IR from parsed files."""
     workspace = WorkspaceIR(root=root)
@@ -44,7 +54,8 @@ def build_workspace(root: str, parsed_files: Sequence[ParsedFile]) -> WorkspaceI
 
     for parsed in parsed_files:
         dotted = dotted_for(parsed.relpath)
-        symbols = build_symbol_table(parsed.tree, dotted, dotted_names)
+        symbols = build_symbol_table(parsed.tree, dotted, dotted_names,
+                                     is_package=is_package(parsed.relpath))
         module = walk_module(parsed, symbols, dotted)
         workspace.modules[parsed.relpath] = module
         if dotted:
@@ -56,23 +67,12 @@ def build_workspace(root: str, parsed_files: Sequence[ParsedFile]) -> WorkspaceI
         for qualname, func in module.functions.items():
             workspace.functions[qualname] = func
 
+    reexports, capped = _reexport_map(workspace)
+    workspace.reexports = reexports
+
     _resolve_class_bases(workspace)
 
-    # bindings need resolved receivers, receiver resolution needs bindings and
-    # return inference needs both: four rounds reach the fixed point on every
-    # fixture, and the final bind makes the tags agree with the final resolution.
-    for _round in range(4):
-        for relpath in sorted(workspace.modules):
-            bind_module(workspace.modules[relpath], workspace)
-        for relpath in sorted(workspace.modules):
-            seed_annotations(workspace.modules[relpath], workspace)
-        for relpath in sorted(workspace.modules):
-            propagate_parameters(workspace.modules[relpath], workspace)
-        for relpath in sorted(workspace.modules):
-            resolve_calls(workspace.modules[relpath], workspace)
-        # one level of return-type inference, so the *next* binding round can
-        # type `opt = build_optimizer(model, cfg)` (see ir/returns.py)
-        infer_returns(workspace)
+    _run_rounds(workspace)
     for relpath in sorted(workspace.modules):
         mark_fitted(workspace.modules[relpath])
 
@@ -83,12 +83,153 @@ def build_workspace(root: str, parsed_files: Sequence[ParsedFile]) -> WorkspaceI
             func.loops = [l for l in module.loops if l.function is func]
         _mark_kwargs_forwarding(module)
 
-    workspace.unresolved_imports = _unresolved_imports(workspace, dotted_names)
+    workspace.unresolved_imports = _unresolved_imports(workspace, dotted_names) + capped
     workspace.frameworks = _detect_frameworks(workspace)
     workspace.wrappers = _detect_wrappers(workspace)
     workspace.dynamic_scopes = [s for relpath in sorted(workspace.modules)
                                 for s in workspace.modules[relpath].scopes if s.dynamic]
     return workspace
+
+
+def _ir_round(workspace: WorkspaceIR) -> None:
+    """One binding / annotation / parameter / resolution / return pass."""
+    for relpath in sorted(workspace.modules):
+        bind_module(workspace.modules[relpath], workspace)
+    for relpath in sorted(workspace.modules):
+        seed_annotations(workspace.modules[relpath], workspace)
+    for relpath in sorted(workspace.modules):
+        propagate_parameters(workspace.modules[relpath], workspace)
+    for relpath in sorted(workspace.modules):
+        resolve_calls(workspace.modules[relpath], workspace)
+    # one level of return-type inference, so the *next* binding round can
+    # type `opt = build_optimizer(model, cfg)` (see ir/returns.py)
+    infer_returns(workspace)
+
+
+def _run_rounds(workspace: WorkspaceIR) -> None:
+    """Run the IR passes to their fixed point (PERF-02).
+
+    Bindings need resolved receivers, receiver resolution needs bindings and
+    return inference needs both, so the passes run in rounds. The count used to
+    be a literal `range(4)`: three rounds wasted on a small workspace, one too
+    few for a 5-deep cross-module chain. The loop now stops the round after
+    `state_digest` stops moving - which is the fixed point by definition,
+    because every pass is a deterministic function of that state - and records
+    whether it stopped there or on `MAX_ROUNDS`.
+    """
+    previous = None
+    workspace.ir_rounds = 0
+    workspace.ir_converged = False
+    for _iteration in range(MAX_ROUNDS):
+        _ir_round(workspace)
+        workspace.ir_rounds += 1
+        current = state_digest(workspace)
+        if current == previous:
+            workspace.ir_converged = True
+            return
+        previous = current
+
+
+def _reexport_map(workspace: WorkspaceIR) -> Tuple[Dict[str, str],
+                                                   List[Tuple[str, int, str]]]:
+    """ANA-3: `pkg.Net` -> `pkg.net.Net`, the symbol a re-export points at.
+
+    `pkg/__init__.py` doing `from .net import Net` publishes the class under
+    `pkg.Net`, a name no `ClassIR` carries, so `from pkg import Net` in a
+    sibling module resolved to nothing and the class was drawn as an orphan.
+    The walk is capped at `_MAX_REEXPORT_HOPS` and is cycle-safe; a chain that
+    outruns the cap is *reported* (as a `dynamic_scope` note) rather than
+    silently dropped, so the bound is stated instead of discovered.
+
+    Returns the resolved map and the (relpath, line, message) rows for the
+    chains that did not land.
+
+    Two things `raw` is used for, and only one of them may see every module
+    (REV-02). **Resolution** needs every module, because a plain consumer
+    re-importing a name is a legitimate hop. **Blame** does not: reporting one
+    row per unlanded key turned a single over-long chain rooted in one
+    `pkg/__init__.py` into one honest note plus one note per importer, each
+    naming a file that re-exports nothing and a relationship that does not
+    exist - measured at 1 cause + 4 importers = 5 notes, and 41 for a facade
+    imported from 40 modules. Only a package `__init__` is blamed now, and only
+    once per distinct terminal chain.
+
+    REV-03: the hop loop exits for two different reasons and they used to share
+    one message, so a two-module cycle was reported as "re-exported through
+    more than 3 modules" - a diagnostic whose whole job is to say *why* MLView
+    stopped, telling the reader to shorten a chain that is two modules long.
+    """
+    raw: Dict[str, str] = {}
+    owner: Dict[str, Tuple[str, int]] = {}
+    for relpath in sorted(workspace.modules):
+        module = workspace.modules[relpath]
+        symbols = getattr(module, "symbols", None)
+        dotted = module.dotted
+        if symbols is None or not dotted:
+            continue
+        for local in sorted(symbols.aliases):
+            target = symbols.aliases[local]
+            key = "%s.%s" % (dotted, local)
+            if not target or target == key or "." not in target:
+                continue
+            if key in workspace.classes or key in workspace.functions:
+                continue          # the module defines it itself; not a re-export
+            if target.rpartition(".")[0] not in workspace.by_dotted:
+                continue          # not a workspace symbol - a third-party import
+            raw[key] = target
+            owner[key] = (relpath, symbols.alias_sites.get(local, 1))
+
+    resolved: Dict[str, str] = {}
+    capped: List[Tuple[str, int, str]] = []
+    blamed: Dict[Any, str] = {}
+    for key in sorted(raw):
+        current, seen, landed, cycle = key, {key}, False, False
+        chain = [key]
+        for _hop in range(_MAX_REEXPORT_HOPS):
+            nxt = raw.get(current)
+            if nxt is None:
+                break
+            if nxt in seen:
+                cycle = True
+                chain.append(nxt)
+                break
+            current = nxt
+            seen.add(current)
+            chain.append(current)
+            if current in workspace.classes or current in workspace.functions:
+                landed = True
+                break
+        if landed:
+            if current != key:
+                resolved[key] = current
+            continue
+        if not cycle and raw.get(current) is None:
+            continue                      # the chain simply ran out; not our note
+        relpath, line = owner[key]
+        if not is_package(relpath):
+            # A plain consumer module re-importing the name is a hop, never the
+            # cause. Blaming it names the wrong file and the wrong symbol.
+            continue
+        # One row per distinct terminal chain: a cycle is identified by the set
+        # of names in it (every member would otherwise report the same loop
+        # from its own starting point), a cap by where the walk stopped.
+        mark = (frozenset(seen), "cycle") if cycle else (current, "cap")
+        if mark in blamed:
+            continue
+        blamed[mark] = key
+        if cycle:
+            message = ("`%s` re-exports in a cycle (%s) (line %d); MLView stops "
+                       "following the chain there, so symbols imported under "
+                       "that name stay unresolved."
+                       % (key, " -> ".join(chain), line))
+        else:
+            message = ("`%s` is re-exported through more than %d modules "
+                       "(line %d); MLView stops following the chain there, so "
+                       "symbols imported under that name stay unresolved."
+                       % (key, _MAX_REEXPORT_HOPS, line))
+        capped.append((relpath, line, message))
+    capped.sort()
+    return resolved, capped
 
 
 def _unresolved_imports(workspace: WorkspaceIR, dotted_names) -> List[Tuple[str, int, str]]:

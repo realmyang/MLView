@@ -29,8 +29,19 @@ export function toolOptions(): ToolOptions {
   return { minSeverity: settings.minSeverity, disabledRules: settings.disabledRules };
 }
 
+/**
+ * True when this VS Code build exposes the chat API the participant is registered against.
+ *
+ * The panel reads it for `capabilities.canAskAssistant` (CLEANUP 5): the diagram's "Ask the
+ * assistant" affordance is offered exactly when there is an assistant to open, and the check
+ * lives here so there is one `typeof` guard and not two that can drift apart.
+ */
+export function chatAvailable(): boolean {
+  return typeof vscode.chat?.createChatParticipant === 'function';
+}
+
 export function registerChatSurfaces(host: ChatSurfaceHost): void {
-  if (typeof vscode.chat?.createChatParticipant === 'function') {
+  if (chatAvailable()) {
     try {
       const deps: ChatDeps = {
         log: host.log,

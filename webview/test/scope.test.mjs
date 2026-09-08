@@ -12,6 +12,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadBundle, readSample } from './helpers.mjs';
+import { until } from './until.mjs';
 
 const sample = await readSample();
 
@@ -284,7 +285,7 @@ test('an unresolvable selector is a no-op plus a toast, never a throw', async ()
 test('ViewState.scope round-trips through the bridge (CONTRACTS 11.9)', async () => {
   const ctx = await app();
   ctx.app.setScope('unit:train.train', { depth: 2 });
-  await new Promise((r) => setTimeout(r, 320));
+  await until(() => ctx.bridge.saved && ctx.bridge.saved.scope, 'the debounced saveState to carry a scope');
   assert.deepEqual(JSON.parse(JSON.stringify(ctx.bridge.saved.scope)), { spec: 'unit:train.train', depth: 2 });
 
   const back = await app({ state: JSON.parse(JSON.stringify(ctx.bridge.saved)) });
@@ -378,7 +379,14 @@ test('scope and flow round-trip through BOTH real bridges', async () => {
   const first = ctx.MLView.mount(root, sample, ctx.MLView.bridges.standalone({ theme: 'light' }));
   first.setScope('stage:train', { depth: 1 });
   ctx.document.querySelector('.mlv-btn--flow').dispatchEvent(new ctx.window.MouseEvent('click', { bubbles: true }));
-  await new Promise((r) => setTimeout(r, 320));
+  // The standalone bridge debounces into localStorage; wait for the write that
+  // carries BOTH changes rather than for a fixed interval (HEALTH-03).
+  await until(() => {
+    const raw = ctx.window.localStorage.getItem('mlview.viewState.v1');
+    if (!raw) return null;
+    const state = JSON.parse(raw);
+    return state.scope && state.flow === false ? state : null;
+  }, 'the debounced localStorage write carrying the scope and the flow toggle');
   first.destroy();
 
   const saved = JSON.parse(ctx.window.localStorage.getItem('mlview.viewState.v1'));
@@ -427,10 +435,20 @@ test('a scoped report fits whole; the whole workspace still fits its width', asy
   const PAD = 24;
 
   const full = ctx.MLView.__internal.layout(sample);
+  const { fitPlan, TALL_SCREENS } = ctx.MLView.__internal.viewport;
   const unscoped = read();
+  // VIEW-01 re-baselines this assertion. A whole workspace is still opened
+  // top-anchored and read by panning down, but the tall branch is no longer a
+  // bare width fit -- that is what made `fit()` a no-op on both shipped samples.
+  // It is now the width fit BOUNDED to TALL_SCREENS canvas-heights, so what the
+  // test states is the rule, not the arithmetic of one branch of it.
+  const plan = fitPlan(full.width, full.height, CANVAS.w, CANVAS.h, PAD);
+  assert.ok(plan.tall, 'a whole workspace is taller than it is wide');
+  assert.ok(Math.abs(unscoped.zoom - plan.zoom) < 0.001, 'opens at the planned zoom ' + plan.zoom);
+  assert.ok(unscoped.zoom * full.width <= CANVAS.w - PAD, 'the full width is on screen');
   assert.ok(
-    Math.abs(unscoped.zoom - Math.min((CANVAS.w - PAD * 2) / full.width, 1)) < 0.001,
-    'a whole workspace is taller than it is wide: it fits the WIDTH and is read by panning down',
+    unscoped.zoom * full.height <= CANVAS.h * TALL_SCREENS + 1,
+    'and no more than ' + TALL_SCREENS + ' screens of it: ' + (unscoped.zoom * full.height).toFixed(0) + 'px of ' + CANVAS.h,
   );
 
   ctx.app.setScope('concern:evaluation', { depth: 1 });

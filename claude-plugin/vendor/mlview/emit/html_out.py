@@ -18,13 +18,21 @@ import html
 import os
 from typing import Any, Dict, List, Optional
 
-__all__ = ["render_html", "write_html", "assets_present", "ASSET_DIR"]
+__all__ = ["render_html", "write_html", "assets_present", "ASSET_DIR",
+           "A4_MIN_BYTES", "A4_MAX_BYTES", "size_band_warning"]
 
 ASSET_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
 _JS = os.path.join(ASSET_DIR, "mlview.js")
 _CSS = os.path.join(ASSET_DIR, "mlview.css")
 
 _SEVERITY_GLYPH = {"high": "!!", "medium": "!", "low": "i"}
+
+#: CONTRACTS amendment A4: "Size band: 100 KB - 2 MB when the bundle is
+#: present." It was checked only over the *demo* artifacts in `scripts/e2e`,
+#: so a real 1000-node report shipped at 2.13 MB - silently out of contract.
+#: BUILD-01 moves the check here, where every report passes through.
+A4_MIN_BYTES = 100 * 1024
+A4_MAX_BYTES = 2 * 1024 * 1024
 
 
 def assets_present() -> bool:
@@ -232,13 +240,48 @@ def render_html(doc: Dict[str, Any], scope: Optional[str] = None,
     return "\n".join(head + body + ["</body>", "</html>", ""])
 
 
+def size_band_warning(size: int, nodes: int = 0,
+                      bundle_present: bool = True) -> Optional[str]:
+    """The A4 band check, as a pure function so it is testable without a file.
+
+    Returns None when the report is in band - or when the viewer bundle is
+    absent, because the fallback report is a plain table that is *legitimately*
+    a few kilobytes and the band is contracted "when the bundle is present".
+    """
+    if not bundle_present:
+        return None
+    if size > A4_MAX_BYTES:
+        return ("mlview: report is %.2f MB, over amendment A4's 2 MB ceiling "
+                "(%d nodes). Lower --max-nodes, or narrow the analyzed path, "
+                "so the report stays loadable." % (size / 1048576.0, nodes))
+    if size < A4_MIN_BYTES:
+        return ("mlview: report is %d bytes, under amendment A4's 100 KB floor "
+                "- the viewer bundle inlines to far more than that, so the "
+                "report is probably truncated or the assets are stale. Re-run "
+                "tools/sync-assets.py." % size)
+    return None
+
+
 def write_html(doc: Dict[str, Any], path: str, scope: Optional[str] = None,
                depth: Optional[int] = None) -> str:
-    """Write the report; returns the absolute, forward-slashed path."""
+    """Write the report; returns the absolute, forward-slashed path.
+
+    BUILD-01: the A4 size band is enforced **here**, at runtime, rather than
+    only over the demo artifacts in `scripts/e2e` - so the contract holds for
+    the 1000-node report a real user emits, not just for the sample.
+    """
+    from .text_out import write_stderr
+
     abs_path = os.path.abspath(path)
     parent = os.path.dirname(abs_path)
     if parent and not os.path.isdir(parent):
         os.makedirs(parent, exist_ok=True)
+    text = render_html(doc, scope=scope, depth=depth)
     with open(abs_path, "w", encoding="utf-8", newline="\n") as fh:
-        fh.write(render_html(doc, scope=scope, depth=depth))
+        fh.write(text)
+    warning = size_band_warning(len(text.encode("utf-8")),
+                                nodes=len(doc.get("nodes") or ()),
+                                bundle_present=assets_present())
+    if warning:
+        write_stderr(warning)
     return abs_path.replace("\\", "/")

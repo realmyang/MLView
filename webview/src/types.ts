@@ -124,7 +124,40 @@ export interface Issue {
   docs: string;
 }
 
+/**
+ * Every `Diagnostic.kind` the analyzer is known to emit today.
+ *
+ * The field itself stays `string` (invariant 1.1/6: an unknown kind renders
+ * generically, it never throws), so this list is documentation the renderer can
+ * loop over — `ui/chrome.ts` branches on the members it draws specially and lets
+ * everything else fall through to the generic note chip.
+ *
+ * The last five are the COVERAGE batch: they exist so the product can tell
+ * "I checked and it is fine" apart from "I could not check".
+ */
+export const KNOWN_DIAGNOSTIC_KINDS = [
+  'parse_error',
+  'dynamic_scope',
+  'rule_error',
+  'truncated',
+  'notebook_skipped',
+  'framework_suppressed',
+  'config_warning',
+  'untagged_dataflow',
+  'single_file_analysis',
+  'unresolved_callee',
+  'config_unresolved',
+  'notebook_analyzed',
+] as const;
+
+export type DiagnosticKind = (typeof KNOWN_DIAGNOSTIC_KINDS)[number];
+
+export function isKnownDiagnosticKind(kind: string): kind is DiagnosticKind {
+  return (KNOWN_DIAGNOSTIC_KINDS as readonly string[]).indexOf(kind) >= 0;
+}
+
 export interface Diagnostic {
+  /** One of `KNOWN_DIAGNOSTIC_KINDS`, or anything a newer analyzer invents. */
   kind: string;
   message: string;
   file?: string;
@@ -234,6 +267,9 @@ export interface Filters {
 
 export type RailTab = 'issues' | 'inspector' | 'outline';
 
+/** How the Issues rail groups its rows (RAIL-GROUP). `none` is the default. */
+export type RailGroupBy = 'none' | 'rule' | 'file';
+
 export interface ViewState {
   viewport: Viewport;
   selection: Sel | null;
@@ -246,6 +282,10 @@ export interface ViewState {
   scope?: { spec: string; depth: number };
   /** Optional: flow animation on/off, like `minimapCollapsed`. Absent = on. */
   flow?: boolean;
+  /** Optional: the Issues rail's grouping. Absent = 'none' (RAIL-GROUP). */
+  railGroupBy?: RailGroupBy;
+  /** Optional: the legend panel's open state, remembered per viewer (VIEW-10). */
+  legendOpen?: boolean;
 }
 
 /* ── host protocol (CONTRACTS section 4) ───────────────────────────────── */

@@ -14,7 +14,14 @@ export const GROUP_MIN_H = 56;
 export const LANE_HEADER_H = 28;
 export const LANE_PAD = 28;
 export const LANE_GUTTER = 40;
-export const LANE_MIN_W = 420;
+/**
+ * The floor on a lane box's width (VIEW-01). Lane boxes are no longer stretched
+ * to the widest lane, so this is now the ONLY thing that can leave a lane box
+ * wider than its own content: it exists so a nearly empty band still has room
+ * for its header — the stage name, the node count and the severity cluster,
+ * which measure about 250 px together at the 11/10 px caps type in canvas.css.
+ */
+export const LANE_MIN_W = 320;
 export const LANE_MIN_H = 96;
 
 export const CANVAS_MARGIN = 32;
@@ -61,6 +68,27 @@ export const BACK_EDGE_DROP = 26;
 export const MAX_RANK_H = 3 * NODE_H + 2 * 24;
 export const RANK_ROW_GAP = 24;
 export const RANK_COL_GAP = 28;
+
+/**
+ * Row wrapping (VIEW-01), the width twin of MAX_RANK_H.
+ *
+ * Under `rankdir: LR` a rank is a COLUMN, so a lane's width is the sum of its
+ * ranks: nine sibling groups in a 300-node project laid one 10 232 px row, the
+ * world became 10 408 x 3 234 and `fit()` picked the 0.15 zoom floor at every
+ * viewport. A container whose dagre result is wider than MAX_RANK_W has its
+ * rank sequence wrapped into stacked rows — the same trade MAX_RANK_H makes in
+ * the other axis, spending height (which the reader pans through anyway) to buy
+ * back the zoom.
+ *
+ * It is a CONSTANT, not a function of the viewport: the layout must be
+ * byte-identical in the VS Code webview, the standalone report and the layout
+ * gates, all of which see different canvas sizes. 2000 px is roughly a
+ * comfortable 1600 px canvas at the ~0.6 zoom a legible first paint wants, and
+ * it sits above every lane in the shipped demo — whose widest lane content is
+ * 1400 px before and after the ANA-1/2/3 re-baseline — so the flagship layout is
+ * untouched.
+ */
+export const MAX_RANK_W = 2000;
 
 /** A free horizontal band reserved at the bottom of every lane for detours. */
 export const LANE_ROUTE_BAND = 20;

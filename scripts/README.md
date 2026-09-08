@@ -5,50 +5,72 @@ they both call. The two flavours do the same thing; pick whichever shell you are
 in. Both are Windows-safe: no `shell: true`, no
 symlinks, no `chmod`, and the PowerShell versions are Windows PowerShell 5.1
 compatible (no `&&`, no `||`, no ternaries — every step checks `$LASTEXITCODE`).
+The `.sh` flavour also runs on Linux and macOS, which is what the `e2e (ubuntu,
+sh)` CI job exercises.
 
 | Script | What it does |
 |---|---|
 | `build.ps1` / `build.sh` | Build everything, in the only order that works. |
-| `e2e.ps1` / `e2e.sh` | Build, run every suite, analyze the samples, write the scoped demo reports, render them, run the parity, scope and doc gates, print a PASS/FAIL table. |
-| `check_docs.py` | The doc gate: dead paths, dead Markdown links, "known gap" bullets that still describe a failure somebody already fixed, gap bullets that cite nothing checkable or cite a symbol that has been renamed away, a frozen design record that has started reporting build state, a POSIX shell script written with CRLF, and two docs that disagree about the size of the demo graph. |
-| `test_check_docs.py` | The doc gate's own test suite — twenty-six cases: twenty-two throwaway trees, one unit test for the symbol parser, three that read the real repo. |
+| `e2e.ps1` / `e2e.sh` | Build, run every suite, analyze the samples, write the scoped demo reports, render them, run the parity, scope, accuracy and doc gates, print a PASS/FAIL table. |
+| `check_docs.py` | The doc gate, checks 1-8: dead paths, dead Markdown links, "known gap" bullets that still describe a failure somebody already fixed, gap bullets that cite nothing checkable or cite a symbol that has been renamed away, a frozen design record that has started reporting build state, a POSIX shell script written with CRLF, and two docs that disagree about the size of the demo graph. |
+| `doc_numbers.py` | The doc gate, checks 9-11 — the numbers a machine can settle: `docs/ACCURACY.md`'s headline against `analyzer/tests/accuracy/baseline.json`, an `upload-artifact` step whose hidden path would silently upload nothing, and an "N steps" claim that is not the number of rows both e2e drivers print. |
+| `pythonpick.sh` | Sourced by both `.sh` drivers: finds a Python 3.10+ and exports `PYTHON`. `python` first under Git Bash, `python3` first elsewhere, because on Windows `python3.exe` is usually the Store alias and on Linux/macOS `python` usually does not exist. |
+| `test_check_docs.py` / `test_doc_numbers.py` | The doc gate's own test suite — thirty-nine cases: thirty-four throwaway trees, one unit test for the symbol parser, four that read the real repo. Running either file runs all of them; `pytest scripts` does too. |
 
 ---
 
 ## The gate table
 
-Every gate below is green on this machine (Windows 11, Python 3.13 / miniconda,
-Node 20.9, VS Code 1.136, Claude Code CLI 2.1.186). `scripts/e2e` runs all of
-them in one pass; the middle column is how to run just that one.
+[![CI](https://github.com/realmyang/MLView/actions/workflows/ci.yml/badge.svg)](https://github.com/realmyang/MLView/actions/workflows/ci.yml)
+
+Every gate below runs in CI on every push — ubuntu across Python 3.10-3.13 and
+Node 20/22, plus one Windows end-to-end job and one macOS smoke job (see
+`.github/workflows/ci.yml`, and the "Continuous integration" section of the root
+README for the job table). There are three exceptions. Rows 10 and 11: `claude
+plugin validate` is not available on a hosted runner, so that test skips itself
+there and those two rows are still verified from a desk (Windows 11, Python 3.13
+/ miniconda, Node 20.9, VS Code 1.136, Claude Code CLI 2.1.186). And row 24,
+which as printed needs a second checkout of the pre-change tree to diff against,
+so it is run by hand around a change rather than on every push — `tools/perf_equiv.py`
+does support `--record FILE` / `--compare FILE` against a committed digest file,
+which is what would turn it into an automatic row.
+
+`scripts/e2e` runs all of them in one pass; the middle column is how to run just
+that one.
 
 | # | Gate | Command | Result |
 |---|---|---|---|
 | 1 | Build | `powershell -ExecutionPolicy Bypass -File scripts/build.ps1` | `BUILD OK` — 5/5 steps |
-| 2 | Analyzer + rules | `python -m pytest analyzer/tests -q` | 1075 passed, 2 skipped |
-| 3 | Viewer tests | `npm test` in `webview` | 246 pass, 0 fail |
+| 2 | Analyzer + rules | `python -m pytest analyzer/tests -q` | 1218 passed, 3 skipped (the third needs Python 3.10, where tomllib is absent) |
+| 3 | Viewer tests | `npm test` in `webview` | 300 pass, 0 fail |
 | 4 | Viewer typecheck | `npm run check` in `webview` | `tsc --noEmit`, clean |
 | 5 | Extension typecheck | `npm run check` in `vscode-extension` | `tsc --noEmit`, clean |
-| 6 | Extension bundle | `npm run compile` in `vscode-extension` | `out/extension.js` 111.4 kb |
-| 7 | Extension tests | `npm test` in `vscode-extension` | 180 pass, 0 fail |
-| 8 | Plugin / MCP tests | `python -m pytest claude-plugin/tests -q` | 231 passed |
+| 6 | Extension bundle | `npm run compile` in `vscode-extension` | `out/extension.js` 121.6 kb |
+| 7 | Extension tests | `npm test` in `vscode-extension` | 205 pass, 0 fail |
+| 8 | Plugin / MCP tests | `python -m pytest claude-plugin/tests -q -n auto` | 286 passed in ~12 s (~36 s without `-n auto`) |
 | 9 | Parity gates | `python tools/verify.py --all` | all 9 gates passed |
 | 9a | Scope parity (Python == TypeScript) | `python tools/verify.py --scopes` | 10 projections + 6 error cases, python == typescript |
 | 9b | Scope fixtures current | `python analyzer/tools/gen_scope_fixtures.py --check` | 10 projecting + 6 error cases over the golden |
 | 10 | Plugin manifest | `claude plugin validate ./claude-plugin --strict` | Validation passed |
 | 11 | Marketplace manifest | `claude plugin validate ./.claude-plugin/marketplace.json --strict` | Validation passed |
-| 12 | Report renders | `node test/render_report.mjs` in `webview` | 15/15 assertions |
-| 12b | Clean report renders | `node test/render_report.mjs ../.mlview/report_clean.html --min-ghosts=0` | 15/15 assertions |
-| 12c | Scoped report renders | `node test/render_report.mjs ../.mlview/evaluation.html --scope=concern:evaluation` | 18/18 assertions — no empty band, badge-free boundary stubs, the breadcrumb still names the project total |
+| 12 | Report renders | `node test/render_report.mjs` in `webview` | 20/20 assertions |
+| 12b | Clean report renders | `node test/render_report.mjs ../.mlview/report_clean.html --min-ghosts=0` | 20/20 assertions |
+| 12c | Scoped report renders | `node test/render_report.mjs ../.mlview/evaluation.html --scope=concern:evaluation` | 23/23 assertions — no empty band, badge-free boundary stubs, the breadcrumb still names the project total |
 | 13 | Panel + media bundle | `node --test test/panelhtml.test.js` in `vscode-extension` | 4 pass |
 | 13b | Cross-host scope handshake | `node test/crosshost.mjs ../.mlview/graph.json` in `webview` | 28/28 assertions — the real viewer bundle answers the real extension's `setScope`, and `parseUiToHost` / `scopeChrome` accept what it posts |
 | 14 | Rule docs current | `python analyzer/tools/gen_rule_docs.py --check` | 21 pages current |
 | 15 | Sample issues current | `python analyzer/tools/gen_expected_issues.py --check` | 15 issues — 5/6/4 |
 | 16 | Golden parity | `python -m mlview analyze --demo --json -` vs `contracts/graph.sample.json` | byte-identical, 46 078 bytes |
-| 17 | Emitted docs valid | `python contracts/validate_sample.py .mlview/graph.json` | schema 1.0 + 10 invariant groups, 45 nodes / 45 edges / 15 issues |
-| 18 | Docs match the tree | `python scripts/check_docs.py` | 18 files (16 docs + 2 shell scripts), no dead paths, every known gap anchored, no build state in a plan doc, LF in every shell script, one graph size |
-| 19 | End to end | `powershell -ExecutionPolicy Bypass -File scripts/e2e.ps1` | `E2E OK` — 17 steps, 0 failed |
-| 20 | Scoped demo artifacts | `python -m mlview analyze samples/vision_pipeline --scope concern:evaluation --depth 1 --html .mlview/evaluation.html` | 17 of 45 nodes (7 core / 7 boundary / 3 context), `data-mlview-scope` and `data-mlview-depth` set on the root |
+| 17 | Emitted docs valid | `python contracts/validate_sample.py .mlview/graph.json` | schema 1.0 + 10 invariant groups, 54 nodes / 51 edges / 15 issues |
+| 18 | Docs match the tree | `python scripts/check_docs.py` | 20 files (17 docs + 3 shell scripts), no dead paths, every known gap anchored, no build state in a plan doc, LF in every shell script, one graph size, the accuracy headline equal to the baseline, no silent artifact upload, one e2e step count |
+| 19 | End to end | `powershell -ExecutionPolicy Bypass -File scripts/e2e.ps1` | `E2E OK` — 18 steps, 0 failed |
+| 20 | Scoped demo artifacts | `python -m mlview analyze samples/vision_pipeline --scope concern:evaluation --depth 1 --html .mlview/evaluation.html` | 17 of 54 nodes (7 core / 7 boundary / 3 context), `data-mlview-scope` and `data-mlview-depth` set on the root |
 | 21 | Scope catalogue | `python -m mlview analyze samples/vision_pipeline --list-scopes` | 10 scopable units, biggest first |
+| 22 | Bytecode residue never poisons the vendor gate | `python -m pytest claude-plugin/tests/test_vendor_bytecode.py -q` | 3 passed — pytest over a throwaway vendored tree writes no `__pycache__` with the flag set and does write one without it, and `sync-core --check` prunes planted residue and stays green |
+| 23 | Accuracy corpus (also a row in `scripts/e2e`) | `python tools/accuracy.py` | `accuracy gate: PASS` — 10 labelled programs, precision 100.0%, unseen recall 51.1% raw / 38.3% visible, graph fidelity 86.3%; zero `forbidden` findings, nothing below `analyzer/tests/accuracy/baseline.json` |
+| 23a | The same three gates, asserted | `python -m pytest analyzer/tests/accuracy -q` | 35 passed — corpus lint plus the matcher's own semantics |
+| 24 | Analyzer byte-equivalence | `python tools/perf_equiv.py --baseline DIR --diff --bench` | both shipped samples byte-identical to `main`; `analyzer/tests/clean` gains exactly one `ValueTag` (PERF-02's fifth IR round), 200-file corpus 2.25x faster |
+| 25 | CI matrix | `.github/workflows/ci.yml` | 12 jobs green: 3 OSes, Python 3.10-3.13, Node 20/22, plus the accuracy corpus — 6m0s wall, ~48 billable minutes (~16 ubuntu at 1x + 12 windows at 2x + 20 macos at 10x), and both e2e jobs now really do archive `mlview-reports-*` (CI-ARTIFACTS-01) |
 
 Rows 16–18 are also asserted inside rows 2 and 19; they are listed separately
 because each is a one-line command that answers a question a reviewer asks
@@ -252,18 +274,42 @@ describes a mechanism, not a milestone). What shipped belongs in `README.md` or
 
 Round 2 of the feature pass added two more checks, for a rot that has nothing to do with prose. That pass rewrote `scripts/e2e.sh` — the documented POSIX twin of `scripts/e2e.ps1` — from LF to CRLF. Git Bash's `igncr` swallows the stray carriage returns, so the Windows gate stayed green while the file was broken on every platform it exists for: the shebang then names a program called `sh<CR>`, `SKIP_BUILD=0<CR>` makes `[ "$SKIP_BUILD" -eq 1 ]` an illegal-number error, and `OUT="$REPO_ROOT/.mlview"<CR>` writes every report into a directory called `.mlview<CR>` (MLV-R2-H02). So **check 7** requires LF in every `*.sh` in the tree, and forbids a checked doc from *mixing* the two conventions — the same pass flipped `docs/STATUS.md` and this file wholesale, which turned two one-line edits into 400-line rewrites and let a stale figure ride through review unread. **Check 8** is that figure: `docs/STATUS.md` said the demo graph had 39 edges while this file said 45 (MLV-R2-H05). One run produces one graph, so every `N nodes / M edges` claim about `samples/vision_pipeline` — or the `.mlview/graph.json` it emits — must agree with every other one in the doc set. Neither check can be satisfied by editing the sentence that trips it, which is the point.
 
+Sprint 3 added three more, in `scripts/doc_numbers.py`, for a rot the first eight cannot see: a number that is
+*written correctly* and is *no longer true*. **Check 9** compares `docs/ACCURACY.md`'s headline — precision, the
+three recall readings, and graph fidelity — with `analyzer/tests/accuracy/baseline.json`, the ratchet the
+accuracy gate actually enforces. The two had already split apart: the ANA-1 re-baseline re-recorded graph
+fidelity 0.6619 → 0.8633 and left the document publishing *"92 of 139 hand-labelled ops, 66.2%"*, explained by a
+class-method blind spot the same branch had repaired (TB-08). Nothing caught it because `docs/ACCURACY.md` was
+in neither glob and so was checked by nothing at all, not even for dead links; it is a current-state doc now.
+**Check 10** is the mirror image in CI: `actions/upload-artifact` skips dot-paths unless
+`include-hidden-files: true` is set, so both e2e jobs uploaded `.mlview/*.html`, matched nothing, warned rather
+than failed, and four consecutive green runs archived zero artifacts while `README.md` said otherwise
+(CI-ARTIFACTS-01). **Check 11** counts the rows each e2e driver can print, requires the PowerShell and the
+POSIX flavour to print the *same* table, and holds every "N steps" claim on a line naming `e2e` to that count —
+because the reason ANA-12's accuracy row was left out of both drivers was that four documents quoted "17 steps"
+(ANA12-E2E-05). All three are stdlib-only and read files the gate already opens.
+
 ```sh
 python scripts/check_docs.py              # the repo
 python scripts/check_docs.py --root DIR   # any tree
-python scripts/test_check_docs.py         # the gate's own tests
+python scripts/test_check_docs.py         # the gate's own tests, all 39
 ```
 
 ## Environment
 
 Both scripts export `PYTHONUTF8=1` and `PYTHONIOENCODING=utf-8` before running
 anything. The Windows console is cp1252, and without those a single non-ASCII
-identifier or path corrupts the JSON on stdout. Set `PYTHON=/path/to/python` to
-choose an interpreter for the `.sh` scripts.
+identifier or path corrupts the JSON on stdout.
+
+They also export `PYTHONDONTWRITEBYTECODE=1`. The plugin suite imports the
+vendored analyzer in-process, and the `__pycache__` trees CPython would leave
+under `claude-plugin/vendor/` are bytecode that would ship with the plugin —
+which the vendor gate, running right after, used to report as drift (HEALTH-01).
+
+Set `PYTHON=/path/to/python` to choose an interpreter for the `.sh` scripts;
+otherwise `pythonpick.sh` finds one. `MLVIEW_PERF_BUDGET_MS` overrides the
+viewer's layout budget, which otherwise scales itself against a calibration
+workload run in the same process and doubles under `CI`.
 
 Everything runs offline. `npm install` resolves entirely from the local npm
 cache, `pip install -e analyzer` has no dependencies, and neither `torch` nor
@@ -277,6 +323,8 @@ require them.
 | `tools/sync-assets.py [--check]` | The only writer of `vscode-extension/media/` and `analyzer/src/mlview/emit/assets/`. |
 | `tools/sync-core.py [--check]` | The only writer of `claude-plugin/vendor/`. |
 | `tools/verify.py [--parity\|--scopes\|--hashes\|--versions\|--all]` | The parity gates: one analyzer, one projection, one renderer, one version — nine rows, including `plugin: rule docs`, `vendor: synced core` and the two scope rows. |
+| `tools/accuracy.py` / `tools/accuracy_corpus.py` | ANA-12's referee: scores the labelled corpus under `analyzer/tests/accuracy/corpus/` for precision, recall, graph fidelity and calibration, and gates on `baseline.json`. `docs/ACCURACY.md` says what the numbers mean. |
+| `tools/perf_equiv.py [--baseline DIR\|--record FILE\|--compare FILE]` | PERF-01/02's referee: proves an analyzer optimisation moved no byte, over three corpora, each tree in its own subprocess. |
 | `tools/gate_scopes.py` | Gate 5's implementation, called by `tools/verify.py --scopes`: the fixture drift check plus the viewer's parity test. |
 | `analyzer/tools/gen_scope_fixtures.py [--check]` | Regenerates `contracts/scope.cases.json` and `contracts/scope.expected.json` from the Python `project()`. |
 | `analyzer/tools/gen_rule_docs.py [--check]` | Regenerates `docs/rules/*.md` from the rule registry. |

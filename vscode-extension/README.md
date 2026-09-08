@@ -104,7 +104,7 @@ unit** — the narrowest node containing the line, then up the containment chain
 class, function or loop that owns it — and posts a `unit:<qualname>` selector to the diagram.
 The panel then shows only that unit, its descendants and one hop of neighbours, and the tab
 retitles itself `MLView — validate()`. The node count lives inside the panel, on the viewer's
-own scope breadcrumb (`Scoped to validate() · depth 1 · 9 of 45 nodes`) — a `WebviewPanel`
+own scope breadcrumb (`Scoped to validate() · depth 1 · 9 of 54 nodes`) — a `WebviewPanel`
 exposes a title and no subtitle. `MLView: Clear Diagram Scope` restores the whole workspace,
 and does nothing at all when no diagram is open. With the cursor inside no node at all,
 nothing is scoped and a toast says so: a scope is never guessed.

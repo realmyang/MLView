@@ -6,6 +6,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadBundle, readSample, makeSyntheticGraph } from './helpers.mjs';
+import { afterDeferredClick } from './until.mjs';
 
 const sample = await readSample();
 
@@ -302,17 +303,36 @@ test('a filtered-empty result offers the way back (MLV-R1-013)', async () => {
   assert.ok(ctx.document.querySelector('.mlv-issue[data-issue-id]'), 'the rows came back');
 });
 
-test('the confidence chip flags doubt only (MLV-R1-014)', async () => {
+/*
+ * MLV-P6 REVERSES the second half of MLV-R1-014.
+ *
+ * The chip used to be drawn only for `possible` / `speculative` -- "flag doubt
+ * only". Measured consequence: `certain` and `likely`, the two buckets a
+ * reviewer acts on, rendered identically, and a row with no chip was ambiguous
+ * between "the analyzer is sure" and "the renderer forgot". MLV-P6's acceptance
+ * is "every rail row shows its bucket chip", so the assertion is inverted here
+ * on purpose. What MLV-R1-014 actually protected -- that the bucket is never
+ * colour-only and always reaches assistive technology -- is kept and extended.
+ */
+test('every row shows its confidence bucket, styled by bucket (MLV-P6, was MLV-R1-014)', async () => {
   const ctx = await loadBundle();
   const graph = JSON.parse(JSON.stringify(sample));
   graph.issues[0].confidenceBucket = 'certain';
   graph.issues[1].confidenceBucket = 'speculative';
   const instance = ctx.MLView.mount(ctx.document.getElementById('mlview-root'), graph, ctx.MLView.bridges.standalone());
   const rowOf = (id) => ctx.document.querySelector('.mlv-issue[data-issue-id="' + id + '"]');
-  assert.equal(rowOf(graph.issues[0].id).textContent.indexOf('certain'), -1, 'no chip on a certain finding');
-  assert.ok(rowOf(graph.issues[1].id).textContent.indexOf('speculative') >= 0, 'a chip on a speculative one');
-  // the bucket still reaches assistive tech on every row
+  const chipOf = (id) => rowOf(id).querySelector('.mlv-chip--conf');
+  assert.ok(chipOf(graph.issues[0].id), 'a certain finding carries its chip too');
+  assert.equal(chipOf(graph.issues[0].id).getAttribute('data-confidence'), 'certain');
+  assert.equal(chipOf(graph.issues[1].id).getAttribute('data-confidence'), 'speculative');
+  assert.ok(rowOf(graph.issues[0].id).textContent.indexOf('certain') >= 0);
+  assert.ok(rowOf(graph.issues[1].id).textContent.indexOf('speculative') >= 0);
+  // Styled by bucket, so the four are told apart by more than the word...
+  assert.ok(chipOf(graph.issues[0].id).className.indexOf('mlv-chip--conf-certain') >= 0);
+  assert.ok(chipOf(graph.issues[1].id).className.indexOf('mlv-chip--conf-speculative') >= 0);
+  // ...and the bucket still reaches assistive tech on every row.
   assert.ok(rowOf(graph.issues[0].id).getAttribute('aria-label').indexOf('confidence certain') >= 0);
+  assert.ok(chipOf(graph.issues[0].id).getAttribute('aria-label').indexOf('Confidence: certain') >= 0);
   instance.destroy();
 });
 
@@ -366,12 +386,14 @@ test('double-clicking a group header collapses without opening the file twice (M
   header.dispatchEvent(new ctx.window.MouseEvent('click', { bubbles: true, cancelable: true, detail: 2 }));
   header.dispatchEvent(new ctx.window.MouseEvent('dblclick', { bubbles: true, cancelable: true, detail: 2 }));
   assert.deepEqual(JSON.parse(JSON.stringify(ctx.app.getState().collapsed)), ['n:5500cc66dd77'], 'it collapsed');
-  await new Promise((r) => setTimeout(r, 320));
-  assert.equal(
-    ctx.posted.filter((m) => m.type === 'openLocation').length,
-    before,
-    'and posted no openLocation at all',
-  );
+  // A control single click on the collapsed group, waited on until ITS deferred
+  // openLocation lands: equal-delay timers fire in registration order, so a
+  // stray from the double click would already be in the log (HEALTH-03). A
+  // collapsed group re-renders as a plain node, so re-query rather than reuse
+  // the now-detached header.
+  const collapsed = ctx.document.querySelector('[data-node-id="n:5500cc66dd77"]');
+  const after = await afterDeferredClick(ctx, collapsed);
+  assert.equal(after, before + 1, 'the double click posted no openLocation of its own');
 });
 
 test('the chevron is its own collapse target (MLV-R1-010)', async () => {
@@ -381,8 +403,10 @@ test('the chevron is its own collapse target (MLV-R1-010)', async () => {
   const before = ctx.posted.filter((m) => m.type === 'openLocation').length;
   click(ctx, chevron);
   assert.deepEqual(JSON.parse(JSON.stringify(ctx.app.getState().collapsed)), ['n:5500cc66dd77']);
-  await new Promise((r) => setTimeout(r, 320));
-  assert.equal(ctx.posted.filter((m) => m.type === 'openLocation').length, before);
+  // Same control-click proof as the double-click test above (HEALTH-03).
+  const collapsed = ctx.document.querySelector('[data-node-id="n:5500cc66dd77"]');
+  const after = await afterDeferredClick(ctx, collapsed);
+  assert.equal(after, before + 1, 'the chevron click posted no openLocation of its own');
 });
 
 test('a denied clipboard write never claims success (MLV-R1-007)', async () => {

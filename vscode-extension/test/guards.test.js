@@ -44,7 +44,11 @@ test('a workspace-relative path resolves against the root', () => {
   assert.equal(target.ok, true);
   assert.equal(target.fsPath, path.resolve(ROOT, 'src/train.py'));
   // Forward slashes, back slashes and a redundant `.` all land in the same place.
-  for (const spelling of ['src\\train.py', './src/train.py', 'src/../src/train.py']) {
+  // A backslash is a separator only on Windows; on POSIX it is an ordinary
+  // filename character, so `src\train.py` is a DIFFERENT file there (CI-01).
+  const spellings = ['./src/train.py', 'src/../src/train.py'];
+  if (process.platform === 'win32') spellings.push('src\\train.py');
+  for (const spelling of spellings) {
     const other = resolveAnalysisTarget(ROOT, spelling, { isInWorkspace: inside });
     assert.equal(other.ok, true);
     assert.equal(other.fsPath, target.fsPath, spelling);

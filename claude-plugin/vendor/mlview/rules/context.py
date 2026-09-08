@@ -13,6 +13,7 @@
     ctx.is_dynamic(scope)          scope (or its ancestors) is dynamic
     ctx.issue(...)                 builder; applies confidence + severity cap
     ctx.ghost(kind, parent, label) declares a ghost slot for an absence rule
+    ctx.untraced(call, name, why)  declares a COVERAGE gap: the rule was blind
 
 Rules never construct `Issue` directly.
 """
@@ -21,6 +22,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
+from ..core.coverage import UntaggedNotes
 from ..core.graph import (SEVERITY_RANK, Diagnostic, Edge, Evidence, Issue, MLGraph,
                           Node)
 from ..core.ids import issue_id, node_id
@@ -50,43 +52,80 @@ class GraphContext:
         self.ghosts: List[Node] = []
         self.current_rule = None
         self._call_index: Optional[Dict[str, List[CallSite]]] = None
+        self._role_index: Dict[str, List[CallSite]] = {}
+        self._call_seq: Dict[int, int] = {}
         self._nodes_by_file: Optional[Dict[str, List[Node]]] = None
         self._gate_codes: List[str] = []
+        self._untagged = UntaggedNotes(self.diagnostics)
 
     # ------------------------------------------------------------ queries
     def _index(self) -> Dict[str, List[CallSite]]:
-        if self._call_index is None:
-            index: Dict[str, List[CallSite]] = {}
-            for relpath in sorted(self.modules):
-                for call in self.modules[relpath].calls:
-                    for fqn in call.canonical_fqns or ():
-                        index.setdefault(fqn, []).append(call)
-            self._call_index = index
+        """Build - once - the FQN index, the role index and the canonical order.
+
+        `calls_with_role` used to re-walk every call in every module on each of
+        the 14 rule call sites that ask for one (6.4 s cumulative on a 210-file
+        workspace). One pass now fills both indexes. A call is filed under
+        **every** role any of its canonical FQNs answers to, never just the
+        first: a single-role index silently drops findings from a call that is,
+        say, both FIT and FIT_TRANSFORM.
+        """
+        if self._call_index is not None:
+            return self._call_index
+        from .. import knowledge as K
+        index: Dict[str, List[CallSite]] = {}
+        roles: Dict[str, List[CallSite]] = {}
+        order: Dict[int, int] = {}
+        seq = 0
+        for relpath in sorted(self.modules):
+            for call in self.modules[relpath].calls:
+                order[id(call)] = seq
+                seq += 1
+                seen: set = set()
+                for fqn in call.canonical_fqns or ():
+                    index.setdefault(fqn, []).append(call)
+                    role = K.role_of(fqn)
+                    if role is None or role in seen:
+                        continue
+                    seen.add(role)
+                    roles.setdefault(role, []).append(call)
+        self._call_index = index
+        self._role_index = roles
+        self._call_seq = order
         return self._call_index
+
+    def _canonical_order(self, call: CallSite):
+        """`(file, line, col, discovery order)` - the total order both queries
+        return. The discovery tiebreak is what the old stable `sort` gave for
+        free when the candidate list was already in discovery order."""
+        return (call.loc.file, call.loc.line, call.loc.col,
+                self._call_seq.get(id(call), 0))
 
     def calls_of(self, *fqns: str) -> List[CallSite]:
         """Every call site answering to any of these canonical FQNs."""
         index = self._index()
         out: List[CallSite] = []
+        seen: set = set()
         for fqn in fqns:
             for call in index.get(fqn, ()):
-                if call not in out:
+                # id-keyed: `call not in out` compared CallSite dataclasses
+                # field by field, which recursed through scope and module.
+                if id(call) not in seen:
+                    seen.add(id(call))
                     out.append(call)
         out.sort(key=lambda c: (c.loc.file, c.loc.line, c.loc.col))
         return out
 
     def calls_with_role(self, *roles: str) -> List[CallSite]:
         """Every call whose knowledge-table role is one of `roles`."""
-        from .. import knowledge as K
-        wanted = set(roles)
+        self._index()
         out: List[CallSite] = []
-        for relpath in sorted(self.modules):
-            for call in self.modules[relpath].calls:
-                for fqn in call.canonical_fqns or ():
-                    if K.role_of(fqn) in wanted:
-                        out.append(call)
-                        break
-        out.sort(key=lambda c: (c.loc.file, c.loc.line, c.loc.col))
+        seen: set = set()
+        for role in roles:
+            for call in self._role_index.get(role, ()):
+                if id(call) not in seen:
+                    seen.add(id(call))
+                    out.append(call)
+        out.sort(key=self._canonical_order)
         return out
 
     def loops(self, kind: Optional[str] = None) -> List[LoopIR]:
@@ -100,11 +139,16 @@ class GraphContext:
 
     def values_tagged(self, tag: str) -> List[ValueRef]:
         out: List[ValueRef] = []
+        seen: set = set()
         for relpath in sorted(self.modules):
             for scope in self.modules[relpath].scopes:
                 for name in sorted(scope.bindings):
                     ref = scope.bindings[name]
-                    if tag in ref.tags and ref not in out:
+                    # id-keyed for the same reason as `calls_of`: two distinct
+                    # bindings differ in name or scope, so identity and
+                    # dataclass equality agree, and identity is O(1).
+                    if tag in ref.tags and id(ref) not in seen:
+                        seen.add(id(ref))
                         out.append(ref)
         return out
 
@@ -201,6 +245,22 @@ class GraphContext:
         return tuple(getattr(module, "wrappers", ()) or ())
 
     # ------------------------------------------------------------- emitters
+    def untraced(self, call: CallSite, name: Optional[str], reason: str) -> None:
+        """Declare that this rule could not check `name` at `call` (COVERAGE).
+
+        A rule stays silent when the value it needs carries no dataflow tag -
+        that silence is what keeps precision at 100% - but silence and "nothing
+        wrong here" must not look the same to a reader. This records the gap as
+        an `untagged_dataflow` diagnostic; it never produces an issue and never
+        changes a rule's gate.
+        """
+        spec = self.current_rule
+        self._untagged.note(
+            code=spec.code if spec is not None else "",
+            file=call.loc.file, line=call.loc.line,
+            scope=call.scope.qualname if call.scope is not None else "",
+            variable=name, reason=reason)
+
     def ghost(self, kind: str, parent_node: Node, label: str,
               fqn: Optional[str] = None, confidence: float = 0.9) -> Node:
         """Declare a REQUIRED-BUT-ABSENT step in its correct slot (A9)."""

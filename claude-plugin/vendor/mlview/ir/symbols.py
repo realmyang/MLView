@@ -58,6 +58,9 @@ class SymbolTable:
     #: statement, so `build_workspace` can report the ones that resolved to
     #: nothing while a same-named module exists elsewhere in the workspace.
     import_sites: List[Tuple[str, int]] = field(default_factory=list)
+    #: `from X import name` -> the line it was written on, so a re-export chain
+    #: that outruns its hop cap can be reported at the import that starts it.
+    alias_sites: Dict[str, int] = field(default_factory=dict)
 
     # -- resolution ---------------------------------------------------------
     def resolve_name(self, name: str) -> Optional[str]:
@@ -96,11 +99,19 @@ class SymbolTable:
         return tuple(found)
 
 
-def _relative_base(module_dotted: str, level: int) -> str:
-    """Package prefix for a relative import of `level` dots."""
+def _relative_base(module_dotted: str, level: int, is_package: bool = False) -> str:
+    """Package prefix for a relative import of `level` dots.
+
+    ANA-3: `ir/build_ir.dotted_for` already maps `pkg/__init__.py` to `"pkg"`,
+    so for a package `__init__` the last dotted component **is** the package
+    and trimming it lands one level too high - `from .windows import W` inside
+    `src/data/__init__.py` resolved to `src.windows` instead of
+    `src.data.windows`, which is the single most common research-repo layout.
+    """
     parts = module_dotted.split(".") if module_dotted else []
-    # a module's own package is everything but its final component
-    if parts:
+    # a module's own package is everything but its final component - unless the
+    # module *is* the package, in which case `dotted_for` already trimmed it
+    if parts and not is_package:
         parts = parts[:-1]
     if level > 1:
         drop = level - 1
@@ -132,8 +143,13 @@ def _sibling_module(module: str, module_dotted: str,
 
 
 def build_symbol_table(tree: ast.Module, module_dotted: str,
-                       workspace_modules: Sequence[str] = ()) -> SymbolTable:
-    """Collect every import in the module (including nested ones)."""
+                       workspace_modules: Sequence[str] = (),
+                       is_package: bool = False) -> SymbolTable:
+    """Collect every import in the module (including nested ones).
+
+    `is_package` is true for a `pkg/__init__.py`, whose own dotted name is
+    already the package (ANA-3).
+    """
     known = set(workspace_modules)
     table = SymbolTable(module_dotted=module_dotted, workspace_modules=known)
 
@@ -155,7 +171,7 @@ def build_symbol_table(tree: ast.Module, module_dotted: str,
                 table.import_sites.append((target, getattr(node, "lineno", 1)))
         elif isinstance(node, ast.ImportFrom):
             if node.level:
-                base = _relative_base(module_dotted, node.level)
+                base = _relative_base(module_dotted, node.level, is_package)
                 module = "%s.%s" % (base, node.module) if node.module else base
             else:
                 module = sibling(node.module or "")
@@ -170,4 +186,5 @@ def build_symbol_table(tree: ast.Module, module_dotted: str,
                     continue
                 local = alias.asname or alias.name
                 table.aliases[local] = "%s.%s" % (module, alias.name) if module else alias.name
+                table.alias_sites.setdefault(local, getattr(node, "lineno", 1))
     return table

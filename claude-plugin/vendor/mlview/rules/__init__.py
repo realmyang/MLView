@@ -23,11 +23,12 @@ from __future__ import annotations
 
 from .confidence import bucket_for, cap_severity, compute_confidence
 from .context import GraphContext
-from .registry import REGISTRY, RuleSpec, all_rules, discover_rules, rule, rule_for, run_all
+from .registry import (REGISTRY, RuleSpec, all_rules, cross_file_codes,
+                       discover_rules, rule, rule_for, run_all)
 from .suppress import RuleConfig, Suppressor, load_config
 
 __all__ = [
     "GraphContext", "rule", "RuleSpec", "REGISTRY", "all_rules", "discover_rules",
-    "run_all", "rule_for", "Suppressor", "RuleConfig", "load_config",
+    "run_all", "rule_for", "cross_file_codes", "Suppressor", "RuleConfig", "load_config",
     "compute_confidence", "cap_severity", "bucket_for",
 ]

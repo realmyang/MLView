@@ -1,0 +1,215 @@
+{
+  "calibration": {
+    "certain": {
+      "error": 0.0687,
+      "fp": 0,
+      "meanConfidence": 0.9313,
+      "n": 24,
+      "observedPrecision": 1.0,
+      "tp": 24
+    },
+    "likely": {
+      "error": 0.1577,
+      "fp": 0,
+      "meanConfidence": 0.8423,
+      "n": 9,
+      "observedPrecision": 1.0,
+      "tp": 9
+    },
+    "speculative": {
+      "error": 0.6637,
+      "fp": 0,
+      "meanConfidence": 0.3363,
+      "n": 6,
+      "observedPrecision": 1.0,
+      "tp": 6
+    }
+  },
+  "graphFidelity": {
+    "opsLabelled": 139,
+    "opsRecovered": 120,
+    "score": 0.8633
+  },
+  "note": "ANA-12 day one, re-recorded by the ANA-1/2/3 re-baseline (2026-09-08): graph fidelity 0.6619 -> 0.8633 (92 -> 120 of 139 labelled ops recovered) because ops written inside class methods are no longer dropped; every recall and precision number is unchanged. Recall may only ratchet up; a forbidden finding is never tolerated. Regenerate with `python tools/accuracy.py --update-baseline` and say in the commit body which rule change earned the new number.",
+  "overall": {
+    "expectedLabels": 62,
+    "falsePositives": 0,
+    "highValueLabels": 43,
+    "highValueRecall": 0.4884,
+    "highValueRecovered": 21,
+    "precision": 1.0,
+    "recall": 0.629,
+    "recovered": 39,
+    "visibleRecall": 0.5323,
+    "visibleRecovered": 33
+  },
+  "perRule": {
+    "MLV101": {
+      "expected": 11,
+      "f1": 0.4286,
+      "falsePositives": 0,
+      "precision": 1.0,
+      "recall": 0.2727,
+      "recovered": 3,
+      "visible": 3
+    },
+    "MLV102": {
+      "expected": 2,
+      "f1": 0.6667,
+      "falsePositives": 0,
+      "precision": 1.0,
+      "recall": 0.5,
+      "recovered": 1,
+      "visible": 1
+    },
+    "MLV103": {
+      "expected": 3,
+      "f1": 0.8,
+      "falsePositives": 0,
+      "precision": 1.0,
+      "recall": 0.6667,
+      "recovered": 2,
+      "visible": 2
+    },
+    "MLV110": {
+      "expected": 2,
+      "f1": 1.0,
+      "falsePositives": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "recovered": 2,
+      "visible": 2
+    },
+    "MLV111": {
+      "expected": 3,
+      "f1": 0.8,
+      "falsePositives": 0,
+      "precision": 1.0,
+      "recall": 0.6667,
+      "recovered": 2,
+      "visible": 2
+    },
+    "MLV112": {
+      "expected": 1,
+      "f1": 1.0,
+      "falsePositives": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "recovered": 1,
+      "visible": 1
+    },
+    "MLV201": {
+      "expected": 3,
+      "f1": 0.8,
+      "falsePositives": 0,
+      "precision": 1.0,
+      "recall": 0.6667,
+      "recovered": 2,
+      "visible": 2
+    },
+    "MLV205": {
+      "expected": 3,
+      "f1": 0.5,
+      "falsePositives": 0,
+      "precision": 1.0,
+      "recall": 0.3333,
+      "recovered": 1,
+      "visible": 1
+    },
+    "MLV301": {
+      "expected": 4,
+      "f1": 0.6667,
+      "falsePositives": 0,
+      "precision": 1.0,
+      "recall": 0.5,
+      "recovered": 2,
+      "visible": 1
+    },
+    "MLV302": {
+      "expected": 4,
+      "f1": 0.6667,
+      "falsePositives": 0,
+      "precision": 1.0,
+      "recall": 0.5,
+      "recovered": 2,
+      "visible": 1
+    },
+    "MLV401": {
+      "expected": 3,
+      "f1": 0.5,
+      "falsePositives": 0,
+      "precision": 1.0,
+      "recall": 0.3333,
+      "recovered": 1,
+      "visible": 1
+    },
+    "MLV402": {
+      "expected": 1,
+      "f1": 0.0,
+      "falsePositives": 0,
+      "precision": 1.0,
+      "recall": 0.0,
+      "recovered": 0,
+      "visible": 0
+    },
+    "MLV501": {
+      "expected": 4,
+      "f1": 0.6667,
+      "falsePositives": 0,
+      "precision": 1.0,
+      "recall": 0.5,
+      "recovered": 2,
+      "visible": 1
+    },
+    "MLV601": {
+      "expected": 8,
+      "f1": 1.0,
+      "falsePositives": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "recovered": 8,
+      "visible": 5
+    },
+    "MLV602": {
+      "expected": 8,
+      "f1": 1.0,
+      "falsePositives": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "recovered": 8,
+      "visible": 8
+    },
+    "MLV701": {
+      "expected": 1,
+      "f1": 1.0,
+      "falsePositives": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "recovered": 1,
+      "visible": 1
+    },
+    "MLV702": {
+      "expected": 1,
+      "f1": 1.0,
+      "falsePositives": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "recovered": 1,
+      "visible": 1
+    }
+  },
+  "programs": 10,
+  "recordedOn": "2026-09-08",
+  "unseen": {
+    "expectedLabels": 47,
+    "falsePositives": 0,
+    "highValueLabels": 32,
+    "highValueRecall": 0.3125,
+    "highValueRecovered": 10,
+    "precision": 1.0,
+    "recall": 0.5106,
+    "recovered": 24,
+    "visibleRecall": 0.383,
+    "visibleRecovered": 18
+  }
+}

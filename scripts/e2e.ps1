@@ -20,6 +20,10 @@ $RepoRoot = Split-Path -Parent $PSScriptRoot
 $env:PYTHONUTF8 = '1'
 $env:PYTHONIOENCODING = 'utf-8'
 $env:MLVIEW_NO_OPEN = '1'
+# Step 5 (the plugin suite) imports the vendored core and step 14
+# (tools/verify.py --all) checks that vendor/ is clean. Without this, the first
+# poisons the second and the run is not reproducible (HEALTH-01).
+$env:PYTHONDONTWRITEBYTECODE = '1'
 
 $script:Results = @()
 
@@ -74,7 +78,15 @@ if ($SkipBuild) {
 Invoke-Step 'analyzer tests' $RepoRoot { & $Python -m pytest analyzer/tests -q }
 Invoke-Step 'webview tests' (Join-Path $RepoRoot 'webview') { npm test }
 Invoke-Step 'vscode-extension tests' (Join-Path $RepoRoot 'vscode-extension') { npm test }
-Invoke-Step 'claude-plugin tests' $RepoRoot { & $Python -m pytest claude-plugin/tests -q }
+# HEALTH-03: the plugin suite is subprocess-bound, not compute-bound -- 234
+# tests take 38 s serially and 11 s under xdist, with the same outcome. `-n auto`
+# only when xdist is installed, so a bare interpreter still runs the gate.
+# find_spec instead of `import xdist` so a missing plugin prints nothing at all:
+# redirecting a native command's stderr in PowerShell 5.1 turns clean output into
+# a NativeCommandError.
+& $Python -c "import importlib.util, sys; sys.exit(0 if importlib.util.find_spec('xdist') else 1)"
+$Xdist = if ($LASTEXITCODE -eq 0) { @('-n', 'auto') } else { @() }
+Invoke-Step 'claude-plugin tests' $RepoRoot { & $Python -m pytest claude-plugin/tests -q @Xdist }
 
 # ------------------------------------------------------------------ the samples
 $Dirty = Join-Path $RepoRoot 'samples/vision_pipeline'
@@ -256,6 +268,14 @@ if (-not (Test-Path $CrossHost)) {
 # disagree" deserves its own row in the table rather than one word inside another.
 Invoke-Step 'scope parity (tools/verify.py --scopes)' $RepoRoot { & $Python tools/verify.py --scopes }
 Invoke-Step 'parity gates (tools/verify.py --all)' $RepoRoot { & $Python tools/verify.py --all }
+
+# ------------------------------------------------------------------ the referee
+# ANA-12. The analyzer over `analyzer/tests/accuracy/corpus/`, scored against its
+# hand-written labels: zero `forbidden` findings ever, and recall and graph
+# fidelity may only ratchet up against analyzer/tests/accuracy/baseline.json.
+# It runs in well under a second, so the acceptance run carries it rather than
+# leaving the only accuracy signal on a machine that can reach GitHub Actions.
+Invoke-Step 'accuracy corpus' $RepoRoot { & $Python tools/accuracy.py }
 
 # --------------------------------------------------------------------- the docs
 # Dead paths, dead links, and "known gap" bullets that still describe a failure
