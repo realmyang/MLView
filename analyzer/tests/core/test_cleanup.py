@@ -18,6 +18,8 @@ deserved a ticket of its own:
 
 from __future__ import annotations
 
+import sys
+
 import pytest
 
 from mlview import cli
@@ -83,7 +85,24 @@ def test_issues_text_on_a_clean_workspace_says_none_found(run, make_workspace):
     assert "none found" in out
 
 
+# `.mlview.toml` needs a TOML parser, and tomllib is stdlib only from 3.11.
+# `rules/suppress.py` degrades on 3.10 by appending a `config_warning` and
+# ignoring the file, so below 3.11 the two tests under this mark would be
+# asserting the behaviour of a parser that is not there — CLEANUP 2's warning
+# and CLEANUP 3's near-miss list are both computed after the parse. The
+# degradation itself is asserted by
+# `analyzer/tests/rules/test_suppression.py::test_a_missing_tomllib_says_so_instead_of_pretending`.
+# Same mark, same reason, as `tests/rules/test_suppression.py` and
+# `tests/core/test_robustness.py`. CI-01 put 3.10 in the matrix; this is what it
+# found on the first push of Sprint 3's Track B.
+NEEDS_TOMLLIB = pytest.mark.skipif(
+    sys.version_info < (3, 11),
+    reason="tomllib is stdlib from 3.11; .mlview.toml is ignored with a config_warning below that",
+)
+
+
 # --------------------------------------------------------------- CLEANUP 2
+@NEEDS_TOMLLIB
 def test_the_config_warning_prints_one_separator(tmp_path):
     config = tmp_path / "sub" / ".mlview.toml"
     config.parent.mkdir(parents=True)
@@ -96,6 +115,7 @@ def test_the_config_warning_prints_one_separator(tmp_path):
 
 
 # --------------------------------------------------------------- CLEANUP 3
+@NEEDS_TOMLLIB
 def test_a_typod_code_in_the_config_is_no_longer_silent(tmp_path):
     config = tmp_path / ".mlview.toml"
     config.write_text('[rules]\nMVL601 = "off"\nMLV999 = "off"\n', encoding="utf-8")
