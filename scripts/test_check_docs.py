@@ -361,7 +361,10 @@ def test_a_vendored_shell_script_is_left_alone():
 def test_the_real_shell_scripts_are_lf():
     """The regression assertion for R2-REG-01, against the tree as it ships."""
     scripts = list(check_docs.shell_scripts(REPO))
-    assert [p.name for p in scripts] == ["build.sh", "e2e.sh"], scripts
+    # pythonpick.sh joined the two drivers when CI-01 taught them to find an
+    # interpreter on Linux and macOS. The list is spelled out rather than counted
+    # so a new shell file cannot slip in without someone confirming it is LF.
+    assert [p.name for p in scripts] == ["build.sh", "e2e.sh", "pythonpick.sh"], scripts
     for path in scripts:
         assert b"\r" not in path.read_bytes(), path
 

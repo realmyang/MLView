@@ -31,12 +31,14 @@ for arg in "$@"; do
   esac
 done
 
-PYTHON=${PYTHON:-python}
-command -v "$PYTHON" >/dev/null 2>&1 || { echo "FAIL: no python on PATH" >&2; exit 1; }
+. "$SCRIPT_DIR/pythonpick.sh"
+mlview_pick_python || exit 1
 
-RESULTS_FILE=$(mktemp 2>/dev/null || echo "$REPO_ROOT/.mlview/e2e-results.txt")
-: > "$RESULTS_FILE"
+# BSD mktemp (macOS) needs a template, GNU mktemp accepts one, and the fallback
+# path's directory has to exist before anything is written into it.
 mkdir -p "$REPO_ROOT/.mlview"
+RESULTS_FILE=$(mktemp "${TMPDIR:-/tmp}/mlview-e2e.XXXXXX" 2>/dev/null || echo "$REPO_ROOT/.mlview/e2e-results.txt")
+: > "$RESULTS_FILE"
 
 record() {  # record <status> <name> <detail>
   printf '%s\t%s\t%s\n' "$1" "$2" "$3" >> "$RESULTS_FILE"

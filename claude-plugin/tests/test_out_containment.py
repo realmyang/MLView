@@ -24,6 +24,19 @@ sys.path.insert(0, SERVER_DIR)
 
 import mlview_mcp  # noqa: E402
 
+# Three of the refusals below are statements about Windows path syntax, not about
+# `resolve_out`'s containment rule, and CI-01 runs this suite on Linux and macOS
+# too. On POSIX a backslash is an ordinary filename character and `C:/...` is a
+# relative path, so `..\..\..\evil.html`, `C:/Windows/Temp/...` and
+# `\server\share\...` all resolve INSIDE the project directory — which is the
+# right answer there, and would make `pytest.raises` fail for the wrong reason.
+# The containment rule itself is asserted on every platform by the POSIX-absolute,
+# the `../`-traversal, the sibling-prefix and the default-target cases.
+WINDOWS_ONLY = pytest.mark.skipif(
+    os.name != "nt",
+    reason="Windows path syntax: only there is this input absolute or a UNC path",
+)
+
 
 @pytest.fixture
 def roots(tmp_path, monkeypatch):
@@ -59,7 +72,7 @@ def test_an_absolute_path_inside_the_data_directory_is_allowed(roots):
     "escape",
     [
         "../../../../Users/realm/AppData/Local/Temp/mlview_escape.html",
-        r"..\..\..\evil.html",
+        pytest.param(r"..\..\..\evil.html", marks=WINDOWS_ONLY),
         "sub/../../outside.html",
     ],
 )
@@ -73,11 +86,16 @@ def test_dot_dot_traversal_is_refused(roots, escape):
 
 def test_an_unrelated_absolute_path_is_refused(roots):
     with pytest.raises(ValueError):
-        mlview_mcp.resolve_out("C:/Windows/Temp/mlview_escape.html")
-    with pytest.raises(ValueError):
         mlview_mcp.resolve_out("/etc/mlview_escape.html")
 
 
+@WINDOWS_ONLY
+def test_an_unrelated_drive_lettered_path_is_refused(roots):
+    with pytest.raises(ValueError):
+        mlview_mcp.resolve_out("C:/Windows/Temp/mlview_escape.html")
+
+
+@WINDOWS_ONLY
 def test_a_unc_path_is_refused(roots):
     with pytest.raises(ValueError):
         mlview_mcp.resolve_out(r"\server\share\mlview_escape.html")
