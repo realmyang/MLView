@@ -1,0 +1,291 @@
+/* Node cards, their states, and the severity markers. */
+
+.mlv-node {
+  position: absolute;
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  overflow: visible;
+  border: 1px solid var(--mlv-border);
+  border-radius: var(--mlv-r-node);
+  background: var(--mlv-surface);
+  box-shadow: var(--mlv-sh-1);
+  cursor: pointer;
+  text-align: left;
+  padding: 0;
+  transition: box-shadow var(--mlv-dur-1) var(--mlv-ease), transform var(--mlv-dur-1) var(--mlv-ease);
+}
+
+.mlv-node__rail {
+  flex: none;
+  width: var(--mlv-rail-w);
+  border-radius: var(--mlv-r-node) 0 0 var(--mlv-r-node);
+  background: var(--mlv-stage, var(--mlv-stage-unknown));
+}
+
+.mlv-node__main {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--mlv-s4);
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 10px var(--mlv-s5) 10px var(--mlv-s4);
+}
+
+.mlv-node__iconbox {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--mlv-stage) 12%, transparent);
+  color: var(--mlv-stage, var(--mlv-stage-unknown));
+}
+
+.mlv-node__text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.mlv-node__title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--mlv-fs-13);
+  font-weight: var(--mlv-fw-semi);
+  line-height: var(--mlv-lh-tight);
+}
+
+.mlv-node__sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-11);
+  line-height: var(--mlv-lh-tight);
+}
+
+.mlv-node__loc {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--mlv-text-3);
+  font-family: var(--mlv-font-mono);
+  font-size: var(--mlv-fs-10);
+}
+
+.mlv-node__chips {
+  display: flex;
+  gap: var(--mlv-s2);
+  margin-top: var(--mlv-s2);
+  overflow: hidden;
+}
+
+/*
+ * A chip that does not fit ellipsises instead of being guillotined mid-character
+ * at the card's right edge (MLV-R1-011). `chipsFor()` also budgets by text
+ * length, so this is the belt to that pair of braces.
+ */
+.mlv-node__chips .mlv-chip {
+  display: inline-block;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 18px;
+}
+
+.mlv-node:hover {
+  box-shadow: var(--mlv-sh-2);
+  border-color: var(--mlv-border-strong);
+  transform: translateY(-1px);
+  z-index: 3;
+}
+
+.mlv-node.is-selected {
+  box-shadow: var(--mlv-sh-2), 0 0 0 2px var(--mlv-accent), 0 0 0 6px color-mix(in srgb, var(--mlv-accent) 14%, transparent);
+  z-index: 4;
+}
+
+.mlv-node.is-selected .mlv-node__title {
+  font-weight: 700;
+}
+
+.mlv-node.has-issues {
+  border-color: color-mix(in srgb, var(--mlv-sev) 55%, var(--mlv-border));
+}
+
+.mlv-node.is-lowconf {
+  border-style: dashed;
+  opacity: 0.85;
+}
+
+.mlv-node.is-stale {
+  border-style: dashed;
+}
+
+.mlv-node.is-ghost {
+  background: transparent;
+  border: 1.5px dashed color-mix(in srgb, var(--mlv-sev, var(--mlv-text-3)) 70%, transparent);
+  box-shadow: none;
+}
+
+.mlv-node.is-ghost .mlv-node__title {
+  color: var(--mlv-text-2);
+  font-weight: var(--mlv-fw-medium);
+}
+
+.mlv-node.is-ghost .mlv-node__sub {
+  font-style: italic;
+}
+
+.mlv-node.is-ghost .mlv-node__rail {
+  opacity: 0.5;
+}
+
+.mlv-node.is-dynamic .mlv-node__iconbox {
+  outline: 1px dashed var(--mlv-text-3);
+  outline-offset: 1px;
+}
+
+.mlv-node.is-pulse {
+  animation: mlv-pulse 300ms var(--mlv-ease) 2;
+}
+
+@keyframes mlv-pulse {
+  0%, 100% { box-shadow: var(--mlv-sh-2), 0 0 0 2px var(--mlv-accent); }
+  50% { box-shadow: var(--mlv-sh-2), 0 0 0 7px color-mix(in srgb, var(--mlv-accent) 30%, transparent); }
+}
+
+/* level of detail — boxes are always laid out at full size, only paint changes */
+.mlv-canvas[data-lod="compact"] .mlv-node__sub,
+.mlv-canvas[data-lod="compact"] .mlv-node__loc,
+.mlv-canvas[data-lod="compact"] .mlv-node__chips {
+  display: none;
+}
+
+.mlv-canvas[data-lod="compact"] .mlv-node__title {
+  font-size: var(--mlv-fs-12);
+}
+
+.mlv-canvas[data-lod="compact"] .mlv-edge-label {
+  display: none;
+}
+
+/* severity markers */
+.mlv-glyph {
+  display: block;
+  overflow: visible;
+}
+
+.mlv-glyph__shape {
+  fill: var(--mlv-sev-marker, var(--mlv-sev-low));
+}
+
+.mlv-glyph__ink {
+  fill: var(--mlv-sev-marker-ink, #FFFFFF);
+}
+
+.mlv-glyph--low {
+  --mlv-sev-marker: var(--mlv-sev-low);
+  --mlv-sev-marker-ink: var(--mlv-sev-low-ink);
+}
+
+.mlv-glyph--medium {
+  --mlv-sev-marker: var(--mlv-sev-medium);
+  --mlv-sev-marker-ink: var(--mlv-sev-medium-ink);
+}
+
+.mlv-glyph--high {
+  --mlv-sev-marker: var(--mlv-sev-high);
+  --mlv-sev-marker-ink: var(--mlv-sev-high-ink);
+}
+
+/* The renderer stamps data-theme on the element it MOUNTS INTO, never on <html>
+ * (CONTRACTS A3), and both contracted hosts mount into <div id="mlview-root">.
+ * So this list must mirror tokens.css's high-contrast block exactly, or the HC
+ * treatment UX_DESIGN §7 requires never fires in either host (MLV-R2-W02). */
+body.vscode-high-contrast .mlv-glyph__shape,
+body.vscode-high-contrast-light .mlv-glyph__shape,
+:root[data-theme="hc"] .mlv-glyph__shape,
+.mlv-root[data-theme="hc"] .mlv-glyph__shape {
+  fill: none;
+  stroke: var(--mlv-sev-marker, currentColor);
+  stroke-width: 2;
+}
+
+body.vscode-high-contrast .mlv-glyph__ink,
+body.vscode-high-contrast-light .mlv-glyph__ink,
+:root[data-theme="hc"] .mlv-glyph__ink,
+.mlv-root[data-theme="hc"] .mlv-glyph__ink {
+  fill: var(--mlv-sev-marker, currentColor);
+}
+
+.mlv-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: var(--mlv-s1);
+  height: 20px;
+  padding: 0 var(--mlv-s2);
+  border-radius: var(--mlv-r-pill);
+  background: var(--mlv-surface);
+  box-shadow: var(--mlv-sh-1);
+}
+
+.mlv-badge--high { border: 1px solid color-mix(in srgb, var(--mlv-sev-high) 45%, transparent); }
+.mlv-badge--medium { border: 1px solid color-mix(in srgb, var(--mlv-sev-medium) 45%, transparent); }
+.mlv-badge--low { border: 1px solid color-mix(in srgb, var(--mlv-sev-low) 45%, transparent); }
+
+.mlv-badge__count {
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-10);
+  font-weight: var(--mlv-fw-semi);
+  font-variant-numeric: tabular-nums;
+}
+
+.mlv-cluster {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--mlv-s3);
+}
+
+.mlv-cluster__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.mlv-cluster__count {
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-10);
+  font-variant-numeric: tabular-nums;
+}
+
+/* stage colour bindings — the one place saturated colour appears.
+ * The bare [data-stage] rule comes FIRST so an unknown stage id falls back to
+ * the neutral hue while the eight canonical ids override it (invariant 1.1/6).
+ *
+ * NOTE: since the flow layer landed these selectors also match the 45-300 SVG
+ * <g> elements of the edge layer, which carry `data-stage` stamped from their
+ * SOURCE node. That is deliberate and free: it is what makes `--mlv-stage`
+ * resolve for the charge colour (styles/flow.css, CONTRACTS 11.13 rule 4). */
+[data-stage] { --mlv-stage: var(--mlv-stage-unknown); }
+[data-stage="config"] { --mlv-stage: var(--mlv-stage-config); }
+[data-stage="data"] { --mlv-stage: var(--mlv-stage-data); }
+[data-stage="preprocess"] { --mlv-stage: var(--mlv-stage-preprocess); }
+[data-stage="model"] { --mlv-stage: var(--mlv-stage-model); }
+[data-stage="objective"] { --mlv-stage: var(--mlv-stage-objective); }
+[data-stage="train"] { --mlv-stage: var(--mlv-stage-train); }
+[data-stage="eval"] { --mlv-stage: var(--mlv-stage-eval); }
+[data-stage="deliver"] { --mlv-stage: var(--mlv-stage-deliver); }
+
+[data-sev="high"] { --mlv-sev: var(--mlv-sev-high); }
+[data-sev="medium"] { --mlv-sev: var(--mlv-sev-medium); }
+[data-sev="low"] { --mlv-sev: var(--mlv-sev-low); }

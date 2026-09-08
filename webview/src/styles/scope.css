@@ -1,0 +1,271 @@
+/* Scoped views: the breadcrumb, the picker, and how a projection is drawn.
+ *
+ * The rule that governs the whole file: a SCOPE removes and relayouts, while the
+ * stage FILTER chips dim. Two narrowings on one screen is the real usability
+ * risk, so nothing here reuses a filter's vocabulary or its visual language
+ * (FEATURES 3.8).
+ */
+
+/* ── breadcrumb ─────────────────────────────────────────────────────────── */
+
+.mlv-toolbar__scope {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+/* Breadcrumb.hide()/Picker.close() set the `hidden` property; an author
+ * `display` outranks the UA `[hidden]` rule, so each needs its own line or the
+ * unscoped toolbar shows an empty pill and the picker never closes. */
+.mlv-breadcrumb[hidden],
+.mlv-scopepicker[hidden] {
+  display: none;
+}
+
+.mlv-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: var(--mlv-s2);
+  min-width: 0;
+  padding: 2px var(--mlv-s3);
+  border: 1px solid var(--mlv-border-strong);
+  border-radius: var(--mlv-r-pill);
+  background: var(--mlv-surface-2);
+  color: var(--mlv-text);
+  font-size: var(--mlv-fs-11);
+  white-space: nowrap;
+}
+
+.mlv-breadcrumb__icon {
+  color: var(--mlv-accent);
+}
+
+.mlv-breadcrumb__label {
+  font-weight: var(--mlv-fw-medium);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mlv-breadcrumb__sep,
+.mlv-breadcrumb__depth,
+.mlv-breadcrumb__count {
+  color: var(--mlv-text-2);
+}
+
+.mlv-breadcrumb__count {
+  font-variant-numeric: tabular-nums;
+}
+
+.mlv-breadcrumb__steppers {
+  display: flex;
+  gap: 2px;
+}
+
+.mlv-breadcrumb .mlv-btn--icon {
+  padding: 1px 3px;
+}
+
+.mlv-breadcrumb__copy {
+  padding: 1px var(--mlv-s3);
+  font-size: var(--mlv-fs-10);
+}
+
+.mlv-btn--scope {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--mlv-s2);
+  max-width: 220px;
+}
+
+.mlv-btn--scope[aria-pressed="true"] {
+  border-color: var(--mlv-accent);
+  color: var(--mlv-accent);
+}
+
+.mlv-btn__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── the picker ─────────────────────────────────────────────────────────── */
+
+.mlv-scopepicker {
+  position: absolute;
+  z-index: 60;
+  top: calc(var(--mlv-toolbar-h) + var(--mlv-s3));
+  left: var(--mlv-s6);
+  display: flex;
+  flex-direction: column;
+  width: min(420px, calc(100% - 2 * var(--mlv-s6)));
+  max-height: min(70vh, 620px);
+  padding: var(--mlv-s4);
+  border: 1px solid var(--mlv-border-strong);
+  border-radius: var(--mlv-r-panel);
+  background: var(--mlv-surface);
+  box-shadow: var(--mlv-sh-3);
+}
+
+.mlv-scopepicker__head {
+  display: flex;
+  align-items: center;
+  gap: var(--mlv-s3);
+}
+
+.mlv-scopepicker__title {
+  flex: 1;
+  margin: 0;
+  font-size: var(--mlv-fs-13);
+  font-weight: var(--mlv-fw-semi);
+}
+
+.mlv-scopepicker__search {
+  margin: var(--mlv-s3) 0;
+}
+
+.mlv-scopepicker__search .mlv-input {
+  width: 100%;
+}
+
+.mlv-scopepicker__body {
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.mlv-scopepicker__heading {
+  margin: var(--mlv-s4) 0 var(--mlv-s2);
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-10);
+  font-weight: var(--mlv-fw-semi);
+  letter-spacing: var(--mlv-track-caps);
+  text-transform: uppercase;
+}
+
+.mlv-scopepicker__file {
+  margin: var(--mlv-s3) 0 var(--mlv-s1);
+  color: var(--mlv-text-3);
+  font-family: var(--mlv-font-mono);
+  font-size: var(--mlv-fs-10);
+}
+
+.mlv-scopepicker__depths {
+  display: flex;
+  gap: var(--mlv-s2);
+}
+
+.mlv-scopepicker__row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--mlv-s3);
+  width: 100%;
+  padding: var(--mlv-s2) var(--mlv-s3);
+  border: 1px solid transparent;
+  border-radius: var(--mlv-r-btn);
+  background: none;
+  color: var(--mlv-text);
+  font-family: inherit;
+  font-size: var(--mlv-fs-12);
+  text-align: left;
+  cursor: pointer;
+}
+
+.mlv-scopepicker__row:hover {
+  background: var(--mlv-surface-2);
+}
+
+.mlv-scopepicker__row[aria-pressed="true"] {
+  border-color: var(--mlv-accent);
+}
+
+.mlv-scopepicker__row[aria-disabled="true"] {
+  color: var(--mlv-text-3);
+  cursor: default;
+}
+
+.mlv-scopepicker__rowlabel {
+  flex: none;
+  font-weight: var(--mlv-fw-medium);
+}
+
+.mlv-scopepicker__rowdetail {
+  flex: 1;
+  overflow: hidden;
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-10);
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── boundary and context cards ─────────────────────────────────────────── */
+
+/* A boundary stub is DASHED and carries a declared foreground — never opacity
+ * alone, which is how the contrast gate is passed. It has no severity badge:
+ * its findings are out of scope, and a badge you cannot open is a lie. */
+.mlv-node[data-view-role="boundary"] {
+  border-style: dashed;
+  color: var(--mlv-fg-boundary);
+}
+
+.mlv-node[data-view-role="boundary"] .mlv-node__title,
+.mlv-node[data-view-role="boundary"] .mlv-node__sub,
+.mlv-node[data-view-role="boundary"] .mlv-node__loc {
+  color: var(--mlv-fg-boundary);
+}
+
+.mlv-node[data-view-role="boundary"] .mlv-badge,
+.mlv-node[data-view-role="boundary"] .mlv-node__cluster {
+  display: none;
+}
+
+/* A context ancestor is an EMPTY FRAME: the containment box and its header,
+ * with nothing claimed inside it. */
+.mlv-group[data-view-role="context"] {
+  border-style: dashed;
+  opacity: 0.9;
+}
+
+.mlv-group[data-view-role="context"] .mlv-group__name {
+  color: var(--mlv-fg-boundary);
+}
+
+.mlv-node[data-view-role="context"] {
+  border-style: dashed;
+  color: var(--mlv-fg-boundary);
+}
+
+/* ── the rail's scope line ──────────────────────────────────────────────── */
+
+.mlv-rail__scopeline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--mlv-s2);
+  margin-bottom: var(--mlv-s3);
+  padding: var(--mlv-s3);
+  border-radius: var(--mlv-r-btn);
+  background: var(--mlv-surface-2);
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-11);
+}
+
+.mlv-link--inline {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--mlv-link);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.mlv-chip--outscope {
+  border-style: dashed;
+}
+
+@media (max-width: 900px) {
+  .mlv-scopepicker {
+    left: var(--mlv-s3);
+    width: calc(100% - 2 * var(--mlv-s3));
+  }
+}

@@ -1,0 +1,294 @@
+/* MLView design tokens.
+ *
+ * Every token is `var(--vscode-*, <literal fallback>)` so ONE stylesheet serves
+ * the VS Code webview and a plain browser untouched (UX_DESIGN section 3,
+ * R4.1/R4.2). The renderer stamps data-theme="light|dark|hc" on the element it
+ * mounts into (CONTRACTS amendment A3); `body.vscode-*` classes are honoured as
+ * well.
+ *
+ * EVERY theme block is therefore keyed on BOTH `:root[data-theme=…]` (the page
+ * owning the theme) and `.mlv-root[data-theme=…]` (the element the renderer
+ * actually stamps). Keying dark/hc on `:root` alone made `setTheme()`, the
+ * `theme` host message and the whole high-contrast branch unreachable in the
+ * standalone report — MLV-R1-004. The light branch is restated on `.mlv-root`
+ * too, so an explicit light choice wins over an inherited dark page.
+ *
+ * The `@contrast:` annotations below are machine-read by test/contrast.test.mjs,
+ * which resolves the literal fallbacks and asserts every text pair clears
+ * WCAG AA 4.5:1 in light and dark. Keep them in sync when adding a colour.
+ *
+ * @contrast: --mlv-text on --mlv-bg
+ * @contrast: --mlv-text on --mlv-surface
+ * @contrast: --mlv-text on --mlv-surface-2
+ * @contrast: --mlv-text-2 on --mlv-surface
+ * @contrast: --mlv-text-2 on --mlv-bg
+ * @contrast: --mlv-text-2 on --mlv-surface-2
+ * @contrast: --mlv-text-3 on --mlv-surface
+ * @contrast: --mlv-text-3 on --mlv-bg
+ * @contrast: --mlv-text-3 on --mlv-surface-2
+ * @contrast: --mlv-link on --mlv-surface
+ * @contrast: --mlv-link on --mlv-bg
+ * @contrast: --mlv-on-accent on --mlv-accent-solid
+ * @contrast: --mlv-sev-high-ink on --mlv-sev-high
+ * @contrast: --mlv-sev-medium-ink on --mlv-sev-medium
+ * @contrast: --mlv-sev-low-ink on --mlv-sev-low
+ * @contrast: --mlv-fg-boundary on --mlv-surface
+ * @contrast: --mlv-fg-boundary on --mlv-bg
+ */
+
+:root,
+.mlv-root[data-theme="light"] {
+  /* typography */
+  --mlv-font: var(--vscode-font-family, ui-sans-serif, -apple-system, "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif);
+  --mlv-font-mono: var(--vscode-editor-font-family, "Cascadia Code", "JetBrains Mono", Consolas, ui-monospace, monospace);
+  --mlv-fs-10: 10.5px;
+  --mlv-fs-11: 11px;
+  --mlv-fs-12: 12px;
+  --mlv-fs-13: 13px;
+  --mlv-fs-14: 14px;
+  --mlv-fs-16: 16px;
+  --mlv-fs-20: 20px;
+  --mlv-lh-tight: 1.35;
+  --mlv-lh-body: 1.5;
+  --mlv-fw-regular: 450;
+  --mlv-fw-medium: 550;
+  --mlv-fw-semi: 650;
+  --mlv-track-caps: 0.04em;
+
+  /* spacing */
+  --mlv-s1: 2px;
+  --mlv-s2: 4px;
+  --mlv-s3: 6px;
+  --mlv-s4: 8px;
+  --mlv-s5: 12px;
+  --mlv-s6: 16px;
+  --mlv-s7: 20px;
+  --mlv-s8: 24px;
+  --mlv-s9: 32px;
+  --mlv-s10: 48px;
+
+  /* radii + elevation */
+  --mlv-r-chip: 4px;
+  --mlv-r-btn: 6px;
+  --mlv-r-node: 10px;
+  --mlv-r-lane: 14px;
+  --mlv-r-panel: 12px;
+  --mlv-r-pill: 999px;
+  --mlv-sh-1: 0 1px 2px rgba(16, 18, 24, 0.06), 0 0 0 1px var(--mlv-border);
+  --mlv-sh-2: 0 4px 12px rgba(16, 18, 24, 0.10), 0 0 0 1px var(--mlv-border-strong);
+  --mlv-sh-3: 0 16px 40px rgba(16, 18, 24, 0.18), 0 0 0 1px var(--mlv-border-strong);
+
+  /* motion */
+  --mlv-dur-1: 120ms;
+  --mlv-dur-2: 180ms;
+  --mlv-dur-3: 260ms;
+  --mlv-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  /* flow — the charge that travels a cable (FEATURES section 2.7).
+   * The three stream durations ENCODE the 220 px/s speed: (head + gap) / speed.
+   * `--mlv-flow-head` / `--mlv-flow-gap` are the px INTENT; on a lit edge the
+   * flow layer rewrites them inline in the path's `pathLength="100"` space, so
+   * the apparent head, gap and speed are the same on a 60 px stub and a 900 px
+   * detour (see render/flow.ts). */
+  --mlv-flow-speed: 220;
+  --mlv-flow-pulse-speed: 320;
+  --mlv-flow-head: 12px;
+  --mlv-flow-gap: 34px;
+  --mlv-flow-gap-call: 96px;
+  --mlv-flow-gap-back: 24px;
+  --mlv-flow-dur-data: 210ms;
+  --mlv-flow-dur-call: 490ms;
+  --mlv-flow-dur-back: 165ms;
+  --mlv-flow-dur-min: 380ms;
+  --mlv-flow-dur-max: 2200ms;
+  --mlv-flow-hop: 90ms;
+  --mlv-flow-width: 3px;
+  --mlv-flow-port-r: 3.5px;
+  --mlv-flow-color: var(--mlv-accent);
+  /* the travelling DOT of a single hovered / latched cable (CONTRACTS 11.13.1).
+   * These are alphas and widths, never colours: the dot is painted in
+   * `--mlv-flow-color`, so it follows the stage / severity rules and the high
+   * contrast override for free. The radii live in `render/flow.ts` because SVG
+   * `r` is geometry the DOM has to carry, not a paint the cascade can supply. */
+  --mlv-flow-halo-opacity: 0.18;
+  --mlv-flow-glow-opacity: 0.42;
+  --mlv-flow-core-width: 1.6;
+  --mlv-flow-underlay-opacity: 0.28;
+
+  /* geometry */
+  --mlv-node-w: 216px;
+  --mlv-node-w-lg: 248px;
+  --mlv-node-w-sm: 176px;
+  --mlv-node-h: 72px;
+  --mlv-rail-w: 4px;
+  --mlv-group-header-h: 34px;
+  --mlv-lane-pad: 20px;
+  --mlv-toolbar-h: 48px;
+  --mlv-chips-h: 28px;
+  --mlv-status-h: 24px;
+  --mlv-rail-width: 360px;
+
+  /* light surfaces */
+  --mlv-bg: var(--vscode-editor-background, #FBFBFD);
+  --mlv-surface: var(--vscode-editorWidget-background, #FFFFFF);
+  --mlv-surface-2: var(--vscode-list-hoverBackground, #F3F4F8);
+  --mlv-border: var(--vscode-widget-border, #E3E5EB);
+  --mlv-border-strong: var(--vscode-widget-border, #C9CDD6);
+  --mlv-text: var(--vscode-editor-foreground, #16181D);
+  --mlv-text-2: var(--vscode-descriptionForeground, #5A6070);
+  --mlv-text-3: var(--vscode-descriptionForeground, #676E81);
+  --mlv-link: var(--vscode-textLink-foreground, #2B57C4);
+  --mlv-accent: var(--vscode-focusBorder, #3B6CF6);
+  --mlv-accent-solid: var(--vscode-button-background, #2B57C4);
+  --mlv-on-accent: var(--vscode-button-foreground, #FFFFFF);
+  --mlv-focus: var(--vscode-focusBorder, #3B6CF6);
+  --mlv-canvas-dot: var(--vscode-widget-border, #E6E9F0);
+  --mlv-edge: var(--vscode-editorLineNumber-foreground, #8C93A3);
+  --mlv-scrim: rgba(16, 18, 24, 0.36);
+  /* a scoped view's boundary stub: a DECLARED foreground, never opacity alone. */
+  --mlv-fg-boundary: #6B7284;
+
+  /* stage hues */
+  --mlv-stage-config: #667085;
+  --mlv-stage-data: #0E7C85;
+  --mlv-stage-preprocess: #6A48E8;
+  --mlv-stage-model: #3B6CF6;
+  --mlv-stage-objective: #B05F17;
+  --mlv-stage-train: #14895F;
+  --mlv-stage-eval: #A3308B;
+  --mlv-stage-deliver: #6E7484;
+  --mlv-stage-unknown: #7A8090;
+  --mlv-lane-tint: 0.05;
+  --mlv-group-tint: 0.05;
+
+  /* severity */
+  --mlv-sev-high: var(--vscode-editorError-foreground, var(--vscode-charts-red, #D0342C));
+  --mlv-sev-medium: var(--vscode-editorWarning-foreground, var(--vscode-charts-yellow, #E8A317));
+  --mlv-sev-low: var(--vscode-editorInfo-foreground, var(--vscode-charts-blue, #2F5FD0));
+  --mlv-sev-high-ink: var(--vscode-editor-background, #FFFFFF);
+  --mlv-sev-medium-ink: #3A2500;
+  --mlv-sev-low-ink: var(--vscode-editor-background, #FFFFFF);
+}
+
+/* dark — the default-theme branch (system preference, no explicit choice) */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]):not([data-theme="hc"]),
+  .mlv-root:not([data-theme="light"]):not([data-theme="hc"]) {
+    --mlv-bg: var(--vscode-editor-background, #131417);
+    --mlv-surface: var(--vscode-editorWidget-background, #1A1C21);
+    --mlv-surface-2: var(--vscode-list-hoverBackground, #22252C);
+    --mlv-border: var(--vscode-widget-border, #2C3038);
+    --mlv-border-strong: var(--vscode-widget-border, #3B414C);
+    --mlv-text: var(--vscode-editor-foreground, #E6E8EE);
+    --mlv-text-2: var(--vscode-descriptionForeground, #9AA1B1);
+    --mlv-text-3: var(--vscode-descriptionForeground, #969DAD);
+    --mlv-link: var(--vscode-textLink-foreground, #8FB0FF);
+    --mlv-accent: var(--vscode-focusBorder, #6E96FF);
+    --mlv-accent-solid: var(--vscode-button-background, #3355C4);
+    --mlv-on-accent: var(--vscode-button-foreground, #FFFFFF);
+    --mlv-focus: var(--vscode-focusBorder, #6E96FF);
+    --mlv-canvas-dot: var(--vscode-widget-border, #23262D);
+    --mlv-edge: var(--vscode-editorLineNumber-foreground, #79808F);
+    --mlv-scrim: rgba(0, 0, 0, 0.5);
+    --mlv-fg-boundary: #98A0B0;
+    --mlv-sh-1: 0 1px 2px rgba(0, 0, 0, 0.36), 0 0 0 1px var(--mlv-border);
+    --mlv-sh-2: 0 6px 16px rgba(0, 0, 0, 0.44), 0 0 0 1px var(--mlv-border-strong);
+    --mlv-sh-3: 0 20px 48px rgba(0, 0, 0, 0.55), 0 0 0 1px var(--mlv-border-strong);
+    --mlv-stage-config: #8B93A7;
+    --mlv-stage-data: #2DC5D0;
+    --mlv-stage-preprocess: #9E86FF;
+    --mlv-stage-model: #6E96FF;
+    --mlv-stage-objective: #F0954A;
+    --mlv-stage-train: #34C08A;
+    --mlv-stage-eval: #E169C9;
+    --mlv-stage-deliver: #8B93A7;
+    --mlv-stage-unknown: #8B93A7;
+    --mlv-lane-tint: 0.10;
+    --mlv-group-tint: 0.09;
+    --mlv-sev-high: var(--vscode-editorError-foreground, var(--vscode-charts-red, #FF6169));
+    --mlv-sev-medium: var(--vscode-editorWarning-foreground, var(--vscode-charts-yellow, #F2B03C));
+    --mlv-sev-low: var(--vscode-editorInfo-foreground, var(--vscode-charts-blue, #6E96FF));
+    --mlv-sev-high-ink: #1A0405;
+    --mlv-sev-medium-ink: #2A1A00;
+    --mlv-sev-low-ink: #0B1020;
+  }
+}
+
+/* dark — the explicit choice, and the VS Code body class */
+body.vscode-dark,
+:root[data-theme="dark"],
+.mlv-root[data-theme="dark"] {
+  --mlv-bg: var(--vscode-editor-background, #131417);
+  --mlv-surface: var(--vscode-editorWidget-background, #1A1C21);
+  --mlv-surface-2: var(--vscode-list-hoverBackground, #22252C);
+  --mlv-border: var(--vscode-widget-border, #2C3038);
+  --mlv-border-strong: var(--vscode-widget-border, #3B414C);
+  --mlv-text: var(--vscode-editor-foreground, #E6E8EE);
+  --mlv-text-2: var(--vscode-descriptionForeground, #9AA1B1);
+  --mlv-text-3: var(--vscode-descriptionForeground, #969DAD);
+  --mlv-link: var(--vscode-textLink-foreground, #8FB0FF);
+  --mlv-accent: var(--vscode-focusBorder, #6E96FF);
+  --mlv-accent-solid: var(--vscode-button-background, #3355C4);
+  --mlv-on-accent: var(--vscode-button-foreground, #FFFFFF);
+  --mlv-focus: var(--vscode-focusBorder, #6E96FF);
+  --mlv-canvas-dot: var(--vscode-widget-border, #23262D);
+  --mlv-edge: var(--vscode-editorLineNumber-foreground, #79808F);
+  --mlv-scrim: rgba(0, 0, 0, 0.5);
+  --mlv-fg-boundary: #98A0B0;
+  --mlv-sh-1: 0 1px 2px rgba(0, 0, 0, 0.36), 0 0 0 1px var(--mlv-border);
+  --mlv-sh-2: 0 6px 16px rgba(0, 0, 0, 0.44), 0 0 0 1px var(--mlv-border-strong);
+  --mlv-sh-3: 0 20px 48px rgba(0, 0, 0, 0.55), 0 0 0 1px var(--mlv-border-strong);
+  --mlv-stage-config: #8B93A7;
+  --mlv-stage-data: #2DC5D0;
+  --mlv-stage-preprocess: #9E86FF;
+  --mlv-stage-model: #6E96FF;
+  --mlv-stage-objective: #F0954A;
+  --mlv-stage-train: #34C08A;
+  --mlv-stage-eval: #E169C9;
+  --mlv-stage-deliver: #8B93A7;
+  --mlv-stage-unknown: #8B93A7;
+  --mlv-lane-tint: 0.10;
+  --mlv-group-tint: 0.09;
+  --mlv-sev-high: var(--vscode-editorError-foreground, var(--vscode-charts-red, #FF6169));
+  --mlv-sev-medium: var(--vscode-editorWarning-foreground, var(--vscode-charts-yellow, #F2B03C));
+  --mlv-sev-low: var(--vscode-editorInfo-foreground, var(--vscode-charts-blue, #6E96FF));
+  --mlv-sev-high-ink: #1A0405;
+  --mlv-sev-medium-ink: #2A1A00;
+  --mlv-sev-low-ink: #0B1020;
+}
+
+/* high contrast: fills drop to strokes, the glyph letter is retained */
+body.vscode-high-contrast,
+body.vscode-high-contrast-light,
+:root[data-theme="hc"],
+.mlv-root[data-theme="hc"] {
+  --mlv-surface: var(--vscode-editor-background, #000000);
+  --mlv-surface-2: var(--vscode-editor-background, #000000);
+  --mlv-bg: var(--vscode-editor-background, #000000);
+  --mlv-text: var(--vscode-editor-foreground, #FFFFFF);
+  --mlv-text-2: var(--vscode-editor-foreground, #FFFFFF);
+  --mlv-text-3: var(--vscode-editor-foreground, #FFFFFF);
+  --mlv-link: var(--vscode-textLink-foreground, #6BB7FF);
+  --mlv-border: var(--vscode-contrastBorder, #FFFFFF);
+  --mlv-border-strong: var(--vscode-contrastBorder, #FFFFFF);
+  --mlv-edge: var(--vscode-contrastBorder, #FFFFFF);
+  --mlv-canvas-dot: transparent;
+  --mlv-lane-tint: 0;
+  --mlv-group-tint: 0;
+  --mlv-sh-1: 0 0 0 1px var(--mlv-border);
+  --mlv-sh-2: 0 0 0 2px var(--mlv-border);
+  --mlv-sh-3: 0 0 0 2px var(--mlv-border);
+  /* high contrast has no hues: the charge and the boundary stub are ink. This
+   * is the INHERITED value; an edge carrying `data-stage` or `.has-issue` sets
+   * the property on itself, so the hc override for those lives at element level
+   * in flow.css (MLV-R1-FLOW-001). */
+  --mlv-flow-color: var(--mlv-text);
+  --mlv-flow-width: 4px;
+  /* High contrast has no hues, so the dot cannot lean on one: the ring thickens
+   * and the wash under it strengthens, which is the same trade the 4 px cable
+   * above makes. The halo alphas stay put — they are the only thing separating
+   * the three rings from one white blob. */
+  --mlv-flow-core-width: 2.2;
+  --mlv-flow-underlay-opacity: 0.45;
+  --mlv-fg-boundary: var(--mlv-text);
+}

@@ -1,0 +1,285 @@
+/* Canvas viewport, stage lanes and group boxes. */
+
+.mlv-canvas {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  background-color: var(--mlv-bg);
+  background-image: radial-gradient(var(--mlv-canvas-dot) 1px, transparent 1px);
+  background-size: 20px 20px;
+  cursor: grab;
+  touch-action: none;
+}
+
+.mlv-canvas[data-lod="compact"] {
+  background-image: none;
+}
+
+.mlv-canvas.is-panning {
+  cursor: grabbing;
+}
+
+.mlv-world {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+.mlv-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+.mlv-layer--edges {
+  overflow: visible;
+  pointer-events: none;
+}
+
+.mlv-layer--nodes {
+  pointer-events: none;
+}
+
+.mlv-layer--nodes > * {
+  pointer-events: auto;
+}
+
+/* lanes */
+.mlv-lane {
+  position: absolute;
+  border: 1px solid var(--mlv-border);
+  border-radius: var(--mlv-r-lane);
+  background: color-mix(in srgb, var(--mlv-stage) calc(var(--mlv-lane-tint) * 100%), transparent);
+}
+
+.mlv-lane__header {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--mlv-s4);
+  height: var(--mlv-lane-header-h, 28px);
+  padding: 0 var(--mlv-s5);
+}
+
+.mlv-lane__label {
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-11);
+  font-weight: var(--mlv-fw-semi);
+  text-transform: uppercase;
+  letter-spacing: var(--mlv-track-caps);
+}
+
+.mlv-lane__label::before {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: var(--mlv-s3);
+  border-radius: 2px;
+  background: var(--mlv-stage, var(--mlv-stage-unknown));
+  vertical-align: baseline;
+}
+
+.mlv-lane__count {
+  color: var(--mlv-text-3);
+  font-size: var(--mlv-fs-10);
+  font-variant-numeric: tabular-nums;
+}
+
+.mlv-lane__spacer {
+  flex: 1 1 auto;
+}
+
+/* group boxes */
+.mlv-group {
+  position: absolute;
+  border: 1px dashed color-mix(in srgb, var(--mlv-stage) 45%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--mlv-stage) calc(var(--mlv-group-tint) * 100%), transparent);
+}
+
+.mlv-group[data-depth="1"] { border-style: dashed; }
+.mlv-group[data-depth="2"] { border-style: dotted; }
+
+.mlv-group__header {
+  display: flex;
+  align-items: center;
+  gap: var(--mlv-s3);
+  width: 100%;
+  height: var(--mlv-group-header-h);
+  padding: 0 var(--mlv-s4);
+  border: 0;
+  border-radius: 12px 12px 0 0;
+  background: none;
+  color: var(--mlv-text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.mlv-group__header:hover {
+  background: color-mix(in srgb, var(--mlv-stage) 10%, transparent);
+}
+
+.mlv-group__chevron {
+  transition: transform var(--mlv-dur-2) var(--mlv-ease);
+  color: var(--mlv-text-2);
+}
+
+.mlv-group.is-collapsed .mlv-group__chevron {
+  transform: rotate(0deg);
+}
+
+.mlv-group__chevron {
+  transform: rotate(90deg);
+}
+
+.mlv-group__name {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--mlv-fs-12);
+  font-weight: var(--mlv-fw-semi);
+}
+
+.mlv-group__count {
+  flex: none;
+  padding: 0 var(--mlv-s3);
+  border-radius: var(--mlv-r-pill);
+  background: var(--mlv-surface-2);
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-10);
+  font-variant-numeric: tabular-nums;
+}
+
+.mlv-group.is-dim,
+.mlv-lane.is-dim {
+  opacity: 0.5;
+}
+
+/* focus / trace dimming — class toggles only, never a re-render */
+.mlv-canvas.is-tracing .mlv-node:not(.is-lit),
+.mlv-canvas.is-focusing .mlv-node:not(.is-lit) {
+  opacity: 0.22;
+  filter: saturate(0.3);
+  pointer-events: none;
+}
+
+.mlv-canvas.is-tracing .mlv-edge:not(.is-lit),
+.mlv-canvas.is-focusing .mlv-edge:not(.is-lit) {
+  opacity: 0.16;
+}
+
+.mlv-node.is-filtered {
+  opacity: 0.18;
+  box-shadow: none;
+  pointer-events: none;
+}
+
+/* tooltip / hover card */
+.mlv-tooltip {
+  position: absolute;
+  z-index: 50;
+  max-width: 320px;
+  padding: var(--mlv-s4) var(--mlv-s5);
+  border: 1px solid var(--mlv-border-strong);
+  border-radius: var(--mlv-r-panel);
+  background: var(--mlv-surface);
+  box-shadow: var(--mlv-sh-3);
+  font-size: var(--mlv-fs-12);
+  pointer-events: none;
+}
+
+.mlv-tooltip[hidden] {
+  display: none;
+}
+
+.mlv-tooltip__title {
+  font-weight: var(--mlv-fw-semi);
+}
+
+.mlv-tooltip__row {
+  margin-top: var(--mlv-s2);
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-11);
+}
+
+.mlv-tooltip__loc {
+  font-family: var(--mlv-font-mono);
+  font-size: var(--mlv-fs-10);
+  color: var(--mlv-text-3);
+}
+
+.mlv-zoom {
+  position: absolute;
+  left: var(--mlv-s5);
+  bottom: var(--mlv-s5);
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: var(--mlv-s2);
+  padding: var(--mlv-s2);
+  border: 1px solid var(--mlv-border);
+  border-radius: var(--mlv-r-btn);
+  background: var(--mlv-surface);
+  box-shadow: var(--mlv-sh-1);
+}
+
+.mlv-zoom__level {
+  min-width: 42px;
+  text-align: center;
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-10);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Pointer routing: the bands and group boxes are backdrop, only their headers
+ * and the node cards are interactive, so dragging the background always pans. */
+.mlv-layer--lanes,
+.mlv-lane,
+.mlv-group {
+  pointer-events: none;
+}
+
+.mlv-lane__header,
+.mlv-group__header {
+  pointer-events: auto;
+}
+
+.mlv-statehost {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  pointer-events: none;
+}
+
+.mlv-statehost > * {
+  pointer-events: auto;
+}
+
+/* the chevron is its own hit target: chevron collapses, header selects */
+.mlv-group__chevron-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  margin-left: -4px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mlv-r-btn);
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.mlv-group__chevron-btn:hover {
+  background: color-mix(in srgb, var(--mlv-stage) 18%, transparent);
+}

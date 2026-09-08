@@ -1,0 +1,376 @@
+{
+  "name": "mlview",
+  "displayName": "MLView",
+  "description": "Visualize and audit Python ML pipelines as an interactive diagram — fully local, static analysis only.",
+  "version": "0.1.0",
+  "publisher": "mlview",
+  "license": "MIT",
+  "private": true,
+  "engines": {
+    "vscode": "^1.100.0",
+    "node": ">=20"
+  },
+  "categories": [
+    "Visualization",
+    "Linters",
+    "Machine Learning"
+  ],
+  "keywords": [
+    "machine-learning",
+    "pytorch",
+    "scikit-learn",
+    "visualization",
+    "static-analysis"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onLanguage:python",
+    "workspaceContains:**/*.py",
+    "onWebviewPanel:mlview.diagram"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "restrictedConfigurations": [
+        "mlview.pythonPath"
+      ],
+      "description": "Analysis spawns a Python interpreter, so it is disabled in Restricted Mode. Trust the workspace to enable MLView."
+    },
+    "virtualWorkspaces": {
+      "supported": false,
+      "description": "MLView runs a local Python interpreter over files on disk."
+    }
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "mlview.visualize",
+        "title": "Visualize ML Workflow (Current File)",
+        "category": "MLView",
+        "icon": "$(graph)"
+      },
+      {
+        "command": "mlview.visualizeWorkspace",
+        "title": "Visualize ML Workflow (Workspace)",
+        "category": "MLView",
+        "icon": "$(graph-scatter)"
+      },
+      {
+        "command": "mlview.refresh",
+        "title": "Re-analyze",
+        "category": "MLView",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "mlview.showIssues",
+        "title": "Show ML Issues",
+        "category": "MLView",
+        "icon": "$(warning)"
+      },
+      {
+        "command": "mlview.revealInDiagram",
+        "title": "Reveal in Diagram",
+        "category": "MLView",
+        "icon": "$(target)"
+      },
+      {
+        "command": "mlview.scopeToSymbol",
+        "title": "Scope Diagram to Symbol",
+        "category": "MLView",
+        "icon": "$(list-tree)"
+      },
+      {
+        "command": "mlview.clearScope",
+        "title": "Clear Diagram Scope",
+        "category": "MLView",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "mlview.exportHtml",
+        "title": "Export HTML Report",
+        "category": "MLView",
+        "icon": "$(export)"
+      },
+      {
+        "command": "mlview.selectInterpreter",
+        "title": "Select Python Interpreter",
+        "category": "MLView",
+        "icon": "$(gear)"
+      },
+      {
+        "command": "mlview.showOutput",
+        "title": "Show Output",
+        "category": "MLView",
+        "icon": "$(output)"
+      },
+      {
+        "command": "mlview.showRuleDoc",
+        "title": "Open Rule Documentation",
+        "category": "MLView",
+        "icon": "$(book)"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "mlview.revealInDiagram",
+        "key": "alt+m",
+        "mac": "alt+m",
+        "when": "editorTextFocus && editorLangId == python"
+      },
+      {
+        "command": "mlview.scopeToSymbol",
+        "key": "alt+shift+m",
+        "mac": "alt+shift+m",
+        "when": "editorTextFocus && editorLangId == python"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "mlview.revealInDiagram",
+          "when": "editorLangId == python",
+          "group": "mlview@1"
+        },
+        {
+          "command": "mlview.visualize",
+          "when": "editorLangId == python",
+          "group": "mlview@2"
+        },
+        {
+          "command": "mlview.scopeToSymbol",
+          "when": "editorLangId == python",
+          "group": "mlview@3"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "mlview.visualize",
+          "when": "resourceLangId == python",
+          "group": "navigation@100"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "mlview.showRuleDoc",
+          "when": "true"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "MLView",
+      "properties": {
+        "mlview.pythonPath": {
+          "type": "string",
+          "default": "",
+          "scope": "machine-overridable",
+          "markdownDescription": "Absolute path to the Python interpreter used to run the MLView analyzer. Leave empty to use the Python extension's active interpreter, `python.defaultInterpreterPath`, or a `PATH` probe, in that order."
+        },
+        "mlview.analyzeOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Re-analyze (debounced by 400 ms) when a Python file in the workspace is saved."
+        },
+        "mlview.exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Extra glob patterns excluded from discovery. Added to the analyzer defaults (.venv, site-packages, node_modules, build, .git)."
+        },
+        "mlview.maxFiles": {
+          "type": "integer",
+          "default": 500,
+          "minimum": 1,
+          "description": "Maximum number of Python files to discover."
+        },
+        "mlview.maxNodes": {
+          "type": "integer",
+          "default": 400,
+          "minimum": 1,
+          "description": "Maximum number of graph nodes. Exceeding it truncates the graph and shows a banner."
+        },
+        "mlview.minSeverity": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "default": "low",
+          "description": "Lowest issue severity shown in the Problems panel and in the chat / language-model digests."
+        },
+        "mlview.minConfidence": {
+          "type": "number",
+          "default": 0.6,
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Lowest issue confidence published as a diagnostic. Lower-confidence findings stay on the canvas only."
+        },
+        "mlview.showSpeculative": {
+          "type": "boolean",
+          "default": false,
+          "description": "Reserved: show speculative (lowest confidence) findings on the diagram canvas. Not implemented in this prototype - the frozen setFilter message carries no confidence channel."
+        },
+        "mlview.diagnosticsEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Publish MLView findings to the Problems panel. This is the surface GitHub Copilot reads via #problems."
+        },
+        "mlview.diagnosticSeverity": {
+          "type": "string",
+          "enum": [
+            "warning",
+            "error"
+          ],
+          "default": "warning",
+          "markdownDescription": "How high-severity findings map into the Problems panel. `warning` (default) publishes them as warnings; `error` escalates them to errors. Medium is always a warning and low is always information."
+        },
+        "mlview.disabledRules": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^MLV[0-9]{3}$"
+          },
+          "default": [],
+          "description": "Rule codes to hide everywhere: the Problems panel, the issue quick pick, the diagram and the chat / language-model digests. Example: MLV601."
+        },
+        "mlview.codeLens": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a \"MLView: show in diagram\" CodeLens above analyzed units."
+        },
+        "mlview.followCursor": {
+          "type": "boolean",
+          "default": false,
+          "description": "Reserved: highlight the node under the editor cursor in the diagram. Not implemented in this prototype."
+        },
+        "mlview.trace": {
+          "type": "string",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "default": "off",
+          "description": "Verbosity of the MLView output channel."
+        }
+      }
+    },
+    "chatParticipants": [
+      {
+        "id": "mlview.chat",
+        "name": "mlview",
+        "fullName": "MLView",
+        "description": "Diagram and audit the ML pipeline in this workspace",
+        "isSticky": true,
+        "commands": [
+          {
+            "name": "diagram",
+            "description": "Open the interactive ML workflow diagram"
+          },
+          {
+            "name": "issues",
+            "description": "List detected ML issues by severity"
+          },
+          {
+            "name": "explain",
+            "description": "Explain a stage or a rule code (e.g. MLV201)"
+          }
+        ]
+      }
+    ],
+    "languageModelTools": [
+      {
+        "name": "mlview_analyzeWorkspace",
+        "toolReferenceName": "mlviewAnalyze",
+        "displayName": "Analyze ML Workflow",
+        "modelDescription": "Statically analyze the Python ML code in the workspace (or one file) and return the pipeline structure: stages, connections, frameworks, and a summary of detected issues with file and line numbers. Does not execute the user's code. Use before answering questions about how training or evaluation is wired together.",
+        "userDescription": "Analyze the ML workflow in this workspace",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(graph)",
+        "tags": [
+          "mlview",
+          "machine-learning",
+          "static-analysis"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Optional workspace-relative file or folder; defaults to the whole workspace."
+            }
+          }
+        }
+      },
+      {
+        "name": "mlview_listIssues",
+        "toolReferenceName": "mlviewIssues",
+        "displayName": "List ML Issues",
+        "modelDescription": "Return detected machine-learning correctness and hygiene issues (rule code, severity, message, fix hint, file and line). Use when asked what is wrong with the training code, or before proposing fixes.",
+        "userDescription": "List detected ML issues",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(warning)",
+        "tags": [
+          "mlview",
+          "machine-learning",
+          "diagnostics"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "minSeverity": {
+              "type": "string",
+              "enum": [
+                "low",
+                "medium",
+                "high"
+              ]
+            },
+            "code": {
+              "type": "string",
+              "description": "Filter to one rule code, e.g. MLV201"
+            }
+          }
+        }
+      },
+      {
+        "name": "mlview_showDiagram",
+        "toolReferenceName": "mlviewDiagram",
+        "displayName": "Show ML Diagram",
+        "modelDescription": "Open the interactive MLView diagram panel for the user, optionally focused on a specific node.",
+        "userDescription": "Open the MLView diagram",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(preview)",
+        "tags": [
+          "mlview"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "focusNodeId": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "node tools/sync-rule-docs.mjs && node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "check": "tsc --noEmit",
+    "sync:rule-docs": "node tools/sync-rule-docs.mjs",
+    "pretest": "node tools/sync-rule-docs.mjs && node esbuild.mjs",
+    "test": "node --test test/",
+    "package": "npx --yes @vscode/vsce package --no-dependencies --allow-missing-repository",
+    "check:panel": "node --test test/panelhtml.test.js"
+  },
+  "devDependencies": {
+    "@types/node": "20.11.30",
+    "@types/vscode": "1.100.0",
+    "esbuild": "0.28.2",
+    "typescript": "5.9.3"
+  }
+}

@@ -1,0 +1,441 @@
+/* Side rail: Issues, Inspector, Outline. */
+
+.mlv-rail {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  width: var(--mlv-rail-width);
+  min-width: 280px;
+  max-width: 560px;
+  border-left: 1px solid var(--mlv-border);
+  background: var(--mlv-surface);
+}
+
+.mlv-rail[hidden] {
+  display: none;
+}
+
+.mlv-rail__grip {
+  position: absolute;
+  top: 0;
+  left: -2px;
+  width: 5px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 5;
+}
+
+.mlv-rail__grip::after {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 0;
+  width: 1px;
+  height: 100%;
+  background: transparent;
+}
+
+.mlv-rail__grip:hover::after {
+  background: var(--mlv-accent);
+}
+
+.mlv-rail__tabs {
+  display: flex;
+  flex: none;
+  height: 36px;
+  border-bottom: 1px solid var(--mlv-border);
+}
+
+.mlv-rail__tab {
+  flex: 1 1 auto;
+  padding: 0 var(--mlv-s4);
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-12);
+  cursor: pointer;
+}
+
+.mlv-rail__tab[aria-selected="true"] {
+  color: var(--mlv-text);
+  border-bottom-color: var(--mlv-accent);
+  font-weight: var(--mlv-fw-semi);
+}
+
+.mlv-rail__panel {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--mlv-s4);
+}
+
+.mlv-rail__panel[hidden] {
+  display: none;
+}
+
+.mlv-rail__filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--mlv-s3);
+  padding-bottom: var(--mlv-s4);
+  border-bottom: 1px solid var(--mlv-border);
+  margin-bottom: var(--mlv-s4);
+}
+
+.mlv-rail__section {
+  margin: 0 0 var(--mlv-s5);
+}
+
+.mlv-rail__heading {
+  display: flex;
+  align-items: center;
+  gap: var(--mlv-s3);
+  margin: 0 0 var(--mlv-s3);
+  color: var(--mlv-text-3);
+  font-size: var(--mlv-fs-10);
+  font-weight: var(--mlv-fw-semi);
+  text-transform: uppercase;
+  letter-spacing: var(--mlv-track-caps);
+}
+
+.mlv-issues {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* The row and its "open in editor" button are SIBLINGS: an element with
+ * role="option" may not contain a focusable descendant, and a <button> inside a
+ * <button> is invalid HTML (MLV-R2-W03). The item wraps so the expanded detail
+ * still gets the full width beneath both. */
+.mlv-issues__item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+.mlv-issue {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--mlv-s4);
+  /* basis 0, NOT auto. The parent wraps, and a wrapping flex container breaks
+   * lines on HYPOTHETICAL main sizes, before any shrinking: with basis auto the
+   * two longest titles ("Submodules held in a plain list are never registered",
+   * "DataLoader worker processes without a __main__ guard") measure wider than
+   * the rail on their own, so the row claimed the whole first line and pushed
+   * its "open in editor" sibling onto a second one, left-aligned under the
+   * meta, where it read as a stray button belonging to nothing. `min-width: 0`
+   * does not help — it governs shrinking within a line, not the line break.
+   * Basis 0 keeps every row and its button on one line at any title length. */
+  flex: 1 1 0;
+  min-width: 0;
+  padding: var(--mlv-s4);
+  border: 1px solid transparent;
+  border-radius: var(--mlv-r-btn);
+  background: none;
+  cursor: pointer;
+  text-align: left;
+}
+
+.mlv-issue:focus-visible {
+  outline: 2px solid var(--mlv-focus);
+  outline-offset: -2px;
+}
+
+.mlv-issue:hover {
+  background: var(--mlv-surface-2);
+}
+
+.mlv-issue.is-selected {
+  border-color: var(--mlv-accent);
+  background: var(--mlv-surface-2);
+}
+
+.mlv-issue.is-suppressed {
+  opacity: 0.6;
+}
+
+.mlv-issue__text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.mlv-issue__title {
+  font-size: 12.5px;
+  font-weight: var(--mlv-fw-medium);
+  line-height: var(--mlv-lh-tight);
+}
+
+.mlv-issue__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--mlv-s3);
+  margin-top: var(--mlv-s1);
+  color: var(--mlv-text-3);
+  font-family: var(--mlv-font-mono);
+  font-size: var(--mlv-fs-10);
+}
+
+.mlv-issue__open {
+  flex: none;
+  align-self: center;
+  margin-right: var(--mlv-s3);
+}
+
+.mlv-issue__detail {
+  flex: 1 0 100%;
+}
+
+.mlv-empty-note {
+  padding: var(--mlv-s5);
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-12);
+  text-align: center;
+}
+
+/* inspector */
+.mlv-insp__title {
+  margin: 0 0 var(--mlv-s2);
+  font-size: var(--mlv-fs-14);
+  font-weight: var(--mlv-fw-semi);
+}
+
+.mlv-insp__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--mlv-s3);
+  margin-bottom: var(--mlv-s4);
+}
+
+.mlv-insp__fqn {
+  margin-bottom: var(--mlv-s4);
+  color: var(--mlv-text-2);
+  font-family: var(--mlv-font-mono);
+  font-size: var(--mlv-fs-11);
+  word-break: break-all;
+}
+
+.mlv-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--mlv-fs-11);
+}
+
+.mlv-table th,
+.mlv-table td {
+  padding: 3px var(--mlv-s3);
+  border-bottom: 1px solid var(--mlv-border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.mlv-table th {
+  width: 40%;
+  color: var(--mlv-text-2);
+  font-weight: var(--mlv-fw-regular);
+}
+
+.mlv-table td {
+  font-family: var(--mlv-font-mono);
+  font-size: var(--mlv-fs-10);
+  word-break: break-word;
+}
+
+.mlv-insp__issue {
+  margin-bottom: var(--mlv-s5);
+  padding: var(--mlv-s4);
+  border: 1px solid var(--mlv-border);
+  border-radius: var(--mlv-r-btn);
+  background: var(--mlv-surface-2);
+}
+
+.mlv-insp__issue-head {
+  display: flex;
+  align-items: center;
+  gap: var(--mlv-s3);
+  margin-bottom: var(--mlv-s3);
+  font-weight: var(--mlv-fw-medium);
+}
+
+.mlv-insp__line {
+  margin: 0 0 var(--mlv-s3);
+  font-size: var(--mlv-fs-11);
+  color: var(--mlv-text-2);
+}
+
+.mlv-insp__fix {
+  padding-left: var(--mlv-s4);
+  border-left: 3px solid var(--mlv-accent);
+  font-size: var(--mlv-fs-11);
+}
+
+.mlv-insp__related {
+  list-style: none;
+  margin: var(--mlv-s3) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--mlv-s2);
+}
+
+/* outline */
+.mlv-outline,
+.mlv-outline ul {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 var(--mlv-s5);
+}
+
+.mlv-outline {
+  padding-left: 0;
+}
+
+/* The focusable element is the treeitem <li>, not the row inside it: ARIA's tree
+ * pattern puts the roving tabindex on the item itself (MLV-R2-W08). */
+.mlv-outline__item {
+  outline: none;
+}
+
+.mlv-outline__item:focus > .mlv-outline__row {
+  box-shadow: 0 0 0 2px var(--mlv-focus);
+}
+
+.mlv-outline__row {
+  display: flex;
+  align-items: center;
+  gap: var(--mlv-s3);
+  width: 100%;
+  padding: 2px var(--mlv-s3);
+  border: 0;
+  border-radius: var(--mlv-r-chip);
+  background: none;
+  cursor: pointer;
+  text-align: left;
+  font-size: var(--mlv-fs-12);
+}
+
+.mlv-outline__row--lane {
+  font-weight: var(--mlv-fw-semi);
+}
+
+.mlv-outline__chevron {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  color: var(--mlv-text-3);
+  transform: rotate(90deg);
+  transition: transform var(--mlv-dur-1, 120ms) ease;
+}
+
+.mlv-outline__item[aria-expanded="false"] > .mlv-outline__row .mlv-outline__chevron {
+  transform: rotate(0deg);
+}
+
+.mlv-outline__chevron--none {
+  transform: none;
+}
+
+.mlv-outline__row:hover {
+  background: var(--mlv-surface-2);
+}
+
+.mlv-outline__row.is-selected {
+  background: var(--mlv-surface-2);
+  font-weight: var(--mlv-fw-medium);
+}
+
+.mlv-outline__label {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mlv-outline__stage {
+  color: var(--mlv-text-3);
+  font-size: var(--mlv-fs-10);
+  text-transform: uppercase;
+  letter-spacing: var(--mlv-track-caps);
+}
+
+.mlv-insp__actions {
+  display: flex;
+  gap: var(--mlv-s3);
+  flex-wrap: wrap;
+  margin-bottom: var(--mlv-s4);
+}
+
+/* the zero-issue result (MLV-R1-013) */
+.mlv-clean {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--mlv-s2);
+  padding: var(--mlv-s9) var(--mlv-s5);
+  text-align: center;
+  color: var(--mlv-text-2);
+}
+
+.mlv-clean .mlv-uicon {
+  color: var(--mlv-stage-train);
+}
+
+.mlv-clean__title {
+  color: var(--mlv-text);
+  font-size: var(--mlv-fs-14);
+  font-weight: var(--mlv-fw-semi);
+}
+
+.mlv-clean__detail {
+  font-size: var(--mlv-fs-12);
+  max-width: 34ch;
+}
+
+/* the selected issue row expands in place (MLV-R1-006) */
+.mlv-issue__detail {
+  padding: var(--mlv-s3) var(--mlv-s5) var(--mlv-s5) var(--mlv-s8);
+  border-left: 2px solid var(--mlv-accent);
+  margin: 0 var(--mlv-s3) var(--mlv-s3);
+  background: var(--mlv-surface-2);
+  border-radius: 0 var(--mlv-r-btn) var(--mlv-r-btn) 0;
+}
+
+.mlv-issue__detail .mlv-insp__line {
+  font-size: var(--mlv-fs-12);
+}
+
+.mlv-issue__goto {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--mlv-s2);
+  margin-top: var(--mlv-s4);
+}
+
+.mlv-empty-note .mlv-btn {
+  margin-top: var(--mlv-s4);
+}
+
+.mlv-insp__issue.is-selected {
+  box-shadow: 0 0 0 2px var(--mlv-accent);
+}
+
+/*
+ * Below the 900 px breakpoint the rail is an overlay drawer over the canvas with
+ * a 40 % scrim (UX_DESIGN §1) rather than a fixed 360 px column that leaves the
+ * diagram 500 px wide (MLV-R1-009). Declared here, after the base .mlv-rail
+ * rule, because the stylesheet is concatenated chrome.css → rail.css.
+ */
+@media (max-width: 900px) {
+  .mlv-rail {
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    z-index: 40;
+    max-width: 86%;
+    box-shadow: var(--mlv-sh-3);
+  }
+}

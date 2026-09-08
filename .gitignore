@@ -1,0 +1,19 @@
+# dependencies and build output
+node_modules/
+vscode-extension/out/
+*.vsix
+*.egg-info/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+
+# generated demo artifacts (scripts/e2e regenerates them)
+.mlview/
+webview/.mlview/
+
+# local orchestration backups and scratch
+.workflows/backup/
+*.log
+.DS_Store
+Thumbs.db

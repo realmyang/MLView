@@ -1,0 +1,25 @@
+{
+  "name": "mlview-webview",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MLView diagram renderer bundle — consumed unchanged by the VS Code webview and the standalone HTML report.",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/mlview.js",
+  "scripts": {
+    "build": "node build.mjs",
+    "check": "tsc --noEmit",
+    "test": "node --test test/bridges.test.mjs test/bundle.test.mjs test/charge.test.mjs test/composition.test.mjs test/contrast.test.mjs test/devpages.test.mjs test/flow.test.mjs test/interaction.test.mjs test/layout.test.mjs test/markers.test.mjs test/parity.test.mjs test/regressions.test.mjs test/scope.test.mjs test/scope_parity.test.mjs",
+    "render-sample": "node test/render_sample.mjs",
+    "refresh-sample": "node dev/refresh-sample.mjs",
+    "render-report": "node test/render_report.mjs"
+  },
+  "dependencies": {
+    "@dagrejs/dagre": "3.1.1"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "jsdom": "26.1.0",
+    "typescript": "5.9.3"
+  }
+}

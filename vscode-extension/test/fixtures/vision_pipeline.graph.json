@@ -1,0 +1,4574 @@
+{
+  "schemaVersion": "1.0",
+  "generator": {
+    "name": "mlview",
+    "version": "0.1.0",
+    "rendererSha": "b11b026447e4e4f2b1cf13f7170af81c2126b587d0e409d98cd6cff8ee79c478",
+    "generatedAt": "2026-09-07T17:52:40Z"
+  },
+  "workspace": {
+    "root": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline",
+    "entrypoints": [
+      "train.py",
+      "config.py",
+      "data.py"
+    ],
+    "filesAnalyzed": 5,
+    "filesFailed": 0,
+    "notebooksSkipped": 0,
+    "frameworks": [
+      "torch",
+      "sklearn",
+      "numpy",
+      "torchvision"
+    ]
+  },
+  "stages": [
+    {
+      "id": "config",
+      "label": "Configuration",
+      "order": 0,
+      "present": true,
+      "nodeCount": 2,
+      "issueCounts": {
+        "low": 0,
+        "medium": 0,
+        "high": 0
+      },
+      "maxSeverity": null
+    },
+    {
+      "id": "data",
+      "label": "Data",
+      "order": 1,
+      "present": true,
+      "nodeCount": 8,
+      "issueCounts": {
+        "low": 3,
+        "medium": 2,
+        "high": 0
+      },
+      "maxSeverity": "medium"
+    },
+    {
+      "id": "preprocess",
+      "label": "Preprocess",
+      "order": 2,
+      "present": true,
+      "nodeCount": 15,
+      "issueCounts": {
+        "low": 0,
+        "medium": 0,
+        "high": 1
+      },
+      "maxSeverity": "high"
+    },
+    {
+      "id": "model",
+      "label": "Model",
+      "order": 3,
+      "present": true,
+      "nodeCount": 3,
+      "issueCounts": {
+        "low": 0,
+        "medium": 0,
+        "high": 1
+      },
+      "maxSeverity": "high"
+    },
+    {
+      "id": "objective",
+      "label": "Objective",
+      "order": 4,
+      "present": true,
+      "nodeCount": 1,
+      "issueCounts": {
+        "low": 0,
+        "medium": 0,
+        "high": 1
+      },
+      "maxSeverity": "high"
+    },
+    {
+      "id": "train",
+      "label": "Train",
+      "order": 5,
+      "present": true,
+      "nodeCount": 9,
+      "issueCounts": {
+        "low": 1,
+        "medium": 2,
+        "high": 1
+      },
+      "maxSeverity": "high"
+    },
+    {
+      "id": "eval",
+      "label": "Evaluate",
+      "order": 6,
+      "present": true,
+      "nodeCount": 7,
+      "issueCounts": {
+        "low": 0,
+        "medium": 2,
+        "high": 1
+      },
+      "maxSeverity": "high"
+    },
+    {
+      "id": "deliver",
+      "label": "Save / Deploy",
+      "order": 7,
+      "present": false,
+      "nodeCount": 0,
+      "issueCounts": {
+        "low": 0,
+        "medium": 0,
+        "high": 0
+      },
+      "maxSeverity": null
+    }
+  ],
+  "nodes": [
+    {
+      "id": "n:b57feff0c5b9",
+      "kind": "entrypoint",
+      "level": "unit",
+      "stage": "config",
+      "label": "config.py",
+      "sublabel": "module scope",
+      "qualname": "config.__main__",
+      "loc": {
+        "file": "config.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/config.py",
+        "line": 10,
+        "col": 0,
+        "endLine": 10,
+        "endCol": 26,
+        "symbol": "DATA_ROOT = \"data/cifar10\"",
+        "snippet": "DATA_ROOT = \"data/cifar10\""
+      },
+      "defLoc": {
+        "file": "config.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/config.py",
+        "line": 10,
+        "col": 0,
+        "endLine": 10,
+        "endCol": 26,
+        "symbol": "DATA_ROOT = \"data/cifar10\"",
+        "snippet": "DATA_ROOT = \"data/cifar10\""
+      },
+      "parent": null,
+      "attrs": {},
+      "produces": [],
+      "consumes": [],
+      "ghost": false,
+      "dynamic": false,
+      "confidence": 0.95,
+      "confidenceBucket": "certain",
+      "issueIds": [],
+      "collapsedByDefault": false,
+      "stageEvidence": [
+        {
+          "kind": "context_confirmed",
+          "detail": "module entrypoint",
+          "weight": 0.6
+        },
+        {
+          "kind": "knowledge_table",
+          "detail": "op stage votes: config=1.0",
+          "weight": 1.0
+        }
+      ]
+    },
+    {
+      "id": "n:5a3c24196768",
+      "kind": "config",
+      "level": "op",
+      "stage": "config",
+      "label": "device",
+      "sublabel": "device",
+      "qualname": "train.train.device",
+      "fqn": "torch.device",
+      "framework": "torch",
+      "var": "device",
+      "loc": {
+        "file": "train.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "line": 19,
+        "col": 13,
+        "endLine": 19,
+        "endCol": 33,
+        "symbol": "torch.device",
+        "snippet": "    device = torch.device(DEVICE)"
+      },
+      "parent": "n:ec0fae6f55a7",
+      "attrs": {},
+      "produces": [
+        {
+          "name": "device",
+          "tags": [
+            "DEVICE"
+          ]
+        }
+      ],
+      "consumes": [],
+      "ghost": false,
+      "dynamic": false,
+      "confidence": 0.95,
+      "confidenceBucket": "certain",
+      "issueIds": [],
+      "collapsedByDefault": false,
+      "stageEvidence": [
+        {
+          "kind": "knowledge_table",
+          "detail": "torch.device -> config",
+          "weight": 1.0
+        }
+      ]
+    },
+    {
+      "id": "n:7e635cb90004",
+      "kind": "dataset",
+      "level": "op",
+      "stage": "data",
+      "label": "full_train",
+      "sublabel": "CIFAR10 · download=False · train=True",
+      "qualname": "data.full_train",
+      "fqn": "torchvision.datasets.CIFAR10",
+      "framework": "torchvision",
+      "var": "full_train",
+      "loc": {
+        "file": "data.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+        "line": 26,
+        "col": 13,
+        "endLine": 27,
+        "endCol": 68,
+        "symbol": "torchvision.datasets.CIFAR10",
+        "snippet": "full_train = torchvision.datasets.CIFAR10(root=DATA_ROOT, train=True, download=False,"
+      },
+      "parent": "n:dc60863a8058",
+      "attrs": {
+        "download": "False",
+        "train": "True"
+      },
+      "produces": [
+        {
+          "name": "full_train",
+          "tags": [
+            "RAW_DATA"
+          ]
+        }
+      ],
+      "consumes": [
+        {
+          "name": "TRAIN_TRANSFORM",
+          "tags": []
+        }
+      ],
+      "ghost": false,
+      "dynamic": false,
+      "confidence": 0.95,
+      "confidenceBucket": "certain",
+      "issueIds": [],
+      "collapsedByDefault": false,
+      "stageEvidence": [
+        {
+          "kind": "knowledge_table",
+          "detail": "torchvision.datasets.CIFAR10 -> data",
+          "weight": 1.0
+        }
+      ]
+    },
+    {
+      "id": "n:20099151128c",
+      "kind": "dataset",
+      "level": "op",
+      "stage": "data",
+      "label": "test_ds",
+      "sublabel": "CIFAR10 · download=False · train=False",
+      "qualname": "data.test_ds",
+      "fqn": "torchvision.datasets.CIFAR10",
+      "framework": "torchvision",
+      "var": "test_ds",
+      "loc": {
+        "file": "data.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+        "line": 28,
+        "col": 10,
+        "endLine": 29,
+        "endCol": 64,
+        "symbol": "torchvision.datasets.CIFAR10",
+        "snippet": "test_ds = torchvision.datasets.CIFAR10(root=DATA_ROOT, train=False, download=False,"
+      },
+      "parent": "n:dc60863a8058",
+      "attrs": {
+        "download": "False",
+        "train": "False"
+      },
+      "produces": [
+        {
+          "name": "test_ds",
+          "tags": [
+            "RAW_DATA",
+            "TEST_SPLIT"
+          ]
+        }
+      ],
+      "consumes": [
+        {
+          "name": "EVAL_TRANSFORM",
+          "tags": []
+        }
+      ],
+      "ghost": false,
+      "dynamic": false,
+      "confidence": 0.95,
+      "confidenceBucket": "certain",
+      "issueIds": [],
+      "collapsedByDefault": false,
+      "stageEvidence": [
+        {
+          "kind": "knowledge_table",
+          "detail": "torchvision.datasets.CIFAR10 -> data",
+          "weight": 1.0
+        }
+      ]
+    },
+    {
+      "id": "n:cb660849f937",
+      "kind": "split",
+      "level": "op",
+      "stage": "data",
+      "label": "random_split()",
+      "qualname": "data.random_split",
+      "fqn": "torch.utils.data.random_split",
+      "framework": "torch",
+      "loc": {
+        "file": "data.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+        "line": 31,
+        "col": 19,
+        "endLine": 31,
+        "endCol": 67,
+        "symbol": "random_split",
+        "snippet": "train_ds, val_ds = random_split(full_train, [TRAIN_SIZE, VAL_SIZE])"
+      },
+      "parent": "n:dc60863a8058",
+      "attrs": {},
+      "produces": [],
+      "consumes": [
+        {
+          "name": "full_train",
+          "tags": [
+            "RAW_DATA"
+          ]
+        }
+      ],
+      "ghost": false,
+      "dynamic": false,
+      "confidence": 0.95,
+      "confidenceBucket": "certain",
+      "issueIds": [
+        "i:8c1b774de56a"
+      ],
+      "collapsedByDefault": false,
+      "stageEvidence": [
+        {
+          "kind": "knowledge_table",
+          "detail": "torch.utils.data.random_split -> data",
+          "weight": 1.0
+        }
+      ]
+    },
+    {
+      "id": "n:788c3b237e70",
+      "kind": "dataloader",
+      "level": "op",
+      "stage": "data",
+      "label": "train_loader",
+      "sublabel": "DataLoader",
+      "qualname": "data.train_loader",
+      "fqn": "torch.utils.data.DataLoader",
+      "framework": "torch",
+      "var": "train_loader",
+      "loc": {
+        "file": "data.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+        "line": 33,
+        "col": 15,
+        "endLine": 33,
+        "endCol": 83,
+        "symbol": "DataLoader",
+        "snippet": "train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, num_workers=NUM_WORKERS)"
+      },
+      "parent": "n:dc60863a8058",
+      "attrs": {},
+      "produces": [
+        {
+          "name": "train_loader",
+          "tags": [
+            "TRAIN_SPLIT",
+            "LOADER"
+          ]
+        }
+      ],
+      "consumes": [
+        {
+          "name": "train_ds",
+          "tags": [
+            "RAW_DATA",
+            "TRAIN_SPLIT"
+          ]
+        }
+      ],
+      "ghost": false,
+      "dynamic": false,
+      "confidence": 0.95,
+      "confidenceBucket": "certain",
+      "issueIds": [
+        "i:75814572314b",
+        "i:ec6edfb445d9"
+      ],
+      "collapsedByDefault": false,
+      "stageEvidence": [
+        {
+          "kind": "knowledge_table",
+          "detail": "torch.utils.data.DataLoader -> data",
+          "weight": 1.0
+        }
+      ]
+    },
+    {
+      "id": "n:7d060e7d6f54",
+      "kind": "dataloader",
+      "level": "op",
+      "stage": "data",
+      "label": "val_loader",
+      "sublabel": "DataLoader · shuffle=False",
+      "qualname": "data.val_loader",
+      "fqn": "torch.utils.data.DataLoader",
+      "framework": "torch",
+      "var": "val_loader",
+      "loc": {
+        "file": "data.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+        "line": 34,
+        "col": 13,
+        "endLine": 34,
+        "endCol": 74,
+        "symbol": "DataLoader",
+        "snippet": "val_loader = DataLoader(val_ds, batch_size=EVAL_BATCH_SIZE, shuffle=False)"
+      },
+      "parent": "n:dc60863a8058",
+      "attrs": {
+        "shuffle": "False"
+      },
+      "produces": [
+        {
+          "name": "val_loader",
+          "tags": [
+            "VAL_SPLIT",
+            "LOADER"
+          ]
+        }
+      ],
+      "consumes": [
+        {
+          "name": "val_ds",
+          "tags": [
+            "RAW_DATA",
+            "VAL_SPLIT"
+          ]
+        }
+      ],
+      "ghost": false,
+      "dynamic": false,
+      "confidence": 0.95,
+      "confidenceBucket": "certain",
+      "issueIds": [],
+      "collapsedByDefault": false,
+      "stageEvidence": [
+        {
+          "kind": "knowledge_table",
+          "detail": "torch.utils.data.DataLoader -> data",
+          "weight": 1.0
+        }
+      ]
+    },
+    {
+      "id": "n:bea1406bd1c1",
+      "kind": "dataloader",
+      "level": "op",
+      "stage": "data",
+      "label": "test_loader",
+      "sublabel": "DataLoader · shuffle=True",
+      "qualname": "data.test_loader",
+      "fqn": "torch.utils.data.DataLoader",
+      "framework": "torch",
+      "var": "test_loader",
+      "loc": {
+        "file": "data.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+        "line": 35,
+        "col": 14,
+        "endLine": 35,
+        "endCol": 75,
+        "symbol": "DataLoader",
+        "snippet": "test_loader = DataLoader(test_ds, batch_size=EVAL_BATCH_SIZE, shuffle=True)"
+      },
+      "parent": "n:dc60863a8058",
+      "attrs": {
+        "shuffle": "True"
+      },
+      "produces": [
+        {
+          "name": "test_loader",
+          "tags": [
+            "TEST_SPLIT",
+            "LOADER"
+          ]
+        }
+      ],
+      "consumes": [
+        {
+          "name": "test_ds",
+          "tags": [
+            "RAW_DATA",
+            "TEST_SPLIT"
+          ]
+        }
+      ],
+      "ghost": false,
+      "dynamic": false,
+      "confidence": 0.95,
+      "confidenceBucket": "certain",
+      "issueIds": [
+        "i:1ed53b9e356c"
+      ],
+      "collapsedByDefault": false,
+      "stageEvidence": [
+        {
+          "kind": "knowledge_table",
+          "detail": "torch.utils.data.DataLoader -> data",
+          "weight": 1.0
+        }
+      ]
+    },
+    {
+      "id": "n:e82c5cf343af",
+      "kind": "dataset",
+      "level": "op",
+      "stage": "data",
+      "label": "raw",
+      "sublabel": "load",
+      "qualname": "sklearn_baseline.baseline.raw",
+      "fqn": "numpy.load",
+      "framework": "numpy",
+      "var": "raw",
+      "loc": {
+        "file": "sklearn_baseline.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "line": 19,
+        "col": 10,
+        "endLine": 19,
+        "endCol": 23,
+        "symbol": "np.load",
+        "snippet": "    raw = np.load(path)"
+      },
+      "parent": "n:55a674d1b10e",
+      "attrs": {},
+      "produces": [
+        {
+          "name": "raw",
+          "tags": [
+            "RAW_DATA",
+            "FEATURES"
+          ]
+        }
+      ],
+      "consumes": [],
+      "ghost": false,
+      "dynamic": false,
+      "confidence": 0.95,
+      "confidenceBucket": "certain",
+      "issueIds": [],
+      "collapsedByDefault": false,
+      "stageEvidence": [
+        {
+          "kind": "knowledge_table",
+          "detail": "numpy.load -> data",
+          "weight": 1.0
+        }
+      ]
+    },
+    {
+      "id": "n:55662bceebd0",
+      "kind": "split",
+      "level": "op",
+      "stage": "data",
+      "label": "train_test_split()",
+      "qualname": "sklearn_baseline.baseline.train_test_split",
+      "fqn": "sklearn.model_selection.train_test_split",
+      "framework": "sklearn",
+      "loc": {
+        "file": "sklearn_baseline.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "line": 26,
+        "col": 39,
+        "endLine": 27,
+        "endCol": 45,
+        "symbol": "train_test_split",
+        "snippet": "    X_train, X_test, y_train, y_test = train_test_split("
+      },
+      "parent": "n:55a674d1b10e",
+      "attrs": {},
+      "produces": [],
+      "consumes": [
+        {
+          "name": "X_scaled",
+          "tags": [
+            "RAW_DATA",
+            "FEATURES"
+          ]
+        },
+        {
+          "name": "y",
+          "tags": [
+            "RAW_DATA",
+            "TARGET"
+          ]
+        }
+      ],
+      "ghost": false,
+      "dynamic": false,
+      "confidence": 0.95,
+      "confidenceBucket": "certain",
+      "issueIds": [
+        "i:28f7921b3ae0",
+        "i:98a0f3d7f803"
+      ],
+      "collapsedByDefault": false,
+      "stageEvidence": [
+        {
+          "kind": "knowledge_table",
+          "detail": "sklearn.model_selection.train_test_split -> data",
+          "weight": 1.0
+        }
+      ]
+    },
+    {
+      "id": "n:dc60863a8058",
+      "kind": "entrypoint",
+      "level": "unit",
+      "stage": "preprocess",
+      "label": "data.py",
+      "sublabel": "module scope",
+      "qualname": "data.__main__",
+      "loc": {
+        "file": "data.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+        "line": 15,
+        "col": 0,
+        "endLine": 20,
+        "endCol": 2,
+        "snippet": "TRAIN_TRANSFORM = transforms.Compose(["
+      },
+      "defLoc": {
+        "file": "data.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+        "line": 15,
+        "col": 0,
+        "endLine": 20,
+        "endCol": 2,
+        "snippet": "TRAIN_TRANSFORM = transforms.Compose(["
+      },
+      "parent": null,
+      "attrs": {},
+      "produces": [],
+      "consumes": [],
+      "ghost": false,
+      "dynamic": false,
+      "confidence": 0.95,
+      "confidenceBucket": "certain",
+      "issueIds": [],
+      "collapsedByDefault": false,
+      "stageEvidence": [
+        {
+          "kind": "context_confirmed",
+          "detail": "module entrypoint",
+          "weight": 0.6
+        },
+        {
+          "kind": "knowledge_table",
+          "detail": "op stage votes: config=1.0, data=6.0, preprocess=8.0",
+          "weight": 1.0
+        }
+      ]
+    },
+    {
+      "id": "n:bd90f63fbb7d",
+      "kind": "transform",
+      "level": "op",
+      "stage": "preprocess",
+      "label": "TRAIN_TRANSFORM",
+      "sublabel": "Compose",
+      "qualname": "data.TRAIN_TRANSFORM",
+      "fqn": "torchvision.transforms.Compose",
+      "framework": "torchvision",
+      "var": "TRAIN_TRANSFORM",
+      "loc": {
+        "file": "data.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+        "line": 15,
+        "col": 18,
+        "endLine": 20,
+        "endCol": 2,
+        "symbol": "transforms.Compose",
+        "snippet": "TRAIN_TRANSFORM = transforms.Compose(["
+      },
+      "parent": "n:dc60863a8058",
+      "attrs": {},
+      "produces": [
+        {
+          "name": "TRAIN_TRANSFORM",
+          "tags": []
+        }
+      ],
+      "consumes": [],
+      "ghost": false,
+      "dynamic": false,
+      "confidence": 0.95,
+      "confidenceBucket": "certain",
+      "issueIds": [],
+      "collapsedByDefault": false,
+      "stageEvidence": [
+        {
+          "kind": "knowledge_table",
+          "detail": "torchvision.transforms.Compose -> preprocess",
+          "weight": 1.0
+        }
+      ]
+    },
+    {
+      "id": "n:c38c733259f0",
+      "kind": "augment",
+      "level": "op",
+      "stage": "preprocess",
+      "label": "RandomCrop()",
+      "sublabel": "padding=4",
+      "qualname": "data.RandomCrop",
+      "fqn": "torchvision.transforms.RandomCrop",
+      "framework": "torchvision",
+      "loc": {
+        "file": "data.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+        "line": 16,
+        "col": 4,
+        "endLine": 16,
+        "endCol": 40,
+        "symbol": "transforms.RandomCrop",
+        "snippet": "    transforms.RandomCrop(32, padding=4),"
+      },
+      "parent": "n:dc60863a8058",
+      "attrs": {
+        "padding": "4"
+      },
+      "produces": [],
+      "consumes": [],
+      "ghost": false,
+      "dynamic": false,
+      "confidence": 0.95,
+      "confidenceBucket": "certain",
+      "issueIds": [],
+      "collapsedByDefault": false,
+      "stageEvidence": [
+        {
+          "kind": "knowledge_table",
+          "detail": "torchvision.transforms.RandomCrop -> preprocess",
+          "weight": 1.0
+        }
+      ]
+    },
+    {
+      "id": "n:9a08d83158c7",
+      "kind": "augment",
+      "level": "op",
+      "stage": "preprocess",
+      "label": "RandomHorizontalFlip()",
+      "qualname": "data.RandomHorizontalFlip",
+      "fqn": "torchvision.transforms.RandomHorizontalFlip",
+      "framework": "torchvision",
+      "loc": {
+        "file": "data.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+        "line": 17,
+        "col": 4,
+        "endLine": 17,
+        "endCol": 37,
+        "symbol": "transforms.RandomHorizontalFlip",
+        "snippet": "    transforms.RandomHorizontalFlip(),"
+      },
+      "parent": "n:dc60863a8058",
+      "attrs": {},
+      "produces": [],
+      "consumes": [],
+      "ghost": false,
+      "dynamic": false,
+      "confidence": 0.95,
+      "confidenceBucket": "certain",
+      "issueIds": [],
+      "collapsedByDefault": false,
+      "stageEvidence": [
+        {
+          "kind": "knowledge_table",
+          "detail": "torchvision.transforms.RandomHorizontalFlip -> preprocess",
+          "weight": 1.0
+        }
+      ]
+    },
+    {
+      "id": "n:ea8bcbc9ecd0",
+      "kind": "transform",
+      "level": "op",
+      "stage": "preprocess",
+      "label": "ToTensor()",
+      "qualname": "data.ToTensor",
+      "fqn": "torchvision.transforms.ToTensor",
+      "framework": "torchvision",
+      "loc": {
+        "file": "data.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+        "line": 18,
+        "col": 4,
+        "endLine": 18,
+        "endCol": 25,
+        "symbol": "transforms.ToTensor",
+        "snippet": "    transforms.ToTensor(),"
+      },
+      "parent": "n:dc60863a8058",
+      "attrs": {},
+      "produces": [],
+      "consumes": [],
+      "ghost": false,
+      "dynamic": false,
+      "confidence": 0.95,
+      "confidenceBucket": "certain",
+      "issueIds": [],
+      "collapsedByDefault": false,
+      "stageEvidence": [
+        {
+          "kind": "knowledge_table",
+          "detail": "torchvision.transforms.ToTensor -> preprocess",
+          "weight": 1.0
+        }
+      ]
+    },
+    {
+      "id": "n:e23d7e9179da",
+      "kind": "transform",
+      "level": "op",
+      "stage": "preprocess",
+      "label": "Normalize()",
+      "qualname": "data.Normalize",
+      "fqn": "torchvision.transforms.Normalize",
+      "framework": "torchvision",
+      "loc": {
+        "file": "data.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+        "line": 19,
+        "col": 4,
+        "endLine": 19,
+        "endCol": 76,
+        "symbol": "transforms.Normalize",
+        "snippet": "    transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2470, 0.2435, 0.2616)),"
+      },
+      "parent": "n:dc60863a8058",
+      "attrs": {},
+      "produces": [],
+      "consumes": [],
+      "ghost": false,
+      "dynamic": false,
+      "confidence": 0.95,
+      "confidenceBucket": "certain",
+      "issueIds": [],
+      "collapsedByDefault": false,
+      "stageEvidence": [
+        {
+          "kind": "knowledge_table",
+          "detail": "torchvision.transforms.Normalize -> preprocess",
+          "weight": 1.0
+        }
+      ]
+    },
+    {
+      "id": "n:2a2bc53dd1c4",
+      "kind": "transform",
+      "level": "op",
+      "stage": "preprocess",
+      "label": "EVAL_TRANSFORM",
+      "sublabel": "Compose",
+      "qualname": "data.EVAL_TRANSFORM",
+      "fqn": "torchvision.transforms.Compose",
+      "framework": "torchvision",
+      "var": "EVAL_TRANSFORM",
+      "loc": {
+        "file": "data.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+        "line": 21,
+        "col": 17,
+        "endLine": 24,
+        "endCol": 2,
+        "symbol": "transforms.Compose",
+        "snippet": "EVAL_TRANSFORM = transforms.Compose(["
+      },
+      "parent": "n:dc60863a8058",
+      "attrs": {},
+      "produces": [
+        {
+          "name": "EVAL_TRANSFORM",
+          "tags": []
+        }
+      ],
+      "consumes": [],
+      "ghost": false,
+      "dynamic": false,
+      "confidence": 0.95,
+      "confidenceBucket": "certain",
+      "issueIds": [],
+      "collapsedByDefault": false,
+      "stageEvidence": [
+        {
+          "kind": "knowledge_table",
+          "detail": "torchvision.transforms.Compose -> preprocess",
+          "weight": 1.0
+        }
+      ]
+    },
+    {
+      "id": "n:99ae10c39b6e",
+      "kind": "transform",
+      "level": "op",
+      "stage": "preprocess",
+      "label": "ToTensor()",
+      "qualname": "data.ToTensor#2",
+      "fqn": "torchvision.transforms.ToTensor",
+      "framework": "torchvision",
+      "loc": {
+        "file": "data.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+        "line": 22,
+        "col": 4,
+        "endLine": 22,
+        "endCol": 25,
+        "symbol": "transforms.ToTensor",
+        "snippet": "    transforms.ToTensor(),"
+      },
+      "parent": "n:dc60863a8058",
+      "attrs": {},
+      "produces": [],
+      "consumes": [],
+      "ghost": false,
+      "dynamic": false,
+      "confidence": 0.95,
+      "confidenceBucket": "certain",
+      "issueIds": [],
+      "collapsedByDefault": false,
+      "stageEvidence": [
+        {
+          "kind": "knowledge_table",
+          "detail": "torchvision.transforms.ToTensor -> preprocess",
+          "weight": 1.0
+        }
+      ]
+    },
+    {
+      "id": "n:14ac20b54e0d",
+      "kind": "transform",
+      "level": "op",
+      "stage": "preprocess",
+      "label": "Normalize()",
+      "qualname": "data.Normalize#2",
+      "fqn": "torchvision.transforms.Normalize",
+      "framework": "torchvision",
+      "loc": {
+        "file": "data.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+        "line": 23,
+        "col": 4,
+        "endLine": 23,
+        "endCol": 76,
+        "symbol": "transforms.Normalize",
+        "snippet": "    transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2470, 0.2435, 0.2616)),"
+      },
+      "parent": "n:dc60863a8058",
+      "attrs": {},
+      "produces": [],
+      "consumes": [],
+      "ghost": false,
+      "dynamic": false,
+      "confidence": 0.95,
+      "confidenceBucket": "certain",
+      "issueIds": [],
+      "collapsedByDefault": false,
+      "stageEvidence": [
+        {
+          "kind": "knowledge_table",
+          "detail": "torchvision.transforms.Normalize -> preprocess",
+          "weight": 1.0
+        }
+      ]
+    },
+    {
+      "id": "n:55a674d1b10e",
+      "kind": "function",
+      "level": "unit",
+      "stage": "preprocess",
+      "label": "baseline()",
+      "qualname": "sklearn_baseline.baseline",
+      "loc": {
+        "file": "sklearn_baseline.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "line": 18,
+        "col": 0,
+        "endLine": 37,
+        "endCol": 47,
+        "symbol": "def baseline",
+        "snippet": "def baseline(path: str = FEATURE_PATH):"
+      },
+      "defLoc": {
+        "file": "sklearn_baseline.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "line": 18,
+        "col": 0,
+        "endLine": 37,
+        "endCol": 47,
+        "symbol": "def baseline",
+        "snippet": "def baseline(path: str = FEATURE_PATH):"
+      },
+      "parent": null,
+      "attrs": {},
+      "produces": [],
+      "consumes": [],
+      "ghost": false,
+      "dynamic": false,
+      "confidence": 0.95,
+      "confidenceBucket": "certain",
+      "issueIds": [],
+      "collapsedByDefault": false,
+      "stageEvidence": [
+        {
+          "kind": "context_confirmed",
+          "detail": "forward pass with no backward, under eval()/no_grad or metrics",
+          "weight": 0.9
+        },
+        {
+          "kind": "knowledge_table",
+          "detail": "op stage votes: data=2.0, eval=5.0, model=1.0, preprocess=5.0, train=1.0",
+          "weight": 1.0
+        }
+      ]
+    },
+    {
+      "id": "n:39c20778c3cb",
+      "kind": "scaler",
+      "level": "op",
+      "stage": "preprocess",
+      "label": "scaler",
+      "sublabel": "StandardScaler",
+      "qualname": "sklearn_baseline.baseline.scaler",
+      "fqn": "sklearn.preprocessing.StandardScaler",
+      "framework": "sklearn",
+      "var": "scaler",
+      "loc": {
+        "file": "sklearn_baseline.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "line": 23,
+        "col": 13,
+        "endLine": 23,
+        "endCol": 29,
+        "symbol": "StandardScaler",
+        "snippet": "    scaler = StandardScaler()"
+      },
+      "parent": "n:55a674d1b10e",
+      "attrs": {},
+      "produces": [
+        {
+          "name": "scaler",
+          "tags": [
+            "FITTED_TRANSFORMER"
+          ]
+        }
+      ],
+      "consumes": [],
+      "ghost": false,
+      "dynamic": false,
+      "confidence": 0.95,
+      "confidenceBucket": "certain",
+      "issueIds": [],
+      "collapsedByDefault": false,
+      "stageEvidence": [
+        {
+          "kind": "knowledge_table",
+          "detail": "sklearn.preprocessing.StandardScaler -> preprocess",
+          "weight": 1.0
+        }
+      ]
+    },
+    {
+      "id": "n:81ba8f7992dc",
+      "kind": "transform",
+      "level": "op",
+      "stage": "preprocess",
+      "label": "X_scaled",
+      "sublabel": "fit_transform",
+      "qualname": "sklearn_baseline.baseline.X_scaled",
+      "fqn": "sklearn.base.BaseEstimator.fit_transform",
+      "framework": "sklearn",
+      "var": "X_scaled",
+      "loc": {
+        "file": "sklearn_baseline.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "line": 24,
+        "col": 15,
+        "endLine": 24,
+        "endCol": 38,
+        "symbol": "scaler.fit_transform",
+        "snippet": "    X_scaled = scaler.fit_transform(X)"
+      },
+      "parent": "n:55a674d1b10e",
+      "attrs": {},
+      "produces": [
+        {
+          "name": "X_scaled",
+          "tags": [
+            "RAW_DATA",
+            "FEATURES"
+          ]
+        }
+      ],
+      "consumes": [
+        {
+          "name": "scaler",
+          "tags": [
+            "FITTED_TRANSFORMER"
+          ]
+        },
+        {
+          "name": "X",
+          "tags": [
+            "RAW_DATA",
+            "FEATURES"
+          ]
+        }
+      ],
+      "ghost": false,
+      "dynamic": false,
+      "confidence": 0.85,
+      "confidenceBucket": "likely",
+      "issueIds": [
+        "i:98a0f3d7f803"
+      ],
+      "collapsedByDefault": false,
+      "stageEvidence": [
+        {
+          "kind": "knowledge_table",
+          "detail": "sklearn.base.BaseEstimator.fit_transform -> preprocess",
+          "weight": 1.0
+        },
+        {
+          "kind": "fqn_resolved",
+          "detail": "receiver scaler resolved to sklearn.base.BaseEstimator.fit_transform",
+          "weight": 0.9
+        }
+      ]
+    },
+    {
+      "id": "n:549c65db0c23",
+      "kind": "transform",
+      "level": "op",
+      "stage": "preprocess",
+      "label": "pca",
+      "sublabel": "PCA",
+      "qualname": "sklearn_baseline.baseline.pca",
+      "fqn": "sklearn.decomposition.PCA",
+      "framework": "sklearn",
+      "var": "pca",
+      "loc": {
+        "file": "sklearn_baseline.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "line": 29,
+        "col": 10,
+        "endLine": 29,
+        "endCol": 42,
+        "symbol": "PCA",
+        "snippet": "    pca = PCA(n_components=PCA_COMPONENTS)"
+      },
+      "parent": "n:55a674d1b10e",
+      "attrs": {},
+      "produces": [
+        {
+          "name": "pca",
+          "tags": [
+            "FITTED_TRANSFORMER"
+          ]
+        }
+      ],
+      "consumes": [],
+      "ghost": false,
+      "dynamic": false,
+      "confidence": 0.95,
+      "confidenceBucket": "certain",
+      "issueIds": [],
+      "collapsedByDefault": false,
+      "stageEvidence": [
+        {
+          "kind": "knowledge_table",
+          "detail": "sklearn.decomposition.PCA -> preprocess",
+          "weight": 1.0
+        }
+      ]
+    },
+    {
+      "id": "n:2f9e734caf91",
+      "kind": "transform",
+      "level": "op",
+      "stage": "preprocess",
+      "label": "X_train_pca",
+      "sublabel": "fit_transform",
+      "qualname": "sklearn_baseline.baseline.X_train_pca",
+      "fqn": "sklearn.base.BaseEstimator.fit_transform",
+      "framework": "sklearn",
+      "var": "X_train_pca",
+      "loc": {
+        "file": "sklearn_baseline.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "line": 30,
+        "col": 18,
+        "endLine": 30,
+        "endCol": 44,
+        "symbol": "pca.fit_transform",
+        "snippet": "    X_train_pca = pca.fit_transform(X_train)"
+      },
+      "parent": "n:55a674d1b10e",
+      "attrs": {},
+      "produces": [
+        {
+          "name": "X_train_pca",
+          "tags": [
+            "FEATURES",
+            "TRAIN_SPLIT"
+          ]
+        }
+      ],
+      "consumes": [
+        {
+          "name": "pca",
+          "tags": [
+            "FITTED_TRANSFORMER"
+          ]
+        },
+        {
+          "name": "X_train",
+          "tags": [
+            "FEATURES",
+            "TRAIN_SPLIT"
+          ]
+        }
+      ],
+      "ghost": false,
+      "dynamic": false,
+      "confidence": 0.85,
+      "confidenceBucket": "likely",
+      "issueIds": [],
+      "collapsedByDefault": false,
+      "stageEvidence": [
+        {
+          "kind": "knowledge_table",
+          "detail": "sklearn.base.BaseEstimator.fit_transform -> preprocess",
+          "weight": 1.0
+        },
+        {
+          "kind": "fqn_resolved",
+          "detail": "receiver pca resolved to sklearn.base.BaseEstimator.fit_transform",
+          "weight": 0.9
+        }
+      ]
+    },
+    {
+      "id": "n:66d0c5baa3ee",
+      "kind": "transform",
+      "level": "op",
+      "stage": "preprocess",
+      "label": "X_test_pca",
+      "sublabel": "transform",
+      "qualname": "sklearn_baseline.baseline.X_test_pca",
+      "fqn": "sklearn.base.BaseEstimator.transform",
+      "framework": "sklearn",
+      "var": "X_test_pca",
+      "loc": {
+        "file": "sklearn_baseline.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "line": 31,
+        "col": 17,
+        "endLine": 31,
+        "endCol": 38,
+        "symbol": "pca.transform",
+        "snippet": "    X_test_pca = pca.transform(X_test)"
+      },
+      "parent": "n:55a674d1b10e",
+      "attrs": {},
+      "produces": [
+        {
+          "name": "X_test_pca",
+          "tags": [
+            "FEATURES",
+            "TEST_SPLIT"
+          ]
+        }
+      ],
+      "consumes": [
+        {
+          "name": "pca",
+          "tags": [
+            "FITTED_TRANSFORMER"
+          ]
+        },
+        {
+          "name": "X_test",
+          "tags": [
+            "FEATURES",
+            "TEST_SPLIT"
+          ]
+        }
+      ],
+      "ghost": false,
+      "dynamic": false,
+      "confidence": 0.85,
+      "confidenceBucket": "likely",
+      "issueIds": [],
+      "collapsedByDefault": false,
+      "stageEvidence": [
+        {
+          "kind": "knowledge_table",
+          "detail": "sklearn.base.BaseEstimator.transform -> preprocess",
+          "weight": 1.0
+        },
+        {
+          "kind": "fqn_resolved",
+          "detail": "receiver pca resolved to sklearn.base.BaseEstimator.transform",
+          "weight": 0.9
+        }
+      ]
+    },
+    {
+      "id": "n:c07d62f5a608",
+      "kind": "model",
+      "level": "unit",
+      "stage": "model",
+      "label": "ConvBlock",
+      "sublabel": "class · Module",
+      "qualname": "model.ConvBlock",
+      "loc": {
+        "file": "model.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/model.py",
+        "line": 14,
+        "col": 0,
+        "endLine": 24,
+        "endCol": 57,
+        "symbol": "class ConvBlock",
+        "snippet": "class ConvBlock(nn.Module):"
+      },
+      "defLoc": {
+        "file": "model.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/model.py",
+        "line": 14,
+        "col": 0,
+        "endLine": 24,
+        "endCol": 57,
+        "symbol": "class ConvBlock",
+        "snippet": "class ConvBlock(nn.Module):"
+      },
+      "parent": null,
+      "attrs": {},
+      "produces": [],
+      "consumes": [],
+      "ghost": false,
+      "dynamic": false,
+      "confidence": 0.95,
+      "confidenceBucket": "certain",
+      "issueIds": [],
+      "collapsedByDefault": false,
+      "stageEvidence": [
+        {
+          "kind": "class_base",
+          "detail": "class derives torch.nn.Module",
+          "weight": 1.0
+        }
+      ]
+    },
+    {
+      "id": "n:3e1a658e7bad",
+      "kind": "model",
+      "level": "unit",
+      "stage": "model",
+      "label": "SmallCNN",
+      "sublabel": "class · Module",
+      "qualname": "model.SmallCNN",
+      "loc": {
+        "file": "model.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/model.py",
+        "line": 27,
+        "col": 0,
+        "endLine": 43,
+        "endCol": 45,
+        "symbol": "class SmallCNN",
+        "snippet": "class SmallCNN(nn.Module):"
+      },
+      "defLoc": {
+        "file": "model.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/model.py",
+        "line": 27,
+        "col": 0,
+        "endLine": 43,
+        "endCol": 45,
+        "symbol": "class SmallCNN",
+        "snippet": "class SmallCNN(nn.Module):"
+      },
+      "parent": null,
+      "attrs": {},
+      "produces": [],
+      "consumes": [],
+      "ghost": false,
+      "dynamic": false,
+      "confidence": 0.95,
+      "confidenceBucket": "certain",
+      "issueIds": [
+        "i:c16a18404ac2",
+        "i:da22948c4710"
+      ],
+      "collapsedByDefault": false,
+      "stageEvidence": [
+        {
+          "kind": "class_base",
+          "detail": "class derives torch.nn.Module",
+          "weight": 1.0
+        }
+      ]
+    },
+    {
+      "id": "n:a7202a44813b",
+      "kind": "model",
+      "level": "op",
+      "stage": "model",
+      "label": "clf",
+      "sublabel": "LogisticRegression · max_iter=200",
+      "qualname": "sklearn_baseline.baseline.clf",
+      "fqn": "sklearn.linear_model.LogisticRegression",
+      "framework": "sklearn",
+      "var": "clf",
+      "loc": {
+        "file": "sklearn_baseline.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "line": 33,
+        "col": 10,
+        "endLine": 33,
+        "endCol": 42,
+        "symbol": "LogisticRegression",
+        "snippet": "    clf = LogisticRegression(max_iter=200)"
+      },
+      "parent": "n:55a674d1b10e",
+      "attrs": {
+        "max_iter": "200"
+      },
+      "produces": [
+        {
+          "name": "clf",
+          "tags": [
+            "FITTED_TRANSFORMER",
+            "MODEL"
+          ]
+        }
+      ],
+      "consumes": [],
+      "ghost": false,
+      "dynamic": false,
+      "confidence": 0.95,
+      "confidenceBucket": "certain",
+      "issueIds": [],
+      "collapsedByDefault": false,
+      "stageEvidence": [
+        {
+          "kind": "knowledge_table",
+          "detail": "sklearn.linear_model.LogisticRegression -> model",
+          "weight": 1.0
+        }
+      ]
+    },
+    {
+      "id": "n:096816f94864",
+      "kind": "loss",
+      "level": "op",
+      "stage": "objective",
+      "label": "criterion",
+      "sublabel": "CrossEntropyLoss",
+      "qualname": "train.train.criterion",
+      "fqn": "torch.nn.CrossEntropyLoss",
+      "framework": "torch",
+      "var": "criterion",
+      "loc": {
+        "file": "train.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "line": 22,
+        "col": 16,
+        "endLine": 22,
+        "endCol": 37,
+        "symbol": "nn.CrossEntropyLoss",
+        "snippet": "    criterion = nn.CrossEntropyLoss()"
+      },
+      "parent": "n:ec0fae6f55a7",
+      "attrs": {},
+      "produces": [
+        {
+          "name": "criterion",
+          "tags": [
+            "LOSS"
+          ]
+        }
+      ],
+      "consumes": [],
+      "ghost": false,
+      "dynamic": false,
+      "confidence": 0.95,
+      "confidenceBucket": "certain",
+      "issueIds": [
+        "i:da22948c4710"
+      ],
+      "collapsedByDefault": false,
+      "stageEvidence": [
+        {
+          "kind": "knowledge_table",
+          "detail": "torch.nn.CrossEntropyLoss -> objective",
+          "weight": 1.0
+        }
+      ]
+    },
+    {
+      "id": "n:33beab42a6af",
+      "kind": "model",
+      "level": "op",
+      "stage": "train",
+      "label": "fit()",
+      "qualname": "sklearn_baseline.baseline.fit",
+      "fqn": "sklearn.base.BaseEstimator.fit",
+      "framework": "sklearn",
+      "loc": {
+        "file": "sklearn_baseline.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "line": 35,
+        "col": 4,
+        "endLine": 35,
+        "endCol": 33,
+        "symbol": "clf.fit",
+        "snippet": "    clf.fit(X_train_pca, y_train)"
+      },
+      "parent": "n:55a674d1b10e",
+      "attrs": {},
+      "produces": [],
+      "consumes": [
+        {
+          "name": "clf",
+          "tags": [
+            "FITTED_TRANSFORMER",
+            "MODEL"
+          ]
+        },
+        {
+          "name": "X_train_pca",
+          "tags": [
+            "FEATURES",
+            "TRAIN_SPLIT"
+          ]
+        },
+        {
+          "name": "y_train",
+          "tags": [
+            "TARGET",
+            "TRAIN_SPLIT"
+          ]
+        }
+      ],
+      "ghost": false,
+      "dynamic": false,
+      "confidence": 0.85,
+      "confidenceBucket": "likely",
+      "issueIds": [],
+      "collapsedByDefault": false,
+      "stageEvidence": [
+        {
+          "kind": "knowledge_table",
+          "detail": "sklearn.base.BaseEstimator.fit -> train",
+          "weight": 1.0
+        },
+        {
+          "kind": "fqn_resolved",
+          "detail": "receiver clf resolved to sklearn.base.BaseEstimator.fit",
+          "weight": 0.9
+        }
+      ]
+    },
+    {
+      "id": "n:ec0fae6f55a7",
+      "kind": "train_loop",
+      "level": "stage",
+      "stage": "train",
+      "label": "train()",
+      "qualname": "train.train",
+      "loc": {
+        "file": "train.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "line": 18,
+        "col": 0,
+        "endLine": 38,
+        "endCol": 16,
+        "symbol": "def train",
+        "snippet": "def train() -> nn.Module:"
+      },
+      "defLoc": {
+        "file": "train.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "line": 18,
+        "col": 0,
+        "endLine": 38,
+        "endCol": 16,
+        "symbol": "def train",
+        "snippet": "def train() -> nn.Module:"
+      },
+      "parent": null,
+      "attrs": {},
+      "produces": [],
+      "consumes": [],
+      "ghost": false,
+      "dynamic": false,
+      "confidence": 0.95,
+      "confidenceBucket": "certain",
+      "issueIds": [],
+      "collapsedByDefault": false,
+      "stageEvidence": [
+        {
+          "kind": "context_confirmed",
+          "detail": "contains backward() and an optimizer step",
+          "weight": 1.0
+        }
+      ]
+    },
+    {
+      "id": "n:e4eafb169acc",
+      "kind": "optimizer",
+      "level": "op",
+      "stage": "train",
+      "label": "optimizer",
+      "sublabel": "Adam",
+      "qualname": "train.train.optimizer",
+      "fqn": "torch.optim.Adam",
+      "framework": "torch",
+      "var": "optimizer",
+      "loc": {
+        "file": "train.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "line": 23,
+        "col": 16,
+        "endLine": 24,
+        "endCol": 53,
+        "symbol": "optim.Adam",
+        "snippet": "    optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE,"
+      },
+      "parent": "n:ec0fae6f55a7",
+      "attrs": {},
+      "produces": [
+        {
+          "name": "optimizer",
+          "tags": [
+            "OPTIMIZER"
+          ]
+        }
+      ],
+      "consumes": [],
+      "ghost": false,
+      "dynamic": false,
+      "confidence": 0.95,
+      "confidenceBucket": "certain",
+      "issueIds": [],
+      "collapsedByDefault": false,
+      "stageEvidence": [
+        {
+          "kind": "knowledge_table",
+          "detail": "torch.optim.Adam -> train",
+          "weight": 1.0
+        }
+      ]
+    },
+    {
+      "id": "n:034d65913362",
+      "kind": "model",
+      "level": "op",
+      "stage": "train",
+      "label": "train()",
+      "qualname": "train.train.train",
+      "fqn": "torch.nn.Module.train",
+      "framework": "torch",
+      "loc": {
+        "file": "train.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "line": 27,
+        "col": 4,
+        "endLine": 27,
+        "endCol": 17,
+        "symbol": "model.train",
+        "snippet": "    model.train()"
+      },
+      "parent": "n:ec0fae6f55a7",
+      "attrs": {},
+      "produces": [],
+      "consumes": [
+        {
+          "name": "model",
+          "tags": [
+            "MODEL"
+          ]
+        }
+      ],
+      "ghost": false,
+      "dynamic": false,
+      "confidence": 0.85,
+      "confidenceBucket": "likely",
+      "issueIds": [],
+      "collapsedByDefault": false,
+      "stageEvidence": [
+        {
+          "kind": "knowledge_table",
+          "detail": "torch.nn.Module.train -> train",
+          "weight": 1.0
+        },
+        {
+          "kind": "fqn_resolved",
+          "detail": "receiver model resolved to torch.nn.Module.train",
+          "weight": 0.9
+        }
+      ]
+    },
+    {
+      "id": "n:d823ac437adc",
+      "kind": "train_loop",
+      "level": "unit",
+      "stage": "train",
+      "label": "for epoch in range(EPOCHS)",
+      "sublabel": "epoch loop · depth 1",
+      "qualname": "train.train.epoch_loop",
+      "loc": {
+        "file": "train.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "line": 28,
+        "col": 4,
+        "endLine": 37,
+        "endCol": 68,
+        "symbol": "for epoch in range(EPOCHS)",
+        "snippet": "    for epoch in range(EPOCHS):"
+      },
+      "parent": "n:ec0fae6f55a7",
+      "attrs": {
+        "depth": "1",
+        "insideAutocast": "false",
+        "insideNoGrad": "false",
+        "iterates": "range",
+        "loopKind": "epoch"
+      },
+      "produces": [],
+      "consumes": [],
+      "ghost": false,
+      "dynamic": false,
+      "confidence": 0.95,
+      "confidenceBucket": "certain",
+      "issueIds": [
+        "i:555b8f97694b"
+      ],
+      "collapsedByDefault": false,
+      "stageEvidence": [
+        {
+          "kind": "context_confirmed",
+          "detail": "epoch loop over range",
+          "weight": 1.0
+        },
+        {
+          "kind": "context_confirmed",
+          "detail": "range() over an epoch count",
+          "weight": 0.9
+        },
+        {
+          "kind": "context_confirmed",
+          "detail": "loop body calls backward()",
+          "weight": 1.0
+        }
+      ]
+    },
+    {
+      "id": "n:462082383e08",
+      "kind": "optimizer",
+      "level": "op",
+      "stage": "train",
+      "label": "zero_grad()",
+      "sublabel": "missing",
+      "qualname": "train.train.batch_loop.__ghost_zero_grad",
+      "fqn": "torch.optim.Optimizer.zero_grad",
+      "loc": {
+        "file": "train.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "line": 29,
+        "col": 8,
+        "endLine": 34,
+        "endCol": 32,
+        "symbol": "for images, labels in train_loader",
+        "snippet": "        for images, labels in train_loader:"
+      },
+      "parent": "n:f50f0f38c0ea",
+      "attrs": {},
+      "produces": [],
+      "consumes": [],
+      "ghost": true,
+      "dynamic": false,
+      "confidence": 0.9,
+      "confidenceBucket": "certain",
+      "issueIds": [
+        "i:e8f316f327ef"
+      ],
+      "collapsedByDefault": false,
+      "stageEvidence": [
+        {
+          "kind": "context_confirmed",
+          "detail": "ghost slot for MLV201",
+          "weight": 1.0
+        }
+      ]
+    },
+    {
+      "id": "n:f50f0f38c0ea",
+      "kind": "train_loop",
+      "level": "unit",
+      "stage": "train",
+      "label": "for images, labels in train_loader",
+      "sublabel": "batch loop · depth 2",
+      "qualname": "train.train.batch_loop",
+      "loc": {
+        "file": "train.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "line": 29,
+        "col": 8,
+        "endLine": 34,
+        "endCol": 32,
+        "symbol": "for images, labels in train_loader",
+        "snippet": "        for images, labels in train_loader:"
+      },
+      "parent": "n:ec0fae6f55a7",
+      "attrs": {
+        "depth": "2",
+        "insideAutocast": "false",
+        "insideNoGrad": "false",
+        "iterates": "train_loader",
+        "loopKind": "batch"
+      },
+      "produces": [],
+      "consumes": [
+        {
+          "name": "train_loader",
+          "tags": [
+            "TRAIN_SPLIT",
+            "LOADER"
+          ]
+        }
+      ],
+      "ghost": false,
+      "dynamic": false,
+      "confidence": 0.95,
+      "confidenceBucket": "certain",
+      "issueIds": [
+        "i:b39953ba7fce",
+        "i:b938513e5869",
+        "i:e8f316f327ef"
+      ],
+      "collapsedByDefault": false,
+      "stageEvidence": [
+        {
+          "kind": "context_confirmed",
+          "detail": "batch loop over train_loader",
+          "weight": 1.0
+        },
+        {
+          "kind": "context_confirmed",
+          "detail": "iterates a LOADER-tagged value",
+          "weight": 0.9
+        },
+        {
+          "kind": "context_confirmed",
+          "detail": "loop body calls backward()",
+          "weight": 1.0
+        }
+      ]
+    },
+    {
+      "id": "n:6d794bda1b23",
+      "kind": "loss",
+      "level": "op",
+      "stage": "train",
+      "label": "backward()",
+      "qualname": "train.train.backward",
+      "fqn": "torch.Tensor.backward",
+      "framework": "torch",
+      "loc": {
+        "file": "train.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "line": 32,
+        "col": 12,
+        "endLine": 32,
+        "endCol": 27,
+        "symbol": "loss.backward",
+        "snippet": "            loss.backward()"
+      },
+      "parent": "n:f50f0f38c0ea",
+      "attrs": {},
+      "produces": [],
+      "consumes": [
+        {
+          "name": "loss",
+          "tags": [
+            "LOSS"
+          ]
+        }
+      ],
+      "ghost": false,
+      "dynamic": false,
+      "confidence": 0.85,
+      "confidenceBucket": "likely",
+      "issueIds": [],
+      "collapsedByDefault": false,
+      "stageEvidence": [
+        {
+          "kind": "knowledge_table",
+          "detail": "torch.Tensor.backward -> train",
+          "weight": 1.0
+        },
+        {
+          "kind": "fqn_resolved",
+          "detail": "receiver loss resolved to torch.Tensor.backward",
+          "weight": 0.9
+        }
+      ]
+    },
+    {
+      "id": "n:0d44692ef659",
+      "kind": "optimizer",
+      "level": "op",
+      "stage": "train",
+      "label": "step()",
+      "qualname": "train.train.step",
+      "fqn": "torch.optim.Optimizer.step",
+      "framework": "torch",
+      "loc": {
+        "file": "train.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "line": 33,
+        "col": 12,
+        "endLine": 33,
+        "endCol": 28,
+        "symbol": "optimizer.step",
+        "snippet": "            optimizer.step()"
+      },
+      "parent": "n:f50f0f38c0ea",
+      "attrs": {},
+      "produces": [],
+      "consumes": [
+        {
+          "name": "optimizer",
+          "tags": [
+            "OPTIMIZER"
+          ]
+        }
+      ],
+      "ghost": false,
+      "dynamic": false,
+      "confidence": 0.85,
+      "confidenceBucket": "likely",
+      "issueIds": [],
+      "collapsedByDefault": false,
+      "stageEvidence": [
+        {
+          "kind": "knowledge_table",
+          "detail": "torch.optim.Optimizer.step -> train",
+          "weight": 1.0
+        },
+        {
+          "kind": "fqn_resolved",
+          "detail": "receiver optimizer resolved to torch.optim.Optimizer.step",
+          "weight": 0.9
+        }
+      ]
+    },
+    {
+      "id": "n:50da266549be",
+      "kind": "metric",
+      "level": "op",
+      "stage": "eval",
+      "label": "scores",
+      "sublabel": "cross_val_score",
+      "qualname": "sklearn_baseline.baseline.scores",
+      "fqn": "sklearn.model_selection.cross_val_score",
+      "framework": "sklearn",
+      "var": "scores",
+      "loc": {
+        "file": "sklearn_baseline.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "line": 34,
+        "col": 13,
+        "endLine": 34,
+        "endCol": 68,
+        "symbol": "cross_val_score",
+        "snippet": "    scores = cross_val_score(clf, X_train_pca, y_train, cv=CV_FOLDS)"
+      },
+      "parent": "n:55a674d1b10e",
+      "attrs": {},
+      "produces": [
+        {
+          "name": "scores",
+          "tags": []
+        }
+      ],
+      "consumes": [
+        {
+          "name": "clf",
+          "tags": [
+            "FITTED_TRANSFORMER",
+            "MODEL"
+          ]
+        },
+        {
+          "name": "X_train_pca",
+          "tags": [
+            "FEATURES",
+            "TRAIN_SPLIT"
+          ]
+        },
+        {
+          "name": "y_train",
+          "tags": [
+            "TARGET",
+            "TRAIN_SPLIT"
+          ]
+        }
+      ],
+      "ghost": false,
+      "dynamic": false,
+      "confidence": 0.95,
+      "confidenceBucket": "certain",
+      "issueIds": [
+        "i:f0af34c14888"
+      ],
+      "collapsedByDefault": false,
+      "stageEvidence": [
+        {
+          "kind": "knowledge_table",
+          "detail": "sklearn.model_selection.cross_val_score -> eval",
+          "weight": 1.0
+        }
+      ]
+    },
+    {
+      "id": "n:5f3e530003c1",
+      "kind": "metric",
+      "level": "op",
+      "stage": "eval",
+      "label": "holdout",
+      "sublabel": "accuracy_score",
+      "qualname": "sklearn_baseline.baseline.holdout",
+      "fqn": "sklearn.metrics.accuracy_score",
+      "framework": "sklearn",
+      "var": "holdout",
+      "loc": {
+        "file": "sklearn_baseline.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "line": 36,
+        "col": 14,
+        "endLine": 36,
+        "endCol": 61,
+        "symbol": "accuracy_score",
+        "snippet": "    holdout = accuracy_score(y_test, clf.predict(X_test_pca))"
+      },
+      "parent": "n:55a674d1b10e",
+      "attrs": {},
+      "produces": [
+        {
+          "name": "holdout",
+          "tags": []
+        }
+      ],
+      "consumes": [
+        {
+          "name": "y_test",
+          "tags": [
+            "TARGET",
+            "TEST_SPLIT"
+          ]
+        }
+      ],
+      "ghost": false,
+      "dynamic": false,
+      "confidence": 0.95,
+      "confidenceBucket": "certain",
+      "issueIds": [],
+      "collapsedByDefault": false,
+      "stageEvidence": [
+        {
+          "kind": "knowledge_table",
+          "detail": "sklearn.metrics.accuracy_score -> eval",
+          "weight": 1.0
+        }
+      ]
+    },
+    {
+      "id": "n:8aa790dcc27a",
+      "kind": "predict",
+      "level": "op",
+      "stage": "eval",
+      "label": "predict()",
+      "qualname": "sklearn_baseline.baseline.predict",
+      "fqn": "sklearn.base.BaseEstimator.predict",
+      "framework": "sklearn",
+      "loc": {
+        "file": "sklearn_baseline.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "line": 36,
+        "col": 37,
+        "endLine": 36,
+        "endCol": 60,
+        "symbol": "clf.predict",
+        "snippet": "    holdout = accuracy_score(y_test, clf.predict(X_test_pca))"
+      },
+      "parent": "n:55a674d1b10e",
+      "attrs": {},
+      "produces": [],
+      "consumes": [
+        {
+          "name": "clf",
+          "tags": [
+            "FITTED_TRANSFORMER",
+            "MODEL"
+          ]
+        },
+        {
+          "name": "X_test_pca",
+          "tags": [
+            "FEATURES",
+            "TEST_SPLIT"
+          ]
+        }
+      ],
+      "ghost": false,
+      "dynamic": false,
+      "confidence": 0.85,
+      "confidenceBucket": "likely",
+      "issueIds": [],
+      "collapsedByDefault": false,
+      "stageEvidence": [
+        {
+          "kind": "knowledge_table",
+          "detail": "sklearn.base.BaseEstimator.predict -> eval",
+          "weight": 1.0
+        },
+        {
+          "kind": "fqn_resolved",
+          "detail": "receiver clf resolved to sklearn.base.BaseEstimator.predict",
+          "weight": 0.9
+        }
+      ]
+    },
+    {
+      "id": "n:96f075118291",
+      "kind": "eval_loop",
+      "level": "stage",
+      "stage": "eval",
+      "label": "validate()",
+      "qualname": "train.validate",
+      "loc": {
+        "file": "train.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "line": 41,
+        "col": 0,
+        "endLine": 49,
+        "endCol": 34,
+        "symbol": "def validate",
+        "snippet": "def validate(model: SmallCNN, loader) -> float:"
+      },
+      "defLoc": {
+        "file": "train.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "line": 41,
+        "col": 0,
+        "endLine": 49,
+        "endCol": 34,
+        "symbol": "def validate",
+        "snippet": "def validate(model: SmallCNN, loader) -> float:"
+      },
+      "parent": null,
+      "attrs": {},
+      "produces": [],
+      "consumes": [],
+      "ghost": false,
+      "dynamic": false,
+      "confidence": 0.95,
+      "confidenceBucket": "certain",
+      "issueIds": [],
+      "collapsedByDefault": false,
+      "stageEvidence": [
+        {
+          "kind": "knowledge_table",
+          "detail": "op stage votes: eval=0.5",
+          "weight": 1.0
+        }
+      ]
+    },
+    {
+      "id": "n:5061360697f9",
+      "kind": "model",
+      "level": "op",
+      "stage": "eval",
+      "label": "model.eval()",
+      "sublabel": "missing",
+      "qualname": "train.validate.batch_loop.__ghost_model_eval",
+      "fqn": "torch.nn.Module.eval",
+      "loc": {
+        "file": "train.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "line": 44,
+        "col": 4,
+        "endLine": 48,
+        "endCol": 31,
+        "symbol": "for images, labels in loader",
+        "snippet": "    for images, labels in loader:"
+      },
+      "parent": "n:e37b3b62a066",
+      "attrs": {},
+      "produces": [],
+      "consumes": [],
+      "ghost": true,
+      "dynamic": false,
+      "confidence": 0.9,
+      "confidenceBucket": "certain",
+      "issueIds": [
+        "i:d605e46c6328"
+      ],
+      "collapsedByDefault": false,
+      "stageEvidence": [
+        {
+          "kind": "context_confirmed",
+          "detail": "ghost slot for MLV301",
+          "weight": 1.0
+        }
+      ]
+    },
+    {
+      "id": "n:e37b3b62a066",
+      "kind": "eval_loop",
+      "level": "unit",
+      "stage": "eval",
+      "label": "for images, labels in loader",
+      "sublabel": "batch loop · depth 1",
+      "qualname": "train.validate.batch_loop",
+      "loc": {
+        "file": "train.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "line": 44,
+        "col": 4,
+        "endLine": 48,
+        "endCol": 31,
+        "symbol": "for images, labels in loader",
+        "snippet": "    for images, labels in loader:"
+      },
+      "parent": "n:96f075118291",
+      "attrs": {
+        "depth": "1",
+        "insideAutocast": "false",
+        "insideNoGrad": "false",
+        "iterates": "loader",
+        "loopKind": "batch"
+      },
+      "produces": [],
+      "consumes": [
+        {
+          "name": "loader",
+          "tags": [
+            "VAL_SPLIT",
+            "LOADER"
+          ]
+        }
+      ],
+      "ghost": false,
+      "dynamic": false,
+      "confidence": 0.95,
+      "confidenceBucket": "certain",
+      "issueIds": [
+        "i:3dd6396d4b4c",
+        "i:d605e46c6328"
+      ],
+      "collapsedByDefault": false,
+      "stageEvidence": [
+        {
+          "kind": "context_confirmed",
+          "detail": "batch loop over loader",
+          "weight": 1.0
+        },
+        {
+          "kind": "context_confirmed",
+          "detail": "iterates a LOADER-tagged value",
+          "weight": 0.9
+        },
+        {
+          "kind": "context_confirmed",
+          "detail": "loop runs under no_grad / eval",
+          "weight": 1.0
+        }
+      ]
+    },
+    {
+      "id": "n:63c37e8ea611",
+      "kind": "metric",
+      "level": "op",
+      "stage": "eval",
+      "label": "preds",
+      "sublabel": "argmax · dim=1",
+      "qualname": "train.validate.preds",
+      "fqn": "torch.Tensor.argmax",
+      "framework": "torch",
+      "var": "preds",
+      "loc": {
+        "file": "train.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "line": 46,
+        "col": 16,
+        "endLine": 46,
+        "endCol": 36,
+        "symbol": "logits.argmax",
+        "snippet": "        preds = logits.argmax(dim=1)"
+      },
+      "parent": "n:e37b3b62a066",
+      "attrs": {
+        "dim": "1"
+      },
+      "produces": [
+        {
+          "name": "preds",
+          "tags": [
+            "PREDS"
+          ]
+        }
+      ],
+      "consumes": [
+        {
+          "name": "logits",
+          "tags": [
+            "LOGITS"
+          ]
+        }
+      ],
+      "ghost": false,
+      "dynamic": false,
+      "confidence": 0.85,
+      "confidenceBucket": "likely",
+      "issueIds": [],
+      "collapsedByDefault": false,
+      "stageEvidence": [
+        {
+          "kind": "knowledge_table",
+          "detail": "torch.Tensor.argmax -> eval",
+          "weight": 1.0
+        },
+        {
+          "kind": "fqn_resolved",
+          "detail": "receiver logits resolved to torch.Tensor.argmax",
+          "weight": 0.9
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "id": "e:65940c9bc1f2",
+      "kind": "data",
+      "source": "n:096816f94864",
+      "target": "n:6d794bda1b23",
+      "label": "loss",
+      "loc": {
+        "file": "train.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "line": 32,
+        "col": 12,
+        "endLine": 32,
+        "endCol": 27,
+        "symbol": "loss.backward",
+        "snippet": "            loss.backward()"
+      },
+      "tags": [
+        "LOSS"
+      ],
+      "confidence": 0.85,
+      "issueIds": []
+    },
+    {
+      "id": "e:8f8c45b7c89c",
+      "kind": "control",
+      "subkind": "back",
+      "source": "n:0d44692ef659",
+      "target": "n:f50f0f38c0ea",
+      "label": "next batch",
+      "loc": {
+        "file": "train.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "line": 29,
+        "col": 8,
+        "endLine": 34,
+        "endCol": 32,
+        "symbol": "for images, labels in train_loader",
+        "snippet": "        for images, labels in train_loader:"
+      },
+      "tags": [],
+      "confidence": 0.99,
+      "issueIds": []
+    },
+    {
+      "id": "e:d758edea2713",
+      "kind": "data",
+      "source": "n:20099151128c",
+      "target": "n:bea1406bd1c1",
+      "label": "test_ds",
+      "loc": {
+        "file": "data.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+        "line": 35,
+        "col": 25,
+        "endLine": 35,
+        "endCol": 32,
+        "symbol": "test_ds",
+        "snippet": "test_loader = DataLoader(test_ds, batch_size=EVAL_BATCH_SIZE, shuffle=True)"
+      },
+      "tags": [
+        "RAW_DATA",
+        "TEST_SPLIT"
+      ],
+      "confidence": 0.9,
+      "issueIds": []
+    },
+    {
+      "id": "e:24771294b938",
+      "kind": "data",
+      "source": "n:2a2bc53dd1c4",
+      "target": "n:20099151128c",
+      "label": "EVAL_TRANSFORM",
+      "loc": {
+        "file": "data.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+        "line": 29,
+        "col": 49,
+        "endLine": 29,
+        "endCol": 63,
+        "symbol": "EVAL_TRANSFORM",
+        "snippet": "                                       transform=EVAL_TRANSFORM)"
+      },
+      "tags": [],
+      "confidence": 0.9,
+      "issueIds": []
+    },
+    {
+      "id": "e:562473a47f00",
+      "kind": "data",
+      "source": "n:2f9e734caf91",
+      "target": "n:33beab42a6af",
+      "label": "X_train_pca",
+      "loc": {
+        "file": "sklearn_baseline.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "line": 35,
+        "col": 12,
+        "endLine": 35,
+        "endCol": 23,
+        "symbol": "X_train_pca",
+        "snippet": "    clf.fit(X_train_pca, y_train)"
+      },
+      "tags": [
+        "FEATURES",
+        "TRAIN_SPLIT"
+      ],
+      "confidence": 0.9,
+      "issueIds": []
+    },
+    {
+      "id": "e:c918a85b0c68",
+      "kind": "data",
+      "source": "n:2f9e734caf91",
+      "target": "n:50da266549be",
+      "label": "X_train_pca",
+      "loc": {
+        "file": "sklearn_baseline.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "line": 34,
+        "col": 34,
+        "endLine": 34,
+        "endCol": 45,
+        "symbol": "X_train_pca",
+        "snippet": "    scores = cross_val_score(clf, X_train_pca, y_train, cv=CV_FOLDS)"
+      },
+      "tags": [
+        "FEATURES",
+        "TRAIN_SPLIT"
+      ],
+      "confidence": 0.9,
+      "issueIds": []
+    },
+    {
+      "id": "e:3c433fb23f2f",
+      "kind": "data",
+      "source": "n:39c20778c3cb",
+      "target": "n:81ba8f7992dc",
+      "label": "scaler",
+      "loc": {
+        "file": "sklearn_baseline.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "line": 24,
+        "col": 15,
+        "endLine": 24,
+        "endCol": 38,
+        "symbol": "scaler.fit_transform",
+        "snippet": "    X_scaled = scaler.fit_transform(X)"
+      },
+      "tags": [
+        "FITTED_TRANSFORMER"
+      ],
+      "confidence": 0.85,
+      "issueIds": []
+    },
+    {
+      "id": "e:f90f03a8a3d4",
+      "kind": "call",
+      "source": "n:3e1a658e7bad",
+      "target": "n:c07d62f5a608",
+      "label": "ConvBlock()",
+      "loc": {
+        "file": "model.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/model.py",
+        "line": 34,
+        "col": 23,
+        "endLine": 34,
+        "endCol": 46,
+        "symbol": "ConvBlock",
+        "snippet": "        self.blocks = [ConvBlock(width, width) for _ in range(depth)]"
+      },
+      "tags": [],
+      "confidence": 0.95,
+      "issueIds": []
+    },
+    {
+      "id": "e:dd953a1babd4",
+      "kind": "data",
+      "source": "n:3e1a658e7bad",
+      "target": "n:034d65913362",
+      "label": "model",
+      "loc": {
+        "file": "train.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "line": 27,
+        "col": 4,
+        "endLine": 27,
+        "endCol": 17,
+        "symbol": "model.train",
+        "snippet": "    model.train()"
+      },
+      "tags": [
+        "MODEL"
+      ],
+      "confidence": 0.85,
+      "issueIds": []
+    },
+    {
+      "id": "e:be0648ecd817",
+      "kind": "data",
+      "source": "n:3e1a658e7bad",
+      "target": "n:096816f94864",
+      "label": "logits",
+      "loc": {
+        "file": "train.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "line": 31,
+        "col": 29,
+        "endLine": 31,
+        "endCol": 35,
+        "symbol": "logits",
+        "snippet": "            loss = criterion(logits, labels)"
+      },
+      "tags": [
+        "LOGITS"
+      ],
+      "confidence": 0.9,
+      "issueIds": [
+        "i:da22948c4710"
+      ]
+    },
+    {
+      "id": "e:11ec2cf0e13f",
+      "kind": "data",
+      "source": "n:3e1a658e7bad",
+      "target": "n:63c37e8ea611",
+      "label": "logits",
+      "loc": {
+        "file": "train.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "line": 46,
+        "col": 16,
+        "endLine": 46,
+        "endCol": 36,
+        "symbol": "logits.argmax",
+        "snippet": "        preds = logits.argmax(dim=1)"
+      },
+      "tags": [
+        "LOGITS"
+      ],
+      "confidence": 0.85,
+      "issueIds": []
+    },
+    {
+      "id": "e:80e8953c5856",
+      "kind": "data",
+      "source": "n:3e1a658e7bad",
+      "target": "n:96f075118291",
+      "label": "model",
+      "loc": {
+        "file": "train.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "line": 35,
+        "col": 28,
+        "endLine": 35,
+        "endCol": 33,
+        "symbol": "model",
+        "snippet": "        accuracy = validate(model, val_loader)"
+      },
+      "tags": [
+        "MODEL"
+      ],
+      "confidence": 0.9,
+      "issueIds": []
+    },
+    {
+      "id": "e:0e98533a5c5c",
+      "kind": "data",
+      "source": "n:3e1a658e7bad",
+      "target": "n:e4eafb169acc",
+      "label": "parameters",
+      "loc": {
+        "file": "train.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "line": 23,
+        "col": 27,
+        "endLine": 23,
+        "endCol": 45,
+        "symbol": "model.parameters",
+        "snippet": "    optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE,"
+      },
+      "tags": [],
+      "confidence": 0.9,
+      "issueIds": []
+    },
+    {
+      "id": "e:9f3e024049be",
+      "kind": "data",
+      "source": "n:549c65db0c23",
+      "target": "n:2f9e734caf91",
+      "label": "pca",
+      "loc": {
+        "file": "sklearn_baseline.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "line": 30,
+        "col": 18,
+        "endLine": 30,
+        "endCol": 44,
+        "symbol": "pca.fit_transform",
+        "snippet": "    X_train_pca = pca.fit_transform(X_train)"
+      },
+      "tags": [
+        "FITTED_TRANSFORMER"
+      ],
+      "confidence": 0.85,
+      "issueIds": []
+    },
+    {
+      "id": "e:09cfd72d2dbb",
+      "kind": "data",
+      "source": "n:549c65db0c23",
+      "target": "n:66d0c5baa3ee",
+      "label": "pca",
+      "loc": {
+        "file": "sklearn_baseline.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "line": 31,
+        "col": 17,
+        "endLine": 31,
+        "endCol": 38,
+        "symbol": "pca.transform",
+        "snippet": "    X_test_pca = pca.transform(X_test)"
+      },
+      "tags": [
+        "FITTED_TRANSFORMER"
+      ],
+      "confidence": 0.85,
+      "issueIds": []
+    },
+    {
+      "id": "e:38ce8193fe7a",
+      "kind": "data",
+      "source": "n:55662bceebd0",
+      "target": "n:2f9e734caf91",
+      "label": "X_train",
+      "loc": {
+        "file": "sklearn_baseline.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "line": 30,
+        "col": 36,
+        "endLine": 30,
+        "endCol": 43,
+        "symbol": "X_train",
+        "snippet": "    X_train_pca = pca.fit_transform(X_train)"
+      },
+      "tags": [
+        "FEATURES",
+        "TRAIN_SPLIT"
+      ],
+      "confidence": 0.9,
+      "issueIds": []
+    },
+    {
+      "id": "e:c1a89c115575",
+      "kind": "data",
+      "source": "n:55662bceebd0",
+      "target": "n:33beab42a6af",
+      "label": "y_train",
+      "loc": {
+        "file": "sklearn_baseline.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "line": 35,
+        "col": 25,
+        "endLine": 35,
+        "endCol": 32,
+        "symbol": "y_train",
+        "snippet": "    clf.fit(X_train_pca, y_train)"
+      },
+      "tags": [
+        "TARGET",
+        "TRAIN_SPLIT"
+      ],
+      "confidence": 0.9,
+      "issueIds": []
+    },
+    {
+      "id": "e:65c4b46ea114",
+      "kind": "data",
+      "source": "n:55662bceebd0",
+      "target": "n:50da266549be",
+      "label": "y_train",
+      "loc": {
+        "file": "sklearn_baseline.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "line": 34,
+        "col": 47,
+        "endLine": 34,
+        "endCol": 54,
+        "symbol": "y_train",
+        "snippet": "    scores = cross_val_score(clf, X_train_pca, y_train, cv=CV_FOLDS)"
+      },
+      "tags": [
+        "TARGET",
+        "TRAIN_SPLIT"
+      ],
+      "confidence": 0.9,
+      "issueIds": []
+    },
+    {
+      "id": "e:90ec590a6019",
+      "kind": "data",
+      "source": "n:55662bceebd0",
+      "target": "n:5f3e530003c1",
+      "label": "y_test",
+      "loc": {
+        "file": "sklearn_baseline.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "line": 36,
+        "col": 29,
+        "endLine": 36,
+        "endCol": 35,
+        "symbol": "y_test",
+        "snippet": "    holdout = accuracy_score(y_test, clf.predict(X_test_pca))"
+      },
+      "tags": [
+        "TARGET",
+        "TEST_SPLIT"
+      ],
+      "confidence": 0.9,
+      "issueIds": []
+    },
+    {
+      "id": "e:f37ec1a2e7c0",
+      "kind": "data",
+      "source": "n:55662bceebd0",
+      "target": "n:66d0c5baa3ee",
+      "label": "X_test",
+      "loc": {
+        "file": "sklearn_baseline.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "line": 31,
+        "col": 31,
+        "endLine": 31,
+        "endCol": 37,
+        "symbol": "X_test",
+        "snippet": "    X_test_pca = pca.transform(X_test)"
+      },
+      "tags": [
+        "FEATURES",
+        "TEST_SPLIT"
+      ],
+      "confidence": 0.9,
+      "issueIds": []
+    },
+    {
+      "id": "e:0f66f54a51b8",
+      "kind": "data",
+      "source": "n:5a3c24196768",
+      "target": "n:3e1a658e7bad",
+      "label": "device",
+      "loc": {
+        "file": "train.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "line": 21,
+        "col": 13,
+        "endLine": 21,
+        "endCol": 19,
+        "symbol": "device",
+        "snippet": "    model.to(device)"
+      },
+      "tags": [
+        "DEVICE"
+      ],
+      "confidence": 0.9,
+      "issueIds": []
+    },
+    {
+      "id": "e:75cb1c81a315",
+      "kind": "control",
+      "subkind": "back",
+      "source": "n:63c37e8ea611",
+      "target": "n:e37b3b62a066",
+      "label": "next batch",
+      "loc": {
+        "file": "train.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "line": 44,
+        "col": 4,
+        "endLine": 48,
+        "endCol": 31,
+        "symbol": "for images, labels in loader",
+        "snippet": "    for images, labels in loader:"
+      },
+      "tags": [],
+      "confidence": 0.99,
+      "issueIds": []
+    },
+    {
+      "id": "e:b2a4fc1af9a6",
+      "kind": "data",
+      "source": "n:66d0c5baa3ee",
+      "target": "n:8aa790dcc27a",
+      "label": "X_test_pca",
+      "loc": {
+        "file": "sklearn_baseline.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "line": 36,
+        "col": 49,
+        "endLine": 36,
+        "endCol": 59,
+        "symbol": "X_test_pca",
+        "snippet": "    holdout = accuracy_score(y_test, clf.predict(X_test_pca))"
+      },
+      "tags": [
+        "FEATURES",
+        "TEST_SPLIT"
+      ],
+      "confidence": 0.9,
+      "issueIds": []
+    },
+    {
+      "id": "e:3b3705186dbd",
+      "kind": "data",
+      "source": "n:788c3b237e70",
+      "target": "n:f50f0f38c0ea",
+      "label": "train_loader",
+      "loc": {
+        "file": "train.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "line": 29,
+        "col": 30,
+        "endLine": 29,
+        "endCol": 42,
+        "symbol": "train_loader",
+        "snippet": "        for images, labels in train_loader:"
+      },
+      "tags": [
+        "TRAIN_SPLIT",
+        "LOADER"
+      ],
+      "confidence": 0.9,
+      "issueIds": []
+    },
+    {
+      "id": "e:2511aaccf533",
+      "kind": "data",
+      "source": "n:7d060e7d6f54",
+      "target": "n:96f075118291",
+      "label": "val_loader",
+      "loc": {
+        "file": "train.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "line": 35,
+        "col": 35,
+        "endLine": 35,
+        "endCol": 45,
+        "symbol": "val_loader",
+        "snippet": "        accuracy = validate(model, val_loader)"
+      },
+      "tags": [
+        "VAL_SPLIT",
+        "LOADER"
+      ],
+      "confidence": 0.9,
+      "issueIds": []
+    },
+    {
+      "id": "e:181fe13af388",
+      "kind": "data",
+      "source": "n:7d060e7d6f54",
+      "target": "n:e37b3b62a066",
+      "label": "loader",
+      "loc": {
+        "file": "train.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "line": 44,
+        "col": 26,
+        "endLine": 44,
+        "endCol": 32,
+        "symbol": "loader",
+        "snippet": "    for images, labels in loader:"
+      },
+      "tags": [
+        "VAL_SPLIT",
+        "LOADER"
+      ],
+      "confidence": 0.9,
+      "issueIds": []
+    },
+    {
+      "id": "e:4ea858104788",
+      "kind": "data",
+      "source": "n:7e635cb90004",
+      "target": "n:cb660849f937",
+      "label": "full_train",
+      "loc": {
+        "file": "data.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+        "line": 31,
+        "col": 32,
+        "endLine": 31,
+        "endCol": 42,
+        "symbol": "full_train",
+        "snippet": "train_ds, val_ds = random_split(full_train, [TRAIN_SIZE, VAL_SIZE])"
+      },
+      "tags": [
+        "RAW_DATA"
+      ],
+      "confidence": 0.9,
+      "issueIds": []
+    },
+    {
+      "id": "e:47ad8c0fb4a5",
+      "kind": "data",
+      "source": "n:81ba8f7992dc",
+      "target": "n:55662bceebd0",
+      "label": "X_scaled",
+      "loc": {
+        "file": "sklearn_baseline.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "line": 27,
+        "col": 8,
+        "endLine": 27,
+        "endCol": 16,
+        "symbol": "X_scaled",
+        "snippet": "        X_scaled, y, test_size=TEST_FRACTION)"
+      },
+      "tags": [
+        "RAW_DATA",
+        "FEATURES"
+      ],
+      "confidence": 0.9,
+      "issueIds": []
+    },
+    {
+      "id": "e:8d0bc363f004",
+      "kind": "data",
+      "source": "n:8aa790dcc27a",
+      "target": "n:5f3e530003c1",
+      "label": "predict",
+      "loc": {
+        "file": "sklearn_baseline.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "line": 36,
+        "col": 37,
+        "endLine": 36,
+        "endCol": 60,
+        "symbol": "clf.predict",
+        "snippet": "    holdout = accuracy_score(y_test, clf.predict(X_test_pca))"
+      },
+      "tags": [],
+      "confidence": 0.9,
+      "issueIds": []
+    },
+    {
+      "id": "e:1e3cdd8575e9",
+      "kind": "control",
+      "subkind": "enter",
+      "source": "n:96f075118291",
+      "target": "n:e37b3b62a066",
+      "label": "enter batch loop",
+      "loc": {
+        "file": "train.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "line": 44,
+        "col": 4,
+        "endLine": 48,
+        "endCol": 31,
+        "symbol": "for images, labels in loader",
+        "snippet": "    for images, labels in loader:"
+      },
+      "tags": [],
+      "confidence": 0.99,
+      "issueIds": []
+    },
+    {
+      "id": "e:4e326395fcaf",
+      "kind": "data",
+      "source": "n:a7202a44813b",
+      "target": "n:33beab42a6af",
+      "label": "clf",
+      "loc": {
+        "file": "sklearn_baseline.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "line": 35,
+        "col": 4,
+        "endLine": 35,
+        "endCol": 33,
+        "symbol": "clf.fit",
+        "snippet": "    clf.fit(X_train_pca, y_train)"
+      },
+      "tags": [
+        "FITTED_TRANSFORMER",
+        "MODEL"
+      ],
+      "confidence": 0.85,
+      "issueIds": []
+    },
+    {
+      "id": "e:994d1bd0dd01",
+      "kind": "data",
+      "source": "n:a7202a44813b",
+      "target": "n:50da266549be",
+      "label": "clf",
+      "loc": {
+        "file": "sklearn_baseline.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "line": 34,
+        "col": 29,
+        "endLine": 34,
+        "endCol": 32,
+        "symbol": "clf",
+        "snippet": "    scores = cross_val_score(clf, X_train_pca, y_train, cv=CV_FOLDS)"
+      },
+      "tags": [
+        "FITTED_TRANSFORMER",
+        "MODEL"
+      ],
+      "confidence": 0.9,
+      "issueIds": []
+    },
+    {
+      "id": "e:cd1b5955a54e",
+      "kind": "data",
+      "source": "n:a7202a44813b",
+      "target": "n:8aa790dcc27a",
+      "label": "clf",
+      "loc": {
+        "file": "sklearn_baseline.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "line": 36,
+        "col": 37,
+        "endLine": 36,
+        "endCol": 60,
+        "symbol": "clf.predict",
+        "snippet": "    holdout = accuracy_score(y_test, clf.predict(X_test_pca))"
+      },
+      "tags": [
+        "FITTED_TRANSFORMER",
+        "MODEL"
+      ],
+      "confidence": 0.85,
+      "issueIds": []
+    },
+    {
+      "id": "e:ff637d4d0d5c",
+      "kind": "data",
+      "source": "n:bd90f63fbb7d",
+      "target": "n:7e635cb90004",
+      "label": "TRAIN_TRANSFORM",
+      "loc": {
+        "file": "data.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+        "line": 27,
+        "col": 52,
+        "endLine": 27,
+        "endCol": 67,
+        "symbol": "TRAIN_TRANSFORM",
+        "snippet": "                                          transform=TRAIN_TRANSFORM)"
+      },
+      "tags": [],
+      "confidence": 0.9,
+      "issueIds": []
+    },
+    {
+      "id": "e:89f2166abbac",
+      "kind": "data",
+      "source": "n:cb660849f937",
+      "target": "n:788c3b237e70",
+      "label": "train_ds",
+      "loc": {
+        "file": "data.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+        "line": 33,
+        "col": 26,
+        "endLine": 33,
+        "endCol": 34,
+        "symbol": "train_ds",
+        "snippet": "train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, num_workers=NUM_WORKERS)"
+      },
+      "tags": [
+        "RAW_DATA",
+        "TRAIN_SPLIT"
+      ],
+      "confidence": 0.9,
+      "issueIds": []
+    },
+    {
+      "id": "e:07526b13532e",
+      "kind": "data",
+      "source": "n:cb660849f937",
+      "target": "n:7d060e7d6f54",
+      "label": "val_ds",
+      "loc": {
+        "file": "data.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+        "line": 34,
+        "col": 24,
+        "endLine": 34,
+        "endCol": 30,
+        "symbol": "val_ds",
+        "snippet": "val_loader = DataLoader(val_ds, batch_size=EVAL_BATCH_SIZE, shuffle=False)"
+      },
+      "tags": [
+        "RAW_DATA",
+        "VAL_SPLIT"
+      ],
+      "confidence": 0.9,
+      "issueIds": []
+    },
+    {
+      "id": "e:b4488eb78293",
+      "kind": "call",
+      "source": "n:d823ac437adc",
+      "target": "n:96f075118291",
+      "label": "validate()",
+      "loc": {
+        "file": "train.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "line": 35,
+        "col": 19,
+        "endLine": 35,
+        "endCol": 46,
+        "symbol": "validate",
+        "snippet": "        accuracy = validate(model, val_loader)"
+      },
+      "tags": [],
+      "confidence": 0.95,
+      "issueIds": []
+    },
+    {
+      "id": "e:0470e2348dfc",
+      "kind": "control",
+      "subkind": "enter",
+      "source": "n:d823ac437adc",
+      "target": "n:f50f0f38c0ea",
+      "label": "enter batch loop",
+      "loc": {
+        "file": "train.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "line": 29,
+        "col": 8,
+        "endLine": 34,
+        "endCol": 32,
+        "symbol": "for images, labels in train_loader",
+        "snippet": "        for images, labels in train_loader:"
+      },
+      "tags": [],
+      "confidence": 0.99,
+      "issueIds": []
+    },
+    {
+      "id": "e:0bb8df95cdac",
+      "kind": "data",
+      "source": "n:e37b3b62a066",
+      "target": "n:3e1a658e7bad",
+      "label": "images",
+      "loc": {
+        "file": "train.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "line": 45,
+        "col": 23,
+        "endLine": 45,
+        "endCol": 29,
+        "symbol": "images",
+        "snippet": "        logits = model(images)"
+      },
+      "tags": [],
+      "confidence": 0.9,
+      "issueIds": []
+    },
+    {
+      "id": "e:5a84172c42be",
+      "kind": "data",
+      "source": "n:e4eafb169acc",
+      "target": "n:0d44692ef659",
+      "label": "optimizer",
+      "loc": {
+        "file": "train.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "line": 33,
+        "col": 12,
+        "endLine": 33,
+        "endCol": 28,
+        "symbol": "optimizer.step",
+        "snippet": "            optimizer.step()"
+      },
+      "tags": [
+        "OPTIMIZER"
+      ],
+      "confidence": 0.85,
+      "issueIds": []
+    },
+    {
+      "id": "e:5e1beaef97f0",
+      "kind": "call",
+      "source": "n:ec0fae6f55a7",
+      "target": "n:3e1a658e7bad",
+      "label": "SmallCNN()",
+      "loc": {
+        "file": "train.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "line": 20,
+        "col": 12,
+        "endLine": 20,
+        "endCol": 22,
+        "symbol": "SmallCNN",
+        "snippet": "    model = SmallCNN()"
+      },
+      "tags": [],
+      "confidence": 0.95,
+      "issueIds": []
+    },
+    {
+      "id": "e:238d4dda05db",
+      "kind": "control",
+      "subkind": "enter",
+      "source": "n:ec0fae6f55a7",
+      "target": "n:d823ac437adc",
+      "label": "enter epoch loop",
+      "loc": {
+        "file": "train.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "line": 28,
+        "col": 4,
+        "endLine": 37,
+        "endCol": 68,
+        "symbol": "for epoch in range(EPOCHS)",
+        "snippet": "    for epoch in range(EPOCHS):"
+      },
+      "tags": [],
+      "confidence": 0.99,
+      "issueIds": []
+    },
+    {
+      "id": "e:ad932321d1d7",
+      "kind": "control",
+      "subkind": "back",
+      "source": "n:f50f0f38c0ea",
+      "target": "n:d823ac437adc",
+      "label": "next epoch",
+      "loc": {
+        "file": "train.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "line": 28,
+        "col": 4,
+        "endLine": 37,
+        "endCol": 68,
+        "symbol": "for epoch in range(EPOCHS)",
+        "snippet": "    for epoch in range(EPOCHS):"
+      },
+      "tags": [],
+      "confidence": 0.99,
+      "issueIds": []
+    },
+    {
+      "id": "e:da569a37b10e",
+      "kind": "data",
+      "source": "n:f50f0f38c0ea",
+      "target": "n:096816f94864",
+      "label": "labels",
+      "loc": {
+        "file": "train.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "line": 31,
+        "col": 37,
+        "endLine": 31,
+        "endCol": 43,
+        "symbol": "labels",
+        "snippet": "            loss = criterion(logits, labels)"
+      },
+      "tags": [],
+      "confidence": 0.9,
+      "issueIds": []
+    },
+    {
+      "id": "e:e232272f3e64",
+      "kind": "data",
+      "source": "n:f50f0f38c0ea",
+      "target": "n:3e1a658e7bad",
+      "label": "images",
+      "loc": {
+        "file": "train.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "line": 30,
+        "col": 27,
+        "endLine": 30,
+        "endCol": 33,
+        "symbol": "images",
+        "snippet": "            logits = model(images)"
+      },
+      "tags": [],
+      "confidence": 0.9,
+      "issueIds": []
+    }
+  ],
+  "issues": [
+    {
+      "id": "i:c16a18404ac2",
+      "code": "MLV702",
+      "ruleVersion": 1,
+      "severity": "high",
+      "confidence": 0.95,
+      "confidenceBucket": "certain",
+      "title": "Submodules held in a plain list are never registered",
+      "message": "self.blocks is a plain list comprehension of model.ConvBlock (line 34), so none of the submodules it builds is registered on SmallCNN.",
+      "why": "A plain list is invisible to nn.Module, so those layers never appear in parameters(), the optimizer never updates them and .to(device) leaves them behind - the network trains with most of itself frozen.",
+      "fixHint": "Wrap the container in nn.ModuleList([...]) or nn.ModuleDict({...}) so the submodules are registered as children.",
+      "loc": {
+        "file": "model.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/model.py",
+        "line": 34,
+        "col": 8,
+        "endLine": 34,
+        "endCol": 69,
+        "symbol": "self.blocks = [ConvBlock(width, width) for _ in range(depth)]",
+        "snippet": "        self.blocks = [ConvBlock(width, width) for _ in range(depth)]"
+      },
+      "relatedLocs": [
+        {
+          "role": "construction",
+          "message": "model.ConvBlock built here",
+          "file": "model.py",
+          "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/model.py",
+          "line": 34,
+          "col": 23,
+          "endLine": 34,
+          "endCol": 46,
+          "symbol": "ConvBlock",
+          "snippet": "        self.blocks = [ConvBlock(width, width) for _ in range(depth)]"
+        },
+        {
+          "role": "definition",
+          "message": "class SmallCNN",
+          "file": "model.py",
+          "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/model.py",
+          "line": 27,
+          "col": 0,
+          "endLine": 43,
+          "endCol": 45,
+          "symbol": "class SmallCNN",
+          "snippet": "class SmallCNN(nn.Module):"
+        }
+      ],
+      "nodeIds": [
+        "n:3e1a658e7bad"
+      ],
+      "edgeIds": [],
+      "stage": "model",
+      "frameworks": [
+        "torch"
+      ],
+      "tags": [
+        "correctness",
+        "model"
+      ],
+      "evidence": [
+        {
+          "kind": "class_base",
+          "detail": "SmallCNN resolves to torch.nn.Module",
+          "weight": 1.0
+        },
+        {
+          "kind": "fqn_resolved",
+          "detail": "ConvBlock resolves to model.ConvBlock",
+          "weight": 1.0
+        },
+        {
+          "kind": "negation_absent",
+          "detail": "the list comprehension is not wrapped in nn.ModuleList / nn.ModuleDict / nn.Sequential",
+          "weight": 1.0
+        },
+        {
+          "kind": "scope_static",
+          "detail": "no dynamic constructs in model.SmallCNN",
+          "weight": 1.0
+        }
+      ],
+      "suppressed": false,
+      "docs": "docs/rules/MLV702.md"
+    },
+    {
+      "id": "i:98a0f3d7f803",
+      "code": "MLV101",
+      "ruleVersion": 1,
+      "severity": "high",
+      "confidence": 0.95,
+      "confidenceBucket": "certain",
+      "title": "Preprocessing fitted before the train/test split",
+      "message": "scaler.fit_transform() is fitted on X at sklearn_baseline.py:24, before train_test_split splits it at line 26, so the transformer sees the held-out rows.",
+      "why": "Statistics from the test rows leak into training, so the reported test performance is optimistic and does not survive deployment.",
+      "fixHint": "Split first, then fit_transform on the training rows and transform the rest - or put the transformer and estimator in a sklearn Pipeline.",
+      "loc": {
+        "file": "sklearn_baseline.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "line": 24,
+        "col": 15,
+        "endLine": 24,
+        "endCol": 38,
+        "symbol": "scaler.fit_transform",
+        "snippet": "    X_scaled = scaler.fit_transform(X)"
+      },
+      "relatedLocs": [
+        {
+          "role": "fit_site",
+          "message": "fitted on the full dataset here",
+          "file": "sklearn_baseline.py",
+          "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+          "line": 24,
+          "col": 15,
+          "endLine": 24,
+          "endCol": 38,
+          "symbol": "scaler.fit_transform",
+          "snippet": "    X_scaled = scaler.fit_transform(X)"
+        },
+        {
+          "role": "split_site",
+          "message": "split happens later, at line 26",
+          "file": "sklearn_baseline.py",
+          "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+          "line": 26,
+          "col": 39,
+          "endLine": 27,
+          "endCol": 45,
+          "symbol": "train_test_split",
+          "snippet": "    X_train, X_test, y_train, y_test = train_test_split("
+        }
+      ],
+      "nodeIds": [
+        "n:81ba8f7992dc",
+        "n:55662bceebd0"
+      ],
+      "edgeIds": [],
+      "stage": "preprocess",
+      "frameworks": [
+        "sklearn",
+        "pandas"
+      ],
+      "tags": [
+        "leakage",
+        "preprocess"
+      ],
+      "evidence": [
+        {
+          "kind": "fqn_resolved",
+          "detail": "sklearn.base.BaseEstimator.fit_transform resolved through the import table",
+          "weight": 1.0
+        },
+        {
+          "kind": "dataflow_direct",
+          "detail": "X flows into train_test_split at line 26",
+          "weight": 1.0
+        },
+        {
+          "kind": "scope_static",
+          "detail": "no dynamic constructs in sklearn_baseline.baseline",
+          "weight": 1.0
+        }
+      ],
+      "suppressed": false,
+      "docs": "docs/rules/MLV101.md"
+    },
+    {
+      "id": "i:e8f316f327ef",
+      "code": "MLV201",
+      "ruleVersion": 1,
+      "severity": "high",
+      "confidence": 0.9,
+      "confidenceBucket": "certain",
+      "title": "Gradients are never zeroed",
+      "message": "The batch loop at train.py:29 calls loss.backward() (line 32) and optimizer.step() (line 33) but never zero_grad(). Gradients accumulate across batches.",
+      "why": "Accumulated gradients make each update the sum of all previous batches, so training diverges or converges to the wrong place - silently.",
+      "fixHint": "Call optimizer.zero_grad(set_to_none=True) as the first statement of the training step, before the forward pass.",
+      "loc": {
+        "file": "train.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "line": 29,
+        "col": 8,
+        "endLine": 34,
+        "endCol": 32,
+        "symbol": "for images, labels in train_loader",
+        "snippet": "        for images, labels in train_loader:"
+      },
+      "relatedLocs": [
+        {
+          "role": "optimizer_site",
+          "message": "optimizer created here",
+          "file": "train.py",
+          "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+          "line": 23,
+          "col": 16,
+          "endLine": 24,
+          "endCol": 53,
+          "symbol": "optim.Adam",
+          "snippet": "    optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE,"
+        },
+        {
+          "role": "backward_site",
+          "message": "backward here",
+          "file": "train.py",
+          "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+          "line": 32,
+          "col": 12,
+          "endLine": 32,
+          "endCol": 27,
+          "symbol": "loss.backward",
+          "snippet": "            loss.backward()"
+        }
+      ],
+      "nodeIds": [
+        "n:462082383e08",
+        "n:f50f0f38c0ea"
+      ],
+      "edgeIds": [],
+      "stage": "train",
+      "frameworks": [
+        "torch"
+      ],
+      "tags": [
+        "correctness",
+        "train-loop"
+      ],
+      "evidence": [
+        {
+          "kind": "fqn_resolved",
+          "detail": "torch.optim.Optimizer.step resolved through the import table",
+          "weight": 1.0
+        },
+        {
+          "kind": "context_confirmed",
+          "detail": "batch loop over train_loader contains backward() and an optimizer step",
+          "weight": 1.0
+        },
+        {
+          "kind": "scope_static",
+          "detail": "no dynamic constructs in train.train",
+          "weight": 1.0
+        },
+        {
+          "kind": "negation_absent",
+          "detail": "no Lightning / HF Trainer / accelerate detected in the workspace",
+          "weight": 1.0
+        }
+      ],
+      "suppressed": false,
+      "docs": "docs/rules/MLV201.md"
+    },
+    {
+      "id": "i:da22948c4710",
+      "code": "MLV401",
+      "ruleVersion": 1,
+      "severity": "high",
+      "confidence": 0.855,
+      "confidenceBucket": "likely",
+      "title": "Softmax applied before CrossEntropyLoss",
+      "message": "The value passed to criterion() at train.py:31 comes from torch.nn.functional.softmax at model.py:43, so the probabilities are log-softmaxed twice.",
+      "why": "CrossEntropyLoss applies log-softmax internally, so a second softmax flattens the gradients and the model trains far worse than it should.",
+      "fixHint": "Return raw logits from forward() and apply softmax only where you need probabilities for reporting.",
+      "loc": {
+        "file": "train.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "line": 31,
+        "col": 19,
+        "endLine": 31,
+        "endCol": 44,
+        "symbol": "criterion",
+        "snippet": "            loss = criterion(logits, labels)"
+      },
+      "relatedLocs": [
+        {
+          "role": "final_layer",
+          "message": "torch.nn.functional.softmax applied here",
+          "file": "model.py",
+          "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/model.py",
+          "line": 43,
+          "col": 15,
+          "endLine": 43,
+          "endCol": 45,
+          "symbol": "F.softmax",
+          "snippet": "        return F.softmax(self.head(x), dim=1)"
+        },
+        {
+          "role": "definition",
+          "message": "model class SmallCNN",
+          "file": "model.py",
+          "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/model.py",
+          "line": 27,
+          "col": 0,
+          "endLine": 43,
+          "endCol": 45,
+          "symbol": "class SmallCNN",
+          "snippet": "class SmallCNN(nn.Module):"
+        }
+      ],
+      "nodeIds": [
+        "n:096816f94864",
+        "n:3e1a658e7bad"
+      ],
+      "edgeIds": [
+        "e:be0648ecd817"
+      ],
+      "stage": "objective",
+      "frameworks": [
+        "torch"
+      ],
+      "tags": [
+        "correctness",
+        "objective"
+      ],
+      "evidence": [
+        {
+          "kind": "fqn_resolved",
+          "detail": "torch.nn.Module.__call__ resolved through the import table",
+          "weight": 1.0
+        },
+        {
+          "kind": "dataflow_direct",
+          "detail": "logits reaches the loss input",
+          "weight": 1.0
+        },
+        {
+          "kind": "cross_file",
+          "detail": "model defined in model.py",
+          "weight": 0.9
+        }
+      ],
+      "suppressed": false,
+      "docs": "docs/rules/MLV401.md"
+    },
+    {
+      "id": "i:d605e46c6328",
+      "code": "MLV301",
+      "ruleVersion": 1,
+      "severity": "high",
+      "confidence": 0.85,
+      "confidenceBucket": "likely",
+      "title": "Evaluation runs without model.eval()",
+      "message": "model is run at train.py:45 without a preceding model.eval(); the loop at line 44 over loader runs a forward pass, never calls backward() or optimizer.step(), and it sits in validate().",
+      "why": "Dropout keeps dropping activations and BatchNorm keeps updating its running statistics, so the reported validation score is noisy and the model you ship is not the model you measured.",
+      "fixHint": "Call model.eval() before the validation loop and model.train() when returning to training.",
+      "loc": {
+        "file": "train.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "line": 44,
+        "col": 4,
+        "endLine": 48,
+        "endCol": 31,
+        "symbol": "for images, labels in loader",
+        "snippet": "    for images, labels in loader:"
+      },
+      "relatedLocs": [
+        {
+          "role": "eval_loop",
+          "message": "the loop at line 44 over loader runs a forward pass, never calls backward() or optimizer.step(), and it sits in validate()",
+          "file": "train.py",
+          "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+          "line": 44,
+          "col": 4,
+          "endLine": 48,
+          "endCol": 31,
+          "symbol": "for images, labels in loader",
+          "snippet": "    for images, labels in loader:"
+        },
+        {
+          "role": "call_site",
+          "message": "forward pass here",
+          "file": "train.py",
+          "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+          "line": 45,
+          "col": 17,
+          "endLine": 45,
+          "endCol": 30,
+          "symbol": "model",
+          "snippet": "        logits = model(images)"
+        },
+        {
+          "role": "definition",
+          "message": "model class SmallCNN",
+          "file": "model.py",
+          "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/model.py",
+          "line": 27,
+          "col": 0,
+          "endLine": 43,
+          "endCol": 45,
+          "symbol": "class SmallCNN",
+          "snippet": "class SmallCNN(nn.Module):"
+        }
+      ],
+      "nodeIds": [
+        "n:5061360697f9",
+        "n:e37b3b62a066"
+      ],
+      "edgeIds": [],
+      "stage": "eval",
+      "frameworks": [
+        "torch"
+      ],
+      "tags": [
+        "correctness",
+        "eval"
+      ],
+      "evidence": [
+        {
+          "kind": "fqn_resolved",
+          "detail": "model resolves to torch.nn.Module.__call__",
+          "weight": 1.0
+        },
+        {
+          "kind": "context_confirmed",
+          "detail": "the loop at line 44 over loader runs a forward pass, never calls backward() or optimizer.step(), and it sits in validate()",
+          "weight": 1.0
+        },
+        {
+          "kind": "negation_absent",
+          "detail": "no torch.nn.Module.eval() dominates this region",
+          "weight": 1.0
+        },
+        {
+          "kind": "class_base",
+          "detail": "SmallCNN contains BatchNorm2d, Dropout, which behave differently in train mode",
+          "weight": 1.0
+        },
+        {
+          "kind": "scope_static",
+          "detail": "no dynamic constructs in train.validate",
+          "weight": 1.0
+        }
+      ],
+      "suppressed": false,
+      "docs": "docs/rules/MLV301.md"
+    },
+    {
+      "id": "i:75814572314b",
+      "code": "MLV110",
+      "ruleVersion": 1,
+      "severity": "medium",
+      "confidence": 0.85,
+      "confidenceBucket": "likely",
+      "title": "Training DataLoader does not shuffle",
+      "message": "The training DataLoader at data.py:33 is built with shuffle=unset (defaults to False) and no sampler=, so train_ds is consumed in dataset order every epoch.",
+      "why": "Batches arrive in dataset order, so gradients are correlated with however the files were sorted and the model can learn the ordering instead of the task.",
+      "fixHint": "Pass shuffle=True to the training DataLoader, or give it a shuffling sampler such as RandomSampler / DistributedSampler.",
+      "loc": {
+        "file": "data.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+        "line": 33,
+        "col": 15,
+        "endLine": 33,
+        "endCol": 83,
+        "symbol": "DataLoader",
+        "snippet": "train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, num_workers=NUM_WORKERS)"
+      },
+      "relatedLocs": [
+        {
+          "role": "construction",
+          "message": "DataLoader built here",
+          "file": "data.py",
+          "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+          "line": 33,
+          "col": 15,
+          "endLine": 33,
+          "endCol": 83,
+          "symbol": "DataLoader",
+          "snippet": "train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, num_workers=NUM_WORKERS)"
+        }
+      ],
+      "nodeIds": [
+        "n:788c3b237e70"
+      ],
+      "edgeIds": [],
+      "stage": "data",
+      "frameworks": [
+        "torch"
+      ],
+      "tags": [
+        "data",
+        "correctness"
+      ],
+      "evidence": [
+        {
+          "kind": "fqn_resolved",
+          "detail": "DataLoader resolved through the import table",
+          "weight": 1.0
+        },
+        {
+          "kind": "dataflow_direct",
+          "detail": "train_ds carries TRAIN_SPLIT from the split",
+          "weight": 1.0
+        },
+        {
+          "kind": "scope_static",
+          "detail": "no dynamic constructs in data",
+          "weight": 1.0
+        }
+      ],
+      "suppressed": false,
+      "docs": "docs/rules/MLV110.md"
+    },
+    {
+      "id": "i:ec6edfb445d9",
+      "code": "MLV112",
+      "ruleVersion": 1,
+      "severity": "medium",
+      "confidence": 0.98,
+      "confidenceBucket": "certain",
+      "title": "DataLoader worker processes without a __main__ guard",
+      "message": "DataLoader(num_workers=4) at data.py:33, but the loader is constructed at module scope and the module has no if __name__ == \"__main__\" guard - on Windows and macOS every worker re-imports data.py.",
+      "why": "Windows and macOS start workers with spawn, so each worker re-imports the module; without a guard the module-level training code runs again in every worker and the program hangs or recurses.",
+      "fixHint": "Move the entrypoint into a function and call it from if __name__ == \"__main__\": main().",
+      "loc": {
+        "file": "data.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+        "line": 33,
+        "col": 15,
+        "endLine": 33,
+        "endCol": 83,
+        "symbol": "DataLoader",
+        "snippet": "train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, num_workers=NUM_WORKERS)"
+      },
+      "relatedLocs": [
+        {
+          "role": "construction",
+          "message": "worker processes requested here",
+          "file": "data.py",
+          "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+          "line": 33,
+          "col": 15,
+          "endLine": 33,
+          "endCol": 83,
+          "symbol": "DataLoader",
+          "snippet": "train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, num_workers=NUM_WORKERS)"
+        }
+      ],
+      "nodeIds": [
+        "n:788c3b237e70"
+      ],
+      "edgeIds": [],
+      "stage": "data",
+      "frameworks": [
+        "torch"
+      ],
+      "tags": [
+        "portability",
+        "data"
+      ],
+      "evidence": [
+        {
+          "kind": "fqn_resolved",
+          "detail": "DataLoader resolved through the import table",
+          "weight": 1.0
+        },
+        {
+          "kind": "negation_absent",
+          "detail": "the loader is constructed at module scope and the module has no if __name__ == \"__main__\" guard",
+          "weight": 1.0
+        },
+        {
+          "kind": "scope_static",
+          "detail": "no dynamic constructs in data",
+          "weight": 1.0
+        }
+      ],
+      "suppressed": false,
+      "docs": "docs/rules/MLV112.md"
+    },
+    {
+      "id": "i:f0af34c14888",
+      "code": "MLV103",
+      "ruleVersion": 1,
+      "severity": "medium",
+      "confidence": 0.85,
+      "confidenceBucket": "likely",
+      "title": "Preprocessing happens outside cross-validation",
+      "message": "cross_val_score at sklearn_baseline.py:34 cross-validates a bare estimator over X_train_pca, which pca.fit_transform() already fitted on the whole set at line 30 - the folds share its statistics.",
+      "why": "Every fold is scored on rows whose scaling was computed from the whole set, so the cross-validation estimate is optimistic and model selection is biased.",
+      "fixHint": "Wrap the transformer and the estimator in sklearn.pipeline.Pipeline and pass the pipeline to the CV call, so preprocessing is refit per fold.",
+      "loc": {
+        "file": "sklearn_baseline.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "line": 34,
+        "col": 13,
+        "endLine": 34,
+        "endCol": 68,
+        "symbol": "cross_val_score",
+        "snippet": "    scores = cross_val_score(clf, X_train_pca, y_train, cv=CV_FOLDS)"
+      },
+      "relatedLocs": [
+        {
+          "role": "fit_site",
+          "message": "fitted once, outside the folds",
+          "file": "sklearn_baseline.py",
+          "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+          "line": 30,
+          "col": 18,
+          "endLine": 30,
+          "endCol": 44,
+          "symbol": "pca.fit_transform",
+          "snippet": "    X_train_pca = pca.fit_transform(X_train)"
+        },
+        {
+          "role": "call_site",
+          "message": "cross-validation runs here",
+          "file": "sklearn_baseline.py",
+          "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+          "line": 34,
+          "col": 13,
+          "endLine": 34,
+          "endCol": 68,
+          "symbol": "cross_val_score",
+          "snippet": "    scores = cross_val_score(clf, X_train_pca, y_train, cv=CV_FOLDS)"
+        }
+      ],
+      "nodeIds": [
+        "n:50da266549be"
+      ],
+      "edgeIds": [],
+      "stage": "eval",
+      "frameworks": [
+        "sklearn"
+      ],
+      "tags": [
+        "leakage",
+        "preprocess"
+      ],
+      "evidence": [
+        {
+          "kind": "fqn_resolved",
+          "detail": "sklearn.model_selection.cross_val_score resolved through the import table",
+          "weight": 1.0
+        },
+        {
+          "kind": "dataflow_direct",
+          "detail": "X_train_pca was produced by pca.fit_transform() at line 30 and is passed straight to cross_val_score",
+          "weight": 1.0
+        },
+        {
+          "kind": "negation_absent",
+          "detail": "clf is a bare estimator, not a Pipeline / make_pipeline",
+          "weight": 1.0
+        },
+        {
+          "kind": "scope_static",
+          "detail": "no dynamic constructs in sklearn_baseline.baseline",
+          "weight": 1.0
+        }
+      ],
+      "suppressed": false,
+      "docs": "docs/rules/MLV103.md"
+    },
+    {
+      "id": "i:b938513e5869",
+      "code": "MLV501",
+      "ruleVersion": 1,
+      "severity": "medium",
+      "confidence": 0.9,
+      "confidenceBucket": "certain",
+      "title": "Model and batches are on different devices",
+      "message": "The model is moved to a device at train.py:21, but the batch value(s) images in the loop at line 29 are never moved before model().",
+      "why": "The forward pass raises \"Expected all tensors to be on the same device\" on the first batch - and when it does not, the whole run silently falls back to the CPU and takes an order of magnitude longer.",
+      "fixHint": "Move each batch inside the loop: x, y = x.to(device, non_blocking=True), y.to(device).",
+      "loc": {
+        "file": "train.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "line": 29,
+        "col": 8,
+        "endLine": 34,
+        "endCol": 32,
+        "symbol": "for images, labels in train_loader",
+        "snippet": "        for images, labels in train_loader:"
+      },
+      "relatedLocs": [
+        {
+          "role": "construction",
+          "message": "the model is moved here",
+          "file": "train.py",
+          "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+          "line": 21,
+          "col": 4,
+          "endLine": 21,
+          "endCol": 20,
+          "symbol": "model.to",
+          "snippet": "    model.to(device)"
+        },
+        {
+          "role": "call_site",
+          "message": "the forward pass runs here",
+          "file": "train.py",
+          "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+          "line": 30,
+          "col": 21,
+          "endLine": 30,
+          "endCol": 34,
+          "symbol": "model",
+          "snippet": "            logits = model(images)"
+        }
+      ],
+      "nodeIds": [
+        "n:f50f0f38c0ea"
+      ],
+      "edgeIds": [],
+      "stage": "train",
+      "frameworks": [
+        "torch"
+      ],
+      "tags": [
+        "correctness",
+        "device",
+        "batch_not_moved"
+      ],
+      "evidence": [
+        {
+          "kind": "fqn_resolved",
+          "detail": "model.to() resolves to torch.nn.Module.to",
+          "weight": 1.0
+        },
+        {
+          "kind": "dataflow_direct",
+          "detail": "images feed model() at line 30 without a .to()/.cuda() on any path",
+          "weight": 1.0
+        },
+        {
+          "kind": "negation_absent",
+          "detail": "no .to()/.cuda() on the batch, in the Dataset.__getitem__, or in a collate_fn",
+          "weight": 1.0
+        },
+        {
+          "kind": "scope_static",
+          "detail": "no dynamic constructs in train.train",
+          "weight": 1.0
+        }
+      ],
+      "suppressed": false,
+      "docs": "docs/rules/MLV501.md"
+    },
+    {
+      "id": "i:b39953ba7fce",
+      "code": "MLV205",
+      "ruleVersion": 1,
+      "severity": "medium",
+      "confidence": 0.85,
+      "confidenceBucket": "likely",
+      "title": "Loss accumulated without .item()",
+      "message": "running_loss accumulates the tensor loss at train.py:34, so every iteration of the loop at line 29 keeps its autograd graph alive.",
+      "why": "Adding the loss tensor keeps its whole autograd graph alive, so memory grows with every batch and a long epoch ends in an out-of-memory error.",
+      "fixHint": "Accumulate scalars: running_loss += loss.item() (or loss.detach()).",
+      "loc": {
+        "file": "train.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "line": 34,
+        "col": 12,
+        "endLine": 34,
+        "endCol": 32,
+        "symbol": "running_loss += loss",
+        "snippet": "            running_loss += loss"
+      },
+      "relatedLocs": [
+        {
+          "role": "construction",
+          "message": "running_loss is created here, outside the loop",
+          "file": "train.py",
+          "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+          "line": 26,
+          "col": 4,
+          "endLine": 26,
+          "endCol": 22,
+          "symbol": "running_loss = 0.0",
+          "snippet": "    running_loss = 0.0"
+        },
+        {
+          "role": "call_site",
+          "message": "the loss is produced here",
+          "file": "train.py",
+          "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+          "line": 31,
+          "col": 19,
+          "endLine": 31,
+          "endCol": 44,
+          "symbol": "criterion",
+          "snippet": "            loss = criterion(logits, labels)"
+        }
+      ],
+      "nodeIds": [
+        "n:f50f0f38c0ea"
+      ],
+      "edgeIds": [],
+      "stage": "train",
+      "frameworks": [
+        "torch"
+      ],
+      "tags": [
+        "performance",
+        "train-loop"
+      ],
+      "evidence": [
+        {
+          "kind": "dataflow_direct",
+          "detail": "loss carries the LOSS tag from torch.nn.Module.__call__",
+          "weight": 1.0
+        },
+        {
+          "kind": "context_confirmed",
+          "detail": "running_loss is created at line 26, outside the batch loop at line 29",
+          "weight": 1.0
+        },
+        {
+          "kind": "negation_absent",
+          "detail": "the accumulated value is not wrapped in .item(), .detach() or float()",
+          "weight": 1.0
+        },
+        {
+          "kind": "scope_static",
+          "detail": "no dynamic constructs in train.train",
+          "weight": 1.0
+        }
+      ],
+      "suppressed": false,
+      "docs": "docs/rules/MLV205.md"
+    },
+    {
+      "id": "i:3dd6396d4b4c",
+      "code": "MLV302",
+      "ruleVersion": 1,
+      "severity": "medium",
+      "confidence": 0.85,
+      "confidenceBucket": "likely",
+      "title": "Evaluation loop not wrapped in torch.no_grad()",
+      "message": "The evaluation region at train.py:44 builds an autograd graph it never uses: the loop at line 44 over loader runs a forward pass, never calls backward() or optimizer.step(), and it sits in validate().",
+      "why": "Autograd keeps every intermediate activation alive for a backward pass that never happens, so evaluation uses several times the memory it needs and can run out of GPU memory on a larger batch.",
+      "fixHint": "Wrap the evaluation loop in with torch.no_grad(): (or torch.inference_mode()), or decorate the function with @torch.no_grad().",
+      "loc": {
+        "file": "train.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "line": 44,
+        "col": 4,
+        "endLine": 48,
+        "endCol": 31,
+        "symbol": "for images, labels in loader",
+        "snippet": "    for images, labels in loader:"
+      },
+      "relatedLocs": [
+        {
+          "role": "eval_loop",
+          "message": "the loop at line 44 over loader runs a forward pass, never calls backward() or optimizer.step(), and it sits in validate()",
+          "file": "train.py",
+          "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+          "line": 44,
+          "col": 4,
+          "endLine": 48,
+          "endCol": 31,
+          "symbol": "for images, labels in loader",
+          "snippet": "    for images, labels in loader:"
+        },
+        {
+          "role": "call_site",
+          "message": "forward pass here",
+          "file": "train.py",
+          "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+          "line": 45,
+          "col": 17,
+          "endLine": 45,
+          "endCol": 30,
+          "symbol": "model",
+          "snippet": "        logits = model(images)"
+        }
+      ],
+      "nodeIds": [
+        "n:e37b3b62a066"
+      ],
+      "edgeIds": [],
+      "stage": "eval",
+      "frameworks": [
+        "torch"
+      ],
+      "tags": [
+        "performance",
+        "eval"
+      ],
+      "evidence": [
+        {
+          "kind": "fqn_resolved",
+          "detail": "model resolves to torch.nn.Module.__call__",
+          "weight": 1.0
+        },
+        {
+          "kind": "context_confirmed",
+          "detail": "the loop at line 44 over loader runs a forward pass, never calls backward() or optimizer.step(), and it sits in validate()",
+          "weight": 1.0
+        },
+        {
+          "kind": "negation_absent",
+          "detail": "no enclosing torch.no_grad() / torch.inference_mode() block and no @torch.no_grad() decorator",
+          "weight": 1.0
+        },
+        {
+          "kind": "scope_static",
+          "detail": "no dynamic constructs in train.validate",
+          "weight": 1.0
+        }
+      ],
+      "suppressed": false,
+      "docs": "docs/rules/MLV302.md"
+    },
+    {
+      "id": "i:8c1b774de56a",
+      "code": "MLV602",
+      "ruleVersion": 1,
+      "severity": "low",
+      "confidence": 0.95,
+      "confidenceBucket": "certain",
+      "title": "Split without random_state / generator",
+      "message": "random_split at data.py:31 takes no generator=, so the split is different on every run.",
+      "why": "A different split every run means the reported score moves for reasons that have nothing to do with the model, and a regression cannot be told from noise.",
+      "fixHint": "Pass random_state=42 (scikit-learn) or generator=torch.Generator().manual_seed(42) (PyTorch) so the split is reproducible independently of global RNG state.",
+      "loc": {
+        "file": "data.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+        "line": 31,
+        "col": 19,
+        "endLine": 31,
+        "endCol": 67,
+        "symbol": "random_split",
+        "snippet": "train_ds, val_ds = random_split(full_train, [TRAIN_SIZE, VAL_SIZE])"
+      },
+      "relatedLocs": [
+        {
+          "role": "split_site",
+          "message": "split happens here",
+          "file": "data.py",
+          "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+          "line": 31,
+          "col": 19,
+          "endLine": 31,
+          "endCol": 67,
+          "symbol": "random_split",
+          "snippet": "train_ds, val_ds = random_split(full_train, [TRAIN_SIZE, VAL_SIZE])"
+        }
+      ],
+      "nodeIds": [
+        "n:cb660849f937"
+      ],
+      "edgeIds": [],
+      "stage": "data",
+      "frameworks": [
+        "sklearn",
+        "torch"
+      ],
+      "tags": [
+        "reproducibility",
+        "data"
+      ],
+      "evidence": [
+        {
+          "kind": "fqn_resolved",
+          "detail": "torch.utils.data.random_split resolved through the import table",
+          "weight": 1.0
+        },
+        {
+          "kind": "negation_absent",
+          "detail": "no generator= keyword at this call site",
+          "weight": 1.0
+        },
+        {
+          "kind": "scope_static",
+          "detail": "no dynamic constructs in data",
+          "weight": 1.0
+        }
+      ],
+      "suppressed": false,
+      "docs": "docs/rules/MLV602.md"
+    },
+    {
+      "id": "i:1ed53b9e356c",
+      "code": "MLV111",
+      "ruleVersion": 1,
+      "severity": "low",
+      "confidence": 0.9,
+      "confidenceBucket": "certain",
+      "title": "Evaluation DataLoader shuffles",
+      "message": "The evaluation DataLoader at data.py:35 passes shuffle=True over test_ds, so predictions come back in a different order each run.",
+      "why": "Predictions no longer line up with the dataset order, so per-sample inspection and confusion matrices differ from run to run.",
+      "fixHint": "Use shuffle=False on validation and test DataLoaders so predictions stay aligned with the dataset order.",
+      "loc": {
+        "file": "data.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+        "line": 35,
+        "col": 14,
+        "endLine": 35,
+        "endCol": 75,
+        "symbol": "DataLoader",
+        "snippet": "test_loader = DataLoader(test_ds, batch_size=EVAL_BATCH_SIZE, shuffle=True)"
+      },
+      "relatedLocs": [
+        {
+          "role": "construction",
+          "message": "DataLoader built here",
+          "file": "data.py",
+          "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+          "line": 35,
+          "col": 14,
+          "endLine": 35,
+          "endCol": 75,
+          "symbol": "DataLoader",
+          "snippet": "test_loader = DataLoader(test_ds, batch_size=EVAL_BATCH_SIZE, shuffle=True)"
+        }
+      ],
+      "nodeIds": [
+        "n:bea1406bd1c1"
+      ],
+      "edgeIds": [],
+      "stage": "data",
+      "frameworks": [
+        "torch"
+      ],
+      "tags": [
+        "data",
+        "reproducibility"
+      ],
+      "evidence": [
+        {
+          "kind": "fqn_resolved",
+          "detail": "DataLoader resolved through the import table",
+          "weight": 1.0
+        },
+        {
+          "kind": "dataflow_direct",
+          "detail": "test_ds carries TEST_SPLIT from the split",
+          "weight": 1.0
+        },
+        {
+          "kind": "scope_static",
+          "detail": "no dynamic constructs in data",
+          "weight": 1.0
+        }
+      ],
+      "suppressed": false,
+      "docs": "docs/rules/MLV111.md"
+    },
+    {
+      "id": "i:28f7921b3ae0",
+      "code": "MLV602",
+      "ruleVersion": 1,
+      "severity": "low",
+      "confidence": 0.95,
+      "confidenceBucket": "certain",
+      "title": "Split without random_state / generator",
+      "message": "train_test_split at sklearn_baseline.py:26 takes no random_state=, so the split is different on every run.",
+      "why": "A different split every run means the reported score moves for reasons that have nothing to do with the model, and a regression cannot be told from noise.",
+      "fixHint": "Pass random_state=42 (scikit-learn) or generator=torch.Generator().manual_seed(42) (PyTorch) so the split is reproducible independently of global RNG state.",
+      "loc": {
+        "file": "sklearn_baseline.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "line": 26,
+        "col": 39,
+        "endLine": 27,
+        "endCol": 45,
+        "symbol": "train_test_split",
+        "snippet": "    X_train, X_test, y_train, y_test = train_test_split("
+      },
+      "relatedLocs": [
+        {
+          "role": "split_site",
+          "message": "split happens here",
+          "file": "sklearn_baseline.py",
+          "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+          "line": 26,
+          "col": 39,
+          "endLine": 27,
+          "endCol": 45,
+          "symbol": "train_test_split",
+          "snippet": "    X_train, X_test, y_train, y_test = train_test_split("
+        }
+      ],
+      "nodeIds": [
+        "n:55662bceebd0"
+      ],
+      "edgeIds": [],
+      "stage": "data",
+      "frameworks": [
+        "sklearn",
+        "torch"
+      ],
+      "tags": [
+        "reproducibility",
+        "data"
+      ],
+      "evidence": [
+        {
+          "kind": "fqn_resolved",
+          "detail": "sklearn.model_selection.train_test_split resolved through the import table",
+          "weight": 1.0
+        },
+        {
+          "kind": "negation_absent",
+          "detail": "no random_state= keyword at this call site",
+          "weight": 1.0
+        },
+        {
+          "kind": "scope_static",
+          "detail": "no dynamic constructs in sklearn_baseline.baseline",
+          "weight": 1.0
+        }
+      ],
+      "suppressed": false,
+      "docs": "docs/rules/MLV602.md"
+    },
+    {
+      "id": "i:555b8f97694b",
+      "code": "MLV601",
+      "ruleVersion": 1,
+      "severity": "low",
+      "confidence": 0.9,
+      "confidenceBucket": "certain",
+      "title": "No random seed set anywhere",
+      "message": "No call to torch.manual_seed / numpy.random.seed / random.seed / seed_everything and no random_state= keyword appears in the 5 analyzed file(s), while random_split() runs here.",
+      "why": "Two runs of this pipeline give different splits, initial weights and results, so a reported number cannot be reproduced or compared.",
+      "fixHint": "Seed every source at startup: random.seed(s); np.random.seed(s); torch.manual_seed(s); torch.cuda.manual_seed_all(s).",
+      "loc": {
+        "file": "train.py",
+        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "line": 28,
+        "col": 4,
+        "endLine": 37,
+        "endCol": 68,
+        "symbol": "for epoch in range(EPOCHS)",
+        "snippet": "    for epoch in range(EPOCHS):"
+      },
+      "relatedLocs": [
+        {
+          "role": "construction",
+          "message": "randomness starts here",
+          "file": "data.py",
+          "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+          "line": 31,
+          "col": 19,
+          "endLine": 31,
+          "endCol": 67,
+          "symbol": "random_split",
+          "snippet": "train_ds, val_ds = random_split(full_train, [TRAIN_SIZE, VAL_SIZE])"
+        }
+      ],
+      "nodeIds": [
+        "n:d823ac437adc"
+      ],
+      "edgeIds": [],
+      "stage": "train",
+      "frameworks": [],
+      "tags": [
+        "reproducibility"
+      ],
+      "evidence": [
+        {
+          "kind": "negation_absent",
+          "detail": "no torch.manual_seed / numpy.random.seed / random.seed / seed_everything / random_state= anywhere in the workspace",
+          "weight": 1.0
+        },
+        {
+          "kind": "context_confirmed",
+          "detail": "training evidence: torch.utils.data.random_split",
+          "weight": 1.0
+        },
+        {
+          "kind": "scope_static",
+          "detail": "workspace-wide check",
+          "weight": 1.0
+        }
+      ],
+      "suppressed": false,
+      "docs": "docs/rules/MLV601.md"
+    }
+  ],
+  "diagnostics": [],
+  "stats": {
+    "nodes": 45,
+    "edges": 45,
+    "issues": {
+      "low": 4,
+      "medium": 6,
+      "high": 5
+    },
+    "suppressed": 0,
+    "durationMs": 18,
+    "truncated": false
+  }
+}

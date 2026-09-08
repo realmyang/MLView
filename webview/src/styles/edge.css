@@ -1,0 +1,166 @@
+/* Edge layer: one stroke style per kind — dash pattern and arrowhead, never
+ * colour alone, so the four kinds survive a greyscale screenshot (R1.3). */
+
+.mlv-edge {
+  pointer-events: none;
+}
+
+.mlv-edge__hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 12;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
+.mlv-edge__path {
+  fill: none;
+  stroke: var(--mlv-edge);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: stroke var(--mlv-dur-1) var(--mlv-ease);
+}
+
+.mlv-edge--data .mlv-edge__path {
+  stroke-width: 1.5;
+}
+
+.mlv-edge--call .mlv-edge__path {
+  stroke-dasharray: 4 3;
+  opacity: 0.75;
+}
+
+.mlv-edge--control .mlv-edge__path {
+  stroke-dasharray: 1 4;
+  stroke-linecap: round;
+  opacity: 0.65;
+}
+
+.mlv-edge--config .mlv-edge__path {
+  stroke-width: 1;
+  stroke-dasharray: 2 4;
+  opacity: 0.5;
+}
+
+.mlv-edge--unknown .mlv-edge__path {
+  stroke-dasharray: 3 3;
+  opacity: 0.6;
+}
+
+.mlv-edge.is-hover .mlv-edge__path,
+.mlv-edge.is-lit .mlv-edge__path {
+  stroke: var(--mlv-text-2);
+  stroke-width: 2;
+}
+
+.mlv-edge.is-selected .mlv-edge__path {
+  stroke: var(--mlv-accent);
+  stroke-width: 2.5;
+}
+
+.mlv-edge.has-issue .mlv-edge__path {
+  stroke: var(--mlv-sev, var(--mlv-edge));
+  opacity: 0.85;
+}
+
+.mlv-edge__arrow {
+  fill: var(--mlv-edge);
+  stroke: none;
+}
+
+.mlv-edge--call .mlv-edge__arrow,
+.mlv-edge--control .mlv-edge__arrow {
+  fill: none;
+  stroke: var(--mlv-edge);
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.mlv-edge--config .mlv-edge__arrow {
+  display: none;
+}
+
+.mlv-edge.is-hover .mlv-edge__arrow,
+.mlv-edge.is-lit .mlv-edge__arrow {
+  fill: var(--mlv-text-2);
+}
+
+.mlv-edge--call.is-hover .mlv-edge__arrow,
+.mlv-edge--control.is-hover .mlv-edge__arrow,
+.mlv-edge--call.is-lit .mlv-edge__arrow,
+.mlv-edge--control.is-lit .mlv-edge__arrow {
+  fill: none;
+  stroke: var(--mlv-text-2);
+}
+
+.mlv-edge-label {
+  font-family: var(--mlv-font-mono);
+  font-size: 10px;
+  fill: var(--mlv-text-2);
+  paint-order: stroke;
+  stroke: var(--mlv-bg);
+  stroke-width: 3;
+  stroke-linejoin: round;
+  text-anchor: middle;
+  dominant-baseline: middle;
+  opacity: 0;
+  transition: opacity var(--mlv-dur-1) var(--mlv-ease);
+}
+
+.mlv-edge.is-hover .mlv-edge-label,
+.mlv-edge.is-selected .mlv-edge-label,
+.mlv-edge.is-lit .mlv-edge-label,
+.mlv-edge.has-label .mlv-edge-label,
+.mlv-edge--merged .mlv-edge-label {
+  opacity: 1;
+}
+
+/*
+ * The variable names on data edges and the `next batch` / `next epoch` labels on
+ * loop back-edges are the whole point of an edge label; they used to be visible
+ * only while hovering, which no screenshot and no first read of the diagram ever
+ * reaches (MLV-R1-012). Above the LOD threshold they are simply on.
+ */
+.mlv-canvas[data-lod="full"] .mlv-edge--data .mlv-edge-label,
+.mlv-canvas[data-lod="full"] .mlv-edge--control .mlv-edge-label {
+  opacity: 1;
+}
+
+/* No edge carries text below the LOD threshold (UX_DESIGN section 4.5). */
+.mlv-canvas[data-lod="compact"] .mlv-edge-label {
+  opacity: 0;
+}
+
+.mlv-edge-marker__disc {
+  fill: var(--mlv-surface);
+  stroke: var(--mlv-sev-marker, var(--mlv-sev-low));
+  stroke-width: 1;
+}
+
+.mlv-edge-marker--high { --mlv-sev-marker: var(--mlv-sev-high); }
+.mlv-edge-marker--medium { --mlv-sev-marker: var(--mlv-sev-medium); }
+.mlv-edge-marker--low { --mlv-sev-marker: var(--mlv-sev-low); }
+
+/* multi-location connector drawn when an issue with relatedLocs is selected */
+.mlv-connector {
+  fill: none;
+  stroke: var(--mlv-sev, var(--mlv-accent));
+  stroke-width: 1.5;
+  stroke-dasharray: 2 4;
+}
+
+.mlv-connector__badge {
+  fill: var(--mlv-surface);
+  stroke: var(--mlv-sev, var(--mlv-accent));
+  stroke-width: 1;
+}
+
+.mlv-connector__label {
+  font-family: var(--mlv-font-mono);
+  font-size: 9px;
+  fill: var(--mlv-text);
+  text-anchor: middle;
+  dominant-baseline: central;
+}

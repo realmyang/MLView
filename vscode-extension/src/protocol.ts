@@ -1,0 +1,264 @@
+/**
+ * The webview <-> host message protocol (CONTRACTS.md §4).
+ *
+ * Every message carries `v: 1`. Unknown message types are logged and ignored on both sides —
+ * a version skew must degrade, not crash. That tolerance is what `parseUiToHost` implements
+ * and what `test/protocol.test.js` asserts.
+ */
+
+import type { MLGraph } from './graph';
+
+export const PROTOCOL_VERSION = 1 as const;
+
+export type ThemeKind = 'light' | 'dark' | 'hc';
+export type AnalysisScope = 'workspace' | 'file';
+
+export interface Viewport {
+  x: number;
+  y: number;
+  zoom: number;
+}
+
+export interface Sel {
+  kind: string;
+  id: string;
+}
+
+/** Opaque to the host: it is stored and handed back verbatim. */
+export type ViewState = Record<string, unknown>;
+
+export interface HostCapabilities {
+  canOpenSource: boolean;
+  canReanalyze: boolean;
+  canExport: boolean;
+  canAskAssistant: boolean;
+}
+
+export type HostToUi =
+  | {
+      v: 1;
+      type: 'init';
+      schemaVersion: string;
+      theme: ThemeKind;
+      host: 'vscode' | 'standalone';
+      capabilities: HostCapabilities;
+    }
+  | {
+      v: 1;
+      type: 'graph';
+      requestId: string;
+      graph: MLGraph;
+      preserve?: { viewport?: Viewport; selection?: Sel; collapsed?: string[] };
+    }
+  | { v: 1; type: 'analysisStarted'; requestId: string; scope: AnalysisScope; path?: string }
+  | { v: 1; type: 'analysisProgress'; requestId: string; done: number; total: number; file?: string }
+  | {
+      v: 1;
+      type: 'analysisFailed';
+      requestId: string;
+      message: string;
+      detail?: string;
+      actions?: { id: string; label: string }[];
+    }
+  | { v: 1; type: 'theme'; kind: ThemeKind }
+  | { v: 1; type: 'revealNode'; nodeId: string; center?: boolean; approximate?: boolean }
+  | { v: 1; type: 'revealIssue'; issueId: string }
+  | { v: 1; type: 'cursorHint'; file: string; line: number }
+  | {
+      v: 1;
+      type: 'setFilter';
+      severities?: ('low' | 'medium' | 'high')[];
+      codes?: string[];
+      query?: string;
+    }
+  | { v: 1; type: 'stale'; changedFiles: string[] }
+  | { v: 1; type: 'restoreState'; state: ViewState }
+  /**
+   * CONTRACTS.md §11.7. The selector field is named `spec`, not `scope`: `analysisStarted` and
+   * `requestRefresh` already carry a field literally named `scope`, and reusing the word would
+   * be a live collision. `spec: null` clears the scope.
+   */
+  | { v: 1; type: 'setScope'; spec: string | null; depth?: number };
+
+export interface OpenLocationMessage {
+  v: 1;
+  type: 'openLocation';
+  file: string;
+  absFile: string;
+  line: number;
+  col: number;
+  endLine: number;
+  endCol: number;
+  preview?: boolean;
+}
+
+export type UiToHost =
+  | { v: 1; type: 'ready' }
+  | OpenLocationMessage
+  | { v: 1; type: 'selectNode'; nodeId: string | null }
+  | { v: 1; type: 'requestRefresh'; scope: AnalysisScope; path?: string }
+  | { v: 1; type: 'exportHtml' }
+  | { v: 1; type: 'copy'; text: string }
+  | { v: 1; type: 'saveState'; state: ViewState }
+  | { v: 1; type: 'action'; id: string }
+  | { v: 1; type: 'askAssistant'; nodeId: string; prompt: string }
+  | { v: 1; type: 'log'; level: 'debug' | 'info' | 'warn' | 'error'; message: string }
+  /**
+   * CONTRACTS.md §11.7. Posted on EVERY scope change including a clear (then `spec: null`,
+   * `label: "Everything"`, `nodes === of`). The host uses it for the panel title and
+   * description; it must NEVER trigger a re-analysis.
+   */
+  | ScopeChangedMessage;
+
+export interface ScopeChangedMessage {
+  v: 1;
+  type: 'scopeChanged';
+  /** The normalized §11.1 selector, or null when the scope was cleared. */
+  spec: string | null;
+  /** Human label for the scope ("Everything" when cleared). */
+  label: string;
+  /** Nodes drawn in the projection. */
+  nodes: number;
+  /** Nodes in the whole analyzed workspace (`view.of.nodes`). */
+  of: number;
+}
+
+export type UiToHostType = UiToHost['type'];
+export type HostToUiType = HostToUi['type'];
+
+export const UI_TO_HOST_TYPES: readonly UiToHostType[] = [
+  'ready',
+  'openLocation',
+  'selectNode',
+  'requestRefresh',
+  'exportHtml',
+  'copy',
+  'saveState',
+  'action',
+  'askAssistant',
+  'log',
+  'scopeChanged'
+];
+
+export const HOST_TO_UI_TYPES: readonly HostToUiType[] = [
+  'init',
+  'graph',
+  'analysisStarted',
+  'analysisProgress',
+  'analysisFailed',
+  'theme',
+  'revealNode',
+  'revealIssue',
+  'cursorHint',
+  'setFilter',
+  'stale',
+  'restoreState',
+  'setScope'
+];
+
+/** The four error-banner action ids the host answers (CONTRACTS.md §4, UX §12 "hard error"). */
+export const ACTION_IDS = ['retry', 'selectInterpreter', 'showOutput', 'installCore'] as const;
+export type ActionId = (typeof ACTION_IDS)[number];
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+export function isUiToHostType(type: unknown): type is UiToHostType {
+  return typeof type === 'string' && (UI_TO_HOST_TYPES as readonly string[]).includes(type);
+}
+
+export function isHostToUiType(type: unknown): type is HostToUiType {
+  return typeof type === 'string' && (HOST_TO_UI_TYPES as readonly string[]).includes(type);
+}
+
+/**
+ * Structural guard for a message arriving from the webview. Anything that is not a
+ * well-formed, known message is rejected here and the caller logs + ignores it.
+ */
+export function isUiToHost(value: unknown): value is UiToHost {
+  if (!isObject(value) || value['v'] !== PROTOCOL_VERSION || !isUiToHostType(value['type'])) {
+    return false;
+  }
+  switch (value['type'] as UiToHostType) {
+    case 'ready':
+    case 'exportHtml':
+      return true;
+    case 'openLocation':
+      return (
+        typeof value['file'] === 'string' &&
+        typeof value['absFile'] === 'string' &&
+        isFiniteNumber(value['line']) &&
+        isFiniteNumber(value['col']) &&
+        isFiniteNumber(value['endLine']) &&
+        isFiniteNumber(value['endCol'])
+      );
+    case 'selectNode':
+      return typeof value['nodeId'] === 'string' || value['nodeId'] === null;
+    case 'requestRefresh':
+      return value['scope'] === 'workspace' || value['scope'] === 'file';
+    case 'copy':
+      return typeof value['text'] === 'string';
+    case 'saveState':
+      return isObject(value['state']);
+    case 'action':
+      return typeof value['id'] === 'string';
+    case 'askAssistant':
+      return typeof value['nodeId'] === 'string' && typeof value['prompt'] === 'string';
+    case 'log':
+      return (
+        typeof value['message'] === 'string' &&
+        ['debug', 'info', 'warn', 'error'].includes(String(value['level']))
+      );
+    case 'scopeChanged':
+      return (
+        (typeof value['spec'] === 'string' || value['spec'] === null) &&
+        typeof value['label'] === 'string' &&
+        isFiniteNumber(value['nodes']) &&
+        isFiniteNumber(value['of'])
+      );
+    default:
+      return false;
+  }
+}
+
+export type ParseResult =
+  | { ok: true; msg: UiToHost }
+  | { ok: false; reason: 'not-an-object' | 'bad-version' | 'unknown-type' | 'malformed'; detail: string };
+
+/**
+ * Classify an inbound webview message. `unknown-type` and `bad-version` are the
+ * forward-compatibility paths: the host logs them and carries on.
+ */
+export function parseUiToHost(value: unknown): ParseResult {
+  if (!isObject(value)) {
+    return { ok: false, reason: 'not-an-object', detail: typeof value };
+  }
+  if (value['v'] !== PROTOCOL_VERSION) {
+    return { ok: false, reason: 'bad-version', detail: String(value['v']) };
+  }
+  if (!isUiToHostType(value['type'])) {
+    return { ok: false, reason: 'unknown-type', detail: String(value['type']) };
+  }
+  if (!isUiToHost(value)) {
+    return { ok: false, reason: 'malformed', detail: String(value['type']) };
+  }
+  return { ok: true, msg: value };
+}
+
+/** Sanity guard used by the (mocked) webview side in tests. */
+export function isHostToUi(value: unknown): value is HostToUi {
+  return isObject(value) && value['v'] === PROTOCOL_VERSION && isHostToUiType(value['type']);
+}
+
+let requestCounter = 0;
+
+/** Monotonic, process-local request id. Correlates `analysisStarted` with `graph`. */
+export function nextRequestId(prefix = 'req'): string {
+  requestCounter += 1;
+  return `${prefix}-${requestCounter}`;
+}

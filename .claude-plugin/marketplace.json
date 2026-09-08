@@ -1,0 +1,15 @@
+{
+  "name": "mlview-local",
+  "owner": { "name": "MLView" },
+  "metadata": {
+    "description": "Local marketplace for the MLView prototype — the repository itself is the source.",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "mlview",
+      "source": "./claude-plugin",
+      "description": "Visualize and audit Python ML pipelines as an interactive diagram — fully local, static analysis only."
+    }
+  ]
+}

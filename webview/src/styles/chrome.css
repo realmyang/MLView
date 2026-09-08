@@ -1,0 +1,621 @@
+/* Toolbar, chip row, banners, status bar, search, minimap, toasts, states. */
+
+/*
+ * The toolbar WRAPS (MLV-R1-009). It used to be a single nowrap row inside an
+ * `overflow: hidden` shell, so below ~1100 px the zoom, fit, export and rail
+ * controls were silently cut off with no scroll and no overflow menu — the only
+ * affordances for zooming and for hiding the rail simply ceased to exist.
+ */
+.mlv-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--mlv-s5);
+  row-gap: var(--mlv-s2);
+  flex: none;
+  min-width: 0;
+  min-height: var(--mlv-toolbar-h);
+  padding: var(--mlv-s2) var(--mlv-s5);
+  border-bottom: 1px solid var(--mlv-border);
+  background: var(--mlv-surface);
+}
+
+.mlv-brand {
+  display: flex;
+  align-items: baseline;
+  gap: var(--mlv-s4);
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.mlv-brand__name {
+  flex: none;
+}
+
+.mlv-brand__name {
+  font-size: var(--mlv-fs-14);
+  font-weight: var(--mlv-fw-semi);
+  letter-spacing: var(--mlv-track-caps);
+}
+
+.mlv-brand__root {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--mlv-text-2);
+  font-family: var(--mlv-font-mono);
+  font-size: var(--mlv-fs-11);
+}
+
+.mlv-toolbar__spacer {
+  flex: 1 1 auto;
+}
+
+.mlv-stats {
+  display: flex;
+  align-items: center;
+  gap: var(--mlv-s3);
+  flex-wrap: nowrap;
+}
+
+.mlv-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--mlv-s2);
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-11);
+  font-variant-numeric: tabular-nums;
+}
+
+.mlv-stat__value {
+  color: var(--mlv-text);
+  font-weight: var(--mlv-fw-medium);
+}
+
+.mlv-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--mlv-s3);
+  flex: 1 1 200px;
+  min-width: 140px;
+}
+
+.mlv-search .mlv-input {
+  flex: 1 1 auto;
+}
+
+.mlv-search__results {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 40;
+  width: 420px;
+  max-width: 70vw;
+  max-height: 340px;
+  overflow-y: auto;
+  padding: var(--mlv-s2);
+  border: 1px solid var(--mlv-border-strong);
+  border-radius: var(--mlv-r-panel);
+  background: var(--mlv-surface);
+  box-shadow: var(--mlv-sh-3);
+  list-style: none;
+  margin: 0;
+}
+
+.mlv-search__results[hidden] {
+  display: none;
+}
+
+.mlv-result {
+  display: flex;
+  align-items: center;
+  gap: var(--mlv-s4);
+  width: 100%;
+  padding: var(--mlv-s3) var(--mlv-s4);
+  border: 0;
+  border-radius: var(--mlv-r-btn);
+  background: none;
+  cursor: pointer;
+  text-align: left;
+}
+
+.mlv-result:hover,
+.mlv-result[aria-selected="true"] {
+  background: var(--mlv-surface-2);
+}
+
+.mlv-result__label {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--mlv-fs-12);
+}
+
+.mlv-result__meta {
+  flex: none;
+  color: var(--mlv-text-3);
+  font-family: var(--mlv-font-mono);
+  font-size: var(--mlv-fs-10);
+}
+
+.mlv-result__empty {
+  padding: var(--mlv-s5);
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-12);
+}
+
+/* chip row + banners */
+.mlv-chiprow,
+.mlv-filterrow {
+  display: flex;
+  align-items: center;
+  gap: var(--mlv-s4);
+  flex: none;
+  flex-wrap: wrap;
+  min-height: var(--mlv-chips-h);
+  padding: var(--mlv-s2) var(--mlv-s5);
+  border-bottom: 1px solid var(--mlv-border);
+  background: var(--mlv-bg);
+  font-size: var(--mlv-fs-11);
+  color: var(--mlv-text-2);
+}
+
+.mlv-chiprow[hidden],
+.mlv-filterrow[hidden],
+.mlv-banners[hidden] {
+  display: none;
+}
+
+.mlv-chiprow__label {
+  color: var(--mlv-text-3);
+  text-transform: uppercase;
+  letter-spacing: var(--mlv-track-caps);
+  font-size: var(--mlv-fs-10);
+}
+
+.mlv-banners {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+}
+
+.mlv-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--mlv-s4);
+  padding: var(--mlv-s4) var(--mlv-s5);
+  border-bottom: 1px solid var(--mlv-border);
+  font-size: var(--mlv-fs-12);
+  background: var(--mlv-surface-2);
+  color: var(--mlv-text);
+}
+
+.mlv-banner__text {
+  flex: 1 1 auto;
+}
+
+.mlv-banner__detail {
+  margin-top: var(--mlv-s2);
+  color: var(--mlv-text-2);
+  font-family: var(--mlv-font-mono);
+  font-size: var(--mlv-fs-10);
+  white-space: pre-wrap;
+  max-height: 120px;
+  overflow: auto;
+}
+
+.mlv-banner__actions {
+  display: flex;
+  gap: var(--mlv-s3);
+  flex: none;
+}
+
+.mlv-banner--error {
+  border-left: 3px solid var(--mlv-sev-high);
+}
+
+.mlv-banner--warn {
+  border-left: 3px solid var(--mlv-sev-medium);
+}
+
+.mlv-banner--info {
+  border-left: 3px solid var(--mlv-sev-low);
+}
+
+/* status bar */
+.mlv-status {
+  display: flex;
+  align-items: center;
+  gap: var(--mlv-s5);
+  flex: none;
+  min-height: var(--mlv-status-h);
+  padding: 0 var(--mlv-s5);
+  border-top: 1px solid var(--mlv-border);
+  background: var(--mlv-surface);
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-10);
+}
+
+/* minimap */
+.mlv-minimap {
+  position: absolute;
+  right: var(--mlv-s5);
+  bottom: var(--mlv-s5);
+  z-index: 20;
+  width: 200px;
+  border: 1px solid var(--mlv-border-strong);
+  border-radius: var(--mlv-r-btn);
+  background: var(--mlv-surface);
+  box-shadow: var(--mlv-sh-2);
+  overflow: hidden;
+}
+
+.mlv-minimap[hidden] {
+  display: none;
+}
+
+/* collapsed: a 28 px chevron tab instead of 200x130 of occluded diagram. */
+.mlv-minimap.is-collapsed {
+  width: 28px;
+  height: 28px;
+}
+
+.mlv-minimap.is-collapsed .mlv-minimap__svg {
+  display: none;
+}
+
+.mlv-minimap__toggle {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  z-index: 1;
+  width: 24px;
+  height: 24px;
+  min-height: 0;
+  padding: 0;
+  border-radius: var(--mlv-r-btn);
+  background: var(--mlv-surface);
+  color: var(--mlv-text-2);
+}
+
+.mlv-minimap__toggle .mlv-uicon {
+  transform: rotate(-90deg);
+}
+
+.mlv-minimap.is-collapsed .mlv-minimap__toggle .mlv-uicon {
+  transform: rotate(90deg);
+}
+
+.mlv-minimap__svg {
+  display: block;
+  width: 100%;
+  height: 130px;
+  cursor: pointer;
+}
+
+.mlv-minimap__node {
+  fill: var(--mlv-stage, var(--mlv-stage-unknown));
+  opacity: 0.75;
+}
+
+.mlv-minimap__node--issue {
+  stroke: var(--mlv-sev, var(--mlv-sev-low));
+  stroke-width: 1.5;
+}
+
+.mlv-minimap__view {
+  fill: var(--mlv-accent);
+  fill-opacity: 0.12;
+  stroke: var(--mlv-accent);
+  stroke-width: 1;
+}
+
+/* toasts */
+.mlv-toasts {
+  position: absolute;
+  left: 50%;
+  bottom: var(--mlv-s7);
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: var(--mlv-s3);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.mlv-toast {
+  min-width: 240px;
+  max-width: 360px;
+  padding: var(--mlv-s4) var(--mlv-s5);
+  border: 1px solid var(--mlv-border-strong);
+  border-radius: var(--mlv-r-btn);
+  background: var(--mlv-surface);
+  box-shadow: var(--mlv-sh-2);
+  font-size: var(--mlv-fs-12);
+  text-align: center;
+}
+
+/* The standalone bridge's own toast, mounted OUTSIDE the `.mlv-toasts` stack
+ * (which is `pointer-events: none`). It may carry the "Open in VS Code" link of
+ * CONTRACTS 11.17 — the only affordance left on a page that must never navigate
+ * itself — so it re-enables pointer events for itself rather than relying on
+ * where it happens to be mounted.
+ *
+ * It also restates the type and text colour that every other surface INHERITS
+ * from `.mlv-root`. `showFloatingToast` prefers to mount inside `.mlv-root` for
+ * exactly that inheritance, but it falls back to `<body>`, where nothing is
+ * inherited: the card kept its token background and picked up the UA's black
+ * Times New Roman, i.e. black on the dark surface in a dark theme. The one
+ * message a reader gets after pressing "go to" must not be the least legible
+ * thing on the page. */
+.mlv-toast--floating {
+  pointer-events: auto;
+  font-family: var(--mlv-font);
+  line-height: var(--mlv-lh-body);
+  color: var(--mlv-text);
+}
+
+/* `block`, not `inline-block`: the sentence in front of it wraps, and an inline
+ * link takes whatever room is left on the last line — "…jump into VS CodeOpen
+ * in VS Code", with no separation between the message and the affordance. Its
+ * own line is also a bigger target for the one action this toast offers. */
+.mlv-toast__link {
+  display: block;
+  margin-top: var(--mlv-s2);
+  color: var(--mlv-link);
+  font-weight: 600;
+  text-decoration: underline;
+}
+
+/* full-canvas states */
+.mlv-state {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--mlv-s9);
+  background: var(--mlv-bg);
+}
+
+.mlv-state[hidden] {
+  display: none;
+}
+
+.mlv-state__inner {
+  width: min(460px, 100%);
+  text-align: center;
+}
+
+.mlv-state__title {
+  margin: 0 0 var(--mlv-s4);
+  font-size: var(--mlv-fs-16);
+  font-weight: var(--mlv-fw-semi);
+}
+
+.mlv-state__body {
+  margin: 0 0 var(--mlv-s5);
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-12);
+}
+
+.mlv-state__list {
+  margin: 0 auto var(--mlv-s5);
+  padding: 0;
+  list-style: none;
+  text-align: left;
+  max-width: 420px;
+  color: var(--mlv-text-2);
+  font-family: var(--mlv-font-mono);
+  font-size: var(--mlv-fs-10);
+}
+
+.mlv-state__actions {
+  display: flex;
+  gap: var(--mlv-s4);
+  justify-content: center;
+}
+
+/* loading skeleton */
+.mlv-skeleton {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--mlv-s6);
+  width: min(560px, 100%);
+  margin: 0 auto var(--mlv-s7);
+}
+
+.mlv-skeleton__card {
+  height: 56px;
+  border-radius: var(--mlv-r-node);
+  background: var(--mlv-surface-2);
+  animation: mlv-shimmer 1200ms linear infinite;
+}
+
+.mlv-skeleton__card:nth-child(2) { animation-delay: 120ms; }
+.mlv-skeleton__card:nth-child(3) { animation-delay: 240ms; }
+.mlv-skeleton__card:nth-child(4) { animation-delay: 360ms; }
+.mlv-skeleton__card:nth-child(5) { animation-delay: 480ms; }
+.mlv-skeleton__card:nth-child(6) { animation-delay: 600ms; }
+
+@keyframes mlv-shimmer {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+
+.mlv-progress {
+  width: 240px;
+  height: 2px;
+  margin: 0 auto var(--mlv-s4);
+  background: var(--mlv-surface-2);
+  border-radius: var(--mlv-r-pill);
+  overflow: hidden;
+}
+
+.mlv-progress__bar {
+  height: 100%;
+  width: 0;
+  background: var(--mlv-accent);
+  transition: width var(--mlv-dur-2) var(--mlv-ease);
+}
+
+.mlv-filterrow {
+  gap: var(--mlv-s3);
+}
+
+.mlv-filterrow .mlv-chip--stage {
+  color: var(--mlv-text);
+}
+
+.mlv-btn[disabled] {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.mlv-edge.is-filtered {
+  display: none;
+}
+
+
+/*
+ * Below the 900 px breakpoint the rail becomes an overlay drawer with a scrim
+ * (UX_DESIGN §1) instead of eating 360 px of a narrow canvas.
+ */
+.mlv-scrim {
+  display: none;
+  position: absolute;
+  inset: 0;
+  z-index: 39;
+  background: var(--mlv-scrim);
+}
+
+@media (max-width: 900px) {
+  .mlv-scrim:not([hidden]) {
+    display: block;
+  }
+
+  .mlv-minimap {
+    display: none;
+  }
+}
+
+/* keyboard shortcut sheet (`?`, UX_DESIGN §9) */
+.mlv-sheet {
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mlv-sheet[hidden] {
+  display: none;
+}
+
+.mlv-sheet__scrim {
+  position: absolute;
+  inset: 0;
+  background: var(--mlv-scrim);
+}
+
+.mlv-sheet__panel {
+  position: relative;
+  width: min(560px, 92%);
+  max-height: min(70vh, 620px);
+  overflow-y: auto;
+  padding: var(--mlv-s5) var(--mlv-s6) var(--mlv-s6);
+  border: 1px solid var(--mlv-border-strong);
+  border-radius: var(--mlv-r-panel);
+  background: var(--mlv-surface);
+  box-shadow: var(--mlv-sh-3);
+}
+
+.mlv-sheet__head {
+  display: flex;
+  align-items: center;
+  gap: var(--mlv-s4);
+  margin-bottom: var(--mlv-s5);
+}
+
+.mlv-sheet__title {
+  flex: 1 1 auto;
+  margin: 0;
+  font-size: var(--mlv-fs-14);
+  font-weight: var(--mlv-fw-semi);
+}
+
+.mlv-sheet__list {
+  display: grid;
+  grid-template-columns: minmax(140px, auto) 1fr;
+  gap: var(--mlv-s3) var(--mlv-s5);
+  margin: 0;
+}
+
+.mlv-sheet__keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--mlv-s2);
+  margin: 0;
+}
+
+.mlv-sheet__desc {
+  margin: 0;
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-12);
+  align-self: center;
+}
+
+.mlv-kbd {
+  display: inline-block;
+  padding: 1px var(--mlv-s3);
+  border: 1px solid var(--mlv-border-strong);
+  border-radius: var(--mlv-r-chip);
+  background: var(--mlv-surface-2);
+  color: var(--mlv-text);
+  font-family: var(--mlv-font-mono);
+  font-size: var(--mlv-fs-10);
+  white-space: nowrap;
+}
+
+/*
+ * The standalone theme switch is a radio group, not a set of filters, so the
+ * struck-through "off" treatment of .mlv-chip--btn would be wrong here.
+ */
+.mlv-themeswitch {
+  display: flex;
+  align-items: center;
+  flex: none;
+  gap: 0;
+  border: 1px solid var(--mlv-border);
+  border-radius: var(--mlv-r-btn);
+  overflow: hidden;
+}
+
+.mlv-themeswitch .mlv-chip--btn {
+  border: 0;
+  border-radius: 0;
+  background: var(--mlv-surface);
+  color: var(--mlv-text-2);
+}
+
+.mlv-themeswitch .mlv-chip--btn[aria-pressed="false"] {
+  opacity: 1;
+  text-decoration: none;
+}
+
+.mlv-themeswitch .mlv-chip--btn[aria-pressed="true"] {
+  background: var(--mlv-surface-2);
+  color: var(--mlv-text);
+  font-weight: var(--mlv-fw-semi);
+}
+
+.mlv-themeswitch .mlv-chip--btn + .mlv-chip--btn {
+  border-left: 1px solid var(--mlv-border);
+}

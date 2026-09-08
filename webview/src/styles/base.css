@@ -1,0 +1,225 @@
+/* Shell, typography and shared primitives. */
+
+/*
+ * The page-fill chain (MLV-R1-001). `.mlv-root` is height:100%, which only
+ * resolves when its ancestors have a definite height — otherwise the shell
+ * collapses onto its own content and the status bar, the minimap and most of
+ * the canvas fall below the fold.
+ *
+ * The viewer must not own <html> unconditionally (it is a guest inside the VS
+ * Code webview and inside dev pages that tile components), so `buildShell`
+ * stamps `mlv-fills-page` on <html> and <body> ONLY when the mount root is a
+ * direct child of <body> — i.e. when the viewer really is the page. Both
+ * contracted hosts mount exactly that way (CONTRACTS A4 and A5).
+ *
+ * `padding: 0` also neutralises the `body { padding: 0 20px }` VS Code injects
+ * into every webview, which otherwise gives the panel unintended gutters.
+ */
+html.mlv-fills-page,
+html.mlv-fills-page > body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+html.mlv-fills-page > body > .mlv-root {
+  height: 100%;
+}
+
+.mlv-root {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 240px;
+  overflow: hidden;
+  font-family: var(--mlv-font);
+  font-size: var(--mlv-fs-13);
+  line-height: var(--mlv-lh-body);
+  color: var(--mlv-text);
+  background: var(--mlv-bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+.mlv-root *,
+.mlv-root *::before,
+.mlv-root *::after {
+  box-sizing: border-box;
+}
+
+.mlv-root button,
+.mlv-root input,
+.mlv-root select {
+  font: inherit;
+  color: inherit;
+}
+
+.mlv-body {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.mlv-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.mlv-root :focus-visible {
+  outline: 2px solid var(--mlv-focus);
+  outline-offset: 2px;
+  border-radius: var(--mlv-r-btn);
+}
+
+/* buttons */
+.mlv-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--mlv-s3);
+  min-height: 24px;
+  padding: 3px var(--mlv-s4);
+  border: 1px solid var(--mlv-border);
+  border-radius: var(--mlv-r-btn);
+  background: var(--mlv-surface);
+  color: var(--mlv-text);
+  font-size: var(--mlv-fs-12);
+  cursor: pointer;
+  transition: background var(--mlv-dur-1) var(--mlv-ease), border-color var(--mlv-dur-1) var(--mlv-ease);
+}
+
+.mlv-btn:hover {
+  background: var(--mlv-surface-2);
+  border-color: var(--mlv-border-strong);
+}
+
+.mlv-btn--primary {
+  background: var(--mlv-accent-solid);
+  border-color: var(--mlv-accent-solid);
+  color: var(--mlv-on-accent);
+}
+
+.mlv-btn--primary:hover {
+  background: var(--mlv-accent-solid);
+  filter: brightness(1.08);
+}
+
+.mlv-btn--icon {
+  min-width: 26px;
+  justify-content: center;
+  padding: 3px var(--mlv-s3);
+}
+
+.mlv-btn[aria-pressed="true"] {
+  background: var(--mlv-surface-2);
+  border-color: var(--mlv-border-strong);
+}
+
+.mlv-btn[hidden] {
+  display: none;
+}
+
+/* chips */
+.mlv-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--mlv-s2);
+  min-height: 20px;
+  padding: 1px var(--mlv-s3);
+  border: 1px solid var(--mlv-border);
+  border-radius: var(--mlv-r-chip);
+  background: var(--mlv-surface-2);
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-10);
+  font-weight: var(--mlv-fw-medium);
+  white-space: nowrap;
+}
+
+/*
+ * An author `display` beats the UA stylesheet's `[hidden] { display: none }`,
+ * so every component this codebase hides through the `hidden` PROPERTY needs
+ * its own rule -- exactly like .mlv-btn[hidden] above. Without it the toolbar
+ * draws "0 suppressed" while the code believes it hid it.
+ */
+.mlv-chip[hidden] {
+  display: none;
+}
+
+.mlv-chip--btn {
+  cursor: pointer;
+  min-height: 24px;
+  padding: 2px var(--mlv-s4);
+}
+
+.mlv-chip--btn[aria-pressed="false"] {
+  opacity: 0.5;
+  text-decoration: line-through;
+}
+
+.mlv-chip--stage {
+  color: var(--mlv-text);
+}
+
+.mlv-chip--stage::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--mlv-stage, var(--mlv-stage-unknown));
+}
+
+.mlv-mono {
+  font-family: var(--mlv-font-mono);
+  font-size: var(--mlv-fs-11);
+}
+
+.mlv-link {
+  color: var(--mlv-link);
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.mlv-input {
+  min-width: 0;
+  padding: 3px var(--mlv-s4);
+  border: 1px solid var(--mlv-border);
+  border-radius: var(--mlv-r-btn);
+  background: var(--mlv-surface);
+  color: var(--mlv-text);
+  font-size: var(--mlv-fs-12);
+}
+
+.mlv-input::placeholder {
+  color: var(--mlv-text-3);
+}
+
+.mlv-uicon,
+.mlv-icon {
+  flex: none;
+  display: block;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mlv-root *,
+  .mlv-root *::before,
+  .mlv-root *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

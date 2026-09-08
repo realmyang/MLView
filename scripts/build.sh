@@ -1,0 +1,80 @@
+#!/usr/bin/env sh
+# MLView — build everything, in the only order that works.
+#
+#   sh scripts/build.sh [--skip-npm-install] [--skip-pip-install]
+#
+# 1. webview          npm install + npm run build       -> webview/dist/mlview.{js,css}
+# 2. tools/sync-assets.py                               -> the extension and the analyzer get the SAME bundle
+# 3. tools/sync-core.py                                 -> claude-plugin/vendor/mlview (no pip install for the plugin)
+# 4. vscode-extension npm install + compile + check     -> out/extension.js, tsc clean
+# 5. analyzer         pip install -e                    -> `python -m mlview` on this interpreter
+#
+# The order matters: sync-assets must run after the viewer is built and before the
+# analyzer emits anything, because `generator.rendererSha` is the SHA-256 of the
+# bundle the analyzer ships. POSIX sh, so it also runs under Git Bash on Windows.
+
+set -e
+
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+REPO_ROOT=$(dirname "$SCRIPT_DIR")
+
+PYTHONUTF8=1
+PYTHONIOENCODING=utf-8
+export PYTHONUTF8 PYTHONIOENCODING
+
+SKIP_NPM=0
+SKIP_PIP=0
+for arg in "$@"; do
+  case "$arg" in
+    --skip-npm-install) SKIP_NPM=1 ;;
+    --skip-pip-install) SKIP_PIP=1 ;;
+    -h|--help) sed -n '2,15p' "$0"; exit 0 ;;
+    *) echo "build.sh: unknown option $arg" >&2; exit 1 ;;
+  esac
+done
+
+PYTHON=${PYTHON:-python}
+if ! command -v "$PYTHON" >/dev/null 2>&1; then
+  echo "FAIL: no python interpreter on PATH" >&2
+  exit 1
+fi
+
+head() { printf '\n== %s\n' "$1"; }
+
+echo "MLView build — repo $REPO_ROOT"
+echo "python: $(command -v "$PYTHON")"
+
+head "1/5 webview — install and build the viewer bundle"
+cd "$REPO_ROOT/webview"
+if [ "$SKIP_NPM" -eq 0 ]; then
+  npm install --no-audit --no-fund --prefer-offline
+fi
+npm run build
+
+head "2/5 tools/sync-assets.py — one renderer in all three places"
+cd "$REPO_ROOT"
+"$PYTHON" tools/sync-assets.py
+
+head "3/5 tools/sync-core.py — vendor the analyzer into the plugin"
+"$PYTHON" tools/sync-core.py
+
+head "4/5 vscode-extension — install, compile and type-check"
+cd "$REPO_ROOT/vscode-extension"
+if [ "$SKIP_NPM" -eq 0 ]; then
+  npm install --no-audit --no-fund --prefer-offline
+fi
+npm run compile
+npm run check
+
+cd "$REPO_ROOT"
+if [ "$SKIP_PIP" -eq 0 ]; then
+  head "5/5 analyzer — editable install"
+  "$PYTHON" -m pip install -e analyzer --quiet
+else
+  head "5/5 analyzer — skipped (--skip-pip-install)"
+fi
+
+"$PYTHON" -m mlview --version
+
+printf '\nBUILD OK\n'
+echo "next: sh scripts/e2e.sh"

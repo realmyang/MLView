@@ -1,0 +1,9 @@
+{
+  "name": "mlview",
+  "displayName": "MLView",
+  "version": "0.1.0",
+  "description": "Visualize and audit Python ML pipelines as an interactive diagram — fully local, static analysis only.",
+  "author": { "name": "MLView" },
+  "license": "MIT",
+  "keywords": ["machine-learning", "pytorch", "visualization", "static-analysis"]
+}

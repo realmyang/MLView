@@ -1,0 +1,534 @@
+/**
+ * Edge routing. Orthogonal elbows with rounded corners; cross-lane edges pass
+ * through the gutters between bands; control back-edges are drawn as loops that
+ * stay OUTSIDE the box of the construct they return to (R1.5).
+ *
+ * Every route is obstacle-aware (UX_DESIGN §4.5: "edges never cross a node").
+ * Each router first proposes its natural elbow; if that elbow would be drawn
+ * through the interior of a card that is neither endpoint nor an ancestor or
+ * descendant of one, the route is re-planned through free corridors — the
+ * vertical gaps the dagre pass already leaves between box columns, plus the
+ * horizontal band reserved at the bottom of every lane (MLV-R1-003).
+ *
+ * Routing is pure geometry over the LayoutFrame, so it is as deterministic as
+ * the layout it consumes.
+ */
+
+import type { MLEdge } from '../types.js';
+import { GraphIndex } from './model.js';
+import { LayoutBox, LayoutFrame, isBackEdge } from './layout.js';
+import { CORNER_R, ROUTE_CLEARANCE } from './constants.js';
+
+export interface Point {
+  x: number;
+  y: number;
+}
+
+export interface RoutedEdge {
+  /** The representative edge id (the first in document order for this route). */
+  id: string;
+  /** Every document edge merged into this route. */
+  ids: string[];
+  kind: string;
+  subkind?: string;
+  source: string;
+  target: string;
+  label: string;
+  points: Point[];
+  d: string;
+  mid: Point;
+  midAngle: number;
+  crossLane: boolean;
+  back: boolean;
+  count: number;
+}
+
+/* ── obstacle environment ────────────────────────────────────────────── */
+
+interface RouteEnv {
+  index: GraphIndex;
+  frame: LayoutFrame;
+  /** Every drawn box, at every depth, bucketed by lane. */
+  laneBoxes: Map<string, LayoutBox[]>;
+  /** id -> { itself } ∪ its ancestors, so containment tests are O(1). */
+  ancestry: Map<string, Set<string>>;
+  /** Per lane: the y of the free horizontal band reserved under the content. */
+  band: Map<string, number>;
+  /** Flat obstacle list — small enough to scan per segment. */
+  all: LayoutBox[];
+}
+
+function buildEnv(index: GraphIndex, frame: LayoutFrame): RouteEnv {
+  const laneBoxes = new Map<string, LayoutBox[]>();
+  const all: LayoutBox[] = [];
+  const ancestry = new Map<string, Set<string>>();
+  for (const box of frame.boxes.values()) {
+    all.push(box);
+    const list = laneBoxes.get(box.laneId);
+    if (list) list.push(box);
+    else laneBoxes.set(box.laneId, [box]);
+    const own = new Set<string>([box.id]);
+    for (const a of index.ancestors(box.id)) own.add(a);
+    ancestry.set(box.id, own);
+  }
+  for (const list of laneBoxes.values()) list.sort((a, b) => a.x - b.x || compareId(a.id, b.id));
+
+  const band = new Map<string, number>();
+  for (const lane of frame.lanes) {
+    let bottom = lane.y + lane.headerH;
+    for (const box of laneBoxes.get(lane.id) || []) bottom = Math.max(bottom, box.y + box.h);
+    band.set(lane.id, round(Math.min(bottom + 9, lane.y + lane.h - 5)));
+  }
+  return { index, frame, laneBoxes, ancestry, band, all };
+}
+
+/**
+ * True when `box` must be avoided by an edge running between `s` and `t`.
+ * An endpoint, anything inside an endpoint, and any group containing an
+ * endpoint are all legitimately overlapped — everything else is an obstacle.
+ */
+function blocks(env: RouteEnv, box: LayoutBox, s: string, t: string): boolean {
+  const own = env.ancestry.get(box.id);
+  if (!own) return false;
+  if (own.has(s) || own.has(t)) return false;
+  const sa = env.ancestry.get(s);
+  if (sa && sa.has(box.id)) return false;
+  const ta = env.ancestry.get(t);
+  if (ta && ta.has(box.id)) return false;
+  return true;
+}
+
+/** Axis-aligned segment against a box interior (1 px inset, so faces are free). */
+function segHitsBox(a: Point, b: Point, box: LayoutBox): boolean {
+  const m = 1;
+  const x0 = Math.min(a.x, b.x);
+  const x1 = Math.max(a.x, b.x);
+  const y0 = Math.min(a.y, b.y);
+  const y1 = Math.max(a.y, b.y);
+  return x1 > box.x + m && x0 < box.x + box.w - m && y1 > box.y + m && y0 < box.y + box.h - m;
+}
+
+function pathCrosses(env: RouteEnv, points: Point[], s: string, t: string): boolean {
+  for (let i = 1; i < points.length; i++) {
+    for (const box of env.all) {
+      if (!blocks(env, box, s, t)) continue;
+      if (segHitsBox(points[i - 1], points[i], box)) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Free vertical corridors in a lane over the y-range a run needs, as x-intervals.
+ * The dagre pass leaves `ranksep`/`nodesep` gaps between box columns; this turns
+ * them into the list of x values a vertical run may legally use.
+ */
+function freeCorridors(env: RouteEnv, laneId: string, y0: number, y1: number, s: string, t: string): { a: number; b: number }[] {
+  const laneIdx = env.frame.laneIndex.get(laneId);
+  const lane = laneIdx === undefined ? null : env.frame.lanes[laneIdx];
+  const lo = Math.min(y0, y1);
+  const hi = Math.max(y0, y1);
+  const spans: { a: number; b: number }[] = [];
+  for (const box of env.laneBoxes.get(laneId) || []) {
+    if (!blocks(env, box, s, t)) continue;
+    if (box.y + box.h <= lo || box.y >= hi) continue;
+    spans.push({ a: box.x - ROUTE_CLEARANCE, b: box.x + box.w + ROUTE_CLEARANCE });
+  }
+  spans.sort((p1, p2) => p1.a - p2.a);
+  const left = lane ? lane.x + 4 : 0;
+  const right = lane ? lane.x + lane.w - 4 : left;
+  const out: { a: number; b: number }[] = [];
+  let cursor = left;
+  for (const span of spans) {
+    if (span.b <= cursor) continue;
+    if (span.a > cursor) out.push({ a: cursor, b: Math.min(span.a, right) });
+    cursor = Math.max(cursor, span.b);
+    if (cursor >= right) break;
+  }
+  if (cursor < right) out.push({ a: cursor, b: right });
+  return out.filter((iv) => iv.b - iv.a >= 10 && iv.b > left && iv.a < right);
+}
+
+/**
+ * The x of the nearest free corridor beside `box` that can be reached by a
+ * straight horizontal run out of the box's own face. Null when there is none.
+ */
+function escapeX(
+  env: RouteEnv,
+  box: LayoutBox,
+  toRight: boolean,
+  y0: number,
+  y1: number,
+  s: string,
+  t: string,
+): number | null {
+  const free = freeCorridors(env, box.laneId, y0, y1, s, t);
+  const candidates: number[] = [];
+  // `box` is an endpoint, so it is not itself an obstacle and a free interval can
+  // straddle it. Clip each interval to the requested side before measuring it.
+  for (const iv of free) {
+    if (toRight) {
+      const a = Math.max(iv.a, box.x + box.w + 4);
+      if (iv.b - a >= 10) candidates.push(round((a + Math.min(iv.b, a + 40)) / 2));
+    } else {
+      const b = Math.min(iv.b, box.x - 4);
+      if (b - iv.a >= 10) candidates.push(round((Math.max(iv.a, b - 40) + b) / 2));
+    }
+  }
+  candidates.sort((a, b) => (toRight ? a - b : b - a));
+  const y = cy(box);
+  const face = toRight ? box.x + box.w : box.x;
+  for (const x of candidates) {
+    if (!pathCrosses(env, [p(face, y), p(x, y)], s, t)) return x;
+  }
+  return null;
+}
+
+/** Escape on the side facing `towardX` first, then the other side. */
+function escapeToward(
+  env: RouteEnv,
+  box: LayoutBox,
+  towardX: number,
+  y0: number,
+  y1: number,
+  s: string,
+  t: string,
+): number | null {
+  const right = towardX >= cx(box);
+  const first = escapeX(env, box, right, y0, y1, s, t);
+  if (first !== null) return first;
+  return escapeX(env, box, !right, y0, y1, s, t);
+}
+
+/* ── the router ──────────────────────────────────────────────────────── */
+
+export function routeEdges(index: GraphIndex, frame: LayoutFrame, collapsed: Set<string>): RoutedEdge[] {
+  const env = buildEnv(index, frame);
+  const groups = new Map<string, { edges: MLEdge[]; s: string; t: string }>();
+  const order: string[] = [];
+
+  for (const e of index.graph.edges || []) {
+    const s = index.visibleRepresentative(e.source, collapsed);
+    const t = index.visibleRepresentative(e.target, collapsed);
+    if (s === t) continue;
+    if (!frame.boxes.has(s) || !frame.boxes.has(t)) continue;
+    const key = s + ' ' + t + ' ' + e.kind + ' ' + (e.subkind || '');
+    let bucket = groups.get(key);
+    if (!bucket) {
+      bucket = { edges: [], s, t };
+      groups.set(key, bucket);
+      order.push(key);
+    }
+    bucket.edges.push(e);
+  }
+
+  const backCounters = new Map<string, number>();
+  const gutterCounters = new Map<string, number>();
+  const out: RoutedEdge[] = [];
+
+  for (const key of order) {
+    const bucket = groups.get(key)!;
+    const first = bucket.edges[0];
+    const sBox = frame.boxes.get(bucket.s)!;
+    const tBox = frame.boxes.get(bucket.t)!;
+    const back = isBackEdge(first);
+    const crossLane = sBox.laneId !== tBox.laneId;
+
+    const sInsideT = index.ancestors(bucket.s).indexOf(bucket.t) >= 0;
+    const tInsideS = index.ancestors(bucket.t).indexOf(bucket.s) >= 0;
+
+    let points: Point[];
+    if (back) {
+      const n = bump(backCounters, sBox.laneId);
+      points = routeBack(env, index, frame, sBox, tBox, n);
+    } else if (tInsideS || sInsideT) {
+      points = routeContainment(env, sBox, tBox, tInsideS);
+    } else if (crossLane) {
+      const n = bump(gutterCounters, sBox.laneId + '>' + tBox.laneId);
+      points = routeCrossLane(env, frame, sBox, tBox, n);
+    } else {
+      const n = bump(gutterCounters, 'in:' + sBox.laneId);
+      points = routeWithinLane(env, frame, sBox, tBox, n);
+    }
+
+    const label = bucket.edges.length > 1 ? '×' + bucket.edges.length : first.label || '';
+    const midInfo = midpointOf(points);
+    out.push({
+      id: first.id,
+      ids: bucket.edges.map((e) => e.id),
+      kind: first.kind,
+      subkind: first.subkind,
+      source: bucket.s,
+      target: bucket.t,
+      label,
+      points,
+      d: orthPath(points, CORNER_R),
+      mid: midInfo.point,
+      midAngle: midInfo.angle,
+      crossLane,
+      back,
+      count: bucket.edges.length,
+    });
+  }
+  return out;
+}
+
+function bump(map: Map<string, number>, key: string): number {
+  const n = (map.get(key) || 0) + 1;
+  map.set(key, n);
+  return n - 1;
+}
+
+function cx(b: LayoutBox): number {
+  return b.x + b.w / 2;
+}
+
+function cy(b: LayoutBox): number {
+  return b.y + b.h / 2;
+}
+
+/**
+ * One endpoint contains the other (a control/enter edge into a loop body, say).
+ * Drop through the container's left padding — which is free of children by
+ * construction — and enter the child's left face.
+ */
+function routeContainment(env: RouteEnv, s: LayoutBox, t: LayoutBox, targetInsideSource: boolean): Point[] {
+  const outer = targetInsideSource ? s : t;
+  const inner = targetInsideSource ? t : s;
+  const gutter = round(outer.x + 12);
+  const headerY = outer.y + Math.min(28, outer.h / 2);
+  const simple = targetInsideSource
+    ? [p(gutter, headerY), p(gutter, cy(inner)), p(inner.x, cy(inner))]
+    : [p(inner.x, cy(inner)), p(gutter, cy(inner)), p(gutter, headerY)];
+  if (!pathCrosses(env, simple, s.id, t.id)) return simple;
+
+  // A sibling sits between the container's left padding and the child: come in
+  // through the free corridor immediately beside the child instead.
+  const lift = escapeX(env, inner, false, cy(inner), cy(inner), s.id, t.id);
+  const x = lift === null ? gutter : lift;
+  const face = lift === null || lift <= inner.x ? inner.x : inner.x + inner.w;
+  const detour = targetInsideSource
+    ? [p(gutter, headerY), p(gutter, cy(inner)), p(x, cy(inner)), p(face, cy(inner))]
+    : [p(face, cy(inner)), p(x, cy(inner)), p(gutter, cy(inner)), p(gutter, headerY)];
+  return pathCrosses(env, detour, s.id, t.id) ? simple : dedupe(detour);
+}
+
+/** Same-lane forward flow: right edge of source into left edge of target. */
+function routeWithinLane(env: RouteEnv, frame: LayoutFrame, s: LayoutBox, t: LayoutBox, n: number): Point[] {
+  const sx = s.x + s.w;
+  const sy = anchorY(s, n);
+  const tx = t.x;
+  const ty = anchorY(t, n);
+  let simple: Point[];
+  if (tx >= sx + 16) {
+    const mx = round((sx + tx) / 2);
+    simple =
+      Math.abs(sy - ty) < 0.5 ? [p(sx, sy), p(tx, ty)] : [p(sx, sy), p(mx, sy), p(mx, ty), p(tx, ty)];
+  } else {
+    // Target sits left of, or overlaps, the source: detour under both boxes.
+    const lane = frame.lanes[frame.laneIndex.get(s.laneId) ?? 0];
+    const drop = Math.max(s.y + s.h, t.y + t.h) + 14 + n * 6;
+    const limit = lane ? lane.y + lane.h - 6 : drop;
+    const y = round(Math.min(drop, limit));
+    simple = [p(cx(s), s.y + s.h), p(cx(s), y), p(cx(t), y), p(cx(t), t.y + t.h)];
+  }
+  if (!pathCrosses(env, simple, s.id, t.id)) return simple;
+  const detour = laneDetour(env, s, t, n);
+  return detour && !pathCrosses(env, detour, s.id, t.id) ? detour : simple;
+}
+
+/**
+ * Leave the source sideways into a free corridor, run along the lane's reserved
+ * bottom band, and rise into the target's near face. Every leg is provably free:
+ * the corridors are gaps between box columns and the band is below all content.
+ */
+function laneDetour(env: RouteEnv, s: LayoutBox, t: LayoutBox, n: number): Point[] | null {
+  const y = round((env.band.get(s.laneId) ?? Math.max(s.y + s.h, t.y + t.h) + 12) + n * 5);
+  const sx = escapeToward(env, s, cx(t), cy(s), y, s.id, t.id);
+  const tx = escapeToward(env, t, cx(s), y, cy(t), s.id, t.id);
+  if (sx === null || tx === null) return null;
+  const sFace = sx >= cx(s) ? s.x + s.w : s.x;
+  const tFace = tx >= cx(t) ? t.x + t.w : t.x;
+  return dedupe([p(sFace, cy(s)), p(sx, cy(s)), p(sx, y), p(tx, y), p(tx, cy(t)), p(tFace, cy(t))]);
+}
+
+/** Vertical elbows through the gutter between bands; long hops use the left channel. */
+function routeCrossLane(env: RouteEnv, frame: LayoutFrame, s: LayoutBox, t: LayoutBox, n: number): Point[] {
+  const si = frame.laneIndex.get(s.laneId) ?? 0;
+  const ti = frame.laneIndex.get(t.laneId) ?? 0;
+  const down = ti > si;
+  const stagger = n * 7;
+  const adjacent = Math.abs(ti - si) === 1;
+
+  const sy = down ? s.y + s.h : s.y;
+  const ty = down ? t.y : t.y + t.h;
+  const gy = round(gutterY(frame, Math.min(si, ti)) + (down ? stagger : -stagger));
+  const gy1 = round(down ? gutterY(frame, si) : gutterY(frame, si - 1));
+  const gy2 = round(down ? gutterY(frame, ti - 1) : gutterY(frame, ti));
+  const channel = round(frame.channelX + stagger);
+
+  const simple = adjacent
+    ? [p(cx(s), sy), p(cx(s), gy), p(cx(t), gy), p(cx(t), ty)]
+    : [p(cx(s), sy), p(cx(s), gy1), p(channel, gy1), p(channel, gy2), p(cx(t), gy2), p(cx(t), ty)];
+  if (!pathCrosses(env, simple, s.id, t.id)) return simple;
+
+  // Escape sideways into a free corridor, then use the gutter, which is empty by
+  // construction, for the whole horizontal run.
+  const exitY = adjacent ? gy : gy1;
+  const enterY = adjacent ? gy : gy2;
+  const sx = escapeToward(env, s, cx(t), cy(s), exitY, s.id, t.id);
+  const tx = escapeToward(env, t, cx(s), enterY, cy(t), s.id, t.id);
+  if (sx === null || tx === null) return simple;
+  const sFace = sx >= cx(s) ? s.x + s.w : s.x;
+  const tFace = tx >= cx(t) ? t.x + t.w : t.x;
+  const detour = adjacent
+    ? [p(sFace, cy(s)), p(sx, cy(s)), p(sx, gy), p(tx, gy), p(tx, cy(t)), p(tFace, cy(t))]
+    : [
+        p(sFace, cy(s)),
+        p(sx, cy(s)),
+        p(sx, gy1),
+        p(channel, gy1),
+        p(channel, gy2),
+        p(tx, gy2),
+        p(tx, cy(t)),
+        p(tFace, cy(t)),
+      ];
+  return pathCrosses(env, detour, s.id, t.id) ? simple : dedupe(detour);
+}
+
+/** Mid-gutter y between lane `i` and lane `i + 1`. */
+function gutterY(frame: LayoutFrame, i: number): number {
+  const a = frame.lanes[i];
+  const b = frame.lanes[i + 1];
+  if (a && b) return (a.y + a.h + b.y) / 2;
+  if (a) return a.y + a.h + 12;
+  if (b) return b.y - 12;
+  return 0;
+}
+
+/**
+ * Back-edge loop. Drops below both endpoint boxes — and below the construct the
+ * edge returns to — then rises into the target's bottom edge, so the path never
+ * enters the loop container it belongs to.
+ */
+function routeBack(
+  env: RouteEnv,
+  index: GraphIndex,
+  frame: LayoutFrame,
+  s: LayoutBox,
+  t: LayoutBox,
+  n: number,
+): Point[] {
+  const lane = frame.lanes[frame.laneIndex.get(s.laneId) ?? 0];
+  let bottom = Math.max(s.y + s.h, t.y + t.h);
+  const sAnc = new Set(index.ancestors(s.id));
+  const tAnc = new Set(index.ancestors(t.id));
+  for (const box of frame.boxes.values()) {
+    if (box.laneId !== s.laneId) continue;
+    if (box.id !== s.id && box.id !== t.id && (sAnc.has(box.id) || tAnc.has(box.id))) continue;
+    const spanA = Math.min(cx(s), cx(t));
+    const spanB = Math.max(cx(s), cx(t));
+    if (box.x + box.w < spanA || box.x > spanB) continue;
+    bottom = Math.max(bottom, box.y + box.h);
+  }
+  const y = round(Math.min(bottom + 12 + n * 7, lane ? lane.y + lane.h - 6 : bottom + 12));
+  const tx = tAnc.has(s.id) || sAnc.has(t.id) ? round(t.x + Math.min(28, t.w / 3)) : cx(t);
+  const simple = [p(cx(s), s.y + s.h), p(cx(s), y), p(tx, y), p(tx, t.y + t.h)];
+  if (!pathCrosses(env, simple, s.id, t.id)) return simple;
+
+  // The drop out of the source, or the rise into the target, would pass through
+  // a card stacked under it: leave sideways through a free corridor instead.
+  const sx = escapeToward(env, s, cx(t), cy(s), y, s.id, t.id);
+  const ux = escapeToward(env, t, cx(s), y, cy(t), s.id, t.id);
+  if (sx === null || ux === null) return simple;
+  const sFace = sx >= cx(s) ? s.x + s.w : s.x;
+  const tFace = ux >= cx(t) ? t.x + t.w : t.x;
+  const detour = dedupe([p(sFace, cy(s)), p(sx, cy(s)), p(sx, y), p(ux, y), p(ux, cy(t)), p(tFace, cy(t))]);
+  return pathCrosses(env, detour, s.id, t.id) ? simple : detour;
+}
+
+/** Spread parallel connections across the vertical face of a card. */
+function anchorY(b: LayoutBox, n: number): number {
+  if (n === 0) return round(cy(b));
+  const span = Math.min(b.h - 16, 40);
+  const step = span / 4;
+  const k = ((n + 1) >> 1) * (n % 2 === 1 ? 1 : -1);
+  return round(cy(b) + Math.max(-span / 2, Math.min(span / 2, k * step)));
+}
+
+/** Drop zero-length steps so the corner rounding never degenerates. */
+function dedupe(points: Point[]): Point[] {
+  const out: Point[] = [];
+  for (const pt of points) {
+    const prev = out[out.length - 1];
+    if (prev && Math.abs(prev.x - pt.x) < 0.01 && Math.abs(prev.y - pt.y) < 0.01) continue;
+    out.push(pt);
+  }
+  return out.length >= 2 ? out : points;
+}
+
+function compareId(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+function p(x: number, y: number): Point {
+  return { x: round(x), y: round(y) };
+}
+
+function round(v: number): number {
+  return Math.round(v * 100) / 100;
+}
+
+/** Rounded orthogonal polyline. */
+export function orthPath(points: Point[], r: number): string {
+  if (points.length < 2) return '';
+  const parts: string[] = ['M ' + points[0].x + ' ' + points[0].y];
+  for (let i = 1; i < points.length - 1; i++) {
+    const prev = points[i - 1];
+    const cur = points[i];
+    const next = points[i + 1];
+    const inLen = dist(prev, cur);
+    const outLen = dist(cur, next);
+    const rad = Math.max(0, Math.min(r, inLen / 2, outLen / 2));
+    if (rad < 0.75) {
+      parts.push('L ' + cur.x + ' ' + cur.y);
+      continue;
+    }
+    const a = lerp(cur, prev, rad / (inLen || 1));
+    const b = lerp(cur, next, rad / (outLen || 1));
+    parts.push('L ' + round(a.x) + ' ' + round(a.y));
+    parts.push('Q ' + cur.x + ' ' + cur.y + ' ' + round(b.x) + ' ' + round(b.y));
+  }
+  const last = points[points.length - 1];
+  parts.push('L ' + last.x + ' ' + last.y);
+  return parts.join(' ');
+}
+
+function dist(a: Point, b: Point): number {
+  return Math.hypot(b.x - a.x, b.y - a.y);
+}
+
+function lerp(from: Point, to: Point, f: number): Point {
+  return { x: from.x + (to.x - from.x) * f, y: from.y + (to.y - from.y) * f };
+}
+
+/** Point and direction at half the polyline's length — where markers and labels go. */
+export function midpointOf(points: Point[]): { point: Point; angle: number } {
+  if (points.length === 0) return { point: { x: 0, y: 0 }, angle: 0 };
+  if (points.length === 1) return { point: points[0], angle: 0 };
+  let total = 0;
+  for (let i = 1; i < points.length; i++) total += dist(points[i - 1], points[i]);
+  let walked = 0;
+  const half = total / 2;
+  for (let i = 1; i < points.length; i++) {
+    const seg = dist(points[i - 1], points[i]);
+    if (walked + seg >= half || i === points.length - 1) {
+      const f = seg === 0 ? 0 : (half - walked) / seg;
+      const pt = lerp(points[i - 1], points[i], Math.max(0, Math.min(1, f)));
+      const angle = (Math.atan2(points[i].y - points[i - 1].y, points[i].x - points[i - 1].x) * 180) / Math.PI;
+      return { point: { x: round(pt.x), y: round(pt.y) }, angle };
+    }
+    walked += seg;
+  }
+  return { point: points[points.length - 1], angle: 0 };
+}

@@ -1,0 +1,317 @@
+/* The flow layer: outlet, charge, inlet — plus the reduced-motion substitute.
+ *
+ * Everything here is inert until the renderer adds `.is-flowing` or
+ * `.is-flowing--pulse` to an edge <g>, which only ever happens inside a
+ * debounced hover/focus callback. Nothing loops without a live pointer, focus,
+ * selection or focus-mode latch (UX_DESIGN principle 5).
+ *
+ * Deliberately absent, and they must stay absent (FEATURES 2.9):
+ *   - `will-change`, which would promote up to 120 layers for nothing;
+ *   - `filter: drop-shadow`, which forces a filter-region repaint per frame;
+ *   - any SVG filter primitive (`feGaussianBlur` above all) on anything that
+ *     moves: its filter region is re-rasterized every frame.
+ * The charge's halo (CONTRACTS 11.13.1) is therefore three STACKED OPACITIES on
+ * three concentric circles — geometry a compositor already knows how to move —
+ * and never a blur.
+ * `stroke-dashoffset` is not GPU-composited in Chromium — it repaints the edge
+ * layer every frame — so the cap (`FLOW_MAX_EDGES = 120`) is the budget.
+ *
+ * The dash numbers on a flowing edge are UNITLESS: the charge path carries
+ * `pathLength="100"`, so 1 unit is 1% of that route, and `render/flow.ts`
+ * converts the px tokens per edge. The px token values below are the fallback
+ * for an element that somehow has no inline conversion.
+ */
+
+/* ── charge colour: two order-independent rules ──────────────────────────
+ * Source order must not decide the winner. An edge with a finding is coloured
+ * by SEVERITY; every other edge is coloured by its SOURCE node's stage. The two
+ * selectors are mutually exclusive by construction, so reordering them cannot
+ * change the result (CONTRACTS 11.13 rule 4). */
+.mlv-edge[data-stage]:not(.has-issue) {
+  --mlv-flow-color: var(--mlv-stage);
+}
+
+.mlv-edge.has-issue {
+  --mlv-flow-color: var(--mlv-sev);
+}
+
+/* ...and one exception, which has to be written HERE rather than as a token.
+ * High contrast has no hues: FEATURES 2.6 says both rules resolve to ink at
+ * 4 px there, and `tokens.css` duly sets `--mlv-flow-color: var(--mlv-text)` in
+ * the hc block. That declaration can never win on its own — a custom property
+ * declared ON the element always beats one inherited from an ancestor, whatever
+ * the ancestor's specificity — so in high contrast the charge kept the LIGHT
+ * theme's teal on a white cable over black (MLV-R1-FLOW-001). The override is
+ * therefore element-level too, and each selector carries the class it must
+ * outrank so specificity, not source order, decides it. */
+body.vscode-high-contrast .mlv-edge[data-stage],
+body.vscode-high-contrast .mlv-edge.has-issue,
+body.vscode-high-contrast-light .mlv-edge[data-stage],
+body.vscode-high-contrast-light .mlv-edge.has-issue,
+:root[data-theme="hc"] .mlv-edge[data-stage],
+:root[data-theme="hc"] .mlv-edge.has-issue,
+.mlv-root[data-theme="hc"] .mlv-edge[data-stage],
+.mlv-root[data-theme="hc"] .mlv-edge.has-issue {
+  --mlv-flow-color: var(--mlv-text);
+}
+
+/* ── the charge ─────────────────────────────────────────────────────────── */
+
+.mlv-edge__flow {
+  fill: none;
+  stroke: var(--mlv-flow-color, var(--mlv-accent));
+  stroke-width: var(--mlv-flow-width, 3px);
+  stroke-linecap: round;
+  pointer-events: none;
+}
+
+/* PULSE — the single hovered / latched cable. The moving part is no longer this
+ * element: it is the DOT below (CONTRACTS 11.13.1). What is left here is the
+ * cable's ENERGISED state — a faint, static, full-length wash in the charge's own
+ * hue, which is what keeps a severity-red connection reading red along its whole
+ * length between passes, and what gives the halo a surface to sit on. No dash,
+ * no animation, no keyframe: the `mlv-flow-pulse` dash keyframe was removed with
+ * the line it drove. */
+.mlv-edge.is-flowing--pulse .mlv-edge__flow {
+  stroke-dasharray: none;
+  stroke-opacity: var(--mlv-flow-underlay-opacity, 0.28);
+}
+
+/* ── the travelling dot ─────────────────────────────────────────────────
+ * `render/flow.ts` builds it only for a pulse, only under `data-flow="motion"`,
+ * and only on a route with a real length. Motion is SMIL `<animateMotion>`
+ * riding the edge's own `.mlv-edge__path` through `<mpath>`, so the dot is on
+ * the visible geometry by construction rather than by a second copy of it.
+ *
+ * It also FADES at both ends of its cycle (R3-CHG-03). `<animateMotion
+ * repeatCount="indefinite">` wraps instantaneously, and nothing here used to
+ * touch opacity, so the charge never ARRIVED anywhere: it blinked out at the
+ * inlet and blinked in at the outlet one frame later, at full strength, a ~190 px
+ * jump on a short cable and ~640 px on a long one, once per 0.4-2.2 s for as long
+ * as the pointer rested. A scrolling dash texture can wrap unnoticed; a single
+ * trackable bead teleporting reads as a glitch.
+ *
+ * It is `opacity` on an element the compositor is already moving, so it costs
+ * nothing the motion does not already pay, and it is emphatically NOT an SVG
+ * filter — the ban in this file's header is untouched. The duration is the same
+ * `--mlv-flow-dur` the motion carries, written inline on the edge <g> by
+ * `render/flow.ts` and inherited from there, so fade and travel are one cycle by
+ * construction. The fallback matters only for an element that somehow has no
+ * inline duration; a charge is never built without one. */
+.mlv-edge__charge {
+  pointer-events: none;
+  animation: mlv-charge-ends var(--mlv-flow-dur, 900ms) linear infinite;
+}
+
+/* The twin rides half a period behind (`begin` = `t0 - dur/2`), so its fade is
+ * shifted by the same half period — otherwise it would dim mid-cable, which is
+ * precisely where it exists to be seen. A negative delay is a PHASE offset, the
+ * same device the motion uses. */
+.mlv-edge__charge--twin {
+  animation-delay: calc(var(--mlv-flow-dur, 900ms) / -2);
+}
+
+/* 8% of the cycle at each end: long enough to read as arriving and leaving,
+ * short enough that the dot is at full strength for 84% of the pass. */
+@keyframes mlv-charge-ends {
+  0% {
+    opacity: 0;
+  }
+
+  8% {
+    opacity: 1;
+  }
+
+  92% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+  }
+}
+
+.mlv-edge__charge-halo {
+  fill: var(--mlv-flow-color, var(--mlv-accent));
+  fill-opacity: var(--mlv-flow-halo-opacity, 0.18);
+  stroke: none;
+}
+
+.mlv-edge__charge-glow {
+  fill: var(--mlv-flow-color, var(--mlv-accent));
+  fill-opacity: var(--mlv-flow-glow-opacity, 0.42);
+  stroke: none;
+}
+
+/* The core is a surface-filled dot RINGED in the charge colour, not a filled
+ * hue dot: on a cable of the same hue a solid dot dissolves into the line it is
+ * travelling, while the surface fill punches the cable out and reads as a bead
+ * moving inside it. Same reason the inlet port is drawn this way. */
+.mlv-edge__charge-core {
+  fill: var(--mlv-surface);
+  stroke: var(--mlv-flow-color, var(--mlv-accent));
+  stroke-width: var(--mlv-flow-core-width, 1.6);
+}
+
+/* In high contrast the ink override above makes the halo the SAME COLOUR as the
+ * cable it rides: white on white, a soft ring carrying no information at all, and the one
+ * theme where "a dot with some hue around it" arrives without the hue
+ * (R3-CHG-05). HC has ruled hue out on purpose, so the ring is given back as
+ * GEOMETRY instead: the halo stops being a filled disc and becomes an outline
+ * circle at r=9 — a visible, theme-proof boundary around the bead that survives
+ * both HC grounds, where a fill at 18% opacity survives neither. The glow keeps
+ * its fill; under the outline it reads as the bead's body rather than as a
+ * second invisible wash. */
+body.vscode-high-contrast .mlv-edge__charge-halo,
+body.vscode-high-contrast-light .mlv-edge__charge-halo,
+:root[data-theme="hc"] .mlv-edge__charge-halo,
+.mlv-root[data-theme="hc"] .mlv-edge__charge-halo {
+  fill: none;
+  stroke: var(--mlv-text);
+  stroke-width: 1.2;
+}
+
+/* STREAM — a train of charges. Head, gap and speed are constants, so the PERIOD
+ * is a constant per kind and the only per-edge inline value is the hop delay. */
+.mlv-edge.is-flowing .mlv-edge__flow {
+  stroke-dasharray: var(--mlv-flow-head) var(--mlv-flow-gap);
+  animation: mlv-flow-stream var(--mlv-flow-dur-data) linear infinite;
+  animation-delay: var(--mlv-flow-delay, 0ms);
+}
+
+.mlv-edge--call.is-flowing .mlv-edge__flow,
+.mlv-edge--control.is-flowing .mlv-edge__flow {
+  animation-duration: var(--mlv-flow-dur-call);
+}
+
+.mlv-edge--control.mlv-edge--back.is-flowing .mlv-edge__flow {
+  animation-duration: var(--mlv-flow-dur-back);
+}
+
+/* The animated endpoint is a RESOLVED number written inline by `render/flow.ts`
+ * (`--mlv-flow-end` = -(head + gap) in path units), never a calc() over custom
+ * properties. Chromium keeps a var()-derived calc() unsimplified, cannot
+ * interpolate it against `0`, and degrades the animation to a DISCRETE step
+ * between two endpoints exactly one dash period apart — which renders as two
+ * identical frames, i.e. a stream that never moves (R2-FLOW-01). No keyframe in
+ * this file may put calc() on the animated side; `bundle.test.mjs` gates it. */
+@keyframes mlv-flow-stream {
+  from {
+    stroke-dashoffset: 0;
+  }
+  to {
+    stroke-dashoffset: var(--mlv-flow-end, -20);
+  }
+}
+
+/* ── ports: hollow outlet, filled inlet ─────────────────────────────────── */
+
+.mlv-edge__port {
+  stroke: var(--mlv-flow-color, var(--mlv-accent));
+  stroke-width: 1.4;
+  pointer-events: none;
+}
+
+.mlv-edge__port--out {
+  fill: var(--mlv-surface);
+}
+
+/* The inlet sits exactly where `marker-end` draws the arrowhead, in the same
+ * hue, so the two merged into one blob and only the hollow outlet actually read
+ * (MLV-R1-FLOW-012). The surface-coloured ring punches a visible gap out of the
+ * cable and the arrow, which is what makes "filled inlet" legible at all. Its
+ * POSITION is untouched: F1-A1 pins it to the last coordinate pair of `d`. */
+.mlv-edge__port--in {
+  fill: var(--mlv-flow-color, var(--mlv-accent));
+  stroke: var(--mlv-surface);
+  stroke-width: 1.4;
+}
+
+/* The inlet dot is drawn at the last coordinate pair of `d`, which is exactly
+ * where `marker-end` puts the arrowhead. On a vertical arrival the surface ring
+ * above keeps them apart; on a HORIZONTAL one the 9 px arrowhead covers the 7 px
+ * dot and the pair renders as a single dark smudge, so the filled-inlet half of
+ * the direction cue is lost (R2-FLOW-09). While a charge is actually running,
+ * the inlet IS the arrowhead's replacement — which is the mental model the
+ * design wanted — so the marker stands down. Only under `data-flow="motion"`:
+ * the static substitute keeps its arrowhead alongside the chevron. */
+.mlv-canvas[data-flow="motion"] .mlv-edge.is-flowing .mlv-edge__path,
+.mlv-canvas[data-flow="motion"] .mlv-edge.is-flowing--pulse .mlv-edge__path {
+  marker-end: none;
+}
+
+/* ── the reduced-motion / capped-trace substitute ───────────────────────── */
+
+/* The promised "static double-width stroke" (UX_DESIGN:343), plus direction.
+ * It takes the CHARGE's colour, not the accent: repainting a severity-red cable
+ * blue while its ports and chevron stayed red overpainted the one signal 2.6 is
+ * built around, and did it precisely for the reduced-motion user who has no
+ * animation to fall back on (MLV-R1-FLOW-009). */
+.mlv-canvas[data-flow="static"] .mlv-edge.is-flowing--pulse .mlv-edge__path {
+  stroke: var(--mlv-flow-color, var(--mlv-accent));
+  stroke-width: 2.5;
+}
+
+.mlv-edge__dir {
+  fill: none;
+  stroke: var(--mlv-flow-color, var(--mlv-accent));
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+
+/* ── the endpoint rings ─────────────────────────────────────────────────── */
+
+/* Which end is which, told twice: hue on the card, hollow vs filled on the port
+ * (UX_DESIGN section 4.5 upgraded — the ring alone could not tell them apart).
+ *
+ * The two rings may NOT be told apart by hue alone. `--mlv-stage-model` is
+ * byte-identical to `--mlv-accent` in every theme, and the hc block redefines no
+ * stage hue at all, so on any model-stage edge — including the demo's flagship
+ * SmallCNN --logits--> criterion — the source and target rings resolved to the
+ * same colour and the direction cue died silently (R2-FLOW-02). The TARGET
+ * therefore reads as a DOUBLE ring: a surface-coloured spacer punched out at
+ * 2 px and the accent at 4 px. That is geometry, so it survives any theme, any
+ * stage hue, and the reduced-motion path where FEATURES 2.8 counts on it. */
+.mlv-node.is-flow-source,
+.mlv-group.is-flow-source {
+  box-shadow: 0 0 0 2px var(--mlv-stage, var(--mlv-accent));
+}
+
+.mlv-node.is-flow-target,
+.mlv-group.is-flow-target {
+  box-shadow:
+    0 0 0 2px var(--mlv-surface),
+    0 0 0 4px var(--mlv-accent);
+}
+
+/* ── reduced motion, handled a SECOND time ──────────────────────────────
+ * `render/flow.ts` never builds `.mlv-edge__flow` under `reduce`. This block is
+ * the belt to that braces: the blanket clamp in base.css FREEZES an animation
+ * rather than removing it, so a stale element from a mid-session preference
+ * change would park a 12 px charge stub at the outlet of every lit edge — a bug
+ * that reads as a rendering fault, not as a respected preference
+ * (CONTRACTS 11.13 rule 3, FEATURES 2.8). */
+@media (prefers-reduced-motion: reduce) {
+  .mlv-edge__flow {
+    display: none !important;
+  }
+
+  /* The dot needs its OWN removal, and it is not belt-and-braces: SMIL is not
+   * CSS, so the blanket `animation-duration: 0.01ms` clamp in base.css does not
+   * touch `<animateMotion>` at all. A stale charge from a mid-session preference
+   * change would keep orbiting a cable for a reader who asked for stillness
+   * (CONTRACTS 11.13 rule 3, 11.13.1 rule 5). */
+  .mlv-edge__charge {
+    display: none !important;
+  }
+}
+
+/* Flow off entirely: the toolbar toggle, persisted as ViewState.flow. */
+.mlv-canvas[data-flow="off"] .mlv-edge__flow,
+.mlv-canvas[data-flow="off"] .mlv-edge__charge,
+.mlv-canvas[data-flow="off"] .mlv-edge__port,
+.mlv-canvas[data-flow="off"] .mlv-edge__dir {
+  display: none;
+}
