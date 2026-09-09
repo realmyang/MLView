@@ -137,7 +137,14 @@ def test_the_flag_changes_nothing_at_all_without_a_notebook(analyze_ws, make_wor
     with_flag = _analyze(root, include_notebooks=True)
     for doc in (plain, with_flag):
         doc["workspace"].pop("root", None)
-        doc.pop("generatedAt", None)
+        # `generatedAt` is a field of `generator`, not of the document (see
+        # `contracts/graph.sample.json`). Popping it at the top level popped
+        # nothing, so this equality was really asserting that two consecutive
+        # analyses land in the same WALL-CLOCK SECOND -- green on a fast machine
+        # and red the moment CI straddles a second boundary, which is what
+        # `e2e (ubuntu, sh)` caught. The claim under test is that the flag
+        # changes nothing; the clock is not part of it.
+        doc["generator"].pop("generatedAt", None)
         doc.pop("stats", None)
         for loc_owner in doc["nodes"] + doc["edges"] + doc["issues"]:
             loc_owner["loc"].pop("absFile", None)
