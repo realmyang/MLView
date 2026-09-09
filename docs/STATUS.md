@@ -1163,6 +1163,21 @@ regenerated: `analyze --demo --json -` is still byte-identical to
 54 nodes / 51 edges / 15 issues, because none of these fixes touches a shape the
 demo contains.
 
+**CI (run 34320075813, `sprint4`).** **12 jobs green, `smoke (macos)` skipped**
+— Python 3.10-3.13, Node 20/22, `vscode-extension`, `claude-plugin`,
+`e2e (ubuntu, sh)`, `e2e (windows, powershell)`, `packaging (wheel + vsix)` and
+the accuracy corpus; **6m30s wall, ~38 billable minutes**. **One** fix iteration,
+and it was real: `vscode-extension/test/mock-vscode.js` keyed its virtual
+documents by the spelling the test wrote, while the extension — after this
+round's containment fix — opens the `path.resolve`d path. Those two strings are
+equal on POSIX and `D:\repo\...` on Windows, so two suppression cases died on
+`document.lineAt is not a function` in a **test double** that no other platform
+could see. `docKey()` now resolves on both sides, which is what a real
+`Uri.file()` round trip does. The push itself had to go over **SSH**: the stored
+credential is a repo-scoped PAT with no `workflow` scope and this diff moves the
+`packaging` job onto `scripts/vsix_check.py`, exactly the constraint PROC-12
+wrote down last round.
+
 **What this could not analyze.** MLV709 is silent on a subclassed `keras.Model`
 with a `call()` method, on a model compiled in a different module from the one
 that built it, and on an `outputs=` expression that is neither an inline call

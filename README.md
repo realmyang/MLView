@@ -372,15 +372,15 @@ default branch, so it starts firing once this lands on `main`.
 The matrix is deliberately lopsided: the repository is private, so minutes are
 metered and weighted (windows 2x, macos 10x), and the fan-out is therefore
 ubuntu-only. **Measured, not estimated** — the last full green branch push
-(run 34311137829, Sprint 4 wave 4) took **6m39s of wall time and ~37 billable
-minutes**: 23 of them the eleven ubuntu jobs, 14 the one Windows job (6m36s,
-billed as 7 min at 2x), and `smoke (macos)` skipped. The rounding rule is what
+(run 34320075813, the Sprint 4 review fixes) took **6m30s of wall time and ~38
+billable minutes**: 24 of them the eleven ubuntu jobs, 14 the one Windows job
+(6m26s, billed as 7 min at 2x), and `smoke (macos)` skipped. The rounding rule is what
 makes that figure reproducible, so it is stated rather than assumed: **each job
 is rounded up to a whole minute on its own** and then multiplied by its runner's
 weight — summing the seconds first and rounding once gives a smaller number that
 GitHub does not charge. On `main` and on pull requests the macOS job runs and
 adds **20** (a ~93-second job, billed as 2 min at 10x), taking the same push to
-**~57**. That single job is therefore over a third of a full run's bill for two
+**~58**. That single job is therefore over a third of a full run's bill for two
 suites ubuntu already runs; because the multiplier and the rounding, not the
 job's contents, are what cost the 20, trimming it cannot help. That decision was
 taken in Sprint 4: macOS is now covered locally on a development machine that
