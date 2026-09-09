@@ -234,8 +234,24 @@ const saveDialogAnswers = [];
 const quickPickAnswers = [];
 /** When set, the next workspace.fs.writeFile throws it (a read-only target, a full disk). */
 let fsWriteError;
-/** Virtual documents keyed by fsPath, set by `__setDocument`. */
+/** Virtual documents keyed by `docKey`, set by `__setDocument`. */
 const documents = new Map();
+
+/**
+ * One key for one file, whatever spelling reaches us.
+ *
+ * A test writes `__setDocument('/repo/train.py', ...)` while the code under test hands
+ * `openTextDocument` whatever `writableFile` returned, which is `path.resolve`d — HOST-6's
+ * containment guard resolves `..` before it compares, so it must. On POSIX those two
+ * strings are equal and the lookup hit; on Windows `path.resolve('/repo/train.py')` is
+ * `D:\repo\train.py`, the lookup missed, `makeDocument` handed back the text-less stub and
+ * `addIgnoreComment` died on `document.lineAt is not a function` — a Windows-only red in a
+ * test double, not in the extension. Resolving on BOTH sides is what a real
+ * `Uri.file()` round-trip does, so both spellings name one document on every platform.
+ */
+function docKey(fsPath) {
+  return path.resolve(String(fsPath)).replace(/\\/g, '/');
+}
 
 /**
  * NB: the open notebooks, as `NotebookDocument` stubs. Real VS Code models a notebook as a
@@ -284,7 +300,7 @@ function makeNotebook(fsPath, cells) {
 }
 
 function makeDocument(uri) {
-  const key = String(uri && uri.fsPath ? uri.fsPath : uri).replace(/\\/g, '/');
+  const key = docKey(uri && uri.fsPath ? uri.fsPath : uri);
   const text = documents.get(key);
   if (text === undefined) {
     return { uri, lineCount: 400, languageId: 'python', getText: () => '' };
@@ -475,7 +491,7 @@ const vscode = {
       // exactly what the user would see in the editor.
       for (const change of edit.edits || []) {
         if (change.kind !== 'replace') continue;
-        const key = String(change.uri && change.uri.fsPath).replace(/\\/g, '/');
+        const key = docKey(change.uri && change.uri.fsPath);
         const text = documents.get(key);
         if (text === undefined) continue;
         const lines = text.split('\n');
@@ -571,10 +587,10 @@ const vscode = {
   },
   /** Give `openTextDocument` real text for one absolute path. */
   __setDocument(fsPath, text) {
-    documents.set(String(fsPath).replace(/\\/g, '/'), text);
+    documents.set(docKey(fsPath), text);
   },
   __getDocument(fsPath) {
-    return documents.get(String(fsPath).replace(/\\/g, '/'));
+    return documents.get(docKey(fsPath));
   },
   __setConfig(section, key, value, resource) {
     const scope = resource ? `${String(resource).replace(/\\/g, '/').toLowerCase()}|` : '';
