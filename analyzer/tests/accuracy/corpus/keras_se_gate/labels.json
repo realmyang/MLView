@@ -1,0 +1,27 @@
+{
+  "name": "keras_se_gate",
+  "title": "Squeeze-and-excite Keras classifier on a rebinding-style tf.data pipeline",
+  "origin": "written from the Sprint-4 review's own false-positive repros (ANA7-709-NOT-OUTPUT, ANA9-121-TAKE-PEEK, FW-REBIND-CHAIN-SILENT)",
+  "tuned": true,
+  "tunedWhy": "the MLV709 and MLV121 guards were developed against exactly these shapes, so its zero-forbidden result is a regression guard and not an unseen measurement. Growing the genuinely unseen half of the corpus still needs programs nobody on this project wrote, which docs/ACCURACY.md names as the cheapest recall work on the board.",
+  "labelledBy": "Sprint 4 review fixes, 2026-09-09",
+  "note": "No `graph` block: this program was added for its findings, and claiming a hand-drawn diagram for it would move the graph-fidelity ratchet on evidence nobody drew.",
+  "expected": [
+    {"code": "MLV121", "file": "pipeline.py", "line": 32, "symbol": "ds.shuffle(32_768)",
+     "severity": "high", "verdict": "expected",
+     "defect": "the validation half is taken and the training half skipped off a dataset shuffled with reshuffle_each_iteration left at its default",
+     "why": "tf.data re-draws both halves every epoch, so by the second pass every validation row has been trained on. The whole pipeline is written `ds = ds.<op>(...)`, the style the official tf.data guide uses: before FW-REBIND the receiver on the right-hand side resolved to the store the same statement was about to write, so this chain minted 2 nodes, 0 edges and no diagnostic, and the identical program with distinct names fired."}
+  ],
+  "forbidden": [
+    {"code": "MLV709", "file": "model.py",
+     "why": "the two `Dense(channels, activation=\"sigmoid\")` calls are squeeze-and-excite channel gates multiplied back into the feature map, and the model's actual output layer is linear - which is what BinaryCrossentropy(from_logits=True) asks for. Pairing an activation literal with a from_logits loss by family alone reported the gate as an output activation at severity high, confidence 0.95."},
+    {"code": "MLV601", "file": "pipeline.py",
+     "why": "keras.utils.set_random_seed(7) seeds TensorFlow, NumPy and Python at line 17"},
+    {"code": "MLV705", "file": "train.py",
+     "why": "build_model() calls model.compile() before returning, so fit() has an optimizer and a loss"},
+    {"code": "MLV602", "file": "pipeline.py",
+     "why": "there is no sklearn or torch splitter in this project; take/skip is a tf.data subset, not a SPLIT-role call"},
+    {"code": "MLV111", "file": "pipeline.py",
+     "why": "val_ds is never shuffled - the shuffle is upstream of the split, which is the planted defect, not a second one at the evaluation loader"}
+  ]
+}

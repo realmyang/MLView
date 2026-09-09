@@ -30,7 +30,13 @@ pass and the holdout stops existing.
   guessing (this is exactly the shape `samples/vision_pipeline` writes).
 * **MLV121** follows the tf.data receiver chain through at most eight links,
   and only through names it can bind. A dataset rebuilt inside a helper is not
-  judged.
+  judged, and a **holdout must be visible before the rule describes one**: the
+  same shuffled receiver has to reach both a `take` and a `skip`, or the subset
+  has to be bound to an evaluation name. A lone `take` is a peek - `for images,
+  labels in train_ds.take(1)` is the commonest line in TensorFlow code - and
+  calling it a leaking train/val split was a statement about code that does not
+  exist. A holdout whose two halves come off *different* `shuffle` calls is
+  judged only by the name test.
 """
 
 from __future__ import annotations
@@ -330,6 +336,63 @@ def _upstream(module: ModuleIR, call: CallSite, depth: int = 8) -> List[CallSite
     return out
 
 
+#: The tf.data holdout idiom is always the **pair**: one branch takes the first
+#: N rows and the other skips them. `shard` subsets a dataset for distributed
+#: training, so it is never on its own evidence that a holdout was carved.
+_HOLDOUT_PAIR = ("take", "skip")
+
+
+def _subset_name(call: CallSite) -> str:
+    return (call.fqn or "").rsplit(".", 1)[-1]
+
+
+def _downstream_var(module: ModuleIR, call: CallSite, depth: int = 8) -> Optional[str]:
+    """The name the value this call starts is finally bound to.
+
+    `val_ds = shuffled.take(N).batch(B)` binds the *batch*, so the subset call's
+    own `var` is empty and the only way to see the word `val` is to walk the
+    chain forwards.
+    """
+    outer: Dict[int, CallSite] = {}
+    for other in module.calls:
+        func = getattr(other.node, "func", None)
+        inner = getattr(func, "value", None) if isinstance(func, ast.Attribute) else None
+        if isinstance(inner, ast.Call):
+            outer[id(inner)] = other
+    current: Optional[CallSite] = call
+    seen: Set[int] = set()
+    while current is not None and depth > 0 and id(current) not in seen:
+        seen.add(id(current))
+        depth -= 1
+        if current.var:
+            return current.var
+        current = outer.get(id(current.node))
+    return None
+
+
+def _holdout_of(module: ModuleIR, subsets: List[CallSite]) -> Optional[Tuple[CallSite, str]]:
+    """`(the take/skip that carves the holdout, why we believe it is one)`.
+
+    A lone `take` is **not** a holdout: `for images, labels in train_ds.take(1)`
+    is the commonest line in TensorFlow code, and the first cut of this rule
+    called it a leaking train/val split at severity high, confidence 0.95, with
+    a message asserting two halves that do not exist. A holdout has to be
+    visible before the rule may describe one - either both sides of the idiom
+    reach the same shuffle, or the subset is bound to an evaluation name.
+    """
+    by_method: Dict[str, CallSite] = {}
+    for call in subsets:
+        by_method.setdefault(_subset_name(call), call)
+    if all(name in by_method for name in _HOLDOUT_PAIR):
+        return by_method["take"], "both take() and skip() are taken off it"
+    for call in subsets:
+        target = _downstream_var(module, call)
+        short = (target or "").split(".")[-1]
+        if short and _EVAL_NAME_RE.match(short):
+            return call, "its result is bound to %s" % target
+    return None
+
+
 @rule(code="MLV121", severity="high", base_prior=0.95, frameworks=["tf", "keras"],
       rule_version=1, tags=["leakage", "data"],
       title="tf.data shuffle feeds a take/skip holdout",
@@ -341,40 +404,52 @@ def _upstream(module: ModuleIR, call: CallSite, depth: int = 8) -> List[CallSite
                "take()/skip() first and shuffle only the training half afterwards.")
 def tfdata_shuffle_before_holdout(ctx) -> Iterable[Issue]:
     issues: List[Issue] = []
-    seen: Set[int] = set()
+    reached: Dict[int, List[CallSite]] = {}
+    order: List[CallSite] = []
     for holdout in ctx.calls_with_role("TFDATA_SUBSET"):
         for shuffle in _upstream(holdout.module, holdout):
             if K.role_of(shuffle.fqn) != "TFDATA_SHUFFLE":
                 continue
-            literal = literal_of(ctx, shuffle.kwarg_nodes.get("reshuffle_each_iteration"),
-                                 shuffle.scope, shuffle.module)
-            if literal == "False":
-                break
-            if id(shuffle) in seen:
-                break
-            seen.add(id(shuffle))
-            node = _anchor(ctx, shuffle)
-            evidence = [
-                ("fqn_resolved", "%s resolved to %s"
-                 % (_short(shuffle), shuffle.fqn or "Dataset.shuffle"), 1.0),
-                ("dataflow_direct",
-                 "the shuffled dataset reaches %s at line %d through the tf.data "
-                 "receiver chain" % (_short(holdout), holdout.loc.line), 1.0),
-                ("negation_absent",
-                 "shuffle() does not pass reshuffle_each_iteration=False", 1.0),
-            ] + _static(shuffle.scope)
-            issues.append(ctx.issue(
-                message="%s at %s:%d shuffles before %s at line %d carves out the "
-                        "holdout, and reshuffle_each_iteration defaults to True, so the "
-                        "two halves are re-drawn every epoch."
-                        % (_short(shuffle), shuffle.loc.file, shuffle.loc.line,
-                           _short(holdout), holdout.loc.line),
-                loc=shuffle.loc, node_ids=[node] if node is not None else (),
-                related=[("split_site", holdout.loc,
-                          "the holdout is carved out here"),
-                         ("call_site", shuffle.loc, "the shuffle happens here")],
-                evidence=evidence, stage="data", dynamic=shuffle.scope.is_dynamic))
+            if id(shuffle) not in reached:
+                reached[id(shuffle)] = []
+                order.append(shuffle)
+            reached[id(shuffle)].append(holdout)
             break
+    for shuffle in order:
+        literal = literal_of(ctx, shuffle.kwarg_nodes.get("reshuffle_each_iteration"),
+                             shuffle.scope, shuffle.module)
+        if literal == "False":
+            continue
+        found = _holdout_of(shuffle.module, reached[id(shuffle)])
+        if found is None:
+            continue
+        holdout, why = found
+        node = _anchor(ctx, shuffle)
+        evidence = [
+            ("fqn_resolved", "%s resolved to %s"
+             % (_short(shuffle), shuffle.fqn or "Dataset.shuffle"), 1.0),
+            ("dataflow_direct",
+             "the shuffled dataset reaches %s at line %d through the tf.data "
+             "receiver chain, and %s" % (_short(holdout), holdout.loc.line, why), 1.0),
+            ("negation_absent",
+             "shuffle() does not pass reshuffle_each_iteration=False", 1.0),
+        ] + _static(shuffle.scope)
+        related = [("split_site", holdout.loc, "the holdout is carved out here"),
+                   ("call_site", shuffle.loc, "the shuffle happens here")]
+        for other in reached[id(shuffle)]:
+            if other is not holdout and _subset_name(other) in _HOLDOUT_PAIR:
+                related.append(("split_site", other.loc,
+                                "and the other half is taken here"))
+                break
+        issues.append(ctx.issue(
+            message="%s at %s:%d shuffles before %s at line %d carves out the "
+                    "holdout, and reshuffle_each_iteration defaults to True, so the "
+                    "two halves are re-drawn every epoch."
+                    % (_short(shuffle), shuffle.loc.file, shuffle.loc.line,
+                       _short(holdout), holdout.loc.line),
+            loc=shuffle.loc, node_ids=[node] if node is not None else (),
+            related=related,
+            evidence=evidence, stage="data", dynamic=shuffle.scope.is_dynamic))
     return issues
 
 

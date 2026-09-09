@@ -276,6 +276,27 @@ function bandFor(bands: Band[], rect: LabelRect): Band | null {
   return null;
 }
 
+/**
+ * Inside the picture (VW-02).
+ *
+ * `bandFor` is a Y-axis test, and a lane band spans the whole world
+ * horizontally, so nothing used to reject a candidate placed off the left edge:
+ * `positionsFor` puts a flipped vertical run's label at `run.at - LABEL_GAP -
+ * half`, and on the flagship demo five of 46 placed labels landed at negative x
+ * (X_train_pca at -34.2, train_loader at -33.2, X_test_pca at -21.2, y_train at
+ * -10.1, logits at -4.1). The world is the frame — the exported SVG's viewBox
+ * is `0 0 width height`, the print stylesheet lays the page out at the same
+ * size — so those five were clipped in the SVG, in the 2× PNG and on paper,
+ * rendering as `in_pca`, `_loader`, `est_pca`, `_train`, `logits`.
+ *
+ * An out-of-frame candidate is now skipped exactly as an out-of-band one is,
+ * and the label falls through to its next position (or, failing everything, is
+ * hidden and the edge says so).
+ */
+function insideFrame(frame: LayoutFrame, rect: LabelRect): boolean {
+  return rect.x >= 0 && rect.y >= 0 && rect.x + rect.w <= frame.width && rect.y + rect.h <= frame.height;
+}
+
 /* ── runs ───────────────────────────────────────────────────────────────── */
 
 interface Run {
@@ -510,6 +531,7 @@ export function planLabels(frame: LayoutFrame, routes: RoutedEdge[]): LabelPlan 
         for (const position of positionsFor(attempt.run, width)) {
           if (tries >= MAX_DECLUTTER_TRIES) break;
           tries++;
+          if (!insideFrame(frame, position.rect)) continue;
           const inBand = bandFor(bands, position.rect);
           if (!inBand) continue;
           if (!firstInBand) {

@@ -30,6 +30,14 @@
   flex: 1 1 auto;
   min-width: 0;
   padding: 10px var(--mlv-s5) 10px var(--mlv-s4);
+  /* VW-01. The card's height is now the box `layout/cardmetrics.ts` reserved —
+   * a hard `height`, not a `min-height` — because `labels.ts` clears that box
+   * and `export/svg.ts` draws it. The reservation counts the loc row and the
+   * chip row, so at our own type scale nothing here is clipped; in a host with
+   * a much larger UI font the plan wins and the last row is cut instead of
+   * being drawn over a neighbouring card. The severity badge is a child of the
+   * CARD, not of this box, so it still escapes. */
+  overflow: hidden;
 }
 
 .mlv-node__iconbox {

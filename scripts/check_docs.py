@@ -57,8 +57,19 @@ bottom of this list:
 10. **An artifact upload that silently uploads nothing**, because its path is
     hidden and `include-hidden-files` was not set.
 11. **A step count that is not the number of steps** either e2e driver runs.
+12. **A shipped roadmap item that the roadmap does not say shipped.** Seven of
+    Sprint 4's NEXT items landed with a section in `docs/STATUS.md` and nothing
+    at all under their own `docs/ROADMAP.md` heading (PROC-01). That is not
+    bookkeeping: the roadmap's own framing -- *every analyzer change must state
+    what it could not analyze* -- is discharged in the `**Landed ...**` notes,
+    and the acceptance clause a change deviated from is written in the roadmap,
+    not in STATUS. So when a `docs/STATUS.md` paragraph opens by naming a
+    roadmap item (`**FW-RECOG -- ...`, `**PERF-03, the relevance prefilter**`),
+    that item's roadmap section must carry a `**Landed` note. A landed note also
+    has to sit *inside* an item's section: H3's was written below the `### LATER`
+    divider, where it read as an item of its own.
 
-`scripts/doc_numbers.py` carries all three, with the incident behind each.
+`scripts/doc_numbers.py` carries checks 9-11, with the incident behind each.
 
 Usage:  python scripts/check_docs.py [--root DIR] [--quiet]
 Exit 0 when clean, 1 when a problem is found. The report goes to stdout.
@@ -135,12 +146,36 @@ CR, LF = bytes([13]), bytes([10])
 CRLF = CR + LF
 
 # ------------------------------------------------------ graph-size claims
-# "45 nodes, 39 edges" / "45 nodes / 45 edges" -- the two shapes the docs use.
-GRAPH_SIZE_RE = re.compile(r"(\d+)\s+nodes\s*[,/]\s*(\d+)\s+edges")
+# "45 nodes, 39 edges" / "45 nodes / 45 edges" / "54 nodes and 51 edges" -- the
+# three shapes the docs use. `and` was added for PROC-09: §11.19 wrote the claim
+# that way and the pattern could not see it.
+GRAPH_SIZE_RE = re.compile(r"(\d+)\s+nodes\s*(?:[,/]\s*|\s+and\s+)(\d+)\s+edges")
 # ...but only where the subject is the one demo graph. `vision_pipeline_clean`
 # is a different sample, and contracts/graph.sample.json a different graph
 # again, so neither may be compared against these counts.
 DEMO_SUBJECT_RE = re.compile(r"samples/vision_pipeline(?![\w])|\.mlview/graph\.json")
+# A doc that records what a past release measured is not making a claim about
+# today's graph, and rewriting it would erase the record. PROC-09: two such
+# sentences were sitting in `docs/STATUS.md` and `docs/ROADMAP.md` quoting the
+# 52 edges the sample had before REV-01 dropped the one backwards data edge. The
+# marker is deliberately one fixed phrase and not a guess: a figure escapes the
+# gate only when its own two-line window says, in words, that it is historical.
+HISTORICAL_SIZE_RE = re.compile(r"\bat the time\b", re.I)
+
+# --------------------------------------------------- roadmap landed notes
+# PROC-01. `#### PERF-03 · Relevance prefilter`, `#### ANA-7 / ANA-8 / ANA-9 ·
+# The three rule tiers`, `#### ★ DATAFLOW-IP · Interprocedural value summaries`.
+ROADMAP = "docs/ROADMAP.md"
+STATUS = "docs/STATUS.md"
+ROADMAP_ITEM_RE = re.compile(r"^####\s+(?:★\s*)?(.+?)\s+·")
+# A STATUS paragraph that opens by naming an item: `**FW-RECOG — four framework
+# tables`, `**PERF-03, the relevance prefilter**`, `**NB, host half — ...`.
+# Only tokens that are *also* roadmap heading ids are read as a claim, so
+# `**The re-baseline.**` and a mention inside a sentence are both left alone.
+STATUS_LEAD_RE = re.compile(r"^\*\*([A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)*)\b")
+LANDED_RE = re.compile(r"^\*\*Landed\b")
+# `### NEXT`, `#### NB · ...`, `---`: where one item's section stops.
+ROADMAP_BOUNDARY_RE = re.compile(r"^(?:#{2,4}\s|---\s*$)")
 
 
 TESTFILE_RE = re.compile(r"[\w./-]*(?:test_[\w-]+\.py|[\w-]+\.test\.[cm]?js"
@@ -399,12 +434,23 @@ def check_line_endings(root: Path, paths, problems) -> None:
 
 
 def collect_graph_sizes(root: Path, path: Path, lines, sizes) -> None:
-    """Gather every `N nodes / M edges` claim made about the demo graph."""
+    """Gather every `N nodes / M edges` claim made about the demo graph.
+
+    The window is two lines wide, because prose wraps: `docs/STATUS.md` carried
+    `54 nodes / 52\\nedges` for a whole sprint and a one-line scan could not see
+    it (PROC-09). A match is attributed to the line it *starts* on, so a claim
+    inside one line is counted once and never again by the previous window.
+    """
     rel = path.relative_to(root).as_posix()
     for n, line in enumerate(lines, 1):
-        if not DEMO_SUBJECT_RE.search(line):
+        nxt = lines[n] if n < len(lines) else ""
+        window = line + " " + nxt
+        if not DEMO_SUBJECT_RE.search(window) or HISTORICAL_SIZE_RE.search(window):
             continue
-        for nodes, edges in GRAPH_SIZE_RE.findall(line):
+        for match in GRAPH_SIZE_RE.finditer(window):
+            if match.start() >= len(line):
+                continue  # it belongs to the next line's window, not this one
+            nodes, edges = match.groups()
             sizes.append((int(nodes), int(edges), "%s:%d" % (rel, n)))
 
 
@@ -418,6 +464,60 @@ def check_graph_sizes(sizes, problems) -> None:
         "--format summary` prints the true counts (MLV-R2-H05)"
         % "; ".join("%s says %d nodes / %d edges" % (where, nodes, edges)
                     for nodes, edges, where in sizes))
+
+
+def roadmap_sections(lines):
+    """[(item ids, heading line no, section line range)] for every `####` item."""
+    sections = []
+    for start, line in enumerate(lines):
+        match = ROADMAP_ITEM_RE.match(line)
+        if not match:
+            continue
+        end = start + 1
+        while end < len(lines) and not ROADMAP_BOUNDARY_RE.match(lines[end]):
+            end += 1
+        # `PERF-01 + PERF-02` and `ANA-7 / ANA-8 / ANA-9` are one section that
+        # discharges several ids.
+        ids = [part.strip() for part in re.split(r"[/+]", match.group(1))]
+        sections.append(([i for i in ids if i], start + 1, range(start, end)))
+    return sections
+
+
+def check_roadmap_landed(root: Path, problems) -> None:
+    """PROC-01: an item STATUS.md says shipped must say so in the roadmap too."""
+    roadmap, status = root / ROADMAP, root / STATUS
+    if not roadmap.is_file() or not status.is_file():
+        return
+    lines = read(roadmap)
+    sections = roadmap_sections(lines)
+    landed_at = {n for n, line in enumerate(lines) if LANDED_RE.match(line)}
+    covered = {n for _, _, span in sections for n in span}
+
+    for n in sorted(landed_at - covered):
+        problems.append(
+            "%s:%d: a `**Landed` measurement note that is not inside any item's "
+            "section -- it reads as an item of its own and no reader will find "
+            "it under the acceptance clause it reconciles (PROC-01)"
+            % (ROADMAP, n + 1))
+
+    shipped = {}
+    for n, line in enumerate(read(status), 1):
+        match = STATUS_LEAD_RE.match(line)
+        if match:
+            shipped.setdefault(match.group(1), n)
+
+    for ids, heading, span in sections:
+        claimed = [i for i in ids if i in shipped]
+        if not claimed or any(LANDED_RE.match(lines[n]) for n in span):
+            continue
+        problems.append(
+            "%s:%d: `%s` has shipped -- %s:%d reports it -- but its roadmap "
+            "section carries no `**Landed ... measurement note.**`, so the "
+            "acceptance clause it was measured against, and the statement of "
+            "what it could not analyze, are written nowhere the roadmap's "
+            "reader will look (PROC-01)"
+            % (ROADMAP, heading, " / ".join(claimed), STATUS,
+               shipped[claimed[0]]))
 
 
 def run(root: Path):
@@ -436,6 +536,7 @@ def run(root: Path):
         check_paths(root, path, lines, problems, backticks=False)
         check_build_state(root, path, lines, problems)
     check_graph_sizes(sizes, problems)
+    check_roadmap_landed(root, problems)
     scripts = list(shell_scripts(root))
     check_line_endings(root, scripts + current + plan, problems)
     # Checks 9-11: the numbers the prose shares with a machine-readable file.
@@ -460,7 +561,7 @@ def main(argv=None) -> int:
               "every known gap anchored, no build state in a plan doc, "
               "LF in every shell script, one graph size, the accuracy headline "
               "matches the baseline, no silent artifact upload, one e2e step "
-              "count)" % len(files))
+              "count, every shipped roadmap item recorded as landed)" % len(files))
     return 0
 
 

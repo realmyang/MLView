@@ -367,12 +367,13 @@ test('the headline degrades cleanly when a diagnostic names no file or code (NB)
 
 test('a run that DID read notebooks says so, instead of vanishing into "N notes" (NB)', async () => {
   const { graph } = withNotebook(sample, {
-    diagnostics: [{ kind: 'notebook_analyzed', message: '2 notebooks analyzed as 41 code cells', count: 2 }],
+    diagnostics: [{ kind: 'notebook_analyzed', message: 'leak.ipynb: 2 of 2 cell(s) are code, 41 code cells', count: 2 }],
   });
   const ctx = await mount(graph);
   const chip = ctx.document.querySelector('[data-notebooks-analyzed]');
   assert.ok(chip, 'notebook_analyzed was in the "specially rendered" list with nothing rendering it');
-  assert.equal(chip.textContent, '2 notebooks analyzed');
+  // VW-06: `count` is CELLS, and a diagnostic with no `file` can only say that.
+  assert.equal(chip.textContent, '2 cells analyzed');
   assert.ok(chip.title.indexOf('41 code cells') > 0);
   // It is news, not a warning: no banner, and no coverage claim.
   assert.equal(ctx.document.querySelector('[data-notebook-order-banner]'), null);
@@ -481,7 +482,9 @@ test('11.29 N10: notebook_analyzed WITH codes is the out-of-order caveat (NB)', 
   // The notebook WAS analyzed, so the chip is still owed alongside the caveat.
   const chip = ctx.document.querySelector('[data-notebooks-analyzed]');
   assert.ok(chip, 'an out-of-order notebook was still read, and the chip says so');
-  assert.equal(chip.textContent, '4 notebooks analyzed');
+  // VW-06: one chip per notebook, named, counting ITS cells.
+  assert.equal(chip.textContent, 'leak.ipynb — 4 cells analyzed');
+  assert.equal(chip.getAttribute('data-notebook-cells'), '4');
 });
 
 test('an IN-ORDER notebook draws the chip and no caveat (NB)', async () => {
@@ -500,4 +503,55 @@ test('an IN-ORDER notebook draws the chip and no caveat (NB)', async () => {
   const ctx = await mount(graph);
   assert.equal(ctx.document.querySelector('[data-notebook-order-banner]'), null);
   assert.ok(ctx.document.querySelector('[data-notebooks-analyzed]'));
+});
+
+/* ── VW-06: one chip per notebook, counting ITS cells ──────────────────── */
+
+/**
+ * `core/pipeline.py` emits one `notebook_analyzed` PER NOTEBOOK, and its
+ * `count` is that notebook's CODE CELLS — the diagnostic's own message says so
+ * verbatim ("leak.ipynb: 4 of 4 cell(s) are code and were analyzed as the
+ * generated module ..."). The chip rendered that number as a NOTEBOOK count, so
+ * a workspace holding two four-cell notebooks drew two chips both reading
+ * "4 notebooks analyzed": a reader was told there were eight, or four twice,
+ * when there were two. The number was only ever right by coincidence, for a
+ * notebook with exactly one code cell.
+ */
+test('two notebooks draw two chips, each naming itself and its cells (VW-06)', async () => {
+  const { graph } = withNotebook(sample, {
+    diagnostics: [
+      {
+        kind: 'notebook_analyzed',
+        message: 'leak.ipynb: 4 of 4 cell(s) are code and were analyzed as .mlview/notebooks/leak.py',
+        file: 'leak.ipynb',
+        count: 4,
+      },
+      {
+        kind: 'notebook_analyzed',
+        message: 'nested/leak_out_of_order.ipynb: 4 of 4 cell(s) are code and were analyzed',
+        file: 'nested/leak_out_of_order.ipynb',
+        count: 4,
+      },
+    ],
+  });
+  const ctx = await mount(graph);
+  const chips = Array.from(ctx.document.querySelectorAll('[data-notebooks-analyzed]'));
+  assert.equal(chips.length, 2, 'one chip per notebook');
+  assert.deepEqual(
+    chips.map((c) => c.textContent),
+    ['leak.ipynb — 4 cells analyzed', 'leak_out_of_order.ipynb — 4 cells analyzed'],
+    'neither chip claims there are four notebooks',
+  );
+  // The count on a chip is the notebook's cells; the notebooks are the chips.
+  assert.deepEqual(chips.map((c) => c.getAttribute('data-notebook-cells')), ['4', '4']);
+  assert.deepEqual(chips.map((c) => c.getAttribute('data-notebooks-analyzed')), ['1', '1']);
+  for (const chip of chips) assert.ok(chip.title.indexOf('cell(s) are code') > 0, chip.title);
+});
+
+test('a one-cell notebook says "1 cell", not "1 notebook" (VW-06)', async () => {
+  const { graph } = withNotebook(sample, {
+    diagnostics: [{ kind: 'notebook_analyzed', message: 'solo.ipynb: 1 of 1 cell(s) are code', file: 'solo.ipynb', count: 1 }],
+  });
+  const ctx = await mount(graph);
+  assert.equal(ctx.document.querySelector('[data-notebooks-analyzed]').textContent, 'solo.ipynb — 1 cell analyzed');
 });

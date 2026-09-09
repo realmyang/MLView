@@ -308,13 +308,12 @@ jobs:
       - name: vsce package, with no --allow-missing-repository
         working-directory: vscode-extension
         run: npm run package
-      - name: the VSIX stays under 1 MB
-        working-directory: vscode-extension
-        run: |
-          VSIX=$(ls -1 *.vsix | head -1)
-          BYTES=$(wc -c < "$VSIX")
-          echo "$VSIX is $((BYTES / 1024)) KB"
-          test "$BYTES" -lt 1048576
+      # HOST-8: the ceiling is what matters, but a VSIX can also be under it and
+      # useless -- no `core/`, a `__pycache__` riding along, a rule page missing
+      # from an `Issue.docs` deep link. The measured figures are echoed by the
+      # run so nobody has to hand-copy them into `scripts/README.md` again.
+      - name: the VSIX is under 1 MB and carries the whole analyzer
+        run: python scripts/vsix_check.py
       - uses: actions/upload-artifact@v5
         if: always()
         with:

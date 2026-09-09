@@ -21,7 +21,8 @@ from ..rules.context import GraphContext
 from . import cache as cache_mod
 from . import relevance as relevance_mod
 from .build import GraphBuilder
-from .coverage import note_untraced_sites, single_file_diagnostic
+from .coverage import (note_unconfirmed_train_loops, note_untraced_sites,
+                       single_file_diagnostic)
 from .unresolved import unresolved_callee_diagnostics
 from .graph import Diagnostic, MLGraph, SEVERITY_RANK
 from .progress import safe_call
@@ -241,6 +242,7 @@ def run(options: AnalyzeOptions) -> AnalysisResult:
     # untraced FIT / SPLIT / LOADER site is declared whether or not a rule that
     # happens to gate on it ran. Emits diagnostics only - never an issue.
     note_untraced_sites(context)
+    note_unconfirmed_train_loops(context)
 
     _filter_issues(graph, options)
     drop_orphan_ghosts(graph)

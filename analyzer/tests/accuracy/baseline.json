@@ -1,12 +1,12 @@
 {
   "calibration": {
     "certain": {
-      "error": 0.0712,
+      "error": 0.0706,
       "fp": 0,
-      "meanConfidence": 0.9288,
-      "n": 33,
+      "meanConfidence": 0.9294,
+      "n": 34,
       "observedPrecision": 1.0,
-      "tp": 33
+      "tp": 34
     },
     "likely": {
       "error": 0.1668,
@@ -30,18 +30,18 @@
     "opsRecovered": 126,
     "score": 0.9065
   },
-  "note": "Re-recorded by the ANA-7 / ANA-8 / ANA-9 rule tiers (2026-09-09, CONTRACTS 11.26). Sixteen rules shipped - MLV705/706/707/708/709/711, MLV207/208/209/502/803, MLV106/114/121/305/306 - and the corpus grew from 10 labelled programs to 14: keras_uncompiled, lightning_manual, hf_no_eval and torch_mechanics, all marked tuned because they were written alongside the rules and must not inflate the unseen headline. Precision stayed 1.0 on every rule and every program, and every gated number moved up: overall recall 0.629 -> 0.7143, overall visible 0.5323 -> 0.6364, overall high+medium 0.4884 -> 0.6250. The unseen numbers moved on one label alone - keras_tfdata's model.py:16 was labelled MLV402, a torch rule that can never resolve on a Keras program, and is now labelled MLV709, the Keras from_logits contradiction; same line, same severity, same defect. Graph fidelity is unchanged at 0.9065 because the four new programs carry no `graph` block: they were added for their findings, and claiming a hand-drawn diagram for them would move that ratchet on evidence nobody drew. Recall may only ratchet up; a forbidden finding is never tolerated. Regenerate with `python tools/accuracy.py --update-baseline` and say in the commit body which change earned the new number.",
+  "note": "Re-recorded by the Sprint-4 review fixes (2026-09-09). Two precision failures were removed at their root: MLV709's pairing is now scoped to one model (compile() -> its keras.Model(inputs, outputs) -> the layer behind outputs) instead of to a module and an activation family, so neither two builders in one module nor a squeeze-and-excite sigmoid gate is judged an output activation; and MLV121 now requires a holdout to exist (a take/skip pair off the same shuffle, or a subset bound to an evaluation name) instead of firing on `for images, labels in train_ds.take(1)`. `binding_of` gained `exclude`, so `ds = ds.map(...)` / `df = df.dropna()` no longer resolve the right-hand side against the store the same statement is about to write - the tf.data probe went from 2 nodes / 0 edges to 7 / 5 in that binding style and MLV101 fires on the commonest pandas idiom in existence. One program was added, keras_se_gate, carrying the MLV709 and MLV121 false-positive shapes as `forbidden` labels and a rebinding-style tf.data holdout as `expected`: overall recall 0.7143 -> 0.7179, visible 0.6364 -> 0.6410, high+medium 0.6250 -> 0.6316. Unseen is unchanged at 0.5319 and graph fidelity at 0.9065; the new program is marked tuned because the guards were developed against its shapes. Precision stayed 1.0 everywhere. Recall may only ratchet up; a forbidden finding is never tolerated. Regenerate with `python tools/accuracy.py --update-baseline` and say in the commit body which change earned the new number.",
   "overall": {
-    "expectedLabels": 77,
+    "expectedLabels": 78,
     "falsePositives": 0,
-    "highValueLabels": 56,
-    "highValueRecall": 0.625,
-    "highValueRecovered": 35,
+    "highValueLabels": 57,
+    "highValueRecall": 0.6316,
+    "highValueRecovered": 36,
     "precision": 1.0,
-    "recall": 0.7143,
-    "recovered": 55,
-    "visibleRecall": 0.6364,
-    "visibleRecovered": 49
+    "recall": 0.7179,
+    "recovered": 56,
+    "visibleRecall": 0.641,
+    "visibleRecovered": 50
   },
   "perRule": {
     "MLV101": {
@@ -51,6 +51,9 @@
       "precision": 1.0,
       "recall": 0.2727,
       "recovered": 3,
+      "unseenExpected": 10,
+      "unseenRecall": 0.2,
+      "unseenRecovered": 2,
       "visible": 3
     },
     "MLV102": {
@@ -60,6 +63,9 @@
       "precision": 1.0,
       "recall": 0.5,
       "recovered": 1,
+      "unseenExpected": 2,
+      "unseenRecall": 0.5,
+      "unseenRecovered": 1,
       "visible": 1
     },
     "MLV103": {
@@ -69,6 +75,9 @@
       "precision": 1.0,
       "recall": 0.6667,
       "recovered": 2,
+      "unseenExpected": 2,
+      "unseenRecall": 0.5,
+      "unseenRecovered": 1,
       "visible": 2
     },
     "MLV106": {
@@ -78,6 +87,9 @@
       "precision": 1.0,
       "recall": 1.0,
       "recovered": 1,
+      "unseenExpected": 0,
+      "unseenRecall": null,
+      "unseenRecovered": 0,
       "visible": 1
     },
     "MLV110": {
@@ -87,6 +99,9 @@
       "precision": 1.0,
       "recall": 1.0,
       "recovered": 2,
+      "unseenExpected": 1,
+      "unseenRecall": 1.0,
+      "unseenRecovered": 1,
       "visible": 2
     },
     "MLV111": {
@@ -96,6 +111,9 @@
       "precision": 1.0,
       "recall": 0.6667,
       "recovered": 2,
+      "unseenExpected": 2,
+      "unseenRecall": 0.5,
+      "unseenRecovered": 1,
       "visible": 2
     },
     "MLV112": {
@@ -105,6 +123,9 @@
       "precision": 1.0,
       "recall": 1.0,
       "recovered": 1,
+      "unseenExpected": 0,
+      "unseenRecall": null,
+      "unseenRecovered": 0,
       "visible": 1
     },
     "MLV114": {
@@ -114,16 +135,22 @@
       "precision": 1.0,
       "recall": 1.0,
       "recovered": 1,
+      "unseenExpected": 0,
+      "unseenRecall": null,
+      "unseenRecovered": 0,
       "visible": 1
     },
     "MLV121": {
-      "expected": 1,
+      "expected": 2,
       "f1": 1.0,
       "falsePositives": 0,
       "precision": 1.0,
       "recall": 1.0,
-      "recovered": 1,
-      "visible": 1
+      "recovered": 2,
+      "unseenExpected": 0,
+      "unseenRecall": null,
+      "unseenRecovered": 0,
+      "visible": 2
     },
     "MLV201": {
       "expected": 3,
@@ -132,6 +159,9 @@
       "precision": 1.0,
       "recall": 0.6667,
       "recovered": 2,
+      "unseenExpected": 2,
+      "unseenRecall": 0.5,
+      "unseenRecovered": 1,
       "visible": 2
     },
     "MLV205": {
@@ -141,6 +171,9 @@
       "precision": 1.0,
       "recall": 0.3333,
       "recovered": 1,
+      "unseenExpected": 2,
+      "unseenRecall": 0.0,
+      "unseenRecovered": 0,
       "visible": 1
     },
     "MLV207": {
@@ -150,6 +183,9 @@
       "precision": 1.0,
       "recall": 1.0,
       "recovered": 1,
+      "unseenExpected": 0,
+      "unseenRecall": null,
+      "unseenRecovered": 0,
       "visible": 1
     },
     "MLV208": {
@@ -159,6 +195,9 @@
       "precision": 1.0,
       "recall": 1.0,
       "recovered": 1,
+      "unseenExpected": 0,
+      "unseenRecall": null,
+      "unseenRecovered": 0,
       "visible": 1
     },
     "MLV209": {
@@ -168,6 +207,9 @@
       "precision": 1.0,
       "recall": 1.0,
       "recovered": 1,
+      "unseenExpected": 0,
+      "unseenRecall": null,
+      "unseenRecovered": 0,
       "visible": 1
     },
     "MLV301": {
@@ -177,6 +219,9 @@
       "precision": 1.0,
       "recall": 0.5,
       "recovered": 2,
+      "unseenExpected": 3,
+      "unseenRecall": 0.3333,
+      "unseenRecovered": 1,
       "visible": 1
     },
     "MLV302": {
@@ -186,6 +231,9 @@
       "precision": 1.0,
       "recall": 0.5,
       "recovered": 2,
+      "unseenExpected": 3,
+      "unseenRecall": 0.3333,
+      "unseenRecovered": 1,
       "visible": 1
     },
     "MLV305": {
@@ -195,6 +243,9 @@
       "precision": 1.0,
       "recall": 1.0,
       "recovered": 1,
+      "unseenExpected": 0,
+      "unseenRecall": null,
+      "unseenRecovered": 0,
       "visible": 1
     },
     "MLV306": {
@@ -204,6 +255,9 @@
       "precision": 1.0,
       "recall": 1.0,
       "recovered": 1,
+      "unseenExpected": 0,
+      "unseenRecall": null,
+      "unseenRecovered": 0,
       "visible": 1
     },
     "MLV401": {
@@ -213,6 +267,9 @@
       "precision": 1.0,
       "recall": 0.3333,
       "recovered": 1,
+      "unseenExpected": 2,
+      "unseenRecall": 0.0,
+      "unseenRecovered": 0,
       "visible": 1
     },
     "MLV501": {
@@ -222,6 +279,9 @@
       "precision": 1.0,
       "recall": 0.5,
       "recovered": 2,
+      "unseenExpected": 3,
+      "unseenRecall": 0.3333,
+      "unseenRecovered": 1,
       "visible": 1
     },
     "MLV502": {
@@ -231,6 +291,9 @@
       "precision": 1.0,
       "recall": 1.0,
       "recovered": 1,
+      "unseenExpected": 0,
+      "unseenRecall": null,
+      "unseenRecovered": 0,
       "visible": 1
     },
     "MLV601": {
@@ -240,6 +303,9 @@
       "precision": 1.0,
       "recall": 1.0,
       "recovered": 8,
+      "unseenExpected": 7,
+      "unseenRecall": 1.0,
+      "unseenRecovered": 7,
       "visible": 5
     },
     "MLV602": {
@@ -249,6 +315,9 @@
       "precision": 1.0,
       "recall": 1.0,
       "recovered": 8,
+      "unseenExpected": 6,
+      "unseenRecall": 1.0,
+      "unseenRecovered": 6,
       "visible": 8
     },
     "MLV701": {
@@ -258,6 +327,9 @@
       "precision": 1.0,
       "recall": 1.0,
       "recovered": 1,
+      "unseenExpected": 1,
+      "unseenRecall": 1.0,
+      "unseenRecovered": 1,
       "visible": 1
     },
     "MLV702": {
@@ -267,6 +339,9 @@
       "precision": 1.0,
       "recall": 1.0,
       "recovered": 1,
+      "unseenExpected": 0,
+      "unseenRecall": null,
+      "unseenRecovered": 0,
       "visible": 1
     },
     "MLV705": {
@@ -276,6 +351,9 @@
       "precision": 1.0,
       "recall": 1.0,
       "recovered": 1,
+      "unseenExpected": 0,
+      "unseenRecall": null,
+      "unseenRecovered": 0,
       "visible": 1
     },
     "MLV706": {
@@ -285,6 +363,9 @@
       "precision": 1.0,
       "recall": 1.0,
       "recovered": 1,
+      "unseenExpected": 0,
+      "unseenRecall": null,
+      "unseenRecovered": 0,
       "visible": 1
     },
     "MLV707": {
@@ -294,6 +375,9 @@
       "precision": 1.0,
       "recall": 1.0,
       "recovered": 1,
+      "unseenExpected": 0,
+      "unseenRecall": null,
+      "unseenRecovered": 0,
       "visible": 1
     },
     "MLV708": {
@@ -303,6 +387,9 @@
       "precision": 1.0,
       "recall": 1.0,
       "recovered": 1,
+      "unseenExpected": 0,
+      "unseenRecall": null,
+      "unseenRecovered": 0,
       "visible": 1
     },
     "MLV709": {
@@ -312,6 +399,9 @@
       "precision": 1.0,
       "recall": 1.0,
       "recovered": 1,
+      "unseenExpected": 1,
+      "unseenRecall": 1.0,
+      "unseenRecovered": 1,
       "visible": 1
     },
     "MLV711": {
@@ -321,6 +411,9 @@
       "precision": 1.0,
       "recall": 1.0,
       "recovered": 1,
+      "unseenExpected": 0,
+      "unseenRecall": null,
+      "unseenRecovered": 0,
       "visible": 1
     },
     "MLV803": {
@@ -330,10 +423,13 @@
       "precision": 1.0,
       "recall": 1.0,
       "recovered": 1,
+      "unseenExpected": 0,
+      "unseenRecall": null,
+      "unseenRecovered": 0,
       "visible": 1
     }
   },
-  "programs": 14,
+  "programs": 15,
   "recordedOn": "2026-09-09",
   "unseen": {
     "expectedLabels": 47,

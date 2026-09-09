@@ -19,8 +19,12 @@ for it.
 **What these rules cannot analyze.** Every one of them is written against
 literals and one level of workspace resolution, and each says so on its own
 page: MLV705 is a workspace-wide claim and stays silent the moment any
-`compile()` exists anywhere; MLV709 requires the layer and the loss to be in
-the same module, so a loss built in a shared `losses.py` is not judged; MLV706
+`compile()` exists anywhere; MLV709 walks `compile()` back to the model its
+receiver was built by and forward to the layer that model outputs (the walk
+lives in `rules/keras_walk.py`), so a loss built in a shared `losses.py`, a
+subclassed `keras.Model` with no functional `outputs=`, a builder more than one
+hop from the `compile()` and a model compiled in another module are all
+unjudged - and no layer is judged that is not the model's output; MLV706
 and MLV707 need the class's base chain to resolve to a `LightningModule`, so a
 module subclassing a project-local base that MLView could not follow is not
 judged either. In each case the rule stays quiet rather than guessing.
@@ -35,7 +39,11 @@ from .. import knowledge as K
 from ..core.graph import Issue
 from ..ir.model import CallSite, ClassIR, ModuleIR
 from ..ir.symbols import dotted_text
-from .helpers import literal_of
+from .keras_walk import (activation_literal as _activation_literal,
+                         from_logits_loss as _from_logits_loss,
+                         kwarg_literal as _kwarg_literal,
+                         model_construction as _model_construction,
+                         output_layers as _output_layers)
 from .registry import rule
 
 __all__ = ["keras_fit_without_compile", "lightning_manual_optimization",
@@ -123,11 +131,7 @@ def _anchor(ctx, call: CallSite):
     return ctx.node_for_call(call) or ctx.unit_for_call(call)
 
 
-def _kwarg_literal(ctx, call: CallSite, key: str) -> Optional[str]:
-    node = call.kwarg_nodes.get(key)
-    if node is None:
-        return call.kwargs.get(key)
-    return literal_of(ctx, node, call.scope, call.module)
+
 
 
 def _has_kwarg(call: CallSite, key: str) -> bool:
@@ -377,26 +381,6 @@ def hf_trainer_without_evaluation(ctx) -> Iterable[Issue]:
 # ---------------------------------------------------------------------------
 # MLV709
 # ---------------------------------------------------------------------------
-def _activation_literal(ctx, call: CallSite) -> Optional[str]:
-    """The `activation=` literal of a Keras layer, lower-cased."""
-    literal = _kwarg_literal(ctx, call, "activation")
-    if literal is None:
-        return None
-    return literal.strip().lower()
-
-
-def _from_logits_losses(ctx, module: ModuleIR) -> List[Tuple[CallSite, str]]:
-    """`(call, class name)` for every `<Loss>(from_logits=True)` in a module."""
-    out: List[Tuple[CallSite, str]] = []
-    for call in module.calls:
-        if K.role_of(call.fqn) != "LOSS_CLS":
-            continue
-        if _kwarg_literal(ctx, call, "from_logits") != "True":
-            continue
-        out.append((call, (call.fqn or "").rsplit(".", 1)[-1]))
-    return out
-
-
 @rule(code="MLV709", severity="high", base_prior=0.95, frameworks=["keras", "tf"],
       rule_version=1, tags=["correctness", "framework", "loss"],
       title="Keras output activation contradicts from_logits=True",
@@ -407,53 +391,65 @@ def _from_logits_losses(ctx, module: ModuleIR) -> List[Tuple[CallSite, str]]:
                "build the loss with from_logits=False - never both.")
 def keras_activation_contradicts_from_logits(ctx) -> Iterable[Issue]:
     """Both operands are literals, so this is the cheapest high-confidence
-    finding in the tier - and it is deliberately **module-scoped**: a loss
-    constructed in another file is not paired with a layer here, because two
-    models in one workspace would then accuse each other.
+    finding in the tier - and the pairing is scoped to **one model**, not to a
+    module. Pairing by activation family alone accused a `models.py` holding a
+    probs head and a logits head of the same categorical problem, and it
+    accused an internal sigmoid gate of being an output activation; both are
+    ordinary shapes, and both were reported at severity high, confidence 0.95.
+    The walk is now `compile()` -> its receiver's `keras.Model(inputs, outputs)`
+    -> the layer behind `outputs`, so the layer and the loss provably belong to
+    the same model. Anything that walk cannot resolve is not judged.
     """
     issues: List[Issue] = []
     for relpath in sorted(ctx.modules):
         module = ctx.modules[relpath]
-        losses = _from_logits_losses(ctx, module)
-        if not losses:
-            continue
-        for call in module.calls:
-            if K.role_of(call.fqn) != "LAYER":
+        for compile_call in module.calls:
+            if K.role_of(compile_call.fqn) != "KERAS_COMPILE":
                 continue
-            activation = _activation_literal(ctx, call)
-            wanted = _ACTIVATION_LOSSES.get(activation or "")
-            if not wanted:
-                continue
-            pair = next(((c, n) for c, n in losses if n in wanted), None)
+            pair = _from_logits_loss(ctx, compile_call)
             if pair is None:
                 continue
             loss_call, loss_name = pair
-            node = _anchor(ctx, call)
-            evidence = [
-                ("fqn_resolved", "%s resolved to %s"
-                 % (call.short_name, call.fqn or "a Keras layer"), 1.0),
-                ("dataflow_direct",
-                 "activation=\"%s\" and %s(from_logits=True) are both string / bool "
-                 "literals in this module" % (activation, loss_name), 1.0),
-                ("knowledge_table",
-                 "%s is a knowledge-table Keras loss; from_logits=True declares that "
-                 "its input is unnormalised" % loss_name, 1.0),
-            ]
-            if not call.scope.is_dynamic:
-                evidence.append(("scope_static",
-                                 "no dynamic constructs in %s" % call.scope.qualname,
-                                 1.0))
-            issues.append(ctx.issue(
-                message="%s at %s:%d applies activation=\"%s\", but %s at line %d was "
-                        "built with from_logits=True and applies it again."
-                        % (call.short_name, call.loc.file, call.loc.line, activation,
-                           loss_name, loss_call.loc.line),
-                loc=call.loc, node_ids=[node] if node is not None else (),
-                related=[("final_layer", call.loc,
-                          "the output activation is applied here"),
-                         ("construction", loss_call.loc,
-                          "%s(from_logits=True) is built here" % loss_name)],
-                evidence=evidence, stage="objective", dynamic=call.scope.is_dynamic))
+            model_call = _model_construction(compile_call)
+            if model_call is None:
+                continue
+            for call in _output_layers(ctx, model_call):
+                activation = _activation_literal(ctx, call)
+                wanted = _ACTIVATION_LOSSES.get(activation or "")
+                if not wanted or loss_name not in wanted:
+                    continue
+                node = _anchor(ctx, call)
+                evidence = [
+                    ("fqn_resolved", "%s resolved to %s"
+                     % (call.short_name, call.fqn or "a Keras layer"), 1.0),
+                    ("dataflow_direct",
+                     "%s at line %d is the outputs= of %s at line %d, and %s at line "
+                     "%d is the loss= the same model is compiled with"
+                     % (call.short_name, call.loc.line, model_call.short_name,
+                        model_call.loc.line, loss_name, loss_call.loc.line), 1.0),
+                    ("knowledge_table",
+                     "%s is a knowledge-table Keras loss; from_logits=True declares that "
+                     "its input is unnormalised" % loss_name, 1.0),
+                ]
+                if not call.scope.is_dynamic:
+                    evidence.append(("scope_static",
+                                     "no dynamic constructs in %s" % call.scope.qualname,
+                                     1.0))
+                issues.append(ctx.issue(
+                    message="%s at %s:%d applies activation=\"%s\" to this model's "
+                            "output, but %s at line %d was built with from_logits=True "
+                            "and applies it again."
+                            % (call.short_name, call.loc.file, call.loc.line, activation,
+                               loss_name, loss_call.loc.line),
+                    loc=call.loc, node_ids=[node] if node is not None else (),
+                    related=[("final_layer", call.loc,
+                              "the output activation is applied here"),
+                             ("construction", loss_call.loc,
+                              "%s(from_logits=True) is built here" % loss_name),
+                             ("definition", model_call.loc,
+                              "the layer and the loss meet on this model")],
+                    evidence=evidence, stage="objective",
+                    dynamic=call.scope.is_dynamic))
     return issues
 
 

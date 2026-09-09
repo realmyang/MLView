@@ -108,60 +108,77 @@ program                  files found labels    hit   miss     fp  graph
 --------------------------------------------------------------------------
 amp_accumulation             1     3      7      3      4      0 86.7%
 gbm_tabular                  1     3      5      3      2      0 100.0%
-hf_no_eval*                  1     1      1      1      0      0 100.0%
+hf_no_eval*                  1     1      1      1      0      0   n/l
 hf_trainer_finetune          3     5      8      5      3      0 91.7%
 hydra_research               4     5     11      5      6      0 75.0%
+keras_se_gate*               3     1      1      1      0      0   n/l
 keras_tfdata                 3     4      5      4      1      0 100.0%
-keras_uncompiled*            3     2      2      2      0      0 100.0%
-lightning_manual*            2     3      3      3      0      0 100.0%
+keras_uncompiled*            3     2      2      2      0      0   n/l
+lightning_manual*            2     3      3      3      0      0   n/l
 lightning_tabular            3     4      6      4      2      0 100.0%
 timeseries_split             2     1      5      1      4      0 91.7%
 timeseries_split_clean       1     0      0      0      0      0 83.3%
-torch_mechanics*             3     9      9      9      0      0 100.0%
+torch_mechanics*             3     9      9      9      0      0   n/l
 vision_pipeline*             5    15     15     15      0      0 85.7%
 vision_pipeline_clean*       5     0      0      0      0      0 100.0%
 
-rule       labels    found  visible       fp  precision   recall      f1
---------------------------------------------------------------------------
-MLV101         11        3        3        0     100.0%    27.3%    0.43
-MLV102          2        1        1        0     100.0%    50.0%    0.67
-MLV103          3        2        2        0     100.0%    66.7%    0.80
-MLV106          1        1        1        0     100.0%   100.0%    1.00
-MLV110          2        2        2        0     100.0%   100.0%    1.00
-MLV111          3        2        2        0     100.0%    66.7%    0.80
-MLV112          1        1        1        0     100.0%   100.0%    1.00
-MLV114          1        1        1        0     100.0%   100.0%    1.00
-MLV121          1        1        1        0     100.0%   100.0%    1.00
-MLV201          3        2        2        0     100.0%    66.7%    0.80
-MLV205          3        1        1        0     100.0%    33.3%    0.50
-MLV207          1        1        1        0     100.0%   100.0%    1.00
-MLV208          1        1        1        0     100.0%   100.0%    1.00
-MLV209          1        1        1        0     100.0%   100.0%    1.00
-MLV301          4        2        1        0     100.0%    50.0%    0.67
-MLV302          4        2        1        0     100.0%    50.0%    0.67
-MLV305          1        1        1        0     100.0%   100.0%    1.00
-MLV306          1        1        1        0     100.0%   100.0%    1.00
-MLV401          3        1        1        0     100.0%    33.3%    0.50
-MLV501          4        2        1        0     100.0%    50.0%    0.67
-MLV502          1        1        1        0     100.0%   100.0%    1.00
-MLV601          8        8        5        0     100.0%   100.0%    1.00
-MLV602          8        8        8        0     100.0%   100.0%    1.00
-MLV701          1        1        1        0     100.0%   100.0%    1.00
-MLV702          1        1        1        0     100.0%   100.0%    1.00
-MLV705          1        1        1        0     100.0%   100.0%    1.00
-MLV706          1        1        1        0     100.0%   100.0%    1.00
-MLV707          1        1        1        0     100.0%   100.0%    1.00
-MLV708          1        1        1        0     100.0%   100.0%    1.00
-MLV709          1        1        1        0     100.0%   100.0%    1.00
-MLV711          1        1        1        0     100.0%   100.0%    1.00
-MLV803          1        1        1        0     100.0%   100.0%    1.00
+rule       labels  found  visible   fp  precision   recall     f1 unseen recall
+--------------------------------------------------------------------------------
+MLV101         11      3        3    0     100.0%    27.3%   0.43         20.0%
+MLV102          2      1        1    0     100.0%    50.0%   0.67         50.0%
+MLV103          3      2        2    0     100.0%    66.7%   0.80         50.0%
+MLV106*         1      1        1    0     100.0%   100.0%   1.00             -
+MLV110          2      2        2    0     100.0%   100.0%   1.00        100.0%
+MLV111          3      2        2    0     100.0%    66.7%   0.80         50.0%
+MLV112*         1      1        1    0     100.0%   100.0%   1.00             -
+MLV114*         1      1        1    0     100.0%   100.0%   1.00             -
+MLV121*         2      2        2    0     100.0%   100.0%   1.00             -
+MLV201          3      2        2    0     100.0%    66.7%   0.80         50.0%
+MLV205          3      1        1    0     100.0%    33.3%   0.50          0.0%
+MLV207*         1      1        1    0     100.0%   100.0%   1.00             -
+MLV208*         1      1        1    0     100.0%   100.0%   1.00             -
+MLV209*         1      1        1    0     100.0%   100.0%   1.00             -
+MLV301          4      2        1    0     100.0%    50.0%   0.67         33.3%
+MLV302          4      2        1    0     100.0%    50.0%   0.67         33.3%
+MLV305*         1      1        1    0     100.0%   100.0%   1.00             -
+MLV306*         1      1        1    0     100.0%   100.0%   1.00             -
+MLV401          3      1        1    0     100.0%    33.3%   0.50          0.0%
+MLV501          4      2        1    0     100.0%    50.0%   0.67         33.3%
+MLV502*         1      1        1    0     100.0%   100.0%   1.00             -
+MLV601          8      8        5    0     100.0%   100.0%   1.00        100.0%
+MLV602          8      8        8    0     100.0%   100.0%   1.00        100.0%
+MLV701          1      1        1    0     100.0%   100.0%   1.00        100.0%
+MLV702*         1      1        1    0     100.0%   100.0%   1.00             -
+MLV705*         1      1        1    0     100.0%   100.0%   1.00             -
+MLV706*         1      1        1    0     100.0%   100.0%   1.00             -
+MLV707*         1      1        1    0     100.0%   100.0%   1.00             -
+MLV708*         1      1        1    0     100.0%   100.0%   1.00             -
+MLV709          1      1        1    0     100.0%   100.0%   1.00        100.0%
+MLV711*         1      1        1    0     100.0%   100.0%   1.00             -
+MLV803*         1      1        1    0     100.0%   100.0%   1.00             -
 
-overall   labels  77   recall  71.4%   visible  63.6%   high+medium  62.5%   precision 100.0%
+overall   labels  78   recall  71.8%   visible  64.1%   high+medium  63.2%   precision 100.0%
 unseen    labels  47   recall  53.2%   visible  40.4%   high+medium  34.4%   precision 100.0%
 ```
 
+Two columns exist because the report used to overstate itself. **`n/l`** in the
+graph column is a program with no hand-drawn `graph` block in its `labels.json`:
+nobody drew a diagram for it, so nothing was measured — it used to print
+`100.0%`, four perfect scores off no evidence at all. A **`*` on a rule** means
+every label that rule has lives in a program it was developed against, so its
+`recall` column is a ceiling and its **`unseen recall`** is `-`: nothing unseen
+has been labelled for it yet. Sixteen rules read `recall 100.0%` under the old
+table with nothing saying so.
+
+`keras_se_gate` is the fifteenth program — a squeeze-and-excite Keras classifier
+on a `ds = ds.<op>(...)` tf.data pipeline. It carries the two MLV709
+false-positive shapes and the MLV121 `take(1)` peek as `forbidden` labels and a
+rebinding-style shuffle-before-holdout as `expected`. It is marked **tuned**,
+because those guards were written against its shapes: its zero-forbidden result
+is a regression guard, not an unseen measurement.
+
 **Precision is 100%.** Zero forbidden findings, zero unlabelled findings, on
-fourteen projects and 77 labels. That is the claim the product rests on and it now
+fifteen projects and 78 labels. That is the claim the product rests on and it now
 has a number behind it.
 
 **Recall is the weakness, and it has three honest readings.** On the eight

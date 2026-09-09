@@ -621,3 +621,120 @@ test('the host can ask for a picture with requestExport (VIEW-07)', async () => 
   assert.ok(posted.length > before && posted[posted.length - 1].type === 'log', 'unknown types still degrade');
   app.destroy();
 });
+
+/* ── VW-03: the menu is operable from the keyboard ─────────────────────── */
+
+/**
+ * The menu-button pattern was implemented correctly in isolation and then lost
+ * every key to the toolbar around it. The trigger is one item of the chrome's
+ * roving `role="toolbar"`, whose keydown listener sits on the CONTAINER: it
+ * read ArrowDown as "next toolbar button", called preventDefault +
+ * stopPropagation and moved focus. The menu's own handler called
+ * preventDefault but not stopPropagation, so the roving group ran afterwards
+ * and won — ArrowDown opened the menu and put focus on "Toggle side rail",
+ * outside it. Enter opened it and left focus on the trigger, and since every
+ * item is `tabIndex = -1` (as `role="menu"` requires) Tab went straight to the
+ * canvas: no item was reachable at all. Escape only worked from inside the
+ * panel, so the 268 x 478 px popup sat over the diagram until someone reached
+ * for the mouse.
+ */
+test('the export menu opens, walks and closes from the keyboard alone (VW-03)', async () => {
+  const ctx = await mount();
+  const button = ctx.document.querySelector('.mlv-btn--exportmenu');
+  const panel = ctx.document.getElementById(button.getAttribute('aria-controls'));
+  assert.ok(button.closest('[role="toolbar"]'), 'the trigger really is inside the roving toolbar');
+
+  // ArrowDown opens it and lands INSIDE it — the roving group never sees the key.
+  button.focus();
+  key(ctx, button, 'ArrowDown');
+  assert.equal(button.getAttribute('aria-expanded'), 'true', 'ArrowDown opens the menu');
+  assert.equal(panel.hidden, false);
+  const first = ctx.document.activeElement;
+  assert.ok(
+    panel.contains(first),
+    'focus is in the menu, not on the next toolbar item: ' + (first && first.getAttribute('aria-label')),
+  );
+
+  // ArrowDown walks to "Save SVG" without leaving the menu.
+  const seen = [];
+  for (let i = 0; i < 8; i++) {
+    const at = ctx.document.activeElement;
+    seen.push(at.getAttribute('data-export-region') || at.getAttribute('data-export-action'));
+    if (at.getAttribute('data-export-action') === 'svg') break;
+    key(ctx, at, 'ArrowDown');
+    assert.ok(panel.contains(ctx.document.activeElement), 'still inside the menu after ' + seen.join(' -> '));
+  }
+  assert.equal(ctx.document.activeElement.getAttribute('data-export-action'), 'svg', 'reached Save SVG: ' + seen.join(' -> '));
+
+  // Escape closes it and gives the trigger its focus back.
+  key(ctx, ctx.document.activeElement, 'Escape');
+  assert.equal(panel.hidden, true, 'Escape from inside closes it');
+  assert.equal(ctx.document.activeElement, button, 'and focus returns to the trigger');
+  assert.equal(button.getAttribute('aria-expanded'), 'false');
+  ctx.app.destroy();
+});
+
+test('every open gesture puts focus on the first item, and Escape closes from the trigger (VW-03)', async () => {
+  const ctx = await mount();
+  const button = ctx.document.querySelector('.mlv-btn--exportmenu');
+  const panel = ctx.document.getElementById(button.getAttribute('aria-controls'));
+
+  // Enter and Space activate a <button> as a click, which is the gesture that
+  // used to open the menu and leave the reader with nothing to Tab to.
+  button.focus();
+  click(ctx, button);
+  assert.equal(panel.hidden, false);
+  assert.ok(panel.contains(ctx.document.activeElement), 'the click gesture focuses item 0 too');
+
+  // ...and Escape works with focus back on the trigger, where the panel's own
+  // handler can never see it.
+  button.focus();
+  key(ctx, button, 'Escape');
+  assert.equal(panel.hidden, true, 'Escape from the trigger closes the menu');
+  assert.equal(button.getAttribute('aria-expanded'), 'false');
+  ctx.app.destroy();
+});
+
+/* ── VW-05: the export carries the theme the reader chose ──────────────── */
+
+/**
+ * `ThemeController.choose()` — the handler behind the standalone report's Auto
+ * / Light / Dark / High contrast chips — applied the theme and told nobody, so
+ * `App.theme` kept its construction value for the life of the session and every
+ * exported SVG was stamped `data-mlview-theme="light"`. The palette followed
+ * (it is read off the live custom properties) but `const hc = theme === 'hc'`
+ * did not, so the high-contrast rendering — outlined severity glyphs instead of
+ * filled ones — was unreachable from the standalone report.
+ */
+async function exportedSvg(ctx) {
+  click(ctx, ctx.document.querySelector('.mlv-btn--exportmenu'));
+  click(ctx, ctx.document.querySelector('[data-export-action="svg"]'));
+  const msg = ctx.posted.filter((m) => m.type === 'exportFile' && m.kind === 'svg').pop();
+  assert.ok(msg, 'the export ran');
+  return Buffer.from(msg.base64, 'base64').toString('utf8');
+}
+
+test('the standalone theme switch reaches the export (VW-05)', async () => {
+  const ctx = await mount(sample, { host: 'standalone' });
+  const chip = (kind) => ctx.document.querySelector('[data-theme-option="' + kind + '"]');
+  assert.ok(chip('hc'), 'the standalone report offers the four theme chips');
+
+  // The one shape only `severityGlyphMarkup` emits: a scaled glyph group whose
+  // shape path is outlined instead of filled (`styles/node.css` does the same).
+  const outlinedGlyph = /<g transform="translate\([^)]*\) scale\([^)]*\)"><path d="[^"]*" fill="none"/;
+  const light = await exportedSvg(ctx);
+  assert.ok(/data-mlview-theme="light"/.test(light), 'the default export says light');
+  assert.equal(outlinedGlyph.test(light), false, 'and fills its severity glyphs');
+
+  click(ctx, chip('dark'));
+  assert.equal(ctx.root.getAttribute('data-theme'), 'dark');
+  const dark = await exportedSvg(ctx);
+  assert.ok(/data-mlview-theme="dark"/.test(dark), 'a dark export says dark');
+
+  click(ctx, chip('hc'));
+  assert.equal(ctx.root.getAttribute('data-theme'), 'hc');
+  const hc = await exportedSvg(ctx);
+  assert.ok(/data-mlview-theme="hc"/.test(hc), 'a high-contrast export says hc');
+  assert.ok(outlinedGlyph.test(hc), 'and draws the severity glyphs outlined, as the theme does');
+  ctx.app.destroy();
+});

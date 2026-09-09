@@ -35,13 +35,27 @@ from .views import (
     within_loop,
 )
 
-__all__ = ["GraphBuilder", "build_graph"]
+__all__ = ["GraphBuilder", "build_graph", "NOT_DRAWN_ROLES"]
 
 #: Roles whose call is not drawn as its own op - the value keeps flowing from
 #: the receiver's node (a forward pass belongs to the model, `.item()` to the
 #: loss, `.parameters()` to the model).
 TRANSPARENT_ROLES = frozenset({"FORWARD", "TO_DEVICE", "ITEM", "DETACH",
                                "TO_NUMPY", "PARAMETERS", "FRAME_OP"})
+
+#: FW-RECOG F9 - recognised so that no symbol is fabricated for them, and
+#: deliberately absent from `K.OP_ROLES` so they mint no node: "five metric
+#: cards per training step is noise, not recognition".
+#:
+#: F9 was written about **nodes**, and the edge site still ran. A call that
+#: minted no node of its own was mapped onto its class's unit node, so
+#: `self.log("train_loss", loss)` drew a `data` edge from the loss node into
+#: the LightningModule - the diagram told the reader the loss flows into the
+#: model, which is a false statement about dataflow; the loss is being logged.
+#: `self.log_dict({...})` drew none, so the two logging calls were rendered
+#: inconsistently as well. The exclusion belongs at both sites.
+NOT_DRAWN_ROLES = frozenset({"LIGHTNING_LOG", "LIGHTNING_HPARAMS",
+                             "LIGHTNING_CTL", "MODEL_SUMMARY", "TFDATA_CARD"})
 
 _LOOP_BACK_LABEL = {"batch": "next batch", "epoch": "next epoch", "fold": "next fold",
                     "other": "next iteration"}
@@ -265,6 +279,10 @@ class GraphBuilder:
                 self._create_op(call, module)
 
     def _create_op(self, call: CallSite, module: ModuleIR) -> None:
+        if K.role_of(call.fqn) in NOT_DRAWN_ROLES:
+            # F9, applied before the unit shortcuts below: mapping the call
+            # onto its class's node is what let a logging call carry edges.
+            return
         # calls into workspace definitions map onto the definition's unit node
         if call.class_ir is not None:
             target = self.scope_unit.get(call.class_ir.scope.qualname)
@@ -415,6 +433,11 @@ class GraphBuilder:
         for module in self._modules():
             for call in module.calls:
                 if id(call) in self.node_for_call:
+                    continue
+                if K.role_of(call.fqn) in NOT_DRAWN_ROLES:
+                    # F9 at the edge site. Without this a `self.log(...)` fell
+                    # through to its receiver's class node and every argument
+                    # of the logging call drew a `data` edge into the model.
                     continue
                 node = self._through(call, 0)
                 if node is not None:

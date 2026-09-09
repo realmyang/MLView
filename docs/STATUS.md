@@ -25,10 +25,10 @@ powershell -ExecutionPolicy Bypass -File scripts/e2e.ps1     # E2E OK - 19 steps
 |---|---|
 | Design docs | `docs/REQUIREMENTS.md`, `ARCHITECTURE.md`, `ISSUE_RULES.md`, `UX_DESIGN.md`, `CONTRACTS.md` (§10 amendments are the overriding lead decisions) |
 | Contracts | `contracts/graph.schema.json`, `contracts/graph.sample.json` (golden), `contracts/validate_sample.py` (schema + 10 invariant groups) |
-| Analyzer `analyzer/` | Complete. **36 rules**, zero runtime dependencies, `python -m mlview` installed editable. **1692 passed, 3 skipped.** `analyze --demo --json -` is byte-identical to the golden sample. Scoped views live in `analyzer/src/mlview/core/project.py` + `core/selectors.py`; the opt-in relevance prefilter and fact cache live in `core/relevance.py` + `core/cache.py` behind `--relevance {ml,all}` (default `all`), `--relevance-hops N` and `--no-cache`. |
-| Viewer `webview/` | Complete. `dist/mlview.{js,css}` built. **360 tests pass**, `tsc --noEmit` clean. Flow animation (`src/render/flow.ts`) and the TypeScript half of the projection (`src/scope/project.ts`) ship here. |
-| VS Code extension | Complete. **274 tests pass**, `tsc --noEmit` clean, `out/extension.js` bundled, `npm run package` produces a 576.92 KB VSIX (126 files) carrying the bundled analyzer — `core/mlview` at 79 files, gated by `vsix: synced core`. Copilot participant + LM tools are compile- and unit-verified only (Copilot is not installed here). |
-| Claude Code plugin | Complete. MCP server on the `mcp` SDK v2, **still exactly five tools**, each result ≤ 4 KB. **296 passed, 5 skipped**, with `python tools/sync-core.py` having run after the analyzer changes (`test_vendor_bytecode.py` is the row that checks it); `claude plugin validate ./claude-plugin --strict` passes. |
+| Analyzer `analyzer/` | Complete. **36 rules**, zero runtime dependencies, `python -m mlview` installed editable. **1748 passed, 3 skipped.** `analyze --demo --json -` is byte-identical to the golden sample. Scoped views live in `analyzer/src/mlview/core/project.py` + `core/selectors.py`; the opt-in relevance prefilter and fact cache live in `core/relevance.py` + `core/cache.py` behind `--relevance {ml,all}` (default `all`), `--relevance-hops N` and `--no-cache`. |
+| Viewer `webview/` | Complete. `dist/mlview.{js,css}` built. **404 tests pass**, `tsc --noEmit` clean. Flow animation (`src/render/flow.ts`) and the TypeScript half of the projection (`src/scope/project.ts`) ship here. |
+| VS Code extension | Complete. **308 tests pass**, `tsc --noEmit` clean, `out/extension.js` bundled, `npm run package` produced a **604.57 KB VSIX (128 files)** carrying the bundled analyzer when this row was last measured, with `core/mlview` at **81** files — the number `tools/verify.py --all`'s `vsix: synced core` row prints. **Neither number here is the gate**, and both move whenever a module lands in the analyzer: `python scripts/vsix_check.py` is the gate, it re-derives the ceiling, the bundled-core count, the rule-page count and the absence of bytecode from the tree itself, and CI runs it in the `packaging` job. Copilot participant + LM tools are compile- and unit-verified only (Copilot is not installed here). |
+| Claude Code plugin | Complete. MCP server on the `mcp` SDK v2, **still exactly five tools**, each result ≤ 4 KB. **324 passed, 7 skipped**, with `python tools/sync-core.py` having run after the analyzer changes (`test_vendor_bytecode.py` is the row that checks it); `claude plugin validate ./claude-plugin --strict` passes. |
 | Samples | `samples/vision_pipeline` (54 nodes, 51 edges, exactly 15 issues: 5 high / 6 medium / 4 low) and `samples/vision_pipeline_clean` (64 nodes, 0 issues). `expected_issues.json` is machine-checked. |
 | Rule docs | `docs/rules/` — 36 pages plus an index, generated from the registry; 7 carry the optional **What it cannot analyze** section. Every `Issue.docs` deep link resolves. |
 | Demo artifacts | `.mlview/graph.json`, `report.html`, `graph_clean.json`, `report_clean.html`, plus the three scoped reports `split.html`, `optimization.html`, `evaluation.html` — self-contained, zero external references, each inside amendment A4's contracted **100 KB – 2 MB** band. No KB figure is quoted here on purpose: the viewer bundle moves, the band does not, and `scripts/e2e` now measures every emitted report against it and prints the range it found (MLV-R1-H06). Each scoped report embeds the **whole** graph and merely opens at its scope. |
@@ -212,8 +212,10 @@ golden regeneration has to cover all of them. `docs/CONTRACTS.md` §11.19 is the
 amendment and carries the reasoning and the bounds; this is the summary.
 
 `samples/vision_pipeline` grows from 45 nodes and 45 edges to **54 nodes / 52
-edges** — **51** after REV-01, on 2026-09-08, dropped the one data edge that
-pointed backwards through `SmallCNN.forward` — and carries **exactly the same
+edges** — both counts in that sentence are the ones measured at the time; the
+shipped sample has been `samples/vision_pipeline` at **54 nodes / 51 edges**
+since REV-01, on 2026-09-08, dropped the one data edge that pointed backwards
+through `SmallCNN.forward` — and carries **exactly the same
 fifteen findings**, at the same lines, in
 the same 5 / 6 / 4 split — `samples/vision_pipeline/expected_issues.json` is
 unchanged and `analyzer/tools/gen_expected_issues.py --check` passes without
@@ -942,6 +944,243 @@ naming the flag (`core/cache.O_BINARY`, `os.O_BINARY` where the platform has it 
 platform it runs on — it emulates the text-mode translation and asserts the secret
 reads back byte-identical — so removing the flag reddens on Linux and macOS too
 rather than waiting for a Windows runner to be unlucky.
+
+## Sprint 4 — process and docs, review round (2026-09-09)
+
+**The roadmap now records every item that shipped, and a gate keeps it that way
+(PROC-01).** Waves 2, 3 and 4 landed FW-RECOG, ANA-5a, VIEW-07, ANA-7 / ANA-8 /
+ANA-9, PERF-03, CACHE and NB, and `docs/ROADMAP.md` carried a `**Landed ...**`
+measurement note for wave 1 only. That is not bookkeeping: the roadmap is where
+the **acceptance clause** is written, and the framing this sprint was told to
+carry forward — *every analyzer change must state what it could not analyze* —
+is discharged in those notes and was discharged nowhere in the roadmap for the
+seven analyzer-heavy items that followed. Seven notes were written from the
+measured figures in the sections above, each naming the acceptance clauses that
+were **not** met literally: PERF-03 and CACHE ship opt-in with the default path
+byte-identical and CACHE's `~16 s cold` baseline no longer exists; VIEW-07's
+*"all 45 cards, 45 edges"* predates the ANA-1/2/3 re-baseline; NB's leak fixture
+fires MLV101 / MLV602 / MLV601 rather than the MLV101 / MLV201 the clause names,
+and the cell map rides on `Node.attrs` because `Loc` is frozen; ANA-9's MLV121
+closes the `tf.data` `take` / `skip` holdout that FW-RECOG had left deliberately
+unjudged one wave earlier. H3's note, which had been written *below* the
+`### LATER` divider where it read as an item of its own, moved back into H3's
+section.
+
+`scripts/check_docs.py` gained **check 12** for it: when a `docs/STATUS.md`
+paragraph opens by naming a roadmap item, that item's roadmap section must carry
+a `**Landed` note, and a landed note must sit inside some item's section. Run
+against the pre-fix tree it reports exactly the eight problems above; against
+this one it is silent. Check 8 was widened in the same pass (PROC-09): it reads a
+**two-line window**, so `54 nodes / 52\nedges` — which sat in this file for a
+whole sprint — is no longer invisible, and it accepts `N nodes and M edges`,
+the shape `docs/CONTRACTS.md` §11.19 used. A figure escapes only when its own
+window says, in words, that it is *at the time*.
+
+**The VSIX figures are measured by a gate instead of retyped into two docs
+(HOST-8).** `scripts/README.md` row 27 and this file's component table both said
+`126 files, 576.92 KB`, and this file said `core/mlview` at **79** files while
+`tools/verify.py --all` printed **80** for the same directory on the same commit.
+The package measured in this round is **127 files, 593.08 KB**, 80 under
+`extension/core/`, 37 rule pages, no `__pycache__`, 57.9% of the 1 MB ceiling —
+and it will move again on the next analyzer module, which is the point. Both
+prose copies were corrected, and `scripts/vsix_check.py` now re-derives all of them — the ceiling,
+`extension/core/` against `vscode-extension/core` on disk, `extension/docs/rules`
+against `docs/rules`, and zero bytecode — and echoes what it measured, the way
+`webview/test/bundle.test.mjs` does for the renderer bundle. CI's `packaging` job
+runs it in place of the inline `wc -c`.
+
+**One CI cost figure, with the rounding rule stated (PROC-10).** `README.md` said
+a full green run was `~48 billable minutes` and that gating macOS took a branch
+push to `~28`; the gate table said `~41`. The measured run (34311137829, the tip
+of `sprint4`) is neither: **6m39s wall and ~37 billable minutes** — 23 for the
+**eleven** ubuntu jobs (`README.md` said ten) and 14 for the one Windows job at
+2x, with `smoke (macos)` skipped; `main` and pull requests add ~20 for the 10x
+macOS job, so ~57. Both docs now quote that arithmetic *and* the rule it assumes
+— each job rounded up to a whole minute on its own, then weighted — so the next
+re-measure is reproducible.
+
+**The constraint that cost work is now written down (PROC-12).** `origin` is the
+HTTPS URL and the stored credential is a repo-scoped PAT with no `workflow`
+scope, so a push whose diff touches `.github/workflows/**` is rejected. A 20th
+e2e step (gate row 12d, `webview/test/export_svg.mjs` wired into both drivers)
+was implemented, passed and then reverted for exactly this reason, because
+promoting it also means editing `ci.yml`'s two "19-step" comments. `scripts/README.md`
+now records the SSH workaround and the owed promotion beside the CI section.
+
+**Gates.** `python -m pytest scripts -q` **56 passed** (39 before: 9 new doc-gate
+cases and 8 for the VSIX checker); `python scripts/test_check_docs.py` runs all
+three files from one entry point and prints `check_docs self-test OK`;
+`python scripts/check_docs.py` **DOC CHECK OK** (19 files);
+`python tools/verify.py --all` **10/10**; `python scripts/vsix_check.py`
+**OK**. No analyzer, viewer or host source was touched, and the only workflow
+change is the `packaging` job's last step.
+
+**What this could not analyze.** `docs/CONTRACTS.md` §11.19 still says *"54 nodes
+and 52 edges"* in frozen normative prose. It is in `check_docs.py`'s SKIP set and
+was true when written, and the correct repair is a contracts-owned **erratum**,
+not an edit to a frozen amendment — this round had no amendment number assigned
+and deliberately did not take one. The component table above also still carries
+per-suite test counts from earlier waves (the extension row says 274 where wave 4
+measured 298); those belong to whoever lands the next wave, and re-running four
+suites to refresh them would have raced the agents holding them. And check 12
+reads only STATUS paragraphs that *open* with an item id: a wave that reports an
+item some other way still ships unrecorded.
+
+## Sprint 4 — review fixes, integrated (2026-09-09)
+
+Twenty-three defects from the Sprint-4 review, fixed at their source and landed
+in one commit. `docs/CONTRACTS.md` **§11.34** is the amendment for the twelve
+analyzer-side ones (R1–R12); the viewer, host and process fixes needed no new
+contract clause and are recorded here.
+
+**Two rules were judging the wrong thing, and the lead decision on ANA-12 is
+that a forbidden finding is never tolerated.** MLV709 paired *a module's*
+`from_logits=True` with *any* softmax/sigmoid layer in the same file, so a
+`models.py` holding a probs head and a logits head accused correct code at
+high/certain, and a squeeze-and-excite `Dense(ch, activation="sigmoid")`
+channel gate — an internal gate, not an output — was read as an output
+activation. `analyzer/src/mlview/rules/keras_walk.py` (new, 169 lines) walks
+`compile()` → the `keras.Model(inputs, outputs)` / `Sequential([...])` its
+receiver resolves to → the layer behind that model's `outputs=`; the layer and
+the loss must now meet **on the same model** and the layer must be that model's
+**output**. Where the walk resolves to nothing the rule is silent rather than
+pairing by family. MLV121 fired on `for images, labels in train_ds.take(1)` —
+the commonest peek-at-one-batch line in TensorFlow — with a message asserting a
+holdout that the program does not have. A holdout is now **the pair** (one
+shuffled receiver reaching both a `take()` and a `skip()`) or a subset finally
+bound to an evaluation name; `shard` is never on its own evidence.
+
+**A whole binding style was silently unanalyzed.** `ir.bindings.binding_of`
+gained `exclude: Optional[CallSite]` and `ir/resolve.py` passes the call being
+resolved, so `ds = ds.map(...)` — the style the official `tf.data` guide writes
+— no longer resolves its right-hand side against the store that same statement
+is about to write. Measured on three semantically identical six-call pipelines:
+fluent **7 nodes / 5 edges**, distinct names **7 / 5**, and `ds = ds.<op>(...)`
+**2 nodes / 0 edges with `diagnostics: []`** — a clean bill of health from a
+blind tool, which is the failure this sprint exists to forbid. All three now
+measure 7 / 5, gated per style. The same seam silenced MLV101 on
+`df = df.dropna()`. Separately, F9's *"recognised but not drawn"* now applies to
+**edges** as well as nodes (`core.build.NOT_DRAWN_ROLES`): `self.log(...)` was
+drawing a `data` edge from the loss into the LightningModule while
+`self.log_dict(...)` drew none.
+
+**Four surfaces claimed more than they knew.** A notebook finding is now
+attributed to its source `.ipynb` (`adopt.notebook_source()`, the exact inverse
+of `ingest.notebook.shadow_relpath`) at **file** granularity, with a
+`config_warning` saying the granularity was traded for a location git can see —
+before this, every notebook finding classified `existing` and a pull request
+whose entire content was a fit-before-split notebook passed both shipped CI
+surfaces at exit 0. `mlview issues` renders the `Coverage` and `Notes` blocks
+`analyze` renders and may no longer print a bare `none found` while findings
+were withheld. `emit/answers.py` drops the `no backward() call` clause and adds
+*"and N call(s) could not be read"* whenever a `_COVERAGE_KINDS` diagnostic is
+present — it had been telling a reader there was no `backward()` in a file whose
+training loop calls `loss.backward()`. SARIF `helpUri` is now the absolute
+`https://github.com/realmyang/MLView/blob/v<version>/docs/rules/<CODE>.md`;
+`reportingDescriptor.helpUri` has no `uriBaseId` companion in 2.1.0, so the
+relative path 404'd in every repository that is not this one.
+
+**The accuracy referee stopped flattering itself (ANA-12 is the referee for
+every rule).** `score_graph` returned `1.0` for a program with no `graph` block,
+so the four programs that carry no hand-drawn diagram printed four perfect
+scores; they now read `not labelled` and contribute nothing, exactly as they
+always did to the aggregate. `perRule` gained `unseenExpected`,
+`unseenRecovered` and `unseenRecall` and the table an `unseen recall` column
+with the `*` footnote — sixteen rules read `recall 100.0%` off a single label in
+a program written alongside them, and nothing said so. A full-batch training
+loop (`for epoch in range(20):` over tensors already in memory) is judged by no
+MLV201/202/203 classifier and now raises an `untagged_dataflow` note naming the
+loop, the `backward()` line and the three codes that did not judge it; zero such
+notes on `analyzer/tests/clean` and both `vision_pipeline` samples, measured.
+Under `--show-suppressed`, `analyze --format summary` now heads its table
+`Issues (<net> · N baselined · M suppressed)` and marks baselined rows, instead
+of netting them out of the header and listing them unmarked.
+
+**The viewer drew a layout it had not reserved.**
+`webview/src/layout/cardmetrics.ts` (new, 102 lines, pure — no DOM) derives a
+card's height from what the card will **draw**, from the same predicates the
+renderer uses: 70.1 px
+for a three-row card (`NODE_H` 72, unchanged), 54.4 px with no `file : line` row
+(`NODE_H_GHOST` 60, unchanged), 96.1 px with the attribute chip row
+(`+ NODE_CHIP_ROW_H` 26). On the shipped demo exactly one card carries chips, so
+24 px of extra ink collided with nothing and every gate stayed green; on a
+notebook report **every** node carries `attrs.cell`, so all 26 cards drew 96 px
+against a plan of 72 — two card pairs overlapped and 6 of 26 edge labels were
+placed on top of a card. `render/nodes.ts` now pins `height` rather than
+`min-height` and clips the text column, so past this point the plan is
+authoritative and the ink gives way, as it already did in the SVG export. The
+label declutter gained a frame-bounds test (5 demo labels had been placed left
+of x = 0 and truncated in the SVG, the PNG and in print). The VIEW-07 export
+menu is operable from the keyboard: every key on the trigger now stops
+propagation (the roving `role="toolbar"` was eating ArrowDown and moving focus
+to "Toggle side rail"), Escape closes it from anywhere in the capture phase, and
+opening focuses the first item for **every** gesture — its items are
+`tabIndex = -1`, as `role="menu"` requires, so Enter or a click had left the
+panel unreachable. The standalone theme switch now updates `App.theme`, so an
+exported SVG stops claiming `data-mlview-theme="light"` and the high-contrast
+export path is reachable at all. The toolbar and status-bar severity counters
+net baselined findings out, the way the rail, the answer card and the CLI
+already did. The notebook chip prints the notebook's name and **its cell count**
+— `core/pipeline.py` emits one diagnostic per notebook whose `count` is that
+notebook's code cells, so two notebooks read "4 notebooks analyzed" twice. The
+baseline and changed-paths diagnostics wrap instead of being silently truncated
+as one-line nowrap chips wider than the window.
+
+**Hosts.** `suppressRule(insert)` applies the containment guard on the path the
+webview names, not only where it can never fail; `addDisabledRule` keeps a
+trailing comment on the `disable` line, which §11.27 S4 promises and the
+implementation deleted. MCP `mlview_issues` carries `includeNotebooks` through
+`changedSince` / `baseline` (it reaches `AnalyzeOptions` via `load_attributed`)
+instead of dropping it on that branch. The pre-commit hooks are installable at
+all for the first time: a `language: python` hook makes pre-commit run
+`pip install .` in the **clone root**, and the only packaging metadata lived in
+`analyzer/pyproject.toml`, so both hooks died with *"Directory '.' is not
+installable"*, tag or no tag. A root `pyproject.toml` packages `analyzer/src` in
+place — no second copy of the analyzer — with its version `dynamic` off
+`mlview.version.__version__` so gate 9's "one version string" still holds.
+
+**Gates, all re-run on this Mac at the integrated tree.** `sh scripts/e2e.sh`
+**19 steps, 0 failed, 0 skipped**; analyzer **1748 passed / 3 skipped** (1722
+before); webview **404 tests** (384); vscode-extension **308 tests** (298);
+claude-plugin **324 passed / 7 skipped** (305 / 5); `npx tsc --noEmit` clean in
+both TypeScript packages; `python tools/verify.py --all` **10/10**;
+`python tools/accuracy.py` **PASS** — precision **100.0%**, overall recall
+**71.8%** / 64.1% visible / 63.2% high+medium over 15 programs and 78 labels,
+unseen recall 53.2% / 40.4% / 34.4%, graph fidelity **90.6%** (126 of 139),
+**zero forbidden findings**;
+`python analyzer/tools/scope_fuzz.py --cases 400 --seed 4` **PASS**, python ==
+typescript over 80 generated graphs;
+`python tools/wheel_check.py` **OK**; `npm run package` + `python scripts/vsix_check.py` **OK — 128 files, 604.57 KB, 59.0% of the 1 MB ceiling, 81 under
+`extension/core/`, 37 rule pages, 0 bytecode**; `python scripts/check_docs.py`
+**DOC CHECK OK** (19 files). One corpus program was added — `keras_se_gate`,
+carrying the MLV709 and MLV121 false-positive shapes as `forbidden` labels and a
+rebinding-style holdout as `expected` — and it is marked `tuned`, because the
+two guards were developed against its shapes: its zero-forbidden result is a
+regression guard, not an unseen measurement. `analyzer/tests/accuracy/baseline.json` moved overall recall 0.7143 → 0.7179 and visible 0.6364 → 0.6410;
+unseen and graph fidelity did not move and precision stayed 1.0. No fixture was
+regenerated: `analyze --demo --json -` is still byte-identical to
+`contracts/graph.sample.json` at 46 078 bytes and `.mlview/graph.json` is still
+54 nodes / 51 edges / 15 issues, because none of these fixes touches a shape the
+demo contains.
+
+**What this could not analyze.** MLV709 is silent on a subclassed `keras.Model`
+with a `call()` method, on a model compiled in a different module from the one
+that built it, and on an `outputs=` expression that is neither an inline call
+nor a name bound to one. MLV121 is silent on a holdout whose `take` and `skip`
+come off different `shuffle` calls unless the subset carries an evaluation name.
+The `binding_of` fix covers the **self**-rebinding case only — a name rebound in
+a branch, or through a container, is still resolved flow-insensitively. A
+notebook finding is attributed to the whole notebook and never to the cell, and
+its SARIF `artifactLocation.uri` still names the generated module, so a GitHub
+code-scanning alert on a notebook finding cannot anchor to a line of the
+checked-out commit. `cardmetrics.ts` reserves a constant, so a host whose UI
+font is materially larger than ours draws taller rows than its table; the card
+clips rather than overlaps, which is the honest failure but still a failure.
+The export menu's keyboard path is unit-covered and was exercised in Chromium on
+the emitted report, never inside a real VS Code webview — there is no `code` CLI
+on this machine. And ANA-12's unseen half is still small: R10 marks which rules
+have no unseen label, it does not close the gap, and closing it needs labelled
+programs nobody on this project wrote.
 
 ## Known gaps
 

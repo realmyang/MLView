@@ -156,8 +156,10 @@ class GraphContext:
                         out.append(ref)
         return out
 
-    def binding_of(self, name: Optional[str], scope: Optional[ScopeIR]) -> Optional[ValueRef]:
-        return _binding_of(name, scope)
+    def binding_of(self, name: Optional[str], scope: Optional[ScopeIR],
+                   at: Optional[int] = None) -> Optional[ValueRef]:
+        """`at` is the 1-based line of the consumer (REV-01 ordered lookup)."""
+        return _binding_of(name, scope, at=at)
 
     def class_bases(self, node) -> List[str]:
         """Resolved canonical base FQNs for a class node (or a ClassIR)."""

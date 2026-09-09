@@ -17,6 +17,8 @@ import {
   stat,
 } from './chromenotes.js';
 import { NOTEBOOK_ANALYZED, outOfOrderDiagnostics, outOfOrderHeadline } from '../notebook.js';
+import { suppressedSummary } from './suppress.js';
+import { isSetAside } from '../types.js';
 import type { Capabilities, Filters, MLGraph, Severity, Stage } from '../types.js';
 
 export interface ChromeCallbacks {
@@ -173,6 +175,7 @@ export class Chrome {
       b.type = 'button';
       b.setAttribute('aria-pressed', 'true');
       b.title = 'Toggle ' + sev + ' severity findings';
+      b.setAttribute('data-severity', sev);
       b.appendChild(severityGlyph(sev, 13, ''));
       add(b, el('span', 'mlv-chip__count', '0'));
       on(b, 'click', () => cb.onSeverity(sev));
@@ -297,10 +300,21 @@ export class Chrome {
       const count = b.querySelector('.mlv-chip__count');
       if (count) count.textContent = String(s.visibleCounts[sev]);
     }
-    const suppressed = g ? (g.issues || []).filter((i) => i.suppressed).length : 0;
-    this.suppressedBtn.hidden = suppressed === 0;
-    this.suppressedBtn.textContent = suppressed + ' suppressed';
-    this.suppressedBtn.title = (s.filters.showSuppressed ? 'Hide' : 'Show') + ' ' + suppressed + ' suppressed finding' + (suppressed === 1 ? '' : 's');
+    // VW-04. The severity chips beside this button now net out BASELINED
+    // findings as well as suppressed ones, exactly as the rail, the answer card
+    // and `mlview issues` do — so this button has to say both, or the reader is
+    // left with a total that does not add up. One wording, one helper: the rail
+    // section head uses the same `suppressedSummary`.
+    const setAside = g ? (g.issues || []).filter(isSetAside) : [];
+    const baselined = setAside.filter((i) => i.baselined).length;
+    const suppressed = setAside.length - baselined;
+    const summary = suppressedSummary(suppressed, baselined);
+    this.suppressedBtn.hidden = setAside.length === 0;
+    this.suppressedBtn.textContent = summary;
+    this.suppressedBtn.setAttribute('data-set-aside', String(setAside.length));
+    this.suppressedBtn.title =
+      (s.filters.showSuppressed ? 'Hide' : 'Show') + ' ' + summary +
+      ' finding' + (setAside.length === 1 ? '' : 's') + ' — they are not in the counts above';
     this.suppressedBtn.setAttribute('aria-label', this.suppressedBtn.title);
     this.suppressedBtn.setAttribute('aria-pressed', s.filters.showSuppressed ? 'true' : 'false');
 
@@ -420,16 +434,29 @@ export class Chrome {
         // NB. Without `--include-notebooks` this never appears, because the
         // diagnostic is never emitted.
         any = true;
+        // VW-06: ONE diagnostic per notebook, and its `count` is that
+        // notebook's code cells — so the chip is one notebook (the hook keeps
+        // its name) and the cell count is its own attribute.
         const chip = add(this.chipRow, el('span', 'mlv-chip', notebooksAnalyzedText(d)));
-        chip.setAttribute('data-notebooks-analyzed', String(d.count || 0));
+        chip.setAttribute('data-notebooks-analyzed', '1');
+        chip.setAttribute('data-notebook-cells', String(d.count || 0));
         chip.title = d.message;
       } else if (d.kind === 'framework_suppressed') {
         any = true;
         const text = d.message + (d.codes && d.codes.length ? ' (' + d.codes.join(', ') + ')' : '');
         add(this.chipRow, el('span', 'mlv-chip', text));
       } else if (d.kind === 'config_warning' || d.kind === 'config_unresolved') {
+        // VW-08. These are SENTENCES, not chips — CI-ADOPT's baseline and
+        // --changed-paths warnings carry absolute paths and an instruction, and
+        // the `--changed-paths` one measured 1779 px wide at a 1600 px window,
+        // running 191 px off the page with no scrollbar and no `title`, so the
+        // instruction it exists to give ("Pass the diff itself, or
+        // --changed-since <rev>") was the half that was cut. The full text is
+        // now on the chip's tooltip, and `.mlv-chiprow .mlv-chip` wraps.
         any = true;
-        add(this.chipRow, el('span', 'mlv-chip', d.message));
+        const chip = add(this.chipRow, el('span', 'mlv-chip', d.message));
+        chip.setAttribute('data-config-note', d.kind);
+        chip.title = d.message;
       } else if (COVERAGE_KINDS.indexOf(d.kind) >= 0) {
         // COVERAGE: a chip that says the analysis was BLIND here, distinct from
         // the "not detected" row beside it, which says it looked and found none.

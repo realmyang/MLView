@@ -3432,3 +3432,63 @@ copy and the `@media print` stylesheet are the viewer's half of VIEW-07 and are 
 the renderer, including VIEW-07's mandatory mitigation that the SVG and the DOM be driven from
 one `LayoutFrame` + `NodeVisual` source. The host asserts nothing about what the picture LOOKS
 like — it cannot see it.
+
+---
+
+### 11.34 Sprint-4 review fixes: model-scoped MLV709, a holdout MLV121 can see, self-rebinding, and four honesty gaps (2026-09-09) — amends 11.23 A8 and F9, 11.26 A7 and A8, 11.29 N5, and §11.18, analyzer-owned
+
+Nine defects found by the Sprint-4 review, fixed at their root. Two of them were **precision**
+failures under the standing lead decision (*zero forbidden findings ever*), one was a **blindness**
+failure — a whole binding style silently unanalyzed with no diagnostic — and the rest are places
+where a surface stated as fact something the analyzer had not established.
+
+#### The two rules that judged the wrong thing
+
+| # | Rule |
+|---|---|
+| **R1** | **MLV709 pairs one model, not one module.** 11.26 A8 scoped the pairing to the module *"because two models in one workspace would otherwise accuse each other"*; the same accusation happened **inside** a module. The walk is now `compile()` → the `keras.Model(inputs, outputs)` / `Sequential([...])` its receiver resolves to (through at most one workspace builder, `model = build_model()`) → the layer behind that model's `outputs=`. The layer and the loss must meet on **the same model** and the layer must be the model's **output**: a `models.py` holding a probs head and a logits head of the same categorical problem is silent, and a squeeze-and-excite `Dense(ch, activation="sigmoid")` channel gate is silent, because it is not an output. A8's *"activation family"* guard stands and is now the second test, not the only one. Where the walk resolves to nothing — a subclassed `keras.Model` with a `call()` method, a head built two hops away, a model compiled in another module — the rule stays silent rather than pairing by family alone. The finding gains a third `relatedLoc`, role `definition`, naming the model the two meet on; the `relatedLocs.role` enum is unchanged. |
+| **R2** | **MLV121 requires a holdout to exist before it describes one.** 11.26 A7 called the subject *"a `Dataset.shuffle(...)` reaching one of them"*, which permits a lone `take`, and the implementation fired on one: `for images, labels in train_ds.take(1)` — a peek at one batch, the commonest line in TensorFlow code — was reported at severity high, confidence 0.95, with a message asserting *"take(1) carves out the holdout … so the two halves are re-drawn every epoch"* about a program with no two halves. A holdout is now **the pair** — the same shuffled receiver reaching both a `take()` and a `skip()` — or a subset whose value is finally bound to a name matching `_EVAL_NAME_RE` (`val_ds`, `test_ds`, `holdout`, …), walked forward through the chain so `val_ds = shuffled.take(N).batch(B)` is seen. `shard` is never on its own evidence that a holdout was carved. A holdout whose two halves come off *different* `shuffle` calls is judged only by the evaluation-name test, and `docs/rules/MLV121.md` says so. |
+
+#### The binding style that was not analyzed at all
+
+| # | Rule |
+|---|---|
+| **R3** | **`binding_of` never resolves a name to the store the call being resolved is about to write.** `ir.bindings.binding_of` takes `exclude: Optional[CallSite]`, and receiver resolution (`ir/resolve.py`) passes the call itself together with `at=call.loc.line`. `ds = ds.map(...)` — the style the official tf.data guide writes — resolved the `ds` on the right-hand side against the store written by that same statement, so the receiver became its own producer, `_canonical_for_receiver` had an untagged, producer-less value to work from, and the call resolved to nothing. Measured on three semantically identical six-call pipelines: fluent **7 nodes / 5 edges**, distinct names **7 / 5**, `ds = ds.<op>` **2 nodes / 0 edges, `diagnostics: []`** — the *"clean bill of health from a blind tool"* the sprint exists to forbid. All three now measure 7 / 5, gated per style. The same seam silenced MLV101 on `df = df.dropna()`, the commonest pandas idiom in existence, while the identical program with distinct names fired high/certain. Python evaluates the right-hand side before it rebinds the name; skipping the call's own store is what the language does, and it is a stronger guard than `at` alone, which a multi-line assignment defeats. A scope whose only store for a name is the call's own resolves to a value written into the scope by `propagate_parameters` when there is one, and to nothing otherwise. |
+| **R4** | **F9's "recognised but not drawn" applies to edges as well as nodes.** 11.23 F9 keeps `LIGHTNING_LOG`, `LIGHTNING_HPARAMS`, `LIGHTNING_CTL`, `MODEL_SUMMARY` and `TFDATA_CARD` out of `K.OP_ROLES` so they mint no node. They still fell through `GraphBuilder._resolve_transparent` onto their receiver's class node, so `self.log("train_loss", loss)` drew a `data` edge from the loss into the LightningModule — the diagram told the reader the loss flows into the model, when it is being logged — while `self.log_dict({...})` drew none, so the two logging calls rendered inconsistently. `core.build.NOT_DRAWN_ROLES` is the set, tested at both sites. Ops written *inside* a logging call keep their own dataflow: `logits.argmax(1)` really does consume the logits. |
+
+#### Four surfaces that claimed more than they knew
+
+| # | Rule |
+|---|---|
+| **R5** | **A notebook finding is attributed to its source `.ipynb`.** 11.29 N5 makes `loc.file` the generated module under `.mlview/notebooks/`, a git-ignored path no pull request ever contains, so `mlview.adopt` classified every notebook finding `existing` and `--changed-only` dropped it — the default of **both** shipped CI surfaces (`tools/action/action.yml` and `.pre-commit-hooks.yaml`'s `mlview-changed` hook). A pull request whose entire content was a fit-before-split notebook passed at exit 0. `adopt.notebook_source()` is the exact inverse of `ingest.notebook.shadow_relpath`, and a finding located in a generated module is attributed to the notebook at **file** granularity: the hunks git knows are lines of the notebook JSON, and the generated module's line numbers do not exist in that file, so a notebook with any added line counts as changed throughout and its findings are `new`. A `config_warning` names the count and says granularity was traded for a location git can see. |
+| **R6** | **`mlview issues` renders the diagnostics `analyze` renders.** The `Coverage` and `Notes` blocks (`emit.text_out.diagnostic_block`) are appended to the text body and `diagnostics` is added to the `--json` payload, so the two surfaces carry the same list for the same argv. Under `--changed-only` the header names the set-aside count (`· N not shown`) and the empty body reads *"none shown — N finding(s) do not touch the change; see Notes below"*: `mlview issues` is the surface CI-ADOPT names as the one *"for agent loops and PR descriptions"*, and it may never print a bare `none found` while something was withheld. |
+| **R7** | **No emitter claims a stage is absent without qualification when a call went unread.** 11.23 A8, applied to `emit/answers` — the surface an agent reads. Its `objective` and `evaluation` absence sentences were hard-coded, so a research script whose model, criterion and optimizer arrive through a subscript, a `match` and a `default_factory` was told *"nothing in the objective stage and **no backward() call**"* about a file whose training loop calls `loss.backward()`. With any `_COVERAGE_KINDS` diagnostic present, both sentences carry *"and N call(s) could not be read"* and the `no backward() call` clause — which the analyzer cannot know — is dropped. With nothing unread the flat sentence is unchanged, byte for byte. |
+| **R8** | **SARIF `helpUri` is absolute.** `reportingDescriptor.helpUri` has no `uriBaseId` companion in SARIF 2.1.0, so the workspace-relative `docs/rules/<CODE>.md` resolved against the consumer's own alerts page and 404'd in every repository that is not this one — and the wheel ships no `docs/rules/` for a `pip install` to resolve either. `helpUri` is now `https://github.com/realmyang/MLView/blob/v<__version__>/docs/rules/<CODE>.md`, pinned to the running version so an alert filed today keeps pointing at the page the finding was written against; the in-repo path stays as `properties.docsPath` with `properties.docsPathBaseId`. `artifactLocation.uri` is unchanged, still relative with `%SRCROOT%`. |
+
+#### The referee reports what it measured
+
+| # | Rule |
+|---|---|
+| **R9** | **Graph fidelity for a program with no `graph` block is `null`, rendered `not labelled`.** `score_graph` returned `1.0` for an empty `ops` list and for zero labelled edges, so the four programs 11.26 A13 documents as carrying no hand-drawn diagram printed four **perfect scores** in the referee's own report. The gated aggregate is untouched — 0/0 contributed nothing before and contributes nothing now — and no baseline number moves. |
+| **R10** | **A rule whose every label lives in a tuned program is marked, and its unseen recall is stated.** `perRule` gains `unseenExpected`, `unseenRecovered` and `unseenRecall` (`null` when nothing unseen is labelled), and the per-rule table gains an `unseen recall` column and the same `*` footnote the program table carries. Sixteen rules read `recall 100.0%` off a single label in a program written alongside them, with nothing in the table saying so. |
+| **R11** | **A full-batch training loop is not judged, and is never silent.** MLV201 / MLV202 / MLV203 anchor on a batch loop — the innermost `for` over a `LOADER`-tagged value — so `for epoch in range(20):` over tensors already in memory produced no finding **and no diagnostic**. A `backward()` and an optimizer `step()` in a loop no classifier confirmed now raise an `untagged_dataflow` note naming the loop, the backward line and the three codes that did not judge it. §11.18's `untagged_dataflow` is unchanged as a `Diagnostic.kind`; this is a new caller of it. Zero notes on `analyzer/tests/clean`, `samples/vision_pipeline` and `samples/vision_pipeline_clean`, measured. |
+| **R12** | **A baselined row is marked the way a suppressed row is.** Under `--show-suppressed`, `analyze --format summary` netted the baselined findings out of its header and then listed them unmarked, so one command's output stated two numbers. The table heading is now `Issues (<net> · N baselined · M suppressed)`, dropping the zero terms, and a baselined row carries `(baselined)`. |
+
+**Corpus.** `keras_se_gate` is added — a squeeze-and-excite Keras classifier on a `ds = ds.<op>`
+tf.data pipeline — carrying the MLV709 and MLV121 false-positive shapes as `forbidden` labels and a
+rebinding-style shuffle-before-holdout as `expected`. It is marked `tuned`, because the two guards
+were developed against its shapes: its zero-forbidden result is a regression guard, not an unseen
+measurement. Overall recall 0.7143 → 0.7179, visible 0.6364 → 0.6410, high+medium 0.6250 → 0.6316;
+unseen and graph fidelity unchanged; precision 1.0 throughout.
+
+**What this could not analyze.** MLV709 is silent on a subclassed `keras.Model`, on a model compiled
+in a different module from the one that built it, and on any `outputs=` expression that is neither an
+inline call nor a name bound to one. MLV121 is silent on a holdout whose `take` and `skip` come off
+different `shuffle` calls unless the subset carries an evaluation name, and on a dataset rebuilt
+inside a helper. R3 fixes the *self*-rebinding case only: a name rebound in a branch, or through a
+container, is still resolved flow-insensitively. R5 attributes a notebook finding to the whole
+notebook, never to the cell — mapping added hunks of `.ipynb` JSON onto cell line ranges is the work
+that would buy cell granularity, and the SARIF `artifactLocation.uri` for a notebook result still
+names the generated module, so a GitHub code-scanning alert on a notebook finding cannot anchor to a
+line of the checked-out commit. R10 marks the gap it found; it does not close it — growing the unseen
+half of the corpus still needs programs nobody on this project wrote.

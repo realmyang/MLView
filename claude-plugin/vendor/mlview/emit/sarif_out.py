@@ -18,7 +18,11 @@ Four properties are load-bearing and each has a test:
    the consumer's "new / existing" agrees with `--changed-since`.
 3. **`rules[]` is the whole registry**, not the rules that happened to fire,
    so `ruleIndex` is stable between runs and every `helpUri` resolves whether
-   or not the rule fired on this workspace.
+   or not the rule fired on this workspace. `helpUri` is an **absolute
+   `https://` URI pinned to the running version**: GitHub code scanning renders
+   it as the alert's documentation link, and a workspace-relative string there
+   resolves against the alerts page and 404s in every repository that is not
+   this one. The in-repo path is kept beside it as `properties.docsPath`.
 4. **A suppressed or baselined finding ships as a suppressed result**, not as
    a missing one (`suppressions[].kind = "external"`, the SARIF spelling of
    "something outside the tool decided this"). Deleting them would make the
@@ -40,12 +44,24 @@ from typing import Any, Dict, List, Optional
 from ..version import __version__
 
 __all__ = ["render_sarif", "sarif_bytes", "write_sarif", "SARIF_VERSION",
-           "SARIF_SCHEMA_URI", "URI_BASE_ID", "level_for"]
+           "SARIF_SCHEMA_URI", "URI_BASE_ID", "level_for", "help_uri_for",
+           "DOCS_BASE_URL"]
 
 SARIF_VERSION = "2.1.0"
 SARIF_SCHEMA_URI = ("https://docs.oasis-open.org/sarif/sarif/v2.1.0/errata01/"
                     "os/schemas/sarif-schema-2.1.0.json")
 URI_BASE_ID = "%SRCROOT%"
+#: Where a rule page is published. A SARIF consumer resolves `helpUri` against
+#: nothing - `reportingDescriptor.helpUri` has no `uriBaseId` companion - so an
+#: adopter's alert needs an absolute URL, and the wheel ships no `docs/rules/`
+#: for a `pip install` to resolve either. Pinned to the running version so an
+#: alert filed today keeps pointing at the page the finding was written against.
+DOCS_BASE_URL = "https://github.com/realmyang/MLView/blob/v%s/docs/rules/"
+
+
+def help_uri_for(code: str) -> str:
+    """The absolute, resolving documentation URL for one rule code."""
+    return "%s%s.md" % (DOCS_BASE_URL % __version__, code)
 
 _LEVEL = {"high": "error", "medium": "warning", "low": "note"}
 _BASELINE_STATE = {"new": "new", "touched": "unchanged", "existing": "unchanged"}
@@ -68,15 +84,18 @@ def _rule_descriptors() -> List[Dict[str, Any]]:
             "name": spec.code,
             "shortDescription": {"text": spec.title or spec.code},
             "fullDescription": {"text": spec.why or spec.title or spec.code},
-            "helpUri": spec.docs,
+            "helpUri": help_uri_for(spec.code),
             "help": {"text": spec.fix_hint or spec.why or spec.title or spec.code},
             "defaultConfiguration": {"level": level_for(spec.severity),
                                      "enabled": bool(spec.enabled)},
             "properties": {
-                # `helpUri` is relative to the same base as every location, and
-                # SARIF has no per-field uriBaseId, so the base is stated here
-                # rather than being guessed by the reader.
-                "helpUriBaseId": URI_BASE_ID,
+                # The workspace-relative page, for a consumer reading the SARIF
+                # inside this checkout. It is deliberately NOT `helpUri`:
+                # `reportingDescriptor.helpUri` has no `uriBaseId` companion in
+                # SARIF 2.1.0, so a relative reference there resolves against
+                # the consumer's own page and dies.
+                "docsPath": spec.docs,
+                "docsPathBaseId": URI_BASE_ID,
                 "severity": spec.severity,
                 "basePrior": spec.base_prior,
                 "ruleVersion": spec.rule_version,

@@ -254,7 +254,7 @@ def _class_attr_binding(call: CallSite):
     base = dotted_text(func.value)
     if not base:
         return None
-    ref = binding_of(base, call.scope)
+    ref = binding_of(base, call.scope, at=call.loc.line, exclude=call)
     cls = ref.class_ir if ref is not None else None
     if cls is None or cls.scope is None:
         return None
@@ -294,7 +294,7 @@ def _note_unresolved(call: CallSite) -> None:
     name = dotted_text(call.node.func)
     if not name:
         return
-    ref = binding_of(name, call.scope)
+    ref = binding_of(name, call.scope, at=call.loc.line, exclude=call)
     if ref is None:
         return
     if ref.opaque:
@@ -395,7 +395,7 @@ def mark_fitted(module: ModuleIR) -> None:
     for call in module.calls:
         if K.role_of(call.fqn) not in ("FIT", "FIT_TRANSFORM"):
             continue
-        ref = binding_of(call.receiver_name, call.scope) or call.receiver
+        ref = binding_of(call.receiver_name, call.scope, exclude=call) or call.receiver
         if ref is not None:
             ref.add_tags(("FITTED_TRANSFORMER",))
 
@@ -447,7 +447,8 @@ def _chained_receiver(call: CallSite, module: ModuleIR) -> Optional[ValueRef]:
     if isinstance(inner_node, ast.Subscript):
         # `X = df[cols].to_numpy()` - the subscript preserves the frame's tags,
         # but it is not a name, so there is no binding to look up.
-        base = binding_of(dotted_text(inner_node.value), call.scope)
+        base = binding_of(dotted_text(inner_node.value), call.scope,
+                          at=call.loc.line, exclude=call)
         if base is None:
             return None
         return ValueRef(name=base.name, scope=call.scope, tags=base.tags,
@@ -456,8 +457,8 @@ def _chained_receiver(call: CallSite, module: ModuleIR) -> Optional[ValueRef]:
     return None
 
 
-def _attribute_callable(receiver_name: str, method: str,
-                        scope: ScopeIR) -> Optional[ValueRef]:
+def _attribute_callable(receiver_name: str, method: str, scope: ScopeIR,
+                        call: Optional[CallSite] = None) -> Optional[ValueRef]:
     """ANA-2: the value held in `<receiver>.<attr>`, when it is callable.
 
     `self.loss_fn(logits, labels)` is not *a method named `loss_fn` on an
@@ -475,7 +476,7 @@ def _attribute_callable(receiver_name: str, method: str,
     """
     if not receiver_name or not method or method == "__call__":
         return None
-    ref = binding_of("%s.%s" % (receiver_name, method), scope)
+    ref = binding_of("%s.%s" % (receiver_name, method), scope, exclude=call)
     if ref is None:
         return None
     if ref.class_ir is not None or ref.via_fqns:
@@ -568,16 +569,17 @@ def _resolve_one(call: CallSite, module: ModuleIR, workspace) -> None:
         # ANA-2: an attribute that *holds* a callable answers before the
         # receiver's own family does - `self.loss_fn` is the criterion, not a
         # method on the module that stores it.
-        held = _attribute_callable(receiver_name, method, call.scope)
+        held = _attribute_callable(receiver_name, method, call.scope, call)
         if held is not None:
             call.receiver_name = "%s.%s" % (receiver_name, method)
             ref, method = held, "__call__"
         else:
-            ref = binding_of(receiver_name, call.scope)
+            ref = binding_of(receiver_name, call.scope, at=call.loc.line,
+                             exclude=call)
     elif method is None:
         return
     if ref is None and receiver_name == "self":
-        attr_ref = binding_of("self.%s" % method, call.scope)
+        attr_ref = binding_of("self.%s" % method, call.scope, exclude=call)
         if attr_ref is not None:
             ref, method = attr_ref, "__call__"
             call.receiver_name = "self.%s" % call.method

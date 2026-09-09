@@ -69,11 +69,25 @@ export class ExportMenu {
       ev.stopPropagation();
       this.setOpen(!this.openState);
     });
+    // VW-03. Every key here STOPS PROPAGATION. The trigger is a toolbar item,
+    // and the toolbar is one roving `role="toolbar"` whose keydown listener sits
+    // on the container: it reads ArrowDown as "next toolbar button", calls
+    // preventDefault + stopPropagation and moves focus. Without the stop below
+    // the roving group ran after this handler and won — the menu opened and
+    // focus landed on "Toggle side rail", outside it.
     on(this.button, 'keydown', (ev: KeyboardEvent) => {
-      if (ev.key !== 'ArrowDown') return;
+      if (ev.key === 'Escape') {
+        if (!this.openState) return;
+        ev.preventDefault();
+        ev.stopPropagation();
+        this.setOpen(false);
+        return;
+      }
+      if (ev.key !== 'ArrowDown' && ev.key !== 'ArrowUp') return;
       ev.preventDefault();
+      ev.stopPropagation();
       this.setOpen(true);
-      this.focusItem(0);
+      this.focusItem(ev.key === 'ArrowDown' ? 0 : this.items().length - 1);
     });
 
     this.panel = el('div', 'mlv-exportmenu');
@@ -144,6 +158,33 @@ export class ExportMenu {
           this.setOpen(false);
         }),
       );
+      // VW-03. Escape closes an open menu from ANYWHERE, not only from inside
+      // the panel — a 268 x 478 px popup over the diagram with no keyboard way
+      // out is a trap. Capture phase, so it is the innermost thing Escape
+      // dismisses: the app's own Escape cascade (clear selection, leave the
+      // canvas) never sees the key while this menu is open.
+      this.disposers.push(
+        on(
+          doc,
+          'keydown',
+          (ev: KeyboardEvent) => {
+            if (!this.openState || ev.key !== 'Escape') return;
+            ev.preventDefault();
+            ev.stopPropagation();
+            const active = doc.activeElement as HTMLElement | null;
+            const inside = !!active && (this.panel.contains(active) || this.button.contains(active));
+            this.setOpen(false);
+            if (inside) {
+              try {
+                this.button.focus();
+              } catch (_e) {
+                /* the toolbar may have been rebuilt under us */
+              }
+            }
+          },
+          true,
+        ),
+      );
     }
   }
 
@@ -160,8 +201,17 @@ export class ExportMenu {
     this.openState = next;
     this.panel.hidden = !next;
     this.button.setAttribute('aria-expanded', next ? 'true' : 'false');
-    if (next) this.position();
-    else this.restoreFocus();
+    if (next) {
+      this.position();
+      // VW-03. The menu-button pattern puts focus on the first item for EVERY
+      // open gesture, not only for ArrowDown. Every item is `tabIndex = -1`, as
+      // a `role="menu"` requires, so without this the panel was unreachable
+      // after Enter or a click: Tab from the trigger went straight past eight
+      // controls to the canvas.
+      this.focusItem(0);
+    } else {
+      this.restoreFocus();
+    }
   }
 
   setRegion(kind: ExportRegionKind): void {

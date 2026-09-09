@@ -36,16 +36,60 @@ from __future__ import annotations
 from typing import List, Optional
 
 from ..core.graph import Diagnostic, MLGraph
+from ..ingest.notebook import SHADOW_DIR
 from .gitdiff import ChangeSet
 
 __all__ = ["CHANGE_VALUES", "CHANGE_NEW", "CHANGE_TOUCHED", "CHANGE_EXISTING",
-           "classify_issue", "intersects_hunk", "apply_change_attribution"]
+           "classify_issue", "intersects_hunk", "apply_change_attribution",
+           "notebook_source"]
 
 CHANGE_NEW = "new"
 CHANGE_TOUCHED = "touched"
 CHANGE_EXISTING = "existing"
 #: The closed enum `Issue.change` may carry, mirrored in both schema copies.
 CHANGE_VALUES = (CHANGE_NEW, CHANGE_TOUCHED, CHANGE_EXISTING)
+
+
+def notebook_source(relpath: str) -> Optional[str]:
+    """`.mlview/notebooks/nb/leak.py` -> `nb/leak.ipynb`, else None.
+
+    The exact inverse of `ingest.notebook.shadow_relpath`, and the reason this
+    module needs one at all: under `--include-notebooks` a notebook finding's
+    `loc.file` is the **generated** module (11.29 N5), a git-ignored path that
+    no pull request has ever contained. Attributing it by that name made every
+    notebook finding `existing`, so `--changed-only` - the default of both
+    shipped CI surfaces - returned exit 0 on a pull request whose entire
+    content was a fit-before-split notebook.
+    """
+    path = (relpath or "").replace("\\", "/")
+    prefix = SHADOW_DIR + "/"
+    if not path.startswith(prefix) or not path.endswith(".py"):
+        return None
+    return path[len(prefix):-len(".py")] + ".ipynb"
+
+
+def _notebook_verdict(relpath: str, changes: ChangeSet) -> Optional[str]:
+    """`new` / `touched` for a generated notebook module, else None.
+
+    File granularity, deliberately: the hunks git knows about are lines of the
+    `.ipynb` **JSON**, and the generated module's line numbers do not exist in
+    that file at all. A notebook with an added hunk is a notebook with a
+    changed cell, and calling those findings `new` is the only reading that
+    makes a PR adding a leaky notebook fail its gate.
+    """
+    notebook = notebook_source(relpath)
+    if notebook is None or not changes.is_changed(notebook):
+        return None
+    if changes.hunks_known and not changes.has_added(notebook):
+        return CHANGE_TOUCHED
+    return CHANGE_NEW
+
+
+def _in_change(relpath: str, line, changes: ChangeSet) -> bool:
+    """Does this one location sit inside the change (notebooks included)?"""
+    if changes.in_added(relpath, line):
+        return True
+    return _notebook_verdict(relpath, changes) == CHANGE_NEW
 
 
 def classify_issue(issue, changes: ChangeSet) -> str:
@@ -55,6 +99,9 @@ def classify_issue(issue, changes: ChangeSet) -> str:
     primary_line = getattr(loc, "line", None)
     if changes.in_added(primary_file, primary_line):
         return CHANGE_NEW
+    notebook = _notebook_verdict(primary_file, changes)
+    if notebook is not None:
+        return notebook
     if _related_in_hunk(issue, changes):
         return CHANGE_TOUCHED
     if changes.is_changed(primary_file):
@@ -66,9 +113,19 @@ def _related_in_hunk(issue, changes: ChangeSet) -> bool:
     for related in getattr(issue, "relatedLocs", ()) or ():
         if not isinstance(related, dict):       # pragma: no cover - defensive
             continue
-        if changes.in_added(related.get("file", ""), related.get("line")):
+        if _in_change(related.get("file", ""), related.get("line"), changes):
             return True
     return False
+
+
+def _notebook_findings(graph: MLGraph, changes: ChangeSet) -> int:
+    """How many surviving findings were attributed through a notebook."""
+    count = 0
+    for issue in graph.issues:
+        loc = getattr(issue, "loc", None)
+        if _notebook_verdict(getattr(loc, "file", "") or "", changes) is not None:
+            count += 1
+    return count
 
 
 def intersects_hunk(issue, changes: ChangeSet) -> bool:
@@ -84,8 +141,9 @@ def intersects_hunk(issue, changes: ChangeSet) -> bool:
     loc = getattr(issue, "loc", None)
     primary_file = getattr(loc, "file", "") or ""
     if not changes.hunks_known:
-        return changes.is_changed(primary_file)
-    return (changes.in_added(primary_file, getattr(loc, "line", None))
+        return (changes.is_changed(primary_file)
+                or changes.is_changed(notebook_source(primary_file) or ""))
+    return (_in_change(primary_file, getattr(loc, "line", None), changes)
             or _related_in_hunk(issue, changes))
 
 
@@ -107,6 +165,17 @@ def apply_change_attribution(graph: MLGraph, changes: Optional[ChangeSet],
         issue.change = classify_issue(issue, changes)
         counts[issue.change] += 1
     diagnostics: List[Diagnostic] = []
+    notebooks = _notebook_findings(graph, changes)
+    if notebooks:
+        diagnostics.append(Diagnostic(
+            kind="config_warning",
+            message="%d finding(s) are located in a generated notebook module "
+                    "under %s/, which git has never seen. They were attributed "
+                    "to their source .ipynb instead, at **file** granularity: "
+                    "the hunks git knows are lines of the notebook JSON, so a "
+                    "notebook with any added line counts as changed throughout."
+                    % (notebooks, SHADOW_DIR),
+            count=notebooks))
     if not changes.hunks_known:
         diagnostics.append(Diagnostic(
             kind="config_warning",
@@ -131,7 +200,9 @@ def apply_change_attribution(graph: MLGraph, changes: Optional[ChangeSet],
                        len(kept), sum(1 for i in kept if i.change == CHANGE_NEW),
                        sum(1 for i in kept if i.change == CHANGE_TOUCHED),
                        len(changes.files), changes.added_lines),
-            count=len(dropped)))
+            # `scope` is the machine-readable half: `mlview issues` reads it to
+            # say "0 shown, N not shown" instead of "none found".
+            scope="changed-only", count=len(dropped)))
     return diagnostics
 
 

@@ -171,6 +171,21 @@
   display: none;
 }
 
+/*
+ * VW-08. A diagnostic chip is sometimes a SENTENCE. `.mlv-chip` is
+ * `white-space: nowrap` — right for `12 nodes`, wrong for CI-ADOPT's baseline
+ * and --changed-paths warnings, which carry an absolute path and an
+ * instruction: measured at a 1600 px window the --changed-paths chip was
+ * 1779 px wide and ended 191 px off the page, mid-sentence, with no scrollbar
+ * to reach the rest. The row already wraps; the chips inside it now may too,
+ * and they never exceed the row's width. The full text is on `title` as well,
+ * so nothing depends on the wrap.
+ */
+.mlv-chiprow .mlv-chip {
+  max-width: 100%;
+  white-space: normal;
+}
+
 .mlv-chiprow__label {
   color: var(--mlv-text-3);
   text-transform: uppercase;

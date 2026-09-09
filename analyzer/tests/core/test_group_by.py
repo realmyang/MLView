@@ -57,9 +57,19 @@ def repeats(make_workspace):
 
 
 def _body(text):
-    """The table under the `N issue(s) in ...` header, without the rules."""
-    return [line for line in text.splitlines()[1:]
-            if line.strip() and not line.strip().startswith("---")]
+    """The table under the `N issue(s) in ...` header, without the rules.
+
+    HOST-4 gave `mlview issues` the `Coverage` / `Notes` blocks that
+    `render_summary` always had, so the table now ends where the first block
+    heading begins.
+    """
+    rows = []
+    for line in text.splitlines()[1:]:
+        if line.startswith(("Notes (", "Coverage (")):
+            break
+        if line.strip() and not line.strip().startswith("---"):
+            rows.append(line)
+    return rows
 
 
 def test_flat_is_the_default_and_prints_one_row_per_finding(run, repeats):

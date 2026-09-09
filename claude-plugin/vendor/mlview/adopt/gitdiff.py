@@ -63,6 +63,17 @@ class ChangeSet:
                 return True
         return False
 
+    def has_added(self, relpath: str) -> bool:
+        """Any added line anywhere in this file.
+
+        NB (11.29 N5) makes a notebook finding's `loc.file` the **generated**
+        module under `.mlview/notebooks/`, a path git has never seen and no PR
+        ever contains, so its line numbers cannot be intersected with a hunk of
+        the `.ipynb`. File granularity is the honest answer there: an added
+        hunk anywhere in the notebook is a changed cell.
+        """
+        return bool(self.added.get(_norm(relpath)))
+
     @property
     def added_lines(self) -> int:
         return sum(last - first + 1

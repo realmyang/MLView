@@ -250,3 +250,27 @@ test('media/ holds the sync placeholder, plus the bundle once sync-assets.py has
     assert.ok(fs.statSync(path.join(mediaDir, name)).size > 1024, name + ' looks truncated');
   }
 });
+
+// PROC-11: the README is the only place a user reads a setting's name before typing it,
+// so a row that names a key the manifest does not contribute earns them an "Unknown
+// Configuration Setting" warning (mlview.showSpeculative and mlview.followCursor did,
+// for a sprint after CLEANUP deleted them - docs/CONTRACTS.md 11.20 A). The two lists are
+// asserted equal in BOTH directions: a new setting that never reaches the README is the
+// same defect seen from the other side.
+test('the README settings table names exactly the settings the manifest contributes', () => {
+  const readme = fs.readFileSync(path.join(__dirname, '..', 'README.md'), 'utf8');
+  const documented = new Set();
+  for (const line of readme.split('\n')) {
+    const row = /^\|\s*`(mlview\.[A-Za-z]+)`\s*\|/.exec(line);
+    if (row) {
+      documented.add(row[1]);
+    }
+  }
+  const contributed = new Set(Object.keys(manifest.contributes.configuration.properties));
+  assert.ok(documented.size > 0, 'the settings table must still be parseable');
+  assert.deepEqual(
+    [...documented].sort(),
+    [...contributed].sort(),
+    'every documented mlview.* setting must exist, and every contributed one must be documented'
+  );
+});

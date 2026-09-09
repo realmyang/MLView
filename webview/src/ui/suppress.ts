@@ -113,11 +113,14 @@ function textButton(cls: string, label: string, title: string): HTMLButtonElemen
  * says how many of each when both are present.
  */
 export function suppressedSummary(suppressed: number, baselined: number): string {
-  const total = suppressed + baselined;
-  const head = total + ' suppressed';
-  if (baselined > 0 && suppressed > 0) return head + ' · ' + baselined + ' baselined';
-  if (baselined > 0) return total + ' baselined';
-  return head;
+  // VW-09. Each half counts ITSELF. The head used to be the TOTAL under the
+  // word "suppressed", so one suppression plus six baselined findings read
+  // "7 suppressed · 6 baselined" while the toolbar's own chip, two inches away,
+  // read "1 suppressed" — and the CLI never calls a baselined finding
+  // suppressed at all ("8 issue(s) ... · 6 baselined").
+  if (baselined > 0 && suppressed > 0) return suppressed + ' suppressed · ' + baselined + ' baselined';
+  if (baselined > 0) return baselined + ' baselined';
+  return suppressed + ' suppressed';
 }
 
 /** A small labelled chip, used for `suppressed`, `baselined` and `new`. */

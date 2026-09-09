@@ -170,7 +170,30 @@ def _data_entry(nodes: List[Dict[str, Any]]) -> Dict[str, Any]:
     return _answer(sentence + _dropped_clause(dropped), cited)
 
 
-def _objective(nodes: List[Dict[str, Any]]) -> Dict[str, Any]:
+def _coverage_clause(doc: Dict[str, Any]) -> str:
+    """The §11.23 A8 qualifier, or "" when everything the run saw resolved.
+
+    A8 is normative: *no emitter may claim a stage is absent without
+    qualification when a call was unresolved*. `text_out` and `mermaid_out`
+    honoured it; this module did not, and its absence sentences were the ones
+    an agent reads. On a research script whose model, criterion and optimizer
+    arrive through a subscript, a `match` and a `default_factory`, the card
+    said "nothing in the objective stage and **no backward() call**" about a
+    file whose training loop calls `loss.backward()` - not a hedged absence but
+    a false statement about the source.
+    """
+    gaps = [d for d in (doc.get("diagnostics") or [])
+            if isinstance(d, dict) and d.get("kind") in _COVERAGE_KINDS]
+    if not gaps:
+        return ""
+    calls = sum(int(d.get("count") or 1) for d in gaps
+                if d.get("kind") == "unresolved_callee")
+    if calls:
+        return ", and %d call(s) could not be read" % calls
+    return ", and %d coverage gap(s) were reported" % len(gaps)
+
+
+def _objective(nodes: List[Dict[str, Any]], coverage: str = "") -> Dict[str, Any]:
     losses, dropped = _pick(nodes, kind="loss")
     optimizers, dropped_opt = _pick(nodes, kind="optimizer")
     dropped += dropped_opt
@@ -180,10 +203,15 @@ def _objective(nodes: List[Dict[str, Any]]) -> Dict[str, Any]:
     defined_losses = [n for n in losses if n.get("var")] or losses
     defined_opts = [n for n in optimizers if n.get("var")] or optimizers
     if not defined_losses:
-        return _answer(
-            "No loss function was detected: nothing in the objective stage and "
-            "no backward() call, so MLView could not determine what this "
-            "pipeline optimises." + _dropped_clause(dropped), ())
+        # The "no backward() call" half is dropped the moment a call went
+        # unread: the analyzer cannot know it, and it was the false half.
+        absent = ("No loss function was detected: nothing in the objective "
+                  "stage resolved%s, so MLView could not determine what this "
+                  "pipeline optimises." % coverage) if coverage else (
+                  "No loss function was detected: nothing in the objective "
+                  "stage and no backward() call, so MLView could not determine "
+                  "what this pipeline optimises.")
+        return _answer(absent + _dropped_clause(dropped), ())
     sentence = "The objective is %s" % _listing(defined_losses, with_fqn=True, limit=2)
     if defined_opts:
         sentence += ", optimised by %s." % _listing(defined_opts, with_fqn=True, limit=2)
@@ -199,7 +227,7 @@ def _is_guard(node: Dict[str, Any]) -> bool:
     return fqn.endswith(".eval") or "no_grad" in fqn or "inference_mode" in fqn
 
 
-def _evaluation(nodes: List[Dict[str, Any]]) -> Dict[str, Any]:
+def _evaluation(nodes: List[Dict[str, Any]], coverage: str = "") -> Dict[str, Any]:
     eval_nodes = [n for n in nodes if n.get("stage") == "eval"]
     loops, dropped = _pick(eval_nodes, kind="eval_loop")
     metrics, dropped_metrics = _pick(eval_nodes, kind="metric")
@@ -208,10 +236,14 @@ def _evaluation(nodes: List[Dict[str, Any]]) -> Dict[str, Any]:
               and _confident(n)]
     missing = _ghosts(eval_nodes, _is_guard)
     if not loops and not metrics and not guards:
-        return _answer(
-            "No evaluation stage was detected: nothing computes a metric or "
-            "runs the model in eval mode, so this pipeline's quality is not "
-            "measured anywhere MLView can see." + _dropped_clause(dropped), ())
+        absent = ("No evaluation stage was detected: nothing computes a metric "
+                  "or runs the model in eval mode%s, so MLView cannot say "
+                  "whether this pipeline's quality is measured." % coverage
+                  ) if coverage else (
+                  "No evaluation stage was detected: nothing computes a metric "
+                  "or runs the model in eval mode, so this pipeline's quality "
+                  "is not measured anywhere MLView can see.")
+        return _answer(absent + _dropped_clause(dropped), ())
     if loops and metrics:
         sentence = ("Evaluation runs in %s, computing %s"
                     % (_listing(loops, limit=2), _listing(metrics, limit=2)))
@@ -292,10 +324,11 @@ def _verdict(doc: Dict[str, Any], nodes: List[Dict[str, Any]]) -> Dict[str, Any]
 def compose(doc: Dict[str, Any]) -> Dict[str, Any]:
     """The four answers for a finished MLGraph document. Pure dict -> dict."""
     nodes = _nodes(doc)
+    coverage = _coverage_clause(doc)
     return {
         "dataEntry": _data_entry(nodes),
-        "objective": _objective(nodes),
-        "evaluation": _evaluation(nodes),
+        "objective": _objective(nodes, coverage),
+        "evaluation": _evaluation(nodes, coverage),
         "verdict": _verdict(doc, nodes),
     }
 

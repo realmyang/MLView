@@ -277,6 +277,22 @@ function isExportFile(value: Record<string, unknown>): boolean {
 }
 
 /**
+ * MLV-P10. `suppressRule.absFile` names a file the host will WRITE to, so the guard is
+ * as strict as `isExportFile`'s: an absolute path (POSIX `/…`, or a Windows drive or UNC
+ * path), with no NUL. A relative path is rejected here rather than resolved against
+ * whatever the extension host's cwd happens to be. Containment against the open
+ * workspace folders is a separate check, in `codeActions.writableFile`.
+ */
+function isAbsoluteFilePath(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    value.length > 0 &&
+    !value.includes('\0') &&
+    (/^[/\\]/.test(value) || /^[A-Za-z]:[/\\]/.test(value))
+  );
+}
+
+/**
  * Structural guard for a message arriving from the webview. Anything that is not a
  * well-formed, known message is rejected here and the caller logs + ignores it.
  */
@@ -319,7 +335,7 @@ export function isUiToHost(value: unknown): value is UiToHost {
         typeof value['code'] === 'string' &&
         /^MLV[0-9]{3}$/.test(value['code']) &&
         ['copy', 'insert', 'disable'].includes(String(value['action'])) &&
-        (value['absFile'] === undefined || typeof value['absFile'] === 'string') &&
+        (value['absFile'] === undefined || isAbsoluteFilePath(value['absFile'])) &&
         (value['line'] === undefined || (isFiniteNumber(value['line']) && value['line'] >= 1))
       );
     case 'exportFile':

@@ -121,7 +121,9 @@ export {
   ignoreComment,
   withIgnoreComment,
   addDisabledRule,
+  splitComment,
   isInsideWorkspace,
+  insideAnyWorkspace,
   isRuleCode
 } from './suppression';
 export {
@@ -135,6 +137,7 @@ export {
   addIgnoreComment,
   disableRule,
   configPathFor,
+  writableFile,
   runSuppression,
   COPY_IGNORE_COMMAND,
   ADD_IGNORE_COMMAND,

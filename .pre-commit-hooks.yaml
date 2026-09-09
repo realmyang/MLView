@@ -17,6 +17,13 @@
 # `always_run: true` follows from the same fact: a change to `train.py` can create a
 # leak whose evidence is in `data.py`, so the hook must run even when nothing it
 # would have been handed matches.
+#
+# HOST-2: `language: python` makes pre-commit clone this repository, build a venv and
+# run `pip install .` in the CLONE ROOT — it cannot be pointed at `analyzer/`. The
+# root `pyproject.toml` exists for exactly that install and packages
+# `analyzer/src/mlview` in place; delete it and both hooks die with "Directory '.' is
+# not installable", tag or no tag. `claude-plugin/tests/test_pre_commit_hooks.py` is
+# the gate, `pre-commit try-repo` and all.
 
 - id: mlview
   name: MLView (ML pipeline analysis)

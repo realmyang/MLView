@@ -37,7 +37,8 @@ _FEATURE_NAME_RE = re.compile(r"(?i)^(x|features?|inputs?|data)([_0-9].*)?$")
 # ---------------------------------------------------------------------------
 
 def binding_of(name: Optional[str], scope: Optional[ScopeIR],
-               at: Optional[int] = None, in_loop: bool = False) -> Optional[ValueRef]:
+               at: Optional[int] = None, in_loop: bool = False,
+               exclude: Optional[CallSite] = None) -> Optional[ValueRef]:
     """The `ValueRef` a name resolves to, walking the scope chain outwards.
 
     With `at` (the 1-based line of the *consumer*) the name is resolved against
@@ -47,6 +48,19 @@ def binding_of(name: Optional[str], scope: Optional[ScopeIR],
     was handed to the consumer `self.stem(x)` at line 39: the shipped demo drew
     `self.pool -> self.stem`, one of four forward edges pointing backwards, and
     the real `relu -> self.pool` edge missing.
+
+    With `exclude` (the call being resolved) the store that call *itself*
+    produced is skipped - FW-REBIND. `ds = ds.map(...)` is the binding style the
+    official tf.data guide writes, and the flat map answered the `ds` on the
+    right-hand side with the store the very same statement was about to write:
+    the receiver became its own producer, `_canonical_for_receiver` had an
+    untagged, producer-less value to work from, and the call resolved to
+    nothing. Six-call pipelines measured 2 nodes / 0 edges in that style
+    against 7 nodes / 5 edges written fluently, with no diagnostic at all. The
+    right-hand side of `x = f(x)` is evaluated before the name is rebound, so
+    skipping the call's own store is what Python itself does; it is a stronger
+    guard than `at` alone, which a multi-line assignment defeats (the store's
+    line is the statement's, the call's is further down).
 
     The ordered lookup applies only to the consumer's **own** scope, and never
     to a class scope: a `self.x` store lives in the class scope and is read
@@ -61,32 +75,54 @@ def binding_of(name: Optional[str], scope: Optional[ScopeIR],
     cur: Optional[ScopeIR] = scope
     first = True
     while cur is not None:
-        if first and at is not None and cur.kind != "class":
+        if first and cur.kind != "class" and (at is not None or exclude is not None):
             history = cur.binding_history.get(name)
-            if history is not None and len(history) > 1:
-                picked = _store_before(history, at)
+            if history and (len(history) > 1 or _produced_by(history[-1], exclude)):
+                picked = _store_before(history, at, exclude)
                 if picked is not None:
                     return picked
-                return cur.bindings.get(name) if in_loop else None
+                fallback = cur.bindings.get(name)
+                if _produced_by(fallback, exclude):
+                    return None
+                if (exclude is not None and fallback is not None
+                        and all(fallback is not ref for ref in history)):
+                    # A value written into the scope by something other than a
+                    # statement in it - `propagate_parameters` seeding a
+                    # parameter from the caller. `def f(ds): ds = ds.map(...)`
+                    # has one store, the call's own, so without this the
+                    # parameter the caller established would be lost.
+                    return fallback
+                return fallback if in_loop else None
         ref = cur.bindings.get(name)
-        if ref is not None:
+        if ref is not None and not _produced_by(ref, exclude):
             return ref
+        if ref is not None:
+            return None          # the only store for the name is the call's own
         cur = cur.parent
         first = False
     return None
 
 
-def _store_before(history: Sequence[ValueRef], line: int) -> Optional[ValueRef]:
+def _produced_by(ref: Optional[ValueRef], call: Optional[CallSite]) -> bool:
+    """Is `ref` the store the call being resolved is about to write?"""
+    return call is not None and ref is not None and ref.producer is call
+
+
+def _store_before(history: Sequence[ValueRef], line: Optional[int],
+                  exclude: Optional[CallSite] = None) -> Optional[ValueRef]:
     """The last store written strictly above `line`, else None.
 
     Strictly above, because the right-hand side of `x = f(x)` is evaluated
     before the name is rebound: the consumer on that line reads the *previous*
-    value, which is exactly the edge the flat map inverted.
+    value, which is exactly the edge the flat map inverted. A store the
+    `exclude` call produced is never picked, whatever its line says.
     """
     picked: Optional[ValueRef] = None
     for ref in history:
+        if _produced_by(ref, exclude):
+            continue
         loc = ref.loc
-        if loc is None or loc.line >= line:
+        if line is not None and (loc is None or loc.line >= line):
             continue
         picked = ref
     return picked

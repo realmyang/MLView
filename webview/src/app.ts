@@ -43,6 +43,7 @@ import { dispatchHostMessage, sanitizeScope } from './protocol.js';
 import { ScopeSession, mergeCollapsed, railScopeCounts, sameScope } from './scope/session.js';
 import { ScopeBar } from './ui/scopebar.js';
 import { adoptCellMap } from './notebook.js';
+import { isSetAside } from './types.js';
 import type { SearchHit } from './search.js';
 import type {
   Capabilities,
@@ -99,7 +100,13 @@ export class App implements MLViewApp {
   private pendingScope: { spec: string; depth?: number } | null = null;
   private flowOn = true;
   private caps: Capabilities;
-  private theme: ThemeKind;
+  /**
+   * VW-05. `ThemeController` is the ONE place a theme is decided: the standalone
+   * report's own Auto / Light / Dark / High contrast switch calls it directly,
+   * so a copy of the value on the app went stale the moment a reader touched
+   * that switch — and the export stamped the stale one on every picture. There
+   * is no copy any more; `this.themes.kind` is the answer, always.
+   */
 
   private filters = new FilterModel();
   private viewportState: Viewport = { x: 0, y: 0, zoom: 1 };
@@ -140,8 +147,7 @@ export class App implements MLViewApp {
     this.root = root;
     this.bridge = bridge;
     this.caps = bridge.capabilities;
-    this.theme = bridge.theme || 'light';
-    this.themes = new ThemeController(root, this.theme, bridge.themePreference);
+    this.themes = new ThemeController(root, bridge.theme || 'light', bridge.themePreference);
     this.build();
     const restored = safeLoad(bridge);
     if (restored) this.applyState(restored, false);
@@ -161,7 +167,7 @@ export class App implements MLViewApp {
   /* ── shell ─────────────────────────────────────────────────────────── */
 
   private build(): void {
-    const shell = buildShell(this.root, this.theme);
+    const shell = buildShell(this.root, this.themes.kind);
     this.releasePage = claimPage(this.root);
     this.liveEl = shell.live;
     this.scrim = shell.scrim;
@@ -505,12 +511,23 @@ export class App implements MLViewApp {
 
   /* ── chrome + rail ─────────────────────────────────────────────────── */
 
-  /** Counts for the toolbar chips: severity filters do not hide their own count. */
+  /**
+   * Counts for the toolbar chips: severity filters do not hide their own count.
+   *
+   * VW-04. "Visible" here means exactly what `Filters.keep` means everywhere
+   * else — `isSetAside`, i.e. suppressed OR BASELINED. It used to test
+   * `issue.suppressed` alone, so the moment a repo adopted `--baseline` the
+   * most prominent number on the page (5 / 6 / 3) disagreed with the rail
+   * ('high · 4', 'medium · 4'), with the MLV-P1 answer card ('8 finding(s)')
+   * and with `mlview issues` ('8 issue(s) ... 6 baselined'), and the chip
+   * labelled 5 hid four rows when clicked. The netting is now also SAID:
+   * `chrome.update` draws the set-aside button as '1 suppressed · 6 baselined'.
+   */
   private visibleCounts(): IssueCounts {
     const counts = emptyCounts();
     if (!this.graph) return counts;
     for (const issue of this.graph.issues) {
-      if (!this.filters.value.showSuppressed && issue.suppressed) continue;
+      if (!this.filters.value.showSuppressed && isSetAside(issue)) continue;
       counts[normalizeSeverity(issue.severity) as Severity]++;
     }
     return counts;
@@ -559,8 +576,14 @@ export class App implements MLViewApp {
     const summary = this.scopes.summary();
     return {
       plan,
-      palette: resolvePalette(this.root, this.theme),
-      theme: this.theme,
+      // VW-05: the LIVE theme, not the one the host handed us at construction.
+      // The standalone report's Auto / Light / Dark / High contrast chips go
+      // through `ThemeController.choose`, which never called back into the app,
+      // so every export stamped `data-mlview-theme="light"` and the
+      // high-contrast branch in `buildExportSvg` (outlined severity glyphs)
+      // could not be reached from the standalone report at all.
+      palette: resolvePalette(this.root, this.themes.kind),
+      theme: this.themes.kind,
       graph: this.graph,
       regionKind: this.exportMenu.currentRegion,
       viewRect: this.view.viewportRect(),
@@ -640,7 +663,18 @@ export class App implements MLViewApp {
    */
   private disableRule(code: string): void {
     this.bridge.post({ v: 1, type: 'suppressRule', code, scope: 'workspace', action: 'disable' });
-    this.announce('Asked the host to disable ' + code + ' for this workspace.');
+    // VW-10. What the announcement may claim is bounded by what the HOST does
+    // with the frame. VS Code writes `.mlview.toml`; the standalone report
+    // answers it in the same page by copying the snippet to the clipboard
+    // (`bridges.ts`), so "Asked the host to disable X" announced an edit that
+    // nobody made, and did it before the toast that told the truth. This says
+    // the request and names the answer, in both hosts.
+    this.announce(
+      'Requested that ' + code + ' be disabled for this workspace — ' +
+        (this.bridge.host === 'standalone'
+          ? 'this host answers by copying the .mlview.toml snippet.'
+          : 'the host decides whether to write .mlview.toml.'),
+    );
   }
 
   /** VIEW-12: the toolbar's copy of the minimap chevron. */
@@ -1106,7 +1140,6 @@ export class App implements MLViewApp {
   }
 
   setTheme(kind: ThemeKind): void {
-    this.theme = kind;
     this.themes.apply(kind);
   }
 

@@ -123,6 +123,13 @@ NOTES: Dict[str, Dict[str, object]] = {
                    "the finding's own module or one it imports**: the "
                    "`negation_absent` gate multiplies the confidence by 0.4 and a chip "
                    "explains why. A wrapper in an unrelated file does not gate it."],
+        "cannot": "A full-batch loop not driven by a DataLoader - "
+                  "`for epoch in range(20):` over tensors already in memory, which is "
+                  "what a tabular script and a notebook write. The batch loop is the "
+                  "rule's anchor, so the shape is not judged; it is never silent, "
+                  "though - a `backward()` and an optimizer `step()` in a loop nothing "
+                  "confirmed raise an `untagged_dataflow` coverage note naming the "
+                  "line.",
         "ghost": "the batch loop shows a dashed `zero_grad() · missing` placeholder in "
                  "the slot where the call belongs",
     },
@@ -360,18 +367,28 @@ NOTES: Dict[str, Dict[str, object]] = {
                    "naming the dataset at construction time."],
     },
     "MLV709": {
-        "detects": "A Keras layer with the literal `activation=\"softmax\"` / "
-                   "`\"sigmoid\"` in the **same module** as a loss constructed with "
-                   "`from_logits=True` from the matching family (softmax pairs with "
-                   "the categorical losses, sigmoid with the binary ones).",
+        "detects": "One `compile()` call whose `loss=` is a `<Loss>(from_logits=True)` "
+                   "and whose receiver resolves to a `keras.Model(inputs, outputs)` / "
+                   "`Sequential([...])` whose **output** layer carries the literal "
+                   "`activation=\"softmax\"` / `\"sigmoid\"` of the matching family "
+                   "(softmax pairs with the categorical losses, sigmoid with the "
+                   "binary ones). The layer and the loss must meet on the same model.",
         "avoids": ["`from_logits=False`, which is the correct partner for an "
                    "activated head.",
                    "A softmax head beside a `BinaryCrossentropy(from_logits=True)`: "
                    "the pairing is by activation family, not by proximity.",
+                   "Two builders in one module - a probs head and a logits head of the "
+                   "same categorical problem - which used to accuse each other at "
+                   "severity high, confidence 0.95.",
+                   "An internal activation: a squeeze-and-excite "
+                   "`Dense(ch, activation=\"sigmoid\")` channel gate is not the "
+                   "model's output, and the rule judges position in the graph.",
                    "A loss built in another module, which is not paired at all."],
-        "cannot": "A loss constructed in a shared `losses.py`. Pairing is deliberately "
-                  "module-scoped, because two models in one workspace would otherwise "
-                  "accuse each other.",
+        "cannot": "A model whose `outputs=` expression the analyzer cannot follow back "
+                  "to a layer call - a subclassed `keras.Model` with a `call()` method, "
+                  "a head built by a helper more than one hop away, or a model compiled "
+                  "in a different module from the one that built it. In each case the "
+                  "rule stays silent rather than pairing by family alone.",
     },
     "MLV711": {
         "detects": "A `OneCycleLR` / `CyclicLR` / `get_*_schedule_with_warmup` built "
@@ -470,15 +487,25 @@ NOTES: Dict[str, Dict[str, object]] = {
                   "serves it.",
     },
     "MLV121": {
-        "detects": "A `tf.data` `Dataset.shuffle(...)` reaching a `take()` / `skip()` "
-                   "through the receiver chain, with no "
-                   "`reshuffle_each_iteration=False`.",
+        "detects": "A `tf.data` `Dataset.shuffle(...)` reaching a **holdout** through "
+                   "the receiver chain, with no `reshuffle_each_iteration=False`. A "
+                   "holdout is the pair - the same shuffled receiver reaching both a "
+                   "`take()` and a `skip()` - or a subset whose result is bound to an "
+                   "evaluation name (`val_ds`, `test_ds`, `holdout`, ...).",
         "avoids": ["`shuffle(n, reshuffle_each_iteration=False)`, which pins the "
                    "permutation so the two halves are stable.",
                    "Splitting first and shuffling only the training half afterwards.",
-                   "A `shuffle` -> `batch` -> `prefetch` chain with no holdout in it."],
+                   "A `shuffle` -> `batch` -> `prefetch` chain with no holdout in it.",
+                   "`for images, labels in train_ds.take(1)` - a peek at one batch, "
+                   "which used to be reported as a leaking train/val split at severity "
+                   "high, confidence 0.95, with a message asserting two halves that do "
+                   "not exist.",
+                   "A debug subset (`debug_rows = shuffled.take(8)`) with no "
+                   "complementary `skip` and no evaluation name."],
         "cannot": "A dataset rebuilt inside a helper. The chain is followed through at "
-                  "most eight links and only through bindings that resolve.",
+                  "most eight links and only through bindings that resolve. A holdout "
+                  "whose two halves come off *different* `shuffle` calls is judged only "
+                  "when the subset carries an evaluation name.",
     },
     "MLV305": {
         "detects": "A class metric (`accuracy_score`, `f1_score`, `precision_score`, "

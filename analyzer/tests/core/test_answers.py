@@ -230,3 +230,73 @@ def test_a_projection_carries_the_answers_through_verbatim(sample):
     assert projected["answers"] == sample["answers"], \
         "answers are project-level truth, like stages[].present"
     assert list(projected)[-1] == "view"
+
+
+# --------------------------------------- 11.23 A8 on the answer surface
+RESEARCH = {
+    "registry.py": (
+        "from dataclasses import dataclass, field\n"
+        "from typing import Callable, Dict\n"
+        "import torch\n"
+        "from torch import nn\n\n"
+        "BUILDERS: Dict[str, Callable] = {\"mlp\": lambda: nn.Linear(64, 2)}\n\n\n"
+        "def make_model(name):\n"
+        "    return BUILDERS[name]()\n\n\n"
+        "def make_criterion(name):\n"
+        "    match name:\n"
+        "        case \"ce\":\n"
+        "            fn = nn.CrossEntropyLoss\n"
+        "        case _:\n"
+        "            fn = nn.MSELoss\n"
+        "    return fn()\n\n\n"
+        "@dataclass\n"
+        "class OptCfg:\n"
+        "    lr: float = 1e-3\n"
+        "    factory: Callable = field(default_factory=lambda: torch.optim.SGD)\n\n"
+        "    def build(self, params):\n"
+        "        return self.factory(params, lr=self.lr)\n"),
+    "train.py": (
+        "import torch\n"
+        "from torch.utils.data import DataLoader, TensorDataset\n"
+        "from registry import OptCfg, make_criterion, make_model\n\n\n"
+        "def loop(name=\"mlp\", epochs=3):\n"
+        "    x, y = torch.randn(512, 64), torch.randint(0, 2, (512,))\n"
+        "    dl = DataLoader(TensorDataset(x, y), batch_size=32, shuffle=True)\n"
+        "    model = make_model(name)\n"
+        "    criterion = make_criterion(\"ce\")\n"
+        "    optimizer = OptCfg().build(model.parameters())\n"
+        "    for _ in range(epochs):\n"
+        "        for xb, yb in dl:\n"
+        "            loss = criterion(model(xb), yb)\n"
+        "            loss.backward()\n"
+        "            optimizer.step()\n"),
+}
+
+
+def test_an_absence_is_never_claimed_flatly_while_a_call_went_unread(analyze_ws):
+    """§11.23 A8 is normative for **every** emitter. The card used to say
+    "nothing in the objective stage and no backward() call" about a file whose
+    training loop calls `loss.backward()` on line 14 - not a hedged absence but
+    a false statement about the source, shipped in the report card,
+    `--format summary`, `--format text` and `api.digest`."""
+    doc = analyze_ws(RESEARCH)
+    kinds = {d["kind"] for d in doc["diagnostics"]}
+    assert "unresolved_callee" in kinds, sorted(kinds)
+    objective = doc["answers"]["objective"]["sentence"]
+    assert "no backward() call" not in objective, objective
+    assert "could not be read" in objective, objective
+    evaluation = doc["answers"]["evaluation"]["sentence"]
+    assert "is not measured anywhere MLView can see" not in evaluation, evaluation
+    assert "could not be read" in evaluation, evaluation
+    assert doc["answers"]["objective"]["sentence"] == \
+        api.digest(doc)["answers"]["objective"]
+
+
+def test_the_flat_absence_still_stands_when_everything_resolved(analyze_ws):
+    """The qualifier is earned, not automatic: with nothing unread the card
+    keeps saying so plainly, and the default path is byte-identical."""
+    doc = analyze_ws({"m.py": "import pandas as pd\n\n\n"
+                              "def load(path):\n"
+                              "    return pd.read_csv(path)\n"})
+    assert not [d for d in doc["diagnostics"] if d["kind"] == "unresolved_callee"]
+    assert "no backward() call" in doc["answers"]["objective"]["sentence"]

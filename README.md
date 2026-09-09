@@ -346,7 +346,9 @@ sh scripts/e2e.sh
 ### Continuous integration
 
 `.github/workflows/ci.yml` runs the gate table on every push and pull request,
-so "it works" is a statement about nine jobs rather than about one machine:
+so "it works" is a statement about thirteen jobs — twelve on a branch push,
+where macOS is skipped — rather than about one machine. Nine job definitions,
+three of which fan out over a matrix:
 
 | Job | Runner | What it runs |
 |---|---|---|
@@ -357,7 +359,7 @@ so "it works" is a statement about nine jobs rather than about one machine:
 | `e2e (ubuntu, sh)` | ubuntu, Python 3.13 + Node 20 | `sh scripts/e2e.sh` — all 19 steps, uploading the emitted reports |
 | `e2e (windows, powershell)` | windows, Python 3.13 + Node 20 | `scripts/e2e.ps1` — the same 19 steps under the other driver |
 | `smoke (macos)` | macos, Python 3.13 + Node 20 | the analyzer and viewer suites — **only on push to `main` and on pull requests** |
-| `packaging (wheel + vsix)` | ubuntu, Python 3.13 + Node 20 | `tools/wheel_check.py` (build the wheel, `pip install` it into a throwaway venv, analyze with it), `sync-core.py --check`, `make_icon.py --check`, `npm run package`, and the VSIX under 1 MB |
+| `packaging (wheel + vsix)` | ubuntu, Python 3.13 + Node 20 | `tools/wheel_check.py` (build the wheel, `pip install` it into a throwaway venv, analyze with it), `sync-core.py --check`, `make_icon.py --check`, `npm run package`, then `scripts/vsix_check.py` — the 1 MB ceiling, the whole bundled analyzer, every rule page, no `__pycache__`, with the measured figures echoed |
 | `accuracy corpus` | ubuntu, Python 3.13 | `tools/accuracy.py` over the ten labelled programs, then `pytest analyzer/tests/accuracy` — zero `forbidden` findings, and recall and graph fidelity may only ratchet up |
 
 `.github/workflows/nightly.yml` is separate and deliberately not on the push
@@ -369,17 +371,23 @@ default branch, so it starts firing once this lands on `main`.
 
 The matrix is deliberately lopsided: the repository is private, so minutes are
 metered and weighted (windows 2x, macos 10x), and the fan-out is therefore
-ubuntu-only. A full green run is about **6m0s of wall time and ~48 billable
-minutes** — ~16 of them the ten ubuntu jobs, 12 the one Windows job (5m56s,
-billed as 6 min at 2x), and 20 the single 93-second macOS job, whose every
-started minute is billed tenfold and rounded up. That last figure is 42% of the
-bill for two suites ubuntu already runs; because the multiplier and the
-rounding, not the job's contents, are what cost the 20, trimming it cannot help.
-That decision was taken in Sprint 4: macOS is now covered locally on a
-development machine that runs the full e2e table before every push, so the job
-runs **only on push to `main` and on pull requests** — the two moments where
-nobody's laptop is the referee — which takes a branch push to roughly 28 billable
-minutes and leaves the pre-merge signal intact. `claude plugin validate` is not available on a hosted runner;
+ubuntu-only. **Measured, not estimated** — the last full green branch push
+(run 34311137829, Sprint 4 wave 4) took **6m39s of wall time and ~37 billable
+minutes**: 23 of them the eleven ubuntu jobs, 14 the one Windows job (6m36s,
+billed as 7 min at 2x), and `smoke (macos)` skipped. The rounding rule is what
+makes that figure reproducible, so it is stated rather than assumed: **each job
+is rounded up to a whole minute on its own** and then multiplied by its runner's
+weight — summing the seconds first and rounding once gives a smaller number that
+GitHub does not charge. On `main` and on pull requests the macOS job runs and
+adds **20** (a ~93-second job, billed as 2 min at 10x), taking the same push to
+**~57**. That single job is therefore over a third of a full run's bill for two
+suites ubuntu already runs; because the multiplier and the rounding, not the
+job's contents, are what cost the 20, trimming it cannot help. That decision was
+taken in Sprint 4: macOS is now covered locally on a development machine that
+runs the full e2e table before every push, so the job runs **only on push to
+`main` and on pull requests** — the two moments where nobody's laptop is the
+referee — and leaves the pre-merge signal intact.
+`claude plugin validate` is not available on a hosted runner;
 the test that would call it skips itself when the CLI is absent, so gates 10 and
 11 of `scripts/README.md` are still Windows-desk gates.
 

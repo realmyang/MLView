@@ -17,7 +17,8 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { loadBundle, readSample } from './helpers.mjs';
+import { readFile } from 'node:fs/promises';
+import { loadBundle, readSample, DIST_CSS_DEV } from './helpers.mjs';
 
 const sample = await readSample();
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -409,5 +410,145 @@ test('a malformed answers block never takes the report down (invariant 1.1/6)', 
   const card = ctx.document.querySelector('[data-answers]');
   assert.equal(card.hidden, true, 'nothing readable, so nothing is drawn');
   assert.ok(ctx.document.querySelectorAll('.mlv-node').length > 0, 'and the diagram still rendered');
+  ctx.app.destroy();
+});
+
+/* ── VW-04: one definition of "visible" ────────────────────────────────── */
+
+/** The three toolbar severity chips, as numbers. */
+function toolbarCounts(ctx) {
+  const out = {};
+  for (const b of ctx.document.querySelectorAll('.mlv-toolbar [data-severity]')) {
+    out[b.getAttribute('data-severity')] = Number(b.querySelector('.mlv-chip__count').textContent);
+  }
+  return out;
+}
+
+/**
+ * `App.visibleCounts()` skipped a finding only when `issue.suppressed` was
+ * true; every other surface uses `Filters.keep`, i.e. `isSetAside` = suppressed
+ * OR BASELINED. So the moment a repo adopted `--baseline` — CI-ADOPT's whole
+ * point — the toolbar read 5 / 6 / 3 while the rail read 'high · 4' /
+ * 'medium · 4', the answer card read '8 finding(s)' and `mlview issues` printed
+ * '8 issue(s) ... · 6 baselined'. The chips are also filter buttons, so
+ * clicking the one labelled 5 removed four rows.
+ */
+test('the toolbar counts exactly what the rail lists (VW-04)', async () => {
+  const graph = clone();
+  graph.issues[0].baselined = true;
+  graph.issues[1].baselined = true;
+  graph.issues[2].suppressed = true;
+  const ctx = await mount(graph);
+
+  const expected = { high: 0, medium: 0, low: 0 };
+  for (const issue of graph.issues) {
+    if (issue.baselined || issue.suppressed) continue;
+    expected[issue.severity] = (expected[issue.severity] || 0) + 1;
+  }
+  assert.deepEqual(toolbarCounts(ctx), expected, 'the chips net out baselined findings too');
+
+  const listed = ctx.document.querySelectorAll('.mlv-rail [data-issue-id]').length;
+  const total = Object.values(expected).reduce((a, b) => a + b, 0);
+  assert.equal(listed, total, 'and the rail lists exactly that many rows');
+
+  // ...and the netting is SAID, not silent: one button, one wording, the same
+  // `suppressedSummary` the rail's own section head uses.
+  const setAside = ctx.document.querySelector('[data-set-aside]');
+  assert.ok(setAside && !setAside.hidden, 'the set-aside button is drawn');
+  assert.equal(setAside.getAttribute('data-set-aside'), '3');
+  assert.equal(setAside.textContent, '1 suppressed · 2 baselined');
+  assert.ok(setAside.title.indexOf('not in the counts above') > 0, setAside.title);
+  ctx.app.destroy();
+});
+
+test('showing the set-aside findings brings them back into the counts (VW-04)', async () => {
+  const graph = clone();
+  graph.issues[0].baselined = true;
+  const ctx = await mount(graph);
+  const netted = toolbarCounts(ctx);
+  ctx.app.setFilters({ showSuppressed: true });
+  const gross = toolbarCounts(ctx);
+  const sum = (o) => Object.values(o).reduce((a, b) => a + b, 0);
+  assert.equal(sum(gross), sum(netted) + 1, 'the baselined finding is counted again while it is shown');
+  ctx.app.destroy();
+});
+
+/* ── VW-09: the two words mean two things ──────────────────────────────── */
+
+test('the set-aside section counts suppressed and baselined apart (VW-09)', async () => {
+  const graph = clone();
+  for (const issue of graph.issues.slice(0, 4)) issue.baselined = true;
+  graph.issues[4].suppressed = true;
+  const ctx = await mount(graph);
+  const head = ctx.document.querySelector('[data-suppressed-toggle]').textContent;
+  // It used to read "5 suppressed · 4 baselined" — the TOTAL under the word
+  // "suppressed" — while the toolbar chip beside it read "1 suppressed". On the
+  // measured document that was "7 suppressed · 6 baselined" against a chip
+  // reading "1 suppressed", six apart.
+  assert.equal(head, '1 suppressed · 4 baselined');
+  assert.equal(ctx.document.querySelector('[data-set-aside]').textContent, head, 'the toolbar says the same');
+  ctx.app.destroy();
+});
+
+test('a set-aside section that is only baselined says only that (VW-09)', async () => {
+  const graph = clone();
+  graph.issues[0].baselined = true;
+  graph.issues[1].baselined = true;
+  const ctx = await mount(graph);
+  assert.equal(ctx.document.querySelector('[data-suppressed-toggle]').textContent, '2 baselined');
+  ctx.app.destroy();
+});
+
+/* ── VW-08: a diagnostic that is a sentence ────────────────────────────── */
+
+const LONG_WARNING =
+  '--changed-paths /tmp/changed.txt carried file names but no diff hunks, so findings in a changed file are ' +
+  "reported as 'touched' and none as 'new'. Pass the diff itself, or --changed-since <rev>, for line-level attribution.";
+
+test('a config warning keeps its whole sentence, on screen and on the tooltip (VW-08)', async () => {
+  const graph = clone();
+  graph.diagnostics = (graph.diagnostics || []).concat([
+    { kind: 'config_warning', message: LONG_WARNING },
+    { kind: 'config_warning', message: '6 finding(s) matched base.json and are marked baselined.' },
+  ]);
+  const ctx = await mount(graph);
+  const chips = Array.from(ctx.document.querySelectorAll('[data-config-note]'));
+  assert.equal(chips.length, 2, 'both warnings are drawn');
+  // The instruction is the END of the sentence, which is the half a 1779 px
+  // nowrap chip ran off a 1600 px window with — no scrollbar, and no `title`.
+  assert.equal(chips[0].textContent, LONG_WARNING);
+  assert.equal(chips[0].title, LONG_WARNING, 'the whole message is recoverable from the tooltip');
+  ctx.app.destroy();
+});
+
+test('a chip in the diagnostic row may wrap, and never exceeds it (VW-08)', async () => {
+  // `.mlv-chip` is `white-space: nowrap`, which is right for `12 nodes` and
+  // wrong for a sentence: the row wraps, the chips inside it did not, and the
+  // row has no scroller, so the overflow was simply gone from the page.
+  const css = await readFile(DIST_CSS_DEV, 'utf8');
+  const rule = /\.mlv-chiprow \.mlv-chip \{([^}]*)\}/.exec(css);
+  assert.ok(rule, 'the diagnostic row overrides the chip default');
+  assert.ok(/white-space: normal/.test(rule[1]), rule[1]);
+  assert.ok(/max-width: 100%/.test(rule[1]), rule[1]);
+});
+
+/* ── VW-10: the announcement matches what the host actually did ────────── */
+
+test('"Disable this rule" announces a request, never an edit nobody made (VW-10)', async () => {
+  const ctx = await mount(sample, { standalone: true });
+  const btn = ctx.document.querySelector('[data-disable-rule]');
+  const code = btn.getAttribute('data-disable-rule');
+  click(ctx, btn);
+  await sleep(0);
+  const live = ctx.document.querySelector('[aria-live]');
+  const said = live.textContent;
+  // The standalone report answers `suppressRule` in the same page by copying
+  // the .mlview.toml snippet: nothing was asked of a host and nothing was
+  // disabled, and the sighted reader is told so by the toast.
+  assert.equal(said.indexOf('Asked the host'), -1, 'no host was asked: ' + said);
+  assert.ok(said.indexOf(code) >= 0, said);
+  assert.ok(said.indexOf('.mlview.toml') > 0, 'it names what this host actually did: ' + said);
+  const toast = ctx.document.querySelector('.mlv-toast');
+  assert.ok(toast && toast.textContent.indexOf('.mlview.toml') > 0, toast && toast.textContent);
   ctx.app.destroy();
 });

@@ -154,18 +154,17 @@ analyzed unit.
 |---|---|---|
 | `mlview.pythonPath` | `""` | Interpreter override; first in the resolution chain |
 | `mlview.analyzeOnSave` | `true` | Re-analyze 400 ms after a Python file is saved |
+| `mlview.currentFileAnalysisScope` | `package` | What **MLView: Visualize (Current File)** analyzes before scoping the diagram to the file: `file` (fastest, and reported as incomplete — the cross-file rules cannot fire), `package`, or `workspace` |
 | `mlview.exclude` | `[]` | Extra discovery excludes, added to the analyzer defaults |
 | `mlview.includeNotebooks` | `false` | Analyze `.ipynb` as well as `.py` (passes `--include-notebooks`). See **Notebooks** below |
 | `mlview.maxFiles` | `500` | Discovery cap |
 | `mlview.maxNodes` | `400` | Graph cap; exceeding it sets `stats.truncated` |
 | `mlview.minSeverity` | `low` | Lowest severity shown in Problems and in the digests |
 | `mlview.minConfidence` | `0.6` | Lowest confidence published as a diagnostic |
-| `mlview.showSpeculative` | `false` | Reserved; not implemented in this prototype (the frozen `setFilter` message has no confidence channel) |
 | `mlview.diagnosticsEnabled` | `true` | Publish to the Problems panel at all |
 | `mlview.diagnosticSeverity` | `warning` | `warning`: high → Warning. `error`: high → Error |
 | `mlview.disabledRules` | `[]` | Rule codes to hide, e.g. `["MLV601"]` — in the Problems panel, the quick pick, the chat/LM digests **and** on the diagram (the host posts the surviving codes as a `setFilter` keep-list) |
 | `mlview.codeLens` | `true` | The "show in diagram" CodeLens |
-| `mlview.followCursor` | `false` | Reserved; not implemented in this prototype |
 | `mlview.trace` | `off` | `off` / `messages` / `verbose` output-channel verbosity |
 
 Analysis is disabled in **Restricted Mode** (`capabilities.untrustedWorkspaces: "limited"`),

@@ -240,10 +240,18 @@ def score_graph(program: Program, doc: Dict[str, Any]) -> Dict[str, Any]:
         "opsLabelled": len(ops),
         "opsRecovered": len(recovered),
         "missing": missing,
-        "score": (len(recovered) / len(ops)) if ops else 1.0,
+        # ANA-12 honesty: a program with no `graph` block was never measured,
+        # and 1.0 is a score. Four of the fourteen corpus programs carry no
+        # hand-drawn diagram (11.26 A13 says so explicitly) and printed
+        # `100.0%` in the referee's own report - four perfect scores where the
+        # truth is "nobody drew a diagram for this program". `None` is what
+        # "not labelled" looks like; the aggregate already skips these, so no
+        # gated number moves.
+        "score": (len(recovered) / len(ops)) if ops else None,
         "edgesLabelled": expected_edges,
         "edgesActual": actual_edges,
-        "edgeRatio": round(actual_edges / expected_edges, 4) if expected_edges else 1.0,
+        "edgeRatio": (round(actual_edges / expected_edges, 4)
+                      if expected_edges else None),
     }
 
 
@@ -261,8 +269,15 @@ def aggregate(results: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
         return buckets.setdefault(name, {"tp": 0, "fp": 0, "confidence": []})
 
     def rule_of(code: str) -> Dict[str, int]:
+        # `unseenExpected` / `unseenRecovered` are the same counts restricted to
+        # programs nobody tuned against. Without them the per-rule table read
+        # `recall 100.0%` for sixteen rules whose every label lived in a program
+        # written alongside them - a validated-looking number with nothing
+        # behind it.
         return per_rule.setdefault(code, {"expected": 0, "recovered": 0,
-                                          "visible": 0, "fp": 0})
+                                          "visible": 0, "fp": 0,
+                                          "unseenExpected": 0,
+                                          "unseenRecovered": 0})
 
     totals = {"expected": 0, "recovered": 0, "visible": 0,
               "highExpected": 0, "highRecovered": 0, "fp": 0, "tp": 0}
@@ -276,6 +291,8 @@ def aggregate(results: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
                 continue
             rule = rule_of(label["code"])
             rule["expected"] += 1
+            if buckets_of_program is not None:
+                rule["unseenExpected"] += 1
             totals["expected"] += 1
             high = label.get("severity") in HIGH_VALUE
             if high:
@@ -287,6 +304,8 @@ def aggregate(results: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
             if issue is None:
                 continue
             rule["recovered"] += 1
+            if buckets_of_program is not None:
+                rule["unseenRecovered"] += 1
             totals["recovered"] += 1
             totals["tp"] += 1
             bucket_of(issue)["tp"] += 1
@@ -337,7 +356,9 @@ def aggregate(results: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
             "opsLabelled": ops_labelled,
             "opsRecovered": ops_recovered,
             "score": round(ops_recovered / ops_labelled, 4) if ops_labelled else 1.0,
-            "perProgram": {r["name"]: round(r["graph"]["score"], 4) for r in results},
+            "perProgram": {r["name"]: (round(r["graph"]["score"], 4)
+                                       if r["graph"]["score"] is not None else None)
+                           for r in results},
         },
         "calibration": calibration,
         "forbiddenFindings": sum(len(r["forbidden"]) for r in results),
@@ -369,9 +390,16 @@ def _rule_ratios(data: Dict[str, int]) -> Dict[str, Any]:
     precision = recovered / (recovered + fp) if (recovered + fp) else 1.0
     recall = recovered / expected if expected else 0.0
     f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) else 0.0
+    unseen_expected = data.get("unseenExpected", 0)
+    unseen_recall = (data.get("unseenRecovered", 0) / unseen_expected
+                     if unseen_expected else None)
     return {"expected": expected, "recovered": recovered, "visible": data["visible"],
             "falsePositives": fp, "precision": round(precision, 4),
-            "recall": round(recall, 4), "f1": round(f1, 4)}
+            "recall": round(recall, 4), "f1": round(f1, 4),
+            "unseenExpected": unseen_expected,
+            "unseenRecovered": data.get("unseenRecovered", 0),
+            "unseenRecall": (round(unseen_recall, 4)
+                             if unseen_recall is not None else None)}
 
 
 def run_corpus(corpus_dir: str = CORPUS_DIR,

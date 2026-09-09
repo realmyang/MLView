@@ -288,6 +288,33 @@ def test_the_lightning_fixture_reports_nothing(lightning):
 
 
 # ----------------------------------------------------- the acceptance corpora
+def test_a_logging_call_draws_no_edge_into_the_model(lightning):
+    """FW-RECOG F9 extended to the edge site. `LIGHTNING_LOG` is absent from
+    `OP_ROLES` so a logging call mints no node - but the call still fell
+    through to its receiver's class node, so `self.log("train_loss", loss)`
+    drew a `data` edge from the loss into the LightningModule. The diagram told
+    the reader the loss flows into the model; it is being logged."""
+    clean = analyze_to_dict(AnalyzeOptions(
+        paths=(os.path.join(CLEAN_DIR, "lightning_module.py"),)))
+    for doc in (lightning, clean):
+        by_id = {n["id"]: n for n in doc["nodes"]}
+        offenders = [e for e in doc["edges"]
+                     if ".log" in ((e["loc"] or {}).get("snippet") or "")
+                     and by_id[e["target"]]["level"] != "op"]
+        assert offenders == [], [(e["kind"], e.get("label"),
+                                  by_id[e["target"]]["label"],
+                                  e["loc"]["snippet"]) for e in offenders]
+    # `self.log("train_loss", loss)` on line 36 of the clean program drew
+    # exactly one such edge, `loss -> LitClassifier`, labelled `loss`.
+    assert not [e for e in clean["edges"]
+                if ".log" in ((e["loc"] or {}).get("snippet") or "")]
+    # ...and the ops written *inside* a log call are still wired to each other:
+    # `logits.argmax(1)` really does consume the logits.
+    inner = [e for e in lightning["edges"]
+             if ".log_dict(" in ((e["loc"] or {}).get("snippet") or "")]
+    assert inner, "an op nested in a logging call keeps its own dataflow"
+
+
 def test_the_clean_lightning_program_is_twenty_nodes_with_an_objective():
     doc = analyze_to_dict(AnalyzeOptions(
         paths=(os.path.join(CLEAN_DIR, "lightning_module.py"),)))
@@ -312,3 +339,61 @@ def test_the_clean_hf_program_still_reports_nothing():
 def test_the_whole_clean_corpus_still_reports_nothing():
     doc = analyze_to_dict(AnalyzeOptions(paths=(CLEAN_DIR,)))
     assert doc["issues"] == [], [(i["code"], i["loc"]["file"]) for i in doc["issues"]]
+
+
+# ------------------------------------------- FW-REBIND: `ds = ds.<op>(...)`
+_CHAIN_OPS = ('.map(lambda r: r)', '.shuffle(1024)', '.cache()',
+              '.batch(32)', '.prefetch(tf.data.AUTOTUNE)')
+
+_FLUENT = ("import tensorflow as tf\n\n\n"
+           "def build(rows):\n"
+           "    ds = (tf.data.Dataset.from_tensor_slices(rows)\n"
+           + "".join("          %s\n" % op for op in _CHAIN_OPS)
+           + "          )\n"
+           "    return ds\n")
+
+_DISTINCT = ("import tensorflow as tf\n\n\n"
+             "def build(rows):\n"
+             "    s0 = tf.data.Dataset.from_tensor_slices(rows)\n"
+             + "".join("    s%d = s%d%s\n" % (i + 1, i, op)
+                       for i, op in enumerate(_CHAIN_OPS))
+             + "    return s%d\n" % len(_CHAIN_OPS))
+
+_REBOUND = ("import tensorflow as tf\n\n\n"
+            "def build(rows):\n"
+            "    ds = tf.data.Dataset.from_tensor_slices(rows)\n"
+            + "".join("    ds = ds%s\n" % op for op in _CHAIN_OPS)
+            + "    return ds\n")
+
+
+@pytest.mark.parametrize("style,source", [("fluent", _FLUENT),
+                                          ("distinct", _DISTINCT),
+                                          ("rebound", _REBOUND)])
+def test_the_tfdata_chain_is_recognised_in_every_binding_style(analyze_ws, style, source):
+    """FW-RECOG's acceptance held for two of the three ways Python binds a
+    pipeline. `ds = ds.map(...)` - the style the official tf.data guide writes -
+    resolved `ds` on the right-hand side against the store the same statement
+    was about to write, so the receiver became its own producer and every call
+    in the chain minted no node, no edge and no diagnostic: 2 nodes / 0 edges
+    against 7 / 5 for the other two."""
+    doc = analyze_ws({"pipe.py": source})
+    ops = [n for n in doc["nodes"] if n["level"] == "op"]
+    assert len(doc["nodes"]) >= 7, (style, [n["label"] for n in doc["nodes"]])
+    assert len(doc["edges"]) >= 5, (style, len(doc["edges"]))
+    assert len(ops) == len(_CHAIN_OPS) + 1, (style, [n["label"] for n in ops])
+
+
+def test_a_rebound_pandas_frame_still_reaches_the_split(analyze_ws):
+    """The same seam on the flagship rule: `df = df.dropna()` used to silence
+    MLV101 while the identical program with distinct names fired high/certain."""
+    source = ("import pandas as pd\n"
+              "from sklearn.preprocessing import StandardScaler\n"
+              "from sklearn.model_selection import train_test_split\n\n\n"
+              "def prep(path):\n"
+              "    df = pd.read_csv(path)\n"
+              "    df = df.dropna()\n"
+              "    scaler = StandardScaler()\n"
+              "    features = scaler.fit_transform(df)\n"
+              "    return train_test_split(features, test_size=0.2, random_state=0)\n")
+    doc = analyze_ws({"prep.py": source})
+    assert [i["code"] for i in doc["issues"] if i["code"] == "MLV101"] == ["MLV101"]

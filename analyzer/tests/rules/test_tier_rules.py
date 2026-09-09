@@ -124,11 +124,57 @@ def test_mlv709_pairs_by_activation_family_not_by_proximity():
     assert "from_logits=True" in source and "activation=\"softmax\"" in source
 
 
+def test_mlv709_does_not_pair_two_models_that_live_in_one_module():
+    """A `models.py` holding a probs head and a logits head of the same
+    categorical problem is an ordinary shape. Family-only pairing accused the
+    correct softmax head of contradicting the *other* model's loss, at severity
+    high and confidence 0.95 - published in every host."""
+    run = assert_silent("MLV709_two_heads_good", "MLV709")
+    source = open(run.path, encoding="utf-8").read()
+    assert source.count("CategoricalCrossentropy") == 2
+    assert "from_logits=True" in source and "activation=\"softmax\"" in source
+
+
+def test_mlv709_only_judges_the_layer_the_model_outputs():
+    """A squeeze-and-excite `Dense(ch, activation="sigmoid")` is a channel gate
+    multiplied back into the feature map, not an output activation - and the
+    head under it is linear, which is what from_logits=True wants."""
+    run = assert_silent("MLV709_se_gate_good", "MLV709")
+    source = open(run.path, encoding="utf-8").read()
+    assert "activation=\"sigmoid\"" in source and "from_logits=True" in source
+
+
+def test_mlv709_names_the_model_the_layer_and_the_loss_meet_on():
+    issue = assert_fires("MLV709_bad").of("MLV709")[0]
+    roles = [r["role"] for r in issue["relatedLocs"]]
+    assert roles.count("definition") == 1, roles
+    assert "output" in issue["message"]
+
+
 def test_mlv709_cites_the_layer_and_the_loss():
     issue = assert_fires("MLV709_bad").of("MLV709")[0]
     roles = {r["role"] for r in issue["relatedLocs"]}
     assert {"final_layer", "construction"} <= roles
     assert issue["severity"] == "high"
+
+
+def test_mlv121_does_not_call_a_lone_take_a_holdout():
+    """`for images, labels in train_ds.take(1)` is a peek at one batch, and a
+    debug subset with no complementary skip is a debug subset. Neither has two
+    halves to re-draw, so the message the rule would print - "take(1) carves out
+    the holdout ... so the two halves are re-drawn every epoch" - would be a
+    false statement about the source."""
+    for fixture in ("MLV121_peek_good", "MLV121_debug_subset_good"):
+        run = assert_silent(fixture, "MLV121")
+        source = open(run.path, encoding="utf-8").read()
+        assert ".shuffle(" in source and ".take(" in source and ".skip(" not in source
+
+
+def test_mlv121_cites_both_halves_of_the_holdout_it_found():
+    issue = assert_fires("MLV121_bad").of("MLV121")[0]
+    split_sites = [r for r in issue["relatedLocs"] if r["role"] == "split_site"]
+    assert len(split_sites) == 2, issue["relatedLocs"]
+    assert "take() and skip()" in " ".join(e["detail"] for e in issue["evidence"])
 
 
 def test_mlv711_only_fires_for_a_batch_cadence_scheduler(tmp_path):
@@ -299,3 +345,54 @@ def test_the_shipped_demo_is_byte_for_byte_the_same_fifteen():
     assert not [i for i in doc["issues"] if i["code"] in TIER], describe(doc)
     clean = analyze_paths(os.path.join(SAMPLES_DIR, "vision_pipeline_clean"))
     assert clean["issues"] == [], describe(clean)
+
+
+# ------------------------------------------- ANA8-201: the full-batch shape
+def test_a_full_batch_training_loop_is_not_judged_but_is_never_silent(tmp_path):
+    """MLV201 needs a DataLoader-driven batch loop. A tabular / full-batch loop
+    written `for epoch in range(20)` with backward + step and no zero_grad is a
+    genuine high-severity defect that the rule cannot confirm - and it used to
+    produce zero findings AND zero diagnostics, which is the one outcome the
+    standing acceptance criterion forbids."""
+    full_batch = write_workspace(str(tmp_path / "full"), {
+        "m.py": ("import torch\n"
+                 "import torch.nn as nn\n"
+                 "import torch.optim as optim\n\n"
+                 "torch.manual_seed(0)\n"
+                 "model = nn.Sequential(nn.Linear(10, 3))\n"
+                 "criterion = nn.CrossEntropyLoss()\n"
+                 "optimizer = optim.Adam(model.parameters(), lr=1e-3)\n"
+                 "xb = torch.randn(64, 10)\n"
+                 "yb = torch.randint(0, 3, (64,))\n"
+                 "for epoch in range(20):\n"
+                 "    loss = criterion(model(xb), yb)\n"
+                 "    loss.backward()\n"
+                 "    optimizer.step()\n")})
+    doc = analyze_paths(full_batch)
+    assert not [i for i in doc["issues"] if i["code"] == "MLV201"]
+    notes = [d for d in doc["diagnostics"]
+             if "could not confirm it as a training loop" in d["message"]]
+    assert len(notes) == 1, doc["diagnostics"]
+    assert notes[0]["kind"] == "untagged_dataflow"
+    assert notes[0]["codes"] == ["MLV201", "MLV202", "MLV203"]
+
+    # ...and a confirmed batch loop is judged, with no such note.
+    batched = write_workspace(str(tmp_path / "batched"), {
+        "m.py": ("import torch\n"
+                 "import torch.nn as nn\n"
+                 "import torch.optim as optim\n"
+                 "from torch.utils.data import DataLoader, TensorDataset\n\n"
+                 "torch.manual_seed(0)\n"
+                 "model = nn.Sequential(nn.Linear(10, 3))\n"
+                 "criterion = nn.CrossEntropyLoss()\n"
+                 "optimizer = optim.Adam(model.parameters(), lr=1e-3)\n"
+                 "ds = TensorDataset(torch.randn(64, 10), torch.randint(0, 3, (64,)))\n"
+                 "dl = DataLoader(ds, batch_size=8, shuffle=True)\n"
+                 "for xb, yb in dl:\n"
+                 "    loss = criterion(model(xb), yb)\n"
+                 "    loss.backward()\n"
+                 "    optimizer.step()\n")})
+    other = analyze_paths(batched)
+    assert [i["code"] for i in other["issues"] if i["code"] == "MLV201"] == ["MLV201"]
+    assert not [d for d in other["diagnostics"]
+                if "could not confirm it as a training loop" in d["message"]]

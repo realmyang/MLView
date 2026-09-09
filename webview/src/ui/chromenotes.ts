@@ -60,10 +60,26 @@ export function stat(value: string, label: string): HTMLElement {
  * `notebook_skipped` chip the chrome has always drawn. Its opposite sat in the
  * "specially rendered" list with nothing rendering it, so a run that DID read
  * the notebooks said so nowhere outside the "N notes" count.
+ *
+ * VW-06. `core/pipeline.py` emits ONE of these PER NOTEBOOK and its `count` is
+ * that notebook's CODE CELLS — the diagnostic's own message says so verbatim
+ * ("leak.ipynb: 4 of 4 cell(s) are code and were analyzed as ..."). Printing it
+ * as "4 notebooks analyzed" told a reader of a two-notebook workspace that
+ * there were eight, twice; the number was only ever right for a one-cell
+ * notebook. The chip now says what the diagnostic says: the notebook's name and
+ * its cell count.
  */
 export function notebooksAnalyzedText(d: Diagnostic): string {
   const n = d.count || 0;
-  return n + (n === 1 ? ' notebook analyzed' : ' notebooks analyzed');
+  const cells = n + (n === 1 ? ' cell' : ' cells');
+  const name = basename(d.file || '');
+  return name ? name + ' — ' + cells + ' analyzed' : cells + ' analyzed';
+}
+
+/** The last path segment, for a chip that has room for a name and not a path. */
+function basename(file: string): string {
+  const at = Math.max(file.lastIndexOf('/'), file.lastIndexOf('\\'));
+  return at >= 0 ? file.slice(at + 1) : file;
 }
 
 /** The chip text for one coverage diagnostic — short, countable, honest. */

@@ -224,7 +224,10 @@ def test_the_pr_fixture_shows_fifteen_findings_and_none_of_them_changed(run, pr_
     code, out, _err = run("issues", pr_fixture, "--changed-since", "HEAD",
                           "--changed-only")
     assert code == 0, "no findings on the change means exit 0"
-    assert out.startswith("0 issue(s)") and "none found" in out
+    # HOST-4: never a bare "none found" while findings were set aside.
+    assert out.startswith("0 issue(s)") and "not shown" in out
+    assert "none found" not in out and "do not touch the change" in out
+    assert "Notes (" in out
 
 
 @needs_git
@@ -335,6 +338,36 @@ def test_a_baselined_issue_is_marked_not_deleted(run, sample_copy, tmp_path):
     assert shown.startswith("15 issue(s)")
 
 
+@needs_git
+def test_the_summary_table_marks_a_baselined_row_the_way_it_marks_a_suppressed_one(
+        run, sample_copy, tmp_path):
+    """VW-11: with `--show-suppressed` the header netted six findings out of a
+    table that then listed all fifteen, and a baselined row carried no marker
+    while a suppressed one did - so one command's output stated two numbers and
+    a reader could not tell which rows were already accepted."""
+    out_path = str(tmp_path / "baseline.json")
+    run("baseline", "write", sample_copy, "--out", out_path)
+    with open(out_path, encoding="utf-8") as fh:
+        data = json.load(fh)
+    data["entries"] = data["entries"][:6]
+    with open(out_path, "w", encoding="utf-8") as fh:
+        json.dump(data, fh, indent=2)
+
+    _code, out, _err = run("analyze", sample_copy, "--baseline", out_path,
+                           "--format", "summary", "--show-suppressed")
+    heading = [line for line in out.splitlines() if line.startswith("Issues (")]
+    assert heading == ["Issues (9 · 6 baselined)"], heading
+    rows = [line for line in out.splitlines() if line.strip().startswith(("[!!]", "[!]", "[i]"))]
+    assert len(rows) == 15
+    assert sum(1 for r in rows if "(baselined)" in r) == 6, rows
+
+    # ...and without --show-suppressed the table is the net nine, unmarked.
+    _code, net, _err = run("analyze", sample_copy, "--baseline", out_path,
+                           "--format", "summary")
+    assert [l for l in net.splitlines() if l.startswith("Issues (")] == ["Issues (9)"]
+    assert "(baselined)" not in net
+
+
 def test_a_new_finding_after_a_baseline_exits_2_with_exactly_it(run, sample_copy, tmp_path):
     out_path = str(tmp_path / "baseline.json")
     run("baseline", "write", sample_copy, "--out", out_path)
@@ -401,3 +434,63 @@ def test_the_baseline_document_is_byte_deterministic(sample_copy, tmp_path):
         assert fh_a.read() == fh_b.read()
     assert "createdAt" not in open(first, encoding="utf-8").read(), \
         "a committed file must not churn on a re-run"
+
+
+# ------------------------------- HOST-1: notebooks are a PR's content too
+NOTEBOOK_FIXTURE = os.path.join(REPO_ROOT, "analyzer", "tests", "fixtures",
+                                "notebooks", "leak.ipynb")
+
+
+@pytest.fixture
+def notebook_pr(tmp_path):
+    """A repository whose pull request is one leaky notebook, and nothing else."""
+    root = str(tmp_path / "nbpr")
+    os.makedirs(root)
+    with open(os.path.join(root, ".gitignore"), "w", encoding="utf-8") as fh:
+        fh.write(".mlview/\n")
+    with open(os.path.join(root, "readme.py"), "w", encoding="utf-8") as fh:
+        fh.write("X = 1\n")
+    _git(root, "init", "-q", ".")
+    _git(root, "add", "-A")
+    _git(root, "commit", "-qm", "base")
+    shutil.copyfile(NOTEBOOK_FIXTURE, os.path.join(root, "leak.ipynb"))
+    _git(root, "add", "-A")
+    _git(root, "commit", "-qm", "PR: add a leaky notebook")
+    return root
+
+
+@needs_git
+def test_a_pull_request_that_adds_a_leaky_notebook_fails_its_gate(run, notebook_pr):
+    """The intersection of NB and CI-ADOPT that no single item owned. A
+    notebook finding's `loc.file` is the generated module (11.29 N5), a path
+    git has never seen, so `--changed-only` - the default of BOTH shipped CI
+    surfaces - dropped every one of them and the gate came back green on a
+    pull request whose entire content was a fit-before-split notebook."""
+    code, out, _err = run("issues", notebook_pr, "--include-notebooks")
+    assert code == 0 and out.startswith("2 issue(s)"), out
+
+    code, payload, _err = run("analyze", notebook_pr, "--json", "-",
+                              "--include-notebooks", "--changed-since", "HEAD~1")
+    doc = json.loads(payload)
+    assert [i["change"] for i in doc["issues"]] == ["new", "new"], doc["issues"]
+    assert all(i["loc"]["file"].startswith(".mlview/notebooks/") for i in doc["issues"])
+    assert any("generated notebook module" in d["message"]
+               for d in doc["diagnostics"]), doc["diagnostics"]
+
+    code, out, _err = run("issues", notebook_pr, "--include-notebooks",
+                          "--changed-since", "HEAD~1", "--changed-only",
+                          "--fail-on", "high")
+    assert code == cli.EXIT_FAIL_ON, out
+    assert _codes(out) == ["MLV101", "MLV201"], out
+
+
+@needs_git
+def test_a_notebook_nobody_touched_stays_existing(run, notebook_pr):
+    """The other direction: the same notebook one commit later is not new."""
+    _append(notebook_pr, "readme.py", "Y = 2\n")
+    _git(notebook_pr, "add", "-A")
+    _git(notebook_pr, "commit", "-qm", "unrelated")
+    code, payload, _err = run("analyze", notebook_pr, "--json", "-",
+                              "--include-notebooks", "--changed-since", "HEAD~1")
+    doc = json.loads(payload)
+    assert {i["change"] for i in doc["issues"]} == {"existing"}, doc["issues"]

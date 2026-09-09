@@ -33,7 +33,8 @@ from typing import Dict, List, Optional, Sequence, Tuple
 from .graph import Diagnostic
 
 __all__ = ["COVERAGE_KINDS", "UNTRACED_ROLES", "UntaggedNotes",
-           "note_untraced_sites", "single_file_diagnostic"]
+           "note_untraced_sites", "note_unconfirmed_train_loops",
+           "single_file_diagnostic"]
 
 #: The kinds this module emits. The summary emitter gives them their own block.
 COVERAGE_KINDS = ("untagged_dataflow", "single_file_analysis")
@@ -174,6 +175,51 @@ def note_untraced_sites(ctx) -> None:
             if call.canonical_fqns or call.fqn:
                 continue                    # resolved: the role sweep saw it
             declare(call)
+
+
+# ---------------------------------------------------------------------------
+# an unconfirmed training loop
+# ---------------------------------------------------------------------------
+def note_unconfirmed_train_loops(ctx) -> None:
+    """A `backward()` + optimizer `step()` pair in a loop nothing confirmed.
+
+    MLV201 / MLV202 / MLV203 all require a **batch loop** - the innermost `for`
+    over a `LOADER`-tagged value. A full-batch loop, `for epoch in range(20):`
+    over tensors already in memory, is the shape a tabular script and a
+    notebook write, and it produced zero findings *and zero diagnostics*: a
+    missing `zero_grad` there accumulates gradients across every epoch, and the
+    miss was silent, which is the one thing the standing acceptance criterion
+    forbids. The pair itself is strong evidence of a training iteration, so the
+    honest move is to say the loop was not confirmed rather than to guess at
+    its cadence and spend precision on it.
+    """
+    from ..rules.helpers import loop_chain     # local: rules import this module
+
+    steps: Dict[int, List] = {}
+    for call in ctx.calls_with_role("OPT_STEP"):
+        if call.loop is not None:
+            steps.setdefault(id(call.loop), []).append(call)
+    for call in ctx.calls_with_role("BACKWARD"):
+        loop = call.loop
+        if loop is None:
+            continue
+        if any(link.kind == "batch" for link in loop_chain(loop)):
+            continue                        # a confirmed loop; the rules judged it
+        if id(loop) not in steps:
+            continue
+        ctx.diagnostics.append(Diagnostic(
+            kind="untagged_dataflow",
+            message="the loop at %s:%d contains backward() (line %d) and an "
+                    "optimizer step, but the value it iterates%s carries no "
+                    "LOADER tag, so MLView "
+                    "could not confirm it as a training loop: MLV201 / MLV202 / "
+                    "MLV203 did not judge it, and their silence here is a gap in "
+                    "coverage rather than a clean result."
+                    % (loop.loc.file, loop.loc.line, call.loc.line,
+                       (" (`%s`)" % loop.iter_text) if loop.iter_text else ""),
+            file=loop.loc.file, line=loop.loc.line,
+            scope=loop.scope.qualname if loop.scope is not None else None,
+            codes=["MLV201", "MLV202", "MLV203"]))
 
 
 # ---------------------------------------------------------------------------

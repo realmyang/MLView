@@ -27,6 +27,7 @@ from mlview import cli
 from mlview.api import AnalyzeOptions, analyze_to_dict
 from mlview.emit import sarif_out
 from mlview.rules import all_rules
+from mlview.version import __version__
 
 SAMPLE_DIR = os.path.join(REPO_ROOT, "samples", "vision_pipeline")
 SARIF_SCHEMA = os.path.join(FIXTURES, "sarif-schema-2.1.0.json")
@@ -89,9 +90,18 @@ def test_rules_cover_the_whole_registry_and_every_help_uri_resolves(sarif):
     assert [r["id"] for r in rules] == [s.code for s in registry]
     assert len(rules) >= 20
     for rule in rules:
-        assert rule["helpUri"] == "docs/rules/%s.md" % rule["id"]
-        assert rule["properties"]["helpUriBaseId"] == "%SRCROOT%"
-        assert os.path.isfile(os.path.join(REPO_ROOT, rule["helpUri"])), rule["id"]
+        # HOST-3: a consumer resolves `helpUri` against nothing, so it has to be
+        # absolute. The old assertion was self-referential - it checked the
+        # relative string against *this* checkout, which is the one repository
+        # where it happens to work and never the adopter's.
+        uri = rule["helpUri"]
+        assert uri.startswith("https://"), uri
+        assert uri.endswith("/docs/rules/%s.md" % rule["id"]), uri
+        assert __version__ in uri, uri
+        docs_path = rule["properties"]["docsPath"]
+        assert docs_path == "docs/rules/%s.md" % rule["id"]
+        assert rule["properties"]["docsPathBaseId"] == "%SRCROOT%"
+        assert os.path.isfile(os.path.join(REPO_ROOT, docs_path)), rule["id"]
 
 
 def test_rule_index_points_at_the_rule_it_names(sarif):

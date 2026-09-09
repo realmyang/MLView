@@ -20,9 +20,13 @@ export const MAX_ZOOM = 2.5;
  * was a measured no-op, because it chose exactly the transform the viewer had
  * already mounted with. Bounding that width fit to one and three-quarter screens
  * of height opened the same document at 0.575 — 27 of the 45 cards and 5 of the 7
- * lanes, measured in Chromium at 1600x1000. The re-baselined demo is 54 nodes in
- * a 1576x2630 world and opens at 0.548 there, 0.5 at 1280x800;
- * `test/measure_geometry.mjs` re-measures any document against the same plan.
+ * lanes, measured in Chromium at 1600x1000. The re-baselined demo is 54 nodes
+ * in a 1642x2654 world and opens at 0.543 there, 0.5 at 1280x800;
+ * `test/measure_geometry.mjs` re-measures any document against the same plan
+ * (it reports 0.528 / 0.500 for the same two canvases, running `fitPlan` over
+ * the layout alone). VW-01 moved that world from 1576x2630: a card that draws
+ * an attribute chip row is now RESERVED one, and the demo's ghost card is
+ * reserved the `file : line` row it always drew, so 2 of its 46 cards grew.
  */
 export const TALL_SCREENS = 1.75;
 

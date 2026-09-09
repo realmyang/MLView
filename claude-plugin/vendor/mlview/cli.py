@@ -308,6 +308,10 @@ def _cmd_issues(args) -> int:
             "countBySeverity": counts,
             "suppressedCount": sum(1 for i in doc.get("issues", []) if i.get("suppressed")),
             "issues": issues,
+            # HOST-4: the same diagnostics `analyze --format json` carries. An
+            # agent reading this payload could not tell an attributed-away
+            # finding from a clean workspace without them.
+            "diagnostics": doc.get("diagnostics", []),
         }
         if baselined:
             payload["baselinedCount"] = baselined
@@ -315,13 +319,25 @@ def _cmd_issues(args) -> int:
             payload["scope"] = doc["view"]["scope"]
         write_stdout(json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
     else:
-        from .emit.text_out import issue_lines, render_findings
+        from .emit.text_out import diagnostic_block, issue_lines, render_findings
         scoped = scope_out.issues_scope_suffix(doc)   # names the denominator
-        marked = (" · %d baselined" % baselined) if baselined else ""
+        set_aside = sum(int(d.get("count") or 0)
+                        for d in (doc.get("diagnostics") or [])
+                        if isinstance(d, dict) and d.get("scope") == "changed-only")
+        marks = []
+        if baselined:
+            marks.append("%d baselined" % baselined)
+        if set_aside:
+            marks.append("%d not shown" % set_aside)
+        marked = (" · " + " · ".join(marks)) if marks else ""
         header = "%d issue(s) in %s%s%s\n" % (len(issues), doc["workspace"]["root"],
                                               scoped, marked)
         if not issues:
-            body = "  none found\n"
+            # Never a bare "none found" while something was set aside: an agent
+            # cannot tell "I checked and it is fine" from "I could not check".
+            body = ("  none found\n" if not set_aside else
+                    "  none shown - %d finding(s) do not touch the change; see "
+                    "Notes below\n" % set_aside)
         elif getattr(args, "text_out", False):
             # CLEANUP 1: `--text` was declared with `dest="text_out"` and read
             # by nobody, so the two invocations were byte-identical and the
@@ -330,6 +346,9 @@ def _cmd_issues(args) -> int:
             body = render_findings(issues) + "\n"
         else:
             body = "\n".join(issue_lines(issues, getattr(args, "group_by", "none"))) + "\n"
+        notes = diagnostic_block(doc)
+        if notes:
+            body += "\n".join(notes) + "\n"
         write_stdout(header + body)
     if result.empty:
         return EXIT_EMPTY

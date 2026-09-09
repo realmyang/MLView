@@ -245,3 +245,144 @@ test('no label is drawn below the LOD threshold, so the count is zoom-invariant'
     'the stylesheet still hides every edge label below LOD full',
   );
 });
+
+/* ── VW-01: the obstacles are the cards that are DRAWN ─────────────────── */
+
+/**
+ * Every assertion above derives its obstacles from `layout.nodes`, i.e. from
+ * the same 72 px model the planner uses. That made this suite blind to the one
+ * thing it exists to prevent: the CARD DID NOT FIT ITS BOX. `render/nodes.ts`
+ * set `min-height`, so a card that also drew an attribute chip row measured
+ * 96.1 px against a plan of 72, and the 24 px of extra ink was invisible to the
+ * layout, to the declutter pass and to the SVG export alike. On the demo
+ * exactly one card carries chips, so nothing collided and every gate stayed
+ * green; on a NOTEBOOK report every node carries `attrs.cell` /
+ * `attrs.cellLine`, so all 26 cards overflowed, two pairs physically overlapped
+ * (216 x 12 px) and 6 of 26 visible labels were drawn over a card.
+ *
+ * So these two tests read the geometry back off the MOUNTED DOM — the same
+ * `left/top/width/height` a browser lays the card out with — and use THAT as
+ * the obstacle set. `nodes.ts` now pins `height` (not `min-height`) to the
+ * reserved box, so the two agree by construction; if they ever stop agreeing,
+ * this fails instead of shipping.
+ */
+const testBridge = {
+  host: 'standalone',
+  theme: 'light',
+  capabilities: { canOpenSource: true, canReanalyze: false, canExport: false, canAskAssistant: false },
+  post: () => undefined,
+  onMessage: () => () => undefined,
+  saveState: () => undefined,
+  loadState: () => null,
+};
+
+/** A notebook-shaped document: every node carries the NB cell attributes. */
+function everyNodeChipped(graph) {
+  const out = JSON.parse(JSON.stringify(graph));
+  for (const node of out.nodes) node.attrs = { ...(node.attrs || {}), cell: '3', cellLine: '2' };
+  return out;
+}
+
+/** The card rectangles as the DOM will paint them, in world coordinates. */
+function drawnCards(ctx) {
+  return Array.from(ctx.document.querySelectorAll('.mlv-node[data-node-id]')).map((el) => ({
+    id: el.getAttribute('data-node-id'),
+    chips: !!el.querySelector('.mlv-node__chips'),
+    minHeight: el.style.minHeight,
+    x: parseFloat(el.style.left),
+    y: parseFloat(el.style.top),
+    w: parseFloat(el.style.width),
+    h: parseFloat(el.style.height),
+  }));
+}
+
+test('a card that draws a chip row is RESERVED a chip row (VW-01)', async () => {
+  const ctx = await loadBundle();
+  const graph = everyNodeChipped(sample);
+  const app = ctx.MLView.mount(ctx.document.getElementById('mlview-root'), graph, testBridge);
+  const frame = ctx.MLView.__internal.layout(graph, app.getState().collapsed);
+  const planned = new Map(frame.nodes.map((n) => [n.id, n]));
+  const drawn = drawnCards(ctx);
+  assert.ok(drawn.length >= 8, 'the document draws a real diagram: ' + drawn.length + ' cards');
+
+  const metrics = ctx.MLView.__internal.layoutConstants;
+  const bad = [];
+  for (const card of drawn) {
+    const box = planned.get(card.id);
+    assert.ok(box, 'every drawn card is a planned box: ' + card.id);
+    if (card.x !== box.x || card.y !== box.y || card.w !== box.w || card.h !== box.h) {
+      bad.push(card.id + ' drawn ' + [card.x, card.y, card.w, card.h].join('/') + ' vs plan ' + [box.x, box.y, box.w, box.h].join('/'));
+    }
+    assert.equal(card.minHeight, '', card.id + ' pins its height rather than a floor it can grow past');
+    assert.equal(card.chips, true, 'every node in this document carries attrs, so every card chips');
+    // NODE_H is title + sublabel + loc; the chip row is reserved ON TOP of it.
+    assert.ok(
+      box.h >= metrics.NODE_H + metrics.NODE_CHIP_ROW_H,
+      card.id + ' reserved ' + box.h + ' for four rows',
+    );
+  }
+  assert.deepEqual(bad, [], 'the drawn box IS the planned box');
+  app.destroy();
+});
+
+test('no visible label is drawn over a card that carries chips (VW-01)', async () => {
+  const ctx = await loadBundle();
+  const graph = everyNodeChipped(sample);
+  const app = ctx.MLView.mount(ctx.document.getElementById('mlview-root'), graph, testBridge);
+  const api = ctx.MLView.__internal.labels;
+  const plan = api.plan(graph, app.getState().collapsed);
+  const shown = visibleLabels(plan);
+  const cards = drawnCards(ctx);
+  assert.ok(shown.length >= 8, 'labels are drawn: ' + shown.length);
+
+  const over = [];
+  for (const label of shown) {
+    for (const card of cards) {
+      if (rectsOverlap(label.rect, card)) {
+        over.push(label.text + ' over ' + card.id);
+        break;
+      }
+    }
+  }
+  assert.deepEqual(over, [], 'labels over DRAWN cards');
+  assert.deepEqual(labelLabelOverlaps(shown), [], 'label-label overlaps');
+  app.destroy();
+});
+
+/* ── VW-02: a label is inside the picture ──────────────────────────────── */
+
+/**
+ * `bandFor` tests the Y axis only, and a lane band is as wide as the world, so
+ * a label pushed onto a vertical run in the left gutter could be placed at
+ * negative x with nothing to stop it: five of the flagship demo's 46 placed
+ * labels were (X_train_pca at -34.2 through logits at -4.1). The frame is the
+ * picture — the exported SVG's viewBox is `0 0 width height` and the print
+ * stylesheet lays the page out at exactly that size — so those five were
+ * clipped in the SVG, in the 2x PNG and on paper.
+ */
+function outsideFrame(labels, frame) {
+  const out = [];
+  for (const label of labels) {
+    const r = label.rect;
+    if (r.x < 0 || r.y < 0 || r.x + r.w > frame.width || r.y + r.h > frame.height) {
+      out.push(label.text + ' at ' + r.x.toFixed(1) + ',' + r.y.toFixed(1) + ' in a ' + frame.width + 'x' + frame.height + ' frame');
+    }
+  }
+  return out;
+}
+
+test('every placed label is inside the frame the export draws (VW-02)', async () => {
+  const ctx = await loadBundle();
+  const { labels: api, layout } = ctx.MLView.__internal;
+  for (const [name, graph] of [
+    ['the demo sample', sample],
+    ['a notebook-shaped document', everyNodeChipped(sample)],
+    ['a 150-node synthetic', makeSyntheticGraph(150, 400)],
+  ]) {
+    const plan = api.plan(graph);
+    const frame = layout(graph);
+    const placed = plan.labels.filter((l) => !l.hidden);
+    assert.ok(placed.length > 0, name + ' places labels');
+    assert.deepEqual(outsideFrame(placed, frame).slice(0, 5), [], name + ': labels outside the frame');
+  }
+});

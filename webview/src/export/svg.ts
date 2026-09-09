@@ -58,6 +58,7 @@ import {
 export { EXPORT_MONO, EXPORT_SANS, esc, intersects, width } from './svgprim.js';
 import type { ScenePlan } from '../render/plan.js';
 import type { LayoutBox } from '../layout/layout.js';
+import { NODE_H, NODE_CHIP_ROW_H } from '../layout/constants.js';
 import type { Point } from '../layout/routing.js';
 import type { Rect } from '../render/canvas.js';
 import type { IssueCounts, ThemeKind } from '../types.js';
@@ -96,9 +97,19 @@ const FS_EDGE_LABEL = 10;
 const Y_TITLE = 22.5;
 const Y_SUB = 38.5;
 const Y_LOC = 52.5;
-const Y_CHIP = 66.5;
+/**
+ * The chip row is BOTTOM-anchored, because it is the row the layout reserves
+ * extra height for (VW-01): `layout/cardmetrics.ts` adds `NODE_CHIP_ROW_H` to a
+ * card that draws chips, so on a chipped card the box is 26 px taller and the
+ * chips belong in that band rather than tucked under the loc line. The three
+ * text rows above stay pinned to the top of the card, as the DOM's flex column
+ * does. `CHIP_BOTTOM` is the distance from the card's BOTTOM edge to the chip
+ * rect's top, mirroring `.mlv-node__chips`' 4 px margin and 11 px of padding.
+ */
+const CHIP_BOTTOM = 22;
+const CHIP_RECT_H = 15;
 /** Below this height a card has no room for the attribute chip row. */
-const CHIP_MIN_H = 72;
+const CHIP_MIN_H = NODE_H + NODE_CHIP_ROW_H;
 
 const LANE_R = 14;
 const GROUP_R = 12;
@@ -342,15 +353,16 @@ function nodeCard(
     ? [visual.descendants + ' nodes'].concat(chipsFor(n, null, 14, 1))
     : chipsFor(n, chipMetrics(tw), 26, 3);
   if (chips.length && box.h >= CHIP_MIN_H) {
+    const chipTop = box.y + box.h - CHIP_BOTTOM;
     let cx = tx;
     for (const chip of chips) {
       const cw = width(chip, FS_CHIP, false, false) + 12;
       if (cx + cw > tx + tw) break;
       out.push(
-        '<rect x="' + num(cx) + '" y="' + num(box.y + Y_CHIP - 11) + '" width="' + num(cw) + '" height="15" rx="4" fill="' +
+        '<rect x="' + num(cx) + '" y="' + num(chipTop) + '" width="' + num(cw) + '" height="' + CHIP_RECT_H + '" rx="4" fill="' +
           esc(palette.surface2) + '" stroke="' + esc(palette.border) + '" stroke-width="0.75"/>',
       );
-      out.push(text(chip, cx + 6, box.y + Y_CHIP, { size: FS_CHIP, fill: palette.text2 }));
+      out.push(text(chip, cx + 6, chipTop + 11, { size: FS_CHIP, fill: palette.text2 }));
       cx += cw + 4;
     }
   }

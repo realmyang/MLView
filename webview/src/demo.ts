@@ -9,7 +9,17 @@
 
 import { GraphIndex } from './layout/model.js';
 import { layoutGraph } from './layout/layout.js';
-import { LANE_MIN_W, LANE_PAD, MAX_RANK_H, MAX_RANK_W, RANK_ROW_GAP } from './layout/constants.js';
+import {
+  LANE_MIN_W,
+  LANE_PAD,
+  MAX_RANK_H,
+  MAX_RANK_W,
+  NODE_CHIP_ROW_H,
+  NODE_H,
+  NODE_H_GHOST,
+  RANK_ROW_GAP,
+} from './layout/constants.js';
+import { cardSize, drawsChipRow } from './layout/cardmetrics.js';
 import { routeEdges } from './layout/routing.js';
 import { alwaysVisible, labelTextOf, labelWidth, planLabels, LABEL_METRICS } from './layout/labels.js';
 import { buildNodeCard } from './render/nodes.js';
@@ -347,8 +357,23 @@ export const internals = {
    * constants that bound it, so a gate states the rule rather than a number.
    */
   viewport: { fitPlan, MIN_ZOOM, TALL_SCREENS, MIN_FIT_ZOOM },
-  /** VIEW-01: the lane wrap budget, for the width gates. */
-  layoutConstants: { MAX_RANK_W, MAX_RANK_H, LANE_MIN_W, LANE_PAD, RANK_ROW_GAP },
+  /**
+   * VIEW-01: the lane wrap budget, for the width gates. VW-01 adds the card's
+   * own height vocabulary and the function that decides it, so a gate can state
+   * "a card that draws a chip row is reserved one" rather than the number 98.
+   */
+  layoutConstants: {
+    MAX_RANK_W,
+    MAX_RANK_H,
+    LANE_MIN_W,
+    LANE_PAD,
+    RANK_ROW_GAP,
+    NODE_H,
+    NODE_H_GHOST,
+    NODE_CHIP_ROW_H,
+    cardSize,
+    drawsChipRow,
+  },
   /** VIEW-03: label placement, its metrics and which labels are always drawn. */
   labels: { plan: labelsForTest, metrics: LABEL_METRICS, textOf: labelTextOf, widthOf: labelWidth, alwaysVisible },
   /**

@@ -373,15 +373,22 @@ def mlview_issues(
         includeNotebooks: also analyze `.ipynb` files (default false). Pass the
             SAME value you passed to mlview_analyze: with it off, no finding
             inside a notebook is listed at all, and a short list from a run that
-            read none of the notebooks is not a clean project. Ignored with
-            changedSince/baseline, which attribute the project as it is on disk.
+            read none of the notebooks is not a clean project. It is honoured with
+            changedSince and baseline too — the notebooks are read and attributed
+            like any other file. One limit, and the `note` says it whenever it
+            bites: a notebook finding is anchored in the generated module
+            `.mlview/notebooks/<name>.py`, which git does not track, so
+            `changedSince` cannot place it inside a diff hunk and the changed-only
+            filter drops it. Use `baseline`, or omit `changedSince`, to see
+            notebook findings.
 
     Returns countBySeverity, suppressedCount and issues[] (or groups[] under
     groupBy); the payload is capped at 4 KB, so a large workspace comes back
     truncated with the full list in the graph document that mlview_analyze wrote.
     """
     if changedSince or baseline:
-        loaded = load_attributed(path, changedSince, baseline)
+        loaded = load_attributed(path, changedSince, baseline,
+                                 include_notebooks=bool(includeNotebooks))
     else:
         loaded = load_graph(path, include_notebooks=bool(includeNotebooks))
     spec, view, notes, _hops = scopes.apply_scope(loaded["graph"], scope, depth)

@@ -189,6 +189,48 @@ def test_the_report_renders_all_four_tables(run):
     assert "%" in text
 
 
+def test_a_program_with_no_graph_block_scores_nothing_rather_than_everything(run):
+    """The referee's own report must be truthful about what it measured. Four
+    corpus programs carry no hand-drawn diagram (11.26 A13), and the table used
+    to print `100.0%` for each of them - four perfect scores where the truth is
+    that nobody drew a diagram."""
+    results, report = run
+    unlabelled = [r for r in results if r["graph"]["opsLabelled"] == 0]
+    assert unlabelled, "the interesting case is a program with no graph block"
+    for result in unlabelled:
+        assert result["graph"]["score"] is None, result["name"]
+        assert result["graph"]["edgeRatio"] is None, result["name"]
+        assert report["graphFidelity"]["perProgram"][result["name"]] is None
+    text = accuracy.render(results, report)
+    assert "not labelled" in text
+    labelled = [r for r in results if r["graph"]["opsLabelled"]]
+    assert all(r["graph"]["score"] is not None for r in labelled)
+    # the gated aggregate is untouched: 0/0 contributed nothing before, either
+    assert report["graphFidelity"]["opsLabelled"] == sum(
+        r["graph"]["opsLabelled"] for r in results)
+
+
+def test_a_rule_labelled_only_in_tuned_programs_is_marked_as_such(run):
+    """`recall 100.0%` off a single label in a program written alongside the
+    rule is a ceiling, not a measurement, and the table has to say so."""
+    results, report = run
+    tuned_only = [code for code, data in report["perRule"].items()
+                  if data["expected"] and not data["unseenExpected"]]
+    assert tuned_only, "the interesting case is a rule with no unseen label"
+    text = accuracy.render(results, report)
+    for code in tuned_only:
+        assert "%s*" % code in text, code
+        assert report["perRule"][code]["unseenRecall"] is None
+    unseen_scored = [code for code, data in report["perRule"].items()
+                     if data["unseenExpected"]]
+    assert unseen_scored, "the interesting case is a rule with an unseen label"
+    for code in unseen_scored:
+        data = report["perRule"][code]
+        assert data["unseenRecall"] == round(
+            data["unseenRecovered"] / data["unseenExpected"], 4), code
+    assert "unseen recall" in text
+
+
 def test_the_calibration_table_bins_every_matched_finding(run):
     results, report = run
     binned = sum(entry["n"] for entry in report["calibration"].values())

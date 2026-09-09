@@ -16,6 +16,7 @@ from .answers import render_block as render_answers_block
 from .group_out import render_grouped
 
 __all__ = ["render_text", "render_summary", "render_issue_table", "issue_lines",
+           "diagnostic_block",
            "render_findings", "scope_line", "write_stdout", "write_stdout_bytes",
            "write_stderr", "SEVERITY_MARK"]
 
@@ -156,15 +157,45 @@ def render_summary(doc: Dict[str, Any], show_suppressed: bool = False,
 
     issues = [i for i in doc.get("issues", [])
               if show_suppressed or not (i.get("suppressed") or i.get("baselined"))]
-    lines.append("Issues (%d)" % len(issues))
+    set_aside = [i for i in issues if i.get("suppressed") or i.get("baselined")]
+    heading = "Issues (%d)" % len(issues)
+    if set_aside:
+        # Name the denominator the way `mlview issues` already does, so one
+        # command's header and its own table cannot state two numbers.
+        baselined = sum(1 for i in set_aside
+                        if i.get("baselined") and not i.get("suppressed"))
+        suppressed = sum(1 for i in set_aside if i.get("suppressed"))
+        parts = ["%d" % (len(issues) - len(set_aside))]
+        if baselined:
+            parts.append("%d baselined" % baselined)
+        if suppressed:
+            parts.append("%d suppressed" % suppressed)
+        heading = "Issues (%s)" % " · ".join(parts)
+    lines.append(heading)
     lines.extend(issue_lines(issues, group_by) if issues else ["  none found"])
 
+    lines.extend(diagnostic_block(doc))
+    return "\n".join(lines) + "\n"
+
+
+def diagnostic_block(doc: Dict[str, Any], limit: int = 10) -> List[str]:
+    """The `Coverage` and `Notes` blocks as lines, empty when there are none.
+
+    Factored out of `render_summary` for `mlview issues`, which built its own
+    body and rendered no diagnostics at all: under `--changed-only` it printed
+    `0 issue(s) - none found` while `analyze` said on the same argv that 15
+    findings had been set aside. `issues` is the surface CI-ADOPT names as the
+    one "for agent loops and PR descriptions", so it is the last place that may
+    leave a reader unable to tell "I checked and it is fine" from "I could not
+    check".
+    """
     diagnostics = doc.get("diagnostics") or []
     # COVERAGE: what the analyzer could *not* check gets its own block, above
     # the notes and outside the ten-note clip. Burying "I was blind here" among
     # the housekeeping is the failure this block exists to end.
     coverage = [d for d in diagnostics if d.get("kind") in COVERAGE_KINDS]
     other = [d for d in diagnostics if d.get("kind") not in COVERAGE_KINDS]
+    lines: List[str] = []
     if coverage:
         lines.append("")
         lines.append("Coverage (%d)" % len(coverage))
@@ -172,8 +203,8 @@ def render_summary(doc: Dict[str, Any], show_suppressed: bool = False,
     if other:
         lines.append("")
         lines.append("Notes (%d)" % len(other))
-        lines.extend(_diagnostic_lines(other[:10]))
-    return "\n".join(lines) + "\n"
+        lines.extend(_diagnostic_lines(other[:limit]))
+    return lines
 
 
 def _unresolved_suffix(doc: Dict[str, Any]) -> str:
@@ -233,6 +264,11 @@ def render_issue_table(issues: Sequence[Dict[str, Any]]) -> str:
         title = issue.get("title", "")
         if issue.get("suppressed"):
             title += "  (suppressed)"
+        elif issue.get("baselined"):
+            # VW-11: a suppressed row was marked and a baselined one was not,
+            # so `--show-suppressed` printed a header netting six findings out
+            # over a table that listed them indistinguishably from the rest.
+            title += "  (baselined)"
         lines.append("  %-4s %-7s %-11s %-28s %s"
                      % (mark, issue.get("code", ""), issue.get("confidenceBucket", ""),
                         where, title))

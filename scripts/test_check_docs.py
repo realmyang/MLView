@@ -446,6 +446,184 @@ def test_another_graph_is_not_compared_against_the_demo():
     finally:
         shutil.rmtree(root, ignore_errors=True)
 
+# ------------------------------------------------- wrapped and `and` sizes
+# PROC-09: `docs/STATUS.md` carried `to **54 nodes / 52\nedges**` for a whole
+# sprint and `docs/CONTRACTS.md` §11.19 wrote `54 nodes and 52 edges`. The
+# one-line scan and the `[,/]`-only separator meant the gate that exists to stop
+# exactly this reported "one graph size" while three docs held the old one.
+
+WRAPPED_STATUS = """# status
+
+`samples/vision_pipeline` is now 54 nodes / 52
+edges after the re-baseline.
+"""
+
+AND_SCRIPTS = """# scripts
+
+Step 17 validates `samples/vision_pipeline`: 54 nodes and 51 edges.
+"""
+
+
+def test_a_graph_size_that_wraps_across_a_line_break_is_seen():
+    """PROC-09: the claim is `54 nodes / 52` on one line and `edges` on the next."""
+    root = _tree({"README.md": "# mlview\n",
+                  "docs/STATUS.md": WRAPPED_STATUS,
+                  "scripts/README.md": AND_SCRIPTS})
+    try:
+        problems = check_docs.run(root)[0]
+        assert len(problems) == 1, problems
+        assert "MLV-R2-H05" in problems[0]
+        assert "docs/STATUS.md:3 says 54 nodes / 52 edges" in problems[0]
+        assert "scripts/README.md:3 says 54 nodes and 51 edges" not in problems[0]
+        assert "scripts/README.md:3 says 54 nodes / 51 edges" in problems[0]
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_a_size_written_with_and_is_seen():
+    """`N nodes and M edges` is the shape §11.19 used, and it escaped entirely."""
+    root = _tree({"README.md": "# mlview\n",
+                  "docs/STATUS.md": WRAPPED_STATUS.replace("52\nedges", "51\nedges"),
+                  "scripts/README.md": AND_SCRIPTS.replace("51 edges", "52 edges")})
+    try:
+        problems = check_docs.run(root)[0]
+        assert len(problems) == 1, problems
+        assert "scripts/README.md:3 says 54 nodes / 52 edges" in problems[0]
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_a_figure_marked_as_historical_is_not_a_claim_about_today():
+    """A release record may quote what it measured, if it says so in words."""
+    root = _tree({"README.md": "# mlview\n",
+                  "docs/STATUS.md": WRAPPED_STATUS.replace(
+                      "after the re-baseline.",
+                      "-- the count at the time; REV-01 later dropped one edge."),
+                  "scripts/README.md": AND_SCRIPTS})
+    try:
+        assert check_docs.run(root)[0] == [], check_docs.run(root)[0]
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_one_line_sizes_are_still_counted_exactly_once():
+    """The two-line window may not turn one claim into two."""
+    root = _tree({"README.md": "# mlview\n",
+                  "scripts/README.md": AND_SCRIPTS})
+    try:
+        sizes: list = []
+        check_docs.collect_graph_sizes(
+            root, root / "scripts/README.md",
+            check_docs.read(root / "scripts/README.md"), sizes)
+        assert sizes == [(54, 51, "scripts/README.md:3")], sizes
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+# ------------------------------------------- roadmap landed notes (PROC-01)
+# Seven Sprint 4 NEXT items shipped -- each with its own docs/STATUS.md section
+# -- and docs/ROADMAP.md carried a `**Landed ...**` note for wave 1 only. The
+# roadmap is where the acceptance clause is written and where the framing "every
+# analyzer change must state what it could not analyze" is discharged, so an
+# unrecorded item hides both. H3's note made the other half of the same failure:
+# it was written below `### LATER`, outside any item's section.
+
+SHIPPED_ROADMAP = """# roadmap
+
+### NEXT
+
+#### PERF-03 · Relevance prefilter
+
+*optimization*
+
+**Acceptance.** The mixed repo drops under 1.5 s.
+
+#### VIEW-99 · Something not built yet
+
+*new-feature*
+
+**Acceptance.** Nothing has happened.
+"""
+
+SHIPPED_STATUS = """# status
+
+## Sprint 4 — analyzer, wave 3
+
+**PERF-03, the relevance prefilter.** It shipped and here is the number.
+"""
+
+
+def test_a_shipped_roadmap_item_with_no_landed_note_is_caught():
+    """PROC-01: STATUS reports it; the roadmap does not say it shipped."""
+    root = _tree({"README.md": "# mlview\n",
+                  "docs/ROADMAP.md": SHIPPED_ROADMAP,
+                  "docs/STATUS.md": SHIPPED_STATUS})
+    try:
+        problems = check_docs.run(root)[0]
+        assert len(problems) == 1, problems
+        assert "PROC-01" in problems[0]
+        assert "`PERF-03` has shipped" in problems[0]
+        assert "VIEW-99" not in problems[0], "an unshipped item is not overdue"
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_a_shipped_roadmap_item_with_its_landed_note_is_clean():
+    root = _tree({"README.md": "# mlview\n",
+                  "docs/ROADMAP.md": SHIPPED_ROADMAP.replace(
+                      "**Acceptance.** The mixed repo drops under 1.5 s.",
+                      "**Acceptance.** The mixed repo drops under 1.5 s.\n\n"
+                      "**Landed 2026-09-09 (Sprint 4 wave 3) — measurement "
+                      "note.** 2228 ms to 693 ms. **What it could not "
+                      "analyze:** a module reached only through `importlib`."),
+                  "docs/STATUS.md": SHIPPED_STATUS})
+    try:
+        assert check_docs.run(root)[0] == [], check_docs.run(root)[0]
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_a_landed_note_outside_any_item_section_is_caught():
+    """H3's note sat below the `### LATER` divider, where it read as an item."""
+    root = _tree({"README.md": "# mlview\n",
+                  "docs/ROADMAP.md": SHIPPED_ROADMAP + (
+                      "\n---\n\n### LATER\n\n"
+                      "**Landed 2026-09-09 (Sprint 4 wave 1) — measurement "
+                      "note.** Both halves shipped.\n"),
+                  "docs/STATUS.md": "# status\n\nNothing shipped.\n"})
+    try:
+        problems = check_docs.run(root)[0]
+        assert len(problems) == 1, problems
+        assert "PROC-01" in problems[0]
+        assert "not inside any item's section" in problems[0]
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_a_status_mention_that_is_not_a_lead_in_is_not_a_shipping_claim():
+    """`... which is DATAFLOW-IP's problem` names an item without shipping it."""
+    root = _tree({"README.md": "# mlview\n",
+                  "docs/ROADMAP.md": SHIPPED_ROADMAP,
+                  "docs/STATUS.md": "# status\n\n**The wave.** Seven of the "
+                                    "labelled ops are PERF-03's problem, and "
+                                    "VIEW-99 is gated on ANA-12.\n"})
+    try:
+        assert check_docs.run(root)[0] == [], check_docs.run(root)[0]
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_the_real_roadmap_records_every_shipped_sprint_4_item():
+    """The tree's own bookkeeping, not a fixture's: PROC-01's actual repro."""
+    problems: list = []
+    check_docs.check_roadmap_landed(REPO, problems)
+    assert problems == [], "\n".join(problems)
+    lines = check_docs.read(REPO / "docs/ROADMAP.md")
+    landed = [n for n, line in enumerate(lines, 1)
+              if check_docs.LANDED_RE.match(line)]
+    assert len(landed) >= 20, "wave 2, 3 and 4 each owe a measurement note"
+
+
 def run_module(module, failed: int = 0) -> int:
     """Run every `test_*` in one module, printing a line each. Shared with
     `scripts/test_doc_numbers.py`, which holds the cases for checks 9-11."""
@@ -462,12 +640,15 @@ def run_module(module, failed: int = 0) -> int:
 
 
 def main() -> int:
-    # Checks 1-8 here, checks 9-11 next door: one self-test entry point, so the
-    # e2e drivers and the CI job keep running the whole gate's own suite.
+    # Checks 1-8 and 12 here, checks 9-11 next door, and the packaged-VSIX gate
+    # beside them: one self-test entry point, so the e2e drivers and the CI job
+    # keep running every gate's own suite from one line.
     import test_doc_numbers
+    import test_vsix_check
 
     failed = run_module(sys.modules[__name__])
     failed = run_module(test_doc_numbers, failed)
+    failed = run_module(test_vsix_check, failed)
     print(("%d test(s) failed" % failed) if failed else "check_docs self-test OK")
     return 1 if failed else 0
 

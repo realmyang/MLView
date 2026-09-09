@@ -9,6 +9,7 @@ import { kindIcon, uiIcon, isKnownKind } from '../icons.js';
 import { severityBadge, severityCluster, highestSeverity, countsTotal } from '../markers.js';
 import type { IssueCounts, MLNode } from '../types.js';
 import type { LayoutBox, LayoutLane } from '../layout/layout.js';
+import { chipCandidates } from '../layout/cardmetrics.js';
 
 export interface NodeVisual {
   node: MLNode;
@@ -109,14 +110,10 @@ function chipMetrics(width: number): ChipMetrics | null {
  * the picture you export from the one on the picture you were looking at.
  */
 export function chipsFor(node: MLNode, metrics?: ChipMetrics | null, budget = 26, maxChips = 3): string[] {
-  const keys = Object.keys(node.attrs || {});
-  const sublabel = node.sublabel || '';
-  const candidates: string[] = [];
-  for (const k of keys) {
-    const text = k + '=' + node.attrs[k];
-    if (sublabel.indexOf(text) >= 0) continue;
-    candidates.push(text);
-  }
+  // NB. The candidate list is `layout/cardmetrics.ts`'s, not a second copy of
+  // the same rule: the layout reserves a chip row exactly when this is
+  // non-empty, and only the WIDTH budget below is a rendering decision (VW-01).
+  const candidates = chipCandidates(node);
   const out: string[] = [];
   let usedChars = 0;
   let usedPx = 0;
@@ -177,7 +174,14 @@ export function buildNodeCard(v: NodeVisual, collapsedGroup: boolean): HTMLEleme
   card.style.left = v.box.x + 'px';
   card.style.top = v.box.y + 'px';
   card.style.width = v.box.w + 'px';
-  card.style.minHeight = v.box.h + 'px';
+  // VW-01: `height`, not `min-height`. The box `layout/cardmetrics.ts` reserved
+  // is what `labels.ts` clears and what `export/svg.ts` draws, so a card that
+  // grew past it put ink where the planner had promised none — 26 of 26 cards
+  // on a notebook report, two overlapping pairs and 6 labels drawn over cards.
+  // The reservation now counts the loc row and the chip row, so nothing is
+  // clipped at our own type scale; where a host's font is bigger, the plan wins
+  // and `.mlv-node__text` clips, exactly as the SVG export already did.
+  card.style.height = v.box.h + 'px';
 
   if (n.ghost) card.classList.add('is-ghost');
   if (n.dynamic) card.classList.add('is-dynamic');

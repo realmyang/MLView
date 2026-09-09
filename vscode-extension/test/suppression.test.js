@@ -25,7 +25,10 @@ const {
   ignoreComment,
   withIgnoreComment,
   addDisabledRule,
+  splitComment,
   isInsideWorkspace,
+  insideAnyWorkspace,
+  writableFile,
   isRuleCode,
   MlviewCodeActionProvider,
   mlviewCodesIn,
@@ -136,10 +139,81 @@ test('an existing [rules] section gains the key, and an existing key gains the c
   assert.equal(other.text, '[rules]\ndisable = ["MLV101", "MLV601"]\n\n[paths]\nexclude = []\n');
 });
 
-test('a multi-line array is folded into one line rather than corrupted', () => {
+// CHANGED by HOST-7 (Sprint 4 review). This case used to assert the multi-line array was
+// FOLDED onto one line. Folding rewrites three lines the edit did not have to touch, which
+// is the opposite of what CONTRACTS.md 11.27 S4 ("a line transform, never a TOML
+// round-trip") and this module's own docstring promise, so the assertion is now that the
+// shape survives: one line is inserted, nothing else moves.
+test('a multi-line array stays multi-line: the new code is one inserted line', () => {
   const before = '[rules]\ndisable = [\n  "MLV101",\n  "MLV301",\n]\n';
   const after = addDisabledRule(before, 'MLV601');
-  assert.equal(after.text, '[rules]\ndisable = ["MLV101", "MLV301", "MLV601"]\n');
+  assert.equal(after.text, '[rules]\ndisable = [\n  "MLV101",\n  "MLV301",\n  "MLV601",\n]\n');
+  assert.equal(
+    after.text.split('\n').length - before.split('\n').length,
+    1,
+    'exactly one line is added and none are removed'
+  );
+
+  // No trailing comma in the file? Then the previous entry gains one and the new entry
+  // matches the file's style rather than imposing ours.
+  const tight = addDisabledRule('[rules]\ndisable = [\n  "MLV101"\n]\n', 'MLV601');
+  assert.equal(tight.text, '[rules]\ndisable = [\n  "MLV101",\n  "MLV601"\n]\n');
+
+  // The closing bracket sharing the last entry's line is the one case that must edit it.
+  const packed = addDisabledRule('[rules]\ndisable = [\n  "MLV101"]\n', 'MLV601');
+  assert.equal(packed.text, '[rules]\ndisable = [\n  "MLV101", "MLV601"]\n');
+});
+
+// HOST-7: 11.27 S4 says an existing [rules] section "keeps its comments". Every test above
+// put the comment on a DIFFERENT line from the edit, so the clause was unguarded exactly
+// where it is hard to honour - on the line being rewritten.
+test('a trailing comment on the disable line survives the edit, verbatim', () => {
+  const before = '[rules]\ndisable = ["MLV601"]  # our policy: this one is noisy\n';
+  const after = addDisabledRule(before, 'MLV301');
+  assert.equal(
+    after.text,
+    '[rules]\ndisable = ["MLV601", "MLV301"]  # our policy: this one is noisy\n'
+  );
+
+  // The spacing between the ] and the # is the user's, not ours.
+  assert.equal(
+    addDisabledRule('[rules]\ndisable = []\t# empty\n', 'MLV601').text,
+    '[rules]\ndisable = ["MLV601"]\t# empty\n'
+  );
+
+  // A comment on the closing line of a multi-line array is on a line we touch too.
+  assert.equal(
+    addDisabledRule('[rules]\ndisable = [\n  "MLV101",\n]  # keep\n', 'MLV601').text,
+    '[rules]\ndisable = [\n  "MLV101",\n  "MLV601",\n]  # keep\n'
+  );
+});
+
+test('prose in a comment is never read as a rule code', () => {
+  // The token scan runs on the array text only. Applied to the whole line, the two
+  // apostrophes below bracket "s rule, and that would be written back as an entry.
+  const before = "[rules]\ndisable = [\"MLV601\"]  # it is Bob's rule, don't touch\n";
+  const after = addDisabledRule(before, 'MLV301');
+  assert.equal(
+    after.text,
+    "[rules]\ndisable = [\"MLV601\", \"MLV301\"]  # it is Bob's rule, don't touch\n"
+  );
+  assert.equal((after.text.match(/"/g) || []).length, 4, 'only the two codes are quoted');
+
+  // A ] inside a comment does not close the array either.
+  const spanning = addDisabledRule('[rules]\ndisable = [  # see [rules] above\n]\n', 'MLV601');
+  assert.equal(spanning.text, '[rules]\ndisable = [  # see [rules] above\n  "MLV601",\n]\n');
+});
+
+test('splitComment finds the comment, and only outside a string', () => {
+  assert.deepEqual(splitComment('disable = ["A"]  # note'), {
+    code: 'disable = ["A"]  ',
+    comment: '# note'
+  });
+  assert.deepEqual(splitComment('disable = ["#notacomment"]'), {
+    code: 'disable = ["#notacomment"]',
+    comment: ''
+  });
+  assert.deepEqual(splitComment("k = 'a # b'  # real"), { code: "k = 'a # b'  ", comment: '# real' });
 });
 
 test('adding a code twice is a no-op, and CRLF survives', () => {
@@ -335,6 +409,8 @@ test('the suppressRule message is accepted only in the three documented shapes',
 test('the rail and the lightbulb run the SAME code, including the 1-based conversion', async () => {
   vscode.__reset();
   const file = '/repo/train.py';
+  // HOST-6: the insert path is contained now, so the file has to be in an open folder.
+  vscode.__setWorkspaceFolders(['/repo']);
   vscode.__setDocument(file, 'import x\nfit(X)\n');
   // The viewer speaks the document's 1-based lines; the editor is 0-based.
   const applied = await runSuppression(
@@ -357,4 +433,91 @@ test('an insert with nowhere to insert degrades to the clipboard, never to nothi
   } finally {
     vscode.env.clipboard.writeText = real;
   }
+});
+
+// ------------------------------------------- HOST-6: containment, where it can fail
+
+test('containment resolves .. before comparing, so a prefix cannot be walked out of', () => {
+  // This is the case the old startsWith form got wrong: the string starts with the root,
+  // and the path it names is /etc/x.
+  assert.equal(isInsideWorkspace('/root', '/root/../etc/x'), false);
+  assert.equal(isInsideWorkspace('/root', '/root/sub/../train.py'), true);
+  assert.equal(isInsideWorkspace('/root', '/root/..'), false);
+  // A sibling whose name merely begins with the root's is still outside.
+  assert.equal(isInsideWorkspace('/root', '/root2/x'), false);
+  // ...and a child whose own name begins with .. is inside.
+  assert.equal(isInsideWorkspace('/root', '/root/..hidden/x'), true);
+  assert.equal(isInsideWorkspace('   ', '/anything'), false, 'a blank root means no write');
+  assert.equal(isInsideWorkspace('/root', ''), false, 'an empty target resolves to the cwd');
+});
+
+test('insideAnyWorkspace answers for a multi-root window, first match wins', () => {
+  assert.equal(insideAnyWorkspace(['/a', '/b'], '/b/train.py'), '/b');
+  assert.equal(insideAnyWorkspace(['/a', '/b'], '/c/train.py'), undefined);
+  assert.equal(insideAnyWorkspace([], '/a/train.py'), undefined);
+});
+
+test('writableFile refuses a path outside every open folder, and with no folder at all', () => {
+  vscode.__reset();
+  vscode.__setWorkspaceFolders(['/repo', '/other']);
+  assert.equal(writableFile('/repo/train.py', log), path.resolve('/repo/train.py'));
+  assert.equal(writableFile('/other/sub/train.py', log), path.resolve('/other/sub/train.py'));
+  assert.equal(writableFile('/repo/../etc/passwd', log), undefined);
+  assert.equal(writableFile('/elsewhere/train.py', log), undefined);
+  vscode.__setWorkspaceFolders(undefined);
+  assert.equal(writableFile('/repo/train.py', log), undefined, 'no folder, nothing inside it');
+});
+
+test('suppressRule(insert) never writes outside the workspace — it degrades to the clipboard', async () => {
+  vscode.__reset();
+  vscode.__setWorkspaceFolders(['/repo']);
+  const outside = '/elsewhere/secret.py';
+  vscode.__setDocument(outside, 'fit(X)\n');
+  const copied = [];
+  const real = vscode.env.clipboard.writeText;
+  vscode.env.clipboard.writeText = async (text) => void copied.push(text);
+  try {
+    // A webview naming an absolute path outside the workspace...
+    const direct = await runSuppression(
+      { code: 'MLV101', action: 'insert', absFile: outside, line: 1 },
+      log
+    );
+    // ...and the same file reached by walking out of the workspace root.
+    const traversal = await runSuppression(
+      { code: 'MLV101', action: 'insert', absFile: '/repo/../elsewhere/secret.py', line: 1 },
+      log
+    );
+    assert.equal(direct, true, 'the user still gets the comment');
+    assert.equal(traversal, true);
+    assert.deepEqual(copied, ['# mlview: ignore[MLV101]', '# mlview: ignore[MLV101]']);
+    assert.equal(vscode.__recorded.appliedEdits.length, 0, 'no edit reached any file');
+    assert.equal(vscode.__getDocument(outside), 'fit(X)\n', 'the file is byte-identical');
+  } finally {
+    vscode.env.clipboard.writeText = real;
+  }
+});
+
+test('the guard reads the path, not the prefix: an inside file is still edited', async () => {
+  vscode.__reset();
+  vscode.__setWorkspaceFolders(['/repo']);
+  const file = '/repo/pkg/train.py';
+  vscode.__setDocument(file, 'import x\nfit(X)\n');
+  // A path with a .. that stays inside must not be refused.
+  const applied = await runSuppression(
+    { code: 'MLV101', action: 'insert', absFile: '/repo/pkg/../pkg/train.py', line: 2 },
+    log
+  );
+  assert.equal(applied, true);
+  assert.equal(vscode.__getDocument(file), 'import x\nfit(X)  # mlview: ignore[MLV101]\n');
+});
+
+test('the message guard rejects an absFile that is not an absolute path', () => {
+  const ok = (extra) => isUiToHost({ v: 1, type: 'suppressRule', code: 'MLV201', ...extra });
+  assert.equal(ok({ action: 'insert', absFile: '/repo/train.py', line: 4 }), true);
+  assert.equal(ok({ action: 'insert', absFile: 'C:\\repo\\train.py', line: 4 }), true);
+  assert.equal(ok({ action: 'insert', absFile: '../../etc/passwd', line: 4 }), false);
+  assert.equal(ok({ action: 'insert', absFile: 'train.py', line: 4 }), false);
+  assert.equal(ok({ action: 'insert', absFile: '', line: 4 }), false);
+  assert.equal(ok({ action: 'disable', absFile: 'relative/.mlview.toml' }), false);
+  assert.equal(ok({ action: 'insert', absFile: '/repo/tr\u0000ain.py', line: 4 }), false);
 });

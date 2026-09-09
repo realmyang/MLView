@@ -314,6 +314,7 @@ def load_attributed(
     baseline: Optional[str] = None,
     framework: str = "auto",
     max_nodes: int = 400,
+    include_notebooks: bool = False,
 ) -> Dict[str, Any]:
     """CI-ADOPT: analyze the whole project, then attribute against a diff or a baseline.
 
@@ -327,17 +328,28 @@ def load_attributed(
     The attributed document is written beside the plain one as
     `<graph>.attributed.json` rather than over it, so `mlview_analyze`'s `graphPath`
     keeps pointing at the FULL, unattributed graph the rest of the tools read.
+
+    `include_notebooks` is honoured here exactly as it is in `load_graph` (HOST-5).
+    It used to stop at the caller: `mlview_issues` dropped the flag whenever
+    `changedSince` or `baseline` was passed, so the two together produced a run that
+    had opened no notebook and said nothing about it. Attribution never required
+    that — the CLI takes `--include-notebooks --changed-since` together — and where
+    attribution genuinely cannot carry a notebook finding (its location names a
+    generated module git does not track), `mlview_adopt` returns a note saying so
+    rather than an unexplained empty list.
     """
     if _SERVER_DIR not in sys.path:
         sys.path.insert(0, _SERVER_DIR)
     import mlview_adopt  # noqa: PLC0415 - sibling module, after the sys.path bootstrap
 
     resolved = resolve_path(path)
-    log.info("analyzing %s with attribution (changedSince=%s baseline=%s)",
-             resolved, changed_since, baseline)
+    log.info("analyzing %s with attribution (changedSince=%s baseline=%s "
+             "includeNotebooks=%s)", resolved, changed_since, baseline,
+             bool(include_notebooks))
     graph, notes = mlview_adopt.analyze_attributed(
         resolved, framework=framework or "auto", max_nodes=int(max_nodes),
         changed_since=changed_since, baseline=baseline,
+        include_notebooks=bool(include_notebooks),
     )
     plain = graph_file_for(resolved)
     graph_path = plain[: -len(".json")] + ".attributed.json" if plain.endswith(".json") else plain

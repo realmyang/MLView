@@ -33,6 +33,7 @@ import type { Logger } from './log';
 import {
   addDisabledRule,
   ignoreComment,
+  insideAnyWorkspace,
   isInsideWorkspace,
   isRuleCode,
   withIgnoreComment
@@ -204,6 +205,34 @@ export async function addIgnoreComment(
   return applied;
 }
 
+/** The open workspace roots, in order, as absolute filesystem paths. */
+function workspaceRoots(): string[] {
+  return (vscode.workspace.workspaceFolders ?? []).map((folder) => folder.uri.fsPath);
+}
+
+/**
+ * The absolute path of a file MLView is allowed to WRITE to, or `undefined`.
+ *
+ * §11.27 S4's containment rule is enforced here, at the one place a path arrives from
+ * outside the extension: `suppressRule.absFile` is whatever the webview posted, and an
+ * unchecked `Uri.file(...)` + `applyEdit` would append a comment to any file on the disk.
+ * A refusal is logged rather than silently rewritten, for the reason `isExportFile` gives
+ * in protocol.ts: a rejected write is visible and a redirected one is not.
+ */
+export function writableFile(absFile: string, log: Logger): string | undefined {
+  const resolved = path.resolve(absFile);
+  const roots = workspaceRoots();
+  if (roots.length === 0) {
+    log.warn(`refusing to edit ${resolved}: no folder is open, so nothing is inside the workspace`);
+    return undefined;
+  }
+  if (!insideAnyWorkspace(roots, resolved)) {
+    log.warn(`refusing to edit ${resolved}: it is outside every open workspace folder`);
+    return undefined;
+  }
+  return resolved;
+}
+
 /** Where the containment rule says a `.mlview.toml` may be written for `uri`. */
 export function configPathFor(uri?: vscode.Uri): { root: string; file: string } | undefined {
   const folder =
@@ -214,6 +243,8 @@ export function configPathFor(uri?: vscode.Uri): { root: string; file: string } 
   }
   const root = folder.uri.fsPath;
   const file = path.join(root, CONFIG_FILE);
+  // A constant basename joined to a root cannot escape it, so this is an invariant rather
+  // than a guard: the guard for a path that came from OUTSIDE is `writableFile` above.
   return isInsideWorkspace(root, file) ? { root, file } : undefined;
 }
 
@@ -305,8 +336,15 @@ export async function runSuppression(request: SuppressRequest, log: Logger): Pro
         log.warn('suppressRule(insert) needs absFile and a 1-based line');
         return copyIgnoreComment(request.code, log);
       }
+      // The path came from the webview, so it is checked HERE, before anything opens it.
+      // Outside the workspace the gesture degrades to the clipboard, exactly as a missing
+      // absFile does: the user still gets the comment, and no stranger's file is edited.
+      const file = writableFile(request.absFile, log);
+      if (file === undefined) {
+        return copyIgnoreComment(request.code, log);
+      }
       return addIgnoreComment(
-        vscode.Uri.file(request.absFile),
+        vscode.Uri.file(file),
         toEditorLine(request.line),
         request.code,
         log
@@ -315,7 +353,7 @@ export async function runSuppression(request: SuppressRequest, log: Logger): Pro
     case 'disable':
       return disableRule(
         request.code,
-        request.absFile ? vscode.Uri.file(request.absFile) : undefined,
+        request.absFile ? vscode.Uri.file(path.resolve(request.absFile)) : undefined,
         log
       );
     default:
