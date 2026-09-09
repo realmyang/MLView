@@ -11,6 +11,7 @@ import sys
 from typing import Any, Dict, List, Optional, Sequence
 
 from ..core.coverage import COVERAGE_KINDS
+from ..core.unresolved import UNRESOLVED_KIND, unresolved_note
 from .answers import render_block as render_answers_block
 from .group_out import render_grouped
 
@@ -145,7 +146,12 @@ def render_summary(doc: Dict[str, Any], show_suppressed: bool = False,
     if out_of_view:
         lines.append("  not in this scope: %s" % ", ".join(out_of_view))
     if absent:
-        lines.append("  not detected: %s" % ", ".join(absent))
+        # ANA-5a: "not detected" is a claim about the program. It may only be
+        # made without qualification when the analyzer resolved everything it
+        # saw; where it did not, the sentence says so on the same line rather
+        # than in a note the reader has to find.
+        lines.append("  not detected: %s%s"
+                     % (", ".join(absent), _unresolved_suffix(doc)))
     lines.append("")
 
     issues = [i for i in doc.get("issues", [])
@@ -168,6 +174,13 @@ def render_summary(doc: Dict[str, Any], show_suppressed: bool = False,
         lines.append("Notes (%d)" % len(other))
         lines.extend(_diagnostic_lines(other[:10]))
     return "\n".join(lines) + "\n"
+
+
+def _unresolved_suffix(doc: Dict[str, Any]) -> str:
+    """The ANA-5a qualifier for the "not detected" line, or ""."""
+    count = sum(int(d.get("count") or 1) for d in (doc.get("diagnostics") or [])
+                if isinstance(d, dict) and d.get("kind") == UNRESOLVED_KIND)
+    return unresolved_note(count) or ""
 
 
 def _visible_counts(doc: Dict[str, Any],

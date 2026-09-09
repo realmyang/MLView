@@ -45,6 +45,15 @@ const SAMPLES = {
     absFile: 'C:/repo/train.py',
     line: 44
   },
+  // VIEW-07 (docs/contracts/11.33-diagram-export.md): the rendered picture, base64.
+  exportFile: {
+    v: 1,
+    type: 'exportFile',
+    kind: 'svg',
+    data: 'PHN2Zz48L3N2Zz4=',
+    suggestedName: 'mlview-diagram.svg',
+    scope: 'all'
+  },
   // CONTRACTS.md 11.7: the selector field is `spec`, never `scope`.
   scopeChanged: {
     v: 1,
@@ -108,7 +117,12 @@ test('malformed known messages are rejected', () => {
     { v: 1, type: 'requestRefresh', scope: 'galaxy' },
     { v: 1, type: 'scopeChanged', spec: 'unit:train' },
     { v: 1, type: 'scopeChanged', spec: 'unit:train', label: 'train()', nodes: '4', of: 45 },
-    { v: 1, type: 'scopeChanged', spec: 7, label: 'train()', nodes: 4, of: 45 }
+    { v: 1, type: 'scopeChanged', spec: 7, label: 'train()', nodes: 4, of: 45 },
+    // VIEW-07: base64 only — no data: URL, no whitespace, no path in the name hint.
+    { v: 1, type: 'exportFile', kind: 'svg' },
+    { v: 1, type: 'exportFile', kind: 'gif', data: 'PHN2Zz48L3N2Zz4=' },
+    { v: 1, type: 'exportFile', kind: 'svg', data: 'data:image/svg+xml;base64,PHN2Zz4=' },
+    { v: 1, type: 'exportFile', kind: 'svg', data: 'PHN2Zz48L3N2Zz4=', suggestedName: '../x.svg' }
   ]) {
     const result = parseUiToHost(bad);
     assert.equal(result.ok, false, `${JSON.stringify(bad)} should be rejected`);
@@ -129,6 +143,7 @@ test('host -> ui types cover the contract and are guarded', () => {
       'cursorHint',
       'graph',
       'init',
+      'requestExport',
       'restoreState',
       'revealIssue',
       'revealNode',
@@ -141,6 +156,12 @@ test('host -> ui types cover the contract and are guarded', () => {
   assert.ok(isHostToUi({ v: 1, type: 'theme', kind: 'dark' }));
   assert.ok(!isHostToUi({ v: 1, type: 'nope' }));
   assert.ok(!isHostToUi({ v: 3, type: 'theme' }));
+});
+
+test('requestExport is a host -> ui message the viewer answers with exportFile', () => {
+  assert.ok(isHostToUi({ v: 1, type: 'requestExport', kind: 'png', scope: 'view' }));
+  // ...and it is NOT a webview -> host message: a viewer may not ask the host to render.
+  assert.equal(parseUiToHost({ v: 1, type: 'requestExport', kind: 'png', scope: 'view' }).reason, 'unknown-type');
 });
 
 test('the four error-banner action ids are the frozen set', () => {

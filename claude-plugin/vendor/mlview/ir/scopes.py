@@ -16,11 +16,12 @@ from typing import Dict, List, Optional, Tuple
 
 from ..ingest.parse import ParsedFile
 from ..knowledge import AUTOCAST_FQNS, ENABLE_GRAD_FQNS, NO_GRAD_FQNS
-from .locs import loc_of
+from .locs import call_loc, loc_of
 from .model import CallSite, ClassIR, FunctionIR, Loc, LoopIR, ModuleIR, ScopeIR
 from .symbols import SymbolTable, dotted_name, dotted_text
 
-__all__ = ["AssignRecord", "walk_module", "classify_loops", "literal_str"]
+__all__ = ["AssignRecord", "walk_module", "classify_loops", "literal_str",
+           "callee_construct"]
 
 _LOADER_NAME_RE = ("loader", "_dl", "dl_", "batches", "dataloader")
 _EPOCH_NAMES = ("epoch", "epochs", "n_epochs", "num_epochs", "max_epochs")
@@ -40,6 +41,9 @@ class AssignRecord:
     loop: Optional[LoopIR] = None
     function: Optional[FunctionIR] = None
     class_ir: Optional[ClassIR] = None
+    #: ANA-5a: written inside a `match` case body. Which arm ran is undecidable
+    #: statically, so a name bound here is the textbook unresolvable callee.
+    in_match: bool = False
 
 
 def literal_str(node: Optional[ast.AST]) -> Optional[str]:
@@ -101,6 +105,7 @@ class _Walker:
         self.loops: List[LoopIR] = []
         self.no_grad = 0
         self.autocast = 0
+        self.match_depth = 0
         self._loop_names: Dict[str, int] = {}
         if symbols.star_imports:
             root.mark_dynamic("star import: from %s import *" % symbols.star_imports[0])
@@ -160,6 +165,22 @@ class _Walker:
         if isinstance(stmt, ast.If):
             self.visit_if(stmt, index, block_id, top_level)
             return
+        if isinstance(stmt, ast.Match):
+            # ANA-5a. `ast.Match`'s children are its subject plus `match_case`
+            # nodes, which are neither `stmt` nor `expr`, so the generic branch
+            # below walked straight past every case body: a `match`-dispatched
+            # model, criterion and optimizer produced no call sites at all and
+            # nothing said so. The bodies are ordinary statements; the fact that
+            # only one arm runs is recorded on the bindings they create.
+            self.visit_expr(stmt.subject, index, block_id)
+            self.match_depth += 1
+            for case_index, case in enumerate(stmt.cases):
+                if case.guard is not None:
+                    self.visit_expr(case.guard, index, block_id)
+                self.visit_body(case.body, "%s#match%d.%d" % (block_id, stmt.lineno,
+                                                             case_index))
+            self.match_depth -= 1
+            return
         if isinstance(stmt, ast.Try):
             self.visit_body(stmt.body, block_id + ".try")
             for handler in stmt.handlers:
@@ -206,7 +227,7 @@ class _Walker:
         self.module.assignments.append(AssignRecord(
             kind=kind, targets=tuple(targets), value=value, scope=self.scope,
             loc=self.loc(stmt), call=call, stmt_index=index, loop=self.loop,
-            function=self.func, class_ir=self.cls))
+            function=self.func, class_ir=self.cls, in_match=self.match_depth > 0))
 
     # -- definitions --------------------------------------------------------
     def visit_function(self, node, index: int, block_id: str) -> None:
@@ -410,12 +431,13 @@ class _Walker:
                 kwargs[kw.arg] = lit
         call = CallSite(
             fqn=fqn, canonical_fqns=(fqn,) if fqn else (), import_fqn=fqn,
-            node=node, loc=self.loc(node),
+            node=node, loc=call_loc(self.parsed, node),
             scope=self.scope, module=self.module, receiver_name=receiver_name,
             method=method, args=tuple(node.args), kwargs=kwargs, kwarg_nodes=kwarg_nodes,
             short_name=short or "call", loop=self.loop, inside_no_grad=self.no_grad > 0,
             inside_autocast=self.autocast > 0, stmt_index=index, block_id=block_id,
-            function=self.func, enclosing_class=self.cls)
+            function=self.func, enclosing_class=self.cls,
+            unresolved_callee=callee_construct(func))
         setattr(call, "has_kwargs_forward", has_forward)
         self.module.calls.append(call)
         if self.func is not None:
@@ -448,6 +470,35 @@ class _Walker:
                     "getattr with a non-literal attribute at line %d" % node.lineno)
         elif short == "import_module":
             self.scope.mark_dynamic("dynamic import at line %d" % node.lineno)
+
+
+#: ANA-5a. Callee expressions that are neither a name nor an attribute chain,
+#: mapped to the noun phrase the diagnostic prints. A `Name` and an `Attribute`
+#: are absent on purpose: those are the two shapes `ir/resolve` knows how to
+#: chase, and flagging them here would mint an `unknown` node for `print()`.
+_CALLEE_CONSTRUCTS = (
+    (ast.Call, "the result of another call"),
+    (ast.Subscript, "a subscript"),
+    (ast.Lambda, "a lambda"),
+    (ast.IfExp, "a conditional expression"),
+    (ast.Await, "an awaited value"),
+    (ast.BoolOp, "a boolean expression"),
+    (ast.BinOp, "an arithmetic expression"),
+    (ast.Starred, "a starred expression"),
+    (ast.Tuple, "a tuple element"),
+    (ast.ListComp, "a comprehension"),
+    (ast.GeneratorExp, "a generator expression"),
+)
+
+
+def callee_construct(func: ast.expr) -> Optional[str]:
+    """The construct name when a callee is not a Name / Attribute chain."""
+    if isinstance(func, (ast.Name, ast.Attribute)):
+        return None
+    for node_type, phrase in _CALLEE_CONSTRUCTS:
+        if isinstance(func, node_type):
+            return phrase
+    return "a computed callee"
 
 
 def _target_names(target: ast.expr) -> List[str]:

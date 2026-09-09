@@ -19,9 +19,14 @@ for _root in ("keras", "tensorflow.keras", "tf.keras"):
         "%s.models.Model" % _root: E("model", "model", _fw, "KERAS_MODEL", ("MODEL",), "keras_model"),
         "%s.models.load_model" % _root: E("model", "model", _fw, "KERAS_LOAD", ("MODEL",), "keras_model"),
     })
+    # FW-RECOG: the `keras_model` family is what makes the functional API
+    # resolve. `layers.Dense(64)(x)` is a call *of a call*, and without a family
+    # the value the inner call produced falls back on its MODEL tag - which
+    # proposes `torch.nn.Module.__call__` and puts a phantom `torch` framework
+    # on a pure-Keras file.
     OTHER.update(expand("%s.layers" % _root, ["Dense", "Conv2D", "Dropout", "Flatten",
                                               "BatchNormalization", "LSTM", "Embedding"],
-                        E("layer", "model", _fw, "LAYER", ("MODEL",))))
+                        E("layer", "model", _fw, "LAYER", ("MODEL",), "keras_model")))
     OTHER.update(expand("%s.losses" % _root, ["CategoricalCrossentropy",
                                               "SparseCategoricalCrossentropy",
                                               "BinaryCrossentropy", "MeanSquaredError"],
@@ -50,7 +55,10 @@ OTHER.update({
     "transformers.Seq2SeqTrainingArguments": E("config", "config", HF, "HF_ARGS"),
     "transformers.pipeline": E("predict", "eval", HF, "HF_PIPELINE"),
     "transformers.set_seed": E("config", "config", HF, "SEED"),
-    "datasets.load_dataset": E("dataset", "data", HF, "DATASET", ("RAW_DATA",)),
+    # FW-RECOG: the `hf_dataset` family is what carries `raw.map(...)` and the
+    # `enc["train"].train_test_split(...)` hop - see `knowledge/hf_tbl.py`.
+    "datasets.load_dataset": E("dataset", "data", HF, "DATASET", ("RAW_DATA",),
+                               "hf_dataset"),
 })
 for _cls in ("AutoModel", "AutoModelForSequenceClassification", "AutoModelForCausalLM",
              "AutoModelForTokenClassification", "AutoModelForQuestionAnswering"):

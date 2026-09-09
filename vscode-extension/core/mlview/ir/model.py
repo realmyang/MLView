@@ -138,6 +138,12 @@ class ValueRef:
     #: call does not name them itself - `opt = build_optimizer(...)` gets
     #: `("torch.optim.Adam",)` from the callee's return expressions (ir.returns).
     via_fqns: Tuple[str, ...] = ()
+    #: ANA-5a. A short noun phrase for the construct that produced this value
+    #: when the analyzer could not resolve it - "a lambda", "a value assigned in
+    #: a match case", "a dataclass default_factory". Set only where the binding
+    #: really exists and really has nothing behind it, so a call *through* this
+    #: name can say which construct defeated it instead of vanishing.
+    opaque: Optional[str] = None
 
     def has(self, *tags: str) -> bool:
         return any(t in self.tags for t in tags)
@@ -185,6 +191,14 @@ class CallSite:
     #: the first, so every op written inside a method was silently dropped.
     enclosing_class: Optional["ClassIR"] = None
     target_function: Optional["FunctionIR"] = None  # workspace function being called
+    #: ANA-5a. A **per-call** signal: the callee expression is not a name or an
+    #: attribute chain (a call of a call, a subscript, a lambda), or it is a
+    #: name whose binding the analyzer could not follow (a `match`-assigned
+    #: value, a dataclass `default_factory`). The value is the noun phrase the
+    #: diagnostic names. It is deliberately **not** `ScopeIR.mark_dynamic`:
+    #: `DYNAMIC_FACTOR` 0.7 applies per scope, so widening the scope flag would
+    #: move the confidence of every finding in the same function.
+    unresolved_callee: Optional[str] = None
 
     def matches(self, *fqns: str) -> bool:
         return any(f in self.canonical_fqns for f in fqns)
@@ -268,6 +282,26 @@ class ClassIR:
     @property
     def is_nn_module(self) -> bool:
         return "torch.nn.Module" in self.resolved_bases
+
+    @property
+    def is_model_module(self) -> bool:
+        """FW-RECOG: an `nn.Module` **or** an equivalent framework model base.
+
+        `pytorch_lightning.LightningModule` subclasses an `nn.Module`, so a
+        `LitClassifier` is a model in every sense the graph cares about - and
+        MLView drew it as `kind: class` in the Config lane while the
+        `SmallCNN` two files away was `kind: model`. `is_nn_module` keeps its
+        exact torch meaning for the readers that need it (`torch.nn.Module.*`
+        method proposal); this is the question the graph actually asks.
+        """
+        from ..knowledge import is_model_base
+        return is_model_base(self.resolved_bases)
+
+    @property
+    def is_hook_owner(self) -> bool:
+        """True when this class's methods are framework hooks, not methods."""
+        from ..knowledge import HOOK_OWNER_BASES
+        return any(base in HOOK_OWNER_BASES for base in self.resolved_bases)
 
     @property
     def workspace_fqn(self) -> str:

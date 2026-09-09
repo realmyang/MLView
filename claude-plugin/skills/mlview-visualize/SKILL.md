@@ -54,6 +54,11 @@ second wastes both the context window and the answer.
    analysis, so an analyzed project cannot rewrite what a rule means.
 5. **`mlview_open_diagram`** — only when the user wants to *look* at it. It
    launches a browser, so do not call it speculatively.
+   - **A picture file is the viewer's job, not this server's.** Asked for an SVG,
+     a PNG, or "an image for the PR": give the user `reportPath` and tell them the
+     report's own export menu produces it — or, in VS Code, `MLView: Export Diagram
+     as SVG` / `... as PNG`. The payload's `exportHint` is that sentence. This
+     server writes HTML and nothing else; never name a file it did not write.
 
 ## When to scope
 

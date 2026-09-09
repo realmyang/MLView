@@ -111,3 +111,12 @@ export {
   DISABLE_RULE_COMMAND,
   CONFIG_FILE
 } from './codeActions';
+// VIEW-07 — the diagram picture export (docs/contracts/11.33-diagram-export.md).
+export {
+  decodeExportPayload,
+  defaultExportName,
+  exportScopeChoices,
+  requestDiagramExport,
+  saveExportedFile,
+  MAX_EXPORT_BYTES
+} from './exportDiagram';

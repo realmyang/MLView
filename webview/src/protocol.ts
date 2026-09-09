@@ -22,6 +22,8 @@ export interface ProtocolHandlers {
   restoreState(state: ViewState): void;
   /** `spec: null` clears the scope. NEVER triggers a re-analysis (11.7). */
   setScope(spec: string | null, depth: number | undefined): void;
+  /** VIEW-07: draw the diagram and answer with one `exportFile`. */
+  requestExport(kind: 'svg' | 'png', scope: 'view' | 'all' | 'scope' | undefined): void;
   onUnknown(type: string): void;
 }
 
@@ -63,6 +65,9 @@ export function dispatchHostMessage(msg: HostToUi, h: ProtocolHandlers): void {
       return;
     case 'setScope':
       h.setScope(msg.spec, msg.depth);
+      return;
+    case 'requestExport':
+      h.requestExport(msg.kind === 'png' ? 'png' : 'svg', msg.scope);
       return;
     case 'cursorHint':
       // followCursor is designed but out of scope for the prototype (A6).

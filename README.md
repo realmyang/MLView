@@ -100,7 +100,16 @@ F5 launches an Extension Development Host. Open a Python ML project in it, then:
   (`Alt+M`, also on the editor context menu) · `Scope Diagram to Symbol`
   (`Alt+Shift+M`, also on the editor context menu — it scopes the panel to the
   unit the cursor is inside) · `Clear Diagram Scope` · `Export HTML` ·
-  `Select Interpreter` · `Show Output` · `Show Rule Doc`.
+  `Export Diagram as SVG` / `as PNG` · `Select Interpreter` · `Show Output` ·
+  `Show Rule Doc`.
+- **Exporting the picture.** `Export Diagram as SVG` / `as PNG` ask the open
+  diagram for the whole diagram, the current view or the current scope, then a
+  save dialog writes the file. The host cannot draw the diagram — only the viewer
+  holds the geometry — so the command posts a request and the viewer answers with
+  the bytes; with no diagram open the command says so rather than exporting an
+  empty picture. In a terminal host `mlview_open_diagram` writes the **HTML**
+  report and hands back `reportPath` plus an `exportHint`: an image file is the
+  viewer's job, and the MCP server never claims otherwise.
 - **Problems panel** — findings at or above `mlview.minConfidence` (default 0.6)
   are published as diagnostics with `source: "MLView"`, the rule code linking to
   a **local** offline doc page, and `relatedInformation` for every related site.

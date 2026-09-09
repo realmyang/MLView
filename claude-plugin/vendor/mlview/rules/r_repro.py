@@ -108,6 +108,11 @@ _ALWAYS_RANDOM = {
     "sklearn.model_selection.StratifiedShuffleSplit": "random_state",
     "sklearn.model_selection.GroupShuffleSplit": "random_state",
     "torch.utils.data.random_split": "generator",
+    # FW-RECOG: the HuggingFace spelling. `Dataset.train_test_split` shuffles by
+    # default and takes `seed=`, so an unseeded call really is a different split
+    # on every run - the rule was structurally unreachable on the HF path only
+    # because the knowledge tables had no row for it.
+    "datasets.Dataset.train_test_split": "seed",
 }
 #: Splitters that are deterministic unless `shuffle=True` is passed.
 _SHUFFLE_OPTIONAL = {
@@ -119,7 +124,8 @@ _SHUFFLE_OPTIONAL = {
 }
 
 
-@rule(code="MLV602", severity="low", base_prior=0.95, frameworks=["sklearn", "torch"],
+@rule(code="MLV602", severity="low", base_prior=0.95,
+      frameworks=["sklearn", "torch", "hf"],
       rule_version=1, tags=["reproducibility", "data"],
       title="Split without random_state / generator",
       why="A different split every run means the reported score moves for reasons that "

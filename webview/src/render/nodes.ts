@@ -102,7 +102,12 @@ function chipMetrics(width: number): ChipMetrics | null {
   };
 }
 
-function chipsFor(node: MLNode, metrics?: ChipMetrics | null, budget = 26, maxChips = 3): string[] {
+/**
+ * Exported for VIEW-07: the SVG export draws the SAME chips as the card, with
+ * its own advance metric. Two budgeting rules would put a different chip row on
+ * the picture you export from the one on the picture you were looking at.
+ */
+export function chipsFor(node: MLNode, metrics?: ChipMetrics | null, budget = 26, maxChips = 3): string[] {
   const keys = Object.keys(node.attrs || {});
   const sublabel = node.sublabel || '';
   const candidates: string[] = [];

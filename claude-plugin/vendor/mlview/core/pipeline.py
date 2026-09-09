@@ -18,6 +18,7 @@ from ..rules import Suppressor, cross_file_codes, load_config, run_all
 from ..rules.context import GraphContext
 from .build import GraphBuilder
 from .coverage import note_untraced_sites, single_file_diagnostic
+from .unresolved import unresolved_callee_diagnostics
 from .graph import Diagnostic, MLGraph, SEVERITY_RANK
 from .progress import safe_call
 
@@ -156,6 +157,12 @@ def run(options: AnalyzeOptions) -> AnalysisResult:
                     "unresolved. Narrow the analyzed path, or file the workspace "
                     "shape as a bug." % getattr(workspace, "ir_rounds", 0),
             count=getattr(workspace, "ir_rounds", 0)))
+
+    # ANA-5a: a call whose callee the analyzer could not resolve is drawn as an
+    # `unknown` op and said out loud, one row per (file, scope). Before this an
+    # odd-syntax file lost its whole training step with `dynamic: 0` on every
+    # node it kept, which is indistinguishable from a clean read.
+    graph.diagnostics.extend(unresolved_callee_diagnostics(workspace))
 
     for relpath, line, message in workspace.unresolved_imports:
         graph.diagnostics.append(Diagnostic(

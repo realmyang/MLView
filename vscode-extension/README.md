@@ -93,6 +93,8 @@ CodeLens and *Reveal in Diagram* keep working regardless.
 | `MLView: Scope Diagram to Symbol` | **Alt+Shift+M**, editor context menu | Draws only the unit the cursor is in, plus one hop of context |
 | `MLView: Clear Diagram Scope` | — | Puts the whole workspace back on the diagram |
 | `MLView: Export HTML Report` | — | Save dialog, then `analyze --html <file>` at the diagram's current scope; offers to open it |
+| `MLView: Export Diagram as SVG` | — | Asks the open diagram for a standalone SVG of the whole diagram, the current view or the current scope, then a save dialog |
+| `MLView: Export Diagram as PNG` | — | The same, as a raster image |
 | `MLView: Select Python Interpreter` | — | Python extension picker, or the `mlview.pythonPath` setting |
 | `MLView: Show Output` | — | The MLView output channel |
 | `MLView: Open Rule Documentation` | — | Opens the offline `MLVnnn.md` rule page |
@@ -108,6 +110,27 @@ own scope breadcrumb (`Scoped to validate() · depth 1 · 9 of 54 nodes`) — a 
 exposes a title and no subtitle. `MLView: Clear Diagram Scope` restores the whole workspace,
 and does nothing at all when no diagram is open. With the cursor inside no node at all,
 nothing is scoped and a toast says so: a scope is never guessed.
+
+### Exporting the picture (VIEW-07)
+
+`MLView: Export Diagram as SVG` and `... as PNG` ask the **open diagram** for the picture:
+the extension host cannot draw one, because the geometry — lane bands, card rectangles,
+routed edge paths, resolved theme colours — exists only inside the viewer once it has laid
+the graph out. So the command posts `requestExport { kind, scope }`, the viewer renders and
+answers with `exportFile`, and the extension decodes the bytes, opens a save dialog in the
+workspace folder and writes the file with `workspace.fs`. A webview cannot download a file
+of its own — an `<a download>` in a VS Code webview is inert — which is why the bytes travel
+through the message protocol rather than out of the sandbox.
+
+Each command first asks **what** the picture should contain: the whole diagram, the current
+view, or the current scope (offered only while the diagram is scoped). Both commands accept
+that choice as an argument, so a keybinding can skip the pick:
+`{ "command": "mlview.exportSvg", "args": "all" }`.
+
+The host writes only what it recognises: a payload that is not the format that was requested
+is refused before the save dialog opens, and a name the viewer suggests is used as a
+**basename only**. Nothing is exported while the diagram is closed — the command says so
+rather than opening an empty picture.
 
 `MLView: Export HTML Report` follows the scope: a report exported from a scoped panel opens on
 the same projection (`--scope <SPEC>`, plus the depth the viewer last saved). The file still

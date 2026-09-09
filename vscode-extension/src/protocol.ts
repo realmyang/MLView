@@ -27,6 +27,22 @@ export interface Sel {
 /** Opaque to the host: it is stored and handed back verbatim. */
 export type ViewState = Record<string, unknown>;
 
+/** VIEW-07: the picture formats the viewer can render for the host to save. */
+export type ExportKind = 'svg' | 'png';
+
+/**
+ * VIEW-07: which projection the picture shows. `view` is the current viewport, `all` the
+ * whole diagram, `scope` the active §11.1 scope (which the viewer refuses when unscoped).
+ */
+export type ExportScope = 'view' | 'all' | 'scope';
+
+/**
+ * VIEW-07. A base64 payload has 4 characters per 3 bytes, so this is the 32 MiB decoded
+ * ceiling written as the character count the guard can check BEFORE anything is decoded —
+ * a webview must not be able to make the extension host allocate an arbitrary buffer.
+ */
+export const MAX_EXPORT_BASE64_CHARS = Math.ceil((32 * 1024 * 1024) / 3) * 4;
+
 export interface HostCapabilities {
   canOpenSource: boolean;
   canReanalyze: boolean;
@@ -78,7 +94,15 @@ export type HostToUi =
    * `requestRefresh` already carry a field literally named `scope`, and reusing the word would
    * be a live collision. `spec: null` clears the scope.
    */
-  | { v: 1; type: 'setScope'; spec: string | null; depth?: number };
+  | { v: 1; type: 'setScope'; spec: string | null; depth?: number }
+  /**
+   * VIEW-07 (docs/contracts/11.33-diagram-export.md). "Render this picture and send me the
+   * bytes." The host cannot render the diagram — only the viewer holds the `LayoutFrame` —
+   * so an export command is a REQUEST, and the answer is a separate `exportFile` message.
+   * A viewer that does not implement it ignores an unknown type, which is why nothing here
+   * blocks on a reply and why the command says what it asked for rather than what it saved.
+   */
+  | { v: 1; type: 'requestExport'; kind: ExportKind; scope: ExportScope };
 
 export interface OpenLocationMessage {
   v: 1;
@@ -112,6 +136,12 @@ export type UiToHost =
    */
   | SuppressRuleMessage
   /**
+   * VIEW-07. The rendered picture, coming back from the viewer. The webview sandbox has no
+   * download of its own, so the bytes travel through the protocol and the HOST owns the
+   * save dialog and the write (docs/contracts/11.33-diagram-export.md).
+   */
+  | ExportFileMessage
+  /**
    * CONTRACTS.md §11.7. Posted on EVERY scope change including a clear (then `spec: null`,
    * `label: "Everything"`, `nodes === of`). The host uses it for the panel title and
    * description; it must NEVER trigger a re-analysis.
@@ -128,6 +158,23 @@ export interface SuppressRuleMessage {
   absFile?: string;
   /** 1-based, like every `Loc.line` in the document (CONTRACTS §0). */
   line?: number;
+}
+
+export interface ExportFileMessage {
+  v: 1;
+  type: 'exportFile';
+  /** `svg` or `png`; anything else is rejected by `isUiToHost`, not by the handler. */
+  kind: ExportKind;
+  /**
+   * Base64 of the FILE's bytes — for SVG that is base64 of the UTF-8 text, not the text.
+   * One encoding for both kinds is what keeps the host's write path byte-exact and
+   * identical for the two formats.
+   */
+  data: string;
+  /** A basename hint. Directory separators are stripped; the user still gets a save dialog. */
+  suggestedName?: string;
+  /** Echoed from `requestExport` so the toast can say what was exported. */
+  scope?: ExportScope;
 }
 
 export interface ScopeChangedMessage {
@@ -158,7 +205,8 @@ export const UI_TO_HOST_TYPES: readonly UiToHostType[] = [
   'askAssistant',
   'log',
   'scopeChanged',
-  'suppressRule'
+  'suppressRule',
+  'exportFile'
 ];
 
 export const HOST_TO_UI_TYPES: readonly HostToUiType[] = [
@@ -174,7 +222,8 @@ export const HOST_TO_UI_TYPES: readonly HostToUiType[] = [
   'setFilter',
   'stale',
   'restoreState',
-  'setScope'
+  'setScope',
+  'requestExport'
 ];
 
 /** The four error-banner action ids the host answers (CONTRACTS.md §4, UX §12 "hard error"). */
@@ -195,6 +244,36 @@ export function isUiToHostType(type: unknown): type is UiToHostType {
 
 export function isHostToUiType(type: unknown): type is HostToUiType {
   return typeof type === 'string' && (HOST_TO_UI_TYPES as readonly string[]).includes(type);
+}
+
+/**
+ * VIEW-07. Checked BEFORE anything is decoded: `data` must be pure base64 (no whitespace,
+ * no data: prefix, no path) and must be under the size ceiling, so a hostile or broken
+ * viewer cannot make the extension host allocate an arbitrary buffer. `suggestedName` is a
+ * basename hint only — a name carrying a separator or `..` is rejected here rather than
+ * sanitized silently, because a rejected export is visible and a rewritten path is not.
+ */
+function isExportFile(value: Record<string, unknown>): boolean {
+  const data = value['data'];
+  const name = value['suggestedName'];
+  return (
+    (value['kind'] === 'svg' || value['kind'] === 'png') &&
+    typeof data === 'string' &&
+    data.length > 0 &&
+    data.length <= MAX_EXPORT_BASE64_CHARS &&
+    /^[A-Za-z0-9+/]+={0,2}$/.test(data) &&
+    data.length % 4 === 0 &&
+    (name === undefined ||
+      (typeof name === 'string' &&
+        name.length > 0 &&
+        name.length <= 128 &&
+        !/[\\/]/.test(name) &&
+        !name.includes('..'))) &&
+    (value['scope'] === undefined ||
+      value['scope'] === 'view' ||
+      value['scope'] === 'all' ||
+      value['scope'] === 'scope')
+  );
 }
 
 /**
@@ -243,6 +322,8 @@ export function isUiToHost(value: unknown): value is UiToHost {
         (value['absFile'] === undefined || typeof value['absFile'] === 'string') &&
         (value['line'] === undefined || (isFiniteNumber(value['line']) && value['line'] >= 1))
       );
+    case 'exportFile':
+      return isExportFile(value);
     case 'scopeChanged':
       return (
         (typeof value['spec'] === 'string' || value['spec'] === null) &&

@@ -49,7 +49,9 @@ FIELDS = ("dataEntry", "objective", "evaluation", "verdict")
 _LABELS = {"dataEntry": "data", "objective": "objective",
            "evaluation": "evaluation", "verdict": "verdict"}
 _SEVERITY_RANK = {"low": 0, "medium": 1, "high": 2}
-_COVERAGE_KINDS = ("untagged_dataflow", "single_file_analysis")
+#: ANA-5a adds `unresolved_callee`: a call MLView could not read is exactly the
+#: reason a verdict of "no findings" must not be read as a clean bill of health.
+_COVERAGE_KINDS = ("untagged_dataflow", "single_file_analysis", "unresolved_callee")
 _MAX_CITED = 3
 
 

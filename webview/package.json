@@ -9,10 +9,11 @@
   "scripts": {
     "build": "node build.mjs",
     "check": "tsc --noEmit",
-    "test": "node --test test/a11y.test.mjs test/adopt.test.mjs test/bridges.test.mjs test/bundle.test.mjs test/charge.test.mjs test/composition.test.mjs test/contrast.test.mjs test/devpages.test.mjs test/flow.test.mjs test/gestures.test.mjs test/interaction.test.mjs test/labels.test.mjs test/layout.test.mjs test/markers.test.mjs test/orient.test.mjs test/parity.test.mjs test/regressions.test.mjs test/scope.test.mjs test/scope_parity.test.mjs test/search.test.mjs test/trust.test.mjs",
+    "test": "node --test test/a11y.test.mjs test/adopt.test.mjs test/bridges.test.mjs test/bundle.test.mjs test/charge.test.mjs test/composition.test.mjs test/contrast.test.mjs test/devpages.test.mjs test/export.test.mjs test/flow.test.mjs test/gestures.test.mjs test/interaction.test.mjs test/labels.test.mjs test/layout.test.mjs test/markers.test.mjs test/orient.test.mjs test/parity.test.mjs test/regressions.test.mjs test/scope.test.mjs test/scope_parity.test.mjs test/search.test.mjs test/trust.test.mjs",
     "render-sample": "node test/render_sample.mjs",
     "refresh-sample": "node dev/refresh-sample.mjs",
-    "render-report": "node test/render_report.mjs"
+    "render-report": "node test/render_report.mjs",
+    "export-svg": "node test/export_svg.mjs"
   },
   "dependencies": {
     "@dagrejs/dagre": "3.1.1"

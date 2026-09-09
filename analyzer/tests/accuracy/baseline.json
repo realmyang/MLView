@@ -27,10 +27,10 @@
   },
   "graphFidelity": {
     "opsLabelled": 139,
-    "opsRecovered": 120,
-    "score": 0.8633
+    "opsRecovered": 126,
+    "score": 0.9065
   },
-  "note": "ANA-12 day one, re-recorded by the ANA-1/2/3 re-baseline (2026-09-08): graph fidelity 0.6619 -> 0.8633 (92 -> 120 of 139 labelled ops recovered) because ops written inside class methods are no longer dropped; every recall and precision number is unchanged. Recall may only ratchet up; a forbidden finding is never tolerated. Regenerate with `python tools/accuracy.py --update-baseline` and say in the commit body which rule change earned the new number.",
+  "note": "Re-recorded by the FW-RECOG / ANA-5a framework re-baseline (2026-09-09, CONTRACTS 11.23): graph fidelity 0.8633 -> 0.9065 (120 -> 126 of 139 labelled ops). The six are keras_tfdata's tf.data chain (map / shuffle / batch, now recognised and anchored on the method name rather than on the start of the receiver), hf_trainer_finetune's `datasets.Dataset.map`, and the two nodes lightning_tabular's hook units add. Every precision and recall number is unchanged: precision 1.0, overall recall 0.629, unseen recall 0.5106. Recall may only ratchet up; a forbidden finding is never tolerated. Regenerate with `python tools/accuracy.py --update-baseline` and say in the commit body which change earned the new number.",
   "overall": {
     "expectedLabels": 62,
     "falsePositives": 0,
@@ -199,7 +199,7 @@
     }
   },
   "programs": 10,
-  "recordedOn": "2026-09-08",
+  "recordedOn": "2026-09-09",
   "unseen": {
     "expectedLabels": 47,
     "falsePositives": 0,

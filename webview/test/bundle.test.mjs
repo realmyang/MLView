@@ -92,22 +92,25 @@ test('dist/mlview.css IS the minification of dist/mlview.dev.css (BUILD-01)', as
 /*
  * BUILD-01's size ratchet.
  *
- * MEASURED ON THIS TREE, 2026-09-09, after the Sprint 4 viewer drop (VIEW-03
- * label placement, VIEW-12 accessibility scaffolding, MLV-P1's answer card,
- * MLV-P10's suppression actions and CI-ADOPT's change chips):
- *   dist/mlview.js       237 749 B (232.2 KB)
- *   dist/mlview.css       57 243 B  (55.9 KB), minified from 95 541 B (-40%)
- *   dist/mlview.dev.css   95 541 B  (93.3 KB, never shipped)
+ * MEASURED ON THIS TREE, 2026-09-09, after VIEW-07 (diagram export) landed on
+ * top of the Sprint 4 viewer drop:
+ *   dist/mlview.js       266 398 B (260.2 KB)
+ *   dist/mlview.css       60 234 B  (58.8 KB), minified from 101 293 B (-41%)
+ *   dist/mlview.dev.css  101 293 B  (98.9 KB, never shipped)
  *
- * WHY BOTH CAPS MOVE, which is the number a lead looks for. Sprint 3 shipped
- * 219 359 B of JS under a 216 KB cap and 54 052 B of CSS under a 55 KB cap, with
- * 0.8 % and 4.0 % of headroom left. This round adds five roadmap items that are
- * all rendering: +18.4 KB of JS (the label planner, the roving toolbar, the
- * answer card, the suppression actions and their types) and +3.1 KB of minified
- * CSS. Neither cap could absorb that, and a cap the tree already exceeds gates
- * nothing — so both are re-set ONCE, here, against a measured tree: JS 236 KB
- * and CSS 58 KB, which is the same ~1.6 % / ~3.6 % of headroom the previous
- * ratchet held. The ratchet's job is unchanged: make the NEXT growth visible.
+ * WHY BOTH CAPS MOVE AGAIN, which is the number a lead looks for. The previous
+ * ratchet (JS 236 KB / CSS 58 KB) was set against 237 749 B and 57 243 B. VIEW-07
+ * adds a SECOND RENDERER -- `export/svg.ts` emits the same picture as real
+ * `<rect>` / `<text>` / `<path>` -- plus its palette, its rasteriser, its menu
+ * and one new stylesheet layer: +28.0 KB of JS (svg + svgprim 10.5, menu 4.7,
+ * actions 3.6, palette 3.2, raster + plan + download 2.6, and 3.4 across app /
+ * bridges / canvasview / protocol / demo) and +2.9 KB of minified CSS
+ * (`styles/export.css`: the menu, and the `@media print` block that is the
+ * fourth output). That is the cost of the item, not drift: a bundle that draws
+ * the diagram twice is bigger than one that draws it once. So both are re-set
+ * ONCE, here, against a measured tree: JS 268 KB and CSS 61 KB, leaving 8 034 B
+ * (2.9 %) and 2 230 B (3.6 %) of headroom -- the same order the last two
+ * ratchets held. The ratchet's job is unchanged: make the NEXT growth visible.
  *
  * The two figures above are GATED, not just written down: `JS_RECORDED` /
  * `CSS_RECORDED` are asserted against the built files with a 2 KB tolerance, so
@@ -115,11 +118,11 @@ test('dist/mlview.css IS the minification of dist/mlview.dev.css (BUILD-01)', as
  * quietly outliving it (TB-14). Every assertion below names the measured size
  * and the remaining headroom.
  */
-const JS_RECORDED = 237749;
-const CSS_RECORDED = 57243;
+const JS_RECORDED = 266398;
+const CSS_RECORDED = 60234;
 const DRIFT = 2 * 1024;
-const JS_MAX_BYTES = 236 * 1024;
-const CSS_MAX_BYTES = 58 * 1024;
+const JS_MAX_BYTES = 268 * 1024;
+const CSS_MAX_BYTES = 61 * 1024;
 
 const headroom = (size, cap) =>
   size + ' B, ' + (cap - size) + ' B (' + (((cap - size) / cap) * 100).toFixed(1) + ' %) under the ' + cap + ' B ratchet';
@@ -216,7 +219,7 @@ test('every component the viewer hides has a [hidden] rule in the stylesheet', (
   // switcher, the unscoped toolbar drew an empty breadcrumb pill, and
   // "0 suppressed" was painted while the code believed it had hidden it.
   // Every class below is toggled through `.hidden = ...` in src/.
-  for (const cls of ['mlv-chip', 'mlv-breadcrumb', 'mlv-scopepicker', 'mlv-legend']) {
+  for (const cls of ['mlv-chip', 'mlv-breadcrumb', 'mlv-scopepicker', 'mlv-legend', 'mlv-exportmenu']) {
     const base = devCss.indexOf('.' + cls + ' {');
     assert.ok(base >= 0, '.' + cls + ' has no rule at all');
     const baseBlock = devCss.slice(base, devCss.indexOf('}', base)).split(' ').join('');

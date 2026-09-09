@@ -109,6 +109,18 @@
         "icon": "$(export)"
       },
       {
+        "command": "mlview.exportSvg",
+        "title": "Export Diagram as SVG",
+        "category": "MLView",
+        "icon": "$(file-media)"
+      },
+      {
+        "command": "mlview.exportPng",
+        "title": "Export Diagram as PNG",
+        "category": "MLView",
+        "icon": "$(device-camera)"
+      },
+      {
         "command": "mlview.selectInterpreter",
         "title": "Select Python Interpreter",
         "category": "MLView",

@@ -18,6 +18,7 @@ import { registerChatSurfaces } from './chatSurfaces';
 import { registerSuppressionActions, runSuppression, type SuppressRequest } from './codeActions';
 import { MlviewCodeLensProvider } from './codelens';
 import { exportHtml, showIssues, showRuleDoc, type CommandHost } from './commands';
+import { requestDiagramExport, type ExportPanelLike } from './exportDiagram';
 import { CoreClient, CoreError, scopeKey, type CoreAction } from './coreClient';
 import { focusScopeSpec, resolveCurrentFileTarget } from './currentFile';
 import { DiagnosticsPublisher } from './diagnostics';
@@ -30,7 +31,7 @@ import { buildLocationIndex, type LocationIndex } from './locationIndex';
 import { createLogger, type Logger } from './log';
 import { type CoreLike } from './lmTools';
 import { MlviewPanel, themeKindOf, VIEW_TYPE, type PanelDelegate } from './panel';
-import { nextRequestId, type AnalysisScope } from './protocol';
+import { nextRequestId, type AnalysisScope, type ExportScope } from './protocol';
 import { PythonEnvironment } from './pythonEnv';
 import { revealInDiagram, type RevealArgs } from './revealInDiagram';
 import { clearScope, scopeToSymbol, type ScopeDeps } from './scopeCommands';
@@ -143,6 +144,9 @@ class MlviewController implements PanelDelegate, CoreLike, CommandHost, vscode.D
       cmd('mlview.scopeToSymbol', () => scopeToSymbol(this.diagramDeps())),
       cmd('mlview.clearScope', () => clearScope(this.diagramDeps())),
       cmd('mlview.exportHtml', () => exportHtml(this)),
+      // VIEW-07 (11.33): the host cannot draw, so these ASK the open panel for the bytes.
+      cmd('mlview.exportSvg', (s?: ExportScope) => requestDiagramExport('svg', this.exportDeps(), s)),
+      cmd('mlview.exportPng', (s?: ExportScope) => requestDiagramExport('png', this.exportDeps(), s)),
       cmd('mlview.selectInterpreter', () => this.env.selectInterpreter()),
       cmd('mlview.showOutput', () => this.log.show(false)),
       cmd('mlview.showRuleDoc', (code?: string) => showRuleDoc(this, code)),
@@ -537,6 +541,11 @@ class MlviewController implements PanelDelegate, CoreLike, CommandHost, vscode.D
       this.lastScope.path
     );
     void this.analyzeScope(this.lastScope);
+  }
+
+  /** VIEW-07: the export commands see the LIVE panel only; they never open one. */
+  private exportDeps(): { log: Logger; panel(): ExportPanelLike | undefined } {
+    return { log: this.log, panel: () => this.livePanel() };
   }
 
   onExportHtml(): void {

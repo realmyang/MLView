@@ -16,7 +16,7 @@ from typing import Optional
 from ..ingest.parse import ParsedFile
 from .model import Loc
 
-__all__ = ["loc_of", "symbol_slice", "expr_symbol"]
+__all__ = ["loc_of", "call_loc", "symbol_slice", "expr_symbol"]
 
 _MAX_SYMBOL = 120
 
@@ -114,3 +114,51 @@ def loc_of(parsed: ParsedFile, node: ast.AST, symbol: Optional[str] = None,
             sym = None
     return Loc(file=parsed.relpath, absFile=parsed.abspath, line=start_line, col=col,
                endLine=end_line, endCol=end_col, symbol=sym, snippet=snippet)
+
+
+def call_loc(parsed: ParsedFile, node: ast.Call) -> Loc:
+    """A `Loc` for a call, anchored on the method name in a multi-line chain.
+
+    `ast` gives a method call the position of the **start of its receiver**, so
+    every link of
+
+        ds = (tf.data.Dataset.from_tensor_slices((x, y))
+              .map(normalize)
+              .shuffle(4096)
+              .batch(128))
+
+    reports the line of `from_tensor_slices`: five nodes stacked on one line,
+    and click-to-code that never lands on the call you clicked. When the callee
+    attribute **ends on a later line** than the expression starts, the method
+    name is the honest anchor and the only one a reader can find.
+
+    A call written on one line is untouched - `func.end_lineno == node.lineno`
+    - so every existing `Loc` in every fixture is byte-identical, which is what
+    keeps R2.1's re-slice guarantee (`tests/core/test_locations.py`) provable
+    rather than re-measured.
+    """
+    func = node.func
+    if not isinstance(func, ast.Attribute):
+        return loc_of(parsed, node)
+    end_line = getattr(func, "end_lineno", None)
+    raw_end_col = getattr(func, "end_col_offset", None)
+    if (end_line is None or raw_end_col is None
+            or end_line == (getattr(node, "lineno", None) or end_line)):
+        return loc_of(parsed, node)
+    col = parsed.char_col(end_line, raw_end_col) - len(func.attr)
+    if col < 0 or parsed.line_text(end_line)[col:col + len(func.attr)] != func.attr:
+        return loc_of(parsed, node)
+    node_end_line, node_raw_end = _end_of(node, end_line, raw_end_col)
+    node_end_col = parsed.char_col(node_end_line, node_raw_end)
+    if node_end_line < end_line:
+        node_end_line, node_end_col = end_line, col
+    if node_end_line == end_line and node_end_col < col:
+        node_end_col = col
+    snippet = parsed.snippet(end_line)
+    sym = func.attr
+    if snippet is not None:
+        found = snippet.find(sym)
+        if found < 0 or (snippet.count(sym) == 1 and found != col):
+            sym = None
+    return Loc(file=parsed.relpath, absFile=parsed.abspath, line=end_line, col=col,
+               endLine=node_end_line, endCol=node_end_col, symbol=sym, snippet=snippet)

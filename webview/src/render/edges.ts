@@ -122,6 +122,12 @@ export interface EdgeVisual {
    * pages build edges without a frame, and a missing plan must not lose a label.
    */
   placement?: LabelPlacement;
+  /**
+   * VIEW-07: true when a stage filter dims one of the endpoints. The DOM adds
+   * `.is-filtered`; the SVG export drops the same opacity inline, so the two
+   * renderers dim the same cables.
+   */
+  filtered?: boolean;
 }
 
 export function buildEdge(v: EdgeVisual): SVGElement {

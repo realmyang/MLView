@@ -53,6 +53,9 @@ test('activate registers every command unconditionally and never throws', () => 
       'mlview.copyIgnoreComment',
       'mlview.disableRule',
       'mlview.exportHtml',
+      // VIEW-07: the two picture exports; both are contributed AND registered here.
+      'mlview.exportPng',
+      'mlview.exportSvg',
       'mlview.refresh',
       'mlview.revealInDiagram',
       'mlview.scopeToSymbol',

@@ -11,6 +11,16 @@ from functools import lru_cache
 from typing import Dict, Optional, Tuple
 
 from .entries import E, Entry
+from .gbm_tbl import GBM, GBM_METHODS
+from .hf_tbl import HF_DATA, HF_DATA_METHODS
+from .hooks_tbl import (
+    HOOK_OWNER_BASES,
+    HOOK_STAGES,
+    LIGHTNING_HOOK_ROLES,
+    LIGHTNING_METHOD_ENTRIES,
+    LIGHTNING_ROOTS,
+    hook_stage,
+)
 from .other_tbl import (
     ARGPARSE_METHODS,
     FRAME_METHODS,
@@ -20,6 +30,13 @@ from .other_tbl import (
     OTHER,
 )
 from .sklearn_tbl import SKLEARN, SKLEARN_METHODS, STATELESS_TRANSFORMERS
+from .tf_tbl import (
+    KERAS_EXTRA,
+    KERAS_EXTRA_METHODS,
+    TFDATA,
+    TFDATA_METHODS,
+    TF_PREFIX_RULES,
+)
 from .torch_tbl import (
     AUTOCAST_FQNS,
     ENABLE_GRAD_FQNS,
@@ -38,6 +55,9 @@ __all__ = [
     "ZERO_GRAD_ROLES", "BACKWARD_ROLES", "NO_GRAD_FQNS", "ENABLE_GRAD_FQNS",
     "AUTOCAST_FQNS", "TORCH_FAMILY_BASE", "STATELESS_TRANSFORMERS",
     "OP_ROLES", "SOFTMAX_ROLES", "CONFIG_ROLES", "STAGE_IDS", "STAGE_LABELS",
+    # FW-RECOG (CONTRACTS 11.23) - framework hooks and the model base set
+    "HOOK_STAGES", "HOOK_OWNER_BASES", "LIGHTNING_HOOK_ROLES", "LIGHTNING_ROOTS",
+    "hook_stage", "MODEL_BASES", "is_model_base",
 ]
 
 #: Every constructor / free function we recognise.
@@ -45,6 +65,10 @@ KNOWLEDGE: Dict[str, Entry] = {}
 KNOWLEDGE.update(TORCH)
 KNOWLEDGE.update(SKLEARN)
 KNOWLEDGE.update(OTHER)
+KNOWLEDGE.update(TFDATA)
+KNOWLEDGE.update(KERAS_EXTRA)
+KNOWLEDGE.update(HF_DATA)
+KNOWLEDGE.update(GBM)
 
 #: Every *method* we recognise, keyed by its canonical base FQN.
 METHODS: Dict[str, Entry] = {}
@@ -55,6 +79,11 @@ METHODS.update(HF_METHODS)
 METHODS.update(LIGHTNING_METHODS)
 METHODS.update(ARGPARSE_METHODS)
 METHODS.update(FRAME_METHODS)
+METHODS.update(TFDATA_METHODS)
+METHODS.update(KERAS_EXTRA_METHODS)
+METHODS.update(HF_DATA_METHODS)
+METHODS.update(GBM_METHODS)
+METHODS.update(LIGHTNING_METHOD_ENTRIES)
 
 #: Everything, for a single lookup.
 ALL: Dict[str, Entry] = {}
@@ -103,7 +132,7 @@ _PREFIX_RULES: Tuple[Tuple[str, Entry], ...] = (
     ("sklearn.datasets.", E("dataset", "data", "sklearn", "DATASET", ("RAW_DATA",), None, 0.8)),
     ("imblearn.", E("transform", "preprocess", "imblearn", "RESAMPLE", (), "estimator", 0.7)),
     ("albumentations.", E("augment", "preprocess", "albumentations", "AUGMENT", (), None, 0.7)),
-)
+) + TF_PREFIX_RULES
 
 _ALIAS_PREFIXES = (("tf.", "tensorflow."),)
 
@@ -161,7 +190,14 @@ def lookup(fqn: Optional[str]) -> Optional[Entry]:
         entry = ALL.get(alt)
         if entry is not None:
             return entry
-    return _prefix_entry(fqn)
+    row = _prefix_entry(fqn)
+    if row is None and alt != fqn:
+        # FW-RECOG: the alias rewrite used to apply to the exact tables only, so
+        # `tf.keras.applications.ResNet50` missed the `tensorflow.keras.
+        # applications.` prefix rule that the same symbol written the long way
+        # hits. A prefix family is a family whichever alias names it.
+        row = _prefix_entry(alt)
+    return row
 
 
 @lru_cache(maxsize=_LOOKUP_CACHE)
@@ -260,6 +296,15 @@ OP_ROLES = frozenset({
     "TRACKER", "RESAMPLE", "ARGMAX", "SCALE", "SCALER_UPDATE", "UNSCALE",
     "MODEL_FACTORY", "WRAP_MODEL", "SAMPLER", "FORWARD", "TEMPORAL",
     "DETERMINISM", "TO_NUMPY",
+    # FW-RECOG (11.23). tf.data / HuggingFace `datasets` / Keras callbacks /
+    # boosting. `LIGHTNING_LOG`, `LIGHTNING_HPARAMS`, `LIGHTNING_CTL`,
+    # `MODEL_SUMMARY`, `TFDATA_CARD` and every `LIGHTNING_HOOK_*` role are
+    # **deliberately absent**: they are recognised so that no symbol is
+    # fabricated for them, and not drawn, because a per-batch `self.log(...)`
+    # is not a node anybody wants five of.
+    "TFDATA_MAP", "TFDATA_SHUFFLE", "TFDATA_BATCH", "TFDATA_PREFETCH",
+    "TFDATA_SUBSET", "TFDATA_OP", "HF_MAP", "HF_SHUFFLE", "HF_DATA_OP",
+    "COLLATOR", "CALLBACK", "GBM_TRAIN",
 })
 
 # ---------------------------------------------------------------------------
@@ -333,5 +378,18 @@ WRAPPER_BASES = frozenset({
     "lightning.LightningModule",
     "lightning.pytorch.LightningModule",
 })
+
+#: FW-RECOG (11.23). Bases whose subclass **is a model**, so the class node is
+#: drawn in the Model lane with `kind: model`. A `LightningModule` really is an
+#: `nn.Module` subclass, so this is a widening of a base set, never a claim
+#: about a class that does not have one. `ClassIR.is_nn_module` keeps its exact
+#: torch meaning; readers that mean "a model class" ask `is_model_module`.
+MODEL_BASES = frozenset({"torch.nn.Module"}) | frozenset(
+    "%s.LightningModule" % root for root in LIGHTNING_ROOTS)
+
+
+def is_model_base(bases) -> bool:
+    """True when any resolved base makes this class a model class."""
+    return any(base in MODEL_BASES for base in bases or ())
 
 WRAPPER_LABELS = tuple(sorted(set(WRAPPER_FQNS.values())))

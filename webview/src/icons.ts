@@ -97,6 +97,8 @@ const UI_PATHS: Record<string, string> = {
   mute: 'M8 2.4a5.6 5.6 0 1 0 0 11.2 5.6 5.6 0 0 0 0-11.2ZM4 12 12 4',
   /** VIEW-12: the keyboard's copy of the minimap's pointer-only chevron. */
   minimap: 'M2.4 3.6h11.2v8.8H2.4ZM8.4 7.4h4.4v4.4H8.4Z',
+  /** VIEW-07: a picture in a frame — "export the diagram", not the HTML report. */
+  image: 'M2.4 3.4h11.2v9.2H2.4ZM2.4 10.6 5.8 7.4l2.4 2.2 2.2-2 3.2 3M10.3 5.3a1.05 1.05 0 1 0 0 2.1 1.05 1.05 0 0 0 0-2.1Z',
 };
 
 export function uiIcon(name: string, size = 14): SVGElement {

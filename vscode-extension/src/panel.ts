@@ -14,6 +14,7 @@ import * as vscode from 'vscode';
 import { chatAvailable, openAssistantChat } from './chatSurfaces';
 import type { SuppressRequest } from './codeActions';
 import { coverageChip, coverageNotes } from './coverage';
+import { saveExportedFile } from './exportDiagram';
 import type { MLGraph } from './graph';
 import { SCHEMA_VERSION } from './graph';
 import { resolveOpenTarget, toRangeTuple } from './location';
@@ -30,6 +31,8 @@ import {
 import {
   parseUiToHost,
   type AnalysisScope,
+  type ExportKind,
+  type ExportScope,
   type HostToUi,
   type ScopeChangedMessage,
   type ThemeKind,
@@ -390,6 +393,14 @@ export class MlviewPanel implements vscode.Disposable {
     });
   }
 
+  /**
+   * VIEW-07 (docs/contracts/11.33-diagram-export.md). "Render this and send me the bytes."
+   * Deferred like a reveal: a request reaching a webview with no graph draws nothing.
+   */
+  postRequestExport(kind: ExportKind, scope: ExportScope): void {
+    this.post({ v: 1, type: 'requestExport', kind, scope });
+  }
+
   postRestoreState(state: ViewState): void {
     this.post({ v: 1, type: 'restoreState', state });
   }
@@ -442,6 +453,13 @@ export class MlviewPanel implements vscode.Disposable {
         return;
       case 'log':
         this.delegate.log.info(`[webview] ${msg.level}: ${msg.message}`);
+        return;
+      case 'exportFile':
+        // VIEW-07: the save dialog and the write live in src/exportDiagram.ts.
+        await saveExportedFile(msg, {
+          log: this.delegate.log,
+          workspaceRoot: () => this.delegate.workspaceRoot()
+        });
         return;
       case 'suppressRule':
         this.delegate.onSuppressRule({

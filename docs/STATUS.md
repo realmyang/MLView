@@ -247,9 +247,10 @@ byte-identical and the parity battery is untouched.
 **Measured after.** Precision stays **100%** and every recall reading is
 unchanged to four decimals — this was a graph change, not a rule change: unseen
 recall **51.1%** raw / **38.3%** visible / **31.2%** high+medium. Graph fidelity
-is the one number the re-baseline was allowed to move, and it ratchets **66.2% →
-86.3%** (92 → 120 of 139 hand-labelled ops), re-recorded in
-`analyzer/tests/accuracy/baseline.json`. `docs/ACCURACY.md` is the record, and
+is the one number the re-baseline was allowed to move, and it ratcheted **66.2%
+→ 86.3%** (92 → 120 of 139 hand-labelled ops) at the time; Sprint 4's FW-RECOG
+has since taken it to **90.6%** (126 of 139), which is what
+`analyzer/tests/accuracy/baseline.json` records today. `docs/ACCURACY.md` is the record, and
 `scripts/check_docs.py` now holds it to that baseline.
 
 **Also on this branch, outside both host tracks:** PERF-01 and PERF-02 (memoised
@@ -426,6 +427,159 @@ UTF-8 byte offset and neither SARIF enumeration is true of it. And the fuzzer
 does **not** compare `diagnostics`: §11.1 leaves that prose free, so a divergence
 in diagnostic wording or order would still pass.
 
+## Sprint 4 — hosts, wave 2 (2026-09-09)
+
+**VIEW-07, host half — the picture leaves the sandbox.** `docs/CONTRACTS.md`
+§11.33 is the amendment; both messages are optional additions to §4 and
+`schemaVersion` stays `"1.0"`.
+
+1. **`requestExport` (host → ui) and `exportFile` (ui → host).** The extension
+   host cannot draw the diagram — the lane bands, card rectangles, routed edge
+   paths and resolved theme colours only exist once the viewer has laid the graph
+   out — so an export is a **request** and the picture comes back as a separate
+   message. A VS Code webview also has no download of its own (`<a download>` is
+   inert in the sandbox), which is why the bytes travel through the protocol and
+   the save dialog and the write live in the extension
+   (`vscode-extension/src/exportDiagram.ts`, new, 250 lines).
+2. **Two commands.** `MLView: Export Diagram as SVG` / `... as PNG` ask the LIVE
+   panel (they never open one) and first ask **what** to draw: the whole diagram,
+   the current view, or the current scope — the third offered only while the
+   viewer has reported one. Both accept the choice as a command argument, so a
+   keybinding can skip the pick. `requestExport` is deferred exactly as a reveal
+   is: a request reaching a webview with no graph would render nothing.
+3. **What the host is willing to write.** The protocol guard rejects a payload
+   that is not pure base64, is over 32 MiB, or carries a `suggestedName` with a
+   path separator or `..`; the writer then refuses bytes that are not the format
+   that was asked for (the PNG signature, an XML/SVG opening tag) **before** the
+   save dialog opens, because a `.svg` is executable content in a browser. The
+   save dialog defaults to the workspace folder; the toast offers Open and Copy
+   Path; a failed write is an error message, not a swallowed exception.
+4. **MCP told the truth instead of growing a fake.** `mlview_open_diagram` cannot
+   rasterize anything, so it did not gain an `export` argument. Its docstring now
+   says SVG/PNG is a viewer feature and every payload carries a constant
+   `exportHint` naming `reportPath` and the two surfaces that do produce a
+   picture; `skills/mlview-visualize` says the same. Still five tools.
+
+**Gates.** `vscode-extension`: 273 tests (17 new in `test/export.test.js`, plus
+the protocol samples), `tsc --noEmit` clean, every `src/` file at or under the
+600-line budget. `claude-plugin`: 296 passed / 5 skipped (2 new).
+
+**What this could not analyze.** The viewer half landed in the same commit
+(§11.24, below), so the two commands now work end to end — but **no live VS Code
+run proves it**: `showSaveDialog` and `workspace.fs.writeFile` are exercised only
+against `test/mock-vscode.js`, and every test here plays the viewer's part
+through the mocked webview, so what is proven on this side is the host's half of
+the contract, not a picture. The two halves were written concurrently and
+disagree about one spelling: the viewer emits `name` **and** `suggestedName` and
+`base64` **and** `data` on every frame so either validator accepts it, which is
+redundancy a lead should collapse to one spelling. The format check is a signature
+check, not a validator: a truncated PNG or an SVG whose body is malformed still
+reaches disk. Nothing verifies that the exported picture matches what is on
+screen — that gate belongs with the renderer, which owns both geometries. And
+clipboard copy and the `@media print` stylesheet from the VIEW-07 proposal are
+viewer-side and are not part of this change.
+
+## Sprint 4 — analyzer, viewer and contracts, wave 2 (2026-09-09)
+
+**This wave is a framework re-baseline and deliberately *not* a demo
+re-baseline.** `samples/vision_pipeline` is byte-identical — 54 nodes, 51 edges,
+the same fifteen findings at the same lines in the same 5 / 6 / 4 split and at
+the same confidence values — so `contracts/graph.sample.json`,
+`samples/vision_pipeline/expected_issues.json`, the scope fixtures and
+`vscode-extension/test/fixtures/vision_pipeline.graph.json` are unchanged and
+`--demo` byte parity is untouched. There is **no schema change**: both
+`analyzer/src/mlview/schema/graph.schema.json` and `contracts/graph.schema.json`
+are byte-identical to what they were.
+
+**FW-RECOG — four framework tables and the Lightning hook units**
+(`docs/CONTRACTS.md` §11.23). `analyzer/src/mlview/knowledge/tf_tbl.py` teaches
+the analyzer the whole `tf.data` chain plus the Keras families that were missing
+(`keras.applications`, `Input`, the preprocessing and `Random*` layers, metrics,
+callbacks); `knowledge/hf_tbl.py` adds `datasets`, including
+`Dataset.train_test_split` with the **split** role;
+`knowledge/gbm_tbl.py` adds xgboost / lightgbm / catboost per estimator FQN, so a
+boosting node says xgboost rather than sklearn; `knowledge/hooks_tbl.py` and the
+new `analyzer/src/mlview/core/hooks.py` put `LightningModule` and
+`LightningDataModule` in `MODEL_BASES` and turn every recognised hook into its
+own unit node in the lane the framework runs it in, with `trainer.fit` /
+`validate` / `test` drawing control edges into exactly the hooks that call runs.
+`self.log`, `log_dict` and `save_hyperparameters` are recognised and deliberately
+**not** drawn. Supporting resolution fixes: a chained receiver with no name keeps
+its data edge (a seven-call `tf.data` chain used to be seven islands), the Keras
+functional API resolves, and `ir/locs.call_loc` anchors a **multi-line** method
+chain on the method name (single-line calls are byte-identical).
+
+**ANA-5a — never silently drop a call the analyzer cannot resolve**
+(§11.23 A1–A8, and 11.18's `unresolved_callee` row flips from *reserved* to
+*emitted*). `CallSite.unresolved_callee` is a **per-call** signal — the
+scope-wide dynamic flag is never widened — set both syntactically (the callee is
+another call's result, a subscript, a lambda, a conditional, an await, a computed
+attribute) and through the binding table (a name that is bound to nothing
+resolvable: a lambda, a `match`-assigned value, a dataclass `default_factory`).
+`ast.Match` case bodies are now walked at all. Each site mints an `unknown` op
+carrying the construct, and `analyzer/src/mlview/core/unresolved.py` emits one
+diagnostic per (file, scope). **No emitter may now claim a stage is absent
+without qualification**: `--format summary` and the mermaid output append
+*"(unverified: N calls could not be resolved, so a stage may be present but
+undetected)"*, and the MLV-P1 verdict says this is not a clean bill of health.
+
+**VIEW-07, viewer half — the diagram leaves the tool** (§11.24). An export menu
+beside Fit offers three regions (current view / whole diagram / current scope)
+and five outputs (Save SVG, Save PNG 2x, Copy PNG, Copy SVG, Print). The
+mandatory mitigation landed first: **neither renderer decides what is drawn any
+more**. `webview/src/render/plan.ts` returns one scene plan — lanes, node
+visuals, edge visuals — and `webview/src/render/scene.ts` turns it into DOM while
+`webview/src/export/svg.ts` turns the same object into SVG, so the gate can
+assert one `<g data-node-id>` per planned box and one `<path data-edge-id>` per
+planned route, in plan order, with each path's `d` byte-identical to the routed
+edge. The SVG references **nothing outside itself** — no `url(`, no
+`foreignObject`, no `<image>`, no `<use>`, no `xlink`, no `@font-face`, no
+`<script>`; the only `http` in the file is the `xmlns` a standalone SVG cannot
+omit. Colours are read off the mounted root, so a VS Code user exports their own
+theme. PNG is drawn **from that SVG** at 2x, never from a second traversal.
+`webview/src/styles/export.css` is a tenth and last stylesheet layer whose
+`@media print` block hides the chrome, drops the world transform to `none` and
+lifts the compact level-of-detail rules.
+
+**Measured.** Precision stays **100%** and every recall reading is unchanged to
+four decimals — this was a graph change, not a rule change. Graph fidelity is the
+one number the re-baseline was allowed to move and it ratchets **86.3% → 90.6%**
+(120 → 126 of 139 hand-labelled ops), re-recorded in
+`analyzer/tests/accuracy/baseline.json` with a note naming what earned it:
+`keras_tfdata` 66.7% → **100%**, `hf_trainer_finetune` 83.3% → **91.7%**,
+`lightning_tabular` **100%**. `analyzer/tests/clean` grows 137 → 142 nodes and
+123 → 135 edges and still emits **0 issues**; `samples/vision_pipeline` and
+`samples/vision_pipeline_clean` do not move a byte.
+
+**Gates.** Analyzer **1327 passed / 3 skipped** (37 new cases in
+`analyzer/tests/core/test_framework_recognition.py` and
+`analyzer/tests/core/test_unresolved_callee.py`, over five new fixtures in
+`analyzer/tests/fixtures/frameworks` and one in
+`analyzer/tests/fixtures/oddsyntax`). Viewer **360 pass** (19 new in
+`webview/test/export.test.mjs`), plus the standalone
+`webview/test/export_svg.mjs` over a real analyzer document. Extension **273**,
+plugin **296 passed / 5 skipped**, `tools/verify.py --all` **10/10**,
+`scripts/e2e.sh` **19 steps, 0 failed**.
+
+**What this could not analyze.** A Lightning hook reached through a `Trainer`
+built in another module gets no control edge. `take` / `skip` holdouts are drawn
+and deliberately left unjudged — MLV121 (ANA-9) is what makes a `tf.data` holdout
+judgeable. `xgboost.train` / `lightgbm.train` carry role `GBM_TRAIN` rather than
+`FIT`, so MLV101 does not see leakage through the functional boosting API. A
+`match`-dispatched value is **reported, not resolved**. `unresolved_callee` is
+not in `core/coverage.COVERAGE_KINDS`, so it renders in the summary's Notes block
+rather than its Coverage block — the constant is mirrored in host-owned files and
+extending it needs a host change; the honesty requirement is met by the qualified
+*not detected* line instead. Seven of the thirteen labelled ops the corpus still
+misses are inline `criterion(...)` / `model(x)` calls on unannotated parameters,
+which is DATAFLOW-IP's problem. On the viewer side the SVG is **faithful, not
+pixel-identical**: no box-shadow, CSS ellipsis replaced by an average-advance
+estimate per face, `color-mix()` washes become `fill-opacity` over an emitted
+background rect, and flow animation, hover cards, the selection ring and issue
+connectors are states rather than content and are never exported. PNG, clipboard
+and print all depend on host capability; their success paths are gated by a
+Chromium run, not by `npm test`, and nothing here can gate a real printer.
+
 ## Known gaps
 
 None block the demo. In rough order of how likely they are to matter:
@@ -525,7 +679,7 @@ Sprint-3 sections above. All three audit headlines moved:
 
 | The audit's headline | Where it stands now |
 |---|---|
-| ~26 % recall, class-method ops dropped | precision **100 %** and unseen recall **51.1 %** raw / **38.3 %** visible / **31.2 %** high+medium over ten labelled programs, with **graph fidelity 86.3 %** (was 66.2 %). ANA-1 is the fix; `docs/ACCURACY.md` is the record and `analyzer/tests/accuracy/baseline.json` the ratchet. The high+medium reading is the one comparable to the audit's ~26 %. |
+| ~26 % recall, class-method ops dropped | precision **100 %** and unseen recall **51.1 %** raw / **38.3 %** visible / **31.2 %** high+medium over ten labelled programs, with **graph fidelity 90.6 %** (was 66.2 %; ANA-1 took it to 86.3 %, FW-RECOG to 90.6 %). ANA-1 is the fix; `docs/ACCURACY.md` is the record and `analyzer/tests/accuracy/baseline.json` the ratchet. The high+medium reading is the one comparable to the audit's ~26 %. |
 | the first screen opens a real repo at 20 % zoom | VIEW-01: `fit()` **0.322 → 0.532** on the demo at a 1240×848 canvas, worst lane emptiness 91 % → 32 %. |
 | the tool cannot say "I could not check this" | COVERAGE: `untagged_dataflow` and `single_file_analysis` diagnostics, emitted by the analyzer and surfaced in all three hosts (`docs/CONTRACTS.md` §11.18). |
 

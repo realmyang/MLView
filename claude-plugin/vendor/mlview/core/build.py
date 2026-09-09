@@ -21,6 +21,7 @@ from ..ir.bindings import binding_of, names_in
 from ..ir.locs import loc_of
 from ..ir.model import CallSite, ClassIR, FunctionIR, Loc, LoopIR, ModuleIR, ValueRef, WorkspaceIR
 from ..ir.symbols import dotted_text
+from . import hooks
 from .graph import Diagnostic, Edge, Evidence, MLGraph, Node, Port
 from .ids import edge_id, node_id
 from .stages import unit_stage
@@ -69,6 +70,11 @@ class GraphBuilder:
         self.unit_for_node: Dict[str, object] = {}
         self._op_votes: Dict[str, Dict[str, float]] = {}
         self._children: Dict[str, List[Node]] = {}
+        #: FW-RECOG: node id -> (stage, why) for a framework hook unit, whose
+        #: lane is declared by the framework rather than voted on by its ops.
+        self.hook_stage: Dict[str, Tuple[str, str]] = {}
+        #: id(FunctionIR) -> the hook unit node minted for it.
+        self.hook_unit: Dict[int, Node] = {}
 
     # ------------------------------------------------------------------ API
     def build(self) -> MLGraph:
@@ -139,15 +145,21 @@ class GraphBuilder:
         # classes
         for qualname in sorted(module.classes):
             cls = module.classes[qualname]
-            kind = "model" if cls.is_nn_module else "class"
+            # FW-RECOG: `is_model_module`, not `is_nn_module` - a
+            # LightningModule subclass is a model class, and drawing it as
+            # `kind: class` in Config next to an `nn.Module` drawn as
+            # `kind: model` in Model was the single most visible symptom.
+            is_model = cls.is_model_module
+            kind = "model" if is_model else "class"
             node = self._make_node(
                 module.relpath, cls.qualname, kind,
-                level="unit", stage="model" if cls.is_nn_module else "config",
+                level="unit", stage="model" if is_model else "config",
                 label=cls.name, loc=cls.loc, defLoc=cls.loc, parent=None,
                 dynamic=cls.scope.is_dynamic, confidence=0.95,
                 sublabel=class_sublabel(cls))
             self.scope_unit[cls.scope.qualname] = node
             self.unit_for_node[node.id] = cls
+            self._create_hook_units(module, cls, node)
         # module entrypoint
         if module.entry_stmts or module.main_guard is not None:
             anchor = module.main_guard or module.entry_stmts[0]
@@ -205,6 +217,29 @@ class GraphBuilder:
                 node.parent = parent.id
                 self._children.setdefault(parent.id, []).append(node)
 
+    def _create_hook_units(self, module: ModuleIR, cls: ClassIR, owner: Node) -> None:
+        """FW-RECOG: one unit node per framework hook, under its class.
+
+        A `LightningModule`'s methods are called by `Trainer.fit`, never by the
+        module, so before this every op in `training_step` and every op in
+        `validation_step` hung off the same class node - which
+        `stages.unit_stage` pins to `model` by its base. The result was a
+        correct Lightning program reporting no objective and no eval stage.
+        """
+        for unit in hooks.model_hooks(cls):
+            func = unit.func
+            node = self._make_node(
+                module.relpath, func.qualname, "function",
+                level="unit", stage=unit.stage, label="%s()" % func.name,
+                sublabel=hooks.hook_sublabel(unit),
+                loc=func.loc, defLoc=func.loc, parent=owner.id,
+                dynamic=func.scope.is_dynamic, confidence=0.9)
+            self.scope_unit[func.scope.qualname] = node
+            self.unit_for_node[node.id] = func
+            self.hook_unit[id(func)] = node
+            self.hook_stage[node.id] = (unit.stage, unit.why)
+            self._children.setdefault(owner.id, []).append(node)
+
     def _scope_unit_for(self, scope, module: ModuleIR) -> Optional[Node]:
         cur = scope
         while cur is not None:
@@ -247,7 +282,13 @@ class GraphBuilder:
         if role in TRANSPARENT_ROLES:
             return                       # resolved in _resolve_transparent
         if entry is None or role not in K.OP_ROLES:
-            if call.scope.is_dynamic and not call.canonical_fqns:
+            # ANA-5a: an unresolved callee is a per-call fact, so it mints its
+            # own `unknown` op whether or not the scope is dynamic. The old
+            # gate (`is_dynamic and not canonical_fqns`) never fired for lambda
+            # indirection, `match` dispatch or a `default_factory`, which is
+            # exactly how a whole training step disappeared in silence.
+            if call.unresolved_callee or (call.scope.is_dynamic
+                                          and not call.canonical_fqns):
                 self._create_unknown_op(call, module)
             return
 
@@ -316,13 +357,28 @@ class GraphBuilder:
     def _create_unknown_op(self, call: CallSite, module: ModuleIR) -> None:
         parent = self._owning_unit(call)
         qualname = "%s.%s" % (call.scope.qualname, call.var or call.short_name)
+        construct = call.unresolved_callee
+        if construct:
+            # ANA-5a. `dynamic` stays the scope's own answer: the callee is
+            # unresolved, the *scope* may be perfectly static, and saying
+            # otherwise would contradict `dynamic_scope`'s own definition.
+            sublabel = "unresolved callee · %s" % construct
+            evidence = Evidence("scope_static",
+                                "callee is %s, so the call could not be resolved"
+                                % construct, 0.5)
+            dynamic = call.scope.is_dynamic
+        else:
+            sublabel = "unresolved call"
+            evidence = Evidence("scope_static",
+                                "unresolved call in a dynamic scope", 0.5)
+            dynamic = True
         node = self._make_node(
             module.relpath, qualname, "unknown",
             level="op", stage=parent.stage if parent else "config",
             label=call.var or "%s()" % call.short_name,
-            sublabel="unresolved call", loc=call.loc,
-            parent=parent.id if parent else None, dynamic=True, confidence=0.35,
-            stageEvidence=[Evidence("scope_static", "unresolved call in a dynamic scope", 0.5)])
+            sublabel=sublabel, loc=call.loc,
+            parent=parent.id if parent else None, dynamic=dynamic, confidence=0.35,
+            stageEvidence=[evidence])
         self.node_for_call[id(call)] = node
         self.call_for_node[node.id] = call
         if parent is not None:
@@ -394,7 +450,13 @@ class GraphBuilder:
                         votes[stage] = votes.get(stage, 0.0) + weight * 0.5
             flags = self._unit_flags(owner)
             name = getattr(owner, "name", "") or node.label
-            if isinstance(owner, LoopIR):
+            forced = self.hook_stage.get(node.id)
+            if forced is not None:
+                # FW-RECOG: the framework declares which lane a hook runs in.
+                # Its ops do not get to outvote that - a `training_step` whose
+                # only recognised call is `self.log` is still the train body.
+                stage, evidence = forced[0], [Evidence("class_base", forced[1], 1.0)]
+            elif isinstance(owner, LoopIR):
                 stage, evidence = loop_stage(owner, votes)
             else:
                 stage, evidence = unit_stage(node.kind, votes, flags, name)
@@ -423,7 +485,7 @@ class GraphBuilder:
         for node in self.nodes:
             if node.parent in remap:
                 node.parent = remap[node.parent]
-        for mapping in (self._children, self._op_votes):
+        for mapping in (self._children, self._op_votes, self.hook_stage):
             for old, new in remap.items():
                 if old in mapping:
                     mapping[new] = mapping.pop(old)
@@ -505,6 +567,7 @@ class GraphBuilder:
             for call in module.calls:
                 self._data_edges_for_call(call, module, parsed)
                 self._call_edge(call, module)
+                self._hook_edges(call)
             for loop in module.loops:
                 self._loop_edges(loop, module)
             self._config_edges(module, parsed)
@@ -541,11 +604,17 @@ class GraphBuilder:
                 continue
             self._add_edge("data", source, target, loc_of(parsed, arg, symbol=None),
                            label=label, tags=tags, confidence=0.9)
-        if call.receiver is not None and call.receiver_name:
+        if call.receiver is not None:
+            # FW-RECOG: a *chained* receiver has no name of its own -
+            # `Dataset.from_tensor_slices(...).map(f)` binds nothing - so
+            # `receiver_name` is None and the edge out of the previous link
+            # used to be dropped. A five-call tf.data pipeline was seven nodes
+            # and zero edges. The ValueRef carries the label instead.
+            label = call.receiver_name or call.receiver.name
             source = self._producer_node(call.receiver)
-            if source is not None and source.id != target.id:
+            if source is not None and source.id != target.id and label:
                 self._add_edge("data", source, target, call.loc,
-                               label=call.receiver_name, tags=call.receiver.tags,
+                               label=label, tags=call.receiver.tags,
                                confidence=0.85)
 
     def _producer_node(self, ref: Optional[ValueRef]) -> Optional[Node]:
@@ -577,6 +646,25 @@ class GraphBuilder:
             return
         self._add_edge("call", source, target, call.loc,
                        label="%s()" % call.short_name, confidence=0.95)
+
+    def _hook_edges(self, call: CallSite) -> None:
+        """FW-RECOG: `trainer.fit(model, ...)` enters the module's hooks.
+
+        This is the arrow that says *the framework owns the loop*: it starts at
+        the line where the user's code hands control over, and it ends in the
+        `training_step` / `validation_step` / `configure_optimizers` bodies the
+        Trainer will run. Without it those units are correct and unreachable.
+        """
+        source = self.node_for_call.get(id(call))
+        if source is None:
+            return
+        for func, label in hooks.trainer_hooks(call):
+            target = self.hook_unit.get(id(func))
+            if target is None:
+                continue
+            self._add_edge("control", source, target, call.loc,
+                           label="enter %s" % label, subkind="enter",
+                           confidence=0.9)
 
     def _loop_edges(self, loop: LoopIR, module: ModuleIR) -> None:
         node = self.loop_unit.get(id(loop))

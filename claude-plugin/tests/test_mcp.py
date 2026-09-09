@@ -256,6 +256,18 @@ def test_open_diagram_writes_the_report_without_launching_a_browser(session_data
     with open(payload["reportPath"], "r", encoding="utf-8") as fh:
         html = fh.read()
     assert "http://" not in html and "https://" not in html, "the report must be offline"
+    # VIEW-07: this tool writes HTML and cannot rasterize anything, so the payload
+    # carries the one true sentence about where an SVG or a PNG actually comes from.
+    assert "viewer feature" in payload["exportHint"]
+
+
+def test_the_open_diagram_docstring_refuses_to_promise_a_picture(listed):
+    """The docstring IS the model's instruction sheet: it must say SVG is elsewhere."""
+    description = next(
+        tool["description"] for tool in listed if tool["name"] == "mlview_open_diagram"
+    )
+    assert "VIEWER feature" in description
+    assert "SVG" in description and "PNG" in description
 
 
 # ------------------------------------- the CONTENT text is what the cap is about

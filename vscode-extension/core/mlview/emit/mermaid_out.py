@@ -17,7 +17,17 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List, Optional
 
+from ..core.unresolved import UNRESOLVED_KIND, unresolved_note
+
 __all__ = ["render_mermaid"]
+
+
+def _unresolved_suffix(doc: Dict[str, Any]) -> str:
+    """ANA-5a: "not detected" may not be an unqualified claim when the
+    analyzer could not resolve every call it saw."""
+    count = sum(int(d.get("count") or 1) for d in (doc.get("diagnostics") or [])
+                if isinstance(d, dict) and d.get("kind") == UNRESOLVED_KIND)
+    return unresolved_note(count) or ""
 
 _ARROW = {
     "data": "-->",
@@ -157,5 +167,6 @@ def render_mermaid(doc: Dict[str, Any]) -> str:
 
     absent = [s["id"] for s in doc.get("stages", []) if not s.get("present")]
     if absent:
-        lines.append("  %% not detected: " + ", ".join(absent))
+        lines.append("  %% not detected: " + ", ".join(absent)
+                     + _unresolved_suffix(doc))
     return "\n".join(lines) + "\n"

@@ -129,6 +129,13 @@ export class Chrome {
   private roving: RovingGroup | null = null;
   /** Where the App mounts the scope breadcrumb: first element after the brand. */
   readonly scopeSlot: HTMLElement;
+  /**
+   * VIEW-07: where the App mounts the export menu's TRIGGER — beside Fit, which
+   * is where the roadmap put it and where a reader looks for "give me this
+   * picture". Only the trigger: the popup is mounted on the app root, so the
+   * roving toolbar never takes its eight controls into the arrow-key order.
+   */
+  readonly exportSlot: HTMLElement;
   private cb: ChromeCallbacks;
 
   constructor(cb: ChromeCallbacks) {
@@ -253,6 +260,8 @@ export class Chrome {
     fit.appendChild(uiIcon('fit'));
     on(fit, 'click', () => cb.onFit());
     this.toolbar.appendChild(fit);
+
+    this.exportSlot = add(this.toolbar, el('span', 'mlv-toolbar__exportslot'));
 
     this.zoomSelBtn = iconButton('mlv-btn mlv-btn--icon', 'Zoom to selection');
     this.zoomSelBtn.appendChild(uiIcon('target'));

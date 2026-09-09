@@ -24,6 +24,19 @@ import { handleCanvasKey } from './ui/keymap.js';
 import { canvasCommands, CommandPort } from './ui/commands.js';
 import { commandPortFor } from './ui/appkeys.js';
 import { ShortcutSheet } from './ui/shortcuts.js';
+import { ExportMenu, ExportActionId } from './ui/exportmenu.js';
+import { resolvePalette } from './export/palette.js';
+import {
+  ExportRequest,
+  copyPngImage,
+  copySvgText,
+  exportFileName,
+  printDiagram,
+  regionFromHostWord,
+  renderExport,
+  savePng,
+  saveSvg,
+} from './export/actions.js';
 import { ThemeController } from './ui/theme.js';
 import { SearchController } from './ui/searchcontroller.js';
 import { dispatchHostMessage, sanitizeScope } from './protocol.js';
@@ -109,6 +122,7 @@ export class App implements MLViewApp {
   private chrome!: Chrome;
   private rail!: Rail;
   private sheet!: ShortcutSheet;
+  private exportMenu!: ExportMenu;
   private legend!: Legend;
   private answers!: AnswersCard;
   private scopeBar!: ScopeBar;
@@ -192,6 +206,14 @@ export class App implements MLViewApp {
     });
     this.chrome.scopeSlot.appendChild(this.scopeBar.breadcrumb.root);
 
+    // VIEW-07. The trigger goes in the toolbar beside Fit; the popup goes on the
+    // app root, so the roving toolbar (VIEW-12) keeps its single tab stop.
+    this.exportMenu = new ExportMenu({
+      onRegion: () => undefined,
+      onAction: (action) => this.runExport(action),
+    });
+    this.chrome.exportSlot.appendChild(this.exportMenu.button);
+
     // One roving `role="toolbar"` over the toolbar row and the stage-filter row
     // (VIEW-12), so the whole control strip is a single tab stop.
     this.root.appendChild(this.chrome.bar);
@@ -252,6 +274,7 @@ export class App implements MLViewApp {
 
     this.sheet = new ShortcutSheet(() => this.toggleShortcuts(false));
     this.root.appendChild(this.sheet.root);
+    this.root.appendChild(this.exportMenu.panel);
     this.root.appendChild(this.scopeBar.picker.root);
 
     this.root.appendChild(this.chrome.status);
@@ -510,6 +533,62 @@ export class App implements MLViewApp {
     });
     // MLV-P1: hidden outright when the document carries no `answers` block.
     this.answers.update(this.graph ? this.graph.answers : undefined, this.answersOpen);
+    // VIEW-07: "Current scope" is offered only while there IS a projection.
+    this.exportMenu.setScopeAvailable(!!view);
+  }
+
+  /* ── export (VIEW-07) ──────────────────────────────────────────────── */
+
+  /**
+   * Everything the export needs, gathered at the moment the reader asked.
+   *
+   * The plan is the one the DOM was built from, the palette is read off the
+   * MOUNTED root — so a VS Code user exports their own theme's colours, not our
+   * defaults — and the region is whatever the menu currently has checked.
+   */
+  private exportRequest(): ExportRequest | null {
+    const plan = this.view.scenePlan();
+    if (!plan || !this.graph) return null;
+    const summary = this.scopes.summary();
+    return {
+      plan,
+      palette: resolvePalette(this.root, this.theme),
+      theme: this.theme,
+      graph: this.graph,
+      regionKind: this.exportMenu.currentRegion,
+      viewRect: this.view.viewportRect(),
+      scopeLabel: summary.spec ? summary.label : null,
+      generatedAt: new Date().toISOString().slice(0, 10),
+    };
+  }
+
+  private runExport(action: ExportActionId): void {
+    const host = {
+      post: (msg: any) => this.bridge.post(msg),
+      toast: (text: string) => this.view.toast(text),
+      announce: (text: string) => this.announce(text),
+      print: () => {
+        try {
+          if (typeof window !== 'undefined' && typeof window.print === 'function') window.print();
+        } catch (_e) {
+          this.view.toast('This host does not offer a print dialog.');
+        }
+      },
+    };
+    if (action === 'print') {
+      printDiagram(host);
+      return;
+    }
+    const request = this.exportRequest();
+    if (!request) {
+      this.view.toast('Nothing is drawn yet — there is nothing to export.');
+      return;
+    }
+    const result = renderExport(request);
+    if (action === 'svg') saveSvg(host, result, exportFileName(request, 'svg'));
+    else if (action === 'png') void savePng(host, result, exportFileName(request, 'png'));
+    else if (action === 'copy-svg') void copySvgText(host, result);
+    else if (action === 'copy-png') void copyPngImage(host, result);
   }
 
   private renderRail(): void {
@@ -897,6 +976,13 @@ export class App implements MLViewApp {
       },
       restoreState: (state) => this.applyState(state, true),
       setScope: (spec, depth) => this.setScope(spec, depth === undefined ? undefined : { depth }),
+      // VIEW-07: the host's two export commands have no geometry of their own.
+      // The region it names becomes the menu's checked region, so the next
+      // gesture from the toolbar continues where the command left off.
+      requestExport: (kind, scope) => {
+        this.exportMenu.setRegion(regionFromHostWord(scope));
+        this.runExport(kind === 'png' ? 'png' : 'svg');
+      },
       onUnknown: (type) =>
         this.bridge.post({ v: 1, type: 'log', level: 'debug', message: 'ignored unknown message type: ' + type }),
     });
@@ -1055,6 +1141,7 @@ export class App implements MLViewApp {
     this.disposers = [];
     this.themes.destroy();
     this.chrome.destroy();
+    this.exportMenu.destroy();
     this.view.destroy();
     this.releasePage();
     clear(this.root);

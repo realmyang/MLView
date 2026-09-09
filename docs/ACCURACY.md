@@ -149,11 +149,17 @@ that fires on essentially every program, which lifts the raw figure to 51.1%.
 Quote the high+medium number when comparing to the audit, and quote all three
 when reporting progress.
 
-**Graph fidelity: 120 of 139 hand-labelled ops, 86.3%.** This half of the table
-moved this sprint: it was **92 of 139, 66.2%** until ANA-1 stopped dropping ops
-written inside a class method (`docs/CONTRACTS.md` §11.19), and the ratchet in
-`analyzer/tests/accuracy/baseline.json` was re-recorded to 0.8633 with it. The
-distribution is still the story, not the average:
+**Graph fidelity: 126 of 139 hand-labelled ops, 90.6%.** This half of the table
+has moved twice. It was **92 of 139, 66.2%** until ANA-1 stopped dropping ops
+written inside a class method (`docs/CONTRACTS.md` §11.19), which took it to
+**120 of 139, 86.3%**; FW-RECOG then added the tf.data, HuggingFace `datasets`
+and Lightning-hook tables (§11.23) and it reached 0.9065. The six ops that
+moved are `keras_tfdata`'s `map` / `shuffle` / `batch` — recognised at all for
+the first time, and anchored on the method name rather than on the start of the
+chain — `hf_trainer_finetune`'s `datasets.Dataset.map`, and the two
+`lightning_tabular` ops its hook units bring in. **Every precision and recall
+number is unchanged**, which is the point: the tables add sight, not verdicts.
+The distribution is still the story, not the average:
 
 * `lightning_tabular` **100.0%** (13 of 13), from 15.4% (2 of 13). Every op in
   that project is written inside a method body, and the class-method blind spot

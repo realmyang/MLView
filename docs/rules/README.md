@@ -23,7 +23,7 @@ One page per registered rule, generated from the registry and the per-rule fixtu
 | [MLV402](MLV402.md) | high | Sigmoid and BCE loss are paired inconsistently | torch | 0.95 | - | yes |
 | [MLV501](MLV501.md) | medium | Model and batches are on different devices | torch | 0.90 | - | yes |
 | [MLV601](MLV601.md) | low | No random seed set anywhere | any | 0.90 | yes | yes |
-| [MLV602](MLV602.md) | low | Split without random_state / generator | sklearn, torch | 0.95 | - | yes |
+| [MLV602](MLV602.md) | low | Split without random_state / generator | sklearn, torch, hf | 0.95 | - | yes |
 | [MLV701](MLV701.md) | high | nn.Module.__init__ never calls super().__init__() | torch, lightning | 0.97 | - | yes |
 | [MLV702](MLV702.md) | high | Submodules held in a plain list are never registered | torch | 0.95 | - | yes |
 

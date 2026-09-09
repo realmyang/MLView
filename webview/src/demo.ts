@@ -34,7 +34,13 @@ import { concernRows, scopeCatalog, stageRows } from './scope/catalog.js';
 import { motionMode } from './motion.js';
 import { deepLinkPlan } from './bridges.js';
 import { edgePathId } from './render/edges.js';
-import type { IssueCounts, MLGraph, MLNode, Severity } from './types.js';
+import { planScene } from './render/plan.js';
+import { EXPORT_PALETTES, PALETTE_TOKENS, TINT_TOKENS, paletteFor } from './export/palette.js';
+import { EXPORT_MONO, EXPORT_REGIONS, EXPORT_SANS, ExportRegionKind, ExportSvgResult } from './export/svg.js';
+import { PNG_SCALE, exportFileName, regionRect, renderExport } from './export/actions.js';
+import { EXPORT_ACTIONS } from './ui/exportmenu.js';
+import type { Rect } from './render/canvas.js';
+import type { IssueCounts, MLGraph, MLNode, Severity, ThemeKind } from './types.js';
 
 export interface PlainLayout {
   lanes: { id: string; label: string; x: number; y: number; w: number; h: number; headerH: number }[];
@@ -165,6 +171,53 @@ export function labelsForTest(graph: MLGraph, collapsed?: string[]): PlainLabelP
   };
 }
 
+export interface ExportTestOptions {
+  collapsed?: string[];
+  theme?: ThemeKind;
+  region?: ExportRegionKind;
+  /** The visible canvas in world coordinates; only the `view` region reads it. */
+  viewRect?: Rect;
+  scopeLabel?: string | null;
+}
+
+/**
+ * VIEW-07's SVG export with no DOM at all (the same reasoning as `labelsForTest`).
+ *
+ * It runs the REAL pipeline — `layoutGraph` → `routeEdges` → `planLabels` →
+ * `planScene` → `renderExport` — so the gate that counts `<g data-node-id>` and
+ * `<path data-edge-id>` is counting the shipped renderer's output, not a
+ * test-only imitation of it.
+ */
+export function exportForTest(graph: MLGraph, opts?: ExportTestOptions): ExportSvgResult {
+  const options = opts || {};
+  const index = new GraphIndex(graph);
+  const collapsed = new Set(options.collapsed || []);
+  const frame = layoutGraph(index, collapsed);
+  const routes = routeEdges(index, frame, collapsed);
+  const labelPlan = planLabels(frame, routes);
+  const plan = planScene({
+    index,
+    frame,
+    routes,
+    labels: labelPlan.placements,
+    mountSerial: 1,
+    keep: () => true,
+    staleFiles: [],
+    isFilteredOut: () => false,
+  });
+  const theme: ThemeKind = options.theme || 'light';
+  return renderExport({
+    plan,
+    palette: paletteFor(theme),
+    theme,
+    graph,
+    regionKind: options.region || 'diagram',
+    viewRect: options.viewRect || { x: 0, y: 0, w: frame.width, h: frame.height },
+    scopeLabel: options.scopeLabel === undefined ? null : options.scopeLabel,
+    generatedAt: '2026-09-09',
+  });
+}
+
 export interface DemoCardOptions {
   kind: string;
   stage?: string;
@@ -286,6 +339,22 @@ export const internals = {
   layoutConstants: { MAX_RANK_W, MAX_RANK_H, LANE_MIN_W, LANE_PAD, RANK_ROW_GAP },
   /** VIEW-03: label placement, its metrics and which labels are always drawn. */
   labels: { plan: labelsForTest, metrics: LABEL_METRICS, textOf: labelTextOf, widthOf: labelWidth, alwaysVisible },
+  /**
+   * VIEW-07: the SVG export, its palette table and the menu's own contents, so
+   * a gate states the renderer's output rather than a transcription of it.
+   */
+  exportDiagram: {
+    build: exportForTest,
+    palettes: EXPORT_PALETTES,
+    paletteTokens: PALETTE_TOKENS,
+    tintTokens: TINT_TOKENS,
+    regions: EXPORT_REGIONS,
+    actions: EXPORT_ACTIONS,
+    fonts: { sans: EXPORT_SANS, mono: EXPORT_MONO },
+    regionRect,
+    fileName: exportFileName,
+    pngScale: PNG_SCALE,
+  },
   /** MLV-P10: the two strings the rail, the Inspector and the bridge all use. */
   suppression: { ignoreComment, disableSnippet, suppressedSummary },
   tooltipPlacement,

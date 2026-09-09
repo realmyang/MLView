@@ -17,6 +17,7 @@ import { routeEdges, RoutedEdge } from './layout/routing.js';
 import { planLabels, LabelPlan } from './layout/labels.js';
 import { firstBox, nextBox } from './layout/navigate.js';
 import { minimapDots, renderScene } from './render/scene.js';
+import { planScene, ScenePlan, ScenePlanOptions } from './render/plan.js';
 import { nextMountSerial } from './render/edges.js';
 import { Minimap, ViewportController } from './render/canvas.js';
 import { applyTrace } from './render/trace.js';
@@ -259,9 +260,43 @@ export class CanvasView {
     this.render();
   }
 
+  /**
+   * The inputs both renderers share. VIEW-07's SVG export walks the plan these
+   * produce, so a divergence would have to be introduced here, in one place,
+   * rather than by two renderers drifting apart.
+   */
+  private planInputs(): ScenePlanOptions | null {
+    if (!this.index || !this.frameData) return null;
+    return {
+      index: this.index,
+      frame: this.frameData,
+      routes: this.routes,
+      labels: this.labelPlan ? this.labelPlan.placements : null,
+      mountSerial: this.mountSerial,
+      keep: (issue) => this.host.keep(issue),
+      staleFiles: this.staleFiles,
+      isFilteredOut: (node) => this.host.isFilteredOut(node),
+    };
+  }
+
+  /** What is currently drawn, as data — the export's single source (VIEW-07). */
+  scenePlan(): ScenePlan | null {
+    const inputs = this.planInputs();
+    return inputs ? planScene(inputs) : null;
+  }
+
+  /** The visible canvas, in WORLD coordinates — the "current view" region. */
+  viewportRect(): { x: number; y: number; w: number; h: number } {
+    const size = this.viewport.size();
+    const vp = this.viewport.vp;
+    const zoom = vp.zoom || 1;
+    return { x: -vp.x / zoom, y: -vp.y / zoom, w: size.w / zoom, h: size.h / zoom };
+  }
+
   /** Rebuild the scene DOM from the current frame. Never moves boxes. */
   render(): void {
-    if (!this.index || !this.frameData) return;
+    const inputs = this.planInputs();
+    if (!inputs) return;
     const scene = renderScene(
       {
         world: this.worldEl,
@@ -272,14 +307,7 @@ export class CanvasView {
         nodes: this.nodesLayer,
       },
       {
-        index: this.index,
-        frame: this.frameData,
-        routes: this.routes,
-        labels: this.labelPlan ? this.labelPlan.placements : null,
-        mountSerial: this.mountSerial,
-        keep: (issue) => this.host.keep(issue),
-        staleFiles: this.staleFiles,
-        isFilteredOut: (node) => this.host.isFilteredOut(node),
+        ...inputs,
         wireNode: (element, id, isGroup) => this.wireNode(element, id, isGroup),
         wireEdge: (element, route) => this.wireEdge(element, route),
       },

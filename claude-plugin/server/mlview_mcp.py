@@ -525,9 +525,17 @@ def mlview_open_diagram(
             reader can widen or clear the scope in the report's own toolbar.
         depth: optional -- 0, 1 or 2 boundary hops (per-kind default when omitted).
 
-    Returns {reportPath, reportUrl, opened}. `opened` is false when MLVIEW_NO_OPEN=1
-    is set or no browser could be launched — the file is still written, so tell
-    the user the path.
+    Returns {reportPath, reportUrl, opened, exportHint}. `opened` is false when
+    MLVIEW_NO_OPEN=1 is set or no browser could be launched — the file is still
+    written, so tell the user the path.
+
+    SVG and PNG export is a VIEWER feature, not an MCP one (VIEW-07). This server
+    writes HTML and nothing else: it cannot rasterize or serialize a diagram,
+    because the picture's geometry only exists once the viewer has laid the graph
+    out. So when the user asks for an SVG, a PNG or "an image for the PR", hand
+    them `reportPath` and say where the picture comes from — the report's own
+    export menu, or `MLView: Export Diagram as SVG` / `... as PNG` in VS Code.
+    `exportHint` carries that sentence. Never claim a file this tool did not write.
     """
     loaded = load_graph_or_file(path, graphPath)
     target = resolve_out(out)

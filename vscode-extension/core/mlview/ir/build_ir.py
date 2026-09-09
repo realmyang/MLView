@@ -18,8 +18,8 @@ from .bindings import bind_module, binding_of
 from .converge import MAX_ROUNDS, state_digest
 from .resolve import (mark_fitted, propagate_parameters, resolve_calls,
                       seed_annotations)
-from .model import ClassIR, ModuleIR, WorkspaceIR
-from .returns import infer_returns
+from .model import ClassIR, ModuleIR, WorkspaceIR, sort_tags
+from .returns import ReturnSlot, ReturnSummary, infer_returns
 from .scopes import classify_loops, walk_module
 from .symbols import build_symbol_table
 
@@ -104,6 +104,35 @@ def _ir_round(workspace: WorkspaceIR) -> None:
     # one level of return-type inference, so the *next* binding round can
     # type `opt = build_optimizer(model, cfg)` (see ir/returns.py)
     infer_returns(workspace)
+    _tag_hook_returns(workspace)
+
+
+def _tag_hook_returns(workspace: WorkspaceIR) -> None:
+    """FW-RECOG: `configure_optimizers()` returns an OPTIMIZER, by contract.
+
+    The hook's contract *is* its return type - Lightning will call `.step()` on
+    whatever comes back - so the tag is a framework fact, not an inference.
+    Without it a `configure_optimizers` that returns a factory call, a dict or
+    a tuple hands its caller an untagged value, and nothing downstream knows an
+    optimizer was ever declared. The FQNs and the workspace class the inference
+    pass did recover are kept untouched; only the tag set grows.
+    """
+    for relpath in sorted(workspace.modules):
+        module = workspace.modules[relpath]
+        for qualname in sorted(module.classes):
+            cls = module.classes[qualname]
+            if not cls.is_hook_owner:
+                continue
+            func = cls.methods.get("configure_optimizers")
+            if func is None or not func.returns:
+                continue
+            summary = func.return_summary
+            scalar = summary.scalar if summary is not None else None
+            tags = sort_tags(tuple(scalar.tags if scalar else ()) + ("OPTIMIZER",))
+            func.return_summary = ReturnSummary(
+                scalar=ReturnSlot(fqns=scalar.fqns if scalar else (), tags=tags,
+                                  class_ir=scalar.class_ir if scalar else None),
+                positions=summary.positions if summary is not None else ())
 
 
 def _run_rounds(workspace: WorkspaceIR) -> None:

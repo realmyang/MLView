@@ -421,7 +421,15 @@ export type HostToUi =
   | { v: 1; type: 'stale'; changedFiles: string[] }
   | { v: 1; type: 'restoreState'; state: ViewState }
   /** `spec: null` clears the scope. Never triggers a re-analysis (CONTRACTS 11.7). */
-  | { v: 1; type: 'setScope'; spec: string | null; depth?: number };
+  | { v: 1; type: 'setScope'; spec: string | null; depth?: number }
+  /**
+   * VIEW-07. The host asks for a picture — its two commands (`mlview.exportSvg`
+   * / `mlview.exportPng`) have no geometry of their own, because the lane bands,
+   * the card rectangles and the routed paths exist only here. The viewer answers
+   * with exactly one `exportFile`, or with a toast when it has nothing drawn.
+   * `scope` is the host's vocabulary: `all` is this renderer's `diagram`.
+   */
+  | { v: 1; type: 'requestExport'; kind: 'svg' | 'png'; scope?: 'view' | 'all' | 'scope' };
 
 export type UiToHost =
   | { v: 1; type: 'ready' }
@@ -429,6 +437,44 @@ export type UiToHost =
   | { v: 1; type: 'selectNode'; nodeId: string | null }
   | { v: 1; type: 'requestRefresh'; scope: 'workspace' | 'file'; path?: string }
   | { v: 1; type: 'exportHtml' }
+  /**
+   * VIEW-07. The viewer rendered the diagram to bytes and asks its host to put
+   * them somewhere. It is a REQUEST, never a write: the VS Code extension owns
+   * the save dialog, and the standalone bridge answers it with a download from
+   * an object URL, falling back to the copy toast when a sandbox forbids one.
+   *
+   * `base64` carries the file itself — UTF-8 SVG markup or PNG bytes — because
+   * `postMessage` between a webview and its host is a structured-clone channel
+   * that a `Blob` does not reliably survive, and base64 makes the frame one
+   * plain string whichever host reads it. `name` is a suggested filename only;
+   * the host may rename it, and must sanitise it before touching a filesystem.
+   *
+   * A host predating this drops the message, which leaves the viewer exactly as
+   * it was — the menu still copies to the clipboard and still prints.
+   */
+  /**
+   * INTEROP NOTE. Two spellings of the same three facts are written, always
+   * both, because the viewer half of VIEW-07 and the host half were specified
+   * with different field names in the same sprint: this brief said
+   * `{kind, name, base64}` and the host-side amendment (11.33) validates
+   * `{kind, data, suggestedName?, scope?}` and rejects a frame without `data`.
+   * A message carrying both is accepted by either validator and decoded
+   * identically by both, so neither half has to ship broken while the two
+   * amendments are reconciled. `name === suggestedName` and
+   * `base64 === data` ALWAYS; whichever pair survives, no consumer changes.
+   *
+   * `scope` is the region in the HOST's vocabulary (`all`, not `diagram`).
+   */
+  | {
+      v: 1;
+      type: 'exportFile';
+      kind: 'svg' | 'png';
+      name: string;
+      base64: string;
+      data: string;
+      suggestedName: string;
+      scope: 'view' | 'all' | 'scope';
+    }
   | { v: 1; type: 'copy'; text: string }
   | { v: 1; type: 'saveState'; state: ViewState }
   | { v: 1; type: 'action'; id: string }

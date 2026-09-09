@@ -216,13 +216,22 @@ const recorded = {
   changeListeners: [],
   folderListeners: [],
   configListeners: [],
-  themeListeners: []
+  themeListeners: [],
+  /** VIEW-07: every showSaveDialog option bag, every quick pick, and every file written. */
+  saveDialogs: [],
+  quickPicks: [],
+  writtenFiles: []
 };
 
 const configValues = new Map();
 let workspaceFolders;
 /** FIFO of answers `show*Message` returns, set by `__answerMessage`. */
 const messageAnswers = [];
+/** VIEW-07: what the next showSaveDialog / showQuickPick returns, queued by the test. */
+const saveDialogAnswers = [];
+const quickPickAnswers = [];
+/** When set, the next workspace.fs.writeFile throws it (a read-only target, a full disk). */
+let fsWriteError;
 /** Virtual documents keyed by fsPath, set by `__setDocument`. */
 const documents = new Map();
 
@@ -365,9 +374,18 @@ const vscode = {
       recorded.messages.push(['error', m, ...rest]);
       return messageAnswers.length ? messageAnswers.shift() : undefined;
     },
-    showQuickPick: async () => undefined,
+    showQuickPick: async (items, options) => {
+      recorded.quickPicks.push({ items, options });
+      if (quickPickAnswers.length === 0) return undefined;
+      const answer = quickPickAnswers.shift();
+      // A queued index picks from the offered items, exactly like a click would.
+      return typeof answer === 'number' ? (await items)[answer] : answer;
+    },
     showInputBox: async () => undefined,
-    showSaveDialog: async () => undefined,
+    showSaveDialog: async (options) => {
+      recorded.saveDialogs.push(options);
+      return saveDialogAnswers.length ? saveDialogAnswers.shift() : undefined;
+    },
     showTextDocument: async () => ({
       setDecorations() {},
       revealRange() {},
@@ -423,7 +441,19 @@ const vscode = {
     onDidChangeTextDocument: recordingEvent(recorded.changeListeners),
     onDidChangeWorkspaceFolders: recordingEvent(recorded.folderListeners),
     onDidChangeConfiguration: recordingEvent(recorded.configListeners),
-    fs: { stat: async () => ({ type: 1 }) }
+    fs: {
+      stat: async () => ({ type: 1 }),
+      // VIEW-07: the bytes the host wrote, kept verbatim so a test can assert the FILE and
+      // not merely that a write was attempted.
+      writeFile: async (uri, bytes) => {
+        if (fsWriteError) {
+          const err = fsWriteError;
+          fsWriteError = undefined;
+          throw err;
+        }
+        recorded.writtenFiles.push({ fsPath: uri.fsPath, bytes: Buffer.from(bytes) });
+      }
+    }
   },
   languages: {
     createDiagnosticCollection(name) {
@@ -465,6 +495,18 @@ const vscode = {
   /** Queue what the next `show*Message` returns (a button label, or undefined). */
   __answerMessage(value) {
     messageAnswers.push(value);
+  },
+  /** VIEW-07: queue the Uri the next `showSaveDialog` returns (undefined = cancelled). */
+  __answerSaveDialog(uri) {
+    saveDialogAnswers.push(uri);
+  },
+  /** Queue the next `showQuickPick` answer: an item, or an index into the offered items. */
+  __answerQuickPick(value) {
+    quickPickAnswers.push(value);
+  },
+  /** Make the next `workspace.fs.writeFile` throw. */
+  __failNextWrite(err) {
+    fsWriteError = err || new Error('EACCES: permission denied');
   },
   /** Give `openTextDocument` real text for one absolute path. */
   __setDocument(fsPath, text) {
@@ -514,6 +556,12 @@ const vscode = {
     recorded.commands.clear();
     recorded.messages.length = 0;
     recorded.appliedEdits.length = 0;
+    recorded.saveDialogs.length = 0;
+    recorded.quickPicks.length = 0;
+    recorded.writtenFiles.length = 0;
+    saveDialogAnswers.length = 0;
+    quickPickAnswers.length = 0;
+    fsWriteError = undefined;
     recorded.codeActionProviders.length = 0;
     recorded.panels.length = 0;
     messageAnswers.length = 0;

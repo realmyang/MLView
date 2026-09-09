@@ -188,7 +188,9 @@ def call_output_tags(call: CallSite, scope: ScopeIR) -> Tuple[str, ...]:
     tags = list(entry["tags"]) if entry else []
 
     if call.class_ir is not None:
-        if call.class_ir.is_nn_module:
+        # FW-RECOG: `is_model_module`, not `is_nn_module` - a LightningModule
+        # instance carries MODEL exactly as an nn.Module instance does.
+        if call.class_ir.is_model_module:
             tags.append("MODEL")
         elif "torch.utils.data.Dataset" in call.class_ir.resolved_bases:
             tags.append("RAW_DATA")
@@ -326,7 +328,8 @@ def _bind_imported_values(module: ModuleIR, workspace) -> None:
 def _bind_self_params(module: ModuleIR) -> None:
     """Give every method's `self` a ValueRef pointing at its own class."""
     for cls in module.classes.values():
-        ref = ValueRef(name="self", scope=cls.scope, tags=("MODEL",) if cls.is_nn_module else (),
+        ref = ValueRef(name="self", scope=cls.scope,
+                       tags=("MODEL",) if cls.is_model_module else (),
                        loc=cls.loc, class_ir=cls)
         cls.scope.bindings.setdefault("self", ref)
 
@@ -433,7 +436,28 @@ def _bind_record(record: AssignRecord, module: ModuleIR, workspace) -> None:
                 ref.via_fqns = passthrough.via_fqns
         if not ref.via_fqns and call is None and via:
             ref.via_fqns = tuple(via)
+        ref.opaque = _opaque_kind(value, call, record)
         _store(scope, name, ref)
+
+
+#: ANA-5a. Value expressions whose product the analyzer cannot follow, named so
+#: that a call *through* the binding can say which construct defeated it. Only
+#: bindings that really exist are described: iron law 1 is unchanged, this
+#: invents no FQN and asserts nothing about what the value is.
+def _opaque_kind(value, call: Optional[CallSite], record: AssignRecord) -> Optional[str]:
+    if call is not None:
+        if call.short_name == "field" and "default_factory" in call.kwarg_nodes:
+            return "a dataclass default_factory"
+        return None
+    if isinstance(value, ast.Lambda):
+        return "a lambda"
+    if record.in_match:
+        return "a value assigned in a match case"
+    if isinstance(value, ast.IfExp):
+        return "a conditional expression"
+    if isinstance(value, ast.Subscript):
+        return "a subscript"
+    return None
 
 
 def _identity_class(call: Optional[CallSite]):
