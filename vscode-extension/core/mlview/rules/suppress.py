@@ -10,6 +10,7 @@
 
       [paths]
       exclude = ["experiments/**"]
+      notebooks = true          # NB: analyze `.ipynb` too (off by default)
 
 Suppressed issues are still emitted, with `suppressed: true`, so the UI can
 offer "show suppressed"; hosts never publish them as diagnostics.
@@ -66,6 +67,10 @@ class RuleConfig:
     disabled: Set[str] = field(default_factory=set)
     excludes: Tuple[str, ...] = ()
     warnings: List[str] = field(default_factory=list)
+    #: NB. `[paths] notebooks = true` - the checked-in half of
+    #: `--include-notebooks`, appended last and False by default so a config
+    #: that does not name it behaves exactly as it did.
+    notebooks: bool = False
 
 
 def load_config(config_path: Optional[str], root: Optional[str] = None) -> RuleConfig:
@@ -119,6 +124,17 @@ def load_config(config_path: Optional[str], root: Optional[str] = None) -> RuleC
         exclude = paths.get("exclude") or []
         if isinstance(exclude, (list, tuple)):
             config.excludes = tuple(str(p) for p in exclude)
+        if "notebooks" in paths:
+            # NB. A bool, and anything else is a config_warning rather than a
+            # silent truthiness read: `notebooks = "yes"` meaning False is the
+            # shape CLEANUP 3 already refused to accept in silence.
+            value = paths.get("notebooks")
+            if isinstance(value, bool):
+                config.notebooks = value
+            else:
+                config.warnings.append(
+                    "[paths] notebooks must be true or false; %r in %s was ignored"
+                    % (value, config.path))
     return config
 
 

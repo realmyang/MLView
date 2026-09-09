@@ -60,7 +60,10 @@ def _options(args, paths: Sequence[str]) -> AnalyzeOptions:
         # declare the flags on exactly the behaviour it had.
         relevance=getattr(args, "relevance", DEFAULT_RELEVANCE),
         relevance_hops=int(getattr(args, "relevance_hops", DEFAULT_HOPS)),
-        cache=False if getattr(args, "no_cache", False) else None)
+        cache=False if getattr(args, "no_cache", False) else None,
+        # NB. `.mlview.toml`'s `[paths] notebooks` is read inside `run()`, so a
+        # command without the flag still honours a checked-in opt-in.
+        include_notebooks=bool(getattr(args, "include_notebooks", False)))
 
 
 def _scope_from_args(args) -> Optional[Scope]:

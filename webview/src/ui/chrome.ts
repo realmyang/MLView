@@ -7,37 +7,17 @@ import { add, button, clear, el, iconButton, on } from '../dom.js';
 import { uiIcon } from '../icons.js';
 import { severityGlyph, SEVERITY_ORDER } from '../markers.js';
 import { RovingGroup } from './roving.js';
-import { coverageChipText, coverageHeadline, describe, stat } from './chromenotes.js';
+import {
+  COVERAGE_KINDS,
+  SPECIALLY_RENDERED,
+  coverageChipText,
+  coverageHeadline,
+  describe,
+  notebooksAnalyzedText,
+  stat,
+} from './chromenotes.js';
+import { NOTEBOOK_ANALYZED, outOfOrderDiagnostics, outOfOrderHeadline } from '../notebook.js';
 import type { Capabilities, Filters, MLGraph, Severity, Stage } from '../types.js';
-
-/**
- * Diagnostic kinds the chrome surfaces somewhere OTHER than the generic note
- * chip: as a banner, as a purpose-built chip, or folded into the status bar.
- * Anything not listed here — including a kind invented by a newer analyzer —
- * falls through to the generic chip, which is what invariant 1.1/6 asks for.
- */
-const SPECIALLY_RENDERED = [
-  'parse_error',
-  'dynamic_scope',
-  'truncated',
-  'notebook_skipped',
-  'framework_suppressed',
-  'config_warning',
-  'config_unresolved',
-  'untagged_dataflow',
-  'single_file_analysis',
-  'notebook_analyzed',
-];
-
-/**
- * COVERAGE. The product's worst failure mode is that it cannot tell *"I checked
- * and it is fine"* from *"I could not check"*: MLV101 is silent whenever
- * features arrive as a function parameter, and analysing `train.py` alone yields
- * 3 findings where its directory yields 7 — a 57 % loss, with nothing said. Both
- * now arrive as diagnostics, and both get a banner that says what was NOT
- * looked at.
- */
-const COVERAGE_KINDS = ['untagged_dataflow', 'single_file_analysis'];
 
 export interface ChromeCallbacks {
   onQuery(q: string): void;
@@ -436,6 +416,13 @@ export class Chrome {
       if (d.kind === 'notebook_skipped') {
         any = true;
         add(this.chipRow, el('span', 'mlv-chip', (d.count || 0) + ' notebooks not analyzed'));
+      } else if (d.kind === NOTEBOOK_ANALYZED) {
+        // NB. Without `--include-notebooks` this never appears, because the
+        // diagnostic is never emitted.
+        any = true;
+        const chip = add(this.chipRow, el('span', 'mlv-chip', notebooksAnalyzedText(d)));
+        chip.setAttribute('data-notebooks-analyzed', String(d.count || 0));
+        chip.title = d.message;
       } else if (d.kind === 'framework_suppressed') {
         any = true;
         const text = d.message + (d.codes && d.codes.length ? ' (' + d.codes.join(', ') + ')' : '');
@@ -508,6 +495,17 @@ export class Chrome {
         this.banners.appendChild(b);
       }
 
+      // NB. ABOVE the coverage banner: a notebook last run out of order makes
+      // the fit-before-split family unreliable, and that has to be read before
+      // the findings it de-rates.
+      const outOfOrder = outOfOrderDiagnostics(g.diagnostics || []);
+      if (outOfOrder.length && !s.dismissed.has('notebook-order')) {
+        any = true;
+        const b = this.banner('warn', outOfOrderHeadline(outOfOrder), describe(outOfOrder));
+        b.setAttribute('data-notebook-order-banner', String(outOfOrder.length));
+        add(b, el('div', 'mlv-banner__actions')).appendChild(this.dismissButton('notebook-order'));
+        this.banners.appendChild(b);
+      }
       // COVERAGE. One banner for everything the run could NOT see, above the
       // "partial understanding" note, because "I did not look" outranks "I
       // looked and was unsure".

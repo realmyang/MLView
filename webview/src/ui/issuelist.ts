@@ -7,7 +7,8 @@
  * everything under the Issues tab.
  */
 
-import { add, button, clear, el, fileLine, iconButton, on } from '../dom.js';
+import { add, button, clear, el, fileLine, locSpan, iconButton, on } from '../dom.js';
+import { locSpoken } from '../notebook.js';
 import { uiIcon } from '../icons.js';
 import { severityGlyph, SEVERITY_ORDER, normalizeSeverity } from '../markers.js';
 import { appendTrustSections, confidenceChip } from './evidence.js';
@@ -265,7 +266,7 @@ function issueRow(issue: Issue, s: IssueListState, cb: IssueListCallbacks): HTML
   row.setAttribute('aria-selected', selected ? 'true' : 'false');
   row.setAttribute(
     'aria-label',
-    issue.code + ' ' + issue.severity + ' severity, ' + issue.title + ', ' + fileLine(issue.loc) + ', confidence ' + issue.confidenceBucket,
+    issue.code + ' ' + issue.severity + ' severity, ' + issue.title + ', ' + locSpoken(issue.loc) + ', confidence ' + issue.confidenceBucket,
   );
   if (selected) row.classList.add('is-selected');
   if (issue.suppressed) row.classList.add('is-suppressed');
@@ -274,7 +275,7 @@ function issueRow(issue: Issue, s: IssueListState, cb: IssueListCallbacks): HTML
   add(text, el('div', 'mlv-issue__title', issue.title));
   const meta = add(text, el('div', 'mlv-issue__meta'));
   add(meta, el('span', '', issue.code));
-  add(meta, el('span', '', fileLine(issue.loc)));
+  meta.appendChild(locSpan('', issue.loc));
   // MLV-P6: on EVERY row, styled by bucket. Drawing it only for `possible` and
   // `speculative` made `certain` and `likely` look identical — the distinction a
   // reviewer most needs — and made a missing chip ambiguous between "sure" and

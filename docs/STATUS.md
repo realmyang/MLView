@@ -725,6 +725,207 @@ finding count instead of the literal 50 that 32 new fixtures outgrew, and
 `is_available()` guard because its unconditional `torch.device("cuda")` was a
 genuine MLV502.
 
+## Sprint 4 — hosts, wave 4 (2026-09-09)
+
+**NB, host half — a notebook finding lands in the cell.** The analyzer half
+(`--include-notebooks`, `ingest/notebook.py`) landed in the same wave; this is
+everything between that flag and a squiggle a user can see.
+
+1. **`mlview.includeNotebooks`, default `false`.** The one and only way to reach
+   the flag from the extension, and the fourteenth `mlview.*` setting — ROADMAP
+   NB is the sanction, and `test/manifest.test.js` records it as such. With it
+   off `buildAnalyzeArgs` emits **exactly** the argv it emitted before notebooks
+   existed (asserted as a prefix equality, not by eyeball), so the default path
+   is byte-identical. `workspaceContains:**/*.ipynb` joined the activation events,
+   because a notebooks-only workspace has no `.py` file to activate on and the
+   setting would be unreachable there. It is also the **only** `mlview.*` key that
+   re-runs the analyzer on change: every other one re-filters a graph the host
+   already has, and re-publishing a notebook-free graph would read as "the setting
+   does nothing" (`src/watchers.ts`, `REANALYZE_KEYS`).
+2. **The squiggle moves to the cell (`src/notebooks.ts`, new).** The analyzer
+   converts each notebook to one generated module under `.mlview/notebooks/` and
+   every `Loc` names that file — `Loc` is frozen and cannot carry a cell index —
+   so publishing a diagnostic as-is puts it in a file the user never wrote. The
+   host reads the cell out of the finding's own `context_confirmed` evidence row
+   (`<notebook> cell <N>, line <M>`), finds the open `NotebookDocument`, and
+   republishes on that cell's `vscode-notebook-cell:` document with a
+   cell-relative range. `buildDiagnostics` is therefore keyed by **uri**, not by
+   `absFile`, so two findings in two cells of one notebook are two Problems
+   entries and either can be cleared independently. It degrades one honest step at
+   a time: the cell uri → the `.ipynb` (right file, wrong granularity, which is
+   what a closed notebook gets) → the generated module. The cell index counts
+   markdown cells, exactly as `NotebookDocument.cellAt` does; an index that has
+   gone stale onto a markdown cell is re-read as a code-cell ordinal rather than
+   squiggling prose, and a range past the end of its cell is clamped rather than
+   refused by VS Code.
+3. **Saving a notebook re-analyzes.** `onDidSaveNotebookDocument` is a *different*
+   event from `onDidSaveTextDocument` and neither fires for the other, so without
+   it a notebook workspace with `analyzeOnSave` on would never re-analyze at all.
+   `mlview.includeNotebooks` gates it ahead of `analyzeOnSave`: a run that will not
+   read the notebook has nothing to say about the save.
+4. **The status bar tells the two apart.** `N notebooks analyzed` vs
+   `N notebooks not analyzed`, and **both** when a run read some and could not read
+   others — the case a single number hid. `analyzed` is COUNTED from the
+   `notebook_analyzed` diagnostics, because there is no workspace field for it and
+   each row's `count` is that notebook's *code cells*: summing those would report
+   "3 notebooks analyzed" for one file. The LM digest carries the same number and
+   the execution-order caveat in words.
+5. **MCP.** `mlview_analyze` gained `includeNotebooks`, and so did **`mlview_issues`**
+   — a rule list that silently drops every finding inside a notebook is exactly the
+   "clean bill of health from a blind run" this feature exists to remove. The flag
+   is part of `load_graph`'s **cache key**, not a filter applied after: the same
+   sources with and without notebooks are two different documents, and serving one
+   for the other would answer the wrong question. `/mlview` documents the flag on
+   both the MCP and the CLI path, refuses to call `notebooksSkipped > 0` a clean
+   result, and tells the model to cite the **cell** rather than the generated
+   module; `skills/mlview-visualize` says the same.
+6. **`src/extension.ts` shrank rather than grew.** The five workspace listeners and
+   their handlers moved into `src/watchers.ts` (new, 149 lines) as pure
+   classifiers plus one `registerWatchers` call: 599 → 583 lines with the notebook
+   event added.
+
+**Gates.** `vscode-extension`: **298 passed / 0 failed** (24 new in
+`test/notebooks.test.js`), `tsc --noEmit` clean, every `src/` file under the
+600-line budget. `claude-plugin`: **305 passed / 5 skipped** (8 new in
+`tests/test_notebooks.py`, 1 new in `test_graph_cache.py`).
+`python tools/verify.py --all`: **10/10**. Verified end to end against the real
+analyzer on a four-cell leaky notebook: `filesAnalyzed 1`, `notebooksSkipped 0`,
+one `notebook_analyzed` row, and MLV101 / MLV602 published on cell 3 at cell-lines
+2 and 3 with MLV601 on cell 2 — three findings, three correct cells.
+
+**What this could not analyze.**
+
+- **No live VS Code run.** There is no `code` CLI on this machine, so every
+  notebook assertion is against `test/mock-vscode.js`'s new `NotebookDocument`
+  stubs. The cell uri the mock hands out has the right *shape*
+  (`vscode-notebook-cell://<path>#chNNNN`); whether real VS Code accepts a
+  diagnostic on the uri of a cell of a notebook that is open but not focused is
+  **not** proven here.
+- **The cell mapping is parsed out of prose.** `rules/confidence.notebook_evidence`
+  writes `"<notebook> cell <N>, line <M>; <order verdict>"` as an evidence detail
+  because `Loc` is frozen, and the host regex-matches it. `test/notebooks.test.js`
+  pins the format against `analyzer/src/mlview/rules/confidence.py` itself, so a
+  rename on either side reddens — but a *machine-readable* per-finding mapping
+  (the `cell` / `cellLine` that `Node.attrs` already carries) would remove the
+  parse entirely, and the lead should say whether that is worth an amendment.
+- **Related locations stay on the generated module.** They carry no evidence of
+  their own, so the cell they came from is not recoverable; the generated module
+  is a real file that re-opens and slices (R2.1), so the Problems panel shows
+  `.mlview/notebooks/x.py:18` for the split site of a notebook leak.
+- **The diagram still draws the generated module's PATH.** Node labels and the
+  CodeLens anchor on `.mlview/notebooks/*.py`; only the Problems panel was
+  re-anchored. The viewer does now read `Node.attrs.cell` / `.cellLine` and
+  appends `> cell N : M` to the label (see the integration section below), but the
+  path half of that label is still the generated module, not the `.ipynb`.
+- **`vscode-extension/README.md` still lists `mlview.showSpeculative` and
+  `mlview.followCursor`**, both of which CLEANUP removed from the manifest. Noticed
+  while adding the `includeNotebooks` row; not fixed here because it is not this
+  item's change and the row is a one-line delete somebody should make deliberately.
+
+## Sprint 4 — analyzer, viewer and integration, wave 4 (2026-09-09)
+
+**NB — `.ipynb` ingest behind `--include-notebooks`, and the caveat that has to
+travel with it.** Two audits wrote the same leaky notebook and both got
+`0 files analyzed · 1 notebook skipped · 0 issues`, exit 4: a green status bar
+over a textbook fit-before-split. Notebooks are the medium in which people fit
+before splitting, so the tool was blind exactly where its flagship rule family
+matters most. `docs/CONTRACTS.md` **11.29** is the amendment; `REQUIREMENTS.md`
+§5 non-goal 3 is lifted **behind the flag only**, and §10 A6's "notebook
+fixtures" trim is lifted with it because NB's acceptance is stated over fixtures.
+
+1. **Nothing happens unless the caller asks.** `--include-notebooks` on
+   `analyze`, `issues` and `baseline`, or `[paths] notebooks = true`. Without one,
+   discovery, the graph, the diagnostics and the exit code are what they were.
+   **Measured, not asserted by eyeball**: `tools/perf_equiv.py --baseline <the
+   pre-wave-4 analyzer> --expect-same` reports `vision_pipeline`,
+   `vision_pipeline_clean` and `tests_clean` all `identical` and exits 0, and
+   `analyze --demo --json -` is still byte-identical to `contracts/graph.sample.json`
+   at 46 078 bytes. A `[paths] notebooks` that is not a boolean is a
+   `config_warning`, never a silent truthiness read.
+2. **One notebook becomes one generated module** at
+   `<root>/.mlview/notebooks/<the notebook's path>.py`, and every `Loc` names it,
+   so R2.1's re-slice guarantee holds unchanged and is gated on notebook fixtures
+   directly. Line counts are **1:1 inside every cell**: a line magic, a `!` shell
+   escape and a `?` help query become `pass  # mlview: magic` at their own
+   indentation — replaced, never deleted, because deleting one would slide every
+   later line and the cell map would be wrong from there on. A magic that *wraps*
+   a statement keeps the statement (`%time model.fit(X, y)` → `model.fit(X, y)`),
+   guarded by an `ast.parse` of the remainder so a shape the rewriter misreads
+   costs one notebook rather than being guessed at. A bracket-depth and
+   triple-quote scanner keeps the `%` in `(10\n % 3)` from being read as a magic.
+3. **The cell map rides beside the `Loc`, because `Loc` is frozen (§2).** Every
+   node in a generated module carries `attrs.notebook`, `attrs.cell` (0-based over
+   **all** cells, markdown included — the index a host needs for
+   `vscode-notebook-cell:`) and `attrs.cellLine`. Values are strings, so there is
+   **no schema change at all**: `contracts/graph.schema.json`, its two mirrors and
+   `contracts/graph.sample.json` are byte-identical to what they were.
+4. **The execution-order caveat is the honest half.** A notebook records only the
+   `execution_count` of its *last* run. `orderOk` is "strictly increasing over the
+   cells that record a count"; a non-monotonic notebook emits the
+   `notebook_analyzed` diagnostic saying so, carrying
+   `codes = [MLV101, MLV203, MLV209]`, and de-rates exactly those three by
+   `NOTEBOOK_ORDER_FACTOR = 0.75` — applied as the **weight of an existing
+   evidence factor**, so it goes through the six-factor product and is visible
+   wherever evidence is rendered rather than needing a new mechanism. In-order
+   notebooks get weight 1.0, an exact identity, so the same code in a `.py` and in
+   an in-order notebook score identically. Measured end to end: MLV101 goes from
+   **0.95 (certain) to 0.712 (likely)** while MLV201 is untouched at 0.9.
+5. **Every success says what it did.** One `notebook_analyzed` per analyzed
+   notebook, always. `notebooksSkipped` never becomes zero merely because the flag
+   was on — it is every notebook discovered minus those that really reached the
+   rules, and each failure (bad JSON, non-UTF-8, unwritable or unparseable
+   generated module) gets its own `parse_error` naming the `.ipynb`, not the
+   generated module, because the reader has to find the file the tool choked on.
+6. **The viewer says `> cell 3 : 4` instead of a line nobody can count to.**
+   `webview/src/notebook.ts` owns the one translation, and `dom.fileLine`
+   delegates to it, so the card, the rail row, the inspector, the tooltip, the
+   search meta and the SVG export all pick the cell up from one seam. The cell
+   survives end-ellipsis: `locParts` splits the label into a shrinkable path and a
+   fixed tail, so the path is clipped and the answer is not. A notebook last run
+   out of order raises a dismissible warn banner **above** the coverage banner —
+   execution order outranks coverage, because it de-rates the findings underneath
+   it — and a run that *did* read notebooks now draws a chip instead of vanishing
+   into the "N notes" count. **Nothing here ever invents a cell**: a `.ipynb` path
+   with no mapping, or with half a mapping, prints the flat line, because a
+   fabricated cell index is a broken click-to-code that looks correct.
+   `openLocation` still posts the flat line and the nine frozen keys — hosts own
+   the `vscode-notebook-cell:` mapping.
+
+**What the integration pass reconciled.** The viewer half was written before the
+analyzer half landed, against an inferred contract: optional `Loc.cell` /
+`Loc.cellLine` fields and a `notebook_out_of_order` diagnostic kind. 11.29
+settled it differently, so against a real `--include-notebooks` run the viewer
+would have rendered flat lines and drawn no banner — the honesty half of NB
+failing silently, which is the one failure mode this item exists to remove. Two
+changes, both at the source:
+
+- **`adoptCellMap`** lifts 11.29 N6's mapping off `Node.attrs` (where it is, as
+  strings) onto each node's own `Loc`, once per document in `App.setGraph`, so the
+  twelve label call sites stay unchanged and no surface has to know where the
+  analyzer keeps its provenance. A half-written or non-numeric mapping is left
+  alone and falls back to the flat line.
+- **The banner reads 11.29 N10's shape.** There is one `notebook_analyzed` per
+  analyzed notebook and the verdict is carried by its `codes`, not by a kind of
+  its own, so the predicate is "the kind, or an analyzed notebook that named the
+  rules it cost confidence in". An in-order notebook draws the chip and no banner.
+
+Both are pinned by four new cases in `webview/test/notebook.test.mjs`, and
+verified against **real analyzer output** rather than a synthesised document: a
+four-cell `execution_count [1, 3, 2, 4]` notebook analysed with
+`--include-notebooks` and its standalone report loaded in jsdom gives 15 node
+location rows, 13 carrying a cell, the banner drawn naming MLV101 / MLV203 /
+MLV209, and the `4 notebooks analyzed` chip. That closes the viewer's "no
+end-to-end notebook exercise" gap.
+
+**Gates.** analyzer 1721 passed / 3 skipped (26 of them NB, plus 3 notebook
+`test_locations` cases); webview 384 pass (24 NB); vscode-extension 298 pass
+(24 NB); claude-plugin 305 passed / 5 skipped (8 NB); `tools/verify.py --all`
+**10/10**; `tools/accuracy.py` precision **100.0%**, recall 71.4% (NB adds no
+rule, so the ratchet did not move); `sh scripts/e2e.sh` **19 steps, 0 failed**;
+`tsc --noEmit` clean in both TypeScript packages. The bundle ratchet was
+re-measured and **neither cap moved** (JS 269 389 B under 268 KiB, CSS 60 429 B
+under 61 KiB).
+
 ## Known gaps
 
 None block the demo. In rough order of how likely they are to matter:
@@ -783,12 +984,51 @@ None block the demo. In rough order of how likely they are to matter:
   `malformed/`, `frameworks/`) do not exist as directories; that ground is covered
   inline by `analyzer/tests/core/test_robustness.py` and
   `analyzer/tests/rules/test_rule_robustness.py`.
+- **A notebook label names the generated module, not the `.ipynb`.**
+  `webview/src/notebook.ts` appends the cell reference to `loc.file`, and 11.29 N5
+  makes `loc.file` the generated module, so a card reads
+  `.mlview/notebooks/leak.py > cell 3 : 2`. That path is the text that was
+  actually analyzed and is what click-to-code copies, so label and link agree;
+  showing `attrs.notebook` instead would make them disagree, and which of the two
+  names "the location" is a product decision 11.29 does not settle. The hover
+  already carries the flat line into the concatenation.
+- **The cell map is on nodes and on issue evidence only.** `relatedLocs` and edges
+  carry no `attrs` map (11.29 N6), so a related location inside a notebook — the
+  split site of a leak, say — prints a flat line into the generated module in
+  `webview/src/ui/issuelist.ts` and in the extension's Problems panel. Wrong
+  granularity, never a broken link.
+- **The per-finding cell mapping is a string, not a field.**
+  `analyzer/src/mlview/rules/confidence.py` writes it as one `context_confirmed`
+  evidence detail and `vscode-extension/src/notebooks.ts` regex-matches that
+  sentence to place a squiggle. `test/notebooks.test.js` pins the format against
+  the analyzer source so a rename on either side reddens, but two optional `Issue`
+  fields would remove the parse; it is logged below as a contract change request.
+- **Notebooks are outside the parse cache and the relevance prefilter.**
+  `analyzer/src/mlview/core/cache.py`'s `file_signature` hashes `.py` only, so
+  editing a notebook does not invalidate a host's cached graph, and `--relevance ml`
+  never sets a notebook aside because notebooks bypass phase 1 entirely. Widening
+  the signature would also change the second copy in
+  `claude-plugin/server/mlview_workspace.py`.
+- **No `--progress-json` frames for notebooks.** 11.31 H5 defines `total` as the
+  discovered Python file count and `analyzer/src/mlview/core/pipeline.py` leaves it
+  exactly that, rather than quietly redefining it; notebook conversion runs outside
+  the counted phase.
+- **The ANA-12 accuracy corpus still has no notebook program.**
+  `docs/ACCURACY.md` §5 records the shortfall as blocked on NB. NB unblocks it, but
+  adding a corpus program moves the recall ratchet in
+  `analyzer/tests/accuracy/baseline.json`, which is a deliberate re-baseline and not
+  part of NB's acceptance.
+- **The standalone report's copy toast says the flat line.** `webview/src/bridges.ts`
+  builds the clipboard text and the `vscode://file/...` deep link from the
+  `openLocation` frame, which carries no cell by design, so a notebook card shows
+  `> cell 3 : 2` while the clipboard says `…:28`. Both name the same place; only one
+  of them says which cell.
 
 ## Contract change requests
 
 Every agent filed some; they are recorded in each component's report and none
 were acted on — the contracts in `docs/CONTRACTS.md` and
-`contracts/graph.schema.json` are unchanged. The three worth a lead decision
+`contracts/graph.schema.json` are unchanged. The four worth a lead decision
 before the next iteration:
 
 1. **§1.1.2** (`parent` must have a lower `NodeLevel`) is unsatisfiable together
@@ -801,6 +1041,14 @@ before the next iteration:
    `contracts/graph.sample.json` byte for byte. The golden is UTF-8 without BOM,
    LF, `json.dump(..., indent=2, ensure_ascii=False)` plus a trailing newline.
    Freeze exactly that.
+4. **NB (2026-09-09): the per-finding cell mapping should be two optional
+   `Issue` fields, not a sentence.** 11.29 N7 carries it as a
+   `context_confirmed` evidence detail because `Loc` is frozen and `Issue` has no
+   `attrs`; `vscode-extension/src/notebooks.ts` therefore regex-parses English to
+   place a squiggle. Optional `Issue.cell` / `Issue.cellLine` — the same pair
+   `Node.attrs` already carries, and an additive schema change of the kind §11.6
+   sanctions — would delete the parse on both sides. Filed, not acted on: the
+   string contract is pinned by a test on both halves and works today.
 
 ## Review and roadmap (2026-09-08)
 

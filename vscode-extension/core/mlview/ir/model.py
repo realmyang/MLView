@@ -364,6 +364,11 @@ class WorkspaceIR:
     #: that rather than letting the graph come back quietly smaller.
     ir_rounds: int = 0
     ir_converged: bool = True
+    #: NB: generated-module relpath -> `ingest.notebook.NotebookMap`, for the
+    #: modules that came from a `.ipynb`. Empty on every run that did not ask
+    #: for notebooks. The pipeline fills it after `build_workspace`; rules read
+    #: it only through `GraphContext`, never directly.
+    notebooks: Dict[str, object] = field(default_factory=dict)
 
     def all_calls(self) -> List[CallSite]:
         out: List[CallSite] = []

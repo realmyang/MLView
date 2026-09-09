@@ -129,10 +129,17 @@ def test_every_tool_description_tells_the_model_when_to_call_it(listed):
 
 def test_tool_inputs_match_the_contract(listed):
     by_name = {tool["name"]: set(tool["schema"].get("properties", {})) for tool in listed}
-    assert {"path", "framework", "maxNodes", "includeHtml"} <= by_name["mlview_analyze"]
+    # CHANGED by ROADMAP NB (2026-09-09): `includeNotebooks` joined both reporting tools.
+    # It is on mlview_issues as well as mlview_analyze deliberately - a rule list that
+    # silently drops every finding inside a notebook is the "clean bill of health from a
+    # blind run" this feature exists to remove.
+    assert {
+        "path", "framework", "maxNodes", "includeHtml", "includeNotebooks"
+    } <= by_name["mlview_analyze"]
     # CHANGED by ROADMAP RAIL-GROUP (2026-09-08): `groupBy` joined the contract set.
     assert {
-        "path", "minSeverity", "minConfidence", "code", "limit", "groupBy"
+        "path", "minSeverity", "minConfidence", "code", "limit", "groupBy",
+        "includeNotebooks"
     } <= by_name["mlview_issues"]
     assert {"path", "format", "scope", "depth"} <= by_name["mlview_graph"]
     assert {"nodeId", "code", "graphPath"} <= by_name["mlview_explain"]

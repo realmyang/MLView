@@ -11,6 +11,7 @@ import type * as vscode from 'vscode';
 import { coverageFor } from './coverage';
 import { countIssues, type IssueCounts, type MLGraph } from './graph';
 import { publishedIssueFilter, selectIssues } from './issues';
+import { notebookCounts, notebookTooltipFragment, type NotebookCounts } from './notebooks';
 import type { MlviewSettings } from './settings';
 
 export function statusBarText(counts: IssueCounts, busy: boolean, failed: boolean): string {
@@ -47,7 +48,12 @@ export function statusBarTooltip(
   counts: IssueCounts,
   busy: boolean,
   failed: boolean,
-  notebooksSkipped: number,
+  /**
+   * NB: what the run did with the notebooks it found. Two numbers rather than one, because
+   * "2 notebooks not analyzed" and "2 notebooks analyzed" are opposite bills of health and a
+   * run can legitimately produce both at once.
+   */
+  notebooks: NotebookCounts,
   coverage: readonly string[] = [],
   /**
    * PACKAGING: which end of the precedence chain answered — the installed `mlview`
@@ -66,7 +72,7 @@ export function statusBarTooltip(
   }
   const head =
     `MLView: ${counts.high} high, ${counts.medium} medium, ${counts.low} low` +
-    (notebooksSkipped > 0 ? ` · ${notebooksSkipped} notebooks not analyzed` : '');
+    notebookTooltipFragment(notebooks);
   if (coverage.length === 0) {
     return `${head}${tail}`;
   }
@@ -104,7 +110,7 @@ export function renderStatusBar(
     counts,
     state.busy,
     state.failed,
-    state.graph?.workspace.notebooksSkipped ?? 0,
+    notebookCounts(state.graph),
     coverageFor(state.graph),
     state.core
   );

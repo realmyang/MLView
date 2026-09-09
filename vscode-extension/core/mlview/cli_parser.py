@@ -69,6 +69,21 @@ def _add_perf_flags(parser: argparse.ArgumentParser) -> None:
                              "(same as MLVIEW_NO_CACHE=1)")
 
 
+def _add_notebook_flag(parser: argparse.ArgumentParser) -> None:
+    """NB (CONTRACTS 11.29). One flag, off by default, so a command that does
+    not name it emits exactly the bytes it always emitted. `[paths] notebooks =
+    true` in `.mlview.toml` is the checked-in equivalent; either one turns it
+    on and neither can turn the other off."""
+    parser.add_argument("--include-notebooks", dest="include_notebooks",
+                        action="store_true",
+                        help="analyze `.ipynb` files too: code cells are "
+                             "concatenated in document order into a generated "
+                             "module under <root>/.mlview/notebooks/, magics "
+                             "become `pass  # mlview: magic`, and every finding "
+                             "names its cell (default: notebooks are counted "
+                             "and skipped)")
+
+
 def _add_group_flag(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--group-by", dest="group_by", choices=GROUP_BY,
                         default="none",
@@ -133,6 +148,7 @@ def build_parser() -> argparse.ArgumentParser:
                          help="emit the golden contracts/graph.sample.json")
     analyze.add_argument("--no-color", action="store_true")
     _add_perf_flags(analyze)
+    _add_notebook_flag(analyze)
     _add_group_flag(analyze)
     _add_adopt_flags(analyze)
     _add_scope_flags(analyze)
@@ -161,6 +177,7 @@ def build_parser() -> argparse.ArgumentParser:
     issues.add_argument("--strict", action="store_true")
     issues.add_argument("--no-color", action="store_true")
     _add_perf_flags(issues)
+    _add_notebook_flag(issues)
     _add_group_flag(issues)
     _add_adopt_flags(issues)
     _add_scope_flags(issues)
@@ -180,6 +197,7 @@ def build_parser() -> argparse.ArgumentParser:
     baseline.add_argument("--config", dest="config_path", metavar="FILE")
     baseline.add_argument("--no-color", action="store_true")
     _add_perf_flags(baseline)
+    _add_notebook_flag(baseline)
 
     render = sub.add_parser("render", help="render an existing or fresh graph")
     render.add_argument("paths", nargs="*", default=[])

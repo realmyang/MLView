@@ -171,6 +171,8 @@ Sorted collections, content-addressed ids, rounded floats, volatile fields (`gen
 1. **Executing or importing user code** — including "just to get the model summary". Ever.
 2. **Cloud anything** — no hosted service, no API keys, no telemetry, no LLM-assisted analysis. The hosts' LLMs consume MLView's output; they never produce it.
 3. **Notebook (`.ipynb`) analysis.** Detected, counted and reported as *not analysed*. Out-of-order-execution leakage is a real and important class that this version does not address; it is called out in the README rather than discovered by a user.
+
+   > **Lifted behind a flag, 2026-09-09 (NB, `docs/CONTRACTS.md` 11.29).** Notebook analysis now exists: `--include-notebooks`, or `[paths] notebooks = true` in `.mlview.toml`, converts each notebook's code cells into a generated module under `<root>/.mlview/notebooks/`, maps every `Loc` back to `(cell, cellLine)`, and de-rates MLV101 / MLV203 / MLV209 on a notebook whose recorded `execution_count` is not monotonic — because out-of-order execution is undecidable from the file, and saying so is the point. **Without the flag this non-goal still holds exactly as written**: a notebook is counted, skipped and declared, byte for byte as before.
 4. **Type or shape inference.** No tensor dimension tracking. Several rules would be sharper with it; deliberately deferred.
 5. **Auto-fix / code actions that edit code.** Fix hints are text. The diagnostic `code` field is shaped so quick fixes can be added later.
 6. **Deep interprocedural analysis.** One level of function summaries within a module, plus workspace-level definition lookup. No whole-program dataflow.

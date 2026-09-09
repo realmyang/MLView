@@ -5,6 +5,7 @@
  */
 
 import { locationHit, parseLocationQuery } from './searchloc.js';
+import { locLabel } from './notebook.js';
 import type { GraphIndex } from './layout/model.js';
 
 export interface SearchHit {
@@ -77,7 +78,7 @@ export function searchGraphDetailed(index: GraphIndex, query: string, limit = 40
         kind: 'node',
         id: node.id,
         label: node.label || node.qualname,
-        meta: node.loc.file + ':' + node.loc.line,
+        meta: locLabel(node.loc),
         stage: node.stage,
       },
     });
@@ -95,7 +96,7 @@ export function searchGraphDetailed(index: GraphIndex, query: string, limit = 40
         kind: 'issue',
         id: issue.id,
         label: issue.code + ' · ' + issue.title,
-        meta: issue.loc.file + ':' + issue.loc.line,
+        meta: locLabel(issue.loc),
         stage: issue.stage,
         severity: issue.severity,
       },
@@ -163,7 +164,7 @@ function locationPin(index: GraphIndex, query: string): SearchHit | null {
     kind: 'node',
     id: node.id,
     label: node.label || node.qualname,
-    meta: node.loc.file + ':' + node.loc.line,
+    meta: locLabel(node.loc),
     stage: node.stage,
     location: { path: parsed.path, line: parsed.line, exact: match.contains },
   };

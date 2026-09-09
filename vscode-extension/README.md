@@ -155,6 +155,7 @@ analyzed unit.
 | `mlview.pythonPath` | `""` | Interpreter override; first in the resolution chain |
 | `mlview.analyzeOnSave` | `true` | Re-analyze 400 ms after a Python file is saved |
 | `mlview.exclude` | `[]` | Extra discovery excludes, added to the analyzer defaults |
+| `mlview.includeNotebooks` | `false` | Analyze `.ipynb` as well as `.py` (passes `--include-notebooks`). See **Notebooks** below |
 | `mlview.maxFiles` | `500` | Discovery cap |
 | `mlview.maxNodes` | `400` | Graph cap; exceeding it sets `stats.truncated` |
 | `mlview.minSeverity` | `low` | Lowest severity shown in Problems and in the digests |
@@ -169,6 +170,34 @@ analyzed unit.
 
 Analysis is disabled in **Restricted Mode** (`capabilities.untrustedWorkspaces: "limited"`),
 because it spawns an interpreter. Trust the folder to enable it.
+
+### Notebooks
+
+Off by default. With `mlview.includeNotebooks` off the extension passes exactly the argv it
+passed before notebooks existed, and the status bar says how many notebooks it set aside
+(`3 notebooks not analyzed`) rather than reporting a clean workspace it never read.
+
+Turn it on and:
+
+- the flag reaches the analyzer, and changing the setting **re-runs** the analysis (it is the
+  only `mlview.*` key that does — every other one re-filters a graph the host already has);
+- **findings land in the cell.** The analyzer converts each notebook to one generated module
+  under `.mlview/notebooks/` and its locations name that file, because `Loc` is frozen and
+  cannot carry a cell index. The extension re-anchors every notebook finding onto the
+  `vscode-notebook-cell:` document of the cell it came from, so the squiggle appears in the
+  cell you are looking at. With the notebook closed there is no cell URI to use, and the
+  finding falls back to the `.ipynb` itself;
+- saving the notebook re-analyzes (`onDidSaveNotebookDocument`; saving a notebook does **not**
+  fire the text-document save event, so this is a second listener, not the same one);
+- the status-bar tooltip reads `N notebooks analyzed`, and says both when a run analyzed some
+  notebooks and could not read others.
+
+**What this cannot know.** Cell execution order. A notebook records only the `execution_count`
+of its last run, so document order is an assumption. When those counts are not monotonic the
+analyzer says so in its `notebook_analyzed` note and de-rates the order-sensitive rules
+(MLV101, MLV203, MLV209) rather than pretending. Related locations on a notebook finding still
+point at the generated module: they carry no cell mapping of their own, and the generated file
+is real and opens.
 
 ---
 

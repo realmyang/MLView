@@ -26,7 +26,37 @@ export {
   SAVE_DEBOUNCE_MS
 } from './coreClient';
 export {
+  reactToTextSave,
+  reactToNotebookSave,
+  reactToConfigChange,
+  recordStale,
+  registerWatchers,
+  REPUBLISH_KEYS,
+  REANALYZE_KEYS
+} from './watchers';
+export {
+  isNotebookPath,
+  notebookForShadow,
+  cellRefFromEvidence,
+  cellRefFor,
+  findNotebook,
+  cellAtIndex,
+  resolveNotebookTarget,
+  notebookCounts,
+  notebookTooltipFragment,
+  analyzedAnyNotebook,
+  openNotebooks,
+  CELL_EVIDENCE_RE,
+  OUTSIDE_CELL_EVIDENCE_RE,
+  NOTEBOOK_EXTENSION,
+  NOTEBOOK_ANALYZED_KIND,
+  SHADOW_DIR,
+  CODE_CELL_KIND,
+  NO_NOTEBOOKS
+} from './notebooks';
+export {
   buildDiagnostics,
+  DiagnosticsPublisher,
   mapSeverity,
   toVsSeverity,
   resolveRuleDocPath,

@@ -473,8 +473,18 @@ VS Code 1.136):**
   specifies: `analyzer/src/mlview/ir/resolve.py` fills `target_function` for a
   call into a workspace module, and stops there. A rule cannot chase a helper
   that a helper calls.
-- Notebooks are counted and declared, never analyzed: the run reports them as
-  `notebooksSkipped` and a `notebook_skipped` diagnostic, and no cell is parsed.
+- Notebooks are analyzed only when asked (`--include-notebooks`, `[paths] notebooks`,
+  or `mlview.includeNotebooks` in VS Code); without it they are counted and declared
+  exactly as before, as `notebooksSkipped` plus a `notebook_skipped` diagnostic, and
+  no cell is parsed. When asked, each notebook becomes one generated module under
+  `.mlview/notebooks/` and every `Loc` names **that** file -- `Loc` is frozen and
+  cannot carry a cell index -- with the cell mapping riding beside it in
+  `Node.attrs.notebook` / `.cell` / `.cellLine` and in one evidence row per finding.
+  The VS Code host re-anchors findings onto `vscode-notebook-cell:` URIs from that
+  evidence, so a squiggle lands in the cell; a *related* location still points at the
+  generated module, which is a real file that re-opens and slices. Cell execution
+  order is not recoverable from an `.ipynb` at all, so a non-monotonic
+  `execution_count` de-rates MLV101, MLV203 and MLV209 and says so.
 - Bindings are flow-insensitive within a scope (`analyzer/src/mlview/ir/bindings.py`);
   rules that care about ordering compare line numbers explicitly.
 - `analysisProgress` is posted only when the diagram panel is open. The extension

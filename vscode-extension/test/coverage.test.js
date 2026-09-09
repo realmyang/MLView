@@ -27,6 +27,7 @@ const {
   coverageNotes,
   COVERAGE_DIAGNOSTIC_KINDS,
   statusBarTooltip,
+  NO_NOTEBOOKS,
   fileScopeSpec,
   focusScopeSpec,
   packageRootFor,
@@ -74,7 +75,7 @@ test('a graph with no coverage diagnostics produces no caveat anywhere', () => {
   assert.deepEqual(coverageFor(graph), []);
   assert.equal(coverageChip([]), undefined);
   assert.equal(
-    statusBarTooltip({ low: 0, medium: 0, high: 0 }, false, false, 0, []),
+    statusBarTooltip({ low: 0, medium: 0, high: 0 }, false, false, NO_NOTEBOOKS, []),
     'MLView: 0 high, 0 medium, 0 low'
   );
 });
@@ -126,7 +127,7 @@ test('the status-bar tooltip says the count is a floor when the run was blind', 
     { low: 0, medium: 0, high: 0 },
     false,
     false,
-    0,
+    NO_NOTEBOOKS,
     coverageFor(graphWith([SINGLE_FILE]))
   );
   assert.ok(tooltip.startsWith('MLView: 0 high, 0 medium, 0 low · coverage: incomplete'), tooltip);
@@ -136,10 +137,10 @@ test('the status-bar tooltip says the count is a floor when the run was blind', 
 
 test('a busy or failed status bar still says only that, coverage or not', () => {
   const coverage = coverageFor(graphWith([SINGLE_FILE]));
-  assert.equal(statusBarTooltip({ low: 0, medium: 0, high: 0 }, true, false, 0, coverage),
+  assert.equal(statusBarTooltip({ low: 0, medium: 0, high: 0 }, true, false, NO_NOTEBOOKS, coverage),
     'MLView: analyzing…');
   assert.ok(
-    statusBarTooltip({ low: 0, medium: 0, high: 0 }, false, true, 0, coverage).startsWith(
+    statusBarTooltip({ low: 0, medium: 0, high: 0 }, false, true, NO_NOTEBOOKS, coverage).startsWith(
       'MLView: analysis failed'
     )
   );

@@ -39,6 +39,18 @@ import { EXPORT_PALETTES, PALETTE_TOKENS, TINT_TOKENS, paletteFor } from './expo
 import { EXPORT_MONO, EXPORT_REGIONS, EXPORT_SANS, ExportRegionKind, ExportSvgResult } from './export/svg.js';
 import { PNG_SCALE, exportFileName, regionRect, renderExport } from './export/actions.js';
 import { EXPORT_ACTIONS } from './ui/exportmenu.js';
+import {
+  cellRef,
+  derated,
+  isNotebookPath,
+  locLabel,
+  locSpoken,
+  locTitle,
+  outOfOrderDiagnostics,
+  outOfOrderFiles,
+  outOfOrderHeadline,
+  OUT_OF_ORDER_KINDS,
+} from './notebook.js';
 import type { Rect } from './render/canvas.js';
 import type { IssueCounts, MLGraph, MLNode, Severity, ThemeKind } from './types.js';
 
@@ -383,6 +395,23 @@ export const internals = {
   /** RAIL-GROUP, MLV-P6 and VIEW-10: the data behind three rendered surfaces. */
   rail: { groupIssues, occurrenceText, sanitizeGroupBy },
   ruleDocs: { ruleDocFor, setRuleDocs },
+  /**
+   * NB: the one translation from a flat line into `name.ipynb > cell 3 : 4`,
+   * and the execution-order caveat's wording. Exposed so a gate states the rule
+   * rather than transcribing a string built somewhere else.
+   */
+  notebook: {
+    cellRef,
+    locLabel,
+    locSpoken,
+    locTitle,
+    isNotebookPath,
+    outOfOrder: outOfOrderDiagnostics,
+    outOfOrderFiles,
+    derated,
+    headline: outOfOrderHeadline,
+    KINDS: OUT_OF_ORDER_KINDS,
+  },
   legendModel,
   buildDemoCard,
   severityGlyph,

@@ -43,10 +43,14 @@ def test_analyze_options_defaults_match_the_contract():
     # the same rule again - all defaulted, all at the end, and all three
     # defaulting to today's behaviour (`all` is the identity prefilter mode and
     # `cache=None` means "ask the environment").
+    # CONTRACTS 11.29 (NB) appends `include_notebooks` under the same rule: a
+    # defaulted False, so a run that does not name it discovers, parses and
+    # emits exactly what it always did - `.ipynb` counted and skipped.
     assert list(fields) == ["paths", "include", "exclude", "max_files", "max_nodes",
                             "framework", "min_severity", "min_confidence",
                             "config_path", "strict", "scope", "depth", "progress",
-                            "relevance", "relevance_hops", "cache"]
+                            "relevance", "relevance_hops", "cache",
+                            "include_notebooks"]
     assert fields["paths"].default is dataclasses.MISSING, "paths is required"
     assert fields["include"].default == ()
     assert fields["exclude"].default == ()
@@ -63,6 +67,7 @@ def test_analyze_options_defaults_match_the_contract():
     assert fields["relevance"].default == "all"
     assert fields["relevance_hops"].default == 2
     assert fields["cache"].default is None
+    assert fields["include_notebooks"].default is False
 
 
 def test_analyze_options_is_frozen_and_hashable():

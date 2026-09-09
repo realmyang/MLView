@@ -92,11 +92,20 @@ test('dist/mlview.css IS the minification of dist/mlview.dev.css (BUILD-01)', as
 /*
  * BUILD-01's size ratchet.
  *
- * MEASURED ON THIS TREE, 2026-09-09, after VIEW-07 (diagram export) landed on
- * top of the Sprint 4 viewer drop:
- *   dist/mlview.js       266 398 B (260.2 KB)
- *   dist/mlview.css       60 234 B  (58.8 KB), minified from 101 293 B (-41%)
- *   dist/mlview.dev.css  101 293 B  (98.9 KB, never shipped)
+ * MEASURED ON THIS TREE, 2026-09-09, after NB (notebook locations) landed on
+ * top of VIEW-07 (diagram export) and the Sprint 4 viewer drop:
+ *   dist/mlview.js       268 947 B (262.6 KB)
+ *   dist/mlview.css       60 429 B  (59.0 KB), minified from 102 239 B (-41%)
+ *   dist/mlview.dev.css  102 239 B  (99.8 KB, never shipped)
+ *
+ * NB moved the JS by +2 991 B and the CSS by +195 B, and moved NEITHER CAP: the
+ * item is one small module (`notebook.ts`: the flat-line-to-cell translation,
+ * `adoptCellMap`, and the execution-order wording), one banner branch, one chip
+ * branch and four `.mlv-loc*` rules. The last 442 B of that are the integration
+ * reconciliation against 11.29 as it actually landed -- the cell map is lifted
+ * off `Node.attrs`, and the caveat is read off `notebook_analyzed.codes`. It is
+ * re-recorded here rather than absorbed silently because that is exactly what
+ * TB-14 asks for -- the figures are the gate, not the caps.
  *
  * WHY BOTH CAPS MOVE AGAIN, which is the number a lead looks for. The previous
  * ratchet (JS 236 KB / CSS 58 KB) was set against 237 749 B and 57 243 B. VIEW-07
@@ -118,8 +127,8 @@ test('dist/mlview.css IS the minification of dist/mlview.dev.css (BUILD-01)', as
  * quietly outliving it (TB-14). Every assertion below names the measured size
  * and the remaining headroom.
  */
-const JS_RECORDED = 266398;
-const CSS_RECORDED = 60234;
+const JS_RECORDED = 269389;
+const CSS_RECORDED = 60429;
 const DRIFT = 2 * 1024;
 const JS_MAX_BYTES = 268 * 1024;
 const CSS_MAX_BYTES = 61 * 1024;

@@ -213,6 +213,8 @@ const recorded = {
   participants: [],
   serializers: new Map(),
   saveListeners: [],
+  /** NB: `workspace.onDidSaveNotebookDocument` listeners, so a test can fire a notebook save. */
+  notebookSaveListeners: [],
   changeListeners: [],
   folderListeners: [],
   configListeners: [],
@@ -234,6 +236,52 @@ const quickPickAnswers = [];
 let fsWriteError;
 /** Virtual documents keyed by fsPath, set by `__setDocument`. */
 const documents = new Map();
+
+/**
+ * NB: the open notebooks, as `NotebookDocument` stubs. Real VS Code models a notebook as a
+ * document of cells, each cell backed by its OWN TextDocument on a `vscode-notebook-cell:`
+ * uri - which is the only thing a squiggle can be attached to inside a notebook, and the
+ * reason `src/notebooks.ts` exists at all.
+ */
+let notebookDocuments = [];
+
+const NotebookCellKind = { Markup: 1, Code: 2 };
+
+/**
+ * Build one notebook stub. `cells` is a list of `{ kind, lines }` (kind defaults to Code),
+ * and every cell gets the cell uri VS Code would give it: the notebook path with a
+ * `vscode-notebook-cell` scheme and a `#chNNNN` fragment.
+ */
+function makeNotebook(fsPath, cells) {
+  const uri = Uri.file(fsPath);
+  const built = cells.map((cell, index) => {
+    const kind = cell.kind === undefined ? NotebookCellKind.Code : cell.kind;
+    const cellUri = new Uri(fsPath, 'vscode-notebook-cell');
+    cellUri.fragment = 'ch' + String(index).padStart(4, '0');
+    cellUri.toString = () => `vscode-notebook-cell://${cellUri.path}#${cellUri.fragment}`;
+    return {
+      index,
+      kind,
+      notebook: null,
+      document: {
+        uri: cellUri,
+        languageId: kind === NotebookCellKind.Code ? 'python' : 'markdown',
+        lineCount: cell.lines === undefined ? 20 : cell.lines
+      }
+    };
+  });
+  const notebook = {
+    uri,
+    notebookType: 'jupyter-notebook',
+    cellCount: built.length,
+    getCells: () => built,
+    cellAt: (index) => built[index]
+  };
+  for (const cell of built) {
+    cell.notebook = notebook;
+  }
+  return notebook;
+}
 
 function makeDocument(uri) {
   const key = String(uri && uri.fsPath ? uri.fsPath : uri).replace(/\\/g, '/');
@@ -437,7 +485,11 @@ const vscode = {
       }
       return true;
     },
+    get notebookDocuments() {
+      return notebookDocuments;
+    },
     onDidSaveTextDocument: recordingEvent(recorded.saveListeners),
+    onDidSaveNotebookDocument: recordingEvent(recorded.notebookSaveListeners),
     onDidChangeTextDocument: recordingEvent(recorded.changeListeners),
     onDidChangeWorkspaceFolders: recordingEvent(recorded.folderListeners),
     onDidChangeConfiguration: recordingEvent(recorded.configListeners),
@@ -488,6 +540,7 @@ const vscode = {
   },
   extensions: { getExtension: () => undefined },
   CancellationTokenSource,
+  NotebookCellKind,
   // Feature-detected APIs are absent by default, exactly like a VS Code build without them.
   chat: undefined,
   lm: undefined,
@@ -507,6 +560,14 @@ const vscode = {
   /** Make the next `workspace.fs.writeFile` throw. */
   __failNextWrite(err) {
     fsWriteError = err || new Error('EACCES: permission denied');
+  },
+  /**
+   * NB: open one or more notebooks. Each entry is `{ path, cells: [{kind?, lines?}, ...] }`;
+   * pass nothing to close them all.
+   */
+  __setNotebooks(specs) {
+    notebookDocuments = (specs || []).map((spec) => makeNotebook(spec.path, spec.cells || []));
+    return notebookDocuments;
   },
   /** Give `openTextDocument` real text for one absolute path. */
   __setDocument(fsPath, text) {
@@ -569,8 +630,10 @@ const vscode = {
     recorded.tools.clear();
     recorded.participants.length = 0;
     recorded.serializers.clear();
+    notebookDocuments = [];
     for (const key of [
       'saveListeners',
+      'notebookSaveListeners',
       'changeListeners',
       'folderListeners',
       'configListeners',

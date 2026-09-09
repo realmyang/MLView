@@ -1,6 +1,6 @@
 ---
 description: Analyze the ML pipeline in a path and open the interactive MLView diagram
-argument-hint: "[path] [--scope <SPEC>] [--depth <0-2>]"
+argument-hint: "[path] [--scope <SPEC>] [--depth <0-2>] [--include-notebooks]"
 allowed-tools: [Bash, Read, Glob]
 ---
 
@@ -22,8 +22,10 @@ because a flag and its value occupy two of them):
   `node:<nodeId>` · `all`. `symbol:` is a spelling of `unit:`.
 - `--depth <0-2>` — boundary hops around the scope. Omit it for the per-kind
   default (1 for `unit`/`node`, 0 for `stage`/`file`/`concern`).
+- `--include-notebooks` — also analyze `.ipynb` files. Off by default, and the
+  default run is byte-identical to one from before notebooks existed.
 
-Both are optional and order-free. Anything else in `$ARGUMENTS` is passed
+All three are optional and order-free. Anything else in `$ARGUMENTS` is passed
 through unchanged. If no `--scope` was given, **do not invent one** — omit the
 argument entirely and analyze the whole project.
 
@@ -48,7 +50,8 @@ rules and still answers about that one file.
 cheaper, and return a bounded digest:
 
 1. `mlview_analyze` with `path` set to the target (omit it for the whole
-   project), plus `scope` and `depth` when the user gave them.
+   project), plus `scope` and `depth` when the user gave them, and
+   `includeNotebooks: true` when `--include-notebooks` was given.
 2. `mlview_open_diagram` with the same `path`, `scope` and `depth`, to write and
    open the report. The report always embeds the **whole** graph and merely
    *opens at* the scope, so the user can widen it in the toolbar.
@@ -71,8 +74,9 @@ never depends on that), run the CLI through `Bash`:
 python -m mlview analyze "$0" --json .mlview/graph.json --html .mlview/report.html --open --format summary
 ```
 
-Append ` --scope <SPEC>` and ` --depth <N>` to that line **only** when the user
-gave them; with no scope the command is exactly the line above, unchanged. A
+Append ` --scope <SPEC>`, ` --depth <N>` and ` --include-notebooks` to that line
+**only** when the user gave them; with none of them the command is exactly the
+line above, unchanged. A
 scoped run looks like this (a real selector, not a placeholder):
 
 ```bash
@@ -94,6 +98,28 @@ Exit codes: `0` fine, `1` usage or I/O (including an unusable `--scope`, whose
 stderr names the code, the offending term and up to ten candidates), `2`
 `--fail-on` threshold, `3` internal error, `4` nothing analyzable (no `.py`
 files after filtering — say so plainly rather than retrying).
+
+### Notebooks
+
+`.ipynb` files are **not** analyzed unless asked. Two rules follow, and neither
+is optional:
+
+- **`notebooksSkipped > 0` is never a clean result.** If the digest reports it
+  and the user has not said to ignore notebooks, say so and offer to re-run with
+  `--include-notebooks` — a green answer for a project whose ML code lives in
+  notebooks is a bill of health from a run that read none of it. Pass the same
+  `includeNotebooks: true` to **both** `mlview_analyze` and `mlview_issues`; with
+  it off, `mlview_issues` lists no notebook finding at all.
+- **Report what a notebook run could not know.** Each notebook becomes one
+  generated module under `.mlview/notebooks/`, so every `file:line` names *that*
+  file, not the `.ipynb`. The `notebook_analyzed` note carries the mapping — the
+  notebook, how many of its cells are code, and the execution-order verdict — and
+  each finding's evidence names the cell as `<notebook> cell <N>, line <M>`.
+  **Cite the cell, not the generated module**, when you tell the user where a
+  finding is. A notebook whose recorded `execution_count` is not monotonic was
+  last run out of order, so document order is an assumption: MLView de-rates
+  MLV101, MLV203 and MLV209 there and says so in the note. Repeat that caveat
+  rather than presenting those findings at face value.
 
 ## Step 2 — report back
 

@@ -42,6 +42,7 @@ import { SearchController } from './ui/searchcontroller.js';
 import { dispatchHostMessage, sanitizeScope } from './protocol.js';
 import { ScopeSession, mergeCollapsed, railScopeCounts, sameScope } from './scope/session.js';
 import { ScopeBar } from './ui/scopebar.js';
+import { adoptCellMap } from './notebook.js';
 import type { SearchHit } from './search.js';
 import type {
   Capabilities,
@@ -336,6 +337,12 @@ export class App implements MLViewApp {
     // kept reading `MLView — validate()` over a whole-workspace diagram
     // (R2H-01 / R2-REG-02).
     const before = this.scopes.full ? this.scopes.summary() : null;
+    // NB / 11.29 N6. The notebook cell mapping arrives in `Node.attrs` as
+    // strings, because `Loc` is frozen (§2). Lift it onto each node's own `Loc`
+    // once, here, so every label surface keeps reading a plain `Loc` and none of
+    // them has to know where the analyzer keeps its provenance. A `.py`
+    // document, and a notebook node the ingest could not map, are untouched.
+    adoptCellMap(graph.nodes);
     this.scopes.setGraph(graph);
     this.fullIndex = new GraphIndex(graph);
     // The collapse set is held against the FULL id space and filtered at

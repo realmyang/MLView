@@ -64,6 +64,12 @@ export interface AnalyzeArgOptions {
   maxFiles: number;
   maxNodes: number;
   exclude: string[];
+  /**
+   * NB: read `.ipynb` files instead of counting them as skipped. Omitted (the default) the
+   * argv is byte-identical to the one this builder produced before notebooks existed, which
+   * is what makes `mlview.includeNotebooks: false` a true no-op rather than a fast path.
+   */
+  includeNotebooks?: boolean;
   /** When set, the graph is written to this file as a self-contained HTML report instead. */
   htmlOut?: string;
   /**
@@ -101,6 +107,10 @@ export function buildAnalyzeArgs(opts: AnalyzeArgOptions): string[] {
     if (glob.trim().length > 0) {
       args.push('--exclude', glob.trim());
     }
+  }
+  // NB: an INGEST flag, so it sits with the excludes and ahead of the projection flags.
+  if (opts.includeNotebooks) {
+    args.push('--include-notebooks');
   }
   if (opts.scopeSpec && opts.scopeSpec.trim().length > 0) {
     args.push('--scope', opts.scopeSpec.trim());
@@ -255,6 +265,7 @@ export class CoreClient implements vscode.Disposable {
       maxFiles: settings.maxFiles,
       maxNodes: settings.maxNodes,
       exclude: settings.exclude,
+      includeNotebooks: settings.includeNotebooks,
       progress: request.onProgress !== undefined
     });
     const started = Date.now();
@@ -297,6 +308,7 @@ export class CoreClient implements vscode.Disposable {
       maxFiles: settings.maxFiles,
       maxNodes: settings.maxNodes,
       exclude: settings.exclude,
+      includeNotebooks: settings.includeNotebooks,
       htmlOut: request.outFile,
       // What the panel is drawing, so the exported report opens on the same diagram (§11.8:
       // the file still embeds the WHOLE graph; the scope is one attribute on the root).

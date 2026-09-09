@@ -227,6 +227,7 @@ def mlview_analyze(
     includeHtml: bool = False,
     scope: Optional[str] = None,
     depth: Optional[int] = None,
+    includeNotebooks: bool = False,
 ) -> dict[str, Any]:
     """Statically analyze the Python ML code under `path` and return the pipeline structure.
 
@@ -267,6 +268,17 @@ def mlview_analyze(
             omit it when the question is about the project as a whole.
         depth: optional — 0, 1 or 2 boundary hops around the scope. Defaults per
             kind (1 for unit/node, 0 for stage/file/concern).
+        includeNotebooks: also analyze `.ipynb` files (default false, which is
+            byte-identical to the behaviour before notebooks existed). Set it
+            whenever the question is about a notebook, or whenever the result
+            reports `notebooksSkipped > 0` and the user has not said to ignore
+            them — a green answer for a project whose code lives in notebooks is
+            a clean bill of health from a run that read none of it. Each notebook
+            is converted to one generated module under `.mlview/notebooks/`, so
+            locations name THAT file; the `notebook_analyzed` note names the
+            notebook and the cell mapping, and cell execution order is not
+            recoverable from the file, so order-sensitive findings (MLV101,
+            MLV203, MLV209) in an out-of-order notebook are de-rated and say so.
 
     Returns a <=4 KB digest: schemaVersion, root, filesAnalyzed, filesFailed,
     notebooksSkipped, frameworks, stats{nodes,edges,issues}, lanes (one row per
@@ -276,7 +288,8 @@ def mlview_analyze(
     need detail the digest omits. graphPath always points at the FULL document
     even for a scoped call, so widening back costs nothing.
     """
-    loaded = load_graph(path, framework=framework, max_nodes=maxNodes)
+    loaded = load_graph(path, framework=framework, max_nodes=maxNodes,
+                        include_notebooks=bool(includeNotebooks))
     graph = loaded["graph"]
     # The cache is never keyed on the scope: the FULL document is analyzed and
     # stored, then projected (CONTRACTS 11.10).
@@ -305,6 +318,7 @@ def mlview_issues(
     groupBy: Optional[str] = None,
     changedSince: Optional[str] = None,
     baseline: Optional[str] = None,
+    includeNotebooks: bool = False,
 ) -> dict[str, Any]:
     """List the ML correctness and hygiene issues detected under `path`.
 
@@ -356,6 +370,11 @@ def mlview_issues(
             back as `baselinedCount`), so only what is NEW since the baseline is
             listed. Entries that no longer match any finding are reported in the
             `note` rather than silently forgiven.
+        includeNotebooks: also analyze `.ipynb` files (default false). Pass the
+            SAME value you passed to mlview_analyze: with it off, no finding
+            inside a notebook is listed at all, and a short list from a run that
+            read none of the notebooks is not a clean project. Ignored with
+            changedSince/baseline, which attribute the project as it is on disk.
 
     Returns countBySeverity, suppressedCount and issues[] (or groups[] under
     groupBy); the payload is capped at 4 KB, so a large workspace comes back
@@ -364,7 +383,7 @@ def mlview_issues(
     if changedSince or baseline:
         loaded = load_attributed(path, changedSince, baseline)
     else:
-        loaded = load_graph(path)
+        loaded = load_graph(path, include_notebooks=bool(includeNotebooks))
     spec, view, notes, _hops = scopes.apply_scope(loaded["graph"], scope, depth)
     return payloads.issues_payload(
         view,

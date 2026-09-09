@@ -6,6 +6,7 @@
  */
 
 import { add, button, clear, el, fileLine, on } from '../dom.js';
+import { cellRef, locTitle } from '../notebook.js';
 import { severityGlyph } from '../markers.js';
 import { appendTrustSections, confidenceChip } from './evidence.js';
 import { renderIssuePanel } from './issuelist.js';
@@ -282,6 +283,13 @@ export class Rail {
 
     const actions = add(panel, el('div', 'mlv-insp__actions'));
     const openBtn = button('mlv-btn mlv-btn--primary', 'Open ' + fileLine(node.loc));
+    // NB. The button says the cell; its hover says the flat line the host is
+    // actually sent, so the two never look like a contradiction.
+    const nbCell = cellRef(node.loc);
+    if (nbCell) {
+      openBtn.setAttribute('data-cell', String(nbCell.cell));
+      openBtn.title = locTitle(node.loc);
+    }
     on(openBtn, 'click', () => this.cb.onOpen(node.loc));
     actions.appendChild(openBtn);
     if (s.canAskAssistant) {

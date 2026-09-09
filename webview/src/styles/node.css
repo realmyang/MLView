@@ -68,8 +68,11 @@
 }
 
 .mlv-node__loc {
+  /* A `.mlv-loc` too (NB): the flex box shrinks the path and never the cell.
+   * `overflow: hidden` stays for the box itself; the ellipsis now belongs to
+   * `.mlv-loc__file`, which is the half that is allowed to lose characters. */
+  display: flex;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--mlv-text-3);
   font-family: var(--mlv-font-mono);

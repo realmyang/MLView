@@ -87,6 +87,11 @@ class Discovery:
     file_cap_hit: bool = False
     total_found: int = 0
     missing: List[str] = field(default_factory=list)
+    #: NB. Appended last and empty unless `discover(..., notebooks=True)`:
+    #: the `.ipynb` relpaths the caller asked to analyze, sorted. `notebooks`
+    #: above stays the **count of every notebook found**, whether or not it is
+    #: in this list, so `notebooksSkipped` can never quietly become zero.
+    notebook_files: List[str] = field(default_factory=list)
 
     def abspath(self, relpath: str) -> str:
         return "%s/%s" % (self.root, relpath)
@@ -110,8 +115,16 @@ def discover(
     include: Sequence[str] = (),
     exclude: Sequence[str] = (),
     max_files: int = 500,
+    notebooks: bool = False,
 ) -> Discovery:
-    """Walk `paths` (files or directories) and return the analyzable set."""
+    """Walk `paths` (files or directories) and return the analyzable set.
+
+    `notebooks` (NB) is appended last and defaults to False, so every existing
+    call - positional or keyword - discovers exactly what it always did. With
+    it True the `.ipynb` files that survive the exclude and include filters are
+    additionally returned in `Discovery.notebook_files`; the `notebooks` count
+    is unchanged either way.
+    """
     given = [normalize_path(p) for p in (paths or ())]
     if not given:
         given = [normalize_path(".")]
@@ -121,11 +134,12 @@ def discover(
     excludes = tuple(DEFAULT_EXCLUDES) + tuple(exclude or ())
 
     found: List[str] = []
-    notebooks = 0
+    notebook_files: List[str] = []
+    notebook_count = 0
     seen = set()
 
     def consider(abs_file: str) -> None:
-        nonlocal notebooks
+        nonlocal notebook_count
         rel = _rel(root, abs_file)
         if rel in seen:
             return
@@ -133,7 +147,9 @@ def discover(
         if lower.endswith(".ipynb"):
             if not matches_any(rel, excludes):
                 seen.add(rel)
-                notebooks += 1
+                notebook_count += 1
+                if notebooks and not (include and not matches_any(rel, include)):
+                    notebook_files.append(rel)
             return
         if not lower.endswith(".py"):
             return
@@ -158,9 +174,11 @@ def discover(
                 consider(os.path.join(dirpath, name).replace("\\", "/"))
 
     found.sort()
+    notebook_files.sort()
     total = len(found)
     cap_hit = total > max_files > 0
     if cap_hit:
         found = found[:max_files]
-    return Discovery(root=root, files=found, notebooks=notebooks,
-                     file_cap_hit=cap_hit, total_found=total, missing=missing)
+    return Discovery(root=root, files=found, notebooks=notebook_count,
+                     file_cap_hit=cap_hit, total_found=total, missing=missing,
+                     notebook_files=notebook_files)

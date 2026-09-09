@@ -27,7 +27,16 @@ second wastes both the context window and the answer.
      - Both zero and nodes present — this is a real result you can reason about.
    - A `note` field, when present, states exactly this in one sentence. Repeat it
      to the user; never emit a clean bill of health over the top of it.
-   - `notebooksSkipped > 0`? Notebooks are not analyzed in this version. Mention it.
+   - `notebooksSkipped > 0`? Those notebooks were **not read**, so their defects
+     are missing from every count. Say so, and offer `includeNotebooks: true` on
+     `mlview_analyze` **and** `mlview_issues` — never report a project whose ML
+     code lives in notebooks as clean on a run that opened none of them. With the
+     flag on, a `notebook_analyzed` row names each notebook, its cell count and
+     its execution-order verdict: locations name the generated module under
+     `.mlview/notebooks/`, so cite the **cell** from the finding's evidence
+     (`<notebook> cell <N>, line <M>`), and repeat the caveat when the recorded
+     `execution_count` is not monotonic — MLV101, MLV203 and MLV209 are de-rated
+     there because document order may not be run order.
 2. **`mlview_issues`** — the ranked findings with `file:line` and a fix hint.
    Do this *before* reading source, so your reads are aimed at the defects.
 3. **`mlview_graph`** — a diagram to reason about and to show.

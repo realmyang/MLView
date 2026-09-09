@@ -23,6 +23,20 @@ export interface Loc {
   endCol: number;
   symbol?: string;
   snippet?: string;
+  /**
+   * NB. The code cell this location fell in, when the file is a notebook the
+   * analyzer read. Absent on every `.py` location, and absent on a notebook
+   * location the ingest could not map — in which case the viewer shows the flat
+   * line rather than inventing a cell.
+   *
+   * `line` above stays the FLAT line into the concatenated code cells and is
+   * what `openLocation` posts: the hosts own the mapping onto a
+   * `vscode-notebook-cell:` URI. These two fields exist so the viewer can SHOW
+   * a human `name.ipynb > cell 3 : 4` without changing a byte on the wire.
+   */
+  cell?: number;
+  /** NB. 1-based line inside `cell`. Meaningless without `cell`. */
+  cellLine?: number;
 }
 
 export interface RelatedLoc extends Loc {
@@ -234,6 +248,12 @@ export const KNOWN_DIAGNOSTIC_KINDS = [
   'unresolved_callee',
   'config_unresolved',
   'notebook_analyzed',
+  /**
+   * NB. One per notebook whose `execution_count` is not monotonic: the file was
+   * last run out of order, so the analyzer read the cells top to bottom and
+   * de-rated every order-sensitive rule. `codes` names the rules it de-rated.
+   */
+  'notebook_out_of_order',
 ] as const;
 
 export type DiagnosticKind = (typeof KNOWN_DIAGNOSTIC_KINDS)[number];

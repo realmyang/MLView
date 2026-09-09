@@ -18,6 +18,15 @@ const {
   DIAGNOSTIC_COLLECTION_NAME
 } = api;
 
+/**
+ * NB: `buildDiagnostics` is keyed by the uri it publishes on, which is the file for `.py`
+ * code and the `vscode-notebook-cell:` document for a notebook finding. For everything in
+ * this file that is the file uri, so these two helpers keep the assertions reading the way
+ * they did when the key was the bare `absFile`.
+ */
+const key = (absFile) => vscode.Uri.file(absFile).toString();
+const at = (map, absFile) => map.get(key(absFile)).diagnostics;
+
 test('the frozen severity table', () => {
   // mlview.diagnosticSeverity = "warning" (default)
   assert.equal(mapSeverity('high', 'warning'), 'warning');
@@ -37,7 +46,7 @@ test('diagnostics carry source, code and the frozen severity', () => {
   const graph = readSampleGraph();
   const issues = selectIssues(graph, { minConfidence: 0.6 });
   const byFile = buildDiagnostics(issues, { mode: 'warning' });
-  const flat = [...byFile.values()].flat();
+  const flat = [...byFile.values()].flatMap((target) => target.diagnostics);
   assert.equal(flat.length, issues.length);
   for (const diagnostic of flat) {
     assert.equal(diagnostic.source, DIAGNOSTIC_SOURCE);
@@ -45,17 +54,17 @@ test('diagnostics carry source, code and the frozen severity', () => {
     assert.ok([0, 1, 2].includes(diagnostic.severity));
   }
   const high = issues.find((i) => i.severity === 'high');
-  const highDiagnostic = byFile.get(high.loc.absFile).find((d) => String(d.code) === high.code);
+  const highDiagnostic = at(byFile, high.loc.absFile).find((d) => String(d.code) === high.code);
   assert.equal(highDiagnostic.severity, vscode.DiagnosticSeverity.Warning);
 
   const escalated = buildDiagnostics([high], { mode: 'error' });
-  assert.equal(escalated.get(high.loc.absFile)[0].severity, vscode.DiagnosticSeverity.Error);
+  assert.equal(at(escalated, high.loc.absFile)[0].severity, vscode.DiagnosticSeverity.Error);
 });
 
 test('the diagnostic range is the single 1-based -> 0-based conversion', () => {
   const graph = readSampleGraph();
   const issue = graph.issues[0];
-  const diagnostic = buildDiagnostics([issue], { mode: 'warning' }).get(issue.loc.absFile)[0];
+  const diagnostic = buildDiagnostics([issue], { mode: 'warning' }).get(key(issue.loc.absFile)).diagnostics[0];
   assert.equal(diagnostic.range.start.line, issue.loc.line - 1);
   assert.equal(diagnostic.range.start.character, issue.loc.col);
   assert.equal(diagnostic.range.end.line, issue.loc.endLine - 1);
@@ -66,7 +75,7 @@ test('relatedInformation is built from relatedLocs', () => {
   const graph = readSampleGraph();
   const issue = graph.issues.find((i) => i.relatedLocs.length > 0);
   assert.ok(issue, 'the sample must exercise multi-location findings');
-  const diagnostic = buildDiagnostics([issue], { mode: 'warning' }).get(issue.loc.absFile)[0];
+  const diagnostic = buildDiagnostics([issue], { mode: 'warning' }).get(key(issue.loc.absFile)).diagnostics[0];
   assert.equal(diagnostic.relatedInformation.length, issue.relatedLocs.length);
   issue.relatedLocs.forEach((rel, i) => {
     const related = diagnostic.relatedInformation[i];
@@ -83,7 +92,7 @@ test('relatedInformation is built from relatedLocs', () => {
 test('an issue with no relatedLocs has no relatedInformation', () => {
   const graph = readSampleGraph();
   const issue = { ...graph.issues[0], relatedLocs: [] };
-  const diagnostic = buildDiagnostics([issue], { mode: 'warning' }).get(issue.loc.absFile)[0];
+  const diagnostic = buildDiagnostics([issue], { mode: 'warning' }).get(key(issue.loc.absFile)).diagnostics[0];
   assert.equal(diagnostic.relatedInformation, undefined);
 });
 
@@ -123,7 +132,7 @@ test('a resolved rule doc becomes a { value, target } code, otherwise a plain st
   const withDoc = buildDiagnostics([issue], {
     mode: 'warning',
     ruleDocs: { extensionDocsDir: path.join('C:', 'ext', 'docs', 'rules'), exists: () => true }
-  }).get(issue.loc.absFile)[0];
+  }).get(key(issue.loc.absFile)).diagnostics[0];
   assert.equal(withDoc.code.value, issue.code);
   assert.equal(withDoc.code.target.scheme, 'file');
   assert.ok(String(withDoc.code.target.fsPath).endsWith(`${issue.code}.md`));
@@ -131,7 +140,7 @@ test('a resolved rule doc becomes a { value, target } code, otherwise a plain st
   const withoutDoc = buildDiagnostics([issue], {
     mode: 'warning',
     ruleDocs: { extensionDocsDir: path.join('C:', 'ext', 'docs', 'rules'), exists: () => false }
-  }).get(issue.loc.absFile)[0];
+  }).get(key(issue.loc.absFile)).diagnostics[0];
   assert.equal(withoutDoc.code, issue.code);
 });
 
@@ -151,7 +160,9 @@ test('suppressed and low-confidence findings never reach the Problems panel', ()
 test('diagnostics are grouped per file so a file dropping to zero can be cleared', () => {
   const graph = readSampleGraph();
   const byFile = buildDiagnostics(selectIssues(graph, {}), { mode: 'warning' });
-  const files = new Set(graph.issues.filter((i) => !i.suppressed).map((i) => i.loc.absFile));
+  const files = new Set(
+    graph.issues.filter((i) => !i.suppressed).map((i) => key(i.loc.absFile))
+  );
   assert.deepEqual(new Set(byFile.keys()), files);
   assert.equal(DIAGNOSTIC_COLLECTION_NAME, 'mlview');
 });
@@ -184,9 +195,9 @@ function publishedBytes(graph) {
   return JSON.stringify(
     [...byFile.entries()]
       .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-      .map(([file, diagnostics]) => [
-        file,
-        diagnostics.map((d) => ({
+      .map(([target, entry]) => [
+        target,
+        entry.diagnostics.map((d) => ({
           range: d.range,
           message: d.message,
           severity: d.severity,

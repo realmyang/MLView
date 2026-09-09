@@ -3,7 +3,8 @@
  * document.createElement / createElementNS and filled with textContent.
  */
 
-import { el, add, middleTruncate, fileLine } from '../dom.js';
+import { el, add, middleTruncate, locSpan } from '../dom.js';
+import { locSpoken } from '../notebook.js';
 import { kindIcon, uiIcon, isKnownKind } from '../icons.js';
 import { severityBadge, severityCluster, highestSeverity, countsTotal } from '../markers.js';
 import type { IssueCounts, MLNode } from '../types.js';
@@ -145,7 +146,7 @@ export function ariaLabelFor(v: NodeVisual): string {
   if (n.ghost) bits.push('Missing step: ' + n.label);
   else bits.push((isKnownKind(n.kind) ? n.kind.replace(/_/g, ' ') : 'node') + ' ' + n.label);
   bits.push(stageOf(n) + ' stage');
-  bits.push(n.loc.file + ' line ' + n.loc.line);
+  bits.push(locSpoken(n.loc));
   const total = countsTotal(v.counts);
   const top = highestSeverity(v.counts);
   if (total > 0) bits.push(total + (total === 1 ? ' issue' : ' issues') + ', highest severity ' + top);
@@ -195,7 +196,10 @@ export function buildNodeCard(v: NodeVisual, collapsedGroup: boolean): HTMLEleme
   add(text, el('div', 'mlv-node__title', middleTruncate(n.label || n.qualname || n.id, 34)));
   const sub = n.sublabel || (n.fqn ? n.fqn : n.kind);
   add(text, el('div', 'mlv-node__sub', middleTruncate(sub, 40)));
-  add(text, el('div', 'mlv-node__loc', fileLine(n.loc)));
+  // NB. `notebooks/leak.ipynb > cell 3 : 4` on the card, with the flat line it
+  // was translated from in the hover. `locSpan` splits the path from the cell so
+  // a card too narrow for both loses the path, never the cell.
+  add(text, locSpan('mlv-node__loc', n.loc, 'div'));
 
   // The collapsed-group count chip is PREPENDED after budgeting, so it can never
   // push the "+n" overflow chip off the end (MLV-R1-011).

@@ -27,7 +27,8 @@
  * VS Code webview, the standalone report and a headless gate.
  */
 
-import { SVG_NS, middleTruncate, fileLine } from '../dom.js';
+import { SVG_NS, middleTruncate } from '../dom.js';
+import { locParts } from '../notebook.js';
 import { kindPath } from '../icons.js';
 import { countsTotal, highestSeverity, normalizeSeverity } from '../markers.js';
 import { ARROW_HEADS, edgeKindClass } from '../render/edges.js';
@@ -329,7 +330,12 @@ function nodeCard(
   out.push(
     text(sub, tx, box.y + Y_SUB, { size: FS_SUB, fill: palette.text2, italic: ghost }),
   );
-  const loc = ellipsise(fileLine(n.loc), tw, FS_LOC, true, false);
+  // NB. The cell reference (or, on a `.py` path, the line number) is reserved
+  // out of the budget first, so a path too long for the card loses the
+  // directory rather than the answer — the DOM card does the same in CSS.
+  const locBits = locParts(n.loc);
+  const tailPx = width(locBits.tail, FS_LOC, true, false);
+  const loc = ellipsise(locBits.head, Math.max(12, tw - tailPx), FS_LOC, true, false) + locBits.tail;
   out.push(text(loc, tx, box.y + Y_LOC, { size: FS_LOC, fill: palette.text3, mono: true }));
 
   const chips = collapsedGroup

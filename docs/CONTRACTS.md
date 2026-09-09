@@ -3100,6 +3100,77 @@ env), plus the unchanged `test_determinism.py`, `test_progress.py`, `test_stdout
 
 ---
 
+### 11.29 Notebook ingest: the generated module, the cell map and the execution-order caveat (2026-09-09) — amends §2, §3, §5 non-goal 3, §7 and 11.18, analyzer-owned
+
+Two audits wrote the same leaky notebook and got the same answer — **`0 files analyzed · 1 notebook
+skipped · 0 issues`, exit 4**, a green status bar over a textbook fit-before-split. Notebooks are the
+medium in which people fit before splitting, so the tool was blind exactly where its flagship rule
+family matters most. `REQUIREMENTS.md` §5 non-goal 3 said this version does not analyze them; **NB
+lifts that non-goal behind a flag**, and §10 A6's *"notebook fixtures"* trim is lifted with it,
+because the acceptance criteria are stated over fixtures.
+
+**Nothing happens unless the caller asks.** `--include-notebooks` on `analyze`, `issues` and
+`baseline`, or `[paths] notebooks = true` in `.mlview.toml`. Either turns it on; neither turns the
+other off. Without one, discovery, parsing, the graph, the diagnostics and the exit code are exactly
+what they were — `.ipynb` counted and skipped, with the same `notebook_skipped` message, asserted as
+a string equality (`test_without_the_flag_a_notebook_is_still_counted_and_skipped`) and as a
+document equality on a workspace with no notebook at all
+(`test_the_flag_changes_nothing_at_all_without_a_notebook`).
+
+**One notebook becomes one generated Python module**, materialised at
+`<root>/.mlview/notebooks/<the notebook's own path>.py`.
+
+| # | Rule |
+|---|---|
+| **N1** | **Code cells only, in document order.** Every cell with `cell_type == "code"` contributes its lines, preceded by a `# %% cell N (execution_count K)` marker and followed by one blank line, under a three-line header naming the source notebook. `source` may be a list of lines or a plain string; `worksheets` (nbformat 3) and `input` / `prompt_number` are accepted as the older spelling of the same three fields. |
+| **N2** | **Line counts are 1:1 inside a cell.** A line magic, a shell escape (`!pip install ...`) and a help query (`df.head?` / `?obj`) become `pass  # mlview: magic` at their own indentation — replaced, never deleted, because deleting one would slide every later line of the notebook by one and the cell map would be wrong from there on. A cell whose first line is a cell magic that does not carry a Python body (`%%bash`, `%%writefile`, `%%html`) has **every** line blanked, at column 0, since its indentation is not Python's. `PYTHON_CELL_MAGICS` is the list of cell magics whose body **is** Python (`%%time`, `%%timeit`, `%%capture`, …) and whose cells are kept. |
+| **N3** | **A magic that wraps a statement keeps the statement.** `%time model.fit(X, y)` becomes `model.fit(X, y)`: the token is dropped and the call survives, because blanking it would lose a real `fit` from the pipeline. Only the **column** moves, by the width of the token, and only for `PYTHON_LINE_MAGICS`. The remainder must `ast.parse` first, so `%timeit -n 100 f()` falls back to N2 rather than costing the whole notebook a SyntaxError. |
+| **N4** | **A `%` at statement position only.** The rewriter tracks bracket depth and open triple-quoted strings, so `total = (10\n % 3)` and a `%` inside a docstring are left alone. Rewriting either would turn correct code into a syntax error and lose the notebook. |
+| **N5** | **The generated module is on disk, and every `Loc` names it.** `Loc` is frozen (§2) and cannot carry a cell index; a location naming the `.ipynb` would name a line of JSON, which is worse than useless to the host that has to open it. R2.1's re-slice guarantee therefore holds unchanged and is gated on notebook fixtures directly (`tests/core/test_locations.py::test_notebook_locations_resolve`). `.mlview/` is already git-ignored, already in `discover.ALWAYS_PRUNE` — so a second run can never re-discover a generated module as source — and already where the analyzer writes its cache. `.mlview` is not a legal Python identifier, so the generated module's dotted name can never shadow a real one. |
+| **N6** | **The cell map rides beside the `Loc`.** Every node located in a generated module carries `attrs.notebook` (the `.ipynb` relpath), `attrs.cell` (0-based index among **all** cells, markdown included — the index a host needs to address `vscode-notebook-cell:`) and `attrs.cellLine` (1-based within the cell). §2's description of `attrs` as *"stringified literal keyword arguments only"* is amended to *"…plus the notebook provenance keys `notebook`, `cell` and `cellLine`"*; the values are strings, so the schema is unchanged and `contracts/graph.sample.json` does not move. Provenance **wins** over a literal keyword argument of the same name: a location that names the wrong cell is worse than a lost `cell=` attr, and the collision is stated here rather than discovered. A line belonging to no cell (the header, a `# %%` marker) gets `notebook` and no cell — an invented mapping is worse than an absent one. |
+| **N7** | **Every finding carries the same mapping as one evidence factor**, `kind: "context_confirmed"`, whose detail names the notebook, the cell, the line within the cell, and the execution-order verdict in words. Exactly one such factor per finding, appended last, so the evidence a rule wrote is untouched. |
+
+**The execution-order caveat is the honest half.** A notebook records only the `execution_count` of
+its *last* run; cells may have been run, edited and re-run in any order since. Document order is an
+assumption, and this contract does not let the tool present an assumption as a fact.
+
+| # | Rule |
+|---|---|
+| **N8** | `orderOk` is *strictly increasing over the cells that record a count*. A cell with no count was not run and contradicts nothing, so it is skipped rather than treated as a break; a notebook where **no** cell records a count is in order by default, and the diagnostic says why. |
+| **N9** | **A non-monotonic notebook is de-rated, not silenced.** `rules/confidence.NOTEBOOK_ORDER_FACTOR` is **0.75**, applied as the weight of N7's evidence factor — so it goes through the existing six-factor product, is visible in every host that renders evidence, and needs no new confidence mechanism. It applies to `ORDER_SENSITIVE_CODES` = **MLV101, MLV203, MLV209** and to nothing else: those three each compare two positions and conclude from the comparison. An in-order notebook's factor has weight **1.0**, an exact identity in the product, so the same code in a `.py` and in an in-order notebook score identically — asserted as an equality, and the out-of-order case as a strict inequality. |
+| **N10** | **`notebook_analyzed` is emitted from this amendment.** 11.18's table listed it *"no — reserved"*; that row now reads **yes** (`core/pipeline._ingest_notebooks`). Nothing else in 11.18 changes, and `config_unresolved` remains reserved. One diagnostic **per analyzed notebook**, `file` = the `.ipynb` (so a host can open the real file), `count` = the number of code cells, `message` naming the generated module, the cell counts, how many lines were replaced and the order verdict; `codes` = `ORDER_SENSITIVE_CODES` when and only when the order is not monotonic. A notebook that was analyzed and says nothing is the *"clean bill of health from a blind tool"* this contract refuses everywhere else. |
+| **N11** | **`notebooksSkipped` never becomes zero because the flag was on.** It is every notebook discovered minus the ones that really reached the rules. A notebook whose JSON is invalid, whose generated module does not parse, whose bytes are not UTF-8, or whose generated module cannot be written, is counted **and** gets its own `parse_error` naming the `.ipynb` — not the generated module, because the reader has to be able to find the file the tool choked on. `filesFailed` stays the Python-file counter it has always been. |
+
+**What this deliberately does not do, stated once.**
+
+* **It does not reconstruct an execution order.** Nothing in the file records one. N8–N10 say so and stop.
+* **It does not publish `vscode-notebook-cell:` URIs.** That is host work; N6 is the data it needs, and until a host does it a notebook finding opens the generated module, which really is the text that was analyzed.
+* **It does not put a cell on `relatedLocs` or on edges.** Neither carries an `attrs` map; only nodes and issues carry the mapping in this amendment.
+* **It does not enter the parse cache or the relevance prefilter.** `core/cache.file_signature` hashes `.py` only, so editing a notebook does not invalidate a host's cached graph, and `--relevance ml` never sets a notebook aside because notebooks bypass the prefilter entirely. Both are honest gaps, not silent ones: the first is a second copy in `claude-plugin/server/mlview_workspace.py` that may not drift, and changing it is a change to that copy's contract.
+* **It emits no `--progress-json` frames.** 11.31 H5 is unchanged: frames are for Python files that reach the parser, and notebook conversion is outside that count.
+* **A module-level entrypoint node may anchor on a replaced magic line**, because that line really is the module's first statement in the text that was analyzed. The location re-slices correctly; it just reads `pass  # mlview: magic`.
+
+**Surface additions, all appended last and all defaulted.** `AnalyzeOptions.include_notebooks: bool
+= False` (§3's frozen surface, under the same rule 11.6 / 11.28 / 11.31 used four times before);
+`Discovery.notebook_files: List[str]`; `RuleConfig.notebooks: bool`; `WorkspaceIR.notebooks: Dict[str,
+NotebookMap]`; `discover(..., notebooks: bool = False)`. A `[paths] notebooks` that is not a boolean
+is a `config_warning`, never a silent truthiness read (CLEANUP 3's rule).
+
+**No schema change.** `Diagnostic.kind` already carries `notebook_analyzed` (11.18), `Node.attrs` is
+already an open string map, and `Evidence.kind` is unextended. `contracts/graph.schema.json`, its
+mirror and `contracts/graph.sample.json` are byte-identical to what they were, and `--demo` parity
+holds.
+
+**Gates:** `analyzer/tests/core/test_notebooks.py` (26 cases: the untouched default path, the
+four-cell acceptance including exit 0 through the CLI, the out-of-order de-rating against the same
+code in a `.py`, the evidence factor, the materialised module, re-discovery, every magic shape, the
+order verdict table, the failure accounting and both config paths) and
+`analyzer/tests/core/test_locations.py::test_notebook_locations_resolve` over
+`analyzer/tests/fixtures/notebooks/` (`leak.ipynb`, `leak_out_of_order.ipynb`, `odd_cells.ipynb`,
+`broken.ipynb`).
+
+---
+
 ### 11.30 The edge-retained issue, and differential fuzzing of the two projections (2026-09-09) — amends §11.2 step 6 and §11.15, contracts-owned
 
 HEALTH-02 asked for a fuzzer over the two `project()` implementations. Building it found a **real divergence on

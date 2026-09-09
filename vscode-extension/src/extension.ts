@@ -38,6 +38,7 @@ import { clearScope, scopeToSymbol, type ScopeDeps } from './scopeCommands';
 import { readSettings, type MlviewSettings } from './settings';
 import { renderStatusBar } from './statusBar';
 import { analyzeForTools } from './toolAnalyze';
+import { recordStale, registerWatchers } from './watchers';
 import { ensureTrusted, manageTrust } from './trust';
 
 let controller: MlviewController | undefined;
@@ -161,37 +162,9 @@ class MlviewController implements PanelDelegate, CoreLike, CommandHost, vscode.D
           MlviewPanel.revive(panel, this.ctx, this);
         }
       }),
-      vscode.workspace.onDidSaveTextDocument((doc) => this.onDocumentSaved(doc)),
-      vscode.workspace.onDidChangeTextDocument((e) => this.onDocumentChanged(e.document)),
-      vscode.workspace.onDidChangeWorkspaceFolders(() => {
-        this.graph = undefined;
-        this.index = undefined;
-        this.lastFailure = undefined;
-        this.staleFiles.clear();
-        this.diagnostics.clear();
-        this.codeLens.refresh();
-        this.updateStatusBar();
-      }),
-      vscode.workspace.onDidChangeConfiguration((e) => {
-        if (e.affectsConfiguration('mlview.codeLens')) {
-          this.codeLens.refresh();
-        }
-        if (
-          this.graph &&
-          (e.affectsConfiguration('mlview.minConfidence') ||
-            e.affectsConfiguration('mlview.minSeverity') ||
-            e.affectsConfiguration('mlview.diagnosticSeverity') ||
-            e.affectsConfiguration('mlview.diagnosticsEnabled') ||
-            e.affectsConfiguration('mlview.disabledRules'))
-        ) {
-          const settings = readSettings();
-          this.diagnostics.publish(this.graph, settings);
-          MlviewPanel.current?.postSetFilter(
-            allowedRuleCodes(this.graph, settings.disabledRules)
-          );
-          this.updateStatusBar();
-        }
-      })
+      // The five workspace listeners: two saves (text and notebook), a change, a folder
+      // change and a configuration change. src/watchers.ts owns what each one means.
+      ...registerWatchers(this)
     );
     this.statusBar.show();
     this.log.info('commands, panel serializer, diagnostics, CodeLens and status bar registered');
@@ -467,33 +440,44 @@ class MlviewController implements PanelDelegate, CoreLike, CommandHost, vscode.D
     });
   }
 
-  private onDocumentSaved(doc: vscode.TextDocument): void {
-    if (doc.languageId !== 'python') {
-      return;
+  // ------------------------------------------------------------------- WatchHost
+
+  settingsFor(uri: vscode.Uri): MlviewSettings {
+    return readSettings(uri);
+  }
+
+  markStale(fsPath: string): void {
+    if (recordStale(this.graph?.workspace.root, fsPath, this.staleFiles)) {
+      MlviewPanel.current?.postStale(Array.from(this.staleFiles));
     }
-    this.markStale(doc);
-    if (!readSettings(doc.uri).analyzeOnSave) {
-      return;
-    }
+  }
+
+  reanalyze(): void {
     this.core.scheduleAnalyze(() => void this.analyzeScope(this.lastScope));
   }
 
-  private onDocumentChanged(doc: vscode.TextDocument): void {
-    if (doc.languageId === 'python') {
-      this.markStale(doc);
-    }
+  refreshCodeLens(): void {
+    this.codeLens.refresh();
   }
 
-  private markStale(doc: vscode.TextDocument): void {
+  republish(): void {
     if (!this.graph) {
       return;
     }
-    const relative = toWorkspaceRelative(this.graph.workspace.root, doc.uri.fsPath);
-    if (relative.startsWith('..') || this.staleFiles.has(relative)) {
-      return;
-    }
-    this.staleFiles.add(relative);
-    MlviewPanel.current?.postStale(Array.from(this.staleFiles));
+    const settings = readSettings();
+    this.diagnostics.publish(this.graph, settings);
+    MlviewPanel.current?.postSetFilter(allowedRuleCodes(this.graph, settings.disabledRules));
+    this.updateStatusBar();
+  }
+
+  resetForWorkspaceChange(): void {
+    this.graph = undefined;
+    this.index = undefined;
+    this.lastFailure = undefined;
+    this.staleFiles.clear();
+    this.diagnostics.clear();
+    this.codeLens.refresh();
+    this.updateStatusBar();
   }
 
   private updateStatusBar(): void {

@@ -13,7 +13,39 @@
  */
 
 import { add, el } from '../dom.js';
+import { OUT_OF_ORDER_KINDS } from '../notebook.js';
 import type { Diagnostic } from '../types.js';
+
+/**
+ * Diagnostic kinds the chrome surfaces somewhere OTHER than the generic note
+ * chip: as a banner, as a purpose-built chip, or folded into the status bar.
+ * Anything not listed here — including a kind invented by a newer analyzer —
+ * falls through to the generic chip, which is what invariant 1.1/6 asks for.
+ */
+export const SPECIALLY_RENDERED = [
+  'parse_error',
+  'dynamic_scope',
+  'truncated',
+  'notebook_skipped',
+  'framework_suppressed',
+  'config_warning',
+  'config_unresolved',
+  'untagged_dataflow',
+  'single_file_analysis',
+  'notebook_analyzed',
+  // NB. Drawn as a BANNER, not a chip.
+].concat(OUT_OF_ORDER_KINDS);
+
+/**
+ * COVERAGE. The product's worst failure mode is that it cannot tell *"I checked
+ * and it is fine"* from *"I could not check"*: MLV101 is silent whenever
+ * features arrive as a function parameter, and analysing `train.py` alone yields
+ * 3 findings where its directory yields 7 — a 57 % loss, with nothing said. Both
+ * now arrive as diagnostics, and both get a banner that says what was NOT
+ * looked at.
+ */
+export const COVERAGE_KINDS = ['untagged_dataflow', 'single_file_analysis'];
+
 
 /** One `12 nodes` pill for the toolbar's stat row. */
 export function stat(value: string, label: string): HTMLElement {
@@ -21,6 +53,17 @@ export function stat(value: string, label: string): HTMLElement {
   add(wrap, el('span', 'mlv-stat__value', value));
   add(wrap, el('span', '', label));
   return wrap;
+}
+
+/**
+ * NB. The chip for `notebook_analyzed` — the counterpart of the
+ * `notebook_skipped` chip the chrome has always drawn. Its opposite sat in the
+ * "specially rendered" list with nothing rendering it, so a run that DID read
+ * the notebooks said so nowhere outside the "N notes" count.
+ */
+export function notebooksAnalyzedText(d: Diagnostic): string {
+  const n = d.count || 0;
+  return n + (n === 1 ? ' notebook analyzed' : ' notebooks analyzed');
 }
 
 /** The chip text for one coverage diagnostic — short, countable, honest. */

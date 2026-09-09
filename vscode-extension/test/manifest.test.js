@@ -36,6 +36,9 @@ test('activation events and untrusted-workspace support', () => {
   assert.deepEqual(manifest.activationEvents, [
     'onLanguage:python',
     'workspaceContains:**/*.py',
+    // NB: a notebooks-only workspace has no .py file to activate on, so mlview.includeNotebooks
+    // would be unreachable there without this row.
+    'workspaceContains:**/*.ipynb',
     'onWebviewPanel:mlview.diagram'
   ]);
   assert.equal(manifest.capabilities.untrustedWorkspaces.supported, 'limited');
@@ -139,6 +142,7 @@ test('all mlview.* settings are contributed with the contract defaults', () => {
     'mlview.analyzeOnSave': true,
     'mlview.currentFileAnalysisScope': 'package',
     'mlview.exclude': [],
+    'mlview.includeNotebooks': false,
     'mlview.maxFiles': 500,
     'mlview.maxNodes': 400,
     'mlview.minSeverity': 'low',
@@ -156,7 +160,10 @@ test('all mlview.* settings are contributed with the contract defaults', () => {
   // mlview.currentFileAnalysisScope, which COVERAGE names explicitly, because "Visualize
   // (Current File)" analysing the file alone loses 4 of 7 findings silently. Nothing else may
   // grow this set: CONTRACTS.md 11.11 is still "Settings: none added", the flow preference is
-  // renderer-owned (ViewState.flow) and mlview.defaultScope is cut.
+  // renderer-owned (ViewState.flow) and mlview.defaultScope is cut. ONE row JOINED in Sprint 4:
+  // mlview.includeNotebooks, which ROADMAP NB names explicitly ("behind --include-notebooks /
+  // [paths].notebooks (byte-identical behaviour without it)") - the host half of that flag has
+  // to be a setting, because there is no other way to reach a CLI flag from the extension.
   assert.deepEqual(Object.keys(props).sort(), Object.keys(expected).sort());
   for (const [key, value] of Object.entries(expected)) {
     assert.deepEqual(props[key].default, value, `${key} default`);

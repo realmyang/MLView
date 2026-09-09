@@ -232,21 +232,29 @@ def graph_file_for(path: str) -> str:
 
 # ---------------------------------------------------------------------- analysis
 def load_graph(
-    path: Optional[str], framework: str = "auto", max_nodes: int = 400
+    path: Optional[str], framework: str = "auto", max_nodes: int = 400,
+    include_notebooks: bool = False,
 ) -> Dict[str, Any]:
     """Analyze (or reuse a cached analysis of) ``path``; also writes graph.json.
 
     Returns ``{"graph": <document>, "graphPath": <abs path>, "cached": bool}``.
 
-    The key is ``(resolved, framework, maxNodes, signature)`` and never the scope
-    (CONTRACTS 11.10): ``project()`` is applied to the cached dict, so widening is
-    free. The *disk* half of the cache additionally records
+    The key is ``(resolved, framework, maxNodes, includeNotebooks, signature)``
+    and never the scope (CONTRACTS 11.10): ``project()`` is applied to the cached
+    dict, so widening is free. The *disk* half of the cache additionally records
     ``analyzer_identity()``, because a file that outlives the process also
     outlives the build that wrote it.
+
+    NB. ``include_notebooks`` is part of the key, not a filter applied afterwards:
+    the same sources analyzed with and without it are two different documents, and
+    serving the notebook-free one to a caller that asked for notebooks would report
+    a clean bill of health for code the run never read. Sidecars written before the
+    flag existed carry a shorter key and simply miss, which costs one analysis.
     """
     resolved = resolve_path(path)
     signature = file_signature(resolved)
-    key = (resolved, framework or "auto", int(max_nodes), signature)
+    key = (resolved, framework or "auto", int(max_nodes), bool(include_notebooks),
+           signature)
     graph_path = graph_file_for(resolved)
 
     cached = _CACHE.get(key)
@@ -264,7 +272,7 @@ def load_graph(
             with open(sidecar, "r", encoding="utf-8") as fh:
                 stored = json.load(fh)
             if (
-                stored.get("key") == list(key[:3])
+                stored.get("key") == list(key[:4])
                 and stored.get("signature") == signature
                 and stored.get("analyzer") == analyzer
             ):
@@ -275,12 +283,14 @@ def load_graph(
         except (OSError, ValueError):
             log.warning("ignoring unreadable graph cache at %s", graph_path)
 
-    log.info("analyzing %s (framework=%s maxNodes=%s)", resolved, framework, max_nodes)
+    log.info("analyzing %s (framework=%s maxNodes=%s includeNotebooks=%s)",
+             resolved, framework, max_nodes, bool(include_notebooks))
     graph = analyze_to_dict(
         AnalyzeOptions(
             paths=(resolved,),
             framework=framework or "auto",
             max_nodes=int(max_nodes),
+            include_notebooks=bool(include_notebooks),
         )
     )
     _CACHE[key] = graph
@@ -291,7 +301,7 @@ def load_graph(
             fh.write("\n")
         with open(sidecar, "w", encoding="utf-8", newline="\n") as fh:
             json.dump(
-                {"key": list(key[:3]), "signature": signature, "analyzer": analyzer}, fh
+                {"key": list(key[:4]), "signature": signature, "analyzer": analyzer}, fh
             )
     except OSError as exc:  # a read-only data dir must not fail the tool
         log.warning("could not write %s: %s", graph_path, exc)

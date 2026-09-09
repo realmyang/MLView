@@ -5,6 +5,11 @@
                        x 0.4  when an absence rule sees a framework wrapper,
                        0.05, 0.99)
 
+NB (CONTRACTS 11.29) adds no fifth term: an order-sensitive rule inside a
+notebook that was last run out of order is de-rated through the **evidence**
+product, by `NOTEBOOK_ORDER_FACTOR`, so the caveat is one visible factor rather
+than an invisible multiplier.
+
 Buckets: `certain >= 0.9`, `likely >= 0.7`, `possible >= 0.5`, else
 `speculative` (CONTRACTS section 0 / `contracts/validate_sample.py`).
 
@@ -19,10 +24,55 @@ from typing import Iterable, Sequence, Tuple
 from ..core.graph import Evidence, bucket_for, clamp_confidence
 
 __all__ = ["compute_confidence", "cap_severity", "bucket_for", "DYNAMIC_FACTOR",
-           "WRAPPER_FACTOR", "normalize_evidence"]
+           "WRAPPER_FACTOR", "normalize_evidence", "NOTEBOOK_ORDER_FACTOR",
+           "ORDER_SENSITIVE_CODES", "notebook_evidence"]
 
 DYNAMIC_FACTOR = 0.7
 WRAPPER_FACTOR = 0.4
+
+#: NB. A notebook whose recorded `execution_count` is not monotonic was last
+#: run out of order, so *document order is not run order* and every rule that
+#: concludes something from "A comes before B" is reading an assumption. The
+#: honest response is to de-rate those rules, not to silence them and not to
+#: pretend: the code really does contain the pattern, and the reader is the one
+#: who knows whether the cells were re-run.
+NOTEBOOK_ORDER_FACTOR = 0.75
+
+#: The rules whose whole argument is an ordering. MLV101 (fit before split),
+#: MLV203 (`step()` before `backward()`) and MLV209 (clipping in the wrong
+#: position) each compare two positions and conclude from the comparison; no
+#: other registered rule does.
+ORDER_SENSITIVE_CODES = ("MLV101", "MLV203", "MLV209")
+
+
+def notebook_evidence(nbmap, line: int, code: str):
+    """The one evidence factor every finding inside a notebook carries.
+
+    It does two jobs, and it does them in one place so they cannot disagree:
+
+    * **provenance** - `Loc` is frozen and cannot hold a cell index, so the
+      `(cell, cellLine)` mapping rides here, in words a host renders as-is.
+    * **the execution-order de-rating** - weight `NOTEBOOK_ORDER_FACTOR` for an
+      order-sensitive rule in an out-of-order notebook, and weight 1.0 (an
+      exact no-op in the confidence product) otherwise, so the same code in a
+      `.py` file and in an in-order notebook score identically.
+
+    `nbmap` is duck-typed (`ingest.notebook.NotebookMap`) so the confidence
+    model keeps importing nothing from `ingest`.
+    """
+    where = nbmap.locate(line)
+    if where is None:
+        place = ("%s (generated module line %d, outside any cell)"
+                 % (nbmap.notebook, line))
+    else:
+        place = "%s cell %d, line %d" % (nbmap.notebook, where[0], where[1])
+    derate = (not nbmap.orderOk) and code in ORDER_SENSITIVE_CODES
+    weight = NOTEBOOK_ORDER_FACTOR if derate else 1.0
+    detail = "%s; %s" % (place, nbmap.order_text())
+    if derate:
+        detail += ("; %s reads an ordering, so this finding is de-rated x%s"
+                   % (code, NOTEBOOK_ORDER_FACTOR))
+    return (Evidence(kind="context_confirmed", detail=detail, weight=weight),)
 
 
 def normalize_evidence(evidence: Iterable) -> Tuple[Evidence, ...]:

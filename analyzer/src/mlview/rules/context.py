@@ -28,7 +28,8 @@ from ..core.graph import (SEVERITY_RANK, Diagnostic, Edge, Evidence, Issue, MLGr
 from ..core.ids import issue_id, node_id
 from ..ir.bindings import binding_of as _binding_of
 from ..ir.model import CallSite, ClassIR, FunctionIR, Loc, LoopIR, ModuleIR, ScopeIR, ValueRef
-from .confidence import cap_severity, compute_confidence, normalize_evidence
+from .confidence import (cap_severity, compute_confidence, normalize_evidence,
+                         notebook_evidence)
 
 __all__ = ["GraphContext"]
 
@@ -57,6 +58,9 @@ class GraphContext:
         self._nodes_by_file: Optional[Dict[str, List[Node]]] = None
         self._gate_codes: List[str] = []
         self._untagged = UntaggedNotes(self.diagnostics)
+        #: NB: generated-module relpath -> NotebookMap, empty on every run
+        #: that did not ask for notebooks. Read only by `issue()`.
+        self._notebooks: Dict[str, Any] = dict(getattr(workspace, "notebooks", None) or {})
 
     # ------------------------------------------------------------ queries
     def _index(self) -> Dict[str, List[CallSite]]:
@@ -313,6 +317,14 @@ class GraphContext:
             raise ValueError("%s: an issue needs a loc" % spec.code)
 
         ev = normalize_evidence(evidence)
+        # NB: a finding inside a notebook says which cell it is in, and an
+        # order-sensitive rule in an out-of-order notebook is de-rated by the
+        # weight of that same factor. Appended last so the evidence a rule
+        # wrote is untouched, and reached only when the run asked for
+        # notebooks - no `.py` finding ever gains a factor here.
+        nbmap = self._notebooks.get(loc.file) if self._notebooks else None
+        if nbmap is not None:
+            ev = ev + notebook_evidence(nbmap, loc.line, spec.code)
         if dynamic is None:
             dynamic = bool(primary.dynamic) if primary is not None else False
         wrapper_present = bool(self.wrappers_for(loc.file))

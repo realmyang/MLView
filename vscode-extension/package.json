@@ -43,6 +43,7 @@
   "activationEvents": [
     "onLanguage:python",
     "workspaceContains:**/*.py",
+    "workspaceContains:**/*.ipynb",
     "onWebviewPanel:mlview.diagram"
   ],
   "capabilities": {
@@ -222,7 +223,12 @@
           "default": [],
           "description": "Extra glob patterns excluded from discovery. Added to the analyzer defaults (.venv, site-packages, node_modules, build, .git)."
         },
-        "mlview.maxFiles": {
+        "mlview.includeNotebooks": {
+      "type": "boolean",
+      "default": false,
+      "description": "Analyze .ipynb notebooks as well as .py files (passes --include-notebooks). Off by default: cell execution order cannot be recovered from the file, so order-sensitive findings inside a notebook are de-rated and reported as such."
+    },
+    "mlview.maxFiles": {
           "type": "integer",
           "default": 500,
           "minimum": 1,

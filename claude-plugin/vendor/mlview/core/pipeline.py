@@ -12,9 +12,11 @@ from datetime import datetime, timezone
 from typing import Callable, List, Optional, Sequence, Tuple
 
 from ..ingest.discover import discover, normalize_path
+from ..ingest import notebook as notebook_mod
 from ..ingest.parse import parse_all, parse_bytes, parse_file, read_bytes
 from ..ir.build_ir import build_workspace
 from ..rules import Suppressor, cross_file_codes, load_config, run_all
+from ..rules import confidence as confidence_mod
 from ..rules.context import GraphContext
 from . import cache as cache_mod
 from . import relevance as relevance_mod
@@ -25,7 +27,7 @@ from .graph import Diagnostic, MLGraph, SEVERITY_RANK
 from .progress import safe_call
 
 __all__ = ["AnalyzeOptions", "run", "AnalysisResult", "drop_orphan_ghosts",
-           "DEFAULT_RELEVANCE"]
+           "DEFAULT_RELEVANCE", "annotate_notebook_nodes"]
 
 #: PERF-03. The shipped default for `--relevance`, and it is `all` - the
 #: identity mode, in which every discovered file reaches the IR and the rules
@@ -80,6 +82,12 @@ class AnalyzeOptions:
     relevance: str = DEFAULT_RELEVANCE
     relevance_hops: int = relevance_mod.DEFAULT_HOPS
     cache: Optional[bool] = None
+    #: NB (CONTRACTS 11.29) - appended last and False by default, so positional
+    #: construction, `frozen=True` and hashability are unchanged and a run that
+    #: does not set it emits byte-identical bytes. True (or `[paths] notebooks
+    #: = true`) turns `.ipynb` files from a counted skip into analyzed,
+    #: generated Python modules under `<root>/.mlview/notebooks/`.
+    include_notebooks: bool = False
 
 
 @dataclass
@@ -108,15 +116,21 @@ def run(options: AnalyzeOptions) -> AnalysisResult:
     started = time.perf_counter()
     config = load_config(options.config_path, None)
     excludes = tuple(options.exclude) + tuple(config.excludes)
+    want_notebooks = bool(options.include_notebooks or config.notebooks)
     found = discover(options.paths, include=options.include, exclude=excludes,
-                     max_files=options.max_files)
+                     max_files=options.max_files, notebooks=want_notebooks)
     # a config file inside the discovered root takes effect too
     if config.path is None:
         config = load_config(None, found.root)
-        if config.excludes:
+        # NB: `[paths] notebooks` lives in that same file, so the second read
+        # can turn notebooks on as well as add excludes.
+        reread = bool(options.include_notebooks or config.notebooks)
+        if config.excludes or reread != want_notebooks:
+            want_notebooks = reread
             found = discover(options.paths, include=options.include,
                              exclude=excludes + tuple(config.excludes),
-                             max_files=options.max_files)
+                             max_files=options.max_files,
+                             notebooks=want_notebooks)
 
     diagnostics: List[Diagnostic] = []
     parsed_files, parse_failures, relevance, cache_report = _ingest(
@@ -126,12 +140,11 @@ def run(options: AnalyzeOptions) -> AnalysisResult:
         diagnostics.append(Diagnostic(kind="parse_error", message=bad.message,
                                       file=bad.relpath, line=bad.line))
 
-    if found.notebooks:
-        diagnostics.append(Diagnostic(
-            kind="notebook_skipped",
-            message="%d notebook(s) detected but not analyzed in this version."
-                    % found.notebooks,
-            count=found.notebooks))
+    # NB: notebooks are ingested here, after the Python files and before the
+    # "nothing parsed" exit, so a workspace that is *only* notebooks is a real
+    # analysis rather than an empty graph.
+    notebook_maps, notebooks_skipped = _ingest_notebooks(
+        found, want_notebooks, parsed_files, diagnostics)
     if found.file_cap_hit:
         diagnostics.append(Diagnostic(
             kind="truncated",
@@ -151,7 +164,7 @@ def run(options: AnalyzeOptions) -> AnalysisResult:
         graph = MLGraph(root=found.root)
         graph.diagnostics = diagnostics
         graph.filesFailed = failures
-        graph.notebooksSkipped = found.notebooks
+        graph.notebooksSkipped = notebooks_skipped
         graph.configPath = config.path
         graph.generatedAt = _now_iso()
         graph.durationMs = int((time.perf_counter() - started) * 1000)
@@ -160,12 +173,15 @@ def run(options: AnalyzeOptions) -> AnalysisResult:
                               relevance=relevance)
 
     workspace = build_workspace(found.root, parsed_files)
+    # NB: the offset tables ride on the workspace so `GraphContext` can reach
+    # them without the rules ever importing `ingest`.
+    workspace.notebooks = notebook_maps
     builder = GraphBuilder(workspace, max_nodes=options.max_nodes)
     graph = builder.build()
     graph.diagnostics = diagnostics + list(graph.diagnostics)
     graph.filesAnalyzed = len(parsed_files)
     graph.filesFailed = failures
-    graph.notebooksSkipped = found.notebooks
+    graph.notebooksSkipped = notebooks_skipped
     graph.configPath = config.path
 
     for scope in workspace.dynamic_scopes:
@@ -229,6 +245,9 @@ def run(options: AnalyzeOptions) -> AnalysisResult:
     _filter_issues(graph, options)
     drop_orphan_ghosts(graph)
     _apply_node_cap(graph, options.max_nodes)
+    # NB: last, so a ghost minted by an absence rule and a node re-parented by
+    # the cap both carry the cell they came from.
+    annotate_notebook_nodes(graph, notebook_maps)
     graph.generatedAt = _now_iso()
     graph.durationMs = int((time.perf_counter() - started) * 1000)
     graph.finalize()
@@ -310,6 +329,85 @@ def _ingest(found, options: AnalyzeOptions, pinned: Tuple[str, ...]):
         parsed.append(ok)
     failures.sort(key=lambda f: f.relpath)
     return parsed, failures, relevance, cache_report
+
+
+def _ingest_notebooks(found, want: bool, parsed_files: List,
+                      diagnostics: List[Diagnostic]):
+    """NB. Convert the discovered `.ipynb` files. Returns `(maps, skipped)`.
+
+    Three honesty rules, and they are the reason this is not four lines inside
+    `run()`:
+
+    1. **`notebooksSkipped` never becomes zero because the flag was on.** It is
+       `found.notebooks` (every notebook discovered) minus the ones that really
+       did reach the rules - so a notebook the include filter excluded, one
+       whose JSON is broken and one whose generated module does not parse are
+       all still counted, exactly as they were before this feature existed.
+    2. **Every skip says why.** A notebook that failed gets its own
+       `parse_error` naming the notebook, not the generated module: the reader
+       has to be able to find the file the tool choked on.
+    3. **Every success says what it did.** One `notebook_analyzed` per
+       notebook, carrying the generated module, the cell count, the magic
+       count and the execution-order verdict. A notebook that was analyzed and
+       says nothing is exactly the "clean bill of health from a blind tool"
+       this contract refuses everywhere else.
+    """
+    if not want:
+        if found.notebooks:
+            diagnostics.append(Diagnostic(
+                kind="notebook_skipped",
+                message="%d notebook(s) detected but not analyzed in this version."
+                        % found.notebooks,
+                count=found.notebooks))
+        return {}, found.notebooks
+
+    ingest = notebook_mod.ingest_notebooks(found.root, found.notebook_files)
+    parsed_files.extend(ingest.parsed)
+    for relpath, why in ingest.failures:
+        diagnostics.append(Diagnostic(kind="parse_error", message=why, file=relpath))
+    skipped = max(0, found.notebooks - len(ingest.parsed))
+    if skipped:
+        tail = (" " + notebook_mod.failure_summary(ingest.failures)
+                ) if ingest.failures else ""
+        diagnostics.append(Diagnostic(
+            kind="notebook_skipped",
+            message="%d of %d notebook(s) could not be analyzed.%s"
+                    % (skipped, found.notebooks, tail),
+            count=skipped))
+    for shadow in sorted(ingest.maps, key=lambda k: ingest.maps[k].notebook):
+        nbmap = ingest.maps[shadow]
+        diagnostic = Diagnostic(kind="notebook_analyzed", message=nbmap.summary(),
+                                file=nbmap.notebook, count=nbmap.codeCells)
+        if not nbmap.orderOk:
+            diagnostic.codes = list(confidence_mod.ORDER_SENSITIVE_CODES)
+        diagnostics.append(diagnostic)
+    return dict(ingest.maps), skipped
+
+
+def annotate_notebook_nodes(graph: MLGraph, maps) -> None:
+    """NB. Put the cell mapping beside every node that came from a notebook.
+
+    `Loc` is frozen (CONTRACTS section 2) and cannot carry a cell index, so the
+    mapping rides in `Node.attrs` - `notebook`, `cell`, `cellLine`, all
+    strings, which is what `attrs` already is. Provenance wins over a literal
+    keyword argument of the same name: a location that names the wrong cell is
+    worse than a lost `cell=` kwarg, and the collision is stated in 11.29
+    rather than discovered.
+
+    Public because a host that rebuilds a graph (a projection, a cap) may
+    re-run it; it is idempotent.
+    """
+    if not maps:
+        return
+    for node in graph.nodes:
+        nbmap = maps.get(node.loc.file)
+        if nbmap is None:
+            continue
+        node.attrs["notebook"] = nbmap.notebook
+        where = nbmap.locate(node.loc.line)
+        if where is not None:
+            node.attrs["cell"] = str(where[0])
+            node.attrs["cellLine"] = str(where[1])
 
 
 def _explicit_files(paths: Sequence[str], root: str) -> Tuple[str, ...]:

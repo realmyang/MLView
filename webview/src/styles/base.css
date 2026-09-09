@@ -266,3 +266,28 @@ html.mlv-fills-page > body > .mlv-root {
 .mlv-main > .mlv-canvas {
   min-height: 0;
 }
+
+/* NB. One location, two halves: the path may be shortened, the cell reference
+ * (or, on a `.py` path, the `:line`) may not. Every surface that shows a
+ * location builds it with `dom.locSpan`, so a card too narrow for the whole
+ * label loses the directory rather than the answer — which is exactly what
+ * end-ellipsis did to `notebooks/leak.ipynb > cell 3 : 4` before this existed.
+ * The SVG export reserves the same tail out of its own text budget. */
+.mlv-loc {
+  display: inline-flex;
+  align-items: baseline;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.mlv-loc__file {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.mlv-loc__at {
+  flex: 0 0 auto;
+  white-space: pre;
+}

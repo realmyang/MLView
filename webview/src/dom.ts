@@ -6,6 +6,9 @@
  * the offline / bundle-hygiene tests grep for.
  */
 
+import { cellRef, locLabel, locParts, locTitle } from './notebook.js';
+import type { LocLike } from './notebook.js';
+
 export const SVG_NS = ['http', '//www.w3.org/2000/svg'].join(':');
 /**
  * SMIL's `<mpath>` reference is `href` in SVG 2 and `xlink:href` in SVG 1.1;
@@ -99,6 +102,37 @@ export function debounce<T extends (...args: any[]) => void>(fn: T, ms: number):
   return wrapped;
 }
 
-export function fileLine(loc: { file: string; line: number }): string {
-  return loc.file + ':' + loc.line;
+/**
+ * Where something is, in one string, for every surface that shows a location.
+ *
+ * `train.py:27` as it always was — and `notebooks/leak.ipynb > cell 3 : 4` when
+ * the location carries a cell mapping (NB). The translation itself lives in
+ * `notebook.ts`; this stays the name the twelve call sites already import.
+ */
+export function fileLine(loc: LocLike): string {
+  return locLabel(loc);
+}
+
+/**
+ * A `<span>` carrying that label, plus the two things a test and a hover need:
+ * `data-cell` when the location is inside a notebook cell, and a `title` naming
+ * the flat line the label was translated from. For a `.py` location this is
+ * exactly `el('span', cls, file + ':' + line)` and nothing more.
+ */
+export function locSpan(cls: string, loc: LocLike, tag: 'span' | 'div' = 'span'): HTMLElement {
+  const span = el(tag, cls + (cls ? ' ' : '') + 'mlv-loc');
+  const parts = locParts(loc);
+  // Two children, not one string: `.mlv-loc__file` is the shrinkable half and
+  // `.mlv-loc__at` is not, so a card too narrow for the whole label loses the
+  // directory rather than the cell number (or, on a `.py` path, the line). The
+  // element's textContent is still exactly `locLabel(loc)`.
+  add(span, el('span', 'mlv-loc__file', parts.head));
+  add(span, el('span', 'mlv-loc__at', parts.tail));
+  const ref = cellRef(loc);
+  if (ref) {
+    span.setAttribute('data-cell', String(ref.cell));
+    span.setAttribute('data-cell-line', String(ref.line));
+    span.title = locTitle(loc);
+  }
+  return span;
 }
