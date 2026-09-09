@@ -348,6 +348,33 @@ def test_the_demo_path_is_untouched_by_either_feature():
 
 
 # ------------------------------------------------- the MAC secret round-trips
+def _emulate_windows_text_mode(monkeypatch):
+    """Make this platform behave like Windows' `os.open` for `core/cache`.
+
+    Only used where the real `os.O_BINARY` does NOT exist. On Windows the real
+    thing is already under test and layering an emulation on top of it would
+    translate the bytes twice.
+    """
+    o_binary = 0x8000
+    monkeypatch.setattr(C, "O_BINARY", o_binary)
+    real_open, real_write = C.os.open, C.os.write
+    text_fds = set()
+
+    def text_mode_open(path, flags, *rest):
+        fd = real_open(path, flags & ~o_binary, *rest)
+        if not flags & o_binary:
+            text_fds.add(fd)
+        return fd
+
+    def translating_write(fd, data):
+        if fd in text_fds:
+            data = data.replace(b"\n", b"\r\n")
+        return real_write(fd, data)
+
+    monkeypatch.setattr(C.os, "open", text_mode_open)
+    monkeypatch.setattr(C.os, "write", translating_write)
+
+
 def test_the_mac_secret_reads_back_exactly_as_it_was_written(cache_home, monkeypatch):
     """The secret is BYTES, and it must survive the filesystem unaltered.
 
@@ -357,40 +384,18 @@ def test_the_mac_secret_reads_back_exactly_as_it_was_written(cache_home, monkeyp
     bytes it holds while every later run MACs with the CR-mangled bytes it
     reads back, so `cached: full` never happens again and the sidecar is
     rejected with `cache MAC mismatch` forever. That is a silent, permanent
-    loss of the whole CACHE feature for one Windows user in eight — it showed
+    loss of the whole CACHE feature for one Windows user in eight - it showed
     up as an intermittent red `e2e (windows, powershell)`, on a different
     `test_cache.py` case each time because the file is randomly ordered.
 
-    Forcing a secret that is ALL newline bytes makes the failure deterministic
-    rather than 12% likely, and the `os.open` below EMULATES the Windows text
-    mode so the guard bites on every platform: drop `os.O_BINARY` from
-    `core/cache._secret` and this test goes red on Linux and macOS too, instead
-    of waiting for a Windows runner to be unlucky.
+    A secret of nothing but newline bytes makes the failure certain rather than
+    12% likely. On Windows this runs against the real `os.open`; everywhere else
+    a Windows is stood in for, so dropping `O_BINARY` from `core/cache._secret`
+    reddens on Linux and macOS too instead of waiting for an unlucky runner.
     """
     monkeypatch.setattr(C.os, "urandom", lambda n: b"\n\r\n" * 11)
-
-    # Stand a Windows in for whatever platform this is: give O_BINARY a real bit
-    # so the emulation below can see whether `_secret` asked for binary mode.
-    o_binary = 0x8000
-    monkeypatch.setattr(C, "O_BINARY", o_binary)
-    real_open = C.os.open
-
-    def text_mode_open(path, flags, *rest):
-        """`os.open` as Windows implements it: LF -> CRLF unless O_BINARY."""
-        fd = real_open(path, flags & ~o_binary, *rest)
-        if flags & o_binary:
-            return fd
-        real_write = C.os.write
-
-        def translating_write(target_fd, data):
-            if target_fd == fd:
-                data = data.replace(b"\n", b"\r\n")
-            return real_write(target_fd, data)
-
-        monkeypatch.setattr(C.os, "write", translating_write)
-        return fd
-
-    monkeypatch.setattr(C.os, "open", text_mode_open)
+    if not getattr(os, "O_BINARY", 0):
+        _emulate_windows_text_mode(monkeypatch)
 
     written = C._secret()
     assert written is not None and len(written) >= 32
