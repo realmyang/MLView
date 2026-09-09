@@ -362,6 +362,25 @@ def test_notebooks_skipped_never_becomes_zero_because_the_flag_was_on(notebook_w
 
 
 # ------------------------------------------------------------------ config
+# `.mlview.toml` needs a TOML parser, and tomllib is stdlib only from 3.11.
+# Below that `rules/suppress.py` ignores the file and appends a `config_warning`,
+# so on 3.10 the two tests under this mark would be asserting the behaviour of a
+# parser that is not there: `[paths] notebooks` is never read, notebooks stay
+# skipped, and the near-miss warning is never computed. The degradation itself is
+# asserted by
+# `analyzer/tests/rules/test_suppression.py::test_a_missing_tomllib_says_so_instead_of_pretending`.
+# Same mark, same reason, as `tests/core/test_cleanup.py`,
+# `tests/core/test_robustness.py` and `tests/rules/test_suppression.py`. The FLAG
+# path — `--include-notebooks` and `AnalyzeOptions.include_notebooks` — needs no
+# parser and is gated on every version in the matrix, so NB's acceptance is not
+# what is being skipped here.
+NEEDS_TOMLLIB = pytest.mark.skipif(
+    sys.version_info < (3, 11),
+    reason="tomllib is stdlib from 3.11; .mlview.toml is ignored with a config_warning below that",
+)
+
+
+@NEEDS_TOMLLIB
 def test_the_toml_opt_in_turns_notebooks_on(notebook_ws):
     root = notebook_ws("leak.ipynb", **{
         ".mlview.toml": "[paths]\nnotebooks = true\n"})
@@ -371,6 +390,7 @@ def test_the_toml_opt_in_turns_notebooks_on(notebook_ws):
     assert _diagnostics(doc, "notebook_analyzed")
 
 
+@NEEDS_TOMLLIB
 def test_a_non_boolean_toml_value_is_a_config_warning(notebook_ws):
     root = notebook_ws("leak.ipynb", **{
         ".mlview.toml": '[paths]\nnotebooks = "yes"\n'})

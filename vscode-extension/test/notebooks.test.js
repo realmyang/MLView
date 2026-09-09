@@ -58,7 +58,13 @@ const {
 } = api;
 
 const ROOT = '/ws';
-const NB = '/ws/leak.ipynb';
+// `resolveNotebookTarget` builds the notebook's path with `path.resolve(root, ref.notebook)`,
+// and on Windows `path.resolve` prepends the current DRIVE to a POSIX-style root: '/ws' becomes
+// 'D:\\ws'. A fixture that spells the open notebook '/ws/leak.ipynb' therefore never matches the
+// path the source looked up, and every cell assertion below degrades to the notebook level for a
+// reason that has nothing to do with NB. Resolving it here makes the fixture and the source agree
+// on all three platforms (CI, e2e (windows, powershell)).
+const NB = path.resolve(ROOT, 'leak.ipynb');
 const SHADOW = '.mlview/notebooks/leak.py';
 const ORDER_OK = 'execution_count [1, 2, 3] is monotonic, so document order was the last run order';
 
@@ -320,7 +326,7 @@ test('with the notebook closed, or with no cell known, it degrades one honest st
 test('the open notebook is matched by path, case-insensitively as a fallback', () => {
   const notebook = openLeakNotebook();
   assert.equal(findNotebook(NB, openNotebooks()), notebook);
-  assert.equal(findNotebook('/WS/LEAK.IPYNB', openNotebooks()), notebook);
+  assert.equal(findNotebook(path.resolve('/WS/LEAK.IPYNB'), openNotebooks()), notebook);
   assert.equal(findNotebook('/ws/other.ipynb', openNotebooks()), undefined);
   assert.deepEqual(openNotebooks(), [notebook]);
 });
