@@ -85,10 +85,19 @@ def test_max_nodes_is_a_real_cap_on_a_large_workspace(max_nodes):
 
 
 def test_the_cap_keeps_the_findings_it_would_otherwise_hide():
-    """The cap runs after the rules, so lowering it must not silence issues."""
+    """The cap runs after the rules, so lowering it must not silence issues.
+
+    The budget is derived from the findings rather than pinned at 50: the
+    invariant is *every issue keeps its first anchor*, so it can only hold when
+    the cap has at least one node per finding. This tree carried fewer than 50
+    findings until the ANA-7/8/9 tiers landed 32 more rule fixtures in it; a
+    literal 50 would have turned corpus growth into a red gate that says
+    nothing about the cap. It is still a >90% cut, which is asserted.
+    """
     wide = analyze_to_dict(AnalyzeOptions(paths=(_TESTS_TREE,), max_nodes=100000))
-    tight = analyze_to_dict(AnalyzeOptions(paths=(_TESTS_TREE,), max_nodes=50))
-    assert len(tight["nodes"]) <= 50 < len(wide["nodes"])
+    budget = len(wide["issues"])
+    tight = analyze_to_dict(AnalyzeOptions(paths=(_TESTS_TREE,), max_nodes=budget))
+    assert len(tight["nodes"]) <= budget < len(wide["nodes"]) / 10
     assert {i["code"] for i in tight["issues"]} == {i["code"] for i in wide["issues"]}
 
 

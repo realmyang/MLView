@@ -11,18 +11,38 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Callable, List, Optional, Sequence, Tuple
 
-from ..ingest.discover import discover
-from ..ingest.parse import parse_file
+from ..ingest.discover import discover, normalize_path
+from ..ingest.parse import parse_all, parse_bytes, parse_file, read_bytes
 from ..ir.build_ir import build_workspace
 from ..rules import Suppressor, cross_file_codes, load_config, run_all
 from ..rules.context import GraphContext
+from . import cache as cache_mod
+from . import relevance as relevance_mod
 from .build import GraphBuilder
 from .coverage import note_untraced_sites, single_file_diagnostic
 from .unresolved import unresolved_callee_diagnostics
 from .graph import Diagnostic, MLGraph, SEVERITY_RANK
 from .progress import safe_call
 
-__all__ = ["AnalyzeOptions", "run", "AnalysisResult", "drop_orphan_ghosts"]
+__all__ = ["AnalyzeOptions", "run", "AnalysisResult", "drop_orphan_ghosts",
+           "DEFAULT_RELEVANCE"]
+
+#: PERF-03. The shipped default for `--relevance`, and it is `all` - the
+#: identity mode, in which every discovered file reaches the IR and the rules
+#: exactly as before the prefilter existed.
+#:
+#: ROADMAP's condition for defaulting to `ml` was that `tools/accuracy.py` be
+#: identical in both modes. It **is** - byte-identical over the whole ANA-12
+#: corpus - and `tools/perf_equiv.py` is byte-identical on all three corpora
+#: too. The default stays `all` for a different, measured reason: on workspaces
+#: small enough that the filter saves nothing, it still changes four analyzer
+#: gates, because a two-file fixture with one non-framework module is exactly
+#: the shape where "set aside" and "not analyzed" become visible
+#: (`filesAnalyzed`, `single_file_analysis`'s count, and an unresolved-import
+#: note that moves from the module to the set-aside list). Flipping the default
+#: is a re-baseline, not an optimisation, and CONTRACTS 11.28 records precisely
+#: what it costs so it can be done deliberately.
+DEFAULT_RELEVANCE = "all"
 
 
 @dataclass(frozen=True)
@@ -51,6 +71,15 @@ class AnalyzeOptions:
     #: passes `core.progress.ProgressWriter()` for `--progress-json`, an
     #: in-process host passes its own callable, and nobody else pays anything.
     progress: Optional[Callable[[int, int, str], None]] = None
+    #: PERF-03 / CACHE (CONTRACTS 11.28) - three more appended last, all
+    #: defaulted, so positional construction, `frozen=True` and hashability are
+    #: unchanged. `relevance="all"` is the identity; `cache=None` means "ask
+    #: the environment", which is on unless `MLVIEW_NO_CACHE=1`, and neither
+    #: can change what the analysis concludes - only how much of the workspace
+    #: it looks at, and how fast it gets there.
+    relevance: str = DEFAULT_RELEVANCE
+    relevance_hops: int = relevance_mod.DEFAULT_HOPS
+    cache: Optional[bool] = None
 
 
 @dataclass
@@ -62,6 +91,12 @@ class AnalysisResult:
     builder: object = None
     context: object = None
     empty: bool = False
+    #: CACHE / PERF-03: what the parse cache and the prefilter did on this run.
+    #: `stats` is schema-frozen and may not carry either, so they ride here and
+    #: on the log line; `api.digest(..., cached=...)` is how a host publishes
+    #: the first of them to a model.
+    cache: Optional[object] = None
+    relevance: Optional[object] = None
 
 
 def _now_iso() -> str:
@@ -84,22 +119,13 @@ def run(options: AnalyzeOptions) -> AnalysisResult:
                              max_files=options.max_files)
 
     diagnostics: List[Diagnostic] = []
-    parsed_files = []
-    failures = 0
-    total_files = len(found.files)
-    sink = options.progress
-    for index, relpath in enumerate(found.files, start=1):
-        ok, bad = parse_file(found.abspath(relpath), relpath)
-        # H3: one frame per file, after the file is read, so `done` counts work
-        # completed rather than work started. A sink that raises is dropped for
-        # the rest of the run - a progress bar never fails an analysis.
-        sink = safe_call(sink, index, total_files, relpath)
-        if ok is not None:
-            parsed_files.append(ok)
-        else:
-            failures += 1
-            diagnostics.append(Diagnostic(kind="parse_error", message=bad.message,
-                                          file=bad.relpath, line=bad.line))
+    parsed_files, parse_failures, relevance, cache_report = _ingest(
+        found, options, _explicit_files(options.paths, found.root))
+    failures = len(parse_failures)
+    for bad in parse_failures:
+        diagnostics.append(Diagnostic(kind="parse_error", message=bad.message,
+                                      file=bad.relpath, line=bad.line))
+
     if found.notebooks:
         diagnostics.append(Diagnostic(
             kind="notebook_skipped",
@@ -117,6 +143,9 @@ def run(options: AnalyzeOptions) -> AnalysisResult:
                                       message="path does not exist: %s" % missing))
     for warning in config.warnings:
         diagnostics.append(Diagnostic(kind="config_warning", message=warning))
+    narrowing = relevance_mod.relevance_diagnostic(relevance)
+    if narrowing is not None:
+        diagnostics.append(narrowing)
 
     if not parsed_files:
         graph = MLGraph(root=found.root)
@@ -127,7 +156,8 @@ def run(options: AnalyzeOptions) -> AnalysisResult:
         graph.generatedAt = _now_iso()
         graph.durationMs = int((time.perf_counter() - started) * 1000)
         graph.finalize()
-        return AnalysisResult(graph=graph, empty=True)
+        return AnalysisResult(graph=graph, empty=True, cache=cache_report,
+                              relevance=relevance)
 
     workspace = build_workspace(found.root, parsed_files)
     builder = GraphBuilder(workspace, max_nodes=options.max_nodes)
@@ -203,7 +233,107 @@ def run(options: AnalyzeOptions) -> AnalysisResult:
     graph.durationMs = int((time.perf_counter() - started) * 1000)
     graph.finalize()
     return AnalysisResult(graph=graph, workspace=workspace, builder=builder,
-                          context=context)
+                          context=context, cache=cache_report,
+                          relevance=relevance)
+
+
+def _ingest(found, options: AnalyzeOptions, pinned: Tuple[str, ...]):
+    """Read, parse and prefilter. Returns `(parsed, failures, relevance, cache)`.
+
+    Two phases, because PERF-03 and CACHE only pay together:
+
+    * **Phase 1** reads every discovered file once and establishes its
+      *facts* - is it a seed, what does it import. A file whose content digest
+      is already in the sidecar contributes its facts without being parsed at
+      all; every other file is parsed here, since the bytes are in hand.
+    * **Phase 2** parses whatever the prefilter kept and phase 1 did not
+      already have. Only the kept set reaches `build_workspace`, and therefore
+      the IR fixed point and the rules.
+
+    Under `--relevance all` there is nothing to decide, so neither the facts
+    nor the cache are consulted and this collapses to exactly the single
+    `parse_all` pass the analyzer has always made - the same bytes, in the same
+    order, at the same cost.
+    """
+    if options.relevance != "ml":
+        parsed, failures, _sink = parse_all(found, progress=options.progress)
+        # `select` in "all" mode reads only the keys - no facts are derived,
+        # which is what makes this path cost exactly what it always cost.
+        relevance = relevance_mod.select(dict.fromkeys(p.relpath for p in parsed),
+                                         mode="all", hops=options.relevance_hops)
+        return parsed, failures, relevance, None
+
+    cache = cache_mod.open_cache(found.root, options.cache)
+    total = len(found.files)
+    sink = options.progress
+    failures: List = []
+    parsed_by_rel = {}
+    facts = {}
+    for index, relpath in enumerate(found.files, start=1):
+        abspath = found.abspath(relpath)
+        raw, bad = read_bytes(abspath, relpath)
+        if raw is not None:
+            stored = cache.get(relpath, cache.content_key(raw)) if cache else None
+            if stored is not None:
+                facts[relpath] = stored
+            else:
+                ok, bad = parse_bytes(raw, relpath, abspath)
+                if ok is not None:
+                    parsed_by_rel[relpath] = ok
+                    fresh = relevance_mod.facts_of_parsed(ok)
+                    facts[relpath] = fresh
+                    if cache is not None:
+                        cache.put(relpath, cache.content_key(raw), fresh)
+        # H3: one frame per discovered file, in order, whether or not the
+        # prefilter will keep it - `done` counts files dealt with.
+        sink = safe_call(sink, index, total, relpath)
+        if bad is not None:
+            failures.append(bad)
+
+    cache_report = None
+    if cache is not None:
+        cache.flush()
+        cache_report = cache.report()
+        cache_mod.announce(cache_report)
+
+    relevance = relevance_mod.select(facts, mode="ml", hops=options.relevance_hops,
+                                     pinned=pinned)
+    parsed = []
+    for relpath in relevance.kept:
+        ok = parsed_by_rel.get(relpath)
+        if ok is None:                      # facts came off disk; parse it now
+            ok, bad = parse_file(found.abspath(relpath), relpath)
+            if ok is None:
+                if bad is not None:
+                    failures.append(bad)
+                continue
+        parsed.append(ok)
+    failures.sort(key=lambda f: f.relpath)
+    return parsed, failures, relevance, cache_report
+
+
+def _explicit_files(paths: Sequence[str], root: str) -> Tuple[str, ...]:
+    """Workspace-relative paths the caller named as **files**, not directories.
+
+    PERF-03 pins them as seeds. `mlview issues train_utils.py` asks about that
+    file; a prefilter that decides the file is not interesting has answered a
+    different question, and "no findings" would be indistinguishable from "not
+    looked at". Directories are not pinned - naming a directory is exactly the
+    case the filter exists for.
+    """
+    import os
+
+    out = []
+    for path in paths or ():
+        try:
+            if not os.path.isfile(path):
+                continue
+            rel = os.path.relpath(normalize_path(path), root).replace("\\", "/")
+        except (OSError, ValueError):
+            continue
+        if rel and not rel.startswith(".."):
+            out.append(rel)
+    return tuple(sorted(set(out)))
 
 
 def _filter_issues(graph: MLGraph, options: AnalyzeOptions) -> None:

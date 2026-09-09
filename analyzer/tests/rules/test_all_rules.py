@@ -30,13 +30,32 @@ def _enabled(code: str) -> bool:
     return spec is not None and spec.enabled
 
 
-# --------------------------------------------------------------- the 20 codes
-def test_the_prototype_ships_twenty_rules():
+#: The three rule tiers ANA-7 / ANA-8 / ANA-9 added on top of the prototype
+#: (CONTRACTS 11.26). `test_tier_rules.py` owns their per-rule assertions; this
+#: tuple exists so registry drift in *either* set fails one obvious test.
+TIER_CODES = (
+    "MLV106", "MLV114", "MLV121",                        # ANA-9 held-out data
+    "MLV207", "MLV208", "MLV209",                        # ANA-8 training mechanics
+    "MLV305", "MLV306",                                  # ANA-9 held-out metrics
+    "MLV502", "MLV803",                                  # ANA-8 device / deliver
+    "MLV705", "MLV706", "MLV707", "MLV708", "MLV709", "MLV711",   # ANA-7
+)
+
+
+# ------------------------------------------------------- the registered codes
+def test_the_registry_is_the_prototype_plus_the_three_tiers():
     registered = {spec.code for spec in all_rules()}
-    assert registered == set(PROTOTYPE_CODES), (
+    expected = set(PROTOTYPE_CODES) | set(TIER_CODES)
+    assert registered == expected, (
         "registry drift: missing %s, unexpected %s"
-        % (sorted(set(PROTOTYPE_CODES) - registered),
-           sorted(registered - set(PROTOTYPE_CODES))))
+        % (sorted(expected - registered), sorted(registered - expected)))
+
+
+def test_the_prototype_twenty_are_all_still_there():
+    """The tiers are additive: nothing the prototype shipped may vanish."""
+    registered = {spec.code for spec in all_rules()}
+    assert set(PROTOTYPE_CODES) <= registered
+    assert len(PROTOTYPE_CODES) == 20
 
 
 def test_at_least_fourteen_rules_are_enabled():

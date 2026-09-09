@@ -2769,6 +2769,157 @@ exactly the behaviour they saw before this amendment.
 
 ---
 
+### 11.26 The three rule tiers: ANA-7, ANA-8, ANA-9 (2026-09-09) — amends §7.3 and §7.4, analyzer-owned
+
+**This is not a re-baseline.** `samples/vision_pipeline` keeps **exactly the same fifteen findings, at the same
+lines, in the same 5 / 6 / 4 split**, and `samples/vision_pipeline_clean` stays at zero. No node, edge or golden
+moves; `contracts/graph.sample.json` is untouched; `graph.schema.json` gains no field. The registry grows from
+**20 rules to 36**, which is additive by construction: `mlview rules --list`, `docs/rules/README.md` and
+`gen_rule_docs.py` all enumerate the registry, and every host reads the enumeration rather than a count.
+
+| Tier | Codes | What it judges |
+|---|---|---|
+| **ANA-7** | MLV705, MLV706, MLV707, MLV708, MLV709, MLV711 | Keras / Lightning / HuggingFace misuse — the frameworks whose projects published **zero** diagnostics because iron law 4 correctly silenced the torch loop rules and nothing replaced them |
+| **ANA-8** | MLV207, MLV208, MLV209, MLV502, MLV803 | Training mechanics: scheduler cadence, the AMP `GradScaler` protocol, clip position, a hard-coded CUDA device, and what a checkpoint actually contains |
+| **ANA-9** | MLV106, MLV114, MLV121, MLV305, MLV306 | Held-out integrity: is the number you are reading honest? |
+
+Three codes — **MLV121**, **MLV709** and **MLV711** — were not in `docs/ISSUE_RULES.md` at all; their sketches
+are now in its §4 beside the thirteen that were, and all sixteen carry the status `**sprint 4**` in its §1 table.
+`analyzer/src/mlview/rules/r_framework.py`, `r_mechanics.py` and `r_holdout.py` are the three new rule modules;
+no existing rule module grew.
+
+---
+
+**A1 — a rule whose subject is the wrapper is not an absence rule.** Iron law 4 de-rates an *absence* rule by
+`WRAPPER_FACTOR` 0.4 when Lightning / HF `Trainer` / `accelerate` / Keras `Model.fit` owns the loop, and that is
+correct for MLV201, MLV202, MLV301 and MLV601: the framework really did do the thing. It is **wrong** for
+MLV705–711, whose finding is *about* the framework. None of the six declares `absence=True` and none passes
+`wrapper_gated`, so none is gated. This is normative: it is the whole reason the tier exists, since the measured
+symptom was a Keras and a HuggingFace project each publishing **0** VS Code diagnostics because their only
+finding was MLV601 × 0.4 = 0.36, under the 0.6 panel default. `test_tier_rules.py` asserts every ANA-7 finding
+clears 0.6 on its own fixture.
+
+**A2 — every ordering predicate is evaluated over one block of one confirmed loop.** The IR is documented
+flow-insensitive (§7.1). MLV207 reads `CallSite.loop.kind`; MLV208 and MLV209 compare `stmt_index` **only**
+between calls that share a `block_id` inside a loop `ctx.loops("batch")` confirmed. Calls that span two
+functions, or two branches of an `if`, are never compared — there is no single iteration path through them. The
+consequence is deliberate and is the reason `analyzer/tests/clean/amp_accumulation.py` stays silent: its
+`unscale_` → clip → `step` → `update` sequence sits in an accumulation `if` body while its
+`scaler.scale(loss).backward()` sits in the loop body, and those two blocks are not compared.
+
+**A3 — a non-literal `GradScaler(enabled=...)` de-rates, it never suppresses.** `GradScaler(enabled=False)` is a
+no-op and suppresses MLV208 outright. `GradScaler(enabled=True)` and a bare `GradScaler("cuda")` are full
+strength. `GradScaler(enabled=cfg.train.amp)` — the shape the corpus's real code writes — contributes an
+evidence factor of **0.6** and nothing else: the finding is emitted, weaker, with the detail line saying which
+expression could not be read. Suppressing it would hide a real defect behind a config lookup; escalating it would
+guess. `test_tier_rules.py::test_mlv208_derates_a_non_literal_enabled_flag_and_never_suppresses_it` pins all
+three behaviours against each other in one test.
+
+**A4 — MLV305's score-metric carve-out is exhaustive, and it is checked first.** `_SCORE_METRICS` is a frozen
+set containing `roc_auc_score`, `average_precision_score`, `log_loss`, `roc_curve`, `precision_recall_curve`,
+`brier_score_loss`, `top_k_accuracy_score`, `ndcg_score`, `dcg_score`,
+`label_ranking_average_precision_score` and `torchmetrics.functional.auroc`. A metric is judged **only** if it is
+in `_CLASS_METRICS`, which is a separate frozen set and disjoint from it — so a metric that is on neither list is
+not judged at all, which is what keeps every regression metric (`mean_squared_error`, `r2_score`) out. MLV305
+ships at **medium** with an **unresolved-producer de-rate**: a prediction whose `ValueRef` carries `LOGITS` /
+`PROBS` but has no producer contributes evidence at weight **0.6**, because a prediction returned by a helper
+looks unproduced to a flow-insensitive IR. DATAFLOW-IP is what would remove that de-rate.
+
+**A5 — MLV106 requires two independent temporal signals, which narrows its catalog sketch.** `ISSUE_RULES.md` §4
+allowed a single signal at ×0.6. That spends precision on a coincidence — any dataset with one date column would
+carry it — and ANA-12's tolerance is zero forbidden findings. The rule now requires **≥ 2** signals in the
+**same module** (module-scoped, so the union of the good fixtures cannot cross-fire), weights the evidence 0.8 at
+exactly two and 1.0 above, and treats an explicit `shuffle=False` as the chronological cut it is.
+
+**A6 — MLV114 judges a direct transform → dataset → evaluation-loader chain, and nothing else.** The augmenting
+`Compose` must be named as the `transform=` / `transforms=` of a dataset construction whose binding is served
+directly by a `DataLoader` that carries `VAL_SPLIT` / `TEST_SPLIT` or an evaluation name. An augmented dataset
+that is later `random_split` into a training and a validation half is **not** judged: which half inherits what is
+not knowable here. That is `samples/vision_pipeline`'s exact shape, and saying nothing about it is what keeps the
+demo at fifteen findings — the blind spot is recorded on `docs/rules/MLV114.md` under *What it cannot analyze*
+rather than papered over.
+
+**A7 — MLV121 is the ordering check §11.23 deferred to.** `knowledge/tf_tbl.py` deliberately gives `take` /
+`skip` the role `TFDATA_SUBSET` rather than `SPLIT`, so that MLV602 does not fire on every tf.data pipeline that
+windows a dataset. MLV121 is what makes a `take` / `skip` holdout judgeable: a `Dataset.shuffle(...)` reaching one
+of them through the receiver chain — fluently or through a binding, at most **8** links — with no
+`reshuffle_each_iteration=False`. One finding per `shuffle`, however many holdout calls follow.
+
+**A8 — MLV709 pairs by activation family, inside one module.** `activation="softmax"` pairs with the categorical
+`from_logits=True` losses; `activation="sigmoid"` pairs with the binary ones. Both operands are literals, so the
+rule is `high` at prior 0.95. The pairing is **module-scoped**: a loss built in a shared `losses.py` is not paired
+with a layer here, because two models in one workspace would otherwise accuse each other. The catalog names only
+the softmax case; the sigmoid mirror is the same defect and is included, which is what lets MLV709 replace the
+unreachable MLV402 label on `keras_tfdata`.
+
+**A9 — MLV705 is a workspace-wide claim, exactly as MLV601 is.** A `compile()` in a builder module and a `fit()`
+in an entrypoint is the normal shape, and MLView cannot follow a model value across that boundary yet, so firing
+per binding would accuse every two-file Keras project. MLV705 fires only when the workspace contains **no**
+`keras.Model.compile` at all and no `keras.models.load_model`. One `compile()` anywhere silences it, and
+`docs/rules/MLV705.md` says so under *What it cannot analyze*.
+
+**A10 — MLV708 fires on the conjunction, not on any of its three clauses.** The catalog sketch offered "no
+`eval_dataset`, **or** no `compute_metrics` while `eval_dataset` is present, **or** no evaluation strategy". The
+middle clause on its own accuses every `Trainer` content with `eval_loss`, so what ships is: no `eval_dataset`
+**and** a resolved `TrainingArguments` that sets neither `eval_strategy` nor `evaluation_strategy` to a
+non-`"no"` constant. A `Trainer` whose `args=` cannot be resolved to a `TrainingArguments` construction is **not
+judged** — unresolvable is not absent.
+
+**A11 — MLV502 reads the device literal written at the call site.** `torch.device("cuda")` and `<x>.cuda()`
+qualify; `torch.device(DEVICE)` with `DEVICE = "cuda"` in a config module does not, because what a configuration
+resolves to at run time is not something this analyzer can see the default of. The rule additionally requires
+that **nothing** in the workspace calls `torch.cuda.is_available()` (or any `*is_available` / `device_count`
+probe). It reports **one finding per module**, anchored at the first site with the others as `call_site` related
+locations — one root cause, one finding (§5 box 12). This clause is also what keeps `samples/vision_pipeline`,
+whose `config.py` carries `DEVICE = "cuda"`, at fifteen findings.
+
+**A12 — consequential fix: MLV602 no longer asks a non-shuffling split for a `random_state`.**
+`train_test_split(..., shuffle=False)` is the documented way to take a chronological cut and is deterministic;
+scikit-learn *raises* if you also pass `random_state=`. Asking for one was a false positive, and it is the exact
+shape MLV106's good fixture has to write. `rules/r_repro._random_splits` now skips an `_ALWAYS_RANDOM` splitter
+whose `shuffle` kwarg is the literal `False`. No labelled `expected` MLV602 in the accuracy corpus carries
+`shuffle=False`, so MLV602's per-rule recall is unchanged at 1.0 (8 of 8).
+
+**A13 — the accuracy corpus is the referee, and it grew with the rules.** Four labelled programs were added —
+`keras_uncompiled`, `lightning_manual`, `hf_no_eval`, `torch_mechanics` — all marked **`tuned: true`**, because
+they were written alongside the rules that find their defects and must not inflate the unseen headline. They
+carry **no `graph` block**: they were added for their findings, and claiming a hand-drawn diagram for them would
+move the graph-fidelity ratchet on evidence nobody drew, so that number is unchanged at 0.9065. Every one of the
+sixteen new rules has at least one `expected` label that is satisfied and at least one `forbidden` label
+somewhere in the corpus. One existing label was **re-coded**: `keras_tfdata/model.py:16` was labelled MLV402, a
+torch rule (`nn.BCELoss` / `F.binary_cross_entropy`) that can never resolve on a Keras program, and is now
+labelled **MLV709** — same line, same severity, same defect, under the code that can actually see it; the label
+records the change in a `relabelled` field. Measured after the change: **precision 100% on every rule and every
+program**, overall recall 0.629 → **0.7143**, overall visible 0.5323 → **0.6364**, overall high+medium 0.4884 →
+**0.6250**, unseen recall 0.5106 → **0.5319**. No gated number moved down.
+
+**A14 — a generated rule page may state what the rule cannot analyze.** `gen_rule_docs.py` renders an optional
+`## What it cannot analyze` section from a `cannot` key in its `NOTES` table, between *False positives it avoids*
+and *How to fix it*. Seven of the sixteen use it. This is additive: a page with no `cannot` key is byte-identical
+to what it was, and `test_registry_complete.py::test_the_generated_docs_are_up_to_date` is unchanged. It is the
+ROADMAP's standing acceptance criterion — *"state what you could not analyze"* — made part of the artifact the
+user actually reads, rather than a promise in a commit message.
+
+---
+
+**What these rules could not analyze.** Stated once, per rule, and repeated on each rule's own page: MLV705
+cannot tell *which* model was compiled; MLV709 cannot pair a loss built in another module; MLV708 cannot judge a
+`Trainer` whose arguments come from a helper; MLV706 and MLV707 need the class's base chain to resolve to a
+`LightningModule`, and stay silent when it does not; MLV207 cannot judge a scheduler whose constructor did not
+resolve; MLV208 cannot read a non-literal `enabled=` (it de-rates); MLV208 and MLV209 cannot compare two blocks;
+MLV502 cannot see through a config binding; MLV803 records an `untagged_dataflow` note when the saved value
+carries no `MODEL` tag; MLV305 cannot see a prediction produced in a helper (it de-rates); MLV114 cannot say
+which half of a post-augmentation split inherits the augmentation; MLV121 follows at most eight chain links and
+only through bindings that resolve; MLV106 asks its question only when two independent signals agree.
+
+**Acceptance, measured on this tree.** `samples/vision_pipeline` 15 findings, unchanged;
+`samples/vision_pipeline_clean` 0; `analyzer/tests/clean` 0 findings together and one file at a time, with
+`lightning_module.py` and `hf_trainer.py` at 0 both ways; `test_no_cross_fire` green over 39 good fixtures alone
+and as one workspace; `test_registry_complete` green over 36 rules, 80 fixtures and 36 generated pages;
+`tools/accuracy.py` precision 100% per rule with every ratchet up.
+
+---
+
 ### 11.27 Suppression as an action: `suppressRule` and the quick fixes (2026-09-09) — amends §4, host-owned
 
 Suppression works exactly as documented on the CLI — `# mlview: ignore[MLV201]` and
@@ -2839,6 +2990,113 @@ trip), and one host-level test driving the message through a real panel.
 
 **Nothing about the document changes.** No schema field, no graph key, no analyzer flag — a
 suppression takes effect the next time the analyzer runs, exactly as it does from the CLI.
+
+---
+
+### 11.28 The relevance prefilter and the content-addressed fact cache (2026-09-09) — amends §3, analyzer-owned
+
+Two optimisations that share one seam, because neither pays without the other. **PERF-03** decides which
+modules get an IR; **CACHE** makes that decision cheap enough to repeat on every save. Both are additive,
+both are off the default path, and neither may change one byte of any document it does not narrow.
+
+**Measured on this Mac (Python 3.13.15), on a 500-file mixed synthetic — 50 framework modules, 450 ordinary
+ones, generated by `tools/perf_equiv.mixed_corpus`:**
+
+| phase (best of 5, interleaved) | over all 501 files | over the 51 the filter keeps |
+|---|---|---|
+| `ast.parse` — unavoidable, every file is read | 319 ms | 319 ms |
+| seed scan + import rows (`facts_of`) | 102 ms | — |
+| import-graph resolution | 33 ms | — |
+| symbol table + scopes + calls + bindings | 315 ms | ~32 ms |
+| **`build_workspace` total** | **1087 ms** | **76 ms** |
+| **whole `analyze_to_dict`** (best of 3) | **2228 ms** | **693 ms** |
+
+`--relevance ml` is **2.6×–3.2×** on that corpus, lands well under ROADMAP's 1.5 s acceptance, and reports
+**the same 51 findings**. With a warm cache the same run is **319 ms**, and **301 ms** after one file is
+edited (`cached: partial`, 500 hit / 1 miss) — byte-identical to a cold run of the same tree.
+
+---
+
+#### A. PERF-03 — `--relevance {ml,all}`
+
+| # | Rule |
+|---|---|
+| **A1** | Two flags on `analyze`, `issues`, `render` and `baseline`: `--relevance ml\|all` (**default `all`**) and `--relevance-hops N` (**default 2**). `AnalyzeOptions` gains `relevance: str = "all"` and `relevance_hops: int = 2`, appended last and defaulted under the same rule as §11.6's `scope`/`depth` and H3's `progress`, so positional construction, `frozen=True` and hashability are unchanged. |
+| **A2** | **`all` is the identity.** It derives no facts, consults no cache and makes exactly the single `parse_all` pass the analyzer has always made. Proven three ways: `--relevance ml` and `--relevance all` produce the same SHA-256 on `samples/vision_pipeline`, `samples/vision_pipeline_clean`, `analyzer/tests/clean` and every `tests/fixtures/rules/*.py` case; `mlview analyze --demo` is byte-identical to `contracts/graph.sample.json`; and `tools/verify.py --all` reports the sample at 54 nodes / 51 edges, CLI-vs-MCP byte-identical. The `--baseline <pre-PERF-03 tree>` run of `tools/perf_equiv.py --expect-same` belongs to whoever holds both trees; a `--record` of this one is the other half of it. |
+| **A3** | A module is a **seed** when its source contains, as a whole word, any token in `core.relevance.framework_tokens()`. That set is **derived** from the knowledge tables — `knowledge._MODULE_FRAMEWORK` plus the top-level root of every `KNOWLEDGE`, `METHODS`, `WRAPPER_FQNS`, `MODEL_BASES`, `HOOK_OWNER_BASES` and `LIGHTNING_ROOTS` entry — **minus** `GENERIC_ROOTS = {argparse, json, os, pickle, random, toml, tomllib, yaml}`. Those eight are in the tables for good reasons and appear in nearly every Python file; treating them as evidence makes the filter a no-op. `GENERIC_ROOTS` is the **only** hand-maintained half: a framework added to `knowledge/` becomes a seed token in the same commit. |
+| **A4** | The kept set is every seed, everything within `--relevance-hops` of one **in either direction** over the module import graph, and every `__init__.py` on a kept module's package path. Both directions because a `utils.py` that wraps `train_test_split` without importing sklearn is reached *from* an ML module while a config module is reached *by* one; the `__init__.py` because importing `pkg.mod` executes it. |
+| **A5** | The import graph is resolved through **`ir.symbols._relative_base` and `_sibling_module`** — the analyzer's own — and re-export chains are followed to their definition module for up to `ir.build_ir._MAX_REEXPORT_HOPS` hops. This is ROADMAP's hard sequencing made normative: **the reachability is computed after ANA-3's re-export resolution**, so `train.py` doing `from pkg import Net` where `pkg/__init__.py` publishes `from .net import Net` reaches `pkg/net.py` in **one** hop, not two. A second implementation of module naming is forbidden; `tests/core/test_relevance.py::test_import_resolution_agrees_with_the_symbol_table` pins the two together over the shipped sample. |
+| **A6** | **The refusal.** If nothing is a seed, nothing is set aside and no diagnostic is emitted. A workspace with no framework token anywhere is not one this filter has an opinion about, and an empty analysis would be the worst possible answer. The same rule makes every single-file invocation — every `tests/fixtures/rules/*.py` case — byte-identical in both modes. |
+| **A7** | A path the caller named as a **file** (not a directory) is always a seed. `mlview issues train_utils.py` asks about that file; a prefilter that decides it is uninteresting has answered a different question, and "no findings" would be indistinguishable from "not looked at". |
+| **A8** | Narrowing emits exactly one `config_warning` naming the set-aside **count**, the hop count, up to four files by relpath and **both** `--relevance all` and `--relevance-hops`. No `Diagnostic.kind` is added (§11.18's enum is untouched). When nothing was set aside there is **no** diagnostic — which is what makes the two modes byte-identical on every workspace the filter did not narrow. |
+| **A9** | **Every discovered file is still read and still parsed on a cold run**, so a `parse_error` in a set-aside file is reported in both modes and `workspace.filesFailed` is unchanged. Only `workspace.filesAnalyzed` moves, and A8's diagnostic accounts for the difference. |
+| **A10** | **What it cannot see, stated normatively.** The seed scan is a byte match and cannot distinguish `import torch` from the word `torch` in a docstring; it errs towards keeping. The hop walk cannot see a module reached only through `importlib`, a plugin registry or a dotted name held in a string. A **workspace-wide absence rule** (MLV601) means "absent from the kept set" under `ml`: it reports the same finding, anchored inside the kept set rather than on whichever file sorted first. These are the modules and the anchors `--relevance all` exists for. |
+
+**A11 — why the default is `all`, and exactly what flipping it costs.** ROADMAP's stated condition was that
+`tools/accuracy.py` be identical in both modes. **It is** — the full report is byte-identical over the whole
+ANA-12 corpus — and `tools/perf_equiv.py` is byte-identical on all three corpora too. The default stays `all`
+for a *different*, measured reason: on workspaces too small for the filter to save anything it still moves
+**four** analyzer gates, because a handful of files with one non-framework module is precisely the shape where
+"set aside" becomes visible.
+
+| gate | what moves under `ml` |
+|---|---|
+| `tests/rules/test_rule_robustness.py::test_every_file_was_analyzed` | `filesAnalyzed` 14 → 12 on the awkward-syntax corpus |
+| `tests/core/test_coverage.py::test_a_nested_sub_package_is_a_strict_subset_and_says_so` | `single_file_analysis` count 2 → 3 |
+| `tests/core/test_coverage.py::test_the_whole_package_root_carries_no_subset_note` | a `single_file_analysis` note appears |
+| `tests/core/test_round2_core.py::test_an_import_that_resolves_to_nothing_is_reported` | the unresolved-import note moves from the module to A8's set-aside list |
+
+Flipping the default is therefore a **re-baseline, not an optimisation**, and it must be done in a change that
+moves those four gates deliberately and says so. Until then `--relevance ml` is opt-in and everything above is
+what it promises.
+
+---
+
+#### B. CACHE — one `file_signature`, and the per-file fact sidecar
+
+| # | Rule |
+|---|---|
+| **B1** | **`mlview.core.cache.file_signature` is the only implementation.** `claude-plugin/server/mlview_workspace.file_signature` is now a wrapper around it and keeps its name. The key is **content**, not `st_mtime_ns` and `st_size`: mtime moves when a checkout restores bytes MLView has already seen, and — the direction that actually hurts — can fail to move on a filesystem with coarse timestamps, which is how a stale document reaches a caller. The walk prunes exactly `ingest.discover.ALWAYS_PRUNE` (now public for this reason) and stops at 2000 files, as the plugin's did. |
+| **B2** | The cache key is `(content digest of the file, analyzer identity, python major.minor)`, with the workspace root folded into the sidecar's file name. `core.cache.analyzer_identity()` hashes every `.py` of the installed analyzer beside `__version__`, because an editable checkout keeps one version string across a thousand edits; an unreadable package yields `unknown-<pid>`, which no stored file can match, so the cache is **off** rather than trusted. No analysis *option* is in the key: none of them changes what a file imports. |
+| **B3** | **Only the per-file relevance facts are cached** — "is this a seed" and "what does this import", both pure functions of one file's bytes. The two obvious alternatives were measured over the same 501 files and **rejected**: reloading a pickled `ast` costs **247 ms** against **229 ms** to re-parse it from disk (CPython's parser is C; the object graph is thousands of small objects either way) and would have added **7.0 MB** per workspace plus a `pickle` trust boundary to save nothing; reloading the pickled module IR costs **485 ms** against **315 ms** to rebuild, adds **18.0 MB**, *and* depends on `dotted_names` — so a cache of it must be discarded whenever a file is created, which is the day a cache most needs to be right. |
+| **B4** | **The cross-module fixed point and every rule always re-run over the whole kept set.** Nothing derived from more than one file is ever cached. That is what keeps cross-file findings intact, and it is why a warm run is byte-identical to a cold one rather than merely similar. |
+| **B5** | The sidecar is `<MLVIEW_CACHE_DIR>` or `<root>/.mlview/cache/facts-<root hash>.json`. `.mlview` is in `ALWAYS_PRUNE`, so the cache can never become input to the analysis it is caching. It is written **atomically** (`os.replace`), so two concurrent analyses of one root cannot tear it. |
+| **B6** | **Trust.** The payload is JSON and never executable, and it is authenticated with an HMAC over a 32-byte secret stored in the **user's home** (`~/.mlview/cache.key`, mode 0600, `O_EXCL` create) and never in the analyzed project — a repository that ships a crafted `.mlview/cache` cannot forge one. A sidecar whose MAC, magic, format, analyzer identity or python tag does not match is **ignored**, never obeyed and never fatal. Without this, a hand-written sidecar marking a framework file as "not a seed" would silently delete findings. |
+| **B7** | `MLVIEW_NO_CACHE=1` and `--no-cache` disable it. `AnalyzeOptions.cache: bool \| None = None` means "ask the environment". `--relevance all` never consults it, because in that mode there is nothing for it to decide. |
+| **B8** | **`cached: full \| partial \| none \| off` is reported, and never in the document.** `stats` is schema-frozen and gains nothing; `contracts/graph.sample.json` and the schema are untouched. The status rides on `AnalysisResult.cache` (a `CacheReport`), on `logging.getLogger("mlview.cache")` at INFO — silent unless a host configures logging, so a default `python -m mlview` run writes exactly the bytes it always wrote — and on `api.digest(graph, limit_bytes=4096, cached=None)`, whose third parameter is appended last and defaulted, so the frozen two-argument call returns exactly what it always returned. `MLVIEW_CACHE_LOG=1` is the operator's switch for the stderr line. |
+| **B9** | `vscode-extension/src/coreClient.ts` takes an optional third constructor argument, `cacheDir`, and sets `MLVIEW_CACHE_DIR` only when it is given. The extension is expected to pass its own storage directory: `analyzeOnSave` fires on every Ctrl+S, and a tool that writes into the user's repository that often is a tool people switch off. |
+
+**B10 — `ingest/parse.py` is the seam ROADMAP named.** `parse_all` was dead code; it is now the real
+all-files pass, returning `(parsed, failures, progress)` — the third value being the H3 sink still in force,
+because `core.progress.safe_call` drops one that raised. `read_bytes` and `parse_bytes` split `parse_file` so
+the bytes that key the cache and the bytes that feed the parser are read **once**. H3's contract is unchanged:
+one frame per **discovered** file, in order, `done` counting files dealt with.
+
+---
+
+#### C. `tools/perf_equiv.py` — `--expect-same` / `--expect-diff`
+
+An expectation may now be stated, so a caller gets the verdict in the exit code rather than from a human
+reading a table. `--expect-same` is what an **optimisation** claims (exit 0 only if every corpus is
+byte-identical); `--expect-diff` is what a **re-baseline** claims (exit 0 only if at least one corpus moved),
+and it exists because a golden regeneration that turns out to have changed nothing means the fix never took
+effect — without the flag that reads as the strongest possible pass, which is why §11.19 had to say so in
+prose. Either flag without `--baseline` / `--compare` is a **usage error** (exit 1), not a silent success.
+`mixed_corpus(root, ml_count, app_count)` joins `synth_corpus` there as PERF-03's acceptance generator.
+
+---
+
+**Files that must change together (§11.16 addendum).** `analyzer/src/mlview/core/{cache,relevance,pipeline}.py`,
+`ingest/{parse,discover}.py`, `cli_parser.py`, `cli.py`, `api.py` and
+`claude-plugin/server/mlview_workspace.py` move as one, and `tools/sync-core.py` re-vendors the core into
+`claude-plugin/vendor/mlview` and `vscode-extension/core/mlview` in the **same** change — `tools/verify.py --all`
+reads both as the `vendor: synced core` and `vsix: synced core` rows.
+
+**Gates:** `analyzer/tests/core/test_relevance.py` (24), `analyzer/tests/core/test_cache.py` (30),
+`analyzer/tests/core/test_perf_budget.py` (6, four of them new: the narrowing ratio, the set-aside diagnostic,
+the edited-file delta and the sample's byte-identity), `vscode-extension/test/spawn.test.js` (the cache-dir
+env), plus the unchanged `test_determinism.py`, `test_progress.py`, `test_stdout_purity.py` and
+`tools/verify.py --all`.
 
 ---
 

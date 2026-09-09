@@ -13,7 +13,8 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
 __all__ = ["ParsedFile", "ParseFailure", "parse_source", "parse_file",
-           "decode_source", "MAX_SNIPPET"]
+           "parse_all", "parse_bytes", "read_bytes", "decode_source",
+           "MAX_SNIPPET"]
 
 MAX_SNIPPET = 200
 
@@ -131,14 +132,49 @@ def decode_source(raw: bytes, relpath: str):
     return exc_text, None
 
 
-def parse_all(discovery) -> Tuple[List[ParsedFile], List[ParseFailure]]:
-    """Parse every discovered file, in sorted order."""
+def read_bytes(abspath: str, relpath: str):
+    """Read one file. Returns `(bytes | None, ParseFailure | None)`.
+
+    Split out of `parse_file` for CACHE: the content digest that keys the cache
+    needs the same bytes the parse needs, and reading a file twice to get both
+    is the one cost a cache exists to avoid.
+    """
+    try:
+        with open(abspath, "rb") as fh:
+            return fh.read(), None
+    except OSError as exc:
+        return None, ParseFailure(relpath, "cannot read file: %s" % exc, None)
+
+
+def parse_bytes(raw: bytes, relpath: str, abspath: str):
+    """Decode and parse already-read bytes. The tail half of `parse_file`."""
+    source, failure = decode_source(raw, relpath)
+    if source is None:
+        return None, failure
+    return parse_source(source, relpath, abspath)
+
+
+def parse_all(discovery, progress=None):
+    """Parse every discovered file, in sorted order. Returns
+    `(parsed, failures, progress)`.
+
+    The third value is the progress sink still in force: `core.progress.safe_call`
+    drops a sink that raised, so one bad frame costs one frame and never the
+    analysis (H3), and the caller keeps that decision.
+    """
+    from ..core.progress import safe_call            # local: keeps ingest leaf-ish
+
     parsed: List[ParsedFile] = []
     failures: List[ParseFailure] = []
-    for rel in discovery.files:
+    total = len(discovery.files)
+    sink = progress
+    for index, rel in enumerate(discovery.files, start=1):
         ok, bad = parse_file(discovery.abspath(rel), rel)
+        # H3: one frame per file, after the file is read, so `done` counts work
+        # completed rather than work started.
+        sink = safe_call(sink, index, total, rel)
         if ok is not None:
             parsed.append(ok)
         elif bad is not None:
             failures.append(bad)
-    return parsed, failures
+    return parsed, failures, sink

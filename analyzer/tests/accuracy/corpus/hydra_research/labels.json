@@ -51,6 +51,8 @@
      "why": "two runs of the same config are not comparable, which is the whole point of this repo"}
   ],
   "forbidden": [
+    {"code": "MLV502", "file": "train.py",
+     "why": "the device is not a literal at the call site: it comes from cfg[\"device\"], and what a config resolves to is not something this analyzer can see the default of"},
     {"code": "MLV203", "file": "src/train.py",
      "why": "backward() at line 39 precedes step() at line 40 - the order is correct"},
     {"code": "MLV204", "file": "src/train.py",

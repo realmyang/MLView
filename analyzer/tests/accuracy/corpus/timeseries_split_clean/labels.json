@@ -6,6 +6,8 @@
   "labelledBy": "ANA-12, 2026-09-08",
   "expected": [],
   "forbidden": [
+    {"code": "MLV106", "file": "train.py",
+     "why": "the walk-forward twin uses TimeSeriesSplit and never shuffles, which is the whole point of the file"},
     {
       "code": "MLV101",
       "file": "train.py",

@@ -8,6 +8,8 @@
   "root": "../../../../../samples/vision_pipeline_clean",
   "expected": [],
   "forbidden": [
+    {"code": "MLV114", "file": "data.py",
+     "why": "the corrected twin gives the evaluation dataset its own EVAL_TRANSFORM of ToTensor + Normalize, with every random augmentation confined to TRAIN_TRANSFORM"},
     {
       "code": "MLV101",
       "file": "sklearn_baseline.py",

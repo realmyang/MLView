@@ -39,6 +39,12 @@
      "why": "neither the split nor the fine-tune can be repeated"}
   ],
   "forbidden": [
+    {"code": "MLV305", "file": "metrics.py",
+     "why": "accuracy_score and f1_score are both given logits.argmax(axis=-1), which is exactly the class prediction they want"},
+    {"code": "MLV306", "file": "metrics.py",
+     "why": "roc_auc_score is given the softmax probability column, not predict() output"},
+    {"code": "MLV708", "file": "train.py",
+     "why": "the Trainer is given eval_dataset=encoded[\"test\"], compute_metrics and eval_strategy=\"epoch\""},
     {"code": "MLV201", "file": "train.py",
      "why": "the HuggingFace Trainer owns the optimisation loop; there is no hand-written update to zero gradients before"},
     {"code": "MLV202", "file": "train.py",

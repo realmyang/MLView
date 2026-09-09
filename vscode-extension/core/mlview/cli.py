@@ -19,7 +19,8 @@ from . import api
 from .adopt import cli_glue
 from .cli_parser import FORMATS, GROUP_BY, build_parser
 from .core.graph import SEVERITY_RANK
-from .core.pipeline import AnalyzeOptions
+from .core.pipeline import DEFAULT_RELEVANCE, AnalyzeOptions
+from .core.relevance import DEFAULT_HOPS
 from .core.project import Scope, ScopeError, parse_scope, project, scope_catalog
 from .emit import html_out, json_out, mermaid_out, scope_out
 from .emit.text_out import write_stderr, write_stdout, write_stdout_bytes
@@ -54,7 +55,12 @@ def _options(args, paths: Sequence[str]) -> AnalyzeOptions:
         min_confidence=float(getattr(args, "min_confidence", 0.0)),
         config_path=getattr(args, "config_path", None),
         strict=bool(getattr(args, "strict", False)),
-        progress=_progress_sink(args))
+        progress=_progress_sink(args),
+        # PERF-03 / CACHE. `getattr` defaults keep every command that does not
+        # declare the flags on exactly the behaviour it had.
+        relevance=getattr(args, "relevance", DEFAULT_RELEVANCE),
+        relevance_hops=int(getattr(args, "relevance_hops", DEFAULT_HOPS)),
+        cache=False if getattr(args, "no_cache", False) else None)
 
 
 def _scope_from_args(args) -> Optional[Scope]:

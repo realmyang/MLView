@@ -25,12 +25,12 @@ powershell -ExecutionPolicy Bypass -File scripts/e2e.ps1     # E2E OK - 19 steps
 |---|---|
 | Design docs | `docs/REQUIREMENTS.md`, `ARCHITECTURE.md`, `ISSUE_RULES.md`, `UX_DESIGN.md`, `CONTRACTS.md` (§10 amendments are the overriding lead decisions) |
 | Contracts | `contracts/graph.schema.json`, `contracts/graph.sample.json` (golden), `contracts/validate_sample.py` (schema + 10 invariant groups) |
-| Analyzer `analyzer/` | Complete. 20 rules, zero runtime dependencies, `python -m mlview` installed editable. **1290 passed, 3 skipped.** `analyze --demo --json -` is byte-identical to the golden sample. Scoped views live in `analyzer/src/mlview/core/project.py` + `core/selectors.py`. |
-| Viewer `webview/` | Complete. `dist/mlview.{js,css}` built. **341 tests pass**, `tsc --noEmit` clean. Flow animation (`src/render/flow.ts`) and the TypeScript half of the projection (`src/scope/project.ts`) ship here. |
-| VS Code extension | Complete. **255 tests pass**, `tsc --noEmit` clean, `out/extension.js` bundled, `npm run package` produces a 464 KB VSIX carrying the bundled analyzer. Copilot participant + LM tools are compile- and unit-verified only (Copilot is not installed here). |
-| Claude Code plugin | Complete. MCP server on the `mcp` SDK v2, **still exactly five tools**, each result ≤ 4 KB. **294 passed, 5 skipped**, with `python tools/sync-core.py` having run after the analyzer changes (`test_vendor_bytecode.py` is the row that checks it); `claude plugin validate ./claude-plugin --strict` passes. |
+| Analyzer `analyzer/` | Complete. **36 rules**, zero runtime dependencies, `python -m mlview` installed editable. **1692 passed, 3 skipped.** `analyze --demo --json -` is byte-identical to the golden sample. Scoped views live in `analyzer/src/mlview/core/project.py` + `core/selectors.py`; the opt-in relevance prefilter and fact cache live in `core/relevance.py` + `core/cache.py` behind `--relevance {ml,all}` (default `all`), `--relevance-hops N` and `--no-cache`. |
+| Viewer `webview/` | Complete. `dist/mlview.{js,css}` built. **360 tests pass**, `tsc --noEmit` clean. Flow animation (`src/render/flow.ts`) and the TypeScript half of the projection (`src/scope/project.ts`) ship here. |
+| VS Code extension | Complete. **274 tests pass**, `tsc --noEmit` clean, `out/extension.js` bundled, `npm run package` produces a 576.92 KB VSIX (126 files) carrying the bundled analyzer — `core/mlview` at 79 files, gated by `vsix: synced core`. Copilot participant + LM tools are compile- and unit-verified only (Copilot is not installed here). |
+| Claude Code plugin | Complete. MCP server on the `mcp` SDK v2, **still exactly five tools**, each result ≤ 4 KB. **296 passed, 5 skipped**, with `python tools/sync-core.py` having run after the analyzer changes (`test_vendor_bytecode.py` is the row that checks it); `claude plugin validate ./claude-plugin --strict` passes. |
 | Samples | `samples/vision_pipeline` (54 nodes, 51 edges, exactly 15 issues: 5 high / 6 medium / 4 low) and `samples/vision_pipeline_clean` (64 nodes, 0 issues). `expected_issues.json` is machine-checked. |
-| Rule docs | `docs/rules/` — 20 pages plus an index, generated from the registry. Every `Issue.docs` deep link resolves. |
+| Rule docs | `docs/rules/` — 36 pages plus an index, generated from the registry; 7 carry the optional **What it cannot analyze** section. Every `Issue.docs` deep link resolves. |
 | Demo artifacts | `.mlview/graph.json`, `report.html`, `graph_clean.json`, `report_clean.html`, plus the three scoped reports `split.html`, `optimization.html`, `evaluation.html` — self-contained, zero external references, each inside amendment A4's contracted **100 KB – 2 MB** band. No KB figure is quoted here on purpose: the viewer bundle moves, the band does not, and `scripts/e2e` now measures every emitted report against it and prints the range it found (MLV-R1-H06). Each scoped report embeds the **whole** graph and merely opens at its scope. |
 | Scope fixtures | `contracts/scope.cases.json` (10 selectors + 6 error codes) and `contracts/scope.expected.json`, generated from the Python `project()` over the frozen golden and consumed by the TypeScript port — the parity gate for one algorithm written twice. `scope.cases.json` also carries a growing `fuzzCases` array of counterexamples promoted by `analyzer/tools/scope_fuzz.py`, each minimized to a handful of nodes and carrying its **own** generated graph. |
 
@@ -579,6 +579,151 @@ background rect, and flow animation, hover cards, the selection ring and issue
 connectors are states rather than content and are never exported. PNG, clipboard
 and print all depend on host capability; their success paths are gated by a
 Chromium run, not by `npm test`, and nothing here can gate a real printer.
+
+## Sprint 4 — the three rule tiers, wave 3 (2026-09-09)
+
+**Sixteen new rules, and deliberately not a demo re-baseline.** The registry
+grows from **20 to 36** (`python -m mlview rules --list`), and
+`samples/vision_pipeline` keeps exactly the same fifteen findings at the same
+lines in the same 5 / 6 / 4 split, so `contracts/graph.sample.json`,
+`samples/vision_pipeline/expected_issues.json` and `--demo` byte parity are
+untouched. `samples/vision_pipeline_clean` and `analyzer/tests/clean` stay at
+zero findings, together and one file at a time. No schema field was added
+(`docs/CONTRACTS.md` §11.26).
+
+**ANA-7 — the frameworks that published nothing**
+(`analyzer/src/mlview/rules/r_framework.py`). MLV705 a Keras `fit()` with no
+`compile()` anywhere in the workspace; MLV706 a manual `backward`/`step` inside
+a Lightning `training_step` with no `self.automatic_optimization = False`;
+MLV707 a `training_step` that never returns a loss; MLV708 a HF `Trainer` with
+neither an `eval_dataset` nor an eval strategy in its resolved
+`TrainingArguments`; MLV709 a Keras `activation="softmax"|"sigmoid"`
+contradicting a same-module `from_logits=True`; MLV711 a batch-cadence
+`OneCycleLR`/`CyclicLR` returned from `configure_optimizers` without
+`{"interval": "step"}`. None of these declares `absence=True` and none opts
+into the wrapper de-rate — the wrapper *is* the subject of the finding — so
+every ANA-7 finding clears the 0.60 Problems-panel default.
+
+**ANA-8 — training mechanics** (`rules/r_mechanics.py`). MLV207 scheduler
+cadence (epoch-set stepped per batch, batch-set stepped per epoch,
+`ReduceLROnPlateau.step()` with no metric), with the `step_size=len(loader)*k`
+carve-out; MLV208 the `GradScaler` protocol in four variants; MLV209 a clip
+before `backward` or after `step`; MLV502 a CUDA literal at the call site with
+no availability probe anywhere; MLV803 whole-model pickling and an unrestricted
+`torch.load`. Every ordering predicate compares `stmt_index` only inside one
+`block_id` of one confirmed batch loop, which is what keeps
+`analyzer/tests/clean/amp_accumulation.py` silent.
+
+**ANA-9 — held-out integrity** (`rules/r_holdout.py`). MLV106 a random split
+over two or more independent temporal signals; MLV114 an augmenting `Compose`
+reaching an evaluation loader directly; MLV121 a `tf.data` shuffle feeding a
+`take`/`skip` holdout without `reshuffle_each_iteration=False`; MLV305 a class
+metric fed logits or probabilities, with an exhaustive score-metric carve-out
+checked first; MLV306 a ranking metric fed `predict()` output.
+
+**Two deliberate narrowings and one false-positive fix**, all normative in
+§11.26. MLV106 requires **two** temporal signals where the catalogue sketch
+allowed one at ×0.6, and MLV708 fires on the conjunction rather than any single
+clause — ANA-12's tolerance for a forbidden finding is zero. MLV602 no longer
+asks `train_test_split(..., shuffle=False)` for a `random_state`: scikit-learn
+raises if you pass one, so that arm was a false positive.
+
+**The corpus is the referee, and it ratcheted up.**
+`analyzer/tests/accuracy/corpus` grows from 10 labelled programs to 14
+(`keras_uncompiled`, `lightning_manual`, `hf_no_eval`, `torch_mechanics`), 77
+labels in all; every new rule has at least one satisfied `expected` label and at
+least one `forbidden` label, and 17 further `forbidden` labels were added to the
+nine existing programs. `tools/accuracy.py` reports **precision 100.0% on every
+one of the 36 rules**, overall recall 62.9% → **71.4%** and unseen recall 51.1%
+→ **53.2%**, with `analyzer/tests/accuracy/baseline.json` re-recorded upward and
+`docs/ACCURACY.md` rewritten from that run (the doc gate holds the two equal).
+Graph fidelity is unchanged at 90.6%: the four new programs carry no `graph`
+block, because nobody hand-drew their diagrams and claiming otherwise would move
+a ratchet on evidence that does not exist.
+
+**What the sixteen rules cannot analyze**, in the artifact a user actually
+reads: `analyzer/tools/gen_rule_docs.py` grew an optional
+**"What it cannot analyze"** section and 7 of the 16 new pages under
+`docs/rules/` use it — MLV705 cannot tell *which* model was compiled, MLV709
+pairs a layer with a loss only inside one module, MLV114 cannot say which half
+of a `random_split` inherited an augmentation (which is why the demo keeps its
+fifteen findings), MLV502 reads only the device literal at the call site, and
+MLV208 / MLV209 never compare two blocks. Each is the flow-insensitivity the
+roadmap set, stated where it costs the reader nothing to find.
+
+## Sprint 4 — analyzer performance, wave 3 (2026-09-09)
+
+**PERF-03, the relevance prefilter** (`analyzer/src/mlview/core/relevance.py`,
+`docs/CONTRACTS.md` §11.28). Between discovery and `build_workspace`, a byte scan for
+the framework token set gives the seed modules, an import graph — and *only* an
+import graph — is built over every parsed file, and everything within
+`--relevance-hops` (default 2) of a seed in either direction survives. The
+reachability is computed **after** ANA-3's re-export resolution, so a
+`pkg/__init__.py` publishing `from .net import Net` is one hop, not two. On a
+500-file mixed synthetic (50 framework modules, 450 ordinary ones)
+`build_workspace` drops from **1087 ms to 76 ms** and the whole analysis from
+**2228 ms to 693 ms** — 2.6×–3.2×, well under ROADMAP's 1.5 s acceptance —
+reporting **the same 51 findings**.
+Narrowing emits one `config_warning` naming the set-aside count and both flags
+that widen it; when nothing is set aside there is no diagnostic, which is what
+makes the two modes byte-identical on the samples, on every rule fixture and on
+all three `perf_equiv` corpora.
+
+**The default is `--relevance all`, deliberately.** ROADMAP's condition for
+flipping it — `tools/accuracy.py` identical in both modes — is **met**, and the
+report is byte-identical over the whole ANA-12 corpus. It stays `all` because on
+workspaces too small for the filter to save anything it still moves four
+analyzer gates (`filesAnalyzed` on the awkward-syntax corpus, two
+`single_file_analysis` counts, and an unresolved-import note that becomes a
+set-aside note). That makes the flip a re-baseline rather than an optimisation;
+11.28 A11 lists the four so it can be done deliberately.
+
+**CACHE, and one `file_signature`.** `mlview.core.cache` now owns the single
+content-keyed `file_signature` — `claude-plugin/server/mlview_workspace.py` is a
+wrapper around it, and the old mtime+size key is gone. What is cached is
+deliberately small: the **per-file relevance facts**, keyed on content digest ×
+analyzer identity × python minor, in a JSON sidecar under `MLVIEW_CACHE_DIR`
+(default `<root>/.mlview/cache`) authenticated with an HMAC over a secret in the
+user's home. A warm `--relevance ml` run of the 500-file corpus is **319 ms**,
+and **301 ms** after one file is edited (`cached: partial`, 500 hit / 1 miss),
+byte-identical to a cold run. `MLVIEW_NO_CACHE=1` and `--no-cache` disable it.
+
+**What was measured and rejected, because the roadmap budgeted for it.**
+Reloading a pickled `ast` is *slower* than re-parsing (247 ms against 229 ms
+over 501 files) and would have cost 7.0 MB per workspace plus a `pickle` trust
+boundary; reloading the pickled module IR is slower still (485 ms against
+315 ms, 18.0 MB) *and* depends on the workspace-wide `dotted_names`, so it must
+be thrown away whenever a file is created. Both are recomputed every run, and the
+cross-module fixed point and the rules always re-run over the whole kept set —
+which is why a cached document is byte-identical rather than merely similar.
+The roadmap's "~16 s → under 2 s" assumed a pre-PERF-01/02 analyzer; the same
+500 files cost **2.2 s** cold on this tree, so the cache's headroom was far
+smaller than budgeted and the honest win lay in not parsing the 450 files the
+prefilter was going to discard anyway.
+
+`tools/perf_equiv.py` gains `--expect-same` / `--expect-diff` so an integrator
+can wire either claim into a gate, and `mixed_corpus()` beside `synth_corpus()`.
+
+**Gates after wave 3.** `sh scripts/e2e.sh` **19 steps, 0 failed, 0 skipped**;
+analyzer **1692 passed / 3 skipped**, webview **360**, vscode-extension **274**,
+claude-plugin **296 passed / 5 skipped**; `python tools/verify.py --all`
+**10 / 10** (including `vendor: synced core` and `vsix: synced core` over 79
+files); `python tools/accuracy.py` **PASS**, precision 100.0% on all 36 rules;
+`python scripts/check_docs.py` **DOC CHECK OK**; `tsc --noEmit` clean in both
+`webview` and `vscode-extension`;
+`python tools/perf_equiv.py --compare <recorded>.json --expect-same` **exit 0,
+every corpus byte-identical** (and `--expect-diff` on the same pair exits 1, as
+it must). The two new suites are `analyzer/tests/core/test_relevance.py` (24),
+`analyzer/tests/core/test_cache.py` (30) and
+`analyzer/tests/rules/test_tier_rules.py` (50); `test_perf_budget.py` (6) adds
+roughly 20 s to the analyzer suite because it builds a 500-file corpus.
+Three assertions moved with the wave, all recorded in §11.26: the
+`# mlview: ignore[MLV20]` suggestion test now asserts *an* `MLV20x` is offered
+rather than naming three, the tight-cap test derives its node budget from the
+finding count instead of the literal 50 that 32 new fixtures outgrew, and
+`analyzer/tests/fixtures/rules/MLV501_zoo_good.py` gained an
+`is_available()` guard because its unconditional `torch.device("cuda")` was a
+genuine MLV502.
 
 ## Known gaps
 

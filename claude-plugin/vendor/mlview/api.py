@@ -93,8 +93,17 @@ def render_summary(graph: Dict[str, Any], show_suppressed: bool = False,
 
 
 # ----------------------------------------------------------------- digest
-def digest(graph: Dict[str, Any], limit_bytes: int = 4096) -> Dict[str, Any]:
-    """The <=4 KB model-facing summary. Full detail lives behind `graphPath`."""
+def digest(graph: Dict[str, Any], limit_bytes: int = 4096,
+           cached: Optional[str] = None) -> Dict[str, Any]:
+    """The <=4 KB model-facing summary. Full detail lives behind `graphPath`.
+
+    `cached` (CACHE, CONTRACTS 11.28) is appended last and defaulted to `None`,
+    so the frozen two-argument call returns exactly what it always returned.
+    Pass `AnalysisResult.cache.status` - `"full"`, `"partial"` or `"none"` - and
+    the digest carries it as `cached`. It is **not** in `stats`: that block is
+    schema-frozen, and the honest home for "how this answer was computed" is
+    the model-facing summary and the log line, not the document.
+    """
     ws = graph.get("workspace", {})
     stats = graph.get("stats", {})
     lanes = [{"stage": s["id"], "label": s["label"], "nodeCount": s.get("nodeCount", 0),
@@ -120,6 +129,8 @@ def digest(graph: Dict[str, Any], limit_bytes: int = 4096) -> Dict[str, Any]:
         "topIssues": top,
         "truncated": bool(stats.get("truncated")),
     }
+    if cached:
+        out["cached"] = str(cached)
     # MLV-P1: four sentences (~450 B) are worth more to an agent than the two
     # extra lanes the same bytes would buy, so they go in before the budget
     # ladder rather than after it.

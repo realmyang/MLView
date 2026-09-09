@@ -209,7 +209,20 @@ export class CoreClient implements vscode.Disposable {
 
   constructor(
     private readonly env: PythonEnvironment,
-    private readonly log: Logger
+    private readonly log: Logger,
+    /**
+     * CACHE (CONTRACTS 11.28). Where the core may keep its per-file fact
+     * sidecar. Appended last and optional, so every existing construction -
+     * `extension.ts` and three test files - is unchanged.
+     *
+     * The extension passes its own storage directory rather than letting the
+     * default (`<workspace>/.mlview/cache`) apply, because `analyzeOnSave`
+     * fires on every Ctrl+S and a tool that writes into the user's repository
+     * on every keystroke-plus-save is a tool people turn off. Leave it
+     * undefined and the core falls back to the project default; set
+     * `MLVIEW_NO_CACHE=1` in the environment and there is no cache at all.
+     */
+    private readonly cacheDir?: string
   ) {}
 
   /** Debounced entry point used by the analyze-on-save handler. */
@@ -401,6 +414,10 @@ export class CoreClient implements vscode.Disposable {
             ...process.env,
             PYTHONUTF8: '1',
             PYTHONIOENCODING: 'utf-8',
+            // CACHE: only when the host named a directory. An unset variable
+            // is not the same as an empty one - the core treats "" as absent,
+            // but sending it at all would override a user's own setting.
+            ...(this.cacheDir ? { MLVIEW_CACHE_DIR: this.cacheDir } : {}),
             ...(bundledPath
               ? {
                   PYTHONPATH: process.env['PYTHONPATH']

@@ -173,6 +173,13 @@ def _random_splits(ctx) -> List:
     for call in ctx.calls_with_role("SPLIT", "SPLITTER"):
         fqn = call.fqn or ""
         if fqn in _ALWAYS_RANDOM:
+            # ANA-9. `train_test_split(..., shuffle=False)` is the documented way
+            # to take a chronological cut, and it is deterministic: sklearn
+            # *raises* if you also pass random_state=. Asking for one was a
+            # false positive, and it is the exact shape MLV106's good fixture
+            # has to write.
+            if call.kwargs.get("shuffle") == "False":
+                continue
             out.append(call)
         elif fqn in _SHUFFLE_OPTIONAL and call.kwargs.get("shuffle") == "True":
             out.append(call)

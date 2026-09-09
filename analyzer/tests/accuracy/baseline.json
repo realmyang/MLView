@@ -1,20 +1,20 @@
 {
   "calibration": {
     "certain": {
-      "error": 0.0687,
+      "error": 0.0712,
       "fp": 0,
-      "meanConfidence": 0.9313,
-      "n": 24,
+      "meanConfidence": 0.9288,
+      "n": 33,
       "observedPrecision": 1.0,
-      "tp": 24
+      "tp": 33
     },
     "likely": {
-      "error": 0.1577,
+      "error": 0.1668,
       "fp": 0,
-      "meanConfidence": 0.8423,
-      "n": 9,
+      "meanConfidence": 0.8332,
+      "n": 16,
       "observedPrecision": 1.0,
-      "tp": 9
+      "tp": 16
     },
     "speculative": {
       "error": 0.6637,
@@ -30,18 +30,18 @@
     "opsRecovered": 126,
     "score": 0.9065
   },
-  "note": "Re-recorded by the FW-RECOG / ANA-5a framework re-baseline (2026-09-09, CONTRACTS 11.23): graph fidelity 0.8633 -> 0.9065 (120 -> 126 of 139 labelled ops). The six are keras_tfdata's tf.data chain (map / shuffle / batch, now recognised and anchored on the method name rather than on the start of the receiver), hf_trainer_finetune's `datasets.Dataset.map`, and the two nodes lightning_tabular's hook units add. Every precision and recall number is unchanged: precision 1.0, overall recall 0.629, unseen recall 0.5106. Recall may only ratchet up; a forbidden finding is never tolerated. Regenerate with `python tools/accuracy.py --update-baseline` and say in the commit body which change earned the new number.",
+  "note": "Re-recorded by the ANA-7 / ANA-8 / ANA-9 rule tiers (2026-09-09, CONTRACTS 11.26). Sixteen rules shipped - MLV705/706/707/708/709/711, MLV207/208/209/502/803, MLV106/114/121/305/306 - and the corpus grew from 10 labelled programs to 14: keras_uncompiled, lightning_manual, hf_no_eval and torch_mechanics, all marked tuned because they were written alongside the rules and must not inflate the unseen headline. Precision stayed 1.0 on every rule and every program, and every gated number moved up: overall recall 0.629 -> 0.7143, overall visible 0.5323 -> 0.6364, overall high+medium 0.4884 -> 0.6250. The unseen numbers moved on one label alone - keras_tfdata's model.py:16 was labelled MLV402, a torch rule that can never resolve on a Keras program, and is now labelled MLV709, the Keras from_logits contradiction; same line, same severity, same defect. Graph fidelity is unchanged at 0.9065 because the four new programs carry no `graph` block: they were added for their findings, and claiming a hand-drawn diagram for them would move that ratchet on evidence nobody drew. Recall may only ratchet up; a forbidden finding is never tolerated. Regenerate with `python tools/accuracy.py --update-baseline` and say in the commit body which change earned the new number.",
   "overall": {
-    "expectedLabels": 62,
+    "expectedLabels": 77,
     "falsePositives": 0,
-    "highValueLabels": 43,
-    "highValueRecall": 0.4884,
-    "highValueRecovered": 21,
+    "highValueLabels": 56,
+    "highValueRecall": 0.625,
+    "highValueRecovered": 35,
     "precision": 1.0,
-    "recall": 0.629,
-    "recovered": 39,
-    "visibleRecall": 0.5323,
-    "visibleRecovered": 33
+    "recall": 0.7143,
+    "recovered": 55,
+    "visibleRecall": 0.6364,
+    "visibleRecovered": 49
   },
   "perRule": {
     "MLV101": {
@@ -71,6 +71,15 @@
       "recovered": 2,
       "visible": 2
     },
+    "MLV106": {
+      "expected": 1,
+      "f1": 1.0,
+      "falsePositives": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "recovered": 1,
+      "visible": 1
+    },
     "MLV110": {
       "expected": 2,
       "f1": 1.0,
@@ -98,6 +107,24 @@
       "recovered": 1,
       "visible": 1
     },
+    "MLV114": {
+      "expected": 1,
+      "f1": 1.0,
+      "falsePositives": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "recovered": 1,
+      "visible": 1
+    },
+    "MLV121": {
+      "expected": 1,
+      "f1": 1.0,
+      "falsePositives": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "recovered": 1,
+      "visible": 1
+    },
     "MLV201": {
       "expected": 3,
       "f1": 0.8,
@@ -113,6 +140,33 @@
       "falsePositives": 0,
       "precision": 1.0,
       "recall": 0.3333,
+      "recovered": 1,
+      "visible": 1
+    },
+    "MLV207": {
+      "expected": 1,
+      "f1": 1.0,
+      "falsePositives": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "recovered": 1,
+      "visible": 1
+    },
+    "MLV208": {
+      "expected": 1,
+      "f1": 1.0,
+      "falsePositives": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "recovered": 1,
+      "visible": 1
+    },
+    "MLV209": {
+      "expected": 1,
+      "f1": 1.0,
+      "falsePositives": 0,
+      "precision": 1.0,
+      "recall": 1.0,
       "recovered": 1,
       "visible": 1
     },
@@ -134,6 +188,24 @@
       "recovered": 2,
       "visible": 1
     },
+    "MLV305": {
+      "expected": 1,
+      "f1": 1.0,
+      "falsePositives": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "recovered": 1,
+      "visible": 1
+    },
+    "MLV306": {
+      "expected": 1,
+      "f1": 1.0,
+      "falsePositives": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "recovered": 1,
+      "visible": 1
+    },
     "MLV401": {
       "expected": 3,
       "f1": 0.5,
@@ -143,15 +215,6 @@
       "recovered": 1,
       "visible": 1
     },
-    "MLV402": {
-      "expected": 1,
-      "f1": 0.0,
-      "falsePositives": 0,
-      "precision": 1.0,
-      "recall": 0.0,
-      "recovered": 0,
-      "visible": 0
-    },
     "MLV501": {
       "expected": 4,
       "f1": 0.6667,
@@ -159,6 +222,15 @@
       "precision": 1.0,
       "recall": 0.5,
       "recovered": 2,
+      "visible": 1
+    },
+    "MLV502": {
+      "expected": 1,
+      "f1": 1.0,
+      "falsePositives": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "recovered": 1,
       "visible": 1
     },
     "MLV601": {
@@ -196,20 +268,83 @@
       "recall": 1.0,
       "recovered": 1,
       "visible": 1
+    },
+    "MLV705": {
+      "expected": 1,
+      "f1": 1.0,
+      "falsePositives": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "recovered": 1,
+      "visible": 1
+    },
+    "MLV706": {
+      "expected": 1,
+      "f1": 1.0,
+      "falsePositives": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "recovered": 1,
+      "visible": 1
+    },
+    "MLV707": {
+      "expected": 1,
+      "f1": 1.0,
+      "falsePositives": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "recovered": 1,
+      "visible": 1
+    },
+    "MLV708": {
+      "expected": 1,
+      "f1": 1.0,
+      "falsePositives": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "recovered": 1,
+      "visible": 1
+    },
+    "MLV709": {
+      "expected": 1,
+      "f1": 1.0,
+      "falsePositives": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "recovered": 1,
+      "visible": 1
+    },
+    "MLV711": {
+      "expected": 1,
+      "f1": 1.0,
+      "falsePositives": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "recovered": 1,
+      "visible": 1
+    },
+    "MLV803": {
+      "expected": 1,
+      "f1": 1.0,
+      "falsePositives": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "recovered": 1,
+      "visible": 1
     }
   },
-  "programs": 10,
+  "programs": 14,
   "recordedOn": "2026-09-09",
   "unseen": {
     "expectedLabels": 47,
     "falsePositives": 0,
     "highValueLabels": 32,
-    "highValueRecall": 0.3125,
-    "highValueRecovered": 10,
+    "highValueRecall": 0.3438,
+    "highValueRecovered": 11,
     "precision": 1.0,
-    "recall": 0.5106,
-    "recovered": 24,
-    "visibleRecall": 0.383,
-    "visibleRecovered": 18
+    "recall": 0.5319,
+    "recovered": 25,
+    "visibleRecall": 0.4043,
+    "visibleRecovered": 19
   }
 }

@@ -11,7 +11,8 @@ from dataclasses import dataclass, field
 from fnmatch import fnmatch
 from typing import Iterable, List, Sequence, Tuple
 
-__all__ = ["DEFAULT_EXCLUDES", "Discovery", "discover", "normalize_path", "matches_any"]
+__all__ = ["ALWAYS_PRUNE", "DEFAULT_EXCLUDES", "Discovery", "discover",
+           "normalize_path", "matches_any"]
 
 DEFAULT_EXCLUDES: Tuple[str, ...] = (
     "**/.venv/**",
@@ -21,13 +22,18 @@ DEFAULT_EXCLUDES: Tuple[str, ...] = (
     "**/.git/**",
 )
 
-#: Directories never walked into, regardless of patterns.
-_ALWAYS_PRUNE = frozenset({
+#: Directories never walked into, regardless of patterns. Public since CACHE:
+#: `core/cache.file_signature` must prune exactly what discovery prunes, or a
+#: tree signature covers files that were never analyzed - the second copy of
+#: this set in `claude-plugin/server/mlview_workspace.py` was already drifting.
+ALWAYS_PRUNE = frozenset({
     ".git", ".hg", ".svn", "__pycache__", ".mypy_cache", ".pytest_cache",
     ".ruff_cache", ".tox", ".nox", ".idea", ".vscode-test", ".ipynb_checkpoints",
     ".mlview", "site-packages", "node_modules", ".venv", "venv", ".env",
     ".eggs", "dist", "build", ".claude",
 })
+#: The historical private name, kept so nothing that imported it breaks.
+_ALWAYS_PRUNE = ALWAYS_PRUNE
 
 
 def normalize_path(path: str) -> str:

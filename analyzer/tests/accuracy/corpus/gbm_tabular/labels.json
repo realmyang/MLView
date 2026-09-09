@@ -27,6 +27,10 @@
      "why": "column subsampling and the split both move between runs"}
   ],
   "forbidden": [
+    {"code": "MLV306", "file": "train.py",
+     "why": "roc_auc_score is given model.predict_proba(test_x)[:, 1], which is a score column, not a hard label"},
+    {"code": "MLV305", "file": "train.py",
+     "why": "the only metric here is roc_auc_score, which is in the score-metric carve-out and legitimately takes continuous scores"},
     {"code": "MLV201", "file": "train.py",
      "why": "there is no torch in this project and no hand-written gradient step to zero"},
     {"code": "MLV202", "file": "train.py",

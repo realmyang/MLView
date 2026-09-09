@@ -457,7 +457,7 @@ VS Code 1.136):**
   (`analyzer/src/mlview/emit/scope_out.py`). The four concerns and the eight
   stage ids are discovered from this README, from the MCP tool description, or
   from the candidate list an unusable selector prints — not from that command.
-- Both sample workspaces and all twenty rule pages under `docs/rules/` are on
+- Both sample workspaces and all thirty-six rule pages under `docs/rules/` are on
   disk now, so the degradation paths written for a checkout without them --
   `scripts/e2e` reporting `SKIP` instead of failing, `tools/verify.py` falling
   back to the rule fixtures as its parity corpus, `mlview_explain <code>`
@@ -517,7 +517,7 @@ Four of the five are **plan records**: they say what was *decided*, not what was
 | [`docs/REQUIREMENTS.md`](docs/REQUIREMENTS.md) | What must be true when we are done, as testable acceptance criteria |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | The seven analyzer passes, the three seams, directory ownership |
 | [`docs/CONTRACTS.md`](docs/CONTRACTS.md) | **Normative.** The schema, the CLI, the MCP tools, the message protocol. Section 10 overrides everything above it. |
-| [`docs/ISSUE_RULES.md`](docs/ISSUE_RULES.md) | The twenty rules, their evidence and their false-positive traps |
+| [`docs/ISSUE_RULES.md`](docs/ISSUE_RULES.md) | The thirty-six rules, their evidence and their false-positive traps |
 | [`docs/UX_DESIGN.md`](docs/UX_DESIGN.md) | Layout, tokens, markers, states, interaction |
 
 License: MIT.

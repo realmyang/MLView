@@ -13,7 +13,7 @@ from torch.utils.data import DataLoader, TensorDataset
 
 def train(dataset: TensorDataset) -> None:
     torch.manual_seed(0)
-    device = torch.device("cuda")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = timm.create_model("resnet18", num_classes=2)
     model.to(device)
     criterion = nn.CrossEntropyLoss()

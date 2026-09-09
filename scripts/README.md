@@ -33,11 +33,13 @@ the pre-merge coverage is unchanged) (see
 README for the job table). There are four exceptions. Rows 10 and 11: `claude
 plugin validate` is not available on a hosted runner, so that test skips itself
 there and those two rows are still verified from a desk (Windows 11, Python 3.13
-/ miniconda, Node 20.9, VS Code 1.136, Claude Code CLI 2.1.186). And row 24,
-which as printed needs a second checkout of the pre-change tree to diff against,
-so it is run by hand around a change rather than on every push — `tools/perf_equiv.py`
+/ miniconda, Node 20.9, VS Code 1.136, Claude Code CLI 2.1.186). And rows 24 / 24a,
+which as printed need a second checkout of the pre-change tree to diff against,
+so they are run by hand around a change rather than on every push — `tools/perf_equiv.py`
 does support `--record FILE` / `--compare FILE` against a committed digest file,
-which is what would turn it into an automatic row. And row 12d, which needs the
+and since wave 3 it also states the expectation in the **exit code**
+(`--expect-same` for an optimisation, `--expect-diff` for a re-baseline), which
+is what would turn it into an automatic row. And row 12d, which needs the
 `.mlview/graph.json` an e2e run produces: the assertions it makes about the
 export renderer are also made by row 3a on the frozen `contracts/graph.sample.json`
 inside `npm test`, so what row 12d adds is the same check over a *real* 54-node
@@ -49,15 +51,15 @@ that one.
 | # | Gate | Command | Result |
 |---|---|---|---|
 | 1 | Build | `powershell -ExecutionPolicy Bypass -File scripts/build.ps1` | `BUILD OK` — 6/6 steps (step 6 is PACKAGING's wheel; it says so and carries on when `build` is not installed) |
-| 2 | Analyzer + rules | `python -m pytest analyzer/tests -q` | 1327 passed, 3 skipped (the third needs Python 3.10, where tomllib is absent) |
+| 2 | Analyzer + rules | `python -m pytest analyzer/tests -q` | 1692 passed, 3 skipped (the third needs Python 3.10, where tomllib is absent) |
 | 2a | Framework recognition (FW-RECOG) | `python -m pytest analyzer/tests/core/test_framework_recognition.py -q` | 24 passed — the seven-call `tf.data` chain is 7 connected nodes, `take`/`skip` are **not** split-kind, `datasets.Dataset.train_test_split` is split-kind and arms MLV602, every Lightning hook lands in the lane the framework runs it in, and a Keras file never picks up a torch framework |
 | 2b | Unresolved callees (ANA-5a) | `python -m pytest analyzer/tests/core/test_unresolved_callee.py -q` | 13 passed — 5 `unknown` ops on the odd-syntax fixture, one `unresolved_callee` diagnostic naming the lambda / `match` case / `default_factory` constructs, the scope-wide dynamic flag **not** widened, and the demo's 15 confidences pinned |
 | 3 | Viewer tests | `npm test` in `webview` | 360 pass, 0 fail |
 | 3a | Diagram export, viewer half (VIEW-07) | `node --test test/export.test.mjs` in `webview` | 19 pass — one `<g data-node-id>` per planned card and one `<path data-edge-id>` per planned route, in plan order and with `d` byte-identical to the routed edge; the SVG references nothing outside itself; 87 palette tokens equal `styles/tokens.css`; the `@media print` block hides the chrome and releases the world transform; `exportFile` and `requestExport` round-trip |
 | 4 | Viewer typecheck | `npm run check` in `webview` | `tsc --noEmit`, clean |
 | 5 | Extension typecheck | `npm run check` in `vscode-extension` | `tsc --noEmit`, clean |
-| 6 | Extension bundle | `npm run compile` in `vscode-extension` | `out/extension.js` 150.4 kb |
-| 7 | Extension tests | `npm test` in `vscode-extension` | 273 pass, 0 fail |
+| 6 | Extension bundle | `npm run compile` in `vscode-extension` | `out/extension.js` 150.76 kb |
+| 7 | Extension tests | `npm test` in `vscode-extension` | 274 pass, 0 fail |
 | 7a | Diagram export, host half (VIEW-07) | `node --test test/export.test.js` in `vscode-extension` | 17 pass — the base64 / 32 MiB / basename guard, the PNG-signature and SVG-opening-tag format check *before* the save dialog, the deferred `requestExport`, and the toast's Open / Copy Path actions |
 | 8 | Plugin / MCP tests | `python -m pytest claude-plugin/tests -q -n auto` | 296 passed, 5 skipped in ~10 s (~36 s without `-n auto`) |
 | 9 | Parity gates | `python tools/verify.py --all` | all 10 gates passed |
@@ -73,7 +75,7 @@ that one.
 | 12d | Diagram exports to SVG (by hand, like row 24: it needs `.mlview/graph.json`, which `scripts/e2e` produces) | `node test/export_svg.mjs ../.mlview/graph.json` in `webview` | `SVG EXPORT CHECK OK` — 54 of 54 cards, 51 of 51 routed edges, every document edge reached the picture, the only `http` is the `xmlns`, no `url(` / `foreignObject` / `xlink` / `<image` / `<script` / `@font-face` / `@import` / `var(--`, every drawn lane's stage colour present as a literal, well-formed XML, 237 real `<text>` nodes and 180 `<rect>`s |
 | 13 | Panel + media bundle | `node --test test/panelhtml.test.js` in `vscode-extension` | 4 pass |
 | 13b | Cross-host scope handshake | `node test/crosshost.mjs ../.mlview/graph.json` in `webview` | 28/28 assertions — the real viewer bundle answers the real extension's `setScope`, and `parseUiToHost` / `scopeChrome` accept what it posts |
-| 14 | Rule docs current | `python analyzer/tools/gen_rule_docs.py --check` | 21 pages current |
+| 14 | Rule docs current | `python analyzer/tools/gen_rule_docs.py --check` | `docs/rules is current (37 pages)` — 36 rule pages plus the index; 7 of the sixteen ANA-7/8/9 pages carry the optional **What it cannot analyze** section (11.26 A14) |
 | 15 | Sample issues current | `python analyzer/tools/gen_expected_issues.py --check` | 15 issues — 5/6/4 |
 | 16 | Golden parity | `python -m mlview analyze --demo --json -` vs `contracts/graph.sample.json` | byte-identical, 46 078 bytes |
 | 17 | Emitted docs valid | `python contracts/validate_sample.py .mlview/graph.json` | schema 1.0 + 10 invariant groups, 54 nodes / 51 edges / 15 issues |
@@ -82,11 +84,16 @@ that one.
 | 20 | Scoped demo artifacts | `python -m mlview analyze samples/vision_pipeline --scope concern:evaluation --depth 1 --html .mlview/evaluation.html` | 17 of 54 nodes (7 core / 7 boundary / 3 context), `data-mlview-scope` and `data-mlview-depth` set on the root |
 | 21 | Scope catalogue | `python -m mlview analyze samples/vision_pipeline --list-scopes` | 10 scopable units, biggest first |
 | 22 | Bytecode residue never poisons the vendor gate | `python -m pytest claude-plugin/tests/test_vendor_bytecode.py -q` | 3 passed — pytest over a throwaway vendored tree writes no `__pycache__` with the flag set and does write one without it, and `sync-core --check` prunes planted residue and stays green |
-| 23 | Accuracy corpus (also a row in `scripts/e2e`) | `python tools/accuracy.py` | `accuracy gate: PASS` — 10 labelled programs, precision 100.0%, unseen recall 51.1% raw / 38.3% visible, graph fidelity 90.6%; zero `forbidden` findings, nothing below `analyzer/tests/accuracy/baseline.json` |
+| 23 | Accuracy corpus (also a row in `scripts/e2e`) | `python tools/accuracy.py` | `accuracy gate: PASS` — 14 labelled programs, 77 labels, precision **100.0% on every one of the 36 rules**, overall recall 71.4% / 63.6% visible, unseen recall 53.2% raw / 40.4% visible, graph fidelity 90.6%; zero `forbidden` findings, nothing below `analyzer/tests/accuracy/baseline.json` |
 | 23a | The same three gates, asserted | `python -m pytest analyzer/tests/accuracy -q` | 35 passed — corpus lint plus the matcher's own semantics |
+| 23b | The three rule tiers (ANA-7 / ANA-8 / ANA-9) | `python -m pytest analyzer/tests/rules/test_tier_rules.py -q` | 50 passed — the sixteen new codes, their bad/good fixture pairs, the `GradScaler(enabled=…)` three-way (literal `False` suppresses, non-literal de-rates to 0.6, absent fires), and every ANA-7 finding at or above the 0.60 Problems-panel default |
 | 24 | Analyzer byte-equivalence | `python tools/perf_equiv.py --baseline DIR --diff --bench` | both shipped samples byte-identical to `main`; `analyzer/tests/clean` gains exactly one `ValueTag` (PERF-02's fifth IR round), 200-file corpus 2.25x faster |
+| 24a | …with the verdict in the exit code | `python tools/perf_equiv.py --compare FILE --expect-same` | `perf_equiv: OK - every corpus is byte-identical`, **exit 0** — PERF-03's `--relevance all` path and the whole of CACHE claim exactly this. `--expect-diff` on the same pair exits **1** (`FAILED - --expect-diff, but every corpus is byte-identical`), which is what a re-baseline that never took effect looks like; either flag with no baseline exits 1 rather than passing silently |
+| 24b | Relevance prefilter (PERF-03) | `python -m pytest analyzer/tests/core/test_relevance.py -q` | 24 passed — seeds derived from the knowledge tables, k-hop BFS in both directions **after** ANA-3 re-export resolution (`train.py → pkg → pkg/net.py` is one hop), the refusal (no seed ⇒ nothing set aside), and one `config_warning` naming the count and both widening flags |
+| 24c | Per-file fact cache (CACHE) | `python -m pytest analyzer/tests/core/test_cache.py -q` | 30 passed — a warm run is **byte-identical** to `--no-cache`, an edited file is `cached: partial` and still byte-identical, a forged or foreign-identity sidecar is ignored rather than obeyed, and nothing is opened or written at all under the shipped `--relevance all` default |
+| 24d | Perf budget | `python -m pytest analyzer/tests/core/test_perf_budget.py -q` | 6 passed (adds ~20 s: it builds a 500-file corpus and runs six analyses) — the narrowing ratio, the set-aside diagnostic, the edited-file delta and the sample's byte-identity |
 | 26 | Wheel installs and runs | `python tools/wheel_check.py` (also a row in `scripts/e2e`) | `wheel-check: OK mlview-0.1.0-py3-none-any.whl -> mlview 0.1.0, 4 node(s), 2 issue(s) in a clean venv` — built with `python -m build --wheel analyzer`, installed into a throwaway venv, run through the **console script**, then one real analysis so a wheel missing `schema/*.json` cannot pass |
-| 27 | VSIX packages and stays small | `npm run package` in `vscode-extension` | `Packaged: mlview-0.1.0.vsix (105 files, 513.05 KB)` — no `--allow-missing-repository`, `core/mlview` (74 files) included, under the 1 MB ceiling |
+| 27 | VSIX packages and stays small | `npm run package` in `vscode-extension` | `Packaged: mlview-0.1.0.vsix (126 files, 576.92 KB)` — no `--allow-missing-repository`, `core/mlview` (79 files) and the 37 rule pages included, under the 1 MB ceiling |
 | 28 | The icon is what its script renders | `python vscode-extension/tools/make_icon.py --check` | `make_icon: OK ... matches (890 bytes, 128x128)` |
 | 25 | CI matrix | `.github/workflows/ci.yml` | On the Sprint 4 wave 2 push to `sprint4` (run 34298585002): **12 jobs green, `smoke (macos)` skipped** — Python 3.10-3.13, Node 20/22, both e2e drivers, `packaging (wheel + vsix)` (50 s) and the accuracy corpus (16 s). **5m51s wall, ~30 billable minutes** (~18 ubuntu at 1x, per-job minute rounding + 12 windows at 2x + **0 macos**), and both e2e jobs archive `mlview-reports-*` (CI-ARTIFACTS-01). macOS runs on push to `main` and on pull requests, where it is 13 jobs |
 | 25a | Nightly scope fuzz | `.github/workflows/nightly.yml` | `python tools/verify.py --scopes --fuzz 2000` on a 04:17 UTC schedule plus `workflow_dispatch`, ubuntu 1x, ~16 s of fuzzing. GitHub only schedules cron from the default branch, so it starts firing once this lands on `main` |

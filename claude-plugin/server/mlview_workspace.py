@@ -45,12 +45,15 @@ __all__ = [
 ]
 
 
+#: Still used by `analyzer_identity`'s walk. The signature's own prune set
+#: moved into `mlview.core.cache`, which uses `ingest.discover.ALWAYS_PRUNE` -
+#: the set that decides what is analyzed in the first place, and therefore the
+#: only correct answer to "what should a signature cover".
 _SKIP_DIRS = {
     ".git", ".hg", ".svn", ".venv", "venv", "env", "node_modules", "__pycache__",
     "site-packages", "build", "dist", ".mypy_cache", ".pytest_cache", ".mlview",
     ".tox", ".idea", ".vscode",
 }
-_MAX_SIGNATURE_FILES = 2000
 
 # In-process memo: (resolved path, framework, maxNodes, signature) -> (graph, path)
 _CACHE: Dict[Any, Any] = {}
@@ -199,31 +202,23 @@ def analyzer_identity() -> str:
 
 
 def file_signature(path: str) -> str:
-    """A cheap content signature: every .py file's relative path, mtime and size."""
-    parts: List[str] = []
-    if os.path.isfile(path):
-        stat = os.stat(path)
-        parts.append("%s|%d|%d" % (os.path.basename(path), stat.st_mtime_ns, stat.st_size))
-    else:
-        count = 0
-        for dirpath, dirnames, filenames in os.walk(path):
-            dirnames[:] = sorted(d for d in dirnames if d not in _SKIP_DIRS and not d.startswith("."))
-            for name in sorted(filenames):
-                if not name.endswith(".py"):
-                    continue
-                full = os.path.join(dirpath, name)
-                try:
-                    stat = os.stat(full)
-                except OSError:
-                    continue
-                rel = os.path.relpath(full, path).replace("\\", "/")
-                parts.append("%s|%d|%d" % (rel, stat.st_mtime_ns, stat.st_size))
-                count += 1
-                if count >= _MAX_SIGNATURE_FILES:
-                    break
-            if count >= _MAX_SIGNATURE_FILES:
-                break
-    return hashlib.sha1("\n".join(parts).encode("utf-8")).hexdigest()[:16]
+    """A content signature for a file or a tree — **the core's implementation**.
+
+    CACHE (CONTRACTS 11.28): there is exactly one of these now, in
+    ``mlview.core.cache``, and this is a re-export so the server and the CLI can
+    never disagree about whether a tree changed. The old local copy hashed each
+    file's **mtime and size**; that key moved when a ``git checkout`` restored
+    content it had already seen, and — the direction that actually hurts — could
+    fail to move on a filesystem with coarse timestamps, which is how a stale
+    document reaches a caller. The replacement hashes the bytes, prunes exactly
+    what ``ingest.discover`` prunes, and stops at the same 2000-file bound.
+
+    Kept as a wrapper rather than a bare import so the docstring above stays
+    with the name the rest of this module and its tests use.
+    """
+    from mlview.core.cache import file_signature as _core_file_signature
+
+    return _core_file_signature(path)
 
 
 def graph_file_for(path: str) -> str:
