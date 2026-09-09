@@ -917,7 +917,7 @@ location rows, 13 carrying a cell, the banner drawn naming MLV101 / MLV203 /
 MLV209, and the `4 notebooks analyzed` chip. That closes the viewer's "no
 end-to-end notebook exercise" gap.
 
-**Gates.** analyzer 1721 passed / 3 skipped (26 of them NB, plus 3 notebook
+**Gates.** analyzer 1722 passed / 3 skipped (26 of them NB, plus 3 notebook
 `test_locations` cases); webview 384 pass (24 NB); vscode-extension 298 pass
 (24 NB); claude-plugin 305 passed / 5 skipped (8 NB); `tools/verify.py --all`
 **10/10**; `tools/accuracy.py` precision **100.0%**, recall 71.4% (NB adds no
@@ -925,6 +925,23 @@ rule, so the ratchet did not move); `sh scripts/e2e.sh` **19 steps, 0 failed**;
 `tsc --noEmit` clean in both TypeScript packages. The bundle ratchet was
 re-measured and **neither cap moved** (JS 269 389 B under 268 KiB, CSS 60 429 B
 under 61 KiB).
+
+**One shipped bug fell out of CI while landing this.** `e2e (windows, powershell)`
+went red on a *different* `analyzer/tests/core/test_cache.py` case on each run,
+always with `cache MAC mismatch`, on a tree whose analyzer source had not changed
+since the previous green Windows run. The cause is in `core/cache._secret`, not in
+NB: the 32-byte MAC secret was created with `os.open(..., O_WRONLY | O_CREAT |
+O_EXCL)`, and **on Windows that is TEXT mode** — every `0x0A` byte is written as
+`0x0D 0x0A`. The creating run then MACs with the 32 bytes it holds in memory while
+every later run MACs with the longer bytes it reads back, so the sidecar is
+rejected for ever and CACHE is silently off. It bites the ~12 % of keys that
+contain a `0x0A` (1 − (255/256)³²), which is why it read as an intermittent CI
+flake rather than as the permanent, per-user cache outage it actually is. Fixed by
+naming the flag (`core/cache.O_BINARY`, `os.O_BINARY` where the platform has it and
+0 elsewhere) and passing it. The regression test stands a Windows in for whatever
+platform it runs on — it emulates the text-mode translation and asserts the secret
+reads back byte-identical — so removing the flag reddens on Linux and macOS too
+rather than waiting for a Windows runner to be unlucky.
 
 ## Known gaps
 

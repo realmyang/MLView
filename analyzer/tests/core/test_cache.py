@@ -345,3 +345,56 @@ def test_the_demo_path_is_untouched_by_either_feature():
     sample = os.path.join(REPO_ROOT, "contracts", "graph.sample.json")
     with open(sample, "rb") as fh:
         assert demo_bytes() == fh.read()
+
+
+# ------------------------------------------------- the MAC secret round-trips
+def test_the_mac_secret_reads_back_exactly_as_it_was_written(cache_home, monkeypatch):
+    """The secret is BYTES, and it must survive the filesystem unaltered.
+
+    `os.open` on Windows opens in TEXT mode unless `os.O_BINARY` is passed, and
+    a 32-byte random secret contains a 0x0A byte about 12% of the time
+    (1 - (255/256)**32). Without the flag the creating run MACs with the 32
+    bytes it holds while every later run MACs with the CR-mangled bytes it
+    reads back, so `cached: full` never happens again and the sidecar is
+    rejected with `cache MAC mismatch` forever. That is a silent, permanent
+    loss of the whole CACHE feature for one Windows user in eight — it showed
+    up as an intermittent red `e2e (windows, powershell)`, on a different
+    `test_cache.py` case each time because the file is randomly ordered.
+
+    Forcing a secret that is ALL newline bytes makes the failure deterministic
+    rather than 12% likely, and the `os.open` below EMULATES the Windows text
+    mode so the guard bites on every platform: drop `os.O_BINARY` from
+    `core/cache._secret` and this test goes red on Linux and macOS too, instead
+    of waiting for a Windows runner to be unlucky.
+    """
+    monkeypatch.setattr(C.os, "urandom", lambda n: b"\n\r\n" * 11)
+
+    # Stand a Windows in for whatever platform this is: give O_BINARY a real bit
+    # so the emulation below can see whether `_secret` asked for binary mode.
+    o_binary = 0x8000
+    monkeypatch.setattr(C, "O_BINARY", o_binary)
+    real_open = C.os.open
+
+    def text_mode_open(path, flags, *rest):
+        """`os.open` as Windows implements it: LF -> CRLF unless O_BINARY."""
+        fd = real_open(path, flags & ~o_binary, *rest)
+        if flags & o_binary:
+            return fd
+        real_write = C.os.write
+
+        def translating_write(target_fd, data):
+            if target_fd == fd:
+                data = data.replace(b"\n", b"\r\n")
+            return real_write(target_fd, data)
+
+        monkeypatch.setattr(C.os, "write", translating_write)
+        return fd
+
+    monkeypatch.setattr(C.os, "open", text_mode_open)
+
+    written = C._secret()
+    assert written is not None and len(written) >= 32
+    read_back = C._secret()               # the file now exists: this is the read path
+    assert read_back == written, "the secret changed between writing and reading it"
+    with open(C._key_file(), "rb") as handle:
+        assert handle.read() == written, "the bytes on disk are not the bytes we MAC with"

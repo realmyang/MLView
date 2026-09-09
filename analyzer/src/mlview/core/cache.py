@@ -243,6 +243,19 @@ def _key_file() -> str:
     return _norm(os.path.join(os.path.expanduser("~"), ".mlview", "cache.key"))
 
 
+#: `os.O_BINARY` where the platform has it (Windows), 0 everywhere else.
+#:
+#: The secret is BYTES, and `os.open` on Windows opens in TEXT mode without this
+#: flag: every 0x0A byte is written as 0x0D 0x0A. The run that CREATES the key
+#: then MACs with the 32 bytes it holds in memory while every later run MACs with
+#: the longer, CR-mangled bytes it reads back — a permanent `cache MAC mismatch`
+#: that silently disables the whole cache for the ~12% of keys that contain a
+#: 0x0A (1 - (255/256)**32). A named constant rather than an inline `getattr` so
+#: `tests/core/test_cache.py` can stand a Windows in for a POSIX one and keep the
+#: guard honest on every platform.
+O_BINARY = getattr(os, "O_BINARY", 0)
+
+
 def _secret() -> Optional[bytes]:
     """The 32-byte MAC secret from the user's home, created on first use.
 
@@ -261,7 +274,8 @@ def _secret() -> Optional[bytes]:
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         value = os.urandom(32)
-        handle_fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | O_BINARY
+        handle_fd = os.open(path, flags, 0o600)
         try:
             os.write(handle_fd, value)
         finally:
