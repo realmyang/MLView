@@ -77,10 +77,16 @@ CLEAN_NOTES: Dict[str, str] = {
 class Page:
     """One rendered report and the facts the index states about it."""
 
-    def __init__(self, title: str, source: str, relative: str) -> None:
+    def __init__(self, title: str, source: str, relative: str,
+                 href: Optional[str] = None) -> None:
         self.title = title
         self.source = source
         self.relative = relative
+        #: Where the index links to, relative to the index itself. Computed from
+        #: the real output paths rather than by subtracting the literal
+        #: `docs/gallery` from `relative`, which was only correct while `--out`
+        #: was the default (GALLERY-OUT-DIR).
+        self.href = href or os.path.basename(relative)
         self.counts = {"high": 0, "medium": 0, "low": 0}
         self.codes: List[str] = []
         self.nodes = 0
@@ -93,12 +99,27 @@ class Page:
 
 
 def _relative(path: str) -> str:
-    return os.path.relpath(path, REPO).replace("\\", "/")
+    """Repo-relative when it can be, absolute when it cannot.
+
+    `--out` may name any directory, and on Windows a temp directory is routinely
+    on a different DRIVE from the checkout - where `os.path.relpath` does not
+    return an awkward answer, it raises `ValueError: path is on mount 'D:',
+    start on mount 'C:'`. A label is not worth an exception, so the absolute
+    path is the fallback (GALLERY-OUT-DIR).
+    """
+    try:
+        return os.path.relpath(path, REPO).replace("\\", "/")
+    except ValueError:
+        return os.path.abspath(path).replace("\\", "/")
 
 
-def analyze_one(source: str, out_file: str, dry_run: bool) -> Page:
+def analyze_one(source: str, out_file: str, dry_run: bool,
+                out_dir: Optional[str] = None) -> Page:
     """Analyze one file and write its report. A failure is recorded, never raised."""
-    page = Page(os.path.basename(source), _relative(source), _relative(out_file))
+    href = None
+    if out_dir:
+        href = os.path.relpath(out_file, out_dir).replace("\\", "/")
+    page = Page(os.path.basename(source), _relative(source), _relative(out_file), href)
     try:
         graph = analyze_to_dict(AnalyzeOptions(paths=(source,)))
     except Exception as exc:  # a broken fixture must not sink the whole gallery
@@ -183,7 +204,7 @@ def _row(page: Page, note: str, flags: Sequence[str]) -> str:
         '<td class="note">%s</td>'
         "</tr>"
         % (
-            _esc(os.path.relpath(page.relative, "docs/gallery").replace("\\", "/")),
+            _esc(page.href),
             _esc(page.title),
             marks,
             _counts_cell(page),
@@ -374,7 +395,8 @@ def build(out_dir: str, only: Optional[str], what: str, dry_run: bool, quiet: bo
     if what in ("all", "clean"):
         for source in clean_programs():
             name = os.path.basename(source)
-            page = analyze_one(source, os.path.join(out_dir, "clean", name[:-3] + ".html"), dry_run)
+            page = analyze_one(source, os.path.join(out_dir, "clean", name[:-3] + ".html"),
+                               dry_run, out_dir)
             cleans.append(page)
             say("clean  %-24s %d node(s), %d finding(s)" % (name, page.nodes, page.total))
 
@@ -384,7 +406,7 @@ def build(out_dir: str, only: Optional[str], what: str, dry_run: bool, quiet: bo
             rendered: List[Tuple[Page, str, List[str]]] = []
             for name in files:
                 out_file = os.path.join(out_dir, "rules", spec.code, name[:-3] + ".html")
-                page = analyze_one(os.path.join(FIXTURES, name), out_file, dry_run)
+                page = analyze_one(os.path.join(FIXTURES, name), out_file, dry_run, out_dir)
                 note, flags = _fixture_note(name, spec.code)
                 # The two facts the index must not hide.
                 if name.endswith("_bad.py") and spec.code not in page.codes:

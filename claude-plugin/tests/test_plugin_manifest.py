@@ -167,7 +167,11 @@ def test_the_server_and_the_hooks_name_one_parse_cache_outside_the_project(
     # shares the hook's cache instead of seeding one in the repository.
     computed = workspace.cache_dir()
     assert computed == str(data / "cache").replace("\\", "/")
-    assert computed == env["MLVIEW_CACHE_DIR"].replace("${CLAUDE_PLUGIN_DATA}", str(data))
+    # Both sides forward-slashed before comparing: `cache_dir()` normalizes and
+    # `str(data)` does not, so on Windows this compared C:/… with C:\… and failed
+    # for spelling rather than for the sharing it is about.
+    expanded = env["MLVIEW_CACHE_DIR"].replace("${CLAUDE_PLUGIN_DATA}", str(data))
+    assert computed == expanded.replace("\\", "/")
 
     hook_core_source = os.path.join(PLUGIN_ROOT, "hooks", "hook_core.py")
     with open(hook_core_source, "r", encoding="utf-8") as fh:

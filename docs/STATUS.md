@@ -2224,7 +2224,8 @@ back. It lost that race on two of thirteen jobs. The overshoot is now **forced**
 `hook_core.analyze` is replaced by a blocking stub — so the abandonment is the
 thing under test rather than the scheduler. The VSIX was re-measured while
 settling the core count: **754.24 KB, 148 files, 96 under `extension/core/`,
-73.7% of the 1 MB ceiling**.
+73.7% of the 1 MB ceiling**. A second iteration cleared two Windows-only
+failures, both of them a new test meeting a real portability bug: `gen_gallery.py` subtracted the literal `docs/gallery` from every page path to build the index's hrefs and called `os.path.relpath(path, REPO)` on the output directory, so an `--out` anywhere else produced broken links and an `--out` on another **drive** — which is what a Windows temp directory is — raised `ValueError: path is on mount 'D:', start on mount 'C:'`. The index now links by a path computed from the real output paths, and `_relative` falls back to the absolute path rather than raising. And `test_the_server_and_the_hooks_name_one_parse_cache_outside_the_project` compared a forward-slashed `cache_dir()` against an un-normalized `str(tmp_path)`, so it failed for spelling rather than for the sharing it is about.
 
 **Gates, all re-run on this Mac at the integrated tree.** `sh scripts/e2e.sh`
 **20 steps, 0 failed, 0 skipped**; analyzer **2087 passed / 4 skipped** (2024 / 4
