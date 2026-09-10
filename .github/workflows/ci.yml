@@ -241,13 +241,8 @@ jobs:
   # branch, so `refs/heads/main` is false there and the pull_request event is the only
   # one that runs this job.
   smoke-macos:
-    # TEMPORARY (CI-MACOS-01). `refs/heads/sprint5` is in this guard only so the
-    # fix for the failure on run 34419964015 can be judged on the runner that
-    # produced it. The last commit of this branch restores the two-clause guard
-    # the comment above describes, and removes the probe step at the end.
     if: >-
-      (github.event_name == 'push' && (github.ref == 'refs/heads/main' ||
-      github.ref == 'refs/heads/sprint5')) ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
       github.event_name == 'pull_request'
     name: smoke (macos)
     runs-on: macos-latest
@@ -272,13 +267,6 @@ jobs:
         working-directory: webview
       - run: npm test
         working-directory: webview
-      # TEMPORARY (CI-MACOS-01). `-rP` prints the captured stdout of the tests
-      # that PASSED, which is where `test_perf_budget.py` puts the cold, warm and
-      # bytes-only figures it measured. The whole point of the failure was that
-      # nobody had ever seen those numbers from a macOS runner. Removed with the
-      # guard above.
-      - name: what this runner measures for the perf ratios
-        run: python -m pytest analyzer/tests/core/test_perf_budget.py -q -rP
 
   # ---------------------------------------------------------------- packaging
   # PACKAGING. Two artifacts nobody was building, both of which other people's

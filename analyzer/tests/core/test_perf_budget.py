@@ -122,17 +122,24 @@ NARROWING_SPEEDUP = 1.25
 #: ratio is a property of the runner and not of the cache (CI-MACOS-01). What
 #: the cache can save is one thing only - parsing a file whose bytes it has
 #: already seen - and the run reports that saving exactly, as a hit count. The
-#: same code measured **1.45x - 2.50x across five runs on this Mac** (cold
-#: 0.79 s - 1.35 s against a warm run that never left 0.51 s - 0.61 s) and
-#: **1.15x** on the GitHub `macos-latest` runner (0.98 s -> 0.85 s) - and the
-#: hit count was 501 of 501 on every one of them. The spread is structural, not
-#: noise: what the cache elides is the parse of the 450 modules the prefilter
-#: was going to discard anyway, while reading all 501 files, the IR fixed point
-#: and every rule over the 51 kept modules are paid in full by both sides. So
-#: the ratio measures the host's parse-to-everything-else balance, it drifts
-#: towards 1.0 with every rule the analyzer gains, and a 1.25 bar under it was
-#: going to redden on somebody's machine whatever the cache did. The assertion
-#: below is therefore the count, and wall clock is held to an absolute ceiling.
+#: same code measured **1.45x - 2.50x across five runs on this Mac** and
+#: **1.15x then 1.38x** on two runs of the GitHub `macos-latest` runner - the
+#: first of which is the one that reddened `smoke (macos)` against a 1.25 bar.
+#: The hit count was 501 of 501 on every one of them.
+#:
+#: The ratio is dominated by the term the cache does **not** touch. What it
+#: elides is the parse of the 450 modules the prefilter was going to discard
+#: anyway; reading all 501 files, the IR fixed point and every rule over the 51
+#: kept modules are paid in full by the warm run too, and that common term is
+#: two to four times the elided one - so the ratio is `1 + saved/common`, it
+#: drifts towards 1.0 with every rule the analyzer gains, and it moves with
+#: whatever else the host is doing. Measured, on one `macos-latest` job: two
+#: runs of the *identical* configuration (`relevance="ml"`, cache off) in the
+#: same process took **1.19 s and 0.76 s**, 57% apart. A bar at 1.25 against a
+#: quantity that reads 1.15x-1.38x on a host whose inputs swing by half was
+#: going to redden whatever the cache did. (Reading the bytes is not the
+#: difference: 0.01 s for all 501 files on that runner.) The assertion below is
+#: therefore the count, and wall clock is held to an absolute ceiling.
 #:
 #: The ceiling is the CACHE item's own acceptance number - *"editing one file in
 #: a 500-file repo and re-analysing costs under 2 s"* - with the same room for a
@@ -237,12 +244,12 @@ def test_editing_one_file_re_analyses_fast_and_byte_identically(mixed_corpus,
     - and 500 is 500 on every machine.
 
     **What this cannot assert** (CI-MACOS-01): that a warm run is any given
-    factor faster than a cold one. Parsing 450 modules is a smaller share of a
-    run on a host whose per-file read costs more, and the identical code
-    measured 1.45x - 2.50x here and 1.15x on `macos-latest`, with the same 501
-    hits on every one of those runs. Wall clock is therefore
-    held to `DELTA_CEILING_S`, an absolute ceiling that catches a cache which
-    has started costing more than it saves, and the measured figures are put in
+    factor faster than a cold one. The identical code measured 1.45x - 2.50x
+    here and 1.15x then 1.38x on `macos-latest`, with the same 501 hits every
+    time, because most of a run is work the cache cannot remove and that work
+    is not steady - see `DELTA_CEILING_S` above for the numbers. Wall clock is
+    therefore held to that ceiling, which catches a cache that has started
+    costing more than it saves, and the measured figures are printed and put in
     the assertion messages so a run that trips it says what it saw.
     """
     monkeypatch.setenv("MLVIEW_CACHE_DIR", str(tmp_path / "cache"))

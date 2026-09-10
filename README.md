@@ -371,16 +371,19 @@ default branch, so it starts firing once this lands on `main`.
 
 The matrix is deliberately lopsided: the repository is private, so minutes are
 metered and weighted (windows 2x, macos 10x), and the fan-out is therefore
-ubuntu-only. **Measured, not estimated** — the last full green branch push
-(run 34320075813, the Sprint 4 review fixes) took **6m30s of wall time and ~38
-billable minutes**: 24 of them the eleven ubuntu jobs, 14 the one Windows job
-(6m26s, billed as 7 min at 2x), and `smoke (macos)` skipped. The rounding rule is what
+ubuntu-only. **Measured, not estimated** — the last full green push
+(run 34422156964, Sprint 5's process wave) took **6m25s of wall time and ~68
+billable minutes** across **13 green jobs**: 24 of them the eleven ubuntu jobs,
+14 the one Windows job (6m22s, billed as 7 min at 2x) and **30 the one macOS
+job** (2m30s, billed as 3 min at 10x). The rounding rule is what
 makes that figure reproducible, so it is stated rather than assumed: **each job
 is rounded up to a whole minute on its own** and then multiplied by its runner's
 weight — summing the seconds first and rounding once gives a smaller number that
-GitHub does not charge. On `main` and on pull requests the macOS job runs and
-adds **20** (a ~93-second job, billed as 2 min at 10x), taking the same push to
-**~58**. That single job is therefore over a third of a full run's bill for two
+GitHub does not charge. That run is the first branch push on which `smoke
+(macos)` has ever run — its guard was widened to `sprint5` for exactly one
+verification push and restored immediately after — so it is also the first
+*measurement* of the macOS job's share rather than an estimate of it. A branch
+push with the job skipped is the other **~38**. That single job is therefore over a third of a full run's bill for two
 suites ubuntu already runs; because the multiplier and the rounding, not the
 job's contents, are what cost the 20, trimming it cannot help. That decision was
 taken in Sprint 4: macOS is now covered locally on a development machine that

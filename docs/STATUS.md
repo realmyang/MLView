@@ -1213,15 +1213,21 @@ failure was one test:
 0.85s)` against a `DELTA_SPEEDUP = 1.25` bar. **Nothing on that runner was
 broken**: the cache was consulted, hit 501 of 501, and the warm document was
 byte-identical to the cold one — the assertion immediately above the failing one
-proved it on the runner itself. What failed was a **wall-clock ratio**, and a
-ratio is a property of the host. The cache elides exactly one thing, the parse of
-the 450 modules the relevance prefilter was going to discard anyway; reading all
-501 files, the IR fixed point and every rule over the 51 kept modules are paid in
-full by the warm run too. So the ratio measures the host's parse-to-everything-else
-balance — and it drifts towards 1.0 with every rule the analyzer gains. Measured
-on this Mac while fixing it: **1.45x, 1.46x, 1.56x, 1.58x and 2.50x on five runs
-of the same commit**, the bar being 1.25. The bar was thin here and under water
-there, and it was going to redden on somebody's machine whatever the cache did.
+proved it on the runner itself. What failed was a **wall-clock ratio**, and the
+ratio is dominated by the term the cache does not touch. The cache elides exactly
+one thing — the parse of the 450 modules the relevance prefilter was going to
+discard anyway; reading all 501 files, the IR fixed point and every rule over the
+51 kept modules are paid in full by the warm run too, and that common term is two
+to four times the elided one. The ratio is therefore `1 + saved/common`: it drifts
+towards 1.0 with every rule the analyzer gains, and it moves with whatever else
+the host is doing. Measured on this Mac while fixing it: **1.45x, 1.46x, 1.56x,
+1.58x and 2.50x on five runs of the same commit**, against a 1.25 bar. Measured on
+`macos-latest` after the fix: **1.38x**, where the failing run had read 1.15x. And
+measured inside that one macOS job, the reason the bar could not stand: two runs of
+the **identical** configuration — `relevance="ml"`, cache off — took **1.19 s and
+0.76 s**, 57% apart, in the same process. A bar at 1.25 against a quantity that
+reads 1.15x–1.38x on a host whose own inputs swing by half is a coin toss, and it
+was going to redden on somebody's machine whatever the cache did.
 The delta test now asserts what the cache actually controls, as **counts**:
 `("none", 0, 501)` cold, `("partial", 500, 1)` after one file is edited — which
 is CACHE's acceptance sentence, *"only that module's facts are recomputed"*,
@@ -1273,19 +1279,33 @@ scripts/check_docs.py` **DOC CHECK OK (19 files)**, `python -m pytest scripts -q
 **56 passed**, the accuracy corpus **PASS** with the ratchet unmoved (no rule
 changed).
 
-**What this could not analyze.** Why the macOS runner's warm run is the *slow*
-side of its ratio — 0.85 s there against 0.51-0.61 s here, while its cold run is
-the faster of the two at 0.98 s against 0.79-1.35 s — is not established. The
-runner is a 3-vCPU VM and the plausible reading is that its per-file read costs
-more, which is why the perf tests now print the bytes-only figure beside the cold
-and warm ones; that number from a macOS runner is the evidence nobody has yet.
-It does not affect the fix: the fix is that a ratio was never the right unit for
-this assertion. `NARROWING_SPEEDUP = 1.25` in the same file is the same shape of
-bar for PERF-03 and is **left alone** — it passed on that runner and measures
-2.46x here — but it is the same kind of proxy, and the exact `filesAnalyzed`
-counts beside it are what actually catch a prefilter that stopped filtering.
-Nothing here re-measured a CI *cost* figure; gate row 25 carries the run this
-wave pushed.
+**CI (run 34422156964, `sprint5`).** **All 13 jobs green, `smoke (macos)` among
+them** — the first branch push on which that job has ever run, its guard widened
+to this branch for one verification push and restored in the commit after it.
+Python 3.10-3.13 69-109 s, Node 20/22 125-137 s, `vscode-extension` 33 s,
+`claude-plugin` 56 s, `e2e (ubuntu, sh)` 311 s, `e2e (windows, powershell)`
+382 s, `packaging` 44 s, accuracy 13 s, `smoke (macos)` 150 s. **6m25s wall and
+~68 billable minutes** — 24 ubuntu, 7 x 2 = 14 Windows, 3 x 10 = **30** macOS.
+That last figure had been *estimated* at ~20 since Sprint 4 and is now measured
+at 30: the job is slower than the ~93 s it was when the estimate was made, and
+the 10x multiplier turns one extra rounded minute into ten. **Zero fix
+iterations** — the fix was green on the runner the first time it ran there.
+
+**What this could not analyze.** *Why* a given run of that workload lands where
+it does is not established, only that it is unsteady: the same configuration
+measured 1.19 s and 0.76 s inside one macOS job. The first hypothesis — that the
+runner's per-file reads cost more — is **wrong, and was tested rather than
+believed**: the perf tests now print the bytes-only figure, and reading all 501
+files costs **0.01 s** on that runner against 0.12–0.23 s on this Mac, the
+opposite of the guess and in any case a term too small to matter on either. GC
+pressure from the 501 ASTs a cold run holds is the next candidate and is not
+measured here. None of it affects the fix, which is that a ratio was never the
+right unit for this assertion. `NARROWING_SPEEDUP = 1.25` in the same file is the
+same shape of bar for PERF-03 and is **left alone** — it passed on that runner
+and measured 2.87x there and 2.46x here — but it is the same kind of proxy, and
+the exact `filesAnalyzed` counts beside it are what actually catch a prefilter
+that stopped filtering. Nor does this wave say anything about the **other** twelve
+jobs: they were green before it and are green after it.
 
 ## Known gaps
 
