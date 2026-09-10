@@ -1965,7 +1965,10 @@ recall **73.1%** / 65.4% visible / 64.9% high+medium, unseen 55.3% / 42.5% /
 37.5%, graph fidelity **91.4%** (127 of 139), zero forbidden findings —
 **unchanged from wave 2 in every digit, which is the point: neither item is
 allowed to move a finding**; `python contracts/validate_sample.py` green at four
-budgets; `python scripts/check_docs.py` **DOC CHECK OK** (19 files).
+budgets; `python scripts/check_docs.py` **DOC CHECK OK** (19 files). **CI (run
+34441571480): all 12 branch jobs green on the first push, no fix iteration** —
+8m09s wall, ~46 billable minutes, `e2e (windows, powershell)` 8m07s and
+`e2e (ubuntu, sh)` 6m32s; `smoke (macos)` is skipped on a branch push by design.
 
 **Two integration edits outside any agent's ownership, both recorded here.** The
 three `vscode-extension/package.json` LM-tool `scope` descriptions still
