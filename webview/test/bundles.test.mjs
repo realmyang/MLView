@@ -96,7 +96,14 @@ test('a bundle is one lane pair with two or more members (VIEW-04)', () => {
     for (const bundle of layout.bundles) {
       assert.ok(!ids.has(bundle.id), name + ': two bundles claim ' + bundle.id);
       ids.add(bundle.id);
-      assert.equal(bundle.id, 'bundle:' + bundle.sourceLane + '>' + bundle.targetLane);
+      // VIEW-R3: a gutter group that covers two disjoint stretches of the gutter
+      // draws one trunk per stretch, and `part` numbers them inside the pair.
+      assert.ok(Number.isInteger(bundle.part) && bundle.part >= 0, name + ': ' + bundle.id + ' has no part number');
+      assert.equal(
+        bundle.id,
+        'bundle:' + bundle.sourceLane + '>' + bundle.targetLane + (bundle.part ? '#' + bundle.part : ''),
+      );
+      if (bundle.part) assert.equal(bundle.axis, 'x', name + ': only a gutter group splits into sub-trunks');
       assert.ok(bundle.count >= 2, name + ': ' + bundle.id + ' bundles ' + bundle.count + ' route(s)');
       assert.ok(bundle.edgeCount >= bundle.count, name + ': ' + bundle.id + ' carries fewer edges than routes');
       assert.equal(bundle.memberIds.length, bundle.count);
@@ -116,7 +123,7 @@ test('a bundle is one lane pair with two or more members (VIEW-04)', () => {
       const route = byId.get(routeId);
       const doc = docById.get(route.ids[0]);
       assert.ok(route.crossLane, name + ': ' + routeId + ' is bundled but does not leave its lane');
-      assert.equal(route.trunk.key, bundleId.slice('bundle:'.length));
+      assert.equal(route.trunk.key, bundleId.slice('bundle:'.length).replace(/#\d+$/, ''));
       const s = laneOf.get(doc.source);
       const t = laneOf.get(doc.target);
       if (s && t) assert.equal(s + '>' + t, route.trunk.key, name + ': ' + routeId + ' is in the wrong lane pair');
@@ -132,7 +139,7 @@ test('a one-member lane pair is drawn as an individual stroke (VIEW-04)', () => 
       if (!edge.trunk) continue;
       size.set(edge.trunk.key, (size.get(edge.trunk.key) || 0) + 1);
     }
-    const drawn = new Set(layout.bundles.map((b) => b.id.slice('bundle:'.length)));
+    const drawn = new Set(layout.bundles.map((b) => b.id.slice('bundle:'.length).replace(/#\d+$/, '')));
     for (const [key, n] of size) {
       if (n === 1) assert.ok(!drawn.has(key), name + ': ' + key + ' has one member and was still bundled');
     }
@@ -160,8 +167,15 @@ test("a pair's members leave the trunk in the order their targets are stacked (V
         );
         previous = y;
       }
-      // And the index the router stamped agrees with the order they are listed in.
-      bundle.memberIds.forEach((id, i) => assert.equal(byId.get(id).trunk.index, i));
+      // And the index the router stamped rises with the order they are listed in.
+      // A sub-trunk holds a SUBSEQUENCE of its pair's members (VIEW-R3), so the
+      // claim is monotonicity, not identity — the spurs must not braid.
+      let last = -1;
+      for (const id of bundle.memberIds) {
+        const index = byId.get(id).trunk.index;
+        assert.ok(index > last, name + ': ' + bundle.id + ' lists trunk index ' + index + ' after ' + last);
+        last = index;
+      }
     }
   }
 });
@@ -282,8 +296,11 @@ test('bundling cuts the crossings the reader actually sees (VIEW-04)', () => {
   // `routes` is every cable drawn separately, `drawn` is what a collapsed
   // diagram puts on screen — trunks, spurs and the cables nothing bundled.
   for (const [name, graph, budget] of [
-    ['sample', sample, 2.6],
-    ['synthetic 300', makeSyntheticGraph(300, 600), 34],
+    // VIEW-R3 re-baselines both: the union trunk bundles every gutter group the
+    // intersection rule silently dropped, so the measured numbers fell to 0.64
+    // and 24.77 per edge (the pre-fix answer, 30.47 on synthetic 300, now fails).
+    ['sample', sample, 1.0],
+    ['synthetic 300', makeSyntheticGraph(300, 600), 27],
   ]) {
     const layout = layoutOf(graph);
     const routes = crossings(layout.edges.map((e) => e.points));
@@ -295,6 +312,152 @@ test('bundling cuts the crossings the reader actually sees (VIEW-04)', () => {
       perDrawn <= budget,
       name + ': ' + perDrawn.toFixed(2) + ' crossings per edge on screen, budget ' + budget,
     );
+  }
+});
+
+/* ── VIEW-R3: no group is silently left unbundled ────────────────────────── */
+
+/** Every usable member of every trunk group, keyed by lane pair. */
+function trunkGroups(layout) {
+  const groups = new Map();
+  for (const edge of layout.edges) {
+    const ref = edge.trunk;
+    if (!ref) continue;
+    if (ref.joinFrom < 1 || ref.joinTo <= ref.joinFrom) continue;
+    if (ref.joinTo + 1 > edge.points.length - 1) continue;
+    const list = groups.get(ref.key);
+    if (list) list.push(edge);
+    else groups.set(ref.key, [edge]);
+  }
+  return groups;
+}
+
+/** One member's stretch of the gutter it crosses. */
+function gutterSpan(edge) {
+  const a = edge.points[edge.trunk.joinFrom].x;
+  const b = edge.points[edge.trunk.joinTo].x;
+  return { lo: Math.min(a, b), hi: Math.max(a, b) };
+}
+
+/** Maximal clusters of spans that chain into one contiguous stretch. */
+function overlapClusters(spans) {
+  const sorted = spans.slice().sort((a, b) => a.lo - b.lo || a.hi - b.hi);
+  const out = [];
+  let current = [];
+  let reach = -Infinity;
+  for (const span of sorted) {
+    if (current.length && span.lo > reach) {
+      out.push(current);
+      current = [];
+    }
+    current.push(span);
+    reach = current.length === 1 ? span.hi : Math.max(reach, span.hi);
+  }
+  if (current.length) out.push(current);
+  return out;
+}
+
+test('a trunk group of two or more is bundled, or counted with a reason (VIEW-04, VIEW-R3)', () => {
+  // The regression this exists for: the trunk used to be the INTERSECTION of
+  // every member's x-span, so a wide gutter group's common ground was empty and
+  // the WHOLE group fell back to N near-parallel runs — 150 of 300 routes on
+  // `synthetic 300`, 250 of 375 on a capped 525-file repo, all-or-nothing and
+  // worst on the biggest groups. Nothing asserted it, because the old tests only
+  // described bundles that WERE built.
+  const { BUNDLE_MIN_TRUNK } = MLView.__internal.layoutConstants;
+  for (const [name, graph, budget] of [
+    ['sample', sample, 2],
+    ['synthetic 150', makeSyntheticGraph(150, 300), 0],
+    ['synthetic 300', makeSyntheticGraph(300, 600), 2],
+  ]) {
+    const layout = layoutOf(graph);
+    const bundled = new Set();
+    for (const bundle of layout.bundles) for (const id of bundle.memberIds) bundled.add(id);
+    let usable = 0;
+    let residue = 0;
+    for (const [key, members] of trunkGroups(layout)) {
+      usable += members.length;
+      if (members.length < 2) continue;
+      const stray = members.filter((e) => !bundled.has(e.id));
+      residue += stray.length;
+      if (!stray.length) continue;
+      // A member may only be left out for one of the two stated reasons.
+      const ref = members[0].trunk;
+      if (ref.axis === 'y') {
+        assert.ok(
+          Math.abs(ref.exitY - ref.entryY) < BUNDLE_MIN_TRUNK,
+          name + ': ' + key + ' left ' + stray.length + ' of ' + members.length + ' channel members unbundled',
+        );
+        continue;
+      }
+      const spans = new Map(members.map((e) => [e.id, gutterSpan(e)]));
+      const clusters = overlapClusters(members.map((e) => Object.assign({ id: e.id }, spans.get(e.id))));
+      for (const edge of stray) {
+        const cluster = clusters.find((c) => c.some((sp) => sp.id === edge.id));
+        const lo = Math.min.apply(null, cluster.map((sp) => sp.lo));
+        const hi = Math.max.apply(null, cluster.map((sp) => sp.hi));
+        assert.ok(
+          cluster.length < 2 || hi - lo < BUNDLE_MIN_TRUNK,
+          name + ': ' + key + ' left ' + edge.id + ' out of a ' + cluster.length + '-member run ' +
+            (hi - lo).toFixed(1) + ' px long',
+        );
+      }
+    }
+    assert.ok(
+      residue <= budget,
+      name + ': ' + residue + ' of ' + usable + ' cross-lane routes are drawn as their own run, budget ' + budget,
+    );
+  }
+});
+
+test('a gutter trunk is never drawn across ground no member covers (VIEW-04, VIEW-R3)', () => {
+  // The price of a union trunk, bounded: the trunk may run further than any one
+  // cable, but every x on it lies inside at least one member's own gutter run,
+  // and it never reaches past the outermost of them.
+  for (const [name, graph] of CORPORA) {
+    const layout = layoutOf(graph);
+    const byId = new Map(layout.edges.map((e) => [e.id, e]));
+    for (const bundle of layout.bundles) {
+      if (bundle.axis !== 'x') continue;
+      const spans = bundle.memberIds.map((id) => gutterSpan(byId.get(id)));
+      const lo = Math.min.apply(null, spans.map((s) => s.lo));
+      const hi = Math.max.apply(null, spans.map((s) => s.hi));
+      const ends = bundle.trunk.map((p) => p.x);
+      assert.ok(Math.min.apply(null, ends) >= lo - 0.01, name + ': ' + bundle.id + ' starts left of every member');
+      assert.ok(Math.max.apply(null, ends) <= hi + 0.01, name + ': ' + bundle.id + ' ends right of every member');
+      // Contiguous: sweep the members and never leave a gap inside the trunk.
+      const sorted = spans.slice().sort((a, b) => a.lo - b.lo);
+      let reach = sorted[0].hi;
+      for (const span of sorted.slice(1)) {
+        assert.ok(
+          span.lo <= reach + 0.01,
+          name + ': ' + bundle.id + ' spans a ' + (span.lo - reach).toFixed(1) + ' px gap no cable crosses',
+        );
+        reach = Math.max(reach, span.hi);
+      }
+      // Every member really does touch the trunk it is drawn onto.
+      for (const id of bundle.memberIds) {
+        const edge = byId.get(id);
+        for (const j of [edge.trunk.joinFrom, edge.trunk.joinTo]) {
+          const x = edge.points[j].x;
+          assert.ok(
+            x >= Math.min.apply(null, ends) - 0.01 && x <= Math.max.apply(null, ends) + 0.01,
+            name + ': ' + id + ' joins its trunk at ' + x + ', outside [' + ends + ']',
+          );
+        }
+        // And the spur that carries it there is a drop of at most the splay.
+        const { BUNDLE_MEMBER_SPREAD } = MLView.__internal.layoutConstants;
+        for (const spur of bundle.spurs) {
+          if (spur.id !== id) continue;
+          const y = spur.points.map((p) => p.y);
+          assert.ok(
+            Math.abs(bundle.trunk[0].y - (spur.side === 'in' ? y[y.length - 1] : y[0])) < 0.01,
+            name + ': ' + id + "'s " + spur.side + ' spur does not meet the trunk',
+          );
+        }
+        assert.ok(BUNDLE_MEMBER_SPREAD > 0);
+      }
+    }
   }
 });
 

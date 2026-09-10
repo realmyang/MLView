@@ -146,7 +146,11 @@ export const WEIGHT_BADGE_H = 13;
 
 /** What the whole document looks like once the cap has been applied. */
 export interface RollupSummary {
-  /** Cards this document actually contains. */
+  /**
+   * Cards the ANALYZER emitted — never a diff ghost the viewer resurrected
+   * (VIEW-R6), because the analyzer's own truncation sentence is drawn directly
+   * beneath this and describes the emitted document.
+   */
   drawn: number;
   /** Cards that swallowed at least one other (11.46 B1). */
   rolled: number;
@@ -214,7 +218,12 @@ export function rollupSummary(graph: MLGraph | null | undefined): RollupSummary 
   if (!rolled && !weighted) return null;
   const note = truncationNote(graph.diagnostics || []);
   return {
-    drawn: nodes.length,
+    // VIEW-R6. `nodes` is the graph this renderer DRAWS, which after a VIEW-08
+    // overlay has resurrected the base document's removed nodes is larger than
+    // the document the analyzer wrote — and the analyzer's own sentence sits one
+    // paragraph below this headline ("… 12 node(s) kept."). Two numbers for one
+    // quantity is worse than either, so the headline counts what was emitted.
+    drawn: nodes.filter((node) => !node.diffGhost).length,
     rolled,
     folded,
     fileSummaries,

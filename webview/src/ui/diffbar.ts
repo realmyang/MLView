@@ -43,6 +43,12 @@ export interface DiffBarState {
   changedOnly: boolean;
   /** How many of the overlay's removed nodes this document actually drew. */
   ghostsDrawn: number;
+  /**
+   * How many nodes the overlay calls changed or unchanged are actually on
+   * screen. A cap, a scope or a filter can absorb the rest, and then the chips
+   * count more than the diagram holds (VIEW-R6).
+   */
+  namedDrawn: number;
   /** Nodes on screen, and in the whole document — stated when they differ. */
   shown: number;
   of: number;
@@ -245,6 +251,16 @@ export function viewerCaveats(diff: DiffIndex, s: DiffBarState): string[] {
     out.push(
       diff.nodeCounts.removed - s.ghostsDrawn + ' removed node(s) are not on screen at all — a scope, a ' +
         'filter or --max-nodes took them out after the diff was computed.',
+    );
+  }
+  // VIEW-R6, symmetrical to the removed-node line above: the chips count the
+  // COMPARISON, the diagram draws the document, and a rolled-up card stands for
+  // nodes the comparison named individually.
+  const named = diff.nodeCounts.changed + diff.nodeCounts.unchanged;
+  if (named > s.namedDrawn) {
+    out.push(
+      named - s.namedDrawn + ' node(s) this comparison names as changed or unchanged are not on screen ' +
+        'individually — a rolled-up card, a scope or a filter absorbed them after the diff was computed.',
     );
   }
   out.push('A rename is every node removed plus every node added: the stable id embeds the file path, and no rename detection is attempted.');

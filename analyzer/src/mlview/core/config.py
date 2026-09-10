@@ -216,7 +216,11 @@ def load_config(config_path: Optional[str], root: Optional[str] = None) -> Mlvie
     config = MlviewConfig(path=str(path).replace("\\", "/"), source=source)
     data = _read_toml(path, config)
     if data is None:
-        return config
+        # Unreadable or unparseable: the warning survives, the *path* does not.
+        # Same rule as the `[tool.mlview]`-less pyproject two branches down -
+        # `workspace.configPath` may only name a file that actually decided
+        # something, or a reader cannot tell an applied file from an ignored one.
+        return MlviewConfig(warnings=list(config.warnings))
     if source == "pyproject.toml":
         tool = data.get("tool")
         section = (tool or {}).get("mlview") if isinstance(tool, dict) else None

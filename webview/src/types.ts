@@ -124,6 +124,13 @@ export interface MLNode {
   diffStatus?: string;
   /** VIEW-08, renderer-local: the overlay's `changed[]` field names, if any. */
   diffChanged?: string[];
+  /**
+   * VIEW-08, renderer-local: this card was SYNTHESISED from the overlay by
+   * `diff/adopt.ts` and is not in the emitted document (VIEW-R6). Anything that
+   * counts "how big is this document" must skip it — the analyzer's own
+   * sentences describe the document it wrote, not the one the overlay decorated.
+   */
+  diffGhost?: boolean;
 }
 
 export interface MLEdge {

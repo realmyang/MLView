@@ -59,9 +59,10 @@ from .config_shapes import (CONFIG_EVIDENCE_WEIGHT, CONFIG_NAME_RE,
                             MAX_ALTERNATIVES, MAX_CONFIG_HOPS,
                             MAX_CONFIG_LEAVES, MAX_PATH_DEPTH, ConfigRead,
                             Root, argparse_tree, config_read_of,
-                            default_digest, path_name, read_for, tree_of,
-                            workspace_class)
+                            default_digest, derating_rationale, path_name,
+                            read_for, tree_of, workspace_class)
 from .model import ModuleIR, ValueRef
+from .returns import slot_of
 
 __all__ = [
     "CONFIG_NAME_RE", "CONFIG_EVIDENCE_WEIGHT", "MAX_CONFIG_HOPS",
@@ -69,7 +70,7 @@ __all__ = [
     "ConfigRead", "resolve_module", "path_name", "config_read_of",
     "resolved_call_fqn", "alternatives_for", "selected_symbol",
     "alias_origin", "resolve_origin", "yaml_notes", "config_roots",
-    "kwarg_reads",
+    "kwarg_reads", "derating_rationale",
 ]
 
 def config_roots(module: ModuleIR) -> Dict[str, Any]:
@@ -103,9 +104,14 @@ def resolve_module(module: ModuleIR, workspace) -> None:
     _init_workspace(workspace)
     roots: Dict[Tuple[str, str], Root] = {}
     _local_roots(module, workspace, roots)
+    # ANA-02: a `CFG["workers"] = 0` two lines below the literal is a real
+    # assignment and 11.45 A2 says a real assignment always wins. Applied to
+    # the ROOT's tree rather than to the materialised leaves, so an importing
+    # module inherits the corrected container instead of the stale one.
+    _apply_stores(module, roots)
     _imported_roots(module, workspace, roots)
     _parameter_roots(module, workspace, roots)
-    _materialize(roots)
+    _materialize(module, roots)
     scan_calls(module, workspace, roots)
 
 
@@ -135,9 +141,10 @@ def _local_roots(module: ModuleIR, workspace, roots) -> None:
             continue                     # a later statement rebound the name
         call = record.call
         tree = origin = None
-        if call is not None and call.short_name == "parse_args":
-            tree = argparse_tree(module)
-            origin = "the argparse defaults in %s" % module.relpath
+        argparse_from = _argparse_module(call, module) if call is not None else None
+        if argparse_from is not None:
+            tree = argparse_tree(argparse_from)
+            origin = "the argparse defaults in %s" % argparse_from.relpath
         elif call is not None:
             cls = workspace_class(module, workspace, call.node.func)
             tree = tree_of(call.node, module, workspace)
@@ -155,6 +162,38 @@ def _local_roots(module: ModuleIR, workspace, roots) -> None:
         roots[(scope.qualname, name)] = root
         if scope is module.module_scope:
             module.config_roots[name] = root
+
+
+def _argparse_module(call, module: ModuleIR) -> Optional[ModuleIR]:
+    """The module whose `add_argument(default=...)` calls define this namespace.
+
+    ANA-04: the test used to be `call.short_name == "parse_args"`, so the single
+    commonest way real code is written -
+
+        def get_args():
+            p = argparse.ArgumentParser()
+            p.add_argument("--shuffle", type=bool, default=True)
+            return p.parse_args()
+
+        args = get_args()
+
+    - was not a config root at all: nothing resolved, nothing was de-rated, and
+    nothing said the container had gone unread. Combined with ANA-03 that
+    turned a recall gap into a false positive on correct code. `argparse_tree`
+    was always module-wide (and refuses a module with two parsers outright), so
+    the only thing missing was following the wrapper one level - which the
+    return inference already does.
+    """
+    if call.short_name == "parse_args":
+        return module
+    target = call.target_function
+    if target is None:
+        return None
+    slot = slot_of(call)
+    fqns = slot.fqns if slot is not None else ()
+    if not any(f.rsplit(".", 1)[-1] == "parse_args" for f in fqns):
+        return None
+    return getattr(target, "module", None)
 
 
 def _imported_roots(module: ModuleIR, workspace, roots) -> None:
@@ -209,6 +248,17 @@ def _parameter_roots(module: ModuleIR, workspace, roots) -> None:
                 continue
             tree, origin, file, line, hops = entry
             if hops + 1 > MAX_CONFIG_HOPS:
+                # REV5-04: DATAFLOW-IP turns its own hop cap into a `truncated`
+                # diagnostic because "I stopped following this" is a fact the
+                # reader needs; ANA-10's cap said nothing at all, so a container
+                # that travelled three hops read exactly like a container this
+                # pass never looked at. Same discipline, same vocabulary.
+                module.config_yaml_notes.append((func.loc.line, (
+                    "the config container reaching `%s` in %s (from %s) is more "
+                    "than %d hop(s) away, so MLView stopped following it and "
+                    "resolved no value out of it."
+                    % (param, func.qualname, origin or "a config container",
+                       MAX_CONFIG_HOPS))))
                 continue
             ref = ValueRef(name=param, scope=func.scope, loc=func.loc,
                            is_config=True)
@@ -221,9 +271,143 @@ def _parameter_roots(module: ModuleIR, workspace, roots) -> None:
                 module.config_alias_root[id(ref)] = source
 
 # ---------------------------------------------------------------------------
+# ANA-02: a container that is written to after it is built
+# ---------------------------------------------------------------------------
+#: Methods that rewrite a container in place. `pop` and `clear` remove keys and
+#: `update` can add or replace any of them, so none of the three can be
+#: modelled leaf by leaf: the honest answer is to refuse the whole container.
+_MUTATING_METHODS = ("update", "setdefault", "pop", "popitem", "clear",
+                     "__setitem__")
+
+
+def _apply_stores(module: ModuleIR, roots) -> None:
+    """Fold every later write to a config path back into its root's tree.
+
+    11.45 A2 - *"A real assignment to the same dotted name always wins; the
+    leaf is never written over one"* - held only for the attribute spelling,
+    where the store creates an ordinary binding that `_materialize` then
+    declines to overwrite. A **subscript** store creates no binding, which is
+    to say it held for every spelling except the one a dict is written in - so
+    `CFG = {"workers": 4}` followed by `CFG["workers"] = 0` was read as 4 and
+    MLV112 published a finding about a value the program never has.
+
+    Two outcomes, both of them the assignment winning:
+
+    * the store is **unconditional in the container's own suite** - the same
+      indentation as the statement that built it, outside any loop or `match` -
+      and its right-hand side is a literal, so the leaf takes the new value;
+    * anything else - a store under an `if`, inside a loop, in a `match` arm, a
+      right-hand side that is not a literal, or an `update()` / `pop()` /
+      `clear()` where no leaf-by-leaf story is true at all - so the path and
+      everything under it is **removed** from the tree and the rules see an
+      unresolved value, which is what they saw before ANA-10 existed.
+
+    The second branch is the important one: adopting a value that is only
+    written on one path would let a rule state a number the program may never
+    have, which is worse than resolving nothing. The column test is what tells
+    the two apart, and it costs nothing.
+
+    Either way it is recorded on `module.config_yaml_notes`, so the refusal
+    reaches the document as a `config_unresolved` diagnostic instead of being
+    silently indistinguishable from a value nothing ever wrote.
+    """
+    if not roots:
+        return
+    by_scope: Dict[str, Dict[str, Root]] = {}
+    for (qualname, name), root in roots.items():
+        by_scope.setdefault(qualname, {})[name] = root
+    for record in module.assignments:
+        scoped = by_scope.get(record.scope.qualname)
+        if not scoped:
+            continue
+        for target in record.targets:
+            if not isinstance(target, (ast.Subscript, ast.Attribute)):
+                continue
+            path = path_name(target)
+            if not path:
+                continue
+            head, _dot, _rest = path.partition(".")
+            root = scoped.get(head)
+            if root is None:
+                continue
+            literal = (_literal_str(record.value)
+                       if _unconditional(record, root) else None)
+            _rewrite_leaf(module, root, path, literal, record.loc.line)
+    for call in module.calls:
+        name = (call.receiver_name or "").split(".")[0]
+        scoped = by_scope.get(call.scope.qualname if call.scope is not None else "")
+        root = scoped.get(name) if scoped else None
+        if root is None or (call.method or call.short_name) not in _MUTATING_METHODS:
+            continue
+        _rewrite_leaf(module, root, root.name, None, call.loc.line,
+                      "%s.%s()" % (name, call.method or call.short_name))
+
+
+def _unconditional(record, root: Root) -> bool:
+    """Does this store run on every path that reached the container?
+
+    Column equality with the container's own assignment is the whole test: a
+    statement written under an `if`, a `try` or a `with` is indented further
+    than the statement that built the container, and a loop or a `match` arm is
+    recorded explicitly. It over-refuses (a store in a sibling `if` chain that
+    covers every case reads as conditional) in the only safe direction.
+    """
+    if record.kind not in ("assign", "ann", "walrus"):
+        return False
+    if record.loop is not None or getattr(record, "in_match", False):
+        return False
+    origin = getattr(root.ref, "loc", None) if root.ref is not None else None
+    if origin is None:
+        return False
+    return record.loc.file == origin.file and record.loc.col == origin.col
+
+
+def _literal_str(node) -> Optional[str]:
+    """`ir.scopes.literal_str`, imported lazily: `scopes` is upstream of this."""
+    from .scopes import literal_str
+    return literal_str(node)
+
+
+def _note_cap(module: ModuleIR, root: Root, why: str) -> None:
+    """Record one cap that stopped a container being resolved (REV5-04)."""
+    message = ("MLView resolved only part of the config container `%s` (%s): %s. "
+               "Any value it holds beyond that is unresolved rather than guessed."
+               % (root.name, root.origin or "a config container", why))
+    line = root.line or 1
+    if (line, message) not in module.config_yaml_notes:
+        module.config_yaml_notes.append((line, message))
+
+
+def _rewrite_leaf(module: ModuleIR, root: Root, path: str,
+                  literal: Optional[str], line: int,
+                  how: Optional[str] = None) -> None:
+    """Replace or delete `path` (and its subtree) in `root.tree`."""
+    parts = tuple(path.split("."))
+    if parts[0] != root.name:
+        return
+    key = parts[1:]
+    if literal is not None:
+        if root.tree.get(key) == literal:
+            return
+        root.tree[key] = literal
+        return
+    doomed = [p for p in root.tree if p == key or p[:len(key)] == key] if key \
+        else list(root.tree)
+    if not doomed:
+        return
+    for p in doomed:
+        del root.tree[p]
+    module.config_yaml_notes.append((line, (
+        "`%s` is rewritten at %s:%d by %s, so MLView refused the %d value(s) it "
+        "had resolved out of it rather than reading a stale one."
+        % (path, module.relpath, line, how or "a store it cannot evaluate",
+           len(doomed)))))
+
+
+# ---------------------------------------------------------------------------
 # materialisation
 # ---------------------------------------------------------------------------
-def _materialize(roots) -> None:
+def _materialize(module: ModuleIR, roots) -> None:
     """Store every leaf as an ordinary literal-carrying `ValueRef`.
 
     The binding is written straight into `scope.bindings` and **not** into
@@ -235,11 +419,35 @@ def _materialize(roots) -> None:
         root = roots[key]
         scope = root.scope
         made = 0
+        # REV5-04: the width cap is applied upstream, in `config_shapes.merge`,
+        # which stops filling the tree and returns - so by the time the leaves
+        # are stored the only trace left is a tree that is exactly the cap wide.
+        # That is the condition, and it is the one worth reporting: part of this
+        # container was never resolved, and nothing said so.
+        if len(root.tree) >= MAX_CONFIG_LEAVES:
+            _note_cap(module, root, "it is at or beyond the %d-leaf cap MLView "
+                                    "resolves per container, so an unknown "
+                                    "number of its values were never read"
+                      % MAX_CONFIG_LEAVES)
+        if any(len(path) >= MAX_PATH_DEPTH for path in root.tree):
+            _note_cap(module, root, "it nests at least %d levels deep, which is "
+                                    "the deepest path MLView spells" % MAX_PATH_DEPTH)
         for path in sorted(root.tree):
             if not path:
                 continue
             if made >= MAX_CONFIG_LEAVES:
+                # REV5-04: the cap used to `break` in silence, which reads
+                # downstream exactly like a container ANA-10 never looked at.
+                _note_cap(module, root, "it is wider than the %d-leaf cap "
+                                        "MLView resolves per container"
+                          % MAX_CONFIG_LEAVES)
                 break
+            # `made` counts leaves CONSIDERED, not leaves created. Counting
+            # creations made the cap round-dependent: after the first IR round
+            # every leaf already exists, so nothing was created, `made` stayed
+            # 0, and the note above was reachable only on round one - the
+            # silence REV5-04 is about, one level deeper.
+            made += 1
             name = "%s.%s" % (root.name, ".".join(path))
             if name in scope.bindings:
                 continue
@@ -251,7 +459,6 @@ def _materialize(roots) -> None:
                                         root.origin, root.file, root.line,
                                         root.hops)
             scope.bindings[name] = ref
-            made += 1
 
 # ---------------------------------------------------------------------------
 # what the graph builder asks

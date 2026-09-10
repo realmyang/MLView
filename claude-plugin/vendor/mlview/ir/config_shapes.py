@@ -109,6 +109,20 @@ class ConfigRead:
     file: str
     line: int
     hops: int
+    #: ANA-05: the fact alone - "`CFG.workers` was read as `4` from ..." -
+    #: without the 60-word rationale. `apply_config_derating` joins several
+    #: facts and states the rationale ONCE, so a two-key call site no longer
+    #: produces a 300-character evidence row that repeats itself.
+    fact: str = ""
+
+
+def derating_rationale(hops: int = 0) -> str:
+    """The one sentence that explains what a config read costs, stated once."""
+    return ("a value resolved out of a config container is de-rated x%s%s, "
+            "because a container can be overridden at run time by something no "
+            "static reader can see"
+            % (round(CONFIG_EVIDENCE_WEIGHT, 3),
+               "" if hops <= 0 else " once for the read and once per hop (%d)" % hops))
 
 
 def read_for(path: Tuple[str, ...], literal: str, origin: str, file: str,
@@ -116,14 +130,11 @@ def read_for(path: Tuple[str, ...], literal: str, origin: str, file: str,
     weight = CONFIG_EVIDENCE_WEIGHT
     for _ in range(max(0, hops)):
         weight *= CONFIG_EVIDENCE_WEIGHT
-    detail = ("`%s` was read as `%s` from %s at %s:%d; a value resolved out of "
-              "a config container is de-rated x%s%s, because a container can be "
-              "overridden at run time by something no static reader can see"
-              % (".".join(path), literal, origin, file, line,
-                 round(CONFIG_EVIDENCE_WEIGHT, 3),
-                 "" if hops <= 0 else " once for the read and once per hop (%d)" % hops))
+    fact = ("`%s` was read as `%s` from %s at %s:%d"
+            % (".".join(path), literal, origin, file, line))
+    detail = "%s; %s" % (fact, derating_rationale(hops))
     return ConfigRead(weight=round(weight, 4), detail=detail, file=file,
-                      line=line, hops=hops)
+                      line=line, hops=hops, fact=fact)
 
 
 def config_read_of(ref) -> Optional[ConfigRead]:

@@ -354,6 +354,87 @@ def test_the_hook_never_writes_into_the_project(project, tmp_path):
         "a tool that drops .mlview/ into somebody's repository on every edit is a "
         "tool people turn off"
     )
+    # And the parse cache lands in the ONE directory the MCP tools also use, so
+    # "the hook warms the cache the tools then read" (11.41 C3) covers the parse
+    # half and not merely the graph document.
+    assert list((tmp_path / "data" / "cache").glob("facts-*.json")), (
+        "the per-file parse cache belongs in <MLVIEW_DATA_DIR>/cache"
+    )
+    assert not (tmp_path / "data" / "hook-cache").exists(), (
+        "a hook-private parse cache is one the MCP tools never read"
+    )
+
+
+def test_the_server_side_never_writes_into_the_project_either(tmp_path, monkeypatch):
+    """MCP-CACHE-DIR-UNSET — the same rule, for `load_graph` called as the server calls it.
+
+    `.mcp.json` set `MLVIEW_DATA_DIR` and nothing else, so with the parse cache ON
+    by default (11.39) the core's own `<root>/.mlview/cache` default put
+    `facts-<hash>.json` inside the analysed repository on every `mlview_*` call —
+    the write the hook goes to some trouble to avoid, made by the other half of
+    the same plugin, into a cache the hook could not read anyway.
+    """
+    import mlview_workspace as workspace
+
+    root = tmp_path / "project"
+    root.mkdir()
+    (root / "train.py").write_text(LEAK, encoding="utf-8")
+    data = tmp_path / "plugindata"
+    for var in ("MLVIEW_CACHE_DIR", "MLVIEW_NO_CACHE"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("MLVIEW_PROJECT_DIR", str(root))
+    monkeypatch.setenv("MLVIEW_DATA_DIR", str(data))
+
+    workspace._CACHE.clear()
+    try:
+        loaded = workspace.load_graph(str(root))
+    finally:
+        workspace._CACHE.clear()
+
+    assert loaded["graphPath"].startswith(str(data).replace("\\", "/"))
+    assert sorted(p.name for p in root.iterdir()) == ["train.py"], (
+        "the MCP server must not seed .mlview/cache in the repository it analyses"
+    )
+    assert list((data / "cache").glob("facts-*.json")), (
+        "and the sidecar has to be in the shared directory, where the hook's is"
+    )
+    # The variable is scoped to the analysis: a server that mutated its own
+    # environment for good would carry this project's directory into the next call.
+    assert not (os.environ.get("MLVIEW_CACHE_DIR") or "").strip()
+
+
+def test_the_hook_points_at_that_same_directory_and_leaves_no_trace(
+    tmp_path, monkeypatch
+):
+    """Both halves derive the parse cache from `MLVIEW_DATA_DIR`, and neither exports it.
+
+    `hook_core.analyze` used to `setdefault` a directory of its own into the
+    process environment. Every child spawned afterwards inherited it — which is
+    how this test first failed: a later hook subprocess wrote its sidecar into an
+    earlier test's data directory.
+    """
+    import mlview_workspace as workspace
+
+    root = tmp_path / "project"
+    root.mkdir()
+    (root / "train.py").write_text("import numpy as np\nX = np.load('f.npy')\n", "utf-8")
+    data = tmp_path / "data"
+    monkeypatch.setenv("MLVIEW_PROJECT_DIR", str(root))
+    monkeypatch.setenv("MLVIEW_DATA_DIR", str(data))
+    monkeypatch.delenv("MLVIEW_CACHE_DIR", raising=False)
+
+    workspace._CACHE.clear()
+    try:
+        assert hook_core.analyze(str(root), False) is not None
+    finally:
+        workspace._CACHE.clear()
+
+    assert list((data / "cache").glob("facts-*.json")), (
+        "the hook's parse cache is <MLVIEW_DATA_DIR>/cache — the MCP tools' one"
+    )
+    assert not (data / "hook-cache").exists()
+    assert not (root / ".mlview").exists()
+    assert not (os.environ.get("MLVIEW_CACHE_DIR") or "").strip()
 
 
 def test_a_non_python_edit_costs_nothing_and_says_nothing(project, tmp_path):

@@ -311,3 +311,31 @@ test('CodeLens for a file uses ITS folder graph, not the active folder', async (
     shutdown();
   }
 });
+
+// ------------------------------------------------------ the honesty clause, word for word
+
+/**
+ * 11.40: "The tooltip states what it is not showing." It is the ONLY user-visible text on the
+ * multi-root path, and it is read exactly when a user is unsure which folder the counts
+ * describe — so it has to be a sentence. The wave-1 test only ever exercised the one-other
+ * case, where a hard-coded singular verb is invisible; three folders said "2 other folders
+ * ... is not shown here".
+ */
+test('the tooltip line agrees in number for every folder count, not just for two', () => {
+  const { folderTooltipLine } = require('./harness.js').api;
+  assert.equal(folderTooltipLine(['a'], 'a'), undefined, 'nothing to choose between');
+  assert.equal(
+    folderTooltipLine(['a', 'b'], 'a'),
+    'Folder: a — 1 other folder in this workspace is not shown here.'
+  );
+  assert.equal(
+    folderTooltipLine(['a', 'b', 'c'], 'a'),
+    'Folder: a — 2 other folders in this workspace are not shown here.'
+  );
+  assert.equal(
+    folderTooltipLine(['a', 'b', 'c', 'd', 'e'], 'a'),
+    'Folder: a — 4 other folders in this workspace are not shown here.'
+  );
+  // Two folders can share a name, so the count is `names.length - 1` and never a filter.
+  assert.match(folderTooltipLine(['api', 'api', 'api'], 'api'), /2 other folders .* are not/);
+});

@@ -15,7 +15,9 @@ from ..core.graph import Issue
 from ..ir.model import CallSite, LoopIR
 from ..ir.symbols import dotted_text
 from .fixes import shuffle_false_fix
-from .helpers import calls_in_loop, literal_of, with_role
+from .helpers import (KWARG_ABSENT, KWARG_RESOLVED, UNRESOLVED_KWARG_WEIGHT,
+                      calls_in_loop, kwarg_literal, literal_of,
+                      note_unresolved_kwarg, with_role)
 from .registry import rule
 
 __all__ = ["train_loader_not_shuffled", "eval_loader_shuffled", "workers_without_guard"]
@@ -122,8 +124,15 @@ def _int_kwarg(ctx, call: CallSite, key: str) -> Optional[int]:
 def train_loader_not_shuffled(ctx) -> Iterable[Issue]:
     issues: List[Issue] = []
     for call in loader_calls(ctx):
-        shuffle = call.kwargs.get("shuffle")
-        if shuffle == "True":
+        # ANA-03: read the *expression*, not just the folded constant, and then
+        # keep the three states apart. `call.kwargs` alone answered None both
+        # for `DataLoader(ds)` and for `DataLoader(ds, shuffle=config.shuffle)`
+        # where the analyzer already held the literal `True` - so this rule
+        # published "built with shuffle=unset (defaults to False)" above a
+        # snippet reading `shuffle=config.shuffle`, contradicting its own
+        # evidence on screen, and fired on correct code.
+        state, shuffle = kwarg_literal(ctx, call, "shuffle")
+        if state == KWARG_RESOLVED and shuffle == "True":
             continue
         sampler = _has_sampler(call)
         if sampler:
@@ -148,11 +157,32 @@ def train_loader_not_shuffled(ctx) -> Iterable[Issue]:
         if not call.scope.is_dynamic:
             evidence.append(("scope_static",
                              "no dynamic constructs in %s" % call.scope.qualname, 1.0))
+        where = "%s:%d" % (call.loc.file, call.loc.line)
+        subject = name or "the dataset"
+        if state == KWARG_ABSENT:
+            message = ("The training DataLoader at %s is built with shuffle= unset "
+                       "(it defaults to False) and no sampler=, so %s is consumed "
+                       "in dataset order every epoch." % (where, subject))
+        elif state == KWARG_RESOLVED:
+            evidence.append(("context_confirmed",
+                             "shuffle= resolves to %s at %s" % (shuffle, where), 1.0))
+            message = ("The training DataLoader at %s is built with shuffle=%s and "
+                       "no sampler=, so %s is consumed in dataset order every epoch."
+                       % (where, shuffle, subject))
+        else:
+            evidence.append(("context_confirmed",
+                             "shuffle= is passed at line %d but its value could "
+                             "not be resolved statically" % call.loc.line,
+                             UNRESOLVED_KWARG_WEIGHT))
+            note_unresolved_kwarg(ctx, call, "shuffle",
+                                  "a training loader that does shuffle is correct")
+            message = ("The training DataLoader at %s passes shuffle= an expression "
+                       "MLView could not resolve, and has no sampler=. If that "
+                       "expression is not True, %s is consumed in dataset order "
+                       "every epoch - MLView could not tell which."
+                       % (where, subject))
         issues.append(ctx.issue(
-            message="The training DataLoader at %s:%d is built with shuffle=%s and no "
-                    "sampler=, so %s is consumed in dataset order every epoch."
-                    % (call.loc.file, call.loc.line, shuffle or "unset (defaults to False)",
-                       name or "the dataset"),
+            message=message,
             loc=call.loc, node_ids=[node],
             related=[("construction", call.loc, "DataLoader built here")],
             evidence=evidence, dynamic=call.scope.is_dynamic))
@@ -195,7 +225,11 @@ def _sequence_hint(ctx, call: CallSite, dataset_name: Optional[str]) -> bool:
 def eval_loader_shuffled(ctx) -> Iterable[Issue]:
     issues: List[Issue] = []
     for call in loader_calls(ctx):
-        if call.kwargs.get("shuffle") != "True":
+        # ANA-03: the same two-step read. This direction only ever *loses*
+        # findings when the expression is unresolved, so there is no third
+        # branch to write - `shuffle=` must be provably True to be a defect.
+        state, shuffle = kwarg_literal(ctx, call, "shuffle")
+        if state != KWARG_RESOLVED or shuffle != "True":
             continue
         name, ref = dataset_arg(ctx, call)
         tagged = ref is not None and ref.has("VAL_SPLIT", "TEST_SPLIT")

@@ -25,14 +25,14 @@ powershell -ExecutionPolicy Bypass -File scripts/e2e.ps1     # E2E OK - 20 steps
 |---|---|
 | Design docs | `docs/REQUIREMENTS.md`, `ARCHITECTURE.md`, `ISSUE_RULES.md`, `UX_DESIGN.md`, `CONTRACTS.md` (§10 amendments are the overriding lead decisions) |
 | Contracts | `contracts/graph.schema.json`, `contracts/graph.sample.json` (golden), `contracts/validate_sample.py` (schema + 10 invariant groups) |
-| Analyzer `analyzer/` | Complete. **36 rules**, zero runtime dependencies, `python -m mlview` installed editable. **1855 passed, 4 skipped** on 3.11+ (the skips are the `tomllib` split, in both directions: three tests need a TOML parser, one needs its absence). `analyze --demo --json -` is byte-identical to the golden sample. Scoped views live in `analyzer/src/mlview/core/project.py` + `core/selectors.py`; the relevance prefilter and the fact cache live in `core/relevance.py` + `core/cache.py` and are **on by default** from Sprint 5 — `--relevance {ml,all}` (default `ml`), `--relevance-hops N`, `--no-cache`. Interprocedural dataflow ships behind `--dataflow {local,ip}` (default `local`); `core/config.py` is the one reader of `.mlview.toml` / `[tool.mlview]`; `mlview init` and `mlview diff` are the two new subcommands. |
-| Viewer `webview/` | Complete. `dist/mlview.{js,css}` built. **419 tests pass**, `tsc --noEmit` clean. Flow animation (`src/render/flow.ts`) and the TypeScript half of the projection (`src/scope/project.ts`) ship here. |
-| VS Code extension | Complete. **336 tests pass**, `tsc --noEmit` clean, `out/extension.js` bundled, `npm run package` produced a **661.61 KB VSIX (140 files)** carrying the bundled analyzer when this row was last measured, with `core/mlview` at **88** files — the number `tools/verify.py --all`'s `vsix: synced core` row prints. **Neither number here is the gate**, and both move whenever a module lands in the analyzer: `python scripts/vsix_check.py` is the gate, it re-derives the ceiling, the bundled-core count, the rule-page count and the absence of bytecode from the tree itself, and CI runs it in the `packaging` job. Copilot participant + LM tools are compile- and unit-verified only (Copilot is not installed here). |
-| Claude Code plugin | Complete. MCP server on the `mcp` SDK v2, **still exactly five tools**, each result ≤ 4 KB, plus two `PostToolUse` / `Stop` hooks under `claude-plugin/hooks/`. **356 passed, 7 skipped**, with `python tools/sync-core.py` having run after the analyzer changes (`test_vendor_bytecode.py` is the row that checks it); `claude plugin validate ./claude-plugin --strict` passes. |
+| Analyzer `analyzer/` | Complete. **36 rules**, zero runtime dependencies, `python -m mlview` installed editable. **2087 passed, 4 skipped** on 3.11+ (the skips are the `tomllib` split, in both directions: three tests need a TOML parser, one needs its absence). `analyze --demo --json -` is byte-identical to the golden sample. Scoped views live in `analyzer/src/mlview/core/project.py` + `core/selectors.py`; the relevance prefilter and the fact cache live in `core/relevance.py` + `core/cache.py` and are **on by default** from Sprint 5 — `--relevance {ml,all}` (default `ml`), `--relevance-hops N`, `--no-cache`. Interprocedural dataflow ships behind `--dataflow {local,ip}` (default `local`); `core/config.py` is the one reader of `.mlview.toml` / `[tool.mlview]`; `mlview init` and `mlview diff` are the two new subcommands. |
+| Viewer `webview/` | Complete. `dist/mlview.{js,css}` built. **534 tests pass**, `tsc --noEmit` clean. Flow animation (`src/render/flow.ts`) and the TypeScript half of the projection (`src/scope/project.ts`) ship here. |
+| VS Code extension | Complete. **377 tests pass**, `tsc --noEmit` clean, `out/extension.js` bundled, `npm run package` produced a **744.45 KB VSIX (148 files)** carrying the bundled analyzer when this row was last measured, with `core/mlview` at **97** files — the number `tools/verify.py --all`'s `vsix: synced core` row prints. **Neither number here is the gate**, and both move whenever a module lands in the analyzer: `python scripts/vsix_check.py` is the gate, it re-derives the ceiling, the bundled-core count, the rule-page count and the absence of bytecode from the tree itself, and CI runs it in the `packaging` job. Copilot participant + LM tools are compile- and unit-verified only (Copilot is not installed here). |
+| Claude Code plugin | Complete. MCP server on the `mcp` SDK v2, **still exactly five tools**, each result ≤ 4 KB, plus two `PostToolUse` / `Stop` hooks under `claude-plugin/hooks/`. **373 passed, 7 skipped**, with `python tools/sync-core.py` having run after the analyzer changes (`test_vendor_bytecode.py` is the row that checks it); `claude plugin validate ./claude-plugin --strict` passes. |
 | Samples | `samples/vision_pipeline` (54 nodes, 51 edges, exactly 15 issues: 5 high / 6 medium / 4 low) and `samples/vision_pipeline_clean` (64 nodes, 0 issues). `expected_issues.json` is machine-checked. |
 | Rule docs | `docs/rules/` — 36 pages plus an index, generated from the registry; 7 carry the optional **What it cannot analyze** section. Every `Issue.docs` deep link resolves. |
 | Demo artifacts | `.mlview/graph.json`, `report.html`, `graph_clean.json`, `report_clean.html`, plus the three scoped reports `split.html`, `optimization.html`, `evaluation.html` — self-contained, zero external references, each inside amendment A4's contracted **100 KB – 2 MB** band. No KB figure is quoted here on purpose: the viewer bundle moves, the band does not, and `scripts/e2e` now measures every emitted report against it and prints the range it found (MLV-R1-H06). Each scoped report embeds the **whole** graph and merely opens at its scope. |
-| Scope fixtures | `contracts/scope.cases.json` (10 selectors + 6 error codes) and `contracts/scope.expected.json`, generated from the Python `project()` over the frozen golden and consumed by the TypeScript port — the parity gate for one algorithm written twice. `scope.cases.json` also carries a growing `fuzzCases` array of counterexamples promoted by `analyzer/tools/scope_fuzz.py`, each minimized to a handful of nodes and carrying its **own** generated graph. |
+| Scope fixtures | `contracts/scope.cases.json` (13 selectors + 7 error cases) and `contracts/scope.expected.json`, generated from the Python `project()` over the frozen golden and consumed by the TypeScript port — the parity gate for one algorithm written twice. `scope.cases.json` also carries a growing `fuzzCases` array of counterexamples promoted by `analyzer/tools/scope_fuzz.py`, each minimized to a handful of nodes and carrying its **own** generated graph. |
 
 ## What the integration pass changed
 
@@ -1952,7 +1952,7 @@ three to five and giving the battery its first documents that carry a
 **Gates, all re-run on this Mac at the integrated tree.** `sh scripts/e2e.sh`
 **20 steps, 0 failed, 0 skipped**; analyzer **2024 passed / 4 skipped** (1929 / 4
 at wave 2, 1722 / 3 at the sprint baseline); webview **521 tests** (473);
-vscode-extension **371 tests**; claude-plugin **370 passed / 7 skipped** (366 /
+vscode-extension **372 tests**; claude-plugin **370 passed / 7 skipped** (366 /
 7); `scripts` gates **56 passed**; `npx tsc --noEmit` clean in both TypeScript
 packages; `python tools/verify.py --all` **10 of 10**, including `parity: CLI vs
 MCP — 54 nodes, 51 edges, byte-identical` and both vendored-core gates after
@@ -1984,6 +1984,244 @@ the selector as normalized by 11.1, §11.47 A3.1 states the owner rule — so th
 paragraphs were rewritten to say what the contract says rather than to leave an
 open question pointing at an unappended file.
 
+
+## Sprint 5 review round — the doc gate learns to check the figures the docs requote (2026-09-10)
+
+**Four minor findings, all in the process documents, each fixed at the mechanism
+rather than at the sentence (REV5-05, REV5-06, REV5-07, REV5-08).** The
+Components table at the top of this file was refreshed in wave 1 and left behind
+by waves 2 and 3, so all four of its test counts were contradicted 1900 lines
+lower by this file's own wave-3 gate paragraph, and its `core/mlview` figure said
+**88** where `python tools/verify.py --all` printed **96**. `README.md` had
+called `contracts/scope.cases.json` "the ten-selector battery" for three sprints
+while the file grew to **13** projecting cases, **7** error cases and **5**
+promoted counterexamples — and `scripts/README.md` carried the same "ten
+selectors plus six error codes". Both were true at the time they were written,
+which is the only way a figure like that survives review. `README.md` and `scripts/README.md` row 25 named
+two *different* runs as "the last full green push" in the same commit, and the
+paragraph that cited the older one still reasoned about the 20 macOS minutes a
+rewrite in the same paragraph had already replaced with 30.
+
+**The prose was corrected against a measurement, not against memory.** The four
+Components rows read **2024 passed / 4 skipped**, **521**, **372** and
+**370 passed / 7 skipped** at the time — the integration pass below re-ran every
+suite over the fixes and moved all four again — and the VSIX row **744.45 KB, 148 files, 96 under
+`core/mlview`** — from `npm run package` + `python scripts/vsix_check.py` run on
+this tree, not retyped. The wave-3 gate paragraph's `vscode-extension **371
+tests**` was a transcription error at that same tree (every other figure in it
+reproduces exactly) and reads **372**; nothing else in that dated paragraph was
+touched, so `scripts` gates still records the **56** wave 3 measured, against
+**74** here — this round added 18 cases. `README.md`'s CI paragraph now names run
+**34441571480** for "the last full green push", the same run `scripts/README.md`
+row 25 names, and keeps the 13-job run (34422156964) as what it actually is: the
+one push on which `smoke (macos)` has ever run.
+
+**Three new doc-gate checks, in `scripts/doc_figures.py` (74 self-test cases,
+was 56).** Check **13** holds this file's Components table to the **last**
+`**Gates` paragraph of this same file — the two figures live in one document, so
+the document may settle them — and its bundled-core count to the files
+`tools/sync-core.py` actually copies out of `analyzer/src/mlview`. Check **14**
+reads `contracts/scope.cases.json` and holds every `N selectors` /
+`N projections` / `N error cases` / `N promoted counterexamples` claim in a block
+naming that file to it, spelled-out numbers included, because "the ten-selector
+battery" — accurate at the time, and a sentence no digit ever appeared in — is
+how this one hid. Check **15** requires every run id quoted beside
+"the last full green push" to be one id.
+
+**What these checks cannot see.** They are held to the three *living* documents
+(`README.md`, `docs/STATUS.md`, `scripts/README.md`) only: a `docs/CONTRACTS.md`
+amendment, a `**Landed` note or a frozen design record is a dated record, and
+check 8's `at the time` escape releases a narrating block in the living three as
+well — `docs/REQUIREMENTS.md` R1.12 still says "all 10 cases" and is left alone
+by design. Check 13 compares the *table* with the *paragraph*: if both are stale
+in the same way it is silent, and only re-running the suites finds that (the
+real-repo case in `scripts/test_doc_figures.py` at least fails when a future wave
+records its figures without naming the four packages, which would switch the
+check off without failing anything). Check 14 counts only six nouns, so a bare
+`N cases` — the shape `--fuzz 200` sentences use — is never a claim about the
+battery. And none of the three can tell a wrong number from a number that was
+right when it was written: they can only tell one that a file in this tree
+contradicts today.
+
+## Sprint 5 — review fixes, integrated (2026-09-10)
+
+**Nineteen confirmed findings, each fixed at its source; no component was
+rewritten and no assertion was weakened.** Eleven were the analyzer's, five the
+viewer's, two the hosts', one the generated documentation's. **No agent wrote a
+contract amendment this round**, so `docs/CONTRACTS.md` still ends at §11.47 and
+there was nothing for the integrator to append; the four copies of
+`graph.schema.json` (`analyzer/src/mlview/schema/`, `contracts/`,
+`claude-plugin/vendor/mlview/schema/`, `vscode-extension/core/mlview/schema/`)
+are byte-identical at `404bc97ba02399b4`, `contracts/graph.sample.json` did not
+move, and `python -m mlview analyze --demo --json -` is still byte-identical to
+it at **54 nodes and 51 edges**. **No fixture was regenerated**, because no fix
+moved a graph: `gen_scope_fixtures.py --check`, `gen_expected_issues.py --check`
+and `gen_rule_docs.py --check` are all current, and `tools/sync-assets.py` and
+`tools/sync-core.py` reported `0 copied` — every agent had already vendored.
+
+**Five high-severity false positives, which is the one failure the product
+cannot afford.** **REV5-01** — `MLV101` matched a `train_test_split` in *any*
+function of a module against a `fit_transform` in any other, purely because two
+locals shared the name `features`, and published it `high` / `certain` with
+prose that contradicted itself ("fitted at line 15, before the split at line
+8"). The scope guard `rules/r_leakage.py` had gained in wave 1 was applied only
+when the value arrived interprocedurally, so it never fired in the **shipped
+default mode**; it now holds in both, and a genuine cross-scope claim has to
+come back through DATAFLOW-IP's provenance chain where `hops()` de-rates it
+below `certain`. **ANA-01** — a `reshuffle_each_iteration=` the analyzer could
+not read took the *absent* branch, so `MLV121` printed, at `high` / `certain`,
+an evidence line reading "shuffle() does not pass
+reshuffle_each_iteration=False" about the very line it points at. **ANA-03** —
+`MLV110` never resolved the `shuffle=` **expression**, only the folded constant,
+so it said "shuffle= unset (defaults to False)" above a snippet reading
+`shuffle=config.shuffle` — including when ANA-10 already held the literal
+`True`. Both now keep three states apart (absent / resolved / present but
+unreadable), and the third is de-rated by `UNRESOLVED_KWARG_WEIGHT` and
+disclosed through `note_unresolved_kwarg` rather than being read as absence.
+**ANA-02** — a `CFG["workers"] = 0` written below the dict literal did not
+invalidate the leaf ANA-10 had materialised from it, so `MLV112` was minted from
+a value the program never holds; `ir/config_values._apply_stores` now folds every
+later unconditional write back into its root's tree. **ANA-04** — the argparse
+root required the assignment's own call to *be* `parse_args`, so the ubiquitous
+`args = get_args()` wrapper resolved to nothing and `MLV110` fired on correct
+code; the root is now the module whose `add_argument(default=…)` calls define
+the namespace, one call away.
+
+**Six places where the tool asserted more than it knew, in both directions.**
+Telling a reader the tool was blind where it was not is the same failure as
+telling them it looked where it did not, and this round had one of each.
+**VIEW-R1** — after `--max-nodes` folded a stage's nodes onto a summary card
+whose stage is a majority vote, `emit/answers.py` and `--format summary` stated
+"No loss function was detected" and "No data entry was detected" about
+`samples/vision_pipeline`, a program with a `CrossEntropyLoss` and two loaders
+in it: a regression against `main`. `stages[].present` is now recomputed against
+a census taken **before** the fold (`Graph.stagesBeforeRollup`), the three
+`answers` cards refuse to answer off a rolled-up document and say why, and the
+summary marks a folded stage instead of printing `0 nodes` beside `[i]25`.
+**REV5-02** — `Diagnostic.count` added `len(summaries)`, counting summaries the
+directory tier had itself re-folded, so the viewer's `dropped = count - folded`
+drew a banner claiming deletions the analyzer's own sentence two lines below it
+denied. The counters are now a **partition of the input document** —
+`folded + dropped + kept_originals == total`, §11.46 D — computed off the
+finished plan in the new `analyzer/src/mlview/core/rollup_report.py` (81 lines,
+split out rather than grown into `core/rollup.py`). **IP-02** — on the
+fit-in-method / split-in-caller leak, `--dataflow ip` reported zero issues *and*
+zero coverage notes where `local` had at least disclosed the gap; a hop that
+resolves a tag and then refuses the cross-scope match now says so, the way
+§11.36 N5 already makes the hop cap say so. **REV5-04** — ANA-10's four caps
+abandoned a container in silence while its sibling in the same wave published a
+`truncated` diagnostic for the identical situation; every cap now records a
+`config_unresolved`. **CFG-CONFIG-WARNING-DROPPED** — an explicit `--config`
+naming a `pyproject.toml` with no `[tool.mlview]` table applied nothing and said
+nothing, because the post-discovery re-read threw away the `config_warning`
+§11.37 A3 requires; the warning survives and only the *path* is dropped, so
+`workspace.configPath` still names only a file that decided something.
+**GALLERY-FALSE-BLINDSPOT** — the gallery index asserted, from a constant, that
+`MLV301` / `MLV302` / `MLV401` / `MLV501` "structurally cannot fire here" and
+that "the analyzer says so on every page as a `single_file_analysis`
+diagnostic". Both halves were false: all four fire on their own single-file
+fixtures, and **0 of 90** pages carry that diagnostic, which speaks only when an
+analyzed module *imports* a sibling the run left out. The paragraph is now
+measured off the run.
+
+**The interprocedural arithmetic, made unavoidable (IP-01).** Only
+`rules/r_leakage.py` ever called `ctx.hops()`, so `MLV111`, `MLV114` and
+`MLV301` / `MLV302` published cross-object claims at `certain` with evidence
+reading `dataflow_direct 1.0` — "the tag was established here" — about a tag
+that had arrived from another file, and with no `RelatedLoc` a reader could
+open. `rules/context.py` now records every read whose value carries a provenance
+chain and spends it in `issue()`, ahead of `compute_confidence`: one
+`cross_file` factor per finding (the **longest** chain, not one per read, since
+several reads out of one object are not independent chances of being wrong),
+plus the hop `RelatedLoc`s. A rule that already paid is left exactly as it was,
+and on `--dataflow local` nothing ever carries a chain, so the default mode is
+untouched by construction. **IP-03** — a single `np.asarray()` / `np.array()` /
+`np.concatenate([...])` dropped the `FEATURES` / `RAW_DATA` tag entirely,
+silencing `MLV101` and defeating the constructor summary DATAFLOW-IP was built
+for; `FRAME_MAKE` now carries the six data tags through argument 0, and a
+**list** argument carries the **intersection** of its members' tags — stacking
+the training half onto the test half does not produce training rows.
+
+**H5-01, and the file layout most training scripts use.** `_defined_after`
+withheld the `MLV201` / `MLV301` edit whenever the value's producer sat below
+the insertion point *anywhere in the file*, so `def train(model, loader,
+optimizer)` written above `def main()` resolved its parameter to the
+`torch.optim.AdamW(...)` the caller runs — below the loop being edited — and the
+lightbulb was empty for the ordinary layout. A parameter is bound before its
+body runs at any line, so the guard now applies only within one scope, which is
+the only case where "above" and "below" order two statements at run time.
+
+**The viewer.** **VIEW-R3** — a gutter group's trunk was the **intersection** of
+its members' x-spans, which goes negative on a wide lane, so `VIEW-04` silently
+built no trunk for exactly the biggest groups and fell back to twenty
+near-parallel runs — the picture the item exists to remove. `layout/bundles.ts`
+now clusters members by overlap and builds each cluster's trunk from the
+**union** of its spans, so a connected cluster's trunk is covered at every point
+by at least one member, a group may yield more than one trunk (`part`, and `#n`
+in the id), and a member that overlaps nothing keeps its own stroke and is
+counted as residue. **VIEW-R4** — `role="listitem"` on the chooser's `<button>`
+elements *replaces* the implicit button role, so the modal's only real actions
+were invisible to the button rotor; the list semantics moved to a wrapper.
+**VIEW-R5** — two rows is not enough to earn a modal over the first paint:
+`workspace.entrypoints` is a ranked heuristic and on the 54-node demo it offered
+a one-node `config.py` as a "training script", covering the one screen VIEW-01
+exists to protect. `shouldAskPipeline` owns the floor and the chooser draws only
+the rows that clear it. **VIEW-R7** — the chooser opens by itself, so `hide()`
+dropped focus onto `<body>`; it now hands focus to the canvas that owns the
+roving tab stop.
+
+**The hosts.** The code-action lightbulb attached a ready `WorkspaceEdit`, which
+VS Code's own bulk-edit service applies — making the lightbulb the one surface
+that never reached `applyIssueFix`, and therefore the one with no
+`verifyAgainstBuffer`, no dirty-buffer refusal and no §11.43 A9 staleness
+refusal. It is also the surface a user actually clicks. The action now carries a
+**command and no edit**, so all three surfaces are one path as §11.43 A1
+requires; the edit is still built, but only to decide whether to offer the
+lightbulb at all. `parseFix` also stopped accepting a fractional coordinate: the
+value arrives from a child process, and `Math.trunc(3.9)` is a half-understood
+coordinate written into somebody's file.
+
+**What these fixes could not close.** IP-01's join is "the finding is anchored
+inside the scope the value was read in", one level coarser than
+`apply_config_derating`'s source-range test, because a hop's own location is in
+the caller's file and can never fall inside the finding's range — which is
+exactly why the reader gets the `RelatedLoc`. A scope with no `loc` falls back to
+the file test alone, over-approximating towards costing confidence rather than
+inventing it. IP-02's disclosure is a `truncated` diagnostic, not a finding: the
+cross-object leak it describes is still **neither confirmed nor ruled out**, and
+`--dataflow ip` is still off by default. ANA-02 folds only *unconditional* stores
+— a write inside an `if` leaves the leaf as it was rather than guessing which
+branch ran — and ANA-04 follows one call, so `args = build()(…)` still resolves
+to nothing. VIEW-R3's clustering is per gutter group, so two clusters that are
+adjacent but not overlapping still draw two trunks. And the gallery paragraph
+now reports what happened **on this corpus**: it says nothing about whether a
+cross-file rule would fire on the reader's own repository.
+
+**Gates, all re-run on this Mac at the integrated tree.** `sh scripts/e2e.sh`
+**20 steps, 0 failed, 0 skipped**; analyzer **2087 passed / 4 skipped** (2024 / 4
+at wave 3, 1722 / 3 at the sprint baseline); webview **534 tests** (521);
+vscode-extension **377 tests** (372); claude-plugin **373 passed / 7 skipped**
+(370 / 7); `python -m pytest scripts -q` **74 passed**; `npx tsc --noEmit` clean
+in both TypeScript packages; `python tools/verify.py --all` **10 of 10**,
+including `parity: CLI vs MCP — 54 nodes, 51 edges, byte-identical`, both
+vendored-core gates and all three renderer-hash rows;
+`python tools/verify.py --scopes --fuzz 200` **5 of 5** (13 projections + 7 error
+cases, 5 promoted counterexamples, 200 fuzz cases over 40 generated graphs of
+6–457 nodes with **7 rolled up and 23 carrying pipelines**, seed 25161, 2.8 s);
+`python tools/accuracy.py` **PASS** — precision **100.0%** on 36 rules, recall
+**73.1%** / 65.4% visible / 64.9% high+medium, unseen 55.3% / 42.5% / 37.5%,
+graph fidelity **91.4%** (127 of 139), zero forbidden findings;
+`python tools/accuracy.py --dataflow ip` **PASS** against its separate ratchet —
+precision **100.0%**, recall **79.5%** / 71.8% visible, unseen **66.0%** / 53.2%,
+graph fidelity **91.4%**; **every one of those figures is unchanged from wave 3
+in every digit**, which is the point — the review fixes removed false positives
+the corpus never labelled and added disclosure the corpus does not score, and
+they were not allowed to move a labelled finding.
+`python contracts/validate_sample.py` green at four budgets —
+`--max-nodes 400 / 40 / 20 / 8` give **54/51, 38/40, 12/18 and 7/4** nodes/edges
+and **15 issues (5 high / 6 medium / 4 low) in all four**;
+`python analyzer/tools/gen_gallery.py --quiet` renders **90 reports plus an
+index**; `python scripts/check_docs.py` **DOC CHECK OK** (19 files).
 
 ## Known gaps
 

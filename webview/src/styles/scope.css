@@ -339,6 +339,13 @@
   gap: var(--mlv-s2);
 }
 
+/* VIEW-R4: the list semantics live on this wrapper so the row itself can stay a
+ * plain <button> — `role` on a button REPLACES the button role, which took the
+ * modal's only real actions out of a screen reader's button rotor. */
+.mlv-pipechooser__item {
+  display: flex;
+}
+
 .mlv-pipechooser__row {
   display: flex;
   align-items: baseline;

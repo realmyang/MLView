@@ -270,6 +270,61 @@ def test_no_cross_object_finding_is_ever_certain(ctor_ip, series_ip, lightning_i
             assert issue["confidence"] < 0.9
 
 
+#: Every ip workspace that produces findings, for the property gate below.
+_IP_ROOTS = ("ctor_features", "series_cut", "two_call_sites", "deep_chain",
+             "hop_only", "already_split", "param_named_x")
+
+
+@pytest.mark.parametrize("name", _IP_ROOTS)
+def test_a_finding_derived_from_a_hopped_value_is_never_certain(name):
+    """IP-01. The property, not the marker.
+
+    The old gate read the `cross_file` evidence off the finding and skipped any
+    finding that did not carry one - so a finding *missing* the factor was
+    skipped by the assertion that exists to catch exactly that, and it was
+    vacuously true: MLV111 published `certain` on a value that reached it
+    through a constructor hop. This asks the analyzer instead. Every value a
+    rule consulted whose tags arrived interprocedurally is recorded on the
+    context; a finding anchored in the scope of such a read must carry the
+    factor and must not be `certain`.
+    """
+    result = analyze_full(AnalyzeOptions(paths=(fixture(name),), dataflow="ip"))
+    reads = getattr(result.context, "_hop_reads", [])
+    for issue in result.graph.issues:
+        derived = [r for r in reads if r[0] == issue.code
+                   and r[1].module == issue.loc.file]
+        if not derived:
+            continue
+        kinds = [e.kind for e in issue.evidence]
+        assert "cross_file" in kinds, (
+            "%s at %s:%d was derived from an interprocedural value and carries "
+            "no cross_file factor: %s"
+            % (issue.code, issue.loc.file, issue.loc.line, kinds))
+        assert issue.confidenceBucket != "certain", (
+            "%s at %s:%d reached `certain` on a value with a hop chain"
+            % (issue.code, issue.loc.file, issue.loc.line))
+
+
+def test_a_hop_only_finding_names_exactly_one_chain_and_can_be_opened():
+    """IP-01's regression fixture: the ONLY path to this finding is one
+    constructor hop, so it must carry exactly one `cross_file` factor and a
+    related location the reader can open in the *caller's* file."""
+    local = analyze(fixture("hop_only"), "local")
+    assert codes(local, "MLV111") == [], describe(local)
+
+    doc = analyze(fixture("hop_only"), "ip")
+    found = codes(doc, "MLV111")
+    assert len(found) == 1, describe(doc)
+    issue = found[0]
+    hops = [e for e in issue["evidence"] if e["kind"] == "cross_file"]
+    assert len(hops) == 1, issue["evidence"]
+    assert hops[0]["weight"] == IP_HOP_WEIGHT
+    assert "main.py:" in hops[0]["detail"], hops[0]["detail"]
+    assert issue["confidenceBucket"] != "certain"
+    assert any(r["file"].endswith("main.py") for r in issue["relatedLocs"]), \
+        issue["relatedLocs"]
+
+
 def test_every_cross_object_finding_names_its_hop_chain(ctor_ip, series_ip):
     for doc in (ctor_ip, series_ip):
         for issue in codes(doc, "MLV101"):

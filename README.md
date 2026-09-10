@@ -479,20 +479,25 @@ default branch, so it starts firing once this lands on `main`.
 The matrix is deliberately lopsided: the repository is private, so minutes are
 metered and weighted (windows 2x, macos 10x), and the fan-out is therefore
 ubuntu-only. **Measured, not estimated** — the last full green push
-(run 34422156964, Sprint 5's process wave) took **6m25s of wall time and ~68
-billable minutes** across **13 green jobs**: 24 of them the eleven ubuntu jobs,
+(run 34441571480, Sprint 5's wave 3) took **8m09s of wall time and ~46 billable
+minutes** across the **12 green jobs** a branch push runs, macOS skipped;
+`scripts/README.md` row 25 breaks that run down job by job, and it is the same
+run this file and the gate table both mean by "the last full green push".
+The thirteenth job has run on exactly **one** branch push ever
+(run 34422156964, Sprint 5's process wave): **6m25s of wall time and ~68
+billable minutes** across **13 green jobs** — 24 of them the eleven ubuntu jobs,
 14 the one Windows job (6m22s, billed as 7 min at 2x) and **30 the one macOS
 job** (2m30s, billed as 3 min at 10x). The rounding rule is what
 makes that figure reproducible, so it is stated rather than assumed: **each job
 is rounded up to a whole minute on its own** and then multiplied by its runner's
 weight — summing the seconds first and rounding once gives a smaller number that
-GitHub does not charge. That run is the first branch push on which `smoke
-(macos)` has ever run — its guard was widened to `sprint5` for exactly one
-verification push and restored immediately after — so it is also the first
-*measurement* of the macOS job's share rather than an estimate of it. A branch
-push with the job skipped is the other **~38**. That single job is therefore over a third of a full run's bill for two
+GitHub does not charge. `smoke (macos)`'s guard was widened to `sprint5` for
+exactly that one verification push and restored immediately after, so those 30
+minutes are a *measurement* of the macOS job's share rather than an estimate of
+it. A branch push with the job skipped is the other **~38** of that run's bill.
+That single job is therefore over a third of a full run's bill for two
 suites ubuntu already runs; because the multiplier and the rounding, not the
-job's contents, are what cost the 20, trimming it cannot help. That decision was
+job's contents, are what cost the 30, trimming it cannot help. That decision was
 taken in Sprint 4: macOS is now covered locally on a development machine that
 runs the full e2e table before every push, so the job runs **only on push to
 `main` and on pull requests** — the two moments where nobody's laptop is the
@@ -535,8 +540,10 @@ carries a `vendor: synced core` row alongside it saying which of the two it was.
 This is a prototype built in one session. The distinction between "works" and
 "compiles" is kept honest here.
 
-**Exercised end to end on this machine (Windows 11, Python 3.13, Node 20.9,
-VS Code 1.136):**
+**Exercised end to end on this machine (macOS 26.6, Python 3.13.15, Node 26.4)
+and, on every push, across the CI matrix (ubuntu and Windows, Python 3.10-3.13,
+Node 20 and 22). No VS Code version is quoted: the Extension Development Host is
+not part of what this list claims — see "Compile-verified only" below.**
 
 - The analyzer core and its rules, with the full pytest suite green.
 - The Claude Code plugin: a real stdio handshake with the MCP server, spawned as
@@ -547,9 +554,11 @@ VS Code 1.136):**
 - The self-contained HTML report: one file, zero external references — including
   the three scoped demo reports (`.mlview/split.html`, `optimization.html`,
   `evaluation.html`).
-- All four parity gates, the scope gate included: the ten-selector battery in
-  `contracts/scope.cases.json` projects identically through the Python
-  `analyzer/src/mlview/core/project.py` and the TypeScript
+- All four parity gates, the scope gate included: the battery in
+  `contracts/scope.cases.json` — **13 projections + 7 error cases** over the
+  frozen golden, plus the **5 promoted counterexamples** that carry their own
+  generated graph, plus the pipelines-relation row — projects identically
+  through the Python `analyzer/src/mlview/core/project.py` and the TypeScript
   `webview/src/scope/project.ts` (`python tools/verify.py --scopes`).
 
 **Compile-verified only:**

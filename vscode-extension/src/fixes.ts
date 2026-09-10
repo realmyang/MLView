@@ -15,7 +15,9 @@
  *   4. **Never auto-applied.** Every entry carries `needsConfirmation`, and the edit is
  *      applied with `isRefactoring: true`, so VS Code routes it through the refactor PREVIEW
  *      — the user sees the diff and picks. There is deliberately no `source.fixAll` kind
- *      here: that is the kind `editor.codeActionsOnSave` runs behind your back.
+ *      here: that is the kind `editor.codeActionsOnSave` runs behind your back. And the
+ *      lightbulb carries a COMMAND rather than a `WorkspaceEdit`, so that it too goes through
+ *      `applyIssueFix` instead of VS Code's bulk-edit service.
  *
  * The fifth guardrail — no fix below the `likely` bucket — is the analyzer's to enforce and
  * is re-checked here anyway (`FIXABLE_BUCKETS`), because this is the module that does the
@@ -65,8 +67,16 @@ export type FixReading =
   | { ok: true; fix: IssueFix }
   | { ok: false; reason: FixRefusal; detail: string };
 
-function isFiniteInt(value: unknown): value is number {
-  return typeof value === 'number' && Number.isFinite(value);
+/**
+ * A coordinate is an INTEGER line/column or it is not a coordinate.
+ *
+ * `Number.isFinite` alone would let `3.9` through and `Math.trunc` would then quietly turn it
+ * into line 3 — a half-understood coordinate written into somebody's file, which is precisely
+ * what §11.43 A6 says this module exists to refuse. The value arrives from a child process, so
+ * "the current analyzer only emits ints" is not a check.
+ */
+function isCoordinate(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value);
 }
 
 /** One edit, structurally. `endLine`/`endCol` may equal the start: that is an insertion. */
@@ -92,7 +102,12 @@ function readEdit(raw: unknown): FixEdit | undefined {
   const col = edit['col'];
   const endLine = edit['endLine'];
   const endCol = edit['endCol'];
-  if (!isFiniteInt(line) || !isFiniteInt(col) || !isFiniteInt(endLine) || !isFiniteInt(endCol)) {
+  if (
+    !isCoordinate(line) ||
+    !isCoordinate(col) ||
+    !isCoordinate(endLine) ||
+    !isCoordinate(endCol)
+  ) {
     return undefined;
   }
   if (line < 1 || endLine < line || col < 0 || endCol < 0) {
@@ -102,15 +117,9 @@ function readEdit(raw: unknown): FixEdit | undefined {
     return undefined;
   }
   const file = edit['file'];
-  return {
-    file: typeof file === 'string' ? file : absFile,
-    absFile,
-    line: Math.trunc(line),
-    col: Math.trunc(col),
-    endLine: Math.trunc(endLine),
-    endCol: Math.trunc(endCol),
-    newText
-  };
+  // No `Math.trunc` here, deliberately: `isCoordinate` already refused anything fractional, and
+  // a truncation would imply the check is somewhere else.
+  return { file: typeof file === 'string' ? file : absFile, absFile, line, col, endLine, endCol, newText };
 }
 
 /**
@@ -258,6 +267,14 @@ export function issuesAt(
  * The provider. It contributes ONLY `QuickFix` actions: `source.fixAll` is the kind
  * `editor.codeActionsOnSave` runs unattended, and H5's whole risk budget is spent on
  * "never auto-applied".
+ *
+ * Every action it returns carries a `command` and NO `edit`. That is the point: a
+ * `CodeAction.edit` is applied by VS Code's own bulk-edit service, which would make the
+ * lightbulb the one surface that never reaches `applyIssueFix` — and therefore the one surface
+ * with no `verifyAgainstBuffer`, no dirty-buffer refusal and no `isRefactoring` request. It is
+ * also the surface a user actually clicks. So the action asks for the command instead, and the
+ * three surfaces (lightbulb, `mlview.applyFix`, the viewer's `applyFix` message) are one path,
+ * as §11.43 A1 requires.
  */
 export class MlviewFixActionProvider implements vscode.CodeActionProvider {
   static readonly providedCodeActionKinds = [vscode.CodeActionKind.QuickFix];
@@ -285,6 +302,9 @@ export class MlviewFixActionProvider implements vscode.CodeActionProvider {
         }
         continue;
       }
+      // Built here ONLY to decide whether to offer a lightbulb at all: a fix that cannot be
+      // contained in the workspace must not appear in the menu. The edit itself is thrown
+      // away — see the note above on why it is never attached to the action.
       const built = buildFixEdit(reading.fix, this.deps.log);
       if (!built.ok) {
         this.deps.log.warn(
@@ -296,7 +316,15 @@ export class MlviewFixActionProvider implements vscode.CodeActionProvider {
         fixActionTitle(issue, reading.fix),
         vscode.CodeActionKind.QuickFix
       );
-      action.edit = built.edit;
+      // NOT `action.edit`. VS Code applies an attached `WorkspaceEdit` itself, which would
+      // route the lightbulb around `applyIssueFix` and therefore around the staleness check.
+      // With only a command, VS Code runs the command, and the lightbulb is the same path as
+      // the palette command and the viewer's message — §11.43 A1.
+      action.command = {
+        title: fixActionTitle(issue, reading.fix),
+        command: APPLY_FIX_COMMAND,
+        arguments: [issue.id]
+      };
       action.isPreferred = isMechanical(reading.fix);
       const diagnostic = context.diagnostics.find(
         (d) => d.source === DIAGNOSTIC_SOURCE && d.range.start.line === toRangeTuple(issue.loc).startLine

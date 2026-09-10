@@ -275,19 +275,26 @@ def analyze(root: str, include_notebooks: bool) -> Optional[Dict[str, Any]]:
     project on the first hook run, which is exactly the "never writes to the
     project" clause being broken. Both are ``setdefault``, so a user who has named
     either one keeps it.
+
+    The cache directory is not computed here: ``mlview_workspace.shared_cache_dir()``
+    points it at ``<MLVIEW_DATA_DIR>/cache``, and it is the same context the MCP
+    server's own analyses run inside. This hook used to invent ``<data>/hook-cache``
+    for itself, which kept the write out of the repository but left the two halves
+    reading *different* parse caches — so the "warms the cache the tools then read"
+    claim (11.41 C3) covered only the graph document. One function, one directory,
+    actually shared. Scoped rather than exported into the environment for good,
+    because the variable is read during the analysis and by nothing else.
     """
     data = hook_data_dir(root)
     os.environ["MLVIEW_PROJECT_DIR"] = root
     os.environ.setdefault("MLVIEW_DATA_DIR", data)
-    os.environ.setdefault(
-        "MLVIEW_CACHE_DIR",
-        os.path.join(os.environ["MLVIEW_DATA_DIR"], "hook-cache").replace("\\", "/"),
-    )
     bootstrap_core()
     try:
-        from mlview_workspace import load_graph  # noqa: PLC0415 - after the bootstrap
+        # noqa: PLC0415 - both imports have to follow the bootstrap
+        from mlview_workspace import load_graph, shared_cache_dir
 
-        loaded = load_graph(root, include_notebooks=include_notebooks)
+        with shared_cache_dir():
+            loaded = load_graph(root, include_notebooks=include_notebooks)
     except Exception:  # a broken core is not a reason to disturb the session
         return None
     graph = loaded.get("graph") if isinstance(loaded, dict) else None

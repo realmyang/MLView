@@ -39,12 +39,21 @@ NOTES: Dict[str, Dict[str, object]] = {
         "detects": "A `FIT` / `FIT_TRANSFORM` call whose primary argument carries "
                    "`RAW_DATA` or `FEATURES` but not `TRAIN_SPLIT`, followed by a "
                    "`SPLIT`-role call whose input is reachable from that value through "
-                   "the SSA-lite chain. Shape-preserving pandas / numpy methods "
-                   "(`df.drop(columns=...)`, `.copy()`, `.fillna()`, `.to_numpy()`, "
-                   "`arr.reshape()`) pass the tags through, so the canonical pandas "
-                   "feature matrix is covered as well as the numpy one.",
+                   "the SSA-lite chain, **written in the same scope as the fit**. "
+                   "Shape-preserving pandas / numpy methods (`df.drop(columns=...)`, "
+                   "`.copy()`, `.fillna()`, `.to_numpy()`, `arr.reshape()`) and the "
+                   "module-level numpy constructors (`np.asarray`, `np.array`, "
+                   "`np.concatenate`, `np.vstack`, `torch.from_numpy`) pass the tags "
+                   "through, so the canonical pandas feature matrix is covered as well "
+                   "as the numpy one.",
         "avoids": ["A split on a *different* dataset - reachability is by value "
                    "identity through the binding chain, never by name equality.",
+                   "A split written in **another function**. Reachability is spelled "
+                   "by dotted name, and a name means something else in a foreign "
+                   "scope, so the claim is confined to one scope in both dataflow "
+                   "modes. A leak whose two halves live in two functions is therefore "
+                   "**not reported** - the honest cost of never reporting a leak that "
+                   "is not there.",
                    "Unsupervised code with no test set - a split site must exist.",
                    "A stateless transformer (`FunctionTransformer`, `Normalizer`) - "
                    "listed in `knowledge/sklearn.yaml:stateless_transformers`.",

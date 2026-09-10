@@ -320,11 +320,19 @@ def _check_stage_aggregates(doc):
             if s["nodeCount"] or any(counts.values()) or s["maxSeverity"] is not None:
                 errs.append("stages: absent stage %s must have nodeCount 0, zero "
                             "issueCounts and maxSeverity null" % sid)
-        elif not nodes and not any(counts.values()) and doc.get("view") is None:
+        elif (not nodes and not any(counts.values()) and doc.get("view") is None
+                and not doc["stats"].get("truncated")):
             # A PROJECTION (CONTRACTS 11.4 F1) carries `stage.present` through
             # from the whole-workspace document verbatim - it is project-level
             # truth - so a present stage with nothing left in this scope is
             # correct, not a contract violation.
+            #
+            # VIEW-R1: a ROLLED-UP document is the same situation one cause
+            # over. `--max-nodes` folds a stage's nodes onto a summary node
+            # whose stage is a majority vote, so the stage can end the fold with
+            # nothing carrying its id - and `present` must still say the stage
+            # was there, or every emitter reading it turns a fold into a stated
+            # absence about the user's code.
             errs.append("stages: stage %s is present but has neither nodes nor issues"
                         % sid)
     return errs

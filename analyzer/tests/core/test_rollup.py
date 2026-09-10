@@ -398,6 +398,114 @@ def test_the_diagnostic_says_rolled_up_and_counts_what_it_did(synthetic, budget)
 
 
 @pytest.mark.parametrize("budget", CAPS)
+def test_the_count_is_exactly_what_is_missing_from_the_document(synthetic, budget):
+    """11.46 D, asserted rather than described (VIEW-R2 / REV5-02).
+
+    `Diagnostic.count` is "the number of nodes that are not in the emitted
+    document". It used to add `len(summaries)` - including the file summaries
+    the directory tier then re-folded, which were never in the input document -
+    so at budget 45 it read 2055 against 1935 nodes actually missing, and
+    `webview/src/rollup/rolled.ts` (`dropped = count - folded`) turned the
+    difference into a banner claiming 120 nodes were deleted, directly above
+    the analyzer's own sentence saying 0 were.
+    """
+    uncapped = {n.id for n in synthetic.nodes}
+    doc, report = _capped(synthetic, budget)
+    if not doc["stats"]["truncated"]:
+        return                           # within budget: nothing was rolled up
+    kept = {n["id"] for n in doc["nodes"]}
+    note = next(d for d in doc["diagnostics"] if d["kind"] == "truncated")
+    missing = len(uncapped - kept)
+    assert note["count"] == missing, (
+        "count %d but %d original node(s) are missing" % (note["count"], missing))
+    rolled = sum(n.get("rolledUp", 0) for n in doc["nodes"])
+    assert note["count"] == rolled + report.dropped, (
+        "the viewer computes dropped = count - sum(rolledUp); that must be "
+        "%d, not %d" % (report.dropped, note["count"] - rolled))
+    assert report.folded == rolled
+    assert report.folded + report.dropped + report.kept_originals == report.total
+    assert report.kept == report.kept_originals + report.summaries_kept
+    assert "%d of %d node(s) rolled up" % (report.folded, report.total) \
+        in note["message"]
+
+
+@pytest.mark.parametrize("budget", CAPS)
+def test_no_budget_turns_a_present_stage_into_a_stated_absence(synthetic, budget):
+    """VIEW-R1. A file summary's stage is a majority vote, so a fold can empty
+    a stage that is really there - and `stages[].present` is what every emitter
+    reads before writing "No X was detected"."""
+    before = {n.stage for n in synthetic.nodes if n.stage}
+    doc, _report = _capped(synthetic, budget)
+    absent = {s["id"] for s in doc["stages"] if not s["present"]}
+    assert not (before & absent), (
+        "budget %d marked %s absent; the analyzed workspace has nodes in them"
+        % (budget, sorted(before & absent)))
+
+
+@pytest.mark.parametrize("budget", CAPS)
+def test_the_answers_never_state_an_absence_on_a_rolled_up_document(synthetic, budget):
+    """VIEW-R1, the surface a reader actually meets.
+
+    `emit/answers` composes from the finished document, so after a rollup its
+    "No data entry was detected" sentence is a positive claim of absence about a
+    workspace it can no longer see. Measured on `samples/vision_pipeline
+    --max-nodes 20`, where the uncapped card cites two loaders and a
+    `CrossEntropyLoss`.
+    """
+    from mlview.emit.answers import compose
+    doc, _report = _capped(synthetic, budget)
+    if not doc["stats"]["truncated"]:
+        return                           # within budget: nothing was rolled up
+    answers = compose(doc)
+    for field in ("dataEntry", "objective", "evaluation"):
+        sentence = answers[field]["sentence"]
+        assert "was detected" not in sentence, (
+            "budget %d: %s claims an absence on a rolled-up document: %s"
+            % (budget, field, sentence))
+        assert "rolled up to fit --max-nodes" in sentence or \
+            not sentence.startswith("No "), sentence
+
+
+def test_the_stage_table_says_which_number_describes_the_picture():
+    """VIEW-R1's other half: `data 0 nodes [i]25` is two numbers that look like
+    a contradiction. One counts the emitted document, the other the findings;
+    the line now says which is which rather than leaving the reader to guess."""
+    import os
+
+    from core_support import REPO_ROOT
+    from mlview.emit.text_out import render_summary
+
+    sample = os.path.join(REPO_ROOT, "samples", "vision_pipeline")
+    doc = analyze(AnalyzeOptions(paths=(sample,), max_nodes=20)).to_dict()
+    text = render_summary(doc)
+    rows = [line for line in text.splitlines()
+            if line.startswith("  ") and " nodes" in line]
+    for row in rows:
+        if "  0 nodes" in row and ("[!" in row or "[i" in row):
+            assert "rolled up" in row, row
+    uncapped = analyze(AnalyzeOptions(paths=(sample,))).to_dict()
+    assert "rolled up - its nodes" not in render_summary(uncapped)
+
+
+@pytest.mark.parametrize("budget", (5, 20, 40, 5000))
+def test_a_budget_never_flips_the_sample_from_a_citation_to_an_absence(budget):
+    """The regression as it was reported: `samples/vision_pipeline` at
+    `--max-nodes 20` said "No loss function was detected" about a file whose
+    line 22 is `criterion = nn.CrossEntropyLoss()`."""
+    import os
+
+    from mlview.emit.answers import compose
+    from core_support import REPO_ROOT
+
+    sample = os.path.join(REPO_ROOT, "samples", "vision_pipeline")
+    doc = analyze(AnalyzeOptions(paths=(sample,), max_nodes=budget)).to_dict()
+    answers = compose(doc)
+    for field in ("dataEntry", "objective"):
+        assert "was detected" not in answers[field]["sentence"], (
+            "--max-nodes %d: %s" % (budget, answers[field]["sentence"]))
+
+
+@pytest.mark.parametrize("budget", CAPS)
 def test_truncated_always_carries_a_truncated_diagnostic(synthetic, budget):
     """The emitter obligation `contracts/validate_sample.py` deliberately does
     not assert (11.46 C): `analyzer/tools/scope_gen.py` sets `truncated` at

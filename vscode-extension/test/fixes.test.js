@@ -173,6 +173,12 @@ test('a malformed fix is refused rather than half-understood', () => {
     { title: 'x', safety: 'mechanical', edits: [{ ...fixOf().edits[0], endLine: 2 }] },
     { title: 'x', safety: 'mechanical', edits: [{ ...fixOf().edits[0], absFile: 'train.py' }] },
     { title: 'x', safety: 'mechanical', edits: [{ ...fixOf().edits[0], newText: 7 }] },
+    // A coordinate is an integer or it is not a coordinate. Truncating 3.9 to line 3 would be
+    // exactly the "edit built from half-understood coordinates" this reader exists to refuse.
+    { title: 'x', safety: 'mechanical', edits: [{ ...fixOf().edits[0], line: 3.9, endLine: 3.9 }] },
+    { title: 'x', safety: 'mechanical', edits: [{ ...fixOf().edits[0], col: 8.7, endCol: 8.7 }] },
+    { title: 'x', safety: 'mechanical', edits: [{ ...fixOf().edits[0], line: Number.NaN }] },
+    { title: 'x', safety: 'mechanical', edits: [{ ...fixOf().edits[0], col: Number.POSITIVE_INFINITY }] },
     // One bad entry sinks the whole fix: half of a fix is a broken file.
     { title: 'x', safety: 'mechanical', edits: [fixOf().edits[0], { newText: 'x' }] },
     'a string',
@@ -345,7 +351,7 @@ test('a replacement replaces exactly its range', async () => {
   assert.equal(vscode.__getDocument(TRAIN), 'loader = DataLoader(ds, shuffle=False)');
 });
 
-// ------------------------------------------------------- the two surfaces are one path
+// ------------------------------------------------------- the THREE surfaces are one path
 
 test('the webview may send an issue id and NOTHING else', () => {
   assert.equal(isUiToHost({ v: 1, type: 'applyFix', issueId: 'i:zero-grad' }), true);
@@ -369,6 +375,75 @@ test("the command and the viewer's message run the SAME function", async () => {
   vscode.__setDocument(TRAIN, ['a', 'b', '        loss.backward()'].join('\n'));
   await applyIssueFix('i:zero-grad', deps);
   assert.equal(vscode.__getDocument(TRAIN), viaCommand);
+});
+
+/**
+ * The THIRD surface, and the one a user actually clicks.
+ *
+ * A `CodeAction.edit` is applied by VS Code's own bulk-edit service, so a lightbulb that
+ * carried one would never reach `applyIssueFix` — and 11.43 A1 ("the containment check, the
+ * confidence floor, the staleness check and the preview cannot differ by where the user
+ * clicked") would be false for the majority path. It shipped that way; this is the pin.
+ */
+test('the lightbulb carries a COMMAND, not a WorkspaceEdit, so it cannot skip the checks', () => {
+  setUp();
+  vscode.__setDocument(TRAIN, ['a', 'b', '        loss.backward()'].join('\n'));
+  const issue = issueOf();
+  const provider = new MlviewFixActionProvider(depsOf([issue]));
+  const actions = provider.provideCodeActions(
+    { uri: vscode.Uri.file(TRAIN) },
+    new vscode.Range(2, 0, 2, 0),
+    { diagnostics: [] }
+  );
+  assert.equal(actions.length, 1);
+  assert.equal(
+    actions[0].edit,
+    undefined,
+    'an attached edit is applied by VS Code itself, around applyIssueFix and around A9'
+  );
+  assert.equal(actions[0].command.command, APPLY_FIX_COMMAND);
+  assert.deepEqual(actions[0].command.arguments, [issue.id]);
+  assert.equal(actions[0].command.title, actions[0].title);
+});
+
+test('the lightbulb on a DIRTY buffer writes nothing, exactly like the other two surfaces', async () => {
+  setUp();
+  vscode.__setDocument(TRAIN, ['a', 'b', '        loss.backward()'].join('\n'));
+  vscode.__setDirty(TRAIN);
+  const deps = depsOf([issueOf()]);
+  registerFixActions(deps);
+  const provider = new MlviewFixActionProvider(deps);
+  const [action] = provider.provideCodeActions(
+    { uri: vscode.Uri.file(TRAIN) },
+    new vscode.Range(2, 0, 2, 0),
+    { diagnostics: [] }
+  );
+  // What VS Code does with an action that has a command and no edit: it runs the command.
+  const handler = vscode.__recorded.commands.get(action.command.command);
+  const result = await handler(...action.command.arguments);
+  assert.equal(result.applied, false);
+  assert.equal(result.reason, 'stale-document');
+  assert.equal(vscode.__recorded.appliedEdits.length, 0, 'not one byte may be written');
+  assert.equal(vscode.__getDocument(TRAIN), ['a', 'b', '        loss.backward()'].join('\n'));
+});
+
+test('the lightbulb on a file SHORTER than the analysis saw writes nothing either', async () => {
+  setUp();
+  vscode.__setDocument(TRAIN, 'loss.backward()');
+  const deps = depsOf([issueOf()]);
+  registerFixActions(deps);
+  const provider = new MlviewFixActionProvider(deps);
+  // The provider matches on the GRAPH's coordinates, not on the buffer, so it still offers
+  // the action for a line the file no longer has. Refusing that is the command's job.
+  const [action] = provider.provideCodeActions(
+    { uri: vscode.Uri.file(TRAIN) },
+    new vscode.Range(2, 0, 2, 0),
+    { diagnostics: [] }
+  );
+  const handler = vscode.__recorded.commands.get(action.command.command);
+  assert.equal((await handler(...action.command.arguments)).reason, 'stale-document');
+  assert.equal(vscode.__recorded.appliedEdits.length, 0);
+  assert.equal(vscode.__getDocument(TRAIN), 'loss.backward()');
 });
 
 test('an id that is not in the current analysis is reported, not guessed at', async () => {

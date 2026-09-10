@@ -76,10 +76,28 @@ def _record_param_sites(call, module: ModuleIR, workspace, roots) -> None:
             root = root_for_expr(passed[param], call.scope, roots)
             if root is not None and root.hops < MAX_CONFIG_HOPS:
                 digest = record_tree(workspace, root)
+            elif root is not None:
+                # REV5-04: the cap that actually stops most chains, and it
+                # stopped them in silence - so a container that travelled too
+                # far read exactly like a container ANA-10 never looked at.
+                _note_hop_cap(module, call, root, param, func)
         else:
             digest = default_digest(func.module, workspace, func, param, roots)
         workspace.config_param_sites.setdefault(
             (func.qualname, param), {})[_site_key(call)] = digest
+
+
+def _note_hop_cap(module: ModuleIR, call, root, param: str, func) -> None:
+    """Say that a config container was not followed any further (REV5-04)."""
+    message = ("the config container `%s` (%s) reaches `%s` of %s at %s:%d after "
+               "%d hop(s), which is MLView's cap, so no value was resolved out "
+               "of it here. This is a gap in coverage, not an empty container."
+               % (root.name, root.origin or "a config container", param,
+                  getattr(func, "qualname", "the callee"), call.loc.file,
+                  call.loc.line, root.hops))
+    row = (call.loc.line, message)
+    if row not in module.config_yaml_notes:
+        module.config_yaml_notes.append(row)
 
 
 def _module_prefix(call, module: ModuleIR) -> Optional[str]:

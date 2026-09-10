@@ -503,3 +503,74 @@ test('restoring diffOnly with no overlay loaded is a no-op, never an empty diagr
   assert.equal(ctx.document.querySelectorAll('[data-node-id]').length, sample.nodes.length);
   assert.equal(ctx.app.getState().diffOnly, undefined);
 });
+
+/* ── VIEW-R6: the banner counts the DOCUMENT, not the overlay's ghosts ──── */
+
+/** The sample, capped: one card stands for four, and the analyzer says so. */
+function rolledUp() {
+  const g = JSON.parse(JSON.stringify(sample));
+  g.stats = { ...(g.stats || {}), truncated: true };
+  g.nodes[0].rolledUp = 4;
+  g.diagnostics = (g.diagnostics || []).concat([
+    {
+      kind: 'truncated',
+      severity: 'info',
+      count: 4,
+      message: 'Graph cap (--max-nodes budget) reached: 4 node(s) folded, 0 node(s) dropped, ' +
+        g.nodes.length + ' node(s) kept.',
+    },
+  ]);
+  return g;
+}
+
+test('the rollup headline counts the emitted document, not the diff ghosts (VIEW-R6)', async () => {
+  const graph = rolledUp();
+  const emitted = graph.nodes.length;
+  const plain = await mount({ graph, embed: false });
+  const alone = plain.document.querySelector('[data-rollup-banner]');
+  assert.ok(alone, 'the rollup banner is drawn');
+  assert.match(alone.textContent, new RegExp('Rolled up to ' + emitted + ' nodes'), alone.textContent.slice(0, 90));
+
+  // Now with an overlay that resurrects removed nodes as ghosts. The headline
+  // used to grow by exactly those ghosts and then sit one paragraph above the
+  // analyzer's own "… N node(s) kept." — two numbers for one quantity.
+  const ctx = await mount({ graph });
+  const ghosts = ctx.document.querySelectorAll('[data-diff="removed"]').length;
+  assert.ok(ghosts > 0, 'the overlay really did resurrect ghosts: ' + ghosts);
+  const banner = ctx.document.querySelector('[data-rollup-banner]');
+  assert.match(banner.textContent, new RegExp('Rolled up to ' + emitted + ' nodes'), banner.textContent.slice(0, 90));
+  assert.equal(
+    /Rolled up to (\d+) nodes/.exec(banner.textContent)[1],
+    String(emitted),
+    'the headline follows the analyzer sentence beneath it, not the decorated graph',
+  );
+  // And the analyzer's own sentence, verbatim, still agrees with it.
+  assert.match(banner.textContent, new RegExp(emitted + ' node\\(s\\) kept'));
+});
+
+test('the diff bar says when the cap absorbed nodes the comparison names (VIEW-R6)', async () => {
+  const ctx = await mount({ graph: rolledUp() });
+  const notes = Array.from(ctx.document.querySelectorAll('.mlv-diffbar__note--viewer')).map((n) =>
+    n.textContent.replace(/\s+/g, ' ').trim(),
+  );
+  // The fixture draws every named node, so the line must NOT appear...
+  assert.equal(
+    notes.some((t) => /not on screen individually/.test(t)),
+    false,
+    'nothing was absorbed here: ' + notes.join(' | '),
+  );
+  // ...and it must appear the moment one is gone. Dropping a node the overlay
+  // calls `unchanged` is exactly what a rolled-up card does to it.
+  const graph = rolledUp();
+  const named = new Set(overlay.nodes.filter((n) => n.status === 'unchanged').map((n) => n.id));
+  const victim = graph.nodes.find((n) => named.has(n.id) && !graph.nodes.some((m) => m.parent === n.id));
+  assert.ok(victim, 'the fixture has an unchanged leaf to fold away');
+  graph.nodes = graph.nodes.filter((n) => n.id !== victim.id);
+  graph.edges = graph.edges.filter((e) => e.source !== victim.id && e.target !== victim.id);
+  const after = await mount({ graph });
+  const said = Array.from(after.document.querySelectorAll('.mlv-diffbar__note--viewer')).map((n) => n.textContent);
+  assert.ok(
+    said.some((t) => /1 node\(s\) this comparison names as changed or unchanged are not on screen/.test(t)),
+    said.join(' | '),
+  );
+});

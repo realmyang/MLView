@@ -169,6 +169,51 @@ def test_rule_good_fixture_has_no_fix(code):
 
 
 # ------------------------------------------------------ the four refusals
+#: H5-01. The same program twice, differing only in the order of the two `def`s.
+#: An optimizer that reaches the training loop as a PARAMETER is bound before
+#: the body runs at any line, so `_defined_after`'s line comparison orders
+#: nothing - and comparing anyway withheld the edit for the ordinary Python
+#: layout (helpers first, `main()` last), which is the layout most training
+#: scripts use. The existing fixtures all construct the optimizer in the same
+#: function, so nothing tested the ordering.
+DEFINITION_ORDER = ["MLV201_helper_first_bad.py", "MLV201_caller_first_bad.py"]
+
+
+@pytest.mark.parametrize("fixture", DEFINITION_ORDER)
+def test_the_fix_does_not_depend_on_definition_order(fixture):
+    doc = analyze_fixes_fixture(fixture)
+    firing = issues_of(doc, "MLV201")
+    assert firing, "MLV201 did not fire on %s" % fixture
+    for issue in firing:
+        assert isinstance(issue.get("fix"), dict), (
+            "%s offers no edit; its twin with the two defs swapped does, and "
+            "the two programs differ in nothing else" % fixture)
+        assert issue["fix"]["title"].startswith("Zero the gradients")
+
+
+def test_both_definition_orders_produce_the_same_edit_text():
+    edits = []
+    for fixture in DEFINITION_ORDER:
+        doc = analyze_fixes_fixture(fixture)
+        for issue in issues_of(doc, "MLV201"):
+            edits.append([e.newText for e in edits_of(issue)])
+    assert len(edits) == 2 and edits[0] == edits[1], edits
+
+
+@pytest.mark.parametrize("fixture", DEFINITION_ORDER)
+def test_the_ordering_fix_still_applies_cleanly(tmp_path, fixture):
+    """The acceptance criterion, on the layout that used to get no edit."""
+    before = analyze_fixes_fixture(fixture)
+    edits: List[TextEdit] = []
+    for issue in issues_of(before, "MLV201"):
+        edits.extend(edits_of(issue))
+    patched = apply_to_source(fixes_path(fixture), edits)
+    ast.parse(patched)
+    root = write_workspace(str(tmp_path), {fixture: patched})
+    after = analyze_paths(os.path.join(root, fixture))
+    assert not issues_of(after, "MLV201")
+
+
 @pytest.mark.parametrize("fixture,code", WITHHELD)
 def test_withheld_fixture_fires_but_offers_no_edit(fixture, code):
     doc = analyze_fixes_fixture(fixture)

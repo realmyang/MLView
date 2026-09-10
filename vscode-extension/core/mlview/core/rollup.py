@@ -28,12 +28,12 @@ is a total order over document-order keys, never set-iteration order.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 from ..ir.model import Loc
 from .graph import STAGE_ORDER, Diagnostic, Edge, MLGraph, Node
 from .ids import digest12, edge_id
+from .rollup_report import RollupReport
 
 __all__ = ["apply_node_budget", "RollupReport", "FILE_ROLLUP_KIND",
            "DIR_ROLLUP_KIND"]
@@ -49,51 +49,6 @@ _MAX_CHAIN = 64
 _MAX_GHOST_ROUNDS = 8
 
 
-@dataclass
-class RollupReport:
-    """What the cap did, in the words the diagnostic uses (11.46 D)."""
-
-    budget: int
-    folded: int = 0              # nodes that folded into a survivor
-    units_absorbing: int = 0     # units that absorbed their op children
-    files_summarised: int = 0    # files that became one summary node
-    dirs_summarised: int = 0     # directories that became one summary node
-    dropped: int = 0             # nodes deleted by phase 3
-    kept: int = 0
-    lost_issues: int = 0
-    edges_merged: int = 0        # parallel members removed by the merge
-    edges_absorbed: int = 0      # both endpoints landed on one survivor
-    edges_lost: int = 0          # an endpoint was dropped outright
-
-    @property
-    def rolled_up(self) -> bool:
-        return self.folded > 0
-
-    def message(self) -> str:
-        """The `truncated` diagnostic. Must keep the two phrases 11.46 D pins:
-        the word `budget`, and `<n> node(s) kept` for the document actually
-        emitted."""
-        if self.rolled_up:
-            head = ("Graph cap (--max-nodes budget) %d reached: %d node(s) rolled up "
-                    "into their surviving ancestor (%d unit(s) absorbed their "
-                    "operations, %d file(s) and %d director(ies) summarised), "
-                    "%d node(s) dropped, %d node(s) kept."
-                    % (self.budget, self.folded, self.units_absorbing,
-                       self.files_summarised, self.dirs_summarised, self.dropped,
-                       self.kept))
-        else:
-            head = ("Graph cap (--max-nodes budget) %d reached: nothing could be "
-                    "rolled up, %d node(s) dropped, %d node(s) kept."
-                    % (self.budget, self.dropped, self.kept))
-        edges = ("%d parallel edge(s) merged into one carrying a weight, %d absorbed "
-                 "into a rolled-up node, %d lost an endpoint."
-                 % (self.edges_merged, self.edges_absorbed, self.edges_lost))
-        tail = ("Raise --max-nodes, or narrow the analyzed path, to see the rest.")
-        issues = ("%d finding(s) had no surviving node and went with them. "
-                  % self.lost_issues) if self.lost_issues else ""
-        return " ".join([head, edges, issues + tail])
-
-
 # --------------------------------------------------------------- entry point
 def apply_node_budget(graph: MLGraph, max_nodes: int) -> Optional[RollupReport]:
     """Bring `graph` within `max_nodes` by rolling up, then dropping.
@@ -104,6 +59,14 @@ def apply_node_budget(graph: MLGraph, max_nodes: int) -> Optional[RollupReport]:
     """
     if max_nodes <= 0 or len(graph.nodes) <= max_nodes:
         return None
+
+    # VIEW-R1: the census of the *analyzed workspace*, taken before anything
+    # moves. A file summary's stage is a majority vote (A3), so a fold can
+    # empty a stage that is really there - and `graph.finalize()` then recounts
+    # `stages[].present` off the survivors and the emitters turn that into
+    # "No data entry was detected" about a workspace with 25 loaders in it.
+    # A rollup is allowed to lose detail; it is not allowed to mint an absence.
+    graph.stagesBeforeRollup = tuple(sorted({n.stage for n in graph.nodes if n.stage}))
 
     nodes = list(graph.nodes)
     by_id: Dict[str, Node] = {n.id: n for n in nodes}
@@ -117,7 +80,7 @@ def apply_node_budget(graph: MLGraph, max_nodes: int) -> Optional[RollupReport]:
             if node_id in by_id:
                 anchored.setdefault(node_id, set()).add(issue.id)
 
-    report = RollupReport(budget=max_nodes)
+    report = RollupReport(budget=max_nodes, total=len(nodes))
     merged: Dict[str, str] = {}                 # folded node -> its fold target
     summaries: List[Node] = []
     alive = len(nodes)
@@ -141,9 +104,19 @@ def apply_node_budget(graph: MLGraph, max_nodes: int) -> Optional[RollupReport]:
 
     _rewrite(graph, nodes, by_id, merged, summaries, keep_ids, report)
     graph.truncated = True
+    # 11.46 D pins `count` to "the number of nodes that are not in the emitted
+    # document". VIEW-R2 / REV5-02: the old expression added `len(summaries)` -
+    # every synthesized summary, including the ones the directory tier then
+    # folded into a parent - so it over-reported by the number of re-folded
+    # summaries. `webview/src/rollup/rolled.ts` computes `dropped = count -
+    # folded` from it, so the banner invented a deletion the analyzer's own
+    # sentence, two lines below it, denied ("0 node(s) dropped"). The only
+    # nodes missing from the document are the ORIGINALS that are missing from
+    # it, so that is what is counted.
+    kept_ids = {n.id for n in graph.nodes}
     graph.diagnostics.append(Diagnostic(
         kind="truncated", message=report.message(),
-        count=len(nodes) - len(graph.nodes) + len(summaries)))
+        count=sum(1 for n in nodes if n.id not in kept_ids)))
     return report
 
 
@@ -337,7 +310,10 @@ def _fold_dirs(graph: MLGraph, nodes: Sequence[Node], by_id: Dict[str, Node],
         for member in members:
             merged[member.id] = summary.id
         alive -= len(members) - 1
-        report.folded += len(members)
+        # Only originals: a file summary this tier re-folds was never in the
+        # input document, so counting it here is what made `Diagnostic.count`
+        # exceed the number of nodes that actually went missing (REV5-02).
+        report.folded += sum(1 for m in members if m.id in by_id)
         report.dirs_summarised += 1
     return alive
 
@@ -458,6 +434,17 @@ def _rewrite(graph: MLGraph, nodes: Sequence[Node], by_id: Dict[str, Node],
     _sweep_ghosts(graph)
     _relink(graph)
     report.kept = len(graph.nodes)
+    # The authoritative partition of the INPUT document, read off the finished
+    # plan rather than accumulated per phase - the phases cannot see the
+    # deletion that may follow them, and a summary they built may itself be
+    # gone by now. `folded + dropped + kept_originals == total` (11.46 D).
+    final = {n.id for n in graph.nodes}
+    summary_ids = {s.id for s in summaries}
+    report.kept_originals = sum(1 for n in nodes if n.id in final)
+    report.summaries_kept = sum(1 for i in final if i in summary_ids)
+    report.folded = sum(1 for n in nodes if n.id not in final and n.id in merged
+                        and _resolve(n.id, merged) in final)
+    report.dropped = len(nodes) - report.kept_originals - report.folded
 
 
 def _rewrite_edges(graph: MLGraph, survivor, report: RollupReport) -> Dict[str, str]:

@@ -232,11 +232,13 @@
           "markdownDescription": "Absolute path to the Python interpreter used to run the MLView analyzer. Leave empty to use the Python extension's active interpreter, `python.defaultInterpreterPath`, or a `PATH` probe, in that order."
         },
         "mlview.analyzeOnSave": {
+          "scope": "resource",
           "type": "boolean",
           "default": true,
           "description": "Re-analyze (debounced by 400 ms) when a Python file in the workspace is saved."
         },
         "mlview.currentFileAnalysisScope": {
+          "scope": "resource",
           "type": "string",
           "enum": [
             "file",
@@ -252,6 +254,7 @@
           "markdownDescription": "What `MLView: Visualize (Current File)` actually analyzes. `package` (default) analyzes the outermost directory of the package chain containing the file (the file's own directory when it is not in a package) and then scopes the diagram to the file, so the cross-file rules still fire. `file` analyzes the file alone and is reported as incomplete."
         },
         "mlview.exclude": {
+          "scope": "resource",
           "type": "array",
           "items": {
             "type": "string"
@@ -272,17 +275,20 @@
           "markdownDescription": "Path to a baseline written by **MLView: Create Baseline From Current Findings** (`mlview baseline write`). Findings recorded in it are still shown, but stop counting - so a repository with pre-existing findings can adopt MLView without `--fail-on high` failing forever. Absolute, or relative to the workspace folder. Empty means no baseline, and one is never auto-discovered: a file that quietly empties the Problems panel has to be named here on purpose.\n\n**Precedence:** the same as `#mlview.configPath#` - a `[baseline]` table in the configuration file wins, and this setting only names the file when the TOML does not."
         },
         "mlview.includeNotebooks": {
+          "scope": "resource",
           "type": "boolean",
           "default": false,
           "description": "Analyze .ipynb notebooks as well as .py files (passes --include-notebooks). Off by default: cell execution order cannot be recovered from the file, so order-sensitive findings inside a notebook are de-rated and reported as such."
         },
         "mlview.maxFiles": {
+          "scope": "resource",
           "type": "integer",
           "default": 500,
           "minimum": 1,
           "description": "Maximum number of Python files to discover."
         },
         "mlview.maxNodes": {
+          "scope": "resource",
           "type": "integer",
           "default": 400,
           "minimum": 1,
@@ -320,6 +326,7 @@
           "markdownDescription": "How high-severity findings map into the Problems panel. `warning` (default) publishes them as warnings; `error` escalates them to errors. Medium is always a warning and low is always information."
         },
         "mlview.disabledRules": {
+          "scope": "resource",
           "type": "array",
           "items": {
             "type": "string",

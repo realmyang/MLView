@@ -441,6 +441,126 @@ test('a capped document says its pipeline counts describe the summarised graph',
   assert.match(caveats, /describe the summarised graph/, 'PERF-04 and MLV-P12 interact, and it is said');
 });
 
+/* ── the floor, the roles and the focus (VIEW-R4, VIEW-R5, VIEW-R7) ─────── */
+
+/** A row big enough to clear the floor, without inventing a whole document. */
+function withRow(entrypoint, nodeCount, exclusiveCount, issues = { low: 0, medium: 0, high: 0 }) {
+  return { entrypoint, nodeCount, exclusiveCount, sharedCount: nodeCount - exclusiveCount, issueCounts: issues };
+}
+
+test('a trivial entrypoint is not offered as a pipeline (VIEW-R5)', () => {
+  // The measured case: the flagship demo's `config.py` is one node and no
+  // findings, and it was offered under the lede "each one is a training script".
+  const rows = [
+    withRow('train.py', 27, 25, { low: 1, medium: 5, high: 4 }),
+    withRow('config.py', 1, 1),
+    withRow('data.py', 18, 15, { low: 2, medium: 5, high: 2 }),
+  ];
+  const offered = pipelines.chooserRows(rows).map((r) => r.entrypoint);
+  assert.deepEqual(offered, ['train.py', 'data.py'], 'a one-node constants module is not a pipeline');
+  // A small row that carries a finding IS worth offering: the finding is the
+  // reason a reader would go there.
+  const tiny = pipelines.chooserRows([withRow('smoke.py', 2, 2, { low: 1, medium: 0, high: 0 })]);
+  assert.equal(tiny.length, 1, 'a finding earns a row however small it is');
+});
+
+test('the chooser does not interrupt a workspace a reader can take in (VIEW-R5)', () => {
+  const small = { nodes: new Array(54).fill(0).map((_, i) => ({ id: 'n' + i })) };
+  const two = [withRow('train.py', 27, 25, { low: 1, medium: 5, high: 4 }), withRow('data.py', 18, 15, { low: 2, medium: 5, high: 2 })];
+  assert.equal(pipelines.shouldAsk(small, two), false, '54 nodes and two choices: show the diagram');
+  const big = { nodes: new Array(320).fill(0).map((_, i) => ({ id: 'n' + i })) };
+  assert.equal(pipelines.shouldAsk(big, two), true, 'the same two choices on a graph nobody can read: ask');
+  const three = two.concat([withRow('sweep.py', 30, 30, { low: 0, medium: 1, high: 0 })]);
+  assert.equal(pipelines.shouldAsk(small, three), true, 'three choices is a menu, whatever the size');
+  const trivial = two.slice(0, 1).concat([withRow('config.py', 1, 1)]);
+  assert.equal(pipelines.shouldAsk(big, trivial), false, 'one real pipeline and a module is not a choice');
+});
+
+test('the lede says what the relation computes, not what it hopes (VIEW-R5)', async () => {
+  const ctx = await app(multi());
+  const lede = text(chooser(ctx).querySelector('.mlv-pipechooser__lede'));
+  assert.match(lede, /Each one is an entrypoint/, lede);
+  assert.equal(/training script/.test(lede), false, 'the entrypoint heuristic promises no such thing');
+});
+
+test('rows held back by the floor are counted, not silently dropped (VIEW-R5)', () => {
+  const g = multi();
+  const rows = [
+    withRow('train.py', 27, 25, { low: 1, medium: 5, high: 4 }),
+    withRow('config.py', 1, 1),
+    withRow('data.py', 18, 15, { low: 2, medium: 5, high: 2 }),
+  ];
+  const said = pipelines.chooserCaveats(g, pipelines.chooserRows(rows), 1).join('\n');
+  assert.match(said, /1 more entrypoint\(s\) are not offered here/, said);
+  assert.match(said, /still in the scope picker/, 'and they are still reachable');
+});
+
+test('a capped document says the counts stopped telling its pipelines apart (VIEW-R5)', () => {
+  const g = multi();
+  g.stats.truncated = true;
+  const same = [withRow('exp0/train.py', 234, 14), withRow('exp1/train.py', 234, 14)];
+  assert.match(pipelines.chooserCaveats(g, same).join('\n'), /the file name is the only thing/);
+  // Not said on a whole document: identical counts there are a fact about the
+  // workspace, not about the cap.
+  const whole = multi();
+  whole.stats.truncated = false;
+  assert.equal(/the file name is the only thing/.test(pipelines.chooserCaveats(whole, same).join('\n')), false);
+});
+
+test('the chooser rows reach assistive tech as BUTTONS (VIEW-R4)', async () => {
+  // `role` on a <button> REPLACES the implicit button role: these rows used to
+  // compute as plain list items — the modal's only real actions, absent from a
+  // screen reader's button rotor. Verified in Chromium's own AX tree.
+  const ctx = await app(multi());
+  const rows = Array.from(chooser(ctx).querySelectorAll('[data-pipeline]'));
+  assert.equal(rows.length, 3);
+  for (const row of rows) {
+    assert.equal(row.tagName, 'BUTTON', row.getAttribute('data-pipeline') + ' is not a button');
+    assert.equal(row.getAttribute('role'), null, 'and nothing overrides the button role');
+    const item = row.parentElement;
+    assert.equal(item.getAttribute('role'), 'listitem', 'the list semantics live on the wrapper');
+    assert.equal(item.parentElement.getAttribute('role'), 'list');
+  }
+});
+
+test('a row is announced exactly as it is drawn (VIEW-R4)', async () => {
+  assert.equal(pipelines.rowLabel(withRow('config.py', 1, 1)), 'config.py, 1 node.');
+  assert.equal(
+    pipelines.rowLabel(withRow('train.py', 27, 25, { low: 1, medium: 5, high: 4 })),
+    'train.py, 27 nodes, 2 shared with another pipeline, 10 findings.',
+  );
+  assert.equal(pipelines.rowLabel(withRow('one.py', 4, 4, { low: 1, medium: 0, high: 0 })), 'one.py, 4 nodes, 1 finding.');
+  const ctx = await app(multi());
+  for (const row of chooser(ctx).querySelectorAll('[data-pipeline]')) {
+    const label = row.getAttribute('aria-label');
+    assert.equal(/0 shared/.test(label), false, label + ' announces an empty chip the row does not draw');
+    assert.equal(/0 findings/.test(label), false, label);
+    assert.equal(/\b1 nodes\b/.test(label), false, label);
+  }
+});
+
+test('closing the chooser hands focus to the diagram, not to <body> (VIEW-R7)', async () => {
+  for (const close of ['escape', 'everything', 'pick']) {
+    const ctx = await app(multi());
+    const panel = chooser(ctx);
+    assert.equal(panel.hidden, false);
+    if (close === 'escape') {
+      panel.dispatchEvent(new ctx.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    } else if (close === 'everything') {
+      click(ctx, panel.querySelector('.mlv-pipechooser__all'));
+    } else {
+      click(ctx, panel.querySelector('[data-pipeline="train.py"]'));
+    }
+    assert.equal(chooser(ctx).hidden, true, close + ': the chooser closed');
+    const active = ctx.document.activeElement;
+    assert.notEqual(active.tagName, 'BODY', close + ': focus fell out of the document onto ' + active.tagName);
+    assert.ok(
+      active.classList.contains('mlv-canvas') || active.closest('.mlv-canvas'),
+      close + ': focus landed on ' + active.tagName + '.' + active.className + ', not on the diagram',
+    );
+  }
+});
+
 test('a deep entrypoint path is shortened for the row and kept in full everywhere else', () => {
   assert.equal(pipelines.name('train.py'), 'train.py');
   assert.equal(pipelines.name('src/train.py'), 'src/train.py');

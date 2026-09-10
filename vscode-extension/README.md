@@ -175,8 +175,17 @@ second edit escapes is refused whole — half a fix is a broken file. The diagra
 the same code path through the `applyFix` message, and sends only the **issue id**: the edits
 are read from the host's own copy of the graph, never from the webview.
 
+**All three surfaces are one path.** The lightbulb carries a *command*, not a `WorkspaceEdit`:
+an attached edit is applied by VS Code itself, which would let the surface you actually click
+skip the checks the palette command and the rail go through. So the lightbulb, `MLView: Apply
+Fix` and the rail all run the same function, and all three refuse the same two states — a
+buffer with **unsaved changes** (the analyzer read the file on disk) and a file **shorter than
+the analysis saw**. Save and re-analyze, then apply.
+
 What it cannot do: it cannot prove the analyzer's coordinates still match a buffer you have
-edited since the analysis. The preview is the mitigation, not a proof — read the diff.
+edited since the analysis — a saved edit that moved a line is invisible to it, because the
+graph carries no content hash. The two refusals above are the cases it can prove; the preview
+is the mitigation for the rest, not a proof — read the diff.
 
 ### Comparing two analyses (VIEW-08)
 

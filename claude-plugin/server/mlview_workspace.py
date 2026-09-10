@@ -22,12 +22,13 @@ Two of these functions exist purely as guards, and both cover a confirmed defect
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import logging
 import os
 import sys
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterator, List, Optional
 
 from mlview.api import AnalyzeOptions, analyze_to_dict
 
@@ -38,7 +39,8 @@ _PLUGIN_ROOT = os.path.dirname(_SERVER_DIR)
 _REPO_ROOT = os.path.dirname(_PLUGIN_ROOT)
 
 __all__ = [
-    "project_dir", "data_dir", "resolve_path", "resolve_out",
+    "project_dir", "data_dir", "cache_dir", "shared_cache_dir",
+    "resolve_path", "resolve_out",
     "analyzer_identity", "file_signature", "graph_file_for",
     "load_graph", "load_graph_or_file", "load_attributed",
     "read_source", "rule_doc", "rule_spec", "RULE_DOC_ROOTS",
@@ -79,6 +81,50 @@ def data_dir() -> str:
     base = base.replace("\\", "/")
     os.makedirs(base, exist_ok=True)
     return base
+
+
+def cache_dir() -> str:
+    """The per-file parse cache: MLVIEW_CACHE_DIR, else ``<data_dir>/cache``.
+
+    The core's own default is ``<root>/.mlview/cache`` (CONTRACTS 11.28 B5), and
+    since the Sprint-5 default flip (11.39) that cache is ON — so with nothing
+    naming a directory, every ``mlview_*`` tool call writes a sidecar *into the
+    repository being analysed*. That is a sanctioned cost for a bare
+    ``python -m mlview analyze .``; it is not one for a host that already has a
+    private directory to write in, which is why 11.28 B9 makes the VS Code
+    extension pass its own. Deriving it from ``data_dir()`` gives the plugin the
+    same treatment without a second variable to configure, and it is also what
+    makes 11.41 C3 true: the hooks and the MCP tools share the *parse* cache and
+    not merely the graph document, because both halves compute this one path.
+
+    With no ``MLVIEW_DATA_DIR`` named this is ``<project>/.mlview/cache`` — byte
+    for byte the core default — so a checkout run without the plugin's env is
+    unchanged.
+    """
+    raw = (os.environ.get("MLVIEW_CACHE_DIR") or "").strip()
+    if raw:
+        return _norm(raw)
+    return os.path.join(data_dir(), "cache").replace("\\", "/")
+
+
+@contextlib.contextmanager
+def shared_cache_dir() -> Iterator[None]:
+    """Run an analysis with ``MLVIEW_CACHE_DIR`` pointing at :func:`cache_dir`.
+
+    Scoped to the call rather than set once at import: the variable is read by the
+    core at analysis time and by nothing else, and a long-lived server that
+    mutated its own environment permanently would carry one project's directory
+    into a later call resolved against a different one. A host that named the
+    variable itself keeps it — this only fills the hole.
+    """
+    if (os.environ.get("MLVIEW_CACHE_DIR") or "").strip():
+        yield
+        return
+    os.environ["MLVIEW_CACHE_DIR"] = cache_dir()
+    try:
+        yield
+    finally:
+        os.environ.pop("MLVIEW_CACHE_DIR", None)
 
 
 def resolve_path(path: Optional[str]) -> str:
@@ -285,14 +331,15 @@ def load_graph(
 
     log.info("analyzing %s (framework=%s maxNodes=%s includeNotebooks=%s)",
              resolved, framework, max_nodes, bool(include_notebooks))
-    graph = analyze_to_dict(
-        AnalyzeOptions(
-            paths=(resolved,),
-            framework=framework or "auto",
-            max_nodes=int(max_nodes),
-            include_notebooks=bool(include_notebooks),
+    with shared_cache_dir():
+        graph = analyze_to_dict(
+            AnalyzeOptions(
+                paths=(resolved,),
+                framework=framework or "auto",
+                max_nodes=int(max_nodes),
+                include_notebooks=bool(include_notebooks),
+            )
         )
-    )
     _CACHE[key] = graph
     try:
         os.makedirs(os.path.dirname(graph_path), exist_ok=True)
@@ -346,11 +393,12 @@ def load_attributed(
     log.info("analyzing %s with attribution (changedSince=%s baseline=%s "
              "includeNotebooks=%s)", resolved, changed_since, baseline,
              bool(include_notebooks))
-    graph, notes = mlview_adopt.analyze_attributed(
-        resolved, framework=framework or "auto", max_nodes=int(max_nodes),
-        changed_since=changed_since, baseline=baseline,
-        include_notebooks=bool(include_notebooks),
-    )
+    with shared_cache_dir():
+        graph, notes = mlview_adopt.analyze_attributed(
+            resolved, framework=framework or "auto", max_nodes=int(max_nodes),
+            changed_since=changed_since, baseline=baseline,
+            include_notebooks=bool(include_notebooks),
+        )
     plain = graph_file_for(resolved)
     graph_path = plain[: -len(".json")] + ".attributed.json" if plain.endswith(".json") else plain
     try:

@@ -1,10 +1,11 @@
 #!/usr/bin/env python
 """Documentation gate: keep the prose honest about the tree it describes.
 
-Eleven checks, all offline and stdlib-only. Checks 1-8 live here; checks 9-11 --
-the ones that compare a number in the prose with the machine-readable copy the
-tree already holds -- live in `scripts/doc_numbers.py` and are summarised at the
-bottom of this list:
+Fifteen checks, all offline and stdlib-only. Checks 1-8 and 12 live here; the
+seven that compare a number in the prose with the machine-readable copy the tree
+already holds live next door -- checks 9-11 in `scripts/doc_numbers.py`, checks
+13-15 in `scripts/doc_figures.py` -- and are summarised at the bottom of this
+list:
 
 1. **Dead paths.** Every repo-relative path written in backticks or in a Markdown
    link inside a current-state doc must exist on disk. Catches renamed modules,
@@ -69,7 +70,15 @@ bottom of this list:
     has to sit *inside* an item's section: H3's was written below the `### LATER`
     divider, where it read as an item of its own.
 
-`scripts/doc_numbers.py` carries checks 9-11, with the incident behind each.
+13. **A summary table that disagrees with the run below it**: `docs/STATUS.md`'s
+    Components table against the newest `**Gates` paragraph of the same file, and
+    its bundled-core file count against the tree.
+14. **A fixture battery quoted at the size it used to be**, against
+    `contracts/scope.cases.json`.
+15. **Two gate documents naming different runs** for "the last full green push".
+
+`scripts/doc_numbers.py` carries checks 9-11 and `scripts/doc_figures.py` checks
+13-15, with the incident behind each.
 
 Usage:  python scripts/check_docs.py [--root DIR] [--quiet]
 Exit 0 when clean, 1 when a problem is found. The report goes to stdout.
@@ -83,7 +92,8 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import doc_numbers  # noqa: E402  - sibling module, after the sys.path fix above
+import doc_figures  # noqa: E402  - sibling modules, after the sys.path fix above
+import doc_numbers  # noqa: E402
 
 DEFAULT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -539,8 +549,9 @@ def run(root: Path):
     check_roadmap_landed(root, problems)
     scripts = list(shell_scripts(root))
     check_line_endings(root, scripts + current + plan, problems)
-    # Checks 9-11: the numbers the prose shares with a machine-readable file.
+    # Checks 9-11 and 13-15: numbers the prose shares with a file in the tree.
     doc_numbers.run(root, current, problems)
+    doc_figures.run(root, current, problems)
     return problems, current + plan + scripts
 
 
@@ -561,7 +572,10 @@ def main(argv=None) -> int:
               "every known gap anchored, no build state in a plan doc, "
               "LF in every shell script, one graph size, the accuracy headline "
               "matches the baseline, no silent artifact upload, one e2e step "
-              "count, every shipped roadmap item recorded as landed)" % len(files))
+              "count, every shipped roadmap item recorded as landed, the "
+              "components table agreeing with its own gate paragraph, the scope "
+              "battery quoted at its real size, one last-green-push run id)"
+              % len(files))
     return 0
 
 

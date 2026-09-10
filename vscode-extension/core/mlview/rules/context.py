@@ -72,6 +72,12 @@ class GraphContext:
         #: rather than the options so that every construction of a context -
         #: the pipeline's, a test's - agrees with the IR it was handed.
         self.dataflow: str = getattr(workspace, "dataflow", "local") or "local"
+        #: IP-01. `(rule code, ScopeIR, ValueRef)` for every value a rule looked
+        #: up whose tags arrived through an interprocedural hop. Filled by
+        #: `binding_of` - the one door a rule reads a value through - and spent
+        #: by `issue()`. Empty on every `--dataflow local` run, because nothing
+        #: there ever carries a provenance chain.
+        self._hop_reads: List[Tuple[str, ScopeIR, ValueRef]] = []
 
     # ------------------------------------------------------------ queries
     def _index(self) -> Dict[str, List[CallSite]]:
@@ -170,7 +176,26 @@ class GraphContext:
     def binding_of(self, name: Optional[str], scope: Optional[ScopeIR],
                    at: Optional[int] = None) -> Optional[ValueRef]:
         """`at` is the 1-based line of the consumer (REV-01 ordered lookup)."""
-        return _binding_of(name, scope, at=at)
+        ref = _binding_of(name, scope, at=at)
+        self.note_hops(ref, scope)
+        return ref
+
+    def note_hops(self, ref, scope: Optional[ScopeIR] = None) -> None:
+        """Record that the running rule consulted an interprocedural value (IP-01).
+
+        Every read goes through `binding_of`, so this is automatic for a rule
+        that asks the context for a value; `traced_arg`'s projection builds a
+        *derived* ref and calls this itself. `issue()` spends the record.
+        """
+        if not getattr(ref, "provenance", ()):
+            return
+        spec = self.current_rule
+        if spec is None:
+            return
+        where = getattr(ref, "scope", None) or scope
+        if where is None:
+            return
+        self._hop_reads.append((spec.code, where, ref))
 
     def class_bases(self, node) -> List[str]:
         """Resolved canonical base FQNs for a class node (or a ClassIR)."""
@@ -393,6 +418,18 @@ class GraphContext:
             raise ValueError("%s: an issue needs a loc" % spec.code)
 
         ev = normalize_evidence(evidence)
+        # IP-01: every finding derived from a value that crossed an object
+        # boundary pays for the crossing, whether or not its rule remembered to
+        # ask. Before this, only `r_leakage` called `ctx.hops(...)`, so MLV111,
+        # MLV114 and MLV301/302 published cross-object claims at `certain` with
+        # evidence reading `dataflow_direct 1.0` - "the tag was established
+        # here" - about a tag that arrived from another file, and with no
+        # RelatedLoc the reader could open to check. "Never `certain`" is only
+        # arithmetic if the arithmetic is unavoidable, so it happens here,
+        # ahead of `compute_confidence`, and not in each rule.
+        hop_ev, hop_related = self._hop_factors(loc, ev)
+        ev = ev + hop_ev
+        related = list(related) + hop_related
         # NB: a finding inside a notebook says which cell it is in, and an
         # order-sensitive rule in an out-of-order notebook is de-rated by the
         # weight of that same factor. Appended last so the evidence a rule
@@ -452,6 +489,37 @@ class GraphContext:
         return issue
 
     # -------------------------------------------------------------- helpers
+    def _hop_factors(self, loc: Loc, evidence: Sequence[Any]
+                     ) -> Tuple[Tuple[Any, ...], List[Any]]:
+        """The `cross_file` factor and hop `RelatedLoc`s this finding owes (IP-01).
+
+        A read counts for a finding when the rule that made it is the rule
+        emitting, and the finding is anchored **inside the scope the value was
+        read in**. That is the same "the two share a source range" join
+        `apply_config_derating` uses, one level coarser because a hop's own
+        location is in the caller's file and can never appear in the finding's
+        own range - which is precisely why the reader needs the RelatedLoc.
+
+        One factor per finding, never one per read: several reads out of the
+        same object are not independent chances of being wrong, so the finding
+        pays the **longest** chain once. A rule that already asked for the
+        factor itself (`r_leakage`) is left exactly as it was.
+        """
+        if not self._hop_reads or self.current_rule is None:
+            return (), []
+        if any(getattr(e, "kind", "") == "cross_file" for e in evidence):
+            return (), []                # the rule paid for it already
+        code = self.current_rule.code
+        worst = None
+        for read_code, scope, ref in self._hop_reads:
+            if read_code != code or not _scope_contains(scope, loc):
+                continue
+            if worst is None or len(ref.provenance) > len(worst.provenance):
+                worst = ref
+        if worst is None:
+            return (), []
+        return tuple(interprocedural_evidence(worst)), self.hop_related(worst)
+
     def _as_node(self, value) -> Optional[Node]:
         if isinstance(value, Node):
             return value
@@ -486,6 +554,25 @@ class GraphContext:
             kind="framework_suppressed",
             message=_gate_message(label, 1),
             codes=[code], count=1))
+
+
+def _scope_contains(scope: ScopeIR, loc: Loc) -> bool:
+    """Is `loc` inside `scope`? (IP-01's join.)
+
+    A module scope owns its whole file; a class or function scope owns the
+    lines of its `def`. `scope.loc` is optional, so a scope with no location
+    falls back to the file test alone - over-approximating in the direction
+    that costs confidence rather than the one that invents it.
+    """
+    if scope is None or loc is None:
+        return False
+    if getattr(scope, "module", None) != getattr(loc, "file", None):
+        return False
+    span = getattr(scope, "loc", None)
+    if span is None or scope.kind == "module":
+        return True
+    end = max(getattr(span, "endLine", span.line) or span.line, span.line)
+    return span.line <= loc.line <= end
 
 
 def _gate_message(label: str, count: int) -> str:

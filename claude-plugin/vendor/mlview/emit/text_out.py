@@ -130,6 +130,7 @@ def render_summary(doc: Dict[str, Any], show_suppressed: bool = False,
     # chip rows (11.4 F3); the text emitters make the same split, so a scoped
     # CI log cannot be read as a claim about what the project contains.
     scoped = isinstance(doc.get("view"), dict)
+    rolled = bool((doc.get("stats") or {}).get("truncated"))
     absent: List[str] = []
     out_of_view: List[str] = []
     for stage in doc.get("stages", []):
@@ -142,8 +143,18 @@ def render_summary(doc: Dict[str, Any], show_suppressed: bool = False,
             continue
         marks = " ".join("%s%d" % (SEVERITY_MARK[sev], stage_counts.get(sev, 0))
                          for sev in ("high", "medium", "low") if stage_counts.get(sev))
-        lines.append("  %-11s %3d nodes%s" % (stage["id"], stage.get("nodeCount", 0),
-                                              ("   " + marks) if marks else ""))
+        # VIEW-R1: `--max-nodes` folds a stage's nodes onto a summary node whose
+        # stage is a majority vote, so a stage that is really there can end the
+        # fold with nodeCount 0 while its findings stay on the rail. `0 nodes
+        # [i]25` is two numbers that look like a contradiction; say which of the
+        # two describes the workspace and which describes the picture.
+        folded = (rolled and stage.get("present")
+                  and not stage.get("nodeCount") and any(stage_counts.values()))
+        lines.append("  %-11s %3d nodes%s%s"
+                     % (stage["id"], stage.get("nodeCount", 0),
+                        ("   " + marks) if marks else "",
+                        "   (rolled up - its nodes are inside a summary card)"
+                        if folded else ""))
     if out_of_view:
         lines.append("  not in this scope: %s" % ", ".join(out_of_view))
     if absent:

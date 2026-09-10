@@ -139,8 +139,19 @@ def run(options: AnalyzeOptions) -> AnalysisResult:
     # is `discover`'s own root function, so this second read finds a file only
     # when the two disagree - which they do not for any path shape shipped.
     if config.path is None:
+        # CFG-CONFIG-WARNING-DROPPED (11.37 A3/C4): the first read decided
+        # nothing, but it may still have had something to *say* - the measured
+        # case is `--config pyproject.toml` on a file with no [tool.mlview]
+        # table, which `load_config` reports as a warning with `path=None`.
+        # Rebinding `config` here used to throw that warning away, so an
+        # explicit --config that applied nothing also said nothing: exactly the
+        # silent-fallback failure CFG-ONE exists to end.
+        first_warnings = list(config.warnings)
         config = load_config(None, found.root)
         options = config_mod.apply(options, config)
+        carried = [w for w in first_warnings if w not in config.warnings]
+        if carried:
+            config.warnings = carried + list(config.warnings)
         # NB: `[paths] notebooks` lives in that same file, so the second read
         # can turn notebooks on as well as add excludes.
         reread = bool(options.include_notebooks or config.notebooks)

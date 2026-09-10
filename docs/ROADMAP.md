@@ -598,6 +598,51 @@ Scored above its stated user value because it is S effort and protects work that
 
 **Landed 2026-09-10 (Sprint 5 wave 1) — measurement note.** `analyzer/src/mlview/ir/summaries.py` + `ir/provenance.py`, normative in `docs/CONTRACTS.md` §11.36, behind `--dataflow {local,ip}` with `local` the shipped default exactly as the conditions require. Every acceptance clause is met and two are met differently from the text. **Met:** the Lightning `DataModule` leak and the research-repo series leak both fire in `ip` and are silent in `local`, with related locs at the construction, definition, split and fit sites; the `ctor param → self.features` probe fires while the "parameter merely named `X`" probe stays silent in **both** modes (no call site ⇒ empty summary, not an ignored name); `analyzer/tests/clean` and `samples/vision_pipeline_clean` emit **0 high / 0 medium / 0 low** under `ip`; the whole-repo `local`-vs-`ip` diff over 490 files is **7 new findings and 0 lost**, all seven MLV101 on corpus or probe files and none on product source; and `analyze --demo` is byte-identical in both modes. **Corpus:** precision **100% in both modes**, recall 71.8% → **78.2%** overall and 53.2% → **63.8%** unseen, graph fidelity 90.6% either way, zero forbidden findings, with a **separate ratchet** (`analyzer/tests/accuracy/baseline.ip.json`) so the two modes cannot mask each other. **Deviation 1 — the weight is not a schema field.** The interprocedural evidence ships as a `cross_file` `Evidence` weighted `IP_HOP_WEIGHT ** hops`, not a new `Evidence.kind`: 0.95 → 0.760 (`likely`) at one hop, 0.608 at two, 0.486 at three, asserted numerically. The frozen nine kinds and ten related roles are untouched, which is why this item needed no schema change. **Deviation 2 — one precision guard bought reach.** The first `ip` run produced a **high-severity false positive** (`_split_consuming` pairing a split with a fit by *name* across two functions that each hold a local called `features`), so a cross-object claim is now confined to one scope. The cost is real and is in the direction the conditions name: a genuine leak whose fit and split sit in sibling methods of the same object is out of MLV101's reach in `ip`. The same latent weakness exists in `local` and was **left alone**, so `local` stays byte-identical by construction rather than by measurement. **What it could not analyze.** CONSTRUCTOR reads `self.<attr> = <parameter>` in `__init__` and nothing else — no `__post_init__`, dataclass field, `setup()` hook, `setattr`, `**kwargs` forwarding or tuple unpacking. PROJECTION follows a `Subscript` and nothing else, carrying data tags only. The intersection is over the call sites MLView **resolved**, so a class built through a factory, a registry or a `getattr` contributes nothing — it cannot invent a tag, but it can keep one a fourth unseen site would have removed. The 3-hop cap is a guess; exceeding it is reported as a `truncated` diagnostic rather than silently dropped. Only MLV101 and MLV102 name a hop chain or pay its weight. And the corpus was labelled for `local`, so the five recovered labels are a **floor** on what the mode adds, not an estimate of it.
 
+**Landed 2026-09-10 (Sprint 5 review fixes, integrated) — measurement note.**
+Four review findings, three of them in the honesty half and one a high-severity
+false positive. **REV5-01:** the scope guard this item added was applied only
+when the value arrived interprocedurally, so in the **shipped default mode**
+`MLV101` still matched a `train_test_split` in any function of a module against
+a `fit_transform` in any other purely because two locals shared the name
+`features`, and published it `high` / `certain` with prose that contradicted
+itself ("fitted at line 15, before the split at line 8"). The guard now holds
+in both modes, and a genuine cross-scope claim has to come back through the
+provenance chain where `hops()` de-rates it below `certain`. **IP-01:** only
+`rules/r_leakage.py` ever called `ctx.hops()`, so `MLV111`, `MLV114` and
+`MLV301` / `MLV302` published cross-object claims at `certain` carrying
+`dataflow_direct 1.0` — "the tag was established here" — about a tag that had
+arrived from another file, with no `RelatedLoc` a reader could open.
+`rules/context.py` now records every read whose value carries a provenance
+chain and spends it in `issue()` ahead of `compute_confidence`: **one**
+`cross_file` factor per finding, weighted by the **longest** chain rather than
+one per read, plus the hop locations. Never `certain` is only arithmetic if the
+arithmetic is unavoidable, so it happens at the one door every rule emits
+through instead of in each rule. **IP-02:** on the fit-in-method /
+split-in-caller leak, `ip` reported zero issues *and* zero coverage notes where
+`local` had at least disclosed the gap — strictly less honest than the mode it
+widens; a hop that resolves a tag and then refuses the cross-scope match now
+says so, exactly as §11.36 N5 already makes the hop cap say so. **IP-03:** a
+single `np.asarray()` / `np.array()` / `np.concatenate([...])` dropped the
+`FEATURES` / `RAW_DATA` tag entirely, silencing `MLV101` and defeating the
+constructor summary on the exact shape this item was built for; `FRAME_MAKE`
+now carries the six data tags through argument 0, and a **list** argument
+carries the **intersection** of its members' tags, because stacking the
+training half onto the test half does not produce training rows. **Measured:**
+`tools/accuracy.py --dataflow ip` **precision 100.0%, recall 79.5% (unseen
+66.0%), graph fidelity 91.4%, zero forbidden findings** — unchanged from wave 3
+in every digit, which is the point: these fixes removed false positives the
+corpus never labelled and added disclosure it does not score.
+`analyzer/tests/core/test_dataflow_ip.py` **42 → 51 passed**, plus 28 in the
+new `analyzer/tests/core/test_review_fixes.py`. **What it still cannot
+analyze:** IP-01's join is "the finding is anchored inside the scope the value
+was read in", one level coarser than the config de-rating's source-range test,
+because a hop's own location is in the caller's file and can never fall inside
+the finding's range — which is why the reader gets the `RelatedLoc`; a scope
+with no `loc` falls back to the file test alone, over-approximating towards
+costing confidence rather than inventing it. IP-02's disclosure is a
+`truncated` diagnostic and not a finding, so the leak it describes stays
+**neither confirmed nor ruled out**, and `local` is still the shipped default.
+
 #### PERF-04 · Make `--max-nodes` a rollup, not a deletion
 
 *optimization · value 5 · **L** · risk: two-language projection drift · depends on HEALTH-02, PERF-03, VIEW-01*
@@ -605,6 +650,36 @@ Scored above its stated user value because it is S effort and protects work that
 Requirement 1 is *"visualise the complete logic / workflow"* and the shipped default answer on a realistic 525-file repo is **400 of 16 861 nodes (2.4%), 255 of 8305 edges (3.1%), and 124 of the 400 survivors (31%) carrying no edge at all** — a one-third-disconnected dot cloud. At tighter caps it is farcical: 45 nodes and **6 edges**. Because `_apply_node_cap` keeps issue anchors and their ancestors first, the survivors are scattered, so edges — which need *both* endpoints — die far faster than nodes. Findings are preserved (315 either way), so the cap is honest about issues and dishonest about flow. **Proposal:** replace deletion with **hierarchical rollup** — collapse from the bottom of the three-level hierarchy up, folding each unit's `op` children into the unit node with a `rolledUp` count and the union of their `issueIds`; if still over budget, fold units into a per-file summary node; only then fall back to today's drop. Re-point edges at the surviving ancestor and dedupe parallels into one carrying a `weight`. This keeps the graph **connected at every budget** — a 400-node view of a 500-file repo becomes 400 file and unit nodes wired by real dependencies rather than 400 orphans — and converts `--max-nodes` from a mutilation into a zoom level, reusing the existing collapsed-group visual so the viewer needs no new language. Make `stats.truncated` and the diagnostic say "rolled up" rather than "dropped". **Why later:** it touches parent integrity (invariant 1.1.2), the ghost invariant (1.1.8), issue re-anchoring and **both** `project()` implementations — and §11.2.2 deliberately fixes the cap **before** projection precisely so Python and TypeScript cannot disagree. Do not start before HEALTH-02's fuzzer can catch the drift; PERF-03 and VIEW-01 also reduce how often the cap is reached at all. It cannot change any uncapped document, since the cap path is only entered above budget. **Acceptance:** isolated nodes fall from 31% to under 5%; edge retention rises from 3.1% to over 40% of the uncapped set once parallels are merged; all 315 issues still resolve to a node; `validate_sample.py` passes on capped documents at 45, 100, 400 and 2000.
 
 **Landed 2026-09-10 (Sprint 5 wave 3) — measurement note.** `analyzer/src/mlview/core/rollup.py::apply_node_budget` replaces `pipeline._apply_node_cap` at the same point, still **before** projection (§11.2.2), normative in `docs/CONTRACTS.md` §11.46. It returns before mutating anything when the document is within budget, so *"it cannot change any uncapped document"* is proved rather than asserted: `python tools/perf_equiv.py --baseline <wave-2 src, MLV-P12 back-ported> --expect-same` reports `vision_pipeline`, `vision_pipeline_clean` and `tests_clean` all **`identical`**, exit 0. **Measured on the 525-file synthetic** (`analyzer/tests/core/test_rollup.py`, 25 experiments over a shared `common/`; uncapped **1972 nodes / 2273 edges / 126 findings**), the deletion it replaces against the rollup, same corpus and the acceptance's own four budgets: at **2000** both are the uncapped document; at **400** old = 400 nodes / 575 edges (25.3%) and new = 351 / 675 (29.7%); at **100** old = 100 / **25 edges (1.1%)** with **50 floating cards (50%)** and **100 of 126 findings**, new = 99 / **155 (6.8%)** with **0 floating** and **126 of 126**; at **45** old = 45 / 19 (0.8%), 7 floating, **51 of 126 findings**, new = 45 / **40 (1.8%)**, 0 floating, **126 of 126**. `contracts/validate_sample.py` passes on capped documents at all four (and, independently, on `samples/vision_pipeline` at `--max-nodes` 400 / 40 / 20 / 8, where all **15** findings survive every budget). **Deviation 1 — a third fold tier the entry does not name.** Two tiers bottom out at one node per file, so on a 525-file repo `--max-nodes 400` is structurally unreachable by folding; with only the file tier, 147 file summaries had to be *deleted* and took 1023 edges with them. §11.46 A3b adds a directory tier, climbing to the workspace root, and states itself as a deviation in the amendment and in the code. **Deviation 2 — both numeric targets were redefined, out loud.** *"Isolated nodes under 5%"* is asserted as **zero floating cards** (no edge, no parent, no children) at every budget plus *every edgeless survivor is a ghost*, because a ghost has no edges by construction and is drawn inside its parent, so raw degree-0 is 56% of a 45-card document and measures the finding rather than the cap. *"Edge retention over 40%"* is met at the entry's own budget — **47.3% at `--max-nodes 400`** once parallels are merged — and is replaced at tighter budgets by the strictly stronger `report.edges_lost == 0`, because a fold **absorbs** an intra-group edge rather than losing it. **What it could not do.** A fold is lossy about *which* thing: after a file or directory is summarised the diagram shows one card and `rolledUp` is the entire disclosure — nothing says what was inside, the summary's `kind` and `stage` are a majority vote with no record of how close the vote was, and a merged edge keeps its label only where its members agreed. The deletion phase still exists as phase 3 (`_choose_survivors`) for a budget smaller than the number of top-level directories; it ran at **no** budget here, so *"a cap never silences a finding"* is a claim about this corpus and these budgets, not a theorem — the `truncated` diagnostic counts what it dropped, and nothing else does.
+
+**Landed 2026-09-10 (Sprint 5 review fixes, integrated) — measurement note.**
+Two review findings, both of them the cap telling the reader something untrue
+about their own code. **VIEW-R1:** a file summary's stage is a majority vote,
+so a fold could empty a stage that is really there; `graph.finalize()` then
+recounted `stages[].present` off the survivors and `emit/answers.py` and
+`--format summary` stated **"No loss function was detected"** and **"No data
+entry was detected"** about `samples/vision_pipeline --max-nodes 20` — a
+program with a `CrossEntropyLoss` and two loaders in it, and a regression
+against `main`. A rollup is allowed to lose detail; it is not allowed to mint
+an absence. `present` is now recomputed against a census taken **before** the
+fold (`Graph.stagesBeforeRollup`, not serialized and not in the schema), the
+three Answer Card questions refuse to answer off a rolled-up document and say
+why, and the summary marks a folded stage instead of printing `0 nodes` beside
+`[i]25`. **REV5-02:** `Diagnostic.count` added `len(summaries)` — including
+summaries the directory tier had itself re-folded — so the viewer's `dropped =
+count - folded` drew a banner claiming a deletion the analyzer's own sentence
+two lines below it denied ("0 node(s) dropped"). §11.46 D pins `count` to the
+nodes missing from the emitted document, so that is now what is counted, and
+the counters are a **partition of the input document** — `folded + dropped +
+kept_originals == total`, read off the finished plan rather than accumulated
+per phase — in the new `analyzer/src/mlview/core/rollup_report.py` (81 lines,
+split out rather than grown into `core/rollup.py`). **Measured:**
+`analyzer/tests/core/test_rollup.py` **42 → 59 passed**; `python
+contracts/validate_sample.py` green at `--max-nodes` 400 / 40 / 20 / 8, still
+**54/51, 38/40, 12/18 and 7/4** nodes/edges and still **15 issues (5 high / 6
+medium / 4 low) in all four**. **What it still cannot analyze:** the refusals
+are per-question, so a rolled-up document's Answer Card names the budget to
+raise rather than answering a smaller question it could still have answered
+from the summaries.
 
 #### VIEW-08 · Compare two analyses
 
@@ -616,6 +691,18 @@ The most valuable question a reviewer has — *"my PR added a scaler, did it mov
 
 **Landed 2026-09-10 (Sprint 5 wave 2) — the viewer and host halves.** Normative in `docs/CONTRACTS.md` §11.44 (renderer) and §11.43 (hosts). The acceptance's second clause is now met: `webview/src/diff/changed.ts` **reuses the scope projection** — `projectResolved()` was extracted out of `scope/project.ts` so "changed only" is core = every non-`unchanged` node, boundary = one hop, with boundary stubs badge-free, `nodeIds[0]` rotated onto a core node and the rail still reporting the findings outside the view. Measured in Chromium against `webview/dev/index.html`: headline `+2 nodes · −2 nodes · 1 new findings · 1 fixed`, changed-only narrows 14 → 11 nodes as `{core 5, boundary 4, context 2}`, rail reads `1 of 6 findings shown · 5 outside the changed set`, zero console errors in light and dark. `diff/overlay.ts` accepts the overlay from three routes (the `diffOverlay` message, `window.MLViewDiff`, and a `<script type="application/json" id="mlview-diff">` block read at mount) and anything that is not a v1 `mlview-diff` degrades to no overlay, so a document that predates the feature is byte-for-byte what it always was. In VS Code, `vscode-extension/src/compare.ts` adds `Save Current Graph As Comparison Base`, `Compare With Saved Base` and `Compare With Clean Sample`; the host **computes nothing** — it stages the head in its own `globalStorageUri` and shells out to `python -X utf8 -m mlview diff` — and `mlview_graph(scope="diff", base=...)` gives the plugin the same answer without a sixth tool. **What it could not do.** The standalone report has a reader for `#mlview-diff` and **no writer**: `emit/html_out.py` does not emit the block, so a report carries no overlay today. The exported SVG/PNG carries no ledge, chip or banner — a removed node keeps its ghost outline and `data-diff`, but an export of a diff view is a picture of the narrowed graph, not a picture of the diff. **Removed edges are counted and never drawn**, because a route needs both endpoints in one document and a removed edge usually lost one; the banner says so. A resurrected removed node has no findings, no ports, no nesting and no severity badge — they live in the base document, which the page does not have — and the card, the Inspector and the banner each say so. And the host cannot tell a base captured before a change from one captured after it, or one captured under different settings: `different-analyzers` covers a version change and nothing covers a settings change.
 
+**Landed 2026-09-10 (Sprint 5 review fixes, integrated) — measurement note.**
+One review finding, **VIEW-R6**: the diff chips count the **comparison** while
+the diagram draws the **document**, so a `--max-nodes` rollup, a scope or a
+filter could absorb nodes the comparison had named individually and the two
+numbers on screen disagreed with nothing to explain them.
+`webview/src/diff/adopt.ts` now reports `namedDrawn`, and the diff bar states
+the shortfall in the same voice as the removed-node line beside it. `node
+--test test/diff.test.mjs` **31 → 33 pass**. **What it still cannot analyze:**
+the sentence names how many are missing, not which — the comparison is computed
+before the projection and does not know which surviving card absorbed a given
+node.
+
 #### H5 · Structured fixes
 
 *new-feature · value 4 · **L** · risk: **edits user code** · depends on ANA-12's per-rule precision*
@@ -623,6 +710,35 @@ The most valuable question a reviewer has — *"my PR added a scaler, did it mov
 Confirmed **zero `CodeAction` hits** in `vscode-extension/src`, so every MLView lightbulb is empty — while the data is already computed: 11 of the 20 rules are single-line mechanical edits, the two ghost nodes carry exact insertion locs (`zero_grad()` at `train.py:29`, `model.eval()` at `train.py:44`, each with col and endCol), and issues carry role-tagged `relatedLocs` (`optimizer_site`, `backward_site`, `split_site`). What ships is prose only — `fixHint` with no edit. The demo moment where the Problems panel offers *"add `optimizer.zero_grad()`"* and it lands correctly is the single most persuasive thing this product could do. **But the value is genuinely contested for this domain:** the project's own `mlview-triage` skill says an ML defect is often deliberate, and gradient accumulation is indistinguishable from a missing `zero_grad` without reading the modulo guard. `REQUIREMENTS.md` §5 non-goal 5 bars fixes that edit user logic — lifting it is a lead decision, and MLV-P10's suppression subset delivers most of the lightbulb value at a fraction of the risk. **If approved:** an additive `Issue.fix?: {title, safety: "mechanical" | "needs-review", edits[]}` that rules **opt into**, so the field is never a lie; edits computed from the **AST**, not string splicing, or indentation inside a `with` block goes wrong; `isPreferred` only for `mechanical`; **never auto-apply**; **no fix at all below the `likely` bucket**; and ANA-12's per-rule precision numbers deciding which five rules earn one — start with the five whose insertion slot is unambiguous (MLV201, MLV301, MLV302, MLV602, MLV111). Note `Issue` is `additionalProperties: false`, so this is a contract change made the way scoped views were. **Acceptance:** for each opted-in rule, applying the edit makes that rule stop firing and leaves the file `ast.parse`-valid, asserted by a test that applies and re-analyses; the clean twin still yields 0 issues and 0 fixes.
 
 **Landed 2026-09-10 (Sprint 5 wave 2) — measurement note.** The lead lifted `REQUIREMENTS.md` §5 non-goal 5 for H5 with its guardrails, and all five are enforced in code rather than by convention: normative in `docs/CONTRACTS.md` §11.42 (analyzer) and §11.43 (hosts). `analyzer/src/mlview/rules/fixes.py` is the **only** module that constructs a `TextEdit`; 31 of the 36 rules are byte-identical and a test fails if any rule outside `FIX_CODES` passes `fix=`. Every position comes from an `ast` node — indentation for an inserted statement is the target statement's own `col_offset`, so `MLV201_nested_loop_bad.py` indents to column 20 and `MLV301_with_block_bad.py` inserts *inside* a `with torch.no_grad():` block — and there is no substring search anywhere. `GraphContext.issue` attaches a fix only at `certain`/`likely`, asserted from both sides by one rule: the unseeded MLV602 fixture is `certain` and gets an edit, while `fixtures/rules/MLV602_bad.py` seeds globally, lands `possible` and gets none. `mechanical` means one keyword at one call site (MLV111, MLV602); anything inserting a statement into a training loop is `needs-review` (MLV201, MLV301, MLV302), because gradient accumulation is a deliberately missing `zero_grad()`. Nothing in the analyzer writes to a file. **The acceptance is structural, not pinned:** `build_fix` applies every candidate to a copy of the module source in memory and runs `ast.parse` over the result, discarding a candidate that does not parse — and `test_fixes.py`'s five parametrized `test_fix_makes_the_rule_stop_firing` cases apply the edits, re-analyse the fixture as a workspace and assert the rule stops firing **and** that no new code appears. 44 tests. The demo publishes 5 fixes (MLV201 `train.py:30`, MLV301 `train.py:44`, MLV302 `train.py:41`, MLV111 `data.py:35`, MLV602 `sklearn_baseline.py:27`) and the clean twin still yields 0 issues and 0 fixes. In VS Code the fix is a `QuickFix` and **never** `source.fixAll`, `isPreferred` is derived from `safety` alone, every `WorkspaceEdit` entry carries `needsConfirmation` so it routes through the refactor preview, and `applyIssueFix` refuses on an unsaved buffer or an edit past the end of the file. **What it could not analyze.** Four refusals each ship a fixture that still **fires the finding** and keeps its prose hint: a non-ASCII line (`ast` counts UTF-8 bytes, VS Code counts UTF-16 units), a receiver that is not a plain dotted name, a missing `torch` binding, and a block that would need re-indenting. The text output states its **denominator** — on the demo, *"no edit was computed for 1 other finding(s) of MLV602"*, because `samples/vision_pipeline/data.py` imports `random_split` and never binds `torch`. MLV302 never builds the `with torch.no_grad():` wrap its own `fixHint` names, only the decorator, and a module-level eval region gets no edit at all. SARIF carries no fix. And no content hash of the source is carried, so a host applying an edit from a stale document applies it at stale coordinates: the two provable failures are refused host-side and the third — a file edited, saved and left the same length — is not.
+
+**Landed 2026-09-10 (Sprint 5 review fixes, integrated) — measurement note.**
+Two review findings, one on each side of the wire. **H5-01:** `_defined_after`
+withheld the `MLV201` / `MLV301` edit whenever the value's producer sat below
+the insertion point *anywhere in the file*, so `def train(model, loader,
+optimizer)` written above `def main()` resolved its parameter to the
+`torch.optim.AdamW(...)` the caller runs — below the loop being edited — and
+the lightbulb was empty for the ordinary file layout, which is to say for most
+training scripts. A parameter is bound before its body runs at any line, so the
+guard now applies only **within one scope**, the only case where "above" and
+"below" order two statements at run time; `rules/fix_docs.py` was reworded to
+match. **The lightbulb stopped bypassing its own guard:** the code action
+handed VS Code a ready `WorkspaceEdit`, which VS Code's bulk-edit service
+applies itself, making the lightbulb the one surface that never reached
+`applyIssueFix` — and therefore the one with no `verifyAgainstBuffer`, no
+dirty-buffer refusal and no §11.43 A9 staleness refusal, on the surface a user
+actually clicks. The action now carries a **command and no edit**, so all three
+surfaces are one path as §11.43 A1 requires; the edit is still built, but only
+to decide whether to offer the lightbulb at all. `parseFix` also stopped
+accepting a fractional coordinate — the value arrives from a child process, and
+`Math.trunc(3.9)` is a half-understood coordinate written into somebody's file.
+**Measured:** `analyzer/tests/rules/test_fixes.py` **44 → 49 passed**; `node
+--test test/fixes.test.js test/compare.test.js` in `vscode-extension` **34 → 37
+pass**; `tools/accuracy.py` identical to the digit with and without
+`Issue.fix`, so H5 stays finding-neutral. **What it still cannot analyze:** the
+scope test asks whether the producer is in the **same** scope, so a
+module-level optimizer constructed below a module-level loop is still correctly
+withheld, while a producer reached through a second call is neither withheld
+nor followed — it simply does not resolve, and no edit is offered.
 
 #### ANA-10 · Config resolution *(Python half only)*
 
@@ -634,6 +750,38 @@ Real and measured: `num_workers=4` fires MLV112, a module-level `WORKERS = 4` fi
 
 **Landed 2026-09-10 (Sprint 5 wave 2) — measurement note, Python half only.** `analyzer/src/mlview/ir/config_shapes.py` + `ir/config_values.py` + `ir/config_calls.py` resolve the four named shapes and nothing else — module-level dict literals, `dataclass` field defaults (nested through `field(default_factory=...)`), `argparse add_argument(default=)` keyed by `dest`, and attribute/subscript chains rooted at any of them — called at the end of `bind_module`, so `cfg.data.workers` and `CFG["workers"]` are **one dotted path**, which is what a `DictConfig`, a `SimpleNamespace` and a dataclass all make them. Normative in `docs/CONTRACTS.md` §11.45. **No rule changed:** each scalar leaf becomes an ordinary `ValueRef` carrying `literal`, so `rules/helpers.literal_of` picks it up, and `CallSite.kwargs` is filled from the container for keys the call site did not write (the call site always wins). `core/config_nodes.py` maps every alias of a container onto the one node it already has, so `config`-kind edges now run from `CFG` into each consuming unit **across files**, and a `getattr` registry draws a selection node in both branches — `selects torch.optim.AdamW` when the string resolved, `one of 2 in factories · Alpha, Beta` at confidence 1/N when it did not — inventing an FQN in neither. **The de-rating the item demanded:** `CONFIG_EVIDENCE_WEIGHT = 0.8`, once for the read and once more per hop, applied as one visible `context_confirmed` evidence factor, so the highest registered prior lands at 0.98 × 0.8 = **0.784** and a config read can never mint a `certain` finding. Travel is import (free), declared default and argument→parameter (one hop each), capped at 2, and **intersection not union**: a parameter takes a container only when every recorded call site agrees. Measured A/B on this tree with the pass stubbed to a no-op: the probe ladder reads `num_workers=4` **certain 0.98**, `WORKERS` **certain 0.98**, `CFG["workers"]` **likely 0.784**, `cfg.data.workers` **likely 0.784**, one hop **possible 0.627**; overall recall **71.8% → 73.1%**, unseen **53.2% → 55.3%**, graph fidelity **126 → 127 of 139**, precision **100%** and forbidden findings **0** in both dataflow modes. The Hydra research repo goes from 47 nodes / 44 edges / **0 config edges** / 4 unknown to 49 / 49 / **3 config edges** / 2 unknown. The false statement the item named is gone: `DataLoader(ds, shuffle=CFG["shuffle"])` with `CFG["shuffle"] = True` no longer reports *"shuffle=unset (defaults to False)"*. **What it could not analyze.** The YAML/Hydra half stays deferred by lead decision, but it is now **reported rather than silent**: every YAML path a module names, every `yaml`/OmegaConf loader call and every `@hydra.*` decorator emits the reserved `config_unresolved` diagnostic, capped at 3 per module, and nothing in the three modules opens, imports, `exec`s or compiles anything — asserted against the AST, not the text. The 2-hop cap is **silent**, unlike DATAFLOW-IP's, which is this change's own weakest point against the standing criterion. A container and the parameter it travels into must both match `CONFIG_NAME_RE`, so `TRAIN_CFG = {...}` and `def build(spec)` are not read. The keyword de-rating is anchored on the **call**, not the argument, so a finding that argued only about `shuffle` is de-rated when `num_workers` came from a container — over-approximating in the safe direction. `cls()` after an unresolved `getattr` is still an `unknown` op: the selection is bounded to one-of-N, the construction through it is not. And `literal_of` still returns a plain `str`, so a rule cannot ask whether a value came from a container; only the confidence model knows, and only after the fact.
 
+**Landed 2026-09-10 (Sprint 5 review fixes, integrated) — measurement note.**
+Five review findings, four of them the resolver asserting a value the program
+never holds. **ANA-02:** a `CFG["workers"] = 0` written below the dict literal
+did not invalidate the leaf materialised from it, manufacturing an `MLV112`
+that did not exist before and stating a number the program never has;
+`_apply_stores` now folds every later **unconditional** write back into its
+root's tree. **ANA-04:** the argparse root required the assignment's own call
+to *be* `parse_args`, so the ubiquitous `args = get_args()` wrapper resolved to
+nothing — and was not even de-rated — and `MLV110` fired on correct code; the
+root is now the module whose `add_argument(default=…)` calls define the
+namespace, one call away. **ANA-01 and ANA-03**, the two rules that read a
+keyword this resolver feeds, stopped treating *present but unreadable* as
+*absent*: `MLV121` had published, at `high` / `certain`, an evidence line
+reading "shuffle() does not pass reshuffle_each_iteration=False" about the very
+line it points at, and `MLV110` said "shuffle= unset (defaults to False)" above
+a snippet reading `shuffle=config.shuffle` — including when this item already
+held the literal `True`. Both now keep three states apart, and the third is
+weighted by `UNRESOLVED_KWARG_WEIGHT` and disclosed through
+`note_unresolved_kwarg`. **REV5-04:** all four caps abandoned a container in
+silence while DATAFLOW-IP's hop cap, written in the same wave, published a
+`truncated` diagnostic for the identical situation; every cap now records a
+`config_unresolved` naming which cap stopped it. **ANA-05:** the de-rating
+evidence led with whichever key sorted first rather than the one the finding
+rests on. **Measured:** `analyzer/tests/core/test_config_values.py` **30
+passed** (unchanged — the new cases live in `test_review_fixes.py`, 28 passed);
+`tools/accuracy.py` **precision 100.0%, recall 73.1% (unseen 55.3%), graph
+fidelity 91.4%**, unchanged in every digit. **What it still cannot analyze:**
+ANA-02 folds only *unconditional* stores — a write inside an `if` leaves the
+leaf as it was rather than guessing which branch ran — and ANA-04 follows
+exactly one call, so `args = build_parser()(…)` still resolves to nothing. The
+YAML/Hydra half remains deferred.
+
 #### VIEW-04 · Bundle and order the cross-lane channel
 
 *optimization · value 4 · **M** · risk: `routing.ts` intricacy · depends on VIEW-01 and VIEW-03*
@@ -641,6 +789,26 @@ Real and measured: `num_workers=4` fires MLV112, a module-level `WORKERS = 4` fi
 **160 of 230 edges (70%) leave their lane**, 100 skip at least one, and all of them funnel through the single **56 px** channel reserved at `layout.ts:125` — the wall of roughly 20 near-parallel vertical runs visible on any large graph, and where most of the **49.5 crossings per edge** (5.0 even on the demo) come from. `GUTTER_LANE_STEP = 14` just fans them out; nothing merges or orders them. **Proposal:** group channel-bound edges by `(source lane, target lane)` and route each group as one trunk with splayed entry and exit spurs plus a member-count badge, expanding into individual strokes on hover or when the group has one member; and before assigning channel slots, barycentre-sort each lane's cross-lane departures by the y of their target inside the destination lane so trunks nest rather than braid. Widen the channel by the number of distinct lane **pairs**, not the number of edges. Neither change moves node positions, so this is additive on top of the existing dagre passes and does not touch the parity contract. **Genuinely worth fixing, but do VIEW-01 and VIEW-03 first:** the width blowup and the labels account for most of the *perceived* mess at a fraction of the risk, and then we re-measure whether bundling still earns its place. `routing.ts` is the most intricate file in the layout, its output is pinned by `layout.test.mjs`, and the flow animation runs a charge along **each edge's own `d`** — so keep per-edge `points` intact and bundle at the DOM and stroke level only, never in the points array, or R2.11 regresses.
 
 **Landed 2026-09-10 (Sprint 5 wave 1) — measurement note.** `webview/src/layout/channel.ts` (the corridor plan), `layout/bundles.ts` (geometry) and `render/bundles.ts` (DOM); `orthPath`/`midpointOf` moved to `layout/orth.ts` to hold `routing.ts` under the line budget. Render-only, so there is **no amendment**: no schema field, no change to `contracts/graph.sample.json`, no change to the frozen `window.MLView` API. The staggering defect the clause names was worse than stated — the per-lane-pair counter at `n * 7` had no bound, so a pair's seventh member was drawn at x=90 in a channel that ends at 88, straight through the first column of lane boxes, while every pair's first member sat collinear at x=48. Measured, drawn (trunks collapsed, which is what a reader sees before hover): **3.82 → 1.96 crossings per edge** on the 54-node demo (−48.7%), **44.55 → 30.47** on a 300-node synthetic (−31.6%) and 53.62 → 25.69 on a 150-node one. The channel is now reserved by lane **pairs** rather than edges — two pairs still reserve exactly the old 56 px, past four the step shrinks before the world grows, capped at 112 px — and the demo's world goes 1642 → 1698 px with `fitPlan` **unchanged** at 0.5275 and 0.5000, so the reservation costs VIEW-01 nothing on the shipped demo. **Deviation, measured not tuned around:** route-level crossings on the 300-node synthetic went **up 1.0%** while drawn crossings fell 31.6%, because the old fan put every pair's first member on one collinear line and the proper-intersection metric scores collinear overlap as zero. **What it could not do.** Two trunks whose y-spans merely *interleave* cannot both be drawn without crossing in a single-column channel, so the gate asserts nesting only where one span contains another and **counts** the residue instead of asserting it away. The SVG export is deliberately not bundled (a file in a PR cannot be hovered). And a bundled cable's severity marker is explicitly **not** faded — a decluttering device that hid a finding would be the one unaffordable failure — so a lane pair carrying several findings still shows several glyphs in the corridor.
+
+**Landed 2026-09-10 (Sprint 5 review fixes, integrated) — measurement note.**
+One review finding, **VIEW-R3**, and it was silently costing the item its whole
+result on the graphs it was written for: a gutter group's trunk was the
+**intersection** of its members' x-spans, which on a wide lane with twenty
+members is empty — negative — so the group fell back to twenty near-parallel
+runs, the exact picture VIEW-04 exists to remove, and it failed hardest on the
+**largest** groups. `webview/src/layout/bundles.ts` now clusters members by
+overlap and builds each cluster's trunk from the **union** of its spans: a
+cluster is connected, so every x on the trunk lies inside at least one member's
+own run and no trunk is drawn across ground no cable covers; a group may yield
+more than one trunk (`part`, and `#n` in the bundle id); and a member that
+overlaps nothing keeps its own stroke and is counted as residue rather than
+silently dropped. The spur geometry followed — a member joins at its own
+shoulder x rather than running back along its own y — so the strokes are
+shorter and no spur travels ground its cable never travels. `node --test
+test/bundles.test.mjs` **15 → 17 pass**, with determinism, containment and "a
+bundle never hides a finding" all unchanged. **What it still cannot analyze:**
+clustering is per gutter group, so two clusters that are adjacent but do not
+overlap still draw two trunks; nothing merges them across the gap.
 
 #### CFG-ONE · One configuration surface with a stated precedence
 
@@ -652,6 +820,22 @@ Two config systems that do not know about each other: `.mlview.toml` is auto-dis
 
 **Corrected 2026-09-10 (Sprint 5 wave 2), normative in `docs/CONTRACTS.md` §11.43.** The precedence clause was asserted on the wrong pair of settings. §11.40 C2 requires `mlview.disabledRules` and `mlview.exclude` to state the precedence *in those words*, and the wave-1 test asserted it on `mlview.configPath` and `mlview.baselinePath` — so the two rows a user actually reads while typing a rule code said nothing about precedence at all. Both now carry a `markdownDescription` saying additive / the file **wins** / *"cannot re-enable a rule the file disabled"* / *"cannot re-include a path the file excluded"*, each naming the table it loses to, and `vscode-extension/test/config.test.js` asserts it in both directions. No setting was added: the contributed set is still 16.
 
+**Landed 2026-09-10 (Sprint 5 review fixes, integrated) — measurement note.**
+One review finding, and it was the silent fallback this item exists to end: an
+explicit `--config` naming a `pyproject.toml` with **no `[tool.mlview]` table**
+applied nothing and *said* nothing, because the post-discovery re-read in
+`core/pipeline.py` rebound `config` and threw away the `config_warning` §11.37
+A3 requires. The warning now survives the re-read while the **path** does not,
+so `workspace.configPath` may still only name a file that actually decided
+something — a reader can tell an applied file from an ignored one either way.
+`core/config.py` applies the same rule to an unreadable or unparseable file two
+branches down. Measured on the combined host battery: `node --test
+test/multiroot.test.js test/config.test.js` in `vscode-extension` **19 → 22
+pass**, with the TOML-wins / settings-are-additive assertion untouched. **What
+it still cannot analyze:** the warning says the file decided nothing, not what
+the user probably meant — a `[mlview]` table misspelled as
+`[tool.mlview.rules]` reads the same as an absent one.
+
 #### MLV-P12 · Multi-pipeline workspaces
 
 *new-feature · value 3 · **L** · risk: extends a normative frozen enum · depends on HEALTH-02, VIEW-01, PERF-03*
@@ -659,6 +843,28 @@ Two config systems that do not know about each other: `.mlview.toml` is auto-dis
 The observation is correct: a research repo with 10 training scripts renders as one 320-node graph at 22% zoom, the analyzer **knows** there are 10 entrypoints (it lists 5 and elides the rest), and no existing selector expresses *"the exp03 pipeline"* — which is the unit a practitioner actually thinks in. Treating it as another projection rather than a new mode is exactly right: compute weakly-connected components over `data` and `call` edges seeded from `workspace.entrypoints`, emit a `pipelines[]` block, add `pipeline:<entrypoint>` to the selector grammar, and open the report on a chooser when a workspace has two or more. **But** it extends §11.1's normative `KIND` enum, and per §11.16 both `project()` implementations, `contracts/scope.cases.json`, the MCP `mlview_graph` docstring and `api`'s `SCOPE_KINDS` all move together. Additive enum extension is a legitimate amendment — just not before HEALTH-02's fuzzer can prove the port followed. Its payoff also overlaps heavily with VIEW-01 (legible large graphs), PERF-03 (relevance) and the existing `file:` and `unit:` scoping, and component detection is a judgement call that a shared `config.py` or `data/` module breaks: seed from entrypoints and mark a node reachable from several entrypoints as `viewRole: context` — the three-role vocabulary already exists — rather than forcing it into one pipeline. Revisit after the first-paint work lands and we can see whether the pain survives.
 
 **Landed 2026-09-10 (Sprint 5 wave 3) — measurement note.** `analyzer/src/mlview/core/pipelines.py` + `webview/src/scope/pipelines.ts`, normative in `docs/CONTRACTS.md` §11.47. The relation is computed from a **finished document** and nothing else: seeds = one entrypoint's nodes, adjacency = `data` + `call` edges both ways plus containment, with `config` and `control` edges deliberately cut — a shared `config.py` is exactly what would merge ten scripts into one component. The clause the item lives on is that the closure **includes but does not expand through** another entrypoint's own nodes; without it an undirected closure is the whole connected component whichever seed it starts from and ten scripts sharing a `utils.py` are one pipeline. `pipeline:<entrypoint>` joins the §11.1 `KIND` enum (default depth 0) in both `project()` implementations, `contracts/scope.cases.json`, `mlview.api.SCOPE_KINDS`, the MCP `mlview_graph` docstring, the three VS Code LM-tool descriptions and `--list-scopes` — the §11.16 list, moved together — with a new `unknown_pipeline` error whose candidates are `workspace.entrypoints`. The acceptance clause is met as written: a node reachable from several entrypoints is **forced to `viewRole: context`** and never `boundary`, so a finding anchored only on a shared node is reported as outside the view. On the demo, `--list-scopes` reads `3 pipeline(s) + 10 scopable unit(s)` with `pipeline:train.py` at 25 exclusive nodes and `pipeline:data.py` at 15. The optional root `pipelines[]` block is emitted **only at two or more non-empty pipelines**, so a single-entrypoint workspace — `contracts/graph.sample.json` included — is byte-identical to before, and `analyze --demo --format json` still matches it at 46 078 bytes. **HEALTH-02 caught the one real bug**: its new `scopes: pipelines relation` row compares `pipelines_block` against the port's `rows()` on every generated document and disagreed on **17 of 40 graphs**, Python `exclusiveCount 4` where TypeScript said `0`; §11.47 D now pins `exclusiveCount == |core(E)| == view.counts.core` at depth 0 == the `--list-scopes` SUBTREE column, and two counterexamples were promoted into the frozen battery (`fuzzCases` 3 → 5). **What it could not analyze.** A `pipeline:` view draws a *neighbouring entrypoint's* own nodes as context — up to one whole file per neighbour — and nothing distinguishes "a shared helper" from "the other script"; excluding them instead was tried and is worse, since on `samples/vision_pipeline` the entrypoint heuristic lists `train.py`, `config.py` **and** `data.py` and excluding them empties the core. `workspace.entrypoints` is itself a heuristic **capped at 10**, so a repo with 25 training scripts gets 10 pipelines and nothing says 15 are missing; a library with no entrypoint gets `unknown_pipeline` with an empty candidate list. Nodes in **no** pipeline are counted in the projection's `config_warning` and never named — there is no `pipeline:none`. And on a rolled-up document the `pipelines[]` counts describe the **summarised** graph (a file summary counts once however many nodes it stands for); `stats.truncated` is the only thing that says so.
+
+**Landed 2026-09-10 (Sprint 5 review fixes, integrated) — measurement note.**
+Three review findings, all in the chooser, two of them accessibility defects in
+the modal the item introduces. **VIEW-R4:** `role="listitem"` on the chooser's
+`<button>` elements **replaces** the implicit button role, so the modal's only
+real actions were exposed to assistive tech as list items and were absent from
+the button rotor; the list semantics moved to a wrapper and the button stays a
+button. **VIEW-R7:** the chooser opens by itself, so there is no invoking
+element to restore to and `hide()` dropped focus onto `<body>` — a keyboard
+reader would have had to tab from the top of the document to reach the diagram
+they had just chosen; focus now goes to the canvas that owns the roving tab
+stop, the way the shortcuts sheet already did. **VIEW-R5:** two rows is not
+enough to earn a modal over the first paint. `workspace.entrypoints` is a
+ranked heuristic capped at ten, and on the flagship 54-node sample report it
+offered a one-node `config.py` as a "training script" while covering the one
+screen VIEW-01 exists to protect; `shouldAskPipeline` now owns the floor and
+the chooser draws only the rows that clear it. `node --test
+test/pipelines.test.mjs` **25 → 33 pass** and `test/a11y.test.mjs` **12 → 13**.
+**What it still cannot analyze:** the floor is a size test over the ranked
+list, so a workspace of genuinely tiny pipelines is offered no chooser at all —
+the scope toolbar's `pipeline:` selectors remain the way in, and the five
+caveats the chooser states about its own list are unchanged.
 
 #### H8 · PostToolUse hook
 
@@ -668,6 +874,25 @@ The observation is correct: a research repo with 10 training scripts renders as 
 
 **Landed 2026-09-10 (Sprint 5 wave 1) — measurement note.** `claude-plugin/hooks/hooks.json` wires `PostToolUse` on `Edit|Write|NotebookEdit` to `post_edit.py` and `Stop` to `stop_summary.py`, sharing `hook_core.py`; normative in `docs/CONTRACTS.md` §11.41, which amends §5 (no new tool) and §9. It re-analyzes through `mlview_workspace.load_graph`, sharing `MLVIEW_DATA_DIR` with the MCP tools, diffs the issue-id set and speaks **only when it grew** — at most 5 rows at confidence ≥ 0.6, under a 3 s daemon-thread budget, `MLVIEW_HOOK` = unset/on|stop|both|off. It never blocks (always exit 0) and never writes into the project: a test caught it creating `<project>/.mlview` before the cache half of that defaulting was added. **What it could not do.** On Windows **without Git Bash** the hook does not run at all — a hook command is shell form, which is PowerShell there, and `${MLVIEW_PYTHON:-python}` does not expand; the failure is non-blocking, so the degradation is silence rather than a broken session, and `claude-plugin/README.md` says so. It re-analyzes the **whole project**, not the edited file (a single-file re-analysis would lose exactly the cross-file rules COVERAGE measured), so on a repository too large for the budget it is permanently silent until CACHE makes re-analysis incremental — which this entry's own dependency predicted. And because issue ids are content-addressed, an unchanged finding whose line moved returns a new id, so rows are filtered to genuinely new `(code, file)` pairs and the remainder is **counted rather than printed**: a genuine second occurrence of one rule in one file is a count, not a row. Never driven inside a real Claude Code session — `claude plugin validate --strict` cannot run on this machine, so `test_plugin_manifest.py` skips itself and `test_hooks.py` asserts the manifest shape directly.
 
+**Landed 2026-09-10 (Sprint 5 review fixes, integrated) — measurement note.**
+One review finding against §11.41 C3's "warms the cache the tools then read":
+the hook invented `<data>/hook-cache` for itself, which kept the write out of
+the repository but left the two halves reading **different** parse caches, so
+the claim covered only the graph document.
+`claude-plugin/server/mlview_workspace.py` grew one `cache_dir()` —
+`MLVIEW_CACHE_DIR`, else `<data_dir>/cache` — and a `shared_cache_dir()`
+context manager scoped to the call rather than exported into the environment
+for good, because a long-lived server that mutated its own environment would
+carry one project's directory into a later call resolved against a different
+one. With no `MLVIEW_DATA_DIR` named it is `<project>/.mlview/cache`, byte for
+byte the core default (§11.28 B5), so a checkout run without the plugin's
+environment is unchanged. `python -m pytest claude-plugin/tests/test_hooks.py
+-q` **32 → 34 passed**, including the assertion that the hook writes
+**neither** `.mlview` **nor** a cache into the user's project. **What it still
+cannot analyze:** the two halves share the *parse* cache only; the graph
+document is still recomputed per tool call, which is what §11.28 B rejects
+caching for.
+
 #### H10 · Host gaps
 
 *quality · value 3 · **M** · risk: the controller's single-graph assumption · depends on nothing*
@@ -676,6 +901,14 @@ Four real but small defects, and **two are already pulled into the NOW cleanup P
 
 **Landed 2026-09-10 (Sprint 5 wave 1) — measurement note.** `vscode-extension/src/folders.ts` (`FolderBook`) replaces the controller's single `graph` / `index` / `lastScope` / `staleFiles` / `appliedFocus` / `lastFailure` with one `FolderState` per open folder, and `workspaceFolderFor`'s `workspaceFolders?.[0]` fallback — plus `toolAnalyze.ts`'s hardcoded twin — resolves an **active** folder instead. Normative in `docs/CONTRACTS.md` §11.40, which lifts exactly two §11.11 cuts and supersedes §11.20 A's settings listing at 16 rows. `DiagnosticsPublisher.publish` now takes one graph **or many** and publishes the union, because publishing one folder alone silently wiped the other's squiggles; a CodeLens is answered with the graph of the folder its own file lives in. `scope` and `depth` join the three `languageModelTools` inputSchemas, flow through `buildAnalyzeArgs`, prefix every scoped answer with a "this is a filtered view" note, and are **never adopted as the folder's graph**. **Deviation:** this clause says "add `mlview.activeFolder`" — it shipped as a **command** (`MLView: Select Active Folder`) plus a trusted-MarkdownString picker link in the status-bar tooltip, not as a setting, reasoned in §11.40 B2; a setting would have been a second place for the answer to live. **What it could not do.** The window still shows **one folder at a time**: one panel, one status bar. The tooltip states what it is not showing ("1 other folder in this workspace is not shown here") and the Problems panel is the only surface carrying the union; a CodeLens on a file in an unanalyzed folder draws nothing and has no affordance to say why. Prose-to-scope resolution stays cut (§11.11) — a model must send a selector from the grammar, and MLView does not guess one from "the evaluation bit"; only the `scope` **input** half of that cut is lifted. `stages` and `units` are deliberately not advertised on the LM tools and are `bad_selector` refusals at the CLI, asserted in both directions. `mlview.baselinePath` is resource-scoped and correct by construction for several folders, but no fixture exercises two baselines at once, and none of it has been driven inside a live VS Code process.
 
+**Landed 2026-09-10 (Sprint 5 review fixes, integrated) — measurement note.**
+One review finding, in the single sentence that discharges this item's "state
+what you could not analyze": with three folders open the status bar read "2
+other folder**s** … **is** not shown here". The verb now agrees with the noun.
+It is a one-line fix recorded here because it is read exactly when the user is
+unsure which folder the counts describe, which is the only moment the sentence
+exists for. The combined `multiroot` / `config` battery is **19 → 22 pass**.
+
 #### MLV-P11 · Sample gallery and VS Code walkthrough
 
 *developer-experience · value 3 · **M** · risk very low · depends on ANA-7/8/9 settling the catalog*
@@ -683,6 +916,26 @@ Four real but small defects, and **two are already pulled into the NOW cleanup P
 The insight is good and the assets already exist, invisible: `analyzer/tests/fixtures/rules/` holds 47 bad/good pairs that are already the **tightest possible illustration of each defect and its nearest false-positive trap**, sitting in a test directory nobody opens, and `analyzer/tests/clean/` holds six idiomatic correct programs across six framework shapes. `samples/README.md` ships two projects, both CIFAR-shaped torch + sklearn, so a Lightning or HF user has no reference for what good looks like in their framework. And `vscode-extension/package.json` contributes **no `walkthroughs` key at all**. **Proposal:** a `gallery` build target looping over what `gen_rule_docs.py` already enumerates from the registry, rendering every clean program and every bad/good pair and writing an index — zero new content — into `docs/gallery/` **on demand** (do not commit 50 reports); and a `contributes.walkthroughs` entry whose five steps each invoke an already-registered command (install → visualize the bundled sample → read a finding in Problems → `Alt+M` from the editor → scope with `Alt+Shift+M`), so it is a manifest entry plus five short Markdown files. **The highest-value third of this — the legend — is merged into VIEW-10 and ships in NOW**, and MLV-P6 puts the rule text where it is actually needed; a gallery is worth building once the rule catalog stops changing under ANA-7/8/9.
 
 **Landed 2026-09-10 (Sprint 5 wave 1) — measurement note.** `analyzer/tools/gen_gallery.py` renders **90 self-contained reports plus an index** from 6 clean programs and 36 rules (84 fixtures) in 1.4 s (~30 MB), and `contributes.walkthroughs` gains five steps — install, visualize, read a finding in Problems, `Alt+M`, `Alt+Shift+M` — each invoking one already-contributed command, with the pages in `docs/walkthrough/` copied into the extension by `vscode-extension/tools/sync-walkthrough.mjs` (the twin of `sync-rule-docs.mjs`, and for the same reason: `media.markdown` resolves relative to the extension root). The gallery **states its own blind spot on every page**: each is a single-file analysis, so MLV301 / MLV302 / MLV401 / MLV501 structurally cannot fire there, and the index flags a `_bad.py` that reported nothing or a `_good.py` that reported its own rule — on this build neither flag appears. **Deviation:** this clause asks for a `gallery` **build target**; it shipped as a script invoked by hand and is **not** wired into `scripts/build.*`, because nothing in the build should write 30 MB on every run. `docs/gallery/` is in `.gitignore` and is never committed; `vscode-extension/docs/walkthrough/*.md` **are** committed, on the same pattern as `vscode-extension/docs/rules/`, and `sync-walkthrough.mjs --check` is the drift gate. Never driven inside a real VS Code process: the walkthrough has been asserted through the manifest, not opened.
+
+**Landed 2026-09-10 (Sprint 5 review fixes, integrated) — measurement note.**
+One review finding, **GALLERY-FALSE-BLINDSPOT**, and it is the standing
+criterion cutting the other way: the index asserted, from a hard-coded
+paragraph, that `MLV301` / `MLV302` / `MLV401` / `MLV501` "structurally cannot
+fire here" and that "the analyzer says so on every page as a
+`single_file_analysis` diagnostic". Both halves were false on this build — all
+four **do** fire on their own self-contained fixtures, and **0 of 90** pages
+carry that diagnostic, because it speaks only when an analyzed module *imports*
+a sibling the run left out, which no rule fixture does. Telling a reader the
+tool was blind where it was not is the same failure as telling them it looked
+where it did not. `analyzer/tools/gen_gallery.py::blindspot_caveat` now
+measures both numbers off the run it is describing, and the new
+`analyzer/tests/core/test_gallery.py` (**4 passed**) fails if the paragraph
+names a cross-file rule as silent when that rule fired on one of the rendered
+pages. The gallery still renders **90 self-contained reports plus an index**
+into gitignored `docs/gallery/`. **What it still cannot analyze:** the
+paragraph reports what happened **on this corpus** — it says nothing about
+whether a cross-file rule would fire on the reader's own repository, which is
+why the "not a clean bill of health" sentence above it is unchanged.
 
 ---
 

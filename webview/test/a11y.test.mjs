@@ -260,3 +260,35 @@ test('node cards carry a :focus-visible ring of their own (VIEW-12)', async () =
   const block = css.slice(at, css.indexOf('}', at));
   assert.ok(block.indexOf('outline: 2px solid var(--mlv-focus)') >= 0, 'a real ring: ' + block);
 });
+
+/* ── nothing overrides a native role (VIEW-R4) ─────────────────────────── */
+
+test('no control announces itself as something it is not (VIEW-R4)', async () => {
+  // `role` on an interactive element REPLACES its implicit role, so a <button
+  // role="listitem"> computes as an inert list item: it leaves the button rotor,
+  // and a screen-reader user is told the dialog holds a list, not three actions.
+  // MLV-P12's chooser rows shipped exactly that. Nothing may do it again.
+  const graph = JSON.parse(JSON.stringify(sample));
+  graph.workspace = { ...graph.workspace, entrypoints: ['train.py', 'data.py', 'sklearn_baseline.py'] };
+  const ctx = await mount(graph);
+  const chooser = ctx.document.querySelector('.mlv-pipechooser');
+  assert.equal(chooser.hidden, false, 'the chooser is open, so its rows are on screen');
+  const rows = Array.from(chooser.querySelectorAll('[data-pipeline]'));
+  assert.ok(rows.length >= 2, rows.length + ' chooser rows');
+  for (const row of rows) {
+    assert.equal(row.tagName, 'BUTTON');
+    assert.equal(row.getAttribute('role'), null, row.getAttribute('data-pipeline') + ' overrides the button role');
+  }
+  // And the same rule over the whole document: no <button> or <a href> anywhere
+  // may claim a non-interactive role.
+  const INERT = ['listitem', 'list', 'presentation', 'none', 'text', 'paragraph', 'heading', 'img'];
+  for (const el of ctx.document.querySelectorAll('button[role], a[href][role], input[role]')) {
+    const role = el.getAttribute('role');
+    assert.equal(
+      INERT.indexOf(role) >= 0,
+      false,
+      '<' + el.tagName.toLowerCase() + ' role="' + role + '"> hides an action from assistive tech',
+    );
+  }
+  ctx.app.destroy();
+});

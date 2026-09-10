@@ -52,7 +52,7 @@ import { formatScope, parseScope, scopeLabel } from './scope/selector.js';
 import { project, resolveScope } from './scope/project.js';
 import { concernRows, pipelineIndexOf, pipelineRows, scopeCatalog, stageRows } from './scope/catalog.js';
 import { PIPELINE_EDGE_KINDS, PipelineIndex, pipelineDrift, pipelineNote, resolveEntrypoint } from './scope/pipelines.js';
-import { chooserCaveats } from './ui/pipelinechooser.js';
+import { chooserCaveats, chooserRows, rowLabel, shouldAskPipeline } from './ui/pipelinechooser.js';
 import { pipelineName } from './ui/scopepicker.js';
 import {
   WEIGHT_MIN,
@@ -133,6 +133,8 @@ export interface PlainLayout {
     id: string;
     sourceLane: string;
     targetLane: string;
+    /** VIEW-R3: 0 for a group's only trunk, 1.. for each further sub-trunk. */
+    part: number;
     memberIds: string[];
     count: number;
     edgeCount: number;
@@ -196,6 +198,7 @@ export function layoutForTest(graph: MLGraph, collapsed?: string[]): PlainLayout
       id: b.id,
       sourceLane: b.sourceLane,
       targetLane: b.targetLane,
+      part: b.part,
       memberIds: b.memberIds.slice(),
       count: b.count,
       edgeCount: b.edgeCount,
@@ -570,6 +573,10 @@ export const internals = {
     drift: pipelineDrift,
     name: pipelineName,
     chooserCaveats,
+    /** VIEW-R5: the floor that decides what the chooser offers, and whether it asks. */
+    chooserRows,
+    shouldAsk: shouldAskPipeline,
+    rowLabel,
     EDGE_KINDS: PIPELINE_EDGE_KINDS,
   },
   legendModel,

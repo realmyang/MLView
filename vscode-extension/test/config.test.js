@@ -254,3 +254,70 @@ test('the two ADDITIVE settings say so themselves, where a user types them', () 
   assert.match(rules.markdownDescription, /\[rules\]\.disable/);
   assert.match(exclude.markdownDescription, /\[paths\]\.exclude/);
 });
+
+/**
+ * CFG-ONE + H10. `readSettings(resource)` resolves EVERY setting against a folder uri, and
+ * after H10 it is called once per open folder (`extension.ts`, `toolAnalyze.ts`,
+ * `mlviewConfig.ts`). A row that does not declare `"scope": "resource"` defaults to `window`,
+ * and VS Code then IGNORES whatever the user wrote in that folder's own `.vscode/settings.json`
+ * — silently, because the folder-level value is simply never read.
+ *
+ * The two settings 11.40 C2 teaches a user to think of as "additive filters on top of THIS
+ * folder's file" were two of the rows that could not vary per folder. So the scopes are pinned
+ * here, in both directions: every setting the extension resolves against a resource must say
+ * `resource`, and the ones it deliberately reads once per WINDOW must not — a row that
+ * promises a per-folder value nothing reads is the same silent failure the other way round.
+ */
+test('every setting the extension reads per folder is declared resource-scoped', () => {
+  const manifest = JSON.parse(
+    fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8')
+  );
+  const props = manifest.contributes.configuration.properties;
+
+  // Read through `readSettings(<a folder or document uri>)` and acted on per folder.
+  const perFolder = [
+    'mlview.analyzeOnSave',
+    'mlview.currentFileAnalysisScope',
+    'mlview.exclude',
+    'mlview.configPath',
+    'mlview.baselinePath',
+    'mlview.includeNotebooks',
+    'mlview.maxFiles',
+    'mlview.maxNodes',
+    'mlview.disabledRules'
+  ];
+  for (const name of perFolder) {
+    assert.ok(props[name], `${name} must be contributed`);
+    assert.equal(
+      props[name].scope,
+      'resource',
+      `${name} is resolved against a folder uri, so a window scope would discard the ` +
+        "folder's own .vscode/settings.json value without saying so"
+    );
+  }
+
+  // The Problems panel publishes the UNION of every analyzed folder in one collection, from a
+  // single window-level read, so these four cannot take a per-folder value and must not claim
+  // to. `codeLens` and `trace` are likewise read once for the window.
+  for (const name of [
+    'mlview.minSeverity',
+    'mlview.minConfidence',
+    'mlview.diagnosticsEnabled',
+    'mlview.diagnosticSeverity',
+    'mlview.codeLens',
+    'mlview.trace'
+  ]) {
+    assert.ok(props[name], `${name} must be contributed`);
+    assert.equal(
+      props[name].scope,
+      undefined,
+      `${name} is read once per window; declaring it resource would promise a per-folder ` +
+        'value that nothing reads'
+    );
+  }
+
+  // The interpreter stays machine-overridable: it names a path on THIS machine.
+  assert.equal(props['mlview.pythonPath'].scope, 'machine-overridable');
+  // 11.40 froze the count at 16 rows; adding scopes adds no setting.
+  assert.equal(Object.keys(props).length, 16);
+});

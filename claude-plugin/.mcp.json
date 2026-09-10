@@ -9,7 +9,8 @@
         "PYTHONUTF8": "1",
         "PYTHONIOENCODING": "utf-8",
         "MLVIEW_PROJECT_DIR": "${CLAUDE_PROJECT_DIR}",
-        "MLVIEW_DATA_DIR": "${CLAUDE_PLUGIN_DATA}"
+        "MLVIEW_DATA_DIR": "${CLAUDE_PLUGIN_DATA}",
+        "MLVIEW_CACHE_DIR": "${CLAUDE_PLUGIN_DATA}/cache"
       }
     }
   }

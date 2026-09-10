@@ -19,8 +19,25 @@ __all__ = [
     "within_loop", "loop_chain", "calls_in_loop", "calls_in_function",
     "with_role", "first_with_role", "arg_ref", "traced_arg", "reaches",
     "value_sources", "seed_calls", "is_seeded", "literal_of", "DATA_TAGS",
-    "apply_config_derating",
+    "apply_config_derating", "kwarg_literal", "KWARG_ABSENT", "KWARG_RESOLVED",
+    "KWARG_UNRESOLVED", "UNRESOLVED_KWARG_WEIGHT", "note_unresolved_kwarg",
 ]
+
+#: The three states one keyword argument can be in (ANA-01 / ANA-03).
+#:
+#: Two of them used to be one. A rule that asked `call.kwargs.get("shuffle")`
+#: and compared the answer to a string treated *"the author never wrote this
+#: keyword"* and *"the author wrote it and the analyzer could not read the
+#: expression"* as the same fact, and then published a claim about the first
+#: while looking at the second: `reshuffle_each_iteration=get_flag()` produced a
+#: **high**-severity `certain` finding whose evidence read "shuffle() does not
+#: pass reshuffle_each_iteration=False" about a line that passes exactly that.
+#: A high-severity false positive on correct code is the one failure this
+#: product cannot afford, so the distinction lives in one helper that every
+#: literal-dependent rule reads.
+KWARG_ABSENT = "absent"
+KWARG_RESOLVED = "resolved"
+KWARG_UNRESOLVED = "unresolved"
 
 #: The tags a *projection* may carry across. Selecting columns out of a frame
 #: does not change what the rows are; selecting a model out of a dict would be
@@ -69,6 +86,82 @@ def literal_of(ctx, expr, scope, module) -> Optional[str]:
         return None
     other = target.module_scope.bindings.get(attr)
     return other.literal if other is not None else None
+
+
+def kwarg_literal(ctx, call: CallSite, key: str) -> Tuple[str, Optional[str]]:
+    """`(state, literal)` for one keyword argument - three-way, never two.
+
+    `call.kwargs` holds the constants the IR folded (and, since ANA-10, the
+    ones a config container supplied); anything else has to go through
+    `literal_of`, which is what `_int_kwarg` already did for `num_workers=` and
+    what no other kwarg-reading rule did. The states are `KWARG_ABSENT` (the
+    keyword is not written at all), `KWARG_RESOLVED` (with the literal), and
+    `KWARG_UNRESOLVED` - the keyword is right there on the line and its value
+    is not something a static reader can have.
+
+    A rule must say something different in each of the three, because they are
+    three different facts about the program in front of it.
+    """
+    node = call.kwarg_nodes.get(key)
+    if node is None:
+        return KWARG_ABSENT, None
+    literal = call.kwargs.get(key)
+    if literal is None:
+        literal = literal_of(ctx, node, call.scope, call.module)
+    if literal is None:
+        return KWARG_UNRESOLVED, None
+    return KWARG_RESOLVED, literal
+
+
+#: What a keyword the analyzer could not read costs the finding that had to
+#: reason around it. 0.6 takes MLV121's 0.95 prior to `possible` and MLV110's
+#: 0.85 to `possible`: the pattern really is there, the value that decides
+#: whether it is a defect is not, and a finding that says so out loud belongs
+#: below `likely` - which is also, by H5's guardrail 3, below the floor where an
+#: edit may be offered.
+UNRESOLVED_KWARG_WEIGHT = 0.6
+#: How many `config_unresolved` notes one module may carry, matching the cap
+#: `core/config_nodes` already applies to the YAML notes.
+_MAX_UNRESOLVED_NOTES = 3
+
+
+def note_unresolved_kwarg(ctx, call: CallSite, key: str,
+                          consequence: str = "") -> None:
+    """Disclose one keyword argument that is written and cannot be read.
+
+    The silence this replaces was the worst kind: the rule turned "I could not
+    read this" into a positive claim about the value. Reported under the kind
+    ANA-10 already reserved for a configuration MLView declined to resolve, so
+    a host needs no new vocabulary.
+    """
+    relpath = call.loc.file
+    seen = getattr(ctx, "_unresolved_kwarg_notes", None)
+    if seen is None:
+        seen = {}
+        setattr(ctx, "_unresolved_kwarg_notes", seen)
+    rows = seen.setdefault(relpath, [])
+    if (call.loc.line, key) in rows:
+        return
+    rows.append((call.loc.line, key))
+    if len(rows) > _MAX_UNRESOLVED_NOTES:
+        return
+    spec = getattr(ctx, "current_rule", None)
+    ctx.diagnostics.append(
+        _unresolved_diagnostic(relpath, call.loc.line, key, spec, consequence))
+
+
+def _unresolved_diagnostic(relpath: str, line: int, key: str, spec,
+                           consequence: str):
+    from ..core.graph import Diagnostic
+    return Diagnostic(
+        kind="config_unresolved", file=relpath, line=line,
+        ruleCode=spec.code if spec is not None else None,
+        message=("`%s=` is passed at %s:%d and MLView could not resolve its "
+                 "value, so %s reasoned about the call without it%s. This is a "
+                 "gap in coverage, not a value of False."
+                 % (key, relpath, line,
+                    spec.code if spec is not None else "the rule",
+                    (" - %s" % consequence) if consequence else "")))
 
 
 def within_loop(loop: Optional[LoopIR], outer: LoopIR) -> bool:
@@ -190,6 +283,9 @@ def _projection(ctx, call: CallSite, arg
                        producer=ref.producer, loc=ref.loc, sources=ref.sources,
                        class_ir=ref.class_ir, is_config=ref.is_config,
                        via_fqns=ref.via_fqns, provenance=chain)
+    # IP-01: the derived ref never went through `ctx.binding_of`, so it has to
+    # declare its own hop or a rule reading it would pay nothing for the read.
+    ctx.note_hops(derived, call.scope)
     return name, derived
 
 
@@ -257,7 +353,7 @@ def is_seeded(ctx) -> bool:
 # ---------------------------------------------------------------------------
 #: One recorded read: which rule made it, where in the source it was made, how
 #: many issues the rule had already emitted, and what it costs.
-_ConfigNote = Tuple[str, str, int, int, float, str]
+_ConfigNote = Tuple[str, str, int, int, float, str, int]
 
 
 def _note_config_read(ctx, ref, expr) -> None:
@@ -280,7 +376,7 @@ def _note_config_read(ctx, ref, expr) -> None:
         notes = []
         setattr(ctx, "config_reads", notes)
     notes.append((spec.code, read.file, int(line), len(ctx.issues),
-                  read.weight, read.detail))
+                  read.weight, read.fact or read.detail, read.hops))
 
 
 def _issue_spans(issue) -> List[Tuple[str, int, int]]:
@@ -308,8 +404,18 @@ def _kwarg_notes(ctx) -> List[_ConfigNote]:
     out: List[_ConfigNote] = []
     for relpath in sorted(getattr(ctx, "modules", None) or {}):
         for file, line, read in CV.kwarg_reads(ctx.modules[relpath]):
-            out.append(("", file, int(line), 0, read.weight, read.detail))
+            out.append(("", file, int(line), 0, read.weight,
+                        read.fact or read.detail, read.hops))
     return out
+
+
+def _names(fact: str, issue) -> bool:
+    """Does this read's dotted key appear in the finding's own message?"""
+    key = fact.split("`")[1] if fact.count("`") >= 2 else ""
+    if not key:
+        return False
+    leaf = key.rsplit(".", 1)[-1]
+    return leaf in (issue.message or "") or key in (issue.message or "")
 
 
 def apply_config_derating(ctx) -> None:
@@ -336,11 +442,18 @@ def apply_config_derating(ctx) -> None:
         if not matched:
             continue
         weight = min(n[4] for n in matched)
-        details = []
-        for note in matched:
-            if note[5] not in details:
-                details.append(note[5])
-        detail = "; ".join(details)
+        # ANA-05: the key the finding is actually about comes first. The reads
+        # arrive in dictionary order, so an MLV110 finding entirely about
+        # `shuffle` opened its explanation with `args.workers` - correct
+        # arithmetic, wrong sentence, and it is the sentence a reader sees in
+        # the Problems panel. The rationale is stated ONCE at the end rather
+        # than once per key, which is what made a two-key call site produce a
+        # 300-character row for a one-line finding.
+        facts: List[str] = []
+        for note in sorted(matched, key=lambda n: (not _names(n[5], issue), n[2])):
+            if note[5] not in facts:
+                facts.append(note[5])
+        detail = "; ".join(facts + [CV.derating_rationale(max(n[6] for n in matched))])
         if any(e.detail == detail for e in issue.evidence):
             continue                     # already charged; never charge twice
         issue.evidence.append(Evidence(

@@ -226,7 +226,9 @@ a day, so:
   (or an `.ipynb` when `MLVIEW_INCLUDE_NOTEBOOKS=1`, or `[paths] notebooks = true` is set
   in the project's configuration);
 - it re-analyzes through the **same `load_graph` cache the MCP tools read**, sharing
-  `MLVIEW_DATA_DIR`, so the hook *warms* the cache those tools then read for free;
+  `MLVIEW_DATA_DIR` for the graph document *and* `<MLVIEW_DATA_DIR>/cache` for the
+  per-file parse cache (both halves call `mlview_workspace.cache_dir()`), so the hook
+  *warms* the cache those tools then read for free;
 - it diffs the issue-id set against the previous run and speaks **only when the set grew**,
   at most **5 rows**, worst severity first;
 - it gives up after a **3-second** wall clock and exits 0 in silence;
@@ -257,7 +259,7 @@ set `MLVIEW_PYTHON` and use a bash-capable shell to get it back.
 | `MLVIEW_NO_OPEN=1` | `mlview_open_diagram` writes the report but does not launch a browser (`opened: false`). Used by the tests and by `scripts/e2e`. |
 | `MLVIEW_HOOK` | H8: which hook speaks — unset/`on` (PostToolUse), `stop`, `both`, or `off`. |
 | `MLVIEW_INCLUDE_NOTEBOOKS=1` | H8: treat an `.ipynb` edit as worth re-analyzing for. |
-| `MLVIEW_CACHE_DIR` | The per-file parse cache (CONTRACTS 11.28). The hooks default it into `MLVIEW_DATA_DIR` so nothing is written into the project. |
+| `MLVIEW_CACHE_DIR` | The per-file parse cache (CONTRACTS 11.28), which ships **on** (11.39). The server *and* the hooks default it to `<MLVIEW_DATA_DIR>/cache` — one shared directory, and nothing written into the project. `.mcp.json` names it explicitly as `${CLAUDE_PLUGIN_DATA}/cache`. |
 | `MLVIEW_LOG_LEVEL` | `DEBUG` for verbose stderr logging. |
 
 ## Tests

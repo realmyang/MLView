@@ -42,10 +42,10 @@ import { SearchController } from './ui/searchcontroller.js';
 import { dispatchHostMessage, sanitizeScope } from './protocol.js';
 import { ScopeSession, mergeCollapsed, railScopeCounts, sameScope } from './scope/session.js';
 import { ScopeBar } from './ui/scopebar.js';
-import { PipelineChooser } from './ui/pipelinechooser.js';
+import { PipelineChooser, chooserRows, shouldAskPipeline } from './ui/pipelinechooser.js';
 import { pipelineRows } from './scope/catalog.js';
 import { DiffBar } from './ui/diffbar.js';
-import { adoptDiff, drawnRemoved } from './diff/adopt.js';
+import { adoptDiff, drawnNamed, drawnRemoved } from './diff/adopt.js';
 import { indexOverlay, readOverlay } from './diff/overlay.js';
 import type { DiffIndex } from './diff/overlay.js';
 import { CHANGED_SPEC } from './diff/changed.js';
@@ -532,10 +532,15 @@ export class App implements MLViewApp {
     const graph = this.scopes.full;
     if (!graph || this.scopes.spec || this.pendingScope) return;
     const rows = pipelineRows(graph);
-    if (rows.length < 2) return;
+    // VIEW-R5. Two or more rows is not enough to earn a modal over the first
+    // paint: `workspace.entrypoints` is a ranked heuristic, so on the 54-node
+    // demo it offered a one-node `config.py` as a pipeline and covered the one
+    // screen VIEW-01 exists to protect. `shouldAskPipeline` owns the floor, and
+    // the chooser itself draws only the rows that clear it.
+    if (!shouldAskPipeline(graph, rows)) return;
     this.chooser.show(graph, rows);
     this.announce(
-      'This workspace has ' + rows.length + ' pipelines. Choose one, or show everything.',
+      'This workspace has ' + chooserRows(rows).length + ' pipelines. Choose one, or show everything.',
     );
   }
 
@@ -548,6 +553,16 @@ export class App implements MLViewApp {
     this.pipelineChosen = true;
     if (spec) this.setScope(spec);
     else this.announce('Showing the whole workspace, every pipeline at once.');
+    // VIEW-R7. The chooser opens by itself, so there is no invoking element to
+    // restore to and `hide()` alone drops focus onto <body> — a keyboard reader
+    // would have to tab from the top of the document to reach the diagram they
+    // just chose. Hand focus to the canvas, which owns the roving tab stop, the
+    // same way the shortcuts sheet does when it closes.
+    try {
+      this.view.canvasEl.focus();
+    } catch (_e) {
+      /* a host may have torn the canvas down under us */
+    }
     this.saveSoon();
   }
 
@@ -680,6 +695,7 @@ export class App implements MLViewApp {
       diff,
       changedOnly: this.scopes.changedOnly,
       ghostsDrawn: diff && this.graph ? drawnRemoved(this.graph, diff) : 0,
+      namedDrawn: diff && this.graph ? drawnNamed(this.graph) : 0,
       shown: this.graph ? this.graph.nodes.length : 0,
       of: this.scopes.full ? this.scopes.full.nodes.length : 0,
       changedEmpty: this.scopes.changedOnly && !this.scopes.changedActive,

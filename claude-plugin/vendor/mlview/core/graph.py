@@ -322,6 +322,13 @@ class MLGraph:
     diagnostics: List[Diagnostic] = field(default_factory=list)
     stages: List[StageSummary] = field(default_factory=list)
     truncated: bool = False
+    #: VIEW-R1. Stage ids that had at least one node **before** `--max-nodes`
+    #: rolled the document up. Not serialized and not part of the schema: it
+    #: exists so `_recount_stages` can keep `present` a statement about the
+    #: analyzed workspace after a fold has moved nodes onto a summary node whose
+    #: stage is a majority vote. A rollup must never be able to turn a stage
+    #: that is there into a stage the document says is absent.
+    stagesBeforeRollup: Tuple[str, ...] = ()
     durationMs: int = 0
     generatedAt: str = "1970-01-01T00:00:00Z"
 
@@ -364,9 +371,11 @@ class MLGraph:
             summary = summaries.get(issue.stage)
             if summary is not None:
                 summary.issueCounts[issue.severity] = summary.issueCounts.get(issue.severity, 0) + 1
+        before = set(self.stagesBeforeRollup or ())
         for summary in summaries.values():
             counts = summary.issueCounts
-            summary.present = bool(summary.nodeCount) or any(counts.values())
+            summary.present = (bool(summary.nodeCount) or any(counts.values())
+                               or summary.id in before)
             summary.maxSeverity = next((s for s in ("high", "medium", "low") if counts.get(s)), None)
         self.stages = [summaries[sid] for sid in STAGE_IDS]
 

@@ -159,6 +159,10 @@ def _evaluation_evidence(ctx, loop: LoopIR, calls: Sequence[CallSite]) -> str:
             call.fqn or call.short_name, call.loc.line)
     iterates = loop.iterates
     if iterates is not None and iterates.has("VAL_SPLIT", "TEST_SPLIT"):
+        # IP-01: this ValueRef comes off the loop, not off `ctx.binding_of`, so
+        # it declares its own hop; a region recognised only because a tag
+        # crossed an object boundary must pay for the crossing.
+        ctx.note_hops(iterates, loop.scope)
         return "it iterates %s, which carries the held-out split" % iterates.name
     return ""
 

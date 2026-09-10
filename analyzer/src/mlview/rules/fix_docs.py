@@ -41,8 +41,10 @@ FIX_DOCS: Dict[str, Dict[str, str]] = {
         "safety": NEEDS_REVIEW,
         "title": "Zero the gradients at the top of the batch loop",
         "offered": "the optimizer is a plain dotted name, the `.step()` that proves the "
-                   "finding is inside this loop's own body, and the optimizer is "
-                   "constructed above the insertion point. The call is inserted as the "
+                   "finding is inside this loop's own body, and the optimizer is in "
+                   "scope there - constructed above the insertion point in the same "
+                   "suite, or arriving as a parameter of the edited function, which is "
+                   "bound before the body runs at any line. The call is inserted as the "
                    "first statement of the loop body, at the body's own indentation.",
         "withheld": "the optimizer is an expression (`opts[0].step()`), the step lives "
                     "in a followed callee rather than in the loop, or the loop body "
@@ -59,8 +61,9 @@ FIX_DOCS: Dict[str, Dict[str, str]] = {
                    "first statement of the evaluation function), at that statement's "
                    "own indentation - inside a `with torch.no_grad():` block when that "
                    "is where the loop is.",
-        "withheld": "the model is an expression, or it is constructed below the "
-                    "insertion point. It is `needs-review` because the edit cannot also "
+        "withheld": "the model is an expression, or it is constructed lower down the "
+                    "same suite the edit would be inserted into. It is `needs-review` "
+                    "because the edit cannot also "
                     "restore `model.train()`: where that belongs is a question about "
                     "the caller.",
     },

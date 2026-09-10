@@ -92,7 +92,12 @@ export function folderTooltipLine(
   // `names.length - 1`, not a filter: two folders can legitimately have the SAME name
   // (`api/` under two checkouts), and filtering by name would then report "0 others".
   const others = names.length - 1;
-  return `Folder: ${active} — ${others} other folder${others === 1 ? '' : 's'} in this workspace is not shown here.`;
+  // The verb agrees with the noun: three folders open makes it "2 other folders ... are not
+  // shown here". This is the one sentence that discharges H10's "state what you could not
+  // analyze", and it is read exactly when the user is unsure which folder the counts describe.
+  const noun = others === 1 ? 'folder' : 'folders';
+  const verb = others === 1 ? 'is' : 'are';
+  return `Folder: ${active} — ${others} other ${noun} in this workspace ${verb} not shown here.`;
 }
 
 /** The quick-pick rows for the folder picker. Pure; `detail` is the path a name cannot carry. */

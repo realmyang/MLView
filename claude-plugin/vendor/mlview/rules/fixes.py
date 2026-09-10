@@ -284,15 +284,27 @@ def _first_body_stmt(node: ast.AST) -> Optional[ast.stmt]:
     return head
 
 
-def _defined_after(ref, module, line: int) -> bool:
-    """The value's producer sits at or below `line` in this file.
+def _defined_after(ref, module, line: int, scope=None) -> bool:
+    """The value's producer sits at or below `line` **in the same suite**.
 
     Writing `optimizer.zero_grad()` above the statement that creates the
-    optimizer turns a finding into a `NameError`.
+    optimizer turns a finding into a `NameError` - but only when the two are in
+    the same scope, which is the only case where "above" and "below" order the
+    two statements at run time.
+
+    H5-01: without the scope test this withheld the fix for the ordinary file
+    layout. `def train(model, loader, optimizer)` above `def main()` resolves
+    the parameter to the `torch.optim.AdamW(...)` the caller runs - which is
+    *below* the loop being edited - so the guard fired and the lightbulb was
+    empty for exactly the layout most training scripts use. A parameter of the
+    edited function is bound before its body runs, at any line, so a producer
+    in another scope orders nothing and this must answer False.
     """
     producer = getattr(ref, "producer", None) if ref is not None else None
     loc = getattr(producer, "loc", None)
     if loc is None:
+        return False
+    if scope is not None and getattr(producer, "scope", None) is not scope:
         return False
     return loc.file == module.relpath and loc.line >= line
 
@@ -444,7 +456,8 @@ def zero_grad_fix(ctx, loop, step) -> Optional[Fix]:
     target = _first_body_stmt(node)
     if target is None:
         return None
-    if _defined_after(getattr(step, "receiver", None), module, target.lineno):
+    if _defined_after(getattr(step, "receiver", None), module, target.lineno,
+                      getattr(step, "scope", None)):
         return None
     edit = insert_before_stmt(module, target, "%s.zero_grad(set_to_none=True)" % name)
     return ctx.fix(module, "Zero the gradients at the top of the batch loop",
@@ -472,7 +485,8 @@ def eval_mode_fix(ctx, region) -> Optional[Fix]:
         anchor = _first_body_stmt(getattr(func, "node", None)) if func is not None else None
     if anchor is None or region.loc.file != module.relpath:
         return None
-    if _defined_after(region.model_ref, module, anchor.lineno):
+    if _defined_after(region.model_ref, module, anchor.lineno,
+                      getattr(forward, "scope", None)):
         return None
     edit = insert_before_stmt(module, anchor, "%s.eval()" % name)
     return ctx.fix(module, "Switch %s to eval mode before this region" % name,
