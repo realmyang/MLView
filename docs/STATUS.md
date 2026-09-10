@@ -16,7 +16,7 @@ and PACKAGING added the wheel row) and `tools/verify.py` grew two gate rows
 
 ```
 powershell -ExecutionPolicy Bypass -File scripts/build.ps1   # BUILD OK
-powershell -ExecutionPolicy Bypass -File scripts/e2e.ps1     # E2E OK - 19 steps, 0 failed
+powershell -ExecutionPolicy Bypass -File scripts/e2e.ps1     # E2E OK - 20 steps, 0 failed
 ```
 
 ## Components
@@ -561,7 +561,7 @@ one number the re-baseline was allowed to move and it ratchets **86.3% → 90.6%
 `webview/test/export.test.mjs`), plus the standalone
 `webview/test/export_svg.mjs` over a real analyzer document. Extension **273**,
 plugin **296 passed / 5 skipped**, `tools/verify.py --all` **10/10**,
-`scripts/e2e.sh` **19 steps, 0 failed**.
+`scripts/e2e.sh` **0 failed** (19 rows at that wave; 20 today).
 
 **What this could not analyze.** A Lightning hook reached through a `Trainer`
 built in another module gets no control edge. `take` / `skip` holdouts are drawn
@@ -706,7 +706,7 @@ prefilter was going to discard anyway.
 `tools/perf_equiv.py` gains `--expect-same` / `--expect-diff` so an integrator
 can wire either claim into a gate, and `mixed_corpus()` beside `synth_corpus()`.
 
-**Gates after wave 3.** `sh scripts/e2e.sh` **19 steps, 0 failed, 0 skipped**;
+**Gates after wave 3.** `sh scripts/e2e.sh` **0 failed, 0 skipped** (19 rows then);
 analyzer **1692 passed / 3 skipped**, webview **360**, vscode-extension **274**,
 claude-plugin **296 passed / 5 skipped**; `python tools/verify.py --all`
 **10 / 10** (including `vendor: synced core` and `vsix: synced core` over 79
@@ -923,7 +923,7 @@ end-to-end notebook exercise" gap.
 `test_locations` cases); webview 384 pass (24 NB); vscode-extension 298 pass
 (24 NB); claude-plugin 305 passed / 5 skipped (8 NB); `tools/verify.py --all`
 **10/10**; `tools/accuracy.py` precision **100.0%**, recall 71.4% (NB adds no
-rule, so the ratchet did not move); `sh scripts/e2e.sh` **19 steps, 0 failed**;
+rule, so the ratchet did not move); `sh scripts/e2e.sh` **0 failed** (19 rows then);
 `tsc --noEmit` clean in both TypeScript packages. The bundle ratchet was
 re-measured and **neither cap moved** (JS 269 389 B under 268 KiB, CSS 60 429 B
 under 61 KiB).
@@ -1196,6 +1196,96 @@ the emitted report, never inside a real VS Code webview — there is no `code` C
 on this machine. And ANA-12's unseen half is still small: R10 marks which rules
 have no unseen label, it does not close the gap, and closing it needs labelled
 programs nobody on this project wrote.
+
+## Sprint 5 — process (2026-09-10)
+
+No analyzer, viewer or host behaviour changed in this wave. One CI job that had
+been red since it last ran, one gate row promoted out of the "run it by hand"
+list, and one wrong number in frozen prose.
+
+**CI-MACOS-01. `smoke (macos)` was red, and the assertion was the defect.** The
+job runs only on push to `main` and on pull requests, so run 34419964015 — the
+Sprint-4 merge — was the first time it had executed since Sprint 3, and it
+failed while all thirteen other jobs and the whole local table were green. The
+failure was one test:
+`test_perf_budget.py::test_editing_one_file_re_analyses_fast_and_byte_identically`,
+`AssertionError: the warm run was only 1.15x faster than the cold one (0.98s ->
+0.85s)` against a `DELTA_SPEEDUP = 1.25` bar. **Nothing on that runner was
+broken**: the cache was consulted, hit 501 of 501, and the warm document was
+byte-identical to the cold one — the assertion immediately above the failing one
+proved it on the runner itself. What failed was a **wall-clock ratio**, and a
+ratio is a property of the host. The cache elides exactly one thing, the parse of
+the 450 modules the relevance prefilter was going to discard anyway; reading all
+501 files, the IR fixed point and every rule over the 51 kept modules are paid in
+full by the warm run too. So the ratio measures the host's parse-to-everything-else
+balance — and it drifts towards 1.0 with every rule the analyzer gains. Measured
+on this Mac while fixing it: **1.45x, 1.46x, 1.56x, 1.58x and 2.50x on five runs
+of the same commit**, the bar being 1.25. The bar was thin here and under water
+there, and it was going to redden on somebody's machine whatever the cache did.
+The delta test now asserts what the cache actually controls, as **counts**:
+`("none", 0, 501)` cold, `("partial", 500, 1)` after one file is edited — which
+is CACHE's acceptance sentence, *"only that module's facts are recomputed"*,
+asserted for the first time rather than implied — and `("full", 501, 0)` warm,
+with `--no-cache` consulting nothing at all. Byte-identity is unchanged. Wall
+clock is held to `DELTA_CEILING_S = 8.0`, the item's own *"under 2 s"* acceptance
+with the room for a shared runner that `CEILING_S` above it already carries. Both
+perf tests now print the cold, warm and bytes-only figures they measured, so the
+next person to read a CI log sees the numbers instead of inferring them.
+
+**PROC-12. The 20th e2e step.** `webview/test/export_svg.mjs` — gate row 12d,
+VIEW-07's exporter over a **real** 54-node document rather than the frozen
+`contracts/graph.sample.json` that `npm test` uses — is now `export diagram
+(SVG)` in both drivers, between the clean-report render and the scoped demo
+artifacts, where the `.mlview/graph.json` it reads has just been written. It
+SKIPs itself, with the reason in the table, when that document, the script or
+`webview/dist/mlview.js` is missing. It had been implemented and reverted once
+before because promoting it means editing `ci.yml`, and `origin`'s PAT cannot
+push a workflow file; this time the push went over SSH. Every "19 steps" claim in
+`README.md`, `scripts/README.md`, `ci.yml` and this file moved to 20 —
+`doc_numbers.py` check 11 holds all of them to one number and is what caught the
+last three. Historical wave records above now state their row count as *"19 rows
+then"* rather than as an `N steps` total, because what those paragraphs record is
+what that wave measured, not how big the table is today.
+
+**§11.35. An erratum, not an edit.** `docs/CONTRACTS.md` §11.19 opens with
+*"54 nodes and 52 edges"*; the shipped sample has been 54 / 51 since REV-06
+removed the one backwards `data` edge through `SmallCNN.forward`, later the same
+day §11.19 was written. §11 is append-only, so the repair is a new numbered entry
+correcting the figure and naming the reason, not a two-character edit to a frozen
+amendment. It also writes down why nothing caught it: `check_docs.py` holds every
+document to one graph size, `docs/CONTRACTS.md` is deliberately exempt from that
+rule so a frozen amendment may keep a figure that has since moved, and the price
+of the exemption is that a wrong figure is equally invisible. The exemption
+stays.
+
+**Pushes go over SSH.** `scripts/README.md` now says so as a standing rule rather
+than as a workaround for one file: whether a diff touches `.github/workflows/**`
+is not something to discover after writing the commit. It reverts to a choice
+when the PAT gains the `workflow` scope.
+
+**Gates, all on this Mac.** `sh scripts/e2e.sh` **20 steps, 0 failed, 0 skipped**
+— the 20th being `export diagram (SVG)`, which reports 54 of 54 cards, 51 of 51
+routed edges, every document edge in the picture, 237 `<text>` nodes, 180
+`<rect>`s and nothing to fetch. analyzer **1748 passed / 3 skipped**, webview
+**404**, vscode-extension **308**, claude-plugin **324 passed / 7 skipped**,
+`python tools/verify.py --all` **10/10**, `--scopes` **2/2**, `python
+scripts/check_docs.py` **DOC CHECK OK (19 files)**, `python -m pytest scripts -q`
+**56 passed**, the accuracy corpus **PASS** with the ratchet unmoved (no rule
+changed).
+
+**What this could not analyze.** Why the macOS runner's warm run is the *slow*
+side of its ratio — 0.85 s there against 0.51-0.61 s here, while its cold run is
+the faster of the two at 0.98 s against 0.79-1.35 s — is not established. The
+runner is a 3-vCPU VM and the plausible reading is that its per-file read costs
+more, which is why the perf tests now print the bytes-only figure beside the cold
+and warm ones; that number from a macOS runner is the evidence nobody has yet.
+It does not affect the fix: the fix is that a ratio was never the right unit for
+this assertion. `NARROWING_SPEEDUP = 1.25` in the same file is the same shape of
+bar for PERF-03 and is **left alone** — it passed on that runner and measures
+2.46x here — but it is the same kind of proxy, and the exact `filesAnalyzed`
+counts beside it are what actually catch a prefilter that stopped filtering.
+Nothing here re-measured a CI *cost* figure; gate row 25 carries the run this
+wave pushed.
 
 ## Known gaps
 

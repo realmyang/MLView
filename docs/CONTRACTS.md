@@ -3492,3 +3492,43 @@ that would buy cell granularity, and the SARIF `artifactLocation.uri` for a note
 names the generated module, so a GitHub code-scanning alert on a notebook finding cannot anchor to a
 line of the checked-out commit. R10 marks the gap it found; it does not close it — growing the unseen
 half of the corpus still needs programs nobody on this project wrote.
+
+---
+
+### 11.35 Erratum to §11.19: the demo is 54 nodes and **51** edges (2026-09-10) — corrects §11.19, contracts-owned
+
+§11.19 opens *"`samples/vision_pipeline` grows from **45 nodes and 45 edges** to **54 nodes and 52
+edges**"*. The edge count is wrong, and has been since the day it was written. The shipped sample is
+**54 nodes and 51 edges**. Read §11.19's first sentence as saying 51.
+
+**Why the number moved.** REV-06 landed later on 2026-09-08, in the same release, and it repaired a
+defect §11.19's own work had made visible: `ScopeIR.bindings` was a flat `name -> one ValueRef` map,
+so `x = layer(x)` — the universal PyTorch idiom — wired every consumer to the *last* store of the
+name. The demo drew `data self.pool -> self.stem`, an arrow pointing three lines backwards through
+`SmallCNN.forward`. `binding_history` plus `binding_of(name, scope, at=<consumer line>)` removed
+exactly that one edge and added none, so the graph went 52 → 51. `docs/ROADMAP.md` records both
+halves — the 11.19 measurement note (*"54 nodes / 52 edges — that is the count at the time"*) and
+REV-06 (*"The demo is 54 nodes / 51 edges"*).
+
+**What this erratum does and does not do.**
+
+| # | Rule |
+|---|---|
+| **E1** | **The corrected figure is 54 nodes / 51 edges / 15 findings**, in the 5 / 6 / 4 split §11.19 already states. Only the edge total is corrected. No node, finding, anchor, line, severity or confidence in §11.19 moves, and none of §11.19's normative clauses is amended: A1, A2 and every rule under them stand exactly as written. |
+| **E2** | **The canonical count is still the one §11.19 names** — whatever `python -m mlview analyze samples/vision_pipeline --format summary` prints. It prints `54 nodes · 51 edges · 5 high / 6 medium / 4 low`, and `python tools/verify.py --all` reports the same 54 / 51. A figure in prose is a record of a measurement, never the authority for one. |
+| **E3** | **Nothing in the tree changes.** `contracts/graph.sample.json` is hand-authored, is not this sample, and is untouched; `mlview analyze --demo` stays byte-identical to it; no schema, no emitter and no analyzer behaviour is involved. This entry is prose repairing prose. |
+| **E4** | **A frozen amendment is corrected by a later numbered entry, never by editing it in place.** §11 is append-only: an amendment records what was true when it was written, and a reader who follows a footnote to §11.19 must find the text the rest of the tree was built against. That is why this is 11.35 and not a two-character edit to line 1997 of this file. |
+
+**How it survived.** `scripts/check_docs.py` holds every document to **one** graph size (check 8) —
+that rule is what keeps `README.md`, `docs/STATUS.md` and the rest agreeing on 54 / 51 — but
+`docs/CONTRACTS.md` is in the checker's `SKIP` set, deliberately, because a frozen amendment must be
+allowed to keep a figure that has since moved. The cost of that exemption is that a *wrong* figure
+is equally invisible to it, and this one was, for two days and two sprints. The exemption stays: the
+alternative is a gate that would force amendments to be rewritten, which E4 forbids. What changes is
+that the erratum is now the documented repair for a §11 figure somebody finds to be wrong.
+
+**What this could not analyze.** Nothing here was derived by a tool. The two counts were re-measured
+by hand from the two commands in E2 on 2026-09-10; no gate compares §11 prose against them, and none
+is proposed, for the reason the paragraph above gives. Any other figure quoted in §11.1–11.34 carries
+the same status — a measurement of the tree on the day that entry was written — and this erratum
+asserts nothing about any of them.

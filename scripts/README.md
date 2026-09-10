@@ -31,7 +31,7 @@ minutes are billed 10x and this Mac now runs the whole table locally before ever
 push, so paying tenfold for a signal a laptop already produced bought nothing;
 the pre-merge coverage is unchanged) (see
 `.github/workflows/ci.yml`, and the "Continuous integration" section of the root
-README for the job table). There are four exceptions. Rows 10 and 11: `claude
+README for the job table). There are three exceptions. Rows 10 and 11: `claude
 plugin validate` is not available on a hosted runner, so that test skips itself
 there and those two rows are still verified from a desk (Windows 11, Python 3.13
 / miniconda, Node 20.9, VS Code 1.136, Claude Code CLI 2.1.186). And rows 24 / 24a,
@@ -40,11 +40,13 @@ so they are run by hand around a change rather than on every push — `tools/per
 does support `--record FILE` / `--compare FILE` against a committed digest file,
 and since wave 3 it also states the expectation in the **exit code**
 (`--expect-same` for an optimisation, `--expect-diff` for a re-baseline), which
-is what would turn it into an automatic row. And row 12d, which needs the
-`.mlview/graph.json` an e2e run produces: the assertions it makes about the
-export renderer are also made by row 3a on the frozen `contracts/graph.sample.json`
-inside `npm test`, so what row 12d adds is the same check over a *real* 54-node
-document, run beside `scripts/e2e` rather than inside it.
+is what would turn it into an automatic row. Row 12d used to be the fourth:
+it needs the `.mlview/graph.json` an e2e run produces, so it was run *beside*
+`scripts/e2e` rather than inside it. It is now the table's **20th step**
+(PROC-12) — the assertions it makes about the export renderer are also made by
+row 3a on the frozen `contracts/graph.sample.json` inside `npm test`, and what
+12d adds is the same check over a *real* 54-node document the analyzer emitted a
+moment earlier, on both drivers and in both e2e CI jobs.
 
 `scripts/e2e` runs all of them in one pass; the middle column is how to run just
 that one.
@@ -80,7 +82,7 @@ that one.
 | 12 | Report renders | `node test/render_report.mjs` in `webview` | 20/20 assertions |
 | 12b | Clean report renders | `node test/render_report.mjs ../.mlview/report_clean.html --min-ghosts=0` | 20/20 assertions |
 | 12c | Scoped report renders | `node test/render_report.mjs ../.mlview/evaluation.html --scope=concern:evaluation` | 23/23 assertions — no empty band, badge-free boundary stubs, the breadcrumb still names the project total |
-| 12d | Diagram exports to SVG (by hand, like row 24: it needs `.mlview/graph.json`, which `scripts/e2e` produces) | `node test/export_svg.mjs ../.mlview/graph.json` in `webview` | `SVG EXPORT CHECK OK` — 54 of 54 cards, 51 of 51 routed edges, every document edge reached the picture, the only `http` is the `xmlns`, no `url(` / `foreignObject` / `xlink` / `<image` / `<script` / `@font-face` / `@import` / `var(--`, every drawn lane's stage colour present as a literal, well-formed XML, 237 real `<text>` nodes and 180 `<rect>`s |
+| 12d | Diagram exports to SVG (also the 20th row of `scripts/e2e`, which produces the `.mlview/graph.json` it reads) | `node test/export_svg.mjs ../.mlview/graph.json` in `webview` | `SVG EXPORT CHECK OK` — 54 of 54 cards, 51 of 51 routed edges, every document edge reached the picture, the only `http` is the `xmlns`, no `url(` / `foreignObject` / `xlink` / `<image` / `<script` / `@font-face` / `@import` / `var(--`, every drawn lane's stage colour present as a literal, well-formed XML, 237 real `<text>` nodes and 180 `<rect>`s |
 | 13 | Panel + media bundle | `node --test test/panelhtml.test.js` in `vscode-extension` | 4 pass |
 | 13b | Cross-host scope handshake | `node test/crosshost.mjs ../.mlview/graph.json` in `webview` | 28/28 assertions — the real viewer bundle answers the real extension's `setScope`, and `parseUiToHost` / `scopeChrome` accept what it posts |
 | 14 | Rule docs current | `python analyzer/tools/gen_rule_docs.py --check` | `docs/rules is current (37 pages)` — 36 rule pages plus the index; 7 of the sixteen ANA-7/8/9 pages carry the optional **What it cannot analyze** section (11.26 A14) |
@@ -88,7 +90,7 @@ that one.
 | 16 | Golden parity | `python -m mlview analyze --demo --json -` vs `contracts/graph.sample.json` | byte-identical, 46 078 bytes |
 | 17 | Emitted docs valid | `python contracts/validate_sample.py .mlview/graph.json` | schema 1.0 + 10 invariant groups, 54 nodes / 51 edges / 15 issues |
 | 18 | Docs match the tree | `python scripts/check_docs.py` | 19 files (16 docs + 3 shell scripts), no dead paths, every known gap anchored, no build state in a plan doc, LF in every shell script, one graph size, the accuracy headline equal to the baseline, no silent artifact upload, one e2e step count, every shipped roadmap item recorded as landed |
-| 19 | End to end | `powershell -ExecutionPolicy Bypass -File scripts/e2e.ps1` | `E2E OK` — 19 steps, 0 failed |
+| 19 | End to end | `powershell -ExecutionPolicy Bypass -File scripts/e2e.ps1` | `E2E OK` — 20 steps, 0 failed |
 | 20 | Scoped demo artifacts | `python -m mlview analyze samples/vision_pipeline --scope concern:evaluation --depth 1 --html .mlview/evaluation.html` | 17 of 54 nodes (7 core / 7 boundary / 3 context), `data-mlview-scope` and `data-mlview-depth` set on the root |
 | 21 | Scope catalogue | `python -m mlview analyze samples/vision_pipeline --list-scopes` | 10 scopable units, biggest first |
 | 22 | Bytecode residue never poisons the vendor gate | `python -m pytest claude-plugin/tests/test_vendor_bytecode.py -q` | 3 passed — pytest over a throwaway vendored tree writes no `__pycache__` with the flag set and does write one without it, and `sync-core --check` prunes planted residue and stays green |
@@ -99,7 +101,7 @@ that one.
 | 24a | …with the verdict in the exit code | `python tools/perf_equiv.py --compare FILE --expect-same` | `perf_equiv: OK - every corpus is byte-identical`, **exit 0** — PERF-03's `--relevance all` path and the whole of CACHE claim exactly this. `--expect-diff` on the same pair exits **1** (`FAILED - --expect-diff, but every corpus is byte-identical`), which is what a re-baseline that never took effect looks like; either flag with no baseline exits 1 rather than passing silently. **NB claims exactly this for its default path**: against the pre-wave-4 analyzer, `vision_pipeline`, `vision_pipeline_clean` and `tests_clean` are all `identical` and the run exits 0 — `--include-notebooks` is the only thing that changes a document |
 | 24b | Relevance prefilter (PERF-03) | `python -m pytest analyzer/tests/core/test_relevance.py -q` | 24 passed — seeds derived from the knowledge tables, k-hop BFS in both directions **after** ANA-3 re-export resolution (`train.py → pkg → pkg/net.py` is one hop), the refusal (no seed ⇒ nothing set aside), and one `config_warning` naming the count and both widening flags |
 | 24c | Per-file fact cache (CACHE) | `python -m pytest analyzer/tests/core/test_cache.py -q` | 31 passed — a warm run is **byte-identical** to `--no-cache`, an edited file is `cached: partial` and still byte-identical, a forged or foreign-identity sidecar is ignored rather than obeyed, and nothing is opened or written at all under the shipped `--relevance all` default. The 31st stands a Windows in for this platform and asserts the MAC secret reads back **byte-identical** to what was written — without `os.O_BINARY` the ~12% of 32-byte keys containing an `0x0A` are CR-mangled on write and the cache is permanently, silently disabled |
-| 24d | Perf budget | `python -m pytest analyzer/tests/core/test_perf_budget.py -q` | 6 passed (adds ~20 s: it builds a 500-file corpus and runs six analyses) — the narrowing ratio, the set-aside diagnostic, the edited-file delta and the sample's byte-identity |
+| 24d | Perf budget | `python -m pytest analyzer/tests/core/test_perf_budget.py -q` | 6 passed (adds ~20 s: it builds a 500-file corpus and runs six analyses) — the narrowing ratio, the set-aside diagnostic, the edited-file delta and the sample's byte-identity. The delta row asserts the cache in **hits**, not in seconds: 0/501 cold, 500/1 after one file is edited, 501/0 warm, the warm document byte-identical to the cold one, and wall clock only against an absolute ceiling. A cold-over-warm *ratio* measured 1.45x–2.50x across five runs on this Mac and 1.15x on `macos-latest`, which is what reddened `smoke (macos)` on run 34419964015 (CI-MACOS-01) |
 | 26 | Wheel installs and runs | `python tools/wheel_check.py` (also a row in `scripts/e2e`) | `wheel-check: OK mlview-0.1.0-py3-none-any.whl -> mlview 0.1.0, 4 node(s), 2 issue(s) in a clean venv` — built with `python -m build --wheel analyzer`, installed into a throwaway venv, run through the **console script**, then one real analysis so a wheel missing `schema/*.json` cannot pass |
 | 27 | VSIX packages and stays small | `npm run package` in `vscode-extension`, then `python scripts/vsix_check.py` | `vsix-check: OK mlview-0.1.0.vsix: 128 files, 604.57 KB (59.0% of the 1 MB ceiling), 81 under extension/core/, 37 rule page(s), 0 bytecode entr(y/ies)` — packaged with no `--allow-missing-repository`. **The checker is the gate, not this row** (HOST-8): the file count and the KB moved twice in Sprint 4 while two hand-copied prose figures did not, so `scripts/vsix_check.py` re-derives all of them — the ceiling, `extension/core/` against `vscode-extension/core` on disk, `extension/docs/rules` against `docs/rules`, and zero `__pycache__` — and echoes what it measured. CI runs it in the `packaging` job, and `scripts/test_vsix_check.py` negative-tests each rule against a synthetic package |
 | 28 | The icon is what its script renders | `python vscode-extension/tools/make_icon.py --check` | `make_icon: OK ... matches (890 bytes, 128x128)` |
@@ -352,13 +354,18 @@ PAT with no `workflow` scope, so GitHub rejects any push whose diff touches
 changes, and including the `packaging` job's `scripts/vsix_check.py` step. Push
 those over **SSH** (`git remote set-url origin git@github.com:realmyang/MLView.git`,
 or a one-off `git push git@github.com:realmyang/MLView.git HEAD:<branch>`), or
-add the `workflow` scope to the PAT. This is written down because it has already
-cost work once: a **20th e2e step** — `webview/test/export_svg.mjs`, gate row 12d,
-wired into both drivers — was implemented, passed, and then reverted, because
-promoting it also means editing the two "19-step" comments in `ci.yml` to keep
-`doc_numbers.py`'s step-count rule green, and that push could not be made over
-HTTPS. That promotion is still owed; it is two lines in each driver plus those
-two comments.
+add the `workflow` scope to the PAT. **Until the PAT gains that scope, every
+push on this project goes over SSH** — `git push git@github.com:realmyang/MLView.git HEAD:<branch>`
+— because whether a given diff touches a workflow file is not something to
+discover after writing the commit.
+
+This is written down because it has already cost work once: a **20th e2e step**
+— `webview/test/export_svg.mjs`, gate row 12d, wired into both drivers — was
+implemented, passed, and then reverted, because promoting it also means editing
+the two "19-step" comments in `ci.yml` to keep `doc_numbers.py`'s step-count
+rule green, and that push could not be made over HTTPS. **That promotion landed
+in Sprint 5** (PROC-12), over SSH: the step is `export diagram (SVG)` in both
+drivers and the table is 20 rows.
 
 ## Environment
 

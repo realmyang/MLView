@@ -356,8 +356,8 @@ three of which fan out over a matrix:
 | `claude-plugin` | ubuntu, Python 3.13 | the plugin suite under `pytest -n auto`, then `tools/sync-core.py --check` |
 | `webview` | ubuntu x Node 20 / 22 | `npm run check`, `build`, `test`, then `tools/sync-assets.py --check` against the bundle just built |
 | `vscode-extension` | ubuntu, Node 20 | `npm run check`, `compile`, `test`, and the doc gate with its self-test |
-| `e2e (ubuntu, sh)` | ubuntu, Python 3.13 + Node 20 | `sh scripts/e2e.sh` — all 19 steps, uploading the emitted reports |
-| `e2e (windows, powershell)` | windows, Python 3.13 + Node 20 | `scripts/e2e.ps1` — the same 19 steps under the other driver |
+| `e2e (ubuntu, sh)` | ubuntu, Python 3.13 + Node 20 | `sh scripts/e2e.sh` — all 20 steps, uploading the emitted reports |
+| `e2e (windows, powershell)` | windows, Python 3.13 + Node 20 | `scripts/e2e.ps1` — the same 20 steps under the other driver |
 | `smoke (macos)` | macos, Python 3.13 + Node 20 | the analyzer and viewer suites — **only on push to `main` and on pull requests** |
 | `packaging (wheel + vsix)` | ubuntu, Python 3.13 + Node 20 | `tools/wheel_check.py` (build the wheel, `pip install` it into a throwaway venv, analyze with it), `sync-core.py --check`, `make_icon.py --check`, `npm run package`, then `scripts/vsix_check.py` — the 1 MB ceiling, the whole bundled analyzer, every rule page, no `__pycache__`, with the measured figures echoed |
 | `accuracy corpus` | ubuntu, Python 3.13 | `tools/accuracy.py` over the ten labelled programs, then `pytest analyzer/tests/accuracy` — zero `forbidden` findings, and recall and graph fidelity may only ratchet up |
