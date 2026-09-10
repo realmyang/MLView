@@ -94,11 +94,19 @@ def test_local_is_the_default_and_the_flag_is_the_identity():
 
 
 def _stable(doc):
-    """The document minus the two fields that move with the clock."""
+    """The document minus the two fields that move with the clock.
+
+    CONTRACTS section 0 names them exactly: `generator.generatedAt` and
+    `stats.durationMs` are the only fields excluded from an equality
+    comparison. This used to pop `generatedAt` at the TOP level, where it does
+    not live, so the timestamp stayed in the compared string and the two
+    assertions below were a coin flip on whether the two runs landed in the
+    same second -- red on `analyzer (py3.12)` of CI run 34435249830 for one
+    character, `...03:57:01Z` against `...03:57:02Z`.
+    """
     copy = json.loads(json.dumps(doc))
-    copy.pop("generatedAt", None)
+    copy.get("generator", {}).pop("generatedAt", None)
     copy.get("stats", {}).pop("durationMs", None)
-    copy.pop("durationMs", None)
     return json.dumps(copy, sort_keys=True)
 
 
