@@ -49,8 +49,14 @@ test('activate registers every command unconditionally and never throws', () => 
       // would be broken from the palette) - but they register unconditionally, here.
       'mlview.activeFolder',
       'mlview.addIgnoreComment',
+      // H5 (11.42): the structured-fix command. Argument-taking like the three above, so it
+      // is registered here and deliberately NOT contributed to the palette.
+      'mlview.applyFix',
       // CONTRACTS.md 11.11 added the two scope commands; they register unconditionally too.
       'mlview.clearScope',
+      // VIEW-08 (11.42): the three comparison commands, all contributed AND registered.
+      'mlview.compareWithBase',
+      'mlview.compareWithCleanSample',
       'mlview.copyIgnoreComment',
       // CFG-ONE (11.40): the two configuration commands.
       'mlview.createBaseline',
@@ -62,6 +68,7 @@ test('activate registers every command unconditionally and never throws', () => 
       'mlview.openConfiguration',
       'mlview.refresh',
       'mlview.revealInDiagram',
+      'mlview.saveComparisonBase',
       'mlview.scopeToSymbol',
       'mlview.selectInterpreter',
       'mlview.showIssues',

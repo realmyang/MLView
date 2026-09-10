@@ -1512,6 +1512,251 @@ vscode-extension **336**; claude-plugin **356 passed / 7 skipped**;
 and `--dataflow ip` **78.2% / 63.8%**, both `accuracy gate: PASS`, zero forbidden
 findings; `tsc --noEmit` clean in both TypeScript packages.
 
+## Sprint 5 — hosts, wave 2 (2026-09-10)
+
+Two LATER items and one correction, all in the two host adapters. Both items are
+halves of work the analyzer shipped in the same sprint: H5's `Issue.fix` had no
+button and VIEW-08's `mlview diff` had no surface. `docs/CONTRACTS.md` §11.43 is
+the amendment; it amends §4, §6, §9, 11.40 C2 and 11.42 I.3, and adds no schema
+field — `contracts/graph.sample.json` is untouched and an unscoped `analyze` still
+emits the bytes it always emitted.
+
+**A fix you preview, never one that is applied for you (H5, host half).**
+`vscode-extension/src/fixes.ts` turns an opted-in `Issue.fix` into a `QuickFix`
+code action. The module is the guardrails: `providedCodeActionKinds` is
+`[QuickFix]` and never `source.fixAll` — that is the kind
+`editor.codeActionsOnSave` runs unattended; `isPreferred` is derived from
+`safety` and from nothing else, so `Ctrl+.`+Enter cannot land on a
+`needs-review` judgement call; every `WorkspaceEdit` entry carries
+`needsConfirmation` and the apply passes `isRefactoring`, so VS Code routes the
+change through the refactor **preview**; and the `certain`/`likely` floor is
+re-checked here even though the analyzer already enforced it, because this is the
+module that does the damage if the producer is wrong. `readFix` validates the
+whole shape defensively — it arrives from a child process — and one bad edit sinks
+the whole fix, because half a fix is a broken file. Containment is
+`codeActions.writableFile`, the guard `suppressRule` already used.
+
+11.42 I.3 asked the host amendment to say what it does about **stale
+coordinates**. The document carries no content hash, so the host cannot prove the
+source is unchanged; it proves the two ways it is certainly wrong, before the
+preview rather than after the write — the buffer has unsaved changes (the analysis
+read the file on disk), or the edit's end line is past the end of the buffer. Both
+are refusals naming the file. A file edited, saved and left the same length still
+passes, and §11.43 I.1 says so rather than implying more.
+
+The viewer reaches the same code path with `applyFix`, the fourteenth `UiToHost`
+message, which carries the **issue id and nothing else**: the edits are read from
+the host's own copy of the graph, so a webview can never dictate a range or a
+replacement string.
+
+**Comparing two analyses in the editor (VIEW-08, host half).** Three commands in
+`vscode-extension/src/compare.ts`: `Save Current Graph As Comparison Base` writes
+the analysis you are looking at to `.mlview/comparison-base.json` **verbatim**,
+with no second analysis — a diff whose two sides came from two different runs is
+the mistake §11.38 D orders the summary to make visible; `Compare With Saved Base`
+re-analyzes, runs `mlview diff base head --json -` through the same `CoreClient`
+seam every analysis uses, and posts `diffOverlay`, the fifteenth `HostToUi`
+message; `Compare With Clean Sample` does the same with `samples/vision_pipeline_clean`
+as the base. The overlay is an optional **sibling** of the graph and is typed only
+as far as the host reads it, so the viewer owns the rendering and the host owns
+the transport.
+
+Two honesty rules travel with it. Every entry of the overlay's `notes[]` goes to
+the output channel verbatim and the toast says how many there are — *"−16 nodes"*
+is a claim about two documents, not about the code, and §11.38 C is the list of
+innocent reasons an id can be missing. And a comparison **dies with the document
+it described**: `postGraph` clears any outstanding overlay, because a stale
+*"0 new findings"* drawn over a freshly analyzed diagram is a confident wrong
+answer.
+
+**The plugin: a `diff` scope, not a sixth tool.** `mlview_graph {scope: "diff",
+base: "<earlier analyze --json document>"}` returns `{content, summary{headline,
+nodes, edges, issues}, note, basePath}` — a diff is another projection of the same
+graph, which is the argument §11.1 already makes for `stage:` and `unit:`.
+`claude-plugin/server/mlview_diff.py` is the boundary; the comparison is
+`mlview.core.diff`'s. A `base` that is not an MLView graph — a diff overlay
+included — is an **error naming the file**, never an empty comparison, because
+*"0 changes"* is the most dangerous wrong answer this projection can give. Its
+caveats ride the payload's protected `note` key, so the 4 KB budget sheds rows and
+never the sentence that a rename reads as everything removed plus everything
+added. `/mlview-issues` documents `--diff-base <file>`, and its `Bash` fallback is
+three runnable lines because `tests/test_command_arguments.py` executes every
+documented fallback.
+
+**CFG-ONE, the clause asserted on the wrong pair.** 11.40 C2 says *"`mlview.disabledRules`
+and `mlview.exclude` are additive filters on top … Both settings' `markdownDescription`
+say this in those words"*. The wave-1 test asserted it on `mlview.configPath` and
+`mlview.baselinePath` instead, so the two rows a user actually reads while typing a
+rule code said nothing about precedence at all. Both now carry the claim — additive,
+the file wins, *"cannot re-enable a rule the file disabled"* / *"cannot re-include a
+path the file excluded"* — each naming the table it loses to, and `test/config.test.js`
+asserts it in both directions. No setting was added; the contributed set is still 16.
+
+**Measured on this branch.** `npm run check` clean; `npm test` **371 tests, 371
+pass** (was 336 after wave 1; +19 `fixes.test.js`, +15 `compare.test.js`, +1
+`config.test.js`). `pytest claude-plugin/tests -q` **365 passed, 7 skipped, 1
+failed** at the time this half was measured — the failure was
+`test_sync_core_check_is_green_after_this_suite_imported_the_vendored_core`, red
+because the concurrent analyzer wave had added `ir/config_shapes.py` and
+`ir/config_values.py` that `tools/sync-core.py` had not yet vendored; nothing in
+this half touches `claude-plugin/vendor`, and one `tools/sync-core.py` at the end
+of the wave closed it (**366 passed / 7 skipped** integrated). `src/panel.ts` and `src/extension.ts`
+reached the ~600-line budget and were split with no behaviour change:
+`src/panelOpen.ts` takes `openLocation` and `rangeFromLoc`, `src/visualizeCommands.ts`
+takes the three "show me the diagram" commands.
+
+## Sprint 5 — analyzer, viewer and integration, wave 2 (2026-09-10)
+
+Three LATER items in one wave, and they share a property that is the reason the
+three amendments were written together: **each of them ships a field that may
+not be there.** `Issue.fix` exists only on the five rules that opted in, the
+`mlview-diff` overlay is a separate document a host may never send, and ANA-10's
+resolved value is a literal a container may never yield. A reader that renders
+any of them badly when they are absent breaks every document that predates them,
+so the first rule in each half is what happens when the field is missing.
+`docs/CONTRACTS.md` §11.42 (analyzer fixes), §11.43 (hosts), §11.44 (renderer)
+and §11.45 (config resolution) are the amendments; **no schema field became
+required, `contracts/graph.sample.json` is untouched, and `analyze --demo` is
+byte-identical to it at 46 078 bytes.**
+
+**H5 — a fix computed from the AST, offered, and never applied.** The lead
+lifted `REQUIREMENTS.md` §5 non-goal 5 with its five guardrails, and every one of
+them is enforced in code rather than by convention.
+`analyzer/src/mlview/rules/fixes.py` is the only module in MLView that
+constructs a `TextEdit`; 31 of the 36 rules are byte-identical, and a test fails
+if any rule outside `FIX_CODES` passes `fix=`. Every position comes from an `ast`
+node — indentation for an inserted statement is the target statement's own
+`col_offset`, so `MLV201_nested_loop_bad.py` indents to column 20 and
+`MLV301_with_block_bad.py` inserts *inside* a `with torch.no_grad():` block —
+and there is no substring search anywhere in the module. `GraphContext.issue`
+attaches a fix only when the bucket the user is shown is `certain` or `likely`,
+asserted from both sides by one rule: the new unseeded MLV602 fixture is
+`certain` and gets an edit, while `fixtures/rules/MLV602_bad.py` seeds globally,
+lands `possible`, and gets none. `mechanical` means one keyword at one call site
+(MLV111, MLV602); anything that inserts a statement into a training loop is
+`needs-review` (MLV201, MLV301, MLV302), because gradient accumulation is a
+deliberately missing `zero_grad()`. Nothing in the analyzer writes to a file.
+
+The acceptance is structural rather than pinned by examples: `build_fix` applies
+every candidate to a copy of the module source *in memory* and runs `ast.parse`
+over the result, discarding a candidate that does not parse — and
+`analyzer/tests/rules/test_fixes.py`'s five parametrized
+`test_fix_makes_the_rule_stop_firing` cases apply the edits, re-analyse the
+fixture as a workspace, and assert the rule stops firing **and** that the code
+set gains nothing new. 44 tests. The demo publishes five fixes (MLV201
+`train.py:30`, MLV301 `train.py:44`, MLV302 `train.py:41`, MLV111 `data.py:35`,
+MLV602 `sklearn_baseline.py:27`) and the clean twin still yields 0 issues and
+0 fixes.
+
+**ANA-10 — configuration resolved in Python, and the deferred half said out
+loud.** `analyzer/src/mlview/ir/config_shapes.py`, `ir/config_values.py` and
+`ir/config_calls.py` resolve four shapes and nothing else, at the end of
+`bind_module`: module-level dict literals, `dataclass` field defaults (nested
+through `field(default_factory=…)`), `argparse add_argument(default=)` keyed by
+`dest`, and the attribute/subscript chains rooted at any of them.
+`cfg.data.workers` and `CFG["workers"]` are **one dotted path**, because that is
+what a `DictConfig`, a `SimpleNamespace` and a dataclass all make them. No rule
+changed: each scalar leaf becomes an ordinary `ValueRef` carrying `literal`, so
+`rules/helpers.literal_of` picks it up, and `CallSite.kwargs` is filled from the
+container for keys the call site did not write, with the call site always
+winning. `core/config_nodes.py` maps every alias of a container onto the one node
+it already has, so `config`-kind edges now run from `CFG` into each consuming
+unit across files, and a `getattr` registry draws a selection node in both
+branches — `selects torch.optim.AdamW` when the string resolved, `one of 2 in
+factories · Alpha, Beta` at confidence 1/N when it did not — inventing an FQN in
+neither.
+
+The de-rating the roadmap demanded is one visible evidence factor, not a hidden
+constant: `CONFIG_EVIDENCE_WEIGHT = 0.8`, once for the read and once more per
+hop, so the highest registered prior lands at 0.98 × 0.8 = **0.784** and a config
+read can never mint a `certain` finding. Travel is import (free), declared
+default and argument→parameter (one hop each), capped at two, and **intersection,
+never union**: a parameter takes a container only when every recorded call site
+agrees. The probe ladder reads `num_workers=4` certain 0.98, `WORKERS` certain
+0.98, `CFG["workers"]` **likely 0.784**, `cfg.data.workers` **likely 0.784**, one
+hop possible 0.627. The false statement the roadmap named is gone:
+`DataLoader(ds, shuffle=CFG["shuffle"])` with `CFG["shuffle"] = True` no longer
+reports *"shuffle=unset (defaults to False)"*.
+
+**VIEW-08 — the diff a reader can see, in the viewer and in both hosts.**
+`webview/src/diff/overlay.ts` accepts a §11.38 overlay from three routes (the
+`diffOverlay` message, `window.MLViewDiff`, and a
+`<script type="application/json" id="mlview-diff">` block read at mount) and
+anything that is not a v1 `mlview-diff` degrades to no overlay, so a document
+that predates the feature draws byte-for-byte what it always drew. The
+acceptance's second clause is met the way it was written:
+`webview/src/diff/changed.ts` **reuses the scope projection** — `projectResolved()`
+was extracted out of `scope/project.ts`, so "changed only" is core = every
+non-`unchanged` node and boundary = one hop, boundary stubs stay badge-free,
+`nodeIds[0]` stays rotated onto a core node, and the rail still reports the
+findings outside the view. In VS Code, `vscode-extension/src/compare.ts` adds
+`Save Current Graph As Comparison Base`, `Compare With Saved Base` and
+`Compare With Clean Sample`; the host **computes nothing** — it writes the
+analysed document verbatim, stages the head in its own `globalStorageUri` and
+shells out to `python -X utf8 -m mlview diff` — and `mlview_graph(scope="diff",
+base=…)` gives the plugin the same answer without a sixth tool. One latent bug
+was repaired in passing: `App.applyProjection` reused `this.fullIndex` whenever
+`scopes.spec === null`, which was correct while a scope was the only way to
+narrow a document and drew every node a diff projection had just removed.
+
+**CFG-ONE — one clause, asserted on the wrong pair of settings.** §11.40 C2
+requires `mlview.disabledRules` and `mlview.exclude` to state the precedence *in
+those words*; the wave-1 test asserted it on `mlview.configPath` and
+`mlview.baselinePath`, so the two rows a user reads while typing a rule code said
+nothing about precedence at all. Both now carry the claim — additive, the file
+wins, *"cannot re-enable a rule the file disabled"* / *"cannot re-include a path
+the file excluded"* — each naming the table it loses to, and
+`vscode-extension/test/config.test.js` asserts it in both directions. No setting
+was added; the contributed set is still 16.
+
+**The accuracy re-baseline, and who earned it.** `analyzer/tests/accuracy/baseline.json`
+and its `--dataflow ip` twin were re-recorded once for the whole wave rather than
+once per agent, and the move belongs entirely to ANA-10. Measured A/B on this
+tree with `ir.bindings._resolve_config` stubbed to a no-op: overall recall
+**71.8% → 73.1%**, visible 64.1% → 65.4%, high+medium 63.2% → 64.9%, unseen
+**53.2% → 55.3%**, graph fidelity **126 → 127 of 139**; in `ip`, 78.2% → **79.5%**
+and unseen 63.8% → **66.0%**. Precision stays **100.0%** and forbidden findings
+stay **0** in both modes. The single new finding is a planted defect — MLV201 at
+`hydra_research/src/train.py:35`, *"gradients are never zeroed"*, reachable only
+because the `getattr` selection makes `optimizer_for(...)` resolve to an
+optimizer — and `hydra_research`'s graph fidelity moves 75.0% → 81.2% with it.
+H5 is finding-neutral by construction and moved nothing: measured with and
+without the field on the same tree, `tools/accuracy.py` is identical to the
+character, so §11.42 C4's figures were corrected at integration to say that
+rather than to quote a number ANA-10 had since moved. **No fixture was
+regenerated.** `analyze --demo --format json` is still byte-identical to
+`contracts/graph.sample.json`, and `samples/vision_pipeline` still analyses to
+54 nodes / 51 edges / 15 issues — ANA-10 moved graphs in the accuracy corpus
+(`hydra_research` 47 nodes / 44 edges / 0 config edges → 49 / 49 / 3) and in
+nothing that is checked in as a golden.
+
+**Gates, all re-run on this Mac at the integrated tree.** `sh scripts/e2e.sh`
+**20 steps, 0 failed, 0 skipped**; analyzer **1929 passed / 4 skipped** (1722 / 3
+at the sprint baseline); webview **473 tests** (384); vscode-extension **371
+tests** (298); claude-plugin **366 passed / 7 skipped** (305 / 5);
+`npx tsc --noEmit` clean in both TypeScript packages; `python tools/verify.py --all`
+**10 of 10**, including `parity: CLI vs MCP — 54 nodes, 51 edges, byte-identical`
+and both vendored-core gates after one `tools/sync-assets.py` +
+`tools/sync-core.py` at the end of the wave;
+`python tools/verify.py --scopes --fuzz 200` **4 of 4** (200 cases over 40
+generated graphs, 6–370 nodes, python == typescript);
+`python tools/accuracy.py` **PASS** — precision **100.0%** on 36 rules, recall
+**73.1%** / 65.4% visible / 64.9% high+medium over 15 programs and 78 labels,
+unseen 55.3% / 42.5% / 37.5%, graph fidelity **91.4%** (127 of 139), zero
+forbidden findings — and `--dataflow ip` **PASS** at 79.5% / 66.0% unseen against
+its own ratchet; `pytest analyzer/tests/core/test_perf_budget.py` **6 passed**
+(PREFILTER 501 files 2.81 s → 51 files 1.69 s, 1.66×; CACHE cold 1.56 s → warm
+0.63 s, 2.48×); `python scripts/check_docs.py` **DOC CHECK OK** (19 files).
+
+**Two integration edits outside any agent's ownership, both recorded here.**
+`docs/STATUS.md`'s known-gap bullet about the editor's comparison cited nothing a
+gate could check and has been rewritten around `compareWithSavedBase` in
+`vscode-extension/src/compare.ts`, which is the honest residue of it — the
+viewer half it described as missing landed in this same wave. And §11.42 C4's
+accuracy figures were corrected as described above. Nothing else in any
+component was edited at integration.
+
+
 ## Known gaps
 
 None block the demo. In rough order of how likely they are to matter:
@@ -1551,6 +1796,27 @@ None block the demo. In rough order of how likely they are to matter:
   package whose own `__init__.py` is empty is told twice that it is a
   single-file analysis. Both notes are true and both name the file; the reader
   is merely told twice.
+- **A structured fix still lands at coordinates nobody can prove are current.**
+  `vscode-extension/src/fixes.ts` refuses the two provable failures — an unsaved
+  buffer and a file shorter than the analysis saw — and VS Code's refactor preview
+  shows the diff before anything is written. Neither is a proof: a file edited,
+  **saved** and left the same length passes both checks, and the edit lands at a
+  line that has moved. The honest fix is a content hash on the document, which
+  11.42 I.3 declined to add; until then the preview is the last line of defence.
+- **The lightbulb and the Problems panel can disagree about which findings exist.**
+  Code actions are matched against the **graph**, so a finding below
+  `mlview.minConfidence` (default 0.6) but at or above the `likely` bucket gets a
+  lightbulb with no squiggle beside it. That is deliberate — the floor for an EDIT
+  is 11.42 B3's, not a display preference — but a user who filters the Problems
+  panel down is not filtering the fixes.
+- **The host cannot say what a comparison base was captured from.**
+  `compareWithSavedBase` in `vscode-extension/src/compare.ts` re-analyses the head
+  and hands both documents to `python -m mlview diff`; nothing records the commit,
+  the working-tree state or the settings the base was analysed under, so a base
+  captured before a change and one captured after it are indistinguishable. The
+  overlay's `different-analyzers` note covers a version change and nothing covers a
+  settings change; the base file's mtime is the only clue and the host does not
+  read it.
 - **The multi-root diagram still shows one folder at a time.** A window with
   several folders open has one panel and one status bar; `folderTooltipLine` in
   `vscode-extension/src/folders.ts` names the folder the count describes and how

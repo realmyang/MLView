@@ -184,6 +184,14 @@ class Issue:
     baselined: bool = False
     #: `change` - `new` / `touched` / `existing` against a diff.
     change: Optional[str] = None
+    #: H5. `rules.fixes.Fix` - an opt-in structured edit, attached by
+    #: `GraphContext.issue` only for a rule that asked for one AND a finding
+    #: that reached the `likely` bucket. Appended last and defaulted for the
+    #: same reason as the two above, and emitted only when set, so every run of
+    #: every rule that did not opt in is byte-identical to what it was before
+    #: this field existed. Typed loosely on purpose: `core` must not import
+    #: `rules`, and everything this object owes the document is `to_dict()`.
+    fix: Optional[Any] = None
 
     @property
     def confidenceBucket(self) -> str:
@@ -216,6 +224,8 @@ class Issue:
             out["baselined"] = True
         if self.change:
             out["change"] = self.change
+        if self.fix is not None:
+            out["fix"] = self.fix.to_dict()
         out["docs"] = self.docs or ("docs/rules/%s.md" % self.code)
         return out
 

@@ -7,9 +7,33 @@ import { el, add, middleTruncate, locSpan } from '../dom.js';
 import { locSpoken } from '../notebook.js';
 import { kindIcon, uiIcon, isKnownKind } from '../icons.js';
 import { severityBadge, severityCluster, highestSeverity, countsTotal } from '../markers.js';
+import { alternativeCount, configSpoken, configSublabel, isAlternatives, resolvedConfig } from '../config/resolved.js';
 import type { IssueCounts, MLNode } from '../types.js';
 import type { LayoutBox, LayoutLane } from '../layout/layout.js';
 import { chipCandidates } from '../layout/cardmetrics.js';
+
+/**
+ * VIEW-08. How each diff status reads on a card, and to a screen reader.
+ *
+ * `added` gets a LEDGE — a small tab on the card's leading edge — because it has
+ * to be legible at the compact LOD where the chip row is not drawn at all, and
+ * because it must not be confused with the severity badge on the opposite
+ * corner. `removed` reuses the ghost outline that already means "this is not
+ * here", with its own word so the two absences are told apart. `changed` gets a
+ * chip, which is the lightest of the three on purpose: most changed nodes are
+ * changed in one field.
+ */
+const DIFF_WORD: Record<string, string> = {
+  added: 'added',
+  removed: 'removed',
+  changed: 'changed',
+};
+
+const DIFF_SPOKEN: Record<string, string> = {
+  added: 'added in this change',
+  removed: 'removed in this change, drawn where it used to be',
+  changed: 'changed in this change',
+};
 
 export interface NodeVisual {
   node: MLNode;
@@ -140,10 +164,22 @@ export function chipsFor(node: MLNode, metrics?: ChipMetrics | null, budget = 26
 export function ariaLabelFor(v: NodeVisual): string {
   const n = v.node;
   const bits: string[] = [];
-  if (n.ghost) bits.push('Missing step: ' + n.label);
+  // VIEW-08: a resurrected ghost is a REMOVED node, not a missing step. Saying
+  // "Missing step" over it would name the wrong kind of absence.
+  if (n.diffStatus === 'removed') bits.push('Removed: ' + n.label);
+  else if (n.ghost) bits.push('Missing step: ' + n.label);
   else bits.push((isKnownKind(n.kind) ? n.kind.replace(/_/g, ' ') : 'node') + ' ' + n.label);
   bits.push(stageOf(n) + ' stage');
   bits.push(locSpoken(n.loc));
+  // ANA-10: the resolved value, spoken. A config card that reads "batch_size"
+  // to a screen reader and "batch_size = 64" on screen is two different cards.
+  const config = configSpoken(n);
+  if (config) bits.push(config);
+  const diff = n.diffStatus ? DIFF_SPOKEN[n.diffStatus] : '';
+  if (diff) bits.push(diff);
+  if (n.diffStatus === 'changed' && (n.diffChanged || []).length) {
+    bits.push('what changed: ' + (n.diffChanged || []).join(', '));
+  }
   const total = countsTotal(v.counts);
   const top = highestSeverity(v.counts);
   if (total > 0) bits.push(total + (total === 1 ? ' issue' : ' issues') + ', highest severity ' + top);
@@ -183,7 +219,29 @@ export function buildNodeCard(v: NodeVisual, collapsedGroup: boolean): HTMLEleme
   // and `.mlv-node__text` clips, exactly as the SVG export already did.
   card.style.height = v.box.h + 'px';
 
-  if (n.ghost) card.classList.add('is-ghost');
+  // VIEW-08. The status is a data attribute AND a class: the attribute is what
+  // tests and the export read, the class is what the stylesheet paints.
+  if (n.diffStatus) {
+    card.setAttribute('data-diff', n.diffStatus);
+    if (DIFF_WORD[n.diffStatus]) card.classList.add('is-diff-' + n.diffStatus);
+  }
+  // ANA-10. `data-config-alt` is the one-of-N marker; the count is on the
+  // attribute so a test can assert the card knows how many it could not choose
+  // between, not merely that it drew something.
+  const config = resolvedConfig(n);
+  if (config && isAlternatives(config)) {
+    card.setAttribute('data-config-alt', String(alternativeCount(config)));
+    card.classList.add('is-alternatives');
+  } else if (config && config.unresolved) {
+    card.setAttribute('data-config-unresolved', '1');
+  } else if (config && config.value) {
+    card.setAttribute('data-config-value', config.value);
+  }
+
+  // VIEW-08 reuses the ghost VISUAL for a removed node without claiming the
+  // schema's `ghost` flag, which means "a step the analyzer expected and did not
+  // find" and is what 11.2 step 7 prunes on.
+  if (n.ghost || n.diffStatus === 'removed') card.classList.add('is-ghost');
   if (n.dynamic) card.classList.add('is-dynamic');
   if (typeof n.confidence === 'number' && n.confidence < 0.6) card.classList.add('is-lowconf');
   if (top && !boundary) card.classList.add('has-issues');
@@ -198,8 +256,22 @@ export function buildNodeCard(v: NodeVisual, collapsedGroup: boolean): HTMLEleme
 
   const text = add(main, el('div', 'mlv-node__text'));
   add(text, el('div', 'mlv-node__title', middleTruncate(n.label || n.qualname || n.id, 34)));
-  const sub = n.sublabel || (n.fqn ? n.fqn : n.kind);
-  add(text, el('div', 'mlv-node__sub', middleTruncate(sub, 40)));
+  // ANA-10: the RESOLVED value outranks the document's own sublabel, because
+  // "where does batch_size come from" is the question the config lane exists to
+  // answer and `download=False` is not the answer to it. Absent when the
+  // analyzer resolved nothing, which leaves the card exactly as it was.
+  const resolved = configSublabel(n);
+  const sub = resolved || n.sublabel || (n.fqn ? n.fqn : n.kind);
+  const subEl = add(text, el('div', 'mlv-node__sub', middleTruncate(sub, 40)));
+  if (resolved) {
+    subEl.classList.add('mlv-node__sub--config');
+    // The card middle-truncates at 40 characters, so a three-candidate registry
+    // or a reason sentence loses its middle. `data-config-sub` carries the
+    // untruncated string and the hover shows it: a resolved value the reader
+    // cannot read is not a resolved value.
+    subEl.setAttribute('data-config-sub', resolved);
+    subEl.title = resolved + (config && config.from ? ' · resolved from ' + config.from : '');
+  }
   // NB. `notebooks/leak.ipynb > cell 3 : 4` on the card, with the flat line it
   // was translated from in the hover. `locSpan` splits the path from the cell so
   // a card too narrow for both loses the path, never the cell.
@@ -210,9 +282,30 @@ export function buildNodeCard(v: NodeVisual, collapsedGroup: boolean): HTMLEleme
   const chips = collapsedGroup
     ? [v.descendants + ' nodes'].concat(chipsFor(n, null, 14, 1))
     : chipsFor(n, chipMetrics(v.box.w - CHIP_ROW_INSET));
-  if (chips.length) {
+  // VIEW-08: the `changed` chip is PREPENDED, like the collapsed-group count, so
+  // the width budget can never push the one thing a reviewer opened this view to
+  // see off the end of the row.
+  const diffChip = n.diffStatus === 'changed' ? changedChipText(n) : '';
+  if (chips.length || diffChip) {
     const row = add(text, el('div', 'mlv-node__chips'));
+    if (diffChip) {
+      const chip = add(row, el('span', 'mlv-chip mlv-chip--diff mlv-chip--diff-changed', diffChip));
+      chip.setAttribute('data-diff-chip', 'changed');
+      chip.title = (n.diffChanged || []).length
+        ? 'Changed in this diff: ' + (n.diffChanged || []).join(', ')
+        : 'Changed in this diff';
+    }
     for (const c of chips) add(row, el('span', 'mlv-chip', c));
+  }
+
+  // VIEW-08. The LEDGE: a tab on the leading edge of an added card, drawn as a
+  // child of the CARD so it survives the compact LOD that hides the chip row —
+  // the zoom level a reviewer skims a whole diff at is exactly the one where a
+  // chip would have disappeared.
+  if (n.diffStatus === 'added' || n.diffStatus === 'removed') {
+    const ledge = add(card, el('span', 'mlv-node__ledge', DIFF_WORD[n.diffStatus]));
+    ledge.setAttribute('data-ledge', n.diffStatus);
+    ledge.setAttribute('aria-hidden', 'true');
   }
 
   if (collapsedGroup) {
@@ -235,6 +328,19 @@ export function buildNodeCard(v: NodeVisual, collapsedGroup: boolean): HTMLEleme
   return card;
 }
 
+/**
+ * `changed` on its own, or `changed: issueCodes` when the overlay named ONE
+ * field — which is the case a reviewer acts on. Two or more fields are counted
+ * rather than listed: the card has one chip's worth of room, and the full list
+ * is in the chip's own hover and in the Inspector.
+ */
+function changedChipText(node: MLNode): string {
+  const fields = node.diffChanged || [];
+  if (fields.length === 1) return 'changed: ' + fields[0];
+  if (fields.length > 1) return 'changed · ' + fields.length + ' fields';
+  return 'changed';
+}
+
 /** An expanded group: the dashed container plus its header strip. */
 export function buildGroupBox(v: NodeVisual): HTMLElement {
   const n = v.node;
@@ -245,6 +351,12 @@ export function buildGroupBox(v: NodeVisual): HTMLElement {
   box.setAttribute('data-stage', stageOf(n));
   box.setAttribute('data-depth', String(Math.min(2, v.box.depth)));
   if (n.viewRole) box.setAttribute('data-view-role', n.viewRole);
+  // VIEW-08: an expanded group carries the same status as a card would, so a
+  // function that was added does not look untouched just because it has children.
+  if (n.diffStatus) {
+    box.setAttribute('data-diff', n.diffStatus);
+    if (DIFF_WORD[n.diffStatus]) box.classList.add('is-diff-' + n.diffStatus);
+  }
   // A boundary FRAME is as badge-free as a boundary card: what it contains is
   // outside the scope, so an aggregated count would point at nothing openable.
   const boundary = n.viewRole === 'boundary';

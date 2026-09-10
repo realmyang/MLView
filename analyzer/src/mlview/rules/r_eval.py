@@ -15,6 +15,7 @@ from typing import Iterable, List, Optional, Sequence
 from .. import knowledge as K
 from ..core.graph import Issue, Node
 from ..ir.model import CallSite, ClassIR, FunctionIR, Loc, LoopIR, ScopeIR, ValueRef
+from .fixes import eval_mode_fix, no_grad_fix
 from .helpers import calls_in_loop, with_role
 from .registry import rule
 
@@ -281,7 +282,11 @@ def eval_loop_without_eval_mode(ctx) -> Iterable[Issue]:
                        region.forward.loc.line, region.model_name, region.why),
             loc=region.loc, node_ids=[ghost, region.node],
             related=_related_for(region, cls), evidence=evidence,
-            dynamic=region.scope.is_dynamic, severity=severity))
+            dynamic=region.scope.is_dynamic, severity=severity,
+            # H5. Note the interaction with `severity` above: an unresolved
+            # architecture drops this to medium, never below `likely`, so the
+            # edit follows the finding rather than being gated separately.
+            fix=eval_mode_fix(ctx, region)))
     return issues
 
 
@@ -438,7 +443,11 @@ def eval_loop_without_no_grad(ctx) -> Iterable[Issue]:
             related=[("eval_loop", region.loc, region.why),
                      ("call_site", region.forward.loc, "forward pass here")],
             evidence=evidence, dynamic=region.scope.is_dynamic,
-            wrapper_gated=_wrapper_owns_the_loop(ctx, region)))
+            wrapper_gated=_wrapper_owns_the_loop(ctx, region),
+            # H5: the decorator form only, and only for a function that
+            # provably never trains - see `fixes.no_grad_fix` for why the
+            # `with` wrap the fix hint names is not built.
+            fix=no_grad_fix(ctx, region)))
     return issues
 
 

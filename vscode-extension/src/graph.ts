@@ -122,6 +122,37 @@ export interface GraphEdge {
   issueIds: string[];
 }
 
+/**
+ * H5 — one edit an opted-in rule computed from the AST. `newText` REPLACES the half-open
+ * range `[line:col, endLine:endCol)`, so an insertion is an empty range and a deletion an
+ * empty `newText`. Line numbers are 1-based and columns 0-based, exactly like `Loc` (§0),
+ * because these are the analyzer's own coordinates and converting them anywhere but at the
+ * host boundary is what §0 forbids.
+ */
+export interface FixEdit {
+  /** Workspace-relative, forward slashes. Present so a reader can see what moves. */
+  file: string;
+  /** Absolute path; this is the one the host opens, after a containment check. */
+  absFile: string;
+  line: number;
+  col: number;
+  endLine: number;
+  endCol: number;
+  newText: string;
+}
+
+/**
+ * H5 — the structured fix a rule OPTED IN to. Absent on every rule that did not, which is
+ * what keeps the field from ever being a lie: `fixHint` is prose for all 36 rules, and
+ * `fix` exists only where an edit was actually computed.
+ */
+export interface IssueFix {
+  title: string;
+  /** `mechanical` is a single unambiguous slot; `needs-review` is a judgement call. */
+  safety: 'mechanical' | 'needs-review' | string;
+  edits: FixEdit[];
+}
+
 export interface Issue {
   id: string;
   code: string;
@@ -143,6 +174,8 @@ export interface Issue {
   evidence: Evidence[];
   suppressed: boolean;
   docs?: string;
+  /** H5: present only when the rule opted in and the bucket is `certain` or `likely`. */
+  fix?: IssueFix;
 }
 
 export interface GraphDiagnostic {

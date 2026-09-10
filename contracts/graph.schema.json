@@ -326,6 +326,82 @@
         }
       }
     },
+    "TextEdit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "file",
+        "absFile",
+        "line",
+        "col",
+        "endLine",
+        "endCol",
+        "newText"
+      ],
+      "properties": {
+        "file": {
+          "type": "string",
+          "description": "Workspace-relative, forward slashes. Every edit of one fix names the same file."
+        },
+        "absFile": {
+          "type": "string"
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "1-based, inclusive - the same convention as every Loc."
+        },
+        "col": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "endLine": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "endCol": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "A zero-width range (line == endLine and col == endCol) is an insertion."
+        },
+        "newText": {
+          "type": "string",
+          "description": "Replaces the range. Carries its own indentation, computed from the AST."
+        }
+      }
+    },
+    "Fix": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "title",
+        "safety",
+        "edits"
+      ],
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The CodeAction title, imperative, e.g. 'Set shuffle=False on this evaluation DataLoader'."
+        },
+        "safety": {
+          "enum": [
+            "mechanical",
+            "needs-review"
+          ],
+          "description": "'mechanical' = one keyword at one call site, cannot change control flow; a host may set isPreferred. 'needs-review' = it inserts a statement. isPreferred is derived from this, never carried."
+        },
+        "edits": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 4,
+          "items": {
+            "$ref": "#/$defs/TextEdit"
+          },
+          "description": "Non-overlapping, all in one file. Applying them all leaves the file ast.parse-valid."
+        }
+      }
+    },
     "Port": {
       "type": "object",
       "additionalProperties": false,
@@ -831,6 +907,10 @@
             "existing"
           ],
           "description": "OPTIONAL (CI-ADOPT). Present only when --changed-since / --changed-paths attributed this run: 'new' = the primary loc is inside an added hunk, 'touched' = a changed file outside the hunks or a relatedLoc inside one, 'existing' = neither. Absent means the run was unattributed - never that the issue is old."
+        },
+        "fix": {
+          "$ref": "#/$defs/Fix",
+          "description": "OPTIONAL (H5). Present only when the rule opted in AND the finding reached the 'likely' bucket. Never auto-applied. Absent means no edit was computed - never that none is needed; fixHint always carries the prose."
         },
         "docs": {
           "type": "string",

@@ -212,3 +212,45 @@ test('both settings descriptions state the precedence, in the manifest a user re
   assert.match(readme, /mlview\.baselinePath/);
   assert.match(readme, /The file wins/);
 });
+
+/**
+ * CFG-ONE, Sprint 5 wave 2. 11.40 C2 says "BOTH settings' markdownDescription say this in
+ * those words", and the settings it names are the two ADDITIVE ones — `mlview.disabledRules`
+ * and `mlview.exclude`. The wave-1 test asserted the claim on `configPath` / `baselinePath`
+ * instead, so the two rows a user actually reads while typing a rule code said nothing about
+ * precedence at all. This is that gap, closed and pinned.
+ */
+test('the two ADDITIVE settings say so themselves, where a user types them', () => {
+  const manifest = JSON.parse(
+    fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8')
+  );
+  const props = manifest.contributes.configuration.properties;
+  const rules = props['mlview.disabledRules'];
+  const exclude = props['mlview.exclude'];
+  for (const row of [rules, exclude]) {
+    assert.ok(row, 'both additive settings must be contributed');
+    assert.ok(
+      row.markdownDescription,
+      'the claim needs a markdownDescription: it links to #mlview.configPath#'
+    );
+    assert.match(row.markdownDescription, /[Pp]recedence/);
+    assert.match(row.markdownDescription, /ADDITIVE/);
+    assert.match(row.markdownDescription, /WINS/);
+    assert.match(row.markdownDescription, /#mlview\.configPath#/);
+    assert.equal(row.description, undefined, 'one description per row, or VS Code shows both');
+  }
+  // The exact thing each one CANNOT do - which is the whole point of stating a precedence.
+  assert.match(
+    rules.markdownDescription,
+    /cannot re-enable a rule the file disabled/,
+    'a user must not believe mlview.disabledRules can override [rules].disable'
+  );
+  assert.match(
+    exclude.markdownDescription,
+    /cannot re-include a path the file excluded/,
+    'a user must not believe mlview.exclude can override [paths].exclude'
+  );
+  // ...and both name the table they lose to, so the precedence is actionable, not folklore.
+  assert.match(rules.markdownDescription, /\[rules\]\.disable/);
+  assert.match(exclude.markdownDescription, /\[paths\]\.exclude/);
+});

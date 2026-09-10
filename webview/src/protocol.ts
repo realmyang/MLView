@@ -24,6 +24,11 @@ export interface ProtocolHandlers {
   setScope(spec: string | null, depth: number | undefined): void;
   /** VIEW-07: draw the diagram and answer with one `exportFile`. */
   requestExport(kind: 'svg' | 'png', scope: 'view' | 'all' | 'scope' | undefined): void;
+  /**
+   * VIEW-08: an optional sibling document. `null` clears it (11.38).
+   * `baseLabel` is the host's name for what the comparison is against.
+   */
+  diffOverlay(overlay: unknown, baseLabel: string | undefined): void;
   onUnknown(type: string): void;
 }
 
@@ -68,6 +73,12 @@ export function dispatchHostMessage(msg: HostToUi, h: ProtocolHandlers): void {
       return;
     case 'requestExport':
       h.requestExport(msg.kind === 'png' ? 'png' : 'svg', msg.scope);
+      return;
+    case 'diffOverlay':
+      // Validation belongs to `diff/overlay.ts`, not here: this switch decides
+      // WHICH handler runs, and a malformed overlay must reach the one place
+      // that knows how to degrade it (11.38 B, invariant 1.1/6).
+      h.diffOverlay(msg.overlay, typeof msg.baseLabel === 'string' ? msg.baseLabel : undefined);
       return;
     case 'cursorHint':
       // followCursor is designed but out of scope for the prototype (A6).

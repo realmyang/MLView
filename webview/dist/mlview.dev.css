@@ -3813,6 +3813,377 @@ body.vscode-high-contrast-light .mlv-edge__charge-halo,
   border-color: var(--mlv-accent);
 }
 
+/* ---- diff.css ---- */
+/* VIEW-08 (the diff overlay), H5 (structured fixes) and ANA-10 (resolved config).
+ *
+ * Three rules hold this layer together.
+ *
+ * 1. NEVER COLOUR ALONE. `added` also carries a ledge with the WORD "added" on
+ *    it, `removed` also carries the dashed ghost outline, `changed` also carries
+ *    a chip that names the field. The same discipline the severity glyphs
+ *    already follow: a red/green diff that is only red and green is unreadable
+ *    to eight percent of the people reviewing the pull request.
+ * 2. The diff's two hues are DECLARED tokens with a light, a dark and a
+ *    high-contrast value, so neither of them is a hard-coded literal that
+ *    survives a theme switch.
+ * 3. Nothing here changes geometry. The ledge is absolutely positioned outside
+ *    the card's own box, exactly as the severity badge is, so `layout.ts`'s
+ *    reservation and `export/svg.ts`'s picture stay in agreement (VW-01).
+ */
+
+:root,
+.mlv-root {
+  --mlv-diff-added: #14895f;
+  --mlv-diff-removed: #b23c2f;
+  --mlv-diff-changed: #b05f17;
+  --mlv-diff-ink: #ffffff;
+  --mlv-fix: #2b57c4;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]):not([data-theme="hc"]),
+  .mlv-root:not([data-theme="light"]):not([data-theme="hc"]) {
+    --mlv-diff-added: #37c48c;
+    --mlv-diff-removed: #ef7f72;
+    --mlv-diff-changed: #e0a352;
+    --mlv-diff-ink: #101218;
+    --mlv-fix: #8fb0ff;
+  }
+}
+
+:root[data-theme="dark"],
+.mlv-root[data-theme="dark"] {
+  --mlv-diff-added: #37c48c;
+  --mlv-diff-removed: #ef7f72;
+  --mlv-diff-changed: #e0a352;
+  --mlv-diff-ink: #101218;
+  --mlv-fix: #8fb0ff;
+}
+
+:root[data-theme="hc"],
+.mlv-root[data-theme="hc"] {
+  --mlv-diff-added: currentColor;
+  --mlv-diff-removed: currentColor;
+  --mlv-diff-changed: currentColor;
+  --mlv-diff-ink: var(--mlv-bg);
+  --mlv-fix: currentColor;
+}
+
+/* ── the banner ─────────────────────────────────────────────────────── */
+
+.mlv-diffbar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mlv-s2);
+  padding: var(--mlv-s3) var(--mlv-s5);
+  border-bottom: 1px solid var(--mlv-border);
+  background: var(--mlv-surface-2);
+  font-size: var(--mlv-fs-12);
+}
+
+.mlv-diffbar[hidden] {
+  display: none;
+}
+
+.mlv-diffbar__head {
+  display: flex;
+  align-items: center;
+  gap: var(--mlv-s3);
+  flex-wrap: wrap;
+}
+
+.mlv-diffbar__icon {
+  flex: none;
+  color: var(--mlv-text-2);
+}
+
+.mlv-diffbar__headline {
+  font-size: var(--mlv-fs-13);
+  font-weight: var(--mlv-fw-semi);
+  color: var(--mlv-text);
+}
+
+.mlv-diffbar__close {
+  margin-left: auto;
+}
+
+.mlv-diffbar__sides,
+.mlv-diffbar__counts,
+.mlv-diffbar__shown {
+  display: flex;
+  align-items: center;
+  gap: var(--mlv-s2);
+  flex-wrap: wrap;
+  color: var(--mlv-text-2);
+}
+
+.mlv-diffbar__side {
+  font-family: var(--mlv-font-mono);
+}
+
+.mlv-diffbar__arrow,
+.mlv-diffbar__when {
+  color: var(--mlv-text-3);
+}
+
+.mlv-diffbar__count[data-diff-count="added"] {
+  color: var(--mlv-diff-added);
+  border-color: color-mix(in srgb, var(--mlv-diff-added) 45%, transparent);
+}
+
+.mlv-diffbar__count[data-diff-count="removed"] {
+  color: var(--mlv-diff-removed);
+  border-color: color-mix(in srgb, var(--mlv-diff-removed) 45%, transparent);
+}
+
+.mlv-diffbar__count[data-diff-count="changed"] {
+  color: var(--mlv-diff-changed);
+  border-color: color-mix(in srgb, var(--mlv-diff-changed) 45%, transparent);
+}
+
+/* `.mlv-chip--btn` is the FILTER chip, whose "off" state is struck through
+ * because an off filter means "these rows are hidden". This one is a view
+ * toggle, so the strike-through would read as "unavailable" — the same
+ * correction `.mlv-themeswitch` already makes for the theme radio group. */
+.mlv-diffbar__only[aria-pressed="false"] {
+  opacity: 1;
+  text-decoration: none;
+}
+
+.mlv-diffbar__only[aria-pressed="true"] {
+  border-color: var(--mlv-accent);
+  background: color-mix(in srgb, var(--mlv-accent) 14%, transparent);
+  font-weight: var(--mlv-fw-semi);
+}
+
+.mlv-diffbar__only[disabled] {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.mlv-diffbar__empty {
+  color: var(--mlv-diff-changed);
+}
+
+/* §11.38 C: never elided, never behind a disclosure. */
+.mlv-diffbar__notelist {
+  margin: 0;
+  padding-left: var(--mlv-s6);
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-11);
+  line-height: var(--mlv-lh-body);
+}
+
+.mlv-diffbar__note {
+  margin: 0;
+}
+
+.mlv-diffbar__notekind {
+  font-weight: var(--mlv-fw-semi);
+  color: var(--mlv-text);
+}
+
+.mlv-diffbar__note--viewer {
+  color: var(--mlv-text-3);
+}
+
+/* ── the cards ──────────────────────────────────────────────────────── */
+
+/* The LEDGE: outside the card box, like the severity badge, so no reserved
+ * geometry moves. It sits on the leading edge because the trailing corner is
+ * already the severity badge's. */
+.mlv-node__ledge {
+  position: absolute;
+  top: -9px;
+  left: 10px;
+  padding: 0 6px;
+  border-radius: var(--mlv-r-pill);
+  font-size: var(--mlv-fs-10);
+  font-weight: var(--mlv-fw-semi);
+  letter-spacing: var(--mlv-track-caps);
+  text-transform: uppercase;
+  line-height: 16px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.mlv-node__ledge[data-ledge="added"] {
+  background: var(--mlv-diff-added);
+  color: var(--mlv-diff-ink);
+}
+
+.mlv-node__ledge[data-ledge="removed"] {
+  background: transparent;
+  color: var(--mlv-diff-removed);
+  border: 1px dashed var(--mlv-diff-removed);
+}
+
+.mlv-node.is-diff-added {
+  border-color: color-mix(in srgb, var(--mlv-diff-added) 60%, var(--mlv-border));
+  box-shadow: var(--mlv-sh-1), inset 3px 0 0 0 var(--mlv-diff-added);
+}
+
+.mlv-node.is-diff-changed {
+  border-color: color-mix(in srgb, var(--mlv-diff-changed) 55%, var(--mlv-border));
+}
+
+/* A removed node reuses the ghost outline that already means "not here", in the
+ * removed hue and at 65 % so it reads as a trace rather than as a card. */
+.mlv-node.is-diff-removed {
+  border-color: var(--mlv-diff-removed);
+  opacity: 0.72;
+}
+
+.mlv-node.is-diff-removed .mlv-node__title {
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+
+.mlv-group.is-diff-added > .mlv-group__header {
+  box-shadow: inset 3px 0 0 0 var(--mlv-diff-added);
+}
+
+.mlv-group.is-diff-changed {
+  border-color: color-mix(in srgb, var(--mlv-diff-changed) 55%, var(--mlv-border));
+}
+
+/* ANA-10: the one-of-N node. A doubled dashed border says "this is one card
+ * standing for several possibilities" without inventing a new glyph. */
+.mlv-node.is-alternatives {
+  border-style: dashed;
+  outline: 1px dashed color-mix(in srgb, var(--mlv-stage, var(--mlv-stage-unknown)) 55%, transparent);
+  outline-offset: 2px;
+}
+
+.mlv-node__sub--config {
+  font-family: var(--mlv-font-mono);
+  color: var(--mlv-text-2);
+}
+
+/* ── chips ──────────────────────────────────────────────────────────── */
+
+.mlv-chip--diff-added,
+.mlv-chip--diff-new {
+  color: var(--mlv-diff-added);
+  border-color: color-mix(in srgb, var(--mlv-diff-added) 45%, transparent);
+}
+
+.mlv-chip--diff-removed,
+.mlv-chip--diff-fixed {
+  color: var(--mlv-diff-removed);
+  border-color: color-mix(in srgb, var(--mlv-diff-removed) 45%, transparent);
+}
+
+.mlv-chip--diff-changed,
+.mlv-chip--diff-persisting {
+  color: var(--mlv-diff-changed);
+  border-color: color-mix(in srgb, var(--mlv-diff-changed) 45%, transparent);
+}
+
+.mlv-chip--fix {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--mlv-fix);
+  border-color: color-mix(in srgb, var(--mlv-fix) 45%, transparent);
+}
+
+/* VIEW-08 and H5 both add a chip to the rail row's meta line, which was a
+ * single non-wrapping flex row: a 360 px rail with a code, a location, a bucket
+ * chip, a diff chip and a fix marker overflowed the panel and clipped the last
+ * one. It wraps now, which costs a line on a crowded row and loses nothing. */
+.mlv-issue__meta {
+  flex-wrap: wrap;
+  row-gap: var(--mlv-s1);
+  min-width: 0;
+}
+
+.mlv-issue__meta .mlv-chip {
+  max-width: 100%;
+}
+
+.mlv-chip--fix-review {
+  color: var(--mlv-diff-changed);
+  border-color: color-mix(in srgb, var(--mlv-diff-changed) 45%, transparent);
+}
+
+/* ── the fix disclosure (H5) ────────────────────────────────────────── */
+
+.mlv-fix {
+  margin-top: var(--mlv-s4);
+  padding: var(--mlv-s3) var(--mlv-s4);
+  border: 1px solid color-mix(in srgb, var(--mlv-fix) 35%, var(--mlv-border));
+  border-radius: var(--mlv-r-btn);
+  background: color-mix(in srgb, var(--mlv-fix) 6%, transparent);
+}
+
+.mlv-fix[data-fix-safety="needs-review"] {
+  border-color: color-mix(in srgb, var(--mlv-diff-changed) 45%, var(--mlv-border));
+  background: color-mix(in srgb, var(--mlv-diff-changed) 8%, transparent);
+}
+
+.mlv-fix__head {
+  display: flex;
+  align-items: center;
+  gap: var(--mlv-s2);
+  flex-wrap: wrap;
+}
+
+.mlv-fix__title {
+  font-weight: var(--mlv-fw-semi);
+  color: var(--mlv-text);
+}
+
+.mlv-fix__where {
+  margin-top: var(--mlv-s3);
+  font-size: var(--mlv-fs-11);
+  color: var(--mlv-text-3);
+  font-family: var(--mlv-font-mono);
+}
+
+/* The edit, verbatim: no re-indentation, no wrapping that could make a
+ * whitespace-significant language look different from what would be written. */
+.mlv-fix__snippet {
+  margin: var(--mlv-s1) 0 0;
+  padding: var(--mlv-s3);
+  overflow-x: auto;
+  white-space: pre;
+  border-radius: var(--mlv-r-chip);
+  background: var(--mlv-surface-2);
+  color: var(--mlv-text);
+  font-family: var(--mlv-font-mono);
+  font-size: var(--mlv-fs-11);
+  line-height: var(--mlv-lh-tight);
+}
+
+.mlv-fix__note {
+  margin: var(--mlv-s3) 0;
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-11);
+}
+
+/* ── the rail's fixed-findings section (VIEW-08) ────────────────────── */
+
+.mlv-rail__fixed .mlv-issue.is-fixed {
+  cursor: default;
+  opacity: 0.85;
+}
+
+.mlv-rail__fixed-note {
+  font-size: var(--mlv-fs-11);
+}
+
+.mlv-issues--readonly .mlv-issues__item {
+  cursor: default;
+}
+
+@media print {
+  .mlv-diffbar__close,
+  .mlv-diffbar__only {
+    display: none !important;
+  }
+}
+
 /* ---- export.css ---- */
 /* Export (VIEW-07): the menu beside Fit, and the print stylesheet.
  *

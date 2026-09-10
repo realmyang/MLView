@@ -4274,3 +4274,585 @@ re-analysis incremental."*
 not that *this* edit caused it — a concurrent write, a `git checkout` or a second tool call in
 the same turn would look identical. Saying "that edit added" is a claim about ordering, and the
 row's own file and line are what a reader checks it against.
+
+---
+
+### 11.42 Structured fixes: the opt-in `Issue.fix` (2026-09-10) — amends §1, §2, §3, §5 non-goal 5 and 11.16, analyzer-owned
+
+`vscode-extension/src` contains **zero `CodeAction` hits**, so every MLView lightbulb is empty while the data
+sits one field away: the two ghost nodes already carry exact insertion locations, and issues already carry
+role-tagged `relatedLocs`. What shipped was prose — `fixHint` with no edit.
+
+`REQUIREMENTS.md` §5 non-goal 5 barred a fix that edits user logic, and the roadmap called H5 *"the riskiest
+item on the board because it is the one that edits someone's training loop"*. **The lead lifted the non-goal for
+this item with its guardrails, and the guardrails are what this entry is.** They are not advice: four of the
+five live in `analyzer/src/mlview/rules/fixes.py` and one lives in `GraphContext.issue`, so a rule cannot opt
+out of any of them. Nothing here adds a `Diagnostic.kind` (§11.18's enum is untouched), nothing here changes
+`contracts/graph.sample.json`, and nothing here publishes a finding that was not already published.
+
+The **host** half — a VS Code `CodeAction` provider, a plugin fix skill — is deliberately **not** in this
+amendment. The field is additive and every consumer already ignores what it does not know, so the analyzer can
+ship the data and be measured on it before any surface offers a button.
+
+---
+
+#### A. The schema addition
+
+| # | Rule |
+|---|---|
+| **A1** | `Issue` gains one **optional** property, `fix`, `$ref: #/$defs/Fix`. `Issue` is `additionalProperties: false`, so this is a contract change made the way scoped views were. It is **not** in `required`: absent is the normal case. |
+| **A2** | `$defs/Fix` = `{title: string(minLength 1), safety: "mechanical" \| "needs-review", edits: TextEdit[]}`, `additionalProperties: false`, `minItems: 1`, `maxItems: 4`. The cap is a **producer** bound — four is what stops a future builder from quietly becoming a refactoring engine, and nothing here needs more than two. A consumer may be more permissive (the VS Code reader refuses above 16), which is the correct direction for the asymmetry: it lets the producer's cap tighten without a host release. |
+| **A3** | `$defs/TextEdit` = `{file, absFile, line, col, endLine, endCol, newText}`, all required, `additionalProperties: false`. Line/column are §0's conventions verbatim — 1-based inclusive lines, 0-based columns — because a host that has to remember which objects in one document count differently will eventually get it wrong. A **zero-width** range (`line == endLine and col == endCol`) is an insertion. |
+| **A4** | The roadmap wrote the edit as `{file, line, col, endLine, endCol, newText}`. `absFile` is added, deliberately: every other location-bearing object in this schema carries both spellings, and a host rebuilding an absolute path from a relative one is the multi-root bug 11.40 B fixed once already. |
+| **A5** | There is **no `isPreferred` field**. It is derivable — `isPreferred == (safety == "mechanical")` — and two spellings of one decision is how they come to disagree. A host sets `CodeAction.isPreferred` from `safety` and from nothing else. |
+| **A6** | All edits of one fix name **one file** — the file of the issue's own `loc` — and never overlap. Applying them all is one atomic change or none. |
+| **A7** | `Issue.fix` is emitted **only when set** (`core/graph.Issue.to_dict`), so every run of every rule that did not opt in is byte-identical to what it produced before this field existed. `tools/perf_equiv.py` is unaffected. |
+| **A8** | Mirrors, per §11.16: `contracts/graph.schema.json` and `analyzer/src/mlview/schema/graph.schema.json` are byte-identical, and the two vendored copies follow through `tools/sync-core.py`. `contracts/graph.sample.json` is unchanged and carries no `fix`. |
+
+#### B. The five guardrails
+
+| # | Rule |
+|---|---|
+| **B1** | **Rules opt in.** A rule attaches a candidate by passing `fix=` to `ctx.issue`. A rule that does not is untouched, so the field is never a lie about what MLView is willing to stand behind. Five rules opt in today: **MLV111, MLV201, MLV301, MLV302, MLV602** — the five whose insertion slot is unambiguous. `rules.fixes.FIX_CODES` is the list, and a test fails if any other rule's source contains `fix=`. |
+| **B2** | **Edits are computed from the AST.** Every position on every edit comes from an `ast` node's `lineno` / `col_offset` / `end_lineno` / `end_col_offset`. Indentation for an inserted statement is the **target statement's own `col_offset`**, which is the only answer that is right inside a `with`, inside an `if`, and four suites deep — `MLV201_nested_loop_bad.py` indents to column 20 and `MLV301_with_block_bad.py` inserts *inside* a `with torch.no_grad():` block. No fix anywhere searches the source for a substring. |
+| **B3** | **No fix at all below the `likely` bucket.** `GraphContext.issue` attaches the candidate only when the computed `confidenceBucket` is `certain` or `likely`, reading the same clamped number the user is shown. The rule is not consulted. The gate is asserted from both sides by one rule: `MLV602_unseeded_bad.py` (no global seed → `certain` → edit) against `fixtures/rules/MLV602_bad.py` (seeds globally → `possible` → no edit, same call shape). |
+| **B4** | **`mechanical` is a promise.** It means: one keyword argument at one call site, no statement inserted, no control flow touched. Only **MLV111** and **MLV602** qualify. Everything that inserts a statement into a training loop is **`needs-review`**, because an inserted statement can always be the thing the author left out on purpose — `MLV201_good.py` is precisely that, a `zero_grad()` under a gradient-accumulation guard, and no static analysis distinguishes it from the bug without reading the modulo. |
+| **B5** | **Never auto-applied, and never applied by the analyzer at all.** Nothing in `mlview` writes an edit to a file. `rules/fixes.apply_edits` is pure and exists so that the analyzer can prove an edit re-parses before publishing it and so the tests can prove the rule stops firing afterwards. Every text surface that renders a fix says *"nothing here is applied automatically"*. |
+
+#### C. `ctx.fix`, and the parse gate
+
+| # | Rule |
+|---|---|
+| **C1** | A rule builds an edit **only** through `ctx.fix(module, title, edits, safety=...)`, exactly as it publishes a finding only through `ctx.issue`. `rules/fixes.py` is the only module that constructs a `TextEdit`. |
+| **C2** | `ctx.fix` returns `None` — never a partial fix — when any builder gave up, when the title is empty, when `safety` is not one of the two values, when there are no edits or more than four, when an edit names another file, or when applying the edits changes nothing. |
+| **C3** | **The last gate is a parse.** `build_fix` applies the candidate to a copy of the module source *in memory* and runs `ast.parse` over the result; a candidate that does not parse is discarded and the finding ships with its prose hint alone. This is what makes *"applying the edit leaves the file `ast.parse`-valid"* a property of the design rather than a claim pinned by five tests. |
+| **C4** | A rule's gate, its evidence and its confidence are **unchanged** by any of this. H5 publishes no finding that was not already published: measured with and without the field on the same tree, `tools/accuracy.py` is identical to the character, because the same issues are emitted with one more optional field on five of them. On the tree this entry was written against that read precision **100%**, recall **71.8%** (unseen **53.2%**); the integrated wave reads **73.1%** (unseen **55.3%**) and **zero forbidden findings** either way, and the whole of that move belongs to 11.45, not to H5. |
+
+#### D. The four refusals — what an edit cannot be computed from
+
+Each has a fixture under `analyzer/tests/fixtures/fixes/`, each **still fires the finding**, and each keeps its
+prose `fixHint`. Withholding an edit is never withholding the advice.
+
+| # | Refusal |
+|---|---|
+| **D1** | **A non-ASCII line.** §0 says a column is 0-based and *"matches `ast.col_offset` and `vscode.Position.character`"*. That is true for an ASCII line and false for any other: `ast` counts UTF-8 bytes and VS Code counts UTF-16 code units. Reading a location off by a few columns costs a highlight; applying an **edit** at the wrong offset corrupts the file. Every physical line an edit touches must be pure ASCII (`withheld_non_ascii.py`). |
+| **D2** | **A receiver that is not a plain dotted name.** An edit that has to *spell* an object — `optimizer.zero_grad(...)`, `model.eval()` — is built only for a dotted name that is not a keyword. Re-evaluating `opts[stage]` in an inserted statement is not provably the same object the step used. |
+| **D3** | **A missing import.** `generator=torch.Generator().manual_seed(42)` and `@torch.no_grad()` both need the name `torch` bound **in the edited module**. `samples/vision_pipeline/data.py` imports `random_split` and never `torch` (`withheld_no_torch_import.py`), so the demo publishes one MLV602 edit and not two. Adding the import would be a second edit in a second place, and this feature does not make it. |
+| **D4** | **A block that would have to be re-indented.** MLV302's textbook fix wraps the loop in `with torch.no_grad():`, which means re-indenting every physical line of the suite — including the inside of any triple-quoted string in it, whose value would silently change. The decorator form is offered instead, and only when the enclosing function provably never trains; a module-level region gets nothing (`withheld_module_level_eval.py`). The same principle withholds MLV201 where the loop body starts on the `for` line (`withheld_inline_loop_body.py`). |
+
+#### E. Where each of the five puts its edit
+
+| Code | Safety | The edit | Offered when |
+|---|---|---|---|
+| **MLV111** | `mechanical` | the `shuffle=` literal `True` → `False` | the keyword is a literal at the call site. The narrowest edit in the product: one literal range replaced, so a trailing comment on the same line survives. |
+| **MLV201** | `needs-review` | `<optimizer>.zero_grad(set_to_none=True)` inserted as the **first statement of the batch-loop body**, at that statement's indentation | the optimizer is a dotted name, the `.step()` that proves the finding is inside this loop's own body, and the optimizer is constructed above the insertion point. |
+| **MLV301** | `needs-review` | `<model>.eval()` inserted immediately **above the loop** (or as the first statement of the evaluation function, after any docstring) | the model is a dotted name bound above the region. It is `needs-review` because the edit cannot also restore `model.train()`: where that belongs is a question about the caller. |
+| **MLV302** | `needs-review` | `@torch.no_grad()` inserted directly above the `def` | the region is inside a function containing no `backward()` / `optimizer.step()` / `zero_grad()` anywhere, and the module binds `torch`. |
+| **MLV602** | `mechanical` | `random_state=42` / `seed=42` / `generator=torch.Generator().manual_seed(42)` appended **after the last existing argument** | the call forwards no `**kwargs`, so the keyword is provably absent. Anchoring on the last argument rather than the closing paren leaves a trailing comment and a paren on its own line untouched. |
+
+`docs/rules/<CODE>.md` gains a **Structured fix** section, generated from `rules.fixes.FIX_DOCS` by
+`analyzer/tools/gen_rule_docs.py`, stating for each of the five both when the edit is offered **and when it is
+withheld** — on the page the hosts already deep-link to, which is where "the lightbulb is empty here" has to be
+answerable.
+
+#### F. The text surface (§3 addendum)
+
+| # | Rule |
+|---|---|
+| **F1** | `--format summary` gains a **`Fixes (N)`** block after the issue table and before `Coverage` / `Notes`: one row per fix, `safety`, code, `file:line` of the first edit, title. |
+| **F2** | The issue table marks the row `(fix)`, in the same place `(suppressed)` and `(baselined)` are marked. A reader scanning for something to act on should not have to hold two blocks in their head. |
+| **F3** | `--format text` (`emit/text_out.render_findings`, which `mlview issues --text` also reaches) prints one `edit:` line under the existing `fix:` line, ending in **`(not applied)`**. |
+| **F4** | **The block states its denominator.** When a rule produced an edit somewhere in the run and not somewhere else, `Fixes (N)` says so: *"no edit was computed for 1 other finding(s) of MLV602 — see `docs/rules/<CODE>.md` for when one is withheld"*. This is the standing acceptance criterion applied to this feature: listing only the fixes that exist would let a reader conclude the finding without one was fine. `samples/vision_pipeline` is exactly that case and is the gate on it. |
+| **F5** | A document with no fixes renders **byte-identically** to what it rendered before: the block is empty, no marker is added, and the `Findings` entry is unchanged. |
+
+#### G. Files that must change together (§11.16 addendum)
+
+`analyzer/src/mlview/rules/fixes.py` (new), `rules/context.py` (`ctx.fix`, the `fix=` parameter and the bucket
+gate), `core/graph.py` (`Issue.fix` and its serialization), the five `rules/r_*.py` opt-ins,
+`contracts/graph.schema.json` **and** `analyzer/src/mlview/schema/graph.schema.json` byte-identically,
+`emit/text_out.py`, `analyzer/tools/gen_rule_docs.py` and the five regenerated `docs/rules/*.md`. The vendored
+cores follow through `tools/sync-core.py`; `contracts/graph.sample.json` does not move.
+
+#### H. Gates
+
+`analyzer/tests/rules/test_fixes.py` — **44 cases**. The acceptance criterion is five of them, one per opted-in
+rule: apply every edit to the bad fixture, `ast.parse` the result, re-analyse it as a workspace, and assert the
+rule **stops firing** and that the set of codes afterwards introduces **nothing new**. Beside them: the clean
+twins yield 0 issues and 0 fixes (five in `fixtures/fixes/`, plus each rule's own `_good.py`); the four refusals
+each fire and each offer nothing; the `likely` floor from both sides; the demo publishes exactly five fixes,
+withholds the sixth, and says so in the summary; every published edit applies to the demo's own files and
+re-parses; `graph.sample.json` carries no `fix`; both schema mirrors are byte-identical and declare the shape;
+a document carrying fixes passes `contracts/validate_sample.py`; and the edit machinery itself — insertion,
+replacement, several edits in one pass, overlap and out-of-range refusal, UTF-8 column arithmetic, and the
+parse gate rejecting an edit that would not compile.
+
+#### I. What this could not do, stated out loud
+
+1. **It cannot tell a missing `zero_grad()` from gradient accumulation.** Nothing can, statically, without
+   reading the intent behind the modulo guard. That is why every statement-inserting fix is `needs-review`,
+   why nothing is ever applied automatically, and why `isPreferred` is reserved for the two rules that change
+   a keyword.
+2. **The `with torch.no_grad():` wrap is never built.** MLV302 gets the decorator or nothing. A block wrap is a
+   re-indentation, and a re-indentation by anything short of a full round-trip formatter can change the value
+   of a triple-quoted string. The decorator covers the whole function rather than only the loop — a wider
+   scope than the finding, which is a second reason it is `needs-review`.
+3. **A fix is computed against the file as it was analyzed.** The document carries no content hash of the
+   source, so a host that applies an edit from a stale document applies it at stale coordinates. Every host
+   surface built on this field must re-analyze, or verify, before applying — and that obligation belongs in the
+   host amendment that adds the button, not here.
+4. **No fix crosses a file, and none adds an import.** Both are single-edit-at-a-time restrictions chosen on
+   purpose; the price is D3, an unseeded `random_split` in a module that never imported `torch` getting prose
+   only. The demo ships that case rather than hiding it.
+5. **SARIF carries no fix.** `emit/sarif_out.py` is unchanged, so a CI consumer reading SARIF sees the finding
+   and the hint and no `fixes[]` entry. SARIF has a `fix` object and the mapping is mechanical; it is left for
+   the amendment that ships a host surface, so that one reader is not silently ahead of the others.
+
+---
+
+### 11.43 Host surfaces: the structured-fix lightbulb, the comparison commands and the `diff` scope (2026-09-10) — amends §4, §6, §9, 11.40 C2 and 11.42 I.3, host-owned
+
+11.42 shipped `Issue.fix` and said the host half was *"deliberately not in this amendment"*.
+11.38 shipped the `mlview-diff` overlay and said the viewer and editor halves *"land separately"*.
+This is both halves, in the three hosts, plus the one CFG-ONE clause 11.40 C2 asserted on the
+wrong pair of settings.
+
+Nothing here computes anything. The edits come from the analyzer (11.42 B2), the comparison
+comes from the analyzer (11.38), and every rule below is about **what a host is allowed to do
+with them** — which, for a feature whose worst failure is editing somebody's training loop, is
+the whole of the risk.
+
+---
+
+#### A. H5 — the code-action surface (`vscode-extension/src/fixes.ts`)
+
+| # | Rule |
+|---|---|
+| **A1** | **One entry point.** `applyIssueFix(issueId, deps)` is the only function that applies a fix. The editor lightbulb, the `mlview.applyFix` command and the viewer's `applyFix` message all reach it, so the containment check, the confidence floor, the staleness check and the preview cannot differ by where the user clicked. This is the rule MLV-P10's `runSuppression` follows (11.27 S5) and it is here for the same reason. |
+| **A2** | **`QuickFix` and nothing else.** `MlviewFixActionProvider` declares `providedCodeActionKinds: [QuickFix]`. It must never contribute `source.fixAll` or any `source.*` kind: those are what `editor.codeActionsOnSave` runs unattended, and "never auto-applied" is one of the five guardrails the lead lifted §5 non-goal 5 for. |
+| **A3** | **`isPreferred` is derived from `safety` and from nothing else** (11.42 A5). `mechanical` → `true`; `needs-review` → `false`. `Ctrl+.`+Enter and "fix all in file" must not land on a judgement call. |
+| **A4** | **Every entry needs confirmation.** Each `WorkspaceEdit` entry carries `{needsConfirmation: true, label: fix.title, description: "MLView · <safety>"}` and the apply passes `{isRefactoring: true}`, so VS Code routes the change through the refactor **preview**. A user sees the diff before it lands, always, for both safety levels. |
+| **A5** | **The host re-checks the floor.** A fix on a finding whose `confidenceBucket` is not `certain` or `likely` is refused with `low-confidence`, even though 11.42 B3 already refused to attach one. The host is the module that does the damage if the producer is wrong, and a duplicated floor costs nothing. |
+| **A6** | **`fix` is read defensively.** It arrives from a child process, so `readFix` validates the whole shape — title, `safety` against the closed pair, every edit's absolute path, 1-based `line ≥ 1`, `endLine ≥ line`, a non-inverted range and a bounded `newText`. Anything else yields **no lightbulb**, never an edit built from half-understood coordinates. The host's edit cap is **16** against the producer's 4 (11.42 A2): the consumer is deliberately the more permissive side, so the producer's cap can tighten without a host release. |
+| **A7** | **All or nothing.** If any edit of a fix fails any check, the whole fix is refused and not one byte is written. Half a fix is a broken file. |
+| **A8** | **Containment.** Every edit's `absFile` goes through `codeActions.writableFile`, the same guard `suppressRule` uses (11.27 S4). A path outside every open workspace folder is **refused and logged**, never redirected: a rejected write is visible and a silently relocated one is not. |
+| **A9** | **11.42 I.3, discharged.** The document carries no content hash, so a host cannot prove the source is unchanged. It can prove the two ways it is certainly wrong, and it checks both **before** the preview: the target buffer has **unsaved changes** (the analysis read the file on disk), or the edit's end line is **past the end** of the buffer (the file shrank). Either is a `stale-document` refusal naming the file and telling the user to save and re-analyze. |
+| **A10** | **Notebooks are excluded.** A `vscode-notebook-cell:` document gets no actions: a finding inside an `.ipynb` names the generated shadow module under `.mlview/notebooks/`, and repairing that would edit a file the user never wrote. |
+| **A11** | **`mlview.applyFix` is registered and NOT contributed.** Like MLV-P10's three commands, it takes an argument and would be broken from the palette. `package.json` gains no command for it. |
+
+#### B. `applyFix`, the fourteenth UiToHost message (amends §4)
+
+```ts
+{ v: 1, type: 'applyFix', issueId: string }
+```
+
+| # | Rule |
+|---|---|
+| **B1** | **The id and nothing else.** No range, no replacement string, no path. The host resolves the id against **its own** copy of the graph and reads the edits from there. A webview that could name a range and a string would be a webview deciding what gets written to disk, which is precisely what 11.42 B2's "edits are computed from the AST" exists to prevent. |
+| **B2** | `isUiToHost` rejects a missing or empty `issueId`; extra keys are ignored by the guard and by the handler. |
+| **B3** | An id that is not in the current analysis is **reported to the user**, never guessed at: the finding may predate a re-analysis, and applying "the nearest thing" would be the worst possible reading of the request. |
+
+#### C. VIEW-08 — the comparison commands (`vscode-extension/src/compare.ts`)
+
+| # | Rule |
+|---|---|
+| **C1** | Three commands, all contributed and all registered: `MLView: Save Current Graph As Comparison Base` (`mlview.saveComparisonBase`), `MLView: Compare With Saved Base` (`mlview.compareWithBase`), `MLView: Compare With Clean Sample` (`mlview.compareWithCleanSample`). |
+| **C2** | **The base is the analyzed document, written verbatim** to `<folder>/.mlview/comparison-base.json` — beside `.mlview/baseline.json`, in the directory MLView already owns in a workspace. Saving a base **never** spawns the analyzer: a diff whose two sides came from two different runs is the mistake 11.38 D orders the summary to make visible, and capturing a base by re-analysing would build that mistake in. |
+| **C3** | **The comparison is the analyzer's.** The host runs `python -X utf8 -m mlview diff <base> <head> --json -` through `CoreClient.runCli` — the same seam, therefore the same trust gate, interpreter chain and UTF-8 environment as every analysis — and computes nothing itself. A stdout payload whose `kind` is not `mlview-diff` is refused with a message naming that the core may predate `mlview diff`; `kind` is checked before anything else, as 11.38 B requires of a consumer. |
+| **C4** | **The head is staged in the extension's own `globalStorageUri`**, never in the user's repository. The only file this feature writes into a workspace is the base named in C2, and only when the user asks for it. |
+| **C5** | **`notes[]` is never swallowed.** Every entry of the overlay's `notes[]` is written to the MLView output channel verbatim, and the toast carries the headline plus `· N caveat(s) — see MLView output` with a `Show Output` action. 11.38 C is the honesty half of VIEW-08: a reviewer who reads *"−16 nodes"* as a deletion has been misled by the tool, and this is the host's share of not misleading them. |
+| **C6** | **A comparison dies with the document it described.** `MlviewPanel.postGraph` posts `diffOverlay: null` immediately after any graph, whenever an overlay is outstanding. A stale *"0 new findings"* drawn over a freshly analysed diagram is a confident wrong answer, which is the one failure this product cannot survive. A second graph with no overlay outstanding posts nothing. |
+| **C7** | **The clean twin is found by NAME, under the root** — `samples/vision_pipeline_clean`, then `vision_pipeline_clean` — and never outside it. When there is none the command **names what it looked for** and suggests the saved-base flow instead of comparing something else. |
+
+#### D. `diffOverlay`, the fifteenth HostToUi message (amends §4)
+
+```ts
+{ v: 1, type: 'diffOverlay', overlay: <the mlview-diff document> | null, baseLabel?: string }
+```
+
+| # | Rule |
+|---|---|
+| **D1** | The overlay travels **verbatim** and is an optional **sibling** of the graph — never merged into it. `schemaVersion` stays `1.0`, `contracts/graph.sample.json` is untouched, and an unscoped `analyze` emits exactly the bytes it always emitted. |
+| **D2** | The host types the overlay only as far as it reads it (`kind`, `diffVersion`, `summary.headline`, `notes[]`). Everything else passes through: the viewer owns the rendering, the host owns the transport, and widening the host type is never how a new overlay field reaches the diagram. |
+| **D3** | `overlay: null` clears a comparison. A viewer that does not implement `diffOverlay` ignores an unknown type (§4's degrade-don't-crash rule), which is what keeps this additive across the three hosts. |
+| **D4** | It is **deferred until a graph has been delivered**, like `revealNode` and `setScope`: an overlay arriving before the document it decorates has nothing to decorate. |
+
+#### E. The plugin: `mlview_graph {scope: "diff", base}` (amends §9)
+
+| # | Rule |
+|---|---|
+| **E1** | **Still exactly five tools.** A diff is another projection of the same graph — the argument §11.1 already makes for `stage:` and `unit:` — so it is a value of `scope`, not a sixth tool. `tests/test_diff_scope.py` asserts the server exposes five `@server.tool` functions. |
+| **E2** | `base` is the earlier `analyze --json` document, resolved through `mlview_workspace.resolve_path`, so it is constrained to the project directory exactly like every other path a tool argument carries. |
+| **E3** | **A base that is not a graph is an ERROR naming the file** — missing, unreadable, not JSON, not a graph, or itself a `mlview-diff` overlay — re-raised through `visible_errors` as a `ToolError` the model can act on. It is never an empty comparison: *"0 changes"* is the most dangerous wrong answer this projection can give. |
+| **E4** | The result is `{format: "text", scope: "diff", content, summary{headline, nodes, edges, issues}, note, basePath, graphPath, truncated}`. `content` is `emit/diff_out.render_summary` — the analyzer's own text, not a second rendering — and `summary.issues` is `{new, fixed, persisting}`, so a model never parses prose to answer *"did this PR add a finding"*. |
+| **E5** | **The caveats outlive the clip.** `note` is a `PROTECTED_KEY` in the 4 KB budget walk, so rows may be shed and the caveats may not. It carries every `notes[]` entry, the *"both analyses read their whole workspace"* line when a pair has nothing to declare, and — always, for every pair — the standing sentence that a rename is every node removed plus every node added. |
+| **E6** | The `mlview_graph` docstring documents the selector and `base`, including the instruction to read `note` before quoting the counts. `/mlview-issues` documents `--diff-base <file>` and points it at this scope; its `Bash` fallback is three runnable lines (`analyze --json` twice, then `diff`), because `tests/test_command_arguments.py` executes every documented fallback and a placeholder would be a documented command that fails. |
+
+#### F. CFG-ONE: the clause 11.40 C2 asserted on the wrong pair
+
+11.40 C2 says *"`mlview.disabledRules` and `mlview.exclude` are additive filters on top … Both
+settings' `markdownDescription` say this in those words"*. The wave-1 test asserted the claim on
+`mlview.configPath` and `mlview.baselinePath` instead, and the two rows a user actually reads
+while typing a rule code said nothing about precedence at all.
+
+| # | Rule |
+|---|---|
+| **F1** | `mlview.disabledRules` and `mlview.exclude` each carry a `markdownDescription` (not a `description` — one per row, or the Settings UI shows both) stating: this setting is an **ADDITIVE** filter; the table in the configuration file **WINS**; and the thing it therefore cannot do — *"cannot re-enable a rule the file disabled"* / *"cannot re-include a path the file excluded"*. Each names the table it loses to (`[rules].disable`, `[paths].exclude`) and links to `#mlview.configPath#`. |
+| **F2** | `test/config.test.js` asserts F1 on **both** rows, in both directions, so the claim cannot drift out of the manifest. No setting is added: the contributed set is still the 16 rows 11.40 froze. |
+
+---
+
+#### G. Files that must change together (§11.16 addendum)
+
+`vscode-extension/src/fixes.ts`, `src/compare.ts`, `src/protocol.ts` (the two message types and
+their guards), `src/graph.ts` (`IssueFix` / `FixEdit`, mirroring 11.42 A2–A3), `src/panel.ts`
+(`onApplyFix`, `postDiffOverlay`, C6's clear), `src/panelState.ts` (D4), `src/extension.ts`,
+`package.json` (three commands, F1's two descriptions), and `claude-plugin/server/mlview_diff.py`
++ `mlview_mcp.py` + `commands/mlview-issues.md`. `src/panelOpen.ts` and `src/visualizeCommands.ts`
+are extractions with no behaviour change, made because `panel.ts` and `extension.ts` reached the
+600-line budget.
+
+#### H. Gates
+
+`vscode-extension/test/fixes.test.js` (19) — the five guardrails one test each, the stale-buffer
+and short-file refusals, the containment refusal whole-fix, an insertion and a replacement
+asserted against a virtual document byte for byte, and the two surfaces proven to be one path.
+`test/compare.test.js` (15) — the frozen `diff` argv, the overlay posted as its own message, the
+caveats reaching the channel, the missing-base and not-an-overlay paths, the clean-twin lookup,
+and C6 asserted on a real panel. `test/config.test.js` gains F2.
+`claude-plugin/tests/test_diff_scope.py` (10) — the five-tool count, the docstring, four bad-base
+shapes, and §11.38 E's table (26 / 16 / 11 / 27 nodes, 0 new / 15 fixed) reproduced through the
+tool boundary under the 4 KB budget.
+
+#### I. What these surfaces could not do, stated out loud
+
+1. **A fix is still applied at coordinates nobody can prove are current.** A9 rejects the two
+   provable failures — a dirty buffer and a file that shrank — and VS Code's preview shows the
+   diff. Neither is a proof: a file edited and **saved** since the analysis, with the same line
+   count, passes both checks and lands the edit at a line that has moved. The honest fix is a
+   content hash on the document, which 11.42 I.3 declined to add; until then the preview is the
+   last line of defence and this entry says so rather than implying more.
+2. **The lightbulb offers a fix for a finding the Problems panel may be hiding.** Actions are
+   matched against the **graph**, not the published diagnostics, so a finding below
+   `mlview.minConfidence` (default 0.6) but at or above the `likely` bucket still gets a
+   lightbulb. That is deliberate — the confidence floor for an EDIT is 11.42 B3's, not a display
+   preference — but it means the two surfaces can disagree about which findings exist, and a
+   user seeing an action for a finding with no squiggle is seeing that.
+3. **A comparison is only as honest as its base.** The host cannot tell a base captured before
+   the change from one captured after it, or one captured with different settings. The overlay's
+   `different-analyzers` note covers a version change and nothing covers a settings change; the
+   base file's mtime is the only clue and the host does not read it.
+4. **Nothing here re-anchors a diff onto the code.** The overlay names ids; matching them to what
+   the user changed is the viewer's half of VIEW-08 and is not in this entry. Until it lands, the
+   editor's answer to *"what changed"* is a headline, a set of counts and a list of caveats — not
+   a picture.
+5. **`Compare With Clean Sample` is a demo affordance, and the pair are siblings.** Two
+   directories are not two commits; the overlay's `different-roots` note is the truthful reading
+   and C5 is what makes sure a user sees it.
+
+---
+
+### 11.44 The viewer half of VIEW-08, H5 and ANA-10 (2026-09-10) — amends §4, §8 and 11.9, renderer-local
+
+Three LATER-tier items reached the renderer in the same wave, and they share one
+property that is the reason they are written up together: **each of them draws a
+field that may not be there.** The diff overlay is a separate document a host may
+never send, `Issue.fix` exists only on rules that opted in, and ANA-10's resolved
+value arrives on `Node.attrs`. A viewer that renders any of them badly when they
+are absent breaks every document that predates them, so the first rule in each
+section below is what happens when the field is missing.
+
+Nothing here changes `contracts/graph.sample.json`, `graph.schema.json` or the
+bytes any analyzer emits. The two schema additions (`Issue.fix`, and the
+`Node.attrs` keys) are the analyzer's own; this entry pins how they are DRAWN.
+
+---
+
+#### A. VIEW-08, the viewer half — consuming the overlay
+
+§11.38 defined `mlview diff` and its `mlview-diff` document and said explicitly:
+*"the viewer's ledge, ghost outline, banner and 'changed only' chip are
+renderer-owned"*. This is that half. It consumes the document and adds nothing
+to it.
+
+| # | Rule |
+|---|---|
+| **A1** | The overlay reaches the viewer three ways, consulted in this order: the `diffOverlay` host message (A2), `window.MLViewDiff`, and a `<script type="application/json" id="mlview-diff">` element beside `#mlview-graph`. The third is the standalone report's route and is read at MOUNT, so the first paint already carries the decoration. **The WRITER of that element is `emit/html_out.py`, which is analyzer-owned and not part of this entry** — exactly the relationship `ui/ruledocs.ts` has with `#mlview-rule-docs`. Until it is written, a report carries no overlay and renders as it always did. |
+| **A2** | §4 gains one host→UI message: `{ v: 1, type: 'diffOverlay', overlay: unknown, baseLabel?: string }` — the shape 11.43 D specifies, so the host half and this half are one message and not two. `overlay: null` clears it. `baseLabel` is the HOST's name for what the comparison is against (a git ref, a saved run); the overlay knows only the two workspace roots, which are the same string when both sides came from one checkout, so without it the banner would read *"base X → head X"*. Absent, it falls back to the root's last segment. Both sides still ignore unknown types, so a host that never sends one and a viewer that predates it both behave exactly as before. |
+| **A3** | The payload is VALIDATED before anything is drawn. `kind` must be `"mlview-diff"` and `diffVersion`'s major must be `1`; an overlay naming no node and no finding is not an overlay. Anything else — a graph document, a truncated JSON block, a future major version, a string — degrades to **no overlay** and the diagram is byte-for-byte the one it would have drawn anyway. That is invariant 1.1/6 applied to a second document. A rejected overlay that arrived on the wire is answered with one `log` frame at `warn`. |
+| **A4** | The overlay is lifted onto a COPY of the host's document (`diff/adopt.ts`), never onto the document itself: `diffStatus` and `diffChanged` are renderer-local fields on `MLNode`, never on the wire. The host's document is kept pristine so an overlay can be replaced or dismissed without a re-analysis. |
+| **A5** | **A removed node is drawn by resurrecting it.** It is absent from the head document by definition, so the card is synthesised from the overlay entry — label, kind, level, stage, loc — and merged into the document in the analyzer's own `(stage order, file, line, id)` position, so it lands beside the code it used to sit next to. It is `ghost: false` and carries the ghost VISUAL: `ghost` is the schema's word for a step the analyzer expected and did not find, and §11.2 step 7 prunes a projected ghost with no retained finding, which would have deleted every resurrected card the moment "changed only" was switched on. `stats` is left exactly as the analyzer wrote it — the ghosts are decoration, not a claim about what was analysed. |
+| **A6** | The three statuses are **never colour alone**: `added` gets a ledge bearing the word *added*, drawn as a child of the CARD so it survives the compact LOD that hides the chip row; `removed` gets the dashed ghost outline plus a ledge bearing the word *removed*; `changed` gets a chip that NAMES the field when the overlay named one (`changed: issueCodes`) and counts them when it named several. `unchanged` is decorated with nothing at all. Every one of them is also in the card's `aria-label`, and a removed node is announced as *"Removed: …"*, never as *"Missing step"*. |
+| **A7** | The banner draws `summary.headline` VERBATIM when the overlay's own arrays support it, because that wording is what all three hosts share. When they do not, the arrays win — they are what is drawn — and the disagreement is reported as an extra note. |
+| **A8** | **`notes[]` is never elided**, never folded behind a disclosure and never capped, per §11.38 C; a pair with nothing to declare gets the one line that says so. Beside them the banner states the VIEWER's own blind spots, which no analyzer note can carry: removed edges are counted and not drawn (a route needs both endpoints in one document), a resurrected ghost carries no findings, ports or nesting (they live in the base document, which the page does not have), removed nodes a scope or a cap took off screen are counted separately, and **a rename is every node removed plus every node added**. |
+| **A9** | **"Changed only" is a PROJECTION, not a filter.** It calls the same `project()` machinery scoped views use, with `core` = every node the overlay says is not `unchanged` and `boundary` = one edge hop. Everything that projection already guarantees comes with it: boundary stubs carry no severity badge, `nodeIds[0]` is rotated onto a core node, and the rail's scope line still says how many findings are outside the view — so a narrowed diagram can never read as a clean bill of health. Its wording is *"N outside the changed set"*, not *"outside this scope"*. |
+| **A10** | It **composes** with a real scope rather than replacing it: the diff projection is applied to the scoped document, and the outer scope's selector, depth, anchors and PROJECT-LEVEL `of` counts are restored onto the result, so the breadcrumb keeps naming the scope, keeps copying a selector that parses, and keeps its denominator honest. Its label becomes `<scope> · changed only`. |
+| **A11** | With no scope under it, the diff projection puts `view.scope: "changed"` on the document and the **breadcrumb is not drawn**: it is the scope's chip, and offering "Copy scope" for a string that does not parse, beside an [×] that clears nothing, would be a control that lies. `getScope()` still reports `spec: null`, and **`scopeChanged` is not posted** — the host's idea of the scope has not moved. |
+| **A12** | `ViewState` gains `diffOnly?: boolean`, absent at its default (off) exactly as `flow`, `scope`, `legendOpen` and `answersOpen` are, so an older host round-trips a state it has never seen (11.9). Restoring it with no overlay loaded is a **no-op**, never an empty diagram. |
+| **A13** | The rail lists what the change FIXED — the overlay's `fixed` findings, which are in the BASE document — in a collapsed section that says so and offers no "Open" and no suppression action, because there is nothing in this document to open or suppress. Findings present in this document carry `new vs base` / `still there`, worded so they can never be confused with CI-ADOPT's `new` / `touched` / `existing` chip, which is about git hunks inside ONE analysis. |
+| **A14** | **What the exported picture cannot carry.** `export/svg.ts` draws a removed node with the same dashed outline (and `data-diff` on its `<g>`), so a static picture never shows a deleted node as an ordinary card — but it carries **no ledge, no chip and no banner**. An exported SVG or PNG of a diff view is a picture of the narrowed graph, not a picture of the diff. |
+
+#### B. H5, the viewer half — drawing a fix without ever applying one
+
+The lead lifted `REQUIREMENTS.md` §5 non-goal 5 with five guardrails. Four are
+properties of this half.
+
+| # | Rule |
+|---|---|
+| **B1** | The marker is drawn from `Issue.fix`'s **presence** and never inferred from `fixHint`, which all 36 rules carry as prose. A `fix` with an empty `edits[]` is not a fix. A rule that did not opt in shows exactly what it always showed. |
+| **B2** | `safety` is typed `string` and only `"mechanical"` reads as mechanical. **Anything else — including a word a newer analyzer invents — reads as "needs review"** and gets the cautious verb (*"Review fix…"*, not *"Apply fix"*). The asymmetry is deliberate: mis-reading a judgement call as mechanical is the expensive direction. |
+| **B3** | The edit is shown **verbatim**, one `<pre>` per edit, labelled with its file, line and whether it inserts, replaces or deletes (an empty range is an insertion; an empty `newText` is a deletion). No re-indentation, no wrapping, no prettifying: what a reader approves is what would be written, and Python is whitespace-significant. |
+| **B4** | §4 gains one UI→host message: `{ v: 1, type: 'applyFix', issueId: string }`. **An id and nothing else** — a webview must not be able to talk its host into writing bytes it chose. The host resolves the id against its own copy of the document and applies the edits **behind a preview**. The viewer never edits, never auto-applies, and the panel states which of the two will happen BEFORE the button, in both hosts. |
+| **B5** | The standalone report has no host to ask, so it sends **no `applyFix` at all**: it copies the snippet through the `copy` message that already owns the clipboard path (11.17.1), and both the toast and the live-region announcement say the clipboard — never that anything was edited. |
+| **B6** | The fifth guardrail — *no fix below the `likely` bucket* — is the analyzer's. The renderer makes it auditable by drawing the confidence chip beside the marker on every row. |
+
+#### C. ANA-10, the viewer half — a resolved value where the question is asked
+
+| # | Rule |
+|---|---|
+| **C1** | **Two sources, in this order.** The one that exists today is the analyzer's OWN sublabel: `core/config_nodes.py` writes `selects pkg.optims.build_adam` for a resolved selection and `one of 3 in pkg.optims · build_adam, build_rmsprop, build_sgd` for an unresolved one, and both were measured on this tree. That wording is SHARED with `mlview issues` and the other two hosts, so when it is the source **the card keeps it verbatim** and the renderer adds only the visual and the Inspector's table around it — a renderer that rewrote the sentence would make the report and the CLI disagree about the same node. The second source is `Node.attrs` (`Record<string, string>`, no schema change, the channel the notebook cell map travelled on per 11.29 N6); it takes precedence when populated, because a structured value is worth more than a parsed one, and it accepts several spellings per field (`resolvedValue` / `resolved` / `configValue` / `value`; `resolvedFrom` / `configSource` / `source` / `from`; `alternatives` / `oneOf` / `candidates`; `unresolved` / `configUnresolved`) so a renderer never silently draws nothing because the analyzer picked the other word. **The canonical spellings are the first of each group.** |
+| **C2** | A resolved value from `attrs` replaces the card's sublabel with `name = value`, which is the answer to *"where does batch_size come from"* — the question the config lane exists for. It is dropped when the label already IS the assignment. The card middle-truncates at 40 characters, so the untruncated string is on `data-config-sub` and in the hover, and the provenance is spoken in the `aria-label` — including when the sublabel itself was left verbatim. |
+| **C3** | A `getattr` registry is **one** node, not two `unknown` boxes: the card carries `data-config-alt="N"` and a doubled dashed outline, the Inspector names **all N** candidates in a table with the module they are defined in, and it says out loud that MLView could not tell which one runs *"rather than guessing"*. The N printed is the analyzer's stated N, so a list that ever names fewer than it counts still reads truthfully. |
+| **C4** | **"Could not resolve" is drawn, never omitted.** An unresolved value reads `not resolved`, with the analyzer's reason when it gave one. An empty sublabel and *"MLView could not read this config"* are the two statements this product must never confuse. |
+| **C5** | The renderer **de-rates nothing and invents nothing**: the confidence bucket drawn is the analyzer's, and a node whose `attrs` say nothing about a resolution is drawn exactly as it was. An analyzer predating ANA-10 loses not one pixel. |
+
+---
+
+**Gates.** `webview/test/diff.test.mjs` (30), `webview/test/fixes.test.mjs` (10),
+`webview/test/configres.test.mjs` (13), all three added to `npm test`. The diff
+fixture is not hand-written: it is the block embedded in `webview/dev/index.html`,
+which is real `mlview diff --format json` output over a base built from
+`contracts/graph.sample.json`, and the test reads it from there so the harness
+and the gate cannot drift apart.
+
+**Ratchet.** BUILD-01's size ratchet moves once, here: JS 278 → 303 KB and CSS
+62 → 68 KB, against a measured 304 511 B and 68 001 B, re-recorded and
+re-justified line by line in `webview/test/bundle.test.mjs`'s own prose block as
+that block requires (VIEW-08 ≈ 14.8 KB, H5 ≈ 4.0 KB, ANA-10 ≈ 3.1 KB, the rest
+spread across `app`, `types`, `protocol`, `scope/*` and `render/nodes`).
+
+**What this half could not do, stated out loud.** The exported picture carries no
+ledge, chip or banner (A14). Removed EDGES are counted and never drawn (A8). A
+resurrected node is drawn from the overlay entry alone, so it has no findings, no
+ports, no nesting and no severity badge — the base document is not on the page.
+The "changed only" projection can only keep what the head document contains, so a
+changed node that `--max-nodes` capped or an outer scope excluded is simply not
+there, and the banner counts it as not-on-screen rather than pretending.
+
+And ANA-10's second source is a **parse of an English sentence**. It is pinned by
+a test against the two forms `core/config_nodes.py` emits today, but a reworded
+sublabel would take the one-of-N visual with it and leave the card reading
+exactly what the document said — a silent degradation, not a crash. The
+structured `attrs` path (C1) exists precisely so that parse can be retired; the
+integrator closes this by having the analyzer write `alternatives`,
+`resolvedValue` and `resolvedFrom` on `Node.attrs` beside the sentence, after
+which the sentence parse is belt and braces rather than the mechanism.
+
+---
+
+### 11.45 ANA-10 (Python half): config resolution (2026-09-10) — amends §1, §7.4 and the §11.16 diagnostic table; analyzer-owned
+
+The measurement the roadmap made, reproduced on this tree before the change: `DataLoader(…, num_workers=4)`
+fires MLV112, a module-level `WORKERS = 4` fires, and **`CFG["workers"]` and `cfg.data.workers` are silent**.
+The ANA-12 Hydra program — where every hyperparameter comes out of one dict — had a Config lane of four
+nodes, **two of them `unknown` from a `getattr` registry**, and **zero `config`-kind edges**. Every
+literal-dependent rule degraded the same way, and MLV110 did worse than degrade: on
+`DataLoader(ds, shuffle=CFG["shuffle"])` with `CFG["shuffle"] = True` it reported
+*"shuffle=unset (defaults to False)"* at `likely` — **a false statement about a correct program**, which is
+the one failure this product cannot afford.
+
+This amendment resolves the **in-Python** half of ANA-10. The on-disk YAML / Hydra half stays deferred, and
+is now *said out loud* rather than left as an empty lane.
+
+#### A1 What a config container is — and the whole blast radius
+
+`ir/config_shapes.py` recognises exactly four shapes, each of them a value a reader can point at in Python:
+
+| Shape | Resolved | Not resolved |
+|---|---|---|
+| **dict literal** | nested, every constant key, `CFG = {"data": {"workers": 4}}` | a computed key, a comprehension, a `dict()` call |
+| **dataclass** | field defaults, nested through `field(default_factory=<another workspace dataclass>)`, with **literal constructor keywords replacing** the defaults they name | `field(default_factory=lambda: …)` / `list` / `dict` — the construct ANA-5a already calls unresolvable, and this pass must not contradict it |
+| **argparse** | `add_argument(…, default=…)` keyed by `dest` (explicit `dest=` first, else the option string with `--` stripped and `-` → `_`), plus `action="store_true"` → `False` and `store_false` → `True` | a module with **two** `ArgumentParser()` constructions — the two namespaces are indistinguishable here, so neither is read |
+| **an attribute or subscript chain rooted at one of the above** | `cfg.data.workers` **and** `CFG["data"]["workers"]` are one path, because that is exactly what a `DictConfig`, a `SimpleNamespace` and a dataclass make them | a non-constant key; a key containing `.`; a chain deeper than `MAX_PATH_DEPTH` (6) |
+
+The container's **name** must match `CONFIG_NAME_RE` — `cfg`, `config`, `args`, `opts`, `options`, `hparams`,
+`params`, `settings`, case-insensitively. That regex is the whole blast radius of this pass: a dict literal
+called `WEIGHTS` is not a config and is not touched. It has moved from `ir/bindings.py` to
+`ir/config_shapes.py`, which is the pass that acts on it, and `mlview.ir.bindings.CONFIG_NAME_RE` re-exports
+it, so every existing importer is unchanged and the two spellings cannot drift.
+
+Caps, all stated as constants: `MAX_CONFIG_LEAVES = 256` per container, `MAX_CONFIG_DEPTH = 5`,
+`MAX_PATH_DEPTH = 6`, `MAX_ALTERNATIVES = 12`, `MAX_CONFIG_HOPS = 2`.
+
+#### A2 Where a resolved value lands — and why no rule changed
+
+Two sinks, both of them things rules **already read**:
+
+* **`ValueRef.literal`.** Every scalar leaf is stored as an ordinary `ValueRef` under its dotted path
+  (`CFG.data.workers`), written straight into `scope.bindings` and deliberately **not** into
+  `binding_history` — it is not a statement, it has no position in the source order, and REV-01's ordered
+  lookup must keep answering questions about real stores only. A real assignment to the same dotted name
+  always wins; the leaf is never written over one. `rules.helpers.literal_of` gains one lookup —
+  `dotted_text(expr) or config_values.path_name(expr)` — so a subscript chain is spelled as the same dotted
+  name an attribute chain is, and every rule that already called it sees the value with **no rule change**.
+* **`CallSite.kwargs`.** This is what a rule reads when it asks *"was `shuffle=True` passed here?"*, and it
+  only ever held literals written at the call site. ANA-10 fills it from the container for keys the call site
+  did **not** write — a keyword written at the call site always wins — for **scalars only** (never a container
+  literal, never over 40 characters). Every key written is recorded and taken back at the start of the next IR
+  round, so a parameter that resolves optimistically in one round and is refused by A4's intersection in the
+  next leaves nothing behind.
+
+**Consequence, stated rather than discovered:** a `Node.attrs` entry (and the `op_sublabel` built from the same
+dict) may now show a value this pass resolved out of a container rather than one written at the call site.
+Nothing is evaluated and nothing is invented — the value is a literal the analyzer read from Python source —
+and the container it came from is drawn as a `config` edge into the consuming unit (A6) and named in the
+evidence of any finding that used it (A4). §11.44 §C pins how a viewer draws it.
+
+#### A3 How a container travels
+
+Three ways, and no others:
+
+1. **an import** — `from conf import CFG` adopts the defining module's already-resolved container, at the
+   same hop count. An import is not an indirection;
+2. **a declared default** — `def train(cfg=CFG)`, read only for a function defined in the module the default
+   is written in, because a default expression lives in the callee's namespace;
+3. **an argument** — `optimizer_for(model, cfg)` maps onto a `CONFIG_NAME_RE`-shaped parameter.
+
+Each of 2 and 3 costs **one hop**, capped at `MAX_CONFIG_HOPS = 2` — which is exactly
+`CFG → train(cfg=CFG) → optimizer_for(model, cfg)`, the shape the ANA-12 Hydra program has. The propagation
+runs inside `bind_module`, one hop per IR round, and reaches its fixed point the way `propagate_parameters`
+does; its output is part of the state `ir.converge.state_digest` fingerprints, so a round that only moved a
+config value still counts as movement.
+
+#### A4 Intersection, never union — and the price of a read
+
+**Intersection.** A parameter takes a container only when **every** recorded call site of its function agrees
+on the same one. A site that passed something this pass could not follow records `None`, which is enough to
+refuse the parameter for everybody: an unanalysable second caller silences the first rather than being
+outvoted by it. `analyzer/tests/fixtures/config_values/disagree/` is a function called with two different
+containers and it resolves to neither — a union would pick one and MLV112 would report a worker count the
+program never uses.
+
+**The price.** `CONFIG_EVIDENCE_WEIGHT = 0.8`, the same number and the same reasoning as
+`ir.provenance.IP_HOP_WEIGHT`: a container can be overridden at run time by a mechanism no static reader can
+see — a Hydra override, an `argv`, a `cfg.update(…)`. It is charged **once for the read**, and once more per
+hop, as one ordinary factor in the confidence product:
+
+| MLV112, base prior 0.98 | confidence | bucket |
+|---|---|---|
+| `num_workers=4` | 0.980 | certain |
+| `num_workers=WORKERS` (a module constant, unchanged behaviour) | 0.980 | certain |
+| `num_workers=CFG["workers"]` — 0 hops | **0.784** | likely |
+| `num_workers=cfg.data.workers` — 0 hops | **0.784** | likely |
+| `num_workers=cfg["workers"]` inside `def make(cfg=CFG)` — 1 hop | **0.627** | possible |
+
+**A config-resolved value can never mint a `certain` finding.** That is arithmetic, not a promise: the highest
+prior any registered rule carries is 0.98, and `0.98 × 0.8 = 0.784 < 0.9`.
+
+**Where the factor is applied.** `rules.helpers.apply_config_derating(ctx)`, called once by
+`rules.registry.run_all` after every rule has run. It lives there rather than inside `ctx.issue()` because the
+two halves happen at different times: `literal_of` records the read while a rule is running, the keyword sink
+records it in the IR pass before any rule runs, and the read is joined to the finding by **the source range
+they share** — a read whose line falls inside the finding's `loc` or one of its `relatedLocs`. One factor per
+issue, never one per read: several reads out of one container are not independent chances of being wrong, so
+the finding pays the **weakest** of them once and the detail names them all.
+
+The keyword sink has no rule code and no ordering to key by, so its note is attached to the **call site**: a
+finding anchored on a call whose keywords a container supplied is de-rated once, even if it argued from a
+different keyword. That over-approximates, on purpose, in the only safe direction — less confidence, never
+more.
+
+#### A5 The graph: one node per container, `config` edges across files
+
+`core/config_nodes.py` (a new module, so `core/build.py` does not grow again) owns three things:
+
+* **aliases.** A container that travelled is bound to a name in every scope it reached, and minting a node per
+  name would draw the same dict three times. Every alias maps onto the **one** node its container already has,
+  which is what turns *"where does `batch_size` come from"* into `config` edges from `CFG` into each consuming
+  unit — including across files. The alias is carried as a `(relpath, scope, name)` key, never a `ValueRef`,
+  because the binding passes rebuild every `ValueRef` on every round.
+* **selections** (A6).
+* **`config_unresolved`** (A7).
+
+#### A6 `getattr`: named exactly, or bounded to one of N
+
+`getattr(<module>, <a string>)` drew an `unknown` box that said nothing. It draws a **`config`** node now,
+in both branches, and never claims more than it knows:
+
+* **resolved** — the string is a literal this pass read, so the symbol is named exactly
+  (`selects torch.optim.AdamW`), the node carries that FQN, the `ValueRef` carries it as `via_fqns`, and the
+  construction on the following line resolves through it into a real `optimizer` node. The symbol must exist
+  — in `workspace.classes` / `workspace.functions` for a workspace module, or in the knowledge tables for a
+  third-party one. **No FQN is invented** (iron law 1);
+* **unresolved** — a `getattr` on a **workspace** module is still bounded to the symbols that module actually
+  defines, so the node names them (`one of 2 in factories · Alpha, Beta`) and takes **1/N** as its confidence:
+  the node is certainly there, and which symbol it is is a one-in-N guess this pass refuses to make.
+
+The node's kind is `config` in both branches. A `getattr` line **selects a name**; it constructs nothing, and
+borrowing the `class` or `model` kind for it would claim an object exists a line before it does.
+
+#### A7 The deferred half, said out loud — `config_unresolved` is now emitted
+
+`Diagnostic.kind` already carries `config_unresolved`, listed in §11.16's table as *"no — reserved"*. **This
+amendment activates it**; the table's "emitted" column for that row becomes yes. It is published for every
+YAML or Hydra config the workspace **names** and this run did not open:
+
+* any string constant anywhere in a module ending `.yaml` / `.yml` — a path is as likely to be a parameter
+  default or a module constant as a call argument, and the reader needs the same answer in all three cases;
+* a call to `yaml.safe_load` / `yaml.load` / `yaml.full_load` / `OmegaConf.load` / `OmegaConf.merge`;
+* a `@hydra.*` decorator, which composes a config out of files this run did not read.
+
+At most three per module, then one counted row. **Nothing in `ir/config_shapes.py`, `ir/config_values.py` or
+`ir/config_calls.py` opens, imports, execs or compiles anything**, and a test asserts that against the AST
+rather than the text. *"Never imports, never execs"* stays load-bearing, and *"never reads a config file"*
+now joins it.
+
+#### A8 No schema change
+
+`graph.schema.json` is untouched, `contracts/graph.sample.json` is untouched, and the shipped demo's fifteen
+findings are unchanged — `samples/vision_pipeline` keeps its constants as plain module constants, which
+`literal_of` has always resolved and which this pass does not touch. A test asserts that causally: the demo's
+fifteen findings are still the fifteen `expected_issues.json` names and **not one of them carries a config
+factor**, which is what "their confidences are unchanged" means.
+
+#### A9 What it could not do
+
+1. **It does not open YAML or compose Hydra.** That is the deferred half, by decision, and A7 is the whole of
+   what ships in its place: the file is named, the values from it are unresolved rather than guessed.
+2. **A container must be `CONFIG_NAME_RE`-named.** `TRAIN_CFG = {...}` and `DEFAULTS = {...}` are not read.
+   The regex is the audited blast radius; widening it is a separate, measurable decision.
+3. **A parameter must be `CONFIG_NAME_RE`-named too**, so a container passed as `def build(spec)` does not
+   travel. Two hops is also the cap, so a container that goes four `def`s deep stops — and stops silently,
+   which is this entry's own weakest point: unlike DATAFLOW-IP's cap, the config cap publishes no
+   `truncated` note.
+4. **The keyword de-rating is anchored on the call, not on the argument.** A finding anchored on a call whose
+   `num_workers` came from a container is de-rated even if it argued only about `shuffle`. Safe direction,
+   stated rather than hidden.
+5. **`ValueRef.config_read` and the six `module.config_*` tables are ad-hoc attributes**, not declared fields
+   on `ir/model.py`'s dataclasses, and are read everywhere through `getattr(..., default)`. That keeps the
+   change additive and keeps `model.py` out of a wave three agents were editing; it also means nothing type-
+   checks them.
+6. **`cls()` after an unresolved `getattr` is still an `unknown` op.** The selection is bounded to one of N;
+   the *construction* through it is not, and pretending otherwise would be the guess A6 refuses.
+7. **`literal_of` still returns a string.** A rule that wants to know *whether* a value came from a container
+   has no way to ask; only the confidence model knows, and only after the fact.
+
+#### A10 Measured (this Mac, 2026-09-10)
+
+* **Probe ladder** (`analyzer/tests/fixtures/config_values/ladder/`): all four rungs fire MLV112 —
+  `certain, certain, likely, likely` at `0.98 / 0.98 / 0.784 / 0.784`. One hop
+  (`fixtures/config_values/hop/`) is `0.627`, `possible`.
+* **`hydra_research`** (the ANA-12 program the roadmap measured): **47 nodes / 44 edges / 0 `config` edges /
+  4 `unknown`** → **49 / 49 / 3 `config` edges / 2 `unknown`**. The two `getattr`-registry boxes are gone;
+  the subscript callee in `registry.py:21` and the unresolvable receiver in `models.py:39` honestly remain.
+  The three `config` edges all run from the single `CFG` node in `src/train.py`, one of them into
+  `src/models.py` — a cross-file answer to *"where does this come from"*.
+* **Recall**, `tools/accuracy.py`, the whole corpus, measured with the pass on and off:
+  overall **71.8% → 73.1%**, unseen **53.2% → 55.3%**, visible **64.1% → 65.4%**, graph fidelity
+  **126/139 (90.6%) → 127/139 (91.4%)**. **Precision stays 100.0% and forbidden findings stay 0.** The one
+  new finding is **MLV201 at `hydra_research/src/train.py:35` — a planted defect** ("gradients are never
+  zeroed"), reachable only because the `getattr` selection makes `optimizer_for(...)` resolve to an optimizer.
+* **The false positive is gone:** MLV110 on `DataLoader(ds, shuffle=CFG["shuffle"])` no longer fires, and
+  MLV111 on an evaluation loader built the same way fires at **0.576, `possible`** — a finding that was
+  invisible before, and one that can never be `certain`.
+* Analyzer suite **1929 passed / 4 skipped**; `tools/verify.py --all` **10/10**; the demo document and
+  `contracts/graph.sample.json` unchanged.

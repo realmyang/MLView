@@ -140,6 +140,24 @@
         "icon": "$(check-all)"
       },
       {
+        "command": "mlview.saveComparisonBase",
+        "title": "Save Current Graph As Comparison Base",
+        "category": "MLView",
+        "icon": "$(save)"
+      },
+      {
+        "command": "mlview.compareWithBase",
+        "title": "Compare With Saved Base",
+        "category": "MLView",
+        "icon": "$(git-compare)"
+      },
+      {
+        "command": "mlview.compareWithCleanSample",
+        "title": "Compare With Clean Sample",
+        "category": "MLView",
+        "icon": "$(beaker)"
+      },
+      {
         "command": "mlview.selectInterpreter",
         "title": "Select Python Interpreter",
         "category": "MLView",
@@ -239,7 +257,7 @@
             "type": "string"
           },
           "default": [],
-          "description": "Extra glob patterns excluded from discovery. Added to the analyzer defaults (.venv, site-packages, node_modules, build, .git)."
+          "markdownDescription": "Extra glob patterns excluded from discovery. Added to the analyzer defaults (.venv, site-packages, node_modules, build, .git).\n\n**Precedence:** this setting is an ADDITIVE filter. `[paths].exclude` in the configuration file `#mlview.configPath#` names WINS; these globs drop further paths on top of it and cannot re-include a path the file excluded."
         },
         "mlview.configPath": {
           "type": "string",
@@ -308,7 +326,7 @@
             "pattern": "^MLV[0-9]{3}$"
           },
           "default": [],
-          "description": "Rule codes to hide everywhere: the Problems panel, the issue quick pick, the diagram and the chat / language-model digests. Example: MLV601."
+          "markdownDescription": "Rule codes to hide everywhere: the Problems panel, the issue quick pick, the diagram and the chat / language-model digests. Example: MLV601.\n\n**Precedence:** this setting is an ADDITIVE filter. `[rules].disable` in the configuration file `#mlview.configPath#` names WINS; these codes hide further rules on top of it and cannot re-enable a rule the file disabled."
         },
         "mlview.codeLens": {
           "type": "boolean",

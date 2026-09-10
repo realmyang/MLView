@@ -98,6 +98,9 @@ CodeLens and *Reveal in Diagram* keep working regardless.
 | `MLView: Select Active Folder` | status-bar tooltip link | **Multi-root only.** Chooses which open folder the diagram, the status bar and the chat / LM answers describe; a single-folder window never sees it |
 | `MLView: Open MLView Configuration` | — | Opens the `.mlview.toml` (or the `pyproject.toml` `[tool.mlview]` table) MLView passes to `--config`, creating one with `mlview init` when there is none |
 | `MLView: Create Baseline From Current Findings` | — | Runs `mlview baseline write` over the current scope and offers to point `mlview.baselinePath` at the result |
+| `MLView: Save Current Graph As Comparison Base` | — | Writes the current analysis to `.mlview/comparison-base.json` verbatim — no re-analysis, so the base is the document you were looking at |
+| `MLView: Compare With Saved Base` | — | Re-analyzes, then runs `mlview diff base head --json -` and draws the overlay on the open diagram. The toast carries the headline and the number of caveats; the caveats themselves are in the output channel |
+| `MLView: Compare With Clean Sample` | — | The same, with `samples/vision_pipeline_clean` (or a `vision_pipeline_clean` under the root) as the base. A demo affordance: the pair are siblings, not two commits, and the overlay's `different-roots` note says so |
 | `MLView: Select Python Interpreter` | — | Python extension picker, or the `mlview.pythonPath` setting |
 | `MLView: Show Output` | — | The MLView output channel |
 | `MLView: Open Rule Documentation` | — | Opens the offline `MLVnnn.md` rule page |
@@ -150,6 +153,51 @@ Three things a scope deliberately does **not** do:
 A status-bar item shows the live issue counts (`$(graph) MLView: 2 high · 3 med · 1 low`) and
 clicks through to the issue list. A **MLView: show in diagram** CodeLens sits above every
 analyzed unit.
+
+### Structured fixes (H5)
+
+Eleven of the analyzer's rules describe a single-line mechanical repair, and five of them now
+compute it. Where one exists, `Issue.fix` carries `{title, safety, edits[]}` and the lightbulb
+on that finding offers it. Five rules travel with the offer:
+
+- **rules opt in.** A finding with no `fix` produces no action, so an empty lightbulb means
+  "no edit was computed", never "the tool had nothing to say";
+- **the edits come from the analyzer's AST**, not from string splicing in the editor;
+- **nothing below the `likely` confidence bucket is ever offered an edit**;
+- **`isPreferred` only for `mechanical`** — a `needs-review` fix (one that inserts a
+  statement) is offered but never promoted, so `Ctrl+.`+Enter cannot land on a judgement call;
+- **never auto-applied.** Every edit carries `needsConfirmation` and is applied with
+  `isRefactoring`, so VS Code routes it through the refactor **preview**. There is deliberately
+  no `source.fixAll` kind, which is the kind `editor.codeActionsOnSave` runs unattended.
+
+An edit naming a file outside every open workspace folder is refused outright, and a fix whose
+second edit escapes is refused whole — half a fix is a broken file. The diagram's rail reaches
+the same code path through the `applyFix` message, and sends only the **issue id**: the edits
+are read from the host's own copy of the graph, never from the webview.
+
+What it cannot do: it cannot prove the analyzer's coordinates still match a buffer you have
+edited since the analysis. The preview is the mitigation, not a proof — read the diff.
+
+### Comparing two analyses (VIEW-08)
+
+`MLView: Save Current Graph As Comparison Base` writes the analysis you are looking at to
+`.mlview/comparison-base.json` — the document verbatim, with no second analysis, because a
+diff whose two sides came from two different runs is the mistake that is hardest to notice.
+`MLView: Compare With Saved Base` re-analyzes, then runs `mlview diff base head --json -` and
+posts the overlay to the open diagram. `MLView: Compare With Clean Sample` does the same with
+the shipped clean twin as the base.
+
+The comparison is computed **by the analyzer** (`CONTRACTS.md` §11.38), never here: all three
+hosts must give one answer. The overlay is a separate document, so the graph on screen does
+not move and `schemaVersion` stays `1.0`.
+
+**Read the caveats.** `−16 nodes` is a claim about two documents, not about your code: a
+missing id can also mean a truncated run, a projected view, a different workspace root or a
+different analyzer version, and a renamed file reads as everything removed plus everything
+added. Every one of the overlay's `notes[]` goes to the MLView output channel in full, and the
+toast says how many there are. A new analysis clears the overlay, so a comparison can never be
+drawn over a graph it never saw.
+
 
 ## Settings
 

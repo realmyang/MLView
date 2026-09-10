@@ -12,6 +12,9 @@ import { appendTrustSections, confidenceChip } from './evidence.js';
 import { renderIssuePanel } from './issuelist.js';
 import { renderOutlineTree } from './outline.js';
 import { appendSuppressActions, stateChip } from './suppress.js';
+import { appendFixSection, hasFix } from './fixes.js';
+import { alternativeCount, isAlternatives, resolvedConfig } from '../config/resolved.js';
+import type { DiffIndex } from '../diff/overlay.js';
 import type { Issue, Loc, MLNode, RailGroupBy, RailTab, RelatedLoc } from '../types.js';
 import type { GraphIndex } from '../layout/model.js';
 
@@ -38,6 +41,8 @@ export interface RailCallbacks {
   onCopyIgnore(code: string): void;
   /** MLV-P10: ask the host to turn this rule off for the workspace. */
   onDisableRule(code: string): void;
+  /** H5: ask the host to apply `Issue.fix`, or copy it where it cannot. */
+  onApplyFix(issueId: string): void;
 }
 
 export interface RailState {
@@ -57,9 +62,13 @@ export interface RailState {
    * be able to say how many findings live outside the current view, or a scope
    * reads as a clean bill of health (FEATURES 3.7).
    */
-  scope: { shown: number; hidden: number; total: number } | null;
+  scope: { shown: number; hidden: number; total: number; where: string } | null;
   /** How the Issues tab groups its rows (RAIL-GROUP). */
   groupBy: RailGroupBy;
+  /** VIEW-08: the diff overlay, when one is loaded. */
+  diff: DiffIndex | null;
+  /** H5: true in a host that can actually make an edit. */
+  canApplyFix: boolean;
 }
 
 let railSeq = 0;
@@ -214,6 +223,8 @@ export class Rail {
       scope: s.scope,
       groupBy: s.groupBy,
       expanded: this.expanded,
+      diff: s.diff,
+      canApplyFix: s.canApplyFix,
     }, {
       onSelectIssue: (id) => this.cb.onSelectIssue(id),
       onOpen: (loc) => this.cb.onOpen(loc),
@@ -223,6 +234,7 @@ export class Rail {
       onToggleGroup: (key) => this.toggleGroup(key),
       onCopyIgnore: (code) => this.cb.onCopyIgnore(code),
       onDisableRule: (code) => this.cb.onDisableRule(code),
+      onApplyFix: (id) => this.cb.onApplyFix(id),
     });
   }
 
@@ -276,8 +288,20 @@ export class Rail {
     add(meta, el('span', 'mlv-chip', node.level));
     if (node.framework) add(meta, el('span', 'mlv-chip', node.framework));
     add(meta, el('span', 'mlv-chip', node.confidenceBucket));
+    // VIEW-08: a resurrected ghost is a REMOVED node, not a missing step.
     if (node.ghost) add(meta, el('span', 'mlv-chip', 'missing step'));
     if (node.dynamic) add(meta, el('span', 'mlv-chip', 'dynamic scope'));
+    if (node.diffStatus && node.diffStatus !== 'unchanged') {
+      const chip = stateChip(
+        meta,
+        'mlv-chip--diff mlv-chip--diff-' + node.diffStatus,
+        node.diffStatus,
+        (node.diffChanged || []).length
+          ? 'Changed against the earlier analysis: ' + (node.diffChanged || []).join(', ')
+          : 'Against the earlier analysis',
+      );
+      chip.setAttribute('data-diff-chip', node.diffStatus);
+    }
 
     add(panel, el('div', 'mlv-insp__fqn', node.fqn || node.qualname));
 
@@ -308,6 +332,24 @@ export class Rail {
     if (node.loc.snippet) {
       const pre = add(panel, el('pre', 'mlv-banner__detail', node.loc.snippet));
       pre.style.marginTop = 'var(--mlv-s4)';
+    }
+
+    // ANA-10. The resolved value, and — where the analyzer could not choose —
+    // ALL N alternatives, named. The card has room for three; this is where the
+    // rest live, and where "not resolved" gets its reason.
+    this.renderResolvedConfig(panel, node);
+
+    // VIEW-08. A removed node has no attributes, ports or evidence to show, so
+    // say what it IS rather than drawing four empty sections under it.
+    if (node.diffStatus === 'removed') {
+      add(
+        panel,
+        el(
+          'div',
+          'mlv-empty-note',
+          'This node is in the EARLIER analysis and not in this one. It is drawn from the diff overlay alone, so it carries no findings, ports or evidence here.',
+        ),
+      );
     }
 
     const attrKeys = Object.keys(node.attrs || {});
@@ -353,14 +395,66 @@ export class Rail {
     if (issues.length) {
       panel.appendChild(this.heading('Issues'));
       for (const issue of issues) {
-        const box = this.inspectorIssue(issue);
+        const box = this.inspectorIssue(issue, s);
         if (s.selectedIssueId === issue.id) box.classList.add('is-selected');
         panel.appendChild(box);
       }
     }
   }
 
-  private inspectorIssue(issue: Issue): HTMLElement {
+  /**
+   * ANA-10 — "where does this value come from", answered in the Inspector.
+   *
+   * The one-of-N case is a TABLE and not a sentence on purpose: the analyzer
+   * resolved a `getattr` registry to several candidate symbols and genuinely
+   * does not know which one runs, so the honest rendering names all of them and
+   * says which is which. It used to draw two `unknown` boxes.
+   */
+  private renderResolvedConfig(panel: HTMLElement, node: MLNode): void {
+    const info = resolvedConfig(node);
+    if (!info) return;
+    panel.appendChild(this.heading('Resolved value'));
+    const table = add(panel, el('table', 'mlv-table mlv-table--config'));
+    table.setAttribute('data-config-table', '1');
+    const tbody = add(table, el('tbody'));
+    if (isAlternatives(info)) {
+      const head = add(tbody, el('tr'));
+      add(head, el('th', '', 'one of'));
+      add(head, el('td', '', String(alternativeCount(info))));
+      for (const name of info.alternatives) {
+        const tr = add(tbody, el('tr'));
+        tr.setAttribute('data-config-alternative', name);
+        add(tr, el('th', '', '·'));
+        add(tr, el('td', 'mlv-mono', name));
+      }
+    } else if (info.unresolved) {
+      const tr = add(tbody, el('tr'));
+      add(tr, el('th', '', 'value'));
+      add(tr, el('td', '', 'not resolved' + (info.reason ? ' — ' + info.reason : '')));
+    } else {
+      const tr = add(tbody, el('tr'));
+      add(tr, el('th', '', 'value'));
+      add(tr, el('td', 'mlv-mono', info.value));
+    }
+    if (info.from) {
+      const tr = add(tbody, el('tr'));
+      add(tr, el('th', '', isAlternatives(info) ? 'defined in' : 'read from'));
+      add(tr, el('td', '', info.from));
+    }
+    if (isAlternatives(info)) {
+      add(
+        panel,
+        el(
+          'div',
+          'mlv-empty-note mlv-insp__altnote',
+          'MLView could not tell which of these runs — the name is chosen at run time — so it drew one node for all ' +
+            alternativeCount(info) + ' rather than guessing.',
+        ),
+      );
+    }
+  }
+
+  private inspectorIssue(issue: Issue, s: RailState): HTMLElement {
     const box = el('div', 'mlv-insp__issue');
     box.setAttribute('data-issue-id', issue.id);
     const head = add(box, el('div', 'mlv-insp__issue-head'));
@@ -370,9 +464,27 @@ export class Rail {
     head.appendChild(confidenceChip(issue));
     if (issue.suppressed) stateChip(head, 'mlv-chip--suppressed', 'suppressed');
     if (issue.baselined) stateChip(head, 'mlv-chip--baselined', 'baselined');
+    // VIEW-08: how this finding stands against the earlier analysis.
+    const diffStatus = s.diff ? s.diff.issueStatusOf(issue.id) : null;
+    if (diffStatus === 'new' || diffStatus === 'persisting') {
+      stateChip(
+        head,
+        'mlv-chip--diff mlv-chip--diff-' + diffStatus,
+        diffStatus === 'new' ? 'new vs base' : 'still there',
+        diffStatus === 'new'
+          ? 'The earlier analysis did not report this finding'
+          : 'Both analyses report this finding',
+      ).setAttribute('data-diff-issue', diffStatus);
+    }
     add(box, el('p', 'mlv-insp__line', issue.message));
     add(box, el('p', 'mlv-insp__line', issue.why));
     add(box, el('div', 'mlv-insp__fix', issue.fixHint));
+    // H5. The Inspector is where a reader who has just read the evidence decides
+    // what to do, so the computed edit — its title, its safety and the snippet —
+    // goes here in full, above the two suppression actions.
+    if (hasFix(issue)) {
+      appendFixSection(box, issue, { onApplyFix: (id) => this.cb.onApplyFix(id) }, { canApply: s.canApplyFix });
+    }
     // MLV-P6: the same two disclosures the rail row carries, so "why should I
     // believe this" is answerable from whichever surface the user is on.
     appendTrustSections(box, issue);

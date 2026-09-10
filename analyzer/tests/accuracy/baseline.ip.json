@@ -1,12 +1,12 @@
 {
   "calibration": {
     "certain": {
-      "error": 0.0706,
+      "error": 0.0714,
       "fp": 0,
-      "meanConfidence": 0.9294,
-      "n": 34,
+      "meanConfidence": 0.9286,
+      "n": 35,
       "observedPrecision": 1.0,
-      "tp": 34
+      "tp": 35
     },
     "likely": {
       "error": 0.1842,
@@ -28,21 +28,21 @@
   "dataflow": "ip",
   "graphFidelity": {
     "opsLabelled": 139,
-    "opsRecovered": 126,
-    "score": 0.9065
+    "opsRecovered": 127,
+    "score": 0.9137
   },
-  "note": "DATAFLOW-IP day one (CONTRACTS 11.36). This is the baseline for `tools/accuracy.py --dataflow ip` ONLY; `--dataflow local` is gated by baseline.json and the two ratchets are independent, because `local` and `ip` are two different analyses and one number cannot gate both. Recall may only ratchet up; a forbidden finding is never tolerated in either mode. Regenerate with `python tools/accuracy.py --dataflow ip --update-baseline` and say in the commit body which change earned the new number.",
+  "note": "Re-recorded by Sprint-5 wave 2 (2026-09-10), the `--dataflow ip` twin of `baseline.json`. The move was earned by ANA-10's in-Python config resolution (11.45): module-level dict literals, dataclass field defaults, argparse `default=` and the attribute/subscript chains rooted at them now resolve to literals, so `CFG[\"workers\"]` and `cfg.data.workers` read like `4` does. In this mode: overall recall 0.7821 -> 0.7949, visible 0.7051 -> 0.7179, high+medium 0.7193 -> 0.7368, unseen 0.6383 -> 0.6596, graph fidelity 126 -> 127 of 139 (the `getattr` selection node makes hydra_research's optimizer_for(...) resolve to an optimizer). The single new finding is the same planted defect the local twin gained, MLV201 at hydra_research/src/train.py:35. Precision stays 1.0 and forbidden findings stay 0; config resolution and an interprocedural hop each cost an explicit 0.8 evidence weight, so neither can mint a `certain` finding. H5 (11.42) is finding-neutral by construction and moved nothing here. Recall may only ratchet up; a forbidden finding is never tolerated. Regenerate with `python tools/accuracy.py --dataflow ip --update-baseline` and say in the commit body which change earned the new number.",
   "overall": {
     "expectedLabels": 78,
     "falsePositives": 0,
     "highValueLabels": 57,
-    "highValueRecall": 0.7193,
-    "highValueRecovered": 41,
+    "highValueRecall": 0.7368,
+    "highValueRecovered": 42,
     "precision": 1.0,
-    "recall": 0.7821,
-    "recovered": 61,
-    "visibleRecall": 0.7051,
-    "visibleRecovered": 55
+    "recall": 0.7949,
+    "recovered": 62,
+    "visibleRecall": 0.7179,
+    "visibleRecovered": 56
   },
   "perRule": {
     "MLV101": {
@@ -155,15 +155,15 @@
     },
     "MLV201": {
       "expected": 3,
-      "f1": 0.8,
+      "f1": 1.0,
       "falsePositives": 0,
       "precision": 1.0,
-      "recall": 0.6667,
-      "recovered": 2,
+      "recall": 1.0,
+      "recovered": 3,
       "unseenExpected": 2,
-      "unseenRecall": 0.5,
-      "unseenRecovered": 1,
-      "visible": 2
+      "unseenRecall": 1.0,
+      "unseenRecovered": 2,
+      "visible": 3
     },
     "MLV205": {
       "expected": 3,
@@ -436,12 +436,12 @@
     "expectedLabels": 47,
     "falsePositives": 0,
     "highValueLabels": 32,
-    "highValueRecall": 0.5,
-    "highValueRecovered": 16,
+    "highValueRecall": 0.5312,
+    "highValueRecovered": 17,
     "precision": 1.0,
-    "recall": 0.6383,
-    "recovered": 30,
-    "visibleRecall": 0.5106,
-    "visibleRecovered": 24
+    "recall": 0.6596,
+    "recovered": 31,
+    "visibleRecall": 0.5319,
+    "visibleRecovered": 25
   }
 }

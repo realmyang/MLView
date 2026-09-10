@@ -1,12 +1,12 @@
 {
   "calibration": {
     "certain": {
-      "error": 0.0706,
+      "error": 0.0714,
       "fp": 0,
-      "meanConfidence": 0.9294,
-      "n": 34,
+      "meanConfidence": 0.9286,
+      "n": 35,
       "observedPrecision": 1.0,
-      "tp": 34
+      "tp": 35
     },
     "likely": {
       "error": 0.1668,
@@ -25,23 +25,24 @@
       "tp": 6
     }
   },
+  "dataflow": "local",
   "graphFidelity": {
     "opsLabelled": 139,
-    "opsRecovered": 126,
-    "score": 0.9065
+    "opsRecovered": 127,
+    "score": 0.9137
   },
-  "note": "Re-recorded by the Sprint-4 review fixes (2026-09-09). Two precision failures were removed at their root: MLV709's pairing is now scoped to one model (compile() -> its keras.Model(inputs, outputs) -> the layer behind outputs) instead of to a module and an activation family, so neither two builders in one module nor a squeeze-and-excite sigmoid gate is judged an output activation; and MLV121 now requires a holdout to exist (a take/skip pair off the same shuffle, or a subset bound to an evaluation name) instead of firing on `for images, labels in train_ds.take(1)`. `binding_of` gained `exclude`, so `ds = ds.map(...)` / `df = df.dropna()` no longer resolve the right-hand side against the store the same statement is about to write - the tf.data probe went from 2 nodes / 0 edges to 7 / 5 in that binding style and MLV101 fires on the commonest pandas idiom in existence. One program was added, keras_se_gate, carrying the MLV709 and MLV121 false-positive shapes as `forbidden` labels and a rebinding-style tf.data holdout as `expected`: overall recall 0.7143 -> 0.7179, visible 0.6364 -> 0.6410, high+medium 0.6250 -> 0.6316. Unseen is unchanged at 0.5319 and graph fidelity at 0.9065; the new program is marked tuned because the guards were developed against its shapes. Precision stayed 1.0 everywhere. Recall may only ratchet up; a forbidden finding is never tolerated. Regenerate with `python tools/accuracy.py --update-baseline` and say in the commit body which change earned the new number.",
+  "note": "Re-recorded by Sprint-5 wave 2 (2026-09-10). The move was earned by ANA-10's in-Python config resolution (11.45): module-level dict literals, dataclass field defaults, argparse `default=` and the attribute/subscript chains rooted at them now resolve to literals, so `CFG[\"workers\"]` and `cfg.data.workers` read like `4` does. Measured A/B on this tree with `ir.bindings._resolve_config` monkeypatched to a no-op: overall recall 0.7179 -> 0.7308, visible 0.6410 -> 0.6538, high+medium 0.6316 -> 0.6491, unseen 0.5319 -> 0.5532, graph fidelity 126 -> 127 of 139 (the `getattr` selection node makes hydra_research's optimizer_for(...) resolve to an optimizer). The single new finding is a planted defect, MLV201 at hydra_research/src/train.py:35. Precision stays 1.0 in both dataflow modes and forbidden findings stay 0; a config read can never mint a `certain` finding, because every read costs one CONFIG_EVIDENCE_WEIGHT = 0.8 factor and 0.98 x 0.8 = 0.784. H5 (11.42) is finding-neutral by construction and moved nothing here: it adds one optional `Issue.fix` field to five existing findings and touches no rule gate, evidence or confidence. Recall may only ratchet up; a forbidden finding is never tolerated. Regenerate with `python tools/accuracy.py --update-baseline` and say in the commit body which change earned the new number.",
   "overall": {
     "expectedLabels": 78,
     "falsePositives": 0,
     "highValueLabels": 57,
-    "highValueRecall": 0.6316,
-    "highValueRecovered": 36,
+    "highValueRecall": 0.6491,
+    "highValueRecovered": 37,
     "precision": 1.0,
-    "recall": 0.7179,
-    "recovered": 56,
-    "visibleRecall": 0.641,
-    "visibleRecovered": 50
+    "recall": 0.7308,
+    "recovered": 57,
+    "visibleRecall": 0.6538,
+    "visibleRecovered": 51
   },
   "perRule": {
     "MLV101": {
@@ -154,15 +155,15 @@
     },
     "MLV201": {
       "expected": 3,
-      "f1": 0.8,
+      "f1": 1.0,
       "falsePositives": 0,
       "precision": 1.0,
-      "recall": 0.6667,
-      "recovered": 2,
+      "recall": 1.0,
+      "recovered": 3,
       "unseenExpected": 2,
-      "unseenRecall": 0.5,
-      "unseenRecovered": 1,
-      "visible": 2
+      "unseenRecall": 1.0,
+      "unseenRecovered": 2,
+      "visible": 3
     },
     "MLV205": {
       "expected": 3,
@@ -430,17 +431,17 @@
     }
   },
   "programs": 15,
-  "recordedOn": "2026-09-09",
+  "recordedOn": "2026-09-10",
   "unseen": {
     "expectedLabels": 47,
     "falsePositives": 0,
     "highValueLabels": 32,
-    "highValueRecall": 0.3438,
-    "highValueRecovered": 11,
+    "highValueRecall": 0.375,
+    "highValueRecovered": 12,
     "precision": 1.0,
-    "recall": 0.5319,
-    "recovered": 25,
-    "visibleRecall": 0.4043,
-    "visibleRecovered": 19
+    "recall": 0.5532,
+    "recovered": 26,
+    "visibleRecall": 0.4255,
+    "visibleRecovered": 20
   }
 }

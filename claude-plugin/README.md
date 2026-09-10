@@ -113,12 +113,14 @@ always stays on disk behind `graphPath`.
 |---|---|---|
 | `mlview_analyze` | `path?`, `framework?`, `maxNodes?`, `includeHtml?`, `scope?`, `depth?` | The digest: files, frameworks, stage lanes, node/edge/issue counts, up to 10 top issues, `graphPath`, `reportPath?`; with a scope, also `scope{spec,kind,target,depth,nodesInScope,nodesTotal}` |
 | `mlview_issues` | `path?`, `minSeverity?`, `minConfidence?`, `code?[]`, `limit?`, `scope?`, `depth?`, `groupBy?`, `changedSince?`, `baseline?` | `countBySeverity`, `suppressedCount`, and the issue rows with `file`, `line`, `fixHint` and related sites. A scope keeps only the findings **anchored inside** it. `changedSince` (a git revision) analyses the whole project and then lists only what the change touched, each row carrying `change: new\|touched`; `baseline` marks what a `mlview baseline write` file already records and returns `baselinedCount`. Both degrade to *"every finding, and here is why"* — never to an empty list |
-| `mlview_graph` | `path?`, `format?`, `scope?`, `depth?` | `{format, scope, content}` — **mermaid by default**. Two catalogue values, `"stages"` (the lane summary) and `"units"` (the scopable-unit menu), plus the whole selector grammar below |
+| `mlview_graph` | `path?`, `format?`, `scope?`, `depth?`, `base?` | `{format, scope, content}` — **mermaid by default**. Two catalogue values, `"stages"` (the lane summary) and `"units"` (the scopable-unit menu), plus the whole selector grammar below — and `scope: "diff"` with `base`, which compares this analysis against an earlier document instead of drawing one |
 | `mlview_explain` | `nodeId?` **or** `code?`, `path?`, `graphPath?` | A node with its edges, issues, stage evidence and ≤ 60 lines of real source; or a rule code's documentation |
 | `mlview_open_diagram` | `path?`, `graphPath?`, `out?`, `scope?`, `depth?` | `{reportPath, reportUrl, opened}` — writes the self-contained HTML and launches it. `out` must stay inside the project directory or `MLVIEW_DATA_DIR` |
 
-**Still exactly five tools.** Scoping is an argument, not a sixth tool, and
-discovery is the `"units"` value of an argument that already existed.
+**Still exactly five tools.** Scoping is an argument, not a sixth tool,
+discovery is the `"units"` value of an argument that already existed, and
+VIEW-08's comparison is a `"diff"` value of the same one — a diff is another
+projection of the same graph, which is why it did not earn a tool of its own.
 
 #### The `scope` grammar
 
@@ -133,6 +135,17 @@ discovery is the `"units"` value of an argument that already existed.
 | `"concern:<name>"` | `config` · `data` · `optimization` · `evaluation` — four presets that partition the eight stages. Aliases: `setup`, `preprocessing`, `dataset`, `training`, `inference` |
 | `"node:<nodeId>"` | one node and its neighbourhood |
 | `"symbol:<name>"` | an alias for `unit:<name>` |
+| `"diff"` | **VIEW-08 — not a diagram.** Compares this analysis against the `base` document and returns `{summary{headline, nodes, edges, issues}, content, note, basePath}`, where `content` is the `mlview diff` summary and `issues` is `{new, fixed, persisting}`. `format` and `depth` are ignored. Requires `base`; a `base` that is not an MLView graph — a diff overlay included — is an **error naming the file**, never an empty comparison, because *"0 changes"* is the most dangerous wrong answer this projection can give |
+
+The comparison itself is the **analyzer's** (`mlview.core.diff`, CONTRACTS
+§11.38) — this server computes none of it, so the report, the editor and the
+plugin cannot disagree about what changed. Its caveats ride the payload's
+protected `note` key and are therefore never shed by the 4 KB budget: a `removed`
+node can also mean not-analyzed, truncated, projected away, a different workspace
+root or a different analyzer version, and a **renamed** file is reported as every
+node removed plus every node added, because the §0 stable id embeds the path. Read
+the `note` before quoting the counts; `/mlview-issues --diff-base <file>` is the
+slash-command spelling of the same thing.
 
 `depth` is `0`, `1` or `2` boundary hops, its own argument and never packed into
 the selector. Omit it for the per-kind default — 1 for `unit`/`node` (a point,

@@ -99,6 +99,10 @@ package's tests and `dev/states.html`. **Hosts must not depend on it.**
 | `src/ui/railgroup.ts` | grouping findings by rule or by file, with occurrence counts (RAIL-GROUP) |
 | `src/ui/evidence.ts` | the confidence chip on every row, the `issue.evidence[]` checklist and the rule card (MLV-P6) |
 | `src/ui/ruledocs.ts` | **the rule-doc sidecar hook**: reads `<script id="mlview-rule-docs">` or `window.MLViewRuleDocs`, and composes the same sections from the finding until the analyzer emits one |
+| `src/diff/` | **VIEW-08**: `overlay` (reads and validates the `mlview-diff` document from the `diffOverlay` message, `window.MLViewDiff` or `<script id="mlview-diff">`), `adopt` (stamps `diffStatus` on the nodes and resurrects the removed ones as ghosts in place), `changed` (the "changed only" projection, which REUSES `scope/project.ts`) |
+| `src/ui/diffbar.ts` | the diff banner: the headline, the two documents, the counts, the "changed only" chip, and `notes[]` drawn in full beside the viewer's own blind spots (CONTRACTS 11.38 C) |
+| `src/ui/fixes.ts` | **H5**: the "Fix available" marker, the safety word, the edit as a verbatim snippet and the one action — `applyFix` in VS Code, the clipboard in a report |
+| `src/config/resolved.ts` | **ANA-10**: the resolved config value read off `Node.attrs`, the one-of-N alternatives list, and "not resolved" as an explicit statement rather than an absence |
 | `src/ui/legend.ts` | the legend, generated from `markers.ts`, the edge-kind table and the real card classes (VIEW-10) |
 | `src/ui/gestures.ts` | wheel `deltaMode` normalization, the ctrl/pinch branch, two-axis pan and two-pointer pinch (VIEW-06) |
 | `src/searchloc.ts` | a pasted `path:line` resolved to the narrowest node containing that line (VIEW-09a) |
@@ -184,5 +188,16 @@ gates assert. A projection always fits WHOLE (MLV-R3-001).
 - `dev/states.html` — every node kind in every state, plus the three severity
   markers at every size. Built from the product's own card builder, so it cannot
   drift.
+
+  It also carries a **diff overlay** (VIEW-08) as a second
+  `<script type="application/json" id="mlview-diff">` block beside the graph —
+  real `mlview diff` output over a base built from the same sample — so the
+  ledges, the ghost outlines, the banner and the "changed only" chip are on the
+  first paint. The `diff` button in the dev bar exercises the OTHER route, the
+  `diffOverlay` host message, by posting it at the window the standalone bridge
+  listens on. The same bootstrap writes one `Issue.fix` (H5) and two ANA-10
+  resolutions onto the sample before mounting, because both features are driven
+  by optional fields and the inlined sample is regenerated verbatim from
+  `contracts/graph.sample.json`.
 
 Both pages are asserted to load and mount by `test/devpages.test.mjs`.

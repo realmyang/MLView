@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Iterable, List, Optional
 
 from ..core.graph import Issue, Node
+from .fixes import random_state_fix
 from .helpers import is_seeded
 from .registry import rule
 
@@ -163,7 +164,12 @@ def split_without_random_state(ctx) -> Iterable[Issue]:
                     % (call.short_name, call.loc.file, call.loc.line, keyword, wording),
             loc=call.loc, node_ids=[node],
             related=[("split_site", call.loc, "split happens here")],
-            evidence=evidence, dynamic=call.scope.is_dynamic))
+            evidence=evidence, dynamic=call.scope.is_dynamic,
+            # H5. Note what `seeded` does above: a workspace that seeds
+            # globally lands this finding in `possible`, and `ctx.issue` then
+            # drops the edit. Prose is the right answer for "prefer an explicit
+            # random_state= here"; an edit is not.
+            fix=random_state_fix(ctx, call, keyword)))
     return issues
 
 

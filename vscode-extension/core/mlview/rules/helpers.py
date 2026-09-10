@@ -9,6 +9,8 @@ import ast
 from typing import Iterable, List, Optional, Set, Tuple
 
 from .. import knowledge as K
+from ..core.graph import Evidence, clamp_confidence
+from ..ir import config_values as CV
 from ..ir.model import CallSite, FunctionIR, LoopIR, ValueRef
 from ..ir.provenance import DEFAULT_MAX_HOPS, Hop, extend
 from ..ir.symbols import dotted_text
@@ -17,6 +19,7 @@ __all__ = [
     "within_loop", "loop_chain", "calls_in_loop", "calls_in_function",
     "with_role", "first_with_role", "arg_ref", "traced_arg", "reaches",
     "value_sources", "seed_calls", "is_seeded", "literal_of", "DATA_TAGS",
+    "apply_config_derating",
 ]
 
 #: The tags a *projection* may carry across. Selecting columns out of a frame
@@ -34,17 +37,27 @@ def literal_of(ctx, expr, scope, module) -> Optional[str]:
     `from config import NUM_WORKERS` leaves no binding in the importing module,
     so a rule that wants the *value* of `num_workers=NUM_WORKERS` has to walk
     the import table into `config.py` and read the constant there.
+
+    ANA-10 adds one lookup and no rule changes. `dotted_text` answers `None`
+    for `CFG["workers"]`, so a subscript chain is spelled as the dotted path
+    `ir.config_values` bound its leaves under - `CFG["data"]["workers"]` and
+    `cfg.data.workers` are one name here, because they are one value in every
+    container a Python config is actually written as. When the value that comes
+    back was resolved out of a config container, the read is recorded on `ctx`
+    and `apply_config_derating` turns it into one visible evidence factor on
+    whatever finding used it: a config read may never mint a `certain` finding.
     """
     if expr is None:
         return None
     if isinstance(expr, ast.Constant):
         from ..ir.scopes import literal_str
         return literal_str(expr)
-    name = dotted_text(expr)
+    name = dotted_text(expr) or CV.path_name(expr)
     if not name:
         return None
     ref = ctx.binding_of(name, scope)
     if ref is not None and ref.literal is not None:
+        _note_config_read(ctx, ref, expr)
         return ref.literal
     symbols = getattr(module, "symbols", None)
     fqn = symbols.resolve(expr) if symbols is not None else None
@@ -237,3 +250,99 @@ def is_seeded(ctx) -> bool:
                     continue
                 return True
     return False
+
+
+# ---------------------------------------------------------------------------
+# ANA-10: what a config read costs the finding that used it
+# ---------------------------------------------------------------------------
+#: One recorded read: which rule made it, where in the source it was made, how
+#: many issues the rule had already emitted, and what it costs.
+_ConfigNote = Tuple[str, str, int, int, float, str]
+
+
+def _note_config_read(ctx, ref, expr) -> None:
+    """Record that the rule now running read a config-resolved literal.
+
+    The read and the finding are joined by the **source range they share**:
+    a rule reads `cfg["workers"]` out of a call and then anchors its finding on
+    that same call, so an issue whose location (or one of its related
+    locations) contains the read is the issue the read fed. Recording the
+    issue count at read time keeps a later read from de-rating an earlier
+    finding of the same rule.
+    """
+    read = CV.config_read_of(ref)
+    spec = getattr(ctx, "current_rule", None)
+    if read is None or spec is None:
+        return
+    line = getattr(expr, "lineno", None) or read.line
+    notes = getattr(ctx, "config_reads", None)
+    if notes is None:
+        notes = []
+        setattr(ctx, "config_reads", notes)
+    notes.append((spec.code, read.file, int(line), len(ctx.issues),
+                  read.weight, read.detail))
+
+
+def _issue_spans(issue) -> List[Tuple[str, int, int]]:
+    spans = [(issue.loc.file, issue.loc.line, max(issue.loc.line, issue.loc.endLine))]
+    for related in issue.relatedLocs or ():
+        if isinstance(related, dict) and related.get("file"):
+            start = int(related.get("line", 0) or 0)
+            end = int(related.get("endLine", start) or start)
+            spans.append((related["file"], start, max(start, end)))
+    return spans
+
+
+def _kwarg_notes(ctx) -> List[_ConfigNote]:
+    """The reads that never went through `literal_of` at all.
+
+    A rule that asks *"was `shuffle=True` passed here?"* reads `call.kwargs`,
+    and ANA-10 fills that dict from the container - so the read happens in the
+    IR pass, before any rule runs, and there is no rule code and no ordering to
+    key it by. The note is therefore attached to the **call site**: a finding
+    anchored on a call whose keywords a container supplied is de-rated once.
+    That over-approximates - the finding may have argued from a different
+    keyword - and it over-approximates in the only safe direction, which is
+    less confidence rather than more.
+    """
+    out: List[_ConfigNote] = []
+    for relpath in sorted(getattr(ctx, "modules", None) or {}):
+        for file, line, read in CV.kwarg_reads(ctx.modules[relpath]):
+            out.append(("", file, int(line), 0, read.weight, read.detail))
+    return out
+
+
+def apply_config_derating(ctx) -> None:
+    """Charge every finding that used a config-resolved literal for the read.
+
+    One factor per issue, never one per read: several reads out of the same
+    container are not independent chances of being wrong, so the finding pays
+    the **weakest** of them once and the detail names them all. Applied as an
+    ordinary evidence factor - the number is visible in `issue.evidence` and
+    the confidence is exactly the product it always was - so `MLV112` on
+    `num_workers=CFG["workers"]` lands at `likely`, and no rule anywhere had
+    to learn what a config container is.
+    """
+    notes: List[_ConfigNote] = list(getattr(ctx, "config_reads", None) or [])
+    notes.extend(_kwarg_notes(ctx))
+    if not notes:
+        return
+    for index, issue in enumerate(ctx.issues):
+        spans = _issue_spans(issue)
+        matched = [n for n in notes
+                   if (not n[0] or n[0] == issue.code) and index >= n[3]
+                   and any(f == n[1] and start <= n[2] <= end
+                           for f, start, end in spans)]
+        if not matched:
+            continue
+        weight = min(n[4] for n in matched)
+        details = []
+        for note in matched:
+            if note[5] not in details:
+                details.append(note[5])
+        detail = "; ".join(details)
+        if any(e.detail == detail for e in issue.evidence):
+            continue                     # already charged; never charge twice
+        issue.evidence.append(Evidence(
+            kind="context_confirmed", detail=detail, weight=weight))
+        issue.confidence = clamp_confidence(issue.confidence * weight)

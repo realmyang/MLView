@@ -17,10 +17,10 @@ import { coverageChip, coverageNotes } from './coverage';
 import { saveExportedFile } from './exportDiagram';
 import type { MLGraph } from './graph';
 import { SCHEMA_VERSION } from './graph';
-import { resolveOpenTarget, toRangeTuple } from './location';
 import type { Logger } from './log';
 import { DeferredMessages, preserveFromState, type PreserveState } from './panelState';
 import { buildPanelHtml, createNonce, type PanelHtmlOptions } from './panelHtml';
+import { openGraphLocation, rangeFromLoc } from './panelOpen';
 import {
   activeScopeFrom,
   PANEL_TITLE,
@@ -31,6 +31,7 @@ import {
 import {
   parseUiToHost,
   type AnalysisScope,
+  type DiffOverlay,
   type ExportKind,
   type ExportScope,
   type HostToUi,
@@ -46,6 +47,7 @@ import {
 export { activeScopeFrom, PANEL_TITLE, scopeChrome };
 export type { ActiveScope, ScopeChrome };
 export { buildPanelHtml, createNonce };
+export { rangeFromLoc };
 export type { PanelHtmlOptions };
 
 export const VIEW_TYPE = 'mlview.diagram';
@@ -78,6 +80,12 @@ export interface PanelDelegate {
    * so the two surfaces cannot drift apart.
    */
   onSuppressRule(request: SuppressRequest): void;
+  /**
+   * H5: the viewer asked to apply one finding's structured fix. The host answers with the
+   * behaviour the editor lightbulb has — the workspace containment check, the `likely`
+   * floor and VS Code's refactor preview — so the two surfaces cannot drift apart.
+   */
+  onApplyFix(issueId: string): void;
   /** Absolute root the graph's relative paths resolve against. */
   workspaceRoot(): string | undefined;
 }
@@ -102,6 +110,8 @@ export class MlviewPanel implements vscode.Disposable {
   private lastScopeChrome: ScopeChrome | undefined;
   /** COVERAGE: "coverage: incomplete (N blind spots)", or undefined when the run saw everything. */
   private coverageChipText: string | undefined;
+  /** VIEW-08: true while a comparison overlay is drawn, so a new graph can clear it. */
+  private overlayPosted = false;
   private readonly disposables: vscode.Disposable[] = [];
   private readonly decoration: vscode.TextEditorDecorationType;
 
@@ -280,6 +290,14 @@ export class MlviewPanel implements vscode.Disposable {
       graph,
       ...(carried ? { preserve: carried } : {})
     });
+    // VIEW-08: a comparison describes the document it was computed against. This is a NEW
+    // document, so the overlay is cleared rather than left drawn over it - a stale
+    // "0 new findings" ledge on a graph it never saw is precisely the kind of confident
+    // wrong answer this product cannot afford.
+    if (this.overlayPosted) {
+      this.overlayPosted = false;
+      this.post({ v: 1, type: 'diffOverlay', overlay: null });
+    }
   }
 
   private preserve(): PreserveState | undefined {
@@ -401,6 +419,21 @@ export class MlviewPanel implements vscode.Disposable {
     this.post({ v: 1, type: 'requestExport', kind, scope });
   }
 
+  /**
+   * VIEW-08: hand the viewer a comparison overlay, or `null` to clear one. Deferred like a
+   * reveal — an overlay arriving before the graph has nothing to decorate — and additive:
+   * a viewer that does not implement `diffOverlay` ignores it and keeps drawing the graph.
+   */
+  postDiffOverlay(overlay: DiffOverlay | null, baseLabel?: string): void {
+    this.overlayPosted = overlay !== null;
+    this.post({
+      v: 1,
+      type: 'diffOverlay',
+      overlay,
+      ...(baseLabel ? { baseLabel } : {})
+    });
+  }
+
   postRestoreState(state: ViewState): void {
     this.post({ v: 1, type: 'restoreState', state });
   }
@@ -426,7 +459,12 @@ export class MlviewPanel implements vscode.Disposable {
         this.flushDeferred();
         return;
       case 'openLocation':
-        await this.openLocation(msg);
+        // R2.1 lives in src/panelOpen.ts: the containment check and the flash decoration.
+        await openGraphLocation(msg, {
+          log: this.delegate.log,
+          workspaceRoot: () => this.delegate.workspaceRoot(),
+          decoration: this.decoration
+        });
         return;
       case 'selectNode':
         this.delegate.onSelectNode(msg.nodeId);
@@ -460,6 +498,10 @@ export class MlviewPanel implements vscode.Disposable {
           log: this.delegate.log,
           workspaceRoot: () => this.delegate.workspaceRoot()
         });
+        return;
+      case 'applyFix':
+        // H5: the id only. src/fixes.ts reads the edits from the host's own graph.
+        this.delegate.onApplyFix(msg.issueId);
         return;
       case 'suppressRule':
         this.delegate.onSuppressRule({
@@ -525,44 +567,6 @@ export class MlviewPanel implements vscode.Disposable {
     return this.ctx.workspaceState.get<ViewState>(VIEW_STATE_KEY);
   }
 
-  private async openLocation(
-    msg: Extract<UiToHost, { type: 'openLocation' }>
-  ): Promise<void> {
-    const root = this.delegate.workspaceRoot();
-    const target = resolveOpenTarget(msg, {
-      workspaceRoot: root,
-      isInWorkspace: (fsPath) => !!vscode.workspace.getWorkspaceFolder(vscode.Uri.file(fsPath))
-    });
-    if (!target.ok) {
-      // SECURITY: never open a path the webview talked us into that is outside the workspace.
-      this.delegate.log.warn(`refused ${target.reason} open: ${target.fsPath}`);
-      return;
-    }
-    try {
-      const uri = vscode.Uri.file(target.fsPath);
-      const doc = await vscode.workspace.openTextDocument(uri);
-      // THE ONE AND ONLY boundary conversion happened in toRangeTuple.
-      const t = toRangeTuple(msg);
-      const selection = new vscode.Range(t.startLine, t.startChar, t.endLine, t.endChar);
-      const editor = await vscode.window.showTextDocument(doc, {
-        viewColumn: vscode.ViewColumn.One,
-        selection,
-        preview: target.preview
-      });
-      editor.revealRange(selection, vscode.TextEditorRevealType.InCenterIfOutsideViewport);
-      editor.setDecorations(this.decoration, [selection]);
-      setTimeout(() => {
-        try {
-          editor.setDecorations(this.decoration, []);
-        } catch {
-          /* the editor may be gone */
-        }
-      }, 1200);
-    } catch (err) {
-      this.delegate.log.error(`could not open ${target.fsPath}`, err);
-    }
-  }
-
   dispose(): void {
     if (this.disposed) {
       return;
@@ -585,15 +589,4 @@ export class MlviewPanel implements vscode.Disposable {
       /* already disposed by VS Code */
     }
   }
-}
-
-/** Convenience for the range conversion used outside the panel (reveal, chat anchors). */
-export function rangeFromLoc(loc: {
-  line: number;
-  col: number;
-  endLine: number;
-  endCol: number;
-}): vscode.Range {
-  const t = toRangeTuple(loc);
-  return new vscode.Range(t.startLine, t.startChar, t.endLine, t.endChar);
 }

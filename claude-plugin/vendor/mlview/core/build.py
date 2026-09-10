@@ -17,11 +17,12 @@ import ast
 from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 from .. import knowledge as K
+from ..ir import config_values as CV
 from ..ir.bindings import binding_of, names_in
 from ..ir.locs import loc_of
 from ..ir.model import CallSite, ClassIR, FunctionIR, Loc, LoopIR, ModuleIR, ValueRef, WorkspaceIR
 from ..ir.symbols import dotted_text
-from . import hooks
+from . import config_nodes, hooks
 from .graph import Diagnostic, Edge, Evidence, MLGraph, Node, Port
 from .ids import edge_id, node_id
 from .stages import unit_stage
@@ -95,6 +96,7 @@ class GraphBuilder:
         self._create_units()
         self._create_ops()
         self._create_config_literals()
+        config_nodes.config_diagnostics(self)
         self._resolve_transparent()
         self._assign_stages()
         self._promote_levels()
@@ -295,11 +297,34 @@ class GraphBuilder:
                 self.node_for_call[id(call)] = target
                 return
 
-        entry, best_fqn = K.best_entry(call.canonical_fqns)
+        selected = CV.selected_symbol(module, call)
+        if selected is not None:
+            # ANA-10: `factory = getattr(torch.optim, cfg["optimizer"])`. The
+            # box is kept - deleting a node is exactly the silently-smaller
+            # graph this project refuses - but it now names the symbol the
+            # config selected instead of saying `unresolved call`, and the
+            # construction on the next line resolves through it.
+            config_nodes.selection_op(self, call, module, fqn=selected)
+            return
+        entry, _best_fqn = K.best_entry(call.canonical_fqns)
+        resolved = CV.resolved_call_fqn(module, call)
+        if resolved is not None:
+            # ANA-10: `factory(...)` where `factory` came out of a resolved
+            # `getattr`. The config-resolved symbol is more specific than the
+            # `<fqn>.__call__` candidate `_canonical_for_receiver` proposes for
+            # a called value, so it wins and the node carries the real FQN.
+            resolved_entry = K.lookup(resolved)
+            if resolved_entry is not None:
+                entry = resolved_entry
         role = entry.get("role") if entry else None
         if role in TRANSPARENT_ROLES:
             return                       # resolved in _resolve_transparent
         if entry is None or role not in K.OP_ROLES:
+            alternatives = CV.alternatives_for(module, call)
+            if alternatives is not None:
+                config_nodes.selection_op(self, call, module,
+                                          alternatives=alternatives)
+                return
             # ANA-5a: an unresolved callee is a per-call fact, so it mints its
             # own `unknown` op whether or not the scope is dynamic. The old
             # gate (`is_dynamic and not canonical_fqns`) never fired for lambda
@@ -320,13 +345,18 @@ class GraphBuilder:
             module.relpath, qualname, entry["kind"],
             level="op", stage=entry.get("stage") or "config", label=label,
             sublabel=op_sublabel(call, entry),
-            fqn=call.fqn, framework=entry.get("framework"), var=call.var,
+            fqn=resolved or call.fqn, framework=entry.get("framework"), var=call.var,
             loc=call.loc, parent=parent.id if parent else None,
             attrs=dict(call.kwargs), dynamic=call.scope.is_dynamic,
             confidence=confidence,
             stageEvidence=[Evidence("knowledge_table",
-                                    "%s -> %s" % (call.fqn or call.short_name,
+                                    "%s -> %s" % (resolved or call.fqn or call.short_name,
                                                   entry.get("stage")), 1.0)])
+        if resolved is not None:
+            node.stageEvidence.append(
+                Evidence("fqn_resolved",
+                         "selected by a getattr this run resolved to %s" % resolved,
+                         0.9))
         if call.receiver is not None:
             node.stageEvidence.append(
                 Evidence("fqn_resolved",
@@ -347,7 +377,17 @@ class GraphBuilder:
         `argparse` / `yaml.safe_load` / `json.load` values already have an op
         node (their call), but a literal has none - so mint one, otherwise the
         `config` edges out of it have nowhere to start.
+
+        ANA-10 adds the second half of the same idea. A config container that
+        travelled into a function - `def train(cfg=CFG)`, then
+        `optimizer_for(model, cfg)` - is bound to a name in each of those
+        scopes, and minting a node per name would draw the same dict three
+        times. Every such **alias** is mapped onto the one node its container
+        already has instead, which is what turns *"where does `batch_size` come
+        from"* into a `config` edge from `CFG` into each consuming unit,
+        **across files**, rather than three orphan boxes.
         """
+        aliases: List[Tuple[ValueRef, ValueRef]] = []
         for module in self._modules():
             for scope in module.scopes:
                 for name in sorted(scope.bindings):
@@ -355,6 +395,10 @@ class GraphBuilder:
                     if not ref.is_config or ref.producer is not None or ref.loc is None:
                         continue
                     if id(ref) in self.config_literal_node:
+                        continue
+                    origin = CV.alias_origin(module, ref)
+                    if origin is not None and origin is not ref:
+                        aliases.append((origin, ref))
                         continue
                     parent = self._scope_unit_for(scope, module)
                     node = self._make_node(
@@ -371,6 +415,7 @@ class GraphBuilder:
                         self._children.setdefault(parent.id, []).append(node)
                         votes = self._op_votes.setdefault(parent.id, {})
                         votes["config"] = votes.get("config", 0.0) + 0.5
+        config_nodes.map_aliases(self, aliases)
 
     def _create_unknown_op(self, call: CallSite, module: ModuleIR) -> None:
         parent = self._owning_unit(call)

@@ -140,6 +140,7 @@ _CORE_SOURCE = _bootstrap_sys_path()
 if _SERVER_DIR not in sys.path:
     sys.path.insert(0, _SERVER_DIR)
 
+import mlview_diff as diffs  # noqa: E402  (VIEW-08: the scope='diff' projection)
 import mlview_payloads as payloads  # noqa: E402  (needs the sys.path bootstrap)
 import mlview_scope as scopes  # noqa: E402  (the section 11.1 selector grammar)
 from mlview_workspace import (  # noqa: E402  (imports the core, so bootstrap first)
@@ -162,6 +163,8 @@ from mlview.api import (  # noqa: E402
     render_mermaid,
     render_text,
 )
+from mlview.core.diff import diff_documents  # noqa: E402  (VIEW-08, section 11.38)
+from mlview.emit.diff_out import render_summary as render_diff_summary  # noqa: E402
 from mlview.version import __version__ as CORE_VERSION  # noqa: E402
 
 logging.basicConfig(
@@ -412,6 +415,7 @@ def mlview_graph(
     format: str = "mermaid",
     scope: Optional[str] = None,
     depth: Optional[int] = None,
+    base: Optional[str] = None,
 ) -> dict[str, Any]:
     """Render the workflow graph as a compact diagram you can read in the terminal.
 
@@ -451,6 +455,22 @@ def mlview_graph(
                               setup, preprocessing, dataset, training, inference).
             "node:<nodeId>"   one node and its neighbourhood.
             "symbol:<name>"   an alias for "unit:<name>".
+            "diff"            VIEW-08 -- NOT a diagram: compare this analysis
+                              against an earlier one and report what changed.
+                              REQUIRES `base`; `format` and `depth` are ignored.
+                              Returns the `mlview diff` summary in `content`
+                              plus machine-readable `summary` {headline, nodes,
+                              edges, issues}. `issues.new` is the number a PR
+                              comment needs; `fixed` and `persisting` are the
+                              rest of that sentence.
+        base: the earlier `mlview analyze --json` document -- for scope="diff",
+            and meaningless without it. Anything that is not an MLView graph,
+            a diff overlay included, is an error naming the file rather than an
+            empty comparison, because "0 changes" is the most dangerous wrong
+            answer here. ALWAYS read the returned `note` before quoting the
+            counts: a `removed` node can also mean not-analyzed, truncated,
+            projected away, a different workspace root or a different analyzer
+            version, and a rename is every node removed plus every node added.
         depth: 0, 1 or 2 boundary hops around the scope. Omit it for the per-kind
             default: 1 for unit/node (a point, so its interface is the answer), 0
             for stage/file/concern (already a region). Ignored by "stages",
@@ -471,6 +491,17 @@ def mlview_graph(
     4 KB budget; narrow the scope, or read graphPath, if it comes back truncated.
     """
     loaded = load_graph(path)
+    if (scope or "").strip() == diffs.DIFF_SCOPE:
+        # VIEW-08: a comparison is another projection of the same graph, so it is a
+        # scope rather than a sixth tool. The diff itself is the ANALYZER's
+        # (mlview.core.diff, section 11.38) - this server never computes one.
+        return diffs.diff_payload(
+            loaded["graph"],
+            diffs.load_base_document(base, resolve_path),
+            diff_documents=diff_documents,
+            render_summary=render_diff_summary,
+            graph_path=loaded["graphPath"],
+        )
     return payloads.graph_payload(
         loaded["graph"],
         fmt=format,

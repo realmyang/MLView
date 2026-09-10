@@ -42,6 +42,12 @@ import { SearchController } from './ui/searchcontroller.js';
 import { dispatchHostMessage, sanitizeScope } from './protocol.js';
 import { ScopeSession, mergeCollapsed, railScopeCounts, sameScope } from './scope/session.js';
 import { ScopeBar } from './ui/scopebar.js';
+import { DiffBar } from './ui/diffbar.js';
+import { adoptDiff, drawnRemoved } from './diff/adopt.js';
+import { indexOverlay, readOverlay } from './diff/overlay.js';
+import type { DiffIndex } from './diff/overlay.js';
+import { CHANGED_SPEC } from './diff/changed.js';
+import { runFixAction } from './ui/fixes.js';
 import { adoptCellMap } from './notebook.js';
 import { isSetAside } from './types.js';
 import type { SearchHit } from './search.js';
@@ -99,6 +105,16 @@ export class App implements MLViewApp {
    */
   private pendingScope: { spec: string; depth?: number } | null = null;
   private flowOn = true;
+  /**
+   * VIEW-08. The host's document, EXACTLY as it arrived. `adoptDiff` stamps the
+   * overlay onto a copy and resurrects the removed nodes as ghosts, so the
+   * original has to survive somewhere: an overlay can arrive after the graph,
+   * be replaced, or be dismissed, and each of those has to be re-derivable
+   * without asking the analyzer for anything.
+   */
+  private rawGraph: MLGraph | null = null;
+  /** VIEW-08: the HOST's name for what the comparison is against (11.43 D). */
+  private diffBaseLabel = '';
   private caps: Capabilities;
   /**
    * VW-05. `ThemeController` is the ONE place a theme is decided: the standalone
@@ -134,6 +150,7 @@ export class App implements MLViewApp {
   private legend!: Legend;
   private answers!: AnswersCard;
   private scopeBar!: ScopeBar;
+  private diffBar!: DiffBar;
   private scrim!: HTMLElement;
   private releasePage: () => void = () => undefined;
   private themes!: ThemeController;
@@ -149,6 +166,12 @@ export class App implements MLViewApp {
     this.caps = bridge.capabilities;
     this.themes = new ThemeController(root, bridge.theme || 'light', bridge.themePreference);
     this.build();
+    // VIEW-08. The standalone report's overlay travels the way the rule-doc
+    // sidecar does — a second `<script type="application/json">` beside
+    // `#mlview-graph` — so it is read BEFORE the first document is adopted and
+    // the first paint already carries the ledges. A page without one is
+    // unaffected: `readOverlay` returns null and nothing else changes.
+    this.scopes.setDiff(readOverlay());
     const restored = safeLoad(bridge);
     if (restored) this.applyState(restored, false);
     this.disposers.push(bridge.onMessage((msg) => this.onMessage(msg)));
@@ -213,6 +236,13 @@ export class App implements MLViewApp {
     });
     this.chrome.scopeSlot.appendChild(this.scopeBar.breadcrumb.root);
 
+    // VIEW-08. Its own band under the chip row: the headline is the first thing
+    // a reviewer reads, and it must not compete with the toolbar for width.
+    this.diffBar = new DiffBar({
+      onChangedOnly: (next) => this.setChangedOnly(next),
+      onDismiss: () => this.setDiff(null),
+    });
+
     // VIEW-07. The trigger goes in the toolbar beside Fit; the popup goes on the
     // app root, so the roving toolbar (VIEW-12) keeps its single tab stop.
     this.exportMenu = new ExportMenu({
@@ -225,6 +255,7 @@ export class App implements MLViewApp {
     // (VIEW-12), so the whole control strip is a single tab stop.
     this.root.appendChild(this.chrome.bar);
     this.root.appendChild(this.chrome.chipRow);
+    this.root.appendChild(this.diffBar.root);
     this.root.appendChild(this.chrome.banners);
     this.root.appendChild(shell.body);
     shell.body.appendChild(shell.main);
@@ -266,11 +297,17 @@ export class App implements MLViewApp {
       onToggleCollapse: (id) => {
         if (this.index && this.index.isGroup(id)) this.view.toggleCollapse(id);
       },
-      onClearScope: () => this.setScope(null),
+      // "Show all" means ALL: a reader who clicks it while both a scope and the
+      // diff projection are narrowing the list expects one gesture, not two.
+      onClearScope: () => {
+        if (this.scopes.changedOnly) this.setChangedOnly(false);
+        this.setScope(null);
+      },
       onScopeToNode: (id) => this.scopeToNode(id),
       onGroupBy: (mode) => this.setRailGroupBy(mode),
       onCopyIgnore: (code) => this.copyIgnore(code),
       onDisableRule: (code) => this.disableRule(code),
+      onApplyFix: (id) => this.applyFix(id),
     });
     shell.body.appendChild(this.rail.root);
 
@@ -349,6 +386,13 @@ export class App implements MLViewApp {
     // them has to know where the analyzer keeps its provenance. A `.py`
     // document, and a notebook node the ingest could not map, are untouched.
     adoptCellMap(graph.nodes);
+    this.rawGraph = graph;
+    // VIEW-08. The overlay is lifted onto a COPY: `diffStatus` lands on the
+    // nodes it describes and the removed ones come back as ghosts in place, so
+    // every drawing surface below keeps reading a plain document (11.38, and the
+    // same shape as `adoptCellMap` above).
+    const diff = this.scopes.diff;
+    if (diff) graph = adoptDiff(graph, diff);
     this.scopes.setGraph(graph);
     this.fullIndex = new GraphIndex(graph);
     // The collapse set is held against the FULL id space and filtered at
@@ -400,7 +444,12 @@ export class App implements MLViewApp {
     if (!doc) return;
     const graph = doc;
     this.graph = graph;
-    const index = this.scopes.spec === null && this.fullIndex ? this.fullIndex : new GraphIndex(graph);
+    // Reuse the full index only when the document really IS the full one. The
+    // test used to be `spec === null`, which VIEW-08 made wrong: a diff
+    // projection narrows the document without any selector being set, and
+    // indexing the whole graph for it drew every node the projection had just
+    // removed.
+    const index = graph === this.scopes.full && this.fullIndex ? this.fullIndex : new GraphIndex(graph);
     this.index = index;
     this.error = null;
     this.showLoading(false);
@@ -536,7 +585,20 @@ export class App implements MLViewApp {
   private renderChrome(): void {
     const summary = this.scopes.summary();
     const view = this.graph ? this.graph.view || null : null;
-    this.scopeBar.update(view, this.scopes.full, this.scopes.spec, this.scopes.depth, !!(this.graph && this.graph.stats.truncated));
+    // VIEW-08. The breadcrumb is the SCOPE's chip. A diff projection with no
+    // scope under it puts a `view` on the document without the user ever having
+    // picked a selector, and drawing "Scoped to Changed in this diff · Copy
+    // scope" over it would offer a selector that does not parse and an [x] that
+    // clears nothing. The diff band owns that state instead.
+    const diffOnlyView = !!view && view.scope === CHANGED_SPEC;
+    this.scopeBar.update(
+      diffOnlyView ? null : view,
+      this.scopes.full,
+      this.scopes.spec,
+      this.scopes.depth,
+      !!(this.graph && this.graph.stats.truncated),
+    );
+    this.renderDiffBar();
     this.chrome.update({
       graph: this.graph,
       scopeLabel: summary.label,
@@ -559,6 +621,87 @@ export class App implements MLViewApp {
     this.answers.update(this.graph ? this.graph.answers : undefined, this.answersOpen);
     // VIEW-07: "Current scope" is offered only while there IS a projection.
     this.exportMenu.setScopeAvailable(!!view);
+  }
+
+  /* ── the diff overlay (VIEW-08) ────────────────────────────────────── */
+
+  private renderDiffBar(): void {
+    const diff = this.scopes.diff;
+    this.diffBar.update({
+      diff,
+      changedOnly: this.scopes.changedOnly,
+      ghostsDrawn: diff && this.graph ? drawnRemoved(this.graph, diff) : 0,
+      shown: this.graph ? this.graph.nodes.length : 0,
+      of: this.scopes.full ? this.scopes.full.nodes.length : 0,
+      changedEmpty: this.scopes.changedOnly && !this.scopes.changedActive,
+      baseLabel: this.diffBaseLabel,
+    });
+  }
+
+  /**
+   * Install, replace or clear the overlay. It is a SIBLING document: nothing is
+   * re-analysed, nothing is posted, and the graph the host gave us is re-adopted
+   * from the pristine copy so dismissing a diff really does put the diagram back
+   * exactly as it was.
+   */
+  private setDiff(diff: DiffIndex | null): void {
+    if (!diff) this.diffBaseLabel = '';
+    this.scopes.setDiff(diff);
+    const graph = this.rawGraph;
+    if (graph) {
+      this.setGraph(graph, { viewport: { ...this.viewportState }, selection: this.selection, collapsed: this.collapsedState.slice() });
+    } else {
+      this.renderChrome();
+    }
+    this.announce(
+      diff
+        ? 'Comparison loaded: ' + diff.headline() + '.'
+        : 'Comparison cleared; showing this analysis on its own.',
+    );
+    this.saveSoon();
+  }
+
+  /**
+   * "Changed only" — the diff as a PROJECTION (ROADMAP VIEW-08). Local, like
+   * every scope change: it never posts `requestRefresh` and never re-analyses.
+   */
+  private setChangedOnly(next: boolean): void {
+    const ok = this.scopes.setChangedOnly(next);
+    this.syncCollapsed();
+    this.applyProjection();
+    if (!ok) {
+      this.view.toast('Nothing that changed is in this view');
+      this.announce('Changed only: nothing that changed is in this view.');
+      this.saveSoon();
+      return;
+    }
+    const shown = this.graph ? this.graph.nodes.length : 0;
+    const of = this.scopes.full ? this.scopes.full.nodes.length : 0;
+    this.announce(
+      next
+        ? 'Showing what changed: ' + shown + ' of ' + of + ' nodes, plus one hop.'
+        : 'Changed-only view off, showing all ' + of + ' nodes.',
+    );
+    this.saveSoon();
+  }
+
+  /* ── structured fixes (H5) ─────────────────────────────────────────── */
+
+  /** True only where the HOST can actually make an edit behind a preview. */
+  private canApplyFix(): boolean {
+    return this.bridge.host === 'vscode' && this.caps.canOpenSource;
+  }
+
+  /** H5. A REQUEST, never an edit — the decision itself lives in `ui/fixes.ts`. */
+  private applyFix(issueId: string): void {
+    const issue = this.index ? this.index.issueById.get(issueId) : null;
+    if (!issue) return;
+    runFixAction(issue, {
+      canApply: this.canApplyFix(),
+      post: (msg) => this.bridge.post(msg),
+      toast: (text) => this.view.toast(text),
+      announce: (text) => this.announce(text),
+    });
   }
 
   /* ── export (VIEW-07) ──────────────────────────────────────────────── */
@@ -640,6 +783,8 @@ export class App implements MLViewApp {
       keepBase: this.filters.keepBase,
       scope: railScopeCounts(this.graph),
       groupBy: this.railGroupBy,
+      diff: this.scopes.diff,
+      canApplyFix: this.canApplyFix(),
     });
   }
 
@@ -1024,6 +1169,18 @@ export class App implements MLViewApp {
         this.exportMenu.setRegion(regionFromHostWord(scope));
         this.runExport(kind === 'png' ? 'png' : 'svg');
       },
+      // VIEW-08: an optional sibling document. A malformed one is not an error
+      // and not a crash — `indexOverlay` hands back null and the diagram stays
+      // exactly as it was (invariant 1.1/6 over a second document).
+      diffOverlay: (raw, baseLabel) => {
+        const next = raw === null || raw === undefined ? null : indexOverlay(raw);
+        if (raw !== null && raw !== undefined && !next) {
+          this.bridge.post({ v: 1, type: 'log', level: 'warn', message: 'ignored an unreadable diff overlay' });
+          return;
+        }
+        this.diffBaseLabel = next ? baseLabel || '' : '';
+        this.setDiff(next);
+      },
       onUnknown: (type) =>
         this.bridge.post({ v: 1, type: 'log', level: 'debug', message: 'ignored unknown message type: ' + type }),
     });
@@ -1043,6 +1200,11 @@ export class App implements MLViewApp {
     if (state.railGroupBy) this.railGroupBy = sanitizeGroupBy(state.railGroupBy);
     if (typeof state.legendOpen === 'boolean') this.setLegend(state.legendOpen);
     if (typeof state.answersOpen === 'boolean') this.answersOpen = state.answersOpen;
+    // VIEW-08: restoring "changed only" with no overlay loaded is a NO-OP, never
+    // an empty diagram — `ScopeSession.setChangedOnly` refuses without a diff,
+    // and the flag is dropped rather than left standing for an overlay that may
+    // never arrive.
+    if (state.diffOnly === true && this.scopes.diff) this.scopes.setChangedOnly(true);
     const scope = sanitizeScope(state.scope);
     // No graph yet? The host mounts the viewer empty and restores state before
     // it posts one, so applying here would drop the scope on the floor (R2H-03).
@@ -1164,6 +1326,9 @@ export class App implements MLViewApp {
     // Absent at its default (open), exactly as `flow` is absent while on: an
     // older host round-trips a state it has never seen (CONTRACTS 11.9).
     if (!this.answersOpen) state.answersOpen = false;
+    // Absent at its default (off), exactly as `flow`, `scope` and `legendOpen`
+    // are: an older host round-trips a state it has never seen (11.9).
+    if (this.scopes.changedOnly) state.diffOnly = true;
     return state;
   }
 

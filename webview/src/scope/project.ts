@@ -195,14 +195,40 @@ export function project(graph: MLGraph, scope: Scope): MLGraph {
     for (const node of out.nodes || []) delete node.viewRole;
     return out;
   }
+  return projectResolved(graph, scope, resolveScope(graph, scope));
+}
 
+/**
+ * Steps 3-11 of 11.2, over an ALREADY-RESOLVED core set.
+ *
+ * `project()` is the only caller that resolves a selector; this half takes the
+ * anchors as given, which is what lets VIEW-08's "changed only" be a projection
+ * rather than a second rendering path. A diff IS another projection — core = the
+ * nodes the overlay says moved, boundary = one hop — and every property the
+ * scope projection already guarantees (boundary stubs carry no badge, ghosts
+ * with no retained finding are pruned, `nodeIds[0]` is rotated to a core node,
+ * no output array is ever re-sorted) comes with it for free.
+ *
+ * `labelOverride` exists because `viewLabel` is the FROZEN breadcrumb naming for
+ * the six selector kinds and the parity gate deep-compares it against the Python
+ * port; a caller outside the grammar names its own view instead of teaching that
+ * function a seventh case.
+ *
+ * `project()`'s behaviour is byte-for-byte what it was — this is an extraction,
+ * not a change, and `test/scope_parity.test.mjs` is what says so.
+ */
+export function projectResolved(
+  graph: MLGraph,
+  scope: Scope,
+  resolution: ScopeResolution,
+  labelOverride?: string,
+): MLGraph {
   const nodes = graph.nodes || [];
   const edges = graph.edges || [];
   const issues = graph.issues || [];
   const byId = new Map<string, MLNode>();
   for (const node of nodes) byId.set(node.id, node);
 
-  const resolution = resolveScope(graph, scope);
   const core = new Set(resolution.core);
 
   // Steps 3-4: boundary rings, then the ancestor closure.
@@ -248,7 +274,7 @@ export function project(graph: MLGraph, scope: Scope): MLGraph {
 
   const counts = { core: 0, boundary: 0, context: 0 };
   for (const node of outNodes) counts[node.viewRole as ViewRole]++;
-  return assemble(graph, scope, resolution, outNodes, outEdges, retained, counts, kept);
+  return assemble(graph, scope, resolution, outNodes, outEdges, retained, counts, kept, labelOverride);
 }
 
 /** `depth` BFS rings over `edges[]` in both directions. Containment is not a hop. */
@@ -419,6 +445,7 @@ function assemble(
   retained: Issue[],
   counts: { core: number; boundary: number; context: number },
   kept: Set<string>,
+  labelOverride?: string,
 ): MLGraph {
   const byStage = new Map<string, number>();
   for (const node of outNodes) byStage.set(node.stage, (byStage.get(node.stage) || 0) + 1);
@@ -460,7 +487,7 @@ function assemble(
   }));
   const view: View = {
     scope: scope.spec,
-    label: viewLabel(scope, graph, anchorNodes.map((n) => n.label || '')),
+    label: labelOverride || viewLabel(scope, graph, anchorNodes.map((n) => n.label || '')),
     depth: scope.depth,
     counts: { core: counts.core, boundary: counts.boundary, context: counts.context },
     of: {

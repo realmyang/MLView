@@ -302,13 +302,18 @@ function nodeCard(
   const collapsedGroup = box.collapsed;
   const boundary = n.viewRole === 'boundary';
   const top = boundary ? null : highestSeverity(visual.counts);
-  const ghost = !!n.ghost;
+  // VIEW-08: a node the diff says was REMOVED is drawn with the same outline as
+  // a missing step. The exported picture cannot carry the ledge or the chip —
+  // that gap is stated in the amendment — but it must not draw a deleted node as
+  // an ordinary solid card, which would be the picture asserting something false.
+  const ghost = !!n.ghost || n.diffStatus === 'removed';
   const lowConf = typeof n.confidence === 'number' && n.confidence < 0.6;
   const dashed = ghost || lowConf || visual.stale;
 
   const attrs =
     ' data-node-id="' + esc(n.id) + '" data-stage="' + esc(n.stage || 'unknown') +
     '" data-kind="' + esc(n.kind) + '"' + (top ? ' data-sev="' + esc(top) + '"' : '') +
+    (n.diffStatus ? ' data-diff="' + esc(n.diffStatus) + '"' : '') +
     (n.viewRole ? ' data-view-role="' + esc(n.viewRole) + '"' : '') +
     (visual.filteredOut ? ' opacity="0.18"' : ghost ? ' opacity="0.92"' : '');
   const out: string[] = ['<g' + attrs + '>'];

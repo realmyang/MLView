@@ -17,6 +17,7 @@ import re
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from .. import knowledge as K
+from .config_values import CONFIG_NAME_RE, resolve_module as _resolve_config
 from .model import CallSite, ModuleIR, ScopeIR, ValueRef, sort_tags
 from .returns import slot_of
 from .scopes import AssignRecord, literal_str
@@ -25,7 +26,10 @@ from .symbols import dotted_text
 __all__ = ["binding_of", "bind_module", "call_output_tags", "names_in",
            "identity_receiver", "CONFIG_NAME_RE", "IDENTITY_METHODS", "TENSOR_ROLES"]
 
-CONFIG_NAME_RE = re.compile(r"(?i)^(cfg|config|args|opts|options|hparams|params|settings)$")
+#: ANA-10 moved the definition to `ir.config_values`, which is the pass that
+#: acts on it, and re-exports it here so every existing importer of
+#: `mlview.ir.bindings.CONFIG_NAME_RE` is unchanged and the two spellings of
+#: "a config-shaped name" cannot drift apart.
 _TEST_NAME_RE = re.compile(r"(?i)^(x|y)?_?(test|holdout)")
 _VAL_NAME_RE = re.compile(r"(?i)^(x|y)?_?(val|valid|validation|dev)")
 _TRAIN_NAME_RE = re.compile(r"(?i)^(x|y)?_?train")
@@ -327,6 +331,11 @@ def bind_module(module: ModuleIR, workspace) -> None:
             continue
     _bind_self_params(module)
     _bind_imported_values(module, workspace)
+    # ANA-10: config containers are resolved last, because every source it
+    # reads - a dict literal, a dataclass construction, `parse_args()` - is a
+    # binding this pass has just written, and because the leaves it stores must
+    # never win over a real assignment to the same dotted name.
+    _resolve_config(module, workspace)
 
 
 def _bind_imported_values(module: ModuleIR, workspace) -> None:

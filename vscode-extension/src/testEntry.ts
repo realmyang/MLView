@@ -64,6 +64,7 @@ export {
   DIAGNOSTIC_COLLECTION_NAME
 } from './diagnostics';
 export {
+  MlviewPanel,
   buildPanelHtml,
   createNonce,
   themeKindOf,
@@ -167,6 +168,41 @@ export {
   DISABLE_RULE_COMMAND,
   CONFIG_FILE
 } from './codeActions';
+// H5 — structured fixes (docs/contracts/11.43-host-fixes-and-comparison.md).
+export {
+  applyIssueFix,
+  buildFixEdit,
+  fixActionTitle,
+  isMechanical,
+  issueById,
+  issuesAt,
+  readFix,
+  registerFixActions,
+  MlviewFixActionProvider,
+  APPLY_FIX_COMMAND,
+  FIXABLE_BUCKETS,
+  FIX_SAFETIES,
+  MAX_FIX_EDITS,
+  MAX_FIX_TEXT_CHARS
+} from './fixes';
+// VIEW-08 — the comparison commands and the diff overlay.
+export {
+  comparisonBasePath,
+  compareWithCleanSample,
+  compareWithSavedBase,
+  findCleanTwin,
+  overlayHeadline,
+  overlayNoteLines,
+  readOverlay,
+  registerComparisonCommands,
+  saveComparisonBase,
+  withinRoot,
+  CLEAN_TWIN_RELATIVE,
+  COMPARE_BASE_COMMAND,
+  COMPARE_CLEAN_COMMAND,
+  COMPARISON_BASE_RELATIVE,
+  SAVE_BASE_COMMAND
+} from './compare';
 // VIEW-07 — the diagram picture export (docs/contracts/11.33-diagram-export.md).
 export {
   decodeExportPayload,

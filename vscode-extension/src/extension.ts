@@ -15,17 +15,16 @@
  * window is the one-entry case and behaves exactly as it did.
  */
 
-import * as fs from 'node:fs';
-import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { registerChatSurfaces } from './chatSurfaces';
+import { registerComparisonCommands, type CompareHost } from './compare';
+import { applyIssueFix, registerFixActions, type FixDeps } from './fixes';
 import { registerSuppressionActions, runSuppression, type SuppressRequest } from './codeActions';
 import { MlviewCodeLensProvider } from './codelens';
 import { exportHtml, showIssues, showRuleDoc, type CommandHost } from './commands';
 import { requestDiagramExport, type ExportPanelLike } from './exportDiagram';
 import { AnalysisRunner } from './analysisRunner';
 import { CoreClient, scopeKey } from './coreClient';
-import { resolveCurrentFileTarget } from './currentFile';
 import { DiagnosticsPublisher } from './diagnostics';
 import { reportAnalysisFailure, type ReportedFailure } from './failure';
 import { FolderBook, pickFolder, type FolderState, type Scope } from './folders';
@@ -45,6 +44,12 @@ import { renderStatusBar } from './statusBar';
 import { analyzeForTools } from './toolAnalyze';
 import { recordStale, registerWatchers } from './watchers';
 import { manageTrust } from './trust';
+import {
+  refreshAnalysis,
+  visualizeActiveFile,
+  visualizeWorkspace,
+  type VisualizeHost
+} from './visualizeCommands';
 
 let controller: MlviewController | undefined;
 
@@ -74,7 +79,16 @@ export function deactivate(): void {
   controller = undefined;
 }
 
-class MlviewController implements PanelDelegate, CoreLike, CommandHost, vscode.Disposable {
+class MlviewController
+  implements
+    PanelDelegate,
+    CoreLike,
+    CommandHost,
+    CompareHost,
+    FixDeps,
+    VisualizeHost,
+    vscode.Disposable
+{
   /** H10: one graph, index, scope, stale set and remembered failure PER OPEN FOLDER. */
   private readonly book = new FolderBook();
   /** Single-flight, supersession, the busy count and graph adoption; see analysisRunner.ts. */
@@ -151,9 +165,9 @@ class MlviewController implements PanelDelegate, CoreLike, CommandHost, vscode.D
 
     ctx.subscriptions.push(
       this,
-      cmd('mlview.visualize', () => this.visualizeActiveFile()),
-      cmd('mlview.visualizeWorkspace', () => this.visualizeWorkspace()),
-      cmd('mlview.refresh', () => this.refresh()),
+      cmd('mlview.visualize', () => visualizeActiveFile(this)),
+      cmd('mlview.visualizeWorkspace', () => visualizeWorkspace(this)),
+      cmd('mlview.refresh', () => refreshAnalysis(this)),
       cmd('mlview.showIssues', () => showIssues(this)),
       cmd('mlview.revealInDiagram', (args?: RevealArgs) => this.reveal(args)),
       cmd('mlview.scopeToSymbol', () => scopeToSymbol(this.diagramDeps())),
@@ -174,6 +188,11 @@ class MlviewController implements PanelDelegate, CoreLike, CommandHost, vscode.D
       // MLV-P10: the lightbulb and its three commands. Unconditional, like every other
       // editor surface - a code action provider has no API to feature-detect.
       ...registerSuppressionActions(this.log),
+      // H5: the structured-fix lightbulb and `mlview.applyFix`. Also unconditional, and also
+      // argument-taking, so `mlview.applyFix` is deliberately NOT in the command palette.
+      ...registerFixActions(this),
+      // VIEW-08: the three comparison commands.
+      ...registerComparisonCommands(this),
       vscode.window.registerWebviewPanelSerializer(VIEW_TYPE, {
         deserializeWebviewPanel: async (panel, state: unknown) => {
           this.log.info('restoring the MLView panel from a saved window state');
@@ -203,77 +222,27 @@ class MlviewController implements PanelDelegate, CoreLike, CommandHost, vscode.D
 
   // ---------------------------------------------------------------- commands
 
-  /**
-   * `MLView: Visualize (Current File)`.
-   *
-   * COVERAGE: analysing the file ALONE loses the cross-file rules silently — 3 findings where
-   * its directory yields 7. `mlview.currentFileAnalysisScope` defaults to `package`, so the
-   * command analyses the package directory around the file and then narrows the diagram to the
-   * file through the §11.7 `setScope` path. The picture is the same; the findings are not.
-   *
-   * H10: the file's OWN folder becomes the active one, so pointing at a file in the second
-   * folder of a multi-root window analyses that folder instead of silently analysing the first.
-   */
-  private async visualizeActiveFile(): Promise<void> {
-    const editor = vscode.window.activeTextEditor;
-    if (!editor || editor.document.languageId !== 'python') {
-      await this.visualizeWorkspace();
-      return;
-    }
-    const file = editor.document.uri.fsPath;
-    const folder = vscode.workspace.getWorkspaceFolder(editor.document.uri);
-    if (folder && this.book.setActive(folder)) {
-      this.log.info(`active folder is now ${folder.name} (the file being visualized lives there)`);
-    }
-    const state = this.state();
-    if (!state) {
-      await this.visualizeWorkspace();
-      return;
-    }
-    state.appliedFocus = undefined;
-    const mode = readSettings(editor.document.uri).currentFileAnalysisScope;
-    const target = resolveCurrentFileTarget(
-      file,
-      folder?.uri.fsPath ?? path.dirname(file),
-      mode,
-      (candidate) => fs.existsSync(candidate)
-    );
-    state.lastScope = {
-      scope: target.scope,
-      ...(target.path ? { path: target.path } : {}),
-      ...(target.focusFile ? { focusFile: target.focusFile } : {})
-    };
-    this.log.info(
-      `visualize current file (${mode}): analyzing ${target.path ?? 'the workspace'}` +
-        (target.focusFile ? `, diagram scoped to ${path.basename(target.focusFile)}` : '')
-    );
-    await this.ensurePanel();
-    await this.runner.once(state);
+  // The three diagram commands live in src/visualizeCommands.ts; these are the adapters
+  // that hand them the controller's folder state.
+
+  activeState(): FolderState | undefined {
+    return this.state();
   }
 
-  private async visualizeWorkspace(): Promise<void> {
-    const state = this.state();
-    if (!state) {
-      void vscode.window.showWarningMessage('MLView: open a folder or a Python file first.');
-      return;
-    }
-    state.lastScope = { scope: 'workspace' };
-    state.appliedFocus = undefined;
-    await this.ensurePanel();
-    // `Once`, not a fresh run: `ensurePanel` yields, so a command issued in the same tick (or
-    // the panel's own `ready`) must join this analysis instead of superseding it.
-    await this.runner.once(state);
+  setActiveFolder(folder: vscode.WorkspaceFolder): boolean {
+    return this.book.setActive(folder);
   }
 
-  /** `MLView: Re-analyze` — the user explicitly asked for fresh results, so never join. */
-  private async refresh(): Promise<void> {
+  runOnce(state: FolderState): Promise<void> {
+    return this.runner.once(state);
+  }
+
+  runFresh(state: FolderState): Promise<void> {
+    return this.runner.run(state);
+  }
+
+  invalidateInterpreter(): void {
     this.env.invalidate();
-    const state = this.state();
-    if (!state) {
-      void vscode.window.showWarningMessage('MLView: open a folder or a Python file first.');
-      return;
-    }
-    await this.runner.run(state);
   }
 
   /**
@@ -333,6 +302,29 @@ class MlviewController implements PanelDelegate, CoreLike, CommandHost, vscode.D
    */
   onSuppressRule(request: SuppressRequest): void {
     void runSuppression(request, this.log);
+  }
+
+  /**
+   * H5 — the viewer's `applyFix`. It runs `applyIssueFix`, the exact function
+   * `mlview.applyFix` and the editor lightbulb run, so the containment check, the `likely`
+   * floor and VS Code's refactor preview are the same on both surfaces.
+   */
+  onApplyFix(issueId: string): void {
+    void applyIssueFix(issueId, this);
+  }
+
+  // --- FixDeps -----------------------------------------------------------------
+
+  /** Every analyzed folder's graph: the fix surfaces see what the Problems panel publishes. */
+  graphs(): readonly MLGraph[] {
+    return this.analyzedGraphs();
+  }
+
+  // --- CompareHost -------------------------------------------------------------
+
+  /** VIEW-08: the live diagram an overlay is posted to. Never opens one. */
+  comparisonPanel(): MlviewPanel | undefined {
+    return this.livePanel();
   }
 
   // ---------------------------------------------------------------- analysis

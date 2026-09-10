@@ -100,6 +100,18 @@ export interface MLNode {
    * "this document is not a projection" (CONTRACTS 11.3).
    */
   viewRole?: ViewRole;
+  /**
+   * VIEW-08, RENDERER-LOCAL and never on the wire. The diff overlay is a
+   * SEPARATE document (CONTRACTS 11.38 B) whose `nodes[]` is keyed on the same
+   * stable ids, and `diff/adopt.ts` lifts each entry's `status` onto the node it
+   * describes — exactly as `adoptCellMap` lifts the notebook cell map off
+   * `attrs` — so every drawing surface keeps reading a plain `MLNode` and none
+   * of them has to know the overlay exists. Absent means "no overlay is loaded",
+   * which is not the same as `unchanged`.
+   */
+  diffStatus?: string;
+  /** VIEW-08, renderer-local: the overlay's `changed[]` field names, if any. */
+  diffChanged?: string[];
 }
 
 export interface MLEdge {
@@ -113,6 +125,50 @@ export interface MLEdge {
   tags: string[];
   confidence: number;
   issueIds: string[];
+}
+
+/**
+ * H5. One edit an opted-in rule computed FROM THE AST.
+ *
+ * `newText` replaces the half-open range `[line:col, endLine:endCol)`, so an
+ * insertion is an empty range and a deletion an empty `newText`. Lines are
+ * 1-based and columns 0-based, exactly like `Loc` (§0): these are the analyzer's
+ * own coordinates and the host boundary is the only place they are converted.
+ *
+ * The viewer NEVER applies one. It draws it, and it posts `applyFix` — the host
+ * owns the edit, behind a preview, which is what keeps "never auto-applied" a
+ * property of the system rather than a promise in a comment.
+ */
+export interface FixEdit {
+  file: string;
+  absFile: string;
+  line: number;
+  col: number;
+  endLine: number;
+  endCol: number;
+  newText: string;
+}
+
+/**
+ * H5. The structured fix a rule OPTED IN to, absent on every rule that did not —
+ * which is what stops the field from ever being a lie. `fixHint` is prose on all
+ * 36 rules; `fix` exists only where an edit was actually computed.
+ *
+ * `safety` is typed `string` like every other enum-ish field here (invariant
+ * 1.1/6): an unknown value renders as the cautious form, never as `mechanical`.
+ */
+export interface IssueFix {
+  title: string;
+  safety: string;
+  edits: FixEdit[];
+}
+
+/** The two safety words the renderer draws specially. Anything else is cautious. */
+export const KNOWN_FIX_SAFETY = ['mechanical', 'needs-review'] as const;
+
+/** True only for the word that means "one unambiguous slot, nothing to judge". */
+export function isMechanicalFix(fix: IssueFix | undefined): boolean {
+  return !!fix && fix.safety === 'mechanical';
 }
 
 export interface Issue {
@@ -155,6 +211,12 @@ export interface Issue {
    * auditable.
    */
   baselined?: boolean;
+  /**
+   * H5. Present only where the rule opted in AND the analyzer was at least
+   * `likely` about the finding. Absent everywhere else, including on every rule
+   * that ships prose only.
+   */
+  fix?: IssueFix;
 }
 
 /**
@@ -411,6 +473,13 @@ export interface ViewState {
    * the first screen without anyone opening anything.
    */
   answersOpen?: boolean;
+  /**
+   * VIEW-08. Optional, absent at its default (off) exactly as `flow`, `scope`
+   * and `legendOpen` are: an older host round-trips a state it has never seen.
+   * On, the diagram is projected down to the diff's changed set plus one hop.
+   * Restoring it with no overlay loaded is a NO-OP, never an empty diagram.
+   */
+  diffOnly?: boolean;
 }
 
 /* ── host protocol (CONTRACTS section 4) ───────────────────────────────── */
@@ -449,7 +518,24 @@ export type HostToUi =
    * with exactly one `exportFile`, or with a toast when it has nothing drawn.
    * `scope` is the host's vocabulary: `all` is this renderer's `diagram`.
    */
-  | { v: 1; type: 'requestExport'; kind: 'svg' | 'png'; scope?: 'view' | 'all' | 'scope' };
+  | { v: 1; type: 'requestExport'; kind: 'svg' | 'png'; scope?: 'view' | 'all' | 'scope' }
+  /**
+   * VIEW-08. The diff overlay `mlview diff` writes, handed over as an OPTIONAL
+   * SIBLING of the graph (CONTRACTS 11.38 B): it is a separate document with its
+   * own `kind` and `diffVersion`, it never changes a byte of the graph, and a
+   * host that never sends one leaves the viewer exactly as it was.
+   *
+   * `overlay: null` clears it. The payload is typed `unknown` on purpose — it
+   * arrives from a host, is validated by `diff/overlay.ts` before anything is
+   * drawn, and a malformed one degrades to "no overlay" rather than throwing.
+   *
+   * `baseLabel` is the host's name for what the comparison is AGAINST — a git
+   * ref, a saved run, a file it picked. The overlay itself only knows the two
+   * workspace roots, which are the same string when both sides came from one
+   * checkout, so without this the banner would read "base X → head X". Optional
+   * everywhere: absent, the banner falls back to the root's last segment.
+   */
+  | { v: 1; type: 'diffOverlay'; overlay: unknown; baseLabel?: string };
 
 export type UiToHost =
   | { v: 1; type: 'ready' }
@@ -529,7 +615,20 @@ export type UiToHost =
    * `scope`: `analysisStarted` and `requestRefresh` already carry a field
    * literally named `scope` with a different meaning (CONTRACTS 11.7).
    */
-  | { v: 1; type: 'scopeChanged'; spec: string | null; label: string; nodes: number; of: number };
+  | { v: 1; type: 'scopeChanged'; spec: string | null; label: string; nodes: number; of: number }
+  /**
+   * H5. "Apply this fix": the viewer asks its host to make the edit `Issue.fix`
+   * describes. It is a REQUEST, never an edit, and never an auto-apply — the
+   * host resolves the issue id against its own copy of the document, applies the
+   * edits behind a PREVIEW the user confirms, and owns every path check on the
+   * way. The viewer sends an id and nothing else on purpose: a webview must not
+   * be able to talk its host into writing bytes it chose.
+   *
+   * The standalone report has no host to ask, so it never sends this — it copies
+   * the snippet through the `copy` message that already owns the clipboard path.
+   * A host predating this drops the frame, which leaves the viewer as it was.
+   */
+  | { v: 1; type: 'applyFix'; issueId: string };
 
 export interface HostBridge {
   host: HostKind;

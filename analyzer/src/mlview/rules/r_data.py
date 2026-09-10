@@ -14,6 +14,7 @@ from .. import knowledge as K
 from ..core.graph import Issue
 from ..ir.model import CallSite, LoopIR
 from ..ir.symbols import dotted_text
+from .fixes import shuffle_false_fix
 from .helpers import calls_in_loop, literal_of, with_role
 from .registry import rule
 
@@ -223,7 +224,10 @@ def eval_loader_shuffled(ctx) -> Iterable[Issue]:
                     % (call.loc.file, call.loc.line, name or "the held-out dataset"),
             loc=call.loc, node_ids=[node],
             related=[("construction", call.loc, "DataLoader built here")],
-            evidence=evidence, dynamic=call.scope.is_dynamic))
+            evidence=evidence, dynamic=call.scope.is_dynamic,
+            # H5: one literal replaced by one literal - the narrowest edit in
+            # the product, and the only reason this rule is in the first five.
+            fix=shuffle_false_fix(ctx, call)))
     return issues
 
 

@@ -79,6 +79,16 @@ instead of guessing one. `mlview_analyze`, `mlview_issues` and
 exactly five tools**; a scoped result says it is scoped, and `graphPath` keeps
 pointing at the full document, so widening back costs nothing.
 
+**Comparing from an agent (VIEW-08).** `mlview_graph {scope: "diff", base:
+"<earlier analyze --json document>"}` answers *"did my change add a finding"* —
+`summary.issues` is `{new, fixed, persisting}` and `content` is the `mlview diff`
+summary. It is the **sixth value of an argument, not a sixth tool**, because a
+diff is another projection of the same graph. `/mlview-issues --diff-base <file>`
+is the slash-command spelling. A `base` that is not an MLView graph is an error
+naming the file, never an empty comparison, and the payload's protected `note`
+carries every reason a `removed` might not mean "deleted" — including that a
+renamed file reads as everything removed plus everything added.
+
 **Telling you before you ask (H8).** `claude-plugin/hooks/hooks.json` registers a
 `PostToolUse` hook on `Edit|Write|NotebookEdit` and a `Stop` hook. The plugin is
 otherwise entirely pull-based: when Claude edits a training file during a session
@@ -114,7 +124,9 @@ F5 launches an Extension Development Host. Open a Python ML project in it, then:
   unit the cursor is inside) · `Clear Diagram Scope` · `Export HTML` ·
   `Export Diagram as SVG` / `as PNG` · `Select Active Folder` ·
   `Open MLView Configuration` · `Create Baseline From Current Findings` ·
-  `Select Interpreter` · `Show Output` · `Show Rule Doc`.
+  `Save Current Graph As Comparison Base` · `Compare With Saved Base` ·
+  `Compare With Clean Sample` · `Select Interpreter` · `Show Output` ·
+  `Show Rule Doc`.
 - **Getting started.** `Help → Get Started` carries a five-step MLView
   walkthrough — install, visualize the sample, read a finding in Problems,
   `Alt+M`, `Alt+Shift+M` — each step a single click on a command that already
@@ -173,6 +185,27 @@ F5 launches an Extension Development Host. Open a Python ML project in it, then:
   an unrecognized selector comes back as an error naming the accepted values,
   never as a silently substituted default.
 
+- **A fix you can preview, never one that is applied for you (H5).** Where a rule
+  computed one, `Issue.fix` carries `{title, safety, edits[]}` and the lightbulb
+  offers it. The guardrails are the feature: rules **opt in**, so an empty
+  lightbulb means "no edit was computed"; the edits come from the analyzer's
+  **AST**; nothing below the `likely` bucket is offered an edit at all;
+  `isPreferred` is set for `mechanical` and never for `needs-review`; and every
+  edit carries `needsConfirmation` and is applied with `isRefactoring`, so VS Code
+  routes it through the refactor **preview**. There is no `source.fixAll` kind —
+  that is the one `editor.codeActionsOnSave` runs unattended. An edit naming a file
+  outside the workspace is refused, and a fix whose second edit escapes is refused
+  whole. The rail reaches the same path with `applyFix`, sending only the issue id.
+- **Compare two analyses in the editor (VIEW-08).** `Save Current Graph As
+  Comparison Base` writes the analysis you are looking at to
+  `.mlview/comparison-base.json` verbatim; `Compare With Saved Base` re-analyses
+  and runs `mlview diff base head --json -`, and the overlay is drawn on the open
+  diagram as a **sibling** of the graph, so the document on screen does not move.
+  `Compare With Clean Sample` does the same against the shipped clean twin. The
+  diff is the **analyzer's** (§11.38) — all three hosts get one answer from one
+  implementation — and every one of its `notes[]` goes to the output channel in
+  full, with the toast saying how many there are: `−16 nodes` is a claim about two
+  documents, not about your code. A new analysis clears the overlay.
 - **Suppress a false positive without leaving the editor.** The lightbulb on any
   MLView diagnostic offers `Copy ignore comment`, `Add ignore comment on this
   line` (a `WorkspaceEdit`, so it is one undo away) and `Disable rule MLVxxx in

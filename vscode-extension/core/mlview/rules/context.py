@@ -12,6 +12,7 @@
     ctx.follow_call(call)          one level, module-local
     ctx.is_dynamic(scope)          scope (or its ancestors) is dynamic
     ctx.issue(...)                 builder; applies confidence + severity cap
+    ctx.fix(module, title, edits)  builds a validated `Issue.fix` candidate (H5)
     ctx.ghost(kind, parent, label) declares a ghost slot for an absence rule
     ctx.untraced(call, name, why)  declares a COVERAGE gap: the rule was blind
     ctx.dataflow                   "local" | "ip" (DATAFLOW-IP)
@@ -35,6 +36,7 @@ from ..ir.provenance import chain_text
 from .confidence import (cap_severity, compute_confidence,
                          interprocedural_evidence, normalize_evidence,
                          notebook_evidence)
+from .fixes import FIXABLE_BUCKETS, Fix, build_fix
 
 __all__ = ["GraphContext"]
 
@@ -313,6 +315,25 @@ class GraphContext:
         chain = getattr(ref, "provenance", ()) or ()
         return chain_text(chain) if chain else ""
 
+    def fix(self, module, title: str, edits: Sequence[Any],
+            safety: str = "needs-review") -> Optional[Fix]:
+        """Build one validated `Issue.fix` candidate, or `None` (H5).
+
+        The single door a rule may build an edit through, exactly as `issue()`
+        is the only door it may publish a finding through. Everything a rule
+        could get wrong is checked here rather than in the rule: an edit that
+        no builder could compute (`None` in `edits`), an edit that reaches
+        outside `module`, and - the one that matters - an edit that does not
+        re-parse. A candidate that fails any of them is dropped and the finding
+        ships with its prose `fixHint` alone.
+
+        Returning a candidate is not the same as publishing it: `issue()`
+        drops the fix when the computed confidence lands below `likely`, so a
+        rule can never talk the engine into offering an edit for a finding it
+        is not sure about.
+        """
+        return build_fix(module, title, safety, list(edits))
+
     def ghost(self, kind: str, parent_node: Node, label: str,
               fqn: Optional[str] = None, confidence: float = 0.9) -> Node:
         """Declare a REQUIRED-BUT-ABSENT step in its correct slot (A9)."""
@@ -343,13 +364,20 @@ class GraphContext:
               related: Sequence[Any] = (), evidence: Sequence[Any] = (),
               tags: Sequence[str] = (), dynamic: Optional[bool] = None,
               stage: Optional[str] = None, qualname: Optional[str] = None,
-              severity: Optional[str] = None, wrapper_gated: bool = False) -> Issue:
+              severity: Optional[str] = None, wrapper_gated: bool = False,
+              fix: Optional[Fix] = None) -> Issue:
         """Build one issue: confidence, severity cap, suppression, ids.
 
         `severity` may only **lower** the declared severity (MLV301's
         "drop to medium when the architecture cannot be resolved" refinement);
         a rule can never grade itself up, and the absence cap still applies on
         top of whatever it asks for.
+
+        `fix` is H5's opt-in structured edit, built by `ctx.fix`. It is
+        attached only when the computed confidence lands in `certain` or
+        `likely`: below that the finding itself is a question, and a question
+        does not get to edit somebody's training loop. The rule is not
+        consulted about that - it hands over a candidate and this decides.
         """
         spec = self.current_rule
         if spec is None:  # pragma: no cover - registry always sets it
@@ -407,6 +435,12 @@ class GraphContext:
             evidence=list(ev),
             suppressed=self.suppressor.is_suppressed(spec.code, loc.file, loc.line),
             docs="docs/rules/%s.md" % spec.code)
+        # `issue.confidenceBucket`, never `bucket_for(confidence)`: the bucket
+        # the user is shown is computed off the *clamped* value, and a gate that
+        # reads a different number from the one on screen is a gate nobody can
+        # reason about.
+        if fix is not None and issue.confidenceBucket in FIXABLE_BUCKETS:
+            issue.fix = fix
         for node in nodes:
             if issue.id not in node.issueIds:
                 node.issueIds.append(issue.id)

@@ -25,6 +25,7 @@ SRC = os.path.join(REPO, "analyzer", "src")
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
 
+from mlview.rules.fixes import FIX_DOCS  # noqa: E402
 from mlview.rules.registry import RuleSpec, all_rules  # noqa: E402
 
 FIXTURES = os.path.join(REPO, "analyzer", "tests", "fixtures", "rules")
@@ -631,6 +632,20 @@ def page(spec: RuleSpec) -> str:
 
     out.append("## How to fix it\n")
     out.append((spec.fix_hint or "See the rule catalog.") + "\n")
+
+    # H5. The page a host deep-links to is where "the lightbulb is empty here"
+    # has to be answerable, so the withheld condition is rendered beside the
+    # offered one rather than only in the amendment.
+    structured = FIX_DOCS.get(spec.code)
+    if structured:
+        out.append("## Structured fix\n")
+        out.append("This rule opts into `Issue.fix` (H5, CONTRACTS 11.42). A host may "
+                   "offer **%s** as a quick fix, graded `%s`. The edit is computed from "
+                   "the AST, it is **never applied automatically**, and no edit is "
+                   "offered at all when the finding lands below the `likely` confidence "
+                   "bucket.\n" % (structured["title"], structured["safety"]))
+        out.append("- **Offered when** %s" % structured["offered"])
+        out.append("- **Withheld when** %s\n" % structured["withheld"])
 
     if bad is not None:
         out.append("## Example that fires\n")

@@ -92,12 +92,32 @@ test('dist/mlview.css IS the minification of dist/mlview.dev.css (BUILD-01)', as
 /*
  * BUILD-01's size ratchet.
  *
- * MEASURED ON THIS TREE, 2026-09-10, after VIEW-04 (bundle and order the
- * cross-lane channel) landed on top of the Sprint 4 review fixes, NB (notebook
- * locations) and VIEW-07 (diagram export):
- *   dist/mlview.js       279 080 B (272.5 KB)
- *   dist/mlview.css       61 863 B  (60.4 KB), minified from 106 557 B (-42%)
- *   dist/mlview.dev.css  106 557 B (104.1 KB, never shipped)
+ * MEASURED ON THIS TREE, 2026-09-10, after the viewer half of VIEW-08 (the diff
+ * overlay), H5 (structured fixes) and ANA-10 (resolved configuration) landed on
+ * top of VIEW-04, the Sprint 4 review fixes, NB and VIEW-07:
+ *   dist/mlview.js       304 818 B (297.7 KB)
+ *   dist/mlview.css       68 001 B  (66.4 KB), minified from 116 815 B (-42%)
+ *   dist/mlview.dev.css  116 815 B (114.1 KB, never shipped)
+ *
+ * The tree those three landed on shipped 279 080 B of JS and 61 863 B of CSS,
+ * so they cost +25 738 B and +6 138 B, and BOTH CAPS MOVE -- which is the number
+ * a lead looks for, so here is where it went. VIEW-08 is the largest share and
+ * the only one that is a new SUBSYSTEM rather than a new surface: `diff/overlay`
+ * (the reader, the validator and the id index), `diff/adopt` (stamping the
+ * status and resurrecting every removed node as a card the head document does
+ * not contain) and `diff/changed` (the "changed only" projection) come to about
+ * 9.6 KB, with `ui/diffbar` -- the headline, the two documents, seven count
+ * chips and `notes[]` drawn in full -- another 5.2 KB. H5 is `ui/fixes` plus its
+ * two call sites, about 4.0 KB, and ANA-10 is `config/resolved` plus the card
+ * and Inspector branches, about 2.6 KB; the remaining ~3.5 KB is spread across
+ * `app`, `types`, `protocol`, `scope/session`, `scope/project` (the extraction
+ * of `projectResolved`, which is what lets a diff BE a projection instead of a
+ * second rendering path) and `render/nodes`. The CSS is one new layer,
+ * `styles/diff.css`: two themed hues with a light, a dark and a high-contrast
+ * value, the ledge, the ghost treatment, the chips, the fix disclosure and the
+ * rail's fixed-findings section. Caps go to JS 303 KB and CSS 68 KB, leaving
+ * 5 454 B (1.8 %) and 1 631 B (2.3 %) -- the same order the last four ratchets
+ * held. The ratchet's job is unchanged: make the NEXT growth visible.
  *
  * NB moved the JS by +2 991 B and the CSS by +195 B, and moved NEITHER CAP: the
  * item is one small module (`notebook.ts`: the flat-line-to-cell translation,
@@ -152,11 +172,11 @@ test('dist/mlview.css IS the minification of dist/mlview.dev.css (BUILD-01)', as
  * again: `the figures in the block above are the constants below` reads this
  * file and fails on a one-byte disagreement.
  */
-const JS_RECORDED = 279080;
-const CSS_RECORDED = 61863;
+const JS_RECORDED = 304818;
+const CSS_RECORDED = 68001;
 const DRIFT = 2 * 1024;
-const JS_MAX_BYTES = 278 * 1024;
-const CSS_MAX_BYTES = 62 * 1024;
+const JS_MAX_BYTES = 303 * 1024;
+const CSS_MAX_BYTES = 68 * 1024;
 
 const headroom = (size, cap) =>
   size + ' B, ' + (cap - size) + ' B (' + (((cap - size) / cap) * 100).toFixed(1) + ' %) under the ' + cap + ' B ratchet';

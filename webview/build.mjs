@@ -28,6 +28,9 @@ const CSS_FILES = [
   'flow.css',
   'scope.css',
   'rail.css',
+  // VIEW-08 / H5 / ANA-10. After `rail.css` because it restyles rail rows and
+  // chips defined there, and before `export.css`, which owns the print block.
+  'diff.css',
   // VIEW-07, and LAST on purpose: it carries the `@media print` block, whose
   // `!important` overrides have to win over every layer above it.
   'export.css',
