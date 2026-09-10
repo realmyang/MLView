@@ -20,7 +20,7 @@ export interface ChatSurfaceHost {
   /** The CONTROLLER (not `CoreClient`): chat and the tools analyze through it. */
   readonly analyzer: CoreLike;
   /** Opens the diagram and, when a node is named, reveals it. */
-  showDiagram(focusNodeId?: string): Promise<void>;
+  showDiagram(focusNodeId?: string, scopeSpec?: string): Promise<void>;
 }
 
 /** The settings the chat and tool answers filter by, re-read on every request. */

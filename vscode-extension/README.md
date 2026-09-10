@@ -95,6 +95,9 @@ CodeLens and *Reveal in Diagram* keep working regardless.
 | `MLView: Export HTML Report` | — | Save dialog, then `analyze --html <file>` at the diagram's current scope; offers to open it |
 | `MLView: Export Diagram as SVG` | — | Asks the open diagram for a standalone SVG of the whole diagram, the current view or the current scope, then a save dialog |
 | `MLView: Export Diagram as PNG` | — | The same, as a raster image |
+| `MLView: Select Active Folder` | status-bar tooltip link | **Multi-root only.** Chooses which open folder the diagram, the status bar and the chat / LM answers describe; a single-folder window never sees it |
+| `MLView: Open MLView Configuration` | — | Opens the `.mlview.toml` (or the `pyproject.toml` `[tool.mlview]` table) MLView passes to `--config`, creating one with `mlview init` when there is none |
+| `MLView: Create Baseline From Current Findings` | — | Runs `mlview baseline write` over the current scope and offers to point `mlview.baselinePath` at the result |
 | `MLView: Select Python Interpreter` | — | Python extension picker, or the `mlview.pythonPath` setting |
 | `MLView: Show Output` | — | The MLView output channel |
 | `MLView: Open Rule Documentation` | — | Opens the offline `MLVnnn.md` rule page |
@@ -156,6 +159,8 @@ analyzed unit.
 | `mlview.analyzeOnSave` | `true` | Re-analyze 400 ms after a Python file is saved |
 | `mlview.currentFileAnalysisScope` | `package` | What **MLView: Visualize (Current File)** analyzes before scoping the diagram to the file: `file` (fastest, and reported as incomplete — the cross-file rules cannot fire), `package`, or `workspace` |
 | `mlview.exclude` | `[]` | Extra discovery excludes, added to the analyzer defaults |
+| `mlview.configPath` | `""` | The `.mlview.toml` (or `pyproject.toml` with `[tool.mlview]`) passed to `--config`. Empty means discover it. **The file wins** for `[rules].disable` and `[paths].exclude`; the two settings below are additive filters on top |
+| `mlview.baselinePath` | `""` | A `mlview baseline write` file whose findings stop counting. Never auto-discovered — name it here on purpose |
 | `mlview.includeNotebooks` | `false` | Analyze `.ipynb` as well as `.py` (passes `--include-notebooks`). See **Notebooks** below |
 | `mlview.maxFiles` | `500` | Discovery cap |
 | `mlview.maxNodes` | `400` | Graph cap; exceeding it sets `stats.truncated` |

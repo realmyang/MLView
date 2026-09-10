@@ -122,6 +122,24 @@
         "icon": "$(device-camera)"
       },
       {
+        "command": "mlview.activeFolder",
+        "title": "Select Active Folder",
+        "category": "MLView",
+        "icon": "$(folder-opened)"
+      },
+      {
+        "command": "mlview.openConfiguration",
+        "title": "Open MLView Configuration",
+        "category": "MLView",
+        "icon": "$(settings-gear)"
+      },
+      {
+        "command": "mlview.createBaseline",
+        "title": "Create Baseline From Current Findings",
+        "category": "MLView",
+        "icon": "$(check-all)"
+      },
+      {
         "command": "mlview.selectInterpreter",
         "title": "Select Python Interpreter",
         "category": "MLView",
@@ -222,6 +240,18 @@
           },
           "default": [],
           "description": "Extra glob patterns excluded from discovery. Added to the analyzer defaults (.venv, site-packages, node_modules, build, .git)."
+        },
+        "mlview.configPath": {
+          "type": "string",
+          "default": "",
+          "scope": "resource",
+          "markdownDescription": "Path to the `.mlview.toml` (or a `pyproject.toml` carrying a `[tool.mlview]` table) MLView passes to `--config`. Absolute, or relative to the workspace folder. Leave empty to discover `<folder>/.mlview.toml`, then `<folder>/pyproject.toml` when it has the table.\n\n**Precedence:** the file WINS for `[rules].disable` and `[paths].exclude`. `#mlview.disabledRules#` and `#mlview.exclude#` are ADDITIVE filters on top of it - they can hide more rules and drop more paths, but neither can re-enable a rule the file disabled or re-include a path it excluded."
+        },
+        "mlview.baselinePath": {
+          "type": "string",
+          "default": "",
+          "scope": "resource",
+          "markdownDescription": "Path to a baseline written by **MLView: Create Baseline From Current Findings** (`mlview baseline write`). Findings recorded in it are still shown, but stop counting - so a repository with pre-existing findings can adopt MLView without `--fail-on high` failing forever. Absolute, or relative to the workspace folder. Empty means no baseline, and one is never auto-discovered: a file that quietly empties the Problems panel has to be named here on purpose.\n\n**Precedence:** the same as `#mlview.configPath#` - a `[baseline]` table in the configuration file wins, and this setting only names the file when the TOML does not."
         },
         "mlview.includeNotebooks": {
           "type": "boolean",
@@ -340,6 +370,16 @@
             "path": {
               "type": "string",
               "description": "Optional workspace-relative file or folder; defaults to the whole workspace."
+            },
+            "scope": {
+              "type": "string",
+              "description": "Optional CONTRACTS.md 11.1 diagram selector. Omit it for the whole graph, or pass one of -- \"all\" the whole graph, spelled explicitly. \"stage:<id>\" one lane: config, data, preprocess, model, objective, train, eval or deliver. \"unit:<name>\" one class, function or loop -- a qualname (\"train.train\"), a bare name (\"SmallCNN\") or a node id. Resolves to every match, and says when it is ambiguous. \"file:<path.py>\" everything the analyzer found in one file (workspace-relative, forward slashes, or a basename). \"concern:<name>\" config | data | optimization | evaluation -- the four presets that partition the eight stages (aliases: setup, preprocessing, dataset, training, inference). \"node:<nodeId>\" one node and its neighbourhood. \"symbol:<name>\" an alias for \"unit:<name>\". A scope outside this grammar (including a stage id outside the eight canonical stages, a concern that is not one of the four, or a node id this graph does not contain) comes back as an error naming the accepted values -- never as a silently substituted default. Every scoped result says it is a filtered view: its counts describe the scope, not the project."
+            },
+            "depth": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2,
+              "description": "0, 1 or 2 boundary hops around the scope. Omit it for the per-kind default: 1 for unit/node (a point, so its interface is the answer), 0 for stage/file/concern (already a region). Ignored without a scope."
             }
           }
         }
@@ -371,6 +411,16 @@
             "code": {
               "type": "string",
               "description": "Filter to one rule code, e.g. MLV201"
+            },
+            "scope": {
+              "type": "string",
+              "description": "Optional CONTRACTS.md 11.1 diagram selector. Omit it for the whole graph, or pass one of -- \"all\" the whole graph, spelled explicitly. \"stage:<id>\" one lane: config, data, preprocess, model, objective, train, eval or deliver. \"unit:<name>\" one class, function or loop -- a qualname (\"train.train\"), a bare name (\"SmallCNN\") or a node id. Resolves to every match, and says when it is ambiguous. \"file:<path.py>\" everything the analyzer found in one file (workspace-relative, forward slashes, or a basename). \"concern:<name>\" config | data | optimization | evaluation -- the four presets that partition the eight stages (aliases: setup, preprocessing, dataset, training, inference). \"node:<nodeId>\" one node and its neighbourhood. \"symbol:<name>\" an alias for \"unit:<name>\". A scope outside this grammar (including a stage id outside the eight canonical stages, a concern that is not one of the four, or a node id this graph does not contain) comes back as an error naming the accepted values -- never as a silently substituted default. Every scoped result says it is a filtered view: its counts describe the scope, not the project."
+            },
+            "depth": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2,
+              "description": "0, 1 or 2 boundary hops around the scope. Omit it for the per-kind default: 1 for unit/node (a point, so its interface is the answer), 0 for stage/file/concern (already a region). Ignored without a scope."
             }
           }
         }
@@ -391,21 +441,102 @@
           "properties": {
             "focusNodeId": {
               "type": "string"
+            },
+            "scope": {
+              "type": "string",
+              "description": "Optional CONTRACTS.md 11.1 diagram selector. Omit it for the whole graph, or pass one of -- \"all\" the whole graph, spelled explicitly. \"stage:<id>\" one lane: config, data, preprocess, model, objective, train, eval or deliver. \"unit:<name>\" one class, function or loop -- a qualname (\"train.train\"), a bare name (\"SmallCNN\") or a node id. Resolves to every match, and says when it is ambiguous. \"file:<path.py>\" everything the analyzer found in one file (workspace-relative, forward slashes, or a basename). \"concern:<name>\" config | data | optimization | evaluation -- the four presets that partition the eight stages (aliases: setup, preprocessing, dataset, training, inference). \"node:<nodeId>\" one node and its neighbourhood. \"symbol:<name>\" an alias for \"unit:<name>\". A scope outside this grammar (including a stage id outside the eight canonical stages, a concern that is not one of the four, or a node id this graph does not contain) comes back as an error naming the accepted values -- never as a silently substituted default. Every scoped result says it is a filtered view: its counts describe the scope, not the project."
+            },
+            "depth": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2,
+              "description": "0, 1 or 2 boundary hops around the scope. Omit it for the per-kind default: 1 for unit/node (a point, so its interface is the answer), 0 for stage/file/concern (already a region). Ignored without a scope."
             }
           }
         }
       }
+    ],
+    "walkthroughs": [
+      {
+        "id": "mlview.gettingStarted",
+        "title": "Get started with MLView",
+        "description": "Draw the ML pipeline in this workspace, then read what the analyzer found - in five steps.",
+        "when": "true",
+        "steps": [
+          {
+            "id": "mlview.step.install",
+            "title": "Install the MLView analyzer",
+            "description": "MLView draws; `python -m mlview` analyzes. Point the extension at an interpreter that has it.\n[Select Python Interpreter](command:mlview.selectInterpreter)",
+            "media": {
+              "markdown": "docs/walkthrough/install.md",
+              "altText": "Install the MLView analyzer"
+            },
+            "completionEvents": [
+              "onCommand:mlview.selectInterpreter"
+            ]
+          },
+          {
+            "id": "mlview.step.visualize",
+            "title": "Visualize a pipeline",
+            "description": "Open the bundled sample (or any workspace with Python in it) and draw the whole workflow.\n[Visualize ML Workflow (Workspace)](command:mlview.visualizeWorkspace)",
+            "media": {
+              "markdown": "docs/walkthrough/visualize.md",
+              "altText": "Visualize a pipeline"
+            },
+            "completionEvents": [
+              "onCommand:mlview.visualizeWorkspace"
+            ]
+          },
+          {
+            "id": "mlview.step.problems",
+            "title": "Read a finding in Problems",
+            "description": "Every finding is a diagnostic with a rule code, a fix hint and an offline rule page.\n[Show ML Issues](command:mlview.showIssues)",
+            "media": {
+              "markdown": "docs/walkthrough/problems.md",
+              "altText": "Read a finding in Problems"
+            },
+            "completionEvents": [
+              "onCommand:mlview.showIssues"
+            ]
+          },
+          {
+            "id": "mlview.step.reveal",
+            "title": "Jump from the editor to the diagram",
+            "description": "Alt+M takes the cursor to the node it belongs to, without leaving the keyboard.\n[Reveal in Diagram (Alt+M)](command:mlview.revealInDiagram)",
+            "media": {
+              "markdown": "docs/walkthrough/reveal.md",
+              "altText": "Jump from the editor to the diagram"
+            },
+            "completionEvents": [
+              "onCommand:mlview.revealInDiagram"
+            ]
+          },
+          {
+            "id": "mlview.step.scope",
+            "title": "Narrow the diagram to one unit",
+            "description": "Alt+Shift+M scopes the diagram to the enclosing class, function or loop - and says how many findings are outside it.\n[Scope Diagram to Symbol (Alt+Shift+M)](command:mlview.scopeToSymbol)",
+            "media": {
+              "markdown": "docs/walkthrough/scope.md",
+              "altText": "Narrow the diagram to one unit"
+            },
+            "completionEvents": [
+              "onCommand:mlview.scopeToSymbol"
+            ]
+          }
+        ]
+      }
     ]
   },
   "scripts": {
-    "compile": "node tools/sync-rule-docs.mjs && node esbuild.mjs",
+    "compile": "node tools/sync-rule-docs.mjs && node tools/sync-walkthrough.mjs && node esbuild.mjs",
     "watch": "node esbuild.mjs --watch",
     "check": "tsc --noEmit",
     "sync:rule-docs": "node tools/sync-rule-docs.mjs",
-    "pretest": "node tools/sync-rule-docs.mjs && node esbuild.mjs",
+    "pretest": "node tools/sync-rule-docs.mjs && node tools/sync-walkthrough.mjs && node esbuild.mjs",
     "test": "node tools/run-tests.mjs",
     "package": "npx --yes @vscode/vsce package --no-dependencies",
-    "check:panel": "node --test test/panelhtml.test.js"
+    "check:panel": "node --test test/panelhtml.test.js",
+    "sync:walkthrough": "node tools/sync-walkthrough.mjs"
   },
   "devDependencies": {
     "@types/node": "20.11.30",

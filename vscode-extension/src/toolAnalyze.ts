@@ -15,6 +15,7 @@ import { CoreError, type CoreClient } from './coreClient';
 import type { MLGraph } from './graph';
 import { resolveAnalysisTarget } from './location';
 import type { Logger } from './log';
+import type { ToolAnalyzeInput } from './lmTools';
 import { nextRequestId } from './protocol';
 import { readSettings, type MlviewSettings } from './settings';
 import { isTrusted, RESTRICTED_MESSAGE } from './trust';
@@ -22,6 +23,12 @@ import { isTrusted, RESTRICTED_MESSAGE } from './trust';
 export interface ToolAnalyzeDeps {
   log: Logger;
   core: CoreClient;
+  /**
+   * H10: the ACTIVE workspace folder, not `workspaceFolders?.[0]`. In a two-folder window the
+   * old hardcode meant a question about the second folder was answered with the first folder's
+   * code and nothing said so. `MLView: Select Active Folder` and the status-bar picker move it.
+   */
+  activeFolder(): vscode.WorkspaceFolder | undefined;
   /** The graph the panel is currently showing, or undefined. */
   currentGraph(): MLGraph | undefined;
   /** How many files changed since that graph was produced. */
@@ -31,11 +38,11 @@ export interface ToolAnalyzeDeps {
 }
 
 export async function analyzeForTools(
-  input: { path?: string },
+  input: ToolAnalyzeInput,
   token: vscode.CancellationToken | undefined,
   deps: ToolAnalyzeDeps
 ): Promise<MLGraph> {
-  const folder = vscode.workspace.workspaceFolders?.[0];
+  const folder = deps.activeFolder();
   if (!folder) {
     throw new CoreError('usage', 'No folder is open, so there is nothing to analyze.');
   }
@@ -43,8 +50,13 @@ export async function analyzeForTools(
     throw new CoreError('restricted', RESTRICTED_MESSAGE);
   }
   const root = folder.uri.fsPath;
+  // H10: a SCOPED call asks for a projection of the document, so neither half of the
+  // whole-workspace shortcut applies - the cached graph is the wrong shape to answer with, and
+  // the projected result must never be published as this folder's graph. `mlview.exclude`,
+  // the Problems panel and the status bar all keep describing the project, not the question.
+  const projected = typeof input.scope === 'string' && input.scope.trim().length > 0;
   const cached = deps.currentGraph();
-  if (!input.path && cached && deps.staleCount() === 0) {
+  if (!input.path && !projected && cached && deps.staleCount() === 0) {
     return cached;
   }
   // SECURITY: `input.path` is MODEL-supplied. Refuse anything outside the open workspace
@@ -67,9 +79,11 @@ export async function analyzeForTools(
     paths: [target],
     cwd: root,
     settings,
+    ...(projected ? { scopeSpec: String(input.scope).trim() } : {}),
+    ...(projected && typeof input.depth === 'number' ? { depth: input.depth } : {}),
     ...(token ? { token } : {})
   });
-  if (!input.path) {
+  if (!input.path && !projected) {
     deps.applyGraph(result.graph, nextRequestId('tool'), settings);
   }
   return result.graph;

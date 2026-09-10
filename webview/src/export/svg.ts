@@ -199,7 +199,13 @@ export function buildExportSvg(opts: ExportSvgOptions): ExportSvgResult {
     else cards.push(markup);
   }
 
-  /* edges sit above the bands and under the cards, exactly as the DOM stacks */
+  /* edges sit above the bands and under the cards, exactly as the DOM stacks.
+   *
+   * VIEW-04's `plan.bundles` is deliberately NOT drawn here. A trunk is a
+   * decluttering affordance that trades detail for hover, and a file in a pull
+   * request cannot be hovered — so the exported picture keeps every stroke, and
+   * the gate that counts one `<path data-edge-id>` per planned route keeps
+   * meaning what it says. */
   const cables: string[] = [];
   for (const visual of plan.edges) {
     const route = visual.route;

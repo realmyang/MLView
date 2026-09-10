@@ -1,0 +1,29 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${MLVIEW_PYTHON:-python} \"${CLAUDE_PLUGIN_ROOT}/hooks/post_edit.py\"",
+            "timeout": 10,
+            "statusMessage": "MLView: checking what that edit changed"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${MLVIEW_PYTHON:-python} \"${CLAUDE_PLUGIN_ROOT}/hooks/stop_summary.py\"",
+            "timeout": 10,
+            "statusMessage": "MLView: summarising this turn"
+          }
+        ]
+      }
+    ]
+  }
+}

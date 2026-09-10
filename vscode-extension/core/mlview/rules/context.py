@@ -14,6 +14,9 @@
     ctx.issue(...)                 builder; applies confidence + severity cap
     ctx.ghost(kind, parent, label) declares a ghost slot for an absence rule
     ctx.untraced(call, name, why)  declares a COVERAGE gap: the rule was blind
+    ctx.dataflow                   "local" | "ip" (DATAFLOW-IP)
+    ctx.hops(ref)                  interprocedural evidence for a ValueRef
+    ctx.hop_related(ref)           one RelatedLoc per hop, oldest first
 
 Rules never construct `Issue` directly.
 """
@@ -28,7 +31,9 @@ from ..core.graph import (SEVERITY_RANK, Diagnostic, Edge, Evidence, Issue, MLGr
 from ..core.ids import issue_id, node_id
 from ..ir.bindings import binding_of as _binding_of
 from ..ir.model import CallSite, ClassIR, FunctionIR, Loc, LoopIR, ModuleIR, ScopeIR, ValueRef
-from .confidence import (cap_severity, compute_confidence, normalize_evidence,
+from ..ir.provenance import chain_text
+from .confidence import (cap_severity, compute_confidence,
+                         interprocedural_evidence, normalize_evidence,
                          notebook_evidence)
 
 __all__ = ["GraphContext"]
@@ -61,6 +66,10 @@ class GraphContext:
         #: NB: generated-module relpath -> NotebookMap, empty on every run
         #: that did not ask for notebooks. Read only by `issue()`.
         self._notebooks: Dict[str, Any] = dict(getattr(workspace, "notebooks", None) or {})
+        #: DATAFLOW-IP. The mode the IR was built in, read off the workspace
+        #: rather than the options so that every construction of a context -
+        #: the pipeline's, a test's - agrees with the IR it was handed.
+        self.dataflow: str = getattr(workspace, "dataflow", "local") or "local"
 
     # ------------------------------------------------------------ queries
     def _index(self) -> Dict[str, List[CallSite]]:
@@ -266,6 +275,43 @@ class GraphContext:
             file=call.loc.file, line=call.loc.line,
             scope=call.scope.qualname if call.scope is not None else "",
             variable=name, reason=reason)
+
+    def hops(self, *refs) -> Tuple[Any, ...]:
+        """The interprocedural evidence for these values (DATAFLOW-IP).
+
+        One `cross_file` entry per value that arrived through a hop, carrying
+        the chain in words and `IP_HOP_WEIGHT ** hops` as its weight. Empty for
+        a local value, so a rule may pass every reference it used and pay
+        nothing for the ones dataflow established in one scope.
+        """
+        out: List[Any] = []
+        for ref in refs:
+            out.extend(interprocedural_evidence(ref))
+        return tuple(out)
+
+    def hop_related(self, ref, message: Optional[str] = None) -> List[Any]:
+        """One `RelatedLoc` per hop, oldest first (DATAFLOW-IP).
+
+        A cross-object finding is only auditable if the reader can open the
+        construction site the tag entered through. The roles are the frozen
+        ones - `construction`, `call_site`, `definition` - so this adds no
+        vocabulary to CONTRACTS 11.1.
+        """
+        out: List[Any] = []
+        for hop in getattr(ref, "provenance", ()) or ():
+            loc = getattr(hop, "loc", None)
+            if loc is None:
+                continue
+            out.append((hop.role, loc,
+                        message or ("%s carries %s through this %s hop"
+                                    % (getattr(ref, "name", "the value"),
+                                       ", ".join(ref.tags) or "no tag", hop.kind))))
+        return out
+
+    def hop_chain(self, ref) -> str:
+        """The hop chain of a value, in words (empty when it is local)."""
+        chain = getattr(ref, "provenance", ()) or ()
+        return chain_text(chain) if chain else ""
 
     def ghost(self, kind: str, parent_node: Node, label: str,
               fqn: Optional[str] = None, confidence: float = 0.9) -> Node:

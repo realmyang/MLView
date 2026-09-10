@@ -10,7 +10,7 @@ from ..core.graph import Issue
 from ..ir.model import CallSite
 from ..ir.symbols import dotted_text
 from ..knowledge import STATELESS_TRANSFORMERS
-from .helpers import arg_ref, reaches
+from .helpers import arg_ref, reaches, traced_arg
 from .registry import rule
 
 __all__ = ["fit_before_split", "fit_on_held_out", "preprocessing_outside_cv"]
@@ -31,7 +31,7 @@ def fit_before_split(ctx) -> Iterable[Issue]:
     for fit in ctx.calls_with_role("FIT", "FIT_TRANSFORM"):
         if _stateless(fit):
             continue
-        name, ref = arg_ref(ctx, fit, 0)
+        name, ref = traced_arg(ctx, fit, 0)
         if ref is None or not ref.tags:
             # COVERAGE: no tag at all means the analyzer never traced this
             # value - a bare function parameter is the measured case. Staying
@@ -43,7 +43,16 @@ def fit_before_split(ctx) -> Iterable[Issue]:
         if ref.has("TRAIN_SPLIT"):
             continue
         targets = {name, fit.var}
-        split = _split_consuming(ctx, fit, splits, targets)
+        # DATAFLOW-IP: a cross-object claim is confined to one scope. Two
+        # uncertainties multiply, and `_split_consuming` matches by **name**:
+        # combining an interprocedural hop with a name that means something
+        # else in a foreign scope is how a high-severity false positive gets
+        # made - measured on `hydra_research`, where `features` is a local in
+        # two different functions and the earlier split appeared to consume the
+        # later fit. A local finding is unaffected, so `--dataflow local` is
+        # byte-identical by construction rather than by measurement.
+        split = _split_consuming(ctx, fit, splits, targets,
+                                 same_scope=bool(ref.provenance))
         if split is None:
             continue
         node = ctx.node_for_call(fit) or ctx.unit_for_call(fit)
@@ -62,10 +71,23 @@ def fit_before_split(ctx) -> Iterable[Issue]:
                              "no dynamic constructs in %s" % fit.scope.qualname, 1.0))
         if target_only:
             evidence.append(("name_regex", "the fitted value carries only TARGET", 0.6))
+        # DATAFLOW-IP: one `cross_file` factor per hop the tag took to get here,
+        # so a cross-object finding is de-rated arithmetically and can never
+        # reach `certain`; and one RelatedLoc per hop, so the reader can open
+        # the construction site the tag entered through.
+        evidence.extend(ctx.hops(ref))
         related = [
             ("fit_site", fit.loc, "fitted on the full dataset here"),
             ("split_site", split.loc, "split happens later, at line %d" % split.loc.line),
         ]
+        related.extend(ctx.hop_related(ref))
+        # Only a **cross-object** finding gets it. A finding whose value
+        # dataflow established locally reads identically in both modes, which
+        # is what makes `ip` a widening of `local` rather than a second dialect.
+        ctor = _transformer_ctor(ctx, fit) if ref.provenance else None
+        if ctor is not None:
+            related.append(("construction", ctor.loc,
+                            "the transformer is constructed here"))
         nodes = [node] + ([split_node] if split_node is not None and split_node is not node
                           else [])
         issues.append(ctx.issue(
@@ -89,6 +111,23 @@ def _label(call: CallSite) -> str:
     return "%s()" % call.short_name
 
 
+def _transformer_ctor(ctx, fit: CallSite) -> Optional[CallSite]:
+    """Where the transformer being fitted was constructed, when that is known.
+
+    `self.scaler = StandardScaler()` in `__init__` and `self.scaler.fit_transform(...)`
+    in `setup()` are the two halves of the Lightning leak, and a finding that
+    names only the second half asks the reader to go and find the first. The
+    producer of the receiver's binding *is* the first half.
+    """
+    ref = fit.receiver
+    producer = ref.producer if ref is not None else None
+    if producer is None or producer is fit:
+        return None
+    if producer.loc.file == fit.loc.file and producer.loc.line == fit.loc.line:
+        return None
+    return producer
+
+
 def _stateless(call: CallSite) -> bool:
     ref = call.receiver
     producer = ref.producer if ref is not None else None
@@ -96,10 +135,18 @@ def _stateless(call: CallSite) -> bool:
     return bool(fqn and fqn in STATELESS_TRANSFORMERS)
 
 
-def _split_consuming(ctx, fit: CallSite, splits, targets) -> Optional[CallSite]:
-    """The later split whose input derives from the fit's input or output."""
+def _split_consuming(ctx, fit: CallSite, splits, targets,
+                     same_scope: bool = False) -> Optional[CallSite]:
+    """The later split whose input derives from the fit's input or output.
+
+    `same_scope` (DATAFLOW-IP) additionally requires the split to be written in
+    the fit's own scope. It is set only for a value whose tags arrived through
+    an interprocedural hop; see `fit_before_split` for why.
+    """
     for split in splits:
         if split.module is not fit.module:
+            continue
+        if same_scope and split.scope is not fit.scope:
             continue
         if split.loc.line < fit.loc.line and split.scope is fit.scope:
             continue
@@ -132,7 +179,7 @@ def fit_on_held_out(ctx) -> Iterable[Issue]:
             continue
         if _semi_supervised(fit.module):
             continue
-        name, ref = arg_ref(ctx, fit, 0)
+        name, ref = traced_arg(ctx, fit, 0)
         if ref is None or not ref.tags:
             ctx.untraced(fit, name, _untraced_reason(fit, name, ref))
             continue
@@ -158,9 +205,11 @@ def fit_on_held_out(ctx) -> Iterable[Issue]:
         if not fit.scope.is_dynamic:
             evidence.append(("scope_static",
                              "no dynamic constructs in %s" % fit.scope.qualname, 1.0))
+        evidence.extend(ctx.hops(ref))
         related = [("fit_site", fit.loc, "fitted on held-out rows here")]
         if split is not None:
             related.append(("split_site", split.loc, "the split happens here"))
+        related.extend(ctx.hop_related(ref))
         issues.append(ctx.issue(
             message="%s is fitted on %s at %s:%d, and %s carries %s - the held-out rows "
                     "are used to learn the transform."

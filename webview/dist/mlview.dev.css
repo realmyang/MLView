@@ -2300,6 +2300,108 @@ body.vscode-high-contrast-light .mlv-glyph__ink,
   dominant-baseline: central;
 }
 
+/* ── VIEW-04: the cross-lane bundle layer ─────────────────────────────────
+ *
+ * 160 of 230 connections leave their lane and every long hop funnels through
+ * one channel, which is where most of the 49.5 crossings per edge came from.
+ * The layer draws one trunk per (source lane, target lane) pair with splayed
+ * spurs and a count badge; the cables it stands for stay in the DOM, keep their
+ * own `d` and their own motion-path id, and are merely made transparent while
+ * the trunk is collapsed. Hover, focus, selection or a lineage highlight puts
+ * `.is-expanded` on the trunk and takes `.is-bundled` off its members, and the
+ * picture is exactly the pre-VIEW-04 one again.
+ */
+
+.mlv-bundles {
+  pointer-events: none;
+}
+
+.mlv-bundle__trunk,
+.mlv-bundle__spur {
+  fill: none;
+  stroke: var(--mlv-edge);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: opacity var(--mlv-dur-1) var(--mlv-ease);
+}
+
+.mlv-bundle__trunk {
+  stroke-width: 3.5;
+  opacity: 0.72;
+}
+
+.mlv-bundle__spur {
+  stroke-width: 1.5;
+  opacity: 0.45;
+}
+
+.mlv-bundle--call .mlv-bundle__trunk,
+.mlv-bundle--call .mlv-bundle__spur,
+.mlv-bundle--config .mlv-bundle__trunk,
+.mlv-bundle--config .mlv-bundle__spur {
+  stroke-dasharray: 4 3;
+}
+
+.mlv-bundle--control .mlv-bundle__trunk,
+.mlv-bundle--control .mlv-bundle__spur {
+  stroke-dasharray: 1 4;
+}
+
+.mlv-bundle.has-issue .mlv-bundle__trunk,
+.mlv-bundle.has-issue .mlv-bundle__spur {
+  stroke: var(--mlv-sev, var(--mlv-edge));
+}
+
+.mlv-bundle__badge-box {
+  fill: var(--mlv-surface);
+  stroke: var(--mlv-edge);
+  stroke-width: 1;
+  opacity: 0.95;
+}
+
+.mlv-bundle.has-issue .mlv-bundle__badge-box {
+  stroke: var(--mlv-sev, var(--mlv-edge));
+}
+
+.mlv-bundle__badge-text {
+  font-family: var(--mlv-font-mono);
+  font-size: 10px;
+  fill: var(--mlv-text-2);
+  text-anchor: middle;
+  dominant-baseline: central;
+}
+
+.mlv-bundle__badge {
+  transition: opacity var(--mlv-dur-1) var(--mlv-ease);
+}
+
+/* Expanded: the trunk gets out of the way of the cables it stood for. */
+.mlv-bundle.is-expanded .mlv-bundle__trunk,
+.mlv-bundle.is-expanded .mlv-bundle__spur,
+.mlv-bundle.is-expanded .mlv-bundle__badge {
+  opacity: 0;
+}
+
+/* Collapsed: the member cable is transparent, never absent. It keeps its hit
+ * stroke, so the pointer still resolves to the connection it is nearest to.
+ *
+ * The severity MARKER is deliberately NOT hidden. A bundle is a decluttering
+ * device, and a decluttering device that also hides findings would make the
+ * diagram look cleaner than the analysis was -- the one failure mode this
+ * product cannot afford. The stroke and the variable name go; the glyph that
+ * says "there is a finding on this connection" stays, and the trunk itself
+ * takes the worst severity's colour. */
+.mlv-canvas .mlv-edge.is-bundled .mlv-edge__path,
+.mlv-canvas .mlv-edge.is-bundled .mlv-edge-label {
+  opacity: 0;
+}
+
+/* Below the LOD threshold the badge is one more piece of text nobody can read
+ * (UX_DESIGN section 4.5), so it goes with the edge labels. */
+.mlv-canvas[data-lod="compact"] .mlv-bundle__badge {
+  opacity: 0;
+}
+
 /* ---- flow.css ---- */
 /* The flow layer: outlet, charge, inlet — plus the reduced-motion substitute.
  *

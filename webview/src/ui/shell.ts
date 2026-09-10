@@ -25,6 +25,8 @@ export interface Shell {
   world: HTMLElement;
   lanesLayer: HTMLElement;
   edgesSvg: SVGElement;
+  /** VIEW-04: the cross-lane trunks, drawn UNDER the cables they stand for. */
+  bundleGroup: SVGElement;
   edgeGroup: SVGElement;
   connectorLayer: SVGElement;
   nodesLayer: HTMLElement;
@@ -101,8 +103,10 @@ export function buildShell(root: HTMLElement, theme: ThemeKind): Shell {
   const lanesLayer = add(world, el('div', 'mlv-layer mlv-layer--lanes'));
   const edgesSvg = svg('svg', { class: 'mlv-layer mlv-layer--edges', width: 1, height: 1 });
   edgesSvg.appendChild(buildDefs());
+  const bundleGroup = svg('g', { class: 'mlv-bundles' });
   const edgeGroup = svg('g', { class: 'mlv-edges' });
   const connectorLayer = svg('g', { class: 'mlv-connectors' });
+  edgesSvg.appendChild(bundleGroup);
   edgesSvg.appendChild(edgeGroup);
   edgesSvg.appendChild(connectorLayer);
   world.appendChild(edgesSvg);
@@ -125,6 +129,7 @@ export function buildShell(root: HTMLElement, theme: ThemeKind): Shell {
     world,
     lanesLayer,
     edgesSvg,
+    bundleGroup,
     edgeGroup,
     connectorLayer,
     nodesLayer,

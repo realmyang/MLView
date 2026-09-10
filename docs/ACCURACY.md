@@ -333,3 +333,76 @@ leaving the evidence in a commit body nobody reads next to it.
 * **Notebooks are absent.** The ROADMAP's ANA-12 entry asks for one; notebooks
   are not in this sprint (`NB`), and a corpus entry that scores `0 files
   analyzed` would only measure the skip.
+
+## 6 · `--dataflow ip`, measured separately
+
+DATAFLOW-IP (`docs/CONTRACTS.md` 11.36) adds a second analysis, not a second
+opinion about the first. `--dataflow local` is the default and is the analysis
+every number above describes; `--dataflow ip` additionally carries value tags
+across the object boundary through constructor, return and method-argument
+summaries. The two are scored against **two baselines**, because one number
+cannot gate two analyses:
+
+```
+python tools/accuracy.py                  # local, gates baseline.json
+python tools/accuracy.py --dataflow ip    # ip, gates baseline.ip.json
+```
+
+`analyzer/tests/accuracy/baseline.ip.json` has the same shape and the same two
+tolerances as its local twin — **zero `forbidden` findings ever, recall may only
+ratchet up** — and carries a `dataflow` field so a file can never be read as
+the other mode's floor. `analyzer/tests/core/test_dataflow_ip.py` asserts both
+tolerances inside `pytest analyzer/tests`, alongside the mode's own fixtures.
+
+### The two modes on the same 15 programs, 2026-09-10
+
+| mode | recall | visible | high+medium | unseen recall | precision | forbidden | unlabelled |
+|---|---|---|---|---|---|---|---|
+| `local` | 71.8% | 64.1% | 63.2% | 53.2% | **100%** | 0 | 0 |
+| `ip` | **78.2%** | **70.5%** | **71.9%** | **63.8%** | **100%** | 0 | 0 |
+
+Graph fidelity is 90.6% in both. Every number in the `local` row is the one
+section 3 records, unmoved to four decimal places: the mode is additive by
+construction, and `AnalyzeOptions(paths=...)` with no `dataflow` is byte-for-byte
+`dataflow="local"`.
+
+The recall the mode buys is **five expected labels**, and two of them are the
+high-severity leaks the roadmap named as the whole reason to fund the work: the
+Lightning `DataModule` fitting a `StandardScaler` on the whole feature matrix
+before `random_split` (`lightning_tabular/datamodule.py:27`), and the same shape
+in a research script that scales a whole series before a chronological cut. Both
+now fire with related locations at the construction site and the split site, and
+neither fires at `certain` — see below.
+
+### Why an `ip` finding is never `certain`
+
+Each hop multiplies the confidence product by an explicit interprocedural
+evidence weight (`IP_HOP_WEIGHT`, 0.8), contributed as one `cross_file` evidence
+entry whose detail names the hop chain in words. For MLV101's 0.95 prior that is
+0.760 after one hop, 0.608 after two and 0.486 after three — so a cross-object
+finding lands at `likely` or `possible`, and `certain` (>= 0.9) is arithmetically
+out of reach. The calibration table above therefore reads differently in `ip`:
+the `likely` bucket grows from 16 findings to 21, and its observed precision
+stays 100%.
+
+### What the `ip` numbers do not say
+
+* **The corpus is the same corpus.** It was labelled for `local`, so `ip` is
+  measured on defects nobody planted for it. That is the right direction for a
+  precision claim and the wrong one for a recall claim: the five labels `ip`
+  newly recovers are a floor on what the mode adds, not an estimate of it.
+* **Precision at 100% is 61 findings, not a proof.** The mode's whole risk is a
+  high-severity false positive, and the corpus can only report the ones it has
+  labels for. The three negative fixtures under `analyzer/tests/fixtures/dataflow`
+  — a helper that legitimately receives already-split training rows, a helper
+  called from two sites with different tag sets, and a parameter merely named
+  `X` — are the shapes the mode is most likely to get wrong, and they are
+  asserted at the IR level, not only at the finding level.
+* **Only MLV101 and MLV102 consume the hop chain.** Every other rule reads the
+  widened tags without naming a hop in its evidence or paying its weight. That
+  is where most of the recall difference above comes from, and 11.36's gate G6
+  is written over the whole document so a rule that starts making cross-object
+  claims cannot quietly skip the de-rating.
+* **A chain past three hops is reported, not scored.** It emits a `truncated`
+  diagnostic and no finding, which is a miss the recall column counts and a
+  blindness the document names — the distinction this whole file exists to keep.

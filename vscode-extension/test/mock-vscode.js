@@ -92,6 +92,29 @@ class ThemeIcon {
   }
 }
 
+/**
+ * H10: the status-bar tooltip becomes a trusted MarkdownString in a multi-root window, because
+ * a command link is the only second action a status-bar item can carry. Only what
+ * `decorateTooltip` touches is implemented, and `value` is what a test reads back.
+ */
+class MarkdownString {
+  constructor(value = '') {
+    this.value = value;
+    this.isTrusted = false;
+    this.supportThemeIcons = false;
+  }
+  appendText(text) {
+    // Real VS Code escapes markdown and turns a newline into a hard break; the escaping is
+    // what matters to a test, so `\n` is kept as-is and the specials are escaped.
+    this.value += String(text).replace(/[\\`*_{}[\]()#+\-.!]/g, (c) => '\\' + c);
+    return this;
+  }
+  appendMarkdown(text) {
+    this.value += String(text);
+    return this;
+  }
+}
+
 class CodeLens {
   constructor(range, command) {
     this.range = range;
@@ -222,7 +245,11 @@ const recorded = {
   /** VIEW-07: every showSaveDialog option bag, every quick pick, and every file written. */
   saveDialogs: [],
   quickPicks: [],
-  writtenFiles: []
+  writtenFiles: [],
+  /** CFG-ONE: every workspace.getConfiguration(...).update() call. */
+  configUpdates: [],
+  /** H10: every languages.registerCodeLensProvider registration. */
+  codeLensProviders: []
 };
 
 const configValues = new Map();
@@ -376,6 +403,7 @@ const vscode = {
   ThemeColor,
   ThemeIcon,
   CodeLens,
+  MarkdownString,
   CodeAction,
   CodeActionKind,
   WorkspaceEdit,
@@ -387,6 +415,7 @@ const vscode = {
   ColorThemeKind: { Light: 1, Dark: 2, HighContrast: 3, HighContrastLight: 4 },
   TextEditorRevealType: { Default: 0, InCenter: 1, InCenterIfOutsideViewport: 2, AtTop: 3 },
   ProgressLocation: { Notification: 15, Window: 10 },
+  ConfigurationTarget: { Global: 1, Workspace: 2, WorkspaceFolder: 3 },
   window: {
     activeTextEditor: undefined,
     activeColorTheme: { kind: 2 },
@@ -475,6 +504,14 @@ const vscode = {
             if (scoped !== undefined) return scoped;
           }
           return configValues.get(`${section}.${key}`);
+        },
+        // CFG-ONE: `MLView: Create Baseline From Current Findings` offers to point
+        // mlview.baselinePath at what it wrote. Recorded AND applied, so the next read
+        // sees it, exactly like a real settings write.
+        async update(key, value, target) {
+          recorded.configUpdates.push({ section, key, value, target, scope });
+          const prefix = scope === undefined ? '' : `${scope}|`;
+          configValues.set(`${prefix}${section}.${key}`, value);
         }
       };
     },
@@ -537,7 +574,12 @@ const vscode = {
       recorded.diagnosticCollections.push(collection);
       return collection;
     },
-    registerCodeLensProvider: () => ({ dispose() {} }),
+    registerCodeLensProvider: (selector, provider) => {
+      // H10: a CodeLens is per-DOCUMENT, so `test/multiroot.test.js` has to be able to ask the
+      // real provider what it draws on a file in the folder that is not active.
+      recorded.codeLensProviders.push({ selector, provider });
+      return { dispose() {} };
+    },
     registerCodeActionsProvider: (selector, provider, metadata) => {
       recorded.codeActionProviders.push({ selector, provider, metadata });
       return { dispose() {} };
@@ -636,6 +678,8 @@ const vscode = {
     recorded.saveDialogs.length = 0;
     recorded.quickPicks.length = 0;
     recorded.writtenFiles.length = 0;
+    recorded.configUpdates.length = 0;
+    recorded.codeLensProviders.length = 0;
     saveDialogAnswers.length = 0;
     quickPickAnswers.length = 0;
     fsWriteError = undefined;

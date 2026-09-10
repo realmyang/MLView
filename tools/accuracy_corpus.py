@@ -30,6 +30,10 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ACCURACY_DIR = os.path.join(REPO_ROOT, "analyzer", "tests", "accuracy")
 CORPUS_DIR = os.path.join(ACCURACY_DIR, "corpus")
 BASELINE_PATH = os.path.join(ACCURACY_DIR, "baseline.json")
+#: DATAFLOW-IP ships behind a flag for one release, so it is measured against a
+#: baseline of its own: `local` and `ip` are two different analyses and one
+#: ratchet cannot gate both. Both files ratchet upward, independently.
+IP_BASELINE_PATH = os.path.join(ACCURACY_DIR, "baseline.ip.json")
 
 # The VS Code Problems panel hides anything below this (`mlview.minConfidence`,
 # vscode-extension/package.json). A finding under it is emitted but unseen, so
@@ -402,13 +406,18 @@ def _rule_ratios(data: Dict[str, int]) -> Dict[str, Any]:
                              if unseen_recall is not None else None)}
 
 
-def run_corpus(corpus_dir: str = CORPUS_DIR,
-               only: Sequence[str] = ()) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+def run_corpus(corpus_dir: str = CORPUS_DIR, only: Sequence[str] = (),
+               dataflow: str = "local"
+               ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    """Score the corpus. `dataflow` (DATAFLOW-IP, CONTRACTS 11.36) is appended
+    last and defaults to `local`, so the referee measures exactly what it always
+    measured unless it is asked for the interprocedural mode - which is scored
+    against its own baseline file, never against this one."""
     AnalyzeOptions, analyze_to_dict = _import_analyzer()
     programs = load_programs(corpus_dir, only)
     results = []
     for program in programs:
-        doc = analyze_to_dict(AnalyzeOptions(paths=(program.root,)))
+        doc = analyze_to_dict(AnalyzeOptions(paths=(program.root,), dataflow=dataflow))
         results.append(score_program(program, doc))
     return results, aggregate(results)
 

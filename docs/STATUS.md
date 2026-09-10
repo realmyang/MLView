@@ -10,8 +10,8 @@ flow visibility and scoped views.** Both are additive — `schemaVersion` stays
 `"1.0"`, no existing field, message, argument or return shape changed, and an
 unscoped run still emits the bytes it emitted before. `docs/CONTRACTS.md` §11
 binds; `docs/FEATURES_FLOW_AND_SCOPE.md` is the design. The e2e driver grew
-four steps (17 at the time; 19 today, since ANA-12 added the accuracy corpus
-and PACKAGING added the wheel row) and `tools/verify.py` grew two gate rows
+four steps (17 at the time; 20 today, since ANA-12 added the accuracy corpus,
+PACKAGING added the wheel row and VIEW-07 added the SVG export row) and `tools/verify.py` grew two gate rows
 (10 today, the tenth being PACKAGING's `vsix: synced core`).
 
 ```
@@ -25,10 +25,10 @@ powershell -ExecutionPolicy Bypass -File scripts/e2e.ps1     # E2E OK - 20 steps
 |---|---|
 | Design docs | `docs/REQUIREMENTS.md`, `ARCHITECTURE.md`, `ISSUE_RULES.md`, `UX_DESIGN.md`, `CONTRACTS.md` (§10 amendments are the overriding lead decisions) |
 | Contracts | `contracts/graph.schema.json`, `contracts/graph.sample.json` (golden), `contracts/validate_sample.py` (schema + 10 invariant groups) |
-| Analyzer `analyzer/` | Complete. **36 rules**, zero runtime dependencies, `python -m mlview` installed editable. **1748 passed, 3 skipped.** `analyze --demo --json -` is byte-identical to the golden sample. Scoped views live in `analyzer/src/mlview/core/project.py` + `core/selectors.py`; the opt-in relevance prefilter and fact cache live in `core/relevance.py` + `core/cache.py` behind `--relevance {ml,all}` (default `all`), `--relevance-hops N` and `--no-cache`. |
-| Viewer `webview/` | Complete. `dist/mlview.{js,css}` built. **404 tests pass**, `tsc --noEmit` clean. Flow animation (`src/render/flow.ts`) and the TypeScript half of the projection (`src/scope/project.ts`) ship here. |
-| VS Code extension | Complete. **308 tests pass**, `tsc --noEmit` clean, `out/extension.js` bundled, `npm run package` produced a **604.57 KB VSIX (128 files)** carrying the bundled analyzer when this row was last measured, with `core/mlview` at **81** files — the number `tools/verify.py --all`'s `vsix: synced core` row prints. **Neither number here is the gate**, and both move whenever a module lands in the analyzer: `python scripts/vsix_check.py` is the gate, it re-derives the ceiling, the bundled-core count, the rule-page count and the absence of bytecode from the tree itself, and CI runs it in the `packaging` job. Copilot participant + LM tools are compile- and unit-verified only (Copilot is not installed here). |
-| Claude Code plugin | Complete. MCP server on the `mcp` SDK v2, **still exactly five tools**, each result ≤ 4 KB. **324 passed, 7 skipped**, with `python tools/sync-core.py` having run after the analyzer changes (`test_vendor_bytecode.py` is the row that checks it); `claude plugin validate ./claude-plugin --strict` passes. |
+| Analyzer `analyzer/` | Complete. **36 rules**, zero runtime dependencies, `python -m mlview` installed editable. **1855 passed, 3 skipped.** `analyze --demo --json -` is byte-identical to the golden sample. Scoped views live in `analyzer/src/mlview/core/project.py` + `core/selectors.py`; the relevance prefilter and the fact cache live in `core/relevance.py` + `core/cache.py` and are **on by default** from Sprint 5 — `--relevance {ml,all}` (default `ml`), `--relevance-hops N`, `--no-cache`. Interprocedural dataflow ships behind `--dataflow {local,ip}` (default `local`); `core/config.py` is the one reader of `.mlview.toml` / `[tool.mlview]`; `mlview init` and `mlview diff` are the two new subcommands. |
+| Viewer `webview/` | Complete. `dist/mlview.{js,css}` built. **419 tests pass**, `tsc --noEmit` clean. Flow animation (`src/render/flow.ts`) and the TypeScript half of the projection (`src/scope/project.ts`) ship here. |
+| VS Code extension | Complete. **336 tests pass**, `tsc --noEmit` clean, `out/extension.js` bundled, `npm run package` produced a **661.61 KB VSIX (140 files)** carrying the bundled analyzer when this row was last measured, with `core/mlview` at **88** files — the number `tools/verify.py --all`'s `vsix: synced core` row prints. **Neither number here is the gate**, and both move whenever a module lands in the analyzer: `python scripts/vsix_check.py` is the gate, it re-derives the ceiling, the bundled-core count, the rule-page count and the absence of bytecode from the tree itself, and CI runs it in the `packaging` job. Copilot participant + LM tools are compile- and unit-verified only (Copilot is not installed here). |
+| Claude Code plugin | Complete. MCP server on the `mcp` SDK v2, **still exactly five tools**, each result ≤ 4 KB, plus two `PostToolUse` / `Stop` hooks under `claude-plugin/hooks/`. **356 passed, 7 skipped**, with `python tools/sync-core.py` having run after the analyzer changes (`test_vendor_bytecode.py` is the row that checks it); `claude plugin validate ./claude-plugin --strict` passes. |
 | Samples | `samples/vision_pipeline` (54 nodes, 51 edges, exactly 15 issues: 5 high / 6 medium / 4 low) and `samples/vision_pipeline_clean` (64 nodes, 0 issues). `expected_issues.json` is machine-checked. |
 | Rule docs | `docs/rules/` — 36 pages plus an index, generated from the registry; 7 carry the optional **What it cannot analyze** section. Every `Issue.docs` deep link resolves. |
 | Demo artifacts | `.mlview/graph.json`, `report.html`, `graph_clean.json`, `report_clean.html`, plus the three scoped reports `split.html`, `optimization.html`, `evaluation.html` — self-contained, zero external references, each inside amendment A4's contracted **100 KB – 2 MB** band. No KB figure is quoted here on purpose: the viewer bundle moves, the band does not, and `scripts/e2e` now measures every emitted report against it and prints the range it found (MLV-R1-H06). Each scoped report embeds the **whole** graph and merely opens at its scope. |
@@ -678,7 +678,8 @@ workspaces too small for the filter to save anything it still moves four
 analyzer gates (`filesAnalyzed` on the awkward-syntax corpus, two
 `single_file_analysis` counts, and an unresolved-import note that becomes a
 set-aside note). That makes the flip a re-baseline rather than an optimisation;
-11.28 A11 lists the four so it can be done deliberately.
+11.28 A11 lists the four so it can be done deliberately. *(Superseded on
+2026-09-10: the flip was taken in Sprint 5 wave 1 as the lead directed — `DEFAULT_RELEVANCE` is `"ml"`, the four gates plus three more were re-baselined, and `perf_equiv --expect-same` re-proved the byte-identity. See `docs/CONTRACTS.md` §11.39.)*
 
 **CACHE, and one `file_signature`.** `mlview.core.cache` now owns the single
 content-keyed `file_signature` — `claude-plugin/server/mlview_workspace.py` is a
@@ -1307,10 +1308,263 @@ the exact `filesAnalyzed` counts beside it are what actually catch a prefilter
 that stopped filtering. Nor does this wave say anything about the **other** twelve
 jobs: they were green before it and are green after it.
 
+## Sprint 5 — hosts, wave 1 (2026-09-10)
+
+Four LATER items, all in the two host adapters. Three of them are the same defect
+seen from different sides: **the extension answered a question about one thing
+while describing another** — a scope-less language-model tool answered "what does
+the evaluation stage do?" with the whole workspace; `workspaceFolderFor` answered
+a question about the second open folder with the first folder's code; and the
+extension answered with `mlview.disabledRules` while a checked-in `.mlview.toml`
+sat unread beside it. `docs/CONTRACTS.md` §11.40 and §11.41 are the
+amendments.
+
+**Several folders open, one graph each.** The controller held ONE `graph`, ONE
+`index` and ONE `lastScope`, and `workspaceFolderFor` fell back to
+`workspaceFolders?.[0]`, so in a window with two folders open the second was never
+analyzed and nothing said so. `vscode-extension/src/folders.ts` replaces that with
+a map keyed by folder; a single-folder window is the one-entry case and is
+asserted unchanged. The Problems panel now publishes the **union** of every
+analyzed folder (publishing one alone silently wiped the other's squiggles), a
+CodeLens is answered with the graph of the folder its own file lives in, and the
+diagram, the status bar and the chat / LM answers follow an **active** folder that
+`MLView: Select Active Folder` and a link in the status-bar tooltip move. With two
+or more folders the tooltip says which one the count describes and how many it does
+not: *"Folder: ws0 — 1 other folder in this workspace is not shown here."* With one
+folder it is the plain string it has always been. Eight cases in
+`vscode-extension/test/multiroot.test.js` drive the real `out/extension.js` against
+a two-folder mocked workspace.
+
+**The language-model tools take the whole selector grammar.** `scope` and `depth`
+join the three `inputSchema`s and reach the analyzer through the
+`buildAnalyzeArgs({scopeSpec, depth})` that already existed and was reachable only
+from `exportHtml`. The descriptions are the `mlview_graph` docstring's own words:
+a test reads `claude-plugin/server/mlview_mcp.py`, extracts the seven shared
+selector entries and asserts the manifest contains each verbatim, so Copilot agent
+mode and the MCP tools cannot describe two different products again. `stages` and
+`units` stay MCP-only in both directions — they are catalogue payloads, and
+`--scope stages` is a `bad_selector` refusal at the CLI. A scoped answer opens by
+saying it is a filtered view whose counts describe the scope; a scoped result is
+never adopted as the folder's graph, and `scopeKey` gained a third argument so a
+scoped tool call and the diagram's own run are two single-flight keys.
+
+**One configuration surface, the host half.** Every analyzer spawn now passes
+`--config` when the folder has a `.mlview.toml`, or a `pyproject.toml` carrying a
+`[tool.mlview]` table — resolved inside `CoreClient`, so the diagram, the export,
+the baseline run and the two assistants cannot disagree about which file applied.
+`mlview.configPath` and `mlview.baselinePath` join the contributed settings,
+making sixteen. The precedence is stated in both descriptions and in
+`vscode-extension/README.md` and asserted by `test/config.test.js`: **the file
+wins** for `[rules].disable` and `[paths].exclude`, and the two `mlview.*` settings
+are additive filters that can hide more and can never re-enable a rule the file
+disabled. A baseline is never discovered — only `mlview.baselinePath`, and only
+when the file exists — because a file dropped into `.mlview/` must not quietly
+empty somebody's Problems panel. `MLView: Open MLView Configuration` creates the
+file with `mlview init` rather than writing a stub, and
+`MLView: Create Baseline From Current Findings` runs `mlview baseline write` over
+the current scope; both go through the one `spawn` seam that holds the trust gate.
+
+**Two hooks for the Claude Code plugin.** `claude-plugin/hooks/hooks.json`
+registers a `PostToolUse` matcher on `Edit|Write|NotebookEdit` and a `Stop`
+variant. The plugin was entirely pull-based: when Claude edited a training file
+nothing told it the edit introduced a finding. The hook exits 0 immediately unless
+the path is Python under `CLAUDE_PROJECT_DIR`, re-analyzes through the same
+`load_graph` cache the MCP tools read — so it *warms* what they then read for free
+— diffs the issue-id set and **speaks only when the set grew**, at most 5 rows
+above confidence 0.6, under a hard 3-second budget after which it exits 0 in
+silence. It never blocks (exit 2 is what blocks; nothing here can produce it) and
+never writes into the project: with nothing naming `MLVIEW_DATA_DIR` both the
+document and the per-file parse cache are redirected out of the repository, which
+was measured creating `<project>/.mlview` on the first run before
+`MLVIEW_CACHE_DIR` was defaulted too. `MLVIEW_HOOK` chooses which speaks — unset
+is the edit hook, `stop` is the turn summary, `both`, `off`. Thirty-two cases in
+`claude-plugin/tests/test_hooks.py`, eight of them driving the real scripts with a
+fake payload on stdin against a temp project holding a measured pair (0 findings →
+1 high MLV101).
+
+**Where the diff is honest about itself.** An issue id is content-addressed, so an
+unchanged finding whose line moved comes back with a new id. Printing those would
+be a false alarm on every edit, so a row has to be new by id **and** by
+`(code, file)`; the remainder is counted — *"3 existing finding(s) moved line and
+are not repeated here"* — and the cost is stated: a genuine second occurrence of
+the same rule in the same file is counted rather than printed. When the run
+skipped a notebook, failed to parse a file or truncated at the node cap, one line
+says so, because a hook that reports "no new findings" about a run that never read
+three notebooks has given a clean bill of health for code it did not see.
+
+**A gallery nobody has to commit, and a walkthrough.**
+`analyzer/tools/gen_gallery.py` renders every clean program and every rule fixture
+into `docs/gallery/` on demand: **90 reports plus an index, 30 MB, 1.4 s** for 6
+clean programs and 36 rules (84 fixture files), which is why the directory is in
+`.gitignore`. Zero new content — each page is an existing fixture through the
+pipeline a user's own code goes through. The index states that every page is a
+single-file analysis, so MLV301/302/401/501 structurally cannot fire, and it flags
+a `_bad.py` that reported nothing or a `_good.py` that reported its own rule; on
+this build **neither flag appears**. `contributes.walkthroughs` gains five steps —
+install, visualize, read a finding in Problems, `Alt+M`, `Alt+Shift+M` — each
+invoking one already-contributed command, with the pages in `docs/walkthrough/`
+copied into the extension by `vscode-extension/tools/sync-walkthrough.mjs` (the twin of
+`sync-rule-docs.mjs`, and for the same reason: `media.markdown` resolves relative
+to the extension root, so a page that lives only in the repo renders as an empty
+panel once packaged).
+
+**Measured on this branch.** `npm run check` clean; `npm test` **336 tests, 336
+pass** (was 298 before this wave; +8 multi-root, +11 configuration, +6
+language-model scope, +2 walkthrough manifest, the rest from concurrent waves);
+`pytest claude-plugin/tests -q` **356 passed, 7 skipped** (was 305 / 5; +32 hooks).
+`src/extension.ts` went past the repo's ~600-line budget and was split: the
+analysis engine into `src/analysisRunner.ts` and the argv builder, exit-code table
+and stderr tail out of `src/coreClient.ts` into `src/analyzeArgs.ts`, which
+re-exports them so no importer moved.
+
+## Sprint 5 — analyzer, viewer and contracts, wave 1 (2026-09-10)
+
+Five LATER items in the analyzer and the viewer, integrated together because
+three of them touch `core/pipeline.py` and `cli.py`. Amendments §11.36–§11.39 in
+`docs/CONTRACTS.md` bind them; no schema field changed, `contracts/graph.sample.json`
+is untouched, and `python -m mlview analyze --demo --json -` is still byte-identical
+to it.
+
+**DATAFLOW-IP, and the price of a hop.** Recall stopped at the **object
+boundary**, which is where real ML code lives: MLV101 fired for an in-scope
+producer and was silent for `ctor param → self.features → read in a sibling
+method`, the Lightning `DataModule` shape. `ir/summaries.py` adds a fixed-point
+interprocedural pass — a CONSTRUCTOR summary (ctor argument → `__init__`
+parameter → `self.<attr>`), a RETURN summary (`infer_returns` at the hop depth
+rather than at one level), a METHOD-ARG summary that **intersects** over every
+resolved call site instead of taking the first, and a subscript PROJECTION —
+behind `--dataflow {local,ip}` with `local` the shipped default. `local` is
+byte-identical **by construction**, not by measurement: every new path is
+reached only from `workspace.dataflow == "ip"` or from a non-empty
+`ValueRef.provenance`, which is empty in `local` for every value there is.
+"Never certain" is arithmetic rather than a promise: `rules/confidence.py`
+emits one `cross_file` evidence weighted `0.8 ** hops`, so MLV101's 0.95 prior
+becomes 0.760 (`likely`) at one hop, 0.608 (`possible`) at two and 0.486
+(`speculative`) at three, and the hop chain is named in words on the finding.
+Measured on the ANA-12 corpus: recall 71.8% → **78.2%** overall and 53.2% →
+**63.8%** unseen, **precision 100% in both modes**, zero forbidden findings.
+The first `ip` run produced a high-severity false positive — `_split_consuming`
+matching a split by *name* across two functions that each have a local called
+`features` — and the fix (a cross-object claim is confined to one scope,
+because two uncertainties multiply) is why the mode ships at all.
+
+**PERF-03 and the relevance prefilter are the default.** `DEFAULT_RELEVANCE` is
+now `"ml"`, so `--relevance` on `analyze`, `issues`, `render` and `baseline`
+defaults to the narrowed set. The roadmap's condition — the corpus green both
+ways — was met in Sprint 4 and re-proved here: `tools/perf_equiv.py --baseline
+<pre-flip tree> --expect-same` reports `vision_pipeline`, `vision_pipeline_clean`
+and `analyzer/tests/clean` **all byte-identical**, and `tools/accuracy.py` prints
+the same table before and after. On a 501-file mixed corpus the win is 2920 ms
+(`--relevance all`) → 1237 ms cold → **547 ms warm**, same 148 findings. Four
+gates named by §11.28 A11 were re-baselined and three more followed; none was
+weakened — each now names `relevance="all"` where it always meant the wide run,
+and a new sibling asserts what the *default* path reports instead.
+
+**CACHE ships on with it.** §11.28 B7 keeps `--relevance all` from ever
+consulting the sidecar, so flipping the first default turns the second on. The
+honest cost is stated rather than hidden: a plain `python -m mlview analyze .`
+now writes `<root>/.mlview/cache/` into the user's repository. `.mlview` is in
+`ingest.discover.ALWAYS_PRUNE` and in `.gitignore`, and `MLVIEW_CACHE_DIR`
+redirects it, but it is a new write on the default path.
+
+**CFG-ONE resolves one configuration surface.** `core/config.py` is now the only
+parser: `--config FILE`, else `<root>/.mlview.toml`, else `[tool.mlview]` in
+`<root>/pyproject.toml` — first match wins outright, never merged, and the winner
+is named in `workspace.configPath`. TOML wins for `disable` and `exclude` (a flag
+may only add); CLI flags win for every `[analysis]` option and for
+`min_confidence`; `include` is additive both ways; and every mistake —
+unreadable, unparseable, wrong type, out of range, unknown key, unknown rule —
+is one `config_warning` and never fatal. `mlview init` writes a fully-commented
+`.mlview.toml` whose tail lists all 36 rules with their shipped severity,
+generated from the registry rather than typed.
+
+**VIEW-08 answers "what did my PR change?" as a document.** `mlview diff
+BASE.json HEAD.json` emits a separate `mlview-diff` overlay — per-node and
+per-edge `added|removed|changed|unchanged` keyed on the §0 stable ids, per-issue
+`new|fixed|persisting`, and a `notes[]` block naming every reason a `removed`
+status might *not* mean "deleted". A move is deliberately not a change: `loc` is
+outside the comparison key, so inserting twenty blank lines produces zero changed
+nodes. Over the sample pair: **+26 nodes · −16 nodes · 11 changed · 27 unchanged,
+0 new findings · 15 fixed**. It does no rename detection — a renamed file is
+every node removed plus every node added, because the id embeds the path.
+
+**VIEW-04 bundles the cross-lane channel.** All cross-lane edges funnelled through
+one 56 px channel staggered at `n * 7` with no bound, so the seventh member of a
+lane pair was drawn *through* the first column of lane boxes. `layout/channel.ts`
+now plans one trunk per lane pair, orders members by the y of their target,
+gives the longest hop the outermost slot so trunks **nest rather than braid**, and
+bounds every splay inside the corridor; the channel is reserved by lane **pairs**
+rather than by edge count, capped at 112 px. `layout/bundles.ts` +
+`render/bundles.ts` draw the common run once with a member-count badge, and a
+member is transparent rather than absent — it keeps its hit stroke, its `<mpath>`
+id and its `d`, so flow, tracing and the SVG export are untouched. Crossings per
+edge as drawn: **3.82 → 1.96** on the 54-node demo and **44.55 → 30.47** on a
+300-node synthetic. A decluttering device that hid a finding would be the one
+unaffordable failure, so a bundled cable's severity marker is explicitly **not**
+faded and the trunk carries the worst severity of its members.
+
+**Measured on this branch (this Mac).** `sh scripts/e2e.sh` **20 steps, 0 failed,
+0 skipped**; analyzer **1855 passed / 3 skipped**; webview **419**;
+vscode-extension **336**; claude-plugin **356 passed / 7 skipped**;
+`tools/verify.py --all` **10 of 10**; `tools/verify.py --scopes --fuzz 200` 4 of 4
+(200 cases over 40 generated graphs, python == typescript);
+`tools/accuracy.py` **precision 100.0% on 36 rules, recall 71.8% / unseen 53.2%**,
+and `--dataflow ip` **78.2% / 63.8%**, both `accuracy gate: PASS`, zero forbidden
+findings; `tsc --noEmit` clean in both TypeScript packages.
+
 ## Known gaps
 
 None block the demo. In rough order of how likely they are to matter:
 
+- **`--dataflow ip` is analyzer-only, and only two rules pay for a hop.** No
+  host wires the flag in this release — not the VS Code settings, not the MCP
+  tools, not the plugin skills — which is what the roadmap's "one release behind
+  the flag" asks for, but it means the mode is reachable from
+  `python -m mlview` and `mlview.api.build_workspace` only. Inside it, MLV101
+  and MLV102 are the only rules that name a hop chain and pay
+  `interprocedural_evidence`'s `0.8 ** hops`; every other rule reads the widened
+  tags in `ir/summaries.py` without either. That is where most of the +6.4pt
+  recall comes from, and §11.36 gate G6 is written over the whole document so a
+  rule that starts making cross-object claims is caught by the gate rather than
+  by a user. The RETURN summary is the same shape of debt: it extends a pass
+  that already shipped with no de-rating, so a tag arriving purely through a
+  return chain carries no provenance and is not de-rated.
+- **The 3-hop interprocedural cap is a guess; what is measured is that
+  exceeding it is reported.** `DEFAULT_MAX_HOPS` in
+  `analyzer/src/mlview/ir/provenance.py` is deep enough
+  for caller → ctor → attribute → sibling method and shallow enough that two
+  hops still land above `speculative`, and nothing measured that choice. A chain
+  that runs past it is not propagated and **is** emitted as a `truncated`
+  diagnostic naming the function, the cap and the parameter (13 rows on a
+  490-file workspace, capped at 25 plus a counted remainder).
+- **The SVG export is deliberately not bundled.** `webview/src/export/svg.ts`
+  still emits one `<path data-edge-id>` per routed edge, so a diagram pasted
+  into a PR looks like the pre-VIEW-04 picture: a static file cannot be hovered,
+  and drawing both trunks and members would double the ink. `mlview diff` has
+  the same shape of limit in the other direction — `core/diff.py` does no rename
+  detection, so a renamed file is every node removed plus every node added.
+- **The default relevance prefilter writes into the repository, and can make a
+  true diagnostic redundant.** A plain `python -m mlview analyze .` now creates
+  `<root>/.mlview/cache/` (gitignored, prunable, redirectable with
+  `MLVIEW_CACHE_DIR`). And `core/relevance._package_inits` keeps every
+  `__init__.py` below the discovery root but not the root's own, so analysing a
+  package whose own `__init__.py` is empty is told twice that it is a
+  single-file analysis. Both notes are true and both name the file; the reader
+  is merely told twice.
+- **The multi-root diagram still shows one folder at a time.** A window with
+  several folders open has one panel and one status bar; `folderTooltipLine` in
+  `vscode-extension/src/folders.ts` names the folder the count describes and how
+  many it does not, and the Problems panel is the only surface that shows the
+  union. A CodeLens on a file in a folder nobody has analyzed draws nothing and
+  has no affordance to say why.
+- **The Claude Code hooks do nothing on Windows without Git Bash.** The command
+  in `claude-plugin/hooks/hooks.json` is shell form, which is PowerShell there,
+  and `${MLVIEW_PYTHON:-python}` does not expand. The hook fails to start, which
+  is non-blocking, so the degradation is "MLView says nothing" rather than a
+  broken session; `claude-plugin/README.md` says so rather than leaving it to be
+  discovered. The same hook re-analyzes the whole project rather than the edited
+  file, so on a repository too large for `BUDGET_SECONDS` it is permanently
+  silent until CACHE makes the re-analysis incremental.
 - **No live host run.** The extension has never been driven inside a real VS Code
   webview (F5), and the Copilot chat participant and LM tools have never met a
   live Copilot session — Copilot is not installed on this machine. Both are

@@ -288,7 +288,10 @@ def test_a_narrowed_run_reports_the_same_findings_as_the_wide_one(make_workspace
     for index in range(6):
         files["app_%d.py" % index] = PLAIN_MODULE
     root = make_workspace(files)
-    everything = analyze_to_dict(AnalyzeOptions(paths=(root,), cache=False))
+    # `all` is named explicitly: since 11.39 it is no longer the default, and
+    # this test is about the two modes agreeing, not about which one ships.
+    everything = analyze_to_dict(AnalyzeOptions(paths=(root,), relevance="all",
+                                                cache=False))
     filtered = analyze_to_dict(AnalyzeOptions(paths=(root,), relevance="ml",
                                               cache=False))
     assert ([i["code"] for i in everything["issues"]]

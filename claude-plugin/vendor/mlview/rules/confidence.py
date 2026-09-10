@@ -22,13 +22,19 @@ from __future__ import annotations
 from typing import Iterable, Sequence, Tuple
 
 from ..core.graph import Evidence, bucket_for, clamp_confidence
+from ..ir.provenance import IP_HOP_WEIGHT, chain_text, hop_weight, hops_of
 
 __all__ = ["compute_confidence", "cap_severity", "bucket_for", "DYNAMIC_FACTOR",
            "WRAPPER_FACTOR", "normalize_evidence", "NOTEBOOK_ORDER_FACTOR",
-           "ORDER_SENSITIVE_CODES", "notebook_evidence"]
+           "ORDER_SENSITIVE_CODES", "notebook_evidence", "IP_HOP_WEIGHT",
+           "interprocedural_evidence", "hops_of"]
 
 DYNAMIC_FACTOR = 0.7
 WRAPPER_FACTOR = 0.4
+
+#: DATAFLOW-IP re-exports the hop weight and the hop count here so a rule reaches
+#: them through the confidence model like every other factor. The constants
+#: themselves live with the pass that creates the hops (`ir/provenance.py`).
 
 #: NB. A notebook whose recorded `execution_count` is not monotonic was last
 #: run out of order, so *document order is not run order* and every rule that
@@ -73,6 +79,33 @@ def notebook_evidence(nbmap, line: int, code: str):
         detail += ("; %s reads an ordering, so this finding is de-rated x%s"
                    % (code, NOTEBOOK_ORDER_FACTOR))
     return (Evidence(kind="context_confirmed", detail=detail, weight=weight),)
+
+
+def interprocedural_evidence(ref) -> Tuple[Evidence, ...]:
+    """The one evidence factor a cross-object finding carries (DATAFLOW-IP).
+
+    It does the same two jobs `notebook_evidence` does, in one place so they
+    cannot disagree:
+
+    * **provenance** - the hop chain, in words, so a reader can audit the claim
+      line by line instead of taking *"`self.features` is FEATURES"* on faith;
+    * **the de-rating** - `IP_HOP_WEIGHT` once per hop. It is a factor in the
+      ordinary confidence product, not a special case, which is what makes
+      "never `certain`" arithmetic rather than a promise: MLV101's 0.95 prior
+      lands at 0.76 after one hop and 0.61 after two.
+
+    Returns an empty tuple for a value dataflow established locally, so a
+    `--dataflow local` run - and every local finding inside an `ip` run - is
+    numerically untouched.
+    """
+    chain = tuple(getattr(ref, "provenance", ()) or ())
+    if not chain:
+        return ()
+    return (Evidence(
+        kind="cross_file",
+        detail=("the tag arrived interprocedurally: %s; %d hop(s), each de-rated "
+                "x%s" % (chain_text(chain), len(chain), IP_HOP_WEIGHT)),
+        weight=hop_weight(len(chain))),)
 
 
 def normalize_evidence(evidence: Iterable) -> Tuple[Evidence, ...]:

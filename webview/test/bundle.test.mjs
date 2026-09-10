@@ -92,11 +92,12 @@ test('dist/mlview.css IS the minification of dist/mlview.dev.css (BUILD-01)', as
 /*
  * BUILD-01's size ratchet.
  *
- * MEASURED ON THIS TREE, 2026-09-09, after the Sprint 4 review fixes landed on
- * top of NB (notebook locations) and VIEW-07 (diagram export):
- *   dist/mlview.js       270 784 B (264.4 KB)
- *   dist/mlview.css       60 502 B  (59.1 KB), minified from 103 428 B (-41%)
- *   dist/mlview.dev.css  103 428 B (101.0 KB, never shipped)
+ * MEASURED ON THIS TREE, 2026-09-10, after VIEW-04 (bundle and order the
+ * cross-lane channel) landed on top of the Sprint 4 review fixes, NB (notebook
+ * locations) and VIEW-07 (diagram export):
+ *   dist/mlview.js       279 080 B (272.5 KB)
+ *   dist/mlview.css       61 863 B  (60.4 KB), minified from 106 557 B (-42%)
+ *   dist/mlview.dev.css  106 557 B (104.1 KB, never shipped)
  *
  * NB moved the JS by +2 991 B and the CSS by +195 B, and moved NEITHER CAP: the
  * item is one small module (`notebook.ts`: the flat-line-to-cell translation,
@@ -126,6 +127,18 @@ test('dist/mlview.css IS the minification of dist/mlview.dev.css (BUILD-01)', as
  * (2.9 %) and 2 230 B (3.6 %) of headroom -- the same order the last two
  * ratchets held. The ratchet's job is unchanged: make the NEXT growth visible.
  *
+ * VIEW-04 then moved the JS by +8 296 B and the CSS by +1 361 B, and BOTH CAPS
+ * with them. The item is four new units -- `layout/channel.ts` (the lane-pair
+ * plan, the barycentre order and the bounded splay), `layout/bundles.ts` (the
+ * trunk and its spurs as geometry), `render/bundles.ts` (the `<g>` and the
+ * expand/collapse binding) and the `.mlv-bundle*` block in `styles/edge.css` --
+ * plus the rewritten `routeCrossLane`, the channel reservation in `layout.ts`
+ * and one field on the scene plan. It is a SECOND drawing of the cross-lane
+ * edges, kept beside the first because the flow charge and the SVG export read
+ * each cable's own `d`, so it costs a layer rather than replacing one. Caps go
+ * to JS 278 KB and CSS 62 KB, leaving 5 592 B (2.0 %) and 1 625 B (2.6 %) --
+ * the same order the last three ratchets held.
+ *
  * The two figures above are GATED, not just written down: `JS_RECORDED` /
  * `CSS_RECORDED` are asserted against the built files with a 2 KB tolerance, so
  * a rebuild that moves the bundle forces this block to be re-measured instead of
@@ -139,11 +152,11 @@ test('dist/mlview.css IS the minification of dist/mlview.dev.css (BUILD-01)', as
  * again: `the figures in the block above are the constants below` reads this
  * file and fails on a one-byte disagreement.
  */
-const JS_RECORDED = 270784;
-const CSS_RECORDED = 60502;
+const JS_RECORDED = 279080;
+const CSS_RECORDED = 61863;
 const DRIFT = 2 * 1024;
-const JS_MAX_BYTES = 268 * 1024;
-const CSS_MAX_BYTES = 61 * 1024;
+const JS_MAX_BYTES = 278 * 1024;
+const CSS_MAX_BYTES = 62 * 1024;
 
 const headroom = (size, cap) =>
   size + ' B, ' + (cap - size) + ' B (' + (((cap - size) / cap) * 100).toFixed(1) + ' %) under the ' + cap + ' B ratchet';

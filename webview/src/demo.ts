@@ -10,6 +10,14 @@
 import { GraphIndex } from './layout/model.js';
 import { layoutGraph } from './layout/layout.js';
 import {
+  BUNDLE_MEMBER_SPREAD,
+  BUNDLE_MIN_TRUNK,
+  CHANNEL_MAX_W,
+  CHANNEL_MIN_STEP,
+  CHANNEL_PAD_L,
+  CHANNEL_PAD_R,
+  CHANNEL_PAIR_STEP,
+  LANE_GUTTER,
   LANE_MIN_W,
   LANE_PAD,
   MAX_RANK_H,
@@ -21,6 +29,8 @@ import {
 } from './layout/constants.js';
 import { cardSize, drawsChipRow } from './layout/cardmetrics.js';
 import { routeEdges } from './layout/routing.js';
+import { buildBundles } from './layout/bundles.js';
+import { bundleTitle } from './render/bundles.js';
 import { alwaysVisible, labelTextOf, labelWidth, planLabels, LABEL_METRICS } from './layout/labels.js';
 import { buildNodeCard } from './render/nodes.js';
 import { severityGlyph, SEVERITY_SHAPE, emptyCounts } from './markers.js';
@@ -87,9 +97,38 @@ export interface PlainLayout {
     count: number;
     points: { x: number; y: number }[];
     d: string;
+    /** VIEW-04: the lane-pair trunk this cable joins, when it joins one. */
+    trunk: {
+      key: string;
+      index: number;
+      size: number;
+      axis: string;
+      channelX: number;
+      entryY: number;
+      exitY: number;
+      joinFrom: number;
+      joinTo: number;
+    } | null;
+  }[];
+  /** VIEW-04: one entry per drawn cross-lane trunk. */
+  bundles: {
+    id: string;
+    sourceLane: string;
+    targetLane: string;
+    memberIds: string[];
+    count: number;
+    edgeCount: number;
+    axis: string;
+    trunk: { x: number; y: number }[];
+    d: string;
+    spurs: { id: string; side: string; points: { x: number; y: number }[] }[];
+    badge: { x: number; y: number };
+    kinds: string[];
   }[];
   width: number;
   height: number;
+  /** VIEW-04: what the left channel reserved, and why. */
+  channel: { x: number; w: number; pairs: number; slots: number };
 }
 
 /** Run the full layout + routing pass with no DOM involved. */
@@ -121,9 +160,37 @@ export function layoutForTest(graph: MLGraph, collapsed?: string[]): PlainLayout
       count: r.count,
       points: r.points.map((p) => ({ x: p.x, y: p.y })),
       d: r.d,
+      trunk: r.trunk
+        ? {
+            key: r.trunk.key,
+            index: r.trunk.index,
+            size: r.trunk.size,
+            axis: r.trunk.axis,
+            channelX: r.trunk.channelX,
+            entryY: r.trunk.entryY,
+            exitY: r.trunk.exitY,
+            joinFrom: r.trunk.joinFrom,
+            joinTo: r.trunk.joinTo,
+          }
+        : null,
+    })),
+    bundles: buildBundles(routes).map((b) => ({
+      id: b.id,
+      sourceLane: b.sourceLane,
+      targetLane: b.targetLane,
+      memberIds: b.memberIds.slice(),
+      count: b.count,
+      edgeCount: b.edgeCount,
+      axis: b.axis,
+      trunk: b.trunk.map((p) => ({ x: p.x, y: p.y })),
+      d: b.d,
+      spurs: b.spurs.map((s) => ({ id: s.id, side: s.side, points: s.points.map((q) => ({ x: q.x, y: q.y })) })),
+      badge: { x: b.badge.x, y: b.badge.y },
+      kinds: b.kinds.slice(),
     })),
     width: frame.width,
     height: frame.height,
+    channel: { x: frame.channelX, w: frame.channelW, pairs: frame.channelPairs, slots: frame.channelSlots },
   };
 }
 
@@ -367,13 +434,28 @@ export const internals = {
     MAX_RANK_H,
     LANE_MIN_W,
     LANE_PAD,
+    LANE_GUTTER,
     RANK_ROW_GAP,
+    /** VIEW-04: what the channel reserves, and how far a member may splay. */
+    CHANNEL_PAD_L,
+    CHANNEL_PAD_R,
+    CHANNEL_PAIR_STEP,
+    CHANNEL_MAX_W,
+    CHANNEL_MIN_STEP,
+    BUNDLE_MEMBER_SPREAD,
+    BUNDLE_MIN_TRUNK,
     NODE_H,
     NODE_H_GHOST,
     NODE_CHIP_ROW_H,
     cardSize,
     drawsChipRow,
   },
+  /**
+   * VIEW-04: the bundle geometry as a pure function, so a gate states the rule
+   * -- one trunk per lane pair, members splayed in barycentre order -- rather
+   * than transcribing coordinates out of a screenshot.
+   */
+  bundles: { build: buildBundles, titleOf: bundleTitle },
   /** VIEW-03: label placement, its metrics and which labels are always drawn. */
   labels: { plan: labelsForTest, metrics: LABEL_METRICS, textOf: labelTextOf, widthOf: labelWidth, alwaysVisible },
   /**

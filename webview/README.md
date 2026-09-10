@@ -28,7 +28,9 @@ copies only `mlview.js` and `mlview.css` -- and exists for two consumers: the
 `dev/*.html` harness pages, and the CSS gates that assert authored structure.
 `test/bundle.test.mjs` proves `mlview.css` is byte-for-byte the minification of
 `mlview.dev.css`, so an assertion about the readable file is an assertion about
-what ships, and holds both to a size ratchet (JS 216 KB, CSS 55 KB).
+what ships, and holds both to a size ratchet (JS 278 KB, CSS 62 KB) whose recorded figures are
+themselves gated, so a rebuild that moves the bundle has to re-measure the
+block rather than quietly outlive it.
 
 ## Public API (CONTRACTS section 8, amendment A3)
 
@@ -90,8 +92,8 @@ package's tests and `dev/states.html`. **Hosts must not depend on it.**
 | `src/app.ts` | the controller: view state, chrome, rail, search, keys, host protocol |
 | `src/canvasview.ts` | the diagram surface: layout frame, scene DOM, viewport, hover, focus, collapse |
 | `src/filters.ts` | the filter model (severities, stages, suppressed, query, rule codes) and its predicates |
-| `src/layout/` | `model` (index), `layout` (swimlanes + dagre), `wrap` (rank re-flow), `routing` (elbows, loops), `navigate` (arrow keys) |
-| `src/render/` | `scene`, `nodes`, `edges`, `canvas` (viewport + minimap), `trace`, `tooltip`, `connectors` |
+| `src/layout/` | `model` (index), `layout` (swimlanes + dagre), `wrap` (rank re-flow), `routing` (elbows, loops), `channel` (the cross-lane trunk plan), `bundles` (trunk + spur geometry), `navigate` (arrow keys) |
+| `src/render/` | `scene`, `nodes`, `edges`, `bundles` (the trunk layer and its expand/collapse binding), `canvas` (viewport + minimap), `trace`, `tooltip`, `connectors` |
 | `src/ui/` | `shell`, `chrome`, `rail`, `issuelist`, `railgroup`, `evidence`, `ruledocs`, `legend`, `gestures`, `states`, `keymap`, `searchbox`, `searchcontroller` |
 | `src/ui/issuelist.ts` | the Issues panel: the "Group by" control, the severity sections, the rows and the four empty states |
 | `src/ui/railgroup.ts` | grouping findings by rule or by file, with occurrence counts (RAIL-GROUP) |
@@ -135,6 +137,32 @@ widest lane, which left the emptiest band 87 % padding and made the world as
 wide as the one lane that needed the room; `LANE_MIN_W` is now only a floor for
 the lane header. The world is still as wide as its widest lane, which is what
 `frame.width`, the edge SVG and the minimap letterbox measure against.
+
+**Cross-lane edges are bundled (VIEW-04).** 70 % of a real document's
+connections leave their lane and every hop that skips a band funnels through the
+left channel, which used to be a flat 56 px fanned out one edge at a time at
+`n * 7` — unbounded, so the seventh member of a lane pair was drawn through the
+first column of lane boxes, and a large graph put roughly twenty near-parallel
+runs in there. `layout/channel.ts` now plans the corridor per **(source lane,
+target lane) pair**: one trunk x per pair, the pairs ordered so the longest hop
+takes the outermost slot (they nest instead of braiding), a pair's members
+ordered by the y of their target, and every member splayed at most
+`BUNDLE_MEMBER_SPREAD` off the shoulder so a run can never leave its corridor.
+The channel is reserved by the number of lane PAIRS, not edges, capped at
+`CHANNEL_MAX_W` (112 px) — past that the step shrinks before the world grows.
+
+`layout/bundles.ts` then turns the routed edges into one drawable trunk per pair
+with a splayed spur per member at each end and a member-count badge, and
+`render/bundles.ts` draws them under the cables. It is a SECOND drawing: every
+edge keeps its own `points`, its own `d` and its own motion-path id, and a
+collapsed member is transparent rather than absent — the flow charge and the SVG
+export read those strings. Hover, focus, selection or a lineage highlight
+expands the trunk back into individual strokes; a group of one is never drawn as
+a trunk. The severity marker on a bundled cable is deliberately NOT hidden, so a
+bundle can never make the diagram look cleaner than the analysis was. On the
+54-node demo this takes the crossings a reader actually sees from 3.82 to 1.96
+per edge; `export/svg.ts` keeps every stroke, because a static picture cannot be
+hovered.
 
 `fit()` (`render/canvas.ts`) fits the width of a document taller than it is wide
 and anchors it at the top — a swimlane diagram is read by panning down — but

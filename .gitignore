@@ -14,6 +14,10 @@ __pycache__/
 # generated demo artifacts (scripts/e2e regenerates them)
 .mlview/
 webview/.mlview/
+# MLV-P11: `python analyzer/tools/gen_gallery.py` renders ~90 self-contained reports
+# (~30 MB) from the rule fixtures and the clean corpus. Zero new content, so it is
+# generated on demand and never committed.
+docs/gallery/
 
 # local orchestration backups and scratch
 .workflows/backup/

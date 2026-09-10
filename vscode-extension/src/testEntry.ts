@@ -88,14 +88,37 @@ export {
   runAnalyzeTool,
   runListIssuesTool,
   runShowDiagramTool,
+  scopeArgs,
+  scopeNote,
   TOOL_ANALYZE,
   TOOL_ISSUES,
   TOOL_DIAGRAM
 } from './lmTools';
+// H10 — multi-root folders (docs/contracts/11.40-lm-tools-scope.md).
+export {
+  FolderBook,
+  folderKey,
+  folderPickItems,
+  folderTooltipLine,
+  pickFolder
+} from './folders';
+// CFG-ONE — the one configuration surface and its stated precedence.
+export {
+  configLogLine,
+  createBaseline,
+  openConfiguration,
+  pyprojectHasMlviewTable,
+  resolveAgainstRoot,
+  resolveBaseline,
+  resolveConfig,
+  CONFIG_FILE_NAME,
+  DEFAULT_BASELINE_RELATIVE,
+  PYPROJECT_FILE_NAME
+} from './mlviewConfig';
 export { isTrusted, ensureTrusted, RESTRICTED_MESSAGE } from './trust';
 export { CODELENS_TITLE } from './codelens';
 export { PARTICIPANT_ID, handleChatRequest } from './chat';
-export { statusBarText, statusBarTooltip, renderStatusBar } from './statusBar';
+export { statusBarText, statusBarTooltip, renderStatusBar, decorateTooltip } from './statusBar';
 export {
   coverageChip,
   coverageFor,

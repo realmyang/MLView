@@ -16,11 +16,13 @@ import sys
 from typing import Any, Dict, List, Optional, Sequence
 
 from . import api
+from . import cli_commands
 from .adopt import cli_glue
-from .cli_parser import FORMATS, GROUP_BY, build_parser
+from .cli_parser import DATAFLOW_MODES, FORMATS, GROUP_BY, build_parser
 from .core.graph import SEVERITY_RANK
 from .core.pipeline import DEFAULT_RELEVANCE, AnalyzeOptions
 from .core.relevance import DEFAULT_HOPS
+from .ir.build_ir import DEFAULT_DATAFLOW
 from .core.project import Scope, ScopeError, parse_scope, project, scope_catalog
 from .emit import html_out, json_out, mermaid_out, scope_out
 from .emit.text_out import write_stderr, write_stdout, write_stdout_bytes
@@ -63,7 +65,11 @@ def _options(args, paths: Sequence[str]) -> AnalyzeOptions:
         cache=False if getattr(args, "no_cache", False) else None,
         # NB. `.mlview.toml`'s `[paths] notebooks` is read inside `run()`, so a
         # command without the flag still honours a checked-in opt-in.
-        include_notebooks=bool(getattr(args, "include_notebooks", False)))
+        include_notebooks=bool(getattr(args, "include_notebooks", False)),
+        # DATAFLOW-IP. `local` is this release's default and the `getattr`
+        # default, so a command that does not declare the flag - and every host
+        # that builds `AnalyzeOptions` itself - keeps today's analysis exactly.
+        dataflow=getattr(args, "dataflow", DEFAULT_DATAFLOW))
 
 
 def _scope_from_args(args) -> Optional[Scope]:
@@ -198,6 +204,7 @@ def _emit_payload(doc: Dict[str, Any], args, full: Optional[Dict[str, Any]] = No
 # ---------------------------------------------------------------- commands
 def _cmd_analyze(args) -> int:
     scope = _scope_from_args(args)          # raises ScopeError -> exit 1, clean stdout
+    cli_commands.apply_file_config(args)
     usage = _adopt_usage_error(args)
     if usage:
         write_stderr("mlview: " + usage)
@@ -276,6 +283,7 @@ def _print_format(doc: Dict[str, Any], args) -> None:
 
 def _cmd_issues(args) -> int:
     scope = _scope_from_args(args)          # raises ScopeError -> exit 1
+    cli_commands.apply_file_config(args)
     usage = _adopt_usage_error(args)
     if usage:
         write_stderr("mlview: " + usage)
@@ -378,6 +386,18 @@ def _cmd_baseline(args) -> int:
         return EXIT_USAGE
     write_stderr(message)
     return code
+
+
+def _cmd_init(args) -> int:
+    """`mlview init` (CFG-ONE, CONTRACTS 11.37 D). The body is in
+    `cli_commands`; this is the exit-code mapping, and it is the only place the
+    §3 table is written down."""
+    return EXIT_OK if cli_commands.run_init(args) else EXIT_USAGE
+
+
+def _cmd_diff(args) -> int:
+    """`mlview diff BASE.json HEAD.json` (VIEW-08, CONTRACTS 11.38)."""
+    return EXIT_OK if cli_commands.run_diff(args) else EXIT_USAGE
 
 
 def _cmd_render(args) -> int:
@@ -563,6 +583,8 @@ _COMMANDS = {
     "explain": _cmd_explain,
     "rules": _cmd_rules,
     "schema": _cmd_schema,
+    "init": _cmd_init,                      # CFG-ONE   (CONTRACTS 11.37)
+    "diff": _cmd_diff,                      # VIEW-08   (CONTRACTS 11.38)
 }
 
 

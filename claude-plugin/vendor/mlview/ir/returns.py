@@ -41,6 +41,10 @@ __all__ = ["ReturnSlot", "ReturnSummary", "infer_returns", "slot_of"]
 _MAX_FQNS = 6
 #: A tuple return wider than this is not worth tracking positionally.
 _MAX_POSITIONS = 8
+#: How many nested workspace calls one `return` expression may be followed
+#: through. Two is what this pass has always done; DATAFLOW-IP raises it to the
+#: interprocedural hop cap and iterates to the fixed point.
+_DEFAULT_DEPTH = 2
 
 
 @dataclass(frozen=True)
@@ -76,27 +80,35 @@ def slot_of(call, index: Optional[int] = None) -> Optional[ReturnSlot]:
     return None
 
 
-def infer_returns(workspace) -> None:
-    """(Re)compute `FunctionIR.return_summary` for every workspace function."""
+def infer_returns(workspace, max_depth: int = _DEFAULT_DEPTH) -> None:
+    """(Re)compute `FunctionIR.return_summary` for every workspace function.
+
+    `max_depth` is DATAFLOW-IP's RETURN summary: `local` keeps the two levels
+    this pass has always walked, and `ip` raises it to the hop cap and runs the
+    whole pass again until the summaries stop moving (`ir.summaries`), so a tag
+    flows out through a chain of helpers rather than one of them. The default
+    reproduces today's inference exactly.
+    """
     memo: Dict[int, Optional[ReturnSummary]] = {}
     active: Set[int] = set()
     for relpath in sorted(workspace.modules):
         module = workspace.modules[relpath]
         for qualname in sorted(module.functions):
             func = module.functions[qualname]
-            func.return_summary = _summary(func, workspace, memo, active, 0)
+            func.return_summary = _summary(func, workspace, memo, active, 0,
+                                           max_depth)
 
 
 # ---------------------------------------------------------------------------
 # summaries
 # ---------------------------------------------------------------------------
 
-def _summary(func: FunctionIR, workspace, memo, active, depth: int
-             ) -> Optional[ReturnSummary]:
+def _summary(func: FunctionIR, workspace, memo, active, depth: int,
+             max_depth: int = _DEFAULT_DEPTH) -> Optional[ReturnSummary]:
     key = id(func)
     if key in memo:
         return memo[key]
-    if key in active or depth > 2 or not func.returns:
+    if key in active or depth > max_depth or not func.returns:
         return None
     active.add(key)
     try:
@@ -112,11 +124,11 @@ def _summary(func: FunctionIR, workspace, memo, active, depth: int
                     arity = -1            # branches disagree: drop the positions
                     continue
                 for index, elt in enumerate(expr.elts):
-                    slot = _slot(elt, func, workspace, memo, active, depth)
+                    slot = _slot(elt, func, workspace, memo, active, depth, max_depth)
                     if slot:
                         positions.setdefault(index, []).append(slot)
                 continue
-            slot = _slot(expr, func, workspace, memo, active, depth)
+            slot = _slot(expr, func, workspace, memo, active, depth, max_depth)
             if slot:
                 scalars.append(slot)
         summary = ReturnSummary(
@@ -131,8 +143,8 @@ def _summary(func: FunctionIR, workspace, memo, active, depth: int
     return summary
 
 
-def _slot(expr, func: FunctionIR, workspace, memo, active,
-          depth: int) -> Optional[ReturnSlot]:
+def _slot(expr, func: FunctionIR, workspace, memo, active, depth: int,
+          max_depth: int = _DEFAULT_DEPTH) -> Optional[ReturnSlot]:
     """What one `return <expr>` yields, statically."""
     from .bindings import binding_of, call_output_tags   # local: cyclic at import
 
@@ -145,7 +157,7 @@ def _slot(expr, func: FunctionIR, workspace, memo, active,
             return None
         inner = call.target_function
         if inner is not None and inner is not func:
-            nested = _summary(inner, workspace, memo, active, depth + 1)
+            nested = _summary(inner, workspace, memo, active, depth + 1, max_depth)
             return nested.scalar if nested is not None else None
         slot = ReturnSlot(fqns=_trim(call.canonical_fqns),
                           tags=tuple(call_output_tags(call, call.scope)),

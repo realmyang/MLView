@@ -288,11 +288,28 @@ def test_a_nested_sub_package_is_a_strict_subset_and_says_so(make_workspace):
     doc = analyze_to_dict(AnalyzeOptions(paths=(os.path.join(root, "pkg", "sub"),)))
     notes = _of(doc, "single_file_analysis")
     assert len(notes) == 1, doc["diagnostics"]
+    # CONTRACTS 11.39: with `--relevance ml` the default, the empty
+    # `pkg/sub/__init__.py` carries no framework token and is set aside as well,
+    # so the note counts three unseen siblings rather than two. The note is
+    # still exactly as honest - it names every module it did not read - and the
+    # prefilter's own `config_warning` names the third one a second time.
+    assert notes[0]["count"] == 3        # pkg/__init__.py, pkg/data.py, pkg/sub/__init__.py
+    assert notes[0]["message"].startswith(
+        "Only 2 of 5 modules in this package were analyzed")
+    assert "pkg/data.py" in notes[0]["message"]
+    assert validate(doc) == []
+
+
+def test_the_wide_mode_still_sees_the_package_init(make_workspace):
+    """The other half of 11.39: `--relevance all` is unchanged, and it is what
+    the note above looked like before the default moved."""
+    root = _package(make_workspace)
+    doc = analyze_to_dict(AnalyzeOptions(paths=(os.path.join(root, "pkg", "sub"),),
+                                         relevance="all"))
+    notes = _of(doc, "single_file_analysis")
     assert notes[0]["count"] == 2                    # pkg/__init__.py, pkg/data.py
     assert notes[0]["message"].startswith(
         "Only 3 of 5 modules in this package were analyzed")
-    assert "pkg/data.py" in notes[0]["message"]
-    assert validate(doc) == []
 
 
 def test_the_message_names_the_analyzed_file_on_the_siblings_path_base(make_workspace):
@@ -308,5 +325,24 @@ def test_the_message_names_the_analyzed_file_on_the_siblings_path_base(make_work
 
 def test_the_whole_package_root_carries_no_subset_note(make_workspace):
     root = _package(make_workspace)
-    doc = analyze_to_dict(AnalyzeOptions(paths=(os.path.join(root, "pkg"),)))
+    doc = analyze_to_dict(AnalyzeOptions(paths=(os.path.join(root, "pkg"),),
+                                         relevance="all"))
     assert _of(doc, "single_file_analysis") == []
+
+
+def test_the_default_names_the_package_init_it_set_aside(make_workspace):
+    """CONTRACTS 11.39, stated as a cost rather than hidden: analysing a whole
+    package under the shipped default now carries a subset note, because the
+    package's own empty `__init__.py` has no framework token and
+    `relevance._package_inits` only keeps the `__init__.py` files *below* the
+    discovery root. Both notes are true and both name the file; the redundancy
+    is the price of the flip and is recorded in the amendment."""
+    root = _package(make_workspace)
+    doc = analyze_to_dict(AnalyzeOptions(paths=(os.path.join(root, "pkg"),)))
+    notes = _of(doc, "single_file_analysis")
+    assert len(notes) == 1
+    assert notes[0]["count"] == 1
+    assert "pkg/__init__.py" in notes[0]["message"]
+    aside = [d for d in doc["diagnostics"]
+             if d["kind"] == "config_warning" and "Relevance prefilter" in d["message"]]
+    assert len(aside) == 1 and aside[0]["count"] == 1

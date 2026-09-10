@@ -1,9 +1,9 @@
-"""Suppression: `# mlview: ignore` comments and `.mlview.toml`.
+"""Suppression: `# mlview: ignore` comments, and the configuration file.
 
 * `# mlview: ignore[MLV201]` / `# mlview: ignore` - on the issue's primary
   line **or the line above**.
 * `# mlview: ignore-file` - anywhere in the first 5 lines.
-* `.mlview.toml`:
+* `.mlview.toml` (or `[tool.mlview]` in `pyproject.toml`):
 
       [rules]
       disable = ["MLV601"]
@@ -14,128 +14,29 @@
 
 Suppressed issues are still emitted, with `suppressed: true`, so the UI can
 offer "show suppressed"; hosts never publish them as diagnostics.
+
+**CFG-ONE (CONTRACTS 11.37): the file itself is parsed in `core/config.py`.**
+`RuleConfig`, `load_config`, `known_codes` and `unknown_code_warning` are
+re-exported from here unchanged, because `mlview.rules` is where every caller
+in and out of this tree reaches them - there is one implementation of the
+configuration surface, in `core`, and one import path for it, here. What lives
+in this module is only what suppression itself needs: the ignore-comment index.
 """
 
 from __future__ import annotations
 
-import difflib
-import os
 import re
-from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence, Set, Tuple
 
-__all__ = ["RuleConfig", "load_config", "Suppressor", "IGNORE_RE",
+from ..core.config import (MlviewConfig, RuleConfig, known_codes, load_config,
+                           unknown_code_warning)
+
+__all__ = ["RuleConfig", "MlviewConfig", "load_config", "Suppressor", "IGNORE_RE",
            "known_codes", "unknown_code_warning"]
 
 IGNORE_RE = re.compile(r"#\s*mlview\s*:\s*ignore(?:-(?P<file>file))?"
                        r"(?:\s*\[(?P<codes>[^\]]*)\])?", re.IGNORECASE)
 _HEADER_LINES = 5
-#: How many near misses one "unknown rule code" warning offers.
-_SUGGESTIONS = 3
-
-
-def known_codes() -> Set[str]:
-    """Every registered rule code. Imported lazily: `rules/__init__` imports
-    this module, and rule discovery imports every `r_*.py` back into it."""
-    from .registry import all_rules
-    return {spec.code for spec in all_rules()}
-
-
-def unknown_code_warning(code: str, where: str) -> Optional[str]:
-    """CLEANUP 3: a typo'd rule code was accepted in **total silence**.
-
-    `MVL601 = "off"` and `MLV999 = "off"` both produced `diagnostics: []`, so a
-    suppression that never took effect looked exactly like one that did.
-    Returns None for a code that exists.
-    """
-    known = known_codes()
-    if not known or code in known:
-        return None
-    near = [c for c in known if c.upper() == code.upper()]
-    if not near:
-        near = difflib.get_close_matches(code, sorted(known), n=_SUGGESTIONS, cutoff=0.5)
-    hint = (" Did you mean %s?" % ", ".join(sorted(near))) if near else ""
-    return ("unknown rule code %s in %s - the setting has no effect.%s"
-            % (code, where, hint))
-
-
-@dataclass
-class RuleConfig:
-    """The resolved `.mlview.toml`."""
-
-    path: Optional[str] = None
-    disabled: Set[str] = field(default_factory=set)
-    excludes: Tuple[str, ...] = ()
-    warnings: List[str] = field(default_factory=list)
-    #: NB. `[paths] notebooks = true` - the checked-in half of
-    #: `--include-notebooks`, appended last and False by default so a config
-    #: that does not name it behaves exactly as it did.
-    notebooks: bool = False
-
-
-def load_config(config_path: Optional[str], root: Optional[str] = None) -> RuleConfig:
-    """Load `.mlview.toml` (explicit path, or the one in the workspace root)."""
-    path = config_path
-    if path is None and root:
-        candidate = os.path.join(root, ".mlview.toml")
-        if os.path.isfile(candidate):
-            path = candidate
-    if not path:
-        return RuleConfig()
-    config = RuleConfig(path=path.replace("\\", "/"))
-    try:
-        import tomllib
-    except ImportError:  # pragma: no cover - Python 3.10 without tomllib
-        config.warnings.append("tomllib is unavailable; %s was ignored" % path)
-        return config
-    try:
-        with open(path, "rb") as fh:
-            data = tomllib.load(fh)
-    except OSError as exc:
-        config.warnings.append("cannot read %s: %s" % (path, exc))
-        return config
-    except Exception as exc:  # tomllib.TOMLDecodeError
-        config.warnings.append("cannot parse %s: %s" % (path, exc))
-        return config
-
-    rules = data.get("rules") or {}
-    if isinstance(rules, dict):
-        disable = rules.get("disable") or []
-        if isinstance(disable, (list, tuple)):
-            config.disabled.update(str(c).strip().upper() for c in disable if str(c).strip())
-        for key, value in rules.items():
-            if key == "disable":
-                continue
-            text = str(value).strip().lower()
-            if text in ("off", "false", "disabled", "no"):
-                config.disabled.add(str(key).strip().upper())
-            elif text in ("low", "medium", "high"):
-                # CLEANUP 2: `path` is the raw, mixed-separator string; the
-                # forward-slashed spelling was already computed at `:51`.
-                config.warnings.append(
-                    "severities are fixed; the override %s = %r in %s was ignored"
-                    % (key, value, config.path))
-    for code in sorted(config.disabled):
-        warning = unknown_code_warning(code, config.path or "the config")
-        if warning:
-            config.warnings.append(warning)
-    paths = data.get("paths") or {}
-    if isinstance(paths, dict):
-        exclude = paths.get("exclude") or []
-        if isinstance(exclude, (list, tuple)):
-            config.excludes = tuple(str(p) for p in exclude)
-        if "notebooks" in paths:
-            # NB. A bool, and anything else is a config_warning rather than a
-            # silent truthiness read: `notebooks = "yes"` meaning False is the
-            # shape CLEANUP 3 already refused to accept in silence.
-            value = paths.get("notebooks")
-            if isinstance(value, bool):
-                config.notebooks = value
-            else:
-                config.warnings.append(
-                    "[paths] notebooks must be true or false; %r in %s was ignored"
-                    % (value, config.path))
-    return config
 
 
 class Suppressor:

@@ -10,13 +10,22 @@ from typing import Iterable, List, Optional, Set, Tuple
 
 from .. import knowledge as K
 from ..ir.model import CallSite, FunctionIR, LoopIR, ValueRef
+from ..ir.provenance import DEFAULT_MAX_HOPS, Hop, extend
 from ..ir.symbols import dotted_text
 
 __all__ = [
     "within_loop", "loop_chain", "calls_in_loop", "calls_in_function",
-    "with_role", "first_with_role", "arg_ref", "reaches", "value_sources",
-    "seed_calls", "is_seeded", "literal_of",
+    "with_role", "first_with_role", "arg_ref", "traced_arg", "reaches",
+    "value_sources", "seed_calls", "is_seeded", "literal_of", "DATA_TAGS",
 ]
+
+#: The tags a *projection* may carry across. Selecting columns out of a frame
+#: does not change what the rows are; selecting a model out of a dict would be
+#: an entirely different claim, so only the data tags travel this way.
+DATA_TAGS = ("RAW_DATA", "FEATURES", "TARGET", "TRAIN_SPLIT", "VAL_SPLIT",
+             "TEST_SPLIT")
+#: How many nested subscripts a projection is followed through.
+_MAX_PROJECTION_DEPTH = 3
 
 
 def literal_of(ctx, expr, scope, module) -> Optional[str]:
@@ -114,6 +123,61 @@ def arg_ref(ctx, call: CallSite, index: int = 0) -> Tuple[Optional[str], Optiona
     if not name:
         return None, None
     return name, ctx.binding_of(name, call.scope)
+
+
+def traced_arg(ctx, call: CallSite, index: int = 0
+               ) -> Tuple[Optional[str], Optional[ValueRef]]:
+    """`arg_ref`, plus DATAFLOW-IP's one-step **projection** read.
+
+    `self.scaler.fit_transform(frame[FEATURES])` is how a DataModule is
+    written, and `dotted_text` on a `Subscript` is `None`, so the fit site had
+    no traced argument at all and MLV101 recorded a coverage gap instead of the
+    high-severity leak that was really there. In `--dataflow ip` the subscript
+    is followed to its base and the base's data tags are read, as one recorded
+    hop: the finding is de-rated once for it and names it in its evidence, so
+    the reader sees that the analyzer reasoned about `frame`, not about
+    `frame[FEATURES]`.
+
+    In `--dataflow local` this is exactly `arg_ref`, byte for byte.
+    """
+    name, ref = arg_ref(ctx, call, index)
+    if ref is not None or getattr(ctx, "dataflow", "local") != "ip":
+        return name, ref
+    if index >= len(call.args):
+        return name, ref
+    found = _projection(ctx, call, call.args[index])
+    # Falling back to `arg_ref`'s own answer matters: it is what a COVERAGE
+    # note names. Returning `(None, None)` on a projection that found nothing
+    # turned one honest note about `X` into two - one about `X` and one about
+    # "the value" - which is noise dressed as candour.
+    return found if found[1] is not None else (name, ref)
+
+
+def _projection(ctx, call: CallSite, arg
+                ) -> Tuple[Optional[str], Optional[ValueRef]]:
+    """The tracked value a subscript expression is a projection of."""
+    node, depth = arg, 0
+    while isinstance(node, ast.Subscript) and depth < _MAX_PROJECTION_DEPTH:
+        node, depth = node.value, depth + 1
+    if depth == 0:
+        return None, None
+    name = dotted_text(node)
+    if not name:
+        return None, None
+    ref = ctx.binding_of(name, call.scope, at=call.loc.line)
+    if ref is None or not ref.has(*DATA_TAGS):
+        return None, None
+    hop = Hop(kind="projection", detail="a subscript of `%s`" % name,
+              loc=ref.loc or call.loc)
+    chain = extend(getattr(ref, "provenance", ()) or (), hop,
+                   getattr(ctx.workspace, "ip_max_hops", DEFAULT_MAX_HOPS))
+    if chain is None:
+        return None, None            # the cap; stay silent rather than guess
+    derived = ValueRef(name=name, scope=ref.scope, tags=ref.tags,
+                       producer=ref.producer, loc=ref.loc, sources=ref.sources,
+                       class_ir=ref.class_ir, is_config=ref.is_config,
+                       via_fqns=ref.via_fqns, provenance=chain)
+    return name, derived
 
 
 def value_sources(ctx, name: str, scope, depth: int = 6) -> Set[str]:

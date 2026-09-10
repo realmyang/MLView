@@ -79,6 +79,18 @@ instead of guessing one. `mlview_analyze`, `mlview_issues` and
 exactly five tools**; a scoped result says it is scoped, and `graphPath` keeps
 pointing at the full document, so widening back costs nothing.
 
+**Telling you before you ask (H8).** `claude-plugin/hooks/hooks.json` registers a
+`PostToolUse` hook on `Edit|Write|NotebookEdit` and a `Stop` hook. The plugin is
+otherwise entirely pull-based: when Claude edits a training file during a session
+nothing tells it the edit introduced MLV203. The hook re-analyzes through the same
+`load_graph` cache the MCP tools read, diffs the issue-id set against the previous
+run, and **speaks only when the set grew** — at most 5 rows, worst first, under a
+hard 3-second budget after which it exits 0 in silence. It never blocks a tool call
+and never writes into your repository. `MLVIEW_HOOK` chooses which one speaks
+(unset = the edit hook, `stop` = one summary per turn, `both`, `off`), and the
+first run on a project is silent by construction: there is nothing to diff against
+yet, and its value is the warm cache.
+
 `/mlview` prefers the five `mlview_*` MCP tools and **falls back to the CLI
 through `Bash`** when they are unavailable, so the demo does not depend on MCP
 registration succeeding. The plugin needs no `pip install` of MLView itself —
@@ -100,8 +112,13 @@ F5 launches an Extension Development Host. Open a Python ML project in it, then:
   (`Alt+M`, also on the editor context menu) · `Scope Diagram to Symbol`
   (`Alt+Shift+M`, also on the editor context menu — it scopes the panel to the
   unit the cursor is inside) · `Clear Diagram Scope` · `Export HTML` ·
-  `Export Diagram as SVG` / `as PNG` · `Select Interpreter` · `Show Output` ·
-  `Show Rule Doc`.
+  `Export Diagram as SVG` / `as PNG` · `Select Active Folder` ·
+  `Open MLView Configuration` · `Create Baseline From Current Findings` ·
+  `Select Interpreter` · `Show Output` · `Show Rule Doc`.
+- **Getting started.** `Help → Get Started` carries a five-step MLView
+  walkthrough — install, visualize the sample, read a finding in Problems,
+  `Alt+M`, `Alt+Shift+M` — each step a single click on a command that already
+  exists. Its pages live in `docs/walkthrough/`.
 - **Exporting the picture.** `Export Diagram as SVG` / `as PNG` ask the open
   diagram for the whole diagram, the current view or the current scope, then a
   save dialog writes the file. The host cannot draw the diagram — only the viewer
@@ -114,6 +131,23 @@ F5 launches an Extension Development Host. Open a Python ML project in it, then:
   are published as diagnostics with `source: "MLView"`, the rule code linking to
   a **local** offline doc page, and `relatedInformation` for every related site.
   Analysis runs on save by default (`mlview.analyzeOnSave`).
+- **One configuration surface (CFG-ONE).** MLView passes `--config` to every
+  analyzer run when the folder has a `.mlview.toml` — or a `pyproject.toml` with a
+  `[tool.mlview]` table — so a checked-in configuration finally applies **in the
+  editor** and not only on the CLI. `mlview.configPath` names one explicitly and
+  `mlview.baselinePath` names a baseline whose findings stop counting. The
+  precedence is stated in both settings descriptions and asserted by a test: **the
+  file wins** for `[rules].disable` and `[paths].exclude`, and `mlview.disabledRules`
+  / `mlview.exclude` are **additive filters on top** — they can hide more, and
+  neither can re-enable a rule the file disabled. `Open MLView Configuration`
+  creates the file with `mlview init` when there is none.
+- **Several folders open (H10).** Every open workspace folder gets its own graph
+  rather than the first one being analysed and the rest silently ignored. The
+  Problems panel shows the union; a CodeLens answers for the folder its file lives
+  in; the diagram, the status bar and the chat/LM answers follow the **active**
+  folder, which the status-bar tooltip names — *"Folder: api — 1 other folder in
+  this workspace is not shown here"* — with a link to switch. A single-folder
+  window sees none of this and behaves exactly as before.
 - **Current file, whole picture.** `Visualize (Current File)` analyses the
   **package directory** around the file and then scopes the diagram to the file
   (`mlview.currentFileAnalysisScope`, default `package`; `file` and `workspace`
@@ -131,7 +165,13 @@ F5 launches an Extension Development Host. Open a Python ML project in it, then:
   finding streamed into chat is followed by an anchor, so it is a click into the
   source.
 - **Copilot agent mode** — `#mlviewAnalyze`, `#mlviewIssues` and `#mlviewDiagram`
-  reference the three language-model tools directly in a prompt.
+  reference the three language-model tools directly in a prompt. All three take
+  the same `scope` and `depth` the MCP tools take, described in **the same words**
+  (a test reads the MCP docstring and asserts it), so *"what does the evaluation
+  stage do here?"* is one question in either assistant. A scoped answer opens by
+  saying it is a filtered view whose counts describe the scope and not the project;
+  an unrecognized selector comes back as an error naming the accepted values,
+  never as a silently substituted default.
 
 - **Suppress a false positive without leaving the editor.** The lightbulb on any
   MLView diagnostic offers `Copy ignore comment`, `Add ignore comment on this
@@ -164,7 +204,38 @@ python -m mlview analyze samples/vision_pipeline --scope concern:optimization --
 python -m mlview analyze samples/vision_pipeline --scope concern:evaluation --depth 1 --format mermaid
 python -m mlview issues  samples/vision_pipeline --scope stage:train
 python -m mlview render  --graph .mlview/graph.json --scope unit:SmallCNN --format mermaid
+
+python -m mlview init                             # a commented .mlview.toml, rules listed from the registry
+python -m mlview diff BASE.json HEAD.json         # what this change added, removed, fixed and broke
+python -m mlview analyze . --dataflow ip          # follow values across the object boundary (see below)
 ```
+
+**Configuration.** `--config FILE`, else `<root>/.mlview.toml`, else
+`[tool.mlview]` in `<root>/pyproject.toml` — the **first match wins outright** and
+is never merged with the others, and the winner is named in the document's
+`configPath`. The file wins for `disable` and `exclude` (a flag may only *add* to
+them); a flag wins for everything under `[analysis]` and for `min_confidence`;
+`include` is additive both ways. Every mistake in the file — unreadable,
+unparseable, wrong type, out of range, unknown key, unknown rule — is one
+`config_warning` on the document and never a failed run.
+
+**Comparing two analyses.** `mlview diff BASE.json HEAD.json` writes a separate
+`mlview-diff` document: which nodes and edges were added, removed or changed,
+which findings are new, fixed or persisting, and a `notes[]` block naming every
+reason a `removed` might not mean "deleted" — not analyzed, truncated, projected
+away, a different root, a different analyzer. Moving code is not a change: `loc`
+is outside the comparison key. It does **no rename detection**, so a renamed file
+reads as every node removed plus every node added.
+
+**Following a value across the object boundary.** `--dataflow ip` (default
+`local`) turns on interprocedural summaries: a constructor argument reaching
+`self.<attr>` and read by a sibling method, a return chain deeper than one level,
+an argument intersected over *every* resolved call site. It is off by default for
+one release. Every hop multiplies the confidence by an explicit weight, so a
+cross-object finding is **never** reported as certain — one hop takes MLView's
+strongest leakage rule from `certain` to `likely` — and the hop chain is named in
+words on the finding. A chain that runs past the hop cap is not propagated and is
+**reported** as a `truncated` diagnostic rather than dropped in silence.
 
 `--scope` takes one selector and `--depth` its 0–2 boundary hops; `--list-scopes`
 prints the catalogue of scopable units. An unusable selector exits `1` with
@@ -298,15 +369,18 @@ flowchart TB
 ```
 MLView/
   docs/                     REQUIREMENTS · ARCHITECTURE · ISSUE_RULES · UX_DESIGN · CONTRACTS
+    walkthrough/            the five VS Code walkthrough pages (synced into the extension)
+    gallery/                GENERATED, gitignored: every fixture and clean program rendered
   contracts/                FROZEN: graph.schema.json · graph.sample.json
   analyzer/                 the Python package `mlview` — the ONE analyzer
     src/mlview/             ingest · ir · core · knowledge · rules · emit · schema
     tests/                  core · rules · fixtures · clean corpus
   webview/                  the ONE renderer; dist/mlview.{js,css} is the bundle
   vscode-extension/         panel · diagnostics · reveal · chat · LM tools · core (the bundled analyzer)
-  claude-plugin/            plugin.json · .mcp.json · commands · skills · server · vendor
+  claude-plugin/            plugin.json · .mcp.json · commands · skills · server · hooks · vendor
   samples/                  vision_pipeline (dirty) + vision_pipeline_clean (twin)
   tools/                    sync-assets.py · sync-core.py · verify.py · wheel_check.py · action/
+  analyzer/tools/           gen_rule_docs.py · gen_gallery.py · the scope fixture generators
   scripts/                  build · e2e (PowerShell and sh) · the doc gate
   .claude-plugin/           marketplace.json — the repo doubles as a local marketplace
   .github/workflows/        ci.yml — the CI matrix (see "Continuous integration")

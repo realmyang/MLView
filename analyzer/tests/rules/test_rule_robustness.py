@@ -95,14 +95,43 @@ AWKWARD = {
 
 
 @pytest.fixture(scope="module")
-def awkward(tmp_path_factory):
-    root = write_workspace(str(tmp_path_factory.mktemp("awkward")), AWKWARD)
-    return analyze_paths(root)
+def awkward_root(tmp_path_factory):
+    return write_workspace(str(tmp_path_factory.mktemp("awkward")), AWKWARD)
+
+
+@pytest.fixture(scope="module")
+def awkward(awkward_root):
+    """The corpus as the rules see it under `--relevance all`.
+
+    Every other test in this file is about a rule not raising and not guessing,
+    which is a question about the *whole* corpus - so this fixture keeps the
+    identity mode and 11.39's default flip is asserted on its own, below.
+    """
+    return analyze_paths(awkward_root, relevance="all")
 
 
 def test_every_file_was_analyzed(awkward):
     assert awkward["workspace"]["filesAnalyzed"] == len(AWKWARD)
     assert awkward["workspace"]["filesFailed"] == 0
+
+
+def test_the_default_reads_every_file_and_names_the_two_it_sets_aside(awkward_root):
+    """CONTRACTS 11.39: `--relevance ml` is the default, and the two files here
+    with no framework token anywhere (`empty.py`, `docstring_only.py`) no longer
+    reach the IR. The point of the gate is unchanged - nothing may disappear in
+    silence - so what it now asserts is that the count still adds up and that
+    the set-aside files are **named**, which is the difference between a filter
+    and a lie."""
+    doc = analyze_paths(awkward_root)
+    workspace = doc["workspace"]
+    notes = [d for d in doc["diagnostics"]
+             if d["kind"] == "config_warning" and "Relevance prefilter" in d["message"]]
+    assert len(notes) == 1
+    assert workspace["filesAnalyzed"] + notes[0]["count"] == len(AWKWARD)
+    assert workspace["filesFailed"] == 0                # every file was still READ
+    for name in ("empty.py", "docstring_only.py"):
+        assert name in notes[0]["message"]
+    assert "--relevance all" in notes[0]["message"]
 
 
 def test_no_rule_raised(awkward):

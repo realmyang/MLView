@@ -12,6 +12,7 @@
 
 import { clear } from '../dom.js';
 import { highestSeverity } from '../markers.js';
+import { buildBundle } from './bundles.js';
 import { buildEdge } from './edges.js';
 import { buildGroupBox, buildLane, buildNodeCard } from './nodes.js';
 import { planScene, ScenePlan, ScenePlanOptions } from './plan.js';
@@ -23,6 +24,8 @@ export interface SceneLayers {
   world: HTMLElement;
   lanes: HTMLElement;
   edgesSvg: SVGElement;
+  /** VIEW-04: the trunk layer, under the cables. */
+  bundleGroup: SVGElement;
   edgeGroup: SVGElement;
   connectors: SVGElement;
   nodes: HTMLElement;
@@ -36,6 +39,8 @@ export interface SceneOptions extends ScenePlanOptions {
 export interface SceneResult {
   nodeEls: Map<string, HTMLElement>;
   edgeEls: Map<string, SVGElement>;
+  /** VIEW-04: bundle id -> its `<g>`, so the binding can expand one. */
+  bundleEls: Map<string, SVGElement>;
   /** The plan the DOM was built from — the export renders this same object. */
   plan: ScenePlan;
 }
@@ -45,6 +50,7 @@ export function renderScene(layers: SceneLayers, opts: SceneOptions): SceneResul
   const frame = plan.frame;
   clear(layers.lanes);
   clear(layers.nodes);
+  clear(layers.bundleGroup);
   clear(layers.edgeGroup);
   clear(layers.connectors);
 
@@ -68,6 +74,14 @@ export function renderScene(layers: SceneLayers, opts: SceneOptions): SceneResul
     else layers.nodes.appendChild(element);
   }
 
+  // VIEW-04. Trunks first, so a cable that expands out of one is drawn over it.
+  const bundleEls = new Map<string, SVGElement>();
+  for (const visual of plan.bundles) {
+    const element = buildBundle(visual);
+    layers.bundleGroup.appendChild(element);
+    bundleEls.set(visual.bundle.id, element);
+  }
+
   const edgeEls = new Map<string, SVGElement>();
   for (const visual of plan.edges) {
     const element = buildEdge(visual);
@@ -77,7 +91,7 @@ export function renderScene(layers: SceneLayers, opts: SceneOptions): SceneResul
     edgeEls.set(visual.route.id, element);
   }
 
-  return { nodeEls, edgeEls, plan };
+  return { nodeEls, edgeEls, bundleEls, plan };
 }
 
 /** Minimap dots: one per drawn box, coloured by stage and ringed by severity. */

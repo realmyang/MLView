@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from typing import Any, List, Optional, Tuple
 
-__all__ = ["MAX_ROUNDS", "state_digest"]
+__all__ = ["MAX_ROUNDS", "state_digest", "summary_key"]
 
 #: The round cap. Four was the old fixed count; the shipped clean corpus needs
 #: five, and the cap exists only to stop a pathological oscillation.
@@ -36,11 +36,20 @@ def _slot_key(slot) -> Any:
     return (slot.fqns, slot.tags, cls.qualname if cls is not None else None)
 
 
-def _summary_key(summary) -> Any:
+def summary_key(summary) -> Any:
+    """One `ir.returns.ReturnSummary`, by content.
+
+    Public because `ir.summaries` runs the RETURN pass to its own fixed point
+    (DATAFLOW-IP) and must fingerprint the same state this module does; two
+    digests of the same thing are two chances to disagree.
+    """
     if summary is None:
         return None
     return (_slot_key(summary.scalar),
             tuple(_slot_key(s) for s in summary.positions))
+
+
+_summary_key = summary_key
 
 
 def _ref_key(name: str, ref) -> Tuple:
@@ -53,6 +62,10 @@ def _ref_key(name: str, ref) -> Tuple:
     cls = ref.class_ir
     return (name, ref.name, ref.tags, ref.literal, ref.index, ref.is_config,
             ref.via_fqns, ref.sources,
+            # DATAFLOW-IP: the interprocedural chain is part of the state the
+            # rounds write, so a round that only moved a chain still counts as
+            # movement and the loop does not stop one round early.
+            tuple(getattr(ref, "provenance", ()) or ()),
             (producer.loc.file, producer.loc.line, producer.loc.col)
             if producer is not None else None,
             cls.qualname if cls is not None else None)

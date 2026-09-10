@@ -18,10 +18,46 @@ import type { MLEdge } from '../types.js';
 import { GraphIndex } from './model.js';
 import { LayoutBox, LayoutFrame, isBackEdge } from './layout.js';
 import { CORNER_R, ROUTE_CLEARANCE } from './constants.js';
+import { CrossBucket, LanePair, memberSplay, planChannel } from './channel.js';
+import { midpointOf, orthPath } from './orth.js';
+import type { Point } from './orth.js';
 
-export interface Point {
-  x: number;
-  y: number;
+/**
+ * The polyline primitives live in `layout/orth.ts` now, because VIEW-04's
+ * bundle layer draws trunks and spurs with the same pen. Re-exported here so
+ * every existing import site still names one module for "a routed shape".
+ */
+export type { Point } from './orth.js';
+export { midpointOf, orthPath } from './orth.js';
+
+/**
+ * VIEW-04 — this route's share of a cross-lane trunk.
+ *
+ * Stamped on every route that leaves its lane. `head` and `tail` are the SAME
+ * two points for every member of a pair — they are the trunk's ends — and
+ * `joinFrom` / `joinTo` index this route's own `points` at the two places it
+ * meets that trunk. `layout/bundles.ts` needs nothing else to draw one trunk
+ * with N splayed spurs, and it does so WITHOUT touching `points` or `d`: the
+ * flow charge and the SVG export read those, so a bundle is a second drawing of
+ * an unchanged route, never a replacement for it.
+ */
+export interface TrunkRef {
+  /** `<source lane>><target lane>`. */
+  key: string;
+  sourceLane: string;
+  targetLane: string;
+  /** Index inside the pair, in barycentre order, and the pair's size. */
+  index: number;
+  size: number;
+  /** The axis the trunk runs along: `y` in the channel, `x` in a gutter. */
+  axis: 'x' | 'y';
+  /** The shared vertical run's x. Meaningless for a gutter trunk. */
+  channelX: number;
+  /** The gutter this pair enters the corridor in, and the one it leaves by. */
+  entryY: number;
+  exitY: number;
+  joinFrom: number;
+  joinTo: number;
 }
 
 export interface RoutedEdge {
@@ -41,6 +77,8 @@ export interface RoutedEdge {
   crossLane: boolean;
   back: boolean;
   count: number;
+  /** VIEW-04: the trunk this route shares with the rest of its lane pair. */
+  trunk?: TrunkRef;
 }
 
 /* ── obstacle environment ────────────────────────────────────────────── */
@@ -222,6 +260,23 @@ export function routeEdges(index: GraphIndex, frame: LayoutFrame, collapsed: Set
     bucket.edges.push(e);
   }
 
+  // VIEW-04: the cross-lane buckets are collected FIRST, because a trunk is a
+  // decision about a whole lane pair — which slot it takes in the channel and in
+  // what order its members leave it — and none of that can be known one edge at
+  // a time. Document order in, deterministic plan out.
+  const crossBuckets: CrossBucket[] = [];
+  for (const key of order) {
+    const bucket = groups.get(key)!;
+    if (isBackEdge(bucket.edges[0])) continue;
+    const sBox = frame.boxes.get(bucket.s)!;
+    const tBox = frame.boxes.get(bucket.t)!;
+    if (sBox.laneId === tBox.laneId) continue;
+    if (index.ancestors(bucket.s).indexOf(bucket.t) >= 0) continue;
+    if (index.ancestors(bucket.t).indexOf(bucket.s) >= 0) continue;
+    crossBuckets.push({ key, sBox, tBox });
+  }
+  const channel = planChannel(frame, crossBuckets);
+
   const backCounters = new Map<string, number>();
   const gutterCounters = new Map<string, number>();
   const out: RoutedEdge[] = [];
@@ -238,14 +293,32 @@ export function routeEdges(index: GraphIndex, frame: LayoutFrame, collapsed: Set
     const tInsideS = index.ancestors(bucket.t).indexOf(bucket.s) >= 0;
 
     let points: Point[];
+    let trunk: TrunkRef | undefined;
     if (back) {
       const n = bump(backCounters, sBox.laneId);
       points = routeBack(env, index, frame, sBox, tBox, n);
     } else if (tInsideS || sInsideT) {
       points = routeContainment(env, sBox, tBox, tInsideS);
     } else if (crossLane) {
-      const n = bump(gutterCounters, sBox.laneId + '>' + tBox.laneId);
-      points = routeCrossLane(env, frame, sBox, tBox, n);
+      const pair = channel.pairOf.get(key)!;
+      const idx = channel.indexOf.get(key) || 0;
+      const routed = routeCrossLane(env, sBox, tBox, pair, idx);
+      points = routed.points;
+      if (routed.joinFrom >= 0 && routed.joinTo > routed.joinFrom) {
+        trunk = {
+          key: pair.key,
+          sourceLane: pair.sourceLane,
+          targetLane: pair.targetLane,
+          index: idx,
+          size: pair.members.length,
+          axis: pair.adjacent ? 'x' : 'y',
+          channelX: pair.trunkX,
+          entryY: pair.entryY,
+          exitY: pair.adjacent ? pair.entryY : pair.exitY,
+          joinFrom: routed.joinFrom,
+          joinTo: routed.joinTo,
+        };
+      }
     } else {
       const n = bump(gutterCounters, 'in:' + sBox.laneId);
       points = routeWithinLane(env, frame, sBox, tBox, n);
@@ -268,6 +341,7 @@ export function routeEdges(index: GraphIndex, frame: LayoutFrame, collapsed: Set
       crossLane,
       back,
       count: bucket.edges.length,
+      trunk,
     });
   }
   return out;
@@ -352,36 +426,51 @@ function laneDetour(env: RouteEnv, s: LayoutBox, t: LayoutBox, n: number): Point
   return dedupe([p(sFace, cy(s)), p(sx, cy(s)), p(sx, y), p(tx, y), p(tx, cy(t)), p(tFace, cy(t))]);
 }
 
-/** Vertical elbows through the gutter between bands; long hops use the left channel. */
-function routeCrossLane(env: RouteEnv, frame: LayoutFrame, s: LayoutBox, t: LayoutBox, n: number): Point[] {
-  const si = frame.laneIndex.get(s.laneId) ?? 0;
-  const ti = frame.laneIndex.get(t.laneId) ?? 0;
-  const down = ti > si;
-  const stagger = n * 7;
-  const adjacent = Math.abs(ti - si) === 1;
+/** Where a routed cross-lane polyline meets the trunk its lane pair shares. */
+interface CrossRoute {
+  points: Point[];
+  /** Index of the point where this route joins the trunk; -1 when it never does. */
+  joinFrom: number;
+  joinTo: number;
+}
+
+/**
+ * Vertical elbows through the gutter between bands; long hops use the left
+ * channel (VIEW-04).
+ *
+ * The two shoulders — where the run enters the corridor and where it leaves —
+ * come from the lane pair's plan, so every member of a pair converges on ONE
+ * trunk and splays off it by at most `BUNDLE_MEMBER_SPREAD`. The old `n * 7`
+ * fan is gone: it was unbounded, so the seventh member of a pair was routed
+ * through the lane boxes the channel was reserved to avoid.
+ */
+function routeCrossLane(env: RouteEnv, s: LayoutBox, t: LayoutBox, pair: LanePair, index: number): CrossRoute {
+  const down = pair.down;
+  const off = memberSplay(index, pair.members.length);
 
   const sy = down ? s.y + s.h : s.y;
   const ty = down ? t.y : t.y + t.h;
-  const gy = round(gutterY(frame, Math.min(si, ti)) + (down ? stagger : -stagger));
-  const gy1 = round(down ? gutterY(frame, si) : gutterY(frame, si - 1));
-  const gy2 = round(down ? gutterY(frame, ti - 1) : gutterY(frame, ti));
-  const channel = round(frame.channelX + stagger);
+  const gy = round(pair.entryY + off);
+  const gy1 = gy;
+  const gy2 = round(pair.exitY + off);
+  const channel = pair.trunkX;
 
-  const simple = adjacent
+  const simple = pair.adjacent
     ? [p(cx(s), sy), p(cx(s), gy), p(cx(t), gy), p(cx(t), ty)]
     : [p(cx(s), sy), p(cx(s), gy1), p(channel, gy1), p(channel, gy2), p(cx(t), gy2), p(cx(t), ty)];
-  if (!pathCrosses(env, simple, s.id, t.id)) return simple;
+  const simpleJoin: [Point, Point] = pair.adjacent ? [simple[1], simple[2]] : [simple[2], simple[3]];
+  if (!pathCrosses(env, simple, s.id, t.id)) return joined(simple, simpleJoin);
 
   // Escape sideways into a free corridor, then use the gutter, which is empty by
   // construction, for the whole horizontal run.
-  const exitY = adjacent ? gy : gy1;
-  const enterY = adjacent ? gy : gy2;
+  const exitY = pair.adjacent ? gy : gy1;
+  const enterY = pair.adjacent ? gy : gy2;
   const sx = escapeToward(env, s, cx(t), cy(s), exitY, s.id, t.id);
   const tx = escapeToward(env, t, cx(s), enterY, cy(t), s.id, t.id);
-  if (sx === null || tx === null) return simple;
+  if (sx === null || tx === null) return joined(simple, simpleJoin);
   const sFace = sx >= cx(s) ? s.x + s.w : s.x;
   const tFace = tx >= cx(t) ? t.x + t.w : t.x;
-  const detour = adjacent
+  const detour = pair.adjacent
     ? [p(sFace, cy(s)), p(sx, cy(s)), p(sx, gy), p(tx, gy), p(tx, cy(t)), p(tFace, cy(t))]
     : [
         p(sFace, cy(s)),
@@ -393,17 +482,18 @@ function routeCrossLane(env: RouteEnv, frame: LayoutFrame, s: LayoutBox, t: Layo
         p(tx, cy(t)),
         p(tFace, cy(t)),
       ];
-  return pathCrosses(env, detour, s.id, t.id) ? simple : dedupe(detour);
+  const detourJoin: [Point, Point] = pair.adjacent ? [detour[2], detour[3]] : [detour[3], detour[4]];
+  if (pathCrosses(env, detour, s.id, t.id)) return joined(simple, simpleJoin);
+  return joined(dedupe(detour), detourJoin);
 }
 
-/** Mid-gutter y between lane `i` and lane `i + 1`. */
-function gutterY(frame: LayoutFrame, i: number): number {
-  const a = frame.lanes[i];
-  const b = frame.lanes[i + 1];
-  if (a && b) return (a.y + a.h + b.y) / 2;
-  if (a) return a.y + a.h + 12;
-  if (b) return b.y - 12;
-  return 0;
+/**
+ * Locate the two shoulder points AFTER `dedupe` has had its say — a degenerate
+ * zero-length step can drop one, and an index into a polyline that lost a point
+ * would hand `layout/bundles.ts` the wrong corner.
+ */
+function joined(points: Point[], join: [Point, Point]): CrossRoute {
+  return { points, joinFrom: points.indexOf(join[0]), joinTo: points.indexOf(join[1]) };
 }
 
 /**
@@ -477,58 +567,4 @@ function p(x: number, y: number): Point {
 
 function round(v: number): number {
   return Math.round(v * 100) / 100;
-}
-
-/** Rounded orthogonal polyline. */
-export function orthPath(points: Point[], r: number): string {
-  if (points.length < 2) return '';
-  const parts: string[] = ['M ' + points[0].x + ' ' + points[0].y];
-  for (let i = 1; i < points.length - 1; i++) {
-    const prev = points[i - 1];
-    const cur = points[i];
-    const next = points[i + 1];
-    const inLen = dist(prev, cur);
-    const outLen = dist(cur, next);
-    const rad = Math.max(0, Math.min(r, inLen / 2, outLen / 2));
-    if (rad < 0.75) {
-      parts.push('L ' + cur.x + ' ' + cur.y);
-      continue;
-    }
-    const a = lerp(cur, prev, rad / (inLen || 1));
-    const b = lerp(cur, next, rad / (outLen || 1));
-    parts.push('L ' + round(a.x) + ' ' + round(a.y));
-    parts.push('Q ' + cur.x + ' ' + cur.y + ' ' + round(b.x) + ' ' + round(b.y));
-  }
-  const last = points[points.length - 1];
-  parts.push('L ' + last.x + ' ' + last.y);
-  return parts.join(' ');
-}
-
-function dist(a: Point, b: Point): number {
-  return Math.hypot(b.x - a.x, b.y - a.y);
-}
-
-function lerp(from: Point, to: Point, f: number): Point {
-  return { x: from.x + (to.x - from.x) * f, y: from.y + (to.y - from.y) * f };
-}
-
-/** Point and direction at half the polyline's length — where markers and labels go. */
-export function midpointOf(points: Point[]): { point: Point; angle: number } {
-  if (points.length === 0) return { point: { x: 0, y: 0 }, angle: 0 };
-  if (points.length === 1) return { point: points[0], angle: 0 };
-  let total = 0;
-  for (let i = 1; i < points.length; i++) total += dist(points[i - 1], points[i]);
-  let walked = 0;
-  const half = total / 2;
-  for (let i = 1; i < points.length; i++) {
-    const seg = dist(points[i - 1], points[i]);
-    if (walked + seg >= half || i === points.length - 1) {
-      const f = seg === 0 ? 0 : (half - walked) / seg;
-      const pt = lerp(points[i - 1], points[i], Math.max(0, Math.min(1, f)));
-      const angle = (Math.atan2(points[i].y - points[i - 1].y, points[i].x - points[i - 1].x) * 180) / Math.PI;
-      return { point: { x: round(pt.x), y: round(pt.y) }, angle };
-    }
-    walked += seg;
-  }
-  return { point: points[points.length - 1], angle: 0 };
 }

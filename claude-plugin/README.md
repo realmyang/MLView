@@ -195,6 +195,46 @@ runs the server twice over one data directory, doctoring the cache in between, t
 keep that true. Every log line goes to **stderr** —
 stdout carries protocol frames only.
 
+### Hooks (H8)
+
+`hooks/hooks.json` registers two hooks. They exist because the rest of the plugin is
+**pull-based**: when Claude edits a training file during a session nothing tells it the
+edit introduced MLV203, and the user finds out on the next manual `/mlview-issues`.
+
+| Event | Script | What it does |
+|---|---|---|
+| `PostToolUse` on `Edit\|Write\|NotebookEdit` | `hooks/post_edit.py` | Re-analyzes and adds one bounded `additionalContext` **only when the edit added a finding** |
+| `Stop` | `hooks/stop_summary.py` | The same diff, once per turn, for teams that prefer one summary to one line per edit |
+
+**The discipline is the feature.** A hook that speaks on every edit gets turned off within
+a day, so:
+
+- it exits 0 **immediately** unless the edited path is a `.py` under `CLAUDE_PROJECT_DIR`
+  (or an `.ipynb` when `MLVIEW_INCLUDE_NOTEBOOKS=1`, or `[paths] notebooks = true` is set
+  in the project's configuration);
+- it re-analyzes through the **same `load_graph` cache the MCP tools read**, sharing
+  `MLVIEW_DATA_DIR`, so the hook *warms* the cache those tools then read for free;
+- it diffs the issue-id set against the previous run and speaks **only when the set grew**,
+  at most **5 rows**, worst severity first;
+- it gives up after a **3-second** wall clock and exits 0 in silence;
+- it **never blocks** (a hook blocks by exiting 2; these never do) and **never writes into
+  the project** — with nothing naming `MLVIEW_DATA_DIR` it redirects both the document and
+  the parse cache to a temporary directory rather than creating `<project>/.mlview`;
+- the **first** run on a project is silent by construction: there is nothing to diff
+  against, and its whole value is the warm cache.
+
+`MLVIEW_HOOK` decides which of the two speaks: unset or `on` is the PostToolUse hook alone,
+`stop` is the turn summary alone, `both` is both, and **`off` disables them entirely**. An
+unrecognized value is the default rather than an error.
+
+Two things it cannot do, stated rather than discovered: an issue id is content-addressed,
+so an unchanged finding whose line moved comes back with a new id — those are counted
+("*3 existing finding(s) moved line and are not repeated here*") instead of printed as
+new; and the command is the shell form `${MLVIEW_PYTHON:-python} "${CLAUDE_PLUGIN_ROOT}/…"`,
+which on Windows *without* Git Bash is PowerShell and will not expand, so the hook does
+nothing there. It fails silently and never blocks, which is the intended degradation —
+set `MLVIEW_PYTHON` and use a bash-capable shell to get it back.
+
 ### Environment
 
 | Variable | Meaning |
@@ -202,6 +242,9 @@ stdout carries protocol frames only.
 | `MLVIEW_PROJECT_DIR` | The project root. Relative `path` arguments resolve against it. Defaults to the process working directory. |
 | `MLVIEW_DATA_DIR` | Where `graph.json` and `report.html` are written. Defaults to `<project>/.mlview`. |
 | `MLVIEW_NO_OPEN=1` | `mlview_open_diagram` writes the report but does not launch a browser (`opened: false`). Used by the tests and by `scripts/e2e`. |
+| `MLVIEW_HOOK` | H8: which hook speaks — unset/`on` (PostToolUse), `stop`, `both`, or `off`. |
+| `MLVIEW_INCLUDE_NOTEBOOKS=1` | H8: treat an `.ipynb` edit as worth re-analyzing for. |
+| `MLVIEW_CACHE_DIR` | The per-file parse cache (CONTRACTS 11.28). The hooks default it into `MLVIEW_DATA_DIR` so nothing is written into the project. |
 | `MLVIEW_LOG_LEVEL` | `DEBUG` for verbose stderr logging. |
 
 ## Tests

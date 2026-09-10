@@ -9,6 +9,10 @@
  * status bar and output channel register UNCONDITIONALLY; the chat participant and the
  * language-model tools register afterwards behind `typeof` guards inside try/catch, so a
  * chat-API change can never break activation.
+ *
+ * H10 (11.40): the controller no longer holds ONE graph. `src/folders.ts` keeps one
+ * `FolderState` per open workspace folder and remembers which is active; a single-folder
+ * window is the one-entry case and behaves exactly as it did.
  */
 
 import * as fs from 'node:fs';
@@ -19,17 +23,18 @@ import { registerSuppressionActions, runSuppression, type SuppressRequest } from
 import { MlviewCodeLensProvider } from './codelens';
 import { exportHtml, showIssues, showRuleDoc, type CommandHost } from './commands';
 import { requestDiagramExport, type ExportPanelLike } from './exportDiagram';
-import { CoreClient, CoreError, scopeKey, type CoreAction } from './coreClient';
-import { focusScopeSpec, resolveCurrentFileTarget } from './currentFile';
+import { AnalysisRunner } from './analysisRunner';
+import { CoreClient, scopeKey } from './coreClient';
+import { resolveCurrentFileTarget } from './currentFile';
 import { DiagnosticsPublisher } from './diagnostics';
 import { reportAnalysisFailure, type ReportedFailure } from './failure';
+import { FolderBook, pickFolder, type FolderState, type Scope } from './folders';
 import { replayForReadyPanel, resolveRefreshScope, runHostAction } from './hostActions';
 import { type MLGraph } from './graph';
 import { allowedRuleCodes } from './issues';
-import { toWorkspaceRelative } from './location';
-import { buildLocationIndex, type LocationIndex } from './locationIndex';
 import { createLogger, type Logger } from './log';
-import { type CoreLike } from './lmTools';
+import { type CoreLike, type ToolAnalyzeInput } from './lmTools';
+import { createBaseline, openConfiguration } from './mlviewConfig';
 import { MlviewPanel, themeKindOf, VIEW_TYPE, type PanelDelegate } from './panel';
 import { nextRequestId, type AnalysisScope, type ExportScope } from './protocol';
 import { PythonEnvironment } from './pythonEnv';
@@ -39,9 +44,12 @@ import { readSettings, type MlviewSettings } from './settings';
 import { renderStatusBar } from './statusBar';
 import { analyzeForTools } from './toolAnalyze';
 import { recordStale, registerWatchers } from './watchers';
-import { ensureTrusted, manageTrust } from './trust';
+import { manageTrust } from './trust';
 
 let controller: MlviewController | undefined;
+
+/** What a window with no folder open is scoped to; never analysed, only read. */
+const NO_FOLDER_SCOPE: Scope = { scope: 'workspace' };
 
 export function activate(ctx: vscode.ExtensionContext): void {
   const log = createLogger(() => readSettings().trace);
@@ -66,48 +74,13 @@ export function deactivate(): void {
   controller = undefined;
 }
 
-interface Scope {
-  scope: AnalysisScope;
-  /** Absolute path when the scope is a single file. */
-  path?: string;
-  /**
-   * COVERAGE: the file the DIAGRAM is narrowed to once the graph arrives, when the analysis
-   * itself deliberately went wider (`mlview.currentFileAnalysisScope` = `package` /
-   * `workspace`). It is not part of `scopeKey`: it changes the projection, never the run.
-   */
-  focusFile?: string;
-}
-
 class MlviewController implements PanelDelegate, CoreLike, CommandHost, vscode.Disposable {
-  private graph: MLGraph | undefined;
-  private index: LocationIndex | undefined;
-  private lastScope: Scope = { scope: 'workspace' };
-  private readonly staleFiles = new Set<string>();
-  /**
-   * A COUNT, not a flag: a run that is superseded mid-flight must not clear the spinner for the
-   * run that replaced it (the status bar would flick back to idle while analysis continues).
-   */
-  private busyRuns = 0;
-  /** One promise per scope key, so a second caller joins the run instead of starting another. */
-  private readonly inFlight = new Map<string, Promise<void>>();
+  /** H10: one graph, index, scope, stale set and remembered failure PER OPEN FOLDER. */
+  private readonly book = new FolderBook();
+  /** Single-flight, supersession, the busy count and graph adoption; see analysisRunner.ts. */
+  private readonly runner: AnalysisRunner;
   private failed = false;
-  /**
-   * The last analysis failure, remembered per scope. `analyzeScopeOnce` can only join a run that
-   * is STILL in flight, so without this a first analysis that fails before the webview finishes
-   * booting is silently repeated by `onReady` — a second interpreter chain, a second analyzer
-   * spawn and a second identical modal, which is exactly the first-run experience of anyone who
-   * has no `mlview` core installed.
-   */
-  private lastFailure:
-    | { key: string; requestId: string; message: string; detail: string; actions: CoreAction[] }
-    | undefined;
   private pendingRestore: unknown;
-  /**
-   * The `focusFile` whose `file:` scope has already been posted for the current command, so a
-   * save-triggered re-analysis does not snap the diagram back over a scope the user has since
-   * changed by hand. Cleared whenever a visualize command sets a new scope.
-   */
-  private appliedFocus: string | undefined;
   private readonly statusBar: vscode.StatusBarItem;
   private readonly codeLens: MlviewCodeLensProvider;
   private readonly disposables: vscode.Disposable[] = [];
@@ -122,11 +95,52 @@ class MlviewController implements PanelDelegate, CoreLike, CommandHost, vscode.D
     this.statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
     this.statusBar.command = 'mlview.showIssues';
     this.codeLens = new MlviewCodeLensProvider(
-      () => this.graph,
+      (document) => this.graphForFile(document.uri.fsPath),
       () => readSettings().codeLens
     );
     this.disposables.push(this.statusBar, this.codeLens);
+    this.runner = new AnalysisRunner({
+      log,
+      core,
+      settingsFor: (root) => readSettings(vscode.Uri.file(root)),
+      isActive: (state) => this.state() === state,
+      panel: () => this.livePanel(),
+      analyzedGraphs: () => this.analyzedGraphs(),
+      publish: (graphs, settings) => void this.diagnostics.publish(graphs, settings),
+      refreshCodeLens: () => this.codeLens.refresh(),
+      onStateChanged: () => this.updateStatusBar(),
+      reportError: (err, requestId) => this.reportError(err, requestId),
+      setFailed: (failed) => {
+        this.failed = failed;
+      }
+    });
     this.updateStatusBar();
+  }
+
+  // ---------------------------------------------------------------- folder state
+
+  /** The active folder's state, or undefined when no folder is open at all. */
+  private state(): FolderState | undefined {
+    return this.book.active();
+  }
+
+  /** The active folder's scope; the workspace default when there is no folder. */
+  private scopeOf(): Scope {
+    return this.state()?.lastScope ?? NO_FOLDER_SCOPE;
+  }
+
+  /**
+   * The graph that knows about one file — the folder it lives in, NOT the active folder.
+   * CodeLens is per-document, so answering with the active folder's graph in a multi-root
+   * window would draw one folder's line numbers on another folder's file.
+   */
+  private graphForFile(fsPath: string): MLGraph | undefined {
+    return (this.book.stateForAnalyzedFile(fsPath) ?? this.state())?.graph;
+  }
+
+  /** Every folder that has been analyzed — what the Problems panel publishes as a whole. */
+  private analyzedGraphs(): MLGraph[] {
+    return this.book.analyzed().flatMap((s) => (s.graph ? [s.graph] : []));
   }
 
   // ---------------------------------------------------------------- registration
@@ -148,6 +162,11 @@ class MlviewController implements PanelDelegate, CoreLike, CommandHost, vscode.D
       // VIEW-07 (11.33): the host cannot draw, so these ASK the open panel for the bytes.
       cmd('mlview.exportSvg', (s?: ExportScope) => requestDiagramExport('svg', this.exportDeps(), s)),
       cmd('mlview.exportPng', (s?: ExportScope) => requestDiagramExport('png', this.exportDeps(), s)),
+      // H10: the multi-root picker, also reachable from the status-bar tooltip.
+      cmd('mlview.activeFolder', () => this.selectActiveFolder()),
+      // CFG-ONE: the two configuration commands (11.40).
+      cmd('mlview.openConfiguration', () => openConfiguration(this)),
+      cmd('mlview.createBaseline', () => createBaseline(this)),
       cmd('mlview.selectInterpreter', () => this.env.selectInterpreter()),
       cmd('mlview.showOutput', () => this.log.show(false)),
       cmd('mlview.showRuleDoc', (code?: string) => showRuleDoc(this, code)),
@@ -177,7 +196,8 @@ class MlviewController implements PanelDelegate, CoreLike, CommandHost, vscode.D
       ctx: this.ctx,
       log: this.log,
       analyzer: this,
-      showDiagram: (focusNodeId?: string) => this.showDiagram(focusNodeId)
+      showDiagram: (focusNodeId?: string, scopeSpec?: string) =>
+        this.showDiagram(focusNodeId, scopeSpec)
     });
   }
 
@@ -190,6 +210,9 @@ class MlviewController implements PanelDelegate, CoreLike, CommandHost, vscode.D
    * its directory yields 7. `mlview.currentFileAnalysisScope` defaults to `package`, so the
    * command analyses the package directory around the file and then narrows the diagram to the
    * file through the §11.7 `setScope` path. The picture is the same; the findings are not.
+   *
+   * H10: the file's OWN folder becomes the active one, so pointing at a file in the second
+   * folder of a multi-root window analyses that folder instead of silently analysing the first.
    */
   private async visualizeActiveFile(): Promise<void> {
     const editor = vscode.window.activeTextEditor;
@@ -198,8 +221,16 @@ class MlviewController implements PanelDelegate, CoreLike, CommandHost, vscode.D
       return;
     }
     const file = editor.document.uri.fsPath;
-    this.appliedFocus = undefined;
     const folder = vscode.workspace.getWorkspaceFolder(editor.document.uri);
+    if (folder && this.book.setActive(folder)) {
+      this.log.info(`active folder is now ${folder.name} (the file being visualized lives there)`);
+    }
+    const state = this.state();
+    if (!state) {
+      await this.visualizeWorkspace();
+      return;
+    }
+    state.appliedFocus = undefined;
     const mode = readSettings(editor.document.uri).currentFileAnalysisScope;
     const target = resolveCurrentFileTarget(
       file,
@@ -207,7 +238,7 @@ class MlviewController implements PanelDelegate, CoreLike, CommandHost, vscode.D
       mode,
       (candidate) => fs.existsSync(candidate)
     );
-    this.lastScope = {
+    state.lastScope = {
       scope: target.scope,
       ...(target.path ? { path: target.path } : {}),
       ...(target.focusFile ? { focusFile: target.focusFile } : {})
@@ -217,22 +248,62 @@ class MlviewController implements PanelDelegate, CoreLike, CommandHost, vscode.D
         (target.focusFile ? `, diagram scoped to ${path.basename(target.focusFile)}` : '')
     );
     await this.ensurePanel();
-    await this.analyzeScopeOnce(this.lastScope);
+    await this.runner.once(state);
   }
 
   private async visualizeWorkspace(): Promise<void> {
-    this.lastScope = { scope: 'workspace' };
-    this.appliedFocus = undefined;
+    const state = this.state();
+    if (!state) {
+      void vscode.window.showWarningMessage('MLView: open a folder or a Python file first.');
+      return;
+    }
+    state.lastScope = { scope: 'workspace' };
+    state.appliedFocus = undefined;
     await this.ensurePanel();
     // `Once`, not a fresh run: `ensurePanel` yields, so a command issued in the same tick (or
     // the panel's own `ready`) must join this analysis instead of superseding it.
-    await this.analyzeScopeOnce(this.lastScope);
+    await this.runner.once(state);
   }
 
   /** `MLView: Re-analyze` — the user explicitly asked for fresh results, so never join. */
   private async refresh(): Promise<void> {
     this.env.invalidate();
-    await this.analyzeScope(this.lastScope);
+    const state = this.state();
+    if (!state) {
+      void vscode.window.showWarningMessage('MLView: open a folder or a Python file first.');
+      return;
+    }
+    await this.runner.run(state);
+  }
+
+  /**
+   * H10 — `MLView: Select Active Folder`, and the tooltip's "Analyze a different folder" link.
+   * A folder that has already been analyzed is shown from memory; one that has not is
+   * analyzed, which is the whole point of the command in a window where only the first folder
+   * has ever been looked at.
+   */
+  private async selectActiveFolder(): Promise<void> {
+    const folder = await pickFolder(this.book);
+    if (!folder) {
+      return;
+    }
+    this.book.setActive(folder);
+    const state = this.book.stateFor(folder);
+    this.log.info(`active folder is now ${folder.name} (${folder.uri.fsPath})`);
+    this.codeLens.refresh();
+    this.updateStatusBar();
+    if (!state.graph) {
+      await this.ensurePanel();
+      await this.runner.once(state);
+      return;
+    }
+    const panel = this.livePanel();
+    if (panel) {
+      const settings = readSettings(folder.uri);
+      panel.postGraph(nextRequestId('folder'), state.graph);
+      panel.postSetFilter(allowedRuleCodes(state.graph, settings.disabledRules));
+      panel.postStale(Array.from(state.staleFiles));
+    }
   }
 
   /**
@@ -243,8 +314,8 @@ class MlviewController implements PanelDelegate, CoreLike, CommandHost, vscode.D
   private diagramDeps(): ScopeDeps {
     return {
       log: this.log,
-      getGraph: () => this.graph,
-      getIndex: () => this.index,
+      getGraph: () => this.state()?.graph,
+      getIndex: () => this.state()?.index,
       ensurePanel: () => this.ensurePanel(),
       getPanel: () => this.livePanel(),
       ensureGraph: () => this.ensureGraph()
@@ -273,161 +344,38 @@ class MlviewController implements PanelDelegate, CoreLike, CommandHost, vscode.D
   // --- CommandHost -------------------------------------------------------------
 
   currentPaths(root: string): string[] {
-    return this.pathsFor(this.lastScope, root);
+    return this.pathsFor(this.scopeOf(), root);
   }
 
   currentScope(): AnalysisScope {
-    return this.lastScope.scope;
+    return this.scopeOf().scope;
   }
 
   getGraph(): MLGraph | undefined {
-    return this.graph;
+    return this.state()?.graph;
   }
 
   async ensureGraph(): Promise<MLGraph | undefined> {
-    await this.analyzeScopeOnce(this.lastScope);
-    return this.graph;
+    const state = this.state();
+    if (!state) {
+      return undefined;
+    }
+    await this.runner.once(state);
+    return state.graph;
   }
 
-  private workspaceFolderFor(scope: Scope): vscode.WorkspaceFolder | undefined {
-    if (scope.scope === 'file' && scope.path) {
-      const folder = vscode.workspace.getWorkspaceFolder(vscode.Uri.file(scope.path));
-      if (folder) {
-        return folder;
-      }
-    }
-    return vscode.workspace.workspaceFolders?.[0];
+  settingsFor(uri: vscode.Uri): MlviewSettings {
+    return readSettings(uri);
   }
 
   workspaceRoot(): string | undefined {
-    if (this.graph?.workspace.root) {
-      return this.graph.workspace.root;
-    }
-    return this.workspaceFolderFor(this.lastScope)?.uri.fsPath;
+    const state = this.state();
+    return state?.graph?.workspace.root ?? state?.root;
   }
 
-  /**
-   * Start (or supersede) an analysis of this scope. The returned promise never rejects: every
-   * failure is already reported to the panel, the status bar and the output channel.
-   */
-  private analyzeScope(scope: Scope): Promise<void> {
-    const key = scopeKey(scope.scope, scope.path);
-    const promise = this.runAnalysis(scope).finally(() => {
-      if (this.inFlight.get(key) === promise) {
-        this.inFlight.delete(key);
-      }
-    });
-    this.inFlight.set(key, promise);
-    return promise;
-  }
-
-  /**
-   * Join the run already in flight for this scope instead of starting a duplicate. Opening the
-   * diagram is `ensurePanel()` + `analyzeScope()`, and the webview's `ready` then arrives while
-   * that first run is still going: without this, `onReady` would start a second analyzer, the
-   * single-flight in CoreClient would kill the first, and one whole process would be spawned and
-   * killed on every first open.
-   */
-  private analyzeScopeOnce(scope: Scope): Promise<void> {
-    const running = this.inFlight.get(scopeKey(scope.scope, scope.path));
-    if (running) {
-      this.log.debug('joining the analysis already in flight for this scope');
-      return running;
-    }
-    return this.analyzeScope(scope);
-  }
-
-  private async runAnalysis(scope: Scope): Promise<void> {
-    const folder = this.workspaceFolderFor(scope);
-    if (!folder) {
-      void vscode.window.showWarningMessage('MLView: open a folder or a Python file first.');
-      return;
-    }
-    if (!ensureTrusted(this.log)) {
-      return;
-    }
-    const key = scopeKey(scope.scope, scope.path);
-    if (this.lastFailure?.key === key) {
-      // This scope is being attempted again; the remembered banner is about to be replaced.
-      this.lastFailure = undefined;
-    }
-    const requestId = nextRequestId('analyze');
-    const settings = readSettings(folder.uri);
-    const root = folder.uri.fsPath;
-    this.busyRuns += 1;
-    this.failed = false;
-    this.updateStatusBar();
-    MlviewPanel.current?.postAnalysisStarted(
-      requestId,
-      scope.scope,
-      scope.path ? toWorkspaceRelative(root, scope.path) : undefined
-    );
-    // H3: `--progress-json` is passed EXACTLY when there is a panel to draw the bar,
-    // so the headless paths (`mlview.showIssues`, the chat digests, the LM tools)
-    // spawn the analyzer with the argv they have always spawned it with.
-    const progressPanel = MlviewPanel.current;
-    try {
-      const result = await this.core.analyze({
-        scope: scope.scope,
-        paths: this.pathsFor(scope, root),
-        cwd: root,
-        settings,
-        ...(progressPanel && !progressPanel.isDisposed
-          ? { onProgress: progressPanel.progressListener(requestId) }
-          : {})
-      });
-      this.applyGraph(result.graph, requestId, settings);
-      this.log.info(
-        `analysis finished in ${result.durationMs} ms: ${result.graph.stats.nodes} nodes, ` +
-          `${result.graph.stats.edges} edges`
-      );
-    } catch (err) {
-      if (err instanceof CoreError && err.kind === 'cancelled') {
-        this.log.info('analysis cancelled');
-      } else {
-        this.lastFailure = { key, requestId, ...this.reportError(err, requestId) };
-      }
-    } finally {
-      this.busyRuns = Math.max(0, this.busyRuns - 1);
-      this.updateStatusBar();
-    }
-  }
-
-  private applyGraph(graph: MLGraph, requestId: string, settings: MlviewSettings): void {
-    this.graph = graph;
-    this.lastFailure = undefined;
-    this.index = buildLocationIndex(graph);
-    this.staleFiles.clear();
-    this.diagnostics.publish(graph, settings);
-    this.codeLens.refresh();
-    this.failed = false;
-    this.updateStatusBar();
-    const panel = MlviewPanel.current;
-    if (panel) {
-      panel.postGraph(requestId, graph);
-      panel.postSetFilter(allowedRuleCodes(graph, settings.disabledRules));
-      this.applyFocusScope(panel, graph);
-    }
-  }
-
-  /**
-   * COVERAGE: the analysis went as wide as `mlview.currentFileAnalysisScope` asked for, so the
-   * DIAGRAM is narrowed back to the file the user pointed at — through the same §11.7 message
-   * `MLView: Scope Diagram to Symbol` uses, which means no new protocol and no re-analysis.
-   * Posted once per command: after that the viewer owns its scope.
-   */
-  private applyFocusScope(panel: MlviewPanel, graph: MLGraph): void {
-    const focus = this.lastScope.focusFile;
-    if (!focus || this.appliedFocus === focus) {
-      return;
-    }
-    this.appliedFocus = focus;
-    const spec = focusScopeSpec(graph.workspace.root, focus);
-    if (spec) {
-      panel.postSetScope(spec);
-    } else {
-      this.log.warn(`focus file ${focus} is outside the analyzed root; leaving the scope alone`);
-    }
+  /** The `vscode.WorkspaceFolder` the language-model and chat paths analyze (H10). */
+  private activeFolder(): vscode.WorkspaceFolder | undefined {
+    return this.book.activeFolder();
   }
 
   /** Returns what it reported, so a caller can remember the banner for a webview that boots late. */
@@ -442,18 +390,42 @@ class MlviewController implements PanelDelegate, CoreLike, CommandHost, vscode.D
 
   // ------------------------------------------------------------------- WatchHost
 
-  settingsFor(uri: vscode.Uri): MlviewSettings {
-    return readSettings(uri);
-  }
-
   markStale(fsPath: string): void {
-    if (recordStale(this.graph?.workspace.root, fsPath, this.staleFiles)) {
-      MlviewPanel.current?.postStale(Array.from(this.staleFiles));
+    const state = this.book.stateForAnalyzedFile(fsPath) ?? this.state();
+    if (!state) {
+      return;
+    }
+    if (recordStale(state.graph?.workspace.root, fsPath, state.staleFiles)) {
+      if (this.state() === state) {
+        MlviewPanel.current?.postStale(Array.from(state.staleFiles));
+      }
     }
   }
 
+  /**
+   * H10: the active folder always (which is exactly what a single-folder window did), plus
+   * every other folder that has an analyzed graph and a file marked stale in it — a save in
+   * the second folder of a multi-root window used to update nothing at all.
+   */
   reanalyze(): void {
-    this.core.scheduleAnalyze(() => void this.analyzeScope(this.lastScope));
+    const targets = new Set<FolderState>();
+    const active = this.state();
+    if (active) {
+      targets.add(active);
+    }
+    for (const state of this.book.analyzed()) {
+      if (state.staleFiles.size > 0) {
+        targets.add(state);
+      }
+    }
+    if (targets.size === 0) {
+      return;
+    }
+    this.core.scheduleAnalyze(() => {
+      for (const state of targets) {
+        void this.runner.run(state);
+      }
+    });
   }
 
   refreshCodeLens(): void {
@@ -461,33 +433,44 @@ class MlviewController implements PanelDelegate, CoreLike, CommandHost, vscode.D
   }
 
   republish(): void {
-    if (!this.graph) {
+    const graphs = this.analyzedGraphs();
+    if (graphs.length === 0) {
       return;
     }
     const settings = readSettings();
-    this.diagnostics.publish(this.graph, settings);
-    MlviewPanel.current?.postSetFilter(allowedRuleCodes(this.graph, settings.disabledRules));
+    this.diagnostics.publish(graphs, settings);
+    const shown = this.state()?.graph;
+    if (shown) {
+      MlviewPanel.current?.postSetFilter(allowedRuleCodes(shown, settings.disabledRules));
+    }
     this.updateStatusBar();
   }
 
   resetForWorkspaceChange(): void {
-    this.graph = undefined;
-    this.index = undefined;
-    this.lastFailure = undefined;
-    this.staleFiles.clear();
+    const dropped = this.book.prune();
+    if (dropped > 0) {
+      this.log.info(`${dropped} workspace folder(s) closed - their MLView graphs were dropped`);
+    }
     this.diagnostics.clear();
+    const graphs = this.analyzedGraphs();
+    if (graphs.length > 0) {
+      this.diagnostics.publish(graphs, readSettings());
+    }
     this.codeLens.refresh();
     this.updateStatusBar();
   }
 
   private updateStatusBar(): void {
+    const state = this.state();
+    const names = this.book.open().map((f) => f.name);
     renderStatusBar(this.statusBar, {
-      ...(this.graph ? { graph: this.graph } : {}),
-      settings: readSettings(this.workspaceFolderFor(this.lastScope)?.uri),
-      busy: this.busyRuns > 0,
+      ...(state?.graph ? { graph: state.graph } : {}),
+      settings: readSettings(state ? vscode.Uri.file(state.root) : undefined),
+      busy: this.runner.busy(),
       failed: this.failed,
       // PACKAGING: names the installed-vs-bundled core, once the chain has run once.
-      ...(this.env.coreDescription() ? { core: this.env.coreDescription()! } : {})
+      ...(this.env.coreDescription() ? { core: this.env.coreDescription()! } : {}),
+      folders: { ...(state ? { active: state.name } : {}), names }
     });
   }
 
@@ -504,27 +487,36 @@ class MlviewController implements PanelDelegate, CoreLike, CommandHost, vscode.D
   }
 
   onReady(panel: MlviewPanel): void {
-    const key = scopeKey(this.lastScope.scope, this.lastScope.path);
+    const state = this.state();
+    const key = state ? scopeKey(state.lastScope.scope, state.lastScope.path) : '';
     replayForReadyPanel(panel, {
-      graph: this.graph,
+      graph: state?.graph,
       pendingRestore: this.pendingRestore,
       disabledRules: readSettings().disabledRules,
-      staleFiles: Array.from(this.staleFiles),
-      replayableFailure: this.lastFailure?.key === key ? this.lastFailure : undefined,
-      analyzeOnce: () => void this.analyzeScopeOnce(this.lastScope),
+      staleFiles: state ? Array.from(state.staleFiles) : [],
+      replayableFailure: state?.lastFailure?.key === key ? state.lastFailure : undefined,
+      analyzeOnce: () => {
+        if (state) {
+          void this.runner.once(state);
+        }
+      },
       themeKind: () => themeKindOf(vscode.window.activeColorTheme.kind)
     });
     this.pendingRestore = undefined;
   }
 
   onRequestRefresh(scope: AnalysisScope, targetPath?: string): void {
-    this.lastScope = resolveRefreshScope(
+    const state = this.state();
+    if (!state) {
+      return;
+    }
+    state.lastScope = resolveRefreshScope(
       scope,
       targetPath,
       this.workspaceRoot(),
-      this.lastScope.path
+      state.lastScope.path
     );
-    void this.analyzeScope(this.lastScope);
+    void this.runner.run(state);
   }
 
   /** VIEW-07: the export commands see the LIVE panel only; they never open one. */
@@ -537,9 +529,14 @@ class MlviewController implements PanelDelegate, CoreLike, CommandHost, vscode.D
   }
 
   onAction(id: string): void {
+    const state = this.state();
     runHostAction(id, {
       log: this.log,
-      retry: () => void this.analyzeScope(this.lastScope),
+      retry: () => {
+        if (state) {
+          void this.runner.run(state);
+        }
+      },
       showOutput: () => this.log.show(false),
       envAction: (action) => void this.env.runAction(action),
       manageTrust
@@ -554,21 +551,38 @@ class MlviewController implements PanelDelegate, CoreLike, CommandHost, vscode.D
 
   /** Used by the chat participant and the language-model tools. */
   async analyze(
-    input: { path?: string },
+    input: ToolAnalyzeInput,
     token?: vscode.CancellationToken
   ): Promise<MLGraph> {
     return analyzeForTools(input, token, {
       log: this.log,
       core: this.core,
-      currentGraph: () => this.graph,
-      staleCount: () => this.staleFiles.size,
-      applyGraph: (graph, requestId, settings) => this.applyGraph(graph, requestId, settings)
+      activeFolder: () => this.activeFolder(),
+      currentGraph: () => this.state()?.graph,
+      staleCount: () => this.state()?.staleFiles.size ?? 0,
+      applyGraph: (graph, requestId, settings) => {
+        const state = this.state();
+        if (state) {
+          this.runner.apply(state, graph, requestId, settings);
+        }
+      }
     });
   }
 
-  showDiagram(focusNodeId?: string): Promise<void> {
+  /**
+   * H10: `scopeSpec` opens the diagram AT a §11.1 selector, through the same `setScope` message
+   * `MLView: Scope Diagram to Symbol` posts — so "show me the evaluation stage" from agent mode
+   * lands on the same projection a keyboard user would reach, and the reader can clear it.
+   */
+  showDiagram(focusNodeId?: string, scopeSpec?: string): Promise<void> {
     return this.ensurePanel().then((panel) => {
-      if (panel && focusNodeId) {
+      if (!panel) {
+        return;
+      }
+      if (scopeSpec) {
+        panel.postSetScope(scopeSpec);
+      }
+      if (focusNodeId) {
         panel.postRevealNode(focusNodeId, false);
       }
     });
