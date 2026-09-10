@@ -2011,10 +2011,12 @@ this tree, not retyped. The wave-3 gate paragraph's `vscode-extension **371
 tests**` was a transcription error at that same tree (every other figure in it
 reproduces exactly) and reads **372**; nothing else in that dated paragraph was
 touched, so `scripts` gates still records the **56** wave 3 measured, against
-**74** here — this round added 18 cases. `README.md`'s CI paragraph now names run
-**34441571480** for "the last full green push", the same run `scripts/README.md`
-row 25 names, and keeps the 13-job run (34422156964) as what it actually is: the
-one push on which `smoke (macos)` has ever run.
+**74** here — this round added 18 cases. `README.md`'s CI paragraph named run
+**34441571480** for "the last full green push" at the time, the same run
+`scripts/README.md` row 25 named, and keeps the 13-job run (34422156964) as what
+it actually is: the one push on which `smoke (macos)` has ever run. (Both now name
+the integration push below; the check is that they name **one** id, not that
+the id never moves.)
 
 **Three new doc-gate checks, in `scripts/doc_figures.py` (74 self-test cases,
 was 56).** Check **13** holds this file's Components table to the **last**
@@ -2252,6 +2254,11 @@ they were not allowed to move a labelled finding.
 and **15 issues (5 high / 6 medium / 4 low) in all four**;
 `python analyzer/tools/gen_gallery.py --quiet` renders **90 reports plus an
 index**; `python scripts/check_docs.py` **DOC CHECK OK** (19 files).
+**CI (run 34454599867): all 12 branch jobs green**, 7m57s wall and ~44 billable
+minutes — `e2e (windows, powershell)` 7m53s and `e2e (ubuntu, sh)` 6m29s;
+`smoke (macos)` is skipped on a branch push by design. It took **two fix
+iterations**, recorded above rather than smoothed over: five failures across the
+first two pushes, every one of them something only the matrix could see.
 
 ## Known gaps
 
