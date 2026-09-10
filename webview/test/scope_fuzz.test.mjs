@@ -6,9 +6,18 @@
  * comparison against *generated* documents: `analyzer/tools/scope_fuzz.py`
  * builds schema-valid graphs (5..500 nodes, hierarchy depth, cross-stage
  * parents, ghosts, four-node issue anchoring, issues anchored on an edge whose
- * nodes are elsewhere, disconnected components), picks random selectors across
- * every scope kind at every legal depth, computes the PYTHON answer for each,
- * and hands the whole batch to one node process.
+ * nodes are elsewhere, disconnected components, and — since Sprint 5 — rolled-up
+ * documents carrying `rolledUp` counts and merged edges with a `weight` (11.46)
+ * and multi-pipeline documents carrying a root `pipelines[]` block (11.47)),
+ * picks random selectors across every scope kind at every legal depth
+ * (`pipeline:` included), computes the PYTHON answer for each, and hands the
+ * whole batch to one node process.
+ *
+ * `batch.digestExtras` names the fields the driver wants compared HERE rather
+ * than inside the shared digest; `extrasOf` builds them and the Python
+ * `extras_of` is its twin. In replay mode the same block is compared only when
+ * the stored expectation carries one, so a promoted counterexample is never
+ * measured against a key no Python side ever wrote.
  *
  * Two modes, and neither needs a browser:
  *
@@ -70,22 +79,73 @@ async function loadScopeApi(bundlePath) {
   script.textContent = code;
   dom.window.document.head.appendChild(script);
   if (!dom.window.MLView) throw new Error('bundle did not define window.MLView: ' + bundlePath);
-  return dom.window.MLView.__internal.scope;
+  return dom.window.MLView.__internal;
+}
+
+/**
+ * The four members of an 11.47 D row that BOTH ports compute.
+ *
+ * `label` is not among them on purpose: the document's block carries one and the
+ * viewer's chooser row derives its own name (`pipelines.name`), so comparing it
+ * would report a shape decision as a divergence. Everything a reader counts on —
+ * which entrypoint, how many nodes, how many of them are shared, and the
+ * findings — is compared.
+ */
+function pipelineRow(row) {
+  return {
+    entrypoint: row.entrypoint,
+    nodeCount: row.nodeCount,
+    exclusiveCount: row.exclusiveCount,
+    sharedCount: row.sharedCount,
+    issueCounts: row.issueCounts,
+  };
+}
+
+/**
+ * The LATER fields the shared digest does not carry — the JavaScript twin of
+ * `extras_of` in `analyzer/tools/scope_fuzz.py`.
+ *
+ * PERF-04 puts a `rolledUp` count on a node that swallowed its children and a
+ * `weight` on an edge that swallowed its parallels; MLV-P12 puts a `pipelines[]`
+ * block at the root. A port that projected the ids correctly and dropped the
+ * count would otherwise pass. `extras` names exactly which of them to compare —
+ * the Python driver probes its own twin and asks for the rest, so each field is
+ * compared once and never twice.
+ */
+export function extrasOf(doc, extras) {
+  const want = new Set(extras || []);
+  const out = {};
+  if (want.has('rolledUp')) {
+    out.rolledUp = (doc.nodes || [])
+      .filter((n) => n && n.rolledUp !== undefined)
+      .map((n) => [n.id, n.rolledUp]);
+  }
+  if (want.has('weight')) {
+    out.weight = (doc.edges || [])
+      .filter((e) => e && e.weight !== undefined)
+      .map((e) => [e.id, e.weight]);
+  }
+  if (want.has('pipelines')) {
+    out.pipelines = doc.pipelines === undefined ? null : doc.pipelines;
+  }
+  return out;
 }
 
 /**
  * The comparable subset of a projected document — the JavaScript twin of
- * `digest_of` in `analyzer/tools/gen_scope_fixtures.py`.
+ * `digest_of` in `analyzer/tools/gen_scope_fixtures.py`, plus the `_extras`
+ * block when the driver asked for one.
  *
  * The JSON round-trip is not cosmetic: objects built inside the jsdom realm
  * have a different `Object.prototype` and `assert/strict` compares prototypes,
  * so the comparison has to be about VALUES — the same round-trip
  * `scope_parity.test.mjs` makes for the same reason.
  */
-export function digestOf(doc) {
+export function digestOf(doc, extras) {
   const nodes = doc.nodes || [];
   const edges = doc.edges || [];
   const issues = doc.issues || [];
+  const hasExtras = (extras || []).length > 0;
   return JSON.parse(
     JSON.stringify({
       nodes: nodes.map((n) => [n.id, n.viewRole === undefined ? null : n.viewRole, n.issueIds || []]),
@@ -98,12 +158,13 @@ export function digestOf(doc) {
       }),
       stats: doc.stats === undefined ? null : doc.stats,
       view: doc.view === undefined ? null : doc.view,
+      ...(hasExtras ? { _extras: extrasOf(doc, extras) } : {}),
     }),
   );
 }
 
 /** `project()`, or the contractual triple of the error it raised (11.1). */
-function outcomeOf(api, graph, spec, depth) {
+function outcomeOf(api, graph, spec, depth, extras) {
   let scope;
   try {
     scope = api.parseScope(spec, depth === null || depth === undefined ? undefined : depth);
@@ -114,7 +175,7 @@ function outcomeOf(api, graph, spec, depth) {
     throw err;
   }
   try {
-    return { kind: 'project', digest: digestOf(api.project(graph, scope)) };
+    return { kind: 'project', digest: digestOf(api.project(graph, scope), extras) };
   } catch (err) {
     if (err && err.name === 'ScopeError') {
       return { kind: 'error', raisedBy: 'resolve', error: { code: err.code, term: err.term, candidates: [...err.candidates] } };
@@ -168,16 +229,54 @@ const BATCH_PATH = process.env.MLVIEW_FUZZ_BATCH || '';
 if (BATCH_PATH) {
   /* ── batch mode: the fuzzer is driving ─────────────────────────────── */
   const batch = JSON.parse(await readFile(BATCH_PATH, 'utf8'));
-  const api = await loadScopeApi(process.env.MLVIEW_FUZZ_BUNDLE || DEFAULT_BUNDLE);
+  const internal = await loadScopeApi(process.env.MLVIEW_FUZZ_BUNDLE || DEFAULT_BUNDLE);
+  const api = internal.scope;
+  // Which LATER fields this batch compares here rather than inside the shared
+  // digest. The driver decides — see `digest_extras()` in scope_fuzz.py.
+  const batchExtras = batch.digestExtras || [];
   const outcomes = [];
   const failures = [];
 
   for (const entry of batch.graphs || []) {
+    // MLV-P12's relation, compared FIRST: `project()` carries the `pipelines[]`
+    // block through verbatim (11.47 D), so a port that computes the relation
+    // differently would never show up in a projection comparison. The viewer
+    // recomputes it for its chooser, so the two answers are both live.
+    const wantRows = entry.relation && entry.relation.pipelines;
+    if (wantRows && internal.pipelines && typeof internal.pipelines.rows === 'function') {
+      let gotRows = null;
+      let relationDetail = '';
+      try {
+        gotRows = internal.pipelines.rows(entry.graph).map(pipelineRow);
+      } catch (err) {
+        relationDetail = 'the TypeScript relation threw ' + ((err && err.stack) || err);
+      }
+      const want = wantRows.map(pipelineRow);
+      const relationOk = gotRows !== null && sameJson(want, gotRows);
+      if (!relationOk) {
+        relationDetail = relationDetail || firstDifference(want, gotRows);
+        failures.push({
+          graph: entry.name,
+          case: entry.name + '/pipelines',
+          kind: 'relation',
+          spec: 'pipelines[] (11.47 A/D)',
+          depth: null,
+          detail: relationDetail,
+        });
+      }
+      outcomes.push({
+        name: entry.name + '/pipelines',
+        ok: relationOk,
+        want,
+        got: gotRows,
+        detail: relationDetail,
+      });
+    }
     for (const testCase of entry.cases || []) {
       let got = null;
       let detail = '';
       try {
-        got = outcomeOf(api, entry.graph, testCase.spec, testCase.depth);
+        got = outcomeOf(api, entry.graph, testCase.spec, testCase.depth, batchExtras);
       } catch (err) {
         detail = 'the TypeScript port threw ' + ((err && err.stack) || err);
       }
@@ -239,15 +338,23 @@ if (BATCH_PATH) {
 
   // `MLVIEW_FUZZ_BUNDLE` works here too, so a promoted counterexample can be
   // aimed at the build it was found on and shown to still catch it.
-  const api = skip ? null : await loadScopeApi(process.env.MLVIEW_FUZZ_BUNDLE || DEFAULT_BUNDLE);
+  const api = skip ? null : (await loadScopeApi(process.env.MLVIEW_FUZZ_BUNDLE || DEFAULT_BUNDLE)).scope;
   for (const row of promoted) {
     test('promoted counterexample: ' + row.name + ' (' + row.spec + ')', { skip }, () => {
       const want = answers.get(row.name);
-      const got = outcomeOf(api, row.graph, row.spec, row.depth);
+      // `gen_scope_fixtures.py` computes the expectation with the SHARED digest,
+      // which carries no LATER field; a counterexample whose divergence lives in
+      // one of them therefore travels in the CASE row (`expectExtras`), which
+      // that generator passes through verbatim. Compare whichever is present —
+      // never a key no Python side ever wrote.
+      const wantExtras =
+        (want.digest && want.digest._extras) || row.expectExtras || null;
+      const extras = wantExtras ? Object.keys(wantExtras) : [];
+      const got = outcomeOf(api, row.graph, row.spec, row.depth, extras);
       const expectation =
         want.kind === 'error'
           ? { kind: 'error', raisedBy: want.raisedBy, error: want.error }
-          : { kind: 'project', digest: want.digest };
+          : { kind: 'project', digest: { ...want.digest, ...(wantExtras ? { _extras: wantExtras } : {}) } };
       assert.deepEqual(got, expectation, firstDifference(expectation, got));
     });
   }

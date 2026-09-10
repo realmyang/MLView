@@ -2298,6 +2298,48 @@
             };
           }
         });
+        // PERF-04 and MLV-P12, behind `?later=1` so the default page — and the
+        // devpages gate that opens it — is byte-for-byte what it was.
+        //
+        // Both features are driven by fields an analyzer that already ships
+        // them writes, so the harness fills those in rather than editing the
+        // inlined sample (which `dev/refresh-sample.mjs` regenerates verbatim
+        // from `contracts/graph.sample.json`). Nothing below is renderer
+        // behaviour: it is one document with the two optional shapes present.
+        var laterParams = new URLSearchParams(window.location.search);
+        if (laterParams.get('later')) {
+          // MLV-P12: three entrypoints out of the sample's five files. `data.py`
+          // is reached from `train()` AND owns its own nodes, so `build_loaders`
+          // and `train_loader` come back SHARED — which is the case worth
+          // seeing, because a shared node is drawn as context in both views.
+          graph.workspace = Object.assign({}, graph.workspace, {
+            entrypoints: ['train.py', 'data.py', 'sklearn_baseline.py'],
+          });
+          // PERF-04: two cards that swallowed their children, and two cables
+          // that stand for more than one connection.
+          var ROLLED = { 'n:1100aa22bb33': 4, 'n:c072e5a41d38': 7 };
+          graph.nodes.forEach(function (n) {
+            if (ROLLED[n.id]) n.rolledUp = ROLLED[n.id];
+          });
+          var WEIGHTS = { 'e:9f21ab34cd56': 3, 'e:7f0a3b5c1d24': 9 };
+          graph.edges.forEach(function (e) {
+            if (WEIGHTS[e.id]) e.weight = WEIGHTS[e.id];
+          });
+          graph.stats = Object.assign({}, graph.stats, { truncated: true });
+          // 11.46 D: the words are the diagnostic's job, and `count` is folded
+          // plus dropped — 11 folded here, so the banner derives 2 dropped.
+          graph.diagnostics = (graph.diagnostics || []).concat([
+            {
+              kind: 'truncated',
+              count: 13,
+              message:
+                'node budget 14: 14 node(s) kept. 11 node(s) rolled up — 2 unit(s) absorbed their ' +
+                'operations, 0 file(s) were summarised, 10 edge(s) were merged and 3 were absorbed — ' +
+                'and 2 node(s) were dropped. No findings were lost.',
+            },
+          ]);
+        }
+
         var bridge = MLView.bridges.standalone({
           theme: 'auto',
           onPost: function (msg) {
@@ -2447,6 +2489,15 @@
           window.postMessage({ v: 1, type: 'diffOverlay', overlay: diffOn ? overlay : null }, '*');
         });
         bar.appendChild(diffBtn);
+
+        // PERF-04 / MLV-P12: the same page with the two LATER shapes filled in.
+        var later = document.createElement('a');
+        later.href = laterParams.get('later') ? './index.html' : './index.html?later=1';
+        later.textContent = laterParams.get('later') ? '← plain' : 'rollup + pipelines →';
+        later.title = 'Draw the sample with rolledUp counts, weighted edges and three entrypoints';
+        later.style.alignSelf = 'center';
+        later.style.color = 'var(--mlv-link, #2b57c4)';
+        bar.appendChild(later);
 
         var states = document.createElement('a');
         states.href = './states.html';

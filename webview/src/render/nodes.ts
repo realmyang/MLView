@@ -8,6 +8,7 @@ import { locSpoken } from '../notebook.js';
 import { kindIcon, uiIcon, isKnownKind } from '../icons.js';
 import { severityBadge, severityCluster, highestSeverity, countsTotal } from '../markers.js';
 import { alternativeCount, configSpoken, configSublabel, isAlternatives, resolvedConfig } from '../config/resolved.js';
+import { rollupChipText, rollupCount, rollupSpoken } from '../rollup/rolled.js';
 import type { IssueCounts, MLNode } from '../types.js';
 import type { LayoutBox, LayoutLane } from '../layout/layout.js';
 import { chipCandidates } from '../layout/cardmetrics.js';
@@ -175,6 +176,10 @@ export function ariaLabelFor(v: NodeVisual): string {
   // to a screen reader and "batch_size = 64" on screen is two different cards.
   const config = configSpoken(n);
   if (config) bits.push(config);
+  // PERF-04: a rolled-up card looks like a collapsed group and behaves like a
+  // leaf, so the ONE place that difference is stated in words has to be here.
+  const rolled = rollupCount(n);
+  if (rolled) bits.push(rollupSpoken(rolled));
   const diff = n.diffStatus ? DIFF_SPOKEN[n.diffStatus] : '';
   if (diff) bits.push(diff);
   if (n.diffStatus === 'changed' && (n.diffChanged || []).length) {
@@ -192,6 +197,12 @@ export function ariaLabelFor(v: NodeVisual): string {
 /** A full node card, positioned absolutely inside the world layer. */
 export function buildNodeCard(v: NodeVisual, collapsedGroup: boolean): HTMLElement {
   const n = v.node;
+  // PERF-04. A rolled-up card borrows the collapsed-group VISUAL — the roadmap
+  // asked for exactly that, "reusing the existing collapsed-group visual so the
+  // viewer needs no new language" — and none of its behaviour: `is-rolled-up`
+  // is what tells the double-click handler, the outline and the reader apart.
+  const rolled = rollupCount(n);
+  const groupLike = collapsedGroup || rolled > 0;
   const card = el('div', 'mlv-node');
   card.id = nodeDomId(n.id);
   card.setAttribute('role', 'button');
@@ -247,12 +258,18 @@ export function buildNodeCard(v: NodeVisual, collapsedGroup: boolean): HTMLEleme
   if (top && !boundary) card.classList.add('has-issues');
   if (v.stale) card.classList.add('is-stale');
   if (v.filteredOut) card.classList.add('is-filtered');
-  if (collapsedGroup) card.classList.add('is-collapsed-group');
+  if (groupLike) card.classList.add('is-collapsed-group');
+  if (rolled) {
+    card.classList.add('is-rolled-up');
+    // The COUNT is on the attribute, so a test can assert the card knows how
+    // many it swallowed rather than merely that it drew something.
+    card.setAttribute('data-rolled-up', String(rolled));
+  }
 
   add(card, el('div', 'mlv-node__rail'));
   const main = add(card, el('div', 'mlv-node__main'));
   const iconbox = add(main, el('div', 'mlv-node__iconbox'));
-  iconbox.appendChild(kindIcon(collapsedGroup ? 'artifact' : n.kind));
+  iconbox.appendChild(kindIcon(groupLike ? 'artifact' : n.kind));
 
   const text = add(main, el('div', 'mlv-node__text'));
   add(text, el('div', 'mlv-node__title', middleTruncate(n.label || n.qualname || n.id, 34)));
@@ -279,8 +296,11 @@ export function buildNodeCard(v: NodeVisual, collapsedGroup: boolean): HTMLEleme
 
   // The collapsed-group count chip is PREPENDED after budgeting, so it can never
   // push the "+n" overflow chip off the end (MLV-R1-011).
-  const chips = collapsedGroup
-    ? [v.descendants + ' nodes'].concat(chipsFor(n, null, 14, 1))
+  // PERF-04: `7 rolled up`, never `7 nodes`. The two counts mean different
+  // things — one is what is inside a box you can open, the other is what is not
+  // in the document at all — and one wording for both would erase that.
+  const chips = groupLike
+    ? [rolled ? rollupChipText(rolled) : v.descendants + ' nodes'].concat(chipsFor(n, null, 14, 1))
     : chipsFor(n, chipMetrics(v.box.w - CHIP_ROW_INSET));
   // VIEW-08: the `changed` chip is PREPENDED, like the collapsed-group count, so
   // the width budget can never push the one thing a reviewer opened this view to
@@ -295,7 +315,14 @@ export function buildNodeCard(v: NodeVisual, collapsedGroup: boolean): HTMLEleme
         ? 'Changed in this diff: ' + (n.diffChanged || []).join(', ')
         : 'Changed in this diff';
     }
-    for (const c of chips) add(row, el('span', 'mlv-chip', c));
+    for (let i = 0; i < chips.length; i++) {
+      // The rollup count is the FIRST chip by construction above; it gets its
+      // own class so the stylesheet can weight it and a test can find it
+      // without matching on the words inside.
+      const cls = rolled && i === 0 ? 'mlv-chip mlv-chip--rollup' : 'mlv-chip';
+      const chip = add(row, el('span', cls, chips[i]));
+      if (rolled && i === 0) chip.title = rollupSpoken(rolled);
+    }
   }
 
   // VIEW-08. The LEDGE: a tab on the leading edge of an added card, drawn as a
@@ -308,7 +335,7 @@ export function buildNodeCard(v: NodeVisual, collapsedGroup: boolean): HTMLEleme
     ledge.setAttribute('aria-hidden', 'true');
   }
 
-  if (collapsedGroup) {
+  if (groupLike) {
     const cluster = severityCluster(v.counts, 14);
     if (cluster) {
       cluster.classList.add('mlv-node__cluster');
@@ -348,6 +375,15 @@ export function buildGroupBox(v: NodeVisual): HTMLElement {
   box.id = nodeDomId(n.id);
   box.setAttribute('data-node-id', n.id);
   box.setAttribute('data-group', '1');
+  // PERF-04. A unit that swallowed its ops KEEPS ITS GHOSTS (11.46 A5), so a
+  // rolled-up node can still be an expanded group — and then the frame has to
+  // carry the count too, or the one card in the document that stands for six
+  // would be the one that says nothing.
+  const rolledGroup = rollupCount(n);
+  if (rolledGroup) {
+    box.setAttribute('data-rolled-up', String(rolledGroup));
+    box.classList.add('is-rolled-up');
+  }
   box.setAttribute('data-stage', stageOf(n));
   box.setAttribute('data-depth', String(Math.min(2, v.box.depth)));
   if (n.viewRole) box.setAttribute('data-view-role', n.viewRole);
@@ -386,6 +422,10 @@ export function buildGroupBox(v: NodeVisual): HTMLElement {
   header.appendChild(kindIcon(n.kind, 14));
   add(header, el('span', 'mlv-group__name', middleTruncate(n.label || n.qualname, 42)));
   add(header, el('span', 'mlv-group__count', String(v.descendants)));
+  if (rolledGroup) {
+    const chip = add(header, el('span', 'mlv-chip mlv-chip--rollup', rollupChipText(rolledGroup)));
+    chip.title = rollupSpoken(rolledGroup);
+  }
   const cluster = boundary ? null : severityCluster(v.counts, 13);
   if (cluster) header.appendChild(cluster);
   box.appendChild(header);

@@ -13,8 +13,10 @@
 
 import { add, button, clear, el, iconButton, on } from '../dom.js';
 import { uiIcon } from '../icons.js';
-import { concernRows, scopeCatalog, stageRows } from '../scope/catalog.js';
+import { concernRows, pipelineRows, scopeCatalog, stageRows } from '../scope/catalog.js';
 import type { ScopeGroup, ScopeUnit } from '../scope/catalog.js';
+import { rowSeverity } from '../scope/pipelines.js';
+import type { PipelineRow } from '../scope/pipelines.js';
 import type { MLGraph } from '../types.js';
 
 export interface ScopePickerCallbacks {
@@ -116,6 +118,16 @@ export class ScopePicker {
     const everything = this.row('Everything', graph.nodes.length + ' nodes', null, this.state.spec === null);
     this.body.appendChild(everything);
 
+    // MLV-P12. Pipelines come FIRST, above the concerns: on a repo with ten
+    // training scripts "which experiment?" is the question you have before
+    // "which concern?", and the chooser that opens on such a report offers
+    // exactly these rows — one list, in one order, in both places.
+    const pipelines = pipelineRows(graph);
+    if (pipelines.length) {
+      this.body.appendChild(this.heading('Pipelines'));
+      for (const row of pipelines) this.body.appendChild(this.pipelineRow(row));
+    }
+
     this.body.appendChild(this.heading('Concerns'));
     for (const row of concernRows(graph)) this.body.appendChild(this.groupRow(row));
 
@@ -184,6 +196,28 @@ export class ScopePicker {
     return el_;
   }
 
+  /**
+   * MLV-P12. `train.py · 34 nodes · 6 shared` — the shared count is on the row
+   * because it is the ONE number that says the component detection
+   * over-approximated (11.47 F), and a menu that hid it would let a reader take
+   * "the exp03 pipeline" as a partition when it is not one.
+   */
+  private pipelineRow(row: PipelineRow): HTMLElement {
+    const spec = 'pipeline:' + row.entrypoint;
+    const shared = row.sharedCount ? ' · ' + row.sharedCount + ' shared' : '';
+    const detail = row.nodeCount + (row.nodeCount === 1 ? ' node' : ' nodes') + shared;
+    const el_ = this.row(pipelineName(row.entrypoint), detail, spec, this.state.spec === spec);
+    el_.setAttribute('data-pipeline', row.entrypoint);
+    const sev = rowSeverity(row);
+    if (sev) el_.setAttribute('data-sev', sev);
+    el_.title =
+      row.entrypoint + ' — ' + detail +
+      (row.sharedCount
+        ? '. The shared nodes are reachable from another entrypoint too, so they are drawn as context rather than claimed by this pipeline.'
+        : '. Nothing here is shared with another entrypoint.');
+    return el_;
+  }
+
   private unitRow(unit: ScopeUnit): HTMLElement {
     const detail = unit.file + ':' + unit.line + ' · ' + unit.nodeCount + (unit.nodeCount === 1 ? ' node' : ' nodes');
     const row = this.row(unit.label, detail, unit.spec, this.state.spec === unit.spec);
@@ -202,4 +236,17 @@ export class ScopePicker {
     on(b, 'click', () => this.cb.onPick(spec));
     return b;
   }
+}
+
+/**
+ * `experiments/exp03/train.py` -> `exp03/train.py`.
+ *
+ * A row is ~360 px wide and ten sibling experiments differ in the LAST two
+ * segments, so a head-truncated path is the one that still distinguishes them.
+ * The full path stays in the row's `title` and in `data-pipeline`.
+ */
+export function pipelineName(entrypoint: string): string {
+  const parts = entrypoint.split('/');
+  if (parts.length <= 2) return entrypoint;
+  return '…/' + parts.slice(-2).join('/');
 }

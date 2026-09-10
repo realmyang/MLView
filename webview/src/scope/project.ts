@@ -24,6 +24,7 @@
 
 import { CONCERNS, ScopeError, asciiLower, isAll, viewLabel } from './selector.js';
 import type { Scope } from './selector.js';
+import { resolvePipelineScope } from './pipelines.js';
 import type { Diagnostic, Issue, IssueCounts, MLEdge, MLGraph, MLNode, Severity, Stage, View, ViewAnchor, ViewRole } from '../types.js';
 
 const SEVERITIES: Severity[] = ['high', 'medium', 'low'];
@@ -39,6 +40,17 @@ export interface ScopeResolution {
   /** `config_warning` messages to append to `diagnostics`. */
   warnings: string[];
   empty: boolean;
+  /**
+   * MLV-P12 (11.47 C). Nodes this scope REACHES but does not claim, because
+   * another entrypoint reaches them too. They are kept, they are never assigned
+   * `boundary`, and step 8 therefore gives every one of them `context` — which
+   * is the roadmap's clause ("mark a node reachable from several entrypoints as
+   * `viewRole: context` rather than forcing it into one pipeline") falling out
+   * of the three-role vocabulary that already exists.
+   *
+   * Absent for every other kind, where it is simply an empty set.
+   */
+  forcedContext?: string[];
 }
 
 /* ── step 1: resolve the anchors ─────────────────────────────────────── */
@@ -129,6 +141,11 @@ export function resolveScope(graph: MLGraph, scope: Scope): ScopeResolution {
     const ids = nodes.map((n) => n.id);
     return { scope, anchors: ids, core: ids, ambiguous: false, warnings, empty: !ids.length };
   }
+
+  // MLV-P12 (11.47 B and C). A pipeline resolves against `workspace.entrypoints`
+  // rather than against the nodes, and its core/forced-context split replaces
+  // step 2 outright, so it returns from here rather than falling through.
+  if (scope.kind === 'pipeline') return resolvePipelineScope(graph, scope, nodes, warnings);
 
   let anchors: MLNode[];
   if (scope.kind === 'stage') {
@@ -230,11 +247,21 @@ export function projectResolved(
   for (const node of nodes) byId.set(node.id, node);
 
   const core = new Set(resolution.core);
+  // MLV-P12 (11.47 C): nodes this scope reaches and does not claim. Empty for
+  // every kind but `pipeline:`, which is why the three lines below are a no-op
+  // on every existing projection.
+  const forced = new Set(resolution.forcedContext || []);
 
   // Steps 3-4: boundary rings, then the ancestor closure.
   const boundary = boundaryRing(edges, core, scope.depth);
-  const context = ancestorClosure(byId, union(core, boundary));
-  let kept = union(union(core, boundary), context);
+  // `boundary <- boundary - forced context`: a shared node is NEVER a boundary
+  // stub. A stub is badge-free and faded because its findings are out of scope;
+  // a shared node's findings are in another pipeline, which is a different
+  // statement, and step 8 says it that way by giving it `context`.
+  for (const id of forced) boundary.delete(id);
+  const seeds = union(union(core, boundary), forced);
+  const context = ancestorClosure(byId, seeds);
+  let kept = union(seeds, context);
 
   let keptEdges = edges.filter((e) => kept.has(e.source) && kept.has(e.target));
   const coreEdgeIds = new Set(keptEdges.filter((e) => core.has(e.source) && core.has(e.target)).map((e) => e.id));

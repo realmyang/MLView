@@ -181,6 +181,13 @@ def _check_hierarchy(doc):
 def _check_edges(doc):
     errs = []
     ids = {n["id"] for n in doc["nodes"]}
+    # PERF-04 (CONTRACTS 11.46 C): a document that says it rolled anything up
+    # has had EVERY edge re-pointed and de-duplicated, so it may not carry two
+    # edges with one (source, kind, target). An untouched document may - two
+    # data edges differing only in `label` are ordinary and legal.
+    rolled = (any("rolledUp" in n for n in doc["nodes"])
+              or any("weight" in e for e in doc["edges"]))
+    pairs = {}
     for e in doc["edges"]:
         for end in ("source", "target"):
             if e[end] not in ids:
@@ -189,6 +196,22 @@ def _check_edges(doc):
         if e["kind"] != "control" and "subkind" in e:
             errs.append("edges: edge %s has subkind %r but kind %r (subkind is only "
                         "meaningful for control edges)" % (e["id"], e["subkind"], e["kind"]))
+        if e["source"] == e["target"]:
+            errs.append("edges: edge %s is a self-loop on %s; a rollup absorbs an "
+                        "edge whose endpoints land on one survivor, it never emits "
+                        "one" % (e["id"], e["source"]))
+        weight = e.get("weight")
+        if weight is not None:
+            if isinstance(weight, bool) or not isinstance(weight, int) or weight < 2:
+                errs.append("edges: edge %s has weight %r; it must be an integer >= 2 "
+                            "(absent means one)" % (e["id"], weight))
+        if rolled:
+            key = (e["source"], e["kind"], e["target"])
+            if key in pairs:
+                errs.append("edges: a rolled-up document carries parallel edges %s "
+                            "and %s on %s; parallels merge into one carrying a "
+                            "weight" % (pairs[key], e["id"], key))
+            pairs[key] = e["id"]
     return errs
 
 
@@ -328,6 +351,61 @@ def _check_stats(doc):
     if "suppressed" in stats and stats["suppressed"] != suppressed:
         errs.append("stats: suppressed=%d but %d issues are marked suppressed"
                     % (stats["suppressed"], suppressed))
+    errs += _check_rollup(doc, stats)
+    errs += _check_pipelines(doc)
+    return errs
+
+
+def _check_rollup(doc, stats):
+    """PERF-04 (CONTRACTS 11.46 C). Part of the `stats` group on purpose: it is
+    an aggregate claim about the whole document, and folding it in here keeps
+    the count of invariant groups at the ten five documents quote."""
+    errs = []
+    for n in doc["nodes"]:
+        rolled = n.get("rolledUp")
+        if rolled is None:
+            continue
+        if isinstance(rolled, bool) or not isinstance(rolled, int) or rolled < 1:
+            errs.append("stats: node %s has rolledUp %r; it must be an integer >= 1 "
+                        "(absent means zero)" % (n["id"], rolled))
+    if not stats.get("truncated"):
+        claimed = [n["id"] for n in doc["nodes"] if "rolledUp" in n]
+        weighted = [e["id"] for e in doc["edges"] if "weight" in e]
+        if claimed:
+            errs.append("stats: truncated is false but %d node(s) claim rolledUp "
+                        "(first: %s); a full-fidelity document may not claim to "
+                        "have summarised anything" % (len(claimed), claimed[0]))
+        if weighted:
+            errs.append("stats: truncated is false but %d edge(s) carry a weight "
+                        "(first: %s)" % (len(weighted), weighted[0]))
+    return errs
+
+
+def _check_pipelines(doc):
+    """MLV-P12 (CONTRACTS 11.47 D). Absent is the normal case and is silent."""
+    errs = []
+    rows = doc.get("pipelines")
+    if rows is None:
+        return errs
+    entrypoints = list(doc["workspace"]["entrypoints"])
+    if len(rows) < 2:
+        errs.append("pipelines: the block carries %d row(s); it is emitted only "
+                    "for two or more non-empty pipelines" % len(rows))
+    seen = set()
+    for row in rows:
+        name = row["entrypoint"]
+        if name not in entrypoints:
+            errs.append("pipelines: %r is not one of workspace.entrypoints" % name)
+        if name in seen:
+            errs.append("pipelines: entrypoint %r has two rows" % name)
+        seen.add(name)
+        if row["exclusiveCount"] + row["sharedCount"] != row["nodeCount"]:
+            errs.append("pipelines: %s has nodeCount %d but %d exclusive + %d "
+                        "shared" % (name, row["nodeCount"], row["exclusiveCount"],
+                                    row["sharedCount"]))
+        if row["nodeCount"] < 1:
+            errs.append("pipelines: %s has no nodes; an empty pipeline is not a "
+                        "row" % name)
     return errs
 
 

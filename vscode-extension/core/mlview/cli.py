@@ -23,7 +23,8 @@ from .core.graph import SEVERITY_RANK
 from .core.pipeline import DEFAULT_RELEVANCE, AnalyzeOptions
 from .core.relevance import DEFAULT_HOPS
 from .ir.build_ir import DEFAULT_DATAFLOW
-from .core.project import Scope, ScopeError, parse_scope, project, scope_catalog
+from .core.project import (Scope, ScopeError, parse_scope, pipeline_catalog,
+                          project, scope_catalog)
 from .emit import html_out, json_out, mermaid_out, scope_out
 from .emit.text_out import write_stderr, write_stdout, write_stdout_bytes
 from .version import SCHEMA_VERSION, __version__
@@ -261,7 +262,9 @@ def _cmd_list_scopes(args, scope: Optional[Scope]) -> int:
         doc = api.demo_dict()
     else:
         doc = api.analyze_full(_options(args, args.paths or ["."])).graph.to_dict()
-    rows = scope_catalog(doc, limit=0)
+    # MLV-P12 (CONTRACTS 11.47 B2): the coarsest scopes lead the menu, and
+    # only when the workspace has two or more pipelines to choose between.
+    rows = pipeline_catalog(doc) + scope_catalog(doc, limit=0)
     write_stdout(scope_out.render_catalog_json(rows) if args.fmt == "json"
                  else scope_out.render_catalog_text(rows))
     return EXIT_OK

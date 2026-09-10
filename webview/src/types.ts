@@ -96,6 +96,18 @@ export interface MLNode {
   collapsedByDefault: boolean;
   stageEvidence: Evidence[];
   /**
+   * PERF-04 (CONTRACTS 11.46 B1). How many nodes `--max-nodes` folded INTO this
+   * one, counted transitively; absent when none were. The children are not in
+   * the document at all — this is not a collapsed group and there is nothing to
+   * expand — which is why the card borrows the collapsed-group VISUAL and none
+   * of its interaction.
+   *
+   * Read through `rollup/rolled.ts`, never directly: that module is the one
+   * place the renderer knows this field's name, and it refuses a value that is
+   * not a positive integer rather than drawing `-3 rolled up`.
+   */
+  rolledUp?: number;
+  /**
    * Present ONLY in a projected document (one carrying `view`). Absent means
    * "this document is not a projection" (CONTRACTS 11.3).
    */
@@ -125,6 +137,15 @@ export interface MLEdge {
   tags: string[];
   confidence: number;
   issueIds: string[];
+  /**
+   * PERF-04. How many document edges this one stands for after the rollup
+   * re-pointed edges at surviving ancestors and deduped the parallels. Absent
+   * means one, so an uncapped document is byte-for-byte what it always was.
+   *
+   * It counts CONNECTIONS, not call sites: see `rollup/rolled.ts`, which is the
+   * only reader and which says so in the banner as well as in the hover.
+   */
+  weight?: number;
 }
 
 /**
@@ -342,6 +363,12 @@ export interface Stats {
   issues: IssueCounts;
   suppressed?: number;
   durationMs: number;
+  /**
+   * PERF-04. Still a plain boolean and still means "this document is not the
+   * whole graph" (11.46 D). The WORDS are the `truncated` diagnostic's job: it
+   * carries the per-phase counts and any findings phase 3 lost, and
+   * `rollup/rolled.ts` reads them from there rather than from a second flag.
+   */
   truncated: boolean;
 }
 
@@ -480,6 +507,17 @@ export interface ViewState {
    * Restoring it with no overlay loaded is a NO-OP, never an empty diagram.
    */
   diffOnly?: boolean;
+  /**
+   * MLV-P12. True once the reader has answered the pipeline chooser — by
+   * picking a pipeline, by asking for everything, or by dismissing it, all three
+   * of which are answers. Absent at its default (not asked yet), exactly as
+   * `flow`, `scope`, `legendOpen` and `diffOnly` are absent at theirs, so an
+   * older host round-trips a state it has never seen (CONTRACTS 11.9).
+   *
+   * It records only THAT the question was answered, never which pipeline was
+   * chosen: that is a scope, and `scope` above already persists it.
+   */
+  pipelineChosen?: boolean;
 }
 
 /* ── host protocol (CONTRACTS section 4) ───────────────────────────────── */

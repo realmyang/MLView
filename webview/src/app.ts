@@ -42,6 +42,8 @@ import { SearchController } from './ui/searchcontroller.js';
 import { dispatchHostMessage, sanitizeScope } from './protocol.js';
 import { ScopeSession, mergeCollapsed, railScopeCounts, sameScope } from './scope/session.js';
 import { ScopeBar } from './ui/scopebar.js';
+import { PipelineChooser } from './ui/pipelinechooser.js';
+import { pipelineRows } from './scope/catalog.js';
 import { DiffBar } from './ui/diffbar.js';
 import { adoptDiff, drawnRemoved } from './diff/adopt.js';
 import { indexOverlay, readOverlay } from './diff/overlay.js';
@@ -131,6 +133,8 @@ export class App implements MLViewApp {
   private railTab: RailTab = 'issues';
   private railGroupBy: RailGroupBy = 'none';
   private legendOpen = false;
+  /** MLV-P12: the pipeline chooser is asked once per viewer, then remembered. */
+  private pipelineChosen = false;
   /** MLV-P1: the answer card starts open, so the four answers are the first read. */
   private answersOpen = true;
 
@@ -151,6 +155,7 @@ export class App implements MLViewApp {
   private answers!: AnswersCard;
   private scopeBar!: ScopeBar;
   private diffBar!: DiffBar;
+  private chooser!: PipelineChooser;
   private scrim!: HTMLElement;
   private releasePage: () => void = () => undefined;
   private themes!: ThemeController;
@@ -316,6 +321,12 @@ export class App implements MLViewApp {
     this.legend = new Legend((open) => this.setLegend(open));
     shell.canvas.appendChild(this.legend.root);
 
+    // MLV-P12. Appended on the app root beside the shortcut sheet and the scope
+    // picker, so it overlays the diagram without being inside the canvas — a
+    // chooser drawn in the world layer would pan and zoom with it.
+    this.chooser = new PipelineChooser({ onPick: (spec) => this.answerPipelineChooser(spec) });
+    this.root.appendChild(this.chooser.root);
+
     this.sheet = new ShortcutSheet(() => this.toggleShortcuts(false));
     this.root.appendChild(this.sheet.root);
     this.root.appendChild(this.exportMenu.panel);
@@ -411,6 +422,9 @@ export class App implements MLViewApp {
     // the scope does.
     if (pending && this.drainScope(pending)) return;
     if (before && !sameScope(before, this.scopes.summary())) this.postScopeChanged();
+    // MLV-P12: after the document is drawn and any pending scope has drained,
+    // so a reader who already has a scope is never asked which pipeline to open.
+    this.maybeOpenPipelineChooser();
   }
 
   /**
@@ -500,6 +514,41 @@ export class App implements MLViewApp {
 
   private toggleScopePicker(): void {
     this.scopeBar.togglePicker(this.scopes.full, this.scopes.spec, this.scopes.depth);
+  }
+
+  /* ── the pipeline chooser (MLV-P12) ────────────────────────────────── */
+
+  /**
+   * Open the chooser on a workspace with two or more pipelines — once.
+   *
+   * A reader who arrived with a scope already applied (a restored `ViewState`,
+   * the report's `data-mlview-scope`, a host `setScope`) has ALREADY answered
+   * the question, so they are not asked; nor is anyone who answered it before,
+   * which `ViewState.pipelineChosen` remembers. The relation is computed here,
+   * never read off the emitted `pipelines[]` block (CONTRACTS 11.47 A).
+   */
+  private maybeOpenPipelineChooser(): void {
+    if (this.pipelineChosen || this.chooser.open) return;
+    const graph = this.scopes.full;
+    if (!graph || this.scopes.spec || this.pendingScope) return;
+    const rows = pipelineRows(graph);
+    if (rows.length < 2) return;
+    this.chooser.show(graph, rows);
+    this.announce(
+      'This workspace has ' + rows.length + ' pipelines. Choose one, or show everything.',
+    );
+  }
+
+  /**
+   * The chooser's one exit. Every answer — a pipeline, "everything", Escape —
+   * is recorded, so the question is asked once per viewer and never again.
+   */
+  private answerPipelineChooser(spec: string | null): void {
+    this.chooser.hide();
+    this.pipelineChosen = true;
+    if (spec) this.setScope(spec);
+    else this.announce('Showing the whole workspace, every pipeline at once.');
+    this.saveSoon();
   }
 
   private stepDepth(delta: number): void {
@@ -1200,6 +1249,8 @@ export class App implements MLViewApp {
     if (state.railGroupBy) this.railGroupBy = sanitizeGroupBy(state.railGroupBy);
     if (typeof state.legendOpen === 'boolean') this.setLegend(state.legendOpen);
     if (typeof state.answersOpen === 'boolean') this.answersOpen = state.answersOpen;
+    // MLV-P12: the question has been answered before, so it is not asked again.
+    if (state.pipelineChosen === true) this.pipelineChosen = true;
     // VIEW-08: restoring "changed only" with no overlay loaded is a NO-OP, never
     // an empty diagram — `ScopeSession.setChangedOnly` refuses without a diff,
     // and the flag is dropped rather than left standing for an overlay that may
@@ -1329,6 +1380,8 @@ export class App implements MLViewApp {
     // Absent at its default (off), exactly as `flow`, `scope` and `legendOpen`
     // are: an older host round-trips a state it has never seen (11.9).
     if (this.scopes.changedOnly) state.diffOnly = true;
+    // MLV-P12, and the same rule again: absent means "not asked yet".
+    if (this.pipelineChosen) state.pipelineChosen = true;
     return state;
   }
 

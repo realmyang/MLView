@@ -454,6 +454,18 @@ def mlview_graph(
                               presets that partition the eight stages (aliases:
                               setup, preprocessing, dataset, training, inference).
             "node:<nodeId>"   one node and its neighbourhood.
+            "pipeline:<entry>" MLV-P12 -- everything one workspace entrypoint
+                              reaches over data and call edges plus containment:
+                              "pipeline:exp03/train.py", or its bare basename.
+                              This is the unit a practitioner thinks in on a repo
+                              with several training scripts. A node reachable
+                              from two entrypoints is SHARED and comes back as
+                              viewRole "context", never as this pipeline's own,
+                              and a finding anchored only on a shared node is
+                              reported as outside the view. Call scope="stages"
+                              or read `pipelines` in the graph document for the
+                              entrypoints; a target that is not one of them is an
+                              unknown_pipeline error listing the real ones.
             "symbol:<name>"   an alias for "unit:<name>".
             "diff"            VIEW-08 -- NOT a diagram: compare this analysis
                               against an earlier one and report what changed.

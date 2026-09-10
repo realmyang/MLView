@@ -34,10 +34,22 @@ export const TOOL_DIAGRAM = 'mlview_showDiagram';
  *
  * `stages` and `units` stay MCP-only on purpose: they are catalogue payloads that tool shapes
  * as JSON rows, not projections of the document, and `--scope stages` is a `bad_selector`
- * refusal at the CLI. Everything the CLI accepts, these tools accept.
+ * refusal at the CLI. Everything the CLI accepts, these tools accept — including
+ * `pipeline:<entrypoint.py>` (MLV-P12, 11.47), which is why this comment names the grammar in
+ * one place: §11.16 moves the two `project()` implementations, the parity fixtures, the MCP
+ * docstring and this vocabulary together or not at all.
  */
 export interface ScopedToolInput {
-  /** `all`, `stage:`, `unit:`, `file:`, `concern:`, `node:` or `symbol:`. */
+  /**
+   * `all`, `stage:`, `unit:`, `file:`, `concern:`, `node:`, `pipeline:` or `symbol:` — the
+   * §11.1 grammar, spelled the same way in every host (the MCP server's `mlview_graph`
+   * docstring, `mlview analyze --scope` and this tool all read one vocabulary).
+   *
+   * `pipeline:<entrypoint.py>` (MLV-P12, 11.47) is the newest kind: everything one workspace
+   * entrypoint reaches over data and call edges plus containment. A node reachable from two
+   * entrypoints is shared and comes back as `context`, so a `pipeline:` answer is about one
+   * script's own work and says so.
+   */
   scope?: string;
   /** 0, 1 or 2 boundary hops. Ignored without a scope. */
   depth?: number;

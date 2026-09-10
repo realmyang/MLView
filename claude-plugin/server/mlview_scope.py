@@ -6,7 +6,7 @@ projection can never disagree:
 * **what a `scope` argument may say** — the two catalogue values (`"stages"`,
   `"units"`) that are project-level statements, plus the full section 11.1
   selector grammar (`all`, `unit:`, `stage:`, `file:`, `concern:`, `node:`,
-  `symbol:`);
+  `pipeline:`, `symbol:`);
 * **what an unusable selector says back** — a ``ValueError`` naming the offending
   spec, the grammar code, and every accepted value, because
   ``mlview_mcp.mlview_graph``'s docstring promises exactly that and a promise the
@@ -76,7 +76,8 @@ def accepted_values() -> str:
         "'unit:<qualname|ClassName|function>', "
         "'file:<path.py>', "
         "'concern:<%s>', "
-        "'node:<nodeId>'"
+        "'node:<nodeId>', "
+        "'pipeline:<entrypoint.py>'"
         % (
             ", ".join("stage:%s" % s for s in STAGE_IDS),
             "|".join(sorted(CONCERNS)),
@@ -98,6 +99,11 @@ def scope_value_error(spec: str, exc: ScopeError) -> ValueError:
         )
     elif exc.code == "unknown_file":
         hint = " — the path is workspace-relative with forward slashes"
+    elif exc.code == "unknown_pipeline":
+        # MLV-P12 (11.47 B1): the candidates ARE the workspace entrypoints, so
+        # the sentence that follows already lists them; this says what they are.
+        hint = (" — a pipeline: target is one of the workspace's entrypoint "
+                "files, not any file in it")
     elif exc.code == "bad_depth":
         hint = " — depth is 0, 1 or 2"
     candidates = ""

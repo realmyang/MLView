@@ -55,7 +55,11 @@ CONCERN_LABELS: Dict[str, str] = {
     "evaluation": "Evaluation & inference",
 }
 
-SCOPE_KINDS: Tuple[str, ...] = ("unit", "stage", "file", "concern", "node")
+#: MLV-P12 (CONTRACTS 11.47 B2) appends `pipeline`. Additive: every
+#: previously legal selector still parses to exactly what it did, and the
+#: only visible change is one more entry in the `bad_selector` candidates.
+SCOPE_KINDS: Tuple[str, ...] = ("unit", "stage", "file", "concern", "node",
+                               "pipeline")
 #: Everything a user may type in the kind slot (`symbol` normalizes to `unit`).
 SCOPE_SPELLINGS: Tuple[str, ...] = tuple(sorted(SCOPE_KINDS + ("symbol", "all")))
 
@@ -64,6 +68,9 @@ SCOPE_SPELLINGS: Tuple[str, ...] = tuple(sorted(SCOPE_KINDS + ("symbol", "all"))
 #: already a region, and a ring around a whole lane is mostly noise.
 DEFAULT_DEPTH: Dict[str, int] = {
     "unit": 1, "node": 1, "stage": 0, "file": 0, "concern": 0, "all": 0,
+    # A pipeline is already a whole region, and 11.47 A2 puts containment in
+    # the relation, so a ring around it is mostly noise.
+    "pipeline": 0,
 }
 MAX_DEPTH = 2
 
@@ -115,6 +122,7 @@ def _default_message(code: str, term: str, candidates: Sequence[str]) -> str:
         "unknown_concern": "unknown concern %r" % term,
         "unknown_node": "no node %r in this graph" % term,
         "unknown_file": "no analyzed file matches %r" % term,
+        "unknown_pipeline": "no entrypoint %r in this workspace" % term,
         "bad_depth": "depth must be an integer 0..2, got %r" % term,
     }.get(code, "%s: %r" % (code, term))
     kind = {"unknown_stage": "stage", "unknown_concern": "concern"}.get(code)
@@ -211,7 +219,7 @@ def parse_scope(spec: Optional[str], depth: Optional[Any] = None) -> Scope:
             "bad_selector", "", SCOPE_SPELLINGS,
             "%s: needs a target - a qualname, an FQN, a bare name or a node id"
             % raw_kind.strip())
-    if kind == "file":
+    if kind in ("file", "pipeline"):
         target = target.replace("\\", "/")
     if kind == "concern":
         target = CONCERN_ALIASES.get(target, target)
@@ -219,8 +227,9 @@ def parse_scope(spec: Optional[str], depth: Optional[Any] = None) -> Scope:
             raise ScopeError("unknown_concern", target, CONCERNS)
     if kind == "stage" and target not in STAGE_IDS:
         raise ScopeError("unknown_stage", target, STAGE_IDS)
-    # `node:` and `file:` with an empty target fall through to the resolver on
-    # purpose: only it can name the candidates CONTRACTS 11.1 requires (the
-    # graph's node ids, the analyzed `loc.file` values), so it raises
-    # `unknown_node` / `unknown_file` with `term: ""` and a real candidate list.
+    # `node:`, `file:` and `pipeline:` with an empty target fall through to the
+    # resolver on purpose: only it can name the candidates CONTRACTS 11.1
+    # requires (the graph's node ids, the analyzed `loc.file` values, this
+    # workspace's entrypoints), so it raises `unknown_node` / `unknown_file` /
+    # `unknown_pipeline` with `term: ""` and a real candidate list.
     return Scope(kind, target, _parse_depth(depth, kind), "%s:%s" % (kind, target))

@@ -9,6 +9,8 @@
  */
 
 import { CONCERNS, CONCERN_LABELS, CONCERN_NAMES } from './selector.js';
+import { PipelineIndex } from './pipelines.js';
+import type { PipelineRow } from './pipelines.js';
 import type { IssueCounts, MLGraph, MLNode, Severity } from '../types.js';
 
 const SEVERITIES: Severity[] = ['high', 'medium', 'low'];
@@ -145,6 +147,34 @@ export function concernRows(graph: MLGraph): ScopeGroup[] {
     const label = CONCERN_LABELS[name] || name;
     return { spec: 'concern:' + name, label, nodes: ids.size, issues: counts, present: ids.size > 0 };
   });
+}
+
+/**
+ * MLV-P12. The pipelines of one document, computed ONCE per document object.
+ *
+ * The picker re-renders on every keystroke in its search box and the chooser
+ * asks for the same rows a moment later, so a relation that is O(entrypoints ×
+ * (V + E)) is memoised against the document's identity rather than recomputed.
+ * A new document is a new object, so the cache can never be stale; it holds one
+ * entry, because there is only ever one document on screen.
+ *
+ * Nothing here reads the emitted `pipelines[]` block — 11.47 A is explicit that
+ * both ports compute the relation and neither trusts the block, so a stale or
+ * hand-edited block can never change what the picker offers or what is drawn.
+ */
+let cachedGraph: MLGraph | null = null;
+let cachedIndex: PipelineIndex | null = null;
+
+export function pipelineIndexOf(graph: MLGraph): PipelineIndex {
+  if (cachedGraph === graph && cachedIndex) return cachedIndex;
+  cachedGraph = graph;
+  cachedIndex = new PipelineIndex(graph);
+  return cachedIndex;
+}
+
+/** The picker's and the chooser's rows, in the analyzer's ranked order. */
+export function pipelineRows(graph: MLGraph | null): PipelineRow[] {
+  return graph ? pipelineIndexOf(graph).rows() : [];
 }
 
 /** One row per stage the document declares; absent stages are shown disabled. */

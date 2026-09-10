@@ -26,6 +26,7 @@ from .coverage import (note_unconfirmed_train_loops, note_untraced_sites,
                        single_file_diagnostic)
 from .unresolved import unresolved_callee_diagnostics
 from .graph import Diagnostic, MLGraph, SEVERITY_RANK
+from .rollup import apply_node_budget
 from .progress import safe_call
 
 __all__ = ["AnalyzeOptions", "run", "AnalysisResult", "drop_orphan_ghosts",
@@ -272,7 +273,9 @@ def run(options: AnalyzeOptions) -> AnalysisResult:
 
     _filter_issues(graph, options)
     drop_orphan_ghosts(graph)
-    _apply_node_cap(graph, options.max_nodes)
+    # PERF-04 (CONTRACTS 11.46): the cap is a hierarchical rollup now, and it
+    # still runs here - after the rules, before projection (11.2.2).
+    apply_node_budget(graph, options.max_nodes)
     # NB: last, so a ghost minted by an absence rule and a node re-parented by
     # the cap both carry the cell they came from.
     annotate_notebook_nodes(graph, notebook_maps)
@@ -472,109 +475,6 @@ def _filter_issues(graph: MLGraph, options: AnalyzeOptions) -> None:
             continue
         kept.append(issue)
     graph.issues = kept
-
-
-def _apply_node_cap(graph: MLGraph, max_nodes: int) -> None:
-    """`--max-nodes` is a **graph** cap on the finished document (CONTRACTS §3).
-
-    It runs after the rules, not during construction, for two reasons: the
-    older op-only version was not a cap at all (a workspace with more units
-    than the budget came back at full size with `truncated: true` and nothing
-    the caller could act on), and capping first would have hidden findings from
-    the rules themselves.
-
-    Priority order: ghosts and the nodes an issue is anchored on, then their
-    ancestors, then the remaining units, then ops. Survivors whose parent went
-    are re-parented to their nearest kept ancestor, and an issue whose anchors
-    all went is re-anchored the same way - so invariants 1.1.2 and "every issue
-    names at least one node" both hold at any budget.
-    """
-    if max_nodes <= 0 or len(graph.nodes) <= max_nodes:
-        return
-    by_id = {n.id: n for n in graph.nodes}
-
-    def chain(node):
-        out = []
-        parent = by_id.get(node.parent or "")
-        while parent is not None and len(out) < 32:
-            out.append(parent)
-            parent = by_id.get(parent.parent or "")
-        return out
-
-    # An issue's *first* anchor outranks its later ones. Anchor sets grow (a
-    # finding may name the loss node, the model unit and the offending op), and
-    # a budget smaller than the total anchor count used to be spent on second
-    # and third anchors while some other issue lost every one of its own and
-    # was dropped: "lowering the cap must not silence a finding" held only
-    # while every anchor fitted. Measured on `analyzer/tests`: 56 anchors, and
-    # a 50-node budget silenced MLV203 and MLV204 outright.
-    primary = {n.id for n in graph.nodes if n.ghost}
-    anchors = set(primary)
-    for issue in graph.issues:
-        if issue.nodeIds:
-            primary.add(issue.nodeIds[0])
-        anchors.update(issue.nodeIds)
-    ancestors = set()
-    for node in graph.nodes:
-        if node.id in anchors:
-            ancestors.update(p.id for p in chain(node))
-    ancestors -= anchors
-
-    def tier(node) -> int:
-        if node.id in primary:
-            return 0
-        if node.id in anchors:
-            return 1
-        if node.id in ancestors:
-            return 2
-        return 3 if node.level != "op" else 4
-
-    ordered = sorted(graph.nodes, key=lambda n: (tier(n), len(chain(n))) + tuple(n.sort_key))
-    kept = ordered[:max_nodes]
-    keep_ids = {n.id for n in kept}
-    dropped = [n for n in graph.nodes if n.id not in keep_ids]
-    dropped_ops = sum(1 for n in dropped if n.level == "op")
-
-    def surviving(node_id):
-        node = by_id.get(node_id)
-        if node is None:
-            return None
-        if node.id in keep_ids:
-            return node.id
-        for parent in chain(node):
-            if parent.id in keep_ids:
-                return parent.id
-        return None
-
-    for node in kept:
-        node.parent = surviving(node.parent) if node.parent else None
-    lost_issues = []
-    for issue in graph.issues:
-        rehomed = []
-        for nid in issue.nodeIds:
-            survivor = surviving(nid)
-            if survivor and survivor not in rehomed:
-                rehomed.append(survivor)
-        if rehomed:
-            issue.nodeIds = rehomed
-        else:
-            lost_issues.append(issue)
-    if lost_issues:
-        lost = {id(i) for i in lost_issues}
-        graph.issues = [i for i in graph.issues if id(i) not in lost]
-    graph.nodes = [n for n in graph.nodes if n.id in keep_ids]
-    graph.edges = [e for e in graph.edges
-                   if e.source in keep_ids and e.target in keep_ids]
-    graph.truncated = True
-    extra = ("; %d issue(s) went with them" % len(lost_issues)) if lost_issues else ""
-    graph.diagnostics.append(Diagnostic(
-        kind="truncated",
-        message="Graph cap (--max-nodes budget) %d reached: %d operation node(s) and "
-                "%d unit node(s) dropped, %d node(s) kept%s. Raise --max-nodes, or "
-                "narrow the analyzed path, to see the rest."
-                % (max_nodes, dropped_ops, len(dropped) - dropped_ops,
-                   len(graph.nodes), extra),
-        count=len(dropped)))
 
 
 def drop_orphan_ghosts(graph: MLGraph) -> None:

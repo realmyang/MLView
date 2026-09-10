@@ -1757,9 +1757,277 @@ accuracy figures were corrected as described above. Nothing else in any
 component was edited at integration.
 
 
+## Sprint 5 — contracts, wave 3 (2026-09-10)
+
+**HEALTH-02 grows two shapes: the fuzzer now generates rolled-up and
+multi-pipeline documents.** PERF-04 and MLV-P12 are the two items the Sprint-4
+fuzzer explicitly could not cover — its own measurement note said "the generator
+never produces a document above `--max-nodes`, so PERF-04 will need capped
+documents". `analyzer/tools/scope_gen_projections.py` is that generator half:
+non-ghost ops folded into their unit and whole files folded into a synthesized
+summary node with a transitive `rolledUp` count, edges re-pointed and parallels
+merged into a `weight`, edges internal to a fold absorbed, `stats.truncated` with
+the `truncated` diagnostic §11.46 D requires; and the root `pipelines[]` block
+over the reach of each entrypoint under `data`/`call` edges plus containment,
+emitted only for two or more non-empty pipelines. A fifth of every document's
+selectors are now `pipeline:` ones — a real entrypoint, its basename, the
+case-folded and backslashed spellings, a miss and the empty term — emitted
+*whether or not* the grammar has landed, because two ports that disagree about
+whether `pipeline:` parses at all is exactly the §11.16 drift the fuzzer is for.
+
+**It found two real divergences on its first runs, and both are closed.** The first was a
+`view.scope` disagreement on `pipeline:MAIN.PY` and `pipeline:mod1.py` — six of
+200 cases on seed 20260910, in three spellings the fixture battery does not
+contain (case-folded, bare basename, backslashed). The two ports have since
+converged on echoing the spec as typed, and the amendment appended at
+integration says the same thing: §11.47 B pins `view.scope` to the **selector as
+normalized by 11.1**, not to the canonical entrypoint, "exactly what `file:` does
+today, and for the same reason". So `pipeline:TRAIN.PY` and `pipeline:train.py`
+differ by that one string plus the case-fold `config_warning` that names the
+canonical spelling, and that is the contracted answer rather than a residue. The
+draft the fuzzer was written against said the reverse; a human read the section
+before it landed, which is the only way that class of disagreement is ever
+found — two ports that agree with each other and not with the prose are
+invisible to differential fuzzing by construction.
+
+The second was caught, and fixed inside the wave, by a new gate row —
+**`scopes: pipelines relation`**. §11.47 A is a second algorithm written twice,
+and a projection carries the `pipelines[]` block through *verbatim* (11.47 D), so
+a port that computes the relation differently never shows up in a projection
+comparison. The fuzzer therefore compares the relation itself:
+`mlview.core.pipelines.pipelines_block` against `webview/src/scope/pipelines.ts`'s
+`rows()`, on every generated document. They disagreed on **17 of 40 graphs** at
+`--fuzz 200`: Python counted `sharedCount = len(index.context_of(E))`, which does
+not count a node `E` itself owns even when another entrypoint reaches it, while
+TypeScript counted every node another entrypoint reaches. On one 16-node
+document Python said `main.py` was `nodeCount 7, exclusive 4, shared 3` and
+TypeScript said `exclusive 0, shared 7` — both on screen at once, since the
+report embeds the document's block and the chooser recomputes its own row. The
+viewer moved to the Python count, so the row's split now matches what the
+`pipeline:` projection actually draws as context — and the amendment that landed
+states the rule the ports implement: §11.47 A3.1 says a node another entrypoint
+also reaches is shared for `E` **unless it is one of `E`'s own seeds**, "which
+are never taken away from the entrypoint they live in", and §11.47 D pins the
+three numbers a user sees as one number (`exclusiveCount` == `|core(E)|` ==
+`view.counts.core` at depth 0 == the `--list-scopes` SUBTREE column). Both
+questions this section raised against the draft are therefore settled in the
+appended text, not left open.
+
+**Every shape is schema-probed, never assumed.** `contracts/graph.schema.json` is
+`additionalProperties: false` at every level, so the generator reads the schema,
+produces only what it declares, and the gate row says what it could not produce:
+on a checkout without the two amendments the row reads `NOT GENERATED: the schema
+declares no root pipelines[]` rather than passing quietly. The same rule covers a
+*required member* the generator cannot compute — it names the member and skips
+the shape rather than inventing a value the fuzz run would then assert against.
+
+**Proved to bite.** Three scratch bundles, one line each: one that drops the
+`pipelines` block from the projected document, one that stops `core_of` excluding
+the shared nodes (`return this.reach(e)` — the heart of §11.47 C), and one that
+adds `pipeline` to the port's `SCOPE_KINDS` while the analyzer has not. Five
+seeds each, 40 cases each, **caught every time**, always inside the first or
+second generated graph. Two of them were **promoted**, which is what
+makes the proof permanent: `contracts/scope.cases.json`'s `fuzzCases` grows from
+three to five, and the two new ones are the first that carry a `pipelines[]`
+block at all. `fuzz_22_g0001_c04` (`pipeline:mod2.py`, **2 nodes**) pins §11.47
+C — the shared node is `context`, not `core` — and `fuzz_33_g0000_c01`
+(`stage:objective`, **2 nodes**) pins §11.47 D's "carried through verbatim".
+Replayed with no Python in the loop they are green against the shipped bundle and
+red against the one-line bundles they were found on. Their expectations travel
+with them: the promoted rows carry `expectExtras`, because
+`gen_scope_fixtures.py` regenerates promoted answers with the **shared** digest,
+which does not know about the new fields.
+
+**What it could not do.** The compared digest still excludes `diagnostics`
+(§11.1 leaves that prose free), so §11.47 C1's scope diagnostic and §11.46 D's
+rollup wording are checked by neither port comparison — only their *presence* is,
+and only by `analyzer/tests/core/test_fuzz_shapes.py` on the generated side.
+The relation row compares the four members both ports
+compute — entrypoint, `nodeCount`, `exclusiveCount`, `sharedCount` and
+`issueCounts` — and **not** `label`, because the viewer's chooser row derives its
+own name; a divergence in that name would pass. A deviation both ports share, as
+the `view.scope` one now is, is invisible to a differential fuzzer by
+construction: nothing here reads `docs/CONTRACTS.md`.
+`rolledUp`, `weight` and `pipelines` are compared through an `_extras` block this
+driver adds itself, because `digest_of` in `gen_scope_fixtures.py` does not carry
+them; a **promoted** counterexample replays without that block unless its case row
+carries `expectExtras`, since the promoted expectations are regenerated by that
+shared digest. The generator produces the contracted *shape*, not the analyzer's
+*choices*: it does not reproduce §11.46 A1's fold ordering or phase 3 (drop), and
+it never generates a document whose budget is smaller than its file count. Its
+`pipelines[]` block is `pipelines_block`'s own output rather than a second
+implementation — deliberately, so no generated document is one the analyzer could
+not emit, but it does mean a bug **inside** `pipelines_block` would be generated
+faithfully into every fuzz document and only caught by the relation row, which
+compares it against the port. The one host that still described the
+grammar without `pipeline:` — the three `vscode-extension/package.json`
+tool-input descriptions, which the model actually reads, unlike the TypeScript
+comment beside them — was closed at integration, and a new
+`manifest.test.js` case now reads `SCOPE_KINDS` out of the vendored
+`core/selectors.py` and asserts every kind in it is named in all three
+descriptions, so the next addition to the grammar cannot land in one file and
+not the other.
+
+
+## Sprint 5 — analyzer, viewer and integration, wave 3 (2026-09-10)
+
+Two LATER items, and they answer the same complaint from opposite ends: **a big
+repo renders as one unreadable graph.** PERF-04 makes `--max-nodes` a zoom level
+instead of a guillotine; MLV-P12 says the workspace was never one graph in the
+first place. `docs/CONTRACTS.md` §11.46 (rollup) and §11.47 (pipelines) are the
+amendments — appended at integration under those numbers, not the 11.44/11.45
+their briefs assigned, because the tree they landed on already carried a §11.44
+and a §11.45 from wave 2. **Three optional schema fields, no `required` array
+moved, `schemaVersion` still `1.0`, `contracts/graph.sample.json` untouched, and
+`analyze --demo --format json` byte-identical to it at 46 078 bytes.**
+
+**PERF-04 — the cap folds, it does not delete.** `core/rollup.py`'s
+`apply_node_budget` replaces `pipeline._apply_node_cap` at the same point in the
+pipeline, still before projection (11.2.2), and it **returns before mutating
+anything** when the document is within budget — so an uncapped document cannot
+change, which `tools/perf_equiv.py --expect-same` proves rather than asserts:
+`vision_pipeline`, `vision_pipeline_clean` and `tests_clean` all read `identical`
+against a baseline still holding the deletion cap, exit 0. Above budget three
+phases run in order — a unit absorbs its non-ghost ops, then a whole file folds
+into a synthesized `stage`-level summary, then (a **stated deviation** from the
+roadmap entry, §11.46 A3b) a whole directory does — and only then the old
+deletion order, as a last resort. Edges are re-pointed at the surviving ancestor,
+self-loops absorbed rather than dropped, parallels merged into one carrying
+`Edge.weight`. The measured result on `samples/vision_pipeline` at four budgets:
+**54/51, 38/40, 12/18 and 7/4** nodes/edges at `--max-nodes` 400 / 40 / 20 / 8,
+`contracts/validate_sample.py` green on all four, and **15 issues — 5 high / 6
+medium / 4 low — in every one of them.** The diagnostic at cap 20 reads *"Graph
+cap (--max-nodes budget) 20 reached: 42 node(s) rolled up into their surviving
+ancestor (7 unit(s) absorbed their operations, 0 file(s) and 0 director(ies)
+summarised), 0 node(s) dropped, 12 node(s) kept. 3 parallel edge(s) merged into
+one carrying a weight, 30 absorbed into a rolled-up node, 0 lost an endpoint."*
+
+**The roadmap's two numeric targets were redefined out loud rather than
+quietly.** "Isolated nodes under 5%" is asserted as **zero floating cards**
+(`test_the_rollup_leaves_no_floating_card`) plus *every edgeless survivor is a
+ghost* — because a ghost has no edges by construction and is drawn inside its
+parent, so raw degree-0 is 56% of a 45-card document and measures the finding
+rather than the cap. "Edge retention over 40%" is asserted at the roadmap's own
+budget (`test_edge_retention_at_the_roadmap_budget`, 47.3% at cap 400) and is
+**replaced at every other budget by the stronger `report.edges_lost == 0`**,
+because a fold *absorbs* an intra-group edge rather than losing it and the ratio
+therefore falls as the budget tightens. On the 525-file synthetic the two caps
+measured side by side: at `--max-nodes 100` the deletion drew 25 edges (1.1%),
+**50 floating cards** and silenced 26 of 126 findings; the rollup draws 155
+(6.8%), **zero** floating cards and **all 126 findings**.
+
+**MLV-P12 — a pipeline is another projection, not a new mode.**
+`core/pipelines.py` computes the relation from a finished document and nothing
+else: seeds are one entrypoint's nodes, adjacency is `data` + `call` edges both
+ways plus containment, and `config` and `control` edges are **deliberately cut**
+— a shared `config.py` is precisely what would merge ten training scripts into
+one component. The clause the item lives on is that the closure **includes but
+does not expand through** another entrypoint's own nodes; without it an
+undirected closure is the whole connected component whichever seed it starts
+from, ten scripts sharing a `utils.py` are one pipeline, and MLV-P12 answers
+nothing. `pipeline:<entrypoint>` joins the 11.1 grammar in both ports, in
+`--list-scopes` (`3 pipeline(s) + 10 scopable unit(s)` on the demo, the pipeline
+rows leading), in the MCP `mlview_graph` docstring and in the VS Code LM tools.
+In a `pipeline:` view the exclusive reach is `core` and every shared node is
+forced to `viewRole: context` and **never** `boundary`, so a finding anchored
+only on a shared node is reported as outside the view — which is right: it is not
+this pipeline's. The root `pipelines[]` block is emitted **only at two or more
+non-empty pipelines**, so a single-entrypoint workspace — the golden included —
+is byte-identical to before.
+
+**The gate that caught the bug is the one worth keeping.** HEALTH-02's fuzzer
+grew a fifth row, `scopes: pipelines relation`, because §11.47 A is one algorithm
+written twice and §11.47 D carries the block through a projection *verbatim*, so
+a port that computes it differently never shows up in a projection comparison.
+It disagreed on **17 of 40 graphs** within an hour of existing — Python
+`exclusiveCount 4` where TypeScript said `0` on one 16-node document, both
+numbers on screen at once because the report embeds the block while the chooser
+recomputes its own row. The fix was the normative reading now pinned in §11.47 D
+and in `test_the_three_numbers_a_user_sees_are_one_number`: `exclusiveCount` ==
+`|core(E)|` == `view.counts.core` at depth 0 == the `--list-scopes` SUBTREE
+column. Two counterexamples were promoted, taking the frozen `fuzzCases` from
+three to five and giving the battery its first documents that carry a
+`pipelines[]` block at all.
+
+**Gates, all re-run on this Mac at the integrated tree.** `sh scripts/e2e.sh`
+**20 steps, 0 failed, 0 skipped**; analyzer **2024 passed / 4 skipped** (1929 / 4
+at wave 2, 1722 / 3 at the sprint baseline); webview **521 tests** (473);
+vscode-extension **371 tests**; claude-plugin **370 passed / 7 skipped** (366 /
+7); `scripts` gates **56 passed**; `npx tsc --noEmit` clean in both TypeScript
+packages; `python tools/verify.py --all` **10 of 10**, including `parity: CLI vs
+MCP — 54 nodes, 51 edges, byte-identical` and both vendored-core gates after
+`tools/sync-assets.py` + `tools/sync-core.py`;
+`python tools/verify.py --scopes --fuzz 200` **5 of 5** (13 projections + 7 error
+cases, 5 promoted counterexamples, 200 fuzz cases over 40 generated graphs of
+1–339 nodes with **11 rolled up and 17 carrying pipelines**, and the relation
+row); `python tools/accuracy.py` **PASS** — precision **100.0%** on 36 rules,
+recall **73.1%** / 65.4% visible / 64.9% high+medium, unseen 55.3% / 42.5% /
+37.5%, graph fidelity **91.4%** (127 of 139), zero forbidden findings —
+**unchanged from wave 2 in every digit, which is the point: neither item is
+allowed to move a finding**; `python contracts/validate_sample.py` green at four
+budgets; `python scripts/check_docs.py` **DOC CHECK OK** (19 files).
+
+**Two integration edits outside any agent's ownership, both recorded here.** The
+three `vscode-extension/package.json` LM-tool `scope` descriptions still
+described the 11.1 grammar without `pipeline:` — the description the model
+actually reads, unlike the `src/lmTools.ts` comment beside it — so the sentence
+was added to all three, and a new `manifest.test.js` case reads `SCOPE_KINDS` out
+of the vendored `core/selectors.py` and asserts every kind in it appears in each
+description, so the next addition cannot land in one file and not the other. And
+the wave-3 contracts entry above raised two questions against the *draft*
+amendments (whether `view.scope` reports the canonical entrypoint, and whether
+"shared" has an owner rule); the text that landed settles both — §11.47 B pins
+the selector as normalized by 11.1, §11.47 A3.1 states the owner rule — so those
+paragraphs were rewritten to say what the contract says rather than to leave an
+open question pointing at an unappended file.
+
+
 ## Known gaps
 
 None block the demo. In rough order of how likely they are to matter:
+
+- **A fold is lossy about *which* thing, and `rolledUp` is the whole
+  disclosure.** After `core/rollup.py::_summary_node` folds a file or a
+  directory, the diagram shows one card carrying `rolledUp: <n>` and
+  `sublabel: "<n> nodes rolled up"`, and **nothing says what was inside it**. The
+  summary's `kind` and `stage` are a majority vote over the folded nodes and
+  nothing records that the vote was close; a merged edge with `weight: 3` keeps
+  its label only when its members agreed and is otherwise unlabelled, so the
+  disagreement is erased rather than reported. The findings all survive with
+  real `loc`s (`test_every_finding_survives_and_resolves_to_a_node`), which is
+  why this is a legibility gap and not a correctness one — but "42 nodes rolled
+  up into their surviving ancestor" is the most a reader is told.
+
+- **The deletion phase still exists, and "a cap never silences a finding" is a
+  claim about a corpus, not a theorem.** `_choose_survivors` in
+  `analyzer/src/mlview/core/rollup.py` is the pre-PERF-04 deletion order kept as
+  phase 3, and it runs when the budget is smaller than the number of top-level
+  directories — no fold tier is left. It did not run at any budget on the
+  525-file synthetic (zero nodes dropped even at `--max-nodes 45`) or on
+  `samples/vision_pipeline` down to `--max-nodes 8`, so every measurement here
+  has `lost_issues == 0`; a tighter budget on a wider
+  tree can still drop a node, and only the `truncated` diagnostic's own counters
+  would say so.
+
+- **A `pipeline:` view draws the *other* entrypoints, greyed, and nothing tells
+  them apart from a shared helper.** §11.47 A3's closure includes but does not
+  expand through a neighbouring entrypoint's own nodes, so
+  `core/pipelines.py::PipelineIndex.reach` pulls in up to one whole file per
+  neighbour as context. Excluding them instead was tried and is worse: on
+  `samples/vision_pipeline`, where the entrypoint heuristic lists `train.py`,
+  `config.py` **and** `data.py`, it empties the core. Related, and measurable in
+  the same file: `workspace.entrypoints` is itself a heuristic **capped at 10**,
+  so a repo with 25 training scripts gets 10 pipelines and nothing says 15 are
+  missing; a library with no entrypoint gets `unknown_pipeline` with an empty
+  candidate list; and nodes in *no* pipeline are counted in the projection's
+  `config_warning` but never named — there is no `pipeline:none` selector.
+
+- **On a rolled-up document the `pipelines[]` counts describe the summarised
+  graph.** A file summary counts once however many nodes it stands for, so
+  `pipelines[].nodeCount` after a rollup is a count of cards, not of statements.
+  `stats.truncated` is the only thing that says so, and the viewer's chooser is
+  the only surface that repeats it (`ui/pipelinechooser.ts` adds that caveat when
+  `stats.truncated` is set).
 
 - **`--dataflow ip` is analyzer-only, and only two rules pay for a hop.** No
   host wires the flag in this release — not the VS Code settings, not the MCP

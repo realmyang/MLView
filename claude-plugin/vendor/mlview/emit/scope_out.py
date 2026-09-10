@@ -31,7 +31,11 @@ def render_catalog_text(rows: Sequence[Dict[str, Any]]) -> str:
     `SUBTREE`, not `NODES`, so it cannot be read as a prediction of the drawn
     card count, and the footer says so in words.
     """
-    lines: List[str] = ["%d scopable unit(s)" % len(rows)]
+    pipelines = [r for r in rows if r.get("kind") == "pipeline"]
+    head = "%d scopable unit(s)" % (len(rows) - len(pipelines))
+    if pipelines:
+        head = "%d pipeline(s) + %s" % (len(pipelines), head)
+    lines: List[str] = [head]
     header = "  %-38s %-18s %7s  %-15s %s" % ("SCOPE", "LABEL", "SUBTREE", "ISSUES",
                                               "LOCATION")
     lines.append(header)
@@ -54,7 +58,10 @@ def render_catalog_text(rows: Sequence[Dict[str, Any]]) -> str:
                  "the catalogue holds only units and their parents.")
     lines.append("Also legal: unit:<qualname|name|node id>, stage:<one of the eight>, "
                  "file:<path.py>, concern:<config|data|optimization|evaluation>, "
-                 "node:<n:id>, all.")
+                 "node:<n:id>, pipeline:<entrypoint>, all.")
+    if pipelines:
+        lines.append("A pipeline: row counts only the nodes NO other entrypoint "
+                     "reaches; nodes two pipelines share are drawn as context.")
     lines.append("Use one with:  python -m mlview analyze <path> --scope <SCOPE>")
     return "\n".join(lines) + "\n"
 

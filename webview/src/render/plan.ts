@@ -14,6 +14,7 @@
  */
 
 import { SEVERITY_ORDER, highestSeverity } from '../markers.js';
+import { routeWeight } from '../rollup/rolled.js';
 import { buildBundles } from '../layout/bundles.js';
 import type { BundleVisual } from './bundles.js';
 import type { GraphIndex, IssuePredicate } from '../layout/model.js';
@@ -117,6 +118,11 @@ export function planScene(opts: ScenePlanOptions): ScenePlan {
       mountSerial: opts.mountSerial,
       placement: opts.labels ? opts.labels.get(route.id) : undefined,
       filtered: !!((src && opts.isFilteredOut(src)) || (dst && opts.isFilteredOut(dst))),
+      // PERF-04. Summed over the route's OWN merge, so a cable that is both a
+      // renderer merge and a rollup dedupe reports every connection it stands
+      // for. Decided here, in the plan, so the DOM and the SVG export cannot
+      // draw two different numbers on the same cable.
+      weight: routeWeight(route.ids, index.edgeById),
     });
   }
 

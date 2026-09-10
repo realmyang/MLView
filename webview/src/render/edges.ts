@@ -6,6 +6,14 @@
 
 import { svg, setAttrs } from '../dom.js';
 import { edgeMarker } from '../markers.js';
+import {
+  WEIGHT_BADGE_H,
+  WEIGHT_MIN,
+  weightBadgeAt,
+  weightBadgeText,
+  weightBadgeWidth,
+  weightStroke,
+} from '../rollup/rolled.js';
 import { labelTextOf } from '../layout/labels.js';
 import type { LabelPlacement } from '../layout/labels.js';
 import type { RoutedEdge } from '../layout/routing.js';
@@ -128,17 +136,35 @@ export interface EdgeVisual {
    * renderers dim the same cables.
    */
   filtered?: boolean;
+  /**
+   * PERF-04: how many DOCUMENT edges this cable stands for, summed by
+   * `render/plan.ts` over the route's own merge and the analyzer's rollup
+   * dedupe. Absent or 1 draws exactly what it always drew.
+   */
+  weight?: number;
 }
 
 export function buildEdge(v: EdgeVisual): SVGElement {
   const r = v.route;
   const kind = edgeKindClass(r.kind);
+  const weight = v.weight && v.weight > 1 ? Math.floor(v.weight) : 1;
+  const weighted = weight >= WEIGHT_MIN;
   const g = svg('g', {
-    class: 'mlv-edge mlv-edge--' + kind + (r.count > 1 ? ' mlv-edge--merged' : '') + (r.back ? ' mlv-edge--back' : ''),
+    class:
+      'mlv-edge mlv-edge--' + kind + (r.count > 1 ? ' mlv-edge--merged' : '') +
+      (weighted ? ' mlv-edge--weighted' : '') + (r.back ? ' mlv-edge--back' : ''),
     'data-edge-id': r.id,
     'data-edge-kind': r.kind,
   });
   g.setAttribute('data-edge-ids', r.ids.join(' '));
+  if (weighted) {
+    // PERF-04. The thicker stroke is a CUSTOM PROPERTY on the group rather than
+    // an inline `stroke-width` on the path: hover, selection and the severity
+    // tint all set that property in CSS, and an inline style would win over all
+    // three, so a heavy cable would stop responding to the pointer.
+    g.setAttribute('data-edge-weight', String(weight));
+    g.style.setProperty('--mlv-edge-w', weightStroke(weight) + 'px');
+  }
   // NOTE: this now also matches the 45-300 SVG groups of the edge layer, not
   // only node cards — the bare [data-stage] rule in node.css is what binds
   // --mlv-stage, and the flow layer reads it as --mlv-flow-color.
@@ -150,7 +176,7 @@ export function buildEdge(v: EdgeVisual): SVGElement {
   const hit = svg('path', { class: 'mlv-edge__hit', d: r.d });
   hit.setAttribute('tabindex', '-1');
   hit.setAttribute('role', 'button');
-  hit.setAttribute('aria-label', edgeAria(r, v.sourceLabel, v.targetLabel));
+  hit.setAttribute('aria-label', edgeAria(r, v.sourceLabel, v.targetLabel, weight));
   g.appendChild(hit);
 
   const path = svg('path', { class: 'mlv-edge__path', d: r.d });
@@ -204,19 +230,73 @@ export function buildEdge(v: EdgeVisual): SVGElement {
     });
     g.appendChild(chev);
   }
+  // PERF-04. The weight badge goes LAST, so it sits over the stroke it counts.
+  // It is nudged along the route's own normal whenever the midpoint is already
+  // occupied by a severity glyph or a loop chevron — a number drawn on top of a
+  // severity marker is two facts and one readable glyph.
+  if (weighted) g.appendChild(weightBadge(weight, mark, r.midAngle, !!v.severity || r.back));
   return g;
+}
+
+/**
+ * `×7` in a pill on the cable. It is drawn as a real `<rect>` + `<text>` rather
+ * than borrowed from the edge LABEL, because a label is decluttered away when
+ * it collides (VIEW-03) and the number of connections a merged cable stands for
+ * is not something the picture may quietly drop.
+ *
+ * Its geometry comes from `rollup/rolled.ts`, so the SVG export puts the same
+ * pill in the same place (VIEW-07: the two renderers must not be able to
+ * disagree about the picture).
+ */
+function weightBadge(weight: number, at: { x: number; y: number }, angle: number, occupied: boolean): SVGElement {
+  const text = weightBadgeText(weight);
+  const w = weightBadgeWidth(weight);
+  const point = weightBadgeAt(at, angle, occupied);
+  const g = svg('g', {
+    class: 'mlv-edge__weight',
+    transform: 'translate(' + round(point.x) + ',' + round(point.y) + ')',
+  });
+  g.setAttribute('data-weight', String(weight));
+  g.appendChild(
+    svg('rect', {
+      class: 'mlv-edge__weightbg',
+      x: -w / 2,
+      y: -WEIGHT_BADGE_H / 2,
+      width: w,
+      height: WEIGHT_BADGE_H,
+      rx: WEIGHT_BADGE_H / 2,
+    }),
+  );
+  const label = svg('text', { class: 'mlv-edge__weighttext', x: 0, y: 0 });
+  label.textContent = text;
+  g.appendChild(label);
+  const title = svg('title');
+  title.textContent =
+    weight + ' connections merged into this edge. It counts connections, not call sites: the rollup ' +
+    're-pointed edges from folded children at the card that swallowed them.';
+  g.appendChild(title);
+  return g;
+}
+
+function round(value: number): number {
+  return Math.round(value * 100) / 100;
 }
 
 /**
  * The accessible name carries the DIRECTION in words — a connection was
  * unreachable and undescribed from the keyboard before this (FEATURES 2.2, 2.10).
  */
-export function edgeAria(r: RoutedEdge, sourceLabel?: string, targetLabel?: string): string {
+export function edgeAria(r: RoutedEdge, sourceLabel?: string, targetLabel?: string, weight = 1): string {
   const kind = r.back ? 'loop back edge' : r.kind + ' edge';
   const label = r.label ? ' labelled ' + r.label : '';
   const flows = sourceLabel && targetLabel ? ', flows from ' + sourceLabel + ' to ' + targetLabel : '';
   const merged = r.count > 1 ? ', ' + r.count + ' merged connections' : '';
-  return kind + label + flows + merged + '. Activate to open the call site.';
+  // PERF-04. `count` is what THIS renderer merged; `weight` is what the rollup
+  // merged before the document was written, and it is the larger number. Saying
+  // only the first would understate the cable to the one reader who cannot see
+  // how thick it is.
+  const weighted = weight > 1 ? ', weight ' + weight + ' — ' + weight + ' connections in one cable' : '';
+  return kind + label + flows + merged + weighted + '. Activate to open the call site.';
 }
 
 /** The dotted numbered connectors drawn for a selected issue's relatedLocs. */

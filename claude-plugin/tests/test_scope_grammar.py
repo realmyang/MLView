@@ -166,7 +166,7 @@ def test_an_unusable_selector_names_every_accepted_form(sample_graph, bad):
         _graph_payload(sample_graph, scope=bad)
     message = str(excinfo.value)
     for form in ("stages", "units", "'all'", "stage:train", "unit:", "file:",
-                 "concern:", "node:"):
+                 "concern:", "node:", "pipeline:"):
         assert form in message, "%r is missing %r" % (message, form)
     for concern in ("config", "data", "optimization", "evaluation"):
         assert concern in message
@@ -180,7 +180,7 @@ def test_the_accepted_values_sentence_is_the_one_the_docstring_promises():
     doc = mlview_mcp.mlview_graph.__doc__ or ""
     for form in ("stages", "units", "all", "stage:<id>", "unit:<name>",
                  "file:<path.py>", "concern:<name>", "node:<nodeId>",
-                 "symbol:<name>"):
+                 "pipeline:<entry>", "symbol:<name>"):
         assert form in doc, form
     for value in scopes.STAGE_IDS:
         assert value in doc
@@ -321,3 +321,74 @@ def test_an_unusable_selector_reaches_the_model_as_a_visible_error(mcp_scoped):
     assert is_error is True, text
     for form in ("concern:nope", "stages", "units", "stage:train", "evaluation"):
         assert form in text, text
+
+
+# ------------------------------------------ 5. ONE grammar, in every host (11.16)
+#
+# MLV-P12 adds `pipeline:` to the §11.1 KIND enum, and §11.16 says the two
+# `project()` implementations, the parity fixtures, `mlview.api.SCOPE_KINDS` and
+# the MCP docstring move TOGETHER. Two of those have gates already. These are the
+# two that did not: the prose a model reads, and the sentence an unusable
+# selector gets back. A host describing a smaller product than the CLI ships is
+# how `concern:` was unreachable from Copilot agent mode for a whole release.
+
+
+def test_the_prose_names_every_kind_the_core_actually_accepts():
+    """The drift direction that matters: a kind the core gained and the prose
+    never mentioned is a feature no model will ever ask for."""
+    import mlview_mcp  # noqa: PLC0415 - imported here so the bootstrap runs first
+    from mlview.api import SCOPE_KINDS
+
+    accepted = scopes.accepted_values()
+    doc = mlview_mcp.mlview_graph.__doc__ or ""
+    for kind in SCOPE_KINDS:
+        assert "%s:" % kind in accepted, "%r is not in the accepted values" % kind
+        assert '"%s:' % kind in doc, "%r is not in the mlview_graph docstring" % kind
+
+
+def test_pipeline_is_in_the_grammar_prose_of_this_host():
+    """The MCP half of "all hosts describe one grammar". The VS Code half is
+    `ScopedToolInput.scope` in `vscode-extension/src/lmTools.ts`."""
+    import mlview_mcp  # noqa: PLC0415
+
+    accepted = scopes.accepted_values()
+    assert "pipeline:<entrypoint.py>" in accepted
+    doc = mlview_mcp.mlview_graph.__doc__ or ""
+    assert '"pipeline:<entry>"' in doc
+    # The one thing a model must not get wrong about this kind: a node reached
+    # from two entrypoints is context, not this pipeline's own.
+    assert "shared" in doc.lower() and "context" in doc
+
+
+def _core_has_pipeline() -> bool:
+    from mlview.api import SCOPE_KINDS
+
+    return "pipeline" in SCOPE_KINDS
+
+
+PIPELINE_REASON = (
+    "the core this server runs (claude-plugin/vendor/mlview) has no `pipeline` "
+    "scope kind yet — run tools/sync-core.py"
+)
+
+
+@pytest.mark.skipif(not _core_has_pipeline(), reason=PIPELINE_REASON)
+def test_a_pipeline_selector_projects_through_the_server(sample_graph):
+    entry = (sample_graph["workspace"].get("entrypoints") or [None])[0]
+    assert entry, "the corpus has an entrypoint"
+    payload = _graph_payload(sample_graph, fmt="json", scope="pipeline:%s" % entry)
+    assert payload["scope"] == "pipeline:%s" % entry
+    assert "filtered view" in payload.get("note", "")
+    doc = json.loads(payload["content"])
+    assert doc, "a pipeline projection that renders nothing is not an answer"
+
+
+@pytest.mark.skipif(not _core_has_pipeline(), reason=PIPELINE_REASON)
+def test_an_unknown_pipeline_names_the_real_entrypoints(sample_graph):
+    with pytest.raises(ValueError) as excinfo:
+        _graph_payload(sample_graph, scope="pipeline:not-an-entrypoint.py")
+    message = str(excinfo.value)
+    assert "unknown_pipeline" in message
+    assert "not-an-entrypoint.py" in message
+    for entry in sample_graph["workspace"].get("entrypoints") or []:
+        assert entry in message, "the candidates are the workspace entrypoints"

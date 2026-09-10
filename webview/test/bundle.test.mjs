@@ -92,12 +92,36 @@ test('dist/mlview.css IS the minification of dist/mlview.dev.css (BUILD-01)', as
 /*
  * BUILD-01's size ratchet.
  *
- * MEASURED ON THIS TREE, 2026-09-10, after the viewer half of VIEW-08 (the diff
- * overlay), H5 (structured fixes) and ANA-10 (resolved configuration) landed on
- * top of VIEW-04, the Sprint 4 review fixes, NB and VIEW-07:
- *   dist/mlview.js       304 818 B (297.7 KB)
- *   dist/mlview.css       68 001 B  (66.4 KB), minified from 116 815 B (-42%)
- *   dist/mlview.dev.css  116 815 B (114.1 KB, never shipped)
+ * MEASURED ON THIS TREE, 2026-09-10, after PERF-04 (the hierarchical rollup) and
+ * MLV-P12 (multi-pipeline workspaces) landed on top of VIEW-08, H5 and ANA-10:
+ *   dist/mlview.js       322 438 B (314.9 KB)
+ *   dist/mlview.css       71 689 B  (70.0 KB), minified from 125 446 B (-43%)
+ *   dist/mlview.dev.css  125 446 B (122.5 KB, never shipped)
+ *
+ * The tree those two landed on shipped 304 818 B of JS and 68 001 B of CSS, so
+ * they cost +17 620 B and +3 688 B, and BOTH CAPS MOVE — which is the number a
+ * lead looks for, so here is where it went. PERF-04 is about 8.5 KB: `rollup/
+ * rolled.ts` is the only module that knows the names of `Node.rolledUp` and
+ * `Edge.weight` and it also owns the stroke curve, the badge geometry shared
+ * with the export, the summary's arithmetic (dropped = the diagnostic's count
+ * minus what is visibly folded) and the six caveats of 11.46 F; the rest is one
+ * branch each in `render/nodes`, `render/edges`, `render/plan`, `export/svg`,
+ * `ui/chrome` and `ui/legend`. MLV-P12 is about 8.8 KB: `scope/pipelines.ts` (the
+ * relation, its case-folding resolver, the scope note and the drift check
+ * against the emitted block), `ui/pipelinechooser.ts` (the panel, its rows and
+ * its four caveats), the picker's Pipelines section, `resolvePipeline` and the
+ * forced-context lines in `scope/project.ts`, and one field each on `ViewState`
+ * and `MLNode` / `MLEdge`. The CSS is one new layer, `styles/rollup.css` (the
+ * stack edge, the count chip, the weighted stroke and its pill, all three
+ * theme-aware), plus the chooser's block in `styles/scope.css`. Caps go to JS
+ * 320 KB and CSS 72 KB, leaving 5 242 B (1.6 %) and 2 039 B (2.8 %) — the same
+ * order the last five ratchets held. The ratchet's job is unchanged: make the
+ * NEXT growth visible.
+ *
+ * BEFORE those two came the viewer half of VIEW-08 (the diff overlay), H5
+ * (structured fixes) and ANA-10 (resolved configuration), on top of VIEW-04, the
+ * Sprint 4 review fixes, NB and VIEW-07; that tree shipped 304 818 B of JS and
+ * 68 001 B of CSS, under caps of JS 303 KB and CSS 68 KB.
  *
  * The tree those three landed on shipped 279 080 B of JS and 61 863 B of CSS,
  * so they cost +25 738 B and +6 138 B, and BOTH CAPS MOVE -- which is the number
@@ -172,11 +196,11 @@ test('dist/mlview.css IS the minification of dist/mlview.dev.css (BUILD-01)', as
  * again: `the figures in the block above are the constants below` reads this
  * file and fails on a one-byte disagreement.
  */
-const JS_RECORDED = 304818;
-const CSS_RECORDED = 68001;
+const JS_RECORDED = 322438;
+const CSS_RECORDED = 71689;
 const DRIFT = 2 * 1024;
-const JS_MAX_BYTES = 303 * 1024;
-const CSS_MAX_BYTES = 68 * 1024;
+const JS_MAX_BYTES = 320 * 1024;
+const CSS_MAX_BYTES = 72 * 1024;
 
 const headroom = (size, cap) =>
   size + ' B, ' + (cap - size) + ' B (' + (((cap - size) / cap) * 100).toFixed(1) + ' %) under the ' + cap + ' B ratchet';

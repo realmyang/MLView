@@ -4856,3 +4856,406 @@ factor**, which is what "their confidences are unchanged" means.
   invisible before, and one that can never be `certain`.
 * Analyzer suite **1929 passed / 4 skipped**; `tools/verify.py --all` **10/10**; the demo document and
   `contracts/graph.sample.json` unchanged.
+
+---
+
+### 11.46 PERF-04: `--max-nodes` is a hierarchical rollup, not a deletion (2026-09-10) — amends §1, §1.1, §3 and 11.2.2, analyzer-owned
+
+`--max-nodes` is a **graph** cap on the finished document (§3), applied after the rules and **before**
+projection (11.2.2, unchanged). Until now it was a *deletion*: keep the highest-priority `N` nodes, throw
+the rest away, and keep only the edges whose two endpoints both survived. Measured on the 525-file
+synthetic in `analyzer/tests/core/test_rollup.py`, that produced a disconnected dot cloud — an edge needs
+*both* endpoints, so edges died far faster than nodes.
+
+This amendment replaces the deletion with a **three-phase hierarchical rollup**. The cap becomes a zoom
+level: nodes are *folded into their surviving ancestor* and their edges are *re-pointed at it*, so the
+graph stays connected at every budget. Deletion survives only as the last resort, for the case where the
+budget is smaller than the number of files.
+
+#### A. The three phases (normative)
+
+`apply_node_budget(graph, max_nodes)` in `analyzer/src/mlview/core/rollup.py` is the only implementation.
+It returns immediately, **mutating nothing**, when `max_nodes <= 0` or `len(nodes) <= max_nodes`: an
+uncapped document is byte-for-byte what it was before this amendment existed, and the cap path is only
+entered above budget.
+
+Above budget, in order, stopping the moment `len(nodes) <= max_nodes`. Each phase runs only when the one
+before it has folded everything it can and the document is still too big:
+
+**A1 — Phase 1, fold operations into their parent.** A group is one node `U` together with its `op`-level
+children that are **not ghosts**. Groups are folded in ascending order of
+
+```
+(issues anchored on the group's members, -len(group), stage order, file, line, col, id)
+```
+
+so a unit that carries no finding is folded before one that does, and among equals the biggest group is
+folded first because it frees the most budget per fold. `U` keeps its ghost children.
+
+**A2 — Phase 2, fold a whole file into one summary node.** If phase 1 folded everything it could and the
+document is still over budget, files are folded in ascending order of
+
+```
+(issues anchored on the file's surviving members, -surviving nodes in the file, file)
+```
+
+A file is folded only when it has **two or more** surviving non-ghost nodes; folding one node into a new
+one saves nothing. Every surviving non-ghost node whose `loc.file` is that file is folded into a
+**synthesized file summary node**, defined in A3.
+
+**A3 — The file summary node.** Exactly one per folded file, and it is a real node in every respect:
+
+| field | value |
+|---|---|
+| `id` | `"n:" + sha1("<file>|<file>|file-rollup")[:12]` — the §0 recipe, with a `kind` slot no `NodeKind` can occupy, so the id is stable across budgets and can never collide with an analyzed node |
+| `level` | `"stage"` — it may parent a `unit` or an `op` from any file, and §1.1.2 requires a parent to sit at a strictly lower level |
+| `kind` | the **most common `kind`** among the nodes folded into it; ties broken by ascending kind name |
+| `stage` | the **most common `stage`** among the nodes folded into it; ties broken by ascending `StageId` order |
+| `label` | the file's basename (`model.py`) |
+| `sublabel` | `"<n> nodes rolled up"` |
+| `qualname` | the workspace-relative path (`src/model.py`), so `unit:src/model.py` resolves to it |
+| `loc` | `file` = the path, `absFile` = `workspace.root + "/" + file`, `line: 1`, `col: 0`, `endLine: 1`, `endCol: 0`, no `symbol`, no `snippet` |
+| `parent` | `null` — a `stage`-level node never has one |
+| `confidence` | the **maximum** confidence among the folded nodes: the claim it makes is "this file takes part", which is exactly as certain as its most certain member |
+| `dynamic` | `true` if any folded node was dynamic |
+| `ghost` | always `false`; a summary is not a missing call |
+| `collapsedByDefault` | `true` — it *is* the existing collapsed-group visual, which is why the viewer needs no new language |
+| `attrs` | `{"rollup": "file"}` |
+| `issueIds` | the union of the folded nodes' `issueIds`, sorted |
+| `rolledUp` | see B1 |
+
+**A3b — Phase 2b, fold a directory. A stated deviation from the ROADMAP entry.** The entry names two fold
+tiers and then deletion. Two tiers bottom out at *one node per file*, so on the 525-file synthetic at
+`--max-nodes 400` the budget is structurally unreachable by folding: 147 file summaries had to be deleted
+and took **1023 edges** with them (measured: 5.6% edge retention, 79.8% degree-0). A directory tier is the
+same fold one level up, it keeps the graph connected at **any** budget, and it is strictly better than the
+deletion it replaces — a folded node still carries its findings, a deleted one does not.
+
+Rounds are recomputed each time, so a directory summary folds into its **parent** directory on the next
+round and the phase climbs to the workspace root. Each round folds the single best group, ascending by
+`(issues anchored on the group, -group size, directory path)`; a group of one is never folded. The summary
+node is A3's, with two differences: its id is `"n:" + sha1("<dir>|<dir>|dir-rollup")[:12]`, and its `loc`
+is its **first member's own location**, never the directory — a directory is not a place an editor can
+open, and click-to-code must land somewhere real (§0, R2.1).
+
+**A4 — Phase 3, drop.** Only if phases 1, 2 and 2b ran to completion and the document is still over budget
+— which means the budget is smaller than the number of top-level directories. The ordering is the one that shipped before
+this amendment and is unchanged: ghosts and each issue's **first** anchor, then every other anchor, then
+ancestors, then units, then ops. A dropped node's issue is re-anchored to its nearest surviving ancestor
+if it has one; an issue that loses every anchor is dropped, and the diagnostic **counts it** (D).
+
+**A5 — Ghosts are never folded.** In any phase. A ghost node exists to draw a call the code should have
+made and does not; folding it into its parent would delete the most legible finding MLView draws. A ghost
+may still be *dropped* in phase 3, in which case its issue re-anchors to the surviving ancestor. §1.1.8
+holds at every budget: after the rollup, a surviving ghost with no live issue is removed, then edges and
+`nodeIds` are re-filtered, exactly as `drop_orphan_ghosts` does.
+
+#### B. What the document gains
+
+**B1 — `Node.rolledUp` (optional, integer ≥ 1).** The number of nodes folded into this one, counted
+**transitively**: an op folded into a unit that was then folded into a file summary counts once, on the
+file summary. Absent means zero, and an uncapped document never carries it. It is not a subtree size and
+not a child count: it is "how many cards this card stands for", and a renderer that prints it must say so.
+
+**B2 — `Edge.weight` (optional, integer ≥ 2).** After re-pointing, parallel edges are merged. The group
+key is `(source, kind, target)` — the §0 edge ordering key. The merged edge carries:
+
+* `weight` = the number of members, emitted **only when it is ≥ 2**;
+* `label` = the members' common label when they all agree, and **no label at all** when they disagree —
+  a merged edge must not print one member's variable name over three dependencies;
+* `confidence` = the **maximum** of its members (it asserts that *a* dependency exists, which is as certain
+  as its most certain member);
+* `loc` and `tags` = the first member's, in document order;
+* `issueIds` = the union of the members', sorted;
+* `id` = `"e:" + sha1("<source>|<kind>|<target>|<label>")[:12]` **recomputed from the merged edge's own
+  final endpoints and label**, so §0's id recipe is true of every edge in a rolled-up document and the id
+  does not depend on which member happened to be first.
+
+**B3 — Absorbed edges.** An edge whose two endpoints fold into the *same* survivor becomes internal to a
+rolled-up node. It is **absorbed, not dropped**: it is removed from `edges[]` and counted in the
+diagnostic. Self-loops are never emitted.
+
+**B4 — Issues.** Every `issue.nodeIds` entry is mapped through the fold, de-duplicated, order preserved;
+every `issue.edgeIds` entry is mapped to the merged edge that replaced it, de-duplicated. The reverse
+links are rebuilt with them, so the node ⇄ issue and edge ⇄ issue back-reference checks in
+`contracts/validate_sample.py` hold. **A fold never drops an issue.** Only phase 3 can, and only when the
+budget cannot hold one node per finding.
+
+**B5 — Schema.** `contracts/graph.schema.json` and its byte-identical mirror
+`analyzer/src/mlview/schema/graph.schema.json` gain `rolledUp` to `$defs/Node` and `weight` to
+`$defs/Edge`, both **optional** — no `required` array changes, `schemaVersion` stays `"1.0"`, and
+`contracts/graph.sample.json` is untouched.
+
+#### C. Invariants (amends §1.1)
+
+Everything in §1.1 continues to hold on a rolled-up document. `contracts/validate_sample.py` gains four
+assertions, deliberately folded into its existing **`edges`** and **`stats`** groups rather than added as an
+eleventh group, so the "schema + ten invariant groups" claim in `scripts/README.md`, `docs/STATUS.md`,
+§11.30 G2, `analyzer/tools/scope_fuzz.py` and `scope_gen.py` stays true:
+
+1. `rolledUp`, where present, is an integer ≥ 1; `weight`, where present, an integer ≥ 2.
+2. **No edge is a self-loop** (`source != target`), on any document. A rollup absorbs an edge whose two
+   endpoints land on one survivor; it never emits one, and nothing else ever did.
+3. **A document that carries any `rolledUp` or any `weight` has no two edges sharing
+   `(source, kind, target)`** — every edge in it went through the merge. The check is deliberately *not*
+   unconditional: two `data` edges differing only in `label` are ordinary and legal in a full-fidelity
+   document (5 pairs in `analyzer/tests/clean`, 55 in `analyzer/tests`), and forbidding them would be a
+   contract change nobody asked for.
+4. When `stats.truncated` is **false**, no node carries `rolledUp` and no edge carries `weight`: a
+   full-fidelity document may not claim to have summarised anything.
+
+The fifth invariant — **`stats.truncated` true ⇒ at least one `Diagnostic{kind: "truncated"}`** — is an
+*emitter* obligation, not a document-shape one, and is asserted in `analyzer/tests/core/test_rollup.py`
+instead: `analyzer/tools/scope_gen.py` sets `truncated` at random on synthetic graphs that carry no
+diagnostics, and a validator that rejected those would take the HEALTH-02 fuzz gate red for a claim about
+the analyzer rather than about the schema.
+
+#### D. The diagnostic says "rolled up" (amends §3)
+
+`stats.truncated` is a boolean and stays one; it means "this document is not the whole graph". The words
+are the diagnostic's job. The `Diagnostic{kind: "truncated"}` message **must**:
+
+* contain the word **`budget`** and the exact phrase `"<n> node(s) kept"` for the node count the emitted
+  document actually has (unchanged, and still asserted);
+* contain the words **`rolled up`** whenever any node was folded, and name the counts separately: how many
+  nodes were rolled up, how many units absorbed their operations, how many files were summarised, how many
+  edges were merged, how many were absorbed, and how many nodes were **dropped**;
+* state the number of issues lost when phase 3 lost any, and say nothing about issues when it lost none.
+
+`Diagnostic.count` stays what it always was: the number of nodes that are not in the emitted document
+(folded + dropped).
+
+11.2.2 is unchanged — the cap still runs before projection, and a scoped run over a capped document still
+appends the "capped before scoping" diagnostic.
+
+#### E. Acceptance (normative), measured on the 525-file synthetic
+
+`analyzer/tests/core/test_rollup.py` builds a 525-file synthetic research repo in a tmp dir once per
+session — 25 experiments over a shared `common/` package, every module imported by something on purpose,
+because dead code is a lone card at any budget and would measure the corpus rather than the cap. The
+uncapped document is 1972 nodes / 2273 edges / 126 findings. Each budget then runs `apply_node_budget` on
+a deep copy of the graph object, which is exactly what `core/pipeline.run` does at the same point.
+
+| `--max-nodes` | nodes (old → new) | edges drawn (old → new) | floating cards (old → new) | findings kept (old → new) |
+|---|---|---|---|---|
+| 2000 | 1972 → 1972 | 100.0% → 100.0% | 0 → 0 | 126 → 126 |
+| 400 | 400 → 351 | 25.3% → **29.7%** | 0 → 0 | 126 → 126 |
+| 100 | 100 → 99 | 1.1% → **6.8%** | 50 (50%) → **0** | 100 → **126** |
+| 45 | 45 → 45 | 0.8% → **1.8%** | 7 (15.6%) → **0** | **51** → **126** |
+
+**The two metrics, defined, because the ROADMAP's phrasing does not survive contact with a fold.**
+
+* **"Isolated nodes under 5%"** is asserted as **floating cards: zero, at every budget** — a card with no
+  edge, no parent and no children, which is what "a one-third-disconnected dot cloud" means to a reader.
+  Raw degree-0 is *not* the metric and would be dishonest in the other direction: a ghost has no edges
+  **by construction** (it draws a call that was never made) and is rendered inside its parent, so at
+  `--max-nodes 45` the 25 ghosts are 56% of a 45-card document. The test asserts both halves: floating is
+  empty, **and** every edgeless survivor is a ghost.
+* **"Edge retention over 40% once parallels are merged"** is met at the ROADMAP's own budget:
+  at `--max-nodes 400`, **675 drawn + 399 merged into a weight = 47.3%** of the uncapped 2273. Below that
+  budget the drawn figure falls — 6.8% at 100 — because a fold *absorbs* an edge whose two endpoints land
+  on one survivor; it does not lose it. The property the test asserts at **every** budget is the stronger
+  one: `edges_lost == 0`, and `drawn + merged + absorbed == the uncapped edge count`, exactly. The
+  deletion cap lost 96.9% of the edges outright; the rollup loses none.
+* **Every finding resolves to a node at every budget**, and the finding *set* is identical to the uncapped
+  one. The deletion cap silenced **75 of 126** findings at `--max-nodes 45` on this corpus.
+* `contracts/validate_sample.py` returns **zero** errors at 45, 100, 400 and 2000.
+* An uncapped document is byte-identical with the rollup in the tree, asserted by identity of `to_dict()`
+  **and** by `apply_node_budget` returning `None` without touching anything.
+
+#### F. What this could not analyze
+
+* **The drop phase is still reachable and still loses findings when it runs.** Phases 1–3 bottom out at one
+  node per top-level directory; below *that* the deletion phase runs and an issue whose every anchor went
+  is dropped. It did not run at any budget on the 525-file synthetic (0 nodes dropped at 45), so the
+  measured claim "a cap never silences a finding" is a claim about this corpus and these budgets, not a
+  theorem. The diagnostic counts what it lost; nothing else does.
+* **The directory tier is a deviation from the ROADMAP entry** (A3b states it and why). It also means a
+  tight budget can collapse a whole repository into a handful of cards whose `kind` and `stage` are a
+  majority vote over hundreds of nodes.
+* **A fold is lossy about *which* thing.** After a file is summarised, "the scaler is fitted before the
+  split" is still reported as a finding at a real `loc`, but the *diagram* shows one card for the file: the
+  reader can no longer see the two ops and the edge between them, only the count. `rolledUp` is the whole
+  disclosure and there is nothing else in the document that says what was inside.
+* **The merged edge loses the labels it disagreed on.** `weight: 3` between two file summaries does not say
+  that one of the three carried `X_train`; the labels are gone, not stored.
+* **Fold order is a heuristic, not a measurement.** "Fewest findings first, biggest first" is a defensible
+  ordering, not one validated against what a reader wanted to keep. `ANA-12` does not measure it and no
+  gate would notice if a better order existed.
+* **A ghost that phase 3 drops takes its "missing" visual with it.** The finding survives, re-anchored to
+  the surviving ancestor; the empty slot the reader would have seen does not.
+* **`stage` and `kind` on a file summary are a majority vote.** A file whose 30 nodes are 16 `layer` and 14
+  `metric` is drawn as a model card, and nothing in the document says the vote was close.
+
+---
+
+### 11.47 MLV-P12: multi-pipeline workspaces, `pipeline:<entrypoint>` and the `pipelines[]` block (2026-09-10) — amends §1, 11.1, 11.2 and 11.5, analyzer-owned
+
+A research repo with ten training scripts renders as one graph at 22% zoom. The analyzer already **knows**
+there are ten entrypoints — `workspace.entrypoints` is ranked and capped at 10 — and no selector could say
+*"the exp03 pipeline"*, which is the unit a practitioner thinks in. This section makes a pipeline **another
+projection**, not a new mode: one new `KIND`, one optional root block, no new document kind, no new
+`Diagnostic.kind`, and `schemaVersion` stays `"1.0"`.
+
+#### A. The relation (normative)
+
+`analyzer/src/mlview/core/pipelines.py` is the only implementation, and it is **pure**: it reads
+`workspace.entrypoints`, `nodes[].id`, `nodes[].parent`, `nodes[].loc.file`, `edges[].kind`,
+`edges[].source`, `edges[].target` and nothing else. Both ports compute it; neither trusts the emitted
+block.
+
+**A1 — Seeds.** For an entrypoint path `E`, `seeds(E)` = the nodes whose `loc.file == E`, in document order.
+
+**A2 — Adjacency.** Undirected, and it is the union of exactly two things:
+
+* every edge whose `kind` is **`data`** or **`call`**, in both directions;
+* the **containment relation** `parent` ⇄ child, in both directions.
+
+`config` and `control` edges are deliberately **excluded**. A shared `config.py` is precisely the module
+that would merge ten independent training scripts into one component — the failure mode the ROADMAP entry
+names — so a `config` edge does not join pipelines. Containment is not an edge and never has been (§1),
+but a node and its parent are one thing by construction; without it a unit whose ops carry every edge
+would belong to no pipeline, which is a worse answer than the small over-approximation of including it.
+
+**A3 — Reach, and the one clause that makes several pipelines distinguishable.** `reach(E)` = the closure of
+`seeds(E)` under A2, which **includes but does not expand through** a node that belongs to a *different*
+entrypoint's file. That clause is load-bearing and not an optimisation: an undirected closure is the whole
+connected component whichever seed it starts from, so ten training scripts sharing one `utils.py` would all
+have the *same* reach and MLV-P12 would answer nothing. With it, each script's reach is its own work plus
+the shared modules, stopping at the other scripts rather than swallowing them.
+
+**A3.1 — Shared and unreached.** A node in `reach(E)` that some other entrypoint also reaches is **shared**
+for `E` — **unless it is one of `E`'s own seeds**, which are never taken away from the entrypoint they live
+in. A node in no reach at all is **unreached**: it belongs to no pipeline, and that is a finding about the
+workspace, not an error.
+
+**A4 — Determinism.** Every set above is materialised in **document order**, never in set-iteration order.
+
+#### B. The selector (amends 11.1)
+
+```
+KIND := "unit" | "stage" | "file" | "concern" | "node" | "symbol" | "pipeline"
+```
+
+| kind | target | anchors | default depth | descendant closure? |
+|---|---|---|---|---|
+| `pipeline` | a workspace entrypoint path, or its bare basename | `seeds(E)` | **0** | no (A2 already carries containment) |
+
+Parsing follows `file:` exactly: trim, lowercase the *kind*, replace `\` with `/` inside the target. The
+target is then matched against `workspace.entrypoints`, in this order, first match winning: exact path;
+then bare basename when the target contains no `/`; then the same two ASCII-case-folded, which emits the
+same `config_warning` a case-folded `file:` does. `view.scope` and `view.label` report the **selector as
+normalized by 11.1**, not the canonical entrypoint — exactly what `file:` does today, and for the same
+reason: canonicalizing the spec here would make `pipeline:` the only kind whose `view.scope` is not the
+string the caller passed. The canonical spelling is named in the `config_warning`.
+
+**B1 — The error code.** A target that matches no entry of `workspace.entrypoints` raises the new
+`unknown_pipeline`, with `term` = the target as typed and `candidates` = the sorted, ≤10-entry
+`workspace.entrypoints`. An **empty** target (`pipeline:`) falls through to the resolver like `node:` and
+`file:` do, and raises `unknown_pipeline` with `term: ""` and the same candidate list — only the resolver
+knows this graph's entrypoints.
+
+An entrypoint that resolves but whose `seeds(E)` is empty — its file was capped away, or projected away,
+or contributed no nodes — is an **empty scope**, not an error: eight stage rows at `nodeCount: 0`,
+`view.empty: true`, exit 0. This is the `unit:` rule (11.2 step 9), for the same reason.
+
+**B2 — `pipeline` joins `SCOPE_KINDS`**, and therefore the `bad_selector` candidate list, `SCOPE_SPELLINGS`,
+`mlview.api.SCOPE_KINDS`, `webview/src/scope/selector.ts`, the MCP `mlview_graph` selector prose and
+`analyze --list-scopes`, per §11.16. `--list-scopes` gains one `pipeline:` row per pipeline **above** the
+unit rows, whenever the workspace has two or more pipelines.
+
+#### C. Projection (amends 11.2 step 2 and step 8)
+
+For `kind == "pipeline"` only, step 2 is replaced by:
+
+* **`core`** = the nodes of `reach(E)` that are **not shared** — reachable from this entrypoint and from no
+  other;
+* **`forced context`** = the nodes of `reach(E)` that **are** shared;
+* steps 3–7 are unchanged, except that a shared node is **never** assigned `boundary`: `boundary ←
+  boundary − forced context`;
+* step 8 assigns `viewRole` `core` / `boundary` / `context` as before, and every forced-context node takes
+  **`context`**.
+
+That is the ROADMAP's clause — *"mark a node reachable from several entrypoints as `viewRole: context`
+rather than forcing it into one pipeline"* — and it falls out of the three-role vocabulary that already
+exists. It has one consequence worth stating: issue retention (step 6) runs through `core`, so **a finding
+anchored only on a shared node is not retained by a `pipeline:` scope**, and the rail reports it as
+"outside this view", which is exactly right — that finding is not this pipeline's.
+
+**C1 — The scope diagnostic.** A `pipeline:` projection appends one `Diagnostic{kind: "config_warning"}`
+naming what the view is not showing: how many nodes it drew, how many are shared with another entrypoint,
+and how many nodes of the whole graph belong to **no** pipeline at all. Prose is free (11.2 step 10);
+`config_warning` is the kind 11.2 step 10 already spends on scope-level notes, and no new
+`Diagnostic.kind` is introduced.
+
+#### D. The `pipelines[]` block (amends §1)
+
+An **optional root array**, emitted after `stats` and before `answers`, and **only when the document has
+two or more non-empty pipelines** — the block exists to drive a chooser, and a single-pipeline workspace
+has nothing to choose. A workspace with one entrypoint therefore emits exactly the bytes it emitted before
+this section existed.
+
+```json
+"pipelines": [
+  { "entrypoint": "train.py", "label": "train.py", "nodeCount": 34,
+    "exclusiveCount": 28, "sharedCount": 6,
+    "issueCounts": { "low": 1, "medium": 2, "high": 1 } }
+]
+```
+
+* Rows are in `workspace.entrypoints` order, which is already ranked most-likely-first (§1).
+* `nodeCount` = `|reach(E)|`; `exclusiveCount` + `sharedCount` = `nodeCount`.
+* **`exclusiveCount` is `|core(E)|` — the A3.1 sense of "shared", with the owner exception, not the
+  global one.** This is the one place the two ports first disagreed and the differential gate caught it
+  (`scopes: pipelines relation`, Python 11 vs TypeScript 6 on a generated graph): a global `sharedCount`
+  counts a script's **own** nodes as shared the moment a neighbour reaches them through a common module,
+  so `alpha.py` reads as *"27 nodes, 0 of them mine"* — which is both wrong and unreadable as a chooser
+  row. The normative reading is the one that ties the three numbers a user can see for one pipeline
+  together: `pipelines[].exclusiveCount` == `view.counts.core` of `pipeline:<E>` at depth 0 ==
+  the `SUBTREE` column of that entrypoint's `--list-scopes` row.
+* `issueCounts` counts **non-suppressed** issues with at least one `nodeId` in `reach(E)`. An issue whose
+  anchors span two pipelines is counted in **both** — the block is a menu, not a partition, and the numbers
+  are deliberately not required to sum to `stats.issues`.
+* `additionalProperties: false`; all six keys required; `$defs/Pipeline` in
+  `contracts/graph.schema.json` and its byte-identical mirror. No `required` array at the root changes and
+  `contracts/graph.sample.json` is untouched.
+* A **projection carries the block verbatim** (11.2 step 10: a projection never restates project-level
+  truth). It describes the whole analysis, exactly like `workspace` and `stage.present`.
+
+#### E. Acceptance
+
+* `pipeline:` appears in `SCOPE_KINDS`, in the `bad_selector` candidates and in `--list-scopes`, and
+  `unknown_pipeline` names the real entrypoints.
+* `contracts/scope.cases.json` gains **three** projecting cases and **one** error case over the frozen
+  `contracts/graph.sample.json` (whose single entrypoint is `train.py`), and both ports agree on them:
+  `python tools/verify.py --scopes`.
+* A synthetic two-pipeline workspace projects each pipeline to disjoint `core` sets whose union plus the
+  shared set is the whole reachable graph, and the shared nodes carry `viewRole: "context"` in **both**
+  projections.
+* `analyzer/tests/core/test_pipelines.py`.
+
+#### F. What this could not analyze
+
+* **Components are a judgement call and this one over-approximates.** Containment is in the relation
+  (A2), so a single utility class touched by two scripts merges nothing but does pull its whole subtree
+  into both pipelines' `reach`. The number that tells you this happened is `sharedCount`, and it is the
+  only signal.
+* **A neighbouring entrypoint's own nodes are drawn as context.** A3 includes them without expanding
+  through them, so `pipeline:beta.py` shows `alpha.py`'s cards greyed as context whenever the two share a
+  module. That is deliberate — it is where this pipeline touches its neighbour — but it means the drawn
+  set of a pipeline is up to one whole file per neighbour larger than the pipeline itself, and nothing in
+  the view separates "a shared helper" from "the other script".
+* **`config` and `control` edges are cut on purpose, and that is also a lie in the other direction.** A
+  pipeline that genuinely depends on a config node does not show it as `core`; the node is `context` when
+  another pipeline reaches it and *absent* when nothing else does. The view is about data and calls.
+* **`workspace.entrypoints` is capped at ten and is itself a heuristic** (`core/build.py:_entrypoints`: a
+  `__main__` guard, a training loop, or module-level statements). A repo with fifteen training scripts gets
+  ten pipelines and no statement that five are missing; a library with no entrypoint at all gets none, and
+  `pipeline:` is then an `unknown_pipeline` refusal with an empty candidate list.
+* **Unreached nodes are counted, never named.** C1 says how many nodes belong to no pipeline; nothing says
+  which, and there is no `pipeline:none` selector.
+* **The block is computed over the emitted document.** On a rolled-up document (PERF-04) the counts describe
+  the *summarised* graph, not the workspace: a file summary node counts once however many nodes it stands
+  for. `stats.truncated` is the only thing that says so.
+* **No chooser ships here.** This section is the analyzer half only: the document, the selector and the
+  catalogue. Opening the report on a chooser when a workspace has two or more pipelines is renderer-owned.

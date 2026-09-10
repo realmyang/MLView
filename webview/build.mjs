@@ -31,6 +31,10 @@ const CSS_FILES = [
   // VIEW-08 / H5 / ANA-10. After `rail.css` because it restyles rail rows and
   // chips defined there, and before `export.css`, which owns the print block.
   'diff.css',
+  // PERF-04. After `edge.css`, because `.mlv-edge--weighted .mlv-edge__path`
+  // has the same specificity as the per-kind stroke rules and has to win on
+  // source order; and after `node.css` for the same reason on the card.
+  'rollup.css',
   // VIEW-07, and LAST on purpose: it carries the `@media print` block, whose
   // `!important` overrides have to win over every layer above it.
   'export.css',

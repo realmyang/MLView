@@ -50,7 +50,25 @@ import { nearestRoute, routeDistance } from './render/edgepick.js';
 import { cappedTraceMessage } from './render/flowbinding.js';
 import { formatScope, parseScope, scopeLabel } from './scope/selector.js';
 import { project, resolveScope } from './scope/project.js';
-import { concernRows, scopeCatalog, stageRows } from './scope/catalog.js';
+import { concernRows, pipelineIndexOf, pipelineRows, scopeCatalog, stageRows } from './scope/catalog.js';
+import { PIPELINE_EDGE_KINDS, PipelineIndex, pipelineDrift, pipelineNote, resolveEntrypoint } from './scope/pipelines.js';
+import { chooserCaveats } from './ui/pipelinechooser.js';
+import { pipelineName } from './ui/scopepicker.js';
+import {
+  WEIGHT_MIN,
+  edgeWeight,
+  isFileSummary,
+  rollupCaveats,
+  rollupChipText,
+  rollupCount,
+  rollupHeadline,
+  rollupSpoken,
+  rollupSummary,
+  routeWeight,
+  weightBadgeAt,
+  weightBadgeText,
+  weightStroke,
+} from './rollup/rolled.js';
 import { motionMode } from './motion.js';
 import { deepLinkPlan } from './bridges.js';
 import { edgePathId } from './render/edges.js';
@@ -518,6 +536,41 @@ export const internals = {
     derated,
     headline: outOfOrderHeadline,
     KINDS: OUT_OF_ORDER_KINDS,
+  },
+  /**
+   * PERF-04: everything a gate needs to state the rollup RULE rather than
+   * transcribe a number out of a rendered card — the two field readers, the
+   * stroke curve, the pill's geometry, and the banner's own wording.
+   */
+  rollup: {
+    count: rollupCount,
+    isFileSummary,
+    edgeWeight,
+    routeWeight,
+    weightStroke,
+    badgeText: weightBadgeText,
+    badgeAt: weightBadgeAt,
+    summary: rollupSummary,
+    headline: rollupHeadline,
+    caveats: rollupCaveats,
+    chipText: rollupChipText,
+    spoken: rollupSpoken,
+    WEIGHT_MIN,
+  },
+  /**
+   * MLV-P12: the relation itself (11.47 A), so a gate can assert reach, shared
+   * and unreached without going through the DOM, plus the chooser's caveats.
+   */
+  pipelines: {
+    Index: PipelineIndex,
+    rows: pipelineRows,
+    indexOf: pipelineIndexOf,
+    resolveEntrypoint,
+    note: pipelineNote,
+    drift: pipelineDrift,
+    name: pipelineName,
+    chooserCaveats,
+    EDGE_KINDS: PIPELINE_EDGE_KINDS,
   },
   legendModel,
   buildDemoCard,

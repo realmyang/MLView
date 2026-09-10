@@ -81,6 +81,11 @@ class Node:
     issueIds: List[str] = field(default_factory=list)
     collapsedByDefault: bool = False
     stageEvidence: List[Evidence] = field(default_factory=list)
+    #: PERF-04 (CONTRACTS 11.46 B1). How many nodes were folded into this one by
+    #: the `--max-nodes` rollup, counted transitively. Appended last and
+    #: defaulted to 0, and emitted **only when non-zero**, so an uncapped
+    #: document is byte-identical to what it was before the field existed.
+    rolledUp: int = 0
 
     def to_dict(self) -> Dict[str, Any]:
         out: Dict[str, Any] = {
@@ -114,6 +119,8 @@ class Node:
         out["issueIds"] = list(self.issueIds)
         out["collapsedByDefault"] = self.collapsedByDefault
         out["stageEvidence"] = [e.to_dict() for e in self.stageEvidence]
+        if self.rolledUp:
+            out["rolledUp"] = int(self.rolledUp)
         return out
 
     @property
@@ -134,6 +141,11 @@ class Edge:
     tags: Tuple[str, ...] = ()
     confidence: float = 0.9
     issueIds: List[str] = field(default_factory=list)
+    #: PERF-04 (CONTRACTS 11.46 B2). How many parallel edges this one stands
+    #: for after the `--max-nodes` rollup re-pointed them at a common ancestor.
+    #: Appended last, defaulted to 0 and emitted **only when >= 2**, so an
+    #: uncapped document is byte-identical to what it was before.
+    weight: int = 0
 
     def to_dict(self) -> Dict[str, Any]:
         out: Dict[str, Any] = {"id": self.id, "kind": self.kind}
@@ -147,6 +159,8 @@ class Edge:
         out["tags"] = list(self.tags)
         out["confidence"] = clamp_confidence(self.confidence)
         out["issueIds"] = list(self.issueIds)
+        if self.weight and self.weight >= 2:
+            out["weight"] = int(self.weight)
         return out
 
     @property
@@ -398,6 +412,14 @@ class MLGraph:
                 "truncated": bool(self.truncated),
             },
         }
+        # MLV-P12 (CONTRACTS 11.47 D): an optional block, emitted only when the
+        # workspace really has a choice to offer - two or more non-empty
+        # pipelines. A single-entrypoint workspace emits exactly the bytes it
+        # emitted before the feature existed.
+        from .pipelines import pipelines_block
+        blocks = pipelines_block(doc)
+        if len(blocks) >= 2:
+            doc["pipelines"] = blocks
         # MLV-P1: the four answers are composed from the finished document, so
         # every host gets the same four sentences without asking for them. The
         # import is local because `emit` is a layer above `core` - nothing in

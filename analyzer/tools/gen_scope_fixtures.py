@@ -5,8 +5,8 @@
 Writes two files, both computed over the **frozen** `contracts/graph.sample.json`
 so the gate can never churn when a rule changes (CONTRACTS 11.15, FEATURES 7):
 
-* ``contracts/scope.cases.json``    - the inputs: ten projecting cases plus one
-  case per error code. Hand-readable, and the only file a port needs to iterate.
+* ``contracts/scope.cases.json``    - the inputs: thirteen projecting cases plus
+  one case per error code. Hand-readable, and the only file a port needs to iterate.
 * ``contracts/scope.expected.json`` - the outputs: the full projected document
   for every projecting case, and ``{code, term, candidates}`` for every error
   case.
@@ -73,6 +73,16 @@ PROJECTING = [
      "legacy pinpoint selector; exercises the stable rotation of issue.nodeIds"),
     ("unit_nope", "unit:Nope", None,
      "empty but legal: eight stage rows at nodeCount 0, view.empty true, exit 0"),
+    # MLV-P12 (CONTRACTS 11.47). The frozen golden has exactly one entrypoint,
+    # `train.py`, so these exercise the relation itself - seeds, the closure
+    # over data and call edges plus containment, and the ancestor context - on
+    # a graph where nothing is shared and both ports must still agree.
+    ("pipeline_train", "pipeline:train.py", None,
+     "the whole pipeline of the only entrypoint; nothing is shared"),
+    ("pipeline_train_basename", "pipeline:TRAIN.PY", 1,
+     "case-folded bare basename, plus one boundary ring"),
+    ("pipeline_train_d2", "pipeline:train.py", 2,
+     "depth monotonicity against the depth-0 case"),
 ]
 
 #: One case per error code (`unknown_unit` is never raised - see 11.2 step 9).
@@ -83,6 +93,8 @@ ERRORS = [
     ("err_unknown_node", "node:n:deadbeefdead", None, "no such node in this graph"),
     ("err_unknown_file", "file:nope.py", None, "no loc.file matches"),
     ("err_bad_depth", "stage:train", 3, "depth outside 0..2"),
+    ("err_unknown_pipeline", "pipeline:nope.py", None,
+     "not one of workspace.entrypoints (CONTRACTS 11.47 B1)"),
 ]
 
 

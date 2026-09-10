@@ -354,3 +354,28 @@ test('every walkthrough page is inside the extension, so a packaged install can 
     );
   }
 });
+
+test('every 11.1 selector kind is named in all three tool scope descriptions (11.16 drift)', () => {
+  // MLV-P12 (CONTRACTS 11.47 B2) grew the grammar, and `src/lmTools.ts` naming a
+  // kind the manifest does not is exactly the drift 11.16 exists to catch: the
+  // model reads the manifest description, not the TypeScript comment. The kinds
+  // are read from the analyzer's own `core/selectors.py` so this test cannot
+  // fall behind a future addition the way a hand-copied list does.
+  const src = path.join(__dirname, '..', 'core', 'mlview', 'core', 'selectors.py');
+  const text = fs.readFileSync(src, 'utf8');
+  const tuple = /SCOPE_KINDS[^=]*=\s*\(([^)]*)\)/.exec(text);
+  assert.ok(tuple, 'core/selectors.py must declare SCOPE_KINDS as a tuple literal');
+  const kinds = [...tuple[1].matchAll(/["']([a-z_]+)["']/g)].map((m) => m[1]);
+  assert.ok(kinds.includes('pipeline'), 'SCOPE_KINDS must carry `pipeline` after MLV-P12');
+  for (const tool of manifest.contributes.languageModelTools) {
+    const scope = tool.inputSchema.properties && tool.inputSchema.properties.scope;
+    if (!scope) continue;
+    for (const kind of kinds) {
+      assert.ok(
+        scope.description.includes(`"${kind}:`),
+        `${tool.name}'s scope description never names "${kind}:" - the manifest has drifted ` +
+          'from mlview.api.SCOPE_KINDS (CONTRACTS 11.16)'
+      );
+    }
+  }
+});

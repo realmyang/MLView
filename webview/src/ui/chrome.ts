@@ -17,6 +17,7 @@ import {
   stat,
 } from './chromenotes.js';
 import { NOTEBOOK_ANALYZED, outOfOrderDiagnostics, outOfOrderHeadline } from '../notebook.js';
+import { rollupCaveats, rollupHeadline, rollupSummary } from '../rollup/rolled.js';
 import { suppressedSummary } from './suppress.js';
 import { isSetAside } from '../types.js';
 import type { Capabilities, Filters, MLGraph, Severity, Stage } from '../types.js';
@@ -560,7 +561,26 @@ export class Chrome {
         this.banners.appendChild(b);
       }
 
-      if (g.stats && g.stats.truncated && !s.dismissed.has('truncated')) {
+      // PERF-04. A capped document is now ROLLED UP rather than mutilated, and
+      // the banner has to say which of the two it is looking at: a document
+      // carrying folded cards or weighted cables gets the rollup wording and
+      // its caveats, and one written by an analyzer that still deletes keeps
+      // the old sentence, because for that document the old sentence is true.
+      const rollup = rollupSummary(g);
+      if (rollup && !s.dismissed.has('truncated')) {
+        any = true;
+        // The analyzer's own sentence is the DETAIL, verbatim: 11.46 D makes it
+        // the place the per-phase counts and any lost findings are named, and a
+        // paraphrase would be a second set of numbers to keep in step.
+        const b = this.banner('info', rollupHeadline(rollup), rollup.message || undefined);
+        b.setAttribute('data-rollup-banner', String(rollup.folded));
+        const body = (b.querySelector('.mlv-banner__text') as HTMLElement) || b;
+        const notes = add(body, el('ul', 'mlv-banner__notes'));
+        notes.setAttribute('data-rollup-notes', String(rollupCaveats(rollup).length));
+        for (const text of rollupCaveats(rollup)) add(notes, el('li', '', text));
+        add(b, el('div', 'mlv-banner__actions')).appendChild(this.dismissButton('truncated'));
+        this.banners.appendChild(b);
+      } else if (g.stats && g.stats.truncated && !s.dismissed.has('truncated')) {
         any = true;
         const b = this.banner(
           'warn',

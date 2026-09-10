@@ -63,6 +63,13 @@
     "stats": {
       "$ref": "#/$defs/Stats"
     },
+    "pipelines": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Pipeline"
+      },
+      "description": "MLV-P12. Emitted only when the workspace has two or more non-empty pipelines; rows are in workspace.entrypoints order. A projection carries it verbatim - it describes the whole analysis."
+    },
     "view": {
       "$ref": "#/$defs/View"
     },
@@ -729,6 +736,11 @@
         "viewRole": {
           "$ref": "#/$defs/ViewRole",
           "description": "Present only in a projected document (one carrying `view`). Absent means 'this document is not a projection'."
+        },
+        "rolledUp": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "PERF-04. How many nodes the --max-nodes rollup folded into this one, counted transitively. Present only when stats.truncated is true; absent means zero. Not a subtree size and not a child count."
         }
       }
     },
@@ -783,6 +795,11 @@
           "items": {
             "$ref": "#/$defs/IssueId"
           }
+        },
+        "weight": {
+          "type": "integer",
+          "minimum": 2,
+          "description": "PERF-04. How many parallel edges this one stands for after the --max-nodes rollup re-pointed them at a common ancestor. Present only when stats.truncated is true; absent means one."
         }
       }
     },
@@ -1044,6 +1061,46 @@
         "line": {
           "type": "integer",
           "minimum": 1
+        }
+      }
+    },
+    "Pipeline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "entrypoint",
+        "label",
+        "nodeCount",
+        "exclusiveCount",
+        "sharedCount",
+        "issueCounts"
+      ],
+      "properties": {
+        "entrypoint": {
+          "type": "string",
+          "description": "One entry of workspace.entrypoints; workspace-relative with forward slashes."
+        },
+        "label": {
+          "type": "string"
+        },
+        "nodeCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Nodes reachable from this entrypoint over data and call edges plus containment. exclusiveCount + sharedCount == nodeCount."
+        },
+        "exclusiveCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Shared FOR this entrypoint means another entrypoint reaches it AND it is not one of this entrypoint's own nodes; exclusiveCount is nodeCount minus that. It is exactly the `core` of pipeline:<entrypoint> at depth 0, and exactly the SUBTREE column of the --list-scopes row - the three numbers a user sees for one pipeline are one number."
+        },
+        "sharedCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The remainder: reached by another entrypoint and not this entrypoint's own. Drawn as viewRole context, never claimed by one pipeline."
+        },
+        "issueCounts": {
+          "$ref": "#/$defs/IssueCounts",
+          "description": "Non-suppressed issues with at least one anchor inside. An issue spanning two pipelines is counted in BOTH; the rows are a menu, not a partition, and are not required to sum to stats.issues."
         }
       }
     },
