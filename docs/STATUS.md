@@ -27,7 +27,7 @@ powershell -ExecutionPolicy Bypass -File scripts/e2e.ps1     # E2E OK - 20 steps
 | Contracts | `contracts/graph.schema.json`, `contracts/graph.sample.json` (golden), `contracts/validate_sample.py` (schema + 10 invariant groups) |
 | Analyzer `analyzer/` | Complete. **36 rules**, zero runtime dependencies, `python -m mlview` installed editable. **2087 passed, 4 skipped** on 3.11+ (the skips are the `tomllib` split, in both directions: three tests need a TOML parser, one needs its absence). `analyze --demo --json -` is byte-identical to the golden sample. Scoped views live in `analyzer/src/mlview/core/project.py` + `core/selectors.py`; the relevance prefilter and the fact cache live in `core/relevance.py` + `core/cache.py` and are **on by default** from Sprint 5 — `--relevance {ml,all}` (default `ml`), `--relevance-hops N`, `--no-cache`. Interprocedural dataflow ships behind `--dataflow {local,ip}` (default `local`); `core/config.py` is the one reader of `.mlview.toml` / `[tool.mlview]`; `mlview init` and `mlview diff` are the two new subcommands. |
 | Viewer `webview/` | Complete. `dist/mlview.{js,css}` built. **534 tests pass**, `tsc --noEmit` clean. Flow animation (`src/render/flow.ts`) and the TypeScript half of the projection (`src/scope/project.ts`) ship here. |
-| VS Code extension | Complete. **377 tests pass**, `tsc --noEmit` clean, `out/extension.js` bundled, `npm run package` produced a **744.45 KB VSIX (148 files)** carrying the bundled analyzer when this row was last measured, with `core/mlview` at **97** files — the number `tools/verify.py --all`'s `vsix: synced core` row prints. **Neither number here is the gate**, and both move whenever a module lands in the analyzer: `python scripts/vsix_check.py` is the gate, it re-derives the ceiling, the bundled-core count, the rule-page count and the absence of bytecode from the tree itself, and CI runs it in the `packaging` job. Copilot participant + LM tools are compile- and unit-verified only (Copilot is not installed here). |
+| VS Code extension | Complete. **377 tests pass**, `tsc --noEmit` clean, `out/extension.js` bundled, `npm run package` produced a **754.24 KB VSIX (148 files)** carrying the bundled analyzer when this row was last measured, with `core/mlview` at **96** files — the number `tools/verify.py --all`'s `vsix: synced core` row prints. **Neither number here is the gate**, and both move whenever a module lands in the analyzer: `python scripts/vsix_check.py` is the gate, it re-derives the ceiling, the bundled-core count, the rule-page count and the absence of bytecode from the tree itself, and CI runs it in the `packaging` job. Copilot participant + LM tools are compile- and unit-verified only (Copilot is not installed here). |
 | Claude Code plugin | Complete. MCP server on the `mcp` SDK v2, **still exactly five tools**, each result ≤ 4 KB, plus two `PostToolUse` / `Stop` hooks under `claude-plugin/hooks/`. **373 passed, 7 skipped**, with `python tools/sync-core.py` having run after the analyzer changes (`test_vendor_bytecode.py` is the row that checks it); `claude plugin validate ./claude-plugin --strict` passes. |
 | Samples | `samples/vision_pipeline` (54 nodes, 51 edges, exactly 15 issues: 5 high / 6 medium / 4 low) and `samples/vision_pipeline_clean` (64 nodes, 0 issues). `expected_issues.json` is machine-checked. |
 | Rule docs | `docs/rules/` — 36 pages plus an index, generated from the registry; 7 carry the optional **What it cannot analyze** section. Every `Issue.docs` deep link resolves. |
@@ -2196,6 +2196,35 @@ to nothing. VIEW-R3's clustering is per gutter group, so two clusters that are
 adjacent but not overlapping still draw two trunks. And the gallery paragraph
 now reports what happened **on this corpus**: it says nothing about whether a
 cross-file rule would fire on the reader's own repository.
+
+**What only CI could see, and the three things it caught.** All four of the
+following were green on this Mac and red on the runners, which is the whole
+reason the matrix exists. **The bundled-core count was 97 here and 96 there.**
+The fact cache is ON by default since §11.39 and writes `<root>/.mlview/cache`
+into whatever directory was analyzed, so somebody who had once run the analyzer
+over `analyzer/src/mlview` left a `facts-<hash>.json` inside the source tree —
+gitignored, therefore invisible to CI, and copied into **both** vendored cores by
+`tools/sync-core.py`, which skipped `__pycache__` but not `.mlview`. It now skips
+`.mlview` for exactly the HEALTH-01 reason, and the stray sidecars were deleted;
+`docs/STATUS.md`'s Components row reads **96**, the number
+`tools/verify.py --all` prints on both machines. **Two `analyzer (py3.10)` tests
+asserted the behaviour the CFG-ONE fix removed.** With no `tomllib`,
+`load_config` used to return the ignored file's `path` and `source`, so
+`workspace.configPath` named a file that had decided nothing — the reading
+§11.37 A3 exists to prevent, and the two tests that asserted it are the ones the
+fix should have re-pointed. `test_below_3_11_the_file_is_ignored_out_loud…` now
+asserts `path is None` with the warning intact (verified against a real
+no-`tomllib` interpreter, not by reading the code), and the four tests that need
+a parser to have anything to assert carry the `NEEDS_TOMLLIB` marker the other
+seventeen already did. **One plugin test was a race, not a test.**
+`test_a_run_that_overshoots_the_budget_says_nothing_at_all` passed `budget=0.0`
+and analyzed an empty directory: `join(0.0)` returns at once, but so does the
+worker, so on a fast runner the thread had already finished and a real graph came
+back. It lost that race on two of thirteen jobs. The overshoot is now **forced** —
+`hook_core.analyze` is replaced by a blocking stub — so the abandonment is the
+thing under test rather than the scheduler. The VSIX was re-measured while
+settling the core count: **754.24 KB, 148 files, 96 under `extension/core/`,
+73.7% of the 1 MB ceiling**.
 
 **Gates, all re-run on this Mac at the integrated tree.** `sh scripts/e2e.sh`
 **20 steps, 0 failed, 0 skipped**; analyzer **2087 passed / 4 skipped** (2024 / 4

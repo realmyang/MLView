@@ -26,6 +26,8 @@ import json
 import os
 import subprocess
 import sys
+import threading
+import time
 
 import pytest
 
@@ -273,9 +275,33 @@ def test_the_summary_says_what_the_run_could_not_look_at():
 
 
 def test_a_run_that_overshoots_the_budget_says_nothing_at_all(tmp_path, monkeypatch):
+    """The contract is silence, not a stall — and the overshoot is *forced*.
+
+    This used to pass `budget=0.0` and analyze an empty directory, which is a
+    race rather than a test: `join(0.0)` returns immediately, but so does the
+    worker, and on a fast runner the thread was already finished, `is_alive()`
+    was False and a real graph came back. It lost that race on two CI jobs while
+    passing on the other eleven and on this Mac. Blocking the analysis makes the
+    overshoot the thing under test instead of the scheduler.
+    """
     monkeypatch.setenv("MLVIEW_DATA_DIR", str(tmp_path / "data"))
-    # A zero budget is the abandoned-run case; the contract is silence, not a stall.
-    assert hook_core.analyze_within_budget(str(tmp_path), False, budget=0.0) is None
+    started = threading.Event()
+    release = threading.Event()
+
+    def never_finishes(root, include_notebooks):
+        started.set()
+        release.wait(30)            # released in the finally below, so no leak
+        return {"nodes": []}
+
+    monkeypatch.setattr(hook_core, "analyze", never_finishes)
+    began = time.monotonic()
+    try:
+        assert hook_core.analyze_within_budget(str(tmp_path), False, budget=0.05) is None
+        assert started.wait(5), "the worker never ran, so nothing overshot"
+        # Abandoned, not awaited: the call returns on the budget, not on the work.
+        assert time.monotonic() - began < 5
+    finally:
+        release.set()
 
 
 # ------------------------------------------------------------- through the script

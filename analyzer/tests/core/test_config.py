@@ -137,6 +137,7 @@ def test_a_pyproject_with_no_tool_mlview_is_not_a_configuration_file(tmp_path):
     assert "configPath" not in doc["workspace"]
 
 
+@NEEDS_TOMLLIB
 def test_the_applied_file_is_named_in_workspace_config_path(tmp_path):
     root = write_files(str(tmp_path), {
         "train.py": TORCH_TRAIN,
@@ -146,6 +147,7 @@ def test_the_applied_file_is_named_in_workspace_config_path(tmp_path):
     assert validate(doc) == []
 
 
+@NEEDS_TOMLLIB
 def test_a_pyproject_config_is_named_too():
     doc = analyze_to_dict(AnalyzeOptions(paths=(PYPROJECT_WS,), cache=False))
     assert doc["workspace"]["configPath"].endswith("/pyproject.toml")
@@ -380,12 +382,18 @@ def test_init_to_stdout_is_the_payload(tmp_path, run):
 def test_below_3_11_the_file_is_ignored_out_loud_and_the_analysis_still_runs(tmp_path):
     """The counterpart of `NEEDS_TOMLLIB`: on 3.10 CFG-ONE has no parser, and the
     one thing it must not do is pretend. `core/config.py` says so in a
-    `config_warning` that names the file it ignored, keeps every non-TOML answer
-    it can still give (`path`, `source`), and lets the analysis finish - a
-    configuration file MLView cannot read must never be a configuration file that
-    stops a run."""
+    `config_warning` that names the file it ignored, and lets the analysis finish
+    - a configuration file MLView cannot read must never be a configuration file
+    that stops a run.
+
+    CFG-CONFIG-WARNING-DROPPED re-pointed one assertion here. This used to
+    require the ignored file to keep its `path` and `source`, which meant
+    `workspace.configPath` named a file that had decided **nothing** - exactly
+    the reading a user cannot tell apart from an applied one, and the failure
+    §11.37 A3 exists to prevent. The warning is what survives now; the path is
+    not, on 3.10 for the same reason as on 3.13."""
     config = load_config(FULL_TOML)
-    assert config.path == FULL_TOML and config.source
+    assert config.path is None and config.source is None
     assert config.disabled == set() and config.analysis == {}
     assert any("tomllib is unavailable" in w for w in config.warnings), config.warnings
     assert FULL_TOML in "\n".join(config.warnings)

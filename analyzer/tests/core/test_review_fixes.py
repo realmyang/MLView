@@ -28,6 +28,7 @@ was rather than on an incidental detail of the fix:
 from __future__ import annotations
 
 import os
+import sys
 
 import pytest
 
@@ -511,6 +512,23 @@ def main():
 
 
 # ------------------------------------------- CFG-CONFIG-WARNING-DROPPED
+# Both cases below read a TOML file, and `tomllib` is stdlib only from 3.11. On
+# 3.10 `core/config.py` degrades: it ignores the file and says
+# "tomllib is unavailable", so the *message* these two assert is not the one the
+# reader gets and the finding under test is not the one being exercised. Same
+# marker, wording and reason as the seventeen tests in
+# `analyzer/tests/core/test_config.py`, and the degradation itself is asserted
+# there by the 3.10-only
+# `test_below_3_11_the_file_is_ignored_out_loud_and_the_analysis_still_runs` -
+# which now also asserts the half this finding fixed, that an unreadable file is
+# never named as the configuration. So the skip is never silence.
+NEEDS_TOMLLIB = pytest.mark.skipif(
+    sys.version_info < (3, 11),
+    reason="tomllib is stdlib from 3.11; a config file is ignored with a different config_warning below that",
+)
+
+
+@NEEDS_TOMLLIB
 def test_an_explicit_config_that_applies_nothing_says_so(tmp_path):
     """11.37 A3 / C4. The first read produced the warning with `path=None`, and
     the post-discovery re-read rebound `config` and threw it away."""
@@ -526,6 +544,7 @@ def test_an_explicit_config_that_applies_nothing_says_so(tmp_path):
     assert "no [tool.mlview] table" in warnings[0]["message"]
 
 
+@NEEDS_TOMLLIB
 def test_a_config_that_decided_nothing_is_never_named_as_the_config(tmp_path):
     """The sibling case the same code comment says must not happen."""
     root = write_files(str(tmp_path), {
