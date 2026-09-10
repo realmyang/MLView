@@ -304,7 +304,11 @@ test('the clean-sample comparison analyzes the twin and diffs it as the BASE', a
   const diff = host.calls.at(-1);
   assert.equal(diff.args[5], path.join(host.storage, 'clean-sample-base.json'));
   assert.equal(diff.args[6], path.join(host.storage, 'comparison-head.json'));
-  assert.equal(host.posted[0].baseLabel, path.join('samples', 'vision_pipeline_clean'));
+  // CONTRACTS §0: a workspace-relative path is forward-slashed on every platform, and
+  // `baseLabel` crosses the protocol boundary into the webview. `path.join` here asserted
+  // the host separator instead and was red on Windows only.
+  assert.equal(host.posted[0].baseLabel, CLEAN_TWIN_RELATIVE[0]);
+  assert.equal(host.posted[0].baseLabel.includes('\\'), false);
 });
 
 test('no twin names what it looked for instead of comparing something else', async () => {
