@@ -1746,7 +1746,7 @@ unseen 55.3% / 42.5% / 37.5%, graph fidelity **91.4%** (127 of 139), zero
 forbidden findings — and `--dataflow ip` **PASS** at 79.5% / 66.0% unseen against
 its own ratchet; `pytest analyzer/tests/core/test_perf_budget.py` **6 passed**
 (PREFILTER 501 files 2.81 s → 51 files 1.69 s, 1.66×; CACHE cold 1.56 s → warm
-0.63 s, 2.48×); `python scripts/check_docs.py` **DOC CHECK OK** (19 files).
+0.63 s, 2.48×); `python scripts/check_docs.py` **DOC CHECK OK** (19 files). **CI (run 34435948295): all 12 branch jobs green**, 7m57s wall — `smoke (macos)` is skipped on a branch push by design. It took two fix iterations and neither defect was reachable from this Mac: `e2e (windows, powershell)` alone caught `compare.test.js` asserting `baseLabel` with `path.join`, the host separator, where §0 requires a workspace-relative path to be forward-slashed (the source was right and the test was wrong); and `analyzer (py3.12)` alone caught `test_two_ip_runs_are_byte_identical`'s `_stable()` popping `generatedAt` at the top level of the document instead of at `generator.generatedAt`, which left the timestamp in the compared string and made the assertion a coin flip on the second boundary — it lost by one character. Eight sibling helpers in the same suite already spelled it correctly.
 
 **Two integration edits outside any agent's ownership, both recorded here.**
 `docs/STATUS.md`'s known-gap bullet about the editor's comparison cited nothing a
