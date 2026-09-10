@@ -15,12 +15,15 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { registerChatSurfaces } from './chatSurfaces';
+import { registerSuppressionActions, runSuppression, type SuppressRequest } from './codeActions';
 import { MlviewCodeLensProvider } from './codelens';
 import { exportHtml, showIssues, showRuleDoc, type CommandHost } from './commands';
+import { requestDiagramExport, type ExportPanelLike } from './exportDiagram';
 import { CoreClient, CoreError, scopeKey, type CoreAction } from './coreClient';
 import { focusScopeSpec, resolveCurrentFileTarget } from './currentFile';
 import { DiagnosticsPublisher } from './diagnostics';
 import { reportAnalysisFailure, type ReportedFailure } from './failure';
+import { replayForReadyPanel, resolveRefreshScope, runHostAction } from './hostActions';
 import { type MLGraph } from './graph';
 import { allowedRuleCodes } from './issues';
 import { toWorkspaceRelative } from './location';
@@ -28,13 +31,14 @@ import { buildLocationIndex, type LocationIndex } from './locationIndex';
 import { createLogger, type Logger } from './log';
 import { type CoreLike } from './lmTools';
 import { MlviewPanel, themeKindOf, VIEW_TYPE, type PanelDelegate } from './panel';
-import { nextRequestId, type AnalysisScope } from './protocol';
+import { nextRequestId, type AnalysisScope, type ExportScope } from './protocol';
 import { PythonEnvironment } from './pythonEnv';
 import { revealInDiagram, type RevealArgs } from './revealInDiagram';
 import { clearScope, scopeToSymbol, type ScopeDeps } from './scopeCommands';
 import { readSettings, type MlviewSettings } from './settings';
 import { renderStatusBar } from './statusBar';
 import { analyzeForTools } from './toolAnalyze';
+import { recordStale, registerWatchers } from './watchers';
 import { ensureTrusted, manageTrust } from './trust';
 
 let controller: MlviewController | undefined;
@@ -141,10 +145,16 @@ class MlviewController implements PanelDelegate, CoreLike, CommandHost, vscode.D
       cmd('mlview.scopeToSymbol', () => scopeToSymbol(this.diagramDeps())),
       cmd('mlview.clearScope', () => clearScope(this.diagramDeps())),
       cmd('mlview.exportHtml', () => exportHtml(this)),
+      // VIEW-07 (11.33): the host cannot draw, so these ASK the open panel for the bytes.
+      cmd('mlview.exportSvg', (s?: ExportScope) => requestDiagramExport('svg', this.exportDeps(), s)),
+      cmd('mlview.exportPng', (s?: ExportScope) => requestDiagramExport('png', this.exportDeps(), s)),
       cmd('mlview.selectInterpreter', () => this.env.selectInterpreter()),
       cmd('mlview.showOutput', () => this.log.show(false)),
       cmd('mlview.showRuleDoc', (code?: string) => showRuleDoc(this, code)),
       vscode.languages.registerCodeLensProvider({ language: 'python' }, this.codeLens),
+      // MLV-P10: the lightbulb and its three commands. Unconditional, like every other
+      // editor surface - a code action provider has no API to feature-detect.
+      ...registerSuppressionActions(this.log),
       vscode.window.registerWebviewPanelSerializer(VIEW_TYPE, {
         deserializeWebviewPanel: async (panel, state: unknown) => {
           this.log.info('restoring the MLView panel from a saved window state');
@@ -152,37 +162,9 @@ class MlviewController implements PanelDelegate, CoreLike, CommandHost, vscode.D
           MlviewPanel.revive(panel, this.ctx, this);
         }
       }),
-      vscode.workspace.onDidSaveTextDocument((doc) => this.onDocumentSaved(doc)),
-      vscode.workspace.onDidChangeTextDocument((e) => this.onDocumentChanged(e.document)),
-      vscode.workspace.onDidChangeWorkspaceFolders(() => {
-        this.graph = undefined;
-        this.index = undefined;
-        this.lastFailure = undefined;
-        this.staleFiles.clear();
-        this.diagnostics.clear();
-        this.codeLens.refresh();
-        this.updateStatusBar();
-      }),
-      vscode.workspace.onDidChangeConfiguration((e) => {
-        if (e.affectsConfiguration('mlview.codeLens')) {
-          this.codeLens.refresh();
-        }
-        if (
-          this.graph &&
-          (e.affectsConfiguration('mlview.minConfidence') ||
-            e.affectsConfiguration('mlview.minSeverity') ||
-            e.affectsConfiguration('mlview.diagnosticSeverity') ||
-            e.affectsConfiguration('mlview.diagnosticsEnabled') ||
-            e.affectsConfiguration('mlview.disabledRules'))
-        ) {
-          const settings = readSettings();
-          this.diagnostics.publish(this.graph, settings);
-          MlviewPanel.current?.postSetFilter(
-            allowedRuleCodes(this.graph, settings.disabledRules)
-          );
-          this.updateStatusBar();
-        }
-      })
+      // The five workspace listeners: two saves (text and notebook), a change, a folder
+      // change and a configuration change. src/watchers.ts owns what each one means.
+      ...registerWatchers(this)
     );
     this.statusBar.show();
     this.log.info('commands, panel serializer, diagnostics, CodeLens and status bar registered');
@@ -271,6 +253,15 @@ class MlviewController implements PanelDelegate, CoreLike, CommandHost, vscode.D
 
   private async reveal(args?: RevealArgs): Promise<void> {
     await revealInDiagram(args, this.diagramDeps());
+  }
+
+  /**
+   * MLV-P10 — the viewer's `suppressRule`. It runs `runSuppression`, which is the exact
+   * function the three editor commands run, so the confirm dialog, the containment
+   * check and the "already ignored" message are the same on both surfaces.
+   */
+  onSuppressRule(request: SuppressRequest): void {
+    void runSuppression(request, this.log);
   }
 
   // ---------------------------------------------------------------- analysis
@@ -371,12 +362,19 @@ class MlviewController implements PanelDelegate, CoreLike, CommandHost, vscode.D
       scope.scope,
       scope.path ? toWorkspaceRelative(root, scope.path) : undefined
     );
+    // H3: `--progress-json` is passed EXACTLY when there is a panel to draw the bar,
+    // so the headless paths (`mlview.showIssues`, the chat digests, the LM tools)
+    // spawn the analyzer with the argv they have always spawned it with.
+    const progressPanel = MlviewPanel.current;
     try {
       const result = await this.core.analyze({
         scope: scope.scope,
         paths: this.pathsFor(scope, root),
         cwd: root,
-        settings
+        settings,
+        ...(progressPanel && !progressPanel.isDisposed
+          ? { onProgress: progressPanel.progressListener(requestId) }
+          : {})
       });
       this.applyGraph(result.graph, requestId, settings);
       this.log.info(
@@ -442,33 +440,44 @@ class MlviewController implements PanelDelegate, CoreLike, CommandHost, vscode.D
     });
   }
 
-  private onDocumentSaved(doc: vscode.TextDocument): void {
-    if (doc.languageId !== 'python') {
-      return;
+  // ------------------------------------------------------------------- WatchHost
+
+  settingsFor(uri: vscode.Uri): MlviewSettings {
+    return readSettings(uri);
+  }
+
+  markStale(fsPath: string): void {
+    if (recordStale(this.graph?.workspace.root, fsPath, this.staleFiles)) {
+      MlviewPanel.current?.postStale(Array.from(this.staleFiles));
     }
-    this.markStale(doc);
-    if (!readSettings(doc.uri).analyzeOnSave) {
-      return;
-    }
+  }
+
+  reanalyze(): void {
     this.core.scheduleAnalyze(() => void this.analyzeScope(this.lastScope));
   }
 
-  private onDocumentChanged(doc: vscode.TextDocument): void {
-    if (doc.languageId === 'python') {
-      this.markStale(doc);
-    }
+  refreshCodeLens(): void {
+    this.codeLens.refresh();
   }
 
-  private markStale(doc: vscode.TextDocument): void {
+  republish(): void {
     if (!this.graph) {
       return;
     }
-    const relative = toWorkspaceRelative(this.graph.workspace.root, doc.uri.fsPath);
-    if (relative.startsWith('..') || this.staleFiles.has(relative)) {
-      return;
-    }
-    this.staleFiles.add(relative);
-    MlviewPanel.current?.postStale(Array.from(this.staleFiles));
+    const settings = readSettings();
+    this.diagnostics.publish(this.graph, settings);
+    MlviewPanel.current?.postSetFilter(allowedRuleCodes(this.graph, settings.disabledRules));
+    this.updateStatusBar();
+  }
+
+  resetForWorkspaceChange(): void {
+    this.graph = undefined;
+    this.index = undefined;
+    this.lastFailure = undefined;
+    this.staleFiles.clear();
+    this.diagnostics.clear();
+    this.codeLens.refresh();
+    this.updateStatusBar();
   }
 
   private updateStatusBar(): void {
@@ -476,7 +485,9 @@ class MlviewController implements PanelDelegate, CoreLike, CommandHost, vscode.D
       ...(this.graph ? { graph: this.graph } : {}),
       settings: readSettings(this.workspaceFolderFor(this.lastScope)?.uri),
       busy: this.busyRuns > 0,
-      failed: this.failed
+      failed: this.failed,
+      // PACKAGING: names the installed-vs-bundled core, once the chain has run once.
+      ...(this.env.coreDescription() ? { core: this.env.coreDescription()! } : {})
     });
   }
 
@@ -493,42 +504,32 @@ class MlviewController implements PanelDelegate, CoreLike, CommandHost, vscode.D
   }
 
   onReady(panel: MlviewPanel): void {
-    panel.postInit(themeKindOf(vscode.window.activeColorTheme.kind));
-    const restore = this.pendingRestore ?? panel.savedState();
-    if (restore && typeof restore === 'object') {
-      panel.postRestoreState(restore as Record<string, unknown>);
-    }
+    const key = scopeKey(this.lastScope.scope, this.lastScope.path);
+    replayForReadyPanel(panel, {
+      graph: this.graph,
+      pendingRestore: this.pendingRestore,
+      disabledRules: readSettings().disabledRules,
+      staleFiles: Array.from(this.staleFiles),
+      replayableFailure: this.lastFailure?.key === key ? this.lastFailure : undefined,
+      analyzeOnce: () => void this.analyzeScopeOnce(this.lastScope),
+      themeKind: () => themeKindOf(vscode.window.activeColorTheme.kind)
+    });
     this.pendingRestore = undefined;
-    if (this.graph) {
-      panel.postGraph(nextRequestId('restore'), this.graph);
-      panel.postSetFilter(allowedRuleCodes(this.graph, readSettings().disabledRules));
-      if (this.staleFiles.size > 0) {
-        panel.postStale(Array.from(this.staleFiles));
-      }
-    } else if (this.lastFailure?.key === scopeKey(this.lastScope.scope, this.lastScope.path)) {
-      // The run that opened this panel already failed, and a settled run is no longer in
-      // `inFlight` for `analyzeScopeOnce` to join. Replay its banner instead of re-running the
-      // whole failing chain and showing the user a second identical notification.
-      const failure = this.lastFailure;
-      panel.postAnalysisFailed(
-        failure.requestId,
-        failure.message,
-        failure.detail,
-        failure.actions
-      );
-    } else {
-      // Join the run that opened this panel rather than spawning a second analyzer for it.
-      void this.analyzeScopeOnce(this.lastScope);
-    }
   }
 
   onRequestRefresh(scope: AnalysisScope, targetPath?: string): void {
-    const root = this.workspaceRoot();
-    const absolute =
-      targetPath && root ? path.resolve(root, targetPath) : this.lastScope.path;
-    this.lastScope =
-      scope === 'file' && absolute ? { scope: 'file', path: absolute } : { scope: 'workspace' };
+    this.lastScope = resolveRefreshScope(
+      scope,
+      targetPath,
+      this.workspaceRoot(),
+      this.lastScope.path
+    );
     void this.analyzeScope(this.lastScope);
+  }
+
+  /** VIEW-07: the export commands see the LIVE panel only; they never open one. */
+  private exportDeps(): { log: Logger; panel(): ExportPanelLike | undefined } {
+    return { log: this.log, panel: () => this.livePanel() };
   }
 
   onExportHtml(): void {
@@ -536,23 +537,13 @@ class MlviewController implements PanelDelegate, CoreLike, CommandHost, vscode.D
   }
 
   onAction(id: string): void {
-    switch (id) {
-      case 'retry':
-        void this.analyzeScope(this.lastScope);
-        return;
-      case 'showOutput':
-        this.log.show(false);
-        return;
-      case 'selectInterpreter':
-      case 'installCore':
-        void this.env.runAction(id);
-        return;
-      case 'manageTrust':
-        manageTrust();
-        return;
-      default:
-        this.log.warn(`unknown webview action: ${id}`);
-    }
+    runHostAction(id, {
+      log: this.log,
+      retry: () => void this.analyzeScope(this.lastScope),
+      showOutput: () => this.log.show(false),
+      envAction: (action) => void this.env.runAction(action),
+      manageTrust
+    });
   }
 
   onSelectNode(nodeId: string | null): void {

@@ -14,9 +14,14 @@
  */
 
 import { execFile } from 'node:child_process';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
 import * as vscode from 'vscode';
+import {
+  chooseCore,
+  coreLabel,
+  readBundledCore,
+  type BundledCore,
+  type CoreSource
+} from './bundledCore';
 import type { Logger } from './log';
 import { readSettings } from './settings';
 import { schemaMajor, SCHEMA_VERSION } from './graph';
@@ -53,6 +58,19 @@ export interface ResolvedInterpreter {
   version: [number, number];
   hasCore: boolean;
   core?: CoreHandshake;
+  /**
+   * PACKAGING: which end of the precedence chain this interpreter landed on
+   * (`docs/contracts/11.25-packaging.md`). `installed` is the pre-PACKAGING
+   * behaviour and adds nothing to the spawn.
+   */
+  coreSource?: CoreSource;
+  /**
+   * The directory `CoreClient` must put on `PYTHONPATH` — set only when
+   * `coreSource` is `bundled`, and then always `<extension>/core`.
+   */
+  corePythonPath?: string;
+  /** One line naming which core is in use, for the status bar and the log. */
+  coreDescription?: string;
 }
 
 export interface Attempt {
@@ -329,6 +347,9 @@ function describeAttempts(attempts: Attempt[]): string {
  */
 export class PythonEnvironment implements vscode.Disposable {
   private cached: Promise<InterpreterState> | undefined;
+  /** `null` means "looked, and this build ships none"; `undefined` means "not looked yet". */
+  private bundledCache: BundledCore | null | undefined;
+  private lastCoreDescription: string | undefined;
   private readonly disposables: vscode.Disposable[] = [];
   private readonly changeEmitter = new vscode.EventEmitter<void>();
 
@@ -403,11 +424,15 @@ export class PythonEnvironment implements vscode.Disposable {
         }
       };
     }
-    if (!interpreter.hasCore) {
+    // PACKAGING's precedence chain. Everything above this point is about finding a
+    // Python; everything below is about which mlview that Python runs.
+    const bundled = this.bundledCore();
+    const choice = chooseCore(interpreter.core, bundled);
+    if (choice.kind === 'none') {
       return {
         ok: false,
         failure: {
-          message: `MLView core is not installed in ${interpreter.executable}.`,
+          message: `MLView core is not installed in ${interpreter.executable}, and this build ships no bundled copy.`,
           detail: describeAttempts(attempts),
           actions: [
             { id: 'installCore', label: 'Install MLView core' },
@@ -417,12 +442,29 @@ export class PythonEnvironment implements vscode.Disposable {
         }
       };
     }
-    if (isSchemaMismatch(interpreter.core)) {
+    const description = coreLabel(choice, interpreter.executable);
+    this.lastCoreDescription = description;
+    const resolved: ResolvedInterpreter = {
+      ...interpreter,
+      hasCore: true,
+      ...(choice.kind === 'installed' ? { core: choice.core } : {}),
+      coreSource: choice.source,
+      ...(choice.kind === 'bundled' ? { corePythonPath: choice.bundled.pythonPath } : {}),
+      coreDescription: description
+    };
+    this.log.info(
+      `using ${interpreter.executable} (Python ${interpreter.version.join('.')}, ` +
+        `via ${interpreter.source}) — ${description}`
+    );
+    // A schema-mismatched installed core is no longer fatal (the bundled copy answers
+    // instead), but it is still worth saying out loud: the user asked for that install.
+    if (choice.kind === 'bundled' && choice.reason === 'installed-schema-mismatch') {
       return {
-        ok: false,
-        failure: {
-          message: schemaMismatchMessage(interpreter.core?.schemaVersion ?? 'unknown'),
-          detail: describeAttempts(attempts),
+        ok: true,
+        interpreter: resolved,
+        warning: {
+          message: schemaMismatchMessage(choice.installed?.schemaVersion ?? 'unknown'),
+          detail: `${description}\n\n${describeAttempts(attempts)}`,
           actions: [
             { id: 'installCore', label: 'Install MLView core' },
             { id: 'showOutput', label: 'Show Output' }
@@ -430,19 +472,24 @@ export class PythonEnvironment implements vscode.Disposable {
         }
       };
     }
-    this.log.info(
-      `using ${interpreter.executable} (Python ${interpreter.version.join('.')}, mlview ${
-        interpreter.core?.version ?? 'unknown'
-      }, via ${interpreter.source})`
-    );
-    return { ok: true, interpreter };
+    return { ok: true, interpreter: resolved };
   }
 
-  /** `<repo>/analyzer` when this extension is running from the MLView repo checkout. */
-  analyzerSourceDir(): string | undefined {
-    const repoRoot = path.dirname(this.ctx.extensionPath);
-    const analyzer = path.join(repoRoot, 'analyzer');
-    return fs.existsSync(path.join(analyzer, 'pyproject.toml')) ? analyzer : undefined;
+  /** The analyzer copied into `<extension>/core` by `tools/sync-core.py`, if any. */
+  bundledCore(): BundledCore | undefined {
+    if (this.bundledCache === undefined) {
+      this.bundledCache = readBundledCore(this.ctx.extensionPath) ?? null;
+    }
+    return this.bundledCache ?? undefined;
+  }
+
+  /**
+   * Which core the last resolution chose, for the status-bar tooltip. Synchronous
+   * on purpose: the status bar is redrawn on every analysis and must never wait on
+   * an interpreter probe.
+   */
+  coreDescription(): string | undefined {
+    return this.lastCoreDescription;
   }
 
   /** Remediation quick pick, shared by the notification and the webview error banner. */
@@ -486,29 +533,26 @@ export class PythonEnvironment implements vscode.Disposable {
     await vscode.commands.executeCommand('workbench.action.openSettings', 'mlview.pythonPath');
   }
 
+  /**
+   * `pip install mlview`, in a terminal, on the interpreter MLView actually uses.
+   *
+   * PACKAGING: this used to offer `pip install -e <repo>/analyzer`, naming a checkout
+   * a marketplace user does not have — the single most confusing sentence a
+   * first-run failure could produce. The wheel is the published artifact
+   * (`python -m build --wheel analyzer`, `scripts/build.sh` step 6), so the
+   * instruction is now one a stranger can follow. It is also no longer the ONLY
+   * way out: with a bundled core this prompt is an upgrade path, not a rescue.
+   */
   async installCore(): Promise<void> {
     const state = await this.resolve();
     const executable = state.ok ? state.interpreter.executable : 'python';
-    const analyzer = this.analyzerSourceDir();
-    if (!analyzer) {
-      const message =
-        'MLView core (the `mlview` Python package) is not installed and the analyzer sources ' +
-        'were not found next to this extension. Install it with: pip install -e <mlview-repo>/analyzer';
-      this.log.warn(message);
-      await vscode.window.showWarningMessage(message, 'Show Output').then((choice) => {
-        if (choice) {
-          this.log.show(false);
-        }
-      });
-      return;
-    }
-    const terminal = vscode.window.createTerminal({ name: 'MLView: install core', cwd: analyzer });
+    const terminal = vscode.window.createTerminal({ name: 'MLView: install core' });
     terminal.show(true);
     // `&` is the PowerShell call operator and a syntax error in cmd.exe / bash, so pick the
     // form that matches the user's default shell rather than assuming PowerShell.
     const shell = (vscode.env.shell ?? '').toLowerCase();
     const isPowerShell = shell.includes('powershell') || shell.includes('pwsh');
-    const command = `${isPowerShell ? '& ' : ''}"${executable}" -m pip install -e "${analyzer}"`;
+    const command = `${isPowerShell ? '& ' : ''}"${executable}" -m pip install --upgrade mlview`;
     terminal.sendText(command, true);
     this.log.info(`install started in a terminal: ${command}`);
     void vscode.window

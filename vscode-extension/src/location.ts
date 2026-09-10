@@ -36,6 +36,26 @@ export function toRangeTuple(loc: LocLike): RangeTuple {
 }
 
 /**
+ * NB: the same conversion, for a location the host has re-anchored into a notebook cell.
+ *
+ * A notebook finding's `Loc` names the GENERATED module the analyzer materialised under
+ * `.mlview/notebooks/`, and `cellLine` is the 1-based line of `loc.line` inside the cell it
+ * came from (`notebooks.ts` recovers it). Only the start is published in cell coordinates,
+ * because a finding never straddles a cell boundary, so the end is the start plus the span
+ * the flat lines already agree on — which is the span inside the cell.
+ */
+export function cellRangeFor(loc: LocLike, cellLine: number): RangeTuple {
+  const span = Math.max(0, Math.trunc(loc.endLine) - Math.trunc(loc.line));
+  const start = Math.max(1, Math.trunc(cellLine));
+  return toRangeTuple({
+    line: start,
+    col: loc.col,
+    endLine: start + span,
+    endCol: loc.endCol
+  });
+}
+
+/**
  * 1-based graph line -> 0-based editor line. The line-only half of `toRangeTuple`, for the
  * CodeLens anchors and anywhere else a `vscode.Position` is built from a graph line.
  */

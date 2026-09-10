@@ -3,11 +3,13 @@
  * document.createElement / createElementNS and filled with textContent.
  */
 
-import { el, add, middleTruncate, fileLine } from '../dom.js';
+import { el, add, middleTruncate, locSpan } from '../dom.js';
+import { locSpoken } from '../notebook.js';
 import { kindIcon, uiIcon, isKnownKind } from '../icons.js';
 import { severityBadge, severityCluster, highestSeverity, countsTotal } from '../markers.js';
 import type { IssueCounts, MLNode } from '../types.js';
 import type { LayoutBox, LayoutLane } from '../layout/layout.js';
+import { chipCandidates } from '../layout/cardmetrics.js';
 
 export interface NodeVisual {
   node: MLNode;
@@ -102,15 +104,16 @@ function chipMetrics(width: number): ChipMetrics | null {
   };
 }
 
-function chipsFor(node: MLNode, metrics?: ChipMetrics | null, budget = 26, maxChips = 3): string[] {
-  const keys = Object.keys(node.attrs || {});
-  const sublabel = node.sublabel || '';
-  const candidates: string[] = [];
-  for (const k of keys) {
-    const text = k + '=' + node.attrs[k];
-    if (sublabel.indexOf(text) >= 0) continue;
-    candidates.push(text);
-  }
+/**
+ * Exported for VIEW-07: the SVG export draws the SAME chips as the card, with
+ * its own advance metric. Two budgeting rules would put a different chip row on
+ * the picture you export from the one on the picture you were looking at.
+ */
+export function chipsFor(node: MLNode, metrics?: ChipMetrics | null, budget = 26, maxChips = 3): string[] {
+  // NB. The candidate list is `layout/cardmetrics.ts`'s, not a second copy of
+  // the same rule: the layout reserves a chip row exactly when this is
+  // non-empty, and only the WIDTH budget below is a rendering decision (VW-01).
+  const candidates = chipCandidates(node);
   const out: string[] = [];
   let usedChars = 0;
   let usedPx = 0;
@@ -140,7 +143,7 @@ export function ariaLabelFor(v: NodeVisual): string {
   if (n.ghost) bits.push('Missing step: ' + n.label);
   else bits.push((isKnownKind(n.kind) ? n.kind.replace(/_/g, ' ') : 'node') + ' ' + n.label);
   bits.push(stageOf(n) + ' stage');
-  bits.push(n.loc.file + ' line ' + n.loc.line);
+  bits.push(locSpoken(n.loc));
   const total = countsTotal(v.counts);
   const top = highestSeverity(v.counts);
   if (total > 0) bits.push(total + (total === 1 ? ' issue' : ' issues') + ', highest severity ' + top);
@@ -171,7 +174,14 @@ export function buildNodeCard(v: NodeVisual, collapsedGroup: boolean): HTMLEleme
   card.style.left = v.box.x + 'px';
   card.style.top = v.box.y + 'px';
   card.style.width = v.box.w + 'px';
-  card.style.minHeight = v.box.h + 'px';
+  // VW-01: `height`, not `min-height`. The box `layout/cardmetrics.ts` reserved
+  // is what `labels.ts` clears and what `export/svg.ts` draws, so a card that
+  // grew past it put ink where the planner had promised none — 26 of 26 cards
+  // on a notebook report, two overlapping pairs and 6 labels drawn over cards.
+  // The reservation now counts the loc row and the chip row, so nothing is
+  // clipped at our own type scale; where a host's font is bigger, the plan wins
+  // and `.mlv-node__text` clips, exactly as the SVG export already did.
+  card.style.height = v.box.h + 'px';
 
   if (n.ghost) card.classList.add('is-ghost');
   if (n.dynamic) card.classList.add('is-dynamic');
@@ -190,7 +200,10 @@ export function buildNodeCard(v: NodeVisual, collapsedGroup: boolean): HTMLEleme
   add(text, el('div', 'mlv-node__title', middleTruncate(n.label || n.qualname || n.id, 34)));
   const sub = n.sublabel || (n.fqn ? n.fqn : n.kind);
   add(text, el('div', 'mlv-node__sub', middleTruncate(sub, 40)));
-  add(text, el('div', 'mlv-node__loc', fileLine(n.loc)));
+  // NB. `notebooks/leak.ipynb > cell 3 : 4` on the card, with the flat line it
+  // was translated from in the hover. `locSpan` splits the path from the cell so
+  // a card too narrow for both loses the path, never the cell.
+  add(text, locSpan('mlv-node__loc', n.loc, 'div'));
 
   // The collapsed-group count chip is PREPENDED after budgeting, so it can never
   // push the "+n" overflow chip off the end (MLV-R1-011).

@@ -14,8 +14,10 @@ import { clear, on } from './dom.js';
 import { GraphIndex } from './layout/model.js';
 import { layoutGraph, LayoutFrame } from './layout/layout.js';
 import { routeEdges, RoutedEdge } from './layout/routing.js';
+import { planLabels, LabelPlan } from './layout/labels.js';
 import { firstBox, nextBox } from './layout/navigate.js';
 import { minimapDots, renderScene } from './render/scene.js';
+import { planScene, ScenePlan, ScenePlanOptions } from './render/plan.js';
 import { nextMountSerial } from './render/edges.js';
 import { Minimap, ViewportController } from './render/canvas.js';
 import { applyTrace } from './render/trace.js';
@@ -99,6 +101,8 @@ export class CanvasView {
   private index: GraphIndex | null = null;
   private frameData: LayoutFrame | null = null;
   private routes: RoutedEdge[] = [];
+  /** VIEW-03: where every edge label and severity marker goes. */
+  private labelPlan: LabelPlan | null = null;
   private collapsedSet = new Set<string>();
   private staleFiles: string[] = [];
   private hoverId: string | null = null;
@@ -145,7 +149,13 @@ export class CanvasView {
       },
       (collapsed) => this.host.onMinimapCollapsed(collapsed),
     );
-    this.canvasEl.appendChild(this.minimap.root);
+    // VIEW-12: BEFORE the canvas, and outside it. The minimap duplicates a
+    // diagram that is already fully navigable from the keyboard, so it is
+    // `aria-hidden` — and an `aria-hidden` subtree may not contain a tab stop,
+    // which is why its in-panel chevron is pointer-only and the keyboard's
+    // toggle lives in the toolbar. It is absolutely positioned either way, so
+    // it is drawn exactly where it always was.
+    shell.main.insertBefore(this.minimap.root, this.canvasEl);
 
     this.toasts = new Toasts();
     this.canvasEl.appendChild(this.toasts.root);
@@ -238,6 +248,9 @@ export class CanvasView {
     if (!this.index) return;
     this.frameData = layoutGraph(this.index, this.collapsedSet);
     this.routes = routeEdges(this.index, this.frameData, this.collapsedSet);
+    // VIEW-03. Pure geometry over the frame and the routes, so it costs one
+    // O(labels) pass with grid bucketing and moves no box.
+    this.labelPlan = planLabels(this.frameData, this.routes);
     this.viewport.setContent(this.frameData.width, this.frameData.height);
     // A SCOPE is small by construction, so the "fit the width and let them pan
     // down" rule written for a whole workspace does not apply to it: it opened a
@@ -247,9 +260,43 @@ export class CanvasView {
     this.render();
   }
 
+  /**
+   * The inputs both renderers share. VIEW-07's SVG export walks the plan these
+   * produce, so a divergence would have to be introduced here, in one place,
+   * rather than by two renderers drifting apart.
+   */
+  private planInputs(): ScenePlanOptions | null {
+    if (!this.index || !this.frameData) return null;
+    return {
+      index: this.index,
+      frame: this.frameData,
+      routes: this.routes,
+      labels: this.labelPlan ? this.labelPlan.placements : null,
+      mountSerial: this.mountSerial,
+      keep: (issue) => this.host.keep(issue),
+      staleFiles: this.staleFiles,
+      isFilteredOut: (node) => this.host.isFilteredOut(node),
+    };
+  }
+
+  /** What is currently drawn, as data — the export's single source (VIEW-07). */
+  scenePlan(): ScenePlan | null {
+    const inputs = this.planInputs();
+    return inputs ? planScene(inputs) : null;
+  }
+
+  /** The visible canvas, in WORLD coordinates — the "current view" region. */
+  viewportRect(): { x: number; y: number; w: number; h: number } {
+    const size = this.viewport.size();
+    const vp = this.viewport.vp;
+    const zoom = vp.zoom || 1;
+    return { x: -vp.x / zoom, y: -vp.y / zoom, w: size.w / zoom, h: size.h / zoom };
+  }
+
   /** Rebuild the scene DOM from the current frame. Never moves boxes. */
   render(): void {
-    if (!this.index || !this.frameData) return;
+    const inputs = this.planInputs();
+    if (!inputs) return;
     const scene = renderScene(
       {
         world: this.worldEl,
@@ -260,13 +307,7 @@ export class CanvasView {
         nodes: this.nodesLayer,
       },
       {
-        index: this.index,
-        frame: this.frameData,
-        routes: this.routes,
-        mountSerial: this.mountSerial,
-        keep: (issue) => this.host.keep(issue),
-        staleFiles: this.staleFiles,
-        isFilteredOut: (node) => this.host.isFilteredOut(node),
+        ...inputs,
         wireNode: (element, id, isGroup) => this.wireNode(element, id, isGroup),
         wireEdge: (element, route) => this.wireEdge(element, route),
       },

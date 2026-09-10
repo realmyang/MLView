@@ -27,6 +27,8 @@
      "why": "two runs of the same walk-forward give two different MAEs"}
   ],
   "forbidden": [
+    {"code": "MLV106", "file": "train.py",
+     "why": "the splitter is TimeSeriesSplit, which is the chronological answer MLV106 asks for; no shuffled split exists in this project"},
     {"code": "MLV602", "file": "train.py",
      "why": "TimeSeriesSplit is deterministic by construction - it has no random_state and asking for one would be wrong advice on a temporal split"},
     {"code": "MLV110", "file": "train.py",

@@ -95,6 +95,32 @@ def test_fixture_locations_resolve(path):
     check_document(doc, read)
 
 
+@pytest.mark.parametrize("name", ["leak.ipynb", "leak_out_of_order.ipynb",
+                                  "odd_cells.ipynb"])
+def test_notebook_locations_resolve(name, tmp_path):
+    """NB (CONTRACTS 11.29). A notebook's `Loc`s name the **generated** module
+    under `.mlview/notebooks/`, and R2.1's guarantee is that they re-open and
+    slice - which is exactly why that module is materialised on disk rather
+    than kept in memory. A cell-offset bug shows up here first.
+
+    The fixture is copied into a tmp workspace because analysis writes the
+    generated module beside it.
+    """
+    import shutil
+
+    root = tmp_path / "nbloc"
+    root.mkdir()
+    shutil.copyfile(os.path.join(FIXTURES, "notebooks", name), str(root / name))
+    doc = analyze_to_dict(AnalyzeOptions(paths=(str(root),), include_notebooks=True))
+    assert doc["workspace"]["filesAnalyzed"] == 1
+
+    def read(relpath):
+        with open(os.path.join(str(root), relpath), encoding="utf-8") as fh:
+            return fh.read()
+
+    check_document(doc, read)
+
+
 def test_paths_are_workspace_relative_with_forward_slashes(analyze_ws):
     doc = analyze_ws({"pkg/sub/mod.py": "import torch\nx = torch.device('cpu')\n"})
     root = doc["workspace"]["root"]

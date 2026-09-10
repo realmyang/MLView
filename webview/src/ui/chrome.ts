@@ -6,36 +6,20 @@
 import { add, button, clear, el, iconButton, on } from '../dom.js';
 import { uiIcon } from '../icons.js';
 import { severityGlyph, SEVERITY_ORDER } from '../markers.js';
-import type { Capabilities, Diagnostic, Filters, MLGraph, Severity, Stage } from '../types.js';
-
-/**
- * Diagnostic kinds the chrome surfaces somewhere OTHER than the generic note
- * chip: as a banner, as a purpose-built chip, or folded into the status bar.
- * Anything not listed here — including a kind invented by a newer analyzer —
- * falls through to the generic chip, which is what invariant 1.1/6 asks for.
- */
-const SPECIALLY_RENDERED = [
-  'parse_error',
-  'dynamic_scope',
-  'truncated',
-  'notebook_skipped',
-  'framework_suppressed',
-  'config_warning',
-  'config_unresolved',
-  'untagged_dataflow',
-  'single_file_analysis',
-  'notebook_analyzed',
-];
-
-/**
- * COVERAGE. The product's worst failure mode is that it cannot tell *"I checked
- * and it is fine"* from *"I could not check"*: MLV101 is silent whenever
- * features arrive as a function parameter, and analysing `train.py` alone yields
- * 3 findings where its directory yields 7 — a 57 % loss, with nothing said. Both
- * now arrive as diagnostics, and both get a banner that says what was NOT
- * looked at.
- */
-const COVERAGE_KINDS = ['untagged_dataflow', 'single_file_analysis'];
+import { RovingGroup } from './roving.js';
+import {
+  COVERAGE_KINDS,
+  SPECIALLY_RENDERED,
+  coverageChipText,
+  coverageHeadline,
+  describe,
+  notebooksAnalyzedText,
+  stat,
+} from './chromenotes.js';
+import { NOTEBOOK_ANALYZED, outOfOrderDiagnostics, outOfOrderHeadline } from '../notebook.js';
+import { suppressedSummary } from './suppress.js';
+import { isSetAside } from '../types.js';
+import type { Capabilities, Filters, MLGraph, Severity, Stage } from '../types.js';
 
 export interface ChromeCallbacks {
   onQuery(q: string): void;
@@ -58,6 +42,15 @@ export interface ChromeCallbacks {
   onToggleFlow(next: boolean): void;
   /** Open or close the legend (VIEW-10); persisted as ViewState.legendOpen. */
   onToggleLegend(next: boolean): void;
+  /**
+   * VIEW-12: the keyboard's minimap toggle. The panel itself is `aria-hidden`
+   * and its chevron is pointer-only, so this button is the only accessible way
+   * to collapse the overview — and it is before the canvas in DOM order,
+   * instead of the tab stop after it that the chevron used to be.
+   */
+  onToggleMinimap(next: boolean): void;
+  /** CI-ADOPT: "only changed" — drops findings attributed `existing`. */
+  onChangedOnly(next: boolean): void;
 }
 
 export interface ChromeState {
@@ -80,11 +73,23 @@ export interface ChromeState {
   laneIds: string[];
   /** Present in the FULL analysis, absent from THIS projection (11.4 F3). */
   outOfScopeStages: Stage[];
+  /** Whether the minimap is collapsed, for the toolbar's toggle (VIEW-12). */
+  minimapCollapsed: boolean;
 }
 
 let chromeSeq = 0;
 
 export class Chrome {
+  /**
+   * The whole control strip as ONE `role="toolbar"` (VIEW-12).
+   *
+   * The toolbar row and the stage-filter row are two visual rows of the same
+   * widget: leaving them as separate tab stops kept seven stage chips, four
+   * theme chips and eleven buttons in the Tab order ahead of the canvas. Under
+   * one roving group the strip costs one press, and the search input inside it
+   * keeps the second.
+   */
+  readonly bar: HTMLElement;
   readonly toolbar: HTMLElement;
   readonly filterRow: HTMLElement;
   readonly chipRow: HTMLElement;
@@ -102,17 +107,32 @@ export class Chrome {
   private scopeBtn: HTMLButtonElement;
   private flowBtn: HTMLButtonElement;
   private legendBtn: HTMLButtonElement;
+  private minimapBtn: HTMLButtonElement;
+  private roving: RovingGroup | null = null;
   /** Where the App mounts the scope breadcrumb: first element after the brand. */
   readonly scopeSlot: HTMLElement;
+  /**
+   * VIEW-07: where the App mounts the export menu's TRIGGER — beside Fit, which
+   * is where the roadmap put it and where a reader looks for "give me this
+   * picture". Only the trigger: the popup is mounted on the app root, so the
+   * roving toolbar never takes its eight controls into the arrow-key order.
+   */
+  readonly exportSlot: HTMLElement;
   private cb: ChromeCallbacks;
 
   constructor(cb: ChromeCallbacks) {
     this.cb = cb;
     const uid = 'mlv' + ++chromeSeq;
-    this.toolbar = el('div', 'mlv-toolbar');
+    this.bar = el('div', 'mlv-chromebar');
+    this.bar.setAttribute('role', 'toolbar');
+    this.bar.setAttribute('aria-label', 'Diagram controls');
+    this.bar.setAttribute('aria-orientation', 'horizontal');
+    this.toolbar = add(this.bar, el('div', 'mlv-toolbar'));
 
-
-    const brand = add(this.toolbar, el('div', 'mlv-brand'));
+    // VIEW-12: the document's ONE `h1`, and it carries the workspace name —
+    // which existed only in `<title>` and in the brand text, so heading
+    // navigation started mid-document at a rail `h3`.
+    const brand = add(this.toolbar, el('h1', 'mlv-brand'));
     add(brand, el('span', 'mlv-brand__name', 'MLView'));
     this.rootLabel = add(brand, el('span', 'mlv-brand__root', ''));
 
@@ -155,6 +175,7 @@ export class Chrome {
       b.type = 'button';
       b.setAttribute('aria-pressed', 'true');
       b.title = 'Toggle ' + sev + ' severity findings';
+      b.setAttribute('data-severity', sev);
       b.appendChild(severityGlyph(sev, 13, ''));
       add(b, el('span', 'mlv-chip__count', '0'));
       on(b, 'click', () => cb.onSeverity(sev));
@@ -199,6 +220,15 @@ export class Chrome {
     on(this.legendBtn, 'click', () => cb.onToggleLegend(this.legendBtn.getAttribute('aria-pressed') !== 'true'));
     this.toolbar.appendChild(this.legendBtn);
 
+    // The minimap's keyboard toggle (VIEW-12). `aria-pressed` reads "the
+    // overview is shown", so it is pressed while the panel is EXPANDED.
+    this.minimapBtn = el('button', 'mlv-btn mlv-btn--icon mlv-btn--minimap') as HTMLButtonElement;
+    this.minimapBtn.type = 'button';
+    this.minimapBtn.appendChild(uiIcon('minimap'));
+    this.minimapBtn.setAttribute('aria-pressed', 'true');
+    on(this.minimapBtn, 'click', () => cb.onToggleMinimap(this.minimapBtn.getAttribute('aria-pressed') === 'true'));
+    this.toolbar.appendChild(this.minimapBtn);
+
     const zoomOut = iconButton('mlv-btn mlv-btn--icon', 'Zoom out');
     zoomOut.appendChild(uiIcon('minus'));
     on(zoomOut, 'click', () => cb.onZoom(-1));
@@ -213,6 +243,8 @@ export class Chrome {
     fit.appendChild(uiIcon('fit'));
     on(fit, 'click', () => cb.onFit());
     this.toolbar.appendChild(fit);
+
+    this.exportSlot = add(this.toolbar, el('span', 'mlv-toolbar__exportslot'));
 
     this.zoomSelBtn = iconButton('mlv-btn mlv-btn--icon', 'Zoom to selection');
     this.zoomSelBtn.appendChild(uiIcon('target'));
@@ -234,10 +266,20 @@ export class Chrome {
     on(rail, 'click', () => cb.onToggleRail());
     this.toolbar.appendChild(rail);
 
-    this.filterRow = el('div', 'mlv-filterrow');
+    this.filterRow = add(this.bar, el('div', 'mlv-filterrow'));
     this.chipRow = el('div', 'mlv-chiprow');
     this.banners = el('div', 'mlv-banners');
     this.status = el('div', 'mlv-status');
+
+    // One roving group over both rows. Built last, so every control the strip
+    // ships with is already in it; `update()` re-syncs it after the stage chips
+    // are rebuilt.
+    this.roving = new RovingGroup(this.bar);
+  }
+
+  destroy(): void {
+    if (this.roving) this.roving.destroy();
+    this.roving = null;
   }
 
   update(s: ChromeState): void {
@@ -258,10 +300,21 @@ export class Chrome {
       const count = b.querySelector('.mlv-chip__count');
       if (count) count.textContent = String(s.visibleCounts[sev]);
     }
-    const suppressed = g ? (g.issues || []).filter((i) => i.suppressed).length : 0;
-    this.suppressedBtn.hidden = suppressed === 0;
-    this.suppressedBtn.textContent = suppressed + ' suppressed';
-    this.suppressedBtn.title = (s.filters.showSuppressed ? 'Hide' : 'Show') + ' ' + suppressed + ' suppressed finding' + (suppressed === 1 ? '' : 's');
+    // VW-04. The severity chips beside this button now net out BASELINED
+    // findings as well as suppressed ones, exactly as the rail, the answer card
+    // and `mlview issues` do — so this button has to say both, or the reader is
+    // left with a total that does not add up. One wording, one helper: the rail
+    // section head uses the same `suppressedSummary`.
+    const setAside = g ? (g.issues || []).filter(isSetAside) : [];
+    const baselined = setAside.filter((i) => i.baselined).length;
+    const suppressed = setAside.length - baselined;
+    const summary = suppressedSummary(suppressed, baselined);
+    this.suppressedBtn.hidden = setAside.length === 0;
+    this.suppressedBtn.textContent = summary;
+    this.suppressedBtn.setAttribute('data-set-aside', String(setAside.length));
+    this.suppressedBtn.title =
+      (s.filters.showSuppressed ? 'Hide' : 'Show') + ' ' + summary +
+      ' finding' + (setAside.length === 1 ? '' : 's') + ' — they are not in the counts above';
     this.suppressedBtn.setAttribute('aria-label', this.suppressedBtn.title);
     this.suppressedBtn.setAttribute('aria-pressed', s.filters.showSuppressed ? 'true' : 'false');
 
@@ -273,6 +326,10 @@ export class Chrome {
     this.flowBtn.title = 'Connection flow animation is ' + (s.flowOn ? 'on' : 'off') + ' — press A to toggle';
     this.flowBtn.setAttribute('aria-label', 'Connection flow animation is ' + (s.flowOn ? 'on' : 'off'));
     this.legendBtn.setAttribute('aria-pressed', s.legendOpen ? 'true' : 'false');
+    const shown = !s.minimapCollapsed;
+    this.minimapBtn.setAttribute('aria-pressed', shown ? 'true' : 'false');
+    this.minimapBtn.title = 'Overview minimap is ' + (shown ? 'shown' : 'hidden');
+    this.minimapBtn.setAttribute('aria-label', this.minimapBtn.title);
 
     this.refreshBtn.hidden = !s.capabilities.canReanalyze;
     this.exportBtn.hidden = !s.capabilities.canExport;
@@ -282,6 +339,9 @@ export class Chrome {
     this.renderChips(s);
     this.renderBanners(s);
     this.renderStatus(s);
+    // The stage chip row was just rebuilt: put the strip's single tab stop back
+    // (VIEW-12).
+    if (this.roving) this.roving.sync();
   }
 
   /** Stage chips: every present band, toggleable. Empty selection means "all". */
@@ -300,6 +360,22 @@ export class Chrome {
       this.filterRow.hidden = true;
       return;
     }
+    // CI-ADOPT: offered only when the run was actually attributed against a
+    // base revision. An unattributed document must not grow a filter that can
+    // only ever hide nothing.
+    const attributed = (g.issues || []).some((i) => typeof i.change === 'string' && i.change);
+    if (attributed) {
+      const changed = el('button', 'mlv-chip mlv-chip--btn mlv-chip--changed') as HTMLButtonElement;
+      changed.type = 'button';
+      changed.textContent = 'only changed';
+      changed.setAttribute('data-changed-filter', '1');
+      const on_ = !!s.filters.changedOnly;
+      changed.setAttribute('aria-pressed', on_ ? 'true' : 'false');
+      changed.title = 'Show only findings on lines this change touched';
+      changed.setAttribute('aria-label', changed.title);
+      on(changed, 'click', () => this.cb.onChangedOnly(!s.filters.changedOnly));
+      this.filterRow.appendChild(changed);
+    }
     add(this.filterRow, el('span', 'mlv-chiprow__label', 'stages'));
     const active = s.filters.stages;
     for (const stage of stages) {
@@ -315,7 +391,11 @@ export class Chrome {
       this.filterRow.appendChild(chip);
     }
     const dirty =
-      active.length > 0 || s.filters.severities.length < 3 || s.filters.showSuppressed || s.filters.query.length > 0;
+      active.length > 0 ||
+      s.filters.severities.length < 3 ||
+      s.filters.showSuppressed ||
+      !!s.filters.changedOnly ||
+      s.filters.query.length > 0;
     if (dirty) {
       const clearBtn = button('mlv-btn', 'Clear filters');
       on(clearBtn, 'click', () => this.cb.onClearFilters());
@@ -350,13 +430,33 @@ export class Chrome {
       if (d.kind === 'notebook_skipped') {
         any = true;
         add(this.chipRow, el('span', 'mlv-chip', (d.count || 0) + ' notebooks not analyzed'));
+      } else if (d.kind === NOTEBOOK_ANALYZED) {
+        // NB. Without `--include-notebooks` this never appears, because the
+        // diagnostic is never emitted.
+        any = true;
+        // VW-06: ONE diagnostic per notebook, and its `count` is that
+        // notebook's code cells — so the chip is one notebook (the hook keeps
+        // its name) and the cell count is its own attribute.
+        const chip = add(this.chipRow, el('span', 'mlv-chip', notebooksAnalyzedText(d)));
+        chip.setAttribute('data-notebooks-analyzed', '1');
+        chip.setAttribute('data-notebook-cells', String(d.count || 0));
+        chip.title = d.message;
       } else if (d.kind === 'framework_suppressed') {
         any = true;
         const text = d.message + (d.codes && d.codes.length ? ' (' + d.codes.join(', ') + ')' : '');
         add(this.chipRow, el('span', 'mlv-chip', text));
       } else if (d.kind === 'config_warning' || d.kind === 'config_unresolved') {
+        // VW-08. These are SENTENCES, not chips — CI-ADOPT's baseline and
+        // --changed-paths warnings carry absolute paths and an instruction, and
+        // the `--changed-paths` one measured 1779 px wide at a 1600 px window,
+        // running 191 px off the page with no scrollbar and no `title`, so the
+        // instruction it exists to give ("Pass the diff itself, or
+        // --changed-since <rev>") was the half that was cut. The full text is
+        // now on the chip's tooltip, and `.mlv-chiprow .mlv-chip` wraps.
         any = true;
-        add(this.chipRow, el('span', 'mlv-chip', d.message));
+        const chip = add(this.chipRow, el('span', 'mlv-chip', d.message));
+        chip.setAttribute('data-config-note', d.kind);
+        chip.title = d.message;
       } else if (COVERAGE_KINDS.indexOf(d.kind) >= 0) {
         // COVERAGE: a chip that says the analysis was BLIND here, distinct from
         // the "not detected" row beside it, which says it looked and found none.
@@ -422,6 +522,17 @@ export class Chrome {
         this.banners.appendChild(b);
       }
 
+      // NB. ABOVE the coverage banner: a notebook last run out of order makes
+      // the fit-before-split family unreliable, and that has to be read before
+      // the findings it de-rates.
+      const outOfOrder = outOfOrderDiagnostics(g.diagnostics || []);
+      if (outOfOrder.length && !s.dismissed.has('notebook-order')) {
+        any = true;
+        const b = this.banner('warn', outOfOrderHeadline(outOfOrder), describe(outOfOrder));
+        b.setAttribute('data-notebook-order-banner', String(outOfOrder.length));
+        add(b, el('div', 'mlv-banner__actions')).appendChild(this.dismissButton('notebook-order'));
+        this.banners.appendChild(b);
+      }
       // COVERAGE. One banner for everything the run could NOT see, above the
       // "partial understanding" note, because "I did not look" outranks "I
       // looked and was unsure".
@@ -500,41 +611,4 @@ export class Chrome {
     const notes = (g.diagnostics || []).length;
     if (notes) add(this.status, el('span', '', notes + (notes === 1 ? ' note' : ' notes')));
   }
-}
-
-function stat(value: string, label: string): HTMLElement {
-  const wrap = el('span', 'mlv-stat');
-  add(wrap, el('span', 'mlv-stat__value', value));
-  add(wrap, el('span', '', label));
-  return wrap;
-}
-
-/** The chip text for one coverage diagnostic — short, countable, honest. */
-function coverageChipText(d: Diagnostic): string {
-  if (d.kind === 'single_file_analysis') {
-    const codes = d.codes && d.codes.length ? ' — ' + d.codes.join(', ') + ' need more files' : '';
-    return 'single-file analysis' + codes;
-  }
-  const n = d.count || 0;
-  return n > 0 ? n + (n === 1 ? ' value not traced' : ' values not traced') : 'dataflow not traced';
-}
-
-/** The banner headline: what was not checked, in the reader's words. */
-function coverageHeadline(diags: Diagnostic[]): string {
-  const single = diags.some((d) => d.kind === 'single_file_analysis');
-  const untagged = diags.filter((d) => d.kind === 'untagged_dataflow');
-  const parts: string[] = [];
-  if (single) parts.push('only part of this project was analyzed, so cross-file rules could not run');
-  if (untagged.length) {
-    const n = untagged.reduce((sum, d) => sum + (d.count || 1), 0);
-    parts.push(n + (n === 1 ? ' value' : ' values') + ' reaching a fit or split could not be traced');
-  }
-  return 'Coverage: ' + parts.join('; ') + '. A clean result here is not a clean bill of health.';
-}
-
-function describe(diags: Diagnostic[]): string {
-  return diags
-    .slice(0, 8)
-    .map((d) => (d.file ? d.file + (d.line ? ':' + d.line : '') + ' — ' : '') + d.message)
-    .join('\n');
 }

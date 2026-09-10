@@ -6,10 +6,12 @@
  */
 
 import { add, button, clear, el, fileLine, on } from '../dom.js';
+import { cellRef, locTitle } from '../notebook.js';
 import { severityGlyph } from '../markers.js';
 import { appendTrustSections, confidenceChip } from './evidence.js';
 import { renderIssuePanel } from './issuelist.js';
 import { renderOutlineTree } from './outline.js';
+import { appendSuppressActions, stateChip } from './suppress.js';
 import type { Issue, Loc, MLNode, RailGroupBy, RailTab, RelatedLoc } from '../types.js';
 import type { GraphIndex } from '../layout/model.js';
 
@@ -32,6 +34,10 @@ export interface RailCallbacks {
   onScopeToNode(nodeId: string): void;
   /** The Issues rail's "Group by" control; persisted as ViewState.railGroupBy. */
   onGroupBy(mode: RailGroupBy): void;
+  /** MLV-P10: copy `# mlview: ignore[CODE]` through the host's clipboard. */
+  onCopyIgnore(code: string): void;
+  /** MLV-P10: ask the host to turn this rule off for the workspace. */
+  onDisableRule(code: string): void;
 }
 
 export interface RailState {
@@ -44,6 +50,8 @@ export interface RailState {
   /** The canvas's collapsed groups — the Outline mirrors them (MLV-R2-W08). */
   collapsed: Set<string>;
   keep(issue: Issue): boolean;
+  /** `keep` without the suppression and baseline tests (MLV-P10). */
+  keepBase(issue: Issue): boolean;
   /**
    * Present only under a scope. `total` is PROJECT-LEVEL: the rail must always
    * be able to say how many findings live outside the current view, or a scope
@@ -73,7 +81,11 @@ export class Rail {
     this.cb = cb;
     const uid = 'mlv' + ++railSeq;
     this.root = el('aside', 'mlv-rail');
-    this.root.setAttribute('aria-label', 'MLView details');
+    this.root.setAttribute('aria-labelledby', uid + '-rail-heading');
+    // VIEW-12: the rail's own h2, so the three panel h3s hang off something
+    // instead of preceding the document's only h2s.
+    const railHeading = add(this.root, el('h2', 'mlv-sr', 'Findings and details'));
+    railHeading.id = uid + '-rail-heading';
 
     const grip = add(this.root, el('div', 'mlv-rail__grip'));
     grip.setAttribute('role', 'separator');
@@ -197,6 +209,7 @@ export class Rail {
       index: s.index,
       issues: s.issues,
       keep: s.keep,
+      keepBase: s.keepBase,
       selectedIssueId: s.selectedIssueId,
       scope: s.scope,
       groupBy: s.groupBy,
@@ -208,6 +221,8 @@ export class Rail {
       onClearScope: () => this.cb.onClearScope(),
       onGroupBy: (mode) => this.cb.onGroupBy(mode),
       onToggleGroup: (key) => this.toggleGroup(key),
+      onCopyIgnore: (code) => this.cb.onCopyIgnore(code),
+      onDisableRule: (code) => this.cb.onDisableRule(code),
     });
   }
 
@@ -245,12 +260,15 @@ export class Rail {
   private renderInspector(s: RailState): void {
     const panel = this.panels.get('inspector')!;
     clear(panel);
+    add(panel, el('h3', 'mlv-sr', 'Inspector'));
     const node = s.selectedNode;
     if (!node || !s.index) {
       add(panel, el('div', 'mlv-empty-note', 'Select a node to inspect it.'));
       return;
     }
-    add(panel, el('h2', 'mlv-insp__title', node.label || node.qualname));
+    // h4 under the panel's h3 (VIEW-12): this used to be an `h2` inside a
+    // document whose first heading was an `h3`.
+    add(panel, el('h4', 'mlv-insp__title', node.label || node.qualname));
     const meta = add(panel, el('div', 'mlv-insp__meta'));
     const stageChip = add(meta, el('span', 'mlv-chip mlv-chip--stage', node.stage));
     stageChip.setAttribute('data-stage', node.stage);
@@ -265,6 +283,13 @@ export class Rail {
 
     const actions = add(panel, el('div', 'mlv-insp__actions'));
     const openBtn = button('mlv-btn mlv-btn--primary', 'Open ' + fileLine(node.loc));
+    // NB. The button says the cell; its hover says the flat line the host is
+    // actually sent, so the two never look like a contradiction.
+    const nbCell = cellRef(node.loc);
+    if (nbCell) {
+      openBtn.setAttribute('data-cell', String(nbCell.cell));
+      openBtn.title = locTitle(node.loc);
+    }
     on(openBtn, 'click', () => this.cb.onOpen(node.loc));
     actions.appendChild(openBtn);
     if (s.canAskAssistant) {
@@ -343,12 +368,22 @@ export class Rail {
     add(head, el('span', 'mlv-mono', issue.code));
     add(head, el('span', '', issue.title));
     head.appendChild(confidenceChip(issue));
+    if (issue.suppressed) stateChip(head, 'mlv-chip--suppressed', 'suppressed');
+    if (issue.baselined) stateChip(head, 'mlv-chip--baselined', 'baselined');
     add(box, el('p', 'mlv-insp__line', issue.message));
     add(box, el('p', 'mlv-insp__line', issue.why));
     add(box, el('div', 'mlv-insp__fix', issue.fixHint));
     // MLV-P6: the same two disclosures the rail row carries, so "why should I
     // believe this" is answerable from whichever surface the user is on.
     appendTrustSections(box, issue);
+    // MLV-P10: and the same two actions, spelled out rather than icon-only —
+    // the Inspector has the room, and this is where a reader who has just read
+    // the evidence decides the finding is a false positive.
+    const actions = add(box, el('div', 'mlv-insp__suppress'));
+    appendSuppressActions(actions, issue.code, {
+      onCopyIgnore: (code) => this.cb.onCopyIgnore(code),
+      onDisableRule: (code) => this.cb.onDisableRule(code),
+    });
     if ((issue.relatedLocs || []).length) {
       const list = add(box, el('ul', 'mlv-insp__related'));
       for (const rel of issue.relatedLocs) {
@@ -362,8 +397,9 @@ export class Rail {
     return box;
   }
 
+  /** An Inspector subsection, one level under the node's own h4 (VIEW-12). */
   private heading(text: string): HTMLElement {
-    const h = el('h3', 'mlv-rail__heading');
+    const h = el('h5', 'mlv-rail__heading');
     h.textContent = text;
     return h;
   }
@@ -371,6 +407,7 @@ export class Rail {
   private renderOutline(s: RailState): void {
     const panel = this.panels.get('outline')!;
     clear(panel);
+    add(panel, el('h3', 'mlv-sr', 'Outline'));
     const index = s.index;
     if (!index) {
       add(panel, el('div', 'mlv-empty-note', 'No analysis loaded yet.'));

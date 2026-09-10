@@ -4,9 +4,11 @@
     python tools/verify.py --all        # everything (also the default)
     python tools/verify.py --parity     # CLI graph == MCP graph
     python tools/verify.py --scopes     # Python project() == TypeScript project()
+    python tools/verify.py --scopes --fuzz 200   # ... on 200 GENERATED graphs too
     python tools/verify.py --hashes     # one renderer bundle everywhere
     python tools/verify.py --versions   # one version string everywhere
     python tools/verify.py --docs       # the rule pages ship inside the plugin
+    python tools/verify.py --vsix       # the analyzer bundled into the VSIX is current
 
 Exit code 0 when every selected gate passes, 1 otherwise, with a table naming
 what failed and how to fix it (CONTRACTS section 9, amendment A2).
@@ -42,6 +44,14 @@ port and deep-compares. Two languages implement one algorithm (CONTRACTS 11.2 /
 11.15); a change one side made and the other did not reddens this gate instead of
 drifting silently. It sits between gate 1 and gate 2 because a scope divergence is
 an analyzer fact, not a bundle fact.
+
+**Gate 6 — the VSIX's own core.** PACKAGING bundles a third copy of
+`analyzer/src/mlview` into `vscode-extension/core/mlview` so a marketplace install
+works with no pip step at all. `tools/sync-core.py --check` proves it is
+byte-identical to `analyzer/src/mlview`, and this gate additionally refuses a
+`.vscodeignore` that would exclude the directory from the package — a VSIX that
+ships without its analyzer is green everywhere else and broken on install
+(`docs/CONTRACTS.md §11.25`).
 
 **Gate 3 — one version.** `mlview.version.__version__`, `analyzer/pyproject.toml`,
 `vscode-extension/package.json`, `claude-plugin/.claude-plugin/plugin.json` and
@@ -410,6 +420,75 @@ def check_parity(_attempt: int = 0) -> List[Result]:
     ]
 
 
+# --------------------------------------------------- gate 6: the VSIX's own core
+def _sync_core_module():
+    """`tools/sync-core.py` as a module. The hyphen makes a plain import illegal."""
+    import importlib.util  # noqa: PLC0415 - only this gate needs it
+
+    path = os.path.join(REPO_ROOT, "tools", "sync-core.py")
+    if not os.path.isfile(path):
+        return None
+    spec = importlib.util.spec_from_file_location("mlview_sync_core", path)
+    if spec is None or spec.loader is None:
+        return None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def check_vsix_core() -> List[Result]:
+    """Gate 6 — the analyzer the VSIX ships is the analyzer this repo holds.
+
+    PACKAGING creates a THIRD copy of `analyzer/src/mlview` so a marketplace
+    install works on a machine with a bare Python and no MLView checkout
+    (`docs/CONTRACTS.md §11.25`). A third copy is only safe while a gate
+    refuses to let it drift, which is why the lead decision that granted it made
+    this row a condition of the same change. `.vscodeignore` keeps `core/` in the
+    package, so a drifted copy is an analyzer that ships to users and to nobody's
+    tests.
+    """
+    sync_core = _sync_core_module()
+    if sync_core is None:
+        return [("vsix: synced core", False, "tools/sync-core.py is missing")]
+    copies = {copy.key: copy for copy in sync_core.COPIES}
+    copy = copies.get("vsix")
+    if copy is None:
+        return [
+            (
+                "vsix: synced core",
+                False,
+                "tools/sync-core.py does not vendor vscode-extension/core/mlview",
+            )
+        ]
+    ok, detail = sync_core.check_tree(copy)
+    if ok:
+        # A `.vscodeignore` that excluded the directory would ship a VSIX whose
+        # bundled core is missing entirely — green here, broken on install.
+        ignore = os.path.join(REPO_ROOT, "vscode-extension", ".vscodeignore")
+        if os.path.isfile(ignore):
+            with open(ignore, "r", encoding="utf-8") as fh:
+                patterns = [line.strip() for line in fh if line.strip() and not line.startswith("#")]
+            # `core/**/__pycache__/**` and `**/*.pyc` are bytecode rules, not an
+            # exclusion of the core itself; only a pattern that would drop SOURCE
+            # out of the package is a failure here.
+            excluded = [
+                p for p in patterns
+                if (p == "core" or p.startswith(("core/", "core\\")))
+                and "__pycache__" not in p
+                and not p.endswith((".pyc", ".pyo", ".pyd"))
+            ]
+            if excluded:
+                return [
+                    (
+                        "vsix: synced core",
+                        False,
+                        ".vscodeignore excludes the bundled core (%s) — the VSIX would ship "
+                        "without an analyzer" % ", ".join(excluded),
+                    )
+                ]
+    return [("vsix: synced core", ok, detail)]
+
+
 # --------------------------------------------------------------- gate 2: hashes
 def check_hashes() -> List[Result]:
     results: List[Result] = []
@@ -573,11 +652,17 @@ def main(argv: List[str] | None = None) -> int:
     parser.add_argument("--hashes", action="store_true", help="one renderer bundle everywhere")
     parser.add_argument("--versions", action="store_true", help="one version string everywhere")
     parser.add_argument("--docs", action="store_true", help="the rule pages ship inside the plugin")
+    parser.add_argument("--vsix", action="store_true",
+                        help="the analyzer bundled into the extension matches analyzer/src")
     parser.add_argument("--all", action="store_true", help="every gate (the default)")
+    # HEALTH-02 / CONTRACTS 11.30: an extra row on --scopes, off unless asked for.
+    parser.add_argument("--fuzz", type=int, default=0, metavar="N",
+                        help="also differential-fuzz the two project() ports over N "
+                             "generated graphs (200 locally, 2000 nightly); needs --scopes")
     args = parser.parse_args(argv)
 
     run_all = args.all or not (
-        args.parity or args.scopes or args.hashes or args.versions or args.docs
+        args.parity or args.scopes or args.hashes or args.versions or args.docs or args.vsix
     )
     results: List[Result] = []
     if run_all or args.versions:
@@ -589,8 +674,20 @@ def main(argv: List[str] | None = None) -> int:
     # projection, then renderer.
     if run_all or args.parity:
         results += check_parity()
+    # PACKAGING: `vendor: synced core` (emitted by check_parity) and this row are the
+    # same guarantee about the two shipped copies, so they sit next to each other.
+    if run_all or args.vsix:
+        results += check_vsix_core()
     if run_all or args.scopes:
         results += check_scopes(REPO_ROOT, _cli_env, _base_env)
+        # HEALTH-02 (CONTRACTS 11.30) — begin. The generated battery, imported
+        # lazily so `--all` pays nothing for a flag it was not given.
+        if args.fuzz > 0:
+            sys.path.insert(0, os.path.join(REPO_ROOT, "analyzer", "tools"))
+            from scope_fuzz import check_fuzz  # noqa: PLC0415
+
+            results += check_fuzz(REPO_ROOT, _cli_env, _base_env, args.fuzz)
+        # HEALTH-02 — end.
     if run_all or args.hashes:
         results += check_hashes()
 

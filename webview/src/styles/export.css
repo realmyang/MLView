@@ -1,0 +1,206 @@
+/* Export (VIEW-07): the menu beside Fit, and the print stylesheet.
+ *
+ * The print half is the fourth output. `grep '@media print' webview/src` found
+ * nothing before this file, so Ctrl+P gave the current VIEWPORT at the current
+ * ZOOM with the fixed toolbar, rail, minimap and zoom cluster painted over it —
+ * a page of chrome and a corner of diagram. Here the chrome is removed, the
+ * page-fill chain that clips the canvas is released, and the canvas transform
+ * is dropped so the world prints at the natural size the layout already gave it
+ * (`render/scene.ts` writes `frame.width` / `frame.height` onto `.mlv-world` as
+ * inline pixels). The browser then paginates it, which is "Save as PDF" for
+ * free — the same picture the SVG export emits, on paper.
+ */
+
+.mlv-exportmenu {
+  position: fixed;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: var(--mlv-s2);
+  width: 268px;
+  max-width: calc(100vw - 16px);
+  padding: var(--mlv-s3);
+  border: 1px solid var(--mlv-border-strong);
+  border-radius: var(--mlv-r-panel);
+  background: var(--mlv-surface);
+  box-shadow: var(--mlv-sh-3);
+  color: var(--mlv-text);
+}
+
+.mlv-exportmenu[hidden] {
+  display: none;
+}
+
+.mlv-exportmenu__group {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.mlv-exportmenu__label {
+  padding: var(--mlv-s2) var(--mlv-s3) var(--mlv-s1);
+  color: var(--mlv-text-3);
+  font-size: var(--mlv-fs-10);
+  font-weight: var(--mlv-fw-semi);
+  text-transform: uppercase;
+  letter-spacing: var(--mlv-track-caps);
+}
+
+.mlv-exportmenu__sep {
+  height: 1px;
+  margin: var(--mlv-s2) var(--mlv-s3);
+  background: var(--mlv-border);
+}
+
+.mlv-exportmenu__item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: var(--mlv-s3) var(--mlv-s4);
+  border: 0;
+  border-radius: var(--mlv-r-btn);
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.mlv-exportmenu__item:hover,
+.mlv-exportmenu__item:focus-visible {
+  background: var(--mlv-surface-2);
+}
+
+.mlv-exportmenu__item[disabled] {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.mlv-exportmenu__item[aria-checked="true"] {
+  background: color-mix(in srgb, var(--mlv-accent) 14%, transparent);
+}
+
+.mlv-exportmenu__item[aria-checked="true"] .mlv-exportmenu__name::before {
+  content: "✓ ";
+  color: var(--mlv-accent-solid);
+}
+
+.mlv-exportmenu__name {
+  font-size: var(--mlv-fs-12);
+  font-weight: var(--mlv-fw-medium);
+}
+
+.mlv-exportmenu__hint {
+  color: var(--mlv-text-3);
+  font-size: var(--mlv-fs-10);
+  line-height: var(--mlv-lh-tight);
+}
+
+/* ── print ─────────────────────────────────────────────────────────────── */
+
+@page {
+  margin: 12mm;
+}
+
+@media print {
+  /* Chrome, overlays and every affordance that cannot be clicked on paper. */
+  .mlv-chromebar,
+  .mlv-chiprow,
+  .mlv-banners,
+  .mlv-status,
+  .mlv-rail,
+  .mlv-minimap,
+  .mlv-zoom,
+  .mlv-scrim,
+  .mlv-skiplink,
+  .mlv-legend,
+  .mlv-exportmenu,
+  .mlv-statehost,
+  .mlv-tooltip,
+  .mlv-toasts,
+  .mlv-toasts--floating,
+  .mlv-shortcuts,
+  .mlv-scopepicker,
+  .mlv-answers,
+  .mlv-themeswitch {
+    display: none !important;
+  }
+
+  /* Release the page-fill chain: every one of these clips the diagram. */
+  html.mlv-fills-page,
+  html.mlv-fills-page > body,
+  .mlv-root,
+  .mlv-body,
+  .mlv-main,
+  .mlv-canvas {
+    display: block !important;
+    height: auto !important;
+    max-height: none !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+  }
+
+  /* The world is already sized in natural pixels; only the transform is in
+   * the way. `position: static` is what lets it contribute height to the page,
+   * which is what the browser paginates. */
+  .mlv-world {
+    position: static !important;
+    transform: none !important;
+    transform-origin: 0 0 !important;
+  }
+
+  .mlv-canvas {
+    background-image: none !important;
+    cursor: auto !important;
+  }
+
+  /* The level of detail is a ZOOM decision, and print has just thrown the zoom
+   * away. A document opened at 0.548 carries `data-lod="compact"`, whose rules
+   * hide the sublabel, the file:line, the chips and every edge label — so
+   * without this the page would print title-only cards at natural size, which
+   * is neither picture. These restore exactly what `data-lod="full"` shows:
+   * every card line, and the labels `styles/edge.css` paints without a hover. */
+  .mlv-canvas[data-lod="compact"] .mlv-node__sub,
+  .mlv-canvas[data-lod="compact"] .mlv-node__loc {
+    display: block !important;
+  }
+
+  .mlv-canvas[data-lod="compact"] .mlv-node__chips {
+    display: flex !important;
+  }
+
+  .mlv-canvas[data-lod="compact"] .mlv-node__title {
+    font-size: var(--mlv-fs-13) !important;
+  }
+
+  .mlv-canvas[data-lod="compact"] .mlv-edge-label {
+    display: inline !important;
+    opacity: 0 !important;
+  }
+
+  .mlv-canvas[data-lod="compact"] .mlv-edge--data .mlv-edge-label,
+  .mlv-canvas[data-lod="compact"] .mlv-edge--control .mlv-edge-label,
+  .mlv-canvas[data-lod="compact"] .mlv-edge--merged .mlv-edge-label,
+  .mlv-canvas[data-lod="compact"] .mlv-edge.has-label .mlv-edge-label {
+    opacity: 1 !important;
+  }
+
+  /* Lane washes, stage rails and severity glyphs are the diagram's meaning,
+   * not decoration, so they must survive the browser's ink-saving default. */
+  .mlv-root {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Nothing may animate on paper, and a mid-flight charge would print as a
+   * frozen stub over a cable (CONTRACTS 11.13 rule 3). */
+  .mlv-edge__flow,
+  .mlv-flow-charge {
+    display: none !important;
+  }
+
+  .mlv-node,
+  .mlv-group,
+  .mlv-lane {
+    break-inside: avoid;
+  }
+}

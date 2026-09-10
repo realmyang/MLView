@@ -44,9 +44,18 @@ test('activate registers every command unconditionally and never throws', () => 
   assert.deepEqual(
     [...recorded.commands.keys()].sort(),
     [
+      // MLV-P10's three suppression commands are driven by the code-action lightbulb, so
+      // they are deliberately NOT contributed in package.json (they take arguments and
+      // would be broken from the palette) - but they register unconditionally, here.
+      'mlview.addIgnoreComment',
       // CONTRACTS.md 11.11 added the two scope commands; they register unconditionally too.
       'mlview.clearScope',
+      'mlview.copyIgnoreComment',
+      'mlview.disableRule',
       'mlview.exportHtml',
+      // VIEW-07: the two picture exports; both are contributed AND registered here.
+      'mlview.exportPng',
+      'mlview.exportSvg',
       'mlview.refresh',
       'mlview.revealInDiagram',
       'mlview.scopeToSymbol',

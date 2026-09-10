@@ -8,6 +8,7 @@
 # 3. tools/sync-core.py                                 -> claude-plugin/vendor/mlview (no pip install for the plugin)
 # 4. vscode-extension npm install + compile + check     -> out/extension.js, tsc clean
 # 5. analyzer         pip install -e                    -> `python -m mlview` on this interpreter
+# 6. analyzer         python -m build --wheel           -> analyzer/dist/*.whl (PACKAGING)
 #
 # The order matters: sync-assets must run after the viewer is built and before the
 # analyzer emits anything, because `generator.rendererSha` is the SHA-256 of the
@@ -46,21 +47,21 @@ section() { printf '\n== %s\n' "$1"; }
 echo "MLView build — repo $REPO_ROOT"
 echo "python: $(command -v "$PYTHON")"
 
-section "1/5 webview — install and build the viewer bundle"
+section "1/6 webview — install and build the viewer bundle"
 cd "$REPO_ROOT/webview"
 if [ "$SKIP_NPM" -eq 0 ]; then
   npm install --no-audit --no-fund --prefer-offline
 fi
 npm run build
 
-section "2/5 tools/sync-assets.py — one renderer in all three places"
+section "2/6 tools/sync-assets.py — one renderer in all three places"
 cd "$REPO_ROOT"
 "$PYTHON" tools/sync-assets.py
 
-section "3/5 tools/sync-core.py — vendor the analyzer into the plugin"
+section "3/6 tools/sync-core.py — vendor the analyzer into the plugin AND the extension"
 "$PYTHON" tools/sync-core.py
 
-section "4/5 vscode-extension — install, compile and type-check"
+section "4/6 vscode-extension — install, compile and type-check"
 cd "$REPO_ROOT/vscode-extension"
 if [ "$SKIP_NPM" -eq 0 ]; then
   npm install --no-audit --no-fund --prefer-offline
@@ -70,10 +71,24 @@ npm run check
 
 cd "$REPO_ROOT"
 if [ "$SKIP_PIP" -eq 0 ]; then
-  section "5/5 analyzer — editable install"
+  section "5/6 analyzer — editable install"
   "$PYTHON" -m pip install -e analyzer --quiet
 else
-  section "5/5 analyzer — skipped (--skip-pip-install)"
+  section "5/6 analyzer — skipped (--skip-pip-install)"
+fi
+
+# PACKAGING: the wheel is what `pip install mlview` installs, what the CI-ADOPT
+# composite action installs, and what `installCore()` now tells a VS Code user to
+# run -- so it is built here rather than by hand at release time. `build` is not a
+# hard dependency of this repo: without it the step says so and the build carries
+# on, because a missing publishing tool must never redden a developer's build.
+section "6/6 analyzer — build the wheel into analyzer/dist"
+if "$PYTHON" -c "import build" >/dev/null 2>&1; then
+  rm -rf "$REPO_ROOT/analyzer/dist"
+  "$PYTHON" -m build --wheel analyzer
+  ls -l "$REPO_ROOT/analyzer/dist"
+else
+  echo "build is not installed - skipping the wheel (pip install build)"
 fi
 
 "$PYTHON" -m mlview --version

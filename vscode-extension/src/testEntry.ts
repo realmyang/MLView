@@ -26,7 +26,37 @@ export {
   SAVE_DEBOUNCE_MS
 } from './coreClient';
 export {
+  reactToTextSave,
+  reactToNotebookSave,
+  reactToConfigChange,
+  recordStale,
+  registerWatchers,
+  REPUBLISH_KEYS,
+  REANALYZE_KEYS
+} from './watchers';
+export {
+  isNotebookPath,
+  notebookForShadow,
+  cellRefFromEvidence,
+  cellRefFor,
+  findNotebook,
+  cellAtIndex,
+  resolveNotebookTarget,
+  notebookCounts,
+  notebookTooltipFragment,
+  analyzedAnyNotebook,
+  openNotebooks,
+  CELL_EVIDENCE_RE,
+  OUTSIDE_CELL_EVIDENCE_RE,
+  NOTEBOOK_EXTENSION,
+  NOTEBOOK_ANALYZED_KIND,
+  SHADOW_DIR,
+  CODE_CELL_KIND,
+  NO_NOTEBOOKS
+} from './notebooks';
+export {
   buildDiagnostics,
+  DiagnosticsPublisher,
   mapSeverity,
   toVsSeverity,
   resolveRuleDocPath,
@@ -82,3 +112,44 @@ export {
 } from './currentFile';
 export { readSettings, DEFAULT_SETTINGS, SETTINGS_SECTION } from './settings';
 export { chatAvailable } from './chatSurfaces';
+// PACKAGING — the bundled-core precedence chain (docs/CONTRACTS.md §11.25).
+export { readBundledCore, chooseCore, compareVersions, coreLabel } from './bundledCore';
+// H3 — the stderr progress frames.
+export { parseProgressLine, ProgressSplitter, PROGRESS_PREFIX } from './progress';
+// MLV-P10 — suppression as a one-click action (docs/CONTRACTS.md §11.27).
+export {
+  ignoreComment,
+  withIgnoreComment,
+  addDisabledRule,
+  splitComment,
+  isInsideWorkspace,
+  insideAnyWorkspace,
+  isRuleCode
+} from './suppression';
+export {
+  MlviewCodeActionProvider,
+  mlviewCodesIn,
+  diagnosticCode,
+  copyActionTitle,
+  addActionTitle,
+  disableActionTitle,
+  copyIgnoreComment,
+  addIgnoreComment,
+  disableRule,
+  configPathFor,
+  writableFile,
+  runSuppression,
+  COPY_IGNORE_COMMAND,
+  ADD_IGNORE_COMMAND,
+  DISABLE_RULE_COMMAND,
+  CONFIG_FILE
+} from './codeActions';
+// VIEW-07 — the diagram picture export (docs/contracts/11.33-diagram-export.md).
+export {
+  decodeExportPayload,
+  defaultExportName,
+  exportScopeChoices,
+  requestDiagramExport,
+  saveExportedFile,
+  MAX_EXPORT_BYTES
+} from './exportDiagram';

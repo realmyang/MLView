@@ -39,7 +39,8 @@ const PYTHON = findPython();
 const FAKE_MAIN = `import json, os, sys
 
 argv = sys.argv[1:]
-sys.stderr.write("fake-analyzer utf8_mode=%d argv=%s\\n" % (sys.flags.utf8_mode, " ".join(argv)))
+sys.stderr.write("fake-analyzer utf8_mode=%d cache_dir=%s argv=%s\\n"
+                 % (sys.flags.utf8_mode, os.environ.get("MLVIEW_CACHE_DIR", "-"), " ".join(argv)))
 
 if "--version" in argv:
     sys.stdout.write(json.dumps({"name": "mlview", "version": "0.1.0", "schemaVersion": "1.0"}))
@@ -248,6 +249,36 @@ test('exportHtml writes the report through the same CLI', async (t) => {
     assert.equal(written, outFile);
     assert.match(fs.readFileSync(outFile, 'utf8'), /fake report/);
     client.dispose();
+  } finally {
+    teardown();
+  }
+});
+
+test('the cache directory the host names reaches the child, and only when named', async (t) => {
+  if (!PYTHON) {
+    t.skip('no Python interpreter on PATH');
+    return;
+  }
+  setup();
+  try {
+    process.env.MLVIEW_FAKE_MODE = 'ok';
+    const request = { scope: 'workspace', paths: [tmpDir], cwd: tmpDir, settings };
+
+    // CACHE (CONTRACTS 11.28): the extension points the core's fact sidecar at
+    // its own storage, because `analyzeOnSave` fires on every Ctrl+S and a tool
+    // that writes into the user's repository that often gets switched off.
+    logLines.length = 0;
+    const stored = path.join(tmpDir, 'extension-storage');
+    await new CoreClient(stubEnv(PYTHON), log, stored).analyze(request);
+    const withDir = logLines.filter(([level]) => level === 'raw').map(([, m]) => m).join('');
+    assert.match(withDir, new RegExp(`cache_dir=${stored.replace(/[\\^$*+?.()|[\]{}]/g, '\\$&')}`));
+
+    // Unset stays unset: sending an empty value would override a user's own.
+    logLines.length = 0;
+    delete process.env.MLVIEW_CACHE_DIR;
+    await new CoreClient(stubEnv(PYTHON), log).analyze(request);
+    const without = logLines.filter(([level]) => level === 'raw').map(([, m]) => m).join('');
+    assert.match(without, /cache_dir=-/);
   } finally {
     teardown();
   }

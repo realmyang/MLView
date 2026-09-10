@@ -108,6 +108,11 @@ _ALWAYS_RANDOM = {
     "sklearn.model_selection.StratifiedShuffleSplit": "random_state",
     "sklearn.model_selection.GroupShuffleSplit": "random_state",
     "torch.utils.data.random_split": "generator",
+    # FW-RECOG: the HuggingFace spelling. `Dataset.train_test_split` shuffles by
+    # default and takes `seed=`, so an unseeded call really is a different split
+    # on every run - the rule was structurally unreachable on the HF path only
+    # because the knowledge tables had no row for it.
+    "datasets.Dataset.train_test_split": "seed",
 }
 #: Splitters that are deterministic unless `shuffle=True` is passed.
 _SHUFFLE_OPTIONAL = {
@@ -119,7 +124,8 @@ _SHUFFLE_OPTIONAL = {
 }
 
 
-@rule(code="MLV602", severity="low", base_prior=0.95, frameworks=["sklearn", "torch"],
+@rule(code="MLV602", severity="low", base_prior=0.95,
+      frameworks=["sklearn", "torch", "hf"],
       rule_version=1, tags=["reproducibility", "data"],
       title="Split without random_state / generator",
       why="A different split every run means the reported score moves for reasons that "
@@ -167,6 +173,13 @@ def _random_splits(ctx) -> List:
     for call in ctx.calls_with_role("SPLIT", "SPLITTER"):
         fqn = call.fqn or ""
         if fqn in _ALWAYS_RANDOM:
+            # ANA-9. `train_test_split(..., shuffle=False)` is the documented way
+            # to take a chronological cut, and it is deterministic: sklearn
+            # *raises* if you also pass random_state=. Asking for one was a
+            # false positive, and it is the exact shape MLV106's good fixture
+            # has to write.
+            if call.kwargs.get("shuffle") == "False":
+                continue
             out.append(call)
         elif fqn in _SHUFFLE_OPTIONAL and call.kwargs.get("shuffle") == "True":
             out.append(call)

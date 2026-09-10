@@ -37,9 +37,20 @@ def test_analyze_options_defaults_match_the_contract():
     fields = {f.name: f for f in dataclasses.fields(api.AnalyzeOptions)}
     # CONTRACTS 11.6: `scope` and `depth` are APPENDED LAST, both defaulted, so
     # positional construction, `frozen=True` and hashability are unchanged.
+    # H3 appends `progress` under the same rule: a defaulted `None` sink, so
+    # `analyze()` still performs no I/O of its own unless a caller asks.
+    # CONTRACTS 11.28: `relevance`, `relevance_hops` and `cache` append under
+    # the same rule again - all defaulted, all at the end, and all three
+    # defaulting to today's behaviour (`all` is the identity prefilter mode and
+    # `cache=None` means "ask the environment").
+    # CONTRACTS 11.29 (NB) appends `include_notebooks` under the same rule: a
+    # defaulted False, so a run that does not name it discovers, parses and
+    # emits exactly what it always did - `.ipynb` counted and skipped.
     assert list(fields) == ["paths", "include", "exclude", "max_files", "max_nodes",
                             "framework", "min_severity", "min_confidence",
-                            "config_path", "strict", "scope", "depth"]
+                            "config_path", "strict", "scope", "depth", "progress",
+                            "relevance", "relevance_hops", "cache",
+                            "include_notebooks"]
     assert fields["paths"].default is dataclasses.MISSING, "paths is required"
     assert fields["include"].default == ()
     assert fields["exclude"].default == ()
@@ -52,6 +63,11 @@ def test_analyze_options_defaults_match_the_contract():
     assert fields["strict"].default is False
     assert fields["scope"].default is None
     assert fields["depth"].default is None
+    assert fields["progress"].default is None
+    assert fields["relevance"].default == "all"
+    assert fields["relevance_hops"].default == 2
+    assert fields["cache"].default is None
+    assert fields["include_notebooks"].default is False
 
 
 def test_analyze_options_is_frozen_and_hashable():
@@ -69,8 +85,12 @@ def test_render_signatures():
     assert inspect.signature(api.render_html).parameters["depth"].default is None
     assert list(inspect.signature(api.render_mermaid).parameters) == ["graph"]
     assert list(inspect.signature(api.render_text).parameters) == ["graph"]
-    assert list(inspect.signature(api.digest).parameters) == ["graph", "limit_bytes"]
+    # CONTRACTS 11.28 appends `cached`, defaulted to None: the frozen
+    # two-argument call returns exactly what it always returned.
+    assert list(inspect.signature(api.digest).parameters) == ["graph", "limit_bytes",
+                                                              "cached"]
     assert inspect.signature(api.digest).parameters["limit_bytes"].default == 4096
+    assert inspect.signature(api.digest).parameters["cached"].default is None
 
 
 # ----------------------------------------------------------------- analyze

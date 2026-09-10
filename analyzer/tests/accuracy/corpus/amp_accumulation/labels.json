@@ -35,6 +35,12 @@
      "why": "a CPU tensor fed to a CUDA module raises at run time"}
   ],
   "forbidden": [
+    {"code": "MLV208", "file": "train.py",
+     "why": "the AMP protocol is correct: scaler.scale(loss).backward() at line 52, scaler.step(optimizer) at 54 and scaler.update() at 55"},
+    {"code": "MLV209", "file": "train.py",
+     "why": "there is no gradient clipping in this project at all"},
+    {"code": "MLV207", "file": "train.py",
+     "why": "there is no learning-rate scheduler in this project at all"},
     {"code": "MLV203", "file": "train.py",
      "why": "scaler.scale(loss).backward() at line 52 precedes scaler.step(optimizer) at line 54 - the order is correct"},
     {"code": "MLV204", "file": "train.py",

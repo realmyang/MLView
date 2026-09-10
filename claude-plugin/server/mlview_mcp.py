@@ -145,6 +145,7 @@ import mlview_scope as scopes  # noqa: E402  (the section 11.1 selector grammar)
 from mlview_workspace import (  # noqa: E402  (imports the core, so bootstrap first)
     RULE_DOC_ROOTS as _RULE_DOC_ROOTS,
     data_dir,
+    load_attributed,
     load_graph,
     load_graph_or_file,
     project_dir,
@@ -226,6 +227,7 @@ def mlview_analyze(
     includeHtml: bool = False,
     scope: Optional[str] = None,
     depth: Optional[int] = None,
+    includeNotebooks: bool = False,
 ) -> dict[str, Any]:
     """Statically analyze the Python ML code under `path` and return the pipeline structure.
 
@@ -266,6 +268,17 @@ def mlview_analyze(
             omit it when the question is about the project as a whole.
         depth: optional — 0, 1 or 2 boundary hops around the scope. Defaults per
             kind (1 for unit/node, 0 for stage/file/concern).
+        includeNotebooks: also analyze `.ipynb` files (default false, which is
+            byte-identical to the behaviour before notebooks existed). Set it
+            whenever the question is about a notebook, or whenever the result
+            reports `notebooksSkipped > 0` and the user has not said to ignore
+            them — a green answer for a project whose code lives in notebooks is
+            a clean bill of health from a run that read none of it. Each notebook
+            is converted to one generated module under `.mlview/notebooks/`, so
+            locations name THAT file; the `notebook_analyzed` note names the
+            notebook and the cell mapping, and cell execution order is not
+            recoverable from the file, so order-sensitive findings (MLV101,
+            MLV203, MLV209) in an out-of-order notebook are de-rated and say so.
 
     Returns a <=4 KB digest: schemaVersion, root, filesAnalyzed, filesFailed,
     notebooksSkipped, frameworks, stats{nodes,edges,issues}, lanes (one row per
@@ -275,7 +288,8 @@ def mlview_analyze(
     need detail the digest omits. graphPath always points at the FULL document
     even for a scoped call, so widening back costs nothing.
     """
-    loaded = load_graph(path, framework=framework, max_nodes=maxNodes)
+    loaded = load_graph(path, framework=framework, max_nodes=maxNodes,
+                        include_notebooks=bool(includeNotebooks))
     graph = loaded["graph"]
     # The cache is never keyed on the scope: the FULL document is analyzed and
     # stored, then projected (CONTRACTS 11.10).
@@ -302,6 +316,9 @@ def mlview_issues(
     scope: Optional[str] = None,
     depth: Optional[int] = None,
     groupBy: Optional[str] = None,
+    changedSince: Optional[str] = None,
+    baseline: Optional[str] = None,
+    includeNotebooks: bool = False,
 ) -> dict[str, Any]:
     """List the ML correctness and hygiene issues detected under `path`.
 
@@ -338,11 +355,42 @@ def mlview_issues(
             rows, it never filters them — the counts still describe every finding
             that passed minSeverity / minConfidence / code / scope.
 
+        changedSince: optional — a git revision (`HEAD`, `origin/main`, a SHA).
+            The WHOLE project is analyzed either way; the findings are then
+            attributed against `git diff -M --unified=0 <rev>` and only the ones
+            that touch the change are listed, each row carrying `change`: `new`
+            (inside an added hunk) or `touched` (a changed file, or a related
+            location such as the split site inside one). This is the answer to
+            "what did this PR introduce" on a repo that already has findings —
+            never use it to answer "is this project clean". When git is absent,
+            the directory is not a repo, or the revision does not exist, every
+            finding is listed and the `note` says so.
+        baseline: optional — path to a `mlview baseline write` file. Findings it
+            already records are marked and excluded from the counts (they come
+            back as `baselinedCount`), so only what is NEW since the baseline is
+            listed. Entries that no longer match any finding are reported in the
+            `note` rather than silently forgiven.
+        includeNotebooks: also analyze `.ipynb` files (default false). Pass the
+            SAME value you passed to mlview_analyze: with it off, no finding
+            inside a notebook is listed at all, and a short list from a run that
+            read none of the notebooks is not a clean project. It is honoured with
+            changedSince and baseline too — the notebooks are read and attributed
+            like any other file. One limit, and the `note` says it whenever it
+            bites: a notebook finding is anchored in the generated module
+            `.mlview/notebooks/<name>.py`, which git does not track, so
+            `changedSince` cannot place it inside a diff hunk and the changed-only
+            filter drops it. Use `baseline`, or omit `changedSince`, to see
+            notebook findings.
+
     Returns countBySeverity, suppressedCount and issues[] (or groups[] under
     groupBy); the payload is capped at 4 KB, so a large workspace comes back
     truncated with the full list in the graph document that mlview_analyze wrote.
     """
-    loaded = load_graph(path)
+    if changedSince or baseline:
+        loaded = load_attributed(path, changedSince, baseline,
+                                 include_notebooks=bool(includeNotebooks))
+    else:
+        loaded = load_graph(path, include_notebooks=bool(includeNotebooks))
     spec, view, notes, _hops = scopes.apply_scope(loaded["graph"], scope, depth)
     return payloads.issues_payload(
         view,
@@ -352,7 +400,7 @@ def mlview_issues(
         limit=int(limit),
         graph_path=loaded["graphPath"],
         scope=spec,
-        extra_notes=notes,
+        extra_notes=list(loaded.get("notes") or ()) + list(notes),
         group_by=groupBy,
     )
 
@@ -503,9 +551,17 @@ def mlview_open_diagram(
             reader can widen or clear the scope in the report's own toolbar.
         depth: optional -- 0, 1 or 2 boundary hops (per-kind default when omitted).
 
-    Returns {reportPath, reportUrl, opened}. `opened` is false when MLVIEW_NO_OPEN=1
-    is set or no browser could be launched — the file is still written, so tell
-    the user the path.
+    Returns {reportPath, reportUrl, opened, exportHint}. `opened` is false when
+    MLVIEW_NO_OPEN=1 is set or no browser could be launched — the file is still
+    written, so tell the user the path.
+
+    SVG and PNG export is a VIEWER feature, not an MCP one (VIEW-07). This server
+    writes HTML and nothing else: it cannot rasterize or serialize a diagram,
+    because the picture's geometry only exists once the viewer has laid the graph
+    out. So when the user asks for an SVG, a PNG or "an image for the PR", hand
+    them `reportPath` and say where the picture comes from — the report's own
+    export menu, or `MLView: Export Diagram as SVG` / `... as PNG` in VS Code.
+    `exportHint` carries that sentence. Never claim a file this tool did not write.
     """
     loaded = load_graph_or_file(path, graphPath)
     target = resolve_out(out)

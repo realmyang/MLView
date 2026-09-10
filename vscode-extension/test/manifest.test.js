@@ -36,6 +36,9 @@ test('activation events and untrusted-workspace support', () => {
   assert.deepEqual(manifest.activationEvents, [
     'onLanguage:python',
     'workspaceContains:**/*.py',
+    // NB: a notebooks-only workspace has no .py file to activate on, so mlview.includeNotebooks
+    // would be unreachable there without this row.
+    'workspaceContains:**/*.ipynb',
     'onWebviewPanel:mlview.diagram'
   ]);
   assert.equal(manifest.capabilities.untrustedWorkspaces.supported, 'limited');
@@ -139,6 +142,7 @@ test('all mlview.* settings are contributed with the contract defaults', () => {
     'mlview.analyzeOnSave': true,
     'mlview.currentFileAnalysisScope': 'package',
     'mlview.exclude': [],
+    'mlview.includeNotebooks': false,
     'mlview.maxFiles': 500,
     'mlview.maxNodes': 400,
     'mlview.minSeverity': 'low',
@@ -156,7 +160,10 @@ test('all mlview.* settings are contributed with the contract defaults', () => {
   // mlview.currentFileAnalysisScope, which COVERAGE names explicitly, because "Visualize
   // (Current File)" analysing the file alone loses 4 of 7 findings silently. Nothing else may
   // grow this set: CONTRACTS.md 11.11 is still "Settings: none added", the flow preference is
-  // renderer-owned (ViewState.flow) and mlview.defaultScope is cut.
+  // renderer-owned (ViewState.flow) and mlview.defaultScope is cut. ONE row JOINED in Sprint 4:
+  // mlview.includeNotebooks, which ROADMAP NB names explicitly ("behind --include-notebooks /
+  // [paths].notebooks (byte-identical behaviour without it)") - the host half of that flag has
+  // to be a setting, because there is no other way to reach a CLI flag from the extension.
   assert.deepEqual(Object.keys(props).sort(), Object.keys(expected).sort());
   for (const [key, value] of Object.entries(expected)) {
     assert.deepEqual(props[key].default, value, `${key} default`);
@@ -217,7 +224,9 @@ test('npm scripts cover compile, check, test and packaging', () => {
   const scripts = manifest.scripts;
   assert.match(scripts.compile, /esbuild/);
   assert.equal(scripts.check, 'tsc --noEmit');
-  assert.match(scripts.test, /node --test/);
+  // tools/run-tests.mjs enumerates test/*.test.js and spawns `node --test` itself:
+  // Node 21+ rejects a bare directory argument and cmd.exe does not expand globs.
+  assert.equal(scripts.test, 'node tools/run-tests.mjs');
   assert.match(scripts.pretest, /esbuild/, 'pretest must build the bundles node --test loads');
   assert.match(scripts.package, /vsce package/);
 });
@@ -226,15 +235,42 @@ test('media/ holds the sync placeholder, plus the bundle once sync-assets.py has
   const mediaDir = path.join(__dirname, '..', 'media');
   const entries = fs.readdirSync(mediaDir).sort();
   assert.ok(entries.includes('README.md'), 'the A13 placeholder README must survive the sync');
+  // PACKAGING adds exactly one more file: the marketplace icon, whose source is
+  // `tools/make_icon.py` and whose bytes that script's --check mode owns.
+  assert.ok(entries.includes('icon.png'), 'the 128x128 marketplace icon must be committed');
   if (!entries.includes('mlview.js')) {
-    // Pre-sync state: the placeholder is the only thing there.
-    assert.deepEqual(entries, ['README.md']);
+    // Pre-sync state: the placeholder and the icon are the only things there.
+    assert.deepEqual(entries, ['README.md', 'icon.png']);
     return;
   }
-  // Post-sync state: tools/sync-assets.py is the sole writer of this directory and
-  // it writes exactly two files, so nothing else may appear alongside the README.
-  assert.deepEqual(entries, ['README.md', 'mlview.css', 'mlview.js']);
+  // Post-sync state: tools/sync-assets.py is the sole writer of the two bundle files
+  // and nothing else may appear alongside them, the README and the icon.
+  assert.deepEqual(entries, ['README.md', 'icon.png', 'mlview.css', 'mlview.js']);
   for (const name of ['mlview.js', 'mlview.css']) {
     assert.ok(fs.statSync(path.join(mediaDir, name)).size > 1024, name + ' looks truncated');
   }
+});
+
+// PROC-11: the README is the only place a user reads a setting's name before typing it,
+// so a row that names a key the manifest does not contribute earns them an "Unknown
+// Configuration Setting" warning (mlview.showSpeculative and mlview.followCursor did,
+// for a sprint after CLEANUP deleted them - docs/CONTRACTS.md 11.20 A). The two lists are
+// asserted equal in BOTH directions: a new setting that never reaches the README is the
+// same defect seen from the other side.
+test('the README settings table names exactly the settings the manifest contributes', () => {
+  const readme = fs.readFileSync(path.join(__dirname, '..', 'README.md'), 'utf8');
+  const documented = new Set();
+  for (const line of readme.split('\n')) {
+    const row = /^\|\s*`(mlview\.[A-Za-z]+)`\s*\|/.exec(line);
+    if (row) {
+      documented.add(row[1]);
+    }
+  }
+  const contributed = new Set(Object.keys(manifest.contributes.configuration.properties));
+  assert.ok(documented.size > 0, 'the settings table must still be parseable');
+  assert.deepEqual(
+    [...documented].sort(),
+    [...contributed].sort(),
+    'every documented mlview.* setting must exist, and every contributed one must be documented'
+  );
 });

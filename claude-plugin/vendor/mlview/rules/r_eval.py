@@ -81,6 +81,8 @@ def eval_regions(ctx) -> List[EvalRegion]:
     regions: List[EvalRegion] = []
     claimed = set()
     for loop in ctx.loops("batch"):
+        if framework_hook(loop.function):
+            continue
         calls = calls_in_loop(ctx, loop)
         forwards = _model_forwards(calls)
         if not forwards or with_role(calls, *_TRAINING_ROLES):
@@ -99,6 +101,8 @@ def eval_regions(ctx) -> List[EvalRegion]:
         for call in forwards:
             claimed.add(id(call))
     for func in _eval_named_functions(ctx):
+        if framework_hook(func):
+            continue
         calls = list(func.calls)
         forwards = [c for c in _model_forwards(calls) if id(c) not in claimed]
         if not forwards or with_role(calls, *_TRAINING_ROLES):
@@ -156,6 +160,30 @@ def _evaluation_evidence(ctx, loop: LoopIR, calls: Sequence[CallSite]) -> str:
     if iterates is not None and iterates.has("VAL_SPLIT", "TEST_SPLIT"):
         return "it iterates %s, which carries the held-out split" % iterates.name
     return ""
+
+
+def framework_hook(func: Optional[FunctionIR]) -> Optional[str]:
+    """The framework hook a function *is*, walking out through nested defs.
+
+    FW-RECOG makes `validation_step` a real eval region: `self(features)` now
+    resolves to a forward pass, where before it resolved to nothing. That is
+    the recognition working - and it re-arms MLV301 / MLV302 on **correct**
+    Lightning code, because there is no `model.eval()` in a `validation_step`
+    and there must not be: Lightning calls it for you before it calls the hook.
+
+    Iron law 4's `WRAPPER_FACTOR` de-rate is the right answer for a
+    hand-written loop in a file that happens to import a wrapper. It is the
+    wrong answer here, because the region **is** the wrapper's own hook: the
+    finding is not weak evidence, it is a statement about code the user does
+    not own. So a hook body is not an eval region at all.
+    """
+    while func is not None:
+        cls = getattr(func, "class_ir", None)
+        if (cls is not None and cls.is_hook_owner
+                and K.hook_stage(func.name) is not None):
+            return func.name
+        func = func.parent_function
+    return None
 
 
 def _eval_named_functions(ctx) -> List[FunctionIR]:

@@ -99,6 +99,46 @@ class CodeLens {
   }
 }
 
+/**
+ * MLV-P10 needs three APIs the mock never had: the quick-fix classes, a workspace
+ * edit the host can apply, and a `showWarningMessage` that can answer. All three are
+ * recorded so a test can assert what the confirm dialog said, not just that it opened.
+ */
+const CodeActionKind = {
+  QuickFix: { value: 'quickfix' },
+  Refactor: { value: 'refactor' },
+  Empty: { value: '' }
+};
+
+class CodeAction {
+  constructor(title, kind) {
+    this.title = title;
+    this.kind = kind;
+    this.command = undefined;
+    this.diagnostics = undefined;
+    this.isPreferred = undefined;
+    this.edit = undefined;
+  }
+}
+
+class WorkspaceEdit {
+  constructor() {
+    this.edits = [];
+  }
+  replace(uri, range, newText) {
+    this.edits.push({ kind: 'replace', uri, range, newText });
+  }
+  insert(uri, position, newText) {
+    this.edits.push({ kind: 'insert', uri, position, newText });
+  }
+  createFile(uri, options) {
+    this.edits.push({ kind: 'create', uri, options });
+  }
+  get size() {
+    return this.edits.length;
+  }
+}
+
 class EventEmitter {
   constructor() {
     this.listeners = new Set();
@@ -157,6 +197,10 @@ function recordingEvent(store) {
 }
 
 const recorded = {
+  /** Every `WorkspaceEdit` handed to `workspace.applyEdit`, newest last. */
+  appliedEdits: [],
+  /** Every `registerCodeActionsProvider` registration: {selector, provider, metadata}. */
+  codeActionProviders: [],
   outputChannels: [],
   diagnosticCollections: [],
   statusBarItems: [],
@@ -169,14 +213,113 @@ const recorded = {
   participants: [],
   serializers: new Map(),
   saveListeners: [],
+  /** NB: `workspace.onDidSaveNotebookDocument` listeners, so a test can fire a notebook save. */
+  notebookSaveListeners: [],
   changeListeners: [],
   folderListeners: [],
   configListeners: [],
-  themeListeners: []
+  themeListeners: [],
+  /** VIEW-07: every showSaveDialog option bag, every quick pick, and every file written. */
+  saveDialogs: [],
+  quickPicks: [],
+  writtenFiles: []
 };
 
 const configValues = new Map();
 let workspaceFolders;
+/** FIFO of answers `show*Message` returns, set by `__answerMessage`. */
+const messageAnswers = [];
+/** VIEW-07: what the next showSaveDialog / showQuickPick returns, queued by the test. */
+const saveDialogAnswers = [];
+const quickPickAnswers = [];
+/** When set, the next workspace.fs.writeFile throws it (a read-only target, a full disk). */
+let fsWriteError;
+/** Virtual documents keyed by `docKey`, set by `__setDocument`. */
+const documents = new Map();
+
+/**
+ * One key for one file, whatever spelling reaches us.
+ *
+ * A test writes `__setDocument('/repo/train.py', ...)` while the code under test hands
+ * `openTextDocument` whatever `writableFile` returned, which is `path.resolve`d — HOST-6's
+ * containment guard resolves `..` before it compares, so it must. On POSIX those two
+ * strings are equal and the lookup hit; on Windows `path.resolve('/repo/train.py')` is
+ * `D:\repo\train.py`, the lookup missed, `makeDocument` handed back the text-less stub and
+ * `addIgnoreComment` died on `document.lineAt is not a function` — a Windows-only red in a
+ * test double, not in the extension. Resolving on BOTH sides is what a real
+ * `Uri.file()` round-trip does, so both spellings name one document on every platform.
+ */
+function docKey(fsPath) {
+  return path.resolve(String(fsPath)).replace(/\\/g, '/');
+}
+
+/**
+ * NB: the open notebooks, as `NotebookDocument` stubs. Real VS Code models a notebook as a
+ * document of cells, each cell backed by its OWN TextDocument on a `vscode-notebook-cell:`
+ * uri - which is the only thing a squiggle can be attached to inside a notebook, and the
+ * reason `src/notebooks.ts` exists at all.
+ */
+let notebookDocuments = [];
+
+const NotebookCellKind = { Markup: 1, Code: 2 };
+
+/**
+ * Build one notebook stub. `cells` is a list of `{ kind, lines }` (kind defaults to Code),
+ * and every cell gets the cell uri VS Code would give it: the notebook path with a
+ * `vscode-notebook-cell` scheme and a `#chNNNN` fragment.
+ */
+function makeNotebook(fsPath, cells) {
+  const uri = Uri.file(fsPath);
+  const built = cells.map((cell, index) => {
+    const kind = cell.kind === undefined ? NotebookCellKind.Code : cell.kind;
+    const cellUri = new Uri(fsPath, 'vscode-notebook-cell');
+    cellUri.fragment = 'ch' + String(index).padStart(4, '0');
+    cellUri.toString = () => `vscode-notebook-cell://${cellUri.path}#${cellUri.fragment}`;
+    return {
+      index,
+      kind,
+      notebook: null,
+      document: {
+        uri: cellUri,
+        languageId: kind === NotebookCellKind.Code ? 'python' : 'markdown',
+        lineCount: cell.lines === undefined ? 20 : cell.lines
+      }
+    };
+  });
+  const notebook = {
+    uri,
+    notebookType: 'jupyter-notebook',
+    cellCount: built.length,
+    getCells: () => built,
+    cellAt: (index) => built[index]
+  };
+  for (const cell of built) {
+    cell.notebook = notebook;
+  }
+  return notebook;
+}
+
+function makeDocument(uri) {
+  const key = docKey(uri && uri.fsPath ? uri.fsPath : uri);
+  const text = documents.get(key);
+  if (text === undefined) {
+    return { uri, lineCount: 400, languageId: 'python', getText: () => '' };
+  }
+  const lines = text.split('\n');
+  return {
+    uri,
+    languageId: 'python',
+    lineCount: lines.length,
+    getText: () => text,
+    lineAt(line) {
+      const value = lines[line];
+      if (value === undefined) {
+        throw new Error('Illegal value for line: ' + line);
+      }
+      return { text: value, lineNumber: line, range: new Range(line, 0, line, value.length) };
+    }
+  };
+}
 
 /**
  * A stand-in for a `WebviewPanel`: it records everything the host posts (`panel.posted`) and
@@ -233,6 +376,9 @@ const vscode = {
   ThemeColor,
   ThemeIcon,
   CodeLens,
+  CodeAction,
+  CodeActionKind,
+  WorkspaceEdit,
   EventEmitter,
   LanguageModelTextPart,
   LanguageModelToolResult,
@@ -280,12 +426,30 @@ const vscode = {
       return { dispose() {} };
     },
     onDidChangeActiveColorTheme: recordingEvent(recorded.themeListeners),
-    showInformationMessage: async (m) => void recorded.messages.push(['info', m]),
-    showWarningMessage: async (m) => void recorded.messages.push(['warn', m]),
-    showErrorMessage: async (m) => void recorded.messages.push(['error', m]),
-    showQuickPick: async () => undefined,
+    showInformationMessage: async (m, ...rest) => {
+      recorded.messages.push(['info', m, ...rest]);
+      return messageAnswers.length ? messageAnswers.shift() : undefined;
+    },
+    showWarningMessage: async (m, ...rest) => {
+      recorded.messages.push(['warn', m, ...rest]);
+      return messageAnswers.length ? messageAnswers.shift() : undefined;
+    },
+    showErrorMessage: async (m, ...rest) => {
+      recorded.messages.push(['error', m, ...rest]);
+      return messageAnswers.length ? messageAnswers.shift() : undefined;
+    },
+    showQuickPick: async (items, options) => {
+      recorded.quickPicks.push({ items, options });
+      if (quickPickAnswers.length === 0) return undefined;
+      const answer = quickPickAnswers.shift();
+      // A queued index picks from the offered items, exactly like a click would.
+      return typeof answer === 'number' ? (await items)[answer] : answer;
+    },
     showInputBox: async () => undefined,
-    showSaveDialog: async () => undefined,
+    showSaveDialog: async (options) => {
+      recorded.saveDialogs.push(options);
+      return saveDialogAnswers.length ? saveDialogAnswers.shift() : undefined;
+    },
     showTextDocument: async () => ({
       setDecorations() {},
       revealRange() {},
@@ -320,12 +484,44 @@ const vscode = {
         target.startsWith(folder.uri.path.toLowerCase())
       );
     },
-    openTextDocument: async (uri) => ({ uri, lineCount: 400, languageId: 'python' }),
+    openTextDocument: async (uri) => makeDocument(uri),
+    applyEdit: async (edit) => {
+      recorded.appliedEdits.push(edit);
+      // Apply single-line replacements to the virtual document so a test can read back
+      // exactly what the user would see in the editor.
+      for (const change of edit.edits || []) {
+        if (change.kind !== 'replace') continue;
+        const key = docKey(change.uri && change.uri.fsPath);
+        const text = documents.get(key);
+        if (text === undefined) continue;
+        const lines = text.split('\n');
+        if (change.range.start.line !== change.range.end.line) continue;
+        lines[change.range.start.line] = change.newText;
+        documents.set(key, lines.join('\n'));
+      }
+      return true;
+    },
+    get notebookDocuments() {
+      return notebookDocuments;
+    },
     onDidSaveTextDocument: recordingEvent(recorded.saveListeners),
+    onDidSaveNotebookDocument: recordingEvent(recorded.notebookSaveListeners),
     onDidChangeTextDocument: recordingEvent(recorded.changeListeners),
     onDidChangeWorkspaceFolders: recordingEvent(recorded.folderListeners),
     onDidChangeConfiguration: recordingEvent(recorded.configListeners),
-    fs: { stat: async () => ({ type: 1 }) }
+    fs: {
+      stat: async () => ({ type: 1 }),
+      // VIEW-07: the bytes the host wrote, kept verbatim so a test can assert the FILE and
+      // not merely that a write was attempted.
+      writeFile: async (uri, bytes) => {
+        if (fsWriteError) {
+          const err = fsWriteError;
+          fsWriteError = undefined;
+          throw err;
+        }
+        recorded.writtenFiles.push({ fsPath: uri.fsPath, bytes: Buffer.from(bytes) });
+      }
+    }
   },
   languages: {
     createDiagnosticCollection(name) {
@@ -341,7 +537,11 @@ const vscode = {
       recorded.diagnosticCollections.push(collection);
       return collection;
     },
-    registerCodeLensProvider: () => ({ dispose() {} })
+    registerCodeLensProvider: () => ({ dispose() {} }),
+    registerCodeActionsProvider: (selector, provider, metadata) => {
+      recorded.codeActionProviders.push({ selector, provider, metadata });
+      return { dispose() {} };
+    }
   },
   commands: {
     registerCommand(id, handler) {
@@ -356,10 +556,42 @@ const vscode = {
   },
   extensions: { getExtension: () => undefined },
   CancellationTokenSource,
+  NotebookCellKind,
   // Feature-detected APIs are absent by default, exactly like a VS Code build without them.
   chat: undefined,
   lm: undefined,
   __recorded: recorded,
+  /** Queue what the next `show*Message` returns (a button label, or undefined). */
+  __answerMessage(value) {
+    messageAnswers.push(value);
+  },
+  /** VIEW-07: queue the Uri the next `showSaveDialog` returns (undefined = cancelled). */
+  __answerSaveDialog(uri) {
+    saveDialogAnswers.push(uri);
+  },
+  /** Queue the next `showQuickPick` answer: an item, or an index into the offered items. */
+  __answerQuickPick(value) {
+    quickPickAnswers.push(value);
+  },
+  /** Make the next `workspace.fs.writeFile` throw. */
+  __failNextWrite(err) {
+    fsWriteError = err || new Error('EACCES: permission denied');
+  },
+  /**
+   * NB: open one or more notebooks. Each entry is `{ path, cells: [{kind?, lines?}, ...] }`;
+   * pass nothing to close them all.
+   */
+  __setNotebooks(specs) {
+    notebookDocuments = (specs || []).map((spec) => makeNotebook(spec.path, spec.cells || []));
+    return notebookDocuments;
+  },
+  /** Give `openTextDocument` real text for one absolute path. */
+  __setDocument(fsPath, text) {
+    documents.set(docKey(fsPath), text);
+  },
+  __getDocument(fsPath) {
+    return documents.get(docKey(fsPath));
+  },
   __setConfig(section, key, value, resource) {
     const scope = resource ? `${String(resource).replace(/\\/g, '/').toLowerCase()}|` : '';
     configValues.set(`${scope}${section}.${key}`, value);
@@ -400,12 +632,24 @@ const vscode = {
     recorded.statusBarItems.length = 0;
     recorded.commands.clear();
     recorded.messages.length = 0;
+    recorded.appliedEdits.length = 0;
+    recorded.saveDialogs.length = 0;
+    recorded.quickPicks.length = 0;
+    recorded.writtenFiles.length = 0;
+    saveDialogAnswers.length = 0;
+    quickPickAnswers.length = 0;
+    fsWriteError = undefined;
+    recorded.codeActionProviders.length = 0;
     recorded.panels.length = 0;
+    messageAnswers.length = 0;
+    documents.clear();
     recorded.tools.clear();
     recorded.participants.length = 0;
     recorded.serializers.clear();
+    notebookDocuments = [];
     for (const key of [
       'saveListeners',
+      'notebookSaveListeners',
       'changeListeners',
       'folderListeners',
       'configListeners',

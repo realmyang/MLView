@@ -14,7 +14,7 @@ export const REPO_ROOT = join(WEBVIEW_ROOT, '..');
 export const DIST_JS = join(WEBVIEW_ROOT, 'dist', 'mlview.js');
 export const DIST_CSS = join(WEBVIEW_ROOT, 'dist', 'mlview.css');
 /**
- * The readable concatenation of the nine source layers (BUILD-01).
+ * The readable concatenation of the ten source layers (BUILD-01).
  *
  * `dist/mlview.css` is now MINIFIED, so a gate that asserts authored structure
  * -- a selector written a particular way, a layer marker, a declaration spelled

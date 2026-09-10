@@ -73,7 +73,10 @@ EXIT_OK, EXIT_FORBIDDEN, EXIT_REGRESSION, EXIT_CORPUS = 0, 2, 3, 4
 
 
 # ----------------------------------------------------------------- rendering
-def _pct(value: float) -> str:
+def _pct(value: Optional[float]) -> str:
+    """A percentage, or `not labelled` when nothing was measured (ANA-12)."""
+    if value is None:
+        return "  not labelled"
     return "%5.1f%%" % (100.0 * value)
 
 
@@ -94,7 +97,8 @@ def render(results: Sequence[Dict[str, Any]], report: Dict[str, Any],
         add("%-24s %5d %5d %6d %6d %6d %6d %5s%s" % (
             result["name"] + ("*" if result["tuned"] else ""), result["files"],
             result["findings"], len(labels), hit, len(labels) - hit, fp,
-            _pct(result["graph"]["score"]).strip(),
+            _pct(result["graph"]["score"]).strip()
+            if result["graph"]["score"] is not None else "n/l",
             "" if not result["forbidden"] else "  FORBIDDEN"))
     add("-" * 74)
     add("* tuned: the rules were developed against this project; excluded from the")
@@ -103,33 +107,47 @@ def render(results: Sequence[Dict[str, Any]], report: Dict[str, Any],
 
     add("per-rule precision / recall  (labelled corpus, unsuppressed findings)")
     add("")
-    add("%-8s %8s %8s %8s %8s %10s %8s %7s" % (
-        "rule", "labels", "found", "visible", "fp", "precision", "recall", "f1"))
-    add("-" * 74)
+    add("%-9s %7s %6s %8s %4s %10s %8s %6s %13s" % (
+        "rule", "labels", "found", "visible", "fp", "precision", "recall", "f1",
+        "unseen recall"))
+    add("-" * 80)
     for code, data in report["perRule"].items():
-        add("%-8s %8d %8d %8d %8d %10s %8s %7.2f" % (
-            code, data["expected"], data["recovered"], data["visible"],
+        tuned_only = data.get("unseenExpected", 0) == 0 and data["expected"] > 0
+        add("%-9s %7d %6d %8d %4d %10s %8s %6.2f %13s" % (
+            code + ("*" if tuned_only else ""),
+            data["expected"], data["recovered"], data["visible"],
             data["falsePositives"],
             _pct(data["precision"]) if data["recovered"] + data["falsePositives"] else "     -",
             _pct(data["recall"]) if data["expected"] else "     -",
-            data["f1"]))
-    add("-" * 74)
+            data["f1"],
+            _pct(data.get("unseenRecall")).strip()
+            if data.get("unseenRecall") is not None else "-"))
+    add("-" * 80)
     add("visible = confidence >= %.2f, the VS Code Problems panel default." % VISIBLE_THRESHOLD)
+    add("* every label for this rule lives in a program the rule was developed")
+    add("  against, so its recall column is a ceiling and not a measurement: the")
+    add("  unseen column is what the rule is known to find on code nobody tuned it")
+    add("  on, and `-` there means nothing unseen has been labelled for it yet.")
     add("")
 
     graph = report["graphFidelity"]
     add("graph fidelity - hand-labelled human-diagram ops recovered")
     add("")
-    add("%-24s %8s %8s %8s %10s" % ("program", "ops", "recovered", "score", "edges"))
-    add("-" * 62)
+    add("%-24s %8s %12s %13s %10s" % ("program", "ops", "recovered", "score", "edges"))
+    add("-" * 70)
     for result in sorted(results, key=lambda r: r["name"]):
         g = result["graph"]
-        add("%-24s %8d %8d %8s %10s" % (
+        add("%-24s %8d %12d %13s %10s" % (
             result["name"], g["opsLabelled"], g["opsRecovered"],
-            _pct(g["score"]).strip(), "%d/%d" % (g["edgesActual"], g["edgesLabelled"])))
-    add("-" * 62)
-    add("%-24s %8d %8d %8s" % ("TOTAL", graph["opsLabelled"], graph["opsRecovered"],
-                               _pct(graph["score"]).strip()))
+            _pct(g["score"]).strip(),
+            "%d/%s" % (g["edgesActual"],
+                       g["edgesLabelled"] if g["edgesLabelled"] else "-")))
+    add("-" * 70)
+    add("%-24s %8d %12d %13s" % ("TOTAL", graph["opsLabelled"], graph["opsRecovered"],
+                                 _pct(graph["score"]).strip()))
+    add("`not labelled` is a program with no `graph` block in its labels.json:")
+    add("nobody drew a diagram for it, so nothing was measured. It contributes")
+    add("nothing to the TOTAL, and never did.")
     add("")
 
     add("confidence calibration - bucket vs observed precision")

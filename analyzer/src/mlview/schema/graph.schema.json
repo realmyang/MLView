@@ -65,6 +65,9 @@
     },
     "view": {
       "$ref": "#/$defs/View"
+    },
+    "answers": {
+      "$ref": "#/$defs/Answers"
     }
   },
   "$defs": {
@@ -817,6 +820,18 @@
           "type": "boolean",
           "description": "True when a `# mlview: ignore[CODE]` comment or .mlview.toml matched. Still emitted so the UI can offer 'show suppressed'; never published as a diagnostic."
         },
+        "baselined": {
+          "type": "boolean",
+          "description": "OPTIONAL (CI-ADOPT). Present and true only when the issue matched an entry in a --baseline file. Still emitted; excluded from the rendered counts and from --fail-on. Absent means not baselined."
+        },
+        "change": {
+          "enum": [
+            "new",
+            "touched",
+            "existing"
+          ],
+          "description": "OPTIONAL (CI-ADOPT). Present only when --changed-since / --changed-paths attributed this run: 'new' = the primary loc is inside an added hunk, 'touched' = a changed file outside the hunks or a relatedLoc inside one, 'existing' = neither. Absent means the run was unattributed - never that the issue is old."
+        },
         "docs": {
           "type": "string",
           "description": "Relative path to the offline rule doc, e.g. 'docs/rules/MLV101.md'."
@@ -1070,6 +1085,86 @@
         "empty": {
           "type": "boolean",
           "description": "True when a grammatically valid selector matched no nodes. Not an error - a concern this project does not have is itself a finding."
+        }
+      }
+    },
+    "AnswerLoc": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "file",
+        "line"
+      ],
+      "properties": {
+        "file": {
+          "type": "string",
+          "description": "Workspace-relative, forward slashes - the same spelling as Loc.file."
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "Answer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sentence",
+        "nodeIds",
+        "locs",
+        "confidence"
+      ],
+      "properties": {
+        "sentence": {
+          "type": "string",
+          "minLength": 1,
+          "description": "One sentence, composed deterministically from the graph. An absence is stated as an absence; nothing under 0.6 node confidence is asserted as fact."
+        },
+        "nodeIds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/NodeId"
+          },
+          "description": "The nodes the sentence rests on, in document order. Never a ghost node: a ghost marks something the analyzer did NOT find."
+        },
+        "locs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AnswerLoc"
+          },
+          "description": "One clickable location per cited node, in the same order."
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "The weakest cited node's confidence, or 0 when nothing is cited - which is exactly when the sentence states an absence."
+        }
+      }
+    },
+    "Answers": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "dataEntry",
+        "objective",
+        "evaluation",
+        "verdict"
+      ],
+      "description": "OPTIONAL (MLV-P1). The four questions REQUIREMENTS section 1 asks, answered in words from this document alone - no model, no network. Project-level truth: a projection carries it through verbatim, like stages[].present.",
+      "properties": {
+        "dataEntry": {
+          "$ref": "#/$defs/Answer"
+        },
+        "objective": {
+          "$ref": "#/$defs/Answer"
+        },
+        "evaluation": {
+          "$ref": "#/$defs/Answer"
+        },
+        "verdict": {
+          "$ref": "#/$defs/Answer"
         }
       }
     }

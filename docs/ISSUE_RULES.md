@@ -40,28 +40,29 @@ Every rule is a pure function `check(ctx: GraphContext) -> Iterable[Issue]` regi
 | **MLV103** ★ | medium | Preprocessing done outside cross-validation | sklearn | 0.85 | **prototype** |
 | MLV104 | high | Resampling / oversampling applied before the split | imblearn, sklearn | 0.95 | later |
 | MLV105 | medium | Target column left inside the feature matrix | pandas, sklearn | 0.80 | later |
-| MLV106 | medium | Random split used on apparently temporal data | sklearn, pandas | 0.70 | later |
+| MLV106 | medium | Random split used on apparently temporal data | sklearn, pandas | 0.70 | **sprint 4** |
 | MLV107 | medium | Test set used for model selection or early stopping | torch, sklearn, xgboost, keras | 0.85 | later |
 | **MLV110** ★ | medium | Training DataLoader does not shuffle | torch | 0.85 | **prototype** |
 | **MLV111** ★ | low | `shuffle=True` on a validation or test DataLoader | torch | 0.90 | **prototype** |
 | **MLV112** ★ | medium | `DataLoader(num_workers>0)` without a `__main__` guard | torch | 0.98 | **prototype** |
 | MLV113 | low | `drop_last=True` on an evaluation DataLoader | torch | 0.95 | later |
-| MLV114 | medium | Random augmentation in the eval transform pipeline | torchvision, albumentations | 0.90 | later |
+| MLV114 | medium | Random augmentation in the eval transform pipeline | torchvision, albumentations | 0.90 | **sprint 4** |
 | MLV115 | high | Custom `Dataset` missing `__len__` or `__getitem__` | torch | 0.95 | later |
 | MLV116 | low | Class imbalance signalled but never handled | torch, sklearn | 0.55 | later |
 | MLV117 | medium | `train_test_split` without `stratify` on a classification target | sklearn | 0.65 | later |
 | MLV118 | low | `ToTensor()` without `Normalize()` in an image pipeline | torchvision | 0.70 | later |
 | MLV119 | low | Hard-coded absolute or user-specific data path | — | 0.95 | later |
 | MLV120 | low | Hyperparameter magic numbers inline (off by default) | — | 0.50 | later |
+| **MLV121** | high | `tf.data` shuffle feeds a `take`/`skip` holdout | tf, keras | 0.95 | **sprint 4** |
 | **MLV201** ★ | high\* | Missing `optimizer.zero_grad()` in the training step | torch | 0.90 | **prototype** |
 | **MLV202** | high\* | Gradients computed but `optimizer.step()` never called | torch | 0.90 | **prototype** |
 | **MLV203** | high | `optimizer.step()` called before `loss.backward()` | torch | 0.95 | **prototype** |
 | **MLV204** | high | `.backward()` inside `torch.no_grad()` / `inference_mode()` | torch | 0.97 | **prototype** |
 | **MLV205** ★ | medium | Loss accumulated without `.item()` / `.detach()` | torch | 0.85 | **prototype** |
 | MLV206 | high\* | Loss computed but never backpropagated | torch | 0.90 | later |
-| MLV207 | medium | Scheduler stepped at the wrong granularity | torch | 0.80 | later |
-| MLV208 | medium | AMP `GradScaler` used inconsistently | torch | 0.85 | later |
-| MLV209 | medium | Gradient clipping in the wrong position | torch | 0.85 | later |
+| MLV207 | medium | Scheduler stepped at the wrong granularity | torch | 0.80 | **sprint 4** |
+| MLV208 | medium | AMP `GradScaler` used inconsistently | torch | 0.85 | **sprint 4** |
+| MLV209 | medium | Gradient clipping in the wrong position | torch | 0.85 | **sprint 4** |
 | MLV210 | low | Recurrent model trained without gradient clipping | torch | 0.60 | later |
 | MLV211 | medium | Optimizer built over parameters of a model later wrapped or replaced | torch | 0.80 | later |
 | MLV212 | medium | `reduction='none'` loss backpropagated without aggregation | torch | 0.90 | later |
@@ -69,8 +70,8 @@ Every rule is a pure function `check(ctx: GraphContext) -> Iterable[Issue]` regi
 | **MLV302** ★ | medium | Evaluation loop not wrapped in `torch.no_grad()` | torch | 0.85 | **prototype** |
 | MLV303 | medium | `model.train()` never restored after evaluation | torch | 0.85 | later |
 | MLV304 | medium | No validation loop at all | torch, sklearn, keras | 0.80 | later |
-| MLV305 | medium | Accuracy computed on raw logits instead of predicted classes | sklearn, torch, torchmetrics | 0.85 | later |
-| MLV306 | low | Ranking metric (`roc_auc`, `average_precision`) fed hard labels | sklearn | 0.90 | later |
+| MLV305 | medium | Accuracy computed on raw logits instead of predicted classes | sklearn, torch, torchmetrics | 0.85 | **sprint 4** |
+| MLV306 | low | Ranking metric (`roc_auc`, `average_precision`) fed hard labels | sklearn | 0.90 | **sprint 4** |
 | MLV307 | low | Only accuracy reported on an apparently imbalanced problem | sklearn | 0.55 | later |
 | MLV308 | low | Metric inappropriate for the task type | torch, sklearn, keras | 0.75 | later |
 | **MLV401** ★ | high | Softmax / LogSoftmax applied before `CrossEntropyLoss` | torch | 0.95 | **prototype** |
@@ -78,7 +79,7 @@ Every rule is a pure function `check(ctx: GraphContext) -> Iterable[Issue]` regi
 | MLV403 | high | `NLLLoss` without a preceding `log_softmax` | torch | 0.90 | later |
 | MLV404 | medium | Loss function does not match the task shape | torch | 0.75 | later |
 | **MLV501** ★ | medium | Model moved to a device but batch tensors are not | torch | 0.90 | **prototype** |
-| MLV502 | medium | Hard-coded `.cuda()` without an availability check | torch | 0.85 | later |
+| MLV502 | medium | Hard-coded `.cuda()` without an availability check | torch | 0.85 | **sprint 4** |
 | MLV503 | low | Tensor allocated inside the training loop without `device=` | torch | 0.70 | later |
 | **MLV601** ★ | low | No random seed set anywhere | all | 0.90 | **prototype** |
 | **MLV602** ★ | low | Split / CV splitter without `random_state` or `generator` | sklearn, torch | 0.95 | **prototype** |
@@ -88,16 +89,20 @@ Every rule is a pure function `check(ctx: GraphContext) -> Iterable[Issue]` regi
 | **MLV701** | high | `nn.Module.__init__` does not call `super().__init__()` | torch, lightning | 0.97 | **prototype** |
 | **MLV702** ★ | high | Submodules in a plain list/dict are never registered as parameters | torch | 0.95 | **prototype** |
 | MLV703 | medium | `F.dropout` called without `training=self.training` | torch | 0.95 | later |
-| MLV705 | high | Keras model `.fit()` without `.compile()` | keras | 0.95 | later |
-| MLV706 | medium | Manual `backward()`/`step()` inside a Lightning `training_step` | lightning | 0.90 | later |
-| MLV707 | medium | `LightningModule.training_step` does not return a loss | lightning | 0.90 | later |
-| MLV708 | medium | HuggingFace `Trainer` configured without evaluation | hf | 0.85 | later |
+| MLV705 | high | Keras model `.fit()` without `.compile()` | keras | 0.95 | **sprint 4** |
+| MLV706 | medium | Manual `backward()`/`step()` inside a Lightning `training_step` | lightning | 0.90 | **sprint 4** |
+| MLV707 | medium | `LightningModule.training_step` does not return a loss | lightning | 0.90 | **sprint 4** |
+| MLV708 | medium | HuggingFace `Trainer` configured without evaluation | hf | 0.85 | **sprint 4** |
+| **MLV709** | high | Keras output activation contradicts `from_logits=True` | keras, tf | 0.95 | **sprint 4** |
+| **MLV711** | medium | Batch-cadence scheduler returned without `interval: step` | lightning | 0.90 | **sprint 4** |
 | MLV801 | medium | Training loop with no checkpointing | torch, sklearn, keras | 0.85 | later |
 | MLV802 | medium | Best checkpoint selected on training loss, or never restored | torch | 0.80 | later |
-| MLV803 | low | Whole model pickled; `torch.load` without `weights_only` | torch | 0.95 | later |
+| MLV803 | low | Whole model pickled; `torch.load` without `weights_only` | torch | 0.95 | **sprint 4** |
 | MLV901 | medium | Preprocessing applied in training but missing on the inference path | sklearn, torch, keras, hf | 0.80 | later |
 | MLV902 | medium | Tokenizer / checkpoint identifier mismatch between train and inference | hf | 0.85 | later |
 | MLV903 | low | Orphan stage — defined but never reached from an entrypoint | all | 0.70 | later |
+
+**Sprint 4 — the three rule tiers.** Sixteen codes carry the status **sprint 4** above: MLV705–709 and MLV711 (ANA-7, framework rules), MLV207–209, MLV502 and MLV803 (ANA-8, training mechanics), MLV106, MLV114, MLV121, MLV305 and MLV306 (ANA-9, held-out integrity). Three of them — MLV121, MLV709 and MLV711 — were not in this catalog at all and their detection sketches are in section 4 with the rest. Each carries the two-fixture discipline of section 5 and a generated `docs/rules/<CODE>.md` page, and each is measured per rule by `tools/accuracy.py`; the tolerance the lead set is zero `forbidden` findings, ever, and recall that may only ratchet up. `docs/CONTRACTS.md` §11.26 is the normative record.
 
 **Prototype severity spread:** 11 high (2 of them `high*`, capped to medium under the absence rule), 6 medium, 3 low.
 **Prototype framework spread:** sklearn/pandas — MLV101, 102, 103, 602. PyTorch — everything else. MLV601 is framework-agnostic.
@@ -372,6 +377,7 @@ These are designed and specified but **not built in the prototype**. They are li
 - **MLV118** *(low)* — `transforms.Compose` containing `ToTensor()` with no `Normalize` in the same Compose, for a `torchvision.datasets.*` / `ImageFolder` dataset.
 - **MLV119** *(low)* — A string literal in an `data`- or `deliver`-stage node matching `^[A-Za-z]:[\\/]`, `^/(home|Users|mnt|data)/`, or a UNC `\\\\`.
 - **MLV120** *(low, off by default)* — ≥ 3 numeric literals bound to hyperparameter slots (`lr=`, `batch_size=`, `epochs=`, `weight_decay=`, `dropout=`, `hidden_size=`) with no argparse / config dataclass / YAML source in the module. **Aggregated to one issue per file**, never one per literal. This is a taste rule and is in the `advisory` group.
+- **MLV121** *(high, added by ANA-9)* — a `tensorflow.data.Dataset.shuffle(...)` that reaches a `take()` / `skip()` through the receiver chain — either fluently (`base.shuffle(n).take(k)`) or through a binding (`ds = base.shuffle(n)` then `ds.take(k)` / `ds.skip(k)`) — with no `reshuffle_each_iteration=False`. tf.data re-draws the buffer on every epoch by default, so the two halves swap rows every pass and the holdout stops existing: a **total** holdout failure, not a partial leak. Literal-only, essentially no false positives. One finding per `shuffle`, however many `take`/`skip` calls follow. FP guards: `reshuffle_each_iteration=False`; splitting first and shuffling only the training half afterwards; a `shuffle` → `batch` → `prefetch` chain with no holdout in it. **Hard sequencing note:** this is the ordering check `knowledge/tf_tbl.py` defers to when it refuses to give `take` / `skip` the `SPLIT` role. *Fix: pass `reshuffle_each_iteration=False`, or split before you shuffle.*
 
 ### Training loop
 - **MLV206** *(high\*)* — A `LOSS`-tagged value created inside a confirmed batch loop with no `.backward()` reachable from it or from any value derived from it (arithmetic propagates the `LOSS` tag). Suppressed entirely when a Lightning `training_step` returns the loss. Distinct from MLV202: this is "loss never used", that is "gradients never applied".
@@ -408,7 +414,9 @@ These are designed and specified but **not built in the prototype**. They are li
 - **MLV705** *(high)* — A `keras.Model` / `Sequential` binding with a `.fit(...)` and no `.compile(...)` anywhere for that binding, and not produced by `keras.models.load_model`.
 - **MLV706** *(medium)* — `.backward()` or an optimizer `.step()` inside `LightningModule.training_step`, with no `self.automatic_optimization = False` in `__init__`.
 - **MLV707** *(medium)* — `LightningModule.training_step` with no `Return`, or whose every `Return` yields `None` or a dict without a `'loss'` key.
-- **MLV708** *(medium)* — `transformers.Trainer(...)` with `eval_dataset` absent, or `compute_metrics` absent while `eval_dataset` is present, or `TrainingArguments` setting neither `eval_strategy` nor `evaluation_strategy` to a non-`"no"` constant.
+- **MLV708** *(medium)* — `transformers.Trainer(...)` with `eval_dataset` absent, or `compute_metrics` absent while `eval_dataset` is present, or `TrainingArguments` setting neither `eval_strategy` nor `evaluation_strategy` to a non-`"no"` constant. *ANA-9 narrowed this to the conjunction — no `eval_dataset` **and** no evaluation strategy — because the middle clause on its own accuses every Trainer that is content with `eval_loss`.*
+- **MLV709** *(high, added by ANA-7)* — a Keras layer carrying the string literal `activation="softmax"` in the **same module** as a loss constructed with `from_logits=True` from the categorical family (`CategoricalCrossentropy`, `SparseCategoricalCrossentropy`, `CategoricalFocalCrossentropy`); and the binary mirror, `activation="sigmoid"` against `BinaryCrossentropy` / `BinaryFocalCrossentropy`. The direct analogue of MLV401, with both operands literals, so it is cheap and high-confidence. Reported at the layer with `relatedLocs[role="final_layer"]` there and `role="construction"` at the loss. FP guards: `from_logits=False`, which is the correct partner for an activated head; a softmax head beside a `BinaryCrossentropy(from_logits=True)`, since the pairing is by activation family rather than by proximity; a loss built in another module, which is not paired at all. *Fix: return logits from the output layer, or build the loss with `from_logits=False` — never both.*
+- **MLV711** *(medium, added by ANA-7)* — a `OneCycleLR` / `CyclicLR` / `get_*_schedule_with_warmup` constructed inside `LightningModule.configure_optimizers` with no `{"interval": "step"}` literal anywhere in that method. Lightning steps a returned scheduler once per **epoch** unless the returned config says otherwise, so a one-cycle schedule completes its whole cycle in the first few epochs and the rest of the run trains at the floor learning rate — silently, because nothing raises. FP guards: the correct `{"scheduler": sched, "interval": "step"}` return shape; an epoch-cadence scheduler, for which the Lightning default is already right. *Fix: return `{"optimizer": opt, "lr_scheduler": {"scheduler": sched, "interval": "step"}}`.*
 
 ### Checkpointing & serving
 - **MLV801** *(medium)* — A confirmed epoch loop of non-trivial length and no `torch.save`, `state_dict()` write, `ModelCheckpoint`, `save_pretrained`, `joblib.dump`, or `Trainer(save_strategy=…)` anywhere. ×0.6 for notebook sources and for epoch counts under 5.

@@ -266,6 +266,12 @@ if (-not (Test-Path $CrossHost)) {
 # bundle-hash gate; `--all` runs it in exactly that position. It is also named on
 # its own line here, because "the Python projection and the TypeScript port
 # disagree" deserves its own row in the table rather than one word inside another.
+# ------------------------------------------------------- the shipped wheel
+# PACKAGING. The same tool the .sh driver runs, so the two tables stay one table:
+# build the wheel when `build` is installed, pip install it into a throwaway venv,
+# run `mlview --version --json` through the console script, then one real analysis.
+Invoke-Step 'wheel installs and runs' $RepoRoot { & $Python tools/wheel_check.py }
+
 Invoke-Step 'scope parity (tools/verify.py --scopes)' $RepoRoot { & $Python tools/verify.py --scopes }
 Invoke-Step 'parity gates (tools/verify.py --all)' $RepoRoot { & $Python tools/verify.py --all }
 

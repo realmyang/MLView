@@ -9,6 +9,22 @@
     python tools/perf_equiv.py --record out.json         # hash the current tree
     python tools/perf_equiv.py --compare out.json        # compare against it
 
+An **expectation** may be stated, so a caller (CI, `scripts/e2e.sh`, an
+integrator wiring a gate) gets the verdict in the exit code rather than from a
+human reading a table:
+
+    ... --expect-same    # exit 0 only if every corpus is byte-identical
+    ... --expect-diff    # exit 0 only if at least one corpus MOVED
+
+`--expect-same` is what an **optimisation** claims: PERF-01, PERF-02, PERF-03's
+`--relevance all` path and the whole of CACHE are all "this must not change one
+byte". `--expect-diff` is what a **re-baseline** claims, and it exists because
+the failure mode of a re-baseline is the opposite one - a golden regeneration
+that turns out to have moved nothing means the fix never took effect, and
+without this flag that reads as the strongest possible pass (11.19 had to say
+so in prose instead). Neither flag means anything without a baseline, so naming
+one without `--baseline` / `--compare` is a usage error, not a silent success.
+
 Three corpora are analyzed - `samples/vision_pipeline`,
 `samples/vision_pipeline_clean` and `analyzer/tests/clean` - the whole of
 `generator` bar `name`/`version`, plus `stats.durationMs`, is stripped, and the
@@ -230,6 +246,93 @@ def pipeline_%(n)d():
 '''
 
 
+_APP_MODULE = '''"""Plain application module %(n)d - no framework anywhere."""
+import json
+import os
+import re
+from dataclasses import dataclass
+%(sibling_import)s
+
+PATTERN = re.compile(r"^[a-z_]+$")
+
+
+@dataclass
+class Record%(n)d:
+    key: str
+    value: int
+    tags: tuple = ()
+
+    def as_dict(self):
+        return {"key": self.key, "value": self.value, "tags": list(self.tags)}
+
+
+class Store%(n)d:
+    def __init__(self, root="store%(n)d"):
+        self.root = root
+        self.items = {}
+
+    def add(self, record):
+        if not PATTERN.match(record.key):
+            raise ValueError("bad key")
+        self.items[record.key] = record
+        return record
+
+    def dump(self):
+        path = os.path.join(self.root, "out.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump([r.as_dict() for r in self.items.values()], fh)
+        return path
+
+
+def normalise_%(n)d(rows):
+    out = []
+    for row in rows:
+        key = str(row.get("key", "")).strip().lower()
+        if key:
+            out.append(Record%(n)d(key=key, value=int(row.get("value", 0))))
+    return out
+
+
+def summarise_%(n)d(store):
+    total = sum(r.value for r in store.items.values())
+    return {"count": len(store.items), "total": total}
+%(sibling_call)s
+'''
+
+
+def mixed_corpus(root: str, ml_count: int = 50, app_count: int = 450) -> str:
+    """PERF-03's acceptance corpus: `ml_count` framework modules and
+    `app_count` ordinary ones in one package, each importing its predecessor.
+
+    The point of the shape is that the two halves never touch: no application
+    module imports an ML module or is imported by one, so the prefilter's
+    correct answer is exactly the ML half plus the package `__init__`. A corpus
+    where the halves were entangled would measure the hop walk rather than the
+    filter; one where they were disjoint *files* rather than disjoint *imports*
+    would not exercise the walk at all.
+    """
+    pkg = os.path.join(root, "pkg")
+    os.makedirs(pkg, exist_ok=True)
+    with open(os.path.join(pkg, "__init__.py"), "w", encoding="utf-8", newline="\n") as fh:
+        fh.write('"""Mixed synthetic corpus - PERF-03."""\n')
+    for n in range(ml_count):
+        sibling = "from .ml_%03d import train_%d" % (n - 1, n - 1) if n else ""
+        call = "    train_%d()" % (n - 1) if n else ""
+        with open(os.path.join(pkg, "ml_%03d.py" % n), "w", encoding="utf-8",
+                  newline="\n") as fh:
+            fh.write(_SYNTH_MODULE % {"n": n, "width": 16 + (n % 8) * 8,
+                                      "sibling_import": sibling,
+                                      "sibling_call": call.strip() or "pass"})
+    for n in range(app_count):
+        sibling = "from .app_%03d import Store%d" % (n - 1, n - 1) if n else ""
+        call = ("\n\ndef link_%d():\n    return Store%d()\n" % (n, n - 1)) if n else ""
+        with open(os.path.join(pkg, "app_%03d.py" % n), "w", encoding="utf-8",
+                  newline="\n") as fh:
+            fh.write(_APP_MODULE % {"n": n, "sibling_import": sibling,
+                                    "sibling_call": call})
+    return root
+
+
 def synth_corpus(root: str, count: int) -> str:
     """Write `count` framework-touching modules under `root/pkg` and return root."""
     pkg = os.path.join(root, "pkg")
@@ -349,6 +452,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                         help="synthetic corpus sizes for --bench (default 4,50,200)")
     parser.add_argument("--repeats", type=int, default=3,
                         help="runs per measurement, best kept (default 3)")
+    expectation = parser.add_mutually_exclusive_group()
+    expectation.add_argument("--expect-same", dest="expect", action="store_const",
+                             const="same",
+                             help="exit 0 only if every corpus is byte-identical "
+                                  "(what an optimisation claims)")
+    expectation.add_argument("--expect-diff", dest="expect", action="store_const",
+                             const="diff",
+                             help="exit 0 only if at least one corpus moved "
+                                  "(what a re-baseline claims)")
+    parser.set_defaults(expect=None)
     args = parser.parse_args(list(argv) if argv is not None else None)
 
     jobs = _corpus_jobs(args.repeats)
@@ -376,6 +489,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     if before is None:
         print(_table("current", after))
+        if args.expect:
+            print("perf_equiv: --expect-%s needs a baseline (--baseline DIR or "
+                  "--compare FILE) to compare against." % args.expect)
+            return 1
         print("perf_equiv: no baseline given (--baseline DIR or --compare FILE); "
               "digests printed only.")
         return 0
@@ -393,6 +510,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print("\n".join(_bench(args.baseline, [int(s) for s in args.sizes.split(",")],
                                args.repeats)))
     print("")
+    if args.expect == "diff":
+        # A re-baseline that moved nothing is a re-baseline that did not happen,
+        # and without this branch that reads as the strongest possible pass.
+        print("perf_equiv: %s" % (
+            "FAILED - --expect-diff, but every corpus is byte-identical"
+            if ok else "OK - --expect-diff, and the output moved"))
+        return 1 if ok else 0
     print("perf_equiv: %s" % ("OK - every corpus is byte-identical"
                               if ok else "FAILED - output changed"))
     return 0 if ok else 1

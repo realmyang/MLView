@@ -164,19 +164,44 @@ def test_the_server_path_in_mcp_json_actually_exists():
 
 
 # ------------------------------------------------------------------- marketplace
+def _entry(name):
+    for entry in _load(MARKETPLACE_JSON)["plugins"]:
+        if entry["name"] == name:
+            return entry
+    raise AssertionError("no marketplace entry named %r" % name)
+
+
 def test_the_repo_root_marketplace_points_at_this_plugin():
     market = _load(MARKETPLACE_JSON)
     assert market["name"] == "mlview-local"
     assert market["owner"]["name"]
-    entries = market["plugins"]
-    assert len(entries) == 1
-    assert entries[0]["name"] == "mlview"
-    assert entries[0]["source"] == "./claude-plugin"
-    assert entries[0]["description"]
+    local = _entry("mlview")
+    assert local["source"] == "./claude-plugin"
+    assert local["description"]
+    names = [e["name"] for e in market["plugins"]]
+    assert len(names) == len(set(names)), "two entries may not share a name: %s" % names
+
+
+def test_the_marketplace_also_offers_a_hosted_source():
+    """PACKAGING: a checkout is not an install channel.
+
+    The local `./claude-plugin` entry only works for somebody who already cloned the
+    repo, which is exactly the audience that does not need a marketplace. The hosted
+    entry is the github source form from the Claude Code plugin docs, and it ships
+    beside the local one rather than replacing it so `claude plugin install
+    mlview@mlview-local` keeps working from a checkout.
+    """
+    hosted = _entry("mlview-github")
+    source = hosted["source"]
+    assert isinstance(source, dict), "the hosted entry must use the github source object"
+    assert source["source"] == "github"
+    assert "/" in source["repo"], "repo is `owner/name`, not a URL: %r" % source["repo"]
+    assert not source["repo"].startswith("http"), "repo is `owner/name`, not a URL"
+    assert hosted["description"]
 
 
 def test_the_marketplace_source_resolves_to_the_plugin_directory():
-    source = _load(MARKETPLACE_JSON)["plugins"][0]["source"].lstrip("./")
+    source = _entry("mlview")["source"].lstrip("./")
     resolved = os.path.join(REPO_ROOT, source.replace("/", os.sep))
     assert os.path.isfile(os.path.join(resolved, ".claude-plugin", "plugin.json"))
 

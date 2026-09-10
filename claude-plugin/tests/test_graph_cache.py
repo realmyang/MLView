@@ -82,9 +82,26 @@ def test_sidecar_records_the_analyzer_that_produced_the_document(workspace_env):
     with open(loaded["graphPath"] + ".sig", "r", encoding="utf-8") as fh:
         stored = json.load(fh)
     assert stored["analyzer"] == workspace.analyzer_identity()
+    # NB widened the key with `includeNotebooks`: the same sources analyzed with and
+    # without notebooks are two different documents, so a sidecar that does not record
+    # which one it holds could serve a notebook-free graph to a caller that asked for
+    # notebooks. Sidecars written before the flag existed carry the 3-item key, miss,
+    # and cost exactly one analysis.
     assert stored["key"] == [
-        workspace.resolve_path(corpus_path()), "auto", 400,
+        workspace.resolve_path(corpus_path()), "auto", 400, False,
     ]
+
+
+def test_the_notebook_flag_is_part_of_the_cache_key(workspace_env):
+    plain = workspace.load_graph(corpus_path())
+    assert plain["cached"] is False
+    assert workspace.load_graph(corpus_path())["cached"] is True
+    # Same path, same signature, different question: this must NOT be a hit.
+    with_notebooks = workspace.load_graph(corpus_path(), include_notebooks=True)
+    assert with_notebooks["cached"] is False
+    assert workspace.load_graph(corpus_path(), include_notebooks=True)["cached"] is True
+    # ...and the plain answer is still there, not overwritten in the memo.
+    assert workspace.load_graph(corpus_path())["cached"] is True
 
 
 def test_matching_sidecar_still_hits_the_cache_in_a_fresh_process(workspace_env):

@@ -132,7 +132,11 @@ def test_a_typod_code_in_an_ignore_comment_is_no_longer_silent(analyze_ws):
     warnings = [d for d in doc["diagnostics"] if d["kind"] == "config_warning"]
     assert len(warnings) == 1
     assert "MLV20" in warnings[0]["message"]
-    assert "MLV205" in warnings[0]["message"]      # a near miss is offered
+    # A near miss is offered. Which three of MLV201-MLV209 `difflib` picks is
+    # not the contract and moves whenever the catalog grows (the ANA-8 tier
+    # added MLV207/208/209); that at least one is offered is.
+    assert "Did you mean" in warnings[0]["message"]
+    assert any("MLV20%d" % n in warnings[0]["message"] for n in range(1, 10))
 
 
 def test_a_correct_code_stays_silent(analyze_ws):

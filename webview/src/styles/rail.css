@@ -182,7 +182,6 @@
 .mlv-issue__open {
   flex: none;
   align-self: center;
-  margin-right: var(--mlv-s3);
 }
 
 .mlv-issue__detail {
@@ -720,4 +719,92 @@
   .mlv-railgroup__head .mlv-uicon {
     transition: none;
   }
+}
+
+/*
+ * MLV-P10: the two suppression actions, on every row and on every rule group
+ * header. Icon-only in the list, spelled out in the Inspector.
+ *
+ * `.mlv-issues__item` wraps, and a row with three trailing buttons wrapped the
+ * FIRST of them onto a second line — an "open in editor" glyph left-aligned
+ * under the meta, reading as a stray control belonging to nothing (the same
+ * failure `.mlv-issue`'s `flex: 1 1 0` comment describes). The three actions are
+ * therefore centred with the row and given the same zero basis, so they stay
+ * together on one line at any title length.
+ */
+.mlv-railgroup__bar {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.mlv-railgroup__bar .mlv-railgroup__head {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: auto;
+}
+
+.mlv-issue__ignore,
+.mlv-issue__disable {
+  flex: none;
+  align-self: center;
+  color: var(--mlv-text-2);
+}
+
+.mlv-issue__disable {
+  margin-right: var(--mlv-s3);
+}
+
+.mlv-issue__ignore:hover,
+.mlv-issue__disable:hover {
+  color: var(--mlv-text);
+}
+
+.mlv-insp__suppress {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--mlv-s3);
+  margin-top: var(--mlv-s3);
+}
+
+/*
+ * The collapsed "N suppressed" section (MLV-P10) and its two chips. A
+ * suppression that is invisible is not auditable, and a baselined finding is
+ * marked, not deleted (CI-ADOPT).
+ */
+.mlv-rail__suppressed {
+  border-top: 1px solid var(--mlv-border);
+}
+
+.mlv-rail__suppressed-head .mlv-railgroup__title {
+  color: var(--mlv-text-2);
+  font-weight: var(--mlv-fw-regular);
+}
+
+.mlv-rail__suppressed.is-open .mlv-rail__suppressed-head .mlv-uicon {
+  transform: rotate(90deg);
+}
+
+.mlv-chip--suppressed,
+.mlv-chip--baselined {
+  color: var(--mlv-text-2);
+}
+
+/* CI-ADOPT: new / touched / existing, tinted but never colour-only — the word
+ * is always present, which is what survives a greyscale screenshot (R1.3). */
+.mlv-chip--change {
+  font-family: var(--mlv-font-mono);
+}
+
+.mlv-chip--change-new {
+  border-color: var(--mlv-sev-high);
+  color: var(--mlv-text);
+}
+
+.mlv-chip--change-touched {
+  border-color: var(--mlv-sev-medium);
+}
+
+.mlv-chip--changed[aria-pressed="true"] {
+  border-color: var(--mlv-accent);
 }

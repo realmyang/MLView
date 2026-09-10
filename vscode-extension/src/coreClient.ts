@@ -10,9 +10,11 @@
  */
 
 import { execFile, type ChildProcess } from 'node:child_process';
+import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { emptyGraph, isSchemaCompatible, looksLikeGraph, type MLGraph } from './graph';
 import type { Logger } from './log';
+import { ProgressSplitter, type ProgressFrame } from './progress';
 import { PythonEnvironment, schemaMismatchMessage } from './pythonEnv';
 import { readSettings, type MlviewSettings } from './settings';
 import type { AnalysisScope } from './protocol';
@@ -62,6 +64,12 @@ export interface AnalyzeArgOptions {
   maxFiles: number;
   maxNodes: number;
   exclude: string[];
+  /**
+   * NB: read `.ipynb` files instead of counting them as skipped. Omitted (the default) the
+   * argv is byte-identical to the one this builder produced before notebooks existed, which
+   * is what makes `mlview.includeNotebooks: false` a true no-op rather than a fast path.
+   */
+  includeNotebooks?: boolean;
   /** When set, the graph is written to this file as a self-contained HTML report instead. */
   htmlOut?: string;
   /**
@@ -73,6 +81,13 @@ export interface AnalyzeArgOptions {
   scopeSpec?: string;
   /** Boundary hops, 0..2 (§11.5). Omitted means the per-kind default. */
   depth?: number;
+  /**
+   * H3: ask the analyzer for `{"t":"progress",...}` frames on **stderr**. Passed only
+   * when a panel is live, so the headless and export paths emit the bytes they emit
+   * today — the flag is the difference between a 5.64 s indeterminate spinner and a
+   * bar that names the file being parsed.
+   */
+  progress?: boolean;
 }
 
 /**
@@ -93,11 +108,18 @@ export function buildAnalyzeArgs(opts: AnalyzeArgOptions): string[] {
       args.push('--exclude', glob.trim());
     }
   }
+  // NB: an INGEST flag, so it sits with the excludes and ahead of the projection flags.
+  if (opts.includeNotebooks) {
+    args.push('--include-notebooks');
+  }
   if (opts.scopeSpec && opts.scopeSpec.trim().length > 0) {
     args.push('--scope', opts.scopeSpec.trim());
     if (typeof opts.depth === 'number' && Number.isInteger(opts.depth)) {
       args.push('--depth', String(opts.depth));
     }
+  }
+  if (opts.progress) {
+    args.push('--progress-json');
   }
   return args;
 }
@@ -139,6 +161,11 @@ export interface AnalyzeRequest {
   cwd: string;
   token?: vscode.CancellationToken;
   settings?: MlviewSettings;
+  /**
+   * H3: set by the caller only when a panel is live. Its presence is what adds
+   * `--progress-json` to the argv, so nothing about the headless path changes.
+   */
+  onProgress?: (frame: ProgressFrame) => void;
 }
 
 export interface AnalyzeResult {
@@ -192,7 +219,20 @@ export class CoreClient implements vscode.Disposable {
 
   constructor(
     private readonly env: PythonEnvironment,
-    private readonly log: Logger
+    private readonly log: Logger,
+    /**
+     * CACHE (CONTRACTS 11.28). Where the core may keep its per-file fact
+     * sidecar. Appended last and optional, so every existing construction -
+     * `extension.ts` and three test files - is unchanged.
+     *
+     * The extension passes its own storage directory rather than letting the
+     * default (`<workspace>/.mlview/cache`) apply, because `analyzeOnSave`
+     * fires on every Ctrl+S and a tool that writes into the user's repository
+     * on every keystroke-plus-save is a tool people turn off. Leave it
+     * undefined and the core falls back to the project default; set
+     * `MLVIEW_NO_CACHE=1` in the environment and there is no cache at all.
+     */
+    private readonly cacheDir?: string
   ) {}
 
   /** Debounced entry point used by the analyze-on-save handler. */
@@ -224,7 +264,9 @@ export class CoreClient implements vscode.Disposable {
       paths: request.paths,
       maxFiles: settings.maxFiles,
       maxNodes: settings.maxNodes,
-      exclude: settings.exclude
+      exclude: settings.exclude,
+      includeNotebooks: settings.includeNotebooks,
+      progress: request.onProgress !== undefined
     });
     const started = Date.now();
     const run = await this.spawn(scopeKey(request.scope, request.paths[0]), args, request);
@@ -266,6 +308,7 @@ export class CoreClient implements vscode.Disposable {
       maxFiles: settings.maxFiles,
       maxNodes: settings.maxNodes,
       exclude: settings.exclude,
+      includeNotebooks: settings.includeNotebooks,
       htmlOut: request.outFile,
       // What the panel is drawing, so the exported report opens on the same diagram (§11.8:
       // the file still embeds the WHOLE graph; the scope is one attribute on the root).
@@ -339,6 +382,10 @@ export class CoreClient implements vscode.Disposable {
       );
     }
     const executable = state.interpreter.executable;
+    // PACKAGING: when the precedence chain chose the BUNDLED core, the only thing that
+    // makes `-m mlview` resolve is `<extension>/core` on PYTHONPATH — prepended, never
+    // replacing, so a user's own PYTHONPATH still works for everything else.
+    const bundledPath = state.interpreter.corePythonPath;
 
     // Single-flight per scope: a newer request for the same scope supersedes the running one.
     const previous = this.inFlight.get(key);
@@ -378,7 +425,21 @@ export class CoreClient implements vscode.Disposable {
           env: {
             ...process.env,
             PYTHONUTF8: '1',
-            PYTHONIOENCODING: 'utf-8'
+            PYTHONIOENCODING: 'utf-8',
+            // CACHE: only when the host named a directory. An unset variable
+            // is not the same as an empty one - the core treats "" as absent,
+            // but sending it at all would override a user's own setting.
+            ...(this.cacheDir ? { MLVIEW_CACHE_DIR: this.cacheDir } : {}),
+            ...(bundledPath
+              ? {
+                  PYTHONPATH: process.env['PYTHONPATH']
+                    ? `${bundledPath}${path.delimiter}${process.env['PYTHONPATH']}`
+                    : bundledPath,
+                  // The bundled core is read-only in a real install and must never leave
+                  // __pycache__ inside the VSIX's own directory.
+                  PYTHONDONTWRITEBYTECODE: '1'
+                }
+              : {})
           }
         },
         (err, stdout, stderr) => {
@@ -389,7 +450,10 @@ export class CoreClient implements vscode.Disposable {
           release();
           tokenSub?.dispose();
           const code = extractExitCode(err);
-          const text = String(stderr ?? '') || stderrBuffer;
+          // With a splitter running, `stderrBuffer` is the stderr MINUS the progress
+          // frames, and it is the one an error tail should quote: a failure banner
+          // reading `{"t":"progress","done":3,...}` names nothing a user can act on.
+          const text = splitter ? stderrBuffer : String(stderr ?? '') || stderrBuffer;
           if (err && code === null && !cancelled) {
             const overflow =
               (err as { code?: unknown }).code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER';
@@ -424,11 +488,34 @@ export class CoreClient implements vscode.Disposable {
         }
       };
 
+      // H3. Without `onProgress` this is byte-for-byte the old behaviour: every chunk
+      // goes to the log and to the error tail. With it, the `{"t":"progress"` frames
+      // are peeled off and everything else still does.
+      const splitter = request.onProgress
+        ? new ProgressSplitter(
+            (frame) => {
+              try {
+                request.onProgress?.(frame);
+              } catch (err) {
+                this.log.warn(`progress listener threw: ${String(err)}`);
+              }
+            },
+            (text) => {
+              stderrBuffer += text;
+              this.log.raw(text);
+            }
+          )
+        : undefined;
       child.stderr?.setEncoding('utf8');
       child.stderr?.on('data', (chunk: string) => {
+        if (splitter) {
+          splitter.push(chunk);
+          return;
+        }
         stderrBuffer += chunk;
         this.log.raw(chunk);
       });
+      child.stderr?.on('end', () => splitter?.flush());
       child.on('error', (err) => {
         if (settled) {
           return;

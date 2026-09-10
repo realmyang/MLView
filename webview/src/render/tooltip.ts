@@ -4,7 +4,7 @@
  * Nothing lives only in here — everything it shows is also in the inspector.
  */
 
-import { add, clear, el } from '../dom.js';
+import { add, clear, el, locSpan } from '../dom.js';
 import { severityGlyph } from '../markers.js';
 import type { GraphIndex, IssuePredicate } from '../layout/model.js';
 import type { LayoutBox } from '../layout/layout.js';
@@ -84,7 +84,7 @@ export class Tooltip {
     if (node.sublabel) add(this.root, el('div', 'mlv-tooltip__row', node.sublabel));
     if (node.fqn) add(this.root, el('div', 'mlv-tooltip__row', node.fqn));
     if (node.ghost) add(this.root, el('div', 'mlv-tooltip__row', 'This step is missing from the code.'));
-    add(this.root, el('div', 'mlv-tooltip__loc', node.loc.file + ':' + node.loc.line));
+    add(this.root, locSpan('mlv-tooltip__loc', node.loc, 'div'));
     for (const issue of index.issuesOf(id, keep)) {
       const row = add(this.root, el('div', 'mlv-tooltip__row'));
       row.appendChild(severityGlyph(issue.severity, 12, ''));
@@ -98,7 +98,7 @@ export class Tooltip {
     clear(this.root);
     add(this.root, el('div', 'mlv-tooltip__title', route.label || route.kind));
     add(this.root, el('div', 'mlv-tooltip__row', route.kind + (route.subkind ? ' · ' + route.subkind : '')));
-    if (edge) add(this.root, el('div', 'mlv-tooltip__loc', edge.loc.file + ':' + edge.loc.line));
+    if (edge) add(this.root, locSpan('mlv-tooltip__loc', edge.loc, 'div'));
     if (route.count > 1) add(this.root, el('div', 'mlv-tooltip__row', route.count + ' merged connections'));
     this.placeAt(route.mid.x, route.mid.y, route.mid.y);
   }

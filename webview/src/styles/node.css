@@ -30,6 +30,14 @@
   flex: 1 1 auto;
   min-width: 0;
   padding: 10px var(--mlv-s5) 10px var(--mlv-s4);
+  /* VW-01. The card's height is now the box `layout/cardmetrics.ts` reserved —
+   * a hard `height`, not a `min-height` — because `labels.ts` clears that box
+   * and `export/svg.ts` draws it. The reservation counts the loc row and the
+   * chip row, so at our own type scale nothing here is clipped; in a host with
+   * a much larger UI font the plan wins and the last row is cut instead of
+   * being drawn over a neighbouring card. The severity badge is a child of the
+   * CARD, not of this box, so it still escapes. */
+  overflow: hidden;
 }
 
 .mlv-node__iconbox {
@@ -68,8 +76,11 @@
 }
 
 .mlv-node__loc {
+  /* A `.mlv-loc` too (NB): the flex box shrinks the path and never the cell.
+   * `overflow: hidden` stays for the box itself; the ellipsis now belongs to
+   * `.mlv-loc__file`, which is the half that is allowed to lose characters. */
+  display: flex;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--mlv-text-3);
   font-family: var(--mlv-font-mono);
@@ -289,3 +300,19 @@ body.vscode-high-contrast-light .mlv-glyph__ink,
 [data-sev="high"] { --mlv-sev: var(--mlv-sev-high); }
 [data-sev="medium"] { --mlv-sev: var(--mlv-sev-medium); }
 [data-sev="low"] { --mlv-sev: var(--mlv-sev-low); }
+
+/*
+ * VIEW-12: a visible focus ring on the cards themselves.
+ *
+ * The canvas drives selection with `aria-activedescendant`, so a card is
+ * `tabindex="-1"` and only ever focused programmatically — by the arrow keys
+ * and by "reveal this node". Without a ring of its own it took the generic
+ * `.mlv-root :focus-visible` rectangle, whose 6 px button radius cuts the
+ * corners of a 10 px card.
+ */
+.mlv-node:focus-visible,
+.mlv-group__header:focus-visible {
+  outline: 2px solid var(--mlv-focus);
+  outline-offset: 2px;
+  border-radius: var(--mlv-r-node);
+}

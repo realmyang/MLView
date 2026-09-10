@@ -129,10 +129,17 @@ def test_every_tool_description_tells_the_model_when_to_call_it(listed):
 
 def test_tool_inputs_match_the_contract(listed):
     by_name = {tool["name"]: set(tool["schema"].get("properties", {})) for tool in listed}
-    assert {"path", "framework", "maxNodes", "includeHtml"} <= by_name["mlview_analyze"]
+    # CHANGED by ROADMAP NB (2026-09-09): `includeNotebooks` joined both reporting tools.
+    # It is on mlview_issues as well as mlview_analyze deliberately - a rule list that
+    # silently drops every finding inside a notebook is the "clean bill of health from a
+    # blind run" this feature exists to remove.
+    assert {
+        "path", "framework", "maxNodes", "includeHtml", "includeNotebooks"
+    } <= by_name["mlview_analyze"]
     # CHANGED by ROADMAP RAIL-GROUP (2026-09-08): `groupBy` joined the contract set.
     assert {
-        "path", "minSeverity", "minConfidence", "code", "limit", "groupBy"
+        "path", "minSeverity", "minConfidence", "code", "limit", "groupBy",
+        "includeNotebooks"
     } <= by_name["mlview_issues"]
     assert {"path", "format", "scope", "depth"} <= by_name["mlview_graph"]
     assert {"nodeId", "code", "graphPath"} <= by_name["mlview_explain"]
@@ -256,6 +263,18 @@ def test_open_diagram_writes_the_report_without_launching_a_browser(session_data
     with open(payload["reportPath"], "r", encoding="utf-8") as fh:
         html = fh.read()
     assert "http://" not in html and "https://" not in html, "the report must be offline"
+    # VIEW-07: this tool writes HTML and cannot rasterize anything, so the payload
+    # carries the one true sentence about where an SVG or a PNG actually comes from.
+    assert "viewer feature" in payload["exportHint"]
+
+
+def test_the_open_diagram_docstring_refuses_to_promise_a_picture(listed):
+    """The docstring IS the model's instruction sheet: it must say SVG is elsewhere."""
+    description = next(
+        tool["description"] for tool in listed if tool["name"] == "mlview_open_diagram"
+    )
+    assert "VIEWER feature" in description
+    assert "SVG" in description and "PNG" in description
 
 
 # ------------------------------------- the CONTENT text is what the cap is about

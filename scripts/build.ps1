@@ -55,7 +55,7 @@ Write-Host ('MLView build -- repo ' + $RepoRoot)
 Write-Host ('python: ' + $Python)
 
 # --------------------------------------------------------------- 1. viewer bundle
-Write-Head '1/5 webview -- install and build the viewer bundle'
+Write-Head '1/6 webview -- install and build the viewer bundle'
 Push-Location (Join-Path $RepoRoot 'webview')
 if (-not $SkipNpmInstall) {
     $global:LASTEXITCODE = 0
@@ -68,19 +68,19 @@ Assert-Ok 'npm run build (webview)'
 Pop-Location
 
 # ---------------------------------------------------------------- 2. sync assets
-Write-Head '2/5 tools/sync-assets.py -- one renderer in all three places'
+Write-Head '2/6 tools/sync-assets.py -- one renderer in all three places'
 $global:LASTEXITCODE = 0
 & $Python (Join-Path $RepoRoot 'tools/sync-assets.py')
 Assert-Ok 'sync-assets'
 
 # ------------------------------------------------------------------ 3. sync core
-Write-Head '3/5 tools/sync-core.py -- vendor the analyzer into the plugin'
+Write-Head '3/6 tools/sync-core.py -- vendor the analyzer into the plugin AND the extension'
 $global:LASTEXITCODE = 0
 & $Python (Join-Path $RepoRoot 'tools/sync-core.py')
 Assert-Ok 'sync-core'
 
 # ------------------------------------------------------------- 4. vscode extension
-Write-Head '4/5 vscode-extension -- install, compile and type-check'
+Write-Head '4/6 vscode-extension -- install, compile and type-check'
 Push-Location (Join-Path $RepoRoot 'vscode-extension')
 if (-not $SkipNpmInstall) {
     $global:LASTEXITCODE = 0
@@ -97,12 +97,28 @@ Pop-Location
 
 # ---------------------------------------------------------------- 5. analyzer core
 if (-not $SkipPipInstall) {
-    Write-Head '5/5 analyzer -- editable install'
+    Write-Head '5/6 analyzer -- editable install'
     $global:LASTEXITCODE = 0
     & $Python -m pip install -e (Join-Path $RepoRoot 'analyzer') --quiet
     Assert-Ok 'pip install -e analyzer'
 } else {
-    Write-Head '5/5 analyzer -- skipped (-SkipPipInstall)'
+    Write-Head '5/6 analyzer -- skipped (-SkipPipInstall)'
+}
+
+# PACKAGING: the wheel `pip install mlview`, the CI-ADOPT action and the VS Code
+# install prompt all name. `build` is not a hard dependency: without it the step
+# says so and the build carries on.
+Write-Head '6/6 analyzer -- build the wheel into analyzer/dist'
+& $Python -c 'import build' 2>$null
+if ($LASTEXITCODE -eq 0) {
+    $dist = Join-Path $RepoRoot 'analyzer/dist'
+    if (Test-Path $dist) { Remove-Item -Recurse -Force $dist }
+    $global:LASTEXITCODE = 0
+    & $Python -m build --wheel (Join-Path $RepoRoot 'analyzer')
+    Assert-Ok 'python -m build --wheel analyzer'
+    Get-ChildItem $dist | Format-Table Name, Length
+} else {
+    Write-Host 'build is not installed - skipping the wheel (pip install build)'
 }
 
 $global:LASTEXITCODE = 0

@@ -15,10 +15,73 @@ import argparse
 #: two lists had drifted, and `severity` - named in RAIL-GROUP's own
 #: `rule|file|severity` - was an argparse error here until 2026-09-08 (TB-12).
 from .emit.group_out import GROUP_BY
+#: PERF-03 / CACHE. Both live in `core` so the flag surface and the pipeline
+#: cannot disagree about the mode names or the default hop count.
+from .core.pipeline import DEFAULT_RELEVANCE
+from .core.relevance import DEFAULT_HOPS, MODES as RELEVANCE_MODES
 
-__all__ = ["build_parser", "FORMATS", "GROUP_BY"]
+__all__ = ["build_parser", "FORMATS", "GROUP_BY", "RELEVANCE_MODES"]
 
 FORMATS = ("summary", "json", "mermaid", "text")
+
+
+def _add_adopt_flags(parser: argparse.ArgumentParser) -> None:
+    """CI-ADOPT. Five flags that make MLView adoptable on a repo which already
+    has findings; every one of them is additive and off by default, so a
+    command that does not name them prints exactly what it always printed."""
+    parser.add_argument("--changed-since", dest="changed_since", metavar="REV",
+                        help="classify each finding as new / touched / existing "
+                             "against `git diff -M --unified=0 REV`; the whole "
+                             "workspace is still analyzed")
+    parser.add_argument("--changed-paths", dest="changed_paths", metavar="FILE",
+                        help="the same, from a diff (or a newline-separated path "
+                             "list) a CI runner already has, instead of shelling git")
+    parser.add_argument("--changed-only", dest="changed_only", action="store_true",
+                        help="drop `existing` findings from the output and from "
+                             "--fail-on; needs a change source")
+    parser.add_argument("--baseline", dest="baseline_path", metavar="FILE",
+                        help="mark findings recorded in FILE as baselined: still "
+                             "emitted, excluded from the counts and from --fail-on")
+    parser.add_argument("--sarif", dest="sarif_out", metavar="FILE|-",
+                        help="also write SARIF 2.1.0 ('-' means stdout)")
+    parser.add_argument("--progress-json", dest="progress_json", action="store_true",
+                        help="write NDJSON progress frames to stderr, one per "
+                             "analyzed file (H3); stdout is untouched")
+
+
+def _add_perf_flags(parser: argparse.ArgumentParser) -> None:
+    """PERF-03 and CACHE (CONTRACTS 11.28). Three flags, all additive, all with
+    defaults that reproduce today's bytes exactly: `--relevance all` is the
+    identity mode, and the cache can only change how long an answer takes."""
+    parser.add_argument("--relevance", dest="relevance", choices=RELEVANCE_MODES,
+                        default=DEFAULT_RELEVANCE,
+                        help="`all` (default) builds the IR for every discovered "
+                             "file; `ml` builds it only for files within "
+                             "--relevance-hops import hops of a framework import, "
+                             "and says how many it set aside")
+    parser.add_argument("--relevance-hops", dest="relevance_hops", type=int,
+                        default=DEFAULT_HOPS, metavar="N",
+                        help="import hops, in either direction, that --relevance ml "
+                             "follows out from a framework-touching file (default %d)"
+                             % DEFAULT_HOPS)
+    parser.add_argument("--no-cache", dest="no_cache", action="store_true",
+                        help="do not read or write the per-file parse cache "
+                             "(same as MLVIEW_NO_CACHE=1)")
+
+
+def _add_notebook_flag(parser: argparse.ArgumentParser) -> None:
+    """NB (CONTRACTS 11.29). One flag, off by default, so a command that does
+    not name it emits exactly the bytes it always emitted. `[paths] notebooks =
+    true` in `.mlview.toml` is the checked-in equivalent; either one turns it
+    on and neither can turn the other off."""
+    parser.add_argument("--include-notebooks", dest="include_notebooks",
+                        action="store_true",
+                        help="analyze `.ipynb` files too: code cells are "
+                             "concatenated in document order into a generated "
+                             "module under <root>/.mlview/notebooks/, magics "
+                             "become `pass  # mlview: magic`, and every finding "
+                             "names its cell (default: notebooks are counted "
+                             "and skipped)")
 
 
 def _add_group_flag(parser: argparse.ArgumentParser) -> None:
@@ -84,7 +147,10 @@ def build_parser() -> argparse.ArgumentParser:
     analyze.add_argument("--demo", action="store_true",
                          help="emit the golden contracts/graph.sample.json")
     analyze.add_argument("--no-color", action="store_true")
+    _add_perf_flags(analyze)
+    _add_notebook_flag(analyze)
     _add_group_flag(analyze)
+    _add_adopt_flags(analyze)
     _add_scope_flags(analyze)
     analyze.add_argument("--list-scopes", dest="list_scopes", action="store_true",
                          help="print the scopable-unit catalogue and exit 0")
@@ -110,8 +176,28 @@ def build_parser() -> argparse.ArgumentParser:
                         default="none")
     issues.add_argument("--strict", action="store_true")
     issues.add_argument("--no-color", action="store_true")
+    _add_perf_flags(issues)
+    _add_notebook_flag(issues)
     _add_group_flag(issues)
+    _add_adopt_flags(issues)
     _add_scope_flags(issues)
+
+    # CI-ADOPT (b): the ratchet. `write` is the only action there is; it is a
+    # positional rather than a flag so `mlview baseline write` reads as the
+    # sentence it is, and so a later `check` / `prune` needs no new command.
+    baseline = sub.add_parser("baseline", help="record today's findings as a baseline")
+    baseline.add_argument("action", choices=("write",))
+    baseline.add_argument("paths", nargs="*", default=[])
+    baseline.add_argument("--out", dest="out_file", metavar="FILE",
+                          help="where to write it (default: <root>/.mlview/baseline.json)")
+    baseline.add_argument("--include", action="append", default=[], metavar="GLOB")
+    baseline.add_argument("--exclude", action="append", default=[], metavar="GLOB")
+    baseline.add_argument("--max-files", type=int, default=500)
+    baseline.add_argument("--max-nodes", type=int, default=400)
+    baseline.add_argument("--config", dest="config_path", metavar="FILE")
+    baseline.add_argument("--no-color", action="store_true")
+    _add_perf_flags(baseline)
+    _add_notebook_flag(baseline)
 
     render = sub.add_parser("render", help="render an existing or fresh graph")
     render.add_argument("paths", nargs="*", default=[])
@@ -127,6 +213,7 @@ def build_parser() -> argparse.ArgumentParser:
                                "hold more nodes than this. Sets stats.truncated.")
     render.add_argument("--config", dest="config_path", metavar="FILE")
     render.add_argument("--no-color", action="store_true")
+    _add_perf_flags(render)
     _add_scope_flags(render)
 
     explain = sub.add_parser("explain", help="explain a node id or a rule code")

@@ -3,8 +3,16 @@
 export const NODE_W = 216;
 export const NODE_W_LG = 248;
 export const NODE_W_SM = 176;
+/** Padding, border, title, sublabel and the `file : line` row (70.1 px drawn). */
 export const NODE_H = 72;
+/** The same card without its `file : line` row (54.4 px drawn). */
 export const NODE_H_GHOST = 60;
+/**
+ * The attribute chip row: an 18 px chip line plus its 4 px top margin, added to
+ * the box of every card that draws one (VW-01). See `layout/cardmetrics.ts` —
+ * it owns the decision, this is only the number.
+ */
+export const NODE_CHIP_ROW_H = 26;
 
 export const GROUP_HEADER_H = 34;
 export const GROUP_PAD = 16;
@@ -49,13 +57,12 @@ export function edgeWeight(kind: string): number {
   return typeof w === 'number' ? w : 1;
 }
 
-/** Cards are always measured at full detail so LOD changes never relayout. */
-export function nodeSize(kind: string, level: string, ghost: boolean): { w: number; h: number } {
-  let w = NODE_W;
-  if (kind === 'model' || kind === 'entrypoint' || level === 'stage') w = NODE_W_LG;
-  else if (kind === 'layer') w = NODE_W_SM;
-  return { w, h: ghost ? NODE_H_GHOST : NODE_H };
-}
+/**
+ * Card sizing moved to `layout/cardmetrics.ts` (VW-01): the height depends on
+ * what the card will DRAW — a `file : line` row, an attribute chip row — and a
+ * flat constant per node made the layout disagree with the ink on every
+ * notebook report. The constants above are still the vocabulary it works in.
+ */
 
 export const BACK_EDGE_DROP = 26;
 

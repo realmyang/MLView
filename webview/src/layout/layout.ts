@@ -26,13 +26,11 @@ import {
   LANE_MIN_H,
   LANE_MIN_W,
   LANE_PAD,
-  NODE_H,
-  NODE_W_LG,
   BACK_EDGE_DROP,
   LANE_ROUTE_BAND,
   edgeWeight,
-  nodeSize,
 } from './constants.js';
+import { cardSize } from './cardmetrics.js';
 import { wrapTallRanks, wrapWideRows } from './wrap.js';
 
 export interface LayoutBox {
@@ -209,9 +207,9 @@ function layoutContainer(
       const h = Math.max(GROUP_MIN_H, GROUP_HEADER_H + child.h + GROUP_PAD);
       size.set(id, { w, h });
     } else if (group && isCollapsed) {
-      size.set(id, { w: NODE_W_LG, h: NODE_H });
+      size.set(id, cardSize(node, true));
     } else {
-      size.set(id, nodeSize(node.kind, node.level, node.ghost));
+      size.set(id, cardSize(node, false));
     }
     const s = size.get(id)!;
     g.setNode(id, { width: s.w, height: s.h });

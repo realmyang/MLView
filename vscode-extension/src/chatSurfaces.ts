@@ -67,3 +67,33 @@ export function registerChatSurfaces(host: ChatSurfaceHost): void {
     host.log.info('language-model tool API unavailable - tools not registered');
   }
 }
+
+/**
+ * CLEANUP 5 — the diagram-to-chat path. The viewer composes the prompt (UX_DESIGN §7)
+ * and posts `askAssistant`; the host's whole job is to open chat with it, addressed to
+ * the `@mlview` participant this extension already registers.
+ *
+ * `workbench.action.chat.open` is a built-in command, not a typed API, so a build that
+ * does not have it must degrade to the same "nothing happened, and we said why" the rest
+ * of the optional surfaces use — never to a failed promise the webview cannot see. It
+ * lives here rather than in `panel.ts` because it is one more optional chat surface, and
+ * because `chatAvailable()` is already the single `typeof` guard for all of them.
+ */
+export async function openAssistantChat(
+  nodeId: string,
+  prompt: string,
+  log: Logger
+): Promise<void> {
+  if (!chatAvailable()) {
+    log.info(`askAssistant ignored for node ${nodeId}: no chat API in this build`);
+    return;
+  }
+  try {
+    await vscode.commands.executeCommand('workbench.action.chat.open', {
+      query: `@mlview ${prompt}`
+    });
+    log.debug(`askAssistant opened chat for node ${nodeId}`);
+  } catch (err) {
+    log.warn(`askAssistant could not open chat: ${String(err)}`);
+  }
+}

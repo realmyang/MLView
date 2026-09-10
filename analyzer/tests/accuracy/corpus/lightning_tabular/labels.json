@@ -67,6 +67,12 @@
     }
   ],
   "forbidden": [
+    {"code": "MLV706", "file": "module.py",
+     "why": "training_step returns the loss and never touches backward() or an optimizer; Lightning owns the update"},
+    {"code": "MLV707", "file": "module.py",
+     "why": "training_step returns the loss tensor at line 35"},
+    {"code": "MLV711", "file": "module.py",
+     "why": "configure_optimizers returns a bare AdamW with no scheduler at all, so there is no cadence to declare"},
     {
       "code": "MLV201",
       "file": "module.py",

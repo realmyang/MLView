@@ -9,18 +9,43 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import List, Optional, Sequence, Tuple
+from typing import Callable, List, Optional, Sequence, Tuple
 
-from ..ingest.discover import discover
-from ..ingest.parse import parse_file
+from ..ingest.discover import discover, normalize_path
+from ..ingest import notebook as notebook_mod
+from ..ingest.parse import parse_all, parse_bytes, parse_file, read_bytes
 from ..ir.build_ir import build_workspace
 from ..rules import Suppressor, cross_file_codes, load_config, run_all
+from ..rules import confidence as confidence_mod
 from ..rules.context import GraphContext
+from . import cache as cache_mod
+from . import relevance as relevance_mod
 from .build import GraphBuilder
-from .coverage import note_untraced_sites, single_file_diagnostic
+from .coverage import (note_unconfirmed_train_loops, note_untraced_sites,
+                       single_file_diagnostic)
+from .unresolved import unresolved_callee_diagnostics
 from .graph import Diagnostic, MLGraph, SEVERITY_RANK
+from .progress import safe_call
 
-__all__ = ["AnalyzeOptions", "run", "AnalysisResult"]
+__all__ = ["AnalyzeOptions", "run", "AnalysisResult", "drop_orphan_ghosts",
+           "DEFAULT_RELEVANCE", "annotate_notebook_nodes"]
+
+#: PERF-03. The shipped default for `--relevance`, and it is `all` - the
+#: identity mode, in which every discovered file reaches the IR and the rules
+#: exactly as before the prefilter existed.
+#:
+#: ROADMAP's condition for defaulting to `ml` was that `tools/accuracy.py` be
+#: identical in both modes. It **is** - byte-identical over the whole ANA-12
+#: corpus - and `tools/perf_equiv.py` is byte-identical on all three corpora
+#: too. The default stays `all` for a different, measured reason: on workspaces
+#: small enough that the filter saves nothing, it still changes four analyzer
+#: gates, because a two-file fixture with one non-framework module is exactly
+#: the shape where "set aside" and "not analyzed" become visible
+#: (`filesAnalyzed`, `single_file_analysis`'s count, and an unresolved-import
+#: note that moves from the module to the set-aside list). Flipping the default
+#: is a re-baseline, not an optimisation, and CONTRACTS 11.28 records precisely
+#: what it costs so it can be done deliberately.
+DEFAULT_RELEVANCE = "all"
 
 
 @dataclass(frozen=True)
@@ -43,6 +68,27 @@ class AnalyzeOptions:
     #: `api.analyze_to_dict()`, never a smaller analysis.
     scope: Optional[str] = None
     depth: Optional[int] = None
+    #: H3 - an optional `(done, total, relpath)` sink called once per analyzed
+    #: file. Appended last and defaulted to `None`, so the frozen surface is
+    #: unchanged and `analyze()` still performs no I/O of its own: the CLI
+    #: passes `core.progress.ProgressWriter()` for `--progress-json`, an
+    #: in-process host passes its own callable, and nobody else pays anything.
+    progress: Optional[Callable[[int, int, str], None]] = None
+    #: PERF-03 / CACHE (CONTRACTS 11.28) - three more appended last, all
+    #: defaulted, so positional construction, `frozen=True` and hashability are
+    #: unchanged. `relevance="all"` is the identity; `cache=None` means "ask
+    #: the environment", which is on unless `MLVIEW_NO_CACHE=1`, and neither
+    #: can change what the analysis concludes - only how much of the workspace
+    #: it looks at, and how fast it gets there.
+    relevance: str = DEFAULT_RELEVANCE
+    relevance_hops: int = relevance_mod.DEFAULT_HOPS
+    cache: Optional[bool] = None
+    #: NB (CONTRACTS 11.29) - appended last and False by default, so positional
+    #: construction, `frozen=True` and hashability are unchanged and a run that
+    #: does not set it emits byte-identical bytes. True (or `[paths] notebooks
+    #: = true`) turns `.ipynb` files from a counted skip into analyzed,
+    #: generated Python modules under `<root>/.mlview/notebooks/`.
+    include_notebooks: bool = False
 
 
 @dataclass
@@ -54,6 +100,12 @@ class AnalysisResult:
     builder: object = None
     context: object = None
     empty: bool = False
+    #: CACHE / PERF-03: what the parse cache and the prefilter did on this run.
+    #: `stats` is schema-frozen and may not carry either, so they ride here and
+    #: on the log line; `api.digest(..., cached=...)` is how a host publishes
+    #: the first of them to a model.
+    cache: Optional[object] = None
+    relevance: Optional[object] = None
 
 
 def _now_iso() -> str:
@@ -65,33 +117,35 @@ def run(options: AnalyzeOptions) -> AnalysisResult:
     started = time.perf_counter()
     config = load_config(options.config_path, None)
     excludes = tuple(options.exclude) + tuple(config.excludes)
+    want_notebooks = bool(options.include_notebooks or config.notebooks)
     found = discover(options.paths, include=options.include, exclude=excludes,
-                     max_files=options.max_files)
+                     max_files=options.max_files, notebooks=want_notebooks)
     # a config file inside the discovered root takes effect too
     if config.path is None:
         config = load_config(None, found.root)
-        if config.excludes:
+        # NB: `[paths] notebooks` lives in that same file, so the second read
+        # can turn notebooks on as well as add excludes.
+        reread = bool(options.include_notebooks or config.notebooks)
+        if config.excludes or reread != want_notebooks:
+            want_notebooks = reread
             found = discover(options.paths, include=options.include,
                              exclude=excludes + tuple(config.excludes),
-                             max_files=options.max_files)
+                             max_files=options.max_files,
+                             notebooks=want_notebooks)
 
     diagnostics: List[Diagnostic] = []
-    parsed_files = []
-    failures = 0
-    for relpath in found.files:
-        ok, bad = parse_file(found.abspath(relpath), relpath)
-        if ok is not None:
-            parsed_files.append(ok)
-        else:
-            failures += 1
-            diagnostics.append(Diagnostic(kind="parse_error", message=bad.message,
-                                          file=bad.relpath, line=bad.line))
-    if found.notebooks:
-        diagnostics.append(Diagnostic(
-            kind="notebook_skipped",
-            message="%d notebook(s) detected but not analyzed in this version."
-                    % found.notebooks,
-            count=found.notebooks))
+    parsed_files, parse_failures, relevance, cache_report = _ingest(
+        found, options, _explicit_files(options.paths, found.root))
+    failures = len(parse_failures)
+    for bad in parse_failures:
+        diagnostics.append(Diagnostic(kind="parse_error", message=bad.message,
+                                      file=bad.relpath, line=bad.line))
+
+    # NB: notebooks are ingested here, after the Python files and before the
+    # "nothing parsed" exit, so a workspace that is *only* notebooks is a real
+    # analysis rather than an empty graph.
+    notebook_maps, notebooks_skipped = _ingest_notebooks(
+        found, want_notebooks, parsed_files, diagnostics)
     if found.file_cap_hit:
         diagnostics.append(Diagnostic(
             kind="truncated",
@@ -103,25 +157,32 @@ def run(options: AnalyzeOptions) -> AnalysisResult:
                                       message="path does not exist: %s" % missing))
     for warning in config.warnings:
         diagnostics.append(Diagnostic(kind="config_warning", message=warning))
+    narrowing = relevance_mod.relevance_diagnostic(relevance)
+    if narrowing is not None:
+        diagnostics.append(narrowing)
 
     if not parsed_files:
         graph = MLGraph(root=found.root)
         graph.diagnostics = diagnostics
         graph.filesFailed = failures
-        graph.notebooksSkipped = found.notebooks
+        graph.notebooksSkipped = notebooks_skipped
         graph.configPath = config.path
         graph.generatedAt = _now_iso()
         graph.durationMs = int((time.perf_counter() - started) * 1000)
         graph.finalize()
-        return AnalysisResult(graph=graph, empty=True)
+        return AnalysisResult(graph=graph, empty=True, cache=cache_report,
+                              relevance=relevance)
 
     workspace = build_workspace(found.root, parsed_files)
+    # NB: the offset tables ride on the workspace so `GraphContext` can reach
+    # them without the rules ever importing `ingest`.
+    workspace.notebooks = notebook_maps
     builder = GraphBuilder(workspace, max_nodes=options.max_nodes)
     graph = builder.build()
     graph.diagnostics = diagnostics + list(graph.diagnostics)
     graph.filesAnalyzed = len(parsed_files)
     graph.filesFailed = failures
-    graph.notebooksSkipped = found.notebooks
+    graph.notebooksSkipped = notebooks_skipped
     graph.configPath = config.path
 
     for scope in workspace.dynamic_scopes:
@@ -143,6 +204,12 @@ def run(options: AnalyzeOptions) -> AnalysisResult:
                     "unresolved. Narrow the analyzed path, or file the workspace "
                     "shape as a bug." % getattr(workspace, "ir_rounds", 0),
             count=getattr(workspace, "ir_rounds", 0)))
+
+    # ANA-5a: a call whose callee the analyzer could not resolve is drawn as an
+    # `unknown` op and said out loud, one row per (file, scope). Before this an
+    # odd-syntax file lost its whole training step with `dynamic: 0` on every
+    # node it kept, which is indistinguishable from a clean read.
+    graph.diagnostics.extend(unresolved_callee_diagnostics(workspace))
 
     for relpath, line, message in workspace.unresolved_imports:
         graph.diagnostics.append(Diagnostic(
@@ -175,15 +242,198 @@ def run(options: AnalyzeOptions) -> AnalysisResult:
     # untraced FIT / SPLIT / LOADER site is declared whether or not a rule that
     # happens to gate on it ran. Emits diagnostics only - never an issue.
     note_untraced_sites(context)
+    note_unconfirmed_train_loops(context)
 
     _filter_issues(graph, options)
-    _drop_orphan_ghosts(graph)
+    drop_orphan_ghosts(graph)
     _apply_node_cap(graph, options.max_nodes)
+    # NB: last, so a ghost minted by an absence rule and a node re-parented by
+    # the cap both carry the cell they came from.
+    annotate_notebook_nodes(graph, notebook_maps)
     graph.generatedAt = _now_iso()
     graph.durationMs = int((time.perf_counter() - started) * 1000)
     graph.finalize()
     return AnalysisResult(graph=graph, workspace=workspace, builder=builder,
-                          context=context)
+                          context=context, cache=cache_report,
+                          relevance=relevance)
+
+
+def _ingest(found, options: AnalyzeOptions, pinned: Tuple[str, ...]):
+    """Read, parse and prefilter. Returns `(parsed, failures, relevance, cache)`.
+
+    Two phases, because PERF-03 and CACHE only pay together:
+
+    * **Phase 1** reads every discovered file once and establishes its
+      *facts* - is it a seed, what does it import. A file whose content digest
+      is already in the sidecar contributes its facts without being parsed at
+      all; every other file is parsed here, since the bytes are in hand.
+    * **Phase 2** parses whatever the prefilter kept and phase 1 did not
+      already have. Only the kept set reaches `build_workspace`, and therefore
+      the IR fixed point and the rules.
+
+    Under `--relevance all` there is nothing to decide, so neither the facts
+    nor the cache are consulted and this collapses to exactly the single
+    `parse_all` pass the analyzer has always made - the same bytes, in the same
+    order, at the same cost.
+    """
+    if options.relevance != "ml":
+        parsed, failures, _sink = parse_all(found, progress=options.progress)
+        # `select` in "all" mode reads only the keys - no facts are derived,
+        # which is what makes this path cost exactly what it always cost.
+        relevance = relevance_mod.select(dict.fromkeys(p.relpath for p in parsed),
+                                         mode="all", hops=options.relevance_hops)
+        return parsed, failures, relevance, None
+
+    cache = cache_mod.open_cache(found.root, options.cache)
+    total = len(found.files)
+    sink = options.progress
+    failures: List = []
+    parsed_by_rel = {}
+    facts = {}
+    for index, relpath in enumerate(found.files, start=1):
+        abspath = found.abspath(relpath)
+        raw, bad = read_bytes(abspath, relpath)
+        if raw is not None:
+            stored = cache.get(relpath, cache.content_key(raw)) if cache else None
+            if stored is not None:
+                facts[relpath] = stored
+            else:
+                ok, bad = parse_bytes(raw, relpath, abspath)
+                if ok is not None:
+                    parsed_by_rel[relpath] = ok
+                    fresh = relevance_mod.facts_of_parsed(ok)
+                    facts[relpath] = fresh
+                    if cache is not None:
+                        cache.put(relpath, cache.content_key(raw), fresh)
+        # H3: one frame per discovered file, in order, whether or not the
+        # prefilter will keep it - `done` counts files dealt with.
+        sink = safe_call(sink, index, total, relpath)
+        if bad is not None:
+            failures.append(bad)
+
+    cache_report = None
+    if cache is not None:
+        cache.flush()
+        cache_report = cache.report()
+        cache_mod.announce(cache_report)
+
+    relevance = relevance_mod.select(facts, mode="ml", hops=options.relevance_hops,
+                                     pinned=pinned)
+    parsed = []
+    for relpath in relevance.kept:
+        ok = parsed_by_rel.get(relpath)
+        if ok is None:                      # facts came off disk; parse it now
+            ok, bad = parse_file(found.abspath(relpath), relpath)
+            if ok is None:
+                if bad is not None:
+                    failures.append(bad)
+                continue
+        parsed.append(ok)
+    failures.sort(key=lambda f: f.relpath)
+    return parsed, failures, relevance, cache_report
+
+
+def _ingest_notebooks(found, want: bool, parsed_files: List,
+                      diagnostics: List[Diagnostic]):
+    """NB. Convert the discovered `.ipynb` files. Returns `(maps, skipped)`.
+
+    Three honesty rules, and they are the reason this is not four lines inside
+    `run()`:
+
+    1. **`notebooksSkipped` never becomes zero because the flag was on.** It is
+       `found.notebooks` (every notebook discovered) minus the ones that really
+       did reach the rules - so a notebook the include filter excluded, one
+       whose JSON is broken and one whose generated module does not parse are
+       all still counted, exactly as they were before this feature existed.
+    2. **Every skip says why.** A notebook that failed gets its own
+       `parse_error` naming the notebook, not the generated module: the reader
+       has to be able to find the file the tool choked on.
+    3. **Every success says what it did.** One `notebook_analyzed` per
+       notebook, carrying the generated module, the cell count, the magic
+       count and the execution-order verdict. A notebook that was analyzed and
+       says nothing is exactly the "clean bill of health from a blind tool"
+       this contract refuses everywhere else.
+    """
+    if not want:
+        if found.notebooks:
+            diagnostics.append(Diagnostic(
+                kind="notebook_skipped",
+                message="%d notebook(s) detected but not analyzed in this version."
+                        % found.notebooks,
+                count=found.notebooks))
+        return {}, found.notebooks
+
+    ingest = notebook_mod.ingest_notebooks(found.root, found.notebook_files)
+    parsed_files.extend(ingest.parsed)
+    for relpath, why in ingest.failures:
+        diagnostics.append(Diagnostic(kind="parse_error", message=why, file=relpath))
+    skipped = max(0, found.notebooks - len(ingest.parsed))
+    if skipped:
+        tail = (" " + notebook_mod.failure_summary(ingest.failures)
+                ) if ingest.failures else ""
+        diagnostics.append(Diagnostic(
+            kind="notebook_skipped",
+            message="%d of %d notebook(s) could not be analyzed.%s"
+                    % (skipped, found.notebooks, tail),
+            count=skipped))
+    for shadow in sorted(ingest.maps, key=lambda k: ingest.maps[k].notebook):
+        nbmap = ingest.maps[shadow]
+        diagnostic = Diagnostic(kind="notebook_analyzed", message=nbmap.summary(),
+                                file=nbmap.notebook, count=nbmap.codeCells)
+        if not nbmap.orderOk:
+            diagnostic.codes = list(confidence_mod.ORDER_SENSITIVE_CODES)
+        diagnostics.append(diagnostic)
+    return dict(ingest.maps), skipped
+
+
+def annotate_notebook_nodes(graph: MLGraph, maps) -> None:
+    """NB. Put the cell mapping beside every node that came from a notebook.
+
+    `Loc` is frozen (CONTRACTS section 2) and cannot carry a cell index, so the
+    mapping rides in `Node.attrs` - `notebook`, `cell`, `cellLine`, all
+    strings, which is what `attrs` already is. Provenance wins over a literal
+    keyword argument of the same name: a location that names the wrong cell is
+    worse than a lost `cell=` kwarg, and the collision is stated in 11.29
+    rather than discovered.
+
+    Public because a host that rebuilds a graph (a projection, a cap) may
+    re-run it; it is idempotent.
+    """
+    if not maps:
+        return
+    for node in graph.nodes:
+        nbmap = maps.get(node.loc.file)
+        if nbmap is None:
+            continue
+        node.attrs["notebook"] = nbmap.notebook
+        where = nbmap.locate(node.loc.line)
+        if where is not None:
+            node.attrs["cell"] = str(where[0])
+            node.attrs["cellLine"] = str(where[1])
+
+
+def _explicit_files(paths: Sequence[str], root: str) -> Tuple[str, ...]:
+    """Workspace-relative paths the caller named as **files**, not directories.
+
+    PERF-03 pins them as seeds. `mlview issues train_utils.py` asks about that
+    file; a prefilter that decides the file is not interesting has answered a
+    different question, and "no findings" would be indistinguishable from "not
+    looked at". Directories are not pinned - naming a directory is exactly the
+    case the filter exists for.
+    """
+    import os
+
+    out = []
+    for path in paths or ():
+        try:
+            if not os.path.isfile(path):
+                continue
+            rel = os.path.relpath(normalize_path(path), root).replace("\\", "/")
+        except (OSError, ValueError):
+            continue
+        if rel and not rel.startswith(".."):
+            out.append(rel)
+    return tuple(sorted(set(out)))
 
 
 def _filter_issues(graph: MLGraph, options: AnalyzeOptions) -> None:
@@ -301,8 +551,14 @@ def _apply_node_cap(graph: MLGraph, max_nodes: int) -> None:
         count=len(dropped)))
 
 
-def _drop_orphan_ghosts(graph: MLGraph) -> None:
-    """Invariant 1.1.8: a ghost node always carries at least one issue."""
+def drop_orphan_ghosts(graph: MLGraph) -> None:
+    """Invariant 1.1.8: a ghost node always carries at least one issue.
+
+    Public because CI-ADOPT drops issues **after** the pipeline has finished
+    (`--changed-only`), and a ghost whose only finding just went would violate
+    1.1.8 on the way out. Re-run this, then `finalize()`, after any late edit
+    to `graph.issues`.
+    """
     live = {issue.id for issue in graph.issues}
     keep = []
     dropped = set()

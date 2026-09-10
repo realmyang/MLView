@@ -93,6 +93,8 @@ CodeLens and *Reveal in Diagram* keep working regardless.
 | `MLView: Scope Diagram to Symbol` | **Alt+Shift+M**, editor context menu | Draws only the unit the cursor is in, plus one hop of context |
 | `MLView: Clear Diagram Scope` | — | Puts the whole workspace back on the diagram |
 | `MLView: Export HTML Report` | — | Save dialog, then `analyze --html <file>` at the diagram's current scope; offers to open it |
+| `MLView: Export Diagram as SVG` | — | Asks the open diagram for a standalone SVG of the whole diagram, the current view or the current scope, then a save dialog |
+| `MLView: Export Diagram as PNG` | — | The same, as a raster image |
 | `MLView: Select Python Interpreter` | — | Python extension picker, or the `mlview.pythonPath` setting |
 | `MLView: Show Output` | — | The MLView output channel |
 | `MLView: Open Rule Documentation` | — | Opens the offline `MLVnnn.md` rule page |
@@ -108,6 +110,27 @@ own scope breadcrumb (`Scoped to validate() · depth 1 · 9 of 54 nodes`) — a 
 exposes a title and no subtitle. `MLView: Clear Diagram Scope` restores the whole workspace,
 and does nothing at all when no diagram is open. With the cursor inside no node at all,
 nothing is scoped and a toast says so: a scope is never guessed.
+
+### Exporting the picture (VIEW-07)
+
+`MLView: Export Diagram as SVG` and `... as PNG` ask the **open diagram** for the picture:
+the extension host cannot draw one, because the geometry — lane bands, card rectangles,
+routed edge paths, resolved theme colours — exists only inside the viewer once it has laid
+the graph out. So the command posts `requestExport { kind, scope }`, the viewer renders and
+answers with `exportFile`, and the extension decodes the bytes, opens a save dialog in the
+workspace folder and writes the file with `workspace.fs`. A webview cannot download a file
+of its own — an `<a download>` in a VS Code webview is inert — which is why the bytes travel
+through the message protocol rather than out of the sandbox.
+
+Each command first asks **what** the picture should contain: the whole diagram, the current
+view, or the current scope (offered only while the diagram is scoped). Both commands accept
+that choice as an argument, so a keybinding can skip the pick:
+`{ "command": "mlview.exportSvg", "args": "all" }`.
+
+The host writes only what it recognises: a payload that is not the format that was requested
+is refused before the save dialog opens, and a name the viewer suggests is used as a
+**basename only**. Nothing is exported while the diagram is closed — the command says so
+rather than opening an empty picture.
 
 `MLView: Export HTML Report` follows the scope: a report exported from a scoped panel opens on
 the same projection (`--scope <SPEC>`, plus the depth the viewer last saved). The file still
@@ -131,21 +154,49 @@ analyzed unit.
 |---|---|---|
 | `mlview.pythonPath` | `""` | Interpreter override; first in the resolution chain |
 | `mlview.analyzeOnSave` | `true` | Re-analyze 400 ms after a Python file is saved |
+| `mlview.currentFileAnalysisScope` | `package` | What **MLView: Visualize (Current File)** analyzes before scoping the diagram to the file: `file` (fastest, and reported as incomplete — the cross-file rules cannot fire), `package`, or `workspace` |
 | `mlview.exclude` | `[]` | Extra discovery excludes, added to the analyzer defaults |
+| `mlview.includeNotebooks` | `false` | Analyze `.ipynb` as well as `.py` (passes `--include-notebooks`). See **Notebooks** below |
 | `mlview.maxFiles` | `500` | Discovery cap |
 | `mlview.maxNodes` | `400` | Graph cap; exceeding it sets `stats.truncated` |
 | `mlview.minSeverity` | `low` | Lowest severity shown in Problems and in the digests |
 | `mlview.minConfidence` | `0.6` | Lowest confidence published as a diagnostic |
-| `mlview.showSpeculative` | `false` | Reserved; not implemented in this prototype (the frozen `setFilter` message has no confidence channel) |
 | `mlview.diagnosticsEnabled` | `true` | Publish to the Problems panel at all |
 | `mlview.diagnosticSeverity` | `warning` | `warning`: high → Warning. `error`: high → Error |
 | `mlview.disabledRules` | `[]` | Rule codes to hide, e.g. `["MLV601"]` — in the Problems panel, the quick pick, the chat/LM digests **and** on the diagram (the host posts the surviving codes as a `setFilter` keep-list) |
 | `mlview.codeLens` | `true` | The "show in diagram" CodeLens |
-| `mlview.followCursor` | `false` | Reserved; not implemented in this prototype |
 | `mlview.trace` | `off` | `off` / `messages` / `verbose` output-channel verbosity |
 
 Analysis is disabled in **Restricted Mode** (`capabilities.untrustedWorkspaces: "limited"`),
 because it spawns an interpreter. Trust the folder to enable it.
+
+### Notebooks
+
+Off by default. With `mlview.includeNotebooks` off the extension passes exactly the argv it
+passed before notebooks existed, and the status bar says how many notebooks it set aside
+(`3 notebooks not analyzed`) rather than reporting a clean workspace it never read.
+
+Turn it on and:
+
+- the flag reaches the analyzer, and changing the setting **re-runs** the analysis (it is the
+  only `mlview.*` key that does — every other one re-filters a graph the host already has);
+- **findings land in the cell.** The analyzer converts each notebook to one generated module
+  under `.mlview/notebooks/` and its locations name that file, because `Loc` is frozen and
+  cannot carry a cell index. The extension re-anchors every notebook finding onto the
+  `vscode-notebook-cell:` document of the cell it came from, so the squiggle appears in the
+  cell you are looking at. With the notebook closed there is no cell URI to use, and the
+  finding falls back to the `.ipynb` itself;
+- saving the notebook re-analyzes (`onDidSaveNotebookDocument`; saving a notebook does **not**
+  fire the text-document save event, so this is a second listener, not the same one);
+- the status-bar tooltip reads `N notebooks analyzed`, and says both when a run analyzed some
+  notebooks and could not read others.
+
+**What this cannot know.** Cell execution order. A notebook records only the `execution_count`
+of its last run, so document order is an assumption. When those counts are not monotonic the
+analyzer says so in its `notebook_analyzed` note and de-rates the order-sensitive rules
+(MLV101, MLV203, MLV209) rather than pretending. Related locations on a notebook finding still
+point at the generated module: they carry no cell mapping of their own, and the generated file
+is real and opens.
 
 ---
 

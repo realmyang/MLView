@@ -11,8 +11,10 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
-import { chatAvailable } from './chatSurfaces';
+import { chatAvailable, openAssistantChat } from './chatSurfaces';
+import type { SuppressRequest } from './codeActions';
 import { coverageChip, coverageNotes } from './coverage';
+import { saveExportedFile } from './exportDiagram';
 import type { MLGraph } from './graph';
 import { SCHEMA_VERSION } from './graph';
 import { resolveOpenTarget, toRangeTuple } from './location';
@@ -29,6 +31,8 @@ import {
 import {
   parseUiToHost,
   type AnalysisScope,
+  type ExportKind,
+  type ExportScope,
   type HostToUi,
   type ScopeChangedMessage,
   type ThemeKind,
@@ -68,6 +72,12 @@ export interface PanelDelegate {
   onExportHtml(): void;
   onAction(id: string): void;
   onSelectNode(nodeId: string | null): void;
+  /**
+   * MLV-P10: the viewer asked to suppress a rule. The host answers with exactly the
+   * behaviour the editor lightbulb has — confirm dialog, containment check and all —
+   * so the two surfaces cannot drift apart.
+   */
+  onSuppressRule(request: SuppressRequest): void;
   /** Absolute root the graph's relative paths resolve against. */
   workspaceRoot(): string | undefined;
 }
@@ -78,6 +88,12 @@ export class MlviewPanel implements vscode.Disposable {
   private disposed = false;
   /** Holds back what the webview cannot act on yet; see src/panelState.ts. */
   private readonly deferred = new DeferredMessages();
+  /**
+   * H3: request ids whose analysis has already been reported as failed, so a late
+   * `analysisProgress` frame from the same child is dropped instead of drawing a bar
+   * over the banner. Bounded — this is a guard, not a history.
+   */
+  private readonly failedRequests = new Set<string>();
   /** The webview's latest `saveState`, used as the `preserve` of the next `graph`. */
   private lastViewState: ViewState | undefined;
   /** The selector from the last `scopeChanged`; `null` while the diagram is unscoped. */
@@ -280,12 +296,47 @@ export class MlviewPanel implements vscode.Disposable {
     });
   }
 
+  /**
+   * H3. One frame per file, throttled by the analyzer, drawn by the viewer's existing
+   * `done/total` bar (`webview/src/ui/states.ts`).
+   *
+   * A frame that arrives AFTER this run already failed is dropped: the child's stderr
+   * and its exit are two separate events, so a queued chunk can land after the banner
+   * is up, and a progress bar reappearing over an error message is the one thing worse
+   * than no progress bar at all.
+   */
+  postAnalysisProgress(requestId: string, done: number, total: number, file?: string): void {
+    if (this.failedRequests.has(requestId)) {
+      return;
+    }
+    this.post({
+      v: 1,
+      type: 'analysisProgress',
+      requestId,
+      done,
+      total,
+      ...(file ? { file } : {})
+    });
+  }
+
+  /**
+   * A listener the analyzer's stderr frames can be piped straight into, bound to one
+   * `requestId`. Handed to `CoreClient.analyze` so the controller never has to hold a
+   * reference to a panel that may be disposed by the time a frame arrives.
+   */
+  progressListener(requestId: string): (frame: { done: number; total: number; file?: string }) => void {
+    return (frame) => {
+      MlviewPanel.current?.postAnalysisProgress(requestId, frame.done, frame.total, frame.file);
+    };
+  }
+
   postAnalysisFailed(
     requestId: string,
     message: string,
     detail?: string,
     actions?: { id: string; label: string }[]
   ): void {
+    this.rememberFailure(requestId);
     this.post({
       v: 1,
       type: 'analysisFailed',
@@ -294,6 +345,18 @@ export class MlviewPanel implements vscode.Disposable {
       ...(detail ? { detail } : {}),
       ...(actions && actions.length ? { actions } : {})
     });
+  }
+
+  /** Newest 16 failed request ids; older ones can no longer have a child alive. */
+  private rememberFailure(requestId: string): void {
+    this.failedRequests.add(requestId);
+    while (this.failedRequests.size > 16) {
+      const oldest = this.failedRequests.values().next().value;
+      if (oldest === undefined) {
+        break;
+      }
+      this.failedRequests.delete(oldest);
+    }
   }
 
   postStale(changedFiles: string[]): void {
@@ -328,6 +391,14 @@ export class MlviewPanel implements vscode.Disposable {
       spec,
       ...(typeof depth === 'number' ? { depth } : {})
     });
+  }
+
+  /**
+   * VIEW-07 (docs/contracts/11.33-diagram-export.md). "Render this and send me the bytes."
+   * Deferred like a reveal: a request reaching a webview with no graph draws nothing.
+   */
+  postRequestExport(kind: ExportKind, scope: ExportScope): void {
+    this.post({ v: 1, type: 'requestExport', kind, scope });
   }
 
   postRestoreState(state: ViewState): void {
@@ -378,10 +449,25 @@ export class MlviewPanel implements vscode.Disposable {
         this.delegate.onAction(msg.id);
         return;
       case 'askAssistant':
-        await this.askAssistant(msg.nodeId, msg.prompt);
+        await openAssistantChat(msg.nodeId, msg.prompt, this.delegate.log);
         return;
       case 'log':
         this.delegate.log.info(`[webview] ${msg.level}: ${msg.message}`);
+        return;
+      case 'exportFile':
+        // VIEW-07: the save dialog and the write live in src/exportDiagram.ts.
+        await saveExportedFile(msg, {
+          log: this.delegate.log,
+          workspaceRoot: () => this.delegate.workspaceRoot()
+        });
+        return;
+      case 'suppressRule':
+        this.delegate.onSuppressRule({
+          code: msg.code,
+          action: msg.action,
+          ...(msg.absFile ? { absFile: msg.absFile } : {}),
+          ...(typeof msg.line === 'number' ? { line: msg.line } : {})
+        });
         return;
       case 'scopeChanged':
         this.onScopeChanged(msg);
@@ -425,30 +511,6 @@ export class MlviewPanel implements vscode.Disposable {
       return;
     }
     (this.panel as vscode.WebviewPanel & { description?: string }).description = parts.join(' · ');
-  }
-
-  /**
-   * CLEANUP 5 — the diagram-to-chat path. The viewer composes the prompt (UX_DESIGN section 7)
-   * and posts it; the host's whole job is to open chat with it, addressed to the `@mlview`
-   * participant this extension already registers.
-   *
-   * `workbench.action.chat.open` is a built-in command, not a typed API, so a build that does
-   * not have it must degrade to the same "nothing happened, and we said why" the rest of the
-   * optional surfaces use — never to a failed promise the webview cannot see.
-   */
-  private async askAssistant(nodeId: string, prompt: string): Promise<void> {
-    if (!chatAvailable()) {
-      this.delegate.log.info(`askAssistant ignored for node ${nodeId}: no chat API in this build`);
-      return;
-    }
-    try {
-      await vscode.commands.executeCommand('workbench.action.chat.open', {
-        query: `@mlview ${prompt}`
-      });
-      this.delegate.log.debug(`askAssistant opened chat for node ${nodeId}`);
-    } catch (err) {
-      this.delegate.log.warn(`askAssistant could not open chat: ${String(err)}`);
-    }
   }
 
   /**

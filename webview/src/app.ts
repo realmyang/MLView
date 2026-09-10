@@ -15,6 +15,8 @@ import { FilterModel } from './filters.js';
 import { Chrome } from './ui/chrome.js';
 import { Rail } from './ui/rail.js';
 import { Legend } from './ui/legend.js';
+import { AnswersCard } from './ui/answers.js';
+import { ignoreComment } from './ui/suppress.js';
 import { sanitizeGroupBy } from './ui/railgroup.js';
 import { LoadingState } from './ui/states.js';
 import { buildShell, claimPage } from './ui/shell.js';
@@ -22,11 +24,26 @@ import { handleCanvasKey } from './ui/keymap.js';
 import { canvasCommands, CommandPort } from './ui/commands.js';
 import { commandPortFor } from './ui/appkeys.js';
 import { ShortcutSheet } from './ui/shortcuts.js';
+import { ExportMenu, ExportActionId } from './ui/exportmenu.js';
+import { resolvePalette } from './export/palette.js';
+import {
+  ExportRequest,
+  copyPngImage,
+  copySvgText,
+  exportFileName,
+  printDiagram,
+  regionFromHostWord,
+  renderExport,
+  savePng,
+  saveSvg,
+} from './export/actions.js';
 import { ThemeController } from './ui/theme.js';
 import { SearchController } from './ui/searchcontroller.js';
 import { dispatchHostMessage, sanitizeScope } from './protocol.js';
 import { ScopeSession, mergeCollapsed, railScopeCounts, sameScope } from './scope/session.js';
 import { ScopeBar } from './ui/scopebar.js';
+import { adoptCellMap } from './notebook.js';
+import { isSetAside } from './types.js';
 import type { SearchHit } from './search.js';
 import type {
   Capabilities,
@@ -36,6 +53,7 @@ import type {
   HostToUi,
   Issue,
   IssueCounts,
+  AnswerLoc,
   Loc,
   MLGraph,
   MLViewApp,
@@ -82,7 +100,13 @@ export class App implements MLViewApp {
   private pendingScope: { spec: string; depth?: number } | null = null;
   private flowOn = true;
   private caps: Capabilities;
-  private theme: ThemeKind;
+  /**
+   * VW-05. `ThemeController` is the ONE place a theme is decided: the standalone
+   * report's own Auto / Light / Dark / High contrast switch calls it directly,
+   * so a copy of the value on the app went stale the moment a reader touched
+   * that switch — and the export stamped the stale one on every picture. There
+   * is no copy any more; `this.themes.kind` is the answer, always.
+   */
 
   private filters = new FilterModel();
   private viewportState: Viewport = { x: 0, y: 0, zoom: 1 };
@@ -91,6 +115,8 @@ export class App implements MLViewApp {
   private railTab: RailTab = 'issues';
   private railGroupBy: RailGroupBy = 'none';
   private legendOpen = false;
+  /** MLV-P1: the answer card starts open, so the four answers are the first read. */
+  private answersOpen = true;
 
   private stale: string[] = [];
   private dismissed = new Set<string>();
@@ -104,7 +130,9 @@ export class App implements MLViewApp {
   private chrome!: Chrome;
   private rail!: Rail;
   private sheet!: ShortcutSheet;
+  private exportMenu!: ExportMenu;
   private legend!: Legend;
+  private answers!: AnswersCard;
   private scopeBar!: ScopeBar;
   private scrim!: HTMLElement;
   private releasePage: () => void = () => undefined;
@@ -119,8 +147,7 @@ export class App implements MLViewApp {
     this.root = root;
     this.bridge = bridge;
     this.caps = bridge.capabilities;
-    this.theme = bridge.theme || 'light';
-    this.themes = new ThemeController(root, this.theme, bridge.themePreference);
+    this.themes = new ThemeController(root, bridge.theme || 'light', bridge.themePreference);
     this.build();
     const restored = safeLoad(bridge);
     if (restored) this.applyState(restored, false);
@@ -140,7 +167,7 @@ export class App implements MLViewApp {
   /* ── shell ─────────────────────────────────────────────────────────── */
 
   private build(): void {
-    const shell = buildShell(this.root, this.theme);
+    const shell = buildShell(this.root, this.themes.kind);
     this.releasePage = claimPage(this.root);
     this.liveEl = shell.live;
     this.scrim = shell.scrim;
@@ -168,6 +195,8 @@ export class App implements MLViewApp {
       onScope: () => this.toggleScopePicker(),
       onToggleFlow: (next) => this.setFlow(next),
       onToggleLegend: (next) => this.setLegend(next),
+      onToggleMinimap: (next) => this.setMinimapCollapsed(next),
+      onChangedOnly: (next) => this.setFilters({ changedOnly: next }),
     });
 
     this.scopeBar = new ScopeBar({
@@ -184,12 +213,31 @@ export class App implements MLViewApp {
     });
     this.chrome.scopeSlot.appendChild(this.scopeBar.breadcrumb.root);
 
-    this.root.appendChild(this.chrome.toolbar);
-    this.root.appendChild(this.chrome.filterRow);
+    // VIEW-07. The trigger goes in the toolbar beside Fit; the popup goes on the
+    // app root, so the roving toolbar (VIEW-12) keeps its single tab stop.
+    this.exportMenu = new ExportMenu({
+      onRegion: () => undefined,
+      onAction: (action) => this.runExport(action),
+    });
+    this.chrome.exportSlot.appendChild(this.exportMenu.button);
+
+    // One roving `role="toolbar"` over the toolbar row and the stage-filter row
+    // (VIEW-12), so the whole control strip is a single tab stop.
+    this.root.appendChild(this.chrome.bar);
     this.root.appendChild(this.chrome.chipRow);
     this.root.appendChild(this.chrome.banners);
     this.root.appendChild(shell.body);
-    shell.body.appendChild(shell.canvas);
+    shell.body.appendChild(shell.main);
+
+    // MLV-P1. Appended AFTER the canvas and lifted above it by `order: -1`
+    // (styles/chrome.css): the canvas has to stay within four Tab presses of the
+    // top of the document (VIEW-12), and a card with five controls in front of
+    // it would put it at nine.
+    this.answers = new AnswersCard({
+      onToggle: (open) => this.setAnswersOpen(open),
+      onOpen: (loc) => this.openLocation(completeLoc(loc, this.graph)),
+    });
+    shell.main.appendChild(this.answers.root);
 
     this.search = new SearchController(this.chrome.searchInput, this.chrome.results, {
       index: () => this.index,
@@ -221,6 +269,8 @@ export class App implements MLViewApp {
       onClearScope: () => this.setScope(null),
       onScopeToNode: (id) => this.scopeToNode(id),
       onGroupBy: (mode) => this.setRailGroupBy(mode),
+      onCopyIgnore: (code) => this.copyIgnore(code),
+      onDisableRule: (code) => this.disableRule(code),
     });
     shell.body.appendChild(this.rail.root);
 
@@ -231,6 +281,7 @@ export class App implements MLViewApp {
 
     this.sheet = new ShortcutSheet(() => this.toggleShortcuts(false));
     this.root.appendChild(this.sheet.root);
+    this.root.appendChild(this.exportMenu.panel);
     this.root.appendChild(this.scopeBar.picker.root);
 
     this.root.appendChild(this.chrome.status);
@@ -262,7 +313,12 @@ export class App implements MLViewApp {
         this.viewportState = { x: vp.x, y: vp.y, zoom: vp.zoom };
         this.saveSoon();
       },
-      onMinimapCollapsed: () => this.saveSoon(),
+      onMinimapCollapsed: () => {
+        // The toolbar carries the accessible copy of this toggle (VIEW-12), so
+        // the pointer affordance inside the panel has to keep it in step.
+        this.renderChrome();
+        this.saveSoon();
+      },
       onKeyDown: (ev) => this.onKeyDown(ev),
       onBackgroundClick: () => this.clearSelection(),
       widenScope: () => this.stepDepth(1),
@@ -287,6 +343,12 @@ export class App implements MLViewApp {
     // kept reading `MLView — validate()` over a whole-workspace diagram
     // (R2H-01 / R2-REG-02).
     const before = this.scopes.full ? this.scopes.summary() : null;
+    // NB / 11.29 N6. The notebook cell mapping arrives in `Node.attrs` as
+    // strings, because `Loc` is frozen (§2). Lift it onto each node's own `Loc`
+    // once, here, so every label surface keeps reading a plain `Loc` and none of
+    // them has to know where the analyzer keeps its provenance. A `.py`
+    // document, and a notebook node the ingest could not map, are untouched.
+    adoptCellMap(graph.nodes);
     this.scopes.setGraph(graph);
     this.fullIndex = new GraphIndex(graph);
     // The collapse set is held against the FULL id space and filtered at
@@ -449,12 +511,23 @@ export class App implements MLViewApp {
 
   /* ── chrome + rail ─────────────────────────────────────────────────── */
 
-  /** Counts for the toolbar chips: severity filters do not hide their own count. */
+  /**
+   * Counts for the toolbar chips: severity filters do not hide their own count.
+   *
+   * VW-04. "Visible" here means exactly what `Filters.keep` means everywhere
+   * else — `isSetAside`, i.e. suppressed OR BASELINED. It used to test
+   * `issue.suppressed` alone, so the moment a repo adopted `--baseline` the
+   * most prominent number on the page (5 / 6 / 3) disagreed with the rail
+   * ('high · 4', 'medium · 4'), with the MLV-P1 answer card ('8 finding(s)')
+   * and with `mlview issues` ('8 issue(s) ... 6 baselined'), and the chip
+   * labelled 5 hid four rows when clicked. The netting is now also SAID:
+   * `chrome.update` draws the set-aside button as '1 suppressed · 6 baselined'.
+   */
   private visibleCounts(): IssueCounts {
     const counts = emptyCounts();
     if (!this.graph) return counts;
     for (const issue of this.graph.issues) {
-      if (!this.filters.value.showSuppressed && issue.suppressed) continue;
+      if (!this.filters.value.showSuppressed && isSetAside(issue)) continue;
       counts[normalizeSeverity(issue.severity) as Severity]++;
     }
     return counts;
@@ -480,7 +553,72 @@ export class App implements MLViewApp {
       dismissed: this.dismissed,
       visibleCounts: this.visibleCounts(),
       dynamicNodes: this.graph ? this.graph.nodes.filter((n) => n.dynamic).length : 0,
+      minimapCollapsed: this.view.minimapCollapsed,
     });
+    // MLV-P1: hidden outright when the document carries no `answers` block.
+    this.answers.update(this.graph ? this.graph.answers : undefined, this.answersOpen);
+    // VIEW-07: "Current scope" is offered only while there IS a projection.
+    this.exportMenu.setScopeAvailable(!!view);
+  }
+
+  /* ── export (VIEW-07) ──────────────────────────────────────────────── */
+
+  /**
+   * Everything the export needs, gathered at the moment the reader asked.
+   *
+   * The plan is the one the DOM was built from, the palette is read off the
+   * MOUNTED root — so a VS Code user exports their own theme's colours, not our
+   * defaults — and the region is whatever the menu currently has checked.
+   */
+  private exportRequest(): ExportRequest | null {
+    const plan = this.view.scenePlan();
+    if (!plan || !this.graph) return null;
+    const summary = this.scopes.summary();
+    return {
+      plan,
+      // VW-05: the LIVE theme, not the one the host handed us at construction.
+      // The standalone report's Auto / Light / Dark / High contrast chips go
+      // through `ThemeController.choose`, which never called back into the app,
+      // so every export stamped `data-mlview-theme="light"` and the
+      // high-contrast branch in `buildExportSvg` (outlined severity glyphs)
+      // could not be reached from the standalone report at all.
+      palette: resolvePalette(this.root, this.themes.kind),
+      theme: this.themes.kind,
+      graph: this.graph,
+      regionKind: this.exportMenu.currentRegion,
+      viewRect: this.view.viewportRect(),
+      scopeLabel: summary.spec ? summary.label : null,
+      generatedAt: new Date().toISOString().slice(0, 10),
+    };
+  }
+
+  private runExport(action: ExportActionId): void {
+    const host = {
+      post: (msg: any) => this.bridge.post(msg),
+      toast: (text: string) => this.view.toast(text),
+      announce: (text: string) => this.announce(text),
+      print: () => {
+        try {
+          if (typeof window !== 'undefined' && typeof window.print === 'function') window.print();
+        } catch (_e) {
+          this.view.toast('This host does not offer a print dialog.');
+        }
+      },
+    };
+    if (action === 'print') {
+      printDiagram(host);
+      return;
+    }
+    const request = this.exportRequest();
+    if (!request) {
+      this.view.toast('Nothing is drawn yet — there is nothing to export.');
+      return;
+    }
+    const result = renderExport(request);
+    if (action === 'svg') saveSvg(host, result, exportFileName(request, 'svg'));
+    else if (action === 'png') void savePng(host, result, exportFileName(request, 'png'));
+    else if (action === 'copy-svg') void copySvgText(host, result);
+    else if (action === 'copy-png') void copyPngImage(host, result);
   }
 
   private renderRail(): void {
@@ -499,9 +637,59 @@ export class App implements MLViewApp {
       selectedIssueId: sel && sel.kind === 'issue' ? sel.id : null,
       collapsed: this.view.collapsed,
       keep: this.filters.keep,
+      keepBase: this.filters.keepBase,
       scope: railScopeCounts(this.graph),
       groupBy: this.railGroupBy,
     });
+  }
+
+  /**
+   * MLV-P10, "Copy ignore comment". It goes through the SAME `copy` message the
+   * scope breadcrumb uses, so the standalone report answers with the clipboard
+   * plus its copy toast (CONTRACTS 11.17.1) and VS Code with its own clipboard.
+   * Nothing is written to any file by the viewer, ever.
+   */
+  private copyIgnore(code: string): void {
+    const text = ignoreComment(code);
+    this.bridge.post({ v: 1, type: 'copy', text });
+    this.view.toast('Copied ' + text);
+    this.announce('Copied the ignore comment for ' + code + '.');
+  }
+
+  /**
+   * MLV-P10, "Disable this rule". A REQUEST, not an edit: the host decides
+   * whether and how to write `.mlview.toml`. A host predating the message drops
+   * it, which leaves the viewer exactly as it was.
+   */
+  private disableRule(code: string): void {
+    this.bridge.post({ v: 1, type: 'suppressRule', code, scope: 'workspace', action: 'disable' });
+    // VW-10. What the announcement may claim is bounded by what the HOST does
+    // with the frame. VS Code writes `.mlview.toml`; the standalone report
+    // answers it in the same page by copying the snippet to the clipboard
+    // (`bridges.ts`), so "Asked the host to disable X" announced an edit that
+    // nobody made, and did it before the toast that told the truth. This says
+    // the request and names the answer, in both hosts.
+    this.announce(
+      'Requested that ' + code + ' be disabled for this workspace — ' +
+        (this.bridge.host === 'standalone'
+          ? 'this host answers by copying the .mlview.toml snippet.'
+          : 'the host decides whether to write .mlview.toml.'),
+    );
+  }
+
+  /** VIEW-12: the toolbar's copy of the minimap chevron. */
+  private setMinimapCollapsed(next: boolean): void {
+    this.view.setMinimapCollapsed(next);
+    this.renderChrome();
+    this.saveSoon();
+    this.announce('Overview minimap ' + (next ? 'hidden' : 'shown') + '.');
+  }
+
+  /** MLV-P1: the card's disclosure, persisted as ViewState.answersOpen. */
+  private setAnswersOpen(open: boolean): void {
+    this.answersOpen = open;
+    this.answers.update(this.graph ? this.graph.answers : undefined, open);
+    this.saveSoon();
   }
 
 
@@ -829,6 +1017,13 @@ export class App implements MLViewApp {
       },
       restoreState: (state) => this.applyState(state, true),
       setScope: (spec, depth) => this.setScope(spec, depth === undefined ? undefined : { depth }),
+      // VIEW-07: the host's two export commands have no geometry of their own.
+      // The region it names becomes the menu's checked region, so the next
+      // gesture from the toolbar continues where the command left off.
+      requestExport: (kind, scope) => {
+        this.exportMenu.setRegion(regionFromHostWord(scope));
+        this.runExport(kind === 'png' ? 'png' : 'svg');
+      },
       onUnknown: (type) =>
         this.bridge.post({ v: 1, type: 'log', level: 'debug', message: 'ignored unknown message type: ' + type }),
     });
@@ -847,6 +1042,7 @@ export class App implements MLViewApp {
     if (typeof state.flow === 'boolean') this.setFlow(state.flow);
     if (state.railGroupBy) this.railGroupBy = sanitizeGroupBy(state.railGroupBy);
     if (typeof state.legendOpen === 'boolean') this.setLegend(state.legendOpen);
+    if (typeof state.answersOpen === 'boolean') this.answersOpen = state.answersOpen;
     const scope = sanitizeScope(state.scope);
     // No graph yet? The host mounts the viewer empty and restores state before
     // it posts one, so applying here would drop the scope on the floor (R2H-03).
@@ -944,7 +1140,6 @@ export class App implements MLViewApp {
   }
 
   setTheme(kind: ThemeKind): void {
-    this.theme = kind;
     this.themes.apply(kind);
   }
 
@@ -966,6 +1161,9 @@ export class App implements MLViewApp {
     // documented default rather than to whatever `undefined` renders as.
     if (this.railGroupBy !== 'none') state.railGroupBy = this.railGroupBy;
     if (this.legendOpen) state.legendOpen = true;
+    // Absent at its default (open), exactly as `flow` is absent while on: an
+    // older host round-trips a state it has never seen (CONTRACTS 11.9).
+    if (!this.answersOpen) state.answersOpen = false;
     return state;
   }
 
@@ -982,11 +1180,37 @@ export class App implements MLViewApp {
     }
     this.disposers = [];
     this.themes.destroy();
+    this.chrome.destroy();
+    this.exportMenu.destroy();
     this.view.destroy();
     this.releasePage();
     clear(this.root);
     this.root.classList.remove('mlv-root');
   }
+}
+
+/**
+ * Complete an answer citation into a real `Loc` (MLV-P1).
+ *
+ * `emit/answers.py` writes `{file, line}` — an answer cites a place to look, not
+ * a range to select — while `openLocation` is contracted to carry six fields
+ * (CONTRACTS §4). The absolute path is rebuilt from `workspace.root`, which is
+ * the only place the viewer can learn it, so a citation still reaches VS Code
+ * instead of posting `absFile: undefined`.
+ */
+function completeLoc(loc: AnswerLoc, graph: MLGraph | null): Loc {
+  const line = typeof loc.line === 'number' ? loc.line : 1;
+  const col = typeof loc.col === 'number' ? loc.col : 0;
+  const root = graph && graph.workspace ? String(graph.workspace.root || '') : '';
+  const absFile = loc.absFile || (root ? root.replace(/[\\/]+$/, '') + '/' + loc.file : '');
+  return {
+    file: loc.file,
+    absFile,
+    line,
+    col,
+    endLine: typeof loc.endLine === 'number' ? loc.endLine : line,
+    endCol: typeof loc.endCol === 'number' ? loc.endCol : col,
+  };
 }
 
 function safeLoad(bridge: HostBridge): ViewState | null {

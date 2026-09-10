@@ -16,6 +16,12 @@ export interface MlviewSettings {
   /** What `MLView: Visualize (Current File)` analyzes before scoping to the file (COVERAGE). */
   currentFileAnalysisScope: CurrentFileAnalysisScope;
   exclude: string[];
+  /**
+   * NB: pass `--include-notebooks` to the analyzer so `.ipynb` files are read instead of
+   * counted and skipped. Default **false**: with it off the extension emits exactly the argv
+   * it emitted before notebooks existed, so the default path is byte-identical.
+   */
+  includeNotebooks: boolean;
   maxFiles: number;
   maxNodes: number;
   minSeverity: Severity;
@@ -34,6 +40,7 @@ export const DEFAULT_SETTINGS: MlviewSettings = {
   analyzeOnSave: true,
   currentFileAnalysisScope: 'package',
   exclude: [],
+  includeNotebooks: false,
   maxFiles: 500,
   maxNodes: 400,
   minSeverity: 'low',
@@ -80,6 +87,7 @@ export function readSettings(resource?: vscode.Uri): MlviewSettings {
       d.currentFileAnalysisScope
     ),
     exclude: stringArray(cfg.get('exclude'), d.exclude),
+    includeNotebooks: cfg.get<boolean>('includeNotebooks') ?? d.includeNotebooks,
     maxFiles: positiveInt(cfg.get('maxFiles'), d.maxFiles),
     maxNodes: positiveInt(cfg.get('maxNodes'), d.maxNodes),
     minSeverity: oneOf(cfg.get('minSeverity'), ['low', 'medium', 'high'] as const, d.minSeverity),

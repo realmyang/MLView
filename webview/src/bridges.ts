@@ -34,6 +34,9 @@
  */
 
 import { el, on } from './dom.js';
+import { disableSnippet, disableToast } from './ui/suppress.js';
+import { MIME, base64ToBytes, base64ToUtf8 } from './export/raster.js';
+import { downloadBytes } from './export/download.js';
 import type { Capabilities, HostBridge, HostToUi, ThemeKind, UiToHost, ViewState } from './types.js';
 
 const STATE_KEY = 'mlview.viewState.v1';
@@ -145,6 +148,16 @@ export function standaloneBridge(opts?: StandaloneOptions): HostBridge {
       }
       if (msg.type === 'openLocation') openInEditor(msg.absFile, msg.file, msg.line, msg.col);
       else if (msg.type === 'copy') copyText(msg.text, 'Copied');
+      // MLV-P10. This host has no workspace and cannot write `.mlview.toml`, so
+      // the honest answer to "disable this rule" is the snippet that does it,
+      // delivered through the copy toast the deep-link path already owns
+      // (CONTRACTS 11.17.1) — never a claim that something was configured.
+      else if (msg.type === 'suppressRule') copyText(disableSnippet(msg.code), disableToast(msg.code));
+      // VIEW-07. This host has no save dialog, so the download IS the dialog.
+      // Either field spelling is accepted (see the INTEROP NOTE in types.ts).
+      else if (msg.type === 'exportFile') {
+        saveExportedFile(msg.kind, msg.name || msg.suggestedName, msg.base64 || msg.data);
+      }
     },
     onMessage(cb) {
       return listenToWindow(cb);
@@ -330,6 +343,29 @@ function openInEditor(absFile: string, file: string, line: number, col: number):
     if (blurred) return;
     copyText(plan.copyText, plan.toast);
   }, 400);
+}
+
+/**
+ * Save an exported diagram from the standalone report (VIEW-07).
+ *
+ * An object URL plus `<a download>` — which is NOT a document navigation and so
+ * is not the thing CONTRACTS 11.17 forbids: the anchor carries `download`, its
+ * href is a `blob:` of bytes this page just produced, and a host that refuses
+ * the download (a sandbox without `allow-downloads`) drops the click without
+ * touching the frame. The report is never the thing that moves, exactly as on
+ * the deep-link path.
+ *
+ * Every failure has an answer rather than a silence: an SVG lands on the
+ * clipboard through the toast 11.17.1 already owns, and a PNG — which no
+ * clipboard takes as text — says so.
+ */
+function saveExportedFile(kind: 'svg' | 'png', name: string, base64: string): void {
+  const mime = kind === 'png' ? MIME.png : MIME.svg + ';charset=utf-8';
+  if (downloadBytes(base64ToBytes(base64), name, mime)) return;
+  // No download machinery, or a sandbox that refused it. Say so, and for an SVG
+  // hand the bytes to the clipboard the deep-link path already owns (11.17.1).
+  if (kind === 'svg') copyText(base64ToUtf8(base64), 'Could not download ' + name + ' — the SVG is on your clipboard');
+  else showFloatingToast('Could not download ' + name + ' here — use Copy PNG instead.');
 }
 
 /**

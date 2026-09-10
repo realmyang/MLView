@@ -11,6 +11,7 @@ import type * as vscode from 'vscode';
 import { coverageFor } from './coverage';
 import { countIssues, type IssueCounts, type MLGraph } from './graph';
 import { publishedIssueFilter, selectIssues } from './issues';
+import { notebookCounts, notebookTooltipFragment, type NotebookCounts } from './notebooks';
 import type { MlviewSettings } from './settings';
 
 export function statusBarText(counts: IssueCounts, busy: boolean, failed: boolean): string {
@@ -47,26 +48,41 @@ export function statusBarTooltip(
   counts: IssueCounts,
   busy: boolean,
   failed: boolean,
-  notebooksSkipped: number,
-  coverage: readonly string[] = []
+  /**
+   * NB: what the run did with the notebooks it found. Two numbers rather than one, because
+   * "2 notebooks not analyzed" and "2 notebooks analyzed" are opposite bills of health and a
+   * run can legitimately produce both at once.
+   */
+  notebooks: NotebookCounts,
+  coverage: readonly string[] = [],
+  /**
+   * PACKAGING: which end of the precedence chain answered — the installed `mlview`
+   * or the copy bundled in the VSIX (`pythonEnv.coreDescription()`). A user who
+   * pip-installs a newer core and sees no change has to be able to find out which
+   * analyzer produced the number they are looking at.
+   */
+  core?: string
 ): string {
+  const tail = core ? `\n${core}` : '';
   if (busy) {
-    return 'MLView: analyzing…';
+    return `MLView: analyzing…${tail}`;
   }
   if (failed) {
-    return 'MLView: analysis failed — click for the issue list, or run "MLView: Show Output".';
+    return `MLView: analysis failed — click for the issue list, or run "MLView: Show Output".${tail}`;
   }
   const head =
     `MLView: ${counts.high} high, ${counts.medium} medium, ${counts.low} low` +
-    (notebooksSkipped > 0 ? ` · ${notebooksSkipped} notebooks not analyzed` : '');
+    notebookTooltipFragment(notebooks);
   if (coverage.length === 0) {
-    return head;
+    return `${head}${tail}`;
   }
-  return [
-    `${head} · coverage: incomplete`,
-    'This count is a floor, not a clean bill of health:',
-    ...coverage.map((line) => `• ${line}`)
-  ].join('\n');
+  return (
+    [
+      `${head} · coverage: incomplete`,
+      'This count is a floor, not a clean bill of health:',
+      ...coverage.map((line) => `• ${line}`)
+    ].join('\n') + tail
+  );
 }
 
 /**
@@ -77,7 +93,14 @@ export function statusBarTooltip(
  */
 export function renderStatusBar(
   item: vscode.StatusBarItem,
-  state: { graph?: MLGraph; settings: MlviewSettings; busy: boolean; failed: boolean }
+  state: {
+    graph?: MLGraph;
+    settings: MlviewSettings;
+    busy: boolean;
+    failed: boolean;
+    /** `pythonEnv.coreDescription()`; absent until the first resolution finishes. */
+    core?: string;
+  }
 ): void {
   const counts: IssueCounts = state.graph
     ? countIssues(selectIssues(state.graph, publishedIssueFilter(state.settings)))
@@ -87,8 +110,9 @@ export function renderStatusBar(
     counts,
     state.busy,
     state.failed,
-    state.graph?.workspace.notebooksSkipped ?? 0,
-    coverageFor(state.graph)
+    notebookCounts(state.graph),
+    coverageFor(state.graph),
+    state.core
   );
   item.show();
 }

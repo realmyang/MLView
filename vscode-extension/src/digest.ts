@@ -10,6 +10,7 @@
 import { coverageFor } from './coverage';
 import { countIssues, type IssueCounts, type MLGraph, type Severity } from './graph';
 import { selectIssues, truncate, type IssueFilter } from './issues';
+import { notebookCounts } from './notebooks';
 
 export const DIGEST_LIMIT_BYTES = 4096;
 
@@ -35,6 +36,8 @@ export interface AnalyzeDigest {
   filesAnalyzed: number;
   filesFailed: number;
   notebooksSkipped: number;
+  /** NB: `.ipynb` files actually read, when `mlview.includeNotebooks` was on. */
+  notebooksAnalyzed: number;
   frameworks: string[];
   stats: { nodes: number; edges: number; issues: IssueCounts };
   lanes: LaneDigest[];
@@ -117,6 +120,7 @@ export function buildAnalyzeDigest(graph: MLGraph, opts: AnalyzeDigestOptions = 
     filesAnalyzed: graph.workspace.filesAnalyzed,
     filesFailed: graph.workspace.filesFailed,
     notebooksSkipped: graph.workspace.notebooksSkipped,
+    notebooksAnalyzed: notebookCounts(graph).analyzed,
     frameworks: graph.workspace.frameworks.slice(0, 8),
     stats: {
       nodes: graph.stats.nodes,
@@ -281,6 +285,12 @@ export function analyzeDigestToText(digest: AnalyzeDigest): string {
   }
   if (digest.truncated) {
     lines.push('The graph was truncated by --max-nodes; narrow the scope for the full picture.');
+  }
+  if (digest.notebooksAnalyzed > 0) {
+    lines.push(
+      `${digest.notebooksAnalyzed} notebook(s) were analyzed; cell execution order is ` +
+        'not knowable from the file, so order-sensitive findings there are de-rated.'
+    );
   }
   if (digest.notebooksSkipped > 0) {
     lines.push(`${digest.notebooksSkipped} notebook(s) were detected but not analyzed.`);

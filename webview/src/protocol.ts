@@ -22,6 +22,8 @@ export interface ProtocolHandlers {
   restoreState(state: ViewState): void;
   /** `spec: null` clears the scope. NEVER triggers a re-analysis (11.7). */
   setScope(spec: string | null, depth: number | undefined): void;
+  /** VIEW-07: draw the diagram and answer with one `exportFile`. */
+  requestExport(kind: 'svg' | 'png', scope: 'view' | 'all' | 'scope' | undefined): void;
   onUnknown(type: string): void;
 }
 
@@ -64,6 +66,9 @@ export function dispatchHostMessage(msg: HostToUi, h: ProtocolHandlers): void {
     case 'setScope':
       h.setScope(msg.spec, msg.depth);
       return;
+    case 'requestExport':
+      h.requestExport(msg.kind === 'png' ? 'png' : 'svg', msg.scope);
+      return;
     case 'cursorHint':
       // followCursor is designed but out of scope for the prototype (A6).
       return;
@@ -88,10 +93,14 @@ export function sanitizeScope(scope: any): { spec: string; depth: number } | nul
 /** Coerce whatever the host handed back into a ViewState we can trust. */
 export function sanitizeFilters(filters: any, fallback: Filters): Filters {
   if (!filters || typeof filters !== 'object') return { ...fallback, severities: fallback.severities.slice() };
-  return {
+  const out: Filters = {
     severities: Array.isArray(filters.severities) ? filters.severities.slice() : fallback.severities.slice(),
     stages: Array.isArray(filters.stages) ? filters.stages.slice() : [],
     showSuppressed: !!filters.showSuppressed,
     query: typeof filters.query === 'string' ? filters.query : '',
   };
+  // Written only when it is ON, so a restored state keeps the exact key set an
+  // older host round-trips (CI-ADOPT, and the same rule as `flow` in 11.9).
+  if (filters.changedOnly) out.changedOnly = true;
+  return out;
 }

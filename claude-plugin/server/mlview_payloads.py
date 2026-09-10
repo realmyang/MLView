@@ -173,11 +173,19 @@ def issues_payload(
 
     counts = {"low": 0, "medium": 0, "high": 0}
     suppressed = 0
+    baselined = 0
     rows: List[Dict[str, Any]] = []
 
     for issue in graph.get("issues", []):
         if issue.get("suppressed"):
             suppressed += 1
+            continue
+        # CI-ADOPT: a baselined finding is MARKED, never deleted — it is still in the
+        # document, and `mlview issues --show-suppressed` still lists it. Here it is
+        # excluded from the rows and from the counts for the same reason the CLI
+        # excludes it from `--fail-on`: the ratchet says it was already known.
+        if issue.get("baselined"):
+            baselined += 1
             continue
         severity = issue.get("severity", "low")
         if severity in counts:
@@ -200,6 +208,10 @@ def issues_payload(
                 "fixHint": issue.get("fixHint"),
                 "file": loc.get("file"),
                 "line": loc.get("line"),
+                # CI-ADOPT: present only on an attributed run. `new` = inside an added
+                # hunk, `touched` = a changed file (or a related location inside a
+                # hunk), `existing` = neither.
+                **({"change": issue["change"]} if issue.get("change") else {}),
                 "related": [
                     {"role": r.get("role"), "file": r.get("file"), "line": r.get("line")}
                     for r in (issue.get("relatedLocs") or [])
@@ -229,6 +241,7 @@ def issues_payload(
     out: Dict[str, Any] = {
         "countBySeverity": counts,
         "suppressedCount": suppressed,
+        **({"baselinedCount": baselined} if baselined else {}),
         # Without these three, "0 issues" from an empty directory, from a directory
         # whose every file failed to parse, and from genuinely clean code are the
         # same payload — and the command body turns that into a clean bill of health.
@@ -554,6 +567,17 @@ def explain_rule_payload(
     return fit(out, limit_bytes)
 
 
+#: VIEW-07. What this server can and cannot produce, said in one sentence so the
+#: model repeats a true thing when the user asks for "an image". The MCP host has
+#: no renderer: the diagram's geometry exists only inside the viewer, so the honest
+#: answer is the HTML file plus where its export menu lives.
+EXPORT_HINT = (
+    "SVG/PNG export is a viewer feature: open reportPath and use the report's "
+    "export menu, or run 'MLView: Export Diagram as SVG'/'... as PNG' in VS Code. "
+    "This tool writes HTML only."
+)
+
+
 def open_diagram_payload(
     report_path: str, report_url: str, opened: bool, note: Optional[str] = None,
     limit_bytes: int = LIMIT_BYTES, scope: Optional[str] = None,
@@ -563,11 +587,16 @@ def open_diagram_payload(
     With ``scope``, the written report still embeds the FULL graph and opens *at*
     that scope through the two root attributes (CONTRACTS 11.8), so the note says
     the picture is filtered while the file is not.
+
+    ``exportHint`` (VIEW-07) is constant and always present: it is the one place a
+    terminal host is told that a picture file is the viewer's job, so that asking
+    for an SVG produces a path and an instruction rather than an invented file.
     """
     out: Dict[str, Any] = {
         "reportPath": report_path,
         "reportUrl": report_url,
         "opened": bool(opened),
+        "exportHint": EXPORT_HINT,
         "truncated": False,
     }
     notes = [n for n in (note,) if n]
@@ -590,4 +619,5 @@ __all__ = [
     # re-exported from mlview_views so callers and tests keep one import
     "subgraph", "stage_scope_ids", "neighbourhood_ids",
     "explain_node_payload", "explain_rule_payload", "open_diagram_payload",
+    "EXPORT_HINT",
 ]

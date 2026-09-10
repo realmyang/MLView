@@ -1,0 +1,176 @@
+name: 'MLView'
+description: >-
+  Statically analyze the Python ML code in this repository, attribute the findings to
+  what this pull request changed, and upload them as SARIF. Fully local: no code
+  leaves the runner, and nothing the analyzer sees is executed.
+author: 'MLView'
+
+branding:
+  icon: 'git-merge'
+  color: 'blue'
+
+# CI-ADOPT (docs/ROADMAP.md). The composite action a repo that ALREADY HAS FINDINGS
+# can turn on. The measured blocker was arithmetic: a realistic 50-file repo starts at
+# 111 findings, so `--fail-on high` exits 2 forever and the only way to adopt MLView
+# was never to gate on it. So the default here is `--changed-since <base> --changed-only`
+# — the whole project is analyzed (fidelity is the point, see COVERAGE), and only the
+# findings that touch this diff can fail the build.
+#
+# The caller checks out the code. This action does not, because a checkout with the
+# wrong `fetch-depth` is the single commonest reason `--changed-since` finds nothing:
+# `actions/checkout` defaults to depth 1, and a shallow clone has no base commit to
+# diff against. Use `fetch-depth: 0`.
+#
+#   - uses: actions/checkout@v5
+#     with: { fetch-depth: 0 }
+#   - uses: realmyang/MLView/tools/action@main
+#     with:
+#       base: ${{ github.event.pull_request.base.sha }}
+#       fail-on: high
+#   - uses: github/codeql-action/upload-sarif@v3
+#     if: always()
+#     with:
+#       sarif_file: ${{ steps.mlview.outputs.sarif }}
+#
+# Uploading SARIF needs `permissions: security-events: write` on the job.
+
+inputs:
+  path:
+    description: 'Directory to analyze, relative to the workspace.'
+    required: false
+    default: '.'
+  base:
+    description: >-
+      The revision to attribute against, passed to `--changed-since`. On a pull request
+      use `${{ github.event.pull_request.base.sha }}`; on a push, `${{ github.event.before }}`.
+      Leave empty to analyze and report the WHOLE project with no attribution.
+    required: false
+    default: ''
+  fail-on:
+    description: >-
+      Exit non-zero when a finding at this severity or above survives attribution:
+      `high` (default), `medium`, `low`, or `none` to report without ever failing.
+    required: false
+    default: 'high'
+  baseline:
+    description: >-
+      Path to a `mlview baseline write` file. Findings it records are marked and
+      excluded from `--fail-on`, so a repo can freeze today's list and gate on new
+      findings only. Ignored when the file does not exist.
+    required: false
+    default: ''
+  sarif:
+    description: 'Where to write the SARIF 2.1.0 report.'
+    required: false
+    default: 'mlview.sarif'
+  version:
+    description: >-
+      Version specifier for `pip install`. Empty means the latest release; inside the
+      MLView repository itself the checkout is installed with `pip install -e analyzer`
+      instead, so the action always tests the code it ships with.
+    required: false
+    default: ''
+  args:
+    description: 'Extra arguments appended verbatim to the `mlview analyze` command.'
+    required: false
+    default: ''
+  python-version:
+    description: 'Python to set up. MLView needs 3.10 or newer.'
+    required: false
+    default: '3.12'
+
+outputs:
+  sarif:
+    description: 'Path to the SARIF file that was written.'
+    value: ${{ steps.analyze.outputs.sarif }}
+  exit-code:
+    description: 'The analyzer exit code: 0 clean, 2 the --fail-on threshold was met.'
+    value: ${{ steps.analyze.outputs.exit-code }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install MLView
+      shell: bash
+      run: |
+        set -euo pipefail
+        python -m pip install --upgrade pip
+        # Inside this repository, install the checkout: an action that silently tested
+        # the last PyPI release against a modified analyzer would be worse than useless.
+        if [ -f "${GITHUB_WORKSPACE}/analyzer/pyproject.toml" ] && \
+           [ -f "${GITHUB_WORKSPACE}/analyzer/src/mlview/version.py" ]; then
+          echo "installing the analyzer from this checkout"
+          python -m pip install -e "${GITHUB_WORKSPACE}/analyzer"
+        elif [ -n "${{ inputs.version }}" ]; then
+          python -m pip install "mlview==${{ inputs.version }}"
+        else
+          python -m pip install mlview
+        fi
+        mlview --version --json
+
+    - name: Analyze
+      id: analyze
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      run: |
+        set -uo pipefail
+        SARIF='${{ inputs.sarif }}'
+        ARGS=(analyze '${{ inputs.path }}' --sarif "$SARIF" --format summary)
+
+        # Attribution. Every failure path here degrades to "unattributed, showing
+        # everything" with a diagnostic - never to an error, and never to an empty
+        # list - so a missing base ref cannot turn a gate green.
+        BASE='${{ inputs.base }}'
+        if [ -n "$BASE" ]; then
+          if git rev-parse --verify --quiet "$BASE^{commit}" >/dev/null; then
+            ARGS+=(--changed-since "$BASE" --changed-only)
+          else
+            echo "::warning title=MLView::base ref '$BASE' is not in this clone; reporting every finding. Check out with fetch-depth: 0."
+          fi
+        fi
+
+        BASELINE='${{ inputs.baseline }}'
+        if [ -n "$BASELINE" ]; then
+          if [ -f "$BASELINE" ]; then
+            ARGS+=(--baseline "$BASELINE")
+          else
+            echo "::warning title=MLView::baseline '$BASELINE' does not exist; nothing is baselined."
+          fi
+        fi
+
+        FAIL_ON='${{ inputs.fail-on }}'
+        if [ -n "$FAIL_ON" ] && [ "$FAIL_ON" != "none" ]; then
+          ARGS+=(--fail-on "$FAIL_ON")
+        fi
+
+        EXTRA='${{ inputs.args }}'
+        if [ -n "$EXTRA" ]; then
+          # Word splitting is intended: `args` is a command-line fragment.
+          # shellcheck disable=SC2206
+          ARGS+=($EXTRA)
+        fi
+
+        echo "mlview ${ARGS[*]}"
+        set +e
+        mlview "${ARGS[@]}"
+        CODE=$?
+        set -e
+        echo "sarif=$SARIF" >> "$GITHUB_OUTPUT"
+        echo "exit-code=$CODE" >> "$GITHUB_OUTPUT"
+
+        # CONTRACTS §3 exit codes. 2 is "the --fail-on threshold was met" and is the
+        # only failure this action passes on; 4 ("nothing analyzable") is reported as
+        # a warning rather than a pass, because a repo with no Python is not a clean
+        # repo - it is a misconfigured job.
+        case "$CODE" in
+          0) echo "MLView: clean at --fail-on ${FAIL_ON}" ;;
+          2) echo "::error title=MLView::findings at or above ${FAIL_ON} in this change" ;;
+          4) echo "::warning title=MLView::nothing analyzable at '${{ inputs.path }}' - this is not a clean result" ; CODE=0 ;;
+          *) echo "::error title=MLView::the analyzer exited $CODE" ;;
+        esac
+        exit "$CODE"

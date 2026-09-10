@@ -6,6 +6,8 @@
 
 import { svg, setAttrs } from '../dom.js';
 import { edgeMarker } from '../markers.js';
+import { labelTextOf } from '../layout/labels.js';
+import type { LabelPlacement } from '../layout/labels.js';
 import type { RoutedEdge } from '../layout/routing.js';
 import type { Severity } from '../types.js';
 
@@ -113,6 +115,19 @@ export interface EdgeVisual {
   targetLabel?: string;
   /** The mounted view's serial, which makes this edge's path id unique. */
   mountSerial: number;
+  /**
+   * VIEW-03: where this edge's label goes, and where its severity marker goes
+   * once nudged off the label box. Absent means "nobody planned one", and the
+   * label falls back to the route midpoint it used before VIEW-03 — the dev
+   * pages build edges without a frame, and a missing plan must not lose a label.
+   */
+  placement?: LabelPlacement;
+  /**
+   * VIEW-07: true when a stage filter dims one of the endpoints. The DOM adds
+   * `.is-filtered`; the SVG export drops the same opacity inline, so the two
+   * renderers dim the same cables.
+   */
+  filtered?: boolean;
 }
 
 export function buildEdge(v: EdgeVisual): SVGElement {
@@ -147,17 +162,33 @@ export function buildEdge(v: EdgeVisual): SVGElement {
   path.setAttribute('id', edgePathId(v.mountSerial, r.id));
   g.appendChild(path);
 
-  if (r.label) {
-    const label = svg('text', { class: 'mlv-edge-label', x: r.mid.x, y: r.mid.y - 8 });
+  const placement = v.placement;
+  // VIEW-03. A label whose declutter pass ran out of positions is NOT drawn:
+  // hiding it is the documented outcome, and the group says so rather than
+  // leaving the reader to wonder which edge the missing name belonged to.
+  if (r.label && placement && placement.hidden) {
+    g.setAttribute('data-label-hidden', '1');
+  } else if (r.label) {
+    const x = placement ? placement.x : r.mid.x;
+    const y = placement ? placement.y : r.mid.y - 8;
+    const label = svg('text', { class: 'mlv-edge-label', x, y });
     // A control back-edge is the loop return path; the glyph says so at a glance.
-    label.textContent = r.back ? '\u21bb ' + r.label : r.label;
+    label.textContent = labelTextOf(r);
+    if (placement) {
+      label.setAttribute('data-label-axis', placement.axis);
+      if (placement.flipped) label.setAttribute('data-label-flipped', '1');
+      if (placement.laneId) label.setAttribute('data-label-lane', placement.laneId);
+    }
     g.appendChild(label);
     if (v.labelVisible) g.classList.add('has-label');
   }
 
+  // The severity marker rides the nudged point, so a glyph and a name never sit
+  // centred on each other (VIEW-03).
+  const mark = placement ? placement.marker : r.mid;
   if (v.severity) {
     const m = edgeMarker(v.severity, 14);
-    m.setAttribute('transform', 'translate(' + r.mid.x + ',' + r.mid.y + ')');
+    m.setAttribute('transform', 'translate(' + mark.x + ',' + mark.y + ')');
     g.appendChild(m);
   } else if (r.back) {
     // A back-edge gets a small return chevron so the loop reads as a loop.
@@ -169,7 +200,7 @@ export function buildEdge(v: EdgeVisual): SVGElement {
       'stroke-width': 1.3,
       'stroke-linecap': 'round',
       'stroke-linejoin': 'round',
-      transform: 'translate(' + r.mid.x + ',' + r.mid.y + ')',
+      transform: 'translate(' + mark.x + ',' + mark.y + ')',
     });
     g.appendChild(chev);
   }

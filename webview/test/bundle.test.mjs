@@ -92,34 +92,58 @@ test('dist/mlview.css IS the minification of dist/mlview.dev.css (BUILD-01)', as
 /*
  * BUILD-01's size ratchet.
  *
- * MEASURED ON THIS TREE, 2026-09-08, after the eight NOW-tier viewer items and
- * the Track B fixes:
- *   dist/mlview.js       219 359 B (214.2 KB)
- *   dist/mlview.css       54 052 B  (52.8 KB), minified from 89 296 B (-39%)
- *   dist/mlview.dev.css   89 296 B  (87.2 KB, never shipped)
+ * MEASURED ON THIS TREE, 2026-09-09, after the Sprint 4 review fixes landed on
+ * top of NB (notebook locations) and VIEW-07 (diagram export):
+ *   dist/mlview.js       270 784 B (264.4 KB)
+ *   dist/mlview.css       60 502 B  (59.1 KB), minified from 103 428 B (-41%)
+ *   dist/mlview.dev.css  103 428 B (101.0 KB, never shipped)
  *
- * WHERE THIS LANDS AGAINST THE ROADMAP, which is the number a lead looks for:
- * BUILD-01 proposed a JS ratchet of 210 KB and an acceptance of "dist/mlview.css
- * under 50 KB". NEITHER is met -- 214.2 KB and 52.8 KB -- because those figures
- * were measured when the bundle was 198 KB and the stylesheet 46.9 KB, i.e.
- * BEFORE this sprint added the legend, the evidence and rule-doc disclosures,
- * the rail grouping, the gesture normalization and the location search (~16 KB
- * of JS, ~6 KB of minified CSS). The CSS cap is therefore kept at the proposed
- * 55 KB and the JS cap set to 216 KB: a ratchet exists to make the NEXT growth
- * visible, and a cap the tree already exceeds makes nothing visible at all.
+ * NB moved the JS by +2 991 B and the CSS by +195 B, and moved NEITHER CAP: the
+ * item is one small module (`notebook.ts`: the flat-line-to-cell translation,
+ * `adoptCellMap`, and the execution-order wording), one banner branch, one chip
+ * branch and four `.mlv-loc*` rules -- 442 B of that being the integration
+ * reconciliation against 11.29 as it actually landed, where the cell map is
+ * lifted off `Node.attrs` and the caveat is read off `notebook_analyzed.codes`.
+ *
+ * The review fixes then moved the JS by +1 395 B and the CSS by +73 B, and
+ * neither cap: `layout/cardmetrics.ts` (VW-01, the card's real height), one
+ * frame-containment test in the label planner (VW-02), the export menu's
+ * keyboard handlers (VW-03) and a handful of one-line wording and counting
+ * fixes. It is re-recorded here rather than absorbed silently because that is
+ * exactly what TB-14 asks for -- the figures are the gate, not the caps.
+ *
+ * WHY BOTH CAPS MOVE AGAIN, which is the number a lead looks for. The previous
+ * ratchet (JS 236 KB / CSS 58 KB) was set against 237 749 B and 57 243 B. VIEW-07
+ * adds a SECOND RENDERER -- `export/svg.ts` emits the same picture as real
+ * `<rect>` / `<text>` / `<path>` -- plus its palette, its rasteriser, its menu
+ * and one new stylesheet layer: +28.0 KB of JS (svg + svgprim 10.5, menu 4.7,
+ * actions 3.6, palette 3.2, raster + plan + download 2.6, and 3.4 across app /
+ * bridges / canvasview / protocol / demo) and +2.9 KB of minified CSS
+ * (`styles/export.css`: the menu, and the `@media print` block that is the
+ * fourth output). That is the cost of the item, not drift: a bundle that draws
+ * the diagram twice is bigger than one that draws it once. So both are re-set
+ * ONCE, here, against a measured tree: JS 268 KB and CSS 61 KB, leaving 8 034 B
+ * (2.9 %) and 2 230 B (3.6 %) of headroom -- the same order the last two
+ * ratchets held. The ratchet's job is unchanged: make the NEXT growth visible.
  *
  * The two figures above are GATED, not just written down: `JS_RECORDED` /
  * `CSS_RECORDED` are asserted against the built files with a 2 KB tolerance, so
  * a rebuild that moves the bundle forces this block to be re-measured instead of
- * quietly outliving it (TB-14: it already had -- the block quoted 218 038 B and
- * "~2 % headroom" against a tree that shipped 219 208 B and 0.9 %). Every
- * assertion below names the measured size and the remaining headroom.
+ * quietly outliving it (TB-14). Every assertion below names the measured size
+ * and the remaining headroom.
+ *
+ * PROC-08: the PROSE above is gated against those constants too, byte for byte.
+ * It had already drifted once -- the header read 268 947 B against a tree that
+ * shipped 269 389 B, 442 B apart, and the 2 KB tolerance hid it, which is the
+ * same failure mode this block was added to fix. The header is now the record
+ * again: `the figures in the block above are the constants below` reads this
+ * file and fails on a one-byte disagreement.
  */
-const JS_RECORDED = 219359;
-const CSS_RECORDED = 54052;
+const JS_RECORDED = 270784;
+const CSS_RECORDED = 60502;
 const DRIFT = 2 * 1024;
-const JS_MAX_BYTES = 216 * 1024;
-const CSS_MAX_BYTES = 55 * 1024;
+const JS_MAX_BYTES = 268 * 1024;
+const CSS_MAX_BYTES = 61 * 1024;
 
 const headroom = (size, cap) =>
   size + ' B, ' + (cap - size) + ' B (' + (((cap - size) / cap) * 100).toFixed(1) + ' %) under the ' + cap + ' B ratchet';
@@ -150,6 +174,21 @@ test('the shipped bundle stays inside its size ratchet (BUILD-01)', async () => 
     Math.abs(style.size - CSS_RECORDED) < DRIFT,
     'the block above records ' + CSS_RECORDED + ' B; dist/mlview.css is ' + headroom(style.size, CSS_MAX_BYTES) + ' -- re-measure it',
   );
+});
+
+test('the figures in the block above are the constants below (TB-14, PROC-08)', async () => {
+  const self = await readFile(new URL(import.meta.url), 'utf8');
+  const grouped = (n) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+  for (const [name, recorded] of [['dist/mlview.js', JS_RECORDED], ['dist/mlview.css', CSS_RECORDED]]) {
+    const re = new RegExp(name.replace(/[./]/g, '\\$&') + '\\s+([\\d ]+?) B');
+    const found = re.exec(self);
+    assert.ok(found, 'the block records a size for ' + name);
+    assert.equal(
+      found[1],
+      grouped(recorded),
+      name + ': the block says ' + found[1] + ' B and the gated constant is ' + grouped(recorded) + ' B -- re-measure the block',
+    );
+  }
 });
 
 test('the stylesheet removes the charge under prefers-reduced-motion (F1-A6)', () => {
@@ -216,7 +255,7 @@ test('every component the viewer hides has a [hidden] rule in the stylesheet', (
   // switcher, the unscoped toolbar drew an empty breadcrumb pill, and
   // "0 suppressed" was painted while the code believed it had hidden it.
   // Every class below is toggled through `.hidden = ...` in src/.
-  for (const cls of ['mlv-chip', 'mlv-breadcrumb', 'mlv-scopepicker', 'mlv-legend']) {
+  for (const cls of ['mlv-chip', 'mlv-breadcrumb', 'mlv-scopepicker', 'mlv-legend', 'mlv-exportmenu']) {
     const base = devCss.indexOf('.' + cls + ' {');
     assert.ok(base >= 0, '.' + cls + ' has no rule at all');
     const baseBlock = devCss.slice(base, devCss.indexOf('}', base)).split(' ').join('');

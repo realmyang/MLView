@@ -247,7 +247,9 @@ def test_include_and_exclude_globs(run, make_workspace):
 def test_issues_json_shape(run):
     code, out, _err = run("issues", FIXTURE_BAD, "--json")
     payload = json.loads(out.decode("utf-8"))
-    assert set(payload) == {"countBySeverity", "suppressedCount", "issues"}
+    # HOST-4: `diagnostics` is the same list `analyze --format json` carries.
+    assert set(payload) == {"countBySeverity", "suppressedCount", "issues",
+                            "diagnostics"}
     assert payload["countBySeverity"]["high"] == 1
     assert payload["issues"][0]["code"] == "MLV201"
 

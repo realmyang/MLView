@@ -15,6 +15,12 @@ import type { ViewportController } from '../render/canvas.js';
 export interface Shell {
   body: HTMLElement;
   scrim: HTMLElement;
+  /**
+   * The `<main>` landmark around the diagram (VIEW-12). The canvas, the minimap
+   * and the Pipeline Answer Card live inside it; the rail is a sibling `<aside>`,
+   * so a landmark walk reaches the diagram in one step.
+   */
+  main: HTMLElement;
   canvas: HTMLElement;
   world: HTMLElement;
   lanesLayer: HTMLElement;
@@ -46,11 +52,14 @@ export function claimPage(root: HTMLElement): () => void {
   };
 }
 
+let shellSeq = 0;
+
 /** Build the empty shell inside `root`. Chrome and rail are appended by the app. */
 export function buildShell(root: HTMLElement, theme: ThemeKind): Shell {
   root.classList.add('mlv-root');
   root.setAttribute('data-theme', theme);
   clear(root);
+  const uid = 'mlv-shell' + ++shellSeq;
 
   const body = el('div', 'mlv-body');
 
@@ -58,11 +67,35 @@ export function buildShell(root: HTMLElement, theme: ThemeKind): Shell {
   const scrim = add(body, el('div', 'mlv-scrim'));
   scrim.hidden = true;
 
+  const main = el('main', 'mlv-main');
+  main.setAttribute('aria-labelledby', uid + '-main-heading');
+  const mainHeading = add(main, el('h2', 'mlv-sr', 'Pipeline diagram'));
+  mainHeading.id = uid + '-main-heading';
+
   const canvas = el('div', 'mlv-canvas');
+  canvas.id = uid + '-canvas';
   canvas.setAttribute('role', 'application');
   canvas.setAttribute('aria-label', 'ML pipeline diagram');
   canvas.setAttribute('data-lod', 'full');
   canvas.tabIndex = 0;
+  main.appendChild(canvas);
+
+  // VIEW-12. THE FIRST TAB STOP, appended before anything the App adds. It is a
+  // real anchor so assistive tech announces it as a link, but the click is
+  // handled here and the default prevented: the standalone report must never
+  // navigate its own document (CONTRACTS 11.17), not even to a fragment, and a
+  // hash would also push a history entry a reader never asked for.
+  const skip = el('a', 'mlv-skiplink', 'Skip to diagram');
+  skip.href = '#' + canvas.id;
+  on(skip, 'click', (ev: MouseEvent) => {
+    ev.preventDefault();
+    try {
+      canvas.focus();
+    } catch (_e) {
+      /* a host may have detached the canvas already */
+    }
+  });
+  root.appendChild(skip);
 
   const world = add(canvas, el('div', 'mlv-world'));
   const lanesLayer = add(world, el('div', 'mlv-layer mlv-layer--lanes'));
@@ -87,6 +120,7 @@ export function buildShell(root: HTMLElement, theme: ThemeKind): Shell {
   return {
     body,
     scrim,
+    main,
     canvas,
     world,
     lanesLayer,

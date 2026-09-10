@@ -5,7 +5,24 @@
   "version": "0.1.0",
   "publisher": "mlview",
   "license": "MIT",
-  "private": true,
+  "icon": "media/icon.png",
+  "preview": true,
+  "galleryBanner": {
+    "color": "#0E1420",
+    "theme": "dark"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/realmyang/MLView.git",
+    "directory": "vscode-extension"
+  },
+  "bugs": {
+    "url": "https://github.com/realmyang/MLView/issues"
+  },
+  "homepage": "https://github.com/realmyang/MLView#readme",
+  "extensionKind": [
+    "workspace"
+  ],
   "engines": {
     "vscode": "^1.100.0",
     "node": ">=20"
@@ -26,6 +43,7 @@
   "activationEvents": [
     "onLanguage:python",
     "workspaceContains:**/*.py",
+    "workspaceContains:**/*.ipynb",
     "onWebviewPanel:mlview.diagram"
   ],
   "capabilities": {
@@ -90,6 +108,18 @@
         "title": "Export HTML Report",
         "category": "MLView",
         "icon": "$(export)"
+      },
+      {
+        "command": "mlview.exportSvg",
+        "title": "Export Diagram as SVG",
+        "category": "MLView",
+        "icon": "$(file-media)"
+      },
+      {
+        "command": "mlview.exportPng",
+        "title": "Export Diagram as PNG",
+        "category": "MLView",
+        "icon": "$(device-camera)"
       },
       {
         "command": "mlview.selectInterpreter",
@@ -192,6 +222,11 @@
           },
           "default": [],
           "description": "Extra glob patterns excluded from discovery. Added to the analyzer defaults (.venv, site-packages, node_modules, build, .git)."
+        },
+        "mlview.includeNotebooks": {
+          "type": "boolean",
+          "default": false,
+          "description": "Analyze .ipynb notebooks as well as .py files (passes --include-notebooks). Off by default: cell execution order cannot be recovered from the file, so order-sensitive findings inside a notebook are de-rated and reported as such."
         },
         "mlview.maxFiles": {
           "type": "integer",
@@ -368,8 +403,8 @@
     "check": "tsc --noEmit",
     "sync:rule-docs": "node tools/sync-rule-docs.mjs",
     "pretest": "node tools/sync-rule-docs.mjs && node esbuild.mjs",
-    "test": "node --test test/",
-    "package": "npx --yes @vscode/vsce package --no-dependencies --allow-missing-repository",
+    "test": "node tools/run-tests.mjs",
+    "package": "npx --yes @vscode/vsce package --no-dependencies",
     "check:panel": "node --test test/panelhtml.test.js"
   },
   "devDependencies": {

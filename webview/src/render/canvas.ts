@@ -20,9 +20,13 @@ export const MAX_ZOOM = 2.5;
  * was a measured no-op, because it chose exactly the transform the viewer had
  * already mounted with. Bounding that width fit to one and three-quarter screens
  * of height opened the same document at 0.575 — 27 of the 45 cards and 5 of the 7
- * lanes, measured in Chromium at 1600x1000. The re-baselined demo is 54 nodes in
- * a 1576x2630 world and opens at 0.548 there, 0.5 at 1280x800;
- * `test/measure_geometry.mjs` re-measures any document against the same plan.
+ * lanes, measured in Chromium at 1600x1000. The re-baselined demo is 54 nodes
+ * in a 1642x2654 world and opens at 0.543 there, 0.5 at 1280x800;
+ * `test/measure_geometry.mjs` re-measures any document against the same plan
+ * (it reports 0.528 / 0.500 for the same two canvases, running `fitPlan` over
+ * the layout alone). VW-01 moved that world from 1576x2630: a card that draws
+ * an attribute chip row is now RESERVED one, and the demo's ghost card is
+ * reserved the `file : line` row it always drew, so 2 of its 46 cards grew.
  */
 export const TALL_SCREENS = 1.75;
 
@@ -281,11 +285,21 @@ export class Minimap {
 
   constructor(onJump: (x: number, y: number) => void, onToggle?: (collapsed: boolean) => void) {
     this.root = el('div', 'mlv-minimap');
+    // VIEW-12. The minimap is a DUPLICATE of a canvas that is already fully
+    // navigable — one focus stop, `aria-activedescendant` roving, a live region
+    // announcing every selection — so it is hidden from assistive tech rather
+    // than described twice.
+    this.root.setAttribute('aria-hidden', 'true');
     // The widget sits on top of live diagram, so it must be dismissable
     // (UX_DESIGN section 1: "collapsible to a 28 px chevron tab") — MLV-R2-W12.
     this.toggleBtn = iconButton('mlv-btn mlv-btn--icon mlv-minimap__toggle', 'Collapse minimap');
     this.toggleBtn.appendChild(uiIcon('chevron', 12));
     this.toggleBtn.setAttribute('aria-expanded', 'true');
+    // ...and an `aria-hidden` subtree may not hold a tab stop, so this chevron
+    // is the POINTER affordance only. The keyboard's copy of it is the labelled
+    // "Minimap" toggle in the toolbar, which is before the canvas in DOM order
+    // instead of the tab stop after it that this button used to be (VIEW-12).
+    this.toggleBtn.tabIndex = -1;
     on(this.toggleBtn, 'click', (ev: MouseEvent) => {
       ev.preventDefault();
       ev.stopPropagation();

@@ -172,6 +172,27 @@ def test_open_diagram_payload_fits():
     assert payload["opened"] is True
 
 
+def test_open_diagram_says_where_a_picture_comes_from():
+    """VIEW-07: the MCP host cannot render an SVG, so it must say so, every time.
+
+    Asking for "an image of the pipeline" is the single most likely follow-up to
+    this tool, and the only honest answer a terminal host has is the HTML path
+    plus the viewer surface that exports one. The hint is unconditional so that
+    answer cannot depend on whether a browser happened to launch.
+    """
+    for opened in (True, False):
+        payload = payloads.open_diagram_payload(
+            "C:/proj/.mlview/report.html",
+            "file:///C:/proj/.mlview/report.html",
+            opened,
+            scope="unit:train.train",
+        )
+        assert payload["exportHint"] == payloads.EXPORT_HINT
+        assert "viewer feature" in payload["exportHint"]
+        assert "reportPath" in payload["exportHint"]
+        assert size(payload) <= LIMIT
+
+
 # ------------------------------------------------------------------------ the fitter
 def test_fit_never_drops_a_protected_key():
     payload = {
