@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 
 import pytest
 
@@ -63,7 +64,23 @@ def _warnings(doc):
     return [d["message"] for d in doc["diagnostics"] if d["kind"] == "config_warning"]
 
 
+# `.mlview.toml` and `[tool.mlview]` both need a TOML parser, and `tomllib` is
+# stdlib only from 3.11. `core/config.py:191-193` degrades on 3.10 by appending a
+# `config_warning` and ignoring the file, so on 3.10 every test below would be
+# asserting the behaviour of a parser that is not there. The convention, the
+# wording and the reason string are lifted from
+# `analyzer/tests/rules/test_suppression.py`, which found the same thing when
+# CI-01 put 3.10 in the matrix; the degradation itself is asserted here by
+# `test_below_3_11_the_file_is_ignored_out_loud_and_the_analysis_still_runs`,
+# which runs ONLY on 3.10 so the skip is never silence.
+NEEDS_TOMLLIB = pytest.mark.skipif(
+    sys.version_info < (3, 11),
+    reason="tomllib is stdlib from 3.11; a config file is ignored with a config_warning below that",
+)
+
+
 # ------------------------------------------------------------- the surface
+@NEEDS_TOMLLIB
 def test_every_table_is_read_from_one_file():
     config = load_config(FULL_TOML)
     assert config.disabled == {"MLV601"}
@@ -86,6 +103,7 @@ def test_the_historical_rule_config_name_still_resolves():
     assert load_config(None, None).path is None
 
 
+@NEEDS_TOMLLIB
 def test_pyproject_is_read_when_there_is_no_mlview_toml():
     config = load_config(None, PYPROJECT_WS)
     assert config.source == "pyproject.toml"
@@ -95,6 +113,7 @@ def test_pyproject_is_read_when_there_is_no_mlview_toml():
     assert config.analysis == {"max_nodes": 55}
 
 
+@NEEDS_TOMLLIB
 def test_mlview_toml_wins_outright_over_pyproject(tmp_path):
     """They are never merged. Two half-applied files is the confusion CFG-ONE
     exists to end, and `configPath` can only name one of them."""
@@ -107,6 +126,7 @@ def test_mlview_toml_wins_outright_over_pyproject(tmp_path):
     assert config.disabled == {"MLV601"}
 
 
+@NEEDS_TOMLLIB
 def test_a_pyproject_with_no_tool_mlview_is_not_a_configuration_file(tmp_path):
     root = write_files(str(tmp_path), {
         "train.py": TORCH_TRAIN,
@@ -132,6 +152,7 @@ def test_a_pyproject_config_is_named_too():
 
 
 # ------------------------------------------------------------- precedence
+@NEEDS_TOMLLIB
 def test_the_file_wins_for_disable_and_exclude(tmp_path):
     """The lead's decision, asserted: `disable` and `exclude` are the file's.
     A caller may add to them - `--exclude` below still applies - and there is
@@ -148,6 +169,7 @@ def test_the_file_wins_for_disable_and_exclude(tmp_path):
     assert "train.py" in files
 
 
+@NEEDS_TOMLLIB
 def test_a_flag_wins_over_the_file_for_an_analysis_option(tmp_path):
     root = write_files(str(tmp_path), {
         "train.py": TORCH_TRAIN,
@@ -161,6 +183,7 @@ def test_a_flag_wins_over_the_file_for_an_analysis_option(tmp_path):
                 if "Relevance prefilter" in d["message"]], "and so did --relevance all"
 
 
+@NEEDS_TOMLLIB
 def test_the_one_case_the_precedence_cannot_see(tmp_path):
     """Stated in `core/config.py` and asserted here rather than discovered:
     `AnalyzeOptions` carries values, not provenance, so a caller who *types* a
@@ -174,6 +197,7 @@ def test_the_one_case_the_precedence_cannot_see(tmp_path):
     assert typed_the_default["stats"]["truncated"] is True
 
 
+@NEEDS_TOMLLIB
 def test_include_is_additive_in_both_directions(tmp_path):
     root = write_files(str(tmp_path), {
         "src/train.py": TORCH_TRAIN,
@@ -186,6 +210,7 @@ def test_include_is_additive_in_both_directions(tmp_path):
     assert files == {"src/train.py", "extra/other.py"}
 
 
+@NEEDS_TOMLLIB
 def test_min_confidence_from_the_file_filters_the_document(tmp_path):
     root = write_files(str(tmp_path), {
         "train.py": TORCH_TRAIN,
@@ -202,6 +227,7 @@ def test_min_confidence_from_the_file_filters_the_document(tmp_path):
     assert len(wide["issues"]) > len(doc["issues"])
 
 
+@NEEDS_TOMLLIB
 def test_enable_is_an_allow_list_and_disable_still_wins(tmp_path):
     root = write_files(str(tmp_path), {
         "train.py": TORCH_TRAIN,
@@ -217,6 +243,7 @@ def test_enable_is_an_allow_list_and_disable_still_wins(tmp_path):
 
 
 # ----------------------------------------------------- mistakes are warnings
+@NEEDS_TOMLLIB
 def test_a_severity_override_is_a_warning_not_an_error():
     config = load_config(FULL_TOML)
     assert any("severities are fixed" in w and "MLV201" in w
@@ -224,6 +251,7 @@ def test_a_severity_override_is_a_warning_not_an_error():
     assert config.severity == {"MLV201": "low"}
 
 
+@NEEDS_TOMLLIB
 def test_the_shipped_severity_is_what_the_document_carries(tmp_path):
     root = write_files(str(tmp_path), {
         "train.py": TORCH_TRAIN,
@@ -234,6 +262,7 @@ def test_the_shipped_severity_is_what_the_document_carries(tmp_path):
     assert any("severities are fixed" in w for w in _warnings(doc))
 
 
+@NEEDS_TOMLLIB
 def test_every_mistake_is_a_warning_and_none_is_fatal():
     config = load_config(WARNINGS_TOML)
     joined = "\n".join(config.warnings)
@@ -254,6 +283,7 @@ def test_every_mistake_is_a_warning_and_none_is_fatal():
     assert config.analysis == {} and config.min_confidence is None
 
 
+@NEEDS_TOMLLIB
 def test_a_broken_file_still_analyzes(tmp_path):
     root = write_files(str(tmp_path), {
         "train.py": TORCH_TRAIN,
@@ -265,6 +295,7 @@ def test_a_broken_file_still_analyzes(tmp_path):
 
 
 # ------------------------------------------------------------------ baseline
+@NEEDS_TOMLLIB
 def test_the_baseline_path_comes_from_the_file(tmp_path, run):
     """`[baseline] path` is the checked-in half of `--baseline`. It is applied
     in the CLI rather than in the pipeline because CI-ADOPT applies a baseline
@@ -284,6 +315,7 @@ def test_the_baseline_path_comes_from_the_file(tmp_path, run):
     assert payload.get("baselinedCount", 0) == len(first["issues"])
 
 
+@NEEDS_TOMLLIB
 def test_the_baseline_path_is_relative_to_the_file_that_named_it():
     config = load_config(FULL_TOML)
     assert os.path.isabs(config.baseline_path)
@@ -302,6 +334,7 @@ def test_init_lists_every_registered_rule_with_its_severity():
     assert "%d rules this build registers" % len(all_rules()) in text
 
 
+@NEEDS_TOMLLIB
 def test_init_writes_a_file_that_parses_and_changes_nothing(tmp_path, run):
     import tomllib
 
@@ -338,3 +371,32 @@ def test_init_to_stdout_is_the_payload(tmp_path, run):
     assert code == 0
     assert out.decode("utf-8").startswith("# .mlview.toml")
     assert not os.path.exists(os.path.join(str(tmp_path), ".mlview.toml"))
+
+
+@pytest.mark.skipif(
+    sys.version_info >= (3, 11),
+    reason="tomllib is present from 3.11, so there is no degradation to observe",
+)
+def test_below_3_11_the_file_is_ignored_out_loud_and_the_analysis_still_runs(tmp_path):
+    """The counterpart of `NEEDS_TOMLLIB`: on 3.10 CFG-ONE has no parser, and the
+    one thing it must not do is pretend. `core/config.py` says so in a
+    `config_warning` that names the file it ignored, keeps every non-TOML answer
+    it can still give (`path`, `source`), and lets the analysis finish - a
+    configuration file MLView cannot read must never be a configuration file that
+    stops a run."""
+    config = load_config(FULL_TOML)
+    assert config.path == FULL_TOML and config.source
+    assert config.disabled == set() and config.analysis == {}
+    assert any("tomllib is unavailable" in w for w in config.warnings), config.warnings
+    assert FULL_TOML in "\n".join(config.warnings)
+
+    root = write_files(str(tmp_path), {
+        "train.py": TORCH_TRAIN,
+        ".mlview.toml": '[rules]\ndisable = ["MLV201"]\n'})
+    doc = analyze_to_dict(AnalyzeOptions(paths=(root,), cache=False))
+    assert doc["nodes"], "an unreadable config must never stop an analysis"
+    assert any("tomllib is unavailable" in w for w in _warnings(doc))
+    # And the rule it could not disable is still reported, rather than silently
+    # dropped as if the file had been honoured.
+    assert any(i["code"] == "MLV201" and not i["suppressed"] for i in doc["issues"])
+    assert validate(doc) == []
