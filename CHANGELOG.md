@@ -82,6 +82,21 @@ runs exactly once per event because the full tier fires only where the cheap tie
 double-billing guard excludes it. `paths-ignore: ['**.md', 'docs/**']` on the push
 trigger only.
 
+**CI on this push.** Run 34903408702 created exactly the seven cheap-tier jobs
+and marked all five full-tier jobs `skipped`, which is the tier split working —
+but it billed **nothing**, because GitHub refused to start any job: *"The job was
+not started because recent account payments have failed or your spending limit
+needs to be increased"*. The `sprint5` run nine hours earlier carries the same
+annotation, so the block is the account's and predates this branch. The ~19 / ~75
+figures stay arithmetic until a push is allowed to bill them; every gate in the
+table below was therefore run locally instead, including the packaging path the
+`packaging` job would have covered (`npm run package` → `scripts/vsix_check.py`
+→ `vscode-extension/tools/vsix_smoke.py`, all green). Not covered locally:
+Python 3.10/3.11/3.12 and the Windows and macOS runners — this Mac has only
+3.13. Every analyzer source file parses under the 3.10 grammar
+(`ast.parse(..., feature_version=(3, 10))`, 108 files) and no new code uses a
+3.11+ API, which is an argument, not the gate.
+
 **C7 — `LICENSE`** (MIT, Copyright (c) 2026 realmyang) at the repository root,
 byte-identical to `vscode-extension/LICENSE`, matching `plugin.json` and
 `package.json`. `analyzer/LICENSE` is the same file again, because
