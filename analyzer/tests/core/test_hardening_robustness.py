@@ -78,9 +78,36 @@ TRAIN = (
 
 
 # --------------------------------------------------------------- helpers
+#: A fixture whose *source* needs a newer interpreter than the one running the
+#: suite. MLView parses with the host's own `ast`, so on an older Python these
+#: files are not analyzable at all - `pep695`'s `type Batch = ...` and
+#: `class Runner[T]`, and `fstrings`' PEP 701 `f"{names["loss"]}"` (the same
+#: quote reused inside the f-string), are each a SyntaxError before 3.12. Both
+#: read green on a 3.13 laptop and red on the matrix, which is the argument for
+#: the matrix. Analysing them there would
+#: assert the wrong thing: `filesFailed == 0` is a claim about a file the host
+#: can read. The general claim - a file the host cannot parse becomes a counted
+#: `parse_error` and never a crash - is held by
+#: `test_a_syntax_error_is_one_diagnostic_and_the_siblings_survive` and by the
+#: ELOOP case below, on every version.
+MIN_PYTHON = {"pep695": (3, 12), "fstrings": (3, 12)}
+
+
 def syntax_programs():
-    return sorted(d for d in os.listdir(SYNTAX)
-                  if os.path.isdir(os.path.join(SYNTAX, d)))
+    """Every fixture directory, each skipped on a host that cannot read it."""
+    out = []
+    for name in sorted(os.listdir(SYNTAX)):
+        if not os.path.isdir(os.path.join(SYNTAX, name)):
+            continue
+        needs = MIN_PYTHON.get(name)
+        marks = ()
+        if needs is not None:
+            marks = pytest.mark.skipif(
+                sys.version_info < needs,
+                reason="%s is %d.%d+ syntax; MLView parses with the host's ast"
+                       % (name, needs[0], needs[1]))
+        out.append(pytest.param(name, marks=marks, id=name))
+    return out
 
 
 def analyze(path, **kwargs):
@@ -139,7 +166,7 @@ def test_every_syntax_fixture_analyzes_without_incident(program):
 
 
 @pytest.mark.parametrize("program",
-                         [p for p in syntax_programs() if p not in NO_LOOP])
+                         [p for p in syntax_programs() if p.id not in NO_LOOP])
 def test_every_syntax_fixture_keeps_its_training_loop(program):
     """The one claim a static analyzer must never get wrong quietly.
 
@@ -1056,12 +1083,19 @@ def test_an_edit_that_preserves_size_and_mtime_is_still_seen(tmp_path):
     old = "        opt.zero_grad()\n"
     new = "        " + "pass  # nograd".ljust(len(old) - 9) + "\n"
     assert len(new) == len(old)
-    with open(path, "r", encoding="utf-8") as fh:
+    # `newline=""` on BOTH handles: without it, text mode translates on write,
+    # so on Windows every "\n" becomes "\r\n" and the file grows by one byte a
+    # line - 402 to 418 for this fixture. The premise of the test is that the
+    # size did not move, so the platform default silently destroys it, and the
+    # failure reads as an analyzer defect rather than as a file-mode one.
+    with open(path, "r", encoding="utf-8", newline="") as fh:
         source = fh.read()
-    with open(path, "w", encoding="utf-8") as fh:
+    with open(path, "w", encoding="utf-8", newline="") as fh:
         fh.write(source.replace(old, new))
     os.utime(path, (stat_before.st_atime, stat_before.st_mtime))
-    assert os.stat(path).st_size == stat_before.st_size
+    assert os.stat(path).st_size == stat_before.st_size, (
+        "the edit must preserve the size on every platform, or this test is "
+        "measuring newline translation instead of the cache key")
 
     after = analyze(root)
     assert "MLV201" in {i["code"] for i in after["issues"]}, (

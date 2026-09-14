@@ -63,16 +63,31 @@ def _project_dir(monkeypatch):
 
 
 def test_the_cli_is_the_authority_on_the_six_framework_values():
-    """The CLI refuses an unknown framework; the MCP is what must match it."""
+    """The CLI refuses an unknown framework; the MCP is what must match it.
+
+    The child gets `analyzer/src` on `PYTHONPATH` because this suite does not
+    run against an *installed* analyzer: `conftest.py` puts that directory on
+    `sys.path` in-process, and `.github/workflows/ci.yml`'s `claude-plugin` job
+    says in as many words that "the analyzer itself is not installed here".
+    A subprocess inherits neither, so on CI this read
+    `No module named mlview` and asserted against the wrong text - green on
+    this Mac, red on the runner, and for a reason that has nothing to do with
+    the argument under test.
+    """
     import subprocess
     import sys
 
+    src = os.path.join(REPO_ROOT, "analyzer", "src")
+    path = os.environ.get("PYTHONPATH")
+    child = dict(os.environ, PYTHONUTF8="1", PYTHONDONTWRITEBYTECODE="1",
+                 PYTHONPATH=src + os.pathsep + path if path else src)
     proc = subprocess.run(
         [sys.executable, "-X", "utf8", "-m", "mlview", "analyze",
          SAMPLE, "--framework", "pytorch", "--json", "-"],
-        cwd=REPO_ROOT, capture_output=True, text=True,
-        env=dict(os.environ, PYTHONUTF8="1", PYTHONDONTWRITEBYTECODE="1"),
+        cwd=REPO_ROOT, capture_output=True, text=True, env=child,
     )
+    assert "No module named mlview" not in proc.stderr, (
+        "the child must reach the analyzer this suite tests, installed or not")
     assert proc.returncode != 0, "the CLI must refuse --framework pytorch"
     assert proc.stdout == "", "a usage error must leave stdout untouched"
     for name in ACCEPTED:

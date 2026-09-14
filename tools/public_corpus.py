@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """PUB-01 - the public-repository corpus: `fetch`, `run`, `check`.
 
-The labelled corpus (`tools/accuracy.py`) measures MLView against fourteen
+The labelled corpus (`tools/accuracy.py`) measures MLView against 92
 programs *written for it*. This one measures it against code nobody wrote for
 it: twenty-four real, popular Python ML/DL repositories, pinned to an exact
 commit in `analyzer/tests/public_corpus/repos.json`.

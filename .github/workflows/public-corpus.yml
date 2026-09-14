@@ -1,7 +1,7 @@
 name: Public corpus
 
 # PUB-01. The labelled corpus (`tools/accuracy.py`) measures MLView against
-# fourteen programs written for it. This job measures it against code nobody
+# 92 programs written for it. This job measures it against code nobody
 # wrote for it: twenty-four pinned public ML/DL repositories, analysed three
 # ways each.
 #
