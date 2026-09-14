@@ -80,10 +80,12 @@ number is the fix comment in `vision_pipeline_clean/`.
 | 14 | **MLV602** | `sklearn_baseline.py:26` | `train_test_split(...)` without `random_state`. |
 | 15 | **MLV602** | `data.py:31` | `random_split(full_train, [45000, 5000])` without `generator=`. |
 
-`MLV102`, `MLV202`, `MLV203`, `MLV204`, `MLV402` and `MLV701` also ship in the
-prototype but are deliberately **absent** from this sample — they are exercised
-by their own fixtures under `analyzer/tests/fixtures/rules/`, so a slip in one
-of them cannot break the walkthrough.
+These fifteen findings span 14 of the 36 shipped rule codes. The rest —
+`MLV102`, `MLV202`, `MLV203`, `MLV204`, `MLV402`, `MLV701` and the framework,
+mechanics and held-out tiers — are deliberately **absent** from this sample and
+are exercised by their own fixtures under `analyzer/tests/fixtures/rules/`, so a
+slip in one of them cannot break the walkthrough. `python -m mlview rules --list`
+prints the whole registry.
 
 ---
 
@@ -110,3 +112,14 @@ PYTHONUTF8=1 python analyzer/tools/gen_expected_issues.py
 It rewrites `vision_pipeline/expected_issues.json` from a live analysis, sorted
 canonically. Run it whenever a sample file changes, and check the counts still
 read 5 high / 6 medium / 4 low.
+
+---
+
+## Where else to look
+
+`analyzer/tests/clean/` is the larger silent corpus: correct programs that must
+produce **zero** findings, together and one file at a time.
+`analyzer/tests/accuracy/corpus/` is the labelled corpus that
+`python tools/accuracy.py` scores — see [`../docs/ACCURACY.md`](../docs/ACCURACY.md)
+for what a label is and what is still missed, and
+[`../docs/STATUS.md`](../docs/STATUS.md) for the current state of the tree.

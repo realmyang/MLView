@@ -15,7 +15,7 @@ claude-plugin/
   server/mlview_payloads.py    the pure payload builders
   server/mlview_views.py       filtered graph views and their rendered shapes
   server/mlview_budget.py      the 4 KB budget (measured on the SDK's encoding)
-  vendor/mlview/               a synced copy of the analyzer core
+  vendor/mlview/               a synced copy of the analyzer core (TRACKED, see below)
   docs/rules/MLVxxx.md         the rule pages mlview_explain serves (synced)
   tests/                       stdio handshake · payload budget · manifests
 ```
@@ -48,6 +48,17 @@ claude-plugin/
   an `mlview` package, and `<repo>/analyzer/src` only as a dev fallback when it
   does not. Prepending both would put an editable checkout ahead of the vendored
   copy and make the vendor gates vacuous.
+
+- **Why `vendor/mlview` is committed, and when it goes away (C2).** It is the one
+  duplicate of `analyzer/src/mlview` still tracked in this repository: `claude
+  plugin install` copies the plugin directory **verbatim** off a git ref, so for
+  this host what git holds is what the user runs, and an untracked `vendor/` is a
+  plugin with no analyzer. The VS Code extension's copy is the opposite case — a
+  VSIX is built from a working tree, so `vscode-extension/core/mlview` is a
+  gitignored build artifact that `npm run compile` writes. `vendor/` follows it out
+  of the index the day the `mlview` wheel is published: `.mcp.json` can depend on
+  an installed package then, and this directory and its `vendor: synced core` gate
+  row both go.
 
 ## Install
 
@@ -259,7 +270,7 @@ set `MLVIEW_PYTHON` and use a bash-capable shell to get it back.
 | `MLVIEW_NO_OPEN=1` | `mlview_open_diagram` writes the report but does not launch a browser (`opened: false`). Used by the tests and by `scripts/e2e`. |
 | `MLVIEW_HOOK` | H8: which hook speaks — unset/`on` (PostToolUse), `stop`, `both`, or `off`. |
 | `MLVIEW_INCLUDE_NOTEBOOKS=1` | H8: treat an `.ipynb` edit as worth re-analyzing for. |
-| `MLVIEW_CACHE_DIR` | The per-file parse cache (CONTRACTS 11.28), which ships **on** (11.39). The server *and* the hooks default it to `<MLVIEW_DATA_DIR>/cache` — one shared directory, and nothing written into the project. `.mcp.json` names it explicitly as `${CLAUDE_PLUGIN_DATA}/cache`. |
+| `MLVIEW_CACHE_DIR` | The per-file parse cache (CONTRACTS 11.28), which ships **on** (11.39). The server *and* the hooks default it to `<MLVIEW_DATA_DIR>/cache` — one shared directory, and nothing written into the project. `.mcp.json` names it explicitly as `${CLAUDE_PLUGIN_DATA}/cache`. Since C8 the core's own default is the user's cache directory too (`~/.cache/mlview` or the OS equivalent, keyed by workspace path), so the project is safe on both sides; the plugin still sets it, because that is what makes the hooks and the MCP tools read *one* cache rather than two. |
 | `MLVIEW_LOG_LEVEL` | `DEBUG` for verbose stderr logging. |
 
 ## Tests
@@ -355,3 +366,15 @@ cd .. && python tools/sync-assets.py
 `agents`, `hooks` or `mcpServers` — the conventional directories are the
 defaults, and `commands`/`agents` *replace* the default scan when set, silently
 dropping everything.
+
+---
+
+## More documentation
+
+| Document | What it is for |
+|---|---|
+| [`../README.md`](../README.md) | What MLView is, and the ninety-second demo |
+| [`../docs/STATUS.md`](../docs/STATUS.md) | What is verified today, and the known gaps |
+| [`../docs/CONTRACTS.md`](../docs/CONTRACTS.md) | **Normative.** The schema, the CLI, the MCP tools, the message protocol |
+| [`../docs/VALIDATION.md`](../docs/VALIDATION.md) | Validating this host by hand on another machine, and publishing it |
+| [`../CHANGELOG.md`](../CHANGELOG.md) | The dated history, newest first |

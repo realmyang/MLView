@@ -86,20 +86,18 @@ def data_dir() -> str:
 def cache_dir() -> str:
     """The per-file parse cache: MLVIEW_CACHE_DIR, else ``<data_dir>/cache``.
 
-    The core's own default is ``<root>/.mlview/cache`` (CONTRACTS 11.28 B5), and
-    since the Sprint-5 default flip (11.39) that cache is ON — so with nothing
-    naming a directory, every ``mlview_*`` tool call writes a sidecar *into the
-    repository being analysed*. That is a sanctioned cost for a bare
-    ``python -m mlview analyze .``; it is not one for a host that already has a
-    private directory to write in, which is why 11.28 B9 makes the VS Code
-    extension pass its own. Deriving it from ``data_dir()`` gives the plugin the
-    same treatment without a second variable to configure, and it is also what
-    makes 11.41 C3 true: the hooks and the MCP tools share the *parse* cache and
-    not merely the graph document, because both halves compute this one path.
+    Since C8 the core's own default is the **user's** cache directory keyed by
+    the workspace path, never ``<root>/.mlview/cache``, so this no longer stands
+    between the user's repository and a sidecar — the core does that itself now.
+    It is still computed here, and for the reason that outlived the original
+    one: it is what makes 11.41 C3 true, that the hooks and the MCP tools share
+    the *parse* cache and not merely the graph document, because both halves
+    compute this one path. One plugin, one directory, actually shared.
 
-    With no ``MLVIEW_DATA_DIR`` named this is ``<project>/.mlview/cache`` — byte
-    for byte the core default — so a checkout run without the plugin's env is
-    unchanged.
+    With no ``MLVIEW_DATA_DIR`` named this is ``<project>/.mlview/cache``, which
+    is where the plugin has always put it; a checkout run without the plugin's
+    env is unchanged, and a run with it keeps everything under one directory the
+    user can delete in one go.
     """
     raw = (os.environ.get("MLVIEW_CACHE_DIR") or "").strip()
     if raw:

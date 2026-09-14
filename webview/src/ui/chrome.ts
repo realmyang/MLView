@@ -11,13 +11,11 @@ import {
   COVERAGE_KINDS,
   SPECIALLY_RENDERED,
   coverageChipText,
-  coverageHeadline,
-  describe,
   notebooksAnalyzedText,
   stat,
 } from './chromenotes.js';
-import { NOTEBOOK_ANALYZED, outOfOrderDiagnostics, outOfOrderHeadline } from '../notebook.js';
-import { rollupCaveats, rollupHeadline, rollupSummary } from '../rollup/rolled.js';
+import { renderBanners } from './chromebanners.js';
+import { NOTEBOOK_ANALYZED } from '../notebook.js';
 import { suppressedSummary } from './suppress.js';
 import { isSetAside } from '../types.js';
 import type { Capabilities, Filters, MLGraph, Severity, Stage } from '../types.js';
@@ -338,7 +336,7 @@ export class Chrome {
 
     this.renderStageFilters(s);
     this.renderChips(s);
-    this.renderBanners(s);
+    renderBanners(this.banners, s, this.cb);
     this.renderStatus(s);
     // The stage chip row was just rebuilt: put the strip's single tab stop back
     // (VIEW-12).
@@ -478,136 +476,6 @@ export class Chrome {
       add(this.chipRow, el('span', 'mlv-chip', g.workspace.filesFailed + ' files failed to parse'));
     }
     this.chipRow.hidden = !any;
-  }
-
-  private renderBanners(s: ChromeState): void {
-    clear(this.banners);
-    const g = s.graph;
-    let any = false;
-
-    if (s.error) {
-      any = true;
-      const b = this.banner('error', 'Analysis failed — ' + s.error.message, s.error.detail);
-      const actions = add(b, el('div', 'mlv-banner__actions'));
-      for (const a of s.error.actions || []) {
-        const btn = button('mlv-btn', a.label);
-        on(btn, 'click', () => this.cb.onAction(a.id));
-        actions.appendChild(btn);
-      }
-      const copy = button('mlv-btn', 'Copy details');
-      on(copy, 'click', () => this.cb.onAction('mlview.copyErrorDetails'));
-      actions.appendChild(copy);
-      this.banners.appendChild(b);
-    }
-
-    if (s.stale.length && !s.dismissed.has('stale')) {
-      any = true;
-      const names = s.stale.slice(0, 3).join(', ') + (s.stale.length > 3 ? ' and ' + (s.stale.length - 3) + ' more' : '');
-      const b = this.banner('warn', 'Files changed since this analysis: ' + names);
-      const actions = add(b, el('div', 'mlv-banner__actions'));
-      if (s.capabilities.canReanalyze) {
-        const btn = button('mlv-btn mlv-btn--primary', 'Re-analyze');
-        on(btn, 'click', () => this.cb.onRefresh());
-        actions.appendChild(btn);
-      }
-      actions.appendChild(this.dismissButton('stale'));
-      this.banners.appendChild(b);
-    }
-
-    if (g) {
-      const parseErrors = (g.diagnostics || []).filter((d) => d.kind === 'parse_error');
-      if (parseErrors.length && !s.dismissed.has('parse')) {
-        any = true;
-        const b = this.banner('warn', parseErrors.length + ' file(s) could not be parsed', describe(parseErrors));
-        add(b, el('div', 'mlv-banner__actions')).appendChild(this.dismissButton('parse'));
-        this.banners.appendChild(b);
-      }
-
-      // NB. ABOVE the coverage banner: a notebook last run out of order makes
-      // the fit-before-split family unreliable, and that has to be read before
-      // the findings it de-rates.
-      const outOfOrder = outOfOrderDiagnostics(g.diagnostics || []);
-      if (outOfOrder.length && !s.dismissed.has('notebook-order')) {
-        any = true;
-        const b = this.banner('warn', outOfOrderHeadline(outOfOrder), describe(outOfOrder));
-        b.setAttribute('data-notebook-order-banner', String(outOfOrder.length));
-        add(b, el('div', 'mlv-banner__actions')).appendChild(this.dismissButton('notebook-order'));
-        this.banners.appendChild(b);
-      }
-      // COVERAGE. One banner for everything the run could NOT see, above the
-      // "partial understanding" note, because "I did not look" outranks "I
-      // looked and was unsure".
-      const coverage = (g.diagnostics || []).filter((d) => COVERAGE_KINDS.indexOf(d.kind) >= 0);
-      if (coverage.length && !s.dismissed.has('coverage')) {
-        any = true;
-        const b = this.banner('warn', coverageHeadline(coverage), describe(coverage));
-        b.setAttribute('data-coverage-banner', String(coverage.length));
-        add(b, el('div', 'mlv-banner__actions')).appendChild(this.dismissButton('coverage'));
-        this.banners.appendChild(b);
-      }
-
-      const dynamicDiags = (g.diagnostics || []).filter((d) => d.kind === 'dynamic_scope');
-      if ((dynamicDiags.length > 0 || s.dynamicNodes > 0) && !s.dismissed.has('dynamic')) {
-        any = true;
-        const detail = dynamicDiags.length ? describe(dynamicDiags) : undefined;
-        const b = this.banner(
-          'info',
-          'Partial understanding: some calls could not be resolved (config-driven or dynamic). ' +
-            s.dynamicNodes +
-            ' node(s) are shown with reduced confidence.',
-          detail,
-        );
-        add(b, el('div', 'mlv-banner__actions')).appendChild(this.dismissButton('dynamic'));
-        this.banners.appendChild(b);
-      }
-
-      // PERF-04. A capped document is now ROLLED UP rather than mutilated, and
-      // the banner has to say which of the two it is looking at: a document
-      // carrying folded cards or weighted cables gets the rollup wording and
-      // its caveats, and one written by an analyzer that still deletes keeps
-      // the old sentence, because for that document the old sentence is true.
-      const rollup = rollupSummary(g);
-      if (rollup && !s.dismissed.has('truncated')) {
-        any = true;
-        // The analyzer's own sentence is the DETAIL, verbatim: 11.46 D makes it
-        // the place the per-phase counts and any lost findings are named, and a
-        // paraphrase would be a second set of numbers to keep in step.
-        const b = this.banner('info', rollupHeadline(rollup), rollup.message || undefined);
-        b.setAttribute('data-rollup-banner', String(rollup.folded));
-        const body = (b.querySelector('.mlv-banner__text') as HTMLElement) || b;
-        const notes = add(body, el('ul', 'mlv-banner__notes'));
-        notes.setAttribute('data-rollup-notes', String(rollupCaveats(rollup).length));
-        for (const text of rollupCaveats(rollup)) add(notes, el('li', '', text));
-        add(b, el('div', 'mlv-banner__actions')).appendChild(this.dismissButton('truncated'));
-        this.banners.appendChild(b);
-      } else if (g.stats && g.stats.truncated && !s.dismissed.has('truncated')) {
-        any = true;
-        const b = this.banner(
-          'warn',
-          'Graph truncated at ' + g.nodes.length + ' nodes — narrow the scope with --include, or collapse groups.',
-        );
-        add(b, el('div', 'mlv-banner__actions')).appendChild(this.dismissButton('truncated'));
-        this.banners.appendChild(b);
-      }
-    }
-
-    this.banners.hidden = !any;
-  }
-
-  private banner(kind: string, text: string, detail?: string): HTMLElement {
-    const b = el('div', 'mlv-banner mlv-banner--' + kind);
-    b.setAttribute('role', kind === 'error' ? 'alert' : 'status');
-    const body = add(b, el('div', 'mlv-banner__text'));
-    add(body, el('div', '', text));
-    if (detail) add(body, el('pre', 'mlv-banner__detail', detail));
-    return b;
-  }
-
-  private dismissButton(key: string): HTMLButtonElement {
-    const btn = iconButton('mlv-btn mlv-btn--icon', 'Dismiss');
-    btn.appendChild(uiIcon('close'));
-    on(btn, 'click', () => this.cb.onDismiss(key));
-    return btn;
   }
 
   private renderStatus(s: ChromeState): void {

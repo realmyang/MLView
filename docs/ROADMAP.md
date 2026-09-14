@@ -8,6 +8,23 @@ command or a number that somebody measured on this tree.
 This document is advisory. `docs/CONTRACTS.md` §10 and §11 remain the binding
 amendments; nothing here is authorised until it is written there.
 
+## What shipped since this was written
+
+This roadmap is a **dated record of the 2026-09-08 audit** and is not rewritten
+as items land. Every number in it — ~26% recall, 20 rules, the 5672×2706 first
+screen — was measured on the tree *before* Sprint 3. Nearly the whole board has
+since shipped: the NOW tier in Sprint 3, the NEXT tier in Sprint 4 and the LATER
+tier in Sprint 5, taking the registry from 20 rules to 36, precision to 100% with
+zero forbidden findings, and first-paint `fit()` from 0.322 to 0.532 on the demo.
+
+Read this file for **why** an item exists and what its acceptance clause was.
+Each shipped item's own section carries a `**Landed ...**` measurement note
+saying what was actually measured and what the change could *not* analyze; a doc
+gate (`scripts/check_docs.py` check 12) keeps that note from being forgotten.
+
+For what is true today, read [`docs/STATUS.md`](STATUS.md); for what changed
+when, [`CHANGELOG.md`](../CHANGELOG.md).
+
 ---
 
 ## (a) Executive summary

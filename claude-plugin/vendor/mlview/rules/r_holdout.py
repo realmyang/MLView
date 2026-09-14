@@ -41,132 +41,31 @@ pass and the holdout stops existing.
 
 from __future__ import annotations
 
-import ast
-import re
-from typing import Dict, Iterable, List, Optional, Set, Tuple
+from typing import Dict, Iterable, List
 
 from .. import knowledge as K
 from ..core.graph import Issue
-from ..ir.model import CallSite, ModuleIR
+from ..ir.model import CallSite
 from ..ir.symbols import dotted_text
 from .helpers import (KWARG_ABSENT, KWARG_RESOLVED, UNRESOLVED_KWARG_WEIGHT,
-                      kwarg_literal, literal_of, note_unresolved_kwarg,
-                      value_sources)
+                      kwarg_literal, literal_of, note_unresolved_kwarg)
 from .registry import rule
+
+from .holdout_scores import _decided, _prediction_arg, _scored_value
+from .holdout_splits import (_HOLDOUT_PAIR, _augmenting_pipelines, _eval_loaders,
+                             _holdout_of, _subset_name, _temporal_signals,
+                             _upstream)
+from .holdout_tables import (_CLASS_METRICS, _RANKING_METRICS, _SCORE_METRICS,
+                             _anchor, _element_calls, _short, _static)
 
 __all__ = ["random_split_on_temporal_data", "augmentation_in_eval_transform",
            "tfdata_shuffle_before_holdout", "metric_on_raw_scores",
            "ranking_metric_on_hard_labels"]
 
-# ------------------------------------------------------------------ metrics
-#: Metrics that take **class predictions**. Exhaustive on purpose: a metric that
-#: is not on this list is never judged by MLV305.
-_CLASS_METRICS = frozenset({
-    "sklearn.metrics.accuracy_score", "sklearn.metrics.balanced_accuracy_score",
-    "sklearn.metrics.f1_score", "sklearn.metrics.precision_score",
-    "sklearn.metrics.recall_score", "sklearn.metrics.confusion_matrix",
-    "sklearn.metrics.classification_report", "sklearn.metrics.cohen_kappa_score",
-    "sklearn.metrics.matthews_corrcoef", "sklearn.metrics.jaccard_score",
-    "sklearn.metrics.precision_recall_fscore_support",
-    "sklearn.metrics.hamming_loss", "sklearn.metrics.zero_one_loss",
-    "torchmetrics.functional.accuracy", "torchmetrics.functional.f1_score",
-    "torchmetrics.functional.precision", "torchmetrics.functional.recall",
-})
-
-#: The score-metric carve-out (ROADMAP ANA-9: "must be exhaustive"). These take
-#: continuous scores by design and MLV305 never fires on one.
-_SCORE_METRICS = frozenset({
-    "sklearn.metrics.roc_auc_score", "sklearn.metrics.average_precision_score",
-    "sklearn.metrics.log_loss", "sklearn.metrics.roc_curve",
-    "sklearn.metrics.precision_recall_curve", "sklearn.metrics.brier_score_loss",
-    "sklearn.metrics.top_k_accuracy_score", "sklearn.metrics.ndcg_score",
-    "sklearn.metrics.dcg_score",
-    "sklearn.metrics.label_ranking_average_precision_score",
-    "torchmetrics.functional.auroc",
-})
-
-#: The two ranking metrics MLV306 judges.
-_RANKING_METRICS = frozenset({"sklearn.metrics.roc_auc_score",
-                              "sklearn.metrics.average_precision_score"})
-
-#: Names whose appearance in the producing expression means the value has
-#: already been turned into class predictions.
-_DECIDED = ("argmax", "round", "topk", "astype", "argsort", "where", "sign",
-            "greater", "threshold", "rint", "argpartition")
-
-_EVAL_NAME_RE = re.compile(r"(?i)^(val|valid|validation|test|eval|holdout)_?"
-                           r"(loader|dl|ds|dataset|data|set|batches)?$")
-_TEMPORAL_COLUMN_RE = re.compile(r"(?i)(date|time|timestamp|datetime|period|month|"
-                                 r"week|day|year|hour)")
-_TEMPORAL_IMPORTS = ("statsmodels", "prophet", "fbprophet", "darts", "pmdarima",
-                     "sktime", "tsfresh")
-
-
-def _short(call: CallSite) -> str:
-    if call.receiver_name:
-        return "%s.%s()" % (call.receiver_name, call.method or call.short_name)
-    return "%s()" % call.short_name
-
-
-def _anchor(ctx, call: CallSite):
-    return ctx.node_for_call(call) or ctx.unit_for_call(call)
-
-
-def _static(scope) -> List[Tuple[str, str, float]]:
-    if scope is None or scope.is_dynamic:
-        return []
-    return [("scope_static", "no dynamic constructs in %s" % scope.qualname, 1.0)]
-
-
-def _by_node(module: ModuleIR) -> Dict[int, CallSite]:
-    return {id(call.node): call for call in module.calls}
-
-
-def _element_calls(module: ModuleIR, call: CallSite) -> List[CallSite]:
-    """Every recorded call written inside this call's argument list."""
-    index = _by_node(module)
-    out: List[CallSite] = []
-    for node in list(call.args) + list(call.kwarg_nodes.values()):
-        for child in ast.walk(node):
-            found = index.get(id(child))
-            if found is not None and found is not call:
-                out.append(found)
-    return out
-
 
 # ---------------------------------------------------------------------------
 # MLV106
 # ---------------------------------------------------------------------------
-def _temporal_signals(ctx, module: ModuleIR) -> List[str]:
-    """Independent evidence that this module's data is a time series."""
-    found: List[str] = []
-
-    def note(text: str) -> None:
-        if text not in found:
-            found.append(text)
-
-    for name in module.imports or ():
-        if name.split(".")[0] in _TEMPORAL_IMPORTS:
-            note("the module imports %s" % name.split(".")[0])
-    for call in module.calls:
-        fqn = call.fqn or ""
-        text = dotted_text(call.node.func) or ""
-        if K.role_of(fqn) == "TEMPORAL" or fqn.endswith("to_datetime"):
-            note("pandas.to_datetime at line %d" % call.loc.line)
-        if "parse_dates" in call.kwarg_nodes:
-            note("parse_dates= at line %d" % call.loc.line)
-        if text.endswith(("date_range", "DatetimeIndex", "PeriodIndex")):
-            note("%s at line %d" % (text.rsplit(".", 1)[-1], call.loc.line))
-        method = call.method or ""
-        if method in ("resample", "asfreq", "rolling", "shift", "diff", "tshift"):
-            note("%s(...) at line %d" % (method, call.loc.line))
-        if method == "sort_values" and call.args:
-            literal = literal_of(ctx, call.args[0], call.scope, module)
-            if literal and _TEMPORAL_COLUMN_RE.search(literal):
-                note("sort_values(\"%s\") at line %d" % (literal, call.loc.line))
-    return found
-
-
 @rule(code="MLV106", severity="medium", base_prior=0.70, frameworks=["sklearn", "pandas"],
       rule_version=1, tags=["leakage", "data"],
       title="Random split used on apparently temporal data",
@@ -215,37 +114,6 @@ def random_split_on_temporal_data(ctx) -> Iterable[Issue]:
 # ---------------------------------------------------------------------------
 # MLV114
 # ---------------------------------------------------------------------------
-def _augmenting_pipelines(ctx, module: ModuleIR) -> Dict[str, CallSite]:
-    """`{variable: Compose call}` for every pipeline containing a random augment."""
-    out: Dict[str, CallSite] = {}
-    for call in module.calls:
-        role = K.role_of(call.fqn)
-        if role not in ("TRANSFORM_PIPE", "AUGMENT"):
-            continue
-        if role == "TRANSFORM_PIPE":
-            if not any(K.role_of(e.fqn) == "AUGMENT" for e in _element_calls(module, call)):
-                continue
-        if call.var:
-            out[call.var.split(".")[-1]] = call
-    return out
-
-
-def _eval_loaders(ctx, module: ModuleIR) -> List[CallSite]:
-    """DataLoader constructions that serve validation or test data."""
-    out: List[CallSite] = []
-    for call in ctx.calls_of("torch.utils.data.DataLoader"):
-        if call.module is not module:
-            continue
-        name = (call.var or "").split(".")[-1]
-        dataset = call.args[0] if call.args else call.kwarg_nodes.get("dataset")
-        ref = ctx.binding_of(dotted_text(dataset), call.scope) if dataset is not None \
-            else None
-        if (ref is not None and ref.has("VAL_SPLIT", "TEST_SPLIT")) \
-                or _EVAL_NAME_RE.match(name or ""):
-            out.append(call)
-    return out
-
-
 @rule(code="MLV114", severity="medium", base_prior=0.90,
       frameworks=["torchvision", "torch"],
       rule_version=1, tags=["evaluation", "data"],
@@ -316,85 +184,6 @@ def augmentation_in_eval_transform(ctx) -> Iterable[Issue]:
 # ---------------------------------------------------------------------------
 # MLV121
 # ---------------------------------------------------------------------------
-def _upstream(module: ModuleIR, call: CallSite, depth: int = 8) -> List[CallSite]:
-    """The tf.data chain behind a call: `a.shuffle(n).take(k)` -> the shuffle."""
-    index = _by_node(module)
-    out: List[CallSite] = []
-    current: Optional[CallSite] = call
-    seen: Set[int] = set()
-    while current is not None and depth > 0 and id(current) not in seen:
-        seen.add(id(current))
-        depth -= 1
-        nxt: Optional[CallSite] = None
-        func = getattr(current.node, "func", None)
-        inner = getattr(func, "value", None) if isinstance(func, ast.Attribute) else None
-        if isinstance(inner, ast.Call):
-            nxt = index.get(id(inner))
-        if nxt is None and current.receiver is not None:
-            nxt = current.receiver.producer
-        if nxt is not None and nxt.module is module:
-            out.append(nxt)
-        current = nxt
-    return out
-
-
-#: The tf.data holdout idiom is always the **pair**: one branch takes the first
-#: N rows and the other skips them. `shard` subsets a dataset for distributed
-#: training, so it is never on its own evidence that a holdout was carved.
-_HOLDOUT_PAIR = ("take", "skip")
-
-
-def _subset_name(call: CallSite) -> str:
-    return (call.fqn or "").rsplit(".", 1)[-1]
-
-
-def _downstream_var(module: ModuleIR, call: CallSite, depth: int = 8) -> Optional[str]:
-    """The name the value this call starts is finally bound to.
-
-    `val_ds = shuffled.take(N).batch(B)` binds the *batch*, so the subset call's
-    own `var` is empty and the only way to see the word `val` is to walk the
-    chain forwards.
-    """
-    outer: Dict[int, CallSite] = {}
-    for other in module.calls:
-        func = getattr(other.node, "func", None)
-        inner = getattr(func, "value", None) if isinstance(func, ast.Attribute) else None
-        if isinstance(inner, ast.Call):
-            outer[id(inner)] = other
-    current: Optional[CallSite] = call
-    seen: Set[int] = set()
-    while current is not None and depth > 0 and id(current) not in seen:
-        seen.add(id(current))
-        depth -= 1
-        if current.var:
-            return current.var
-        current = outer.get(id(current.node))
-    return None
-
-
-def _holdout_of(module: ModuleIR, subsets: List[CallSite]) -> Optional[Tuple[CallSite, str]]:
-    """`(the take/skip that carves the holdout, why we believe it is one)`.
-
-    A lone `take` is **not** a holdout: `for images, labels in train_ds.take(1)`
-    is the commonest line in TensorFlow code, and the first cut of this rule
-    called it a leaking train/val split at severity high, confidence 0.95, with
-    a message asserting two halves that do not exist. A holdout has to be
-    visible before the rule may describe one - either both sides of the idiom
-    reach the same shuffle, or the subset is bound to an evaluation name.
-    """
-    by_method: Dict[str, CallSite] = {}
-    for call in subsets:
-        by_method.setdefault(_subset_name(call), call)
-    if all(name in by_method for name in _HOLDOUT_PAIR):
-        return by_method["take"], "both take() and skip() are taken off it"
-    for call in subsets:
-        target = _downstream_var(module, call)
-        short = (target or "").split(".")[-1]
-        if short and _EVAL_NAME_RE.match(short):
-            return call, "its result is bound to %s" % target
-    return None
-
-
 @rule(code="MLV121", severity="high", base_prior=0.95, frameworks=["tf", "keras"],
       rule_version=1, tags=["leakage", "data"],
       title="tf.data shuffle feeds a take/skip holdout",
@@ -479,66 +268,6 @@ def tfdata_shuffle_before_holdout(ctx) -> Iterable[Issue]:
             related=related,
             evidence=evidence, stage="data", dynamic=shuffle.scope.is_dynamic))
     return issues
-
-
-# ---------------------------------------------------------------------------
-# MLV305 / MLV306 - the prediction argument
-# ---------------------------------------------------------------------------
-def _prediction_arg(call: CallSite) -> Optional[ast.expr]:
-    """sklearn's convention is `(y_true, y_pred)`; the kwarg spelling counts too."""
-    for key in ("y_pred", "y_score", "preds", "output"):
-        node = call.kwarg_nodes.get(key)
-        if node is not None:
-            return node
-    if len(call.args) >= 2:
-        return call.args[1]
-    return None
-
-
-def _decided(ctx, node: ast.expr, call: CallSite) -> bool:
-    """Has this expression already been turned into class predictions?"""
-    for child in ast.walk(node):
-        if isinstance(child, (ast.Compare, ast.Subscript)):
-            return True
-        text = dotted_text(child) if isinstance(child, (ast.Name, ast.Attribute,
-                                                        ast.Call)) else None
-        if text and text.rsplit(".", 1)[-1] in _DECIDED:
-            return True
-    name = dotted_text(node)
-    if not name:
-        return False
-    for source in value_sources(ctx, name, call.scope):
-        if source.rsplit(".", 1)[-1] in _DECIDED:
-            return True
-        ref = ctx.binding_of(source, call.scope)
-        producer = ref.producer if ref is not None else None
-        if producer is None:
-            continue
-        if K.role_of(producer.fqn) == "ARGMAX":
-            return True
-        for arg in producer.args:
-            for child in ast.walk(arg):
-                text = dotted_text(child) if isinstance(child, ast.Call) else None
-                if text and text.rsplit(".", 1)[-1] in _DECIDED:
-                    return True
-        if (producer.method or producer.short_name) in _DECIDED:
-            return True
-    return False
-
-
-def _scored_value(ctx, call: CallSite, node: ast.expr):
-    """`(tags, producer, name)` for the prediction argument of a metric call."""
-    index = _by_node(call.module)
-    if isinstance(node, ast.Call):
-        producer = index.get(id(node))
-        if producer is None:
-            return (), None, dotted_text(node)
-        return K.tags_of(producer.fqn), producer, dotted_text(node)
-    name = dotted_text(node)
-    ref = ctx.binding_of(name, call.scope) if name else None
-    if ref is None:
-        return (), None, name
-    return tuple(ref.tags), ref.producer, name
 
 
 # ---------------------------------------------------------------------------

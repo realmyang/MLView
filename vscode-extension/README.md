@@ -280,6 +280,10 @@ split is:
   tool body is an exported pure function exercised by `node --test` with a stubbed core. They
   have **not** been run against a live Copilot session on this machine.
 
+Closing that gap is a person's job, not a test's: [`../docs/VALIDATION.md`](../docs/VALIDATION.md)
+session A is the 30-minute script for it — what to click, what "working" means for each check,
+and where to write down what you saw.
+
 Registration is feature-detected: `vscode.chat?.createChatParticipant` and
 `vscode.lm?.registerTool` are `typeof`-guarded inside try/catch, and when they are absent the
 output channel logs `chat API unavailable - participant not registered` and activation continues
@@ -316,3 +320,15 @@ docs/rules/          offline rule pages, copied from <repo>/docs/rules by `npm r
 extension: `<extensionPath>/docs/rules/MLV201.md`. The `<repo>/docs/rules` fallback in
 `diagnostics.ts` only ever resolves in a dev checkout, so the pages are synced into the
 extension at build time and shipped in the `.vsix`.
+
+---
+
+## More documentation
+
+| Document | What it is for |
+|---|---|
+| [`../README.md`](../README.md) | What MLView is, and the ninety-second demo |
+| [`../docs/STATUS.md`](../docs/STATUS.md) | What is verified today, and the known gaps |
+| [`../docs/CONTRACTS.md`](../docs/CONTRACTS.md) | **Normative.** The schema, the CLI, the MCP tools, the message protocol |
+| [`../docs/VALIDATION.md`](../docs/VALIDATION.md) | Validating this host by hand on another machine, and publishing it |
+| [`../CHANGELOG.md`](../CHANGELOG.md) | The dated history, newest first |

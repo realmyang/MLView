@@ -47,11 +47,15 @@ an analyzer fact, not a bundle fact.
 
 **Gate 6 — the VSIX's own core.** PACKAGING bundles a third copy of
 `analyzer/src/mlview` into `vscode-extension/core/mlview` so a marketplace install
-works with no pip step at all. `tools/sync-core.py --check` proves it is
-byte-identical to `analyzer/src/mlview`, and this gate additionally refuses a
-`.vscodeignore` that would exclude the directory from the package — a VSIX that
-ships without its analyzer is green everywhere else and broken on install
-(`docs/CONTRACTS.md §11.25`).
+works with no pip step at all. Since C2 that copy is a gitignored BUILD ARTIFACT
+rather than a tracked directory — `npm run compile`, `npm run pretest` and
+`vsce package`'s `vscode:prepublish` all write it through
+`vscode-extension/tools/sync-core.mjs` — so this row is where "it was built, and
+what was built is current" is asserted: it is byte-identical to
+`analyzer/src/mlview`, it EXISTS (a missing copy is a build that did not happen,
+i.e. a VSIX with no analyzer), and `.vscodeignore` does not exclude the directory
+from the package. A VSIX that ships without its analyzer is green everywhere else
+and broken on install (`docs/CONTRACTS.md §11.25`).
 
 **Gate 3 — one version.** `mlview.version.__version__`, `analyzer/pyproject.toml`,
 `vscode-extension/package.json`, `claude-plugin/.claude-plugin/plugin.json` and
@@ -446,6 +450,12 @@ def check_vsix_core() -> List[Result]:
     this row a condition of the same change. `.vscodeignore` keeps `core/` in the
     package, so a drifted copy is an analyzer that ships to users and to nobody's
     tests.
+
+    C2 made that copy gitignored and built rather than tracked, which changes
+    nothing here except the message: this row is STRICT about the directory
+    existing, because after a build it must, while the bare
+    `tools/sync-core.py --check` (which also runs on fresh clones, in the plugin
+    CI job) reports an unbuilt copy as "not built" instead.
     """
     sync_core = _sync_core_module()
     if sync_core is None:

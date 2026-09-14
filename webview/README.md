@@ -89,12 +89,14 @@ package's tests and `dev/states.html`. **Hosts must not depend on it.**
 | Module | Responsibility |
 |---|---|
 | `src/main.ts` | the single global: `version`, `mount`, `bridges`, `__internal` |
-| `src/app.ts` | the controller: view state, chrome, rail, search, keys, host protocol |
+| `src/app.ts` | the controller: view state and lifecycle; the work it drives is in `src/app/` |
+| `src/app/` | `build` (the shell and every panel), `documents` (document, scope, diff, chooser), `surfaces` (repaint chrome / diff band / rail), `actions` (the requests posted to the host), `exporting` (VIEW-07), `keys` (the keyboard binding), `messages` (the host protocol, inbound), `state` (`ViewState`, both directions) |
 | `src/canvasview.ts` | the diagram surface: layout frame, scene DOM, viewport, hover, focus, collapse |
+| `src/canvas/` | `host` (what the canvas may ask of the App, and the surface's timings), `wiring` (the gestures a rendered card or cable answers), `emphasis` (selection, hover, the lineage trace, focus mode) |
 | `src/filters.ts` | the filter model (severities, stages, suppressed, query, rule codes) and its predicates |
 | `src/layout/` | `model` (index), `layout` (swimlanes + dagre), `wrap` (rank re-flow), `routing` (elbows, loops), `channel` (the cross-lane trunk plan), `bundles` (trunk + spur geometry), `navigate` (arrow keys) |
 | `src/render/` | `scene`, `nodes`, `edges`, `bundles` (the trunk layer and its expand/collapse binding), `canvas` (viewport + minimap), `trace`, `tooltip`, `connectors` |
-| `src/ui/` | `shell`, `chrome`, `rail`, `issuelist`, `railgroup`, `evidence`, `ruledocs`, `legend`, `gestures`, `states`, `keymap`, `searchbox`, `searchcontroller` |
+| `src/ui/` | `shell`, `chrome`, `chromebanners` (the banner stack, in its contracted order), `rail`, `issuelist`, `railgroup`, `evidence`, `ruledocs`, `legend`, `gestures`, `states`, `keymap`, `searchbox`, `searchcontroller` |
 | `src/ui/issuelist.ts` | the Issues panel: the "Group by" control, the severity sections, the rows and the four empty states |
 | `src/ui/railgroup.ts` | grouping findings by rule or by file, with occurrence counts (RAIL-GROUP) |
 | `src/ui/evidence.ts` | the confidence chip on every row, the `issue.evidence[]` checklist and the rule card (MLV-P6) |

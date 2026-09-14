@@ -103,11 +103,24 @@ CURRENT_GLOBS = ("README.md", "docs/STATUS.md", "docs/ACCURACY.md",
                  "scripts/README.md", "*/README.md", "docs/rules/README.md")
 # Docs that describe the tree as it was *planned*: frozen design records, checked
 # for dead Markdown links only. Rewriting them to match the build would erase the
-# record of what was decided. docs/CONTRACTS.md is normative and frozen, and is
-# never held to this gate at all.
+# record of what was decided.
 PLAN_GLOBS = ("docs/ARCHITECTURE.md", "docs/REQUIREMENTS.md",
               "docs/ISSUE_RULES.md", "docs/UX_DESIGN.md")
-SKIP = {"docs/CONTRACTS.md"}
+# `docs/CONTRACTS.md` (MLView Contracts v1.1) is normative and is held to this
+# gate not at all: it folds fifty dated amendments into one spec, so it carries
+# measurements that were true on the day each was written, and its own section 17
+# is the documented way to repair one. A gate that forced those figures to be
+# rewritten would make that erratum mechanism impossible -- the cost, stated in
+# its section 16.4, is that a wrong figure there is equally invisible here, which
+# is why every figure in it names the command that settles it.
+#
+# `docs/archive/` is the same decision one step further: an archived spec must
+# keep, byte for byte, the text the rest of the tree was built against. Nothing
+# under it is collected by the globs above today (they reach one directory deep);
+# the entries below are belt and braces for the day one of them widens.
+SKIP = {"docs/CONTRACTS.md",
+        "docs/archive/README.md",
+        "docs/archive/CONTRACTS-v1.0-amended.md"}
 
 PATH_RE = re.compile(r"`([^`\s]+/[^`\s]*)`")
 LINK_RE = re.compile(r"\[[^\]]*\]\(([^)\s]+)\)")
@@ -150,8 +163,14 @@ _SYMBOL_CACHE: dict = {}
 
 # ---------------------------------------------------------- line endings
 # Generated and vendored trees keep whatever endings their tools wrote; the
-# pristine pre-feature snapshot under .workflows/ is a diffing aid, not source.
-ENDING_SKIP_PARTS = SOURCE_SKIP_PARTS | {".workflows"}
+# pristine pre-feature snapshot under .workflows/ is a diffing aid, not source;
+# and `.public-corpus/` is 24 CLONED third-party repositories that
+# `tools/public_corpus.py fetch` drops in the working directory - 169 of their
+# shell scripts are not this project's source and their line endings are not this
+# project's business. Without that entry this gate's own regression test fails on
+# every machine that has ever fetched the corpus, which is every machine that
+# follows docs/VALIDATION.md.
+ENDING_SKIP_PARTS = SOURCE_SKIP_PARTS | {".workflows", ".public-corpus"}
 CR, LF = bytes([13]), bytes([10])
 CRLF = CR + LF
 

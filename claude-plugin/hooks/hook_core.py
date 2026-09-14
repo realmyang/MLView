@@ -270,11 +270,13 @@ def analyze(root: str, include_notebooks: bool) -> Optional[Dict[str, Any]]:
     Two directories, and neither may be the project. ``MLVIEW_DATA_DIR`` holds the
     graph document and its signature sidecar, and is deliberately the one the MCP
     tools use so this run warms what they read. ``MLVIEW_CACHE_DIR`` holds the
-    per-file parse cache (CONTRACTS 11.28), whose default is
+    per-file parse cache (CONTRACTS 11.28), whose default was
     ``<workspace>/.mlview/cache`` — measured creating ``.mlview/`` inside a test
     project on the first hook run, which is exactly the "never writes to the
-    project" clause being broken. Both are ``setdefault``, so a user who has named
-    either one keeps it.
+    project" clause being broken. C8 moved the core's default out to the user's
+    own cache directory, so the hole is closed on both sides now; this half stays
+    because it is also what makes the hooks and the MCP tools read *one* parse
+    cache. Both are ``setdefault``, so a user who has named either one keeps it.
 
     The cache directory is not computed here: ``mlview_workspace.shared_cache_dir()``
     points it at ``<MLVIEW_DATA_DIR>/cache``, and it is the same context the MCP

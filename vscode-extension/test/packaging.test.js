@@ -24,6 +24,9 @@ const { readBundledCore, chooseCore, compareVersions, coreLabel } = api;
 
 const EXTENSION_ROOT = path.join(__dirname, '..');
 const REPO_ROOT = path.join(EXTENSION_ROOT, '..');
+// C2: a gitignored BUILD artifact, written by `node tools/sync-core.mjs`, which
+// `pretest` runs before this file executes. `core-untracked.test.js` asserts that
+// it is built AND that git does not track it; here it is simply expected to exist.
 const CORE_DIR = path.join(EXTENSION_ROOT, 'core');
 const manifest = JSON.parse(fs.readFileSync(path.join(EXTENSION_ROOT, 'package.json'), 'utf8'));
 
@@ -99,7 +102,7 @@ test('coreLabel names which core is in use and why — that is the whole tooltip
 
 test('readBundledCore reads the real <extension>/core that sync-core.py wrote', () => {
   const bundled = readBundledCore(EXTENSION_ROOT);
-  assert.ok(bundled, 'tools/sync-core.py must have populated vscode-extension/core');
+  assert.ok(bundled, 'run `npm run compile` — it builds vscode-extension/core');
   assert.equal(bundled.pythonPath, CORE_DIR, 'PYTHONPATH points at core/, the parent of mlview/');
   assert.equal(bundled.version, manifest.version, 'CONTRACTS A2: one version string everywhere');
   assert.match(bundled.schemaVersion, /^\d+\.\d+$/);

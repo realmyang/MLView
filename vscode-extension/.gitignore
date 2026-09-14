@@ -1,3 +1,7 @@
 node_modules/
 out/
 *.vsix
+# C2: the bundled analyzer is BUILT by `python tools/sync-core.py` (which `npm run
+# compile` and `npm run package` both run first), never committed. See the root
+# .gitignore for why one repository holds one tracked analyzer.
+core/
