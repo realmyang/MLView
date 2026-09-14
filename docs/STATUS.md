@@ -2420,25 +2420,25 @@ drawn in the Evaluate lane under an answer card that said *"Evaluation runs in
 …"* at 0.95; `--dataflow ip` returning **less** than `local` on 20 programs with
 `diagnostics == []` in both modes.
 
-**Coverage.** Seven testers worked in parallel over the analyzer, the renderer,
-the three hosts and the tree itself:
+**Coverage.** Testers worked in parallel over the analyzer, the renderer, the
+three hosts and the tree itself:
 
 | Surface | What was covered | What it left in the tree |
 |---|---|---|
-| Public repositories | **24 → 37 pinned repos** — the round-1 set plus torchtune, peft, trl, accelerate, statsmodels, LightGBM, optuna-examples, cleanrl, mmdetection, LLMs-from-scratch, handson-ml3, pytorch-tutorials and more — at exact SHAs, **112 targets × 3 modes (`local`, `ip`, `--include-notebooks`) = 260 runs** | `analyzer/tests/public_corpus/repos.json` and `adjudication.json` grow with them; the notebooks mode is new |
+| Public repositories | **24 → 37 pinned repos** — the round-1 set plus exactly thirteen, none removed: torchtune, peft, trl, accelerate, statsmodels, LightGBM, xgboost, optuna-examples, cleanrl, mmdetection, LLMs-from-scratch, handson-ml3 and pytorch-tutorials — at exact SHAs, **112 targets × 3 modes (`local`, `ip`, `--include-notebooks`) = 260 runs** | `analyzer/tests/public_corpus/repos.json` and `adjudication.json` grow with them; the notebooks mode is new |
 | Written ML/DL code | **66 new labelled programs**: adversarial / RL / GNN / self-supervised (`adv_*`), infrastructure (Airflow, Click, DVC, Fabric, Optuna, PySpark, Ray, SageMaker, a plugin registry, a TF custom loop, a notebooks-only repository), NLP (DistilBERT distillation, DPO, instruction SFT, Keras text, a reranker, RAG indexing) and vision, most as a correct / defective pair | `analyzer/tests/accuracy/corpus/` grows 92 → **158 programs**, 312 → **545** `expected` labels, 1229 → **2327** `forbidden` labels, 614 → **1166** hand-drawn graph ops |
 | The renderer | the **built** viewer mounted in jsdom over the 260 public-corpus documents and 158 documents emitted from the labelled corpus — 1257 chips measured past 48 characters on 227 of them, 1255 with no `title` at all | `webview/test/hardening_chrome_budget.test.mjs` (14 assertions) and `hardening_hosts_ux2.test.mjs` (5) |
 | Hosts | every accepted `mlview_analyze(framework=…)` value against the rule registry; the VS Code configuration precedence chain | `claude-plugin/tests/test_framework_suppression.py` (**26 cases**) and `vscode-extension/test/hardening_config_precedence.test.js` |
 | The analyzer's own declarations | binding shapes (tuple parameters, dict literals, `functools.partial`, factory returns), notebook magics, package walking, report escaping | `analyzer/tests/core/test_round2_analyzer.py` + `test_round2_core.py` (**64 cases**) and three new `analyzer/tests/fixtures/robustness/` trees |
 | The tree itself | the command lines CI generates, the exclusive rule lists a document asserts, and a "known gap" that names its own retirement condition | doc-gate checks **19, 20 and 21** — the gate is now twenty-one checks, still offline and stdlib-only |
 
-**Findings fixed: 54.** Forty-four in the analyzer (`docs/ACCURACY.md` §8 is the
+**Findings fixed: 55.** Forty-four in the analyzer (`docs/ACCURACY.md` §8 is the
 record), three in the tree's own documents and CI (**PUB2-10**, **VIS2-17**,
 **HOSTS-UX-R2-07**), one in the Claude Code plugin (**INFRA-R2-18**: an
 *accepted* `--framework` value silently returned a shorter finding list — a
 high-severity `MLV121` disappeared when a Keras workspace was narrowed to
 `torch` and nothing in the payload said a rule had been disabled), two in the
-renderer (**TAB2-10**, **HOSTS-UX-R2-06**) and four more the integration itself
+renderer (**TAB2-10**, **HOSTS-UX-R2-06**) and five more the integration itself
 made. The worst class was again the largest: `hardening` opened this round with
 **eight forbidden findings** — high-severity claims about correct code the
 labelled corpus explicitly forbids — and precision **97.9%**; it closes at zero
@@ -2492,6 +2492,16 @@ written and the fixes were not, which is an honest hand-off and a blocking one.
   document with no coverage diagnostic still gets an unqualified clean result.
   Measured over the 260 pinned public-repository documents: **122 draw the clean
   state, and 118 of them were drawing it over a run that had been blind.**
+* **A fifth `truncated` emitter did not carry §11.59 A1's vocabulary.** The
+  amendment says `scope` on such a row is one of `files`, `nodes`, `rounds`,
+  `dataflow`; `rules/r_leakage.py`'s cross-scope refusal put the *qualname* of
+  the scope the fit lives in there instead, which is the field's older meaning
+  and is what `dynamic_scope` still uses. It is `dataflow` now — the same
+  literal the hop cap gives — and the qualname stays in the message, where a
+  name belongs on a row whose `scope` is a closed vocabulary. The clean state
+  above reads `scope != "nodes"` to tell *"I did not read something"* from
+  *"I rolled the graph up for display"*, so this was one accident away from
+  mattering.
 
 **The recall headline went UP, on a corpus 1.7× larger.** Round 1 had to report
 a fall (73.1% → 72.4%) because 77 of its 92 programs were new; this round's 66

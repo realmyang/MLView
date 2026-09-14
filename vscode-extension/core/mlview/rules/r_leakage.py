@@ -290,9 +290,16 @@ def _note_refused_split(ctx, fit: CallSite, name: Optional[str], ref, splits) ->
     for existing in ctx.diagnostics:
         if existing.kind == "truncated" and existing.message == message:
             return
+    # CONTRACTS 11.59 A1: on a `truncated` row `scope` names WHICH CAP stopped
+    # the analysis - one of `files`, `nodes`, `rounds`, `dataflow` - so that a
+    # consumer asking "was the graph capped?" never has to read English. This
+    # row is the interprocedural refusal, so it is `dataflow`, the same literal
+    # `core/pipeline` gives the hop cap. The scope this happened IN is not lost:
+    # `fit.scope.qualname` is already in the message above, which is where a
+    # name belongs on a row whose `scope` field is a closed vocabulary.
     ctx.diagnostics.append(Diagnostic(
-        kind="truncated", message=message, file=fit.loc.file, line=fit.loc.line,
-        scope=fit.scope.qualname if fit.scope is not None else None,
+        kind="truncated", scope="dataflow", message=message,
+        file=fit.loc.file, line=fit.loc.line,
         ruleCode=spec.code if spec is not None else None))
 
 

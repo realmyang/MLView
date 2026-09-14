@@ -467,7 +467,7 @@ three of which fan out over a matrix:
 | `e2e (windows, powershell)` | windows, Python 3.13 + Node 20 | `scripts/e2e.ps1` — the same 20 steps under the other driver |
 | `smoke (macos)` | macos, Python 3.13 + Node 20 | the analyzer and viewer suites — **only on push to `main` and on pull requests** |
 | `packaging (wheel + vsix)` | ubuntu, Python 3.13 + Node 20 | `tools/wheel_check.py` (build the wheel, `pip install` it into a throwaway venv, analyze with it), `sync-core.py --check`, `make_icon.py --check`, `npm run package`, then `scripts/vsix_check.py` — the 1 MB ceiling, the whole bundled analyzer, every rule page, no `__pycache__`, with the measured figures echoed |
-| `accuracy corpus` | ubuntu, Python 3.13 | `tools/accuracy.py` over the **92** labelled programs, then `pytest analyzer/tests/accuracy` — zero `forbidden` findings, and recall and graph fidelity may only ratchet up |
+| `accuracy corpus` | ubuntu, Python 3.13 | `tools/accuracy.py` over the **158** labelled programs, then `pytest analyzer/tests/accuracy` — zero `forbidden` findings, and recall and graph fidelity may only ratchet up |
 
 `.github/workflows/nightly.yml` is separate and deliberately not on the push
 path: `python tools/verify.py --scopes --fuzz 2000` builds the viewer from that

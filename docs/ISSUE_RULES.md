@@ -118,9 +118,9 @@ Not a user rule and never rendered as a badge. `MLV000` is the code carried by `
 | `parse_error` | `ast.parse` raised | Dismissible banner: *"3 files could not be parsed"*, expandable to filename + message, each clickable |
 | `dynamic_scope` | A scope contains `exec`, `eval`, `getattr` on a call target, a star-import, or `**kwargs` forwarding | "Partial understanding" banner; confidence ×0.7 in that scope; `unknown` nodes rendered dashed |
 | `rule_error` | A rule raised (never re-raised unless `--strict`) | Status bar: *"N analyzer notes"* |
-| `truncated` | `--max-nodes` exceeded | Banner naming what was dropped |
+| `truncated` | One of four caps was hit, and `scope` says which: `files` (discovery), `nodes` (`--max-nodes`), `rounds` (IR resolution), `dataflow` (an interprocedural chain). A consumer asking *"was the GRAPH capped?"* reads `scope == "nodes"` rather than the prose (CONTRACTS 11.59 A1) | Banner naming what was dropped |
 | `notebook_skipped` | `.ipynb` found | Status bar: *"3 notebooks not analyzed"* — a silently skipped notebook is indistinguishable from a broken analyzer |
-| `framework_suppressed` | The `negation_absent` gate fired | Chip: *"training loop handled by Lightning — 7 rules not applicable"* |
+| `framework_suppressed` | **Two different statements, and the message prefix `--framework ` is the discriminator** (CONTRACTS 11.57 A3). Without it: the `negation_absent` gate fired and those rules RAN and were capped. With it: a host `--framework` filter meant those rules DID NOT RUN, and the message names the filter, the count and the detected frameworks | Chip: *"training loop handled by Lightning — 7 rules not applicable"*; the filter form is also a coverage row in the plugin's note block |
 | `config_warning` | `.mlview.toml` tried to override a severity | Output channel line |
 
 Exit code stays **0** for all of these.
