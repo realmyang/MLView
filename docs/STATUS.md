@@ -2359,6 +2359,42 @@ traceback, no schema error, every exit code 0 or 4.
 and **15 issues (5 high / 6 medium / 4 low) in all four**;
 `python analyzer/tools/gen_gallery.py --quiet` renders **102 reports plus an
 index**; `python scripts/check_docs.py` **DOC CHECK OK** (19 files, 18 checks).
+**CI (run 34793319849): all 12 branch jobs green**, 13m10s wall and ~71 billable
+minutes (43 for the eleven ubuntu jobs, 14 x 2 = 28 for the one Windows job) —
+`e2e (windows, powershell)` 787 s, `e2e (ubuntu, sh)` 617 s, Python 3.10-3.13
+219-355 s, Node 20/22 171-176 s; `smoke (macos)` skipped on a branch push by
+design. Both totals roughly doubled over Sprint 5's, and the cause is this
+round's own work: 2087 -> 2405 analyzer tests and 15 -> 92 labelled programs.
+
+It took **three fix iterations**, recorded here rather than smoothed over,
+because every one was a real defect a single-platform run cannot see and every
+one was in a test this round wrote:
+
+1. **`analyzer (py3.10)` and `(py3.11)`, four failures, two fixtures.**
+   `robustness/syntax/pep695` is PEP 695 and `.../fstrings` is PEP 701 — both
+   3.12-only source. MLView parses with the **host** interpreter's `ast`, so on
+   those runners the files cannot be read at all, and
+   `test_every_syntax_fixture_analyzes_without_incident` asserted
+   `filesFailed == 0` about a file the host cannot open. `syntax_programs()` now
+   carries a `MIN_PYTHON` skipif (eight skips there, verified by setting the map
+   to `(3, 99)` and counting them). **`claude-plugin`**, same push: a test shelled
+   out to `python -m mlview` in the one job that deliberately does **not** install
+   the analyzer, read `No module named mlview`, and asserted against that text;
+   the child now gets `PYTHONPATH=analyzer/src`, which is what the sibling
+   `_cli_scoped` already does.
+2. **`e2e (windows, powershell)`**, `assert 418 == 402`.
+   `test_an_edit_that_preserves_size_and_mtime_is_still_seen` wrote the fixture as
+   bytes and rewrote it through a **text-mode** handle, so Windows turned every
+   `\n` into `\r\n` and the file grew a byte a line. The premise of the test was
+   destroyed by the file mode and the failure read as an analyzer defect. Both
+   handles now pass `newline=""`.
+3. **`e2e (windows, powershell)`** again, four subtests in two new
+   `vscode-extension` suites, one defect wearing two hats: an assertion comparing
+   two spellings of one path. §0 makes every path in the document
+   forward-slashed and `Uri.file(...).fsPath` gives the host separator; and
+   `path.join(path.sep, 'work', 'api')` is a drive-less `\work\api` that
+   everything downstream resolves against the current drive. Both are now
+   compared through `path.resolve`.
 
 **What this round did not close**, named rather than averaged away: a model,
 criterion and optimizer arriving as parameters still cost a training step its

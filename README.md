@@ -479,9 +479,10 @@ default branch, so it starts firing once this lands on `main`.
 The matrix is deliberately lopsided: the repository is private, so minutes are
 metered and weighted (windows 2x, macos 10x), and the fan-out is therefore
 ubuntu-only. **Measured, not estimated** — the last full green push
-(run 34454599867, Sprint 5's review-fix integration) took **7m57s of wall time
-and ~44 billable minutes** across the **12 green jobs** a branch push runs,
-macOS skipped;
+(run 34793319849, hardening round 1) took **13m10s of wall time
+and ~71 billable minutes** across the **12 green jobs** a branch push runs,
+macOS skipped; the round roughly doubled both, because the analyzer suite grew
+from 2087 tests to 2405 and the labelled corpus from 15 programs to 92;
 `scripts/README.md` row 25 breaks that run down job by job, and it is the same
 run this file and the gate table both mean by "the last full green push".
 The thirteenth job has run on exactly **one** branch push ever
