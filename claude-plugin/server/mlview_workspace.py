@@ -18,6 +18,11 @@ Two of these functions exist purely as guards, and both cover a confirmed defect
   same obligation on the webview's ``openLocation``).
 * ``_RULE_DOC_ROOTS`` — rule pages are a property of the analyzer version, never of
   the code under analysis, so the analyzed project is deliberately not searched.
+
+A third pair, ``framework_suppression`` / ``note_framework_suppression``, is the
+other half of the first: ``normalize_framework`` refuses a spelling no rule
+declares, and these say out loud what an ACCEPTED one cost this workspace, so a
+filtered finding list can never be read as a clean one.
 """
 
 from __future__ import annotations
@@ -28,9 +33,13 @@ import json
 import logging
 import os
 import sys
-from typing import Any, Dict, Iterator, List, Optional
+from typing import Any, Dict, Iterator, List, Optional, Sequence
 
 from mlview.api import AnalyzeOptions, analyze_to_dict
+from mlview_notes import (  # the reader of the note written below
+    FRAMEWORK_FILTER_PREFIX,
+    is_framework_filter_note,
+)
 
 log = logging.getLogger("mlview.mcp")
 
@@ -42,6 +51,7 @@ __all__ = [
     "project_dir", "data_dir", "cache_dir", "shared_cache_dir",
     "resolve_path", "resolve_out",
     "FRAMEWORKS", "normalize_framework",
+    "framework_suppression", "note_framework_suppression",
     "analyzer_identity", "file_signature", "graph_file_for",
     "load_graph", "load_graph_or_file", "load_attributed",
     "read_source", "rule_doc", "rule_spec", "rule_codes", "RULE_DOC_ROOTS",
@@ -105,6 +115,159 @@ def normalize_framework(framework: Optional[str]) -> str:
             % (framework, ", ".join(repr(f) for f in FRAMEWORKS))
         )
     return name
+
+
+#: How many detected framework names the diagnostic below spells out. The rule
+#: codes are NOT in its sentence: every reader of the message shows the ``codes``
+#: field beside it — `webview/src/ui/chrome.ts` appends them to the chip,
+#: `mlview_notes.coverage_notes` carries them as a field and `coverage_note` puts
+#: them in the payload's note — so repeating them inline only made the chip say
+#: the same three codes twice. Bounding the prose is also what keeps the message
+#: under ``mlview_notes.MAX_MESSAGE`` (400), so the coverage block never clips a
+#: sentence mid-word: the widest case measured (nine frameworks detected, the
+#: `lightning` filter) is 301 characters.
+FRAMEWORKS_IN_MESSAGE = 6
+
+
+def _rule_applies(
+    declared: Sequence[str], detected: Sequence[str], framework_filter: str
+) -> bool:
+    """``mlview.rules.registry._applies``, mirrored on a spec's own fields.
+
+    Mirrored rather than called because the core's helper is private: a rename
+    there would turn a runtime call into an ``AttributeError`` raised inside a
+    tool call — a crash in the one function whose whole job is to stop a silent
+    answer. The copy cannot drift unnoticed either, because
+    ``tests/test_framework_suppression.py`` cross-checks it against
+    ``registry._applies`` for every registered rule against every accepted
+    ``--framework`` value and several detected-framework sets, so a change to the
+    core's filter fails the plugin suite loudly instead of skewing a count.
+    """
+    if not declared:
+        return True
+    declared_set = set(declared)
+    if framework_filter and framework_filter != "auto":
+        return framework_filter in declared_set
+    detected_set = set(detected)
+    if not detected_set:
+        return True
+    return bool(declared_set & detected_set) or "all" in declared_set
+
+
+def framework_suppression(
+    graph: Optional[Dict[str, Any]], framework: Optional[str]
+) -> Optional[Dict[str, Any]]:
+    """The ``framework_suppressed`` diagnostic a non-``auto`` filter owes, or ``None``.
+
+    :func:`normalize_framework` states the invariant this completes: *a filter
+    that names no extractor must never quietly return a shorter finding list,
+    because the caller cannot tell that answer from a clean project.* Rejecting an
+    unknown spelling covered the typo half. The other half is a VALID name that
+    happens to disable rules on THIS workspace — measured on
+    ``analyzer/tests/accuracy/corpus/infra_tf_custom_loop_bad``, whose document
+    advertises ``frameworks: ["torch", "numpy", "keras", "tf"]``, so narrowing to
+    ``torch`` is the obvious next move:
+
+        framework="auto"  -> MLV121 (high), MLV601 (low), diagnostics []
+        framework="torch" -> MLV601 (low),                diagnostics []
+
+    A high-severity finding disappeared and nothing in the payload said why. The
+    diagnostic below is what says why: which rules the filter disabled, how many,
+    and that the shorter list is a filtered answer rather than a clean one. It
+    uses the kind ``contracts/graph.schema.json`` already reserves for exactly
+    this ("For framework_suppressed: which rules were not applied"), so the
+    document stays schema-valid, no new vocabulary is invented, and the webview
+    chip renders the message verbatim (`webview/src/ui/chrome.ts`). The analyzer
+    writes that kind too, for the R3.8 absence gate — a DIFFERENT statement, since
+    those rules ran and were de-rated — which is why
+    ``mlview_notes.is_framework_filter_note`` separates the two everywhere they
+    are read.
+
+    A rule counts as suppressed only when it WOULD have run under ``auto`` on this
+    workspace: a keras rule on a torch-only project was never going to fire, and
+    counting it would inflate the number into noise. ``None`` means the filter
+    cost this workspace nothing, which is a real answer and not a caveat.
+    """
+    name = normalize_framework(framework)
+    if name == "auto":
+        return None
+    detected = [
+        f for f in ((graph or {}).get("workspace") or {}).get("frameworks") or []
+        if isinstance(f, str)
+    ]
+    try:
+        from mlview.rules import registry  # noqa: PLC0415 - after the bootstrap
+
+        registry.discover_rules()
+        specs = list(registry.all_rules())
+    except Exception as exc:  # a registry problem must not sink the tool
+        log.warning("rule registry unavailable: %s", exc)
+        # Silence is the one answer ruled out here: the filter DID narrow the run,
+        # and the caller cannot see that from the finding list. Say so without the
+        # codes rather than say nothing.
+        return {
+            "kind": "framework_suppressed",
+            "message": (
+                "%s%s ran only the rules that declare it; the rule registry could "
+                "not be read, so this run cannot name which rules it disabled. "
+                "This finding list is filtered, not a clean bill of health - omit "
+                'framework (or pass "auto") to run every rule.'
+                % (FRAMEWORK_FILTER_PREFIX, name)
+            ),
+        }
+
+    codes = sorted(
+        spec.code for spec in specs
+        if spec.enabled
+        and _rule_applies(spec.frameworks, detected, "auto")
+        and not _rule_applies(spec.frameworks, detected, name)
+    )
+    if not codes:
+        return None
+    seen = ", ".join(detected[:FRAMEWORKS_IN_MESSAGE]) or "none"
+    return {
+        "kind": "framework_suppressed",
+        "message": (
+            "%s%s ran only the rules that declare it, so %d framework-specific "
+            "rule(s) did not run here. Detected frameworks: %s. A shorter finding "
+            "list is a filtered answer, not a clean bill of health - omit "
+            'framework (or pass "auto") to run every rule.'
+            % (FRAMEWORK_FILTER_PREFIX, name, len(codes), seen)
+        ),
+        "codes": codes,
+        "count": len(codes),
+    }
+
+
+def note_framework_suppression(
+    graph: Optional[Dict[str, Any]], framework: Optional[str]
+) -> Optional[Dict[str, Any]]:
+    """Add :func:`framework_suppression` to ``graph["diagnostics"]``, in place.
+
+    Applied on EVERY path out of :func:`load_graph`, not only after a fresh
+    analysis, and idempotent because of it — idempotent on ITS OWN note:
+    ``mlview/rules/context.py`` emits the same ``kind`` for the R3.8 absence gate,
+    and most Keras, Lightning and HF workspaces carry one, so "a diagnostic of
+    this kind is already here" would have meant "say nothing" exactly where the
+    filter had the most to hide. A ``graph.json`` written by an older
+    plugin build carries no such diagnostic, and ``analyzer_identity()`` — the
+    thing that decides whether a sidecar is stale — hashes the ANALYZER, not this
+    server, so that document is still served. Re-deriving the note on the way out
+    is what stops the fix from depending on a cache miss.
+    """
+    if not isinstance(graph, dict):
+        return None
+    diagnostics = graph.get("diagnostics")
+    if not isinstance(diagnostics, list):
+        diagnostics = []
+        graph["diagnostics"] = diagnostics
+    for entry in diagnostics:
+        if is_framework_filter_note(entry):
+            return entry
+    note = framework_suppression(graph, framework)
+    if note is not None:
+        diagnostics.append(note)
+    return note
 
 
 # ------------------------------------------------------------------ path handling
@@ -337,6 +500,10 @@ def load_graph(
     ``analyzer_identity()``, because a file that outlives the process also
     outlives the build that wrote it.
 
+    Every path out of here — memo, sidecar, fresh analysis — goes through
+    ``note_framework_suppression`` first, so a non-``auto`` filter always carries
+    the ``framework_suppressed`` diagnostic naming the rules it disabled.
+
     NB. ``include_notebooks`` is part of the key, not a filter applied afterwards:
     the same sources analyzed with and without it are two different documents, and
     serving the notebook-free one to a caller that asked for notebooks would report
@@ -354,6 +521,8 @@ def load_graph(
 
     cached = _CACHE.get(key)
     if cached is not None and os.path.exists(graph_path):
+        # Idempotent, so a memo that already carries the note is untouched.
+        note_framework_suppression(cached, framework)
         return {"graph": cached, "graphPath": graph_path, "cached": True}
 
     # A previous process may have left a usable file behind — usable only if the
@@ -373,6 +542,10 @@ def load_graph(
             ):
                 with open(graph_path, "r", encoding="utf-8") as fh:
                     graph = json.load(fh)
+                # A document written by an older build of THIS server carries no
+                # framework note, and the sidecar's `analyzer` field cannot see
+                # that: it fingerprints the analyzer, not the plugin.
+                note_framework_suppression(graph, framework)
                 _CACHE[key] = graph
                 return {"graph": graph, "graphPath": graph_path, "cached": True}
         except (OSError, ValueError):
@@ -389,6 +562,7 @@ def load_graph(
                 include_notebooks=bool(include_notebooks),
             )
         )
+    note_framework_suppression(graph, framework)
     _CACHE[key] = graph
     try:
         os.makedirs(os.path.dirname(graph_path), exist_ok=True)
@@ -449,6 +623,7 @@ def load_attributed(
             changed_since=changed_since, baseline=baseline,
             include_notebooks=bool(include_notebooks),
         )
+    note_framework_suppression(graph, framework)
     plain = graph_file_for(resolved)
     graph_path = plain[: -len(".json")] + ".attributed.json" if plain.endswith(".json") else plain
     try:

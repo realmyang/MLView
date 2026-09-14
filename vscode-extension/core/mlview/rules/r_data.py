@@ -24,7 +24,15 @@ __all__ = ["train_loader_not_shuffled", "eval_loader_shuffled", "workers_without
 
 LOADER_FQN = "torch.utils.data.DataLoader"
 _TRAIN_LOADER_RE = re.compile(r"(?i)^(train_?(loader|dl|data|batches)?|(loader|dl)_?train)$")
-_EVAL_LOADER_RE = re.compile(r"(?i)^(val|valid|validation|test|eval|holdout)_?"
+#: DGRG2-11 / VIS2-18. `dev` is the canonical held-out name in LibriSpeech
+#: (`dev-clean`), GLUE and CoNLL; `query` and `gallery` are the canonical names
+#: in retrieval and re-identification. Both were missing, so
+#: `dev_loader` and `query_loader` could not be evaluation loaders at all.
+#: Reinforcing-only under iron law 2 - the regex cannot create a tag, only let
+#: a finding that already has dataflow or structural evidence be seen - so
+#: widening it costs no precision.
+_EVAL_LOADER_RE = re.compile(r"(?i)^(val|valid|validation|dev|devel|test|eval|holdout|"
+                             r"query|gallery)_?"
                              r"(loader|dl|data|batches)?$")
 _SEQUENCE_HINT_RE = re.compile(r"(?i)(sequence|sequential|timeseries|time_series|curriculum"
                                r"|series|forecast|temporal)")
@@ -83,42 +91,67 @@ def iterating_loops(ctx, call: CallSite) -> List[LoopIR]:
     caller's binding is the loader's name; one hop finds it.
     """
     out: List[LoopIR] = []
-    names = _loader_binding_names(ctx, call)
+    names, cross_module = _loader_binding_names(ctx, call)
     if not names:
         return out
     for loop in ctx.loops():
         if loop.iterates is not None and loop.iterates.producer is call:
-            out.append(loop)
+            out.append(loop)          # value identity: always correct
             continue
         if not loop.iter_text:
             continue
         tail = loop.iter_text.split(".")[-1]
-        if tail in names and (loop.module is call.module or tail in names):
+        if tail not in names:
+            continue
+        # PUB2-02. The guard here read
+        #     `if tail in names and (loop.module is call.module or tail in names)`
+        # and `A and (B or A)` is `A`, so the module check never applied: EVERY
+        # loop in the workspace whose iterable ended in the same bare
+        # identifier was attributed to this construction. Measured on
+        # pytorch/tutorials, a correctly built `test_loader` in
+        # knowledge_distillation_tutorial.py was reported as "the **training**
+        # DataLoader ... consumed in dataset order every epoch", with the
+        # decisive evidence "the loop at line 272 over this loader calls
+        # backward()" - line 272 of that file is prose inside a comment block,
+        # and the loop lives in fgsm_tutorial.py, a different module with a
+        # different `test_loader` over a different dataset.
+        #
+        # A bare identifier match is only allowed where the name really did
+        # travel: the same module, or one of the modules that call the factory
+        # this loader is returned from.
+        if loop.module is call.module or id(loop.module) in cross_module:
             out.append(loop)
     return out
 
 
-def _loader_binding_names(ctx, call: CallSite) -> set:
-    """Every name this DataLoader construction is bound to, following one hop."""
-    names = set()
+def _loader_binding_names(ctx, call: CallSite):
+    """`(names, modules)` this DataLoader construction is bound to.
+
+    `modules` is the set of modules that actually call the factory the loader
+    is returned from - the only places a cross-module name match is evidence of
+    anything.
+    """
+    names: set = set()
+    modules: set = set()
     if call.var:
         names.add(call.var.split(".")[-1])
-        return names
+        return names, modules
     func = call.function
     if func is None or len(func.returns) != 1:
-        return names
+        return names, modules
     expr = func.returns[0]
     if expr is not call.node:
         text = dotted_text(expr)
         if not text or text.split(".")[-1] != (call.var or "").split(".")[-1]:
             local = ctx.binding_of(text, func.scope) if text else None
             if local is None or local.producer is not call:
-                return names
+                return names, modules
     for relpath in sorted(ctx.modules):
         for site in ctx.modules[relpath].calls:
             if site.target_function is func and site.var:
                 names.add(site.var.split(".")[-1])
-    return names
+                modules.add(id(site.module))
+    return names, modules
 
 
 def _loop_has_role(ctx, loop: LoopIR, *roles: str) -> bool:
@@ -251,9 +284,13 @@ def _training_loader(ctx, call: CallSite, ref) -> Tuple[bool, List, bool]:
         return True, evidence, True
     for loop in iterating_loops(ctx, call):
         if _loop_has_role(ctx, loop, "BACKWARD"):
+            # PUB2-02: the file as well as the line. A cross-module attribution
+            # that is legitimate stays readable, and one that is not is obvious
+            # on sight instead of sending the reader to a line number the file
+            # it points at does not have.
             evidence.append(("context_confirmed",
-                             "the loop at line %d over this loader calls backward()"
-                             % loop.loc.line, 1.0))
+                             "the loop at %s:%d over this loader calls backward()"
+                             % (loop.loc.file, loop.loc.line), 1.0))
             return True, evidence, True
     if _TRAIN_LOADER_RE.match(loader_name(call)):
         return True, evidence, False
@@ -387,15 +424,56 @@ def _runs_at_import(call: CallSite) -> Optional[str]:
     func = call.function
     if func is None:
         return None
+    return _import_time_chain(module, func, guard)
+
+
+#: How many call hops the import-time reachability walk follows.
+_IMPORT_CHAIN_DEPTH = 6
+
+
+def _import_time_chain(module, func, guard) -> Optional[str]:
+    """The module-scope call chain that reaches `func`, as a sentence.
+
+    The walk used to be **one** hop - a helper called directly at module scope
+    - and the real shape is deeper: a bare `main()` call at the foot of the
+    file (often wrapped in a print), `main()` calling `fit()`, `fit()` calling
+    `build_loaders()`. Three hops, and
+    the loader is built at import time just as surely as if it were written at
+    module scope. `tabular_seq_lstm_bad` (two loaders), `nlp_mlm_pretrain_bad`
+    and `nlp_reranker_bad` all have exactly that chain, and MLV112 - a rule
+    whose base prior is 0.98 because the question is purely syntactic - saw
+    none of them.
+
+    The chain is reported in full, so the reader can see which call at module
+    scope is the one to move behind a guard.
+    """
+    callers = {}
     for caller in module.calls:
-        if caller.target_function is not func:
-            continue
-        if caller.function is not None or caller.enclosing_class is not None:
-            continue
-        if guard is not None and _inside(guard, caller.node):
-            continue
-        return ("%s() is called at module scope (line %d), so the loader is built while "
-                "the module is imported" % (func.name, caller.loc.line))
+        target = caller.target_function
+        if target is not None:
+            callers.setdefault(id(target), []).append(caller)
+    frontier = [(func, [])]
+    seen = {id(func)}
+    depth = 0
+    while frontier and depth <= _IMPORT_CHAIN_DEPTH:
+        nxt = []
+        for current, path in frontier:
+            for caller in callers.get(id(current), ()):
+                if caller.function is None and caller.enclosing_class is None:
+                    if guard is not None and _inside(guard, caller.node):
+                        continue
+                    chain = " <- ".join(["%s()" % current.name]
+                                        + ["%s()" % f.name for f in path])
+                    return ("%s is called at module scope (line %d), so the loader "
+                            "is built while the module is imported"
+                            % (chain, caller.loc.line))
+                owner = caller.function
+                if owner is None or id(owner) in seen:
+                    continue
+                seen.add(id(owner))
+                nxt.append((owner, path + [current]))
+        frontier = nxt
+        depth += 1
     return None
 
 

@@ -2,8 +2,9 @@ name: Public corpus
 
 # PUB-01. The labelled corpus (`tools/accuracy.py`) measures MLView against
 # 92 programs written for it. This job measures it against code nobody
-# wrote for it: twenty-four pinned public ML/DL repositories, analysed three
-# ways each.
+# wrote for it: thirty-seven pinned public ML/DL repositories, analysed three
+# ways each (default, `--dataflow ip`, and `--include-notebooks` where the
+# repository ships notebooks).
 #
 # It asserts the four things that can never be a judgement call - no crash, no
 # exit code outside {0, 4}, every document schema-valid, every run inside the
@@ -13,7 +14,7 @@ name: Public corpus
 # one recorded as `state: fixed` coming back fails the job, which is what makes
 # that file a ratchet rather than a diary.
 #
-# COST. ~1.8 GB of shallow clones and ~3 minutes of analysis, so it is
+# COST. ~1.9 GB of shallow clones and ~1 minute of analysis, so it is
 # **schedule + manual only**: it never runs on a push or a pull request. Every
 # clone is pinned to a SHA, so a run is reproducible and an upstream force-push
 # cannot silently change what is being measured.
@@ -49,7 +50,7 @@ permissions:
 
 jobs:
   corpus:
-    name: analyze 24 public repositories
+    name: analyze 37 public repositories
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -72,15 +73,34 @@ jobs:
       # Shallow, blob-filtered, sparse where the repository is large. Pinned to
       # a SHA, so the fetch is either exactly what repos.json recorded or an
       # error - never a moving target.
+      #
+      # PUB2-10, two halves of one defect. This step used to generate
+      # `public_corpus.py fetch --repo <names>`, and `--repo` lived only on the
+      # top-level parser, so argparse answered `unrecognized arguments` and
+      # exited 2: every dispatch that used the documented `repos` input failed
+      # at the job's first step. The step below used to pass no selector at
+      # all, so even a fixed fetch would have cloned one repository, planned all
+      # thirty-seven, and failed the gate on `target directory missing` for the
+      # other thirty-six. `tools/public_corpus.py` now takes the selector on
+      # either side of the subcommand, both steps pass it, and doc-gate check 19
+      # (`scripts/doc_numbers.py`) parses these lines with that CLI's own parser
+      # so the next edit to either one cannot go un-run until the nightly.
+      #
+      # The input reaches the shell through `env:` and is quoted, never pasted
+      # into the script by `${{ }}`: a `workflow_dispatch` input is text a human
+      # typed, and interpolating it into `run:` would execute whatever it says.
       - name: fetch the pinned corpus
+        env:
+          REPOS: ${{ github.event.inputs.repos }}
         run: |
-          python tools/public_corpus.py fetch \
-            ${{ github.event.inputs.repos && format('--repo {0}', github.event.inputs.repos) || '' }}
+          python tools/public_corpus.py ${REPOS:+--repo "$REPOS"} fetch
           du -sh "$MLVIEW_PUBLIC_CORPUS_DIR"
 
       - name: analyze every target (default, --dataflow ip, --include-notebooks)
+        env:
+          REPOS: ${{ github.event.inputs.repos }}
         run: |
-          python tools/public_corpus.py run \
+          python tools/public_corpus.py ${REPOS:+--repo "$REPOS"} run \
             --out "$MLVIEW_PUBLIC_CORPUS_DIR/_reports/report.json" \
             --graphs "$MLVIEW_PUBLIC_CORPUS_DIR/_reports/graphs" \
             --jobs 4 --budget 60

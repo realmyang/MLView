@@ -92,8 +92,23 @@ def missing_zero_grad(ctx) -> Iterable[Issue]:
 
 
 def _short(call: CallSite) -> str:
-    if call.receiver_name:
-        return "%s.%s()" % (call.receiver_name, call.method or call.short_name)
+    """How a call is named in a message (VIS2-16).
+
+    `scaler.scale(loss).backward()` has a **call** as its receiver, and
+    `receiver_name` flattens that to `scaler.scale` - so findings and coverage
+    notes printed `scaler.scale.backward()`, a call the reader cannot find in
+    the file, on the single most common mixed-precision line in PyTorch. The
+    line numbers were right, so navigation worked and the identifier was
+    wrong; rule-authoring checklist item 7 says the message must cite the
+    concrete evidence, and a call that is not in the source is not that.
+    """
+    receiver = call.receiver_name
+    if receiver:
+        ref = call.receiver
+        if ref is not None and ref.producer is not None \
+                and ref.producer.receiver_name and "." in receiver:
+            receiver = "%s(...)" % receiver
+        return "%s.%s()" % (receiver, call.method or call.short_name)
     return "%s()" % call.short_name
 
 
@@ -220,6 +235,8 @@ def gradients_never_applied(ctx) -> Iterable[Issue]:
             continue                 # an unresolved receiver is not an absence
         if _optimizes_the_input(ctx, loop, searched):
             continue
+        if _applies_gradients_by_hand(loop):
+            continue                 # a hand-written SGD step IS the step
         node = ctx.node_for_loop(loop)
         if node is None:
             continue
@@ -252,6 +269,42 @@ def gradients_never_applied(ctx) -> Iterable[Issue]:
     return issues
 
 
+def _applies_gradients_by_hand(loop: LoopIR) -> bool:
+    """Does this loop update the parameters itself, without an optimizer?
+
+    `pytorch/examples/regression/main.py` has no optimizer at all:
+
+        for batch_idx in count(1):
+            fc.zero_grad()
+            output = F.smooth_l1_loss(fc(batch_x), batch_y)
+            output.backward()
+            for param in fc.parameters():
+                param.data.add_(-0.1 * param.grad)
+
+    The gradients are applied - by hand, which is the whole point of the
+    example - so "no optimizer step follows it, so the gradients are discarded"
+    is false about the file. Every hand-rolled SGD, every REINFORCE baseline
+    update and every from-scratch tutorial has this shape.
+
+    The predicate is narrow and syntactic: the body **reads** a `.grad` and
+    **writes in place** (an `-=`/`+=`, or a trailing-underscore tensor method).
+    `optimizer.step()` never needs `.grad` in user code, so reading one is the
+    signal that the update is being written out longhand.
+    """
+    reads_grad = False
+    writes_in_place = False
+    for child in ast.walk(loop.node):
+        if isinstance(child, ast.Attribute) and child.attr == "grad":
+            reads_grad = True
+        elif isinstance(child, ast.AugAssign):
+            writes_in_place = True
+        elif isinstance(child, ast.Call) and isinstance(child.func, ast.Attribute):
+            name = child.func.attr
+            if name.endswith("_") and not name.startswith("_") and len(name) > 1:
+                writes_in_place = True
+    return reads_grad and writes_in_place
+
+
 # ---------------------------------------------------------------------------
 # MLV203
 # ---------------------------------------------------------------------------
@@ -265,7 +318,18 @@ def gradients_never_applied(ctx) -> Iterable[Issue]:
 def step_before_backward(ctx) -> Iterable[Issue]:
     issues: List[Issue] = []
     for loop in ctx.loops("batch"):
-        body = [c for c in loop.module.calls if _within(c.loop, loop)]
+        # DGRG2-02. This used to be a pure lexical scan of the loop body, while
+        # MLV201 and MLV202 read `calls_in_loop`, which the module docstring
+        # says follows "one level of module-local helper calls". Moving the
+        # identical three statements into the canonical
+        # `def train_step(model, crit, opt, x, y)` helper therefore made a
+        # high-severity finding vanish - with no diagnostic, because
+        # `note_untagged_loop` skips a loop whose chain already contains a
+        # confirmed batch loop. The ordering claim stays a **same-block** claim:
+        # `_out_of_order` compares `block_id` and `stmt_index`, and those are
+        # per-function, so two statements in different functions are never
+        # compared with each other.
+        body = calls_in_loop(ctx, loop)
         steps = with_role(body, "OPT_STEP")
         backwards = with_role(body, "BACKWARD")
         if not steps or not backwards:
@@ -512,7 +576,7 @@ def _detached_upstream(module, value, scope, loc, accumulator: str,
             record = _last_binding(module, name, scope, loc)
             if record is None or record.value is None:
                 continue
-            if _guarded(record.value) or _math_only(record.value):
+            if _produces_scalar(record.value) or _math_only(record.value):
                 return True
             if _scalar_callee(record):
                 return True
@@ -549,7 +613,121 @@ def _scalar_callee(record) -> bool:
     node = getattr(target, "node", None)
     returns = getattr(node, "returns", None) if node is not None else None
     text = dotted_text(returns) if returns is not None else None
-    return bool(text and text.split(".")[-1] in ("float", "int"))
+    if text and text.split(".")[-1] in ("float", "int"):
+        return True
+    # PUB2-04: no annotation, so read what the callee actually returns.
+    return _callee_returns_scalar(target)
+
+
+#: How many operand hops `_produces_scalar` walks before giving up.
+_SCALAR_WALK = 16
+
+
+def _produces_scalar(value: Optional[ast.expr]) -> bool:
+    """Is the **value itself** produced by a detaching call? (VIS2-02)
+
+    `_guarded` walks the whole statement with `ast.walk` and answers yes on any
+    `int()` / `len()` / `float()` / `sum()` anywhere under it - including inside
+    a comprehension, a subscript or another call's keyword. `_detached_upstream`
+    then declared an accumulator a Python number because a statement two lines
+    earlier happened to contain one:
+
+        lengths = torch.tensor([int(w) for w in widths], dtype=torch.long)
+        loss = criterion(model(x), y, lengths)
+        running += loss           # <- MLV205 silent, on a live CTC loss
+
+    That was `vision_ocr_ctc_bad train.py:87`, a standing miss. The walk here
+    is value-directed: it descends only through operators that pass a value
+    through (`a + b`, `-x`, `a if c else b`, a parenthesised tuple) and stops
+    at the first call, which must itself be the detaching one. Arguments are
+    never entered, because the argument of `torch.tensor(...)` is not the value
+    `torch.tensor(...)` returns.
+    """
+    if value is None:
+        return False
+    stack: List[ast.expr] = [value]
+    seen = 0
+    while stack and seen < _SCALAR_WALK:
+        node = stack.pop()
+        seen += 1
+        if isinstance(node, ast.Call):
+            func = node.func
+            if isinstance(func, ast.Attribute) and func.attr in _ACCUM_SAFE:
+                return True
+            if isinstance(func, ast.Name) and func.id in ("float", "int", "len", "sum"):
+                return True
+            continue                 # a call's ARGUMENTS are not its value
+        if isinstance(node, ast.BinOp):
+            stack.extend([node.left, node.right])
+        elif isinstance(node, ast.UnaryOp):
+            stack.append(node.operand)
+        elif isinstance(node, ast.IfExp):
+            stack.extend([node.body, node.orelse])
+        elif isinstance(node, (ast.Tuple, ast.List)):
+            stack.extend(node.elts)
+    return False
+
+
+def _callee_returns_scalar(target, depth: int = 0) -> bool:
+    """PUB2-04. Does every `return` of this workspace function yield a number?
+
+    Round 1 taught the return-type inference to carry the LOSS tag across an
+    arithmetic return, so MLV201/202 stop going blind on `loss = bpr_loss(...)`.
+    That same inference then handed MLV205 a **Python float wearing a LOSS
+    tag**, and the rule called it "the tensor":
+
+        def train_epoch(dataloader, model, optimizer, criterion):
+            total_loss = 0
+            ...
+                total_loss += loss.item()        # already a float
+            return total_loss / len(dataloader)
+
+        loss = train_epoch(...)
+        print_loss_total += loss                 # <- MLV205, high confidence
+
+    measured three times on the canonical PyTorch seq2seq tutorial. The tag is
+    doing two jobs - "this is the objective" for the graph and "this is a live
+    tensor" for MLV205 - and only the second is wrong here, so MLV205 (only)
+    asks whether the callee's accumulator was already detached, using exactly
+    the terminator test it applies locally.
+    """
+    if target is None or depth > 2 or not getattr(target, "returns", None):
+        return False
+    module = getattr(target, "module", None)
+    scope = getattr(target, "scope", None)
+    if module is None or scope is None:
+        return False
+    for expr in target.returns:
+        if not _expr_is_scalar(module, scope, expr, depth):
+            return False
+    return True
+
+
+def _expr_is_scalar(module, scope, expr, depth: int, hops: int = 3) -> bool:
+    """Does this expression reduce to a Python number, following local stores?"""
+    if expr is None:
+        return False
+    if isinstance(expr, ast.Constant):
+        return True
+    if _produces_scalar(expr) or _math_only(expr):
+        return True
+    if isinstance(expr, (ast.BinOp, ast.UnaryOp, ast.IfExp)):
+        operands = ([expr.operand] if isinstance(expr, ast.UnaryOp)
+                    else [expr.body, expr.orelse] if isinstance(expr, ast.IfExp)
+                    else [expr.left, expr.right])
+        return all(_expr_is_scalar(module, scope, o, depth, hops)
+                   for o in operands)
+    name = dotted_text(expr)
+    if not name or hops <= 0:
+        return False
+    stores = [r for r in module.assignments
+              if r.scope is scope and any(dotted_text(t) == name for t in r.targets)]
+    if not stores:
+        return False
+    for record in stores:
+        if not _expr_is_scalar(module, scope, record.value, depth, hops - 1):
+            return False
+    return True
 
 
 def _last_binding(module, name: str, scope, loc):

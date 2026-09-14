@@ -1,0 +1,206 @@
+{
+  "name": "vision_metric_bad",
+  "title": "The same re-identification trainer with eight planted defects",
+  "origin": "domain-vision round 2: the dirty twin of vision_metric. Its MLV305 label is the case where MLView misses the defect and SAYS SO - the untagged_dataflow diagnostic names the rule and the variable",
+  "tuned": false,
+  "labelledBy": "domain-vision, 2026-09-14",
+  "expected": [
+    {
+      "code": "MLV803",
+      "file": "train_reid.py",
+      "line": 171,
+      "symbol": "torch.save(model, ...)",
+      "severity": "low",
+      "verdict": "expected",
+      "defect": "the whole module is pickled, and the ArcFace head is no longer saved at all",
+      "why": "the checkpoint carries the class path and cannot reproduce the training objective, so the run cannot be resumed"
+    },
+    {
+      "code": "MLV306",
+      "file": "train_reid.py",
+      "line": 115,
+      "symbol": "roc_auc_score(matches, decisions)",
+      "severity": "low",
+      "verdict": "expected",
+      "defect": "roc_auc_score is fed a thresholded 0/1 decision instead of the cosine similarity",
+      "why": "the ROC curve has a single operating point, so the AUC collapses to the balanced accuracy at an arbitrary threshold and stops being comparable with any published number",
+      "gap": "MLV306 matches a score argument bound to `<clf>.predict(...)`. A tensor thresholded with `(x > 0.5).int()` is the same defect expressed the torch way, and the rule cannot see it."
+    },
+    {
+      "code": "MLV305",
+      "file": "train_reid.py",
+      "line": 117,
+      "symbol": "f1_score(matches, scores)",
+      "severity": "medium",
+      "verdict": "expected",
+      "defect": "f1_score, a class metric, is fed continuous cosine similarities",
+      "why": "sklearn either raises on continuous targets or silently treats every distinct similarity as its own class, so the reported macro-F1 is meaningless",
+      "gap": "the prediction argument carries no LOGITS/PROBS tag because it came off a torch tensor through .numpy(). MLView DECLARES this one: the untagged_dataflow diagnostic names MLV305 and the variable `scores` at line 117 - this is the coverage mechanism working."
+    },
+    {
+      "code": "MLV301",
+      "file": "train_reid.py",
+      "line": 86,
+      "symbol": "model(images)",
+      "severity": "high",
+      "verdict": "expected",
+      "defect": "extract() no longer calls model.eval()",
+      "why": "the BNNeck's BatchNorm1d normalises each evaluation batch by its own statistics, so a gallery embedding depends on which other images happened to share its batch - the similarity matrix stops being a function of the images alone",
+      "gap": "extract() is called only from rank(), which carries @torch.no_grad(); the eval region is found but no eval-mode claim is made about it."
+    },
+    {
+      "code": "MLV114",
+      "file": "sampler.py",
+      "line": 44,
+      "symbol": "RandomHorizontalFlip in eval_transform",
+      "severity": "medium",
+      "verdict": "expected",
+      "defect": "the evaluation pipeline kept the random flip and the random erasing",
+      "why": "query and gallery embeddings are computed from two different random views of the same person, so the similarity matrix is dominated by augmentation noise and rank-1 drops by tens of points",
+      "gap": "two causes at once: IdentityDataset is a workspace Dataset subclass (VIS2-01) and the loaders are named query_loader / gallery_loader, which the eval-name regex does not cover - `query`, `gallery` and `probe` are the standard re-ID names."
+    },
+    {
+      "code": "MLV111",
+      "file": "train_reid.py",
+      "line": 50,
+      "symbol": "DataLoader(query_set, shuffle=True)",
+      "severity": "low",
+      "verdict": "expected",
+      "defect": "the query loader shuffles",
+      "why": "query_ids and the rows of the similarity matrix are in a different order on every run, so the per-query rank list cannot be compared between runs",
+      "gap": "same naming gap: `query_loader` and `query_set` match neither the split tags nor (?i)(val|valid|test|eval)_?(loader|dl)."
+    },
+    {
+      "code": "MLV207",
+      "file": "train_reid.py",
+      "line": 162,
+      "symbol": "scheduler.step()",
+      "severity": "medium",
+      "verdict": "expected",
+      "defect": "OneCycleLR is stepped once per epoch instead of once per batch",
+      "why": "the one-cycle schedule finishes inside the first two epochs and the remaining 118 train at the floor learning rate",
+      "gap": "the batch loop lives in train_one_epoch(), so MLV207's batch-cadence branch cannot confirm that the epoch loop encloses it. See VIS2-03."
+    }
+  ],
+  "forbidden": [
+    {
+      "code": "MLV101",
+      "file": "train_reid.py",
+      "why": "there is no sklearn transformer in this project"
+    },
+    {
+      "code": "MLV102",
+      "file": "train_reid.py",
+      "why": "nothing is fitted on anything"
+    },
+    {
+      "code": "MLV110",
+      "file": "train_reid.py",
+      "why": "the training loader still takes batch_sampler=PKSampler, which owns the shuffling"
+    },
+    {
+      "code": "MLV112",
+      "file": "train_reid.py",
+      "why": "the loaders are built inside build_loaders(), reached only from main() under the __main__ guard"
+    },
+    {
+      "code": "MLV201",
+      "file": "train_reid.py",
+      "why": "optimizer.zero_grad(set_to_none=True) is still the first statement of the training step"
+    },
+    {
+      "code": "MLV202",
+      "file": "train_reid.py",
+      "why": "optimizer.step() still follows loss.backward()"
+    },
+    {
+      "code": "MLV203",
+      "file": "train_reid.py",
+      "why": "backward() still precedes step()"
+    },
+    {
+      "code": "MLV204",
+      "file": "train_reid.py",
+      "why": "rank() is still decorated @torch.no_grad() and contains no backward()"
+    },
+    {
+      "code": "MLV205",
+      "file": "train_reid.py",
+      "why": "the running loss still accumulates loss.item()"
+    },
+    {
+      "code": "MLV209",
+      "file": "train_reid.py",
+      "why": "clip_grad_norm_ still runs between backward() and step()"
+    },
+    {
+      "code": "MLV302",
+      "file": "train_reid.py",
+      "why": "extract() is called only from rank(), which still carries @torch.no_grad(), so no graph is built"
+    },
+    {
+      "code": "MLV401",
+      "file": "heads.py",
+      "why": "ArcFace still returns logits against nn.CrossEntropyLoss"
+    },
+    {
+      "code": "MLV402",
+      "file": "heads.py",
+      "why": "there is no sigmoid and no BCE loss in this project"
+    },
+    {
+      "code": "MLV501",
+      "file": "train_reid.py",
+      "why": "the model and the objective are both moved with .to(device) and every batch tensor is moved inside every loop"
+    },
+    {
+      "code": "MLV502",
+      "file": "train_reid.py",
+      "why": "pick_device() still checks torch.cuda.is_available()"
+    },
+    {
+      "code": "MLV601",
+      "file": "train_reid.py",
+      "why": "seed_everything() still seeds every source"
+    },
+    {
+      "code": "MLV602",
+      "file": "train_reid.py",
+      "why": "there is no split in this project"
+    },
+    {
+      "code": "MLV701",
+      "file": "heads.py",
+      "why": "every nn.Module subclass chains super().__init__()"
+    },
+    {
+      "code": "MLV702",
+      "file": "heads.py",
+      "why": "there is no plain list or dict of submodules anywhere"
+    }
+  ],
+  "gaps": [
+    {
+      "what": "no rule checks that every parameter that produces the loss is owned by an optimizer - a metric-learning head, a learned temperature, a prompt embedding or a second parameter group left out of torch.optim is inert and nothing says so",
+      "evidence": "train_reid.py:151 against the clean twin's list(model.parameters()) + list(criterion.parameters())"
+    },
+    {
+      "what": "the evaluation-name regex does not cover the re-identification and retrieval vocabulary (query, gallery, probe, index, corpus), so MLV111 and MLV114 cannot recognise an evaluation loader in any retrieval project",
+      "evidence": "train_reid.py:50 shuffle=True on query_loader draws nothing"
+    }
+  ],
+  "unsupported": [
+    {
+      "file": "train_reid.py",
+      "line": 151,
+      "symbol": "torch.optim.Adam(model.parameters())",
+      "severity": "high",
+      "verdict": "expected",
+      "defect": "the optimizer is built over the trunk only, so the ArcFace weight matrix is never updated",
+      "why": "LABEL CORRECTED in hardening round 2: MLV211 is not a built rule - it carries the status **later** in docs/ISSUE_RULES.md section 1 - so a label for it can never be satisfied and can never be violated. `analyzer/tests/accuracy/test_accuracy.py::test_every_labelled_code_is_a_real_rule` rejects one, and this row turned that shipped test red. The observation is kept verbatim here so the row can be restored the day the rule ships. Original verdict `expected`, original note: the 751 class centres the angular margin is measured against stay at their Xavier initialisation forever, so the identity term of the loss can never go down and the whole ArcFace half of the objective is inert - the run looks like it is training because the triplet term still moves",
+      "gap": "MLV211 is the nearest code (an optimizer that does not own the parameters that produce the loss) but it is a later-tier rule and is about a model REBOUND after the optimizer is built, not about a second parameter group left out.",
+      "unsupported": true,
+      "wouldBe": "MLV211"
+    }
+  ]
+}

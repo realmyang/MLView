@@ -649,9 +649,89 @@ def test_the_real_roadmap_records_every_shipped_sprint_4_item():
     assert len(landed) >= 20, "wave 2, 3 and 4 each owe a measurement note"
 
 
+# --------------------------------------------------------------- check 21
+# HOSTS-UX-R2-07: README.md's known-gaps list said the `/mlview-issues` Bash
+# fallback "groups only once the matching `--group-by` flag lands on
+# `analyzer/src/mlview/cli.py`", and `mlview issues --group-by rule` had been
+# printing the grouped table for two sprints. Check 4 could not see it: the
+# bullet cites a real path, which is all check 4 asks for.
+WAITING_README = """# Demo
+
+**Known gaps:**
+
+- The plugin's grouping lives in the MCP server, so its `Bash` fallback line
+  groups only once the matching `--group-by` flag lands on
+  `analyzer/src/mlview/cli.py`.
+"""
+
+LANDED_CLI = "def add(parser):\n    parser.add_argument('--group-by', dest='group_by')\n"
+UNLANDED_CLI = "def add(parser):\n    parser.add_argument('--format')\n"
+
+
+def test_a_gap_waiting_for_something_already_landed_is_caught():
+    root = _tree({"README.md": WAITING_README,
+                  "analyzer/src/mlview/cli.py": LANDED_CLI})
+    try:
+        problems = check_docs.run(root)[0]
+        assert len(problems) == 1, problems
+        assert "HOSTS-UX-R2-07" in problems[0]
+        assert "--group-by" in problems[0] and "cli.py" in problems[0]
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_a_gap_waiting_for_something_that_has_not_landed_is_clean():
+    """The bullet is true until the flag is there; then it is the stale thing."""
+    root = _tree({"README.md": WAITING_README,
+                  "analyzer/src/mlview/cli.py": UNLANDED_CLI})
+    try:
+        assert check_docs.run(root)[0] == [], check_docs.run(root)[0]
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_a_gap_that_states_what_the_build_does_is_not_a_landing_claim():
+    """The fix for the bullet above, and the shape every other gap bullet has:
+    naming a flag and the file it lives in is not a promise about the future."""
+    root = _tree({"README.md": "# Demo\n\n**Known gaps:**\n\n"
+                               "- `--group-by` folds the rows twice, once in "
+                               "`analyzer/src/mlview/cli.py` and once in the MCP "
+                               "server, and nothing compares the two.\n",
+                  "analyzer/src/mlview/cli.py": LANDED_CLI})
+    try:
+        assert check_docs.run(root)[0] == [], check_docs.run(root)[0]
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_a_landing_clause_outside_a_known_gaps_section_is_not_checked():
+    """Prose elsewhere may describe a plan; the honesty section may not."""
+    root = _tree({"README.md": "# Demo\n\n- The `--group-by` flag lands on "
+                               "`analyzer/src/mlview/cli.py` in the next "
+                               "release.\n",
+                  "analyzer/src/mlview/cli.py": LANDED_CLI})
+    try:
+        assert check_docs.run(root)[0] == [], check_docs.run(root)[0]
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_the_real_readme_no_longer_waits_for_the_group_by_flag():
+    """HOSTS-UX-R2-07 on the real tree, both halves: the flag is in the CLI, and
+    no known gap in any current-state doc is waiting for something that is."""
+    problems: list = []
+    current, _ = check_docs.docs(REPO)
+    for path in current:
+        check_docs.check_landed_gaps(REPO, path, check_docs.read(path), problems)
+    assert problems == [], "\n".join(problems)
+    cli = io.open(REPO / "analyzer/src/mlview/cli.py", encoding="utf-8").read()
+    assert "group_by" in cli, "the flag this gate was written for has gone away"
+
+
 def run_module(module, failed: int = 0) -> int:
     """Run every `test_*` in one module, printing a line each. Shared with
-    `scripts/test_doc_numbers.py` (checks 9-11), `scripts/test_doc_figures.py`
+    `scripts/test_doc_numbers.py` (checks 9-11 and 19-20),
+    `scripts/test_doc_figures.py`
     (checks 13-15) and `scripts/test_doc_surfaces.py` (checks 16-18), which hold
     the cases for the checks that live next door."""
     for name, fn in sorted(vars(module).items()):

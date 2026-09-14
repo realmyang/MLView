@@ -134,6 +134,43 @@ def _add_scope_flags(parser: argparse.ArgumentParser) -> None:
                              "0 for stage/file/concern)")
 
 
+#: HOSTS-UX-R2-08 / config precedence. Every numeric flag defaults to `None`,
+#: not to the documented default: `--max-nodes 400` and `--min-confidence 0.0`
+#: are the defaults, so a value-equals-default test could not tell a flag the
+#: user typed from one they did not, and a checked-in `.mlview.toml` overruled
+#: the flag. `cli._options` substitutes the real default and records the name
+#: in `AnalyzeOptions.explicit`.
+#:
+#: The `type=` callables also make an out-of-range value an argparse **usage
+#: error** (exit 1) instead of a silently accepted no-op: `--max-nodes 0` used
+#: to run the whole analysis and cap nothing, and `--min-confidence 2.0` to
+#: exit 0 with no warning, while the same value in a config file produced a
+#: `config_warning`. The MCP server already clamps and says so; this is the
+#: CLI meeting the same bar.
+def _at_least_one(text: str) -> int:
+    import argparse
+    try:
+        value = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError("%r is not an integer" % text)
+    if value < 1:
+        raise argparse.ArgumentTypeError(
+            "must be 1 or more (got %d); it is a budget, not a switch" % value)
+    return value
+
+
+def _a_probability(text: str) -> float:
+    import argparse
+    try:
+        value = float(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError("%r is not a number" % text)
+    if not 0.0 <= value <= 1.0:
+        raise argparse.ArgumentTypeError(
+            "must be between 0 and 1 (got %s)" % text)
+    return value
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="mlview",
@@ -155,10 +192,10 @@ def build_parser() -> argparse.ArgumentParser:
     analyze.add_argument("--include", action="append", default=[], metavar="GLOB")
     analyze.add_argument("--exclude", action="append", default=[], metavar="GLOB")
     analyze.add_argument("--min-severity", choices=("low", "medium", "high"), default="low")
-    analyze.add_argument("--min-confidence", type=float, default=0.0)
+    analyze.add_argument("--min-confidence", type=_a_probability, default=None)
     analyze.add_argument("--show-suppressed", action="store_true")
-    analyze.add_argument("--max-files", type=int, default=500)
-    analyze.add_argument("--max-nodes", type=int, default=400,
+    analyze.add_argument("--max-files", type=_at_least_one, default=None)
+    analyze.add_argument("--max-nodes", type=_at_least_one, default=None,
                           help="operation-node budget; units and ghost nodes "
                                "are never dropped, so the emitted document may "
                                "hold more nodes than this. Sets stats.truncated.")
@@ -186,11 +223,11 @@ def build_parser() -> argparse.ArgumentParser:
     issues.add_argument("--json", dest="json_out", action="store_true")
     issues.add_argument("--text", dest="text_out", action="store_true")
     issues.add_argument("--min-severity", choices=("low", "medium", "high"), default="low")
-    issues.add_argument("--min-confidence", type=float, default=0.0)
+    issues.add_argument("--min-confidence", type=_a_probability, default=None)
     issues.add_argument("--code", default="", help="comma-separated rule codes")
     issues.add_argument("--limit", type=int, default=0)
-    issues.add_argument("--max-files", type=int, default=500)
-    issues.add_argument("--max-nodes", type=int, default=400,
+    issues.add_argument("--max-files", type=_at_least_one, default=None)
+    issues.add_argument("--max-nodes", type=_at_least_one, default=None,
                           help="operation-node budget; units and ghost nodes "
                                "are never dropped, so the emitted document may "
                                "hold more nodes than this. Sets stats.truncated.")
@@ -219,8 +256,8 @@ def build_parser() -> argparse.ArgumentParser:
                           help="where to write it (default: <root>/.mlview/baseline.json)")
     baseline.add_argument("--include", action="append", default=[], metavar="GLOB")
     baseline.add_argument("--exclude", action="append", default=[], metavar="GLOB")
-    baseline.add_argument("--max-files", type=int, default=500)
-    baseline.add_argument("--max-nodes", type=int, default=400)
+    baseline.add_argument("--max-files", type=_at_least_one, default=None)
+    baseline.add_argument("--max-nodes", type=_at_least_one, default=None)
     baseline.add_argument("--config", dest="config_path", metavar="FILE")
     baseline.add_argument("--no-color", action="store_true")
     _add_perf_flags(baseline)
@@ -233,8 +270,8 @@ def build_parser() -> argparse.ArgumentParser:
     render.add_argument("--format", dest="fmt", choices=("html", "mermaid", "text"),
                         default="html")
     render.add_argument("--open", dest="open_report", action="store_true")
-    render.add_argument("--max-files", type=int, default=500)
-    render.add_argument("--max-nodes", type=int, default=400,
+    render.add_argument("--max-files", type=_at_least_one, default=None)
+    render.add_argument("--max-nodes", type=_at_least_one, default=None,
                           help="operation-node budget; units and ghost nodes "
                                "are never dropped, so the emitted document may "
                                "hold more nodes than this. Sets stats.truncated.")

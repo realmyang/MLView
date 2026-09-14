@@ -10,6 +10,7 @@ import { RovingGroup } from './roving.js';
 import {
   COVERAGE_KINDS,
   SPECIALLY_RENDERED,
+  chromeBandHeight,
   coverageChipText,
   coverageHeadline,
   describe,
@@ -503,7 +504,15 @@ export class Chrome {
     for (const spec of shown) {
       if (spec.label && spec.label !== label) add(this.chipScroll, el('span', 'mlv-chiprow__label', spec.label));
       if (spec.label) label = spec.label;
-      const node = add(this.chipScroll, el('span', 'mlv-chip' + (spec.cls ? ' ' + spec.cls : ''), spec.text));
+      // TAB2-10. A chip is a label, and three diagnostic kinds carry a
+      // SENTENCE. The text goes in its own element so the stylesheet can bound
+      // it to one ellipsised line (`.mlv-chiprow .mlv-chip__text`, CHIP_TEXT_CH)
+      // while the `×N` count beside it stays whole. Nothing is removed: the
+      // element holds every character, so `textContent`, the exported HTML and
+      // every screen reader still get the sentence, and the `title` below
+      // carries it for a hover.
+      const node = add(this.chipScroll, el('span', 'mlv-chip' + (spec.cls ? ' ' + spec.cls : '')));
+      add(node, el('span', 'mlv-chip__text', spec.text));
       for (const attr of spec.attrs) node.setAttribute(attr[0], attr[1]);
       if (spec.count > 1) {
         const count = add(node, el('span', 'mlv-chip__count', '×' + spec.count));
@@ -550,6 +559,21 @@ export class Chrome {
       }
     });
     return more;
+  }
+
+  /**
+   * HOSTS-UX-R2-06 — what the two bands above the canvas are taking, in CSS
+   * pixels, read AFTER `update()` has drawn them.
+   *
+   * It counts what was actually drawn rather than re-deriving the banner
+   * predicates, for the same reason 11.55 D2 gives about `drawnCount`: a second
+   * copy of the rules is a second set of numbers to keep in step. The estimate
+   * itself is `chromenotes.chromeBandHeight`, which has no DOM in it.
+   */
+  bandHeight(): number {
+    const banners = this.banners.hidden ? 0 : this.banners.querySelectorAll('.mlv-banner').length;
+    const chips = this.chipRow.hidden ? 0 : this.chipRow.querySelectorAll('.mlv-chip').length;
+    return chromeBandHeight(banners, chips);
   }
 
   private renderBanners(s: ChromeState): void {
@@ -826,9 +850,17 @@ function foldChips(specs: ChipSpec[]): ChipSpec[] {
   return out;
 }
 
-/** The tooltip: a folded chip states its count and lists what it folded. */
+/**
+ * The tooltip: a folded chip states its count and lists what it folded.
+ *
+ * TAB2-10: every chip now carries one, falling back to its own text. The
+ * stylesheet ellipsises a chip wider than `CHIP_TEXT_CH`, and a reader must
+ * always have somewhere to recover the tail from — the generic chip of
+ * invariant 1.1/6 had no `title` at all, so a long message from a kind this
+ * renderer has never heard of would have been the one that could not be read.
+ */
 function chipTitle(spec: ChipSpec): string {
-  if (spec.count <= 1) return spec.title;
+  if (spec.count <= 1) return spec.title || spec.text;
   const head = spec.count + '× ' + spec.text;
   if (!spec.detail.length) return head;
   const lines = spec.detail.slice(0, 6);

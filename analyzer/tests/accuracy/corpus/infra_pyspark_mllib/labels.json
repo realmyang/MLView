@@ -1,0 +1,74 @@
+{
+  "name": "infra_pyspark_mllib",
+  "title": "Spark MLlib: same method names as sklearn, a different library, and a real leak MLView must not guess at",
+  "origin": "hardening round 2, tester domain-infra: the unsupported-framework precision trap with maximum name collision",
+  "tuned": false,
+  "labelledBy": "domain-infra, 2026-09-14",
+  "note": "Every forbidden row below is a name collision with scikit-learn: StandardScaler.fit, Pipeline.fit, CrossValidator.fit, RandomForestClassifier.fit, randomSplit. MLView resolves none of them, reports nothing, and declares an `unresolved_callee` gap naming pyspark plus two `untagged_dataflow` gaps - which is the right answer and the claim this program guards. There IS a real leak here (scaler.fit(frame) at line 63 on the whole DataFrame, randomSplit at line 68), and MLView not finding it is a known blindness, not a defect: a Spark StandardScaler is not an sklearn.preprocessing row and iron law 1 forbids matching on the bare attribute name. One reporting defect is visible: the dataEntry answer says `No data entry was detected: nothing in this workspace builds a dataset or a loader` with no qualifier, while the objective and evaluation answers on the same document both carry `and 13 call(s) could not be read`. See the domain-infra round-2 report, finding INFRA-R2-12.",
+  "stagesObserved": "config, preprocess and train present (three function nodes and the argparse config); data, model, objective, eval and deliver reported absent, with the 13 unreadable pyspark calls named in the diagnostics. `workspace.frameworks` is empty, which is honest.",
+  "expected": [],
+  "forbidden": [
+    {
+      "code": "MLV101",
+      "file": "job.py",
+      "why": "the fit at line 63 is pyspark.ml.feature.StandardScaler.fit, not sklearn.preprocessing.StandardScaler.fit; it resolves to nothing and iron law 1 forbids matching the bare name. The leak is real and the honest answer is the pyspark coverage gap, not a finding"
+    },
+    {
+      "code": "MLV102",
+      "file": "job.py",
+      "why": "same reason: every .fit() in this file belongs to pyspark.ml"
+    },
+    {
+      "code": "MLV103",
+      "file": "job.py",
+      "why": "CrossValidator at line 79 is pyspark.ml.tuning.CrossValidator and its estimator IS a pyspark.ml.Pipeline; neither resolves, and both are correct usage in any case"
+    },
+    {
+      "code": "MLV106",
+      "file": "job.py",
+      "why": "randomSplit is a Spark DataFrame method, there is no temporal column in this job, and no sklearn splitter is called"
+    },
+    {
+      "code": "MLV110",
+      "file": "job.py",
+      "why": "there is no torch DataLoader in this workspace"
+    },
+    {
+      "code": "MLV111",
+      "file": "job.py",
+      "why": "there is no torch DataLoader in this workspace"
+    },
+    {
+      "code": "MLV305",
+      "file": "job.py",
+      "why": "BinaryClassificationEvaluator.evaluate at line 85 is a Spark evaluator; it takes a predictions DataFrame, not a (y_true, y_pred) pair"
+    },
+    {
+      "code": "MLV306",
+      "file": "job.py",
+      "why": "areaUnderROC here is computed by Spark from the rawPrediction column, which is a score column by construction"
+    },
+    {
+      "code": "MLV601",
+      "anchor": "project",
+      "why": "SEED = 31 is passed to randomSplit (line 68), to RandomForestClassifier (line 70) and to CrossValidator (line 79); those are the only random sources in a Spark job"
+    },
+    {
+      "code": "MLV602",
+      "file": "job.py",
+      "why": "randomSplit passes seed=SEED at line 68, and it is not an sklearn splitter in any case"
+    },
+    {
+      "code": "MLV803",
+      "file": "job.py",
+      "why": "the save at line 104 is Spark's MLWriter, not torch.save, and nothing in this file calls torch.load"
+    }
+  ],
+  "unsupported": [
+    {
+      "file": "job.py",
+      "why": "LABEL CORRECTED in hardening round 2: MLV117 is not a built rule - it carries the status **later** in docs/ISSUE_RULES.md section 1 - so a label for it can never be satisfied and can never be violated. `analyzer/tests/accuracy/test_accuracy.py::test_every_labelled_code_is_a_real_rule` rejects one, and this row turned that shipped test red. The observation is kept verbatim here so the row can be restored the day the rule ships. Original verdict `forbidden`, original note: randomSplit has no stratify= parameter to be missing; this is not sklearn",
+      "wouldBe": "MLV117"
+    }
+  ]
+}

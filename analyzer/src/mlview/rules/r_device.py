@@ -217,6 +217,16 @@ def _any_model_move(ctx, module=None) -> bool:
     `module=None` searches the whole workspace, which is what an absence claim
     about "the model" requires (INFRA-02). Passing a module narrows it, and
     that narrowing is only ever safe for a *positive* claim.
+
+    INFRA-R2-10. The workspace-wide arm also has to answer "could this search
+    have MISSED one?", because the claim it feeds is a negative about the whole
+    workspace. When the model comes out of a dynamic factory -
+    `importlib.import_module(...)` + `getattr(module, name)`, which the same
+    document already declares with a `dynamic_scope` diagnostic - the
+    `.to(device)` chained onto the factory result resolves to nothing, so the
+    search returned False and the rule stated the negative as fact at evidence
+    weight 1.0, twice, at `certain`. A `.to(...)` MLView could not attribute is
+    exactly the unknown this rule must not read as an absence.
     """
     for call in ctx.calls_with_role("TO_DEVICE"):
         if module is not None and call.module is not module:
@@ -226,7 +236,26 @@ def _any_model_move(ctx, module=None) -> bool:
         receiver = call.receiver
         if receiver is not None and receiver.has("MODEL"):
             return True
-    return False
+    if module is not None:
+        return False
+    return _unattributed_move(ctx) is not None
+
+
+def _unattributed_move(ctx) -> Optional[CallSite]:
+    """A `.to(...)` / `.cuda()` whose receiver resolved to nothing at all.
+
+    Narrow on purpose: a move on a tensor or a module resolves to a TO_DEVICE
+    role and never reaches here, so this only sees a receiver the IR could not
+    type - which is, by construction, a value that may be the model.
+    """
+    for relpath in sorted(ctx.modules):
+        for call in ctx.modules[relpath].calls:
+            if (call.method or "") not in _MOVE_METHODS:
+                continue
+            if K.role_of(call.fqn) is not None:
+                continue
+            return call
+    return None
 
 
 def _model_name(forward: CallSite) -> str:
@@ -337,28 +366,93 @@ def _batch_names(loop: LoopIR, forward: CallSite) -> Set[str]:
     return used
 
 
+def _target_names(node: ast.AST) -> Set[str]:
+    """Every dotted name a statement assigns to."""
+    out: Set[str] = set()
+    for child in ast.walk(node):
+        if isinstance(child, (ast.Name, ast.Attribute)):
+            text = dotted_text(child)
+            if text:
+                out.add(text)
+    return out
+
+
+def _contains_move(node: Optional[ast.AST]) -> bool:
+    """Is there a `.to()` / `.cuda()` anywhere under this expression?"""
+    if node is None:
+        return False
+    for child in ast.walk(node):
+        if isinstance(child, ast.Attribute) and child.attr in _MOVE_METHODS:
+            return True
+    return False
+
+
 def _moved_names(ctx, loop: LoopIR, calls: Sequence[CallSite],
                  batch_names: Set[str]) -> Set[str]:
-    """Batch values that do get a `.to()` / `.cuda()` somewhere in the loop."""
+    """Batch values that do get a `.to()` / `.cuda()` somewhere in the loop.
+
+    NLP2-03. The test used to require the `.to` attribute's own receiver to be
+    the batch NAME, so the single most-written line in PyTorch NLP training -
+
+        batch = {key: value.to(device) for key, value in batch.items()}
+
+    - read as "the batch was never moved": the `.to` is on `value`, not on
+    `batch`. MLV501 then reported medium / **0.900 / certain** with the
+    evidence row "no .to()/.cuda() on the batch, in the Dataset.__getitem__, or
+    in a collate_fn" on a file whose previous line is a `.to(device)`. Every
+    HuggingFace tokenizer batch, the HF course, `run_glue.py` and the accelerate
+    examples all write it this way.
+
+    Two shapes are added, and both are what docs/ISSUE_RULES.md MLV501 already
+    promised ("directly or in a followed helper"):
+
+    * a statement that **rebinds** a batch name from an expression carrying a
+      move anywhere under it - the dict / list / tuple comprehension, and
+      `x, y = x.to(d), y.to(d)` alike;
+    * a batch name handed to an in-workspace call whose body contains a move -
+      `pair(move(chosen, device), move(rejected, device))`, with
+      `def move(batch, device): return {k: v.to(device) ...}`.
+    """
     moved: Set[str] = set()
     for call in calls:
         method = call.method or call.short_name
-        if method not in _MOVE_METHODS:
+        if method in _MOVE_METHODS:
+            receiver = call.receiver_name or ""
+            if receiver in batch_names:
+                moved.add(receiver)
+            for child in ast.walk(call.node):
+                text = dotted_text(child) if isinstance(child, (ast.Name, ast.Attribute)) \
+                    else None
+                if text in batch_names:
+                    moved.add(text)
             continue
-        receiver = call.receiver_name or ""
-        if receiver in batch_names:
-            moved.add(receiver)
-        for child in ast.walk(call.node):
-            text = dotted_text(child) if isinstance(child, (ast.Name, ast.Attribute)) \
-                else None
-            if text in batch_names:
-                moved.add(text)
+        # a followed helper that moves what it is handed
+        callee = call.target_function
+        if callee is None or not _has_move(callee):
+            continue
+        for arg in list(call.args) + [call.kwarg_nodes[k]
+                                      for k in sorted(call.kwarg_nodes)]:
+            for child in ast.walk(arg):
+                text = dotted_text(child) if isinstance(child, (ast.Name, ast.Attribute)) \
+                    else None
+                if text in batch_names:
+                    moved.add(text)
     for child in ast.walk(loop.node):
         # `x, y = x.to(device), y.to(device)` rebinds the same names
         if isinstance(child, ast.Attribute) and child.attr in _MOVE_METHODS:
             text = dotted_text(child.value)
             if text in batch_names:
                 moved.add(text)
+        # `batch = {k: v.to(device) for k, v in batch.items()}` - the move is
+        # on the element, and the statement rebinds the batch.
+        if isinstance(child, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
+            value = child.value
+            if not _contains_move(value):
+                continue
+            targets = child.targets if isinstance(child, ast.Assign) else [child.target]
+            for target in targets:
+                for name in _target_names(target) & batch_names:
+                    moved.add(name)
     return moved
 
 

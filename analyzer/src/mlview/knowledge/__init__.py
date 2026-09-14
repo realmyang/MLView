@@ -22,6 +22,7 @@ from .hooks_tbl import (
     hook_stage,
 )
 from .other_tbl import (
+    ACCELERATE_METHODS,
     ARGPARSE_METHODS,
     FRAME_METHODS,
     HF_METHODS,
@@ -61,6 +62,7 @@ __all__ = [
     # FW-RECOG (CONTRACTS 11.23) - framework hooks and the model base set
     "HOOK_STAGES", "HOOK_OWNER_BASES", "LIGHTNING_HOOK_ROLES", "LIGHTNING_ROOTS",
     "hook_stage", "MODEL_BASES", "is_model_base",
+    "CANONICAL_ALIASES", "canonical_alias",
 ]
 
 #: Every constructor / free function we recognise.
@@ -90,6 +92,7 @@ METHODS.update(HF_DATA_METHODS)
 METHODS.update(GBM_METHODS)
 METHODS.update(LIGHTNING_METHOD_ENTRIES)
 METHODS.update(WRAPPER_METHODS)
+METHODS.update(ACCELERATE_METHODS)
 METHODS.update(TIMM_METHODS)
 METHODS.update(STATS_METHODS)
 
@@ -153,6 +156,40 @@ _PREFIX_RULES: Tuple[Tuple[str, Entry], ...] = (
 ) + TF_PREFIX_RULES
 
 _ALIAS_PREFIXES = (("tf.", "tensorflow."),)
+
+#: VIS2-10 / DGRG2-13. Framework classes that **are** the torch class they are
+#: aliased to - `monai.data.DataLoader`, `torch_geometric.loader.*` and
+#: `accelerate`'s prepared loaders all subclass `torch.utils.data.DataLoader`
+#: and take the same `shuffle=` / `num_workers=` with the same semantics. An
+#: alias, not a re-description: the whole MLV1xx / MLV2xx family then applies
+#: verbatim, which is what "the rule matches a canonical FQN" (iron law 1) is
+#: for. `ir/resolve` rewrites `canonical_fqns` through this map, so a rule that
+#: asks `ctx.calls_of("torch.utils.data.DataLoader")` sees them.
+CANONICAL_ALIASES: Dict[str, str] = {
+    "torch.utils.data.dataloader.DataLoader": "torch.utils.data.DataLoader",
+    "monai.data.DataLoader": "torch.utils.data.DataLoader",
+    "monai.data.ThreadDataLoader": "torch.utils.data.DataLoader",
+    "monai.data.dataloader.DataLoader": "torch.utils.data.DataLoader",
+    "torch_geometric.loader.DataLoader": "torch.utils.data.DataLoader",
+    "torch_geometric.loader.DataListLoader": "torch.utils.data.DataLoader",
+    "torch_geometric.loader.NeighborLoader": "torch.utils.data.DataLoader",
+    "torch_geometric.loader.LinkNeighborLoader": "torch.utils.data.DataLoader",
+    "torch_geometric.loader.ClusterLoader": "torch.utils.data.DataLoader",
+    "torch_geometric.loader.HGTLoader": "torch.utils.data.DataLoader",
+    "torch_geometric.data.DataLoader": "torch.utils.data.DataLoader",
+    "monai.data.Dataset": "torch.utils.data.Dataset",
+    "monai.data.CacheDataset": "torch.utils.data.Dataset",
+    "monai.data.PersistentDataset": "torch.utils.data.Dataset",
+    "monai.data.SmartCacheDataset": "torch.utils.data.Dataset",
+    "monai.data.ArrayDataset": "torch.utils.data.Dataset",
+    "monai.data.decathlon_datalist.load_decathlon_datalist":
+        "torch.utils.data.Dataset",
+}
+
+
+def canonical_alias(fqn: Optional[str]) -> Optional[str]:
+    """The torch FQN a framework subclass is the same thing as, or `fqn`."""
+    return CANONICAL_ALIASES.get(fqn or "", fqn)
 
 #: The prefix rules again, as a dict. Every key ends at a dotted boundary, so a
 #: probe over the progressively shorter dotted prefixes of an FQN - longest
@@ -419,7 +456,18 @@ WRAPPER_BASES = frozenset({
 #: `nn.Module` subclass, so this is a widening of a base set, never a claim
 #: about a class that does not have one. `ClassIR.is_nn_module` keeps its exact
 #: torch meaning; readers that mean "a model class" ask `is_model_module`.
-MODEL_BASES = frozenset({"torch.nn.Module"}) | frozenset(
+#: VIS2-11 adds the three torch containers. `class ConvNormActivation(
+#: nn.Sequential)` is torchvision's own idiom and the shape every modern
+#: backbone block is written in, and `resolved_bases` for it holds
+#: `torch.nn.Sequential` and not `torch.nn.Module` - so MLV301's architecture
+#: probe would not look inside it, the BatchNorm and the Dropout it passes to
+#: `super().__init__(...)` were invisible, and an identical network reported
+#: `medium / 0.51 / possible` instead of `high / 0.85` - below
+#: `mlview.minConfidence`, so the finding never reached the Problems panel at
+#: all. A `Sequential` subclass IS an `nn.Module` subclass; saying so is a
+#: widening of a base set, not a claim about a class that lacks one.
+MODEL_BASES = frozenset({"torch.nn.Module", "torch.nn.Sequential",
+                         "torch.nn.ModuleList", "torch.nn.ModuleDict"}) | frozenset(
     "%s.LightningModule" % root for root in LIGHTNING_ROOTS)
 
 

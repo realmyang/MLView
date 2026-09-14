@@ -459,16 +459,23 @@ def apply(options, config: MlviewConfig):
     if not isinstance(config, MlviewConfig):
         return options
     fields = {f.name: f for f in dataclasses.fields(type(options))}
+    #: The names the caller set on purpose. "Equal to the dataclass default" is
+    #: a *proxy* for "the caller did not ask", and it is wrong in exactly the
+    #: case a host hits every run: `--max-nodes 400` and `--min-confidence 0.0`
+    #: are the documented defaults, so a checked-in `.mlview.toml` won over a
+    #: flag that had been typed. The CLI now records which options were typed.
+    explicit = set(getattr(options, "explicit", ()) or ())
     changes: Dict[str, Any] = {}
     for key, value in sorted(config.analysis.items()):
         spec = fields.get(key)
-        if spec is None:
-            continue
+        if spec is None or key in explicit:
+            continue                        # the caller asked; the caller wins
         current = getattr(options, key, None)
         if current != _default_of(spec):
             continue                        # the caller asked; the caller wins
         changes[key] = value
-    if config.min_confidence is not None and "min_confidence" in fields:
+    if (config.min_confidence is not None and "min_confidence" in fields
+            and "min_confidence" not in explicit):
         if getattr(options, "min_confidence", 0.0) == _default_of(
                 fields["min_confidence"]):
             changes["min_confidence"] = config.min_confidence

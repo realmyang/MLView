@@ -171,11 +171,15 @@ RANGE_SRC = """
 import torch
 
 
-def run(parts, head, n):
+def run(parts, head, n, model, optimizer, criterion, x, y):
     for i in range(10):
-        pass
+        loss = criterion(model(x), y)
+        loss.backward()
+        optimizer.step()
     for j in range(0, 100, 5):
-        pass
+        loss = criterion(model(x), y)
+        loss.backward()
+        optimizer.step()
     for k in range(1, len(parts)):
         pass
     for m in range(len(head), 0, -1):
@@ -184,6 +188,8 @@ def run(parts, head, n):
         pass
     for epoch in range(n):
         pass
+    for t in range(100):
+        parts.append(t * 0.01)
 """
 
 
@@ -193,19 +199,39 @@ def range_module(analyze_ir):
 
 
 def test_a_fully_literal_range_is_an_epoch_loop(range_module):
+    """A literal count plus ML content in the body (PUB2-07).
+
+    "The count is a literal" used to be the whole test, and it admitted every
+    plotting, timing and lookup-table loop in Python: measured over the 37-repo
+    public corpus, 739 of 4898 train/eval loop nodes (15.1%) were `for i in
+    range(1000)` around a `%timeit`, `for i in range(1, 7)` building matplotlib
+    axes, or `for i in range(256)` filling an autoaugment table - and on
+    tensorflow/models the ONLY node in the whole train lane of a 398-node
+    diagram was a loop appending 100 float thresholds to a protobuf config.
+    """
     loops = loops_by_line(range_module)
-    assert loops[6].kind == "epoch"      # range(10)
-    assert loops[8].kind == "epoch"      # range(0, 100, 5)
+    assert loops[6].kind == "epoch"      # range(10), with a training step
+    assert loops[10].kind == "epoch"     # range(0, 100, 5), with a training step
+
+
+def test_a_literal_range_with_no_ml_content_is_not_an_epoch_loop(range_module):
+    """PUB2-07: the config / plotting / lookup-table loop. `range(100)` around
+    `parts.append(t * 0.01)` is not a training loop, and drawing it as one
+    declared the `train` stage present and armed MLV601 off it."""
+    loops = loops_by_line(range_module)
+    assert loops[22].kind == "other"     # range(100) appending floats
 
 
 def test_a_partly_literal_range_is_index_arithmetic_not_an_epoch(range_module):
     """`range(1, len(parts))` has a literal bound but counts nothing epoch-ish."""
     loops = loops_by_line(range_module)
-    assert loops[10].kind == "other"     # range(1, len(parts))
-    assert loops[12].kind == "other"     # range(len(head), 0, -1)
+    assert loops[14].kind == "other"     # range(1, len(parts))
+    assert loops[16].kind == "other"     # range(len(head), 0, -1)
 
 
 def test_an_epoch_named_argument_or_target_still_wins(range_module):
+    """The two real epoch signals are unconditional: they are evidence about
+    the loop, not about the shape of its bound."""
     loops = loops_by_line(range_module)
-    assert loops[14].kind == "epoch"     # target n_epochs
-    assert loops[16].kind == "epoch"     # target epoch
+    assert loops[18].kind == "epoch"     # target n_epochs
+    assert loops[20].kind == "epoch"     # target epoch

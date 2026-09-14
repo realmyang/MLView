@@ -13,7 +13,7 @@
 
 import { add, button, clear, el, iconButton, on } from '../dom.js';
 import { uiIcon } from '../icons.js';
-import { concernRows, pipelineRows, scopeCatalog, stageRows } from '../scope/catalog.js';
+import { concernRows, pipelineRows, scopeCatalog, stageRows, viewCountOf } from '../scope/catalog.js';
 import type { ScopeGroup, ScopeUnit } from '../scope/catalog.js';
 import { drawnCount, rowSeverity } from '../scope/pipelines.js';
 import type { PipelineRow } from '../scope/pipelines.js';
@@ -186,8 +186,26 @@ export class ScopePicker {
     return h;
   }
 
+  /**
+   * HOSTS-UX-ROWCOUNT: the number the CLICK delivers, not the relation's.
+   *
+   * Round 1 fixed this for the pipeline rows and left the other three kinds
+   * promising their match set, so a unit row under-counted by the kind's
+   * default depth and a stage or concern row by the `context` ancestors the
+   * projection keeps: on the frozen golden `unit:train.train` offered 4 and
+   * drew 9, and on `analyzer/tests/clean` `stage:objective` offered 5 and drew
+   * 10 at depth 0, where no depth is involved at all.
+   */
+  private drawn(spec: string, relation: number): number {
+    const graph = this.state.graph;
+    if (!graph) return relation;
+    const count = viewCountOf(graph, spec);
+    return count === null ? relation : count;
+  }
+
   private groupRow(row: ScopeGroup): HTMLElement {
-    const detail = row.present ? row.nodes + (row.nodes === 1 ? ' node' : ' nodes') : 'not detected in this project';
+    const drawn = this.drawn(row.spec, row.nodes);
+    const detail = row.present ? drawn + (drawn === 1 ? ' node' : ' nodes') : 'not detected in this project';
     const el_ = this.row(row.label, detail, row.spec, this.state.spec === row.spec);
     if (!row.present) {
       el_.setAttribute('aria-disabled', 'true');
@@ -231,7 +249,8 @@ export class ScopePicker {
   }
 
   private unitRow(unit: ScopeUnit): HTMLElement {
-    const detail = unit.file + ':' + unit.line + ' · ' + unit.nodeCount + (unit.nodeCount === 1 ? ' node' : ' nodes');
+    const drawn = this.drawn(unit.spec, unit.nodeCount);
+    const detail = unit.file + ':' + unit.line + ' · ' + drawn + (drawn === 1 ? ' node' : ' nodes');
     const row = this.row(unit.label, detail, unit.spec, this.state.spec === unit.spec);
     if (unit.maxSeverity) row.setAttribute('data-sev', unit.maxSeverity);
     return row;

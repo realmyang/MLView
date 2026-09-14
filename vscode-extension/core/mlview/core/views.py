@@ -76,7 +76,15 @@ _FORWARD_ROLES = ("FORWARD", "PREDICT", "KERAS_EVAL", "HF_EVAL")
 #: Roles whose presence means the model is being *measured*.
 _MEASURE_ROLES = ("METRIC", "SCORE_METRIC", "ARGMAX", "TO_NUMPY", "CV")
 #: Roles that make a loop a training loop whatever else it contains.
-_TRAINING_ROLES = ("BACKWARD", "OPT_STEP", "ZERO_GRAD", "SCALE")
+#: `TAPE_GRADIENT` / `TF_OPT_STEP` are the TensorFlow spellings of `BACKWARD`
+#: and `OPT_STEP` (INFRA-R2-05). They are separate roles on purpose - MLV201-205
+#: read `BACKWARD` / `OPT_STEP` and reason about `zero_grad()`, which TF has no
+#: equivalent of - so every place that asks "does this loop train?" has to name
+#: both spellings, and this is that place.
+_TRAINING_ROLES = ("BACKWARD", "OPT_STEP", "ZERO_GRAD", "SCALE",
+                   "TAPE_GRADIENT", "TF_OPT_STEP")
+#: Roles that answer "something back-propagates in here", in any framework.
+_BACKWARD_ROLES = ("BACKWARD", "TAPE_GRADIENT")
 
 
 def loop_is_eval(loop: LoopIR) -> bool:
@@ -108,9 +116,52 @@ def loop_is_eval(loop: LoopIR) -> bool:
     return _runs_without_training(loop)
 
 
+#: Method names that mean "this loop updates a model", whatever resolved.
+#: Purely syntactic, and deliberately unambiguous: none of the five has a
+#: non-training meaning in Python, so a loop carrying one is never evaluation.
+#: `step` and `update` are **not** here - `env.step(action)` and
+#: `metric.update(preds, target)` are both ordinary evaluation code.
+_TRAINING_CALL_NAMES = ("backward", "zero_grad", "apply_gradients",
+                        "minimize", "backward_and_step")
+
+
+def _calls_a_training_method(loop: LoopIR) -> bool:
+    """Does the loop body syntactically contain an update call? (INFRA-R2-01)
+
+    The role scan below only disqualifies a loop on a **resolved** training
+    role, so every accelerator spelling walked straight past it:
+    `accelerator.backward(loss)`, DeepSpeed's `engine.backward(loss)` /
+    `engine.step()`, Fabric's `fabric.backward(loss)` and TensorFlow's
+    `optimizer.apply_gradients(...)` all resolve to no torch role, and the
+    canonical training loop of every one of those frameworks was drawn in the
+    Evaluate lane with the answer card saying "Evaluation runs in ..." at 0.95
+    about a file that evaluates nothing.
+
+    `_runs_an_unresolved_model` already carried this exact check, with a
+    docstring promising that "a training loop whose calls did not resolve is
+    never reclassified as evaluation" - but it only ran on the fallback path.
+    It is a disqualifier for the whole question, so it runs first.
+    """
+    import ast
+
+    for child in ast.walk(loop.node):
+        if not isinstance(child, ast.Call):
+            continue
+        func_node = child.func
+        if isinstance(func_node, ast.Attribute):
+            if func_node.attr in _TRAINING_CALL_NAMES:
+                return True
+        elif isinstance(func_node, ast.Name):
+            if func_node.id in _TRAINING_CALL_NAMES:
+                return True
+    return False
+
+
 def _runs_without_training(loop: LoopIR) -> bool:
     """A batch loop that runs the model and never updates it."""
     if loop.kind != "batch":
+        return False
+    if _calls_a_training_method(loop):
         return False
     runs = False
     for call in loop.module.calls:
@@ -134,8 +185,12 @@ def _runs_without_training(loop: LoopIR) -> bool:
 #: number: the measurement half of the fallback below.
 _MEASURE_METHODS = ("argmax", "item", "numpy", "topk", "tolist", "softmax",
                     "sigmoid", "detach", "cpu")
-#: Methods that mean the loop trains, whatever resolved.
-_TRAINING_METHODS = ("backward", "step", "zero_grad", "update", "scale")
+#: Methods that mean the loop trains, whatever resolved. Wider than
+#: `_TRAINING_CALL_NAMES` because this set is only consulted on the fallback
+#: path, where nothing at all resolved and `step`/`update` are therefore much
+#: more likely to be an optimizer than an environment or a metric.
+_TRAINING_METHODS = ("backward", "step", "zero_grad", "update", "scale",
+                     "apply_gradients", "minimize")
 
 
 def _runs_an_unresolved_model(loop: LoopIR) -> bool:
@@ -186,13 +241,13 @@ def loop_backward(loop: LoopIR) -> Optional[str]:
     for call in loop.module.calls:
         if not within_loop(call.loop, loop):
             continue
-        if K.role_of(call.fqn) == "BACKWARD":
+        if K.role_of(call.fqn) in _BACKWARD_ROLES:
             return "loop body calls backward()"
         callee = call.target_function
         if callee is None:
             continue
         for inner in callee.calls:
-            if K.role_of(inner.fqn) == "BACKWARD":
+            if K.role_of(inner.fqn) in _BACKWARD_ROLES:
                 return "loop body calls %s(), which calls backward()" % callee.name
     return None
 

@@ -1,10 +1,14 @@
 #!/usr/bin/env python
-"""Checks 9, 10 and 11 of the doc gate: claims a machine can settle.
+"""Checks 9, 10, 11, 19 and 20 of the doc gate: claims a machine can settle.
 
-`check_docs.py` checks whether the prose names things that exist. These three
+`check_docs.py` checks whether the prose names things that exist. These five
 check whether it names the *right numbers* — the cases where a figure written in
 Markdown has an authoritative copy somewhere in the tree, and the two silently
-drifted apart. Stdlib only, offline, and they read files the gate already has.
+drifted apart. Checks 19 and 20 are the same idea pointed at two claims that are
+not numbers but are just as checkable: a command line a CI job generates (is it
+one the tool accepts?) and a document's list of which rules pay the
+interprocedural hop weight (does the code hold such a list at all?). Stdlib
+only, offline, and they read files the gate already has.
 
 9.  **The accuracy headline agrees with the recorded baseline.** `docs/ACCURACY.md`
     §3 quotes precision, three recall readings and graph fidelity;
@@ -30,14 +34,62 @@ drifted apart. Stdlib only, offline, and they read files the gate already has.
     PowerShell and the POSIX driver to print the *same* table, and holds every
     `N steps` / `N-step` claim on a line naming `e2e` to that count.
 
-Imported by `scripts/check_docs.py`; `scripts/test_check_docs.py` tests it.
+19. **A CI command line the tool would refuse.** `.github/workflows/public-corpus.yml`
+    built `python tools/public_corpus.py fetch --repo <names>` from its
+    `workflow_dispatch` `repos` input, and that option lived only on the
+    top-level parser: argparse answered `unrecognized arguments` and exited 2, so
+    every dispatch that used the documented input died at the job's first step,
+    and nothing in the tree could notice because a workflow is text nobody runs
+    until the schedule does (PUB2-10). A workflow's `run:` lines are now parsed
+    with **the tool's own parser** — `build_parser()` in `tools/public_corpus.py`
+    and `tools/verify.py` — after expanding each conditional fragment
+    (`${{ ... || '' }}`, `${VAR:+...}`) into every literal line it can produce.
+    The authority is never a list in this file: the workflow names the script and
+    the script answers with its parser, so a new option, a renamed subcommand or
+    a second CI line is covered the day it is written.
+
+20. **A closed list of rules where the code holds none.** `docs/ACCURACY.md` §6
+    said *"Only MLV101 and MLV102 consume the hop chain"*, and by then IP-01 had
+    made the payment rule-agnostic: `RuleContext.note_hops` records every
+    interprocedurally widened value **whichever** rule reads it, and `issue()`
+    charges that rule one `cross_file` factor. Measured on the labelled corpus in
+    `ip`, the rules that actually paid were MLV101, MLV401 and MLV803 — so the
+    sentence was wrong in both directions at once, and it is the sentence a rule
+    author reads to decide whether hop weights are their problem (VIS2-17). A
+    living doc may therefore name an exclusive list of rule codes for the hop
+    chain only when a constant in `analyzer/src/mlview/rules/` enumerates exactly
+    those codes; otherwise the list is a guess with no way to go stale loudly.
+
+Imported by `scripts/check_docs.py`; `scripts/test_doc_numbers.py` tests it.
 """
 from __future__ import annotations
 
+import ast
+import contextlib
+import importlib.util
 import io
 import json
 import re
+import shlex
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import doc_figures  # noqa: E402  - sibling module, after the sys.path fix above
+
+#: Which documents may be held to today's tree, and the one phrase that marks a
+#: paragraph as a record of what was true when it was written. Both are policy,
+#: not detail, so they are read from the sibling that first wrote them down
+#: rather than copied: two gates disagreeing about what "living" means is the
+#: same class of defect as the ones they catch.
+LIVING_DOCS = doc_figures.LIVING_DOCS
+HISTORICAL_RE = doc_figures.HISTORICAL_RE
+
+
+def _lines(path: Path) -> list:
+    # newline='' so a CRLF file is read as written, like check_docs.read.
+    return io.open(path, encoding="utf-8", newline="").read().splitlines()
+
 
 # ------------------------------------------------------------------ check 9
 ACCURACY_DOC = "docs/ACCURACY.md"
@@ -295,8 +347,316 @@ def check_step_counts(root: Path, paths, problems: list) -> None:
                     % (rel, n, claimed, E2E_SH, E2E_PS1, total))
 
 
+# ----------------------------------------------------------------- check 19
+# `python tools/public_corpus.py`, `python3 scripts/foo.py`, `PYTHONUTF8=1 python
+# tools/verify.py`. The tool is a repo-relative path, which is what lets the
+# check ask *that* file for its parser instead of holding a table of its flags.
+TOOL_RE = re.compile(r"(?:^|\s)(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*"
+                     r"(?:python3?|py)\s+(?:-\S+\s+)*((?:tools|scripts)/[\w./-]+\.py)\b")
+RUN_KEY_RE = re.compile(r"^(\s*)(?:-\s+)?run:\s*(\|[-+]?|>[-+]?)?\s*(.*?)\s*$")
+# One `run:` line can hold several commands. Each is judged on its own.
+SHELL_SPLIT_RE = re.compile(r"&&|\|\||[;|]")
+# `${{ ... }}`, inner braces and all: `format('--repo {0}', inputs.repos)` has a
+# `}` in the middle of it, which is precisely the expression this check exists
+# for, so the pattern is lazy to the closing pair rather than "no braces inside".
+GH_EXPR_RE = re.compile(r"\$\{\{.*?\}\}")
+# `inputs.strict == 'true'` contributes no text to the line; without this the
+# check would try `... check --report R true` and blame the workflow for it.
+GH_COMPARISON_RE = re.compile(r"[=!]=\s*(?:'[^']*'|\"[^\"]*\"|[\w.]+)")
+GH_FORMAT_RE = re.compile(r"format\(\s*'([^']*)'[^)]*\)")
+GH_LITERAL_RE = re.compile(r"'([^']*)'|\"([^\"]*)\"|(?<![\w.$])(\d+)(?![\w.])")
+# `${REPOS:+--repo "$REPOS"}` - the shell's own conditional, and the way an
+# untrusted `workflow_dispatch` input reaches a command line without being pasted
+# into the script by `${{ }}`. Either it contributes its text or it contributes
+# nothing, so it expands to exactly two lines.
+SH_ALT_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*):\+([^{}]*)\}")
+#: What a `{0}` in a `format()` template stands for. Any value the input can
+#: hold is one token to argparse, so one placeholder covers them all.
+PLACEHOLDER = "VALUE"
+#: A line with more than a handful of conditionals is not a command line.
+MAX_VARIANTS = 12
+
+
+def _run_scripts(lines):
+    """Yield (line number of the first body line, [body lines]) per `run:`.
+
+    A block scalar's body ends at the first non-blank line indented no deeper
+    than the `run:` key itself - the same boundary rule `_yaml_steps` needed,
+    for the same reason. Blank lines stay in the body so a line number is the
+    offset into it.
+    """
+    index = 0
+    while index < len(lines):
+        found = RUN_KEY_RE.match(lines[index])
+        if not found:
+            index += 1
+            continue
+        if found.group(3) and not found.group(2):
+            yield index + 1, [found.group(3)]       # `run: python tools/x.py`
+            index += 1
+            continue
+        indent, body, start = len(found.group(1)), [], index + 2
+        index += 1
+        while index < len(lines):
+            text = lines[index]
+            if text.strip() and (len(text) - len(text.lstrip())) <= indent:
+                break
+            body.append(text)
+            index += 1
+        if body:
+            yield start, body
+
+
+def _command_lines(lines):
+    """(line number, one logical shell command) for every `run:` body line.
+
+    `\\`-continuations are joined, because the defect this check exists for was
+    written across three of them.
+    """
+    for start, body in _run_scripts(lines):
+        buffer, at = "", None
+        for offset, text in enumerate(body):
+            stripped = text.strip()
+            if not buffer and (not stripped or stripped.startswith("#")):
+                continue
+            if at is None:
+                at = start + offset
+            if stripped.endswith("\\"):
+                buffer += stripped[:-1] + " "
+                continue
+            buffer += stripped
+            if buffer.strip():
+                yield at, buffer.strip()
+            buffer, at = "", None
+        if buffer.strip():
+            yield at or start, buffer.strip()
+
+
+def _github_candidates(expression: str) -> list:
+    """Every literal a `${{ ... }}` expression can put on the command line."""
+    inner = GH_COMPARISON_RE.sub(" ", expression[3:-2])
+    out: list = []
+
+    def take(value):
+        if value not in out:
+            out.append(value)
+
+    for found in GH_FORMAT_RE.finditer(inner):
+        take(re.sub(r"\{\d+\}", PLACEHOLDER, found.group(1)))
+    for found in GH_LITERAL_RE.finditer(GH_FORMAT_RE.sub(" ", inner)):
+        take(next(group for group in found.groups() if group is not None))
+    # An expression with no literal at all (`${{ github.workspace }}`) is one
+    # opaque token, not an empty one: dropping it would shift the argument after
+    # it into the option's place and invent a failure.
+    return out or ["EXPR"]
+
+
+def _variants(command: str) -> list:
+    """Every literal command line this one can become, conditionals expanded."""
+    out = [command]
+    for _ in range(4):
+        grown, changed = [], False
+        for text in out:
+            found = min((m for m in (GH_EXPR_RE.search(text), SH_ALT_RE.search(text))
+                         if m), key=lambda m: m.start(), default=None)
+            if found is None:
+                grown.append(text)
+                continue
+            changed = True
+            candidates = (_github_candidates(found.group(0))
+                          if found.re is GH_EXPR_RE else ["", found.group(2)])
+            for candidate in candidates:
+                grown.append(text[:found.start()] + candidate + text[found.end():])
+        out = grown[:MAX_VARIANTS]
+        if not changed:
+            break
+    return out
+
+
+def tool_parser(root: Path, rel: str, cache: dict):
+    """The tool's own `build_parser()`, or None when it does not offer one.
+
+    A tool that does not expose one is simply not checked: this gate may not
+    become a reason to import something with side effects, and it runs in a CI
+    job that never installs `mlview`.
+    """
+    if rel not in cache:
+        cache[rel] = None
+        path = root / rel
+        if path.is_file():
+            saved = list(sys.path)
+            try:
+                name = "_mlview_doc_gate_" + re.sub(r"\W", "_", rel)
+                spec = importlib.util.spec_from_file_location(name, path)
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+                factory = getattr(module, "build_parser", None)
+                cache[rel] = factory if callable(factory) else None
+            except Exception:  # pragma: no cover - an unimportable tool is not a doc defect
+                cache[rel] = None
+            finally:
+                sys.path[:] = saved
+    return cache[rel]
+
+
+def _refusal(parser, argv) -> str:
+    """argparse's own message when it would refuse this argv, else ``''``."""
+    err = io.StringIO()
+    try:
+        with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+            parser.parse_args(argv)
+    except SystemExit as stop:
+        if stop.code:
+            message = " ".join(err.getvalue().split())
+            return message or ("exit %s" % stop.code)
+    except Exception as exc:  # pragma: no cover - a parser with a raising type
+        return "%s: %s" % (type(exc).__name__, exc)
+    return ""
+
+
+def check_ci_command_lines(root: Path, problems: list) -> None:
+    """PUB2-10: a command line CI generates is one the tool has to accept."""
+    workflows = root / ".github" / "workflows"
+    if not workflows.is_dir():
+        return
+    cache: dict = {}
+    for path in sorted(workflows.glob("*.yml")) + sorted(workflows.glob("*.yaml")):
+        rel = path.relative_to(root).as_posix()
+        reported: set = set()
+        for number, command in _command_lines(_lines(path)):
+            # Expand first, split second: `${{ a && b || '' }}` carries the
+            # shell's own `||` inside it, so splitting a raw line on shell
+            # operators tears the expression in half and blames the tool for it.
+            for variant in _variants(command):
+                for segment in SHELL_SPLIT_RE.split(variant):
+                    found = TOOL_RE.search(segment)
+                    if not found:
+                        continue
+                    tool = found.group(1)
+                    factory = tool_parser(root, tool, cache)
+                    if factory is None or (number, tool) in reported:
+                        continue
+                    try:
+                        argv = shlex.split(segment[found.end(1):].strip(),
+                                           comments=True)
+                    except ValueError:  # pragma: no cover - unbalanced quoting
+                        continue
+                    refusal = _refusal(factory(), argv)
+                    if not refusal:
+                        continue
+                    reported.add((number, tool))
+                    problems.append(
+                        "%s:%d: CI runs `%s %s`, and %s refuses it: %s -- a "
+                        "workflow is generated text nobody runs until the "
+                        "schedule does, so its command lines are parsed with "
+                        "the tool's own `build_parser()` (PUB2-10)"
+                        % (rel, number, tool, " ".join(argv), tool, refusal))
+
+
+# ----------------------------------------------------------------- check 20
+RULES_DIR = "analyzer/src/mlview/rules"
+HOP_MECHANISM = "analyzer/src/mlview/rules/context.py"
+RULE_CODE_RE = re.compile(r"\bMLV\d{3}\b")
+# A constant that could be the list the prose claims: named for the mechanism,
+# and holding rule codes. `HOP_KINDS` holds hop kinds, not codes, so it is not.
+HOP_CONST_RE = re.compile(r"(?:^|_)(?:HOP|IP|CROSS_FILE|INTERPROC\w*)(?:_|$)")
+# The claim, in the two orders it gets written: "only MLV101 and MLV102 consume
+# the hop chain" and "MLV101 and MLV102 are the only rules that pay for a hop".
+# The gaps are bounded and may not cross a sentence end, so a bullet that names
+# rule codes and a bullet that says "only" further down the same list are two
+# claims, not one -- the folded block is a whole Markdown list, and an unbounded
+# pattern read three of those as an exclusivity claim about hops on its first run.
+HOP_CLAIM_RE = re.compile(
+    r"\bonly\b[^.;:!?]{0,70}?\bMLV\d{3}\b[^.;!?]{0,160}?\bhops?\b"
+    r"|\bMLV\d{3}\b[^.;:!?]{0,90}?\bonly\b[^.;!?]{0,120}?\bhops?\b", re.I)
+
+
+def _folded(lines):
+    """(line number, one folded block) per Markdown block.
+
+    A blank line, a new bullet and a table row each start a block: the claim in
+    ACCURACY.md §6 is one bullet wrapped over four lines, and the bullet under it
+    is a different claim.
+    """
+    start, buf = 0, []
+    for number, line in enumerate(lines, 1):
+        text = line.strip()
+        starts_block = (not text or text.startswith("|")
+                        or re.match(r"[-*]\s+|\d+\.\s+", text))
+        if starts_block and buf:
+            yield start, " ".join(buf)
+            start, buf = 0, []
+        if not text:
+            continue
+        if not buf:
+            start = number
+        buf.append(text)
+    if buf:
+        yield start, " ".join(buf)
+
+
+def hop_code_constants(root: Path) -> list:
+    """Every module-level constant in the rules package that enumerates codes.
+
+    Parsed, never imported: the doc gate runs where `mlview` is not installed.
+    """
+    out: list = []
+    package = root / RULES_DIR
+    if not package.is_dir():
+        return out
+    for path in sorted(package.glob("*.py")):
+        try:
+            tree = ast.parse(io.open(path, encoding="utf-8").read())
+        except (OSError, SyntaxError):  # pragma: no cover - a broken rules tree
+            continue
+        for node in tree.body:
+            if not isinstance(node, ast.Assign):
+                continue
+            names = [t.id for t in node.targets if isinstance(t, ast.Name)]
+            if not any(HOP_CONST_RE.search(name) for name in names):
+                continue
+            if not isinstance(node.value, (ast.Tuple, ast.List, ast.Set)):
+                continue
+            codes = {e.value for e in node.value.elts
+                     if isinstance(e, ast.Constant) and isinstance(e.value, str)
+                     and RULE_CODE_RE.fullmatch(e.value)}
+            if codes and len(codes) == len(node.value.elts):
+                out.append(codes)
+    return out
+
+
+def check_hop_claims(root: Path, paths, problems: list) -> None:
+    """VIS2-17: the hop weight is charged to whichever rule read the value."""
+    if not (root / HOP_MECHANISM).is_file():
+        return
+    held = hop_code_constants(root)
+    # Every current-state doc, not just the three `LIVING_DOCS` figures live in:
+    # the sentence this check exists for is in `docs/ACCURACY.md`, which is where
+    # a rule author goes to find out whether hop weights are their problem.
+    for path in paths:
+        rel = path.relative_to(root).as_posix()
+        for number, block in _folded(_lines(path)):
+            if HISTORICAL_RE.search(block):
+                continue
+            for found in HOP_CLAIM_RE.finditer(block):
+                claimed = set(RULE_CODE_RE.findall(found.group(0)))
+                if not claimed or any(claimed == codes for codes in held):
+                    continue
+                problems.append(
+                    "%s:%d: names %s as the rules that pay the interprocedural "
+                    "hop weight, and no constant in `%s` enumerates them -- "
+                    "`RuleContext.note_hops` in `%s` records the hop for "
+                    "whichever rule read the widened value and `issue()` charges "
+                    "that rule one `cross_file` factor, so the payers are "
+                    "measured, not listed (VIS2-17)"
+                    % (rel, number, ", ".join(sorted(claimed)), RULES_DIR,
+                       HOP_MECHANISM))
+
+
 def run(root: Path, paths, problems: list) -> None:
-    """All three checks, in the order the docstring numbers them."""
+    """All five checks, in the order the docstring numbers them."""
     check_accuracy_numbers(root, problems)
     check_artifact_uploads(root, problems)
     check_step_counts(root, paths, problems)
+    check_ci_command_lines(root, problems)
+    check_hop_claims(root, paths, problems)

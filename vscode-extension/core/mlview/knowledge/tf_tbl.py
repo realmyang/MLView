@@ -165,7 +165,10 @@ for _root in KERAS_ROOTS:
     KERAS_EXTRA.update(expand("%s.losses" % _root, _LOSSES,
                               E("loss", "objective", _f, "LOSS_CLS", ("LOSS",))))
     KERAS_EXTRA.update(expand("%s.optimizers" % _root, _OPTIMIZERS,
-                              E("optimizer", "train", _f, "OPTIMIZER", ("OPTIMIZER",))))
+                              E("optimizer", "train", _f, "OPTIMIZER", ("OPTIMIZER",),
+                                "keras_optimizer")))
+    KERAS_EXTRA["%s.optimizers.Optimizer" % _root] = E(
+        "optimizer", "train", _f, "OPTIMIZER", ("OPTIMIZER",), "keras_optimizer")
     # `Input` is written both as `keras.Input` and `keras.layers.Input`.
     _input = E("layer", "model", _f, "LAYER", ("MODEL",), "keras_model")
     KERAS_EXTRA["%s.Input" % _root] = dict(_input)
@@ -190,7 +193,31 @@ for _root in KERAS_ROOTS:
     KERAS_EXTRA["%s.Sequential" % _root] = E(
         "model", "model", _f, "KERAS_MODEL", ("MODEL",), "keras_model")
 
+#: INFRA-R2-05. The TF2 custom training loop - `with tf.GradientTape() as tape`,
+#: `tape.gradient(...)`, `optimizer.apply_gradients(...)` - is one of exactly
+#: two ways to train in TensorFlow, and carried no rows at all, so every one of
+#: them was drawn in the Evaluate lane with the answer card saying "Evaluation
+#: runs in ..." at 0.95 about a file that evaluates nothing.
+#:
+#: The two roles are deliberately **not** `BACKWARD` / `OPT_STEP`: MLV201-205
+#: are torch rules that read those roles and reason about `zero_grad()`, which
+#: TensorFlow does not have. `core/views` names these two explicitly instead,
+#: so the lane is right without a torch rule ever firing on a TF loop in a
+#: mixed workspace.
+KERAS_EXTRA["tensorflow.GradientTape"] = E(
+    "train_loop", "train", TF, "GRAD_TAPE", (), "grad_tape")
+
 KERAS_EXTRA_METHODS.update({
+    "tensorflow.GradientTape.gradient": E(
+        "loss", "train", TF, "TAPE_GRADIENT", ("GRADS",), "tensor"),
+    "tensorflow.GradientTape.watch": E("loss", "train", TF, "TAPE_WATCH"),
+    "keras.optimizers.Optimizer.apply_gradients": E(
+        "optimizer", "train", K, "TF_OPT_STEP"),
+    "keras.optimizers.Optimizer.minimize": E(
+        "optimizer", "train", K, "TF_OPT_STEP"),
+    "keras.Model.train_on_batch": E("train_loop", "train", K, "KERAS_FIT"),
+    "keras.Model.test_on_batch": E("eval_loop", "eval", K, "KERAS_EVAL"),
+    "keras.Model.predict_on_batch": E("predict", "eval", K, "PREDICT", ("PREDS",)),
     "keras.Model.evaluate": E("eval_loop", "eval", K, "KERAS_EVAL"),
     "keras.Model.save_weights": E("checkpoint", "deliver", K, "SAVE"),
     "keras.Model.load_weights": E("checkpoint", "deliver", K, "LOAD"),

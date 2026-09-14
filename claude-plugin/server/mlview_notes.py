@@ -8,10 +8,10 @@ They all answer the same question: *is an empty result good news?*
   Python - or one whose every file failed to parse - reading as a clean bill of
   health, which is exactly what ``commands/mlview-issues.md`` tells the model to say.
 * ``coverage_notes`` / ``coverage_note`` (ROADMAP COVERAGE) are the *blind spot*
-  half: the analyzer's two coverage diagnostics name the rules that could not run,
+  half: the coverage diagnostics name the rules that could not run,
   and a ``{kind, count}`` tally drops precisely that. ``commands/mlview.md`` tells
   the model to "name the rules that could not run before you report the count", so
-  the codes and the analyzer's own sentence have to be IN the payload; without them
+  the codes and the producer's own sentence have to be IN the payload; without them
   that instruction can only be met by inventing rule codes, and the bare ``count``
   - sibling modules for ``single_file_analysis`` - reads as a tally of rules.
   This is the plugin's mirror of ``vscode-extension/src/coverage.ts``.
@@ -25,8 +25,50 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional, Sequence
 
 #: The ``Diagnostic.kind`` values this host reads as coverage caveats. Closed, and
-#: in the order a payload renders them; the same list as `coverage.ts` uses.
-COVERAGE_KINDS = ("single_file_analysis", "untagged_dataflow")
+#: in the order a payload renders them: the two the ANALYZER emits lead, because
+#: they say what the run could not see; the one this HOST emits follows, because
+#: it says what the caller asked not to run.
+#:
+#: ``framework_suppressed`` is one entry longer than `coverage.ts`'s list, and
+#: only HALF of that kind belongs here — see :func:`is_framework_filter_note`. The
+#: VS Code extension never passes a framework filter (nothing in
+#: `vscode-extension/src` or its `package.json` settings sends one), so no
+#: document it reads can carry the half that is a coverage caveat, and the lists
+#: have not drifted.
+COVERAGE_KINDS = ("single_file_analysis", "untagged_dataflow", "framework_suppressed")
+
+#: Every message :func:`mlview_workspace.framework_suppression` writes begins with
+#: this, and no other producer of the kind does.
+FRAMEWORK_FILTER_PREFIX = "--framework "
+
+
+def is_framework_filter_note(entry: Any) -> bool:
+    """True for the ``framework_suppressed`` note a ``--framework`` filter owes.
+
+    ONE kind, TWO statements, and only one of them is a coverage caveat:
+
+    * the analyzer's R3.8 absence gate — "Training loop handled by Keras - 1
+      rule(s) de-rated to speculative" (`mlview/rules/context.py:_note_gate`).
+      Those rules RAN; their severity was capped. Rendering that as "MLV601 could
+      not run" beside "the finding count is a floor, not a clean bill of health"
+      would be a coverage claim MLView never made, on every Lightning, HF and
+      Keras workspace — a misrepresentation in the opposite direction to the one
+      this module exists to prevent.
+    * this host's ``--framework`` filter, where the named rules really did not
+      run at all.
+
+    The analyzer's Diagnostic carries no field that separates them (the schema's
+    ``kind`` is closed and neither producer is tagged), so the discriminator is
+    the message this server writes itself. It is checked, never assumed: an entry
+    that does not start with the prefix is left in the ``diagnostics`` tally
+    exactly where it has always been.
+    """
+    return (
+        isinstance(entry, dict)
+        and entry.get("kind") == "framework_suppressed"
+        and str(entry.get("message") or "").startswith(FRAMEWORK_FILTER_PREFIX)
+    )
+
 
 #: How many rule codes one caveat carries before the list is elided. There are only
 #: a handful of cross-file / leakage rules, so this is a safety valve rather than a
@@ -105,17 +147,35 @@ def _clip(text: str, limit: int = MAX_MESSAGE) -> str:
     return text if len(text) <= limit else text[: limit - 3].rstrip() + "..."
 
 
-def _default_message(kind: str) -> str:
-    """The wording used when the analyzer sent a kind with no message of its own."""
-    if kind == "single_file_analysis":
-        return (
-            "Only part of the project was analyzed, so the rules that need "
-            "cross-file evidence could not run."
-        )
-    return (
+#: One sentence per coverage kind, used when the diagnostic arrived without a
+#: message of its own. Keyed rather than branched so adding a kind to
+#: ``COVERAGE_KINDS`` cannot silently borrow another kind's wording — which is
+#: what a trailing ``return`` did: every kind but ``single_file_analysis`` got the
+#: dataflow sentence, so the next kind added would have described itself as a
+#: leakage gap. (``framework_suppressed`` needs no entry: a filter note is
+#: RECOGNIZED by its message, so one without a message is not a filter note.)
+_DEFAULT_MESSAGES = {
+    "single_file_analysis": (
+        "Only part of the project was analyzed, so the rules that need "
+        "cross-file evidence could not run."
+    ),
+    "untagged_dataflow": (
         "A key argument carried no dataflow tag, so the leakage rules could not "
         "check it - a gap in coverage, not a clean result."
-    )
+    ),
+}
+
+#: For a kind with no sentence of its own: says the run was incomplete and nothing
+#: more, rather than borrowing a neighbour's explanation.
+_GENERIC_DEFAULT = (
+    "Part of this analysis could not run, so the finding count is a floor rather "
+    "than a clean result."
+)
+
+
+def _default_message(kind: str) -> str:
+    """The wording used when the analyzer sent a kind with no message of its own."""
+    return _DEFAULT_MESSAGES.get(kind, _GENERIC_DEFAULT)
 
 
 def coverage_notes(graph: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -134,6 +194,9 @@ def coverage_notes(graph: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
     for entry in (graph or {}).get("diagnostics") or []:
         kind = entry.get("kind")
         if kind not in COVERAGE_KINDS:
+            continue
+        if kind == "framework_suppressed" and not is_framework_filter_note(entry):
+            # The analyzer's absence gate, not a filter: those rules ran.
             continue
         codes = [c for c in (entry.get("codes") or []) if isinstance(c, str)]
         note = by_kind.get(kind)
@@ -182,6 +245,8 @@ def coverage_note(notes: Sequence[Dict[str, Any]]) -> Optional[str]:
 
 __all__ = [
     "COVERAGE_KINDS",
+    "FRAMEWORK_FILTER_PREFIX",
+    "is_framework_filter_note",
     "MAX_CODES",
     "MAX_MESSAGE",
     "diagnostics_summary",

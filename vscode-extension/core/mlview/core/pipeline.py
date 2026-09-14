@@ -101,6 +101,19 @@ class AnalyzeOptions:
     #: boundary, every hop is de-rated by an explicit evidence weight, and no
     #: cross-object finding may reach `certain`.
     dataflow: str = "local"
+    #: The option names the caller set **on purpose**, so `.mlview.toml` cannot
+    #: overrule a flag that happens to equal the documented default. Appended
+    #: last and defaulted to `()`, so positional construction, `frozen=True`
+    #: and hashability are unchanged and every existing caller is byte-for-byte
+    #: unaffected.
+    #:
+    #: `core/config.apply` used to infer "the caller did not ask" from "the
+    #: value equals the dataclass default", which is not the same question:
+    #: `mlview analyze --max-nodes 400` (what the VS Code host types on every
+    #: run) lost to `[analysis] max_nodes = 12` in a checked-in file, and
+    #: `--min-confidence 0.0` lost to a `[rules] min_confidence` floor - so the
+    #: flag a user typed to *see everything* hid findings.
+    explicit: Tuple[str, ...] = ()
 
 
 @dataclass
@@ -186,8 +199,14 @@ def run(options: AnalyzeOptions) -> AnalysisResult:
     notebook_maps, notebooks_skipped = _ingest_notebooks(
         found, want_notebooks, parsed_files, diagnostics)
     if found.file_cap_hit:
+        # VIS2-14 / ROB-24 / INFRA-R2-17: four different losses share
+        # `kind: "truncated"` - files never read, nodes rolled up, IR rounds
+        # capped, an interprocedural chain stopped - and they need different
+        # fixes. `scope` (a free-form string the schema already allows) names
+        # which one, so a consumer asking "was the GRAPH capped?" no longer has
+        # to pattern-match English prose. See CONTRACTS 11.59 A.
         diagnostics.append(Diagnostic(
-            kind="truncated",
+            kind="truncated", scope="files",
             message="Discovery capped at %d files (%d found); raise --max-files to widen."
                     % (options.max_files, found.total_found),
             count=found.total_found - len(found.files)))
@@ -243,7 +262,7 @@ def run(options: AnalyzeOptions) -> AnalysisResult:
         # some cross-module resolution is incomplete. Silence here means the
         # graph just comes back smaller with nothing to point at.
         graph.diagnostics.append(Diagnostic(
-            kind="truncated",
+            kind="truncated", scope="rounds",
             message="Cross-module resolution stopped after %d rounds without "
                     "reaching a fixed point; some imported symbols may be "
                     "unresolved. Narrow the analyzed path, or file the workspace "
@@ -270,7 +289,8 @@ def run(options: AnalyzeOptions) -> AnalysisResult:
     # carried a tag, which is the one confusion this project refuses to ship.
     for relpath, line, message in getattr(workspace, "ip_notes", ()) or ():
         graph.diagnostics.append(Diagnostic(
-            kind="truncated", message=message, file=relpath, line=line))
+            kind="truncated", scope="dataflow", message=message,
+            file=relpath, line=line))
 
     for relpath, line, message in workspace.unresolved_imports:
         graph.diagnostics.append(Diagnostic(

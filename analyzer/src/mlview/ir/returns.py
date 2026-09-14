@@ -182,6 +182,36 @@ def _slot(expr, func: FunctionIR, workspace, memo, active, depth: int,
                             class_ir=list(classes.values())[0]
                             if len(classes) == 1 else None)
         return merged or None
+    if isinstance(expr, ast.Subscript):
+        # NLP2-04. `def read_shards(files): return load_dataset(...)["train"]`
+        # is how every non-notebook HuggingFace project writes the first hop,
+        # and a Subscript fell straight through to `None`: the caller's binding
+        # was untyped, `documents.train_test_split(...)` resolved to nothing,
+        # and the SPLIT node, MLV602 and the two `.map` transform nodes all
+        # disappeared with an empty `diagnostics` list - on a diagram whose
+        # whole purpose is "where does data enter and where is it split".
+        # Round 1 fixed the same-scope form in `ir/bindings`; this is the
+        # cross-function form, and it carries exactly the same tags
+        # (`bindings._PROJECTION_TAGS`), because selecting a split out of a
+        # `DatasetDict` does not change what the rows are.
+        from .bindings import _PROJECTION_TAGS, _subscript_base
+        base_ref, base_call = _subscript_base(expr, func.scope, module)
+        tags: List[str] = []
+        fqns: Tuple[str, ...] = ()
+        class_ir = None
+        if base_call is not None:
+            tags = [t for t in call_output_tags(base_call, base_call.scope)
+                    if t in _PROJECTION_TAGS]
+            fqns = _trim(base_call.canonical_fqns)
+            class_ir = base_call.class_ir
+        elif base_ref is not None:
+            tags = [t for t in base_ref.tags if t in _PROJECTION_TAGS]
+            fqns = base_ref.via_fqns or (
+                _trim(base_ref.producer.canonical_fqns)
+                if base_ref.producer is not None else ())
+            class_ir = base_ref.class_ir
+        slot = ReturnSlot(fqns=_trim(fqns), tags=sort_tags(tags), class_ir=class_ir)
+        return slot or None
     if isinstance(expr, ast.Call):
         call = getattr(module, "_calls_by_node", {}).get(id(expr))
         if call is None:

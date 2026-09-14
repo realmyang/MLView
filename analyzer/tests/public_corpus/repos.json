@@ -1,24 +1,39 @@
 {
   "schemaVersion": 1,
   "title": "MLView public-repository corpus",
-  "recorded": "2026-09-13",
+  "recorded": "2026-09-14",
   "note": [
-    "Twenty-four real, popular Python ML/DL repositories, pinned to the exact commit",
-    "that was analysed on 2026-09-13. Nothing here is vendored: this file records a",
-    "URL, a commit SHA and a sparse-checkout path list, and `tools/public_corpus.py",
-    "fetch` clones them into MLVIEW_PUBLIC_CORPUS_DIR (default `.public-corpus/`,",
-    "which is NOT part of the repository). MLView only reads source with `ast`, so a",
-    "clone is a read, never a redistribution - but two entries are deliberately not",
-    "permissively licensed (`yolov5` is AGPL-3.0, `stable-diffusion` is CreativeML",
-    "Open RAIL-M) and one carries no LICENSE file at this SHA (`wandb-examples`).",
-    "They stay in the corpus because they are what people actually point an analyzer",
-    "at; `redistribute: false` marks every entry whose source must never be copied",
-    "into this tree or into a build artefact."
+    "Thirty-seven real, popular Python ML/DL repositories, pinned to the exact commit",
+    "that was analysed: twenty-four recorded on 2026-09-13 (hardening round 1) and",
+    "thirteen added on 2026-09-14 (round 2) for framework and domain shapes round 1",
+    "never reached - gradient boosting (xgboost, LightGBM), classical statistics and",
+    "time series (statsmodels), the accelerate/peft/trl fine-tuning stack, per-trial",
+    "HPO objectives (optuna-examples), single-file RL (cleanrl), the official PyTorch",
+    "tutorials, a registry/config framework (mmdetection), a hand-written GPT",
+    "(LLMs-from-scratch), YAML-driven LLM recipes (torchtune) and a second notebook",
+    "book (handson-ml3).",
+    "",
+    "Nothing here is vendored: this file records a URL, a commit SHA and a",
+    "sparse-checkout path list, and `tools/public_corpus.py fetch` clones them into",
+    "MLVIEW_PUBLIC_CORPUS_DIR (default `.public-corpus/`, which is NOT part of the",
+    "repository). MLView only reads source with `ast`, so a clone is a read, never a",
+    "redistribution - but two entries are deliberately not permissively licensed",
+    "(`yolov5` is AGPL-3.0, `stable-diffusion` is CreativeML Open RAIL-M) and one",
+    "carries no LICENSE file at this SHA (`wandb-examples`). They stay in the corpus",
+    "because they are what people actually point an analyzer at; `redistribute: false`",
+    "marks every entry whose source must never be copied into this tree or into a",
+    "build artefact."
   ],
   "defaults": {
-    "modes": ["local", "ip"],
+    "modes": [
+      "local",
+      "ip"
+    ],
     "wallTimeBudgetSeconds": 60,
-    "allowedExitCodes": [0, 4]
+    "allowedExitCodes": [
+      0,
+      4
+    ]
   },
   "repos": [
     {
@@ -28,14 +43,32 @@
       "license": "BSD-3-Clause",
       "redistribute": false,
       "domain": "reference examples (vision, language, RL, generative, distributed)",
-      "frameworks": ["torch", "torchvision"],
+      "frameworks": [
+        "torch",
+        "torchvision"
+      ],
       "sparse": [],
       "targets": [
-        "dcgan", "distributed", "fast_neural_style", "fx", "gat", "gcn",
-        "imagenet", "language_translation", "legacy", "mnist",
-        "mnist_forward_forward", "mnist_hogwild", "mnist_rnn", "regression",
-        "reinforcement_learning", "siamese_network", "super_resolution",
-        "time_sequence_prediction", "vae", "word_language_model"
+        "dcgan",
+        "distributed",
+        "fast_neural_style",
+        "fx",
+        "gat",
+        "gcn",
+        "imagenet",
+        "language_translation",
+        "legacy",
+        "mnist",
+        "mnist_forward_forward",
+        "mnist_hogwild",
+        "mnist_rnn",
+        "regression",
+        "reinforcement_learning",
+        "siamese_network",
+        "super_resolution",
+        "time_sequence_prediction",
+        "vae",
+        "word_language_model"
       ]
     },
     {
@@ -45,9 +78,13 @@
       "license": "MIT",
       "redistribute": false,
       "domain": "LLM pretraining, config-file driven (`exec(open(configfile).read())`)",
-      "frameworks": ["torch"],
+      "frameworks": [
+        "torch"
+      ],
       "sparse": [],
-      "targets": ["."]
+      "targets": [
+        "."
+      ]
     },
     {
       "name": "minGPT",
@@ -56,9 +93,13 @@
       "license": "MIT",
       "redistribute": false,
       "domain": "minimal GPT, hand-rolled Trainer class with callbacks",
-      "frameworks": ["torch"],
+      "frameworks": [
+        "torch"
+      ],
       "sparse": [],
-      "targets": ["."]
+      "targets": [
+        "."
+      ]
     },
     {
       "name": "transformers",
@@ -67,8 +108,14 @@
       "license": "Apache-2.0",
       "redistribute": false,
       "domain": "HuggingFace Trainer example scripts across eight tasks",
-      "frameworks": ["hf", "torch", "torchvision"],
-      "sparse": ["examples/pytorch"],
+      "frameworks": [
+        "hf",
+        "torch",
+        "torchvision"
+      ],
+      "sparse": [
+        "examples/pytorch"
+      ],
       "targets": [
         "examples/pytorch",
         "examples/pytorch/text-classification",
@@ -85,9 +132,17 @@
       "license": "Apache-2.0",
       "redistribute": false,
       "domain": "LightningModule / LightningDataModule and Fabric examples",
-      "frameworks": ["lightning", "torch"],
-      "sparse": ["examples"],
-      "targets": ["examples/pytorch", "examples/fabric"]
+      "frameworks": [
+        "lightning",
+        "torch"
+      ],
+      "sparse": [
+        "examples"
+      ],
+      "targets": [
+        "examples/pytorch",
+        "examples/fabric"
+      ]
     },
     {
       "name": "yolov5",
@@ -96,9 +151,14 @@
       "license": "AGPL-3.0-only",
       "redistribute": false,
       "domain": "object detection, hand-written AMP + EMA + DDP training loop",
-      "frameworks": ["torch", "torchvision"],
+      "frameworks": [
+        "torch",
+        "torchvision"
+      ],
       "sparse": [],
-      "targets": ["."]
+      "targets": [
+        "."
+      ]
     },
     {
       "name": "pytorch-image-models",
@@ -107,9 +167,18 @@
       "license": "Apache-2.0",
       "redistribute": false,
       "domain": "timm: a 1000-line argparse training script over a model zoo",
-      "frameworks": ["torch", "torchvision", "hf"],
-      "sparse": ["/*.py", "timm"],
-      "targets": ["."]
+      "frameworks": [
+        "torch",
+        "torchvision",
+        "hf"
+      ],
+      "sparse": [
+        "/*.py",
+        "timm"
+      ],
+      "targets": [
+        "."
+      ]
     },
     {
       "name": "scikit-learn",
@@ -118,8 +187,14 @@
       "license": "BSD-3-Clause",
       "redistribute": false,
       "domain": "the sklearn example gallery: 281 correct, idiomatic scripts",
-      "frameworks": ["sklearn", "pandas", "numpy"],
-      "sparse": ["examples"],
+      "frameworks": [
+        "sklearn",
+        "pandas",
+        "numpy"
+      ],
+      "sparse": [
+        "examples"
+      ],
       "targets": [
         "examples",
         "examples/model_selection",
@@ -139,8 +214,14 @@
       "license": "Apache-2.0",
       "redistribute": false,
       "domain": "keras.io code examples: .py and the generated .ipynb twin of each",
-      "frameworks": ["keras", "tf", "torch"],
-      "sparse": ["examples"],
+      "frameworks": [
+        "keras",
+        "tf",
+        "torch"
+      ],
+      "sparse": [
+        "examples"
+      ],
       "targets": [
         "examples/vision",
         "examples/nlp",
@@ -157,9 +238,18 @@
       "license": "Apache-2.0",
       "redistribute": false,
       "domain": "JAX/Flax examples - the honest-degradation probe (no torch, no sklearn)",
-      "frameworks": ["jax"],
-      "sparse": ["examples"],
-      "targets": ["examples", "examples/imagenet", "examples/mnist", "examples/wmt"]
+      "frameworks": [
+        "jax"
+      ],
+      "sparse": [
+        "examples"
+      ],
+      "targets": [
+        "examples",
+        "examples/imagenet",
+        "examples/mnist",
+        "examples/wmt"
+      ]
     },
     {
       "name": "stable-baselines3",
@@ -168,9 +258,14 @@
       "license": "MIT",
       "redistribute": false,
       "domain": "reinforcement learning - no train/test split anywhere, by design",
-      "frameworks": ["torch", "numpy"],
+      "frameworks": [
+        "torch",
+        "numpy"
+      ],
       "sparse": [],
-      "targets": ["."]
+      "targets": [
+        "."
+      ]
     },
     {
       "name": "pytorch_geometric",
@@ -179,9 +274,15 @@
       "license": "MIT",
       "redistribute": false,
       "domain": "graph neural networks - transductive masks instead of splits",
-      "frameworks": ["torch"],
-      "sparse": ["examples"],
-      "targets": ["examples"]
+      "frameworks": [
+        "torch"
+      ],
+      "sparse": [
+        "examples"
+      ],
+      "targets": [
+        "examples"
+      ]
     },
     {
       "name": "vit-pytorch",
@@ -190,9 +291,13 @@
       "license": "MIT",
       "redistribute": false,
       "domain": "a library of nn.Module definitions with almost no training code",
-      "frameworks": ["torch"],
+      "frameworks": [
+        "torch"
+      ],
       "sparse": [],
-      "targets": ["."]
+      "targets": [
+        "."
+      ]
     },
     {
       "name": "denoising-diffusion-pytorch",
@@ -201,9 +306,14 @@
       "license": "MIT",
       "redistribute": false,
       "domain": "diffusion training driven by `accelerate`, EMA and a step-based loop",
-      "frameworks": ["torch", "hf"],
+      "frameworks": [
+        "torch",
+        "hf"
+      ],
       "sparse": [],
-      "targets": ["."]
+      "targets": [
+        "."
+      ]
     },
     {
       "name": "CLIP",
@@ -212,9 +322,14 @@
       "license": "MIT",
       "redistribute": false,
       "domain": "inference-only model code plus two notebooks",
-      "frameworks": ["torch", "torchvision"],
+      "frameworks": [
+        "torch",
+        "torchvision"
+      ],
       "sparse": [],
-      "targets": ["."]
+      "targets": [
+        "."
+      ]
     },
     {
       "name": "detectron2",
@@ -223,9 +338,19 @@
       "license": "Apache-2.0",
       "redistribute": false,
       "domain": "config-driven (LazyConfig/yacs) detection framework and its tools/",
-      "frameworks": ["torch", "torchvision"],
-      "sparse": ["tools", "detectron2", "configs"],
-      "targets": ["tools", "detectron2"]
+      "frameworks": [
+        "torch",
+        "torchvision"
+      ],
+      "sparse": [
+        "tools",
+        "detectron2",
+        "configs"
+      ],
+      "targets": [
+        "tools",
+        "detectron2"
+      ]
     },
     {
       "name": "stable-diffusion",
@@ -234,9 +359,14 @@
       "license": "CreativeML-OpenRAIL-M",
       "redistribute": false,
       "domain": "latent diffusion - Lightning + OmegaConf `instantiate_from_config`",
-      "frameworks": ["lightning", "torch"],
+      "frameworks": [
+        "lightning",
+        "torch"
+      ],
       "sparse": [],
-      "targets": ["."]
+      "targets": [
+        "."
+      ]
     },
     {
       "name": "fastai",
@@ -245,9 +375,18 @@
       "license": "Apache-2.0",
       "redistribute": false,
       "domain": "fastai library plus its literate nbdev notebooks",
-      "frameworks": ["torch", "sklearn"],
-      "sparse": ["nbs", "fastai"],
-      "targets": ["fastai", "nbs"]
+      "frameworks": [
+        "torch",
+        "sklearn"
+      ],
+      "sparse": [
+        "nbs",
+        "fastai"
+      ],
+      "targets": [
+        "fastai",
+        "nbs"
+      ]
     },
     {
       "name": "PythonDataScienceHandbook",
@@ -256,9 +395,15 @@
       "license": "MIT (code) / CC-BY-NC-ND (prose)",
       "redistribute": false,
       "domain": "136 teaching notebooks - the notebook-ingest probe",
-      "frameworks": ["sklearn", "pandas", "numpy"],
+      "frameworks": [
+        "sklearn",
+        "pandas",
+        "numpy"
+      ],
       "sparse": [],
-      "targets": ["notebooks"]
+      "targets": [
+        "notebooks"
+      ]
     },
     {
       "name": "mlflow",
@@ -267,9 +412,22 @@
       "license": "Apache-2.0",
       "redistribute": false,
       "domain": "experiment-tracking examples across a dozen frameworks",
-      "frameworks": ["sklearn", "torch", "keras", "xgboost", "lightgbm"],
-      "sparse": ["examples"],
-      "targets": ["examples", "examples/pytorch", "examples/sklearn_autolog", "examples/evaluation"]
+      "frameworks": [
+        "sklearn",
+        "torch",
+        "keras",
+        "xgboost",
+        "lightgbm"
+      ],
+      "sparse": [
+        "examples"
+      ],
+      "targets": [
+        "examples",
+        "examples/pytorch",
+        "examples/sklearn_autolog",
+        "examples/evaluation"
+      ]
     },
     {
       "name": "wandb-examples",
@@ -278,9 +436,19 @@
       "license": "unspecified (no LICENSE file at this SHA)",
       "redistribute": false,
       "domain": "tracker-instrumented training scripts and 194 colab notebooks",
-      "frameworks": ["torch", "keras", "lightning", "sklearn"],
+      "frameworks": [
+        "torch",
+        "keras",
+        "lightning",
+        "sklearn"
+      ],
       "sparse": [],
-      "targets": ["examples/pytorch", "examples/keras", "examples/pytorch-lightning", "colabs/intro"]
+      "targets": [
+        "examples/pytorch",
+        "examples/keras",
+        "examples/pytorch-lightning",
+        "colabs/intro"
+      ]
     },
     {
       "name": "tensorflow-models",
@@ -289,9 +457,16 @@
       "license": "Apache-2.0",
       "redistribute": false,
       "domain": "TF Model Garden official/vision - Orbit trainers, no Keras .fit()",
-      "frameworks": ["tf", "keras"],
-      "sparse": ["official/vision"],
-      "targets": ["official/vision"]
+      "frameworks": [
+        "tf",
+        "keras"
+      ],
+      "sparse": [
+        "official/vision"
+      ],
+      "targets": [
+        "official/vision"
+      ]
     },
     {
       "name": "DeepLearningExamples",
@@ -300,9 +475,16 @@
       "license": "Apache-2.0",
       "redistribute": false,
       "domain": "NVIDIA reference implementations: AMP, DALI, APEX, channels-last",
-      "frameworks": ["torch"],
-      "sparse": ["PyTorch/Classification"],
-      "targets": ["PyTorch/Classification/ConvNets", "PyTorch/Classification/GPUNet"]
+      "frameworks": [
+        "torch"
+      ],
+      "sparse": [
+        "PyTorch/Classification"
+      ],
+      "targets": [
+        "PyTorch/Classification/ConvNets",
+        "PyTorch/Classification/GPUNet"
+      ]
     },
     {
       "name": "diffusers",
@@ -311,14 +493,295 @@
       "license": "Apache-2.0",
       "redistribute": false,
       "domain": "diffusion fine-tuning scripts driven by `accelerate`",
-      "frameworks": ["hf", "torch"],
-      "sparse": ["examples"],
+      "frameworks": [
+        "hf",
+        "torch"
+      ],
+      "sparse": [
+        "examples"
+      ],
       "targets": [
         "examples/text_to_image",
         "examples/dreambooth",
         "examples/unconditional_image_generation",
         "examples/controlnet",
         "examples/textual_inversion"
+      ]
+    },
+    {
+      "name": "xgboost",
+      "url": "https://github.com/dmlc/xgboost",
+      "sha": "6c3fde7aefa6abee7458f2ba23ac291a31b88204",
+      "license": "Apache-2.0",
+      "redistribute": false,
+      "domain": "gradient boosting: sklearn API, native Booster, Dask, ranking, survival",
+      "frameworks": [
+        "xgboost",
+        "sklearn",
+        "pandas",
+        "numpy"
+      ],
+      "sparse": [
+        "demo"
+      ],
+      "targets": [
+        "demo/guide-python",
+        "demo/dask",
+        "demo/aft_survival",
+        "demo/kaggle-higgs",
+        "demo/multiclass_classification"
+      ]
+    },
+    {
+      "name": "LightGBM",
+      "url": "https://github.com/microsoft/LightGBM",
+      "sha": "6d386edf77a363750669ba622b133ca4e794e353",
+      "license": "MIT",
+      "redistribute": false,
+      "domain": "gradient boosting: Dataset/train API plus the sklearn wrapper",
+      "frameworks": [
+        "lightgbm",
+        "sklearn",
+        "pandas",
+        "numpy"
+      ],
+      "sparse": [
+        "examples/python-guide"
+      ],
+      "targets": [
+        "examples/python-guide"
+      ]
+    },
+    {
+      "name": "statsmodels",
+      "url": "https://github.com/statsmodels/statsmodels",
+      "sha": "77ecdfa3e93ea16ec2179e696753af885759fb01",
+      "license": "BSD-3-Clause",
+      "redistribute": false,
+      "domain": "classical statistics and time series - the no-torch, no-sklearn ML shape",
+      "frameworks": [
+        "statsmodels",
+        "pandas",
+        "numpy"
+      ],
+      "sparse": [
+        "examples"
+      ],
+      "targets": [
+        "examples/python",
+        "examples/notebooks"
+      ]
+    },
+    {
+      "name": "accelerate",
+      "url": "https://github.com/huggingface/accelerate",
+      "sha": "f13f7c13b64c10b6eb7e2d73171ea1b94c748701",
+      "license": "Apache-2.0",
+      "redistribute": false,
+      "domain": "the `negation_absent` gate itself: Accelerator-driven loops, one per feature",
+      "frameworks": [
+        "hf",
+        "torch"
+      ],
+      "sparse": [
+        "examples"
+      ],
+      "targets": [
+        "examples",
+        "examples/by_feature",
+        "examples/inference"
+      ]
+    },
+    {
+      "name": "peft",
+      "url": "https://github.com/huggingface/peft",
+      "sha": "0e8d0ae8ab94f189f28b845e293d7452d7892d91",
+      "license": "Apache-2.0",
+      "redistribute": false,
+      "domain": "parameter-efficient fine-tuning: LoRA/adapters wrapping a frozen base model",
+      "frameworks": [
+        "hf",
+        "torch"
+      ],
+      "sparse": [
+        "examples"
+      ],
+      "targets": [
+        "examples",
+        "examples/conditional_generation",
+        "examples/image_classification"
+      ]
+    },
+    {
+      "name": "trl",
+      "url": "https://github.com/huggingface/trl",
+      "sha": "a8bc1816152facaf5441983195c40ffae27f2081",
+      "license": "Apache-2.0",
+      "redistribute": false,
+      "domain": "RLHF/SFT/DPO trainers - a Trainer subclass hierarchy, not a hand-written loop",
+      "frameworks": [
+        "hf",
+        "torch"
+      ],
+      "sparse": [
+        "examples"
+      ],
+      "targets": [
+        "examples"
+      ]
+    },
+    {
+      "name": "optuna-examples",
+      "url": "https://github.com/optuna/optuna-examples",
+      "sha": "2e0b10bc54501e801687e114de3cbe1b6d2407dc",
+      "license": "MIT",
+      "redistribute": false,
+      "domain": "hyperparameter search: a train+eval objective function per framework",
+      "frameworks": [
+        "torch",
+        "sklearn",
+        "keras",
+        "tf",
+        "lightgbm",
+        "xgboost",
+        "lightning"
+      ],
+      "sparse": [],
+      "targets": [
+        ".",
+        "pytorch",
+        "sklearn",
+        "keras",
+        "lightgbm",
+        "xgboost"
+      ]
+    },
+    {
+      "name": "cleanrl",
+      "url": "https://github.com/vwxyzjn/cleanrl",
+      "sha": "fe8d8a03c41a7ef5b523e2e354bd01c363e786bb",
+      "license": "MIT",
+      "redistribute": false,
+      "domain": "single-file RL: one script holds config, model, rollout, update and eval",
+      "frameworks": [
+        "torch",
+        "numpy"
+      ],
+      "sparse": [
+        "cleanrl"
+      ],
+      "targets": [
+        "cleanrl"
+      ]
+    },
+    {
+      "name": "pytorch-tutorials",
+      "url": "https://github.com/pytorch/tutorials",
+      "sha": "65e2e1a1c1520a6ccb1adc7fb2a55ce78ccdc598",
+      "license": "BSD-3-Clause",
+      "redistribute": false,
+      "domain": "the official tutorials: literate .py files people copy verbatim",
+      "frameworks": [
+        "torch",
+        "torchvision",
+        "sklearn"
+      ],
+      "sparse": [
+        "beginner_source",
+        "intermediate_source",
+        "advanced_source",
+        "recipes_source"
+      ],
+      "targets": [
+        "beginner_source",
+        "intermediate_source",
+        "advanced_source",
+        "recipes_source"
+      ]
+    },
+    {
+      "name": "mmdetection",
+      "url": "https://github.com/open-mmlab/mmdetection",
+      "sha": "cfd5d3a985b0249de009b67d04f37263e11cdf3d",
+      "license": "Apache-2.0",
+      "redistribute": false,
+      "domain": "registry + config detection framework: tools/train.py builds everything by string",
+      "frameworks": [
+        "torch",
+        "torchvision"
+      ],
+      "sparse": [
+        "tools",
+        "mmdet/apis",
+        "mmdet/engine",
+        "mmdet/models/detectors",
+        "configs/common"
+      ],
+      "targets": [
+        "tools",
+        "mmdet"
+      ]
+    },
+    {
+      "name": "LLMs-from-scratch",
+      "url": "https://github.com/rasbt/LLMs-from-scratch",
+      "sha": "c41a0229e67b367d2489b1316a1d63e675171d58",
+      "license": "Apache-2.0",
+      "redistribute": false,
+      "domain": "a hand-written GPT: pretraining, fine-tuning and eval, as .py next to .ipynb",
+      "frameworks": [
+        "torch"
+      ],
+      "sparse": [
+        "ch04",
+        "ch05",
+        "ch06",
+        "ch07"
+      ],
+      "targets": [
+        "ch04",
+        "ch05",
+        "ch06",
+        "ch07"
+      ]
+    },
+    {
+      "name": "torchtune",
+      "url": "https://github.com/pytorch/torchtune",
+      "sha": "bd2a0fc7c31430972728494fa01aaeeb0ebf1ba1",
+      "license": "BSD-3-Clause",
+      "redistribute": false,
+      "domain": "LLM finetune recipes: a class-based recipe driven by a YAML config",
+      "frameworks": [
+        "torch",
+        "hf"
+      ],
+      "sparse": [
+        "recipes"
+      ],
+      "targets": [
+        "recipes"
+      ]
+    },
+    {
+      "name": "handson-ml3",
+      "url": "https://github.com/ageron/handson-ml3",
+      "sha": "e707c2d659abafb9b1f9fd927907619a128db8d7",
+      "license": "Apache-2.0 (code) / CC-BY-NC-SA (prose)",
+      "redistribute": false,
+      "domain": "the second notebook probe: sklearn and Keras in one book, 20 notebooks",
+      "frameworks": [
+        "sklearn",
+        "keras",
+        "tf",
+        "pandas",
+        "numpy"
+      ],
+      "sparse": [
+        "/*.ipynb"
+      ],
+      "targets": [
+        "."
       ]
     }
   ]

@@ -1,0 +1,162 @@
+{
+  "name": "vision_ocr_ctc_bad",
+  "title": "The same CRNN/CTC recogniser with eight planted defects",
+  "origin": "domain-vision round 2: the dirty twin of vision_ocr_ctc; a user-defined Dataset subclass is what hides the augmented validation pipeline, and one int() in an unrelated binding is what hides the live-tensor accumulation",
+  "tuned": false,
+  "labelledBy": "domain-vision, 2026-09-14",
+  "expected": [
+    {
+      "code": "MLV301",
+      "file": "train.py",
+      "line": 105,
+      "symbol": "model(images)",
+      "severity": "high",
+      "verdict": "expected",
+      "defect": "validate() no longer calls model.eval()",
+      "why": "every BatchNorm2d in the CRNN backbone updates its running statistics from the validation split and the dropout before the LSTM stays on, so the reported character error rate is measured on a model the training run then inherits"
+    },
+    {
+      "code": "MLV110",
+      "file": "train.py",
+      "line": 50,
+      "symbol": "DataLoader(train_set, shuffle=False)",
+      "severity": "medium",
+      "verdict": "expected",
+      "defect": "the training loader does not shuffle",
+      "why": "the crops are indexed in page order, so every batch is one document in one font and the recogniser overfits to it before the next page is reached"
+    },
+    {
+      "code": "MLV302",
+      "file": "train.py",
+      "line": 100,
+      "symbol": "for images, targets, target_lengths, widths, texts in loader",
+      "severity": "medium",
+      "verdict": "expected",
+      "defect": "validate() is no longer decorated @torch.no_grad()",
+      "why": "the autograd graph for the whole validation split is built and discarded, which on long text lines is the difference between fitting in memory and not"
+    },
+    {
+      "code": "MLV209",
+      "file": "train.py",
+      "line": 83,
+      "symbol": "nn.utils.clip_grad_norm_",
+      "severity": "medium",
+      "verdict": "expected",
+      "defect": "clipping runs after optimizer.step()",
+      "why": "the update has already been applied, so the clip only rescales gradients that are about to be zeroed - the exploding-gradient protection a recurrent head needs is not there"
+    },
+    {
+      "code": "MLV114",
+      "file": "train.py",
+      "line": 47,
+      "symbol": "TextLineDataset(..., transform=train_transform())",
+      "severity": "medium",
+      "verdict": "expected",
+      "defect": "the validation split is read through the augmenting pipeline (ColorJitter)",
+      "why": "the character error rate is measured on jittered crops, so the validation curve moves for reasons that have nothing to do with the model",
+      "gap": "MLV114 requires the dataset construction to resolve to a knowledge-table DATASET row, so a user-defined torch.utils.data.Dataset subclass - the only way an OCR project can load `<id>_<text>.png` crops - is skipped in silence. Minimal repro in the round-2 report (VIS2-01)."
+    },
+    {
+      "code": "MLV205",
+      "file": "train.py",
+      "line": 87,
+      "symbol": "running_loss += loss * images.size(0)",
+      "severity": "medium",
+      "verdict": "expected",
+      "defect": "the running loss keeps the live CTC loss tensor",
+      "why": "every batch's autograd graph is retained for the whole epoch, which on a bidirectional LSTM over 320-frame sequences is the memory the run dies on",
+      "gap": "the PUB-08 detach walk is a syntactic ast.walk over every transitively reaching binding, so the `int(w)` inside the `input_lengths` list comprehension at line 76 is read as proof that `running_loss` is a Python number. Minimal repro in the round-2 report (VIS2-02)."
+    },
+    {
+      "code": "MLV207",
+      "file": "train.py",
+      "line": 160,
+      "symbol": "scheduler.step()",
+      "severity": "medium",
+      "verdict": "expected",
+      "defect": "OneCycleLR is stepped once per epoch instead of once per batch",
+      "why": "the one-cycle schedule completes its whole cycle in the first three epochs and the remaining twenty-seven train at the floor learning rate - nothing raises, so the loss curve is the only evidence",
+      "gap": "MLV207's batch-cadence branch requires the epoch loop to lexically enclose the batch loop, and the batch loop lives in train_one_epoch(). Minimal repro in the round-2 report (VIS2-03)."
+    },
+    {
+      "code": "MLV111",
+      "file": "train.py",
+      "line": 55,
+      "symbol": "DataLoader(val_set, shuffle=True)",
+      "severity": "low",
+      "verdict": "expected",
+      "defect": "the evaluation loader shuffles",
+      "why": "the sample predictions printed after each epoch are a different set of lines every time, so two runs cannot be compared line by line"
+    },
+    {
+      "code": "MLV803",
+      "file": "train.py",
+      "line": 122,
+      "symbol": "torch.save(model, path)",
+      "severity": "low",
+      "verdict": "expected",
+      "defect": "the whole module is pickled rather than its state_dict",
+      "why": "the checkpoint carries the class path, so it stops loading the day model.py is renamed"
+    },
+    {
+      "code": "MLV401",
+      "file": "train.py",
+      "line": 78,
+      "symbol": "criterion(probs, ...)",
+      "severity": "high",
+      "verdict": "expected",
+      "defect": "nn.CTCLoss is fed F.softmax output where it requires log-probabilities",
+      "why": "CTC applies no normalisation of its own; plain probabilities make the loss finite, wrong and minimised by predicting blank everywhere, so the model converges to an empty transcription",
+      "gap": "no rule models the CTC input contract. MLV401 is the nearest analogue - it is the same class of defect, an activation contradicting the loss's own normalisation - but it is written for CrossEntropyLoss only.",
+      "unsupported": true
+    }
+  ],
+  "forbidden": [
+    {"code": "MLV101", "file": "train.py",
+     "why": "there is no sklearn transformer and no split in this project"},
+    {"code": "MLV102", "file": "train.py",
+     "why": "same - nothing is fitted on anything here"},
+    {"code": "MLV112", "file": "train.py",
+     "why": "the loaders are built inside build_loaders(), reached only from main() under the __main__ guard"},
+    {"code": "MLV201", "file": "train.py",
+     "why": "optimizer.zero_grad(set_to_none=True) is still the first statement of the training step"},
+    {"code": "MLV202", "file": "train.py",
+     "why": "optimizer.step() is still called every batch"},
+    {"code": "MLV203", "file": "train.py",
+     "why": "loss.backward() still precedes optimizer.step(); only the clip moved"},
+    {"code": "MLV204", "file": "train.py",
+     "why": "no backward() call is inside a no_grad region - validate() lost its decorator but contains no backward()"},
+    {"code": "MLV402", "file": "train.py",
+     "why": "there is no sigmoid and no BCE loss in this project"},
+    {"code": "MLV501", "file": "train.py",
+     "why": "the model is moved with .to(device) and every batch tensor is moved inside the loop"},
+    {"code": "MLV502", "file": "train.py",
+     "why": "pick_device() still checks torch.cuda.is_available()"},
+    {"code": "MLV601", "file": "train.py",
+     "why": "seed_everything() still seeds random, numpy, torch and torch.cuda"},
+    {"code": "MLV602", "file": "train.py",
+     "why": "there is no sklearn split and no random_split in this project"},
+    {"code": "MLV701", "file": "model.py",
+     "why": "ConvBlock, BidirectionalLSTM and CRNN all call super().__init__()"},
+    {"code": "MLV702", "file": "model.py",
+     "why": "the convolutional stack is wrapped in nn.ModuleList"},
+    {"code": "MLV305", "file": "train.py",
+     "why": "the only metric is a hand-written character error rate over decoded strings; no sklearn or torchmetrics class metric is called"},
+    {"code": "MLV306", "file": "train.py",
+     "why": "no ranking metric is computed anywhere"},
+    {"code": "MLV705", "file": "train.py",
+     "why": "there is no Keras model in this project"},
+    {"code": "MLV709", "file": "train.py",
+     "why": "there is no Keras layer and no from_logits= anywhere"}
+  ],
+  "gaps": [
+    {
+      "what": "the CTC input lengths are computed from the padded width rather than the true width, so every sample is told it has more frames than it does and the alignment is free to put characters into the padding",
+      "evidence": "dataset.py ctc_collate returns the true widths, and train.py:76 passes them - but the defective twin's model.downsampled_width() is applied to the padded tensor in neither version, so this is the shape the rule set would have to model, not a planted defect"
+    },
+    {
+      "what": "no rule pairs nn.CTCLoss with the normalisation of its input, which is the direct analogue of MLV401 for sequence recognition",
+      "evidence": "train.py:74 F.softmax against the clean twin's F.log_softmax; labelled above as MLV401/unsupported"
+    }
+  ]
+}

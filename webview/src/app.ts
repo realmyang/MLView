@@ -13,6 +13,7 @@ import { GraphIndex } from './layout/model.js';
 import { CanvasView, CanvasHost } from './canvasview.js';
 import { FilterModel } from './filters.js';
 import { Chrome } from './ui/chrome.js';
+import { CHROME_CROWDED_PX } from './ui/chromenotes.js';
 import { Rail } from './ui/rail.js';
 import { Legend } from './ui/legend.js';
 import { AnswersCard } from './ui/answers.js';
@@ -135,8 +136,22 @@ export class App implements MLViewApp {
   private legendOpen = false;
   /** MLV-P12: the pipeline chooser is asked once per viewer, then remembered. */
   private pipelineChosen = false;
-  /** MLV-P1: the answer card starts open, so the four answers are the first read. */
+  /**
+   * MLV-P1: the answer card starts open, so the four answers are the first
+   * read — except on a document whose chrome already fills the top of the
+   * window (HOSTS-UX-R2-06), where it yields its 165 px to the diagram.
+   */
   private answersOpen = true;
+  /**
+   * R2-06. The reader has pressed the disclosure (or the host restored a
+   * stored `answersOpen`), so the per-document default no longer applies: their
+   * choice follows them to the next report, which is what `ViewState` is for.
+   */
+  private answersChosen = false;
+  /** The document the default was last decided for; identity, not a copy. */
+  private answersDoc: MLGraph | null = null;
+  /** Whether THIS document's default is "closed", for the header's tooltip. */
+  private answersYielded = false;
 
   private stale: string[] = [];
   private dismissed = new Set<string>();
@@ -683,8 +698,22 @@ export class App implements MLViewApp {
       dynamicNodes: this.graph ? this.graph.nodes.filter((n) => n.dynamic).length : 0,
       minimapCollapsed: this.view.minimapCollapsed,
     });
+    // R2-06: the card's default is decided once per DRAWN DOCUMENT, off the
+    // bands the chrome just drew — never on every render. Re-deciding on every
+    // render would make dismissing a banner reopen the card, so the reader
+    // would hand back 165 px for the 53 px they had just reclaimed.
+    //
+    // A projection replaces `this.graph` (`applyProjection`), so a scope change
+    // does re-decide it: the bands really are different under a scope, and the
+    // decision is a pure function of the document, so clearing the scope
+    // returns the same answer it gave at first paint.
+    if (this.graph && this.graph !== this.answersDoc) {
+      this.answersDoc = this.graph;
+      this.answersYielded = this.chrome.bandHeight() >= CHROME_CROWDED_PX;
+      if (!this.answersChosen) this.answersOpen = !this.answersYielded;
+    }
     // MLV-P1: hidden outright when the document carries no `answers` block.
-    this.answers.update(this.graph ? this.graph.answers : undefined, this.answersOpen);
+    this.answers.update(this.graph ? this.graph.answers : undefined, this.answersOpen, this.answersYielded);
     // VIEW-07: "Current scope" is offered only while there IS a projection.
     this.exportMenu.setScopeAvailable(!!view);
   }
@@ -900,7 +929,9 @@ export class App implements MLViewApp {
   /** MLV-P1: the card's disclosure, persisted as ViewState.answersOpen. */
   private setAnswersOpen(open: boolean): void {
     this.answersOpen = open;
-    this.answers.update(this.graph ? this.graph.answers : undefined, open);
+    // R2-06: an explicit press outranks this document's default from now on.
+    this.answersChosen = true;
+    this.answers.update(this.graph ? this.graph.answers : undefined, open, this.answersYielded);
     this.saveSoon();
   }
 
@@ -1286,7 +1317,12 @@ export class App implements MLViewApp {
     if (typeof state.flow === 'boolean') this.setFlow(state.flow);
     if (state.railGroupBy) this.railGroupBy = sanitizeGroupBy(state.railGroupBy);
     if (typeof state.legendOpen === 'boolean') this.setLegend(state.legendOpen);
-    if (typeof state.answersOpen === 'boolean') this.answersOpen = state.answersOpen;
+    // R2-06: a stored value is a choice the reader already made, so it wins
+    // over this document's default in both directions.
+    if (typeof state.answersOpen === 'boolean') {
+      this.answersOpen = state.answersOpen;
+      this.answersChosen = true;
+    }
     // MLV-P12: the question has been answered before, so it is not asked again.
     if (state.pipelineChosen === true) this.pipelineChosen = true;
     // VIEW-08: restoring "changed only" with no overlay loaded is a NO-OP, never
@@ -1412,9 +1448,13 @@ export class App implements MLViewApp {
     // documented default rather than to whatever `undefined` renders as.
     if (this.railGroupBy !== 'none') state.railGroupBy = this.railGroupBy;
     if (this.legendOpen) state.legendOpen = true;
-    // Absent at its default (open), exactly as `flow` is absent while on: an
-    // older host round-trips a state it has never seen (CONTRACTS 11.9).
-    if (!this.answersOpen) state.answersOpen = false;
+    // Absent at its default, exactly as `flow` is absent while on: an older
+    // host round-trips a state it has never seen (CONTRACTS 11.9). R2-06 makes
+    // that default depend on the document, so the field is written whenever the
+    // reader has chosen — including `true`, which is the case the old rule
+    // could not express: a card opened on a crowded report would otherwise be
+    // closed again by the default the next time the report was opened.
+    if (this.answersChosen) state.answersOpen = this.answersOpen;
     // Absent at its default (off), exactly as `flow`, `scope` and `legendOpen`
     // are: an older host round-trips a state it has never seen (11.9).
     if (this.scopes.changedOnly) state.diffOnly = true;

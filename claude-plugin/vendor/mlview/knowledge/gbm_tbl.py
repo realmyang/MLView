@@ -61,9 +61,29 @@ GBM["xgboost.DeviceQuantileDMatrix"] = E("dataset", "data", XGB, "DATASET",
 GBM["lightgbm.Dataset"] = E("dataset", "data", LGBM, "DATASET", ("RAW_DATA",), "dmatrix")
 GBM["catboost.Pool"] = E("dataset", "data", OTHER_FW, "DATASET", ("RAW_DATA",), "dmatrix")
 
-#: The functional training entry points.
-GBM["xgboost.train"] = E("train_loop", "train", XGB, "GBM_TRAIN")
-GBM["lightgbm.train"] = E("train_loop", "train", LGBM, "GBM_TRAIN")
+#: PUB2-08. The native Booster - what `xgb.train(...)` / `lgb.train(...)` hand
+#: back, and the spelling every demo in both repositories uses. There was no
+#: constructor row for it and `xgboost.train` declared no return type, so `bst`
+#: never acquired the family, `_canonical_for_receiver` proposed
+#: `xgboost.train.predict`, and the four `*.Booster.*` method rows below were
+#: **unreachable code**. Measured on `xgboost/demo/multiclass_classification/
+#: train.py` - 22 lines, `DMatrix` -> `train` -> `predict` -> an error rate ->
+#: `save_model`: 5 nodes, 2 edges, stages present `data, train`, `not detected:
+#: model, objective, eval, deliver`, `diagnostics: []`, and an answer card
+#: reading "No evaluation stage was detected: nothing computes a metric or runs
+#: the model in eval mode" plus "No findings: no rule fired on this workspace".
+#: Three stages claimed absent, three calls dropped, and a clean bill of health.
+GBM["xgboost.Booster"] = E("model", "model", XGB, "ESTIMATOR", ("MODEL",),
+                           "xgb_booster")
+GBM["lightgbm.Booster"] = E("model", "model", LGBM, "ESTIMATOR", ("MODEL",),
+                            "lgb_booster")
+
+#: The functional training entry points. The `family` is what gives `bst` the
+#: Booster receiver family without the author having to annotate it.
+GBM["xgboost.train"] = E("train_loop", "train", XGB, "GBM_TRAIN", ("MODEL",),
+                         "xgb_booster")
+GBM["lightgbm.train"] = E("train_loop", "train", LGBM, "GBM_TRAIN", ("MODEL",),
+                          "lgb_booster")
 GBM["xgboost.cv"] = E("metric", "eval", XGB, "CV")
 GBM["lightgbm.cv"] = E("metric", "eval", LGBM, "CV")
 GBM["xgboost.plot_importance"] = E("metric", "eval", XGB, "METRIC", (), None, 0.5)
@@ -86,9 +106,27 @@ for _module, _fw, _names in _ESTIMATORS:
         for _method, _make in _PROTOCOL:
             GBM_METHODS["%s.%s.%s" % (_module, _name, _method)] = _make(_fw)
 
-#: Booster objects returned by the functional API.
-GBM_METHODS["xgboost.Booster.predict"] = E("predict", "eval", XGB, "PREDICT", ("PREDS",))
-GBM_METHODS["xgboost.Booster.save_model"] = E("checkpoint", "deliver", XGB, "SAVE")
-GBM_METHODS["lightgbm.Booster.predict"] = E("predict", "eval", LGBM, "PREDICT",
-                                            ("PREDS",))
-GBM_METHODS["lightgbm.Booster.save_model"] = E("checkpoint", "deliver", LGBM, "SAVE")
+#: Booster objects returned by the functional API - the whole native protocol,
+#: not only the two rows that used to be here and were unreachable (PUB2-08).
+#: NB the native `Booster.predict` returns the **margin or probability**, not a
+#: class - unlike the sklearn-wrapper `.predict` above, which returns labels.
+#: Tagging it PREDS made MLV306 ("ranking metric fed hard labels") fire at 0.90
+#: on `float(roc_auc_score(test_y, booster.predict(dtest)))`, which is the
+#: textbook-correct way to score a booster.
+_BOOSTER_PROTOCOL = (
+    ("predict", lambda fw: E("predict", "eval", fw, "PREDICT", ("PROBS",))),
+    ("inplace_predict", lambda fw: E("predict", "eval", fw, "PREDICT", ("PROBS",))),
+    ("save_model", lambda fw: E("checkpoint", "deliver", fw, "SAVE")),
+    ("load_model", lambda fw: E("checkpoint", "deliver", fw, "LOAD")),
+    ("save_raw", lambda fw: E("checkpoint", "deliver", fw, "SAVE")),
+    ("dump_model", lambda fw: E("checkpoint", "deliver", fw, "SAVE")),
+    ("eval", lambda fw: E("metric", "eval", fw, "METRIC")),
+    ("eval_set", lambda fw: E("metric", "eval", fw, "METRIC")),
+    ("update", lambda fw: E("train_loop", "train", fw, "GBM_TRAIN")),
+    ("get_score", lambda fw: E("metric", "eval", fw, "METRIC", (), None, 0.6)),
+    ("best_iteration", lambda fw: E("metric", "eval", fw, "METRIC", (), None, 0.4)),
+    ("trees_to_dataframe", lambda fw: E("metric", "eval", fw, "METRIC", (), None, 0.4)),
+)
+for _module, _fw in (("xgboost", XGB), ("lightgbm", LGBM)):
+    for _method, _make in _BOOSTER_PROTOCOL:
+        GBM_METHODS["%s.Booster.%s" % (_module, _method)] = _make(_fw)

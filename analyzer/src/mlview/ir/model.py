@@ -154,6 +154,14 @@ class ValueRef:
     #: rule ask "is this a cross-object claim?" by asking whether the tuple is
     #: non-empty, and de-rate exactly those findings.
     provenance: Tuple[Hop, ...] = ()
+    #: ROB-15 / DGRG2-03. Per-slot values when this binding is a tuple or list
+    #: **literal**: `optimizers = (SGD(...), Adam(...))` knows which optimizer
+    #: is in which slot, so `opt_a, opt_b = optimizers` can distribute them.
+    elements: Tuple[Optional["ValueRef"], ...] = ()
+    #: VIS2-06 / VIS2-08. Per-key values when this binding is a dict **literal**
+    #: with constant string keys: `criteria = {"adv": nn.BCELoss(), ...}`, so
+    #: `criteria["adv"]` resolves to the loss rather than to an opaque subscript.
+    entries: Tuple[Tuple[str, "ValueRef"], ...] = ()
 
     def has(self, *tags: str) -> bool:
         return any(t in self.tags for t in tags)

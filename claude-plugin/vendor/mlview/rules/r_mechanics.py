@@ -40,12 +40,38 @@ __all__ = ["scheduler_wrong_granularity", "amp_scaler_protocol",
            "unsafe_checkpoint_serialization"]
 
 #: Schedulers whose `step()` belongs in the **epoch** loop.
+#:
+#: VIS2-04. `LambdaLR` and `PolynomialLR` were in this set in the code and NOT
+#: in the set docs/ISSUE_RULES.md section 4 documents, and neither belongs:
+#:
+#: * `LambdaLR` has **no intrinsic cadence at all**. The lambda receives
+#:   whatever counter its owner steps, and `transformers`'
+#:   `get_linear_schedule_with_warmup` - which is in `_BATCH_CADENCE` three
+#:   lines below - literally *returns a LambdaLR*. timm, DETR, MoCo, SimCLR and
+#:   the FixMatch reference all build one over `epochs * len(loader)` steps and
+#:   step it per batch, which the rule was calling a defect at medium / 0.80 /
+#:   likely with the evidence row "LambdaLR is in the epoch-cadence set of
+#:   torch.optim.lr_scheduler" - a property LambdaLR does not have.
+#: * `PolynomialLR` is mmsegmentation's `poly` policy, which is per-iteration
+#:   in every published segmentation recipe.
+#:
+#: A constructor that cannot be judged from its class is not judged. That is
+#: the rule's own stated discipline ("a scheduler whose constructor MLView
+#: could not resolve is not judged at all"), applied to two classes whose class
+#: does not answer the question.
 _EPOCH_CADENCE = ("StepLR", "MultiStepLR", "ExponentialLR", "CosineAnnealingLR",
-                  "ReduceLROnPlateau", "LambdaLR", "PolynomialLR")
+                  "ReduceLROnPlateau")
 #: Schedulers whose `step()` belongs in the **batch** loop.
+#: NLP2-08 adds the rest of the `transformers.optimization.get_*` family; they
+#: all return a `LambdaLR` built over `num_training_steps`, so their cadence is
+#: per step by construction.
 _BATCH_CADENCE = ("OneCycleLR", "CyclicLR", "get_linear_schedule_with_warmup",
                   "get_cosine_schedule_with_warmup",
-                  "get_polynomial_decay_schedule_with_warmup")
+                  "get_cosine_with_hard_restarts_schedule_with_warmup",
+                  "get_polynomial_decay_schedule_with_warmup",
+                  "get_constant_schedule_with_warmup",
+                  "get_inverse_sqrt_schedule",
+                  "get_wsd_schedule")
 _CUDA_LITERALS = ("cuda", "cuda:0", "cuda:1", "cuda:2", "cuda:3")
 
 
@@ -213,9 +239,71 @@ def _sched_step_calls(ctx) -> List[CallSite]:
     return out
 
 
-def _encloses_batch_loop(ctx, loop: LoopIR) -> bool:
-    return any(within_loop(batch, loop) and batch is not loop
-               for batch in ctx.loops("batch"))
+def _encloses_batch_loop(ctx, loop: LoopIR) -> Optional[str]:
+    """Does a batch loop run once per iteration of this one? (VIS2-03)
+
+    Returns the phrase naming where it is, or None.
+
+    The lexical half was the whole test, and `for epoch in range(N):
+    train_one_epoch(...); scheduler.step()` - the decomposition torchvision's
+    own references, timm, detectron2 and essentially every repository above one
+    file uses - has the batch loop in the callee. A `OneCycleLR` that completes
+    its entire cycle inside the first few epochs was therefore never reported
+    in any project with a `train_one_epoch()`. One hop into the callees
+    `ir/resolve` already resolved is the same hop MLV201/MLV202 take, and the
+    evidence names the callee so the claim stays checkable.
+    """
+    for batch in ctx.loops("batch"):
+        if batch is not loop and within_loop(batch, loop):
+            return "the batch loop at line %d" % batch.loc.line
+    seen = set()
+    for call in loop.module.calls:
+        if not within_loop(call.loop, loop):
+            continue
+        callee = call.target_function
+        if callee is None or id(callee) in seen:
+            continue
+        seen.add(id(callee))
+        for batch in ctx.loops("batch"):
+            if batch.function is callee:
+                return "the batch loop is in %s() at %s:%d" % (
+                    callee.name, batch.loc.file, batch.loc.line)
+    return None
+
+
+def _effective_loop(ctx, call: CallSite) -> Optional[LoopIR]:
+    """The loop this `.step()` really runs once per (NLP2-08).
+
+    `call.loop` is None for a step written in a `train_one_epoch(...)` helper
+    **after** its batch loop - the dominant torchvision / HuggingFace shape -
+    so the rule dropped the call and never considered it. The helper is called
+    once per iteration of an epoch loop, so the step runs at epoch cadence,
+    and that is exactly the question. The claim only stands when the call sites
+    agree: one caller inside an epoch loop, and the helper containing a
+    confirmed batch loop that this step is written outside of.
+    """
+    if call.loop is not None:
+        return call.loop
+    func = call.function
+    if func is None:
+        return None
+    if not any(loop.function is func and loop.kind == "batch"
+               for loop in ctx.loops("batch")):
+        return None
+    found: Optional[LoopIR] = None
+    for relpath in sorted(ctx.modules):
+        for site in ctx.modules[relpath].calls:
+            if site.target_function is not func:
+                continue
+            outer = site.loop
+            while outer is not None and outer.kind != "epoch":
+                outer = outer.parent_loop
+            if outer is None:
+                return None          # a caller that is not in an epoch loop
+            if found is not None and found is not outer:
+                return None          # the call sites disagree: judge none
+            found = outer
+    return found
 
 
 @rule(code="MLV207", severity="medium", base_prior=0.80, frameworks=["torch"],
@@ -230,7 +318,7 @@ def _encloses_batch_loop(ctx, loop: LoopIR) -> bool:
 def scheduler_wrong_granularity(ctx) -> Iterable[Issue]:
     issues: List[Issue] = []
     for call in _sched_step_calls(ctx):
-        loop = call.loop
+        loop = _effective_loop(ctx, call)
         producer = _scheduler_producer(ctx, call)
         name = _tail(producer.fqn) if producer is not None else None
         if name is not None and name not in _EPOCH_CADENCE and name not in _BATCH_CADENCE:
@@ -249,11 +337,14 @@ def scheduler_wrong_granularity(ctx) -> Iterable[Issue]:
                 continue                # step_size=len(loader)*k is per-batch on purpose
             variant = ("%s is an epoch schedule but step() runs inside the batch loop "
                        "at line %d" % (name, loop.loc.line))
-        elif name in _BATCH_CADENCE and loop.kind == "epoch" \
-                and _encloses_batch_loop(ctx, loop):
-            variant = ("%s is a per-batch schedule but step() runs in the epoch loop "
-                       "at line %d, outside the batch loop it should follow"
-                       % (name, loop.loc.line))
+        elif name in _BATCH_CADENCE and loop.kind == "epoch":
+            where = _encloses_batch_loop(ctx, loop)
+            if where is None:
+                continue
+            variant = ("%s is a per-batch schedule but step() runs once per "
+                       "iteration of the epoch loop at %s:%d, outside the batch "
+                       "loop it should follow (%s)"
+                       % (name, loop.loc.file, loop.loc.line, where))
         elif name == "ReduceLROnPlateau" and not call.args and not call.kwarg_nodes:
             variant = ("ReduceLROnPlateau.step() was called with no metric, so it "
                        "compares nothing and never reduces")
@@ -428,16 +519,22 @@ def clipping_out_of_position(ctx) -> Iterable[Issue]:
             peers = _in_block(body, clip.block_id)
             backwards = with_role(peers, "BACKWARD")
             steps = with_role(peers, "OPT_STEP")
+            # The clip is out of position only when there is NOTHING in the
+            # right place, not when there is something in the wrong one. A
+            # multi-optimizer loop - a GAN, SAC, TD3, anything with a
+            # discriminator - writes two complete update sequences in one
+            # block, so the discriminator's `step()` sits *before* the
+            # generator's clip and the generator's `backward()` sits *after*
+            # the discriminator's. Asking "is there any step before me?" called
+            # the correct ESRGAN ordering
+            # `backward -> unscale_ -> clip -> step -> update` a defect.
             partner = variant = None
-            for backward in backwards:
-                if clip.stmt_index < backward.stmt_index:
-                    partner, variant = backward, "before_backward"
-                    break
-            if partner is None:
-                for step in steps:
-                    if clip.stmt_index > step.stmt_index:
-                        partner, variant = step, "after_step"
-                        break
+            before = [c for c in backwards if c.stmt_index < clip.stmt_index]
+            after = [c for c in steps if c.stmt_index > clip.stmt_index]
+            if backwards and not before:
+                partner, variant = backwards[0], "before_backward"
+            elif steps and not after:
+                partner, variant = steps[-1], "after_step"
             if partner is None:
                 continue
             node = _anchor(ctx, clip)

@@ -92,12 +92,30 @@ test('dist/mlview.css IS the minification of dist/mlview.dev.css (BUILD-01)', as
 /*
  * BUILD-01's size ratchet.
  *
- * MEASURED ON THIS TREE, 2026-09-13, after the hosts-ux hardening round landed
- * on top of PERF-04 (the hierarchical rollup) and MLV-P12 (multi-pipeline
- * workspaces):
- *   dist/mlview.js       327 214 B (319.5 KB)
- *   dist/mlview.css       72 857 B  (71.1 KB), minified from 130 953 B (-44%)
- *   dist/mlview.dev.css  130 953 B (127.9 KB, never shipped)
+ * MEASURED ON THIS TREE, 2026-09-14, after hardening round 2 landed on top of
+ * round 1's hosts-ux work, PERF-04 (the hierarchical rollup) and MLV-P12
+ * (multi-pipeline workspaces):
+ *   dist/mlview.js       329 332 B (321.6 KB)
+ *   dist/mlview.css       73 019 B  (71.3 KB), minified from 133 523 B (-45%)
+ *   dist/mlview.dev.css  133 523 B (130.4 KB, never shipped)
+ *
+ * ROUND 2 moved the JS by +2 118 B and the CSS by +162 B, and NEITHER CAP with
+ * them: 4 492 B (1.3 %) and 1 733 B (2.3 %) of headroom remain, so the ratchet
+ * set below still does its job unchanged. Where it went, largest first.
+ * TAB2-10 / HOSTS-UX-R2-06 is the item (CONTRACTS 11.61): `ui/chromenotes.ts`
+ * learned `unresolved_callee` as a coverage kind and builds its chip from
+ * `scope` and `count` instead of printing a 349-character sentence into the
+ * chip row, `ui/chrome.ts` paints every chip's text in its own
+ * `.mlv-chip__text` with a `title`, and `chromeBandHeight` decides whether the
+ * answer card starts closed on a document whose banners and chips already fill
+ * 200 px. HOSTS-UX-ROWCOUNT is next (about 0.4 KB): `scope/catalog.ts` gained
+ * `viewCountOf`, which runs the same `project()` the click runs for ANY
+ * selector, so a unit or stage row promises the number its own click delivers
+ * the way round 1's pipeline rows already did. The rest is two lines:
+ * HOSTS-UX-LEGENDPAN widened one `closest()` selector in `ui/shell.ts` so a
+ * press on a canvas-hosted overlay is that overlay's gesture, and the CSS is
+ * the chip's ellipsis rule plus HOSTS-UX-ANSWERWRAP's `overflow-wrap` on the
+ * answer card's sentence and citation row.
  *
  * THE HARDENING ROUND moved the JS by +2 776 B and the CSS by +1 168 B, and BOTH
  * CAPS with them -- the JS had 636 B of headroom left, which is a ratchet
@@ -220,8 +238,8 @@ test('dist/mlview.css IS the minification of dist/mlview.dev.css (BUILD-01)', as
  * again: `the figures in the block above are the constants below` reads this
  * file and fails on a one-byte disagreement.
  */
-const JS_RECORDED = 327214;
-const CSS_RECORDED = 72857;
+const JS_RECORDED = 329332;
+const CSS_RECORDED = 73019;
 const DRIFT = 2 * 1024;
 const JS_MAX_BYTES = 326 * 1024;
 const CSS_MAX_BYTES = 73 * 1024;

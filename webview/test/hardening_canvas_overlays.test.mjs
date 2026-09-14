@@ -29,10 +29,18 @@
  * the last one pins the guard list itself, so a new overlay appended to the
  * canvas cannot silently inherit the same bug.
  *
- * FOUR OF THEM FAIL TODAY and are marked `todo` so the suite's exit code still
- * reports the state of everything else. `node --test` prints a failing todo in
- * full and does not count it as a failure; the fix is to delete the `todo`
- * option from each, not to relax the assertion.
+ * FOUR OF THEM FAILED when this file was written and were marked `todo` so the
+ * suite's exit code still reported the state of everything else. `node --test`
+ * prints a failing todo in full and does not count it as a failure; the fix is
+ * to delete the `todo` option from each, not to relax the assertion.
+ *
+ * ROUND 2 (HOSTS-UX-LEGENDPAN) closed three of the four: the guard in
+ * `wireCanvasGestures` now names every overlay `app.ts` appends to the canvas
+ * — `.mlv-legend, .mlv-statehost, .mlv-tooltip, .mlv-toasts` — and those three
+ * tests are ordinary gates again. The fourth is a DIFFERENT defect and stays
+ * `todo`: Escape has no legend rung because `dismissTopmost` runs the cascade
+ * CONTRACTS 11.13 freezes (sheet -> focus mode -> scope -> selection -> blur),
+ * so adding one is an amendment rather than a line of code.
  */
 
 import test from 'node:test';
@@ -77,7 +85,7 @@ test('the legend really is a child of the canvas — the premise of everything b
   assert.ok(ctx.canvas.contains(legend), 'app.ts appends the legend to shell.canvas');
 });
 
-test('a pointer press inside the legend must not start a canvas drag-pan', { todo: 'HOSTS-UX-LEGEND: shell.ts drag-pan guard; delete this option when it is fixed' }, async () => {
+test('a pointer press inside the legend must not start a canvas drag-pan', async () => {
   const ctx = await app();
   click(ctx, ctx.document.querySelector('.mlv-btn--legend'));
   const legend = ctx.document.querySelector('.mlv-legend');
@@ -95,7 +103,7 @@ test('a pointer press inside the legend must not start a canvas drag-pan', { tod
   pointer(ctx, close, 'pointerup');
 });
 
-test('a pointer press on the legend body must not start a canvas drag-pan either', { todo: 'HOSTS-UX-LEGEND: shell.ts drag-pan guard; delete this option when it is fixed' }, async () => {
+test('a pointer press on the legend body must not start a canvas drag-pan either', async () => {
   const ctx = await app();
   click(ctx, ctx.document.querySelector('.mlv-btn--legend'));
   const body = ctx.document.querySelector('.mlv-legend__body');
@@ -122,7 +130,7 @@ test('the close button closes the legend when it is clicked', async () => {
   assert.equal(legend.hidden, true, 'the legend stayed open after its own close button was clicked');
 });
 
-test('Escape closes the legend, as it closes every other overlay the viewer draws', { todo: 'HOSTS-UX-LEGEND: shell.ts drag-pan guard; delete this option when it is fixed' }, async () => {
+test('Escape closes the legend, as it closes every other overlay the viewer draws', { todo: 'HOSTS-UX-LEGENDESC: appkeys.ts dismissTopmost has no legend rung, and CONTRACTS 11.13 freezes the cascade order, so closing this needs an amendment rather than a line' }, async () => {
   const ctx = await app();
   click(ctx, ctx.document.querySelector('.mlv-btn--legend'));
   const legend = ctx.document.querySelector('.mlv-legend');
@@ -140,7 +148,7 @@ test('Escape closes the legend, as it closes every other overlay the viewer draw
   );
 });
 
-test('the drag-pan guard names every overlay the app appends to the canvas', { todo: 'HOSTS-UX-LEGEND: shell.ts drag-pan guard; delete this option when it is fixed' }, async () => {
+test('the drag-pan guard names every overlay the app appends to the canvas', async () => {
   const source = await readFile(DIST_JS, 'utf8');
   // The guard is one `closest(...)` call in the bundled shell; find its selector.
   const match = source.match(/closest\(["'](\.mlv-node,[^"']*)["']\)/);

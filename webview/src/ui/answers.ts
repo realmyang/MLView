@@ -78,8 +78,18 @@ export class AnswersCard {
     return this.openState;
   }
 
-  /** Draw the block, or hide the card entirely when there is none. */
-  update(answers: Answers | undefined, open: boolean): void {
+  /**
+   * Draw the block, or hide the card entirely when there is none.
+   *
+   * `yielded` is HOSTS-UX-R2-06: on a document whose banners and chip row
+   * already fill the top of the window this card starts CLOSED, so the reader
+   * gets the diagram instead. Nothing is hidden by it — the header still states
+   * `1 of 4 answered · 3 not detected`, which is the line a reader scans, and
+   * one press opens the rest. The flag only changes the DEFAULT and the
+   * sentence the header's tooltip gives for it; a reader who opens the card
+   * keeps it open, here and on the next report (`ViewState.answersOpen`).
+   */
+  update(answers: Answers | undefined, open: boolean, yielded = false): void {
     this.openState = open;
     const rows = readableRows(answers);
     this.root.hidden = rows.length === 0;
@@ -89,7 +99,12 @@ export class AnswersCard {
       return;
     }
     this.head.setAttribute('aria-expanded', open ? 'true' : 'false');
-    this.head.title = (open ? 'Hide' : 'Show') + ' the four answers this analysis composed';
+    this.root.setAttribute('data-answers-yielded', yielded ? '1' : '0');
+    this.head.title =
+      (open ? 'Hide' : 'Show') + ' the four answers this analysis composed' +
+      (yielded && !open
+        ? ' — it starts closed on this report because the notes above it already fill the top of the window'
+        : '');
     if (open) this.root.classList.add('is-open');
     else this.root.classList.remove('is-open');
     // DGRG-12: the counter says what the answers say, never more.

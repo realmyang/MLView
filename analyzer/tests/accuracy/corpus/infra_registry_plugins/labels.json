@@ -1,0 +1,129 @@
+{
+  "name": "infra_registry_plugins",
+  "title": "A decorator Registry (detectron2 / mmdet / timm / fairseq idiom): the model, the loss and the optimizer are strings in a dict",
+  "origin": "hardening round 2, tester domain-infra: the plugin-registry project shape",
+  "tuned": false,
+  "labelledBy": "domain-infra, 2026-09-14",
+  "note": "A pure precision trap on a workspace whose three central objects are only reachable through `@REGISTRY.register(\"name\")` decorators and a `dict[name]` lookup. MLView reports nothing - correct - and declares two `unresolved_callee` gaps naming the exact two calls it could not read (registry.Registry.build line 43 and OPTIMIZERS.get line 72) plus an `untagged_dataflow` gap saying the backward at line 89 carries a value it could not type. That is the honest answer to a registry. Two reporting observations, neither a finding and neither labelled: the objective card names `bce (torch.nn.functional.binary_cross_entropy_with_logits) at plugins.py:67`, which is an internal term inside FocalLoss.forward rather than the criterion the loop optimises, and it names BOTH registered optimizer factories (AdamW at plugins.py:76 and SGD at plugins.py:81) although CONFIG[\"optimizer\"][\"name\"] is the literal \"adamw\" in a module-level dict MLView does resolve. See the domain-infra round-2 report, finding INFRA-R2-15.",
+  "stagesObserved": "config, data, model, objective, train, eval and deliver present; preprocess absent, which is correct.",
+  "expected": [],
+  "forbidden": [
+    {
+      "code": "MLV110",
+      "file": "train.py",
+      "why": "the training loader is built with shuffle=True at line 54"
+    },
+    {
+      "code": "MLV111",
+      "file": "train.py",
+      "why": "the validation loader is built with shuffle=False at line 56"
+    },
+    {
+      "code": "MLV112",
+      "file": "train.py",
+      "why": "no DataLoader here passes num_workers, and the module ends in `if __name__ == \"__main__\": main()`"
+    },
+    {
+      "code": "MLV201",
+      "file": "train.py",
+      "why": "optimizer.zero_grad(set_to_none=True) is at line 86, before the forward at 87"
+    },
+    {
+      "code": "MLV202",
+      "file": "train.py",
+      "why": "optimizer.step() is called at line 91, after loss.backward() at line 89"
+    },
+    {
+      "code": "MLV203",
+      "file": "train.py",
+      "why": "the order is zero_grad (86) -> forward (87) -> loss (88) -> backward (89) -> clip (90) -> step (91)"
+    },
+    {
+      "code": "MLV205",
+      "file": "train.py",
+      "why": "the epoch loss is accumulated as running += loss.item(), a Python float"
+    },
+    {
+      "code": "MLV205",
+      "file": "plugins.py",
+      "why": "FocalLoss.forward builds its terms and returns (weight * bce).mean(); there is no accumulator outside a loop and no loop at all in that method"
+    },
+    {
+      "code": "MLV207",
+      "file": "train.py",
+      "why": "CosineAnnealingLR is epoch-cadence and scheduler.step() is called at line 93, in the epoch loop after the batch loop closes"
+    },
+    {
+      "code": "MLV209",
+      "file": "train.py",
+      "why": "clip_grad_norm_ at line 90 sits between the backward at 89 and the step at 91"
+    },
+    {
+      "code": "MLV301",
+      "file": "train.py",
+      "why": "model.eval() is called at line 95 before the validation block and model.train() at line 106 on the way out"
+    },
+    {
+      "code": "MLV302",
+      "file": "train.py",
+      "why": "the validation block is wrapped in `with torch.no_grad():` at line 98"
+    },
+    {
+      "code": "MLV305",
+      "file": "train.py",
+      "why": "the accuracy comparison at line 102 is on model(features).argmax(dim=1), not on raw logits"
+    },
+    {
+      "code": "MLV401",
+      "file": "plugins.py",
+      "why": "neither registered model applies a softmax; both return self.head(...) and the registered cross_entropy factory is fed exactly that"
+    },
+    {
+      "code": "MLV402",
+      "file": "plugins.py",
+      "why": "FocalLoss takes logits and calls F.binary_cross_entropy_with_logits itself at line 67; there is no sigmoid anywhere in this workspace, which is what the with-logits form requires"
+    },
+    {
+      "code": "MLV501",
+      "file": "train.py",
+      "why": "the model is moved at line 68 and both loops move every batch value to the same device before the forward (84-85 and 100-101)"
+    },
+    {
+      "code": "MLV502",
+      "file": "train.py",
+      "why": "the device is chosen behind torch.cuda.is_available() at line 65"
+    },
+    {
+      "code": "MLV601",
+      "anchor": "project",
+      "why": "seed_everything(CONFIG[\"seed\"]) at line 63 calls random.seed, numpy.random.seed, torch.manual_seed and torch.cuda.manual_seed_all, and the training loader passes generator=torch.Generator().manual_seed(CONFIG[\"seed\"])"
+    },
+    {
+      "code": "MLV602",
+      "file": "train.py",
+      "why": "there is no sklearn splitter and no random_split; the cut is the literal index 6400 and the loader carries an explicit generator"
+    },
+    {
+      "code": "MLV701",
+      "file": "plugins.py",
+      "why": "WideResNet.__init__, TinyMLP.__init__ and FocalLoss.__init__ all call super().__init__() as their first statement"
+    },
+    {
+      "code": "MLV702",
+      "file": "plugins.py",
+      "why": "the residual blocks are built inside nn.ModuleList(...) at line 23; there is no plain list or dict of submodules"
+    },
+    {
+      "code": "MLV803",
+      "file": "train.py",
+      "why": "torch.save stores model.state_dict() at line 112 and nothing in this workspace calls torch.load"
+    }
+  ],
+  "unsupported": [
+    {
+      "file": "plugins.py",
+      "why": "LABEL CORRECTED in hardening round 2: MLV903 is not a built rule - it carries the status **later** in docs/ISSUE_RULES.md section 1 - so a label for it can never be satisfied and can never be violated. `analyzer/tests/accuracy/test_accuracy.py::test_every_labelled_code_is_a_real_rule` rejects one, and this row turned that shipped test red. The observation is kept verbatim here so the row can be restored the day the rule ships. Original verdict `forbidden`, original note: `import plugins` at train.py:26 is what performs the registration; the registered classes are reached from the entrypoint through MODELS.build / LOSSES.build and are not orphans",
+      "wouldBe": "MLV903"
+    }
+  ]
+}

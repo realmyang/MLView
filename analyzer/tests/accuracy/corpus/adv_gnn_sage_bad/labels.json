@@ -1,0 +1,249 @@
+{
+  "name": "adv_gnn_sage_bad",
+  "title": "Mini-batch GraphSAGE with NeighborLoader plus a heterogeneous link predictor - eleven planted defects",
+  "origin": "the defective twin of adv_gnn_sage_clean, hardening round 2, 2026-09-14",
+  "tuned": false,
+  "labelledBy": "hardening round 2, domain-generative-rl-graph, 2026-09-14",
+  "note": "Round 1's GNN pair was full-batch transductive GCN; this is the neighbour-sampling half, plus a HeteroData link predictor. `torch_geometric` carries no knowledge row at all, so MLV110 / MLV111 / MLV112 cannot see a NeighborLoader and MLView says so - one `unresolved_callee` diagnostic per file naming the package. Those three are recorded as `unsupported` rather than as misses, because the silence is declared. MLV301 / MLV302 are a different matter: they are recorded under `unsupported` with finding DGRG-18, because a single `model = torch.load(...)` at line 112 - two statements BELOW the evaluation call - erases the model binding for the whole scope and MLV301, MLV302 and the MLV803 on line 108 all disappear with no diagnostic.",
+  "expected": [
+    {
+      "code": "MLV402",
+      "file": "hetero_rec.py",
+      "line": 74,
+      "symbol": "criterion(scores, target)",
+      "severity": "high",
+      "verdict": "expected",
+      "defect": "EdgeDecoder.forward returns torch.sigmoid(score) at line 46 and the loss is nn.BCEWithLogitsLoss",
+      "why": "the score is squashed twice, so the gradient vanishes for every confident edge and the model stops learning the easy negatives"
+    },
+    {
+      "code": "MLV601",
+      "file": "train_sage.py",
+      "anchor": "project",
+      "symbol": "no seed anywhere",
+      "severity": "low",
+      "verdict": "expected",
+      "defect": "neither file seeds torch, numpy or random",
+      "why": "the SAGE parameter initialisation, the 0.5 dropout mask, the neighbour sampling and the negative sampling all move between runs, so the reported accuracy is not reproducible"
+    },
+    {
+      "code": "MLV110",
+      "file": "train_sage.py",
+      "line": 48,
+      "symbol": "NeighborLoader(..., shuffle=False)",
+      "severity": "medium",
+      "verdict": "expected",
+      "defect": "the training loader does not shuffle its seed nodes, so every epoch walks the graph in Planetoid's node order",
+      "why": "LABEL CORRECTED in hardening round 2 (finding DGRG2-13 / VIS2-10): `torch_geometric.loader.NeighborLoader` IS a `torch.utils.data.DataLoader` subclass and takes `shuffle=` and `num_workers=` with torch's own semantics, so it is now aliased to the canonical FQN (`knowledge.CANONICAL_ALIASES`) and the three rules apply verbatim. Original note: declared: `torch_geometric` has no knowledge table, so a NeighborLoader is not a DataLoader to MLV110, and the document says so in an `unresolved_callee` diagnostic naming the package."
+    },
+    {
+      "code": "MLV112",
+      "file": "train_sage.py",
+      "line": 48,
+      "symbol": "num_workers=4",
+      "severity": "medium",
+      "verdict": "expected",
+      "defect": "num_workers=4 with no `if __name__ == \"__main__\"` guard anywhere in the module, and the loaders are built at module scope",
+      "why": "LABEL CORRECTED in hardening round 2 (finding DGRG2-13 / VIS2-10): `torch_geometric.loader.NeighborLoader` IS a `torch.utils.data.DataLoader` subclass and takes `shuffle=` and `num_workers=` with torch's own semantics, so it is now aliased to the canonical FQN (`knowledge.CANONICAL_ALIASES`) and the three rules apply verbatim. Original note: same cause: NeighborLoader is not torch.utils.data.DataLoader to the rule."
+    },
+    {
+      "code": "MLV111",
+      "file": "train_sage.py",
+      "line": 52,
+      "symbol": "NeighborLoader(..., shuffle=True)",
+      "severity": "low",
+      "verdict": "expected",
+      "defect": "the validation loader shuffles, so predictions no longer line up with the nodes they came from",
+      "why": "LABEL CORRECTED in hardening round 2 (finding DGRG2-13 / VIS2-10): `torch_geometric.loader.NeighborLoader` IS a `torch.utils.data.DataLoader` subclass and takes `shuffle=` and `num_workers=` with torch's own semantics, so it is now aliased to the canonical FQN (`knowledge.CANONICAL_ALIASES`) and the three rules apply verbatim. Original note: same cause as the MLV110 row: no torch_geometric knowledge row, declared by diagnostic."
+    },
+    {
+      "code": "MLV112",
+      "file": "train_sage.py",
+      "line": 52,
+      "symbol": "num_workers=2",
+      "severity": "medium",
+      "verdict": "acceptable",
+      "defect": "the same missing __main__ guard, seen from the other two loaders",
+      "why": "LABEL ADDED in hardening round 2: the module builds three NeighborLoaders at module scope and all three request worker processes, so MLV112 is true of each. Only the first was labelled because none of them was detectable before the torch_geometric alias landed; the fix is one guard, so the other two are `acceptable` rather than a second and third planted defect."
+    },
+    {
+      "code": "MLV112",
+      "file": "train_sage.py",
+      "line": 55,
+      "symbol": "num_workers=2",
+      "severity": "medium",
+      "verdict": "acceptable",
+      "defect": "the same missing __main__ guard, seen from the other two loaders",
+      "why": "LABEL ADDED in hardening round 2: the module builds three NeighborLoaders at module scope and all three request worker processes, so MLV112 is true of each. Only the first was labelled because none of them was detectable before the torch_geometric alias landed; the fix is one guard, so the other two are `acceptable` rather than a second and third planted defect."
+    },
+    {
+      "code": "MLV201",
+      "file": "train_sage.py",
+      "line": 71,
+      "symbol": "loss.backward()",
+      "severity": "high",
+      "verdict": "expected",
+      "defect": "the mini-batch loop never calls optimizer.zero_grad()",
+      "why": "every step applies the sum of every batch's gradients since the run started, so the learning rate is effectively multiplied by the batch index"
+    },
+    {
+      "code": "MLV301",
+      "file": "train_sage.py",
+      "line": 85,
+      "symbol": "model(batch.x, batch.edge_index)",
+      "severity": "high",
+      "verdict": "expected",
+      "defect": "evaluate() never calls model.eval(), so the 0.5 dropout is active for every reported accuracy",
+      "why": "LABEL CORRECTED in hardening round 2: this row was recorded as `unsupported` only because finding DGRG2-01 (DGRG-18) made it unreachable - `model = torch.load(\"sage_best.pt\")` at line 112, written BELOW both evaluation calls, replaced a MODEL-tagged binding with an untyped checkpoint for the whole scope. `ir/bindings._restored_into` now carries the MODEL tag and the class through a LOAD that restores into a name that already held a model, so the defect is detectable and the row is a planted defect like any other. Original note: MLView reports this correctly when the file ends at line 110. Adding `model = torch.load(\"sage_best.pt\")` at line 112 - BELOW both evaluation calls - rebinds `model` to a value with no MODEL tag and no class_ir for the whole scope, and MLV301, MLV302 and the eval lane's metric node all disappear with no diagnostic. See finding DGRG-18."
+    },
+    {
+      "code": "MLV302",
+      "file": "train_sage.py",
+      "line": 85,
+      "symbol": "model(batch.x, batch.edge_index)",
+      "severity": "medium",
+      "verdict": "expected",
+      "defect": "evaluate() is not wrapped in torch.no_grad()",
+      "why": "LABEL CORRECTED in hardening round 2: this row was recorded as `unsupported` only because finding DGRG2-01 (DGRG-18) made it unreachable - `model = torch.load(\"sage_best.pt\")` at line 112, written BELOW both evaluation calls, replaced a MODEL-tagged binding with an untyped checkpoint for the whole scope. `ir/bindings._restored_into` now carries the MODEL tag and the class through a LOAD that restores into a name that already held a model, so the defect is detectable and the row is a planted defect like any other. Original note: same cause as the MLV301 row above: finding DGRG-18."
+    },
+    {
+      "code": "MLV803",
+      "file": "train_sage.py",
+      "line": 108,
+      "symbol": "torch.save(model, ...)",
+      "severity": "low",
+      "verdict": "expected",
+      "defect": "the whole module is pickled instead of its state_dict",
+      "why": "LABEL CORRECTED in hardening round 2: this row was recorded as `unsupported` only because finding DGRG2-01 (DGRG-18) made it unreachable - `model = torch.load(\"sage_best.pt\")` at line 112, written BELOW both evaluation calls, replaced a MODEL-tagged binding with an untyped checkpoint for the whole scope. `ir/bindings._restored_into` now carries the MODEL tag and the class through a LOAD that restores into a name that already held a model, so the defect is detectable and the row is a planted defect like any other. Original note: MLView reports this correctly when the file ends at line 110; the same `model = torch.load(...)` at line 112 that erases MLV301/MLV302 also erases the MODEL tag MLV803 needs to tell a module from a state_dict. Four findings, one rebinding: finding DGRG-18."
+    },
+    {
+      "code": "MLV803",
+      "file": "train_sage.py",
+      "line": 112,
+      "symbol": "torch.load",
+      "severity": "low",
+      "verdict": "expected",
+      "defect": "torch.load is called with neither weights_only= nor map_location=",
+      "why": "the checkpoint is unpickled with arbitrary-code execution, and the load fails outright on a machine without the device it was saved from"
+    }
+  ],
+  "forbidden": [
+    {
+      "code": "MLV101",
+      "file": "train_sage.py",
+      "why": "there is no sklearn transformer in this project; accuracy_score is a metric, not a fit"
+    },
+    {
+      "code": "MLV102",
+      "file": "train_sage.py",
+      "why": "nothing is fitted on the held-out rows through an sklearn transformer; the leak here is a mask, which MLV101/MLV102 do not model"
+    },
+    {
+      "code": "MLV202",
+      "file": "train_sage.py",
+      "why": "optimizer.step() is called at line 72, inside the batch loop"
+    },
+    {
+      "code": "MLV204",
+      "file": "hetero_rec.py",
+      "why": "the only no_grad here is the @torch.no_grad() decorator on evaluate() at line 80; loss.backward() is in train_epoch"
+    },
+    {
+      "code": "MLV301",
+      "file": "hetero_rec.py",
+      "why": "hetero_rec.evaluate() calls model.eval() and decoder.eval() at lines 82-83"
+    },
+    {
+      "code": "MLV302",
+      "file": "hetero_rec.py",
+      "why": "hetero_rec.evaluate() carries the @torch.no_grad() decorator at line 80"
+    },
+    {
+      "code": "MLV401",
+      "file": "hetero_rec.py",
+      "why": "there is no cross-entropy in hetero_rec.py"
+    },
+    {
+      "code": "MLV401",
+      "file": "train_sage.py",
+      "why": "SAGE.forward returns the raw output of conv2 - no softmax is applied anywhere before F.cross_entropy"
+    },
+    {
+      "code": "MLV402",
+      "file": "train_sage.py",
+      "why": "there is no binary cross-entropy in train_sage.py"
+    },
+    {
+      "code": "MLV502",
+      "file": "train_sage.py",
+      "why": "DEVICE is chosen by torch.cuda.is_available() at line 22"
+    },
+    {
+      "code": "MLV502",
+      "file": "hetero_rec.py",
+      "why": "DEVICE is chosen by torch.cuda.is_available() at line 19"
+    },
+    {
+      "code": "MLV701",
+      "file": "train_sage.py",
+      "why": "SAGE.__init__ calls super().__init__() on its first line"
+    },
+    {
+      "code": "MLV701",
+      "file": "hetero_rec.py",
+      "why": "Encoder.__init__ and EdgeDecoder.__init__ both call super().__init__() on their first line"
+    },
+    {
+      "code": "MLV702",
+      "file": "train_sage.py",
+      "why": "conv1, conv2 and dropout are plain attributes, which nn.Module registers"
+    },
+    {
+      "code": "MLV702",
+      "file": "hetero_rec.py",
+      "why": "conv1, conv2, dropout and lin are plain attributes, which nn.Module registers"
+    }
+  ],
+  "unsupported": [
+    {
+      "wouldBe": "MLV305",
+      "file": "train_sage.py",
+      "line": 91,
+      "symbol": "accuracy_score",
+      "defect": "accuracy_score is fed raw logits instead of the argmax class",
+      "why": "declared: the document carries an `untagged_dataflow` diagnostic naming MLV305 and train_sage.evaluate by name, because torch.cat().numpy() carries no LOGITS tag."
+    },
+    {
+      "wouldBe": "MLV107",
+      "file": "train_sage.py",
+      "line": 105,
+      "symbol": "score = evaluate(model, test_loader)",
+      "defect": "model selection reads the TEST loader every epoch, so the reported figure is the maximum over thirty draws of the held-out set",
+      "why": "MLV107 (test set used for model selection) is a later-tier rule that is not built."
+    },
+    {
+      "wouldBe": null,
+      "file": "train_sage.py",
+      "line": 48,
+      "symbol": "input_nodes absent",
+      "defect": "the training loader seeds from every node rather than from data.train_mask, so the training loss is back-propagated through validation and test nodes",
+      "why": "a boolean seed-node mask is not a split call; no rule models it."
+    },
+    {
+      "wouldBe": null,
+      "file": "hetero_rec.py",
+      "line": 66,
+      "symbol": "full_data[...].edge_index",
+      "defect": "the negatives are drawn against the complete edge index, so held-out positive edges are regularly handed to the model as labelled negatives",
+      "why": "graph-specific; no rule models negative sampling against the wrong edge set."
+    },
+    {
+      "wouldBe": "MLV306",
+      "file": "hetero_rec.py",
+      "line": 90,
+      "symbol": "roc_auc_score(..., hard)",
+      "defect": "the ranking metric is fed thresholded hard labels instead of scores",
+      "why": "MLV306 resolves the score argument through `<clf>.predict(...)`; here the hard labels come from a tensor comparison, which the rule does not read."
+    }
+  ]
+}

@@ -14,7 +14,7 @@ from typing import Any, Dict, Iterable, List, Sequence, Tuple
 
 from .. import knowledge as K
 from ..ingest.parse import ParsedFile
-from .bindings import bind_module, binding_of
+from .bindings import bind_module, binding_of, rebind_projections
 from .converge import MAX_ROUNDS, state_digest
 from .resolve import (mark_fitted, propagate_parameters, resolve_calls,
                       seed_annotations)
@@ -144,6 +144,11 @@ def _ir_round(workspace: WorkspaceIR) -> None:
     if getattr(workspace, "dataflow", DEFAULT_DATAFLOW) == "ip":
         workspace.ip_notes = propagate_summaries(
             workspace, getattr(workspace, "ip_max_hops", DEFAULT_MAX_HOPS))
+    # VIS2-06: the statements that read a value **out of** a parameter
+    # container, re-read now that the parameter has a type. See
+    # `ir/bindings.rebind_projections`.
+    for relpath in sorted(workspace.modules):
+        rebind_projections(workspace.modules[relpath], workspace)
     for relpath in sorted(workspace.modules):
         resolve_calls(workspace.modules[relpath], workspace)
     # one level of return-type inference, so the *next* binding round can
@@ -392,16 +397,51 @@ def _mark_kwargs_forwarding(module: ModuleIR) -> None:
 
 
 def _detect_frameworks(workspace: WorkspaceIR) -> Tuple[str, ...]:
-    found: set = set()
+    """Every framework this workspace really uses.
+
+    VIS2-15. `workspace.frameworks` is presented by the README, the VS Code
+    status-bar tooltip and every chat/LM digest as a statement about the
+    project, and a **method-name** match alone was enough to make one: a
+    `np.array(...).tolist()` resolved to `pandas.Series.tolist` (the only
+    table that carried `tolist`) and put `pandas` in the list for a pure
+    numpy + torch vision project with no `import pandas` anywhere.
+
+    The ambiguity is confined to one place and the guard is confined with it.
+    An untyped frame receiver has no constructor to hang a method off, so
+    `ir/resolve` proposes `pandas.DataFrame.<m>`, `pandas.Series.<m>` and
+    `numpy.ndarray.<m>` in a **fixed order** and whichever is listed first
+    wins - a guess, not a resolution. A framework credited only through one of
+    those three bases is therefore kept only when the workspace imports it.
+    Everything else is unchanged: a framework named by a constructor FQN came
+    from the import table in the first place, and `tf.keras.Model.compile`
+    still credits `keras` on a file that imports only `tensorflow`, because
+    `tf.keras` really is Keras.
+    """
+    imported: set = set()
     for module in workspace.modules.values():
-        found.update(module.frameworks)
+        imported.update(module.frameworks)
+    found: set = set(imported)
+    for module in workspace.modules.values():
         for call in module.calls:
             for fqn in call.canonical_fqns:
                 fw = K.framework_of(fqn)
-                if fw and fw != "other":
+                if not fw or fw == "other":
+                    continue
+                guessed = (fqn in K.METHODS
+                           and fqn.startswith(_FRAME_GUESS_PREFIXES))
+                if not guessed or fw in imported:
                     found.add(fw)
-                    break
+                break
     return tuple(sorted(found, key=lambda f: FRAMEWORK_ORDER.get(f, 99)))
+
+
+#: VIS2-15. The three receiver bases `ir/resolve._FRAME_BASES` proposes, in
+#: order, for a value it could not type. `tolist` was registered for pandas
+#: only, so `np.array(...).tolist()` resolved to `pandas.Series.tolist` and put
+#: **pandas** - which the README, the VS Code status-bar tooltip and every chat
+#: digest present as a fact about the project - into `workspace.frameworks` for
+#: a pure numpy + torch vision workspace with no `import pandas` anywhere.
+_FRAME_GUESS_PREFIXES = ("pandas.DataFrame.", "pandas.Series.", "numpy.ndarray.")
 
 
 def _module_wrappers(module: ModuleIR) -> List[str]:

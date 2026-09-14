@@ -51,7 +51,25 @@ _LABELS = {"dataEntry": "data", "objective": "objective",
 _SEVERITY_RANK = {"low": 0, "medium": 1, "high": 2}
 #: ANA-5a adds `unresolved_callee`: a call MLView could not read is exactly the
 #: reason a verdict of "no findings" must not be read as a clean bill of health.
-_COVERAGE_KINDS = ("untagged_dataflow", "single_file_analysis", "unresolved_callee")
+#:
+#: INFRA-R2-11 adds the three *larger* gaps that were outside the set, so the
+#: card and the MCP digest used to hand back four unqualified absence claims
+#: and a clean "No findings: no rule fired on this workspace" for a workspace
+#: whose only ML file failed to parse, whose notebooks were never opened, or
+#: whose directory could not be read. A kind that means **we did not read
+#: something** must always reach the verdict.
+_COVERAGE_KINDS = ("untagged_dataflow", "single_file_analysis", "unresolved_callee",
+                   "parse_error", "notebook_skipped", "truncated")
+#: How each kind is said in the absence clause, in this order.
+_COVERAGE_PHRASE = (
+    ("unresolved_callee", "%d call(s) could not be read"),
+    ("parse_error", "%d file(s) could not be parsed"),
+    ("notebook_skipped", "%d notebook(s) were not analyzed - re-run with "
+                         "--include-notebooks"),
+    ("truncated", "%d part(s) of the analysis were capped"),
+    ("untagged_dataflow", "%d value(s) carry no dataflow tag"),
+    ("single_file_analysis", "%d file(s) of a larger package were read alone"),
+)
 _MAX_CITED = 3
 
 
@@ -185,7 +203,16 @@ def _answer(sentence: str, cited: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
 
 
 # ---------------------------------------------------------------- the four
-def _data_entry(nodes: List[Dict[str, Any]], rolled: bool = False) -> Dict[str, Any]:
+def _data_entry(nodes: List[Dict[str, Any]], coverage: str = "",
+                rolled: bool = False) -> Dict[str, Any]:
+    """DGRG2-04. `_objective` and `_evaluation` both hedge their absence
+    sentence with the coverage clause; this one did not take the parameter at
+    all, so the FIRST line a reader or an agent sees said "nothing in this
+    workspace builds a dataset or a loader" about a file containing
+    `Planetoid(...)` and two `NeighborLoader(...)` calls - while the stage list
+    two lines below carried the `unverified` qualifier and the verdict said it
+    was not a clean bill of health. One payload, contradicting itself.
+    """
     datasets, dropped = _pick(nodes, kind="dataset")
     loaders, dropped_loaders = _pick(nodes, kind="dataloader")
     splits, dropped_splits = _pick(nodes, kind="split")
@@ -193,10 +220,13 @@ def _data_entry(nodes: List[Dict[str, Any]], rolled: bool = False) -> Dict[str, 
     if not datasets and not loaders:
         if rolled:
             return _answer(_blinded("Where the data enters"), ())
-        return _answer(
-            "No data entry was detected: nothing in this workspace builds a "
-            "dataset or a loader, so MLView could not determine where the data "
-            "comes from." + _dropped_clause(dropped), ())
+        absent = ("No data entry was detected: nothing in the data stage "
+                  "resolved%s, so MLView could not determine where the data "
+                  "comes from." % coverage) if coverage else (
+                  "No data entry was detected: nothing in this workspace builds "
+                  "a dataset or a loader, so MLView could not determine where "
+                  "the data comes from.")
+        return _answer(absent + _dropped_clause(dropped), ())
     if datasets:
         sentence = "Data enters at %s" % _listing(datasets)
         if loaders:
@@ -229,11 +259,49 @@ def _coverage_clause(doc: Dict[str, Any]) -> str:
             if isinstance(d, dict) and d.get("kind") in _COVERAGE_KINDS]
     if not gaps:
         return ""
-    calls = sum(int(d.get("count") or 1) for d in gaps
-                if d.get("kind") == "unresolved_callee")
-    if calls:
-        return ", and %d call(s) could not be read" % calls
-    return ", and %d coverage gap(s) were reported" % len(gaps)
+    parts: List[str] = []
+    for kind, phrase in _COVERAGE_PHRASE:
+        rows = [d for d in gaps if d.get("kind") == kind]
+        if not rows:
+            continue
+        if kind == "unresolved_callee":
+            count = sum(int(d.get("count") or 1) for d in rows)
+        else:
+            count = len(rows)
+        parts.append(phrase % count)
+    if not parts:
+        return ", and %d coverage gap(s) were reported" % len(gaps)
+    return ", and " + _join(parts[:3])
+
+
+def _nothing_read(doc: Dict[str, Any]) -> bool:
+    """INFRA-R2-11: the run read no Python at all.
+
+    A notebooks-only repository (`filesAnalyzed: 0, notebooksSkipped: 3`) and a
+    workspace whose only file failed to parse both produced four confident
+    absence claims about code MLView never opened. With nothing read there is
+    only one honest sentence, and it is not "no data entry was detected".
+    """
+    workspace = doc.get("workspace")
+    if not isinstance(workspace, dict):
+        return False
+    analyzed = workspace.get("filesAnalyzed")
+    return isinstance(analyzed, int) and analyzed <= 0
+
+
+def _unread(doc: Dict[str, Any], what: str) -> str:
+    workspace = doc.get("workspace") if isinstance(doc.get("workspace"), dict) else {}
+    skipped = int(workspace.get("notebooksSkipped") or 0)
+    failed = int(workspace.get("filesFailed") or 0)
+    why = []
+    if failed:
+        why.append("%d file(s) could not be parsed" % failed)
+    if skipped:
+        why.append("%d notebook(s) were not analyzed - re-run with "
+                   "--include-notebooks" % skipped)
+    reason = ("; " + _join(why)) if why else ""
+    return ("MLView analyzed 0 files here, so %s is not an absence - it is a "
+            "question nothing was read to answer%s." % (what, reason))
 
 
 def _objective(nodes: List[Dict[str, Any]], coverage: str = "",
@@ -302,6 +370,60 @@ def _by_evidence(nodes: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return sorted(nodes, key=_eval_rank)
 
 
+def _guard_receiver(node: Dict[str, Any]) -> str:
+    """`teacher.eval()` -> "teacher". The receiver is in `loc.symbol`."""
+    symbol = (node.get("loc") or {}).get("symbol") or ""
+    head, _dot, tail = symbol.rpartition(".")
+    return head if tail in ("eval", "no_grad", "inference_mode") else ""
+
+
+def _ancestors(nodes: Sequence[Dict[str, Any]], node: Dict[str, Any]) -> set:
+    """Every ancestor id of `node`, plus its own, through `parent`."""
+    by_id = {n.get("id"): n for n in nodes}
+    out, cur, hops = set(), node, 0
+    while cur is not None and hops < 8:
+        ident = cur.get("id")
+        if ident in out:
+            break
+        out.add(ident)
+        cur = by_id.get(cur.get("parent"))
+        hops += 1
+    return out
+
+
+def _guards_for_region(nodes: Sequence[Dict[str, Any]],
+                       guards: Sequence[Dict[str, Any]],
+                       loops: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """NLP2-02. Only the guards that cover the region being described.
+
+    The clause used to be appended whenever **any** EVAL_MODE call had been
+    collected anywhere in the eval stage, without asking whose model it
+    switched. On a knowledge-distillation program that made the card read "the
+    eval path is guarded by eval() at distill.py:75" - which is
+    `teacher.eval()`, the frozen teacher - about an evaluation that runs
+    `student`, a BERT with dropout in every block, in train mode. The
+    teacher/student, policy/reference, generator/discriminator and
+    online/target shapes all pair one frozen `.eval()` model with one trained
+    one, so this is not an exotic arrangement.
+
+    A guard covers the region when it sits in the same unit as one of the
+    cited loops, or in a unit that encloses it. That is the containment the
+    document can actually prove; a guard elsewhere is reported separately
+    rather than asserted as cover.
+    """
+    if not loops:
+        return list(guards)
+    covered = set()
+    for loop in loops:
+        covered |= _ancestors(nodes, loop)
+    kept = []
+    for guard in guards:
+        reach = _ancestors(nodes, guard)
+        if reach & covered:
+            kept.append(guard)
+    return kept
+
+
 def _evaluation(nodes: List[Dict[str, Any]], coverage: str = "",
                 rolled: bool = False) -> Dict[str, Any]:
     eval_nodes = [n for n in nodes if n.get("stage") == "eval"]
@@ -312,9 +434,21 @@ def _evaluation(nodes: List[Dict[str, Any]], coverage: str = "",
     guards = _by_evidence([n for n in eval_nodes if not n.get("ghost")
                            and _is_guard(n) and _confident(n)])
     missing = _ghosts(eval_nodes, _is_guard)
+    predicts, dropped_predicts = _pick(eval_nodes, kind="predict")
     if not loops and not metrics and not guards:
         if rolled:
             return _answer(_blinded("Whether this pipeline's quality is measured"), ())
+        if predicts:
+            # PUB2-08: the Evaluate lane is not empty - it holds prediction
+            # calls - so "no evaluation stage was detected" contradicts the
+            # stage table in the same payload. Say what is actually there.
+            return _answer(
+                "The Evaluate lane holds %d prediction call(s), %s, but nothing "
+                "computes a metric over them, so MLView cannot say whether this "
+                "pipeline's quality is measured.%s"
+                % (len(predicts), _listing(predicts, limit=2),
+                   _dropped_clause(dropped + dropped_predicts)),
+                predicts[:_MAX_CITED])
         absent = ("No evaluation stage was detected: nothing computes a metric "
                   "or runs the model in eval mode%s, so MLView cannot say "
                   "whether this pipeline's quality is measured." % coverage
@@ -346,13 +480,29 @@ def _evaluation(nodes: List[Dict[str, Any]], coverage: str = "",
     # The guard clause is stated only where a guard - present or missing - was
     # actually found. A sklearn-only pipeline has no eval mode to guard, and
     # inventing the absence of one would be a finding MLView did not make.
-    if guards:
-        sentence += "; the eval path is guarded by %s." % _listing(guards, limit=2)
-    elif missing:
+    #
+    # Three states, not two and a silence (TAB2-02). `missing` is a ghost node,
+    # which means a rule POSITIVELY determined the guard is absent for this
+    # region, so it outranks an unmatched guard elsewhere in the lane; a guard
+    # that does not cover the region is named as what it is; and a region that
+    # could not be judged says so rather than dropping the clause.
+    covering = _guards_for_region(nodes, guards, loops)
+    if missing:
         sentence += ("; the eval path is NOT guarded - no model.eval() or "
                      "torch.no_grad() covers %s." % _at(missing[0]))
+    elif covering:
+        sentence += "; the eval path is guarded by %s." % _listing(covering, limit=2)
+    elif guards:
+        who = _guard_receiver(guards[0])
+        sentence += ("; whether the eval path is guarded could not be judged: the "
+                     "only eval-mode switch found (%s%s) is outside this region."
+                     % (("%s." % who) if who else "", _cite(guards[0])))
+    elif coverage:
+        sentence += ("; whether the eval path is guarded could not be judged%s."
+                     % coverage)
     else:
         sentence += "."
+    guards = covering or guards
     if serving:
         sentence += (" Nothing here measures quality: this workspace has no training "
                      "stage and no metric, so the Evaluate lane holds prediction calls "
@@ -419,8 +569,16 @@ def compose(doc: Dict[str, Any]) -> Dict[str, Any]:
     nodes = _nodes(doc)
     coverage = _coverage_clause(doc)
     rolled = _rolled_up(doc)
+    if _nothing_read(doc) and not nodes:
+        return {
+            "dataEntry": _answer(_unread(doc, "where the data enters"), ()),
+            "objective": _answer(_unread(doc, "what this pipeline optimises"), ()),
+            "evaluation": _answer(
+                _unread(doc, "whether this pipeline's quality is measured"), ()),
+            "verdict": _verdict(doc, nodes),
+        }
     return {
-        "dataEntry": _data_entry(nodes, rolled),
+        "dataEntry": _data_entry(nodes, coverage, rolled),
         "objective": _objective(nodes, coverage, rolled),
         "evaluation": _evaluation(nodes, coverage, rolled),
         "verdict": _verdict(doc, nodes),

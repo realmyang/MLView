@@ -64,6 +64,16 @@ _FAMILY_BASE = {
     "prophet": "prophet.Prophet",
     "timm_scheduler": "timm.scheduler.CosineLRScheduler",
     "mixup": "timm.data.Mixup",
+    # INFRA-R2-05 / PUB2-08. The two shapes whose *methods* are the pipeline
+    # and whose constructor nobody writes: a TF2 `GradientTape`, a Keras
+    # optimizer's `apply_gradients`, and the native boosting `Booster` that
+    # `xgb.train(...)` / `lgb.train(...)` hand back.
+    "accelerator": "accelerate.Accelerator",
+    "fabric": "lightning.fabric.Fabric",
+    "grad_tape": "tensorflow.GradientTape",
+    "keras_optimizer": "keras.optimizers.Optimizer",
+    "xgb_booster": "xgboost.Booster",
+    "lgb_booster": "lightgbm.Booster",
 }
 
 
@@ -388,14 +398,41 @@ def propagate_parameters(module: ModuleIR, workspace) -> None:
         for param, arg in pairs:
             name = dotted_text(arg)
             ref = binding_of(name, call.scope) if name else None
-            if ref is None or not (ref.tags or ref.class_ir):
+            if ref is None:
+                # NLP2-01. An argument written **inline** - `train(Net(),
+                # loader)`, `to_device(build_model(), device)` - has no name to
+                # look up, so the parameter stayed untyped and everything
+                # downstream of it evaporated: `model(features)` inside the
+                # callee resolved to nothing, no eval region was built, and
+                # MLV301 (high) and MLV302 vanished on `hydra_research`,
+                # `amp_accumulation` and every project that writes
+                # `model = train(Net(), loader)`. The call site is already in
+                # the IR; reading it costs one dict hit.
+                inner = _inline_call(arg, module)
+                if inner is not None:
+                    ref = _value_of_call(inner, call.scope, param)
+            if ref is None or not (ref.tags or ref.class_ir or ref.via_fqns
+                                   or ref.entries or ref.elements):
                 continue
             existing = func.scope.bindings.get(param)
-            if existing is not None and (existing.tags or existing.class_ir):
+            if existing is not None and (existing.tags or existing.class_ir
+                                         or existing.via_fqns or existing.entries
+                                         or existing.elements):
                 continue
             func.scope.bindings[param] = ValueRef(
                 name=param, scope=func.scope, tags=ref.tags, producer=ref.producer,
-                loc=func.loc, class_ir=ref.class_ir, is_config=ref.is_config)
+                loc=func.loc, class_ir=ref.class_ir, is_config=ref.is_config,
+                via_fqns=ref.via_fqns, elements=ref.elements, entries=ref.entries)
+
+
+def _inline_call(node, module: ModuleIR) -> Optional[CallSite]:
+    """The `CallSite` for an argument written as a call expression."""
+    if not isinstance(node, ast.Call):
+        return None
+    by_node = getattr(module, "_calls_by_node", None)
+    if by_node is None:
+        by_node = {id(c.node): c for c in module.calls}
+    return by_node.get(id(node))
 
 
 def mark_fitted(module: ModuleIR) -> None:
@@ -513,8 +550,75 @@ def _workspace_fqn(workspace, fqn: Optional[str]) -> Optional[str]:
     return getattr(workspace, "reexports", {}).get(fqn, fqn)
 
 
+#: ROB-17. `functools.partial` is how a project pins a constructor's keywords
+#: once and reuses it, and it was the one factory shape that left no trace at
+#: all: a workspace helper keeps the loader, a `lambda` keeps it and raises
+#: `unresolved_callee`, a dict lookup loses it but raises `unresolved_callee` -
+#: `partial` lost it and raised **nothing**, so `stages[data].present` came
+#: back false with an empty `diagnostics` list on a file whose sixth line
+#: builds a `DataLoader`. A partial is not an inference: `partial(F, **kw)(x)`
+#: *is* `F(x, **kw)`, so the callee and the pinned keywords both travel.
+_PARTIAL_FQNS = ("functools.partial", "functools.partialmethod")
+
+
+def _partial_source(ref: Optional[ValueRef]) -> Optional[CallSite]:
+    """The `partial(...)` call behind a name, if that is what bound it."""
+    if ref is None or ref.producer is None:
+        return None
+    producer = ref.producer
+    fqn = producer.fqn or ""
+    if fqn in _PARTIAL_FQNS or producer.short_name in ("partial", "partialmethod"):
+        if producer.args:
+            return producer
+    return None
+
+
+def _apply_partial(call: CallSite, source: CallSite, module: ModuleIR,
+                   workspace) -> bool:
+    """Resolve `call` as if it were a direct call of the partial's target."""
+    target = source.args[0]
+    symbols = getattr(module, "symbols", None)
+    fqn = symbols.resolve(target) if symbols is not None else None
+    fqn = _workspace_fqn(workspace, fqn) if fqn else None
+    resolved = False
+    if fqn:
+        cls = workspace.classes.get(fqn) if workspace is not None else None
+        fn = workspace.functions.get(fqn) if workspace is not None else None
+        if cls is not None:
+            call.class_ir = cls
+            call.canonical_fqns = _class_canonical(cls, fqn)
+            call.fqn = call.canonical_fqns[0] if call.canonical_fqns else fqn
+            resolved = True
+        elif fn is not None:
+            call.target_function = fn
+            call.fqn = fqn
+            call.canonical_fqns = (fqn,)
+            resolved = True
+        else:
+            call.canonical_fqns = (fqn,)
+            call.fqn = fqn
+            resolved = K.lookup(fqn) is not None
+    if not resolved:
+        return False
+    # The pinned keywords are part of the call the source really makes, and
+    # MLV110 / MLV111 / MLV112 / MLV602 all read them. A keyword written at the
+    # call site wins, exactly as Python's own override order says.
+    for key in sorted(source.kwargs):
+        call.kwargs.setdefault(key, source.kwargs[key])
+    for key in sorted(source.kwarg_nodes):
+        call.kwarg_nodes.setdefault(key, source.kwarg_nodes[key])
+    call.receiver = None
+    call.receiver_name = None
+    call.method = None
+    call.unresolved_callee = None
+    return True
+
+
 def _resolve_one(call: CallSite, module: ModuleIR, workspace) -> None:
-    fqn = _workspace_fqn(workspace, getattr(call, "import_fqn", call.fqn))
+    # VIS2-10 / DGRG2-13: a framework class that IS the torch class answers to
+    # the torch FQN, so every rule keyed on the canonical name applies to it.
+    fqn = K.canonical_alias(_workspace_fqn(
+        workspace, getattr(call, "import_fqn", call.fqn)))
     node = call.node
     func = node.func
 
@@ -549,6 +653,15 @@ def _resolve_one(call: CallSite, module: ModuleIR, workspace) -> None:
             call.target_function = fn
             call.fqn = fn.qualname
             call.canonical_fqns = (fn.qualname,)
+            return
+
+    # 2b. ROB-17: a name bound to `functools.partial(F, ...)` calls F.
+    if simple or isinstance(func, ast.Attribute):
+        bound = binding_of(dotted_text(func), call.scope, at=call.loc.line,
+                           exclude=call)
+        source = _partial_source(bound)
+        if source is not None and _apply_partial(call, source, module, workspace):
+            _mark_forward(call, workspace)
             return
 
     # 3. a call *of* a call - the Keras functional API (FW-RECOG)

@@ -289,8 +289,8 @@ visible = confidence >= 0.60, the VS Code Problems panel default.
 ```
 
 ```
-overall   labels 312   recall  72.4%   visible  66.7%   high+medium  64.5%   precision 100.0%
-unseen    labels 281   recall  69.4%   visible  63.0%   high+medium  60.2%   precision 100.0%
+overall   labels 545   recall  77.8%   visible  70.1%   high+medium  70.7%   precision 100.0%
+unseen    labels 514   recall  76.5%   visible  68.3%   high+medium  68.7%   precision 100.0%
 ```
 
 Two columns exist because the report used to overstate itself. **`n/l`** in the
@@ -300,27 +300,29 @@ nobody drew a diagram for it, so nothing was measured — it used to print
 means the rules were developed against it, so it is excluded from the unseen
 headline; six programs carry it and no rule does.
 
-**Precision is 100%.** Zero forbidden findings, zero unlabelled findings, on 92
-projects and 312 labels, in **both** dataflow modes. That is the claim the
+**Precision is 100%.** Zero forbidden findings, zero unlabelled findings, on 158
+projects and 545 labels, in **both** dataflow modes (re-measured in hardening
+round 2 — section 8). That is the claim the
 product rests on, it is the one number the gate refuses to let move, and it is
 now backed by four times the evidence it had a week ago. Round 1 started with it
 broken: on this corpus `hardening` at `ef4fb71` measured precision 97.6% with
 **5 forbidden findings**, all five of them high-severity claims about correct
 code.
 
-**Recall is the weakness, and it has three honest readings.** On the 86 unseen
+**Recall is the weakness, and it has three honest readings.** On the 151 unseen
 programs:
 
 | Reading | Number | What it means |
 |---|---|---|
-| raw recall | **69.4%** | 195 of 281 planted defects produced a finding |
-| visible recall | **63.0%** | …of which 177 clear `mlview.minConfidence` 0.6, so the rest never reach the VS Code Problems panel |
-| high+medium recall | **60.2%** | 124 of 206 defects that are not reproducibility hygiene |
+| raw recall | **76.5%** | 393 of 514 planted defects produced a finding |
+| visible recall | **68.3%** | …of which 351 clear `mlview.minConfidence` 0.6, so the rest never reach the VS Code Problems panel |
+| high+medium recall | **68.7%** | 252 of 367 defects that are not reproducibility hygiene |
 
-All three are **up** on the unseen half, and substantially: 55.3% -> 69.4% raw,
-42.5% -> 63.0% visible, 37.5% -> 60.2% high+medium. The unseen set is now 86
-programs rather than eight, so this is the first reading in the project's history
-that is a measurement of unseen recall rather than an anecdote about it.
+All three are **up** on the unseen half, and substantially — 55.3% -> 69.4% ->
+76.5% raw, 42.5% -> 63.0% -> 68.3% visible, 37.5% -> 60.2% -> 68.7% high+medium,
+over three measurements on three successively larger unseen sets (eight programs,
+then 86, now 151). This is a measurement of unseen recall rather than an anecdote
+about it.
 
 **Reconciling with the audit's ~26%.** The Sprint-2 audit measured ~26% over
 four hand-written projects. The closest reading here is **60.2%** — the
@@ -331,12 +333,12 @@ fires on essentially every program, which lifts the raw figure. Quote the
 high+medium number when comparing to the audit, and quote all three when
 reporting progress.
 
-**Graph fidelity: 522 of 614 hand-labelled ops, 85.0%.** The score reads lower
+**Graph fidelity: 985 of 1166 hand-labelled ops, 84.5%.** The score reads lower
 than the 127 of 139 (91.4%) recorded on 2026-09-10 for the same reason recall
-does: 475 of the 614 ops are new, hand-drawn on code nobody tuned the builder
-against. 41 of the 92 programs carry a `graph` block; the other 51 carry none
+does: 1027 of the 1166 ops are new, hand-drawn on code nobody tuned the builder
+against. 66 of the 158 programs carry a `graph` block; the other 92 carry none
 and contribute nothing to the total, which is the distinction the `n/l` row
-exists to keep. The 41 that do:
+exists to keep. The programs that do:
 
 ```
 program                       ops    recovered         score      edges
@@ -543,6 +545,14 @@ op, `nlp_token_classification` 0.7143 -> 0.7857, and nothing else moves. `ip` re
 honesty gap and it is tracked as open in
 `analyzer/tests/public_corpus/adjudication.json`.
 
+> **Superseded by section 8 (hardening round 2).** Both sentences above were
+> wrong in the direction nobody checks. "Nothing else moves" was measured on the
+> *score*, which counts node anchors only: `ip` was in fact **removing** edges on
+> 20 of ~100 corpus programs, and findings on two. `local ⊆ ip` is now true, and
+> gated over the whole corpus by
+> `test_dataflow_ip.py::test_ip_never_reports_less_than_local`; the numbers in
+> the table below this note are round 1's and are kept for the record.
+
 ### The two modes on the same 15 programs, 2026-09-10
 
 | mode | recall | visible | high+medium | unseen recall | precision | forbidden | unlabelled |
@@ -587,11 +597,35 @@ stays 100%.
   called from two sites with different tag sets, and a parameter merely named
   `X` — are the shapes the mode is most likely to get wrong, and they are
   asserted at the IR level, not only at the finding level.
-* **Only MLV101 and MLV102 consume the hop chain.** Every other rule reads the
-  widened tags without naming a hop in its evidence or paying its weight. That
-  is where most of the recall difference above comes from, and 11.36's gate G6
-  is written over the whole document so a rule that starts making cross-object
-  claims cannot quietly skip the de-rating.
+* **Which rules consume the hop chain is a measurement, not a list.** IP-01
+  records every interprocedurally widened value a rule reads through
+  `ctx.binding_of` — `note_hops` in `analyzer/src/mlview/rules/context.py` — and
+  `issue()` spends the record for whichever rule made the finding: one
+  `cross_file` evidence row naming the chain in words, `IP_HOP_WEIGHT ** hops`
+  as its weight, and one `RelatedLoc` per hop, charged once per finding on the
+  longest chain and skipped where the rule already asked for the factor itself
+  (`r_leakage`). A rule therefore starts paying the moment it reads a value the
+  mode widened, whether or not anybody edited it. Measured over this corpus in
+  `ip` on 2026-09-14, three rules did: **MLV101, MLV401 and MLV803**. The
+  sentence this replaces named MLV101 and MLV102 as the whole of it — one rule
+  that does not pay here and two that do, missed (VIS2-17) — so
+  `scripts/check_docs.py` check 20 now fails any document that names such a list
+  while no constant in `analyzer/src/mlview/rules/` holds one. 11.36's gate G6
+  is written over the whole document for the same reason: a rule that starts
+  making cross-object claims cannot quietly skip the de-rating.
+
+  ```python
+  # the measurement, re-runnable: every finding that names a hop, by rule
+  import sys; sys.path.insert(0, "analyzer/src")
+  from mlview.api import AnalyzeOptions, analyze_to_dict
+  from pathlib import Path
+  for program in sorted(Path("analyzer/tests/accuracy/corpus").iterdir()):
+      doc = analyze_to_dict(AnalyzeOptions(paths=(str(program),),
+                                           dataflow="ip", cache=False))
+      for issue in doc["issues"]:
+          if any(e["kind"] == "cross_file" for e in issue["evidence"]):
+              print(issue["code"], program.name, issue["confidenceBucket"])
+  ```
 * **A chain past three hops is reported, not scored.** It emits a `truncated`
   diagnostic and no finding, which is a miss the recall column counts and a
   blindness the document names — the distinction this whole file exists to keep.
@@ -682,3 +716,88 @@ median 49% of the budget on a large real repository (PUB-13); and a
 workspace-internal `from x import *` still leaves the objective stage reading as
 absent (ROB-09). Each is a measured hole with a repro, and each is a hole this
 document would rather name than round off.
+
+---
+
+## 8 · Hardening round 2, analyzer (2026-09-14)
+
+Read this beside section 7: the same two forces are at work, and the same
+discipline applies to reading them apart.
+
+**(a) The corpus grew again, by three-quarters.** Other testers added **66**
+labelled programs in the same push — adversarial / RL / GNN / self-supervised
+(`adv_*`), infrastructure (Airflow, Click, DVC, Fabric, Optuna, PySpark, Ray,
+SageMaker, a plugin registry, a TF custom loop, a notebooks-only repository),
+NLP (DistilBERT distillation, DPO, instruction SFT, Keras text, a reranker, RAG
+indexing) and vision. `expected` labels went **312 → 545** and hand-drawn graph
+ops **614 → 1166**. Every per-rule ratio is therefore against a different
+denominator, and both baselines were re-recorded with `--allow-regression` and
+the reason written into each file's own `note` — the same procedure section 7
+used, for the same reason.
+
+**(b) 44 confirmed findings were fixed**, and precision was restored to 100%.
+`hardening` opened this round with **8 forbidden findings** and precision
+**97.9%**; it closes at **zero forbidden findings, zero unlabelled findings and
+100% precision in both dataflow modes**, with every confidence bucket at
+observed precision 100%.
+
+### The two modes on the 158-program corpus, 2026-09-14
+
+| mode | recall | visible | high+medium | unseen recall | precision | forbidden | unlabelled |
+|---|---|---|---|---|---|---|---|
+| `local` | **77.8%** | **70.1%** | **70.7%** | **76.5%** | **100%** | 0 | 0 |
+| `ip` | **79.1%** | **71.2%** | **72.5%** | **77.8%** | **100%** | 0 | 0 |
+
+Graph fidelity is **84.5%** in both, over 1166 labelled ops (up from 614).
+Against the baseline this replaces — a corpus 1.7× smaller — every aggregate
+rose: `local` recall 72.4% → 77.8%, visible 66.7% → 70.1%, high+medium
+64.5% → 70.7%, unseen 69.4% → 76.5%.
+
+### `--dataflow ip` is now a widening, and that is gated
+
+Section 6 said the mode "buys exactly one op and nothing else moves". It was
+false in the direction nobody checks: measured across the corpus, `ip` **lost**
+graph on 20 of ~100 programs (79 edges, 7 of them losing whole nodes) and lost a
+high-severity `MLV301` plus an `MLV302` on a mean-teacher program, with
+`diagnostics == []` in both modes — so the deeper mode read as a clean bill of
+health (VIS2-05, TAB2-01, PUB2-05). The cause was §11.36's intersection
+**replacing** the tag `local` had already derived rather than being unioned into
+it. `ir/summaries._seed` now unions; the intersection still decides what the
+extra hop may contribute, so N3's precision argument is untouched, and a
+disagreement that would have cleared a local tag is **declared** instead.
+`analyzer/tests/core/test_dataflow_ip.py::test_ip_never_reports_less_than_local`
+asserts `findings(local) ⊆ findings(ip)` and `|edges(local)| ≤ |edges(ip)|` over
+every corpus program. `CONTRACTS` §11.59 B is the normative record.
+
+### The public-repository gate
+
+`python tools/public_corpus.py run` + `check` over the 37 pinned repositories:
+**260 runs, 260 clean, gate OK**, 50 high / 276 medium / 376 low findings, every
+high one adjudicated. Two of them are new, and both were read before they were
+recorded: `pytorch-examples`'s tensor-parallel example really does back-propagate
+and step ten times with no `zero_grad` anywhere in the directory (a true positive
+that only became reachable when a `range()` loop that trains stopped needing a
+LOADER tag), and `pytorch-examples/regression/main.py` writes its SGD update by
+hand — which MLV202 now recognises as a step rather than reporting the gradients
+as discarded.
+
+Round 1's one standing honesty gap is closed: the `optuna-examples` MLV121
+false positive is `fixed`, and `ip` no longer drops the `mlflow` MLV110.
+
+### What the recall number still does not say
+
+Twenty-two percentage points of recall are still missing, and they are named
+rather than averaged away. **MLV208** is the largest single gap (recall 14%):
+a `GradScaler` that arrives through a parameter dict is found, but `_scaler_for`
+still requires the construction to be in the same function as the loop, so three
+labelled AMP-protocol defects in one ESRGAN trainer are missed. **MLV102 / MLV103
+/ MLV101** lose the leakage cases that cross two helper boundaries and a
+container. **MLV305** (14%) needs the prediction value to carry `LOGITS` or
+`PROBS`, and a prediction assembled with `torch.cat(...).numpy()` carries
+neither. **MLV709 / MLV708** need the Keras/HF object to survive a config-driven
+factory. A model built by a **registry** (`build_from_cfg("model", cfg)`) is
+still untyped, which costs `hydra_research` its MLV301/MLV302/MLV501. And the
+`--max-nodes` rollup is now stage-aware in its *fold* order — the config lane's
+inventory folds before any pipeline lane's operations — but on a package whose
+units really are mostly configuration it still spends most of a 20-node budget
+there, because there is nothing else to spend it on.

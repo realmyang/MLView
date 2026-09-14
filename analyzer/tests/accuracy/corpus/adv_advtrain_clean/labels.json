@@ -1,0 +1,273 @@
+{
+  "name": "adv_advtrain_clean",
+  "title": "PGD adversarial training and robust evaluation, correct - two rules' nearest traps",
+  "origin": "hardening round 2, 2026-09-14",
+  "tuned": false,
+  "labelledBy": "hardening round 2, domain-generative-rl-graph, 2026-09-14",
+  "note": "Adversarial training breaks the two assumptions the MLV2xx and MLV3xx families rest on, and both false-positive guards are documented in ISSUE_RULES: MLV202's note (a) for a backward whose gradient goes to a leaf input rather than to parameters, and MLV302's for evaluation that genuinely needs gradients. This file exercises both at once - `pgd_attack` differentiates with respect to `delta` and steps no optimizer, and `evaluate_robust` runs `model.eval()` with autograd ON because the attack it measures IS a gradient computation. It carries no `expected` row and must carry no finding. MLView measures 47 nodes / 59 edges and reports zero findings in `local`; under `--dataflow ip` it adds one honest `truncated` diagnostic saying it did not merge the two call sites of pgd_attack.",
+  "expected": [],
+  "forbidden": [
+    {
+      "code": "MLV201",
+      "file": "pgd_train.py",
+      "why": "train_epoch calls optimizer.zero_grad(set_to_none=True) at line 86, before the forward"
+    },
+    {
+      "code": "MLV202",
+      "file": "pgd_train.py",
+      "why": "the only parameter update is line 89, immediately after the backward at 88; the gradient inside pgd_attack is taken with torch.autograd.grad against `delta` (line 70), a leaf input, and steps no optimizer by design - MLV202's false-positive note (a)"
+    },
+    {
+      "code": "MLV203",
+      "file": "pgd_train.py",
+      "why": "the order in the batch loop is zero_grad (86) -> backward (88) -> step (89)"
+    },
+    {
+      "code": "MLV204",
+      "file": "pgd_train.py",
+      "why": "the no_grad block at line 71 wraps only the in-place projection of delta; torch.autograd.grad at line 70 is outside it, and loss.backward() at line 88 is in another function"
+    },
+    {
+      "code": "MLV205",
+      "file": "pgd_train.py",
+      "why": "train_epoch accumulates loss.item() at line 90; every other accumulator counts Python ints"
+    },
+    {
+      "code": "MLV301",
+      "file": "pgd_train.py",
+      "why": "evaluate_clean calls model.eval() at line 97 and evaluate_robust calls it at line 116; train_epoch restores model.train() at line 79"
+    },
+    {
+      "code": "MLV302",
+      "file": "pgd_train.py",
+      "why": "evaluate_clean carries the @torch.no_grad() decorator at line 95; evaluate_robust deliberately does not, because the PGD attack it runs is itself a gradient computation - that is MLV302's documented de-rate, and the forward it actually measures is wrapped at line 123"
+    },
+    {
+      "code": "MLV401",
+      "file": "pgd_train.py",
+      "why": "SmallResNet.forward returns the raw Linear output; nothing softmaxes before CrossEntropyLoss"
+    },
+    {
+      "code": "MLV402",
+      "file": "pgd_train.py",
+      "why": "there is no binary cross-entropy in this project"
+    },
+    {
+      "code": "MLV110",
+      "file": "pgd_train.py",
+      "why": "the training loader is built with shuffle=True at line 135"
+    },
+    {
+      "code": "MLV111",
+      "file": "pgd_train.py",
+      "why": "the test loader is built with shuffle=False at line 137"
+    },
+    {
+      "code": "MLV112",
+      "file": "pgd_train.py",
+      "why": "no loader passes num_workers, and the module has an `if __name__ == \"__main__\"` guard at line 152"
+    },
+    {
+      "code": "MLV501",
+      "file": "pgd_train.py",
+      "why": "every batch is moved with .to(DEVICE) inside all three loops, before any forward"
+    },
+    {
+      "code": "MLV502",
+      "file": "pgd_train.py",
+      "why": "DEVICE is chosen by torch.cuda.is_available() at line 33"
+    },
+    {
+      "code": "MLV601",
+      "file": "pgd_train.py",
+      "why": "seed_everything() at line 36 seeds random, numpy and torch, and the training loader takes an explicit generator seeded at line 132"
+    },
+    {
+      "code": "MLV602",
+      "file": "pgd_train.py",
+      "why": "there is no split call; the train and test sets are built separately, and the loader that shuffles takes generator="
+    },
+    {
+      "code": "MLV701",
+      "file": "pgd_train.py",
+      "why": "SmallResNet.__init__ calls super().__init__() on its first line"
+    },
+    {
+      "code": "MLV702",
+      "file": "pgd_train.py",
+      "why": "the conv stack is an nn.Sequential, not a plain list"
+    },
+    {
+      "code": "MLV803",
+      "file": "pgd_train.py",
+      "why": "torch.save writes model.state_dict() at line 149"
+    }
+  ],
+  "graph": {
+    "edges": 59,
+    "ops": [
+      {
+        "file": "pgd_train.py",
+        "line": 33,
+        "symbol": "torch.device",
+        "kind": "config"
+      },
+      {
+        "file": "pgd_train.py",
+        "line": 39,
+        "symbol": "torch.manual_seed",
+        "kind": "config"
+      },
+      {
+        "file": "pgd_train.py",
+        "line": 46,
+        "symbol": "nn.Conv2d",
+        "kind": "layer"
+      },
+      {
+        "file": "pgd_train.py",
+        "line": 47,
+        "symbol": "nn.BatchNorm2d",
+        "kind": "layer"
+      },
+      {
+        "file": "pgd_train.py",
+        "line": 54,
+        "symbol": "nn.Dropout",
+        "kind": "layer"
+      },
+      {
+        "file": "pgd_train.py",
+        "line": 55,
+        "symbol": "nn.Linear",
+        "kind": "layer"
+      },
+      {
+        "file": "pgd_train.py",
+        "line": 68,
+        "symbol": "F.cross_entropy",
+        "kind": "loss"
+      },
+      {
+        "file": "pgd_train.py",
+        "line": 70,
+        "symbol": "torch.autograd.grad",
+        "kind": "loss"
+      },
+      {
+        "file": "pgd_train.py",
+        "line": 82,
+        "symbol": "for images, labels in loader",
+        "kind": "train_loop"
+      },
+      {
+        "file": "pgd_train.py",
+        "line": 86,
+        "symbol": "optimizer.zero_grad",
+        "kind": "optimizer"
+      },
+      {
+        "file": "pgd_train.py",
+        "line": 87,
+        "symbol": "criterion",
+        "kind": "loss"
+      },
+      {
+        "file": "pgd_train.py",
+        "line": 88,
+        "symbol": "loss.backward",
+        "kind": "loss"
+      },
+      {
+        "file": "pgd_train.py",
+        "line": 89,
+        "symbol": "optimizer.step",
+        "kind": "optimizer"
+      },
+      {
+        "file": "pgd_train.py",
+        "line": 97,
+        "symbol": "model.eval",
+        "kind": "eval"
+      },
+      {
+        "file": "pgd_train.py",
+        "line": 100,
+        "symbol": "for images, labels in loader",
+        "kind": "eval_loop"
+      },
+      {
+        "file": "pgd_train.py",
+        "line": 103,
+        "symbol": "argmax",
+        "kind": "metric"
+      },
+      {
+        "file": "pgd_train.py",
+        "line": 116,
+        "symbol": "model.eval",
+        "kind": "eval"
+      },
+      {
+        "file": "pgd_train.py",
+        "line": 119,
+        "symbol": "for images, labels in loader",
+        "kind": "eval_loop"
+      },
+      {
+        "file": "pgd_train.py",
+        "line": 124,
+        "symbol": "argmax",
+        "kind": "metric"
+      },
+      {
+        "file": "pgd_train.py",
+        "line": 133,
+        "symbol": "TensorDataset",
+        "kind": "dataset"
+      },
+      {
+        "file": "pgd_train.py",
+        "line": 134,
+        "symbol": "TensorDataset",
+        "kind": "dataset"
+      },
+      {
+        "file": "pgd_train.py",
+        "line": 135,
+        "symbol": "DataLoader",
+        "kind": "dataloader"
+      },
+      {
+        "file": "pgd_train.py",
+        "line": 137,
+        "symbol": "DataLoader",
+        "kind": "dataloader"
+      },
+      {
+        "file": "pgd_train.py",
+        "line": 139,
+        "symbol": "SmallResNet",
+        "kind": "model"
+      },
+      {
+        "file": "pgd_train.py",
+        "line": 140,
+        "symbol": "nn.CrossEntropyLoss",
+        "kind": "loss"
+      },
+      {
+        "file": "pgd_train.py",
+        "line": 141,
+        "symbol": "torch.optim.SGD",
+        "kind": "optimizer"
+      },
+      {
+        "file": "pgd_train.py",
+        "line": 149,
+        "symbol": "torch.save",
+        "kind": "checkpoint"
+      }
+    ]
+  }
+}

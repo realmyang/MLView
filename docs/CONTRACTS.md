@@ -5827,3 +5827,490 @@ all; there is nothing to leak into.
   hand-rolled k-fold and no two-section sphinx-gallery script; both were found only because a gate
   runs the analyzer over code nobody wrote for it. The corpus measures recall; the public corpus is
   the only thing measuring this.
+
+---
+
+### 11.57 INFRA-R2-18: an accepted `--framework` filter must say which rules it disabled (2026-09-14) — amends §1 (`Diagnostic.kind`) and §5, host-owned
+
+Hardening round 1 closed the typo half of `mlview_analyze(framework=...)`: a spelling no rule declares
+(`"pytorch"`, `"tensorflow"`) is refused, because `mlview.rules.registry._applies` keeps a
+framework-declaring rule only when `framework_filter in spec.frameworks`, so an unknown name disables every
+framework-specific rule at once. `mlview_workspace.normalize_framework` states the invariant behind that
+refusal: **a filter that names no extractor must never quietly return a shorter finding list, because the
+caller cannot tell that answer from a clean project.**
+
+An **accepted** name did exactly that. Measured on a one-file Keras project (`tf.data` `shuffle` feeding a
+`take`/`skip` holdout — the shape of `analyzer/tests/accuracy/corpus/infra_tf_custom_loop_bad`):
+
+```
+framework="auto"   ->  [MLV121 high, MLV601 low]   diagnostics: [framework_suppressed x1 (the R3.8 gate)]
+                       verdict: "2 finding(s): 1 high / 0 medium / 1 low"
+framework="torch"  ->  [MLV601 low]                diagnostics: [framework_suppressed x1 (the R3.8 gate)]
+                       verdict: "1 finding(s): 0 high / 0 medium / 1 low"
+```
+
+A high-severity finding disappeared, nothing in the payload said a rule had been disabled, and the same
+payload still advertised `frameworks: ["keras", "tf"]` — which is what makes narrowing to `torch` look like
+the obvious next move in the first place. A model reading the second answer reports *no high-severity
+problems* about a project whose training and validation halves are reshuffled every epoch.
+
+This amendment makes the cost of a filter **stated**. No new `Diagnostic.kind`, no new field, no schema
+change: `schemaVersion` stays `"1.0"` and `framework_suppressed` is already in the closed enum, described
+there as *"For framework_suppressed: which rules were not applied."*
+
+#### A. The diagnostic (normative)
+
+| | |
+|---|---|
+| **A1** | Every analysis the MCP host runs with `framework != "auto"` carries **exactly one** `framework_suppressed` diagnostic whose `codes` are the **enabled** rules that (a) would have applied under `auto` given the document's own `workspace.frameworks`, and (b) do not declare the filter; `count` is `len(codes)`; the message names the filter, the number and the detected frameworks. When that set is **empty** the filter cost this workspace nothing and **no diagnostic is emitted** — a keras rule on a torch-only project was never going to fire, and counting it would inflate the number into noise. |
+| **A2** | It is derived on **every** path out of `mlview_workspace.load_graph` — in-process memo, on-disk sidecar, fresh analysis — and in `load_attributed`, and it is written into the document at `graphPath`. Deriving it only after a fresh analysis would leave a `graph.json` written by an older build of the server silent, because the sidecar's `analyzer` field fingerprints the **analyzer**, not the host. |
+| **A3** | `framework_suppressed` carries **two different statements**, and the message prefix `"--framework "` is the discriminator: the analyzer's R3.8 absence gate (`mlview/rules/context.py`, *"Training loop handled by Keras - 1 rule(s) de-rated to speculative"* — those rules **ran** and were capped) versus a host framework filter (those rules **did not run**). No reader may treat one as the other. The prefix is also what makes A1 idempotent, and what makes the host's derivation a **no-op** should the analyzer ever emit the filter form itself. |
+| **A4** | The diagnostic is data, not a template: `webview/src/ui/chrome.ts` renders `message` verbatim plus `codes`, so the message must be a complete sentence and must **not** list the codes itself. |
+
+#### B. The payload (normative)
+
+| | |
+|---|---|
+| **B1** | The filter note joins `single_file_analysis` and `untagged_dataflow` in the plugin's coverage block (`claude-plugin/server/mlview_notes.py`): a `coverage` row `{kind, count, codes, message}` and the `COVERAGE:` sentence in `note`. The **absence gate does not join it** — it reaches the model through the `diagnostics` tally exactly as before, because *"MLV601 could not run"* beside *"the finding count is a floor"* would be a coverage claim MLView never made, on every Lightning, HF and Keras workspace. |
+| **B2** | The message stays under `mlview_notes.MAX_MESSAGE` (400 bytes) for every accepted value on any workspace — widest measured 301 — so the coverage block never clips a sentence mid-clause. |
+| **B3** | `diagnostics: [{kind, count}]` is a per-**kind** tally, so a workspace carrying both statements reports their sum (gate 1 + filter 3 = `framework_suppressed x4`). The `coverage` row, not the tally, is the statement; this is the existing "a tally, not an explanation" rule and is unchanged. |
+| **B4** | `mlview_analyze`'s tool docstring says a valid filter is **reported**, not merely that an invalid one is refused. |
+
+#### C. The other hosts
+
+| | |
+|---|---|
+| **C1** | The standalone HTML report the plugin writes carries the note as its own chip beside the gate's chip — rendered and read back in jsdom, zero errors. |
+| **C2** | The VS Code extension passes **no** framework filter (nothing in `vscode-extension/src` or its `package.json` settings sends one), so `vscode-extension/src/coverage.ts` keeps its two-kind list and the lists have not drifted. If that host ever gains the argument it needs this row. |
+| **C3** | **Analyzer-owned, still open.** `python -m mlview analyze --framework torch` has the same hole at the CLI: a shorter list and a verdict sentence with no caveat. The complete fix is to emit A1's diagnostic inside `mlview.core.pipeline` and add the kind to `mlview/emit/answers._COVERAGE_KINDS` so `_verdict` appends *"MLView also reported N coverage gap(s)"*; A3's prefix means the host's copy then becomes a no-op instead of a duplicate. Until that lands, the statement is host-local, and `docs/ISSUE_RULES.md`'s diagnostics table (which still describes this kind as the `negation_absent` gate alone) needs the second meaning. |
+
+#### D. Gate
+
+`claude-plugin/tests/test_framework_suppression.py` — 26 cases: the measured repro, the registry mirror
+(`_rule_applies` cross-checked against `registry._applies` for every rule × every accepted value × five
+detected-framework sets), only-what-would-have-run, silence when nothing was suppressed, `auto` untouched,
+the gate never becoming a coverage row, the note reaching a document written by an older build **and** one
+that already carries the gate, the attributed path, a registry that cannot be read, the 400-byte bound, all
+three coverage kinds inside the 4 KB budget, and the written document validated against
+`contracts/graph.schema.json`.
+
+---
+
+### 11.58 PUB2-10 / VIS2-17 / HOSTS-UX-R2-07: a CI command line is executable by construction, and a list in the prose is one the code holds (2026-09-14) — amends 11.16 (the must-change-together table) and 11.54 D, process-owned
+
+Three defects in this round were the same defect: a claim that nothing in the tree could check, sitting in
+a file that looked checked. One was a command line CI generates, one was a list of rule codes, one was a
+"known gap" that named its own retirement condition. None of them had gone stale over time — each was false
+the day it was written, and each was written in a file a reviewer would trust.
+
+**PUB2-10, measured.** `.github/workflows/public-corpus.yml` generated
+
+```
+python tools/public_corpus.py fetch ${{ inputs.repos && format('--repo {0}', inputs.repos) || '' }}
+```
+
+and `tools/public_corpus.py` registered `--repo`, `--corpus-dir` and `--manifest` on the top-level parser
+only, where argparse accepts an option **before** the subcommand and nowhere else:
+
+```
+$ python tools/public_corpus.py fetch --repo nanoGPT ; echo $?
+public_corpus: error: unrecognized arguments: --repo nanoGPT
+2
+```
+
+Every `workflow_dispatch` run that used the input — whose own description is *"Comma-separated repo names
+from repos.json (empty = all)"* — therefore failed at the job's first step. The second half is worse,
+because it would have survived a fix to the first: the **analyze** step passed no selector at all, so a
+subset dispatch would have cloned one repository, planned all thirty-seven, and returned `error: target
+directory missing` — which `check_report` treats as BLOCKING — for the other thirty-six.
+
+#### A. The CLI (normative, and the trap that shape has)
+
+**A1.** A tool whose command line is generated by CI accepts its selector options on **either side** of the
+subcommand. `tools/public_corpus.py::_common` registers the three on the top-level parser and on every
+subparser, so `--repo nanoGPT fetch` and `fetch --repo nanoGPT` are one command.
+
+**A2 — why the obvious spelling is wrong.** A subparser parses into a namespace of its own, which argparse
+then copies over the main one:
+
+```python
+subnamespace, arg_strings = parser.parse_known_args(arg_strings, None)
+for key, value in vars(subnamespace).items():
+    setattr(namespace, key, value)
+```
+
+So a subparser copy that shares a `dest` with the top-level option **erases** it — and an `append` action
+there starts from an empty list rather than from what the top level collected, so `--repo a fetch --repo b`
+would have analyzed `b` alone and said nothing. The subparser copies therefore write to a dest of their own
+(`repo_after`, `corpus_dir_after`, `manifest_after`) with `default=argparse.SUPPRESS`, and `_selectors`
+merges the two: names from both sides, comma-split, de-duplicated with their order kept; for the two
+single-valued options the side nearer the subcommand wins. A value given on either side is a value that
+counts.
+
+**A3.** `check` on a missing or malformed report exits **2** with one line naming the path, never a
+`FileNotFoundError` traceback. A tool whose entire purpose is *"a traceback is never a judgement call"* may
+not print one for a typo at its own command line.
+
+#### B. `build_parser()` is public, because a parser is the only honest answer
+
+**B1.** A repository tool invoked from `.github/workflows/*.yml` exposes its command line as
+`build_parser() -> argparse.ArgumentParser`, and `main`/`_main` is written in terms of it. Today that is
+`tools/public_corpus.py` and `tools/verify.py`.
+
+**B2.** Importing such a tool stays **stdlib-only and side-effect-free at module scope**. The doc gate
+imports it, and the doc gate runs in the `vscode-extension` CI job, which sets up Python and never installs
+`mlview` (11.54 D).
+
+**B3.** A tool that offers no `build_parser()` is simply not checked. The gate may not become a reason to
+import something with side effects, and a silent skip is the correct answer for a tool it cannot ask.
+
+#### C. Untrusted input reaches a `run:` block through `env:`, not through `${{ }}`
+
+A `workflow_dispatch` input is text a person typed. Interpolating it into a `run:` script executes whatever
+it says, so both steps now pass it as `REPOS: ${{ github.event.inputs.repos }}` under the step's own `env:`
+and spell the argument `${REPOS:+--repo "$REPOS"}` — either it contributes its text or it contributes
+nothing. That shape stays machine-checkable: check 19 expands it, like a `${{ ... || '' }}` expression, into
+every literal line it can produce.
+
+#### D. Two more must-change-together groups (amends 11.16)
+
+11.16's table gains two rows, in the same sense as the seven already there (11.54 B added two):
+
+| Group | Files | Why |
+|---|---|---|
+| A CI line and the tool it runs | `.github/workflows/*.yml` **and** the `build_parser()` of every `tools/*.py` it invokes | a command line nobody runs until the schedule runs it is not a feature |
+| The two steps a dispatch input feeds | the `fetch` step **and** the `run` step of `.github/workflows/public-corpus.yml` | one input, two command lines: a fix to one that skips the other cannot pass either |
+
+#### E. A list in a living document is a list the code holds (VIS2-17)
+
+**E1.** `docs/ACCURACY.md` §6 said *"Only MLV101 and MLV102 consume the hop chain. Every other rule reads
+the widened tags without naming a hop in its evidence or paying its weight."* By then IP-01 had made the
+payment rule-agnostic: `RuleContext.note_hops` records every interprocedurally widened value a rule reads
+through `ctx.binding_of`, and `issue()` charges **whichever rule made the finding** one `cross_file`
+evidence row with `IP_HOP_WEIGHT ** hops` as its weight, once per finding, on the longest chain. Measured
+over the labelled corpus in `ip` on 2026-09-14, the rules that paid were **MLV101, MLV401 and MLV803** — so
+the sentence named a rule that does not pay here and missed two that do. One instance was in
+`docs/ACCURACY.md`; a second, found by the gate written for the first, was in `docs/STATUS.md`'s own known
+gaps.
+
+**E2 (normative).** A current-state document may name an **exclusive** list of rule codes for the
+interprocedural hop weight only when a module-level constant in `analyzer/src/mlview/rules/` enumerates
+exactly those codes. Otherwise the payers are stated as a measurement, with the command that reproduces it.
+This is the general form of the rule 11.54 D already applies to selectors: *the authority is the tree, never
+a list inside the prose or inside the checker.*
+
+#### F. A "known gap" may not wait for something that has landed (HOSTS-UX-R2-07)
+
+`README.md` said the `/mlview-issues` `Bash` fallback *"groups only once the matching `--group-by` flag
+lands on `analyzer/src/mlview/cli.py`"*, while `mlview issues --group-by rule` had been printing the
+grouped table since the flag shipped. Check 4 (11.54's ancestor: every gap bullet cites something
+checkable) could not see it, because the bullet cites a real path — which is all check 4 asks for. **A gap
+bullet that names its own retirement condition is false as soon as the condition is met**, and the bullet
+named the flag and the file in one clause, so the gate had everything it needed.
+
+#### G. The mechanism (doc gate checks 19, 20 and 21)
+
+`scripts/doc_numbers.py` gains checks 19 and 20 and `scripts/check_docs.py` check 21; the gate is now
+twenty-one checks, still offline and stdlib-only.
+
+* **Check 19** expands every conditional fragment in a workflow's `run:` lines — `${{ ... || '' }}`,
+  `${VAR:+...}`, `format('--repo {0}', ...)`, and a comparison contributes nothing — joins `\`-continuations,
+  splits on shell operators **after** expanding (an expression carries the shell's own `||` inside it), and
+  hands each resulting argv to the invoked tool's `build_parser()`. It holds no table of flags.
+* **Check 20** reads the rules package with `ast` (never by importing it, per B2) for a constant that
+  enumerates rule codes, and fails any exclusivity claim in a current-state doc that no such constant backs.
+* **Check 21** fires only on a *landing clause* inside a "Known gaps" section — `once|until|when|after` …
+  `lands` … , bounded so it cannot cross a sentence end — and only when the named flag or symbol is already
+  in the file the clause names. A bullet that states what the build does today is untouched.
+
+`scripts/test_doc_numbers.py` and `scripts/test_check_docs.py` carry 20 of the suite's 119 cases for the
+three, five of which run against the real repository: reverting any of the three fixes brings the failure
+back, and one case reproduces PUB2-10 end to end — the pre-fix parser and the pre-fix workflow line in one
+throwaway tree.
+
+---
+
+### 11.59 Two truncations, one kind; and `--dataflow ip` as a real widening (2026-09-14) — amends §1 `Diagnostic`, 11.16, 11.36 N3 and 11.46 D, analyzer-owned
+
+Round-2 hardening found two places where a document says less than it knows and
+nothing in it says so. Both are declaration defects rather than analysis
+defects, and both are fixed without moving a single field of the frozen schema.
+
+---
+
+#### A. `Diagnostic.scope` names *which* truncation happened
+
+**The defect.** `kind: "truncated"` is emitted by **four** unrelated paths:
+
+| emitter | what was lost | what fixes it |
+|---|---|---|
+| `core/pipeline` discovery cap | files never opened | `--max-files` |
+| `core/rollup.apply_node_budget` | nodes folded into an ancestor | `--max-nodes` |
+| `core/pipeline` IR round cap | cross-module resolution incomplete | narrow the path |
+| `core/pipeline` `workspace.ip_notes` | one interprocedural chain | `--dataflow ip` hop cap |
+
+A consumer asking *"was the graph capped?"* could not tell them apart from the
+`kind` alone, and had to pattern-match English prose. `analyzer/tests/core/
+test_round2_core.py:83` did exactly that — `next(d for d in doc["diagnostics"]
+if d["kind"] == "truncated")` — and went red on three parametrisations the
+moment the corpus crossed the 500-file discovery default, which is a gate
+turning red because the project got bigger and not because anything regressed.
+
+**A1 (normative).** Every `truncated` diagnostic MUST carry `scope`, one of the
+four literals `"files"`, `"nodes"`, `"rounds"`, `"dataflow"`, naming which cap
+produced it. `scope` is an existing, un-enumerated `string` property of
+`Diagnostic` (§1), so this is additive: `contracts/graph.schema.json` is
+unchanged, and every host that ignores `scope` renders exactly what it rendered
+before.
+
+**A2.** `stats.truncated` keeps its meaning — the **node** budget folded this
+document — and is unaffected by the discovery cap. A reader that wants "did I
+see every file?" reads the `scope: "files"` row; the two questions are now
+separable, which they were not.
+
+**A3 (rationale for not adding a kind).** A fifth `kind` would be a schema
+change that every host's diagnostic switch has to learn, for a distinction only
+one of them cares about. The `scope` field is already there, already a free
+string, and already carries "which thing is this about" for `dynamic_scope`.
+
+**A4.** A test asserting the node cap MUST select the row by `scope == "nodes"`,
+and SHOULD raise `max_files` so it measures the cap it is named for. Corpus
+growth must never be able to turn a cap test red.
+
+---
+
+#### B. `--dataflow ip` may not return less than `local`
+
+**The defect.** §11.36 describes `ip` as a widening of `local` — *"a second
+analysis, not a second opinion"* — and `docs/ACCURACY.md` §6 says the mode
+"buys exactly one op and nothing else moves". Measured over the labelled
+corpus, `ip` **removed** graph: 20 of ~100 programs lost edges (79 in total),
+7 lost whole nodes, and on a semi-supervised program it lost `MLV301` (**high**)
+and `MLV302` outright, with `diagnostics == []` in both modes — so the deeper
+mode read as a clean bill of health.
+
+The cause is §11.36 N2.3/N3's intersection, applied in the wrong place.
+`ir/summaries._seed` intersected an argument's tags over the call sites and then
+**replaced** the binding — including the tag `propagate_parameters` had already
+derived locally from the first call site. A helper called from three
+`*_dataloader` hooks therefore had TRAIN_SPLIT ∩ VAL_SPLIT ∩ TEST_SPLIT = ∅ and
+came out with fewer tags under `ip` than under `local`.
+
+**B1 (normative).** For every workspace, `findings(local) ⊆ findings(ip)` and
+`|edges(local)| ≤ |edges(ip)|`. `ip` is a widening: it may add a finding, a
+node, an edge or a tag, and may never remove one.
+
+**B2.** N3's intersection is unchanged as the rule for **what the extra hop
+contributes**: a parameter whose call sites disagree receives nothing from the
+interprocedural pass, so the `summarize(train_x)` / `summarize(test_x)` shape
+still cannot be handed TRAIN_SPLIT *and* TEST_SPLIT and MLV102 still cannot fire
+inside it. What changes is that the local tag set is **unioned with**, not
+replaced by, that contribution. This is sound by construction: whatever `local`
+derived, `local` already acts on, and `local` is gated at 100% precision.
+
+**B3.** Where the intersection would have cleared a tag `local` established, the
+disagreement is **declared** rather than applied: one `truncated` /
+`scope: "dataflow"` note naming the parameter, the function and how many call
+sites disagreed. A tag that vanishes and is never mentioned is the silent
+narrowing this channel exists to prevent (PUB2-05).
+
+**B4.** `tools/public_corpus.py check`'s wording — "ip is documented as a
+widening" — is now true of the implementation as well as of the prose, and B1 is
+gated over the whole labelled corpus by
+`analyzer/tests/core/test_dataflow_ip.py::test_ip_never_reports_less_than_local`.
+
+---
+
+#### C. Traceability
+
+Round-2 findings closed by this amendment: **VIS2-14**, **ROB-24**,
+**DGRG2-12**, **INFRA-R2-17** (A); **VIS2-05**, **PUB2-05**, **TAB2-01**,
+**NLP2-18** (B).
+
+---
+
+### 11.60 The answer card may not out-claim the document, and a framework subclass answers to its base (2026-09-14) — amends §1 `answers`, 11.23 A8 and §7.4, analyzer-owned
+
+Two normative rules that round-2 hardening found the analyzer breaking in four
+places each, and one knowledge-table convention that makes a whole family of
+rules apply to a whole family of libraries without re-describing them.
+
+---
+
+#### A. §11.23 A8 reaches every absence sentence, not three of four
+
+A8 is already normative: *no emitter may claim a stage is absent without
+qualification when a call was unresolved*. `emit/answers.py` honoured it in
+`_objective` and `_evaluation` and not in `_data_entry`, whose signature did not
+take the clause at all.
+
+**A1 (normative).** Every "No X was detected" sentence in `answers` MUST carry
+the coverage clause whenever `_coverage_clause(doc)` is non-empty. Measured
+before: on a canonical PyTorch Geometric script the document emitted
+`unresolved_callee`, the stage list correctly read `not detected: data,
+preprocess, deliver (unverified: 5 calls could not be resolved …)`, the verdict
+correctly said it was not a clean bill of health — and the **first** line a
+reader or an agent sees said *"nothing in this workspace builds a dataset or a
+loader"* about a file containing `Planetoid(...)` and two `NeighborLoader(...)`
+calls. One payload, contradicting itself.
+
+**A2 (normative).** The coverage set MUST include every diagnostic kind that
+means *we did not read something*: `parse_error`, `notebook_skipped` and
+`truncated`, alongside `untagged_dataflow`, `single_file_analysis` and
+`unresolved_callee`. A file that failed to parse and a notebook that was never
+opened are strictly **larger** gaps than an unresolved call, and both used to
+produce four confident absence claims and a bare *"No findings: no rule fired on
+this workspace."* The clause names the gap per kind ("…, and 1 file(s) could not
+be parsed", "…, and 3 notebook(s) were not analyzed — re-run with
+`--include-notebooks`").
+
+**A3.** With `workspace.filesAnalyzed == 0` and no nodes, the four answers are
+replaced by one sentence that says so: *"MLView analyzed 0 files here, so … is
+not an absence — it is a question nothing was read to answer."* A
+notebooks-only repository is extremely common and is not an empty project.
+
+**A4 (normative, the guard clause).** `_evaluation` states **three** explicit
+states and never a silence: *guarded*, *NOT guarded*, *could not be judged*.
+A guard counts only when it covers the region being described — the same unit as
+one of the cited evaluation loops, or a unit enclosing it. Appending the clause
+on the strength of any EVAL_MODE call anywhere in the lane made the card read
+*"the eval path is guarded by eval() at distill.py:75"* — `teacher.eval()`, the
+frozen teacher — about an evaluation that runs `student`, a BERT with dropout in
+every block, in train mode. The teacher/student, policy/reference,
+generator/discriminator and online/target shapes all pair one frozen `.eval()`
+model with one trained one. A `missing` ghost node outranks an unmatched guard,
+because a ghost is a rule's positive determination that the guard is absent.
+
+**A5.** An Evaluate lane that holds prediction calls but no metric says so,
+rather than "No evaluation stage was detected" — which contradicted
+`stages[eval].present` in the same payload on every native XGBoost / LightGBM
+script.
+
+---
+
+#### B. `knowledge.CANONICAL_ALIASES`: a subclass answers to its base
+
+**B1 (normative).** A third-party class that **is** a torch class — same
+constructor keywords, same semantics — MAY be registered as an alias of that
+torch FQN rather than re-described. `ir/resolve` rewrites `canonical_fqns`
+through the map, so every rule keyed on the canonical name (iron law 1) applies
+to it verbatim and no rule learns a second spelling.
+
+**B2.** The first entries are `monai.data.DataLoader` / `ThreadDataLoader`,
+`torch_geometric.loader.{DataLoader, NeighborLoader, LinkNeighborLoader,
+ClusterLoader, HGTLoader, DataListLoader}` and the MONAI `Dataset` family. All
+of them subclass `torch.utils.data.DataLoader` / `Dataset` and take `shuffle=`
+and `num_workers=` with torch's own meaning. Before the alias, MLV110, MLV111
+and MLV112 were **structurally inapplicable** to PyG and MONAI: three planted
+loader defects in `adv_gnn_sage_bad` produced no finding at all.
+
+**B3 (the bar for an entry).** An alias is a claim that the two classes are the
+same thing for the purpose of every rule that reads the base. It is admissible
+only for a documented subclass with the same keyword semantics; a class that
+merely resembles one gets its own rows.
+
+---
+
+#### C. Traceability
+
+Round-2 findings closed by this amendment: **DGRG2-04**, **INFRA-R2-11**,
+**NLP2-02**, **TAB2-02**, **PUB2-08** (A); **VIS2-10**, **DGRG2-13** (B).
+
+---
+
+### 11.61 A chip is a label, not a paragraph, and the answer card yields when the chrome above it is full (2026-09-14) — amends 11.55 A1/B, 11.52 A4 and 11.9's `answersOpen`; renderer-owned
+
+Round 1 (11.55) bounded the two bands above the canvas, and that holds: nothing collapses the diagram
+to zero any more. Two things it did not do are what this entry fixes, and they were found by driving
+the built viewer over the 260 pre-built documents of the pinned public corpus
+(`<scratch>/public/_reports/graphs`, one `--json` document per repository target and dataflow mode)
+plus the labelled corpus.
+
+---
+
+#### A. TAB2-10 — `unresolved_callee` was a coverage gap in one half of the product and a paragraph in the other (normative)
+
+11.52 A4 is explicit that the signal *"only ever removes a claim"*: it feeds
+`emit/answers._COVERAGE_KINDS`, which is what makes the verdict say *"so this is not a clean bill of
+health"*. `ui/chromenotes.COVERAGE_KINDS` did not list it, so in the viewer it fell through to
+`collectChips`' generic branch — the one invariant 1.1/6 keeps for a kind this renderer has never
+heard of — whose visible text is the diagnostic's **whole message**.
+
+**What was measured.** On `analyzer/tests/accuracy/corpus/tabular_survival_cox`, whose entire
+diagnostic list is two rows:
+
+```
+unresolved_callee  scope=lifelines  count=3  survival.py:67  message 349 chars
+unresolved_callee  scope=sksurv     count=2  survival.py:82  message 327 chars
+```
+
+the chip row drew those 349 and 327 characters verbatim, beside the two three-word chips `Objective`
+and `Save / Deploy`. `.mlv-chiprow .mlv-chip` is `white-space: normal` (VW-08), so the two sentences
+wrapped to fill the 12vh scroller and a reader had to scroll a **chip row** to find out that two stage
+chips were there at all: the honest disclosure was the least readable thing on the page. Over the 260
+public-corpus documents, mounted in jsdom against the build before this one, **227 drew a chip whose
+text ran past 48 characters — 1257 chips, the longest 486 — and 1255 chips carried no `title` at
+all**, so for those the text a narrow window cut had nowhere to be recovered from. **226 of the 260
+carry `unresolved_callee`** (10 834 diagnostics, longest message 558 characters): this is not an edge
+case, it is every workspace with a dependency MLView has no table for. The same sweep over 158
+documents from the labelled corpus read 60 documents / 93 over-wide chips and 285 chips with no
+`title`; after this entry both sweeps read **0 chips with no title**, and the over-wide count falls to
+152 documents / 518 chips on the public corpus and 21 / 25 on the labelled one — every one of them a
+`config_*` or generic sentence, now drawn on one ellipsised line with its whole text on the `title`.
+
+| # | Rule |
+|---|---|
+| **A1** | `unresolved_callee` is a **coverage kind in the viewer too**: `ui/chromenotes.COVERAGE_KINDS` now lists it beside `untagged_dataflow` and `single_file_analysis`, and it joins `SPECIALLY_RENDERED` for the same reason they are in it. The two halves of the product now answer the same way about the same kind. No branch in `collectChips` is added or reordered — the existing COVERAGE branch catches it, which is what gives it the chip shape, the `title` and the banner in one move. |
+| **A2** | **The chip is built from the diagnostic's STRUCTURED fields, never from its prose**: `scope` + `count` → `` `lifelines — 3 calls not understood` ``, `` `train.build — 2 calls not understood` ``. A row missing either still reads as English (`calls not understood`) and never prints `undefined` or a zero. |
+| **A3** | It says only what is true of **both** emitters. 11.52 B1/B2 ship two different facts under one kind — `core/unknown_framework.py` (*"I read these calls and have no table for this library"*) and `core/unresolved.py` (*"I could not read these callees"*) — and nothing in the document distinguishes them. Guessing from the message's wording would be a renderer deciding a fact the schema does not carry. The distinction stays in the message, word for word, on the `title` and in the banner. If 11.52 B2's `unknown_framework` kind is ever taken, this is the surface that can then phrase them apart. |
+| **A4** | The **coverage banner** carries the sentences, with `file:line`, exactly as `describe()` already gives the other two kinds, and `coverageHeadline` gains one clause — `117 calls were not understood (PIL, classify.main, … and 26 more)` — naming up to three scopes. On the public corpus **47 documents gain a coverage banner they did not have**: they carried `unresolved_callee` and no other coverage kind, so the viewer had no banner at all while `mlview analyze` was already printing the *"not a clean bill of health"* caveat for the same document. |
+| **A5** | `coverageHeadline` never degenerates. A kind added to `COVERAGE_KINDS` by a later round that this function has no clause for yields `Coverage: N coverage gap(s) were reported. …` rather than `Coverage: . A clean result…`. |
+
+#### B. The chip row's text is bounded by the stylesheet, so nothing is cut from the document (normative)
+
+| # | Rule |
+|---|---|
+| **B1** | `paintChips` puts a chip's text in its own `.mlv-chip__text` element, and `.mlv-chiprow .mlv-chip__text` is `max-width: 48ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap`. 48ch is about 290 px at the row's 11 px type, so four chips take a 1240 px line and nine (MAX_CHIPS plus the opener) take three. |
+| **B2** | It is a **clip, not a cut**: the element holds every character, so `textContent`, the exported HTML and every screen reader still get the whole sentence, and the browser — not this renderer — decides where to draw the ellipsis. That is the difference between this and the defect VW-08 fixed, where 191 px of a sentence simply left the page with no scrollbar, no ellipsis and no `title`. |
+| **B3** | **Every** diagnostic chip now carries a `title` holding its whole text, the generic chip of invariant 1.1/6 included — it had none, which made it the one chip whose clipped tail would have been unrecoverable. A chip whose `title` is its diagnostic's message keeps that message; a chip that draws its text whole is unaffected. |
+| **B4** | The `×N` of 11.55 A2 sits **outside** `.mlv-chip__text`, so a fold can never lose its count to the clip. 11.55 A2's identity is unchanged and still keys on the full text: two sentences that share a prefix stay two chips, because a fold over clipped text would print one filename over a count that stood for several. |
+| **B5** | `.mlv-chiprow .mlv-chip` keeps `white-space: normal; max-width: 100%` — VW-08's own rule is untouched, and `styles/export.css` still hides the row outright for print. |
+
+#### C. HOSTS-UX-R2-06 — the three bands had three budgets and none for their sum (normative, amends 11.9)
+
+**What was measured** at first paint across 45 large workspaces: at 1280x800 the canvas was 247 px of
+800 — 31 %, the same 247 on 24 of them — behind 160 px of banners, 105 px of chips and a 165 px
+answer card; 1600x1000 gave 33-39 % and 1024x768 gave 30 %. Everything is dismissible, and dismissing
+all three banners bought back only 96 px (yolov5 247 → 343 px, 42 → 56 cards). The answer card is the
+only one of the three whose content a reader can ask for later **without losing anything**, because
+its header states `1 of 4 answered · 3 not detected` (11.55 E1) whether it is open or shut.
+
+| # | Rule |
+|---|---|
+| **C1** | The Pipeline Answer Card starts **closed** on a document where the bands above it already come to `CHROME_CROWDED_PX` (200). `chromenotes.chromeBandHeight(banners, chips)` is the estimate and `Chrome.bandHeight()` reads what was actually drawn rather than re-deriving the banner predicates — the reason 11.55 D2 gives about `drawnCount`: a second copy of the rules is a second set of numbers to keep in step. |
+| **C2** | The estimate is deliberately an ESTIMATE. It is taken before first paint, jsdom has no layout, and being 20 px out changes nothing. Its constants are the round-1 Chromium figures — `BANNER_PX` 53 (yolov5's three banners were 160 px) and a chip row of `17 + 30 × ceil(chips / 3)` (nine chips were 105 px) — and it reproduces both: 159 against 160, and 107 against 105. |
+| **C3** | **Nothing is hidden by it.** The header, its counter and its tooltip are drawn either way, the tooltip says *why* it is shut, `data-answers-yielded` records the decision, and one press opens it. The card is still after the canvas in DOM order with `order: -1`, so it still costs no Tab press before the diagram (VIEW-12). |
+| **C4** | The default is decided **once per drawn document**, off the bands the chrome just drew, never on every render. Re-deciding on every render would make dismissing a banner reopen the card — the reader would hand back 165 px for the 53 px they had just reclaimed. A projection replaces the drawn document, so a scope change does re-decide it; the decision is a pure function of that document, so clearing the scope returns the same answer it gave at first paint. |
+| **C5** | **The reader outranks the default, in both directions, and it is remembered** (amends 11.9). `ViewState.answersOpen` was written only when FALSE, on the rule "absent means the default, and the default is open". The default is now a property of the document, so absent now means *"decide it again"*, and the field is written whenever the reader has chosen — **including `true`**, which is the case the old rule could not express: a card opened on a crowded report would otherwise have been shut again by the default the next time that report was opened. A host that has never seen the field is unaffected; the field's type and meaning are unchanged. |
+| **C6** | Over the 260 public-corpus documents the card starts closed on **153** and open on 107. Over **158 documents emitted from `analyzer/tests/accuracy/corpus/`** it starts closed on **none**, and the heaviest of them — `infra_hydra_conf`, five chips behind two banners — is 183 px, under the line with room to spare; `tabular_survival_cox` is 130 px and keeps its card. This bounds a pathological document and touches nothing else, which is the same shape 11.55 B2 gave the band caps. |
+
+#### D. Gates
+
+| Gate | Command | What it pins |
+|---|---|---|
+| The chip row and the budget | `node --test webview/test/hardening_chrome_budget.test.mjs` | 14 assertions over A and C: the two `tabular_survival_cox` diagnostics draw two ≤ 48-character chips and put their 349- and 327-character messages on the `title`; the banner carries both with `survival.py:67` and the callees they name; ANA-5a's flavour gets the same shape; a row with no `scope`/`count` still reads as English and its headline is still a sentence; every chip carries a `title` that holds anything the clip may hide; the stylesheet declares the ellipsis and VW-08's rule is untouched; a folded chip keeps its `×N` outside the clipped element; the estimate reproduces 160 px and 105 px; a crowded document starts closed with its counter stated and opens on one press; an uncrowded one starts open with `answersOpen` still absent from the state; a press is recorded as `true` and restored over a crowded document; dismissing every banner does not reopen the card; a scope change re-decides the default and clearing it returns the same answer; and the canvas is still ahead of the card in the tab order. |
+| Round 1's row, unchanged | `node --test webview/test/hardening_chipwall.test.mjs` | All 11 assertions of 11.55 F still pass unedited — the cap, the fold, the disclosure, both `vh` bounds, the note count and the four-press rule. |
+| The kind's old home | `node --test webview/test/orient.test.mjs` | One assertion updated, with its reason: `unresolved_callee` no longer takes the generic `[data-diagnostic-kind]` path. `a_kind_from_the_future` still does, and still draws its message whole (invariant 1.1/6). |
+
+**Files that must change together.** `webview/src/ui/chromenotes.ts`, `webview/src/ui/chrome.ts`,
+`webview/src/ui/answers.ts`, `webview/src/app.ts`, `webview/src/styles/chrome.css`,
+`webview/src/demo.ts` (the `__internal.chrome` debug surface the gate reads), and then
+`python tools/sync-assets.py` — `webview/dist` is the source of truth for three copies and the
+standalone `--html` report inlines one of them.
+
+**Not measured in Chromium.** The local Playwright chromium-1194 install is 624 KB with its framework
+dylib missing, every launch aborts, and `playwright install chromium` from this sandbox produced no
+bytes in 40 minutes. Every figure above is either a round-1 Chromium measurement quoted from 11.55 and
+the HOSTS-UX-R2-06 finding, or a jsdom measurement over real analyzer documents, or the authored
+stylesheet. The one thing that therefore remains unverified in pixels is B1's painted width; its
+inputs — the rule, the `ch` unit and the row's font size — are all asserted.

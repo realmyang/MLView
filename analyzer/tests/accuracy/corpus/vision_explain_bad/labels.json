@@ -1,0 +1,189 @@
+{
+  "name": "vision_explain_bad",
+  "title": "The same explainability report with seven planted defects",
+  "origin": "domain-vision round 2: the dirty twin of vision_explain. Its MLV114 label is the positive control for VIS2-01 - the identical defect that a workspace Dataset subclass hides fires here, because the dataset is a torchvision ImageFolder",
+  "tuned": false,
+  "labelledBy": "domain-vision, 2026-09-14",
+  "expected": [
+    {
+      "code": "MLV301",
+      "file": "report.py",
+      "line": 94,
+      "symbol": "model(images)",
+      "severity": "high",
+      "verdict": "expected",
+      "defect": "clean_accuracy() no longer calls model.eval(), and load_model() no longer returns an eval-mode model",
+      "why": "every BatchNorm in the ResNet-50 trunk updates its running statistics from the test split while the headline accuracy is being measured, so the number reported and the weights that produced it are not the same model",
+      "note": "found at 0.59 / possible, below mlview.minConfidence 0.6: the architecture is a torchvision resnet50 whose layers MLView cannot resolve, so the documented de-rate applies"
+    },
+    {
+      "code": "MLV302",
+      "file": "report.py",
+      "line": 91,
+      "symbol": "for images, labels in loader",
+      "severity": "medium",
+      "verdict": "expected",
+      "defect": "clean_accuracy() is no longer decorated @torch.no_grad()",
+      "why": "the autograd graph for a ResNet-50 over the whole test split is built and dropped"
+    },
+    {
+      "code": "MLV114",
+      "file": "report.py",
+      "line": 42,
+      "symbol": "eval_transform()",
+      "severity": "medium",
+      "verdict": "expected",
+      "defect": "the evaluation pipeline gained RandomResizedCrop and RandomHorizontalFlip",
+      "why": "every number in the report - clean, TTA, FGSM, PGD and both calibration errors - is measured on a different random view of the test set, so the report is not reproducible and is systematically pessimistic",
+      "note": "found twice, once per evaluation loader, at 0.58 / possible - below the Problems-panel threshold"
+    },
+    {
+      "code": "MLV111",
+      "file": "report.py",
+      "line": 58,
+      "symbol": "DataLoader(test_set, shuffle=True)",
+      "severity": "low",
+      "verdict": "expected",
+      "defect": "the test loader shuffles",
+      "why": "the eight Grad-CAM overlays written at the end of the run are a different eight images every time, so two runs cannot be compared image by image"
+    },
+    {
+      "code": "MLV803",
+      "file": "report.py",
+      "line": 66,
+      "symbol": "torch.load(args.checkpoint)",
+      "severity": "low",
+      "verdict": "expected",
+      "defect": "torch.load with neither map_location= nor weights_only=True",
+      "why": "a downloaded checkpoint executes whatever its pickle says to execute, and a CUDA-saved checkpoint will not load on a CPU machine"
+    },
+    {
+      "code": "MLV102",
+      "file": "report.py",
+      "line": 132,
+      "symbol": "TemperatureScaler().fit(test_logits, test_labels)",
+      "severity": "high",
+      "verdict": "expected",
+      "defect": "the temperature is fitted on the test logits and the calibration error is then reported on the same split",
+      "why": "eceAfter is a training score presented as a held-out one; the whole point of calibration is that the scalar is fitted on data the reported number does not come from",
+      "gap": "MLV102 is the direct analogue - a transformer fitted on the test split - but it is written for sklearn FIT/FIT_TRANSFORM roles on a knowledge-table transformer. A torch nn.Module with a .fit() method that consumes a TEST_SPLIT-tagged value is the same defect and no rule models it.",
+      "unsupported": true
+    },
+    {
+      "code": "MLV114",
+      "file": "report.py",
+      "line": 42,
+      "symbol": "eval_transform()",
+      "severity": "medium",
+      "verdict": "acceptable",
+      "defect": "the same augmented eval pipeline, reported a second time for the second evaluation loader",
+      "why": "MLView emits one MLV114 per evaluation loader the pipeline reaches; the second is the same defect seen from the test loader rather than the validation one, so it is neither a new hit nor a false positive"
+    }
+  ],
+  "forbidden": [
+    {
+      "code": "MLV204",
+      "file": "explain.py",
+      "line": 152,
+      "why": "unchanged from the clean twin, and it still fires: nothing encloses TemperatureScaler.fit in a no_grad region. Round-2 finding VIS2-12"
+    },
+    {
+      "code": "MLV301",
+      "file": "report.py",
+      "line": 104,
+      "why": "unchanged from the clean twin, and it still fires: tta_accuracy calls model.eval() at line 101 and tta_logits calls it again at explain.py:112. Round-2 finding VIS2-13"
+    },
+    {
+      "code": "MLV101",
+      "file": "report.py",
+      "why": "there is no sklearn transformer in this project"
+    },
+    {
+      "code": "MLV110",
+      "file": "report.py",
+      "why": "there is no training loader in this project - nothing trains"
+    },
+    {
+      "code": "MLV112",
+      "file": "report.py",
+      "why": "the loaders are built inside build_loaders(), reached only from main() under the __main__ guard"
+    },
+    {
+      "code": "MLV201",
+      "file": "explain.py",
+      "why": "the only optimizer is an LBFGS whose closure zeroes first, and LBFGS is the documented skip"
+    },
+    {
+      "code": "MLV202",
+      "file": "explain.py",
+      "why": "GradCAM, fgsm and pgd back-propagate to produce a map or a perturbation, not to update parameters"
+    },
+    {
+      "code": "MLV203",
+      "file": "explain.py",
+      "why": "the LBFGS closure protocol is zero_grad -> backward -> return, stepped by optimizer.step(closure)"
+    },
+    {
+      "code": "MLV205",
+      "file": "explain.py",
+      "why": "every accumulator reduces with .item() or runs under no_grad"
+    },
+    {
+      "code": "MLV302",
+      "file": "report.py",
+      "line": 115,
+      "why": "robust_accuracy still has no decorator on purpose - FGSM and PGD need the gradient with respect to the input - and the part that needs no graph is still wrapped in `with torch.no_grad():`"
+    },
+    {
+      "code": "MLV305",
+      "file": "report.py",
+      "why": "every accuracy is still computed after argmax(dim=1)"
+    },
+    {
+      "code": "MLV401",
+      "file": "explain.py",
+      "why": "the softmax in tta_logits never reaches a cross-entropy"
+    },
+    {
+      "code": "MLV402",
+      "file": "explain.py",
+      "why": "there is no sigmoid and no BCE loss in this project"
+    },
+    {
+      "code": "MLV501",
+      "file": "report.py",
+      "why": "load_model still moves the model with .to(device) and every batch is moved inside every loop"
+    },
+    {
+      "code": "MLV502",
+      "file": "report.py",
+      "why": "pick_device() still checks torch.cuda.is_available()"
+    },
+    {
+      "code": "MLV601",
+      "file": "report.py",
+      "why": "seed_everything() still seeds every source"
+    },
+    {
+      "code": "MLV602",
+      "file": "report.py",
+      "why": "there is no split in this project - val/ and test/ are separate directories"
+    },
+    {
+      "code": "MLV701",
+      "file": "network.py",
+      "why": "ResNetClassifier calls super().__init__() first"
+    },
+    {
+      "code": "MLV702",
+      "file": "network.py",
+      "why": "there is no plain list or dict of submodules anywhere"
+    }
+  ],
+  "gaps": [
+    {
+      "what": "no rule models a torch module with a .fit() method consuming the test split - the torch analogue of MLV102, and the standard shape for post-hoc calibration, prototype classifiers and kNN heads",
+      "evidence": "report.py:132 against the clean twin's fit(val_logits, val_labels)"
+    }
+  ]
+}

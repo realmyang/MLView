@@ -94,7 +94,13 @@ _RANKING_METRICS = frozenset({"sklearn.metrics.roc_auc_score",
 _DECIDED = ("argmax", "round", "topk", "astype", "argsort", "where", "sign",
             "greater", "threshold", "rint", "argpartition")
 
-_EVAL_NAME_RE = re.compile(r"(?i)^(val|valid|validation|test|eval|holdout)_?"
+#: VIS2-18. Retrieval, re-identification and open-set recognition name their
+#: held-out halves `query` and `gallery` - never val/test - so no project in that whole application class could have an
+#: "evaluation loader". Reinforcing-only under iron law 2: a name can never
+#: create a finding here, only let one that already has dataflow or structural
+#: evidence be seen.
+_EVAL_NAME_RE = re.compile(r"(?i)^(val|valid|validation|dev|devel|test|eval|holdout|"
+                           r"query|gallery)_?"
                            r"(loader|dl|ds|dataset|data|set|batches)?$")
 _TEMPORAL_COLUMN_RE = re.compile(r"(?i)(date|time|timestamp|datetime|period|month|"
                                  r"week|day|year|hour)")
@@ -278,6 +284,27 @@ def _augmenting_pipelines(ctx, module: ModuleIR) -> Dict[str, CallSite]:
     return out
 
 
+def _workspace_dataset(ctx, producer: Optional[CallSite]) -> bool:
+    """VIS2-01. Is this construction an in-workspace `Dataset` subclass?
+
+    `augmentation_in_eval_transform` required the dataset construction to
+    resolve to a knowledge row (`torchvision.datasets.ImageFolder` and friends),
+    so a workspace `class MyImages(Dataset)` taking the same `transform=`
+    keyword was skipped in silence - no finding and no diagnostic. Every OCR,
+    detection, segmentation, re-identification and multi-task project in the
+    corpus loads through its own Dataset subclass, which made "augmentation
+    left on for validation" unreachable for all of them. `ctx.class_bases`
+    answers this the same way MLV110's IterableDataset guard already does.
+    """
+    if producer is None:
+        return False
+    cls = producer.class_ir
+    if cls is None:
+        return False
+    return any(base.startswith("torch.utils.data.")
+               for base in (cls.resolved_bases or ()))
+
+
 def _eval_loaders(ctx, module: ModuleIR) -> List[CallSite]:
     """DataLoader constructions that serve validation or test data."""
     out: List[CallSite] = []
@@ -354,6 +381,11 @@ def _returned_pipeline(ctx, module: ModuleIR, node, factories):
 def augmentation_in_eval_transform(ctx) -> Iterable[Issue]:
     issues: List[Issue] = []
     factories = _augmenting_factories(ctx)
+    #: `id(Compose call) -> the Issue already raised for it`. One pipeline is
+    #: one defect and one edit; a project that serves it to a query loader AND
+    #: a gallery loader was getting two identical findings, and the second one
+    #: satisfied no label (the same shape MLV501's `_note_sibling_loop` fixed).
+    reported: Dict[int, Issue] = {}
     for relpath in sorted(ctx.modules):
         module = ctx.modules[relpath]
         pipelines = _augmenting_pipelines(ctx, module)
@@ -371,7 +403,10 @@ def augmentation_in_eval_transform(ctx) -> Iterable[Issue]:
             name = dotted_text(dataset_node) if dataset_node is not None else None
             ref = ctx.binding_of(name, loader.scope) if name else None
             producer = ref.producer if ref is not None else None
-            if producer is None or K.role_of(producer.fqn) != "DATASET":
+            if producer is None:
+                continue
+            if K.role_of(producer.fqn) != "DATASET" \
+                    and not _workspace_dataset(ctx, producer):
                 continue
             hit = None
             for key in ("transform", "transforms", "target_transform"):
@@ -396,8 +431,21 @@ def augmentation_in_eval_transform(ctx) -> Iterable[Issue]:
             if hit is None:
                 continue
             key, compose, text = hit
-            augments = [e for e in _element_calls(module, compose)
+            # The Compose can live in another module than the loader (a
+            # `transforms.py` next to a `train.py` is the normal layout), and
+            # reading its elements out of the *loader's* module found none, so
+            # the message read "applies random augmentation ()" - an empty
+            # list where the whole point is naming the augmentation.
+            augments = [e for e in _element_calls(compose.module, compose)
                         if K.role_of(e.fqn) == "AUGMENT"]
+            previous = reported.get(id(compose))
+            if previous is not None:
+                extra = loader.loc.related_dict(
+                    "eval_loop", "and %s at line %d is served the same pipeline"
+                    % (loader.var or "a DataLoader", loader.loc.line))
+                if extra not in previous.relatedLocs:
+                    previous.relatedLocs.append(extra)
+                continue
             anchor = _anchor(ctx, compose)
             evidence = [
                 ("fqn_resolved", "%s resolved to %s"
@@ -410,7 +458,7 @@ def augmentation_in_eval_transform(ctx) -> Iterable[Issue]:
                  "the pipeline contains %s, whose role is AUGMENT"
                  % ", ".join(sorted({a.short_name for a in augments})), 1.0),
             ] + _static(compose.scope)
-            issues.append(ctx.issue(
+            issue = ctx.issue(
                 message="%s at %s:%d applies random augmentation (%s) and reaches the "
                         "evaluation loader %s at line %d through %s."
                         % (text, compose.loc.file, compose.loc.line,
@@ -422,7 +470,9 @@ def augmentation_in_eval_transform(ctx) -> Iterable[Issue]:
                           "the evaluation dataset is built here"),
                          ("eval_loop", loader.loc, "and served by this loader")],
                 evidence=evidence, stage="preprocess",
-                dynamic=compose.scope.is_dynamic))
+                dynamic=compose.scope.is_dynamic)
+            reported[id(compose)] = issue
+            issues.append(issue)
     return issues
 
 
@@ -500,11 +550,30 @@ def _holdout_of(module: ModuleIR, subsets: List[CallSite]) -> Optional[Tuple[Cal
         by_method.setdefault(_subset_name(call), call)
     if all(name in by_method for name in _HOLDOUT_PAIR):
         return by_method["take"], "both take() and skip() are taken off it"
-    for call in subsets:
-        target = _downstream_var(module, call)
-        short = (target or "").split(".")[-1]
-        if short and _EVAL_NAME_RE.match(short):
-            return call, "its result is bound to %s" % target
+    # PUB2-01. The second arm used to return on the NAME alone, and a name is
+    # not allowed to create a claim (iron law 2). Measured on
+    # optuna-examples/tensorflow/tensorflow_eager_simple.py, the effect was the
+    # only high-severity false positive in 260 runs over 37 repositories:
+    #
+    #     (x_train, y_train), (x_valid, y_valid) = mnist.load_data()
+    #     train_ds = train_ds.shuffle(60000).batch(BATCH).take(N_TRAIN)
+    #     valid_ds = valid_ds.shuffle(10000).batch(BATCH).take(N_VALID)
+    #
+    # Two already-disjoint arrays, one `take()` on each to cap how many batches
+    # a trial consumes, and **no `skip()` anywhere in the file**. MLView
+    # reported high / 0.95 / `certain` on the second line only - because the
+    # variable is called `valid_ds` - and asserted that the take "carves out
+    # the holdout" and that "every validation row has been trained on by epoch
+    # two". Three statements, all false about that file; the identical chain on
+    # the line above, with a different variable name, was silent.
+    #
+    # A `take()` with no complementary `skip()` on the same shuffled receiver
+    # is a subsample, not a holdout. The name may still SELECT which half of a
+    # real pair is described - `_HOLDOUT_PAIR` above is that pair - but it may
+    # not assert one into existence. All three round-1 true positives (keras-io
+    # pointnet.py, siamese_network.py, xray_classification_with_tpus.py) carry
+    # an explicit `take` and `skip` on the same shuffled receiver, so the pair
+    # rule keeps 100% of the known true positives.
     return None
 
 

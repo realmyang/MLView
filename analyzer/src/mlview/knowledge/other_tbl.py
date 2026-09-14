@@ -128,7 +128,6 @@ for _root in ("pytorch_lightning", "lightning", "lightning.pytorch"):
         "%s.LightningDataModule" % _root: E("dataset", "data", L, "LIGHTNING_DM", ("RAW_DATA",)),
         "%s.Trainer" % _root: E("train_loop", "train", L, "LIGHTNING_TRAINER", (), "lightning_trainer"),
         "%s.seed_everything" % _root: E("config", "config", L, "SEED"),
-        "%s.Fabric" % _root: E("train_loop", "train", L, "FABRIC"),
     })
 LIGHTNING_METHODS: Dict[str, Entry] = {
     "pytorch_lightning.Trainer.fit": E("train_loop", "train", L, "LIGHTNING_FIT"),
@@ -143,6 +142,35 @@ for _root in ("pytorch_lightning", "lightning", "lightning.pytorch"):
     OTHER["%s.callbacks.EarlyStopping" % _root] = E(
         "config", "train", L, "CALLBACK")
 
+# ------------------------------------------------ torch_geometric (DGRG2-13)
+#: PyG is the dominant graph-learning library and carried **zero** rows, so the
+#: data lane was empty for every PyTorch Geometric project and MLV110 / MLV111 /
+#: MLV112 were structurally inapplicable to it: three planted loader defects in
+#: `adv_gnn_sage_bad` (a training loader with `shuffle=False`, a validation
+#: loader with `shuffle=True`, `num_workers=4` with no guard) produced no
+#: finding at all. The loaders take `shuffle=` and `num_workers=` with torch's
+#: own semantics because they **are** `torch.utils.data.DataLoader` subclasses,
+#: which is why they are aliased rather than re-described (see
+#: `knowledge.CANONICAL_ALIASES`).
+PYG = "torch"
+OTHER.update(expand("torch_geometric.datasets", [
+    "Planetoid", "TUDataset", "QM9", "Reddit", "Reddit2", "PPI", "Flickr",
+    "Amazon", "Coauthor", "OGB_MAG", "MovieLens", "ZINC", "GNNBenchmarkDataset",
+    "WikiCS", "CitationFull", "Entities", "FakeDataset", "FakeHeteroDataset",
+], E("dataset", "data", PYG, "DATASET", ("RAW_DATA",), "dataset")))
+OTHER.update(expand("torch_geometric.transforms", [
+    "RandomLinkSplit", "RandomNodeSplit",
+], E("split", "data", PYG, "SPLIT")))
+OTHER.update(expand("torch_geometric.transforms", [
+    "NormalizeFeatures", "ToUndirected", "AddSelfLoops", "ToDevice", "Compose",
+], E("transform", "preprocess", PYG, "TRANSFORM")))
+OTHER["torch_geometric.data.Data"] = E("dataset", "data", PYG, "DATASET",
+                                       ("RAW_DATA",), "dataset")
+OTHER["torch_geometric.data.HeteroData"] = E("dataset", "data", PYG, "DATASET",
+                                             ("RAW_DATA",), "dataset")
+OTHER["torch_geometric.utils.negative_sampling"] = E(
+    "transform", "preprocess", PYG, "TRANSFORM")
+
 # ------------------------------------------------------------- accelerate -
 OTHER["accelerate.Accelerator"] = E("train_loop", "train", "other", "ACCELERATOR", (), "accelerator")
 #: The accelerate seed helper seeds `random`, `numpy`, `torch` and `torch.cuda`
@@ -150,6 +178,48 @@ OTHER["accelerate.Accelerator"] = E("train_loop", "train", "other", "ACCELERATOR
 #: from this table was a live MLV601 false positive on `infra_accelerate`.
 OTHER["accelerate.utils.set_seed"] = E("config", "config", HF, "SEED")
 OTHER["accelerate.set_seed"] = E("config", "config", HF, "SEED")
+#: ROB-16. `accelerator.backward(loss)` is not optional in an `accelerate`
+#: script - it is the only way the scaled / distributed backward happens - and
+#: with no row for it the whole MLV2xx family was blind to the training step it
+#: is the centre of. `prepare()` deliberately has **no** row: it is the wrapper
+#: idiom `x = f(..., x, ...)`, and `ir/bindings._self_wrapped` keeps the types
+#: the names already carried rather than the analyzer inventing an arity rule.
+ACCELERATE_METHODS: Dict[str, Entry] = {
+    "accelerate.Accelerator.backward": E("loss", "train", HF, "BACKWARD"),
+    "accelerate.Accelerator.clip_grad_norm_": E("optimizer", "train", HF, "CLIP_GRAD"),
+    "accelerate.Accelerator.clip_grad_value_": E("optimizer", "train", HF, "CLIP_GRAD"),
+    "accelerate.Accelerator.unwrap_model": E("model", "model", HF, "WRAP_MODEL",
+                                             ("MODEL",), "module"),
+    "accelerate.Accelerator.save": E("checkpoint", "deliver", HF, "SAVE"),
+    "accelerate.Accelerator.save_state": E("checkpoint", "deliver", HF, "SAVE"),
+    "accelerate.Accelerator.save_model": E("checkpoint", "deliver", HF, "SAVE"),
+}
+#: INFRA-R2-04. Lightning Fabric's `fabric.backward(loss)`, same argument.
+#: `fabric.setup(...)` / `setup_module` / `setup_dataloaders` are the wrapper
+#: idiom again and are deliberately left unlisted.
+#: INFRA-R2-04. Every spelling Fabric is imported under. `from lightning.fabric
+#: import Fabric` is the one the docs use and the one `infra_fabric` writes, and
+#: it was not in the table, so `fabric.seed_everything(args.seed)` on line 120
+#: resolved to nothing and MLV601 reported "No random seed set anywhere" about a
+#: program that seeds four generators on its first line.
+_FABRIC_ROOTS = ("pytorch_lightning", "lightning", "lightning.pytorch",
+                 "lightning.fabric", "pytorch_lightning.fabric",
+                 "lightning.pytorch.fabric")
+for _root in _FABRIC_ROOTS:
+    OTHER["%s.Fabric" % _root] = E("train_loop", "train", L, "FABRIC", (), "fabric")
+for _root in _FABRIC_ROOTS:
+    ACCELERATE_METHODS["%s.Fabric.backward" % _root] = E("loss", "train", L, "BACKWARD")
+    # `fabric.seed_everything(seed)` is `pytorch_lightning.seed_everything` -
+    # it seeds random, numpy, torch and torch.cuda - and without a row for it
+    # MLV601 reported "No random seed set anywhere" on two Fabric programs that
+    # seed on their first line.
+    ACCELERATE_METHODS["%s.Fabric.seed_everything" % _root] = E(
+        "config", "config", L, "SEED")
+    ACCELERATE_METHODS["%s.Fabric.clip_gradients" % _root] = E(
+        "optimizer", "train", L, "CLIP_GRAD")
+    ACCELERATE_METHODS["%s.Fabric.save" % _root] = E("checkpoint", "deliver", L, "SAVE")
+    ACCELERATE_METHODS["%s.Fabric.load" % _root] = E("checkpoint", "deliver", L, "LOAD")
+    ACCELERATE_METHODS["%s.Fabric.log" % _root] = E("tracker", "deliver", L, "TRACKER")
 
 # ------------------------------------------ deepspeed / ignite / fastai ----
 # INFRA-03 / INFRA-04: these three own a training loop (they are already in
@@ -257,8 +327,15 @@ FRAME_OP_METHODS = (
     "abs", "interpolate", "assign", "filter", "reindex", "squeeze",
     "to_numpy", "to_frame", "to_list", "tolist", "values_host",
 )
+#: VIS2-15. `tolist` / `item` / `mean` / `sum` were registered for pandas ONLY,
+#: so `np.array(record["boxes"]).tolist()` resolved to `pandas.Series.tolist`
+#: and put **pandas** into `workspace.frameworks` - a statement the README, the
+#: VS Code status-bar tooltip and every chat digest present as a fact about the
+#: project - on a pure numpy + torch vision workspace with no `import pandas`
+#: anywhere. `.tolist()` is ubiquitous in data pipelines.
 ARRAY_OP_METHODS = ("reshape", "astype", "copy", "ravel", "flatten", "squeeze",
-                    "transpose", "clip", "round")
+                    "transpose", "clip", "round", "tolist", "to_list", "item",
+                    "view", "swapaxes", "repeat", "take", "cumsum")
 
 #: IP-03. The same argument as `_FRAME_OP`, made for numpy - and it had never
 #: been made. A **module-level** constructor takes its data as argument 0

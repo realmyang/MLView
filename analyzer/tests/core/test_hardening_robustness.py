@@ -670,8 +670,6 @@ def test_rob06_an_impossible_min_confidence_is_refused(tmp_path):
     assert rc == 2, "--fail-on high went green under an impossible threshold"
 
 
-@pytest.mark.xfail(reason="ROB-07: an I/O error on an output path exits 3 "
-                          "(internal error) where the CLI contract says 1")
 def test_rob07_an_unwritable_output_path_is_an_io_error(tmp_path):
     """README: `0 ok - 1 usage or I/O - 2 --fail-on - 3 internal error`.
     Pointing `--json` at a read-only directory is I/O, and a CI harness that
@@ -1467,8 +1465,6 @@ def test_rob14_a_set_aside_training_loop_is_admitted_where_it_shows():
 
 # ------------------------------------------------- ROB-07, the other writers
 @pytest.mark.parametrize("flag", ["--json", "--sarif", "--html"])
-@pytest.mark.xfail(reason="ROB-07: every output flag exits 3 with a traceback "
-                          "when its directory is read-only")
 def test_rob07_every_output_flag_reports_io_as_io(flag, tmp_path):
     """The original ROB-07 repro used `--json`. All three writers share the
     defect: `--sarif` and `--html` also exit 3 and print a Python traceback
@@ -1605,3 +1601,1287 @@ def test_a_notebook_run_twice_is_the_same_run(tmp_path):
     assert validate(plain) == []
     assert plain["workspace"]["filesAnalyzed"] == 0
     assert plain["issues"] == [], "the generated module was analyzed as source"
+
+
+# ============================================================ hardening round 2
+# Round 1's battery is above and every one of its guards still passes; ROB-01
+# .. ROB-05, ROB-10, ROB-12 and ROB-13 were fixed and their tests are green
+# without a marker. What follows is the coverage round 1 did not reach, in the
+# same two halves.
+#
+# | id | what | fix belongs to |
+# |---|---|---|
+# | ROB-15 | one parallel assignment (`opt, crit = Adam(...), CrossEntropyLoss()`)
+#            turns the training loop into an `eval_loop`, declares the `eval`
+#            stage present on a file with no evaluation, drops the
+#            zero_grad/backward/step op nodes and silences MLV201 | analyzer |
+# | ROB-16 | `accelerator.prepare(...)` erases MODEL / OPTIMIZER / LOADER, so
+#            five calls of the canonical `accelerate` training step draw no node
+#            and MLV201 goes blind on the shape `accelerate` documents | analyzer |
+# | ROB-17 | a `functools.partial`-built `DataLoader` makes the `data` stage read
+#            as absent with an EMPTY diagnostics list | analyzer |
+# | ROB-18 | `<!--` in one source line makes the standalone HTML report's
+#            embedded JSON invalid, so the whole diagram fails to render | analyzer |
+# | ROB-19 | a line magic continued across an open bracket costs the whole
+#            notebook (the bracket twin of round 1's ROB-05) | analyzer |
+# | ROB-20 | an IPython assignment magic (`files = !ls`, `PATH = %env PATH`)
+#            costs the whole notebook | analyzer |
+# | ROB-21 | `single_file_diagnostic` walks the PARENT of the analyzed root, and
+#            names files outside it as "sibling module(s) in the same package" | analyzer |
+# | ROB-22 | `mlview render --graph` prints a Python traceback and exits 3 on a
+#            JSON document that is not a graph | analyzer |
+# | ROB-23 | the `--max-nodes` rollup is all-or-nothing per file: a 608-node
+#            single-module workspace draws ONE node at `--max-nodes 100` | analyzer |
+
+BINDING = os.path.join(ROBUSTNESS, "binding")
+REPORT_FIXTURES = os.path.join(ROBUSTNESS, "report")
+PKGWALK = os.path.join(ROBUSTNESS, "pkgwalk", "workspace")
+
+HEAD = ("import torch\n"
+        "import torch.nn as nn\n"
+        "from torch.utils.data import DataLoader\n\n\n")
+
+#: One Python feature per program, each wrapped around the same ordinary
+#: zero_grad / backward / step loop. Round 1's twenty fixtures under
+#: `fixtures/robustness/syntax` cover `match`, walrus, PEP 695, async, ...;
+#: these are the twenty-two shapes it did not reach. They all pass today and
+#: are pinned so a later change cannot lose one quietly.
+ROUND2_SHAPES = {
+    "while_true": HEAD + '''def train(ds):
+    model = nn.Linear(16, 3)
+    opt = torch.optim.Adam(model.parameters())
+    crit = nn.CrossEntropyLoss()
+    loader = DataLoader(ds, batch_size=8, shuffle=True)
+    it = iter(loader)
+    while True:
+        try:
+            xb, yb = next(it)
+        except StopIteration:
+            break
+        opt.zero_grad()
+        loss = crit(model(xb), yb)
+        loss.backward()
+        opt.step()
+    return model
+''',
+    "async_for": HEAD + '''async def train(ds):
+    model = nn.Linear(16, 3)
+    opt = torch.optim.Adam(model.parameters())
+    crit = nn.CrossEntropyLoss()
+    loader = DataLoader(ds, batch_size=8, shuffle=True)
+    async for xb, yb in loader:
+        opt.zero_grad()
+        loss = crit(model(xb), yb)
+        loss.backward()
+        opt.step()
+    return model
+''',
+    "generator_yield": HEAD + '''def train(ds):
+    model = nn.Linear(16, 3)
+    opt = torch.optim.Adam(model.parameters())
+    crit = nn.CrossEntropyLoss()
+    loader = DataLoader(ds, batch_size=8, shuffle=True)
+    for xb, yb in loader:
+        opt.zero_grad()
+        loss = crit(model(xb), yb)
+        loss.backward()
+        opt.step()
+        yield float(loss)
+''',
+    "try_finally": HEAD + '''def train(ds):
+    model = nn.Linear(16, 3)
+    opt = torch.optim.Adam(model.parameters())
+    crit = nn.CrossEntropyLoss()
+    loader = DataLoader(ds, batch_size=8, shuffle=True)
+    try:
+        for xb, yb in loader:
+            opt.zero_grad()
+            loss = crit(model(xb), yb)
+            loss.backward()
+            opt.step()
+    finally:
+        del loader
+    return model
+''',
+    "with_two_managers": HEAD + '''import contextlib
+
+
+def train(ds):
+    model = nn.Linear(16, 3)
+    opt = torch.optim.Adam(model.parameters())
+    crit = nn.CrossEntropyLoss()
+    loader = DataLoader(ds, batch_size=8, shuffle=True)
+    with contextlib.ExitStack() as stack, torch.autograd.set_detect_anomaly(True):
+        stack.callback(lambda: None)
+        for xb, yb in loader:
+            opt.zero_grad()
+            loss = crit(model(xb), yb)
+            loss.backward()
+            opt.step()
+    return model
+''',
+    "closure": HEAD + '''def make_trainer(ds):
+    model = nn.Linear(16, 3)
+    opt = torch.optim.Adam(model.parameters())
+    crit = nn.CrossEntropyLoss()
+    loader = DataLoader(ds, batch_size=8, shuffle=True)
+
+    def inner():
+        for xb, yb in loader:
+            opt.zero_grad()
+            loss = crit(model(xb), yb)
+            loss.backward()
+            opt.step()
+        return model
+
+    return inner
+''',
+    "global_rebind": HEAD + '''MODEL = None
+
+
+def train(ds):
+    global MODEL
+    MODEL = nn.Linear(16, 3)
+    opt = torch.optim.Adam(MODEL.parameters())
+    crit = nn.CrossEntropyLoss()
+    loader = DataLoader(ds, batch_size=8, shuffle=True)
+    for xb, yb in loader:
+        opt.zero_grad()
+        loss = crit(MODEL(xb), yb)
+        loss.backward()
+        opt.step()
+    return MODEL
+''',
+    "callable_class": HEAD + '''class Criterion:
+    def __init__(self):
+        self.inner = nn.CrossEntropyLoss()
+
+    def __call__(self, logits, target):
+        return self.inner(logits, target)
+
+
+def train(ds):
+    model = nn.Linear(16, 3)
+    opt = torch.optim.Adam(model.parameters())
+    crit = Criterion()
+    loader = DataLoader(ds, batch_size=8, shuffle=True)
+    for xb, yb in loader:
+        opt.zero_grad()
+        loss = crit(model(xb), yb)
+        loss.backward()
+        opt.step()
+    return model
+''',
+    "property_accessor": HEAD + '''class Bundle:
+    def __init__(self, ds):
+        self._ds = ds
+        self._model = nn.Linear(16, 3)
+
+    @property
+    def model(self):
+        return self._model
+
+    @property
+    def loader(self):
+        return DataLoader(self._ds, batch_size=8, shuffle=True)
+
+
+def train(b):
+    opt = torch.optim.Adam(b.model.parameters())
+    crit = nn.CrossEntropyLoss()
+    for xb, yb in b.loader:
+        opt.zero_grad()
+        loss = crit(b.model(xb), yb)
+        loss.backward()
+        opt.step()
+    return b.model
+''',
+    "type_checking_import": HEAD + '''from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from torch import Tensor
+
+
+def train(ds) -> "Tensor":
+    model = nn.Linear(16, 3)
+    opt = torch.optim.Adam(model.parameters())
+    crit = nn.CrossEntropyLoss()
+    loader = DataLoader(ds, batch_size=8, shuffle=True)
+    for xb, yb in loader:
+        opt.zero_grad()
+        loss = crit(model(xb), yb)
+        loss.backward()
+        opt.step()
+    return loss
+''',
+    "abstract_base": HEAD + '''import abc
+
+
+class Engine(abc.ABC):
+    @abc.abstractmethod
+    def step(self, batch):
+        ...
+
+
+class TorchEngine(Engine):
+    def __init__(self, ds):
+        self.model = nn.Linear(16, 3)
+        self.opt = torch.optim.Adam(self.model.parameters())
+        self.crit = nn.CrossEntropyLoss()
+        self.loader = DataLoader(ds, batch_size=8, shuffle=True)
+
+    def step(self, batch):
+        xb, yb = batch
+        self.opt.zero_grad()
+        loss = self.crit(self.model(xb), yb)
+        loss.backward()
+        self.opt.step()
+        return loss
+
+    def run(self):
+        for batch in self.loader:
+            self.step(batch)
+        return self.model
+''',
+    "enum_dispatch": HEAD + '''import enum
+
+
+class Mode(enum.Enum):
+    TRAIN = "train"
+    EVAL = "eval"
+
+
+def train(ds, mode=Mode.TRAIN):
+    model = nn.Linear(16, 3)
+    opt = torch.optim.Adam(model.parameters())
+    crit = nn.CrossEntropyLoss()
+    loader = DataLoader(ds, batch_size=8, shuffle=True)
+    for xb, yb in loader:
+        if mode is Mode.TRAIN:
+            opt.zero_grad()
+            loss = crit(model(xb), yb)
+            loss.backward()
+            opt.step()
+    return model
+''',
+    "class_decorator": HEAD + '''def register(cls):
+    cls.registered = True
+    return cls
+
+
+@register
+class Net(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.fc = nn.Linear(16, 3)
+
+    def forward(self, x):
+        return self.fc(x)
+
+
+def train(ds):
+    model = Net()
+    opt = torch.optim.Adam(model.parameters())
+    crit = nn.CrossEntropyLoss()
+    loader = DataLoader(ds, batch_size=8, shuffle=True)
+    for xb, yb in loader:
+        opt.zero_grad()
+        loss = crit(model(xb), yb)
+        loss.backward()
+        opt.step()
+    return model
+''',
+    "module_getattr": HEAD + '''def __getattr__(name):
+    raise AttributeError(name)
+
+
+def train(ds):
+    model = nn.Linear(16, 3)
+    opt = torch.optim.Adam(model.parameters())
+    crit = nn.CrossEntropyLoss()
+    loader = DataLoader(ds, batch_size=8, shuffle=True)
+    for xb, yb in loader:
+        opt.zero_grad()
+        loss = crit(model(xb), yb)
+        loss.backward()
+        opt.step()
+    return model
+''',
+    "posonly_kwonly": HEAD + '''def train(ds, /, *, epochs: int = 1, lr: float = 1e-3):
+    model = nn.Linear(16, 3)
+    opt = torch.optim.Adam(model.parameters(), lr=lr)
+    crit = nn.CrossEntropyLoss()
+    loader = DataLoader(ds, batch_size=8, shuffle=True)
+    for _ in range(epochs):
+        for xb, yb in loader:
+            opt.zero_grad()
+            loss = crit(model(xb), yb)
+            loss.backward()
+            opt.step()
+    return model
+''',
+    "singledispatch": HEAD + '''import functools
+
+
+@functools.singledispatch
+def build(spec):
+    return nn.Linear(16, 3)
+
+
+@build.register(int)
+def _(spec: int):
+    return nn.Linear(spec, 3)
+
+
+def train(ds):
+    model = build(16)
+    opt = torch.optim.Adam(model.parameters())
+    crit = nn.CrossEntropyLoss()
+    loader = DataLoader(ds, batch_size=8, shuffle=True)
+    for xb, yb in loader:
+        opt.zero_grad()
+        loss = crit(model(xb), yb)
+        loss.backward()
+        opt.step()
+    return model
+''',
+    "contextmanager": HEAD + '''import contextlib
+
+
+@contextlib.contextmanager
+def timed(name):
+    yield name
+
+
+def train(ds):
+    model = nn.Linear(16, 3)
+    opt = torch.optim.Adam(model.parameters())
+    crit = nn.CrossEntropyLoss()
+    loader = DataLoader(ds, batch_size=8, shuffle=True)
+    with timed("epoch"):
+        for xb, yb in loader:
+            opt.zero_grad()
+            loss = crit(model(xb), yb)
+            loss.backward()
+            opt.step()
+    return model
+''',
+    "operator_overload": HEAD + '''def train(ds):
+    model = nn.Linear(16, 3)
+    opt = torch.optim.Adam(model.parameters())
+    crit = nn.CrossEntropyLoss()
+    loader = DataLoader(ds, batch_size=8, shuffle=True)
+    for xb, yb in loader:
+        opt.zero_grad()
+        loss = crit(model(xb), yb) * 0.5
+        loss.backward()
+        opt.step()
+    return model
+''',
+    "nested_class": HEAD + '''class Outer:
+    class Net(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.fc = nn.Linear(16, 3)
+
+        def forward(self, x):
+            return self.fc(x)
+
+    def train(self, ds):
+        model = Outer.Net()
+        opt = torch.optim.Adam(model.parameters())
+        crit = nn.CrossEntropyLoss()
+        loader = DataLoader(ds, batch_size=8, shuffle=True)
+        for xb, yb in loader:
+            opt.zero_grad()
+            loss = crit(model(xb), yb)
+            loss.backward()
+            opt.step()
+        return model
+''',
+    "try_except_importerror": '''try:
+    import torch
+    import torch.nn as nn
+    from torch.utils.data import DataLoader
+except ImportError:                     # pragma: no cover
+    torch = nn = DataLoader = None
+
+
+def train(ds):
+    model = nn.Linear(16, 3)
+    opt = torch.optim.Adam(model.parameters())
+    crit = nn.CrossEntropyLoss()
+    loader = DataLoader(ds, batch_size=8, shuffle=True)
+    for xb, yb in loader:
+        opt.zero_grad()
+        loss = crit(model(xb), yb)
+        loss.backward()
+        opt.step()
+    return model
+''',
+    "tqdm_wrapped_loader": HEAD + '''from tqdm import tqdm
+
+
+def train(ds):
+    model = nn.Linear(16, 3)
+    opt = torch.optim.Adam(model.parameters())
+    crit = nn.CrossEntropyLoss()
+    loader = DataLoader(ds, batch_size=8, shuffle=True)
+    for xb, yb in tqdm(loader, desc="train"):
+        opt.zero_grad()
+        loss = crit(model(xb), yb)
+        loss.backward()
+        opt.step()
+    return model
+''',
+    "ddp_and_compile": HEAD + '''def train(ds):
+    model = nn.Linear(16, 3)
+    model = torch.compile(nn.parallel.DistributedDataParallel(model))
+    opt = torch.optim.Adam(model.parameters())
+    crit = nn.CrossEntropyLoss()
+    loader = DataLoader(ds, batch_size=8, shuffle=True)
+    for xb, yb in loader:
+        opt.zero_grad()
+        loss = crit(model(xb), yb)
+        loss.backward()
+        opt.step()
+    return model
+''',
+}
+
+
+def write_program(tmp_path, name, source):
+    root = tmp_path / name
+    root.mkdir(parents=True, exist_ok=True)
+    write_bytes(root, "prog.py", source.encode("utf-8"))
+    return root
+
+
+# ----------------------------------------------------- round 2, the guards
+@pytest.mark.parametrize("name", sorted(ROUND2_SHAPES))
+def test_round2_syntax_shapes_keep_their_training_loop(name, tmp_path):
+    """Twenty-two more Python features, twenty-two surviving training loops.
+
+    The bar is round 1's: `train` present, at least one `train_loop` node, a
+    schema-valid document, nothing on stdout or stderr. Everything here passes
+    today; the two shapes that did NOT are ROB-15 and ROB-17 below, and they
+    are fixtures on disk rather than rows in this table.
+    """
+    root = write_program(tmp_path, name, ROUND2_SHAPES[name])
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        doc = analyze(root)
+    assert out.getvalue() == "" and err.getvalue() == "", name
+    assert validate(doc) == [], name
+    assert doc["workspace"]["filesFailed"] == 0, name
+    assert stage_present(doc, "train"), "%s lost its train stage" % name
+    assert [n for n in doc["nodes"] if n["kind"] == "train_loop"], (
+        "%s: no train_loop node survived" % name)
+
+
+@pytest.mark.parametrize("name", sorted(ROUND2_SHAPES))
+def test_round2_shapes_never_invent_an_evaluation_stage(name, tmp_path):
+    """None of the twenty-two programs evaluates anything. A pipeline that is
+    told it has an `eval` stage when it does not is the same misrepresentation
+    as a stage wrongly declared absent, pointing the other way - and it is
+    exactly what ROB-15 produces."""
+    doc = analyze(write_program(tmp_path, name, ROUND2_SHAPES[name]))
+    assert not stage_present(doc, "eval"), (
+        "%s: eval declared present; eval-lane nodes = %s"
+        % (name, [(n["kind"], n["loc"]["line"]) for n in doc["nodes"]
+                  if n["stage"] == "eval"]))
+
+
+def test_round2_hostile_encodings_and_file_shapes(tmp_path):
+    """Fourteen byte-level and filesystem hostilities round 1 did not reach.
+
+    CR-only line endings (classic Mac), a form feed, a PEP 263 line declaring
+    `ascii` over UTF-8 bytes, a PEP 263 line naming a codec that does not
+    exist, a BOM *followed* by a coding line, a lone-surrogate escape, U+2028 /
+    U+2029 inside a string, a megabyte of leading whitespace, a file that is
+    only a BOM, a file that is only a comment, a NUL inside a comment, an
+    invalid UTF-8 continuation byte, a directory named exactly `.py`, and two
+    hard links to one inode.
+    """
+    root = tmp_path / "bytes2"
+    root.mkdir()
+    write_bytes(root, "good.py", TRAIN.encode("utf-8"))
+    write_bytes(root, "cr_only.py", TRAIN.replace("\n", "\r").encode("utf-8"))
+    write_bytes(root, "formfeed.py",
+                TRAIN.replace("\n\n\n", "\n\x0c\n\n").encode("utf-8"))
+    write_bytes(root, "declared_ascii.py",
+                b"# -*- coding: ascii -*-\nimport torch\nX = 'caf\xc3\xa9'\n")
+    write_bytes(root, "unknown_codec.py",
+                b"# -*- coding: not-a-real-codec -*-\nimport torch\nX = 1\n")
+    write_bytes(root, "bom_then_coding.py",
+                b"\xef\xbb\xbf# -*- coding: utf-8 -*-\n" + TRAIN.encode("utf-8"))
+    write_bytes(root, "surrogate.py", b"import torch\nX = '\\ud800'\n")
+    write_bytes(root, "linesep.py", "import torch\nX = '\u2028\u2029'\n".encode("utf-8"))
+    write_bytes(root, "bigindent.py", (b" " * 1000000) + b"pass\n")
+    write_bytes(root, "only_bom.py", b"\xef\xbb\xbf")
+    write_bytes(root, "only_comment.py", b"# nothing at all\n")
+    write_bytes(root, "nul_comment.py", b"# hi\x00there\nimport torch\n")
+    write_bytes(root, "invalid_utf8.py", b"import torch\nX = 1\n\xc3\x28\n")
+    os.makedirs(os.path.join(str(root), ".py"), exist_ok=True)
+    write_bytes(root, os.path.join(".py", "inner.py"), TRAIN.encode("utf-8"))
+    write_bytes(root, "twin_a.py", TRAIN.encode("utf-8"))
+    try:
+        os.link(os.path.join(str(root), "twin_a.py"),
+                os.path.join(str(root), "twin_b.py"))
+        hard_linked = True
+    except OSError:
+        hard_linked = False
+
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        doc = analyze(root)
+    assert out.getvalue() == "" and err.getvalue() == ""
+    assert validate(doc) == []
+    failed = {d["file"] for d in diagnostics(doc, "parse_error")}
+    # the three that genuinely cannot be read are named, and only those three
+    assert failed == {"bigindent.py", "nul_comment.py", "invalid_utf8.py"}, failed
+    assert doc["workspace"]["filesFailed"] == len(failed)
+    assert stage_present(doc, "train"), "the healthy files were still analyzed"
+    # a CR-only file still yields usable snippets
+    assert all("\r" not in (n["loc"].get("snippet") or "") for n in doc["nodes"])
+    if hard_linked:
+        files = {n["loc"]["file"] for n in doc["nodes"]}
+        assert {"twin_a.py", "twin_b.py"} <= files, (
+            "two hard links to one inode collapsed into one module: %s" % sorted(files))
+
+
+def test_round2_the_document_is_identical_under_four_hash_seeds(tmp_path):
+    """Non-determinism is a finding in its own right: a document that depends
+    on `PYTHONHASHSEED` means a set iteration order reached the output, and two
+    CI runs of one commit would then disagree.
+
+    Four seeds, the cache disabled so the second run cannot answer from the
+    first, and the two fields the contract lets vary stripped.
+    """
+    root = tmp_path / "seeds"
+    root.mkdir()
+    write_bytes(root, "train.py", TRAIN.encode("utf-8"))
+    write_bytes(root, "second.py",
+                TRAIN.replace("        opt.zero_grad()\n", "").encode("utf-8"))
+    payloads = set()
+    for seed in ("0", "1", "7", "12345"):
+        env = dict(os.environ, PYTHONUTF8="1", PYTHONDONTWRITEBYTECODE="1",
+                   PYTHONHASHSEED=seed, MLVIEW_NO_CACHE="1")
+        proc = subprocess.run(
+            [sys.executable, "-m", "mlview", "analyze", str(root), "--json", "-"],
+            capture_output=True, cwd=REPO_ROOT, env=env, timeout=300)
+        assert proc.returncode == 0, proc.stderr.decode("utf-8", "replace")[-300:]
+        doc = json.loads(proc.stdout.decode("utf-8"))
+        doc["generator"].pop("generatedAt", None)
+        doc["stats"].pop("durationMs", None)
+        payloads.add(json.dumps(doc, sort_keys=True))
+    assert len(payloads) == 1, "the document depends on PYTHONHASHSEED"
+
+
+PATHOLOGICAL = {
+    "nested_dict_200": "import torch\nX = " + "{'a':" * 200 + "1" + "}" * 200 + "\n",
+    "chain_attr_2000": "import torch\nx = torch" + ".a" * 2000 + "\n",
+    "chain_call_400": "import torch\nx = torch" + ".f()" * 400 + "\n",
+    "bool_3000": "import torch\nx = " + " and ".join(["True"] * 3000) + "\n",
+    "self_import": "import prog\n" + TRAIN,
+    "mutual_recursion": ("import torch\n\ndef a(x):\n    return b(x)\n\n"
+                         "def b(x):\n    return a(x)\n\n" + TRAIN),
+    "self_ref_attr": ("import torch.nn as nn\n\nclass C:\n"
+                      "    def __init__(self):\n        self.me = self\n"
+                      "        self.net = nn.Linear(2, 2)\n\n"
+                      "    def go(self):\n        return self.me.me.me.net\n"),
+    "params_3000": ("import torch\n\ndef f("
+                    + ", ".join("a%d" % i for i in range(3000)) + "):\n    return 1\n"),
+    "dict_20k": ("import torch\nCFG = {"
+                 + ",".join("'k%d': %d" % (i, i) for i in range(20000)) + "}\n"),
+    "decorators_300": ("import torch\n\ndef d(f):\n    return f\n\n"
+                       + "@d\n" * 300 + "def g():\n    pass\n"),
+    "imports_2000": ("\n".join("import os as o%d" % i for i in range(2000))
+                     + "\nimport torch\n" + TRAIN),
+}
+
+
+@pytest.mark.parametrize("name", sorted(PATHOLOGICAL))
+@pytest.mark.parametrize("mode", ["local", "ip"])
+def test_round2_pathological_sources_never_crash_the_run(name, mode, tmp_path):
+    """A generated or adversarial source file may cost itself. It may never
+    cost the run, raise out of the API, or take longer than a wall-clock budget
+    an accidental quadratic would blow through.
+
+    ROB-01 fixed the RecursionError that used to come out of `ir.scopes`; these
+    are the neighbouring shapes - a 2000-deep attribute chain, a 3000-term
+    boolean, a module that imports itself, two mutually recursive functions, an
+    object that holds itself, 3000 parameters, a 20 000-entry dict literal, 300
+    stacked decorators and 2000 imports.
+    """
+    import time
+
+    root = write_program(tmp_path, name, PATHOLOGICAL[name])
+    started = time.perf_counter()
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        doc = analyze(root, dataflow=mode, relevance="all")
+    elapsed = time.perf_counter() - started
+    assert out.getvalue() == "" and err.getvalue() == "", name
+    assert validate(doc) == [], name
+    assert elapsed < 60.0, "%s took %.1fs" % (name, elapsed)
+    assert not diagnostics(doc, "rule_error"), name
+
+
+ROUND2_NOTEBOOKS = {
+    # nbformat 3 kept its cells under `worksheets`
+    "nbformat3": {"nbformat": 3, "nbformat_minor": 0, "metadata": {},
+                  "worksheets": [{"cells": [{"cell_type": "code", "language": "python",
+                                             "outputs": [], "input": None}]}]},
+    "crlf_cells": None,
+    "cr_only_cells": None,
+    "raw_cell_first": None,
+    "python_cell_magic": None,
+    "run_line_magic": None,
+    "bang_inside_a_string": None,
+    "help_query": None,
+    "double_help_query": None,
+    "magic_then_code": None,
+    "percent_inside_a_triple_quote": None,
+    "autoreload": None,
+    "wrapping_magic": None,
+    "non_monotonic_execution": None,
+    "null_execution_count": None,
+    "bom_prefixed": None,
+    "nbformat_as_a_string": None,
+}
+
+
+def _loop_cell_lines():
+    return ["import torch\n", "import torch.nn as nn\n",
+            "from torch.utils.data import DataLoader\n", "ds = None\n",
+            "model = nn.Linear(16, 3)\n",
+            "opt = torch.optim.Adam(model.parameters())\n",
+            "crit = nn.CrossEntropyLoss()\n",
+            "loader = DataLoader(ds, batch_size=8, shuffle=True)\n",
+            "for xb, yb in loader:\n", "    opt.zero_grad()\n",
+            "    loss = crit(model(xb), yb)\n", "    loss.backward()\n",
+            "    opt.step()\n"]
+
+
+def _code_cell(source, count=1):
+    return {"cell_type": "code", "execution_count": count, "metadata": {},
+            "outputs": [], "source": source}
+
+
+def _notebook_payload(name):
+    """The bytes for one round-2 notebook shape."""
+    loop = _loop_cell_lines()
+    if name == "nbformat3":
+        return json.dumps({"nbformat": 3, "nbformat_minor": 0, "metadata": {},
+                           "worksheets": [{"cells": [
+                               {"cell_type": "code", "language": "python",
+                                "outputs": [], "input": loop}]}]})
+    prefix = {
+        "crlf_cells": [[l.replace("\n", "\r\n") for l in loop]],
+        "cr_only_cells": [["".join(loop).replace("\n", "\r")]],
+        "raw_cell_first": None,
+        "python_cell_magic": [["%%capture\n", "import torch\n"], loop],
+        "run_line_magic": [["get_ipython().run_line_magic('matplotlib', 'inline')\n"], loop],
+        "bang_inside_a_string": [["x = '!pip install torch'\n"], loop],
+        "help_query": [["torch.nn?\n"], loop],
+        "double_help_query": [["torch.nn??\n"], loop],
+        "magic_then_code": [["%matplotlib inline\n", "import torch\n"], loop],
+        "percent_inside_a_triple_quote": [["s = '''\n", "%cd /tmp\n", "'''\n"], loop],
+        "autoreload": [["%load_ext autoreload\n", "%autoreload 2\n"], loop],
+        "wrapping_magic": [["%time total = 1 + 1\n"], loop],
+        "non_monotonic_execution": None,
+        "null_execution_count": None,
+        "bom_prefixed": None,
+        "nbformat_as_a_string": None,
+    }[name]
+    if name == "raw_cell_first":
+        cells = [{"cell_type": "raw", "metadata": {}, "source": ["not python\n"]},
+                 _code_cell(loop)]
+    elif name == "non_monotonic_execution":
+        cells = [_code_cell(loop, 7), _code_cell(["x = 1\n"], 2)]
+    elif name == "null_execution_count":
+        cells = [_code_cell(loop, None)]
+    elif name in ("bom_prefixed", "nbformat_as_a_string"):
+        cells = [_code_cell(loop)]
+    else:
+        cells = [_code_cell(c, i + 1) for i, c in enumerate(prefix)]
+    document = {"cells": cells, "metadata": {}, "nbformat": 4, "nbformat_minor": 5}
+    if name == "nbformat_as_a_string":
+        document["nbformat"] = "4"
+    text = json.dumps(document)
+    return ("\ufeff" + text) if name == "bom_prefixed" else text
+
+
+@pytest.mark.parametrize("name", sorted(ROUND2_NOTEBOOKS))
+def test_round2_notebook_shapes_keep_their_loop(name, tmp_path):
+    """Seventeen notebook shapes round 1 did not reach - an nbformat-3 document
+    whose cells live under `worksheets`, CRLF and CR-only cell sources, a raw
+    cell, `%%capture`, `get_ipython().run_line_magic(...)`, a `!` inside a
+    string literal, `x?` and `x??`, a magic above real code in one cell, a `%cd`
+    inside a triple-quoted string, `%load_ext autoreload`, a wrapping `%time`,
+    a non-monotonic `execution_count`, a null one, a BOM in front of the JSON,
+    and `"nbformat": "4"` as a string.
+
+    Every one of them must convert, and the training loop must survive. ROB-19
+    and ROB-20 are the two shapes that do not, and they are fixtures on disk.
+    """
+    root = tmp_path / ("nb_" + name)
+    root.mkdir()
+    write_bytes(root, "n.ipynb", _notebook_payload(name).encode("utf-8"))
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        doc = analyze(root, include_notebooks=True)
+    assert out.getvalue() == "" and err.getvalue() == "", name
+    assert validate(doc) == [], name
+    assert doc["workspace"]["notebooksSkipped"] == 0, [
+        d["message"] for d in diagnostics(doc, "notebook_skipped")]
+    assert stage_present(doc, "train"), "%s lost its training loop" % name
+
+
+HOSTILE_ENV = [
+    ("MLVIEW_CACHE_DIR", "@file"),          # points at a regular file
+    ("MLVIEW_CACHE_DIR", "/dev/null"),
+    ("MLVIEW_CACHE_DIR", ""),
+    ("MLVIEW_CACHE_DIR", "/proc/nope/cache"),
+    ("HOME", "/nonexistent-home-mlview"),
+    ("HOME", "/dev/null"),
+]
+
+
+@pytest.mark.parametrize("key,value", HOSTILE_ENV,
+                         ids=["%s=%s" % (k, v or "empty") for k, v in HOSTILE_ENV])
+def test_round2_a_hostile_environment_never_costs_the_analysis(key, value, tmp_path):
+    """The cache writes a sidecar under `MLVIEW_CACHE_DIR` and authenticates it
+    with a secret in the user's home. Both are environment, so both are
+    somebody else's decision in a container, a CI runner or a sandbox. None of
+    these may cost the analysis or raise."""
+    root = tmp_path / "env"
+    root.mkdir()
+    write_bytes(root, "train.py", TRAIN.encode("utf-8"))
+    target = value
+    if value == "@file":
+        target = write_bytes(root, "not_a_dir", b"x")
+    env = {key: target}
+    proc = subprocess.run(
+        [sys.executable, "-m", "mlview", "analyze", str(root), "--json", "-"],
+        capture_output=True, cwd=REPO_ROOT, timeout=300,
+        env=dict(os.environ, PYTHONUTF8="1", PYTHONDONTWRITEBYTECODE="1", **env))
+    err = proc.stderr.decode("utf-8", "replace")
+    assert "Traceback" not in err, err[-300:]
+    assert proc.returncode == 0, err[-300:]
+    doc = json.loads(proc.stdout.decode("utf-8"))
+    assert validate(doc) == []
+    assert stage_present(doc, "train")
+
+
+def test_round2_a_mlview_directory_that_is_a_file_is_survivable(tmp_path):
+    """`.mlview/` is where the cache and the generated notebook modules go. A
+    user, a `.gitignore` trick or a previous tool can leave a *file* with that
+    name, and `.mlview.toml` can be a directory."""
+    root = tmp_path / "shapes"
+    root.mkdir()
+    write_bytes(root, "train.py", TRAIN.encode("utf-8"))
+    write_bytes(root, ".mlview", b"not a directory")
+    os.makedirs(os.path.join(str(root), ".mlview.toml"), exist_ok=True)
+    for extra in ([], ["--include-notebooks"]):
+        rc, out, err = run_cli("analyze", str(root), "--json", "-", *extra)
+        assert "Traceback" not in err, err[-300:]
+        assert rc == 0, err[-300:]
+        doc = json.loads(out)
+        assert validate(doc) == []
+        assert stage_present(doc, "train")
+
+
+# --------------------------------------------------------- round 2, ROB-15
+ROB15_PROGRAMS = ["tuple_pair", "tuple_pair_method"]
+
+
+@pytest.mark.parametrize("program", ROB15_PROGRAMS)
+@pytest.mark.parametrize("mode", ["local", "ip"])
+def test_rob15_a_parallel_assignment_keeps_the_training_loop(program, mode):
+    """**Silent misrepresentation.** One statement, and a training loop is
+    relabelled evaluation.
+
+    `ir/bindings._bind_record` (line 460) handles a tuple target by asking
+    `record.call` for per-slot tags. When the right-hand side is itself a tuple
+    literal there IS no call, so `positions` and `base_tags` are both empty and
+    every name in the target is bound with **no tags and no producer**::
+
+        opt, crit = torch.optim.Adam(model.parameters()), nn.CrossEntropyLoss()
+
+    `opt` then carries no OPTIMIZER tag, so `opt.zero_grad()` and `opt.step()`
+    resolve to nothing and draw no node; `loss` is untyped, so `loss.backward()`
+    draws none either. `core/views._runs_without_training` scans the loop for a
+    call with a *training* role, finds none (the model still resolves, so the
+    forward pass does), and concludes the loop is evaluation - even though the
+    three `_TRAINING_METHODS` its own sibling `_runs_an_unresolved_model`
+    checks syntactically are all right there in the body.
+
+    Measured on `tuple_pair`, both dataflow modes::
+
+        nodes                6      (9 when the two binds are written apart)
+        loops                eval_loop
+        stages[eval]         present: true      (there is no evaluation)
+        MLV201 on a loop with no zero_grad()    silent (high, 0.95, when apart)
+
+    `tuple_pair_method` is the same defect in the shape a project writes it:
+    `self.opt, self.crit = ...` in a Trainer's `__init__`.
+    """
+    doc = analyze(os.path.join(BINDING, program), dataflow=mode)
+    assert validate(doc) == []
+    kinds = [(n["kind"], n["loc"]["line"]) for n in doc["nodes"] if "loop" in n["kind"]]
+    assert not stage_present(doc, "eval"), (
+        "eval declared present on a program with no evaluation; loops = %s" % kinds)
+    assert [k for k, _l in kinds if k == "train_loop"], (
+        "the training loop is not a train_loop: %s" % kinds)
+
+
+def test_rob15_the_parallel_assignment_also_silences_mlv201(tmp_path):
+    """The half that matters to a user: the misclassification hides a real,
+    high-severity defect.
+
+    Two programs, identical but for how `opt` and `crit` are bound, and both
+    missing `optimizer.zero_grad()` - which is MLV201, high, confidence 0.95.
+    """
+    apart = ("    opt = torch.optim.Adam(model.parameters())\n"
+             "    crit = nn.CrossEntropyLoss()\n")
+    together = ("    opt, crit = torch.optim.Adam(model.parameters()), "
+                "nn.CrossEntropyLoss()\n")
+    body = (HEAD + "def train(ds):\n    model = nn.Linear(16, 3)\n%s"
+            "    loader = DataLoader(ds, batch_size=8, shuffle=True)\n"
+            "    for xb, yb in loader:\n"
+            "        loss = crit(model(xb), yb)\n"
+            "        loss.backward()\n        opt.step()\n    return model\n")
+    control = analyze(write_program(tmp_path, "apart", body % apart))
+    assert "MLV201" in {i["code"] for i in live_issues(control)}, (
+        "the control no longer reports MLV201; this test is measuring nothing")
+    subject = analyze(write_program(tmp_path, "together", body % together))
+    assert validate(subject) == []
+    assert "MLV201" in {i["code"] for i in live_issues(subject)}, (
+        "MLV201 is silent on the same defect because `opt` and `crit` share one "
+        "assignment; issues = %s"
+        % sorted({(i["code"], i["severity"]) for i in subject["issues"]}))
+
+
+# --------------------------------------------------------- round 2, ROB-16
+ACCELERATE = os.path.join(BINDING, "accelerate_prepare")
+
+#: The calls of the canonical accelerate step that carry a knowledge role of
+#: their own. `model(features)` (51) and `criterion(...)` (52) are FORWARD,
+#: which `core/build.py` lists in `TRANSPARENT_ROLES` and maps onto the model /
+#: criterion node by design, so they are asserted as *attributed*, never as
+#: nodes of their own.
+ACCELERATE_STEP_LINES = (53, 54, 55, 56)
+
+
+@pytest.mark.parametrize("mode", ["local", "ip"])
+def test_rob16_the_accelerate_training_step_is_on_the_diagram(mode):
+    """**A dropped call, five times over, on the loop `accelerate` documents.**
+
+    `accelerator.prepare(model, optimizer, loader, scheduler)` is mandatory in
+    every `accelerate` script - it is how the three are placed on the device -
+    and it had no knowledge-table entry, so it returned untagged. Re-binding
+    `model`, `optimizer` and `loader` to its result therefore **erased** the
+    MODEL, OPTIMIZER and LOADER tags those names already carried, and every
+    call that depends on one of them stopped resolving: the batch loop was
+    emitted as an `eval_loop`, `stages[eval].present` was true on a file that
+    never evaluates, and none of `accelerator.backward(loss)`,
+    `optimizer.step()`, `lr_scheduler.step()` or `optimizer.zero_grad()` had a
+    node.
+
+    Two fixes carry it, and neither is an `accelerate` special case.
+    `ir/bindings._self_wrapped` keeps what a name already carried when it is
+    rebound from `f(..., x, ...)` whose callee resolves to nothing - the
+    wrapper idiom, which also covers `fabric.setup`, `fabric.setup_module` and
+    a plain workspace `def wrap(m, o): return m, o` (INFRA-R2-04) - and
+    `accelerate.Accelerator.backward` carries the BACKWARD role, because it is
+    the only way the scaled backward happens in an accelerate script.
+    """
+    doc = analyze(ACCELERATE, dataflow=mode)
+    assert validate(doc) == []
+    drawn = {n["loc"]["line"] for n in doc["nodes"]}
+    missing = sorted(set(ACCELERATE_STEP_LINES) - drawn)
+    assert not missing, (
+        "no node for the training-step call(s) on line(s) %s; the train lane "
+        "holds %s" % (missing, sorted((n["kind"], n["loc"]["line"])
+                                      for n in doc["nodes"] if n["stage"] == "train")))
+    assert not stage_present(doc, "eval"), (
+        "the batch loop is still read as evaluation on a file that never evaluates")
+    loops = [(n["kind"], n["loc"]["line"]) for n in doc["nodes"] if "loop" in n["kind"]]
+    assert ("train_loop", 50) in loops, loops
+
+
+
+def test_rob16_accelerate_does_not_hide_a_missing_zero_grad(tmp_path):
+    """The measurement that turns ROB-16 from a picture defect into a blind
+    spot: delete `optimizer.zero_grad()` from the canonical accelerate loop and
+    MLView reports **nothing** - not a de-rated finding, not a suppressed one,
+    not a ghost node - in either dataflow mode.
+
+    The framework de-rate is not what is happening here: `--show-suppressed`
+    shows an empty list too. The rule simply never sees an optimizer.
+    """
+    root = tmp_path / "accel_bad"
+    shutil.copytree(ACCELERATE, str(root))
+    path = os.path.join(str(root), "train.py")
+    with open(path, encoding="utf-8") as fh:
+        source = fh.read()
+    assert "            optimizer.zero_grad()\n" in source
+    with open(path, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(source.replace("            optimizer.zero_grad()\n", ""))
+    for mode in ("local", "ip"):
+        doc = analyze(root, dataflow=mode)
+        assert validate(doc) == []
+        assert "MLV201" in {i["code"] for i in doc["issues"]}, (
+            "%s: a training loop with no zero_grad() produced %s"
+            % (mode, sorted({(i["code"], i["severity"]) for i in doc["issues"]})))
+
+
+# --------------------------------------------------------- round 2, ROB-17
+@pytest.mark.parametrize("mode", ["local", "ip"])
+def test_rob17_a_partial_built_loader_is_not_an_absent_data_stage(mode):
+    """**A stage claimed absent, unqualified, on a file that builds a loader.**
+
+    Observed::
+
+        stages[data].present  false
+        diagnostics           []                      <- nothing at all
+        answers.dataEntry     "No data entry was detected: nothing in this
+                               workspace builds a dataset or a loader ..."
+
+    The comparison is what makes this a defect rather than a limit: a workspace
+    helper (`def make_loader(d): return DataLoader(...)`) keeps the loader; a
+    `lambda` keeps it and raises `unresolved_callee`; a dict lookup loses it but
+    raises `unresolved_callee`. `functools.partial` alone loses it **and**
+    raises nothing, so CONTRACTS 11.23's rule - no emitter may claim a stage is
+    absent without qualification - is not met.
+
+    Either outcome passes: recognise the partial, or declare the blind spot.
+    """
+    doc = analyze(os.path.join(BINDING, "partial_loader"), dataflow=mode)
+    assert validate(doc) == []
+    if stage_present(doc, "data"):
+        return
+    assert doc["diagnostics"], (
+        "the data stage is declared absent on a workspace that builds a "
+        "DataLoader, and `diagnostics` is empty; answer = %r"
+        % doc["answers"]["dataEntry"]["sentence"])
+
+
+# --------------------------------------------------------- round 2, ROB-18
+GRAPH_BLOCK_OPEN = '<script id="mlview-graph" type="application/json">'
+
+
+def embedded_graph_text(html_path):
+    with open(html_path, encoding="utf-8") as fh:
+        raw = fh.read()
+    start = raw.index(GRAPH_BLOCK_OPEN) + len(GRAPH_BLOCK_OPEN)
+    return raw[start:raw.index("</script>", start)]
+
+
+def test_rob18_a_source_line_with_an_html_comment_still_renders(tmp_path):
+    """**The report is a blank page.** `emit/html_out.py:57` is
+
+        return text.replace("</", "<\\\\/").replace("<!--", "<\\\\!--")
+
+    `<\\/` is right and is one of JSON's seven escapes. `\\!` is not an escape
+    at all, and the block it lands in is `type="application/json"`, read back by
+    the report's own bootstrap with
+
+        JSON.parse(document.getElementById('mlview-graph').textContent)
+
+    so the parse throws, `MLView.mount` never runs, and everything outside the
+    two script blocks of an asset-carrying report is the `<h1>`: the reader gets
+    a page saying `MLView - <root>` and nothing else, while the CLI prints
+    `mlview: wrote report.html` and exits 0.
+
+    Reproduce::
+
+        python -m mlview analyze analyzer/tests/fixtures/robustness/report/html_comment \\
+            --html /tmp/r.html
+        cd webview && node test/render_report.mjs /tmp/r.html
+        #  SyntaxError: Bad escaped character in JSON at position 1938
+
+    Any line carrying `<!--` that becomes a node's `symbol` or `snippet` does
+    it - an HTML template in a string, a Jinja fragment, a wandb
+    `<!--- @wandbcode{...} -->` marker in a notebook cell.
+
+    Python's `json.loads` rejects `\\!` for the same reason JavaScript's does,
+    so this test needs no browser.
+    """
+    report = tmp_path / "report.html"
+    rc, _out, err = run_cli("analyze", os.path.join(REPORT_FIXTURES, "html_comment"),
+                            "--html", str(report))
+    assert rc == 0, err[-300:]
+    text = embedded_graph_text(str(report))
+    json.loads(text)          # the report's own JSON.parse, in Python
+
+
+def test_rob18_the_script_terminator_guard_is_still_correct(tmp_path):
+    """The control ROB-18's fix must keep: a literal `</script>` in a source
+    line is neutralised, and no raw `</script` survives inside the JSON block.
+    Escaping this one is what the `<!--` arm was reaching for."""
+    root = tmp_path / "closer"
+    root.mkdir()
+    write_bytes(root, "t.py",
+                (b'import torch\nMARKER = "</script><img src=x onerror=alert(1)>"\n'
+                 + TRAIN.encode("utf-8")))
+    report = tmp_path / "closer.html"
+    rc, _out, err = run_cli("analyze", str(root), "--html", str(report))
+    assert rc == 0, err[-300:]
+    text = embedded_graph_text(str(report))
+    assert "</script" not in text.lower()
+    assert "<\\/script" in text
+
+
+# --------------------------------------------------------- round 2, ROB-19/20
+@pytest.mark.xfail(reason="ROB-19: a line magic continued across an open "
+                          "bracket leaves the continuation as Python, and one "
+                          "IndentationError costs the whole notebook")
+def test_rob19_a_bracket_continued_magic_keeps_the_notebook(tmp_path):
+    """ROB-05's bracket twin, and it is on the board of every timing notebook::
+
+        %timeit np.fromiter((xi + yi for xi, yi in zip(x, y)),
+                            dtype=x.dtype, count=len(x))
+
+    `ingest/notebook._rewrite` blanks the magic line and carries a backslash
+    continuation with it (ROB-05's fix), but an *open bracket* continuation is
+    left behind as Python, where it is `IndentationError: unexpected indent`.
+    The notebook is one generated module, so that one cell costs every cell:
+    the training loop below is never analyzed.
+
+    Measured by converting the 876 notebooks in the pinned public clones with
+    this build: **867 parse, 9 do not**, and this is one of them -
+    `PythonDataScienceHandbook/notebooks/03.12-Performance-Eval-and-Query.ipynb`
+    cell 1, copied verbatim into the fixture.
+    """
+    root = tmp_path / "nb19"
+    root.mkdir()
+    shutil.copy(os.path.join(NOTEBOOKS, "magic_bracket_continuation.ipynb"),
+                str(root / "n.ipynb"))
+    doc = analyze(root, include_notebooks=True)
+    assert validate(doc) == []
+    assert doc["workspace"]["notebooksSkipped"] == 0, [
+        d["message"] for d in diagnostics(doc, "notebook_skipped")]
+    assert stage_present(doc, "train")
+
+
+@pytest.mark.xfail(reason="ROB-20: an IPython assignment magic (`x = !cmd`, "
+                          "`x = %env VAR`) is not recognised as a magic, so it "
+                          "costs the whole notebook")
+def test_rob20_an_assignment_magic_keeps_the_notebook(tmp_path):
+    """`ingest/notebook._is_magic` asks whether the **stripped line starts**
+    with `%`, `!` or `?`. IPython also accepts a magic on the right of an
+    assignment - `files = !ls data`, `PATH = %env PATH` - and those lines reach
+    the generated module unchanged, where `!ls data` is a SyntaxError.
+
+    Observed: `filesAnalyzed 0`, `notebooksSkipped 1`, no `train` stage. The
+    notebook is declared skipped, so this is loud rather than silent - but the
+    training loop two cells down is gone either way, and one unrecognised line
+    costing every cell is the design ROB-05 already paid for once.
+
+    `wandb-examples/colabs/tables/AlphaFold_with_W&B_Align,_Fold,_Log.ipynb`
+    cell 59 is the `%env` half, verbatim.
+    """
+    root = tmp_path / "nb20"
+    root.mkdir()
+    shutil.copy(os.path.join(NOTEBOOKS, "assignment_magic.ipynb"),
+                str(root / "n.ipynb"))
+    doc = analyze(root, include_notebooks=True)
+    assert validate(doc) == []
+    assert doc["workspace"]["notebooksSkipped"] == 0, [
+        d["message"] for d in diagnostics(doc, "notebook_skipped")]
+    assert stage_present(doc, "train")
+
+
+# --------------------------------------------------------- round 2, ROB-21
+@pytest.mark.xfail(reason="ROB-21: single_file_diagnostic discovers the PARENT "
+                          "of the analyzed root and names files outside it")
+def test_rob21_the_analysis_stays_inside_the_analyzed_root():
+    """**MLView reads, and reports on, directories the caller did not name.**
+
+    `core/coverage._package_root()` climbs out of the analyzed directory for as
+    long as each level holds an `__init__.py` - which every library package
+    does - and `single_file_diagnostic` then runs a second
+    `discover([package_root], max_files=1000)`. That root is above
+    `workspace.root`.
+
+    Observed on this fixture::
+
+        workspace.root        .../pkgwalk/workspace/pkg
+        single_file_analysis  "Only pkg/train.py was analyzed: 3 sibling
+                               module(s) in the same package were not
+                               (helper.py, pkg/__init__.py,
+                               sibling_project/other.py) ..."
+
+    Two of those three are not in this package and are not under
+    `workspace.root`; the sentence says they are. On real trees the second
+    discover walks the whole repository -
+    `pytorch-image-models/timm/models` -> `pytorch-image-models`,
+    `detectron2/detectron2/modeling` -> `detectron2`, `yolov5/utils` ->
+    `yolov5`, each measured with `os.walk` instrumented.
+    """
+    doc = analyze(os.path.join(PKGWALK, "pkg"))
+    assert validate(doc) == []
+    root = doc["workspace"]["root"].replace("\\", "/")
+    for diagnostic in doc["diagnostics"]:
+        message = diagnostic.get("message") or ""
+        assert "sibling_project/other.py" not in message, (
+            "a file outside %s is named in a %s diagnostic: %s"
+            % (root, diagnostic["kind"], message[:220]))
+
+
+@pytest.mark.xfail(reason="ROB-21: the second discover() is rooted at the parent of the analyzed directory")
+def test_rob21_no_directory_above_the_analyzed_root_is_walked():
+    """The mechanism, measured rather than inferred: `os.walk` is instrumented
+    for one analysis and every top it is handed is compared with the analyzed
+    root.
+
+    Cost, measured on a 200-module workspace whose parent directory is busy:
+    **5.37 s with the root `__init__.py` present, 0.33 s with it removed** -
+    94% of the run spent walking a tree the caller never named, for a
+    diagnostic that was not even emitted. `max_files=1000` truncates the
+    *result* of `discover`, never the walk, so nothing bounds the cost.
+    """
+    target = os.path.abspath(os.path.join(PKGWALK, "pkg"))
+    real_walk = os.walk
+    tops = []
+
+    def spy(top, *args, **kwargs):
+        tops.append(os.path.abspath(str(top)))
+        return real_walk(top, *args, **kwargs)
+
+    os.walk = spy
+    try:
+        analyze(target)
+    finally:
+        os.walk = real_walk
+    repo = os.path.abspath(REPO_ROOT)
+    outside = sorted({t for t in tops
+                      if not t.startswith(target)
+                      and not t.startswith(os.path.join(repo, "analyzer", "src"))})
+    assert outside == [], (
+        "analysing %s walked %s" % (target, outside))
+
+
+# --------------------------------------------------------- round 2, ROB-22
+#: Every one of these makes `render --graph` print a Python traceback. The
+#: format matters for the last row only: `{"issues": [{"id": "x"}]}` reaches a
+#: `KeyError: 'severity'` through the mermaid emitter and is survivable through
+#: the text one, so it is listed against mermaid alone.
+NON_GRAPH_DOCUMENTS = [(payload, fmt)
+                       for payload in ("null", "[]", '"hi"', "5", '{"nodes": "x"}')
+                       for fmt in ("mermaid", "text")]
+NON_GRAPH_DOCUMENTS.append(('{"nodes": [], "edges": [], "issues": [{"id": "x"}]}',
+                            "mermaid"))
+
+
+@pytest.mark.parametrize("payload,fmt", NON_GRAPH_DOCUMENTS,
+                         ids=["%s-%s" % (f, p[:14]) for p, f in NON_GRAPH_DOCUMENTS])
+@pytest.mark.xfail(reason="ROB-22: `render --graph` tracebacks and exits 3 on "
+                          "a JSON document that is not an MLView graph")
+def test_rob22_render_of_a_non_graph_document_is_a_usage_error(payload, fmt, tmp_path):
+    """`--graph` points at a file a previous run wrote, so a truncated write, a
+    merge conflict or a hand edit is routine - and `mlview diff` already gets
+    this right: README says "a `base` that is not an MLView graph is an error
+    naming the file, never an empty comparison", and round 1 pinned it
+    (`test_the_cli_never_tracebacks_on_a_bad_diff_base`). `render` shares
+    neither the check nor the exit code.
+
+    Observed::
+
+        $ echo null > t.json && python -m mlview render --graph t.json --format mermaid
+        AttributeError: 'NoneType' object has no attribute 'get'
+        rc=3
+
+    README's table: `1` is usage or I/O, `3` is *internal error*. A CI harness
+    tells "MLView has a bug" from "your file is damaged" by reading that code.
+    `{}` is the other half of the same hole - it renders an empty `flowchart LR`
+    and exit 0 rather than saying the file is not a graph.
+    """
+    graph = tmp_path / "t.json"
+    graph.write_text(payload, encoding="utf-8")
+    rc, _out, err = run_cli("render", "--graph", str(graph), "--format", fmt)
+    assert "Traceback" not in err, err[-300:]
+    assert rc in (0, 1), "expected 0 or the usage exit code, got %d" % rc
+
+
+def test_rob22_render_of_a_real_graph_still_works(tmp_path):
+    """The control: the same command over a document MLView wrote."""
+    graph = tmp_path / "good.json"
+    rc, _out, err = run_cli("analyze", os.path.join(SYNTAX, "walrus"),
+                            "--json", str(graph))
+    assert rc == 0, err[-300:]
+    rc, out, err = run_cli("render", "--graph", str(graph), "--format", "mermaid")
+    assert rc == 0, err[-300:]
+    assert "flowchart" in out
+
+
+# --------------------------------------------------------- round 2, ROB-23
+def _deep_unit_workspace(root):
+    """One module, 200 `nn.Module` blocks and a training loop: 608 nodes whose
+    every operation hangs off a unit, which is the shape a model zoo has."""
+    out = ["import torch\n", "import torch.nn as nn\n",
+           "from torch.utils.data import DataLoader\n\n\n"]
+    for i in range(200):
+        out.append("class Block%d(nn.Module):\n" % i)
+        out.append("    def __init__(self):\n        super().__init__()\n"
+                   "        self.fc = nn.Linear(8, 8)\n        self.act = nn.ReLU()\n\n")
+        out.append("    def forward(self, x):\n        return self.act(self.fc(x))\n\n\n")
+    out.append("def train(ds):\n    model = Block0()\n"
+               "    opt = torch.optim.Adam(model.parameters())\n"
+               "    crit = nn.CrossEntropyLoss()\n"
+               "    loader = DataLoader(ds, batch_size=8, shuffle=True)\n"
+               "    for xb, yb in loader:\n        opt.zero_grad()\n"
+               "        loss = crit(model(xb), yb)\n        loss.backward()\n"
+               "        opt.step()\n    return model\n")
+    root.mkdir(parents=True, exist_ok=True)
+    write_bytes(root, "blocks.py", "".join(out).encode("utf-8"))
+    return root
+
+
+@pytest.mark.parametrize("budget", [20, 45, 100])
+@pytest.mark.xfail(reason="ROB-23: the rollup is all-or-nothing per file, so a "
+                          "608-node single-module workspace draws ONE node at "
+                          "every budget below the whole graph")
+def test_rob23_the_node_budget_is_actually_spent(budget, tmp_path):
+    """`--max-nodes N` is a request for a diagram of about N cards. On a
+    workspace whose operations all hang off units, the rollup folds every unit
+    into its file and then folds the file, and stops: **1 node**, at 20, at 45
+    and at 100 alike, for a graph of 608. At 400 the same workspace draws 400.
+
+    Measured the same way on the pinned public clones: `vit-pytorch` (3180
+    nodes) draws 4 at `--max-nodes 20` *and* 4 at 45;
+    `denoising-diffusion-pytorch` (984) draws 18 at both. Raising the budget by
+    125% changes nothing, and the `train` lane holds no node at all, so the
+    training loop is off the picture at any budget a large repository makes a
+    user reach for.
+
+    It is **declared** - the `truncated` diagnostic says "608 of 608 node(s)
+    rolled up ... 1 node(s) kept" - and the issue list is invariant, which is
+    why this is a `major` and not a misrepresentation. It is still a diagram
+    with one card in it.
+    """
+    root = _deep_unit_workspace(tmp_path / "deepunits")
+    doc = analyze(root, max_nodes=budget)
+    assert validate(doc) == []
+    assert len(doc["nodes"]) >= budget // 2, (
+        "--max-nodes %d drew %d node(s) of a %d-node graph; lanes = %s"
+        % (budget, len(doc["nodes"]),
+           len(analyze(root, max_nodes=100000)["nodes"]),
+           sorted({n["stage"] for n in doc["nodes"]})))
+
+
+def test_rob23_the_rollup_never_changes_the_finding_list(tmp_path):
+    """The guard under ROB-23 that already holds and must keep holding: however
+    few nodes the budget draws, the issue-id set is the uncapped one and the
+    truncation is declared."""
+    root = _deep_unit_workspace(tmp_path / "deepunits_issues")
+    full = analyze(root, max_nodes=100000)
+    for budget in (20, 45, 100, 400):
+        capped = analyze(root, max_nodes=budget)
+        assert validate(capped) == []
+        assert ({i["id"] for i in capped["issues"]}
+                == {i["id"] for i in full["issues"]}), budget
+        assert capped["stats"]["truncated"] is bool(diagnostics(capped, "truncated"))

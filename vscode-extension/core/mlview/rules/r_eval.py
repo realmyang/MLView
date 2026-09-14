@@ -84,6 +84,8 @@ def eval_regions(ctx) -> List[EvalRegion]:
     for loop in ctx.loops("batch"):
         if framework_hook(loop.function):
             continue
+        if _in_a_pytest_case(ctx, loop.function):
+            continue                     # PUB2-03: a unit test, not evaluation
         calls = calls_in_loop(ctx, loop)
         forwards = _model_forwards(calls)
         if not forwards or with_role(calls, *_TRAINING_ROLES):
@@ -266,7 +268,20 @@ def _function_evaluation_evidence(ctx, func: FunctionIR,
 #: is in `_EVAL_NAME_RE` for `test_loop` / `test_step`, and a file under a
 #: `tests/` directory (or named `test_*.py` / `*_test.py`) is where the
 #: collision lives.
-_TEST_FILE_RE = re.compile(r"(?i)(^|/)(test_[^/]*\.py|[^/]*_test\.py)$")
+#: PUB2-03. Round 1 closed this with ONE filename pattern - `test_*.py` or
+#: `*_test.py` - plus a directory arm that drops the filename before looking,
+#: so a module literally called `tests.py` matched neither and MLV302 went on
+#: telling readers to wrap a pytest case in `torch.no_grad()`. Measured on
+#: rasbt/LLMs-from-scratch: four findings across two `ch*/.../tests.py` files,
+#: at 0.85 and 0.68, both above the Problems-panel floor. `model_tests.py` and
+#: `conftest.py` fall through the same hole and are equally ordinary pytest
+#: module names.
+_TEST_FILE_RE = re.compile(
+    r"(?i)(^|/)(test_[^/]*\.py|[^/]*_tests?\.py|tests?\.py|conftest\.py)$")
+#: The second, un-spoofable signal: the module imports a test framework, or the
+#: function carries a `@pytest.*` decorator. A project that puts its cases in
+#: `checks.py` is covered by this and by nothing else.
+_TEST_IMPORTS = ("pytest", "unittest", "nose", "hypothesis")
 
 
 def _is_test_module(relpath: str) -> bool:
@@ -276,19 +291,56 @@ def _is_test_module(relpath: str) -> bool:
     return any(part in ("test", "tests") for part in path.split("/")[:-1])
 
 
+def _imports_a_test_framework(module) -> bool:
+    symbols = getattr(module, "symbols", None)
+    aliases = getattr(symbols, "aliases", None) or {}
+    for fqn in aliases.values():
+        head = (fqn or "").split(".")[0]
+        if head in _TEST_IMPORTS:
+            return True
+    for name in getattr(module, "imports", ()) or ():
+        if str(name).split(".")[0] in _TEST_IMPORTS:
+            return True
+    return False
+
+
+def _is_test_function(func: FunctionIR) -> bool:
+    if func.name.lower().startswith("test"):
+        return True
+    return any((d or "").split(".")[0] == "pytest" for d in func.decorators or ())
+
+
 def _eval_named_functions(ctx) -> List[FunctionIR]:
     out: List[FunctionIR] = []
     for relpath in sorted(ctx.modules):
         module = ctx.modules[relpath]
-        in_tests = _is_test_module(relpath)
+        in_tests = _is_test_module(relpath) or _imports_a_test_framework(module)
         for qualname in sorted(module.functions):
             func = module.functions[qualname]
             if not _EVAL_NAME_RE.match(func.name):
                 continue
-            if in_tests and func.name.lower().startswith("test"):
+            if in_tests and _is_test_function(func):
                 continue                 # a pytest case, not an evaluation loop
             out.append(func)
     return out
+
+
+def _in_a_pytest_case(ctx, func: Optional[FunctionIR]) -> bool:
+    """Is this function a pytest case (PUB2-03)?
+
+    The same two signals `_eval_named_functions` uses, applied to a loop-based
+    region: a test module (by path or by what it imports) plus a test-shaped
+    function name or a `@pytest.*` decorator.
+    """
+    while func is not None:
+        module = getattr(func, "module", None)
+        relpath = getattr(module, "relpath", "") if module is not None else ""
+        if (_is_test_module(relpath)
+                or (module is not None and _imports_a_test_framework(module))):
+            if _is_test_function(func):
+                return True
+        func = func.parent_function
+    return False
 
 
 def _needs_gradients(region: EvalRegion) -> bool:
@@ -411,7 +463,24 @@ def _eval_mode_call(ctx, region: EvalRegion) -> Optional[CallSite]:
     on a differently-named binding, because a false accusation here is far
     worse than a missed one.
     """
-    calls = _eval_mode_calls(ctx, region.forward.module)
+    # VIS2-13. The search used to read **one** module - the one the forward
+    # pass is written in - and ask only whether the call sat in
+    # `region.func`. When the region is a loop in one function and the forward
+    # happens in a callee in another file (`tta_accuracy` -> `tta_logits`,
+    # `robust_accuracy` -> `fgsm`: the shape of every TTA / adversarial
+    # evaluation), those two are never the same module, so an `model.eval()`
+    # written immediately above the loop was invisible and the finding's own
+    # evidence row asserted "no torch.nn.Module.eval() dominates this region"
+    # about a workspace with nine of them. The region's own module and the
+    # function that contains the forward are both part of the region.
+    modules = []
+    for module in (_module_of(region.func), region.forward.module,
+                   _module_of(region.forward.function)):
+        if module is not None and all(module is not m for m in modules):
+            modules.append(module)
+    calls: List[CallSite] = []
+    for module in modules:
+        calls.extend(_eval_mode_calls(ctx, module))
     name = region.model_name
     # The bound is the *forward pass*, not the region header: a function region
     # is anchored on its `def` line, so `model.eval()` on the first line of the
@@ -423,6 +492,14 @@ def _eval_mode_call(ctx, region: EvalRegion) -> Optional[CallSite]:
         for call in group:
             if call.function is region.func and call.loc.line <= limit:
                 return call
+        # The callee that runs the forward may guard itself - `def tta_logits(
+        # model, x): model.eval(); return model(x)` - and that dominates the
+        # forward just as surely as a switch in the caller does.
+        for call in group:
+            owner = region.forward.function
+            if owner is not None and call.function is owner \
+                    and call.loc.line <= region.forward.loc.line:
+                return call
     for call in calls:
         if call.function is None:                # module-level setup: model.eval()
             return call
@@ -433,6 +510,10 @@ def _eval_mode_call(ctx, region: EvalRegion) -> Optional[CallSite]:
             if call.function is caller.function and call.loc.line <= caller.loc.line:
                 return call
     return None
+
+
+def _module_of(func: Optional[FunctionIR]):
+    return getattr(func, "module", None) if func is not None else None
 
 
 def _eval_mode_calls(ctx, module) -> List[CallSite]:

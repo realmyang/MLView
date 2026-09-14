@@ -624,11 +624,17 @@ not part of what this list claims — see "Compile-verified only" below.**
   panel tab description and the digests (`vscode-extension/src/coverage.ts`). The
   in-canvas banner and chip are the viewer's, drawn from `graph.diagnostics` in
   `webview/src/ui/chrome.ts`, which the host passes through untouched.
-- `mlview_issues`'s `groupBy` folds the rows inside the MCP server
-  (`claude-plugin/server/mlview_groups.py`), which is where the plugin's grouping
-  lives. `/mlview-issues --group-by` therefore groups through the MCP tool; its
-  `Bash` fallback line groups only once the matching `--group-by` flag lands on
-  `analyzer/src/mlview/cli.py`.
+- One grouped table, two implementations. `mlview_issues`'s `groupBy` folds the
+  rows inside the MCP server (`claude-plugin/server/mlview_groups.py`), and
+  `--group-by rule|file|severity` folds them again in the analyzer
+  (`analyzer/src/mlview/emit/group_out.py`, reached from `analyze` and `issues`
+  through `group_by` in `analyzer/src/mlview/cli.py`). So `/mlview-issues
+  --group-by` groups through the MCP tool **and** its `Bash` fallback line
+  groups — the flag has shipped on both — but the two foldings are separate code
+  with separate tests (`analyzer/tests/core/test_group_by.py`,
+  `claude-plugin/tests/test_issue_groups.py`) and nothing compares their output,
+  so a divergence in occurrence counts or in which site is quoted as the example
+  would surface as two answers to one question.
 - The framework gate on the absence rules (`MLV301`, `MLV302`, `MLV501`, ...)
   reaches one import hop, no further. `ctx.wrappers_for()` in
   `analyzer/src/mlview/rules/context.py` de-rates a finding only when a

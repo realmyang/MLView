@@ -218,6 +218,48 @@ function viewCountsOf(graph: MLGraph, rows: PipelineRow[]): Map<string, number> 
   return out;
 }
 
+/**
+ * HOSTS-UX-ROWCOUNT. The number of cards a row's own click draws, for ANY
+ * selector — the generalisation of `pipelineRows`' `viewCount` above.
+ *
+ * `ScopeUnit.nodeCount` and `ScopeGroup.nodes` are relation facts: the subtree,
+ * or the nodes carrying that stage. The CLICK runs `project()`, which applies
+ * the kind's default depth and keeps the `context` ancestors that hold the
+ * containment tree together (11.2), so the two numbers differ — on the frozen
+ * golden `unit:model.SmallNet` matched 1 and drew 5. Both numbers are correct
+ * about different things; only the one a MENU PROMISES has to be the one the
+ * click delivers, so the relation counts are left alone and the picker asks
+ * here instead.
+ *
+ * It runs the same `project()` the click runs rather than re-deriving the
+ * projection's rules, for the reason round 1 gave about the pipeline rows: a
+ * second copy of the rules is a second set of numbers to keep in step.
+ *
+ * Memoised per `(document identity, spec)` because the picker re-renders on
+ * every keystroke in its search box and lists up to 200 units. A selector this
+ * document cannot resolve returns `null` and the caller keeps the relation's
+ * number: a picker must never be the thing that takes the report down.
+ */
+let cachedSpecGraph: MLGraph | null = null;
+let cachedSpecCounts: Map<string, number> | null = null;
+
+export function viewCountOf(graph: MLGraph, spec: string): number | null {
+  if (cachedSpecGraph !== graph || !cachedSpecCounts) {
+    cachedSpecGraph = graph;
+    cachedSpecCounts = new Map<string, number>();
+  }
+  const hit = cachedSpecCounts.get(spec);
+  if (hit !== undefined) return hit;
+  let count: number;
+  try {
+    count = project(graph, parseScope(spec)).nodes.length;
+  } catch (_e) {
+    return null;
+  }
+  cachedSpecCounts.set(spec, count);
+  return count;
+}
+
 /** One row per stage the document declares; absent stages are shown disabled. */
 export function stageRows(graph: MLGraph): ScopeGroup[] {
   return (graph.stages || []).map((stage) => {

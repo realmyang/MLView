@@ -158,30 +158,67 @@ def _seedable(scope: ScopeIR, param: str, func: FunctionIR) -> bool:
 
 
 def _seed(func: FunctionIR, param: str, fact: _Fact, chain: Tuple[Hop, ...],
-          sites: int) -> bool:
-    """Write one parameter binding; True when something changed."""
+          sites: int, notes: Optional[List[Tuple[str, int, str]]] = None,
+          where: Optional[CallSite] = None) -> bool:
+    """Write one parameter binding; True when something changed.
+
+    **`ip` is a widening, and this is where it stopped being one.**
+    (VIS2-05 / PUB2-05 / TAB2-01.) The intersection over call sites used to
+    *replace* whatever `propagate_parameters` had derived locally, so a helper
+    called with two differently-tagged arguments came out with FEWER tags under
+    `--dataflow ip` than under `local`. The document then had fewer findings and
+    fewer edges than the mode it is documented as widening, and carried no
+    diagnostic at all to say so:
+
+    * an evaluation helper called with a model and its `copy.deepcopy` EMA
+      shadow lost the MODEL tag, and MLV301 (**high**) and MLV302 both vanished
+      - the standard mean-teacher / semi-supervised shape;
+    * `MNISTDataModule.create_data_loader(df)`, called from `train_dataloader`,
+      `val_dataloader` and `test_dataloader`, lost TRAIN_SPLIT and with it the
+      only MLV110 that `local` reports on the whole 37-repo public corpus.
+
+    The local tag set is therefore kept and the interprocedural contribution is
+    **unioned** into it: `ip` can only ever add. The intersection still decides
+    what the extra hop is allowed to contribute - a site that disagrees adds
+    nothing - which is the precision argument CONTRACTS 11.36 N3 makes, and it
+    is unaffected by keeping what `local` already had. Where the intersection
+    would have cleared a local tag, the disagreement is **declared** instead of
+    applied, because a vanishing tag that nothing reports is exactly the
+    "silent narrowing" this channel exists to prevent.
+    """
     scope = func.scope
     if not _seedable(scope, param, func):
         return False
     existing = scope.bindings.get(param)
+    local_tags = set(existing.tags) if existing is not None else set()
     if not fact.known():
-        # Nothing the call sites agree on. Only *clear* a first-wins guess, and
-        # only when there really were several sites to disagree - never invent
-        # an empty binding, which would turn an untracked name into a resolved
-        # one and stop ANA-5a reporting it.
         if (existing is None or sites < 2
                 or not (existing.tags or existing.class_ir is not None)):
             return False
-        scope.bindings[param] = ValueRef(name=param, scope=scope, loc=func.loc)
-        return True
-    tags = sort_tags(fact.tags)
+        if notes is not None and where is not None:
+            notes.append((where.loc.file, where.loc.line,
+                          "`%s` in %s was tagged %s by one call site and the %d call "
+                          "sites disagree, so the interprocedural pass added nothing "
+                          "to it; `local` already derived that tag and MLView keeps "
+                          "it rather than dropping a finding without saying so."
+                          % (param, func.qualname,
+                             ", ".join(sorted(local_tags)) or "nothing", sites)))
+        return False
+    tags = sort_tags(local_tags | set(fact.tags))
+    class_ir = fact.class_ir or (existing.class_ir if existing is not None else None)
     if (existing is not None and tuple(existing.tags) == tags
-            and existing.class_ir is fact.class_ir
+            and existing.class_ir is class_ir
             and tuple(getattr(existing, "provenance", ())) == chain):
         return False
-    scope.bindings[param] = ValueRef(
+    ref = ValueRef(
         name=param, scope=scope, tags=tags, producer=fact.producer, loc=func.loc,
-        class_ir=fact.class_ir, is_config=fact.is_config, provenance=chain)
+        class_ir=class_ir, is_config=fact.is_config, provenance=chain)
+    if existing is not None:
+        ref.via_fqns = ref.via_fqns or existing.via_fqns
+        ref.elements = ref.elements or existing.elements
+        ref.entries = ref.entries or existing.entries
+        ref.producer = ref.producer or existing.producer
+    scope.bindings[param] = ref
     return True
 
 
@@ -229,14 +266,14 @@ def _summarize_args(func: FunctionIR, sites: Sequence[CallSite], kind: str,
         facts = [_fact_at(site, mapped[i].get(param)) for i, site in enumerate(sites)]
         merged = _intersect(facts)
         if not merged.known():
-            if _seed(func, param, merged, (), len(sites)):
+            if _seed(func, param, merged, (), len(sites), notes, sites[0]):
                 changed = True
             continue
         chains = [f.chain for f in facts if f.known()]
         chain = _chain_for(sites, func, kind, chains, max_hops, notes, param)
         if chain is None:
             continue
-        if _seed(func, param, merged, chain, len(sites)):
+        if _seed(func, param, merged, chain, len(sites), notes, sites[0]):
             changed = True
     return changed
 

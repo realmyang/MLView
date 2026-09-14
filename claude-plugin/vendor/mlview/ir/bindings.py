@@ -23,7 +23,8 @@ from .returns import slot_of
 from .scopes import AssignRecord, literal_str
 from .symbols import dotted_text
 
-__all__ = ["binding_of", "bind_module", "call_output_tags", "names_in",
+__all__ = ["binding_of", "bind_module", "rebind_projections",
+           "call_output_tags", "names_in",
            "identity_receiver", "CONFIG_NAME_RE", "IDENTITY_METHODS", "TENSOR_ROLES"]
 
 #: ANA-10 moved the definition to `ir.config_values`, which is the pass that
@@ -170,6 +171,13 @@ def _class_scope(scope: ScopeIR) -> Optional[ScopeIR]:
     return None
 
 
+#: `rebind_projections` re-reads a statement `bind_module` already read, so its
+#: stores must **replace** the ones already in `binding_history` rather than
+#: append to it - otherwise the ordered lookup (REV-01) would see the same
+#: statement twice and a two-store name would report three.
+_REBINDING = {"active": False}
+
+
 def _store(scope: ScopeIR, name: str, ref: ValueRef) -> None:
     target = scope
     if name.startswith("self."):
@@ -180,7 +188,14 @@ def _store(scope: ScopeIR, name: str, ref: ValueRef) -> None:
     # walks `module.assignments` in. `bindings` keeps its last-wins meaning, so
     # every caller that does not pass a consumer line is byte-for-byte
     # unchanged.
-    target.binding_history.setdefault(name, []).append(ref)
+    history = target.binding_history.setdefault(name, [])
+    if _REBINDING["active"]:
+        line = ref.loc.line if ref.loc is not None else None
+        for index, other in enumerate(history):
+            if line is not None and other.loc is not None and other.loc.line == line:
+                history[index] = ref
+                return
+    history.append(ref)
 
 
 def names_in(node: Optional[ast.AST]) -> Tuple[str, ...]:
@@ -318,6 +333,21 @@ def call_output_tags(call: CallSite, scope: ScopeIR) -> Tuple[str, ...]:
     elif role == "FORWARD":
         if receiver is not None and receiver.has("LOSS"):
             tags = ["LOSS"]
+        elif _workspace_loss_module(call):
+            # VIS2-09. `class DiceLoss(nn.Module)` - and `FocalLoss`,
+            # `JointsMSELoss`, YOLO's `ComputeLoss`, the dominant shape in
+            # detection, segmentation and pose - is an `nn.Module` too, so its
+            # `__call__` resolved to FORWARD and the value it returns was
+            # tagged LOGITS. `running += loss` inside a confirmed batch loop
+            # was then not a loss accumulation to MLV205, and NO coverage
+            # diagnostic was emitted either: the backward node was drawn, the
+            # objective lane was non-empty, and the document said nothing.
+            #
+            # The evidence is the callee's own return summary, which
+            # `ir/returns` has already computed: a `forward` whose return is
+            # built out of a knowledge-table loss or a tensor reduction
+            # returns a loss. Nothing here reads the class's NAME.
+            tags = ["LOSS"]
         elif receiver is not None and receiver.has("MODEL"):
             tags.append("LOGITS")
     elif role in ("LOSS_CLS", "LOSS_FN"):
@@ -331,6 +361,44 @@ def call_output_tags(call: CallSite, scope: ScopeIR) -> Tuple[str, ...]:
     elif role == "SPLIT" and not tags:
         tags.extend(_first_arg_tags(call, scope))
     return sort_tags(tags)
+
+
+#: Roles that mean "this call reduces a tensor to an objective".
+_LOSS_BODY_ROLES = ("LOSS_CLS", "LOSS_FN", "TENSOR_REDUCE")
+
+
+def _workspace_loss_module(call: CallSite) -> bool:
+    """Does this call run a workspace `nn.Module` whose forward returns a loss?
+
+    Two structural facts, no name regex anywhere:
+
+    * the class **registers no submodules** - nothing it constructs carries the
+      MODEL tag - so it is not a network; and
+    * its body reduces a tensor or builds a knowledge-table loss.
+
+    `DiceLoss`, `FocalLoss`, `JointsMSELoss`, `NTXentLoss` and YOLO's
+    `ComputeLoss` all satisfy both; a ResNet block, a UNet and every
+    `nn.Sequential` wrapper fail the first, because a network is made of
+    layers and every layer row carries MODEL.
+    """
+    cls = call.class_ir
+    if cls is None and call.receiver is not None:
+        # A call *of a bound value* records the class on the receiver, not on
+        # the call: `criterion = DiceLoss()` then `criterion(logits, y)`.
+        cls = call.receiver.class_ir
+    if cls is None or not cls.is_model_module:
+        return False
+    slot = slot_of(call)
+    if slot is not None and "LOSS" in slot.tags and "MODEL" not in slot.tags:
+        return True
+    reduces = False
+    for inner in cls.calls:
+        tags = K.tags_of(inner.fqn) or ()
+        if "MODEL" in tags:
+            return False                 # it registers submodules: a network
+        if K.role_of(inner.fqn) in _LOSS_BODY_ROLES:
+            reduces = True
+    return reduces
 
 
 def _reinforce(name: str, tags: Sequence[str]) -> Tuple[str, ...]:
@@ -379,6 +447,221 @@ def _split_positions(call: CallSite, count: int) -> List[Tuple[str, ...]]:
     return []
 
 
+#: ROB-15 / DGRG2-03 / VIS2-06. A tuple, list or dict **literal** is the one
+#: container whose slots are known exactly, with no inference: the expression in
+#: slot *i* is the value in slot *i*. Everything below reads those three shapes
+#: and nothing else - a comprehension, a `dict(...)` call or a name are all left
+#: alone, so this can never invent a slot that is not written in the source.
+
+def _calls_by_node(module: ModuleIR):
+    by_node = getattr(module, "_calls_by_node", None)
+    if by_node is None:
+        by_node = {id(c.node): c for c in module.calls}
+    return by_node
+
+
+def _value_facts(expr, scope: ScopeIR, module: ModuleIR,
+                 name: str = "") -> Optional[ValueRef]:
+    """A `ValueRef` for one element of a literal container.
+
+    Deliberately narrow: a call gets the tags, class and FQNs its own call site
+    resolved to, a name gets whatever that name is bound to, and anything else
+    gets nothing. No new claim is made about any value.
+    """
+    if expr is None:
+        return None
+    if isinstance(expr, ast.Call):
+        inner = _calls_by_node(module).get(id(expr))
+        if inner is None:
+            return None
+        ref = ValueRef(name=name or "<elt>", scope=scope,
+                       tags=sort_tags(call_output_tags(inner, scope)),
+                       producer=inner, loc=inner.loc,
+                       class_ir=inner.class_ir or _identity_class(inner))
+        slot = slot_of(inner)
+        if slot is not None:
+            ref.via_fqns = slot.fqns
+            ref.class_ir = ref.class_ir or slot.class_ir
+        if not ref.via_fqns:
+            passthrough = identity_receiver(inner)
+            if passthrough is not None and passthrough.via_fqns:
+                ref.via_fqns = passthrough.via_fqns
+        return ref
+    if isinstance(expr, ast.Subscript):
+        # `g_optimizer, d_optimizer = optimizers["g"], optimizers["d"]` - the
+        # BasicSR / ESRGAN / CycleGAN layout, and the shape every GAN,
+        # multi-loss detector and multi-optimizer RL trainer is written in.
+        return _subscript_slot(expr, scope, module)
+    text = dotted_text(expr)
+    if text:
+        return binding_of(text, scope)
+    return None
+
+
+def _literal_elements(value, scope: ScopeIR, module: ModuleIR):
+    """`(a(), b())` -> the per-slot ValueRefs, or `()` when it is not a literal."""
+    if not isinstance(value, (ast.Tuple, ast.List)):
+        return ()
+    if any(isinstance(e, ast.Starred) for e in value.elts):
+        return ()
+    return tuple(_value_facts(e, scope, module) for e in value.elts)
+
+
+def _literal_entries(value, scope: ScopeIR, module: ModuleIR):
+    """`{"a": x(), "b": y()}` -> `(("a", ref), ...)` for constant string keys."""
+    if not isinstance(value, ast.Dict):
+        return ()
+    out = []
+    for key, item in zip(value.keys, value.values):
+        if not isinstance(key, ast.Constant) or not isinstance(key.value, str):
+            continue
+        ref = _value_facts(item, scope, module, name=key.value)
+        if ref is not None:
+            out.append((key.value, ref))
+    return tuple(out)
+
+
+def _adopt(ref: ValueRef, source: Optional[ValueRef]) -> ValueRef:
+    """Give `ref` the type facts `source` carries, keeping its own name.
+
+    `via_fqns` is filled from the source's own producer when the source has
+    none of its own: a scheduler and a GradScaler carry no tags at all, so the
+    FQNs its construction resolved to are the only thing that says what the
+    value is, and losing them is what made `lr_scheduler.step()` resolve to
+    nothing after `accelerator.prepare(...)`.
+    """
+    if source is None:
+        return ref
+    ref.tags = sort_tags(tuple(ref.tags) + tuple(source.tags))
+    ref.producer = ref.producer or source.producer
+    ref.class_ir = ref.class_ir or source.class_ir
+    if not ref.via_fqns:
+        ref.via_fqns = source.via_fqns or (
+            _trim_via(source.producer.canonical_fqns)
+            if source.producer is not None else ())
+    if not ref.elements:
+        ref.elements = source.elements
+    if not ref.entries:
+        ref.entries = source.entries
+    return ref
+
+
+def _subscript_slot(value, scope: ScopeIR, module: ModuleIR) -> Optional[ValueRef]:
+    """`criteria["adv"]` / `optimizers[0]` read out of a **literal** container.
+
+    VIS2-06 / VIS2-08. `criterion = criteria["adversarial"]` where `criteria` is
+    a dict literal used to be an opaque subscript: the BCELoss lost its LOSS
+    tag, `criterion(...)` resolved to nothing, and MLV402 (high / 0.95 on a
+    BCELoss fed raw logits) went silent along with the whole MLV2xx family.
+    The hop is purely syntactic and unambiguous - one literal container, one
+    constant key - so it invents nothing.
+    """
+    if not isinstance(value, ast.Subscript):
+        return None
+    key = value.slice
+    if isinstance(key, ast.Index):            # pragma: no cover - py<3.9 shape
+        key = key.value                       # type: ignore[attr-defined]
+    if not isinstance(key, ast.Constant):
+        return None
+    base = binding_of(dotted_text(value.value), scope) if not isinstance(
+        value.value, ast.Call) else None
+    if base is None:
+        return None
+    if isinstance(key.value, str):
+        for entry_key, ref in base.entries:
+            if entry_key == key.value:
+                return ref
+        return None
+    if isinstance(key.value, bool) or not isinstance(key.value, int):
+        return None
+    index = key.value
+    if base.elements and -len(base.elements) <= index < len(base.elements):
+        return base.elements[index]
+    return None
+
+
+#: INFRA-R2-04 / ROB-16. `x = f(..., x, ...)` is the wrapper idiom, and the
+#: names it rebinds are the names it was handed. When `f` resolves to nothing -
+#: `accelerator.prepare`, `fabric.setup`, `fabric.setup_module`, a workspace
+#: `def wrap(m, o): return m, o` - the old binding is the only thing anyone
+#: knows about the value, and **erasing** it turns a typed value into an
+#: untyped one with no diagnostic: MLV301 (high) and MLV302 both vanished on a
+#: 43-line file and the verdict read "No findings: no rule fired".
+def _self_wrapped(call: Optional[CallSite], name: str, scope: ScopeIR
+                  ) -> Optional[ValueRef]:
+    if call is None or not name:
+        return None
+    if K.lookup(call.fqn) is not None or slot_of(call) is not None:
+        return None                  # the callee IS known; its answer wins
+    short = name.split(".")[-1]
+    passed = False
+    for arg in list(call.args) + [call.kwarg_nodes[k] for k in sorted(call.kwarg_nodes)]:
+        text = dotted_text(arg)
+        if text and (text == name or text.split(".")[-1] == short):
+            passed = True
+            break
+    if not passed:
+        return None
+    previous = binding_of(name, scope, exclude=call)
+    if previous is None or not (previous.tags or previous.class_ir
+                                or previous.via_fqns or previous.producer):
+        return None
+    return previous
+
+
+#: DGRG2-01. `torch.load` / `torch.jit.load` carry `tags: ()`, so one
+#: `model = torch.load(ckpt)` below the evaluation call replaced a MODEL-tagged
+#: name with an untyped checkpoint - and, bindings being flat, that rebinding is
+#: what every rule saw for the whole scope. Four findings and two nodes went
+#: with it. A checkpoint restored into a name that already held a model is still
+#: a model; keeping the type is strictly better than erasing it.
+def _restored_into(call: Optional[CallSite], name: str, scope: ScopeIR
+                   ) -> Optional[ValueRef]:
+    if call is None or not name or K.role_of(call.fqn) != "LOAD":
+        return None
+    previous = binding_of(name, scope, exclude=call)
+    if previous is not None and previous.has("MODEL"):
+        return previous
+    return _saved_model_behind(call)
+
+
+def _saved_model_behind(load: CallSite) -> Optional[ValueRef]:
+    """TAB2-02. `torch.save(model, CKPT)` ... `restored = torch.load(CKPT)`.
+
+    "Load a checkpoint, then evaluate it" is the shape of every `eval.py` and
+    `predict.py` in the world, and the restored name was untyped - so the
+    evaluation helper's `model` parameter was untyped, `model(x)` resolved to
+    nothing, no eval region was built, and MLV301 (**high**) and MLV302 both
+    went silent with `diagnostics: []`. The Answers card did not even negate
+    its guardedness clause; it dropped it, so the sentence a reader sees is
+    indistinguishable from a clean report.
+
+    The evidence is dataflow, not a name: somewhere in the same module a SAVE
+    call writes a **MODEL-tagged** value to the same path expression this load
+    reads. `torch.save(model.state_dict(), ...)` does not match, because the
+    value written there is a STATE_DICT and carries no MODEL tag.
+    """
+    if not load.args:
+        return None
+    path = dotted_text(load.args[0]) or literal_str(load.args[0])
+    if not path:
+        return None
+    for call in load.module.calls:
+        if K.role_of(call.fqn) != "SAVE" or len(call.args) < 2:
+            continue
+        target = dotted_text(call.args[1]) or literal_str(call.args[1])
+        if target != path:
+            continue
+        ref = call.receiver if call.receiver is not None else None
+        saved = ref
+        if saved is None:
+            inner = dotted_text(call.args[0])
+            saved = binding_of(inner, call.scope, at=call.loc.line) if inner else None
+        if saved is not None and saved.has("MODEL"):
+            return saved
+    return None
+
+
 # ---------------------------------------------------------------------------
 # binding pass
 # ---------------------------------------------------------------------------
@@ -400,6 +683,49 @@ def bind_module(module: ModuleIR, workspace) -> None:
     # binding this pass has just written, and because the leaves it stores must
     # never win over a real assignment to the same dotted name.
     _resolve_config(module, workspace)
+
+
+def rebind_projections(module: ModuleIR, workspace) -> None:
+    """Re-read the statements that project out of a **parameter** container.
+
+    VIS2-06 / VIS2-08 / DGRG2-03. `bind_module` clears every binding and
+    rebuilds from the statements, so the parameter bindings the cross-call
+    passes write (`ir/resolve.propagate_parameters`, and `ir/summaries` under
+    `--dataflow ip`) do not exist while the statements are being read. A
+    statement whose meaning depends on one - and
+
+        g_optimizer, d_optimizer = optimizers["g"], optimizers["d"]
+        adversarial, pixel = criteria["adversarial"], criteria["pixel"]
+
+    is exactly that, the layout every GAN, multi-loss detector and
+    multi-optimizer RL trainer uses - could therefore never see it, however
+    many rounds ran: `criterion(...)` resolved to nothing and MLV402 (high /
+    0.95 on a `BCELoss` fed raw logits), MLV205 and the whole MLV2xx family
+    went silent.
+
+    This runs **after** the parameter passes, inside the same round and before
+    `resolve_calls`, and it touches only the records whose right-hand side is a
+    subscript - so nothing else is re-derived and the fixed point is unmoved.
+    """
+    _REBINDING["active"] = True
+    try:
+        for record in module.assignments:
+            if record.call is not None or not _projects_a_container(record.value):
+                continue
+            try:
+                _bind_record(record, module, workspace)
+            except RecursionError:  # pragma: no cover - defensive
+                continue
+    finally:
+        _REBINDING["active"] = False
+
+
+def _projects_a_container(value) -> bool:
+    if isinstance(value, ast.Subscript):
+        return True
+    if isinstance(value, (ast.Tuple, ast.List)):
+        return any(isinstance(e, ast.Subscript) for e in value.elts)
+    return False
 
 
 def _bind_imported_values(module: ModuleIR, workspace) -> None:
@@ -462,6 +788,21 @@ def _bind_record(record: AssignRecord, module: ModuleIR, workspace) -> None:
         names = [dotted_text(e) for e in elts]
         positions = _split_positions(call, len(names)) if call else []
         base_tags = call_output_tags(call, scope) if call else ()
+        # ROB-15 / DGRG2-03. Where the slots are *known* - the right-hand side
+        # is a tuple/list literal of the same arity, or a name already bound to
+        # one - each target takes its own element's type rather than the whole
+        # statement's. `opt, crit = Adam(...), CrossEntropyLoss()` is plain
+        # parallel assignment and needs no inference; without it both names were
+        # stored with no tags and no producer, `opt.zero_grad()` /
+        # `loss.backward()` drew nothing, and the training loop was relabelled
+        # an eval loop on a file with no evaluation in it.
+        per_slot = _literal_elements(value, scope, module)
+        if len(per_slot) != len(names):
+            per_slot = ()
+        if not per_slot and call is None and value is not None:
+            source_ref = binding_of(dotted_text(value), scope)
+            if source_ref is not None and len(source_ref.elements) == len(names):
+                per_slot = source_ref.elements
         for index, name in enumerate(names):
             if not name:
                 continue
@@ -480,6 +821,10 @@ def _bind_record(record: AssignRecord, module: ModuleIR, workspace) -> None:
             if slot is not None:
                 ref.via_fqns = slot.fqns
                 ref.class_ir = ref.class_ir or slot.class_ir
+            if per_slot:
+                _adopt(ref, per_slot[index])
+            elif call is not None:
+                _adopt(ref, _self_wrapped(call, name, scope))
             _store(scope, name, ref)
         return
 
@@ -513,6 +858,14 @@ def _bind_record(record: AssignRecord, module: ModuleIR, workspace) -> None:
                 is_config = True
             if call.var is None:
                 call.var = name
+        elif _subscript_slot(value, scope, module) is not None:
+            # VIS2-06 / VIS2-08: a literal container read by a constant key.
+            picked = _subscript_slot(value, scope, module)
+            tags.extend(picked.tags)
+            class_ir = picked.class_ir
+            via = picked.via_fqns or (
+                _trim_via(picked.producer.canonical_fqns)
+                if picked.producer is not None else ())
         elif isinstance(value, ast.Subscript):
             # NLP-02. `ir/resolve._chained_receiver` models the subscript hop
             # when it is written inside the receiver expression
@@ -571,6 +924,14 @@ def _bind_record(record: AssignRecord, module: ModuleIR, workspace) -> None:
                 ref.via_fqns = passthrough.via_fqns
         if not ref.via_fqns and call is None and via:
             ref.via_fqns = tuple(via)
+        if call is not None:
+            # INFRA-R2-04 / ROB-16 / DGRG2-01: keep what is already known when
+            # the rebinding is a wrapper we have no row for, or a checkpoint
+            # restored into a name that already held a model.
+            _adopt(ref, _self_wrapped(call, name, scope)
+                   or _restored_into(call, name, scope))
+        ref.elements = _literal_elements(value, scope, module)
+        ref.entries = _literal_entries(value, scope, module)
         ref.opaque = _opaque_kind(value, call, record)
         _store(scope, name, ref)
 

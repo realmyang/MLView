@@ -55,6 +55,39 @@ HF_DATA: Dict[str, Entry] = {
                                       ("RAW_DATA",), "hf_dataset"),
 }
 
+#: NLP2-08. `transformers.optimization.get_*_schedule_with_warmup` is the LR
+#: schedule of essentially every transformer fine-tune, and it had **no row
+#: anywhere**: `r_mechanics._BATCH_CADENCE` and `r_framework` both named
+#: `get_linear_schedule_with_warmup`, but `scheduler.step()` never acquired the
+#: `SCHED_STEP` role, so the tuple entry was unreachable code and MLV207 could
+#: not fire on the commonest LR mistake in transformer fine-tuning (a warmup
+#: built for `len(loader) * epochs` steps and stepped once per epoch, so warmup
+#: never finishes). The scheduler and its `.step()` also drew no node at all.
+#:
+#: They return a `torch.optim.lr_scheduler.LambdaLR`, so the `scheduler` family
+#: is the right one and the per-step cadence is a property of the construction,
+#: not of the class - which is exactly why `LambdaLR` itself carries no cadence.
+_HF_SCHEDULES = (
+    "get_linear_schedule_with_warmup",
+    "get_cosine_schedule_with_warmup",
+    "get_cosine_with_hard_restarts_schedule_with_warmup",
+    "get_polynomial_decay_schedule_with_warmup",
+    "get_constant_schedule",
+    "get_constant_schedule_with_warmup",
+    "get_inverse_sqrt_schedule",
+    "get_wsd_schedule",
+    "get_scheduler",
+)
+for _root in ("transformers", "transformers.optimization"):
+    HF_DATA.update(expand(_root, _HF_SCHEDULES,
+                          E("scheduler", "train", HF, "SCHEDULER", (), "scheduler")))
+HF_DATA["transformers.AdamW"] = E("optimizer", "train", HF, "OPTIMIZER",
+                                  ("OPTIMIZER",), "optimizer")
+HF_DATA["transformers.optimization.AdamW"] = E("optimizer", "train", HF, "OPTIMIZER",
+                                               ("OPTIMIZER",), "optimizer")
+HF_DATA["transformers.Adafactor"] = E("optimizer", "train", HF, "OPTIMIZER",
+                                      ("OPTIMIZER",), "optimizer")
+
 #: Collators - the last preprocessing step before a batch reaches the model.
 HF_DATA.update(expand("transformers", [
     "DataCollatorWithPadding", "DataCollatorForLanguageModeling",

@@ -3,17 +3,30 @@
 
 The labelled corpus (`tools/accuracy.py`) measures MLView against 92
 programs *written for it*. This one measures it against code nobody wrote for
-it: twenty-four real, popular Python ML/DL repositories, pinned to an exact
-commit in `analyzer/tests/public_corpus/repos.json`.
+it: thirty-seven real, popular Python ML/DL repositories, pinned to an exact
+commit in `analyzer/tests/public_corpus/repos.json` - twenty-four recorded in
+hardening round 1 and thirteen added in round 2 for the framework and domain
+shapes round 1 never reached (gradient boosting, classical statistics and time
+series, the accelerate/peft/trl fine-tuning stack, per-trial HPO objectives,
+single-file RL, the official PyTorch tutorials, a registry/config framework, a
+hand-written GPT, YAML-driven LLM recipes and a second notebook book).
 
 Nothing is vendored. `fetch` clones the pinned SHAs into
 ``MLVIEW_PUBLIC_CORPUS_DIR`` (default ``.public-corpus/`` beside the repo,
 git-ignored), `run` analyses every pinned target in every dataflow mode and
 writes one report, and `check` turns that report into a gate::
 
-    python tools/public_corpus.py fetch                  # ~1.8 GB, network
+    python tools/public_corpus.py fetch                  # ~1.9 GB, network
     python tools/public_corpus.py run  --out report.json
     python tools/public_corpus.py check --report report.json
+
+`--repo`, `--corpus-dir` and `--manifest` are accepted **either side** of the
+subcommand, so `... --repo nanoGPT fetch` and `... fetch --repo nanoGPT` both
+work, and a value given on both sides is merged rather than overwritten
+(PUB2-10). `build_parser()` is public for the same reason: doc-gate check 19
+parses the command lines `.github/workflows/public-corpus.yml` generates with
+it, so a workflow line this CLI would reject fails the doc gate on the machine
+that wrote it rather than the nightly a week later.
 
 `check` asserts five things, and every one of them is a credibility claim
 rather than a taste:
@@ -36,9 +49,9 @@ rather than a taste:
    regression ratchet at once.
 
 Nothing here prints to stdout except the report the user asked for; the module
-is importable (`load_manifest`, `run_corpus`, `check_report`) and the pytest
-wrapper in `analyzer/tests/public_corpus/test_public_corpus.py` skips when the
-corpus directory is absent.
+is importable (`load_manifest`, `run_corpus`, `check_report`, `build_parser`)
+and the pytest wrapper in `analyzer/tests/public_corpus/test_public_corpus.py`
+skips when the corpus directory is absent.
 """
 
 from __future__ import annotations
@@ -539,22 +552,90 @@ def summarize(report: Dict[str, Any]) -> List[str]:
 
 
 # ------------------------------------------------------------------- CLI
-def _main(argv: Optional[Sequence[str]] = None) -> int:
-    parser = argparse.ArgumentParser(
-        prog="public_corpus",
-        description="fetch, analyze and gate the public-repository corpus")
-    parser.add_argument("--corpus-dir", default=None,
+#: The selector options, registered on the top-level parser and on every
+#: subparser. `_selectors` merges the two namespaces afterwards.
+SELECTORS = ("repo", "corpus_dir", "manifest")
+
+
+def _common(parser: argparse.ArgumentParser,
+            top: bool = False) -> argparse.ArgumentParser:
+    """The three selector options, added to the top level *and* to every
+    subparser.
+
+    PUB2-10: argparse only accepts a top-level option **before** the
+    subcommand, so `public_corpus.py fetch --repo nanoGPT` exited 2 with
+    `unrecognized arguments` - and that is exactly the line
+    `.github/workflows/public-corpus.yml` generated for its `workflow_dispatch`
+    `repos` input, so the documented way to run the job on a subset could only
+    ever fail at the fetch step. Registering the options on both parsers makes
+    either order work, which is what every reader expects of a `git`-shaped CLI.
+
+    The subparser copies write to a **dest of their own** and default to
+    `SUPPRESS`: a subparser parses into its own namespace whose attributes are
+    then copied over the main one, so sharing a dest means the second spelling
+    silently erases the first - `--repo a fetch --repo b` would have analyzed
+    `b` alone, and an `append` action there starts from an empty list rather
+    than from what the top level collected. `_selectors` merges the two, so a
+    value given on either side (or on both) is a value that counts.
+    """
+    suffix = "" if top else "_after"
+    parser.add_argument("--corpus-dir", dest="corpus_dir" + suffix, metavar="DIR",
+                        default=None if top else argparse.SUPPRESS,
                         help="where the clones live (default: "
                              "$MLVIEW_PUBLIC_CORPUS_DIR or .public-corpus)")
-    parser.add_argument("--manifest", default=MANIFEST_PATH)
-    parser.add_argument("--repo", action="append", default=[],
-                        help="restrict to this repo name; repeatable, and one "
-                             "value may be a comma-separated list")
+    parser.add_argument("--manifest", dest="manifest" + suffix, metavar="PATH",
+                        default=None if top else argparse.SUPPRESS,
+                        help="repos.json to read (default: the one in the tree)")
+    parser.add_argument("--repo", dest="repo" + suffix, action="append",
+                        metavar="NAME",
+                        default=[] if top else argparse.SUPPRESS,
+                        help="restrict to this repo name; repeatable, one "
+                             "value may be a comma-separated list, and it may "
+                             "be given before or after the subcommand")
+    return parser
+
+
+def _selectors(args: argparse.Namespace) -> Tuple[List[str], str, str]:
+    """`(repo names, corpus dir, manifest path)` from both sides of the subcommand.
+
+    Names are split on commas (the `workflow_dispatch` input is one string),
+    stripped and de-duplicated with their order kept, so `--repo a,b --repo a`
+    is `[a, b]`.
+    """
+    values: List[str] = (list(getattr(args, "repo", None) or [])
+                         + list(getattr(args, "repo_after", None) or []))
+    names: List[str] = []
+    for value in values:
+        for name in value.split(","):
+            name = name.strip()
+            if name and name not in names:
+                names.append(name)
+    dest = (getattr(args, "corpus_dir_after", None)
+            or getattr(args, "corpus_dir", None) or corpus_dir())
+    manifest = (getattr(args, "manifest_after", None)
+                or getattr(args, "manifest", None) or MANIFEST_PATH)
+    return names, dest, manifest
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """The whole command line, as a parser.
+
+    Public because a parser is the only honest answer to *"is this command line
+    runnable?"*, and `.github/workflows/public-corpus.yml` is generated text
+    that nobody runs until the nightly does: doc-gate check 19
+    (`scripts/doc_numbers.py`) parses the command lines that workflow builds
+    with this parser, so a line argparse would reject fails the build instead of
+    the job (PUB2-10).
+    """
+    parser = _common(argparse.ArgumentParser(
+        prog="public_corpus",
+        description="fetch, analyze and gate the public-repository corpus"),
+        top=True)
     sub = parser.add_subparsers(dest="cmd", required=True)
 
-    sub.add_parser("fetch", help="clone the pinned SHAs")
+    _common(sub.add_parser("fetch", help="clone the pinned SHAs"))
 
-    run_p = sub.add_parser("run", help="analyze every pinned target")
+    run_p = _common(sub.add_parser("run", help="analyze every pinned target"))
     run_p.add_argument("--out", default=None, help="report JSON path")
     run_p.add_argument("--graphs", default=None,
                        help="directory for the per-run graph documents")
@@ -564,18 +645,19 @@ def _main(argv: Optional[Sequence[str]] = None) -> int:
     run_p.add_argument("--budget", type=float, default=60.0)
     run_p.add_argument("--python", default=None)
 
-    check_p = sub.add_parser("check", help="gate a report")
+    check_p = _common(sub.add_parser("check", help="gate a report"))
     check_p.add_argument("--report", required=True)
     check_p.add_argument("--budget", type=float, default=None)
     check_p.add_argument("--strict", action="store_true",
                          help="also fail on a known-open false positive and on "
                               "an adjudicated false positive that has gone away")
+    return parser
 
-    args = parser.parse_args(argv)
-    args.repo = [name.strip() for value in args.repo
-                 for name in value.split(",") if name.strip()]
-    dest = args.corpus_dir or corpus_dir()
-    manifest = load_manifest(args.manifest)
+
+def _main(argv: Optional[Sequence[str]] = None) -> int:
+    args = build_parser().parse_args(argv)
+    args.repo, dest, manifest_path = _selectors(args)
+    manifest = load_manifest(manifest_path)
 
     def log(text: str) -> None:
         sys.stderr.write(text + "\n")
@@ -602,8 +684,19 @@ def _main(argv: Optional[Sequence[str]] = None) -> int:
         log("report written to %s" % out)
         return 0
 
-    with open(args.report, "r", encoding="utf-8") as handle:
-        report = json.load(handle)
+    # A missing or malformed report is a mistake at the command line, not a
+    # defect in the analyzer: say so in one line rather than spilling a
+    # traceback that reads like MLView crashed.
+    if not os.path.isfile(args.report):
+        log("no report at %s - run `public_corpus.py run --out %s` first"
+            % (args.report, args.report))
+        return 2
+    try:
+        with open(args.report, "r", encoding="utf-8") as handle:
+            report = json.load(handle)
+    except ValueError as exc:
+        log("%s is not a valid report: %s" % (args.report, exc))
+        return 2
     result = check_report(report, load_adjudication(), args.budget, args.strict)
     for line in summarize(report):
         log(line)

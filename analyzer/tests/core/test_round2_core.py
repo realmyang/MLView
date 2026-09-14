@@ -74,13 +74,52 @@ _TESTS_TREE = os.path.join(REPO_ROOT, "analyzer", "tests")
 
 @pytest.mark.parametrize("max_nodes", [20, 50, 400])
 def test_max_nodes_is_a_real_cap_on_a_large_workspace(max_nodes):
-    doc = analyze_to_dict(AnalyzeOptions(paths=(_TESTS_TREE,), max_nodes=max_nodes))
+    """VIS2-14 / ROB-24. Two things were wrong with the way this used to read
+    the diagnostic, and both turned corpus growth into a red gate that says
+    nothing about the cap it is named for.
+
+    The tree crossed the 500-file `--max-files` default during round 2, so a
+    **second** `truncated` row appeared - "Discovery capped at 500 files (643
+    found)" - and `next(... if d["kind"] == "truncated")` picked it. The fix is
+    on both sides: the test raises `max_files` so it measures the node budget
+    and nothing else, and selects the row by its `scope` rather than by
+    position, which the analyzer now sets (`files` / `nodes` / `rounds` /
+    `dataflow`) so a consumer can tell "I did not read 143 of your files" from
+    "I did not draw 8833 of your nodes".
+    """
+    doc = analyze_to_dict(AnalyzeOptions(paths=(_TESTS_TREE,), max_nodes=max_nodes,
+                                         max_files=5000))
     assert len(doc["nodes"]) <= max_nodes, (
         "--max-nodes is documented as the graph cap, not an op-node budget")
     assert doc["stats"]["nodes"] == len(doc["nodes"])
     assert doc["stats"]["truncated"] is True
-    note = next(d for d in doc["diagnostics"] if d["kind"] == "truncated")
+    rows = [d for d in doc["diagnostics"] if d["kind"] == "truncated"]
+    note = next(d for d in rows if d.get("scope") == "nodes")
     assert "%d node(s) kept" % len(doc["nodes"]) in note["message"], note["message"]
+    assert validate(doc) == []
+
+
+def test_the_two_truncations_are_distinguishable(tmp_path):
+    """VIS2-14 / ROB-24 / DGRG2-12 / INFRA-R2-17. A workspace past BOTH caps
+    carries two `truncated` rows; a consumer must be able to tell which is
+    which without pattern-matching English.
+
+    They are different losses with different fixes - files never read
+    (`--max-files`) versus nodes folded into an ancestor (`--max-nodes`) - and
+    they mean different things for trust.
+    """
+    doc = analyze_to_dict(AnalyzeOptions(paths=(_TESTS_TREE,), max_nodes=20,
+                                         max_files=500))
+    scopes = {d.get("scope") for d in doc["diagnostics"] if d["kind"] == "truncated"}
+    assert {"files", "nodes"} <= scopes, sorted(
+        (d.get("scope"), d["message"][:60]) for d in doc["diagnostics"]
+        if d["kind"] == "truncated")
+    files_row = next(d for d in doc["diagnostics"]
+                     if d["kind"] == "truncated" and d.get("scope") == "files")
+    nodes_row = next(d for d in doc["diagnostics"]
+                     if d["kind"] == "truncated" and d.get("scope") == "nodes")
+    assert "--max-files" in files_row["message"]
+    assert "--max-nodes" in nodes_row["message"]
     assert validate(doc) == []
 
 

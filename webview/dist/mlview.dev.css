@@ -867,6 +867,36 @@ html.mlv-fills-page > body > .mlv-root {
   white-space: normal;
 }
 
+/*
+ * TAB2-10 — and a sentence chip is still a CHIP, not a paragraph.
+ *
+ * VW-08's wrap stopped a sentence running off the page; it did not stop one
+ * filling the row. MEASURED on `tabular_survival_cox`: `unresolved_callee` drew
+ * two chips of 262 and 238 characters ("MLView has no knowledge table for
+ * `lifelines`, so it read 3 calls into it (…) without understanding what they
+ * do. Those calls draw no node, and any stage they belong to may be present
+ * without being detected - a gap in coverage, not a clean result.") beside two
+ * three-word stage chips, and with `white-space: normal` those two wrapped to
+ * fill the whole 12vh scroller — so the honest disclosure was the least
+ * readable thing on the page, and the reader had to scroll a chip row to find
+ * out that two stage chips were there at all. yolov5 drew four of
+ * `config_unresolved`'s sentences the same way.
+ *
+ * The text is bounded to one ellipsised line; the chip's `×N` count sits
+ * OUTSIDE this element, so a fold never loses its number to the clip. Nothing
+ * is removed — the element holds every character, `ui/chrome.ts` puts the whole
+ * string on the chip's `title`, and the coverage and parse kinds list theirs in
+ * a banner as well. 48ch is about 290 px at this row's 11 px type, so four
+ * chips take a 1240 px line.
+ */
+.mlv-chiprow .mlv-chip__text {
+  display: block;
+  max-width: 48ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .mlv-chiprow__label {
   color: var(--mlv-text-3);
   text-transform: uppercase;
@@ -1592,10 +1622,30 @@ h1.mlv-brand {
   text-transform: uppercase;
 }
 
+/*
+ * HOSTS-UX-ANSWERWRAP — a workspace-relative path is ONE token, and it must be
+ * allowed to break.
+ *
+ * `.mlv-answers__list` is a grid of `minmax(260px, 1fr)` columns and an answer
+ * cites its evidence as `dir/dir/file.py:205`, which offers no break
+ * opportunity at all. MEASURED at 1600x1000 on DeepLearningExamples: the "How
+ * is it evaluated?" sentence was scrollWidth 391 in a clientWidth 295 column
+ * and, the item being `overflow: visible`, was PAINTED OVER the answer beside
+ * it — "…image_classification/training.py:205" and "MLV803 (low) at"
+ * composited into "…/tMLIVN803G.(low)205at". 7 of 90 real reports did it, at
+ * both viewports.
+ *
+ * `anywhere` rather than `break-word` on purpose: only `anywhere` lowers the
+ * element's MIN-CONTENT width, which is what lets the grid column and the
+ * flex-item citation buttons actually shrink to the space they were given. It
+ * is also inherited, so the `.mlv-link` inside the citation row breaks with it.
+ * `.mlv-insp__fqn` has solved the same problem since VW-02.
+ */
 .mlv-answers__sentence {
   margin: 0;
   color: var(--mlv-text);
   font-size: var(--mlv-fs-12);
+  overflow-wrap: anywhere;
 }
 
 .mlv-answers__cites {
@@ -1604,6 +1654,7 @@ h1.mlv-brand {
   gap: var(--mlv-s3);
   font-family: var(--mlv-font-mono);
   font-size: var(--mlv-fs-10);
+  overflow-wrap: anywhere;
 }
 
 /*

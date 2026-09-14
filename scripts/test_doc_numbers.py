@@ -1,16 +1,19 @@
 #!/usr/bin/env python
-"""Tests for scripts/doc_numbers.py -- checks 9, 10 and 11 of the doc gate.
+"""Tests for scripts/doc_numbers.py -- checks 9, 10, 11, 19 and 20 of the gate.
 
 Same shape as `scripts/test_check_docs.py`, whose `_tree` helper and `REPO` these
 reuse: each case builds a throwaway tree and runs the whole gate against it with
---root, so nothing here depends on the state of the real repo. The last case does
-read the real repo, and asserts ANA-12's acceptance clause directly.
+--root, so nothing here depends on the state of the real repo. Five cases do read
+the real repo: ANA-12's acceptance clause, the real workflows' command lines
+against the real tools' parsers (PUB2-10), and the real docs against the hop
+mechanism (VIS2-17).
 
 `scripts/test_check_docs.py` runs these too, so the drivers and CI keep one
 doc-gate self-test entry point. Run either file under pytest for the same set.
 """
 from __future__ import annotations
 
+import io
 import json
 import shutil
 import sys
@@ -325,6 +328,309 @@ def test_the_real_drivers_agree_and_carry_the_accuracy_row():
     rows_ps1 = doc_numbers._rows(REPO / "scripts" / "e2e.ps1", doc_numbers.PS_ROW_RE)
     assert rows_sh == rows_ps1, sorted(rows_sh ^ rows_ps1)
     assert "accuracy corpus" in rows_sh, sorted(rows_sh)
+
+
+# ---------------------------------------------------------------- check 19
+# PUB2-10: `.github/workflows/public-corpus.yml` built
+# `public_corpus.py fetch --repo <names>` out of its `workflow_dispatch` input,
+# and `--repo` lived on the top-level parser alone, so argparse answered
+# `unrecognized arguments` and exited 2. Every dispatch that used the documented
+# input died at the job's first step, and nothing in the tree could see it: a
+# workflow is text that is not run until the schedule runs it.
+
+#: The tool as it was before the fix -- the selector on the top level only.
+PRE_FIX_TOOL = '''\
+"""The pre-PUB2-10 shape, kept here so the defect can be reproduced."""
+import argparse
+
+
+def build_parser():
+    parser = argparse.ArgumentParser(prog="public_corpus")
+    parser.add_argument("--repo", action="append", default=[])
+    sub = parser.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("fetch")
+    sub.add_parser("run")
+    return parser
+'''
+
+#: A tool that offers no parser is not checked: the gate may not become a reason
+#: to import something with side effects.
+OPAQUE_TOOL = "import argparse  # no build_parser(), so nothing to ask\n"
+
+CORPUS_WORKFLOW = """name: Public corpus
+
+on:
+  workflow_dispatch:
+    inputs:
+      repos:
+        description: 'Comma-separated repo names from repos.json (empty = all)'
+        required: false
+        default: ''
+
+jobs:
+  corpus:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: fetch the pinned corpus
+        run: |
+          python tools/%s
+          du -sh .public-corpus
+"""
+
+#: The three spellings that matter: the one that failed, and the two that work.
+AFTER_THE_SUBCOMMAND = ("public_corpus.py fetch "
+                        "${{ github.event.inputs.repos && "
+                        "format('--repo {0}', github.event.inputs.repos) || '' }}")
+BEFORE_THE_SUBCOMMAND = ("public_corpus.py "
+                         "${{ github.event.inputs.repos && "
+                         "format('--repo {0}', github.event.inputs.repos) || '' }} "
+                         "fetch")
+THROUGH_THE_ENVIRONMENT = 'public_corpus.py ${REPOS:+--repo "$REPOS"} fetch'
+
+
+def _workflow_tree(command, tool=PRE_FIX_TOOL):
+    return _tree({"README.md": "# mlview\n",
+                  "tools/public_corpus.py": tool,
+                  ".github/workflows/public-corpus.yml": CORPUS_WORKFLOW % command})
+
+
+def test_a_ci_line_the_tool_would_refuse_is_caught():
+    """The defect itself: the selector after the subcommand, pre-fix parser."""
+    root = _workflow_tree(AFTER_THE_SUBCOMMAND)
+    try:
+        problems = check_docs.run(root)[0]
+        assert len(problems) == 1, problems
+        assert "PUB2-10" in problems[0]
+        assert "unrecognized arguments" in problems[0], problems[0]
+        assert "tools/public_corpus.py" in problems[0]
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_the_same_line_before_the_subcommand_is_clean():
+    root = _workflow_tree(BEFORE_THE_SUBCOMMAND)
+    try:
+        assert check_docs.run(root)[0] == [], check_docs.run(root)[0]
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_an_input_passed_through_the_environment_is_clean():
+    """`${REPOS:+--repo "$REPOS"}` is the injection-safe spelling, and it has to
+    stay checkable: either it contributes its text or it contributes nothing."""
+    root = _workflow_tree(THROUGH_THE_ENVIRONMENT)
+    try:
+        assert check_docs.run(root)[0] == [], check_docs.run(root)[0]
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_the_real_tool_accepts_both_orders():
+    """The fix, asserted against the real parser rather than a fixture of it."""
+    root = _workflow_tree(AFTER_THE_SUBCOMMAND, tool="# replaced below\n")
+    try:
+        shutil.copy(REPO / "tools" / "public_corpus.py",
+                    root / "tools" / "public_corpus.py")
+        # The real tool brings check 17 with it: it names a download directory.
+        io.open(root / ".gitignore", "w", encoding="utf-8",
+                newline="\n").write(".public-corpus/\n")
+        assert check_docs.run(root)[0] == [], check_docs.run(root)[0]
+        io.open(root / ".github/workflows/public-corpus.yml", "w",
+                encoding="utf-8", newline="\n").write(
+                    CORPUS_WORKFLOW % BEFORE_THE_SUBCOMMAND)
+        assert check_docs.run(root)[0] == [], check_docs.run(root)[0]
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_a_tool_without_a_parser_is_not_checked():
+    root = _tree({"README.md": "# mlview\n",
+                  "tools/opaque.py": OPAQUE_TOOL,
+                  ".github/workflows/ci.yml":
+                      CORPUS_WORKFLOW % "opaque.py --a-flag-nobody-declared"})
+    try:
+        assert check_docs.run(root)[0] == [], check_docs.run(root)[0]
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+NUMERIC_DEFAULT_TOOL = '''\
+import argparse
+
+
+def build_parser():
+    parser = argparse.ArgumentParser(prog="verify")
+    parser.add_argument("--scopes", action="store_true")
+    parser.add_argument("--fuzz", type=int, default=0)
+    return parser
+'''
+
+NIGHTLY_WORKFLOW = """name: Nightly
+
+on:
+  workflow_dispatch:
+    inputs:
+      cases:
+        required: false
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    steps:
+      - name: differential fuzz
+        run: python tools/verify.py --scopes --fuzz %s
+"""
+
+
+def test_a_numeric_default_inside_an_expression_is_read_as_a_number():
+    """`${{ inputs.cases || 2000 }}`: the literal in the expression is the value
+    the line really carries, and `--fuzz` takes an int. Collapsing every
+    expression to one opaque token would invent a failure here."""
+    root = _tree({"README.md": "# mlview\n",
+                  "tools/verify.py": NUMERIC_DEFAULT_TOOL,
+                  ".github/workflows/nightly.yml":
+                      NIGHTLY_WORKFLOW % "${{ github.event.inputs.cases || 2000 }}"})
+    try:
+        assert check_docs.run(root)[0] == [], check_docs.run(root)[0]
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_a_comparison_inside_an_expression_contributes_no_argument():
+    """`${{ inputs.strict == 'true' && '--strict' || '' }}` puts `--strict` or
+    nothing on the line -- never the word `true`, which the tool would refuse."""
+    root = _tree({"README.md": "# mlview\n",
+                  "tools/verify.py": NUMERIC_DEFAULT_TOOL,
+                  ".github/workflows/nightly.yml": NIGHTLY_WORKFLOW.replace(
+                      "--fuzz %s",
+                      "--fuzz 200 "
+                      "${{ github.event.inputs.strict == 'true' && '--scopes' || '' }}")
+                      % ()})
+    try:
+        assert check_docs.run(root)[0] == [], check_docs.run(root)[0]
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_the_real_workflows_only_run_command_lines_the_tools_accept():
+    """The gate on the real tree, and proof that it is not passing vacuously:
+    both tools really do answer with a parser."""
+    problems: list = []
+    doc_numbers.check_ci_command_lines(REPO, problems)
+    assert problems == [], problems
+    cache: dict = {}
+    for tool in ("tools/public_corpus.py", "tools/verify.py"):
+        assert doc_numbers.tool_parser(REPO, tool, cache) is not None, tool
+
+
+def test_the_real_corpus_workflow_passes_the_selector_in_both_steps():
+    """PUB2-10's second half: a dispatch that fetched one repository and then
+    analyzed all thirty-seven could not pass either. The two steps are generated
+    from one input, so the gate reads them as one claim."""
+    lines = doc_numbers._lines(
+        REPO / ".github" / "workflows" / "public-corpus.yml")
+    selectors = [(n, c) for n, c in doc_numbers._command_lines(lines)
+                 if "public_corpus.py" in c and "--repo " in c]
+    assert len(selectors) == 2, selectors
+    assert any(c.endswith(" fetch") for _, c in selectors), selectors
+    assert any(" run " in c for _, c in selectors), selectors
+    # ...and it reaches the CLI as one option, not as text pasted into the shell.
+    assert all("${REPOS:+" in c for _, c in selectors), selectors
+
+
+# ---------------------------------------------------------------- check 20
+# VIS2-17: docs/ACCURACY.md said "Only MLV101 and MLV102 consume the hop chain"
+# long after IP-01 made the payment rule-agnostic. Measured in `ip` on the
+# labelled corpus, the rules that paid were MLV101, MLV401 and MLV803 -- the
+# sentence named a rule that does not pay and missed two that do.
+RULES_CONTEXT = '''\
+class RuleContext:
+    def note_hops(self, ref, scope=None):
+        self._hop_reads.append((self.current_rule.code, scope, ref))
+'''
+
+HOP_DOC = """# ACCURACY
+
+## 6 - ip
+
+* **%s** The rest of the paragraph is ordinary prose about `--dataflow ip`.
+"""
+
+EXCLUSIVE = "Only MLV101 and MLV102 consume the hop chain.**"
+REVERSED = "MLV101 and MLV102 are the only rules that pay for a hop.**"
+MEASURED = ("Which rules consume the hop chain is a measurement: MLV101, MLV401 "
+            "and MLV803 paid on this corpus.**")
+
+
+def _hop_tree(sentence, constant=""):
+    files = {"README.md": "# mlview\n",
+             "docs/ACCURACY.md": HOP_DOC % sentence,
+             "analyzer/src/mlview/rules/context.py": RULES_CONTEXT}
+    if constant:
+        files["analyzer/src/mlview/rules/confidence.py"] = constant
+    return _tree(files)
+
+
+def test_an_exclusive_list_of_hop_paying_rules_is_caught():
+    root = _hop_tree(EXCLUSIVE)
+    try:
+        problems = check_docs.run(root)[0]
+        assert len(problems) == 1, problems
+        assert "VIS2-17" in problems[0]
+        assert "MLV101, MLV102" in problems[0], problems[0]
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_the_same_claim_written_the_other_way_round_is_caught():
+    root = _hop_tree(REVERSED)
+    try:
+        problems = check_docs.run(root)[0]
+        assert len(problems) == 1, problems
+        assert "VIS2-17" in problems[0]
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_the_list_is_allowed_when_the_code_holds_one():
+    """The gate is against a list nobody can check, not against lists."""
+    root = _hop_tree(EXCLUSIVE,
+                     constant='HOP_CHAIN_CODES = ("MLV101", "MLV102")\n')
+    try:
+        assert check_docs.run(root)[0] == [], check_docs.run(root)[0]
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_a_measurement_is_not_a_claim_of_exclusivity():
+    root = _hop_tree(MEASURED)
+    try:
+        assert check_docs.run(root)[0] == [], check_docs.run(root)[0]
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_only_and_a_rule_code_in_two_different_bullets_are_two_claims():
+    """The first run of this check read a whole Markdown list as one block and
+    reported three sentences that had nothing to do with each other."""
+    root = _hop_tree("Fine.**\n\n* The absence rules (`MLV301`, `MLV302`) reach "
+                     "one import hop, no further.\n* A gate de-rates a finding "
+                     "only when a wrapper is in the module.")
+    try:
+        assert check_docs.run(root)[0] == [], check_docs.run(root)[0]
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_the_real_docs_make_no_unheld_claim_about_who_pays_for_a_hop():
+    problems: list = []
+    current, _ = check_docs.docs(REPO)
+    doc_numbers.check_hop_claims(REPO, current, problems)
+    assert problems == [], problems
+    assert doc_numbers.hop_code_constants(REPO) == [], (
+        "a constant now enumerates hop-paying rule codes; check 20 will start "
+        "allowing a list in the prose, so say which constant it is here")
 
 
 def main() -> int:
