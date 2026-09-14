@@ -19,11 +19,21 @@ from .registry import rule
 __all__ = ["missing_super_init", "unregistered_submodules"]
 
 #: Bases whose subclasses must chain to `super().__init__()`.
+#:
+#: vision-13: `LightningDataModule` was missing, although the rule already
+#: declared `lightning` in its frameworks list. `LightningDataModule.__init__`
+#: installs the hook bookkeeping Lightning needs - skipping it makes
+#: `save_hyperparameters()` raise and the trainer's dataloader wiring
+#: misbehave, which is the same always-a-bug, purely syntactic defect that
+#: earned this rule its high severity and 0.97 prior.
 _MODULE_BASES = (
     "torch.nn.Module",
     "pytorch_lightning.LightningModule",
     "lightning.LightningModule",
     "lightning.pytorch.LightningModule",
+    "pytorch_lightning.LightningDataModule",
+    "lightning.LightningDataModule",
+    "lightning.pytorch.LightningDataModule",
 )
 
 #: Containers that *do* register their contents.

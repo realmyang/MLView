@@ -160,8 +160,21 @@ def _blinded(what: str, raise_hint: str = "") -> str:
 def _answer(sentence: str, cited: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
     """One answer. `confidence` is the **weakest** node it rests on, so the
     number cannot be inflated by a long list with one shaky member; with
-    nothing cited it is 0.0 and the sentence says why in words."""
-    nodes = list(cited)
+    nothing cited it is 0.0 and the sentence says why in words.
+
+    PUB-11: the citation list is de-duplicated by id. `_evaluation` cites
+    `loops[:2] + metrics[:2] + guards[:2]` and one node can be two of those, so
+    `answers.evaluation.nodeIds` came back as `[a, b, a, b]` - which is how the
+    same two locations ended up in both halves of one sentence.
+    """
+    nodes: List[Dict[str, Any]] = []
+    seen: set = set()
+    for node in cited:
+        key = node.get("id")
+        if key in seen:
+            continue
+        seen.add(key)
+        nodes.append(node)
     confidence = 0.0
     if nodes:
         confidence = min(float(n.get("confidence") or 0.0) for n in nodes)
@@ -260,14 +273,44 @@ def _is_guard(node: Dict[str, Any]) -> bool:
     return fqn.endswith(".eval") or "no_grad" in fqn or "inference_mode" in fqn
 
 
+def _eval_rank(node: Dict[str, Any]) -> int:
+    """Evidence strength, strongest first (PUB-11).
+
+    The node list is sorted `(stage order, file, line, col)`, so on nanoGPT the
+    evaluation answer cited two `with torch.no_grad(): sd[k].copy_(...)` blocks
+    inside `GPT.from_pretrained` - weight loading, not evaluation - and folded
+    the real `estimate_loss()` into "(+2 more)", purely because `model.py`
+    sorts before `train.py`. A reader who clicked the evaluation answer landed
+    in the weight loader. File order is a tiebreak, never the ranking.
+    """
+    kind = node.get("kind") or ""
+    fqn = node.get("fqn") or ""
+    guard = "no_grad" in fqn or "inference_mode" in fqn
+    if kind == "eval_loop" and node.get("level") == "unit":
+        return 0                     # a real evaluation region
+    if kind == "eval_loop" and not guard:
+        return 1                     # a real loop over held-out data
+    if kind == "metric":
+        return 2
+    if fqn.endswith(".eval"):
+        return 3                     # model.eval() is a real evaluation signal
+    return 4                         # a bare no_grad() block is the weakest
+
+
+def _by_evidence(nodes: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Stable sort by evidence strength; ties keep document order."""
+    return sorted(nodes, key=_eval_rank)
+
+
 def _evaluation(nodes: List[Dict[str, Any]], coverage: str = "",
                 rolled: bool = False) -> Dict[str, Any]:
     eval_nodes = [n for n in nodes if n.get("stage") == "eval"]
     loops, dropped = _pick(eval_nodes, kind="eval_loop")
     metrics, dropped_metrics = _pick(eval_nodes, kind="metric")
     dropped += dropped_metrics
-    guards = [n for n in eval_nodes if not n.get("ghost") and _is_guard(n)
-              and _confident(n)]
+    loops = _by_evidence(loops)
+    guards = _by_evidence([n for n in eval_nodes if not n.get("ghost")
+                           and _is_guard(n) and _confident(n)])
     missing = _ghosts(eval_nodes, _is_guard)
     if not loops and not metrics and not guards:
         if rolled:
@@ -280,6 +323,16 @@ def _evaluation(nodes: List[Dict[str, Any]], coverage: str = "",
                   "or runs the model in eval mode, so this pipeline's quality "
                   "is not measured anywhere MLView can see.")
         return _answer(absent + _dropped_clause(dropped), ())
+    # INFRA-14: a serving-only package has no optimizer, no loss, no backward
+    # and no metric - only a handler and a prediction call. The knowledge tables
+    # map PREDICT into the Evaluate lane, which is the right modelling choice
+    # and is what makes a JAX `eval_step` land correctly; on a pure inference
+    # package the lane title "Evaluate" then reads as "this project measures its
+    # quality", which it does not. One clause costs nothing in the graph and
+    # stops the lane from over-claiming.
+    serving = (not metrics and bool(eval_nodes)
+               and not [n for n in nodes if n.get("stage") == "train"]
+               and not [n for n in nodes if n.get("stage") == "objective"])
     if loops and metrics:
         sentence = ("Evaluation runs in %s, computing %s"
                     % (_listing(loops, limit=2), _listing(metrics, limit=2)))
@@ -300,6 +353,10 @@ def _evaluation(nodes: List[Dict[str, Any]], coverage: str = "",
                      "torch.no_grad() covers %s." % _at(missing[0]))
     else:
         sentence += "."
+    if serving:
+        sentence += (" Nothing here measures quality: this workspace has no training "
+                     "stage and no metric, so the Evaluate lane holds prediction calls "
+                     "on a serving path.")
     cited = loops[:2] + metrics[:2] + guards[:2]
     return _answer(sentence + _dropped_clause(dropped), cited)
 

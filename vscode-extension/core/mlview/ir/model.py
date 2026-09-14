@@ -364,6 +364,12 @@ class WorkspaceIR:
     #: ANA-3: `pkg.Net` -> `pkg.net.Net` for every symbol a workspace module
     #: re-exports, already followed to the definition (cap `_MAX_REEXPORT_HOPS`).
     reexports: Dict[str, str] = field(default_factory=dict)
+    #: ROB-01. `(relpath, message)` for every module whose IR walk raised -
+    #: a `RecursionError` on a legal-but-deep AST is the measured case. The
+    #: module is dropped and the pipeline turns the row into a `parse_error`
+    #: diagnostic, so one unanalysable file costs one file rather than the
+    #: whole run.
+    walk_failures: List[Tuple[str, str]] = field(default_factory=list)
     #: (relpath, line, message) for every import that resolved to nothing while
     #: a module of that name does exist somewhere in the workspace - the
     #: degradation is reported instead of silently shrinking the graph.

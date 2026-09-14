@@ -122,14 +122,27 @@ export class FilterModel {
     this.patch({ severities: next });
   }
 
-  /** `laneIds` is every drawn lane; "everything on" is stored as the empty list. */
-  toggleStage(stageId: string, laneIds: string[]): void {
+  /**
+   * `laneIds` is every drawn lane; "everything on" is stored as the empty list.
+   *
+   * HOSTS-UX-STAGERESET: that encoding has one gesture it cannot express. Turn
+   * the last remaining lane OFF and `next` is empty, which means "everything
+   * on" — so the chips all flip back, 45 dimmed cards undim, and the rail goes
+   * from 0 findings back to 15. The model keeps that behaviour (an empty
+   * selection is the only sane resting state), and the RETURN VALUE is what
+   * makes it explicable: true when the reader turned the last lane off and got
+   * everything back, so the caller can say so instead of leaving it observed.
+   */
+  toggleStage(stageId: string, laneIds: string[]): boolean {
     let next = this.current.stages.slice();
     if (next.length === 0) next = laneIds.slice();
     const at = next.indexOf(stageId);
     if (at >= 0) next.splice(at, 1);
     else next.push(stageId);
+    // Emptied by a removal, not by a lane list that was empty to begin with.
+    const emptied = next.length === 0 && laneIds.length > 0;
     if (next.length === laneIds.length) next = [];
     this.patch({ stages: next });
+    return emptied;
   }
 }

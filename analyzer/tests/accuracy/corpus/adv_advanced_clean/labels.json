@@ -1,0 +1,323 @@
+{
+  "name": "adv_advanced_clean",
+  "title": "Four advanced training patterns, all correct: QAT + export, uncertainty-weighted multi-task, a legitimate curriculum re-split, and knowledge distillation",
+  "origin": "written for the domain-generative-rl-graph hardening round, 2026-09-13",
+  "tuned": false,
+  "labelledBy": "hardening round 1, domain-generative-rl-graph, 2026-09-13",
+  "note": "A four-file false-positive battery. Each file is one shape a rule is most likely to get wrong: QAT calls model.eval() mid-script on purpose; the multi-task loss is three terms summed in a helper; the curriculum re-splits a growing labelled pool every round, which is legitimate; and distillation pairs log_softmax with softmax inside a KL divergence, which is correct. Any finding on any of these four files is a false positive.",
+  "expected": [],
+  "forbidden": [
+    {
+      "code": "MLV101",
+      "file": "curriculum.py",
+      "why": "every transformer lives inside the Pipeline built at line 40, which is fitted at line 89 on the training fold of the round only; the test split was cut once at line 65 and is not read again until line 106"
+    },
+    {
+      "code": "MLV102",
+      "file": "curriculum.py",
+      "why": "nothing is fitted on holdout_features or test_features - both are only ever passed to predict()"
+    },
+    {
+      "code": "MLV103",
+      "file": "curriculum.py",
+      "why": "the estimator handed to fit() is a Pipeline, so the scaler and the selector are refitted per round on the training fold"
+    },
+    {
+      "code": "MLV106",
+      "file": "curriculum.py",
+      "why": "there is no temporal signal in this project - no pd.to_datetime, no parse_dates, no sort on a date column, no statsmodels/prophet/darts import"
+    },
+    {
+      "code": "MLV601",
+      "file": "curriculum.py",
+      "anchor": "project",
+      "why": "random.seed and np.random.seed are called at lines 59-60, every split passes random_state=, and torch.manual_seed is called in the other three files"
+    },
+    {
+      "code": "MLV602",
+      "file": "curriculum.py",
+      "why": "both train_test_split calls pass an explicit random_state= (SEED at line 65, SEED + round_index at line 84)"
+    },
+    {
+      "code": "MLV110",
+      "file": "qat_export.py",
+      "why": "the training loader is built with shuffle=True"
+    },
+    {
+      "code": "MLV110",
+      "file": "multitask.py",
+      "why": "the training loader is built with shuffle=True"
+    },
+    {
+      "code": "MLV110",
+      "file": "distill.py",
+      "why": "the training loader is built with shuffle=True"
+    },
+    {
+      "code": "MLV111",
+      "file": "qat_export.py",
+      "why": "the validation loader is built with shuffle=False"
+    },
+    {
+      "code": "MLV111",
+      "file": "multitask.py",
+      "why": "the validation loader is built with shuffle=False"
+    },
+    {
+      "code": "MLV111",
+      "file": "distill.py",
+      "why": "the validation loader is built with shuffle=False"
+    },
+    {
+      "code": "MLV112",
+      "file": "qat_export.py",
+      "why": "every loader is constructed inside main(), which runs only under the if __name__ == \"__main__\" guard"
+    },
+    {
+      "code": "MLV112",
+      "file": "multitask.py",
+      "why": "every loader is constructed inside main(), which runs only under the if __name__ == \"__main__\" guard"
+    },
+    {
+      "code": "MLV112",
+      "file": "distill.py",
+      "why": "every loader is constructed inside main(), which runs only under the if __name__ == \"__main__\" guard"
+    },
+    {
+      "code": "MLV201",
+      "file": "qat_export.py",
+      "why": "optimizer.zero_grad(set_to_none=True) is the first statement of every fine-tuning step"
+    },
+    {
+      "code": "MLV201",
+      "file": "multitask.py",
+      "why": "optimizer.zero_grad(set_to_none=True) is called before the forward pass of every step"
+    },
+    {
+      "code": "MLV201",
+      "file": "distill.py",
+      "why": "optimizer.zero_grad(set_to_none=True) is called after the teacher forward and before the student forward"
+    },
+    {
+      "code": "MLV202",
+      "file": "qat_export.py",
+      "why": "optimizer.step() is called after backward in every step"
+    },
+    {
+      "code": "MLV202",
+      "file": "multitask.py",
+      "why": "optimizer.step() is called after total.backward()"
+    },
+    {
+      "code": "MLV202",
+      "file": "distill.py",
+      "why": "optimizer.step() is called after loss.backward()"
+    },
+    {
+      "code": "MLV203",
+      "file": "qat_export.py",
+      "why": "the order is zero_grad -> backward -> clip -> step"
+    },
+    {
+      "code": "MLV203",
+      "file": "multitask.py",
+      "why": "the order is zero_grad -> backward -> step"
+    },
+    {
+      "code": "MLV203",
+      "file": "distill.py",
+      "why": "the order is zero_grad -> backward -> clip -> step"
+    },
+    {
+      "code": "MLV204",
+      "file": "distill.py",
+      "why": "the no_grad block wraps the teacher forward only; the student's loss.backward() is outside it"
+    },
+    {
+      "code": "MLV205",
+      "file": "qat_export.py",
+      "why": "running accumulates loss.item()"
+    },
+    {
+      "code": "MLV205",
+      "file": "multitask.py",
+      "why": "running accumulates total.item()"
+    },
+    {
+      "code": "MLV205",
+      "file": "distill.py",
+      "why": "running accumulates loss.item()"
+    },
+    {
+      "code": "MLV207",
+      "file": "multitask.py",
+      "why": "CosineAnnealingLR is an epoch schedule and scheduler.step() is called once per epoch, outside the batch loop"
+    },
+    {
+      "code": "MLV209",
+      "file": "qat_export.py",
+      "why": "clip_grad_norm_ sits between backward and step"
+    },
+    {
+      "code": "MLV209",
+      "file": "distill.py",
+      "why": "clip_grad_norm_ sits between backward and step"
+    },
+    {
+      "code": "MLV301",
+      "file": "qat_export.py",
+      "why": "accuracy() calls model.eval() and fine_tune() calls model.train() at the top of every epoch; the prepared.eval() before convert is what the QAT recipe requires and nothing trains after it"
+    },
+    {
+      "code": "MLV301",
+      "file": "multitask.py",
+      "why": "evaluate() calls model.eval() and train_one_epoch() calls model.train() at the top of every epoch"
+    },
+    {
+      "code": "MLV301",
+      "file": "distill.py",
+      "why": "the teacher is put in eval mode at load_teacher() before it is ever called, and evaluate() calls student.eval() while train_one_epoch() calls student.train()"
+    },
+    {
+      "code": "MLV302",
+      "file": "qat_export.py",
+      "why": "accuracy() carries the @torch.no_grad() decorator"
+    },
+    {
+      "code": "MLV302",
+      "file": "multitask.py",
+      "why": "evaluate() carries the @torch.no_grad() decorator"
+    },
+    {
+      "code": "MLV302",
+      "file": "distill.py",
+      "why": "evaluate() carries the @torch.no_grad() decorator and the teacher forward is inside a torch.no_grad() block"
+    },
+    {
+      "code": "MLV401",
+      "file": "qat_export.py",
+      "why": "QuantizableCNN.forward returns the dequantised classifier output; no softmax precedes CrossEntropyLoss"
+    },
+    {
+      "code": "MLV401",
+      "file": "multitask.py",
+      "why": "the classification head returns raw logits into CrossEntropyLoss"
+    },
+    {
+      "code": "MLV401",
+      "file": "distill.py",
+      "why": "the hard term is F.cross_entropy(student_logits, labels) on raw logits; the log_softmax/softmax pair belongs to F.kl_div, which is the correct KL form"
+    },
+    {
+      "code": "MLV402",
+      "file": "multitask.py",
+      "why": "there is no binary cross-entropy in this project"
+    },
+    {
+      "code": "MLV501",
+      "file": "qat_export.py",
+      "why": "both loops move images and labels to the device before the forward pass"
+    },
+    {
+      "code": "MLV501",
+      "file": "multitask.py",
+      "why": "both loops move features, labels and targets to DEVICE before the forward pass"
+    },
+    {
+      "code": "MLV501",
+      "file": "distill.py",
+      "why": "both loops move features and labels to DEVICE before either forward pass"
+    },
+    {
+      "code": "MLV502",
+      "file": "qat_export.py",
+      "why": "DEVICE is chosen by torch.cuda.is_available(); the later .to(\"cpu\") is the documented QAT conversion step"
+    },
+    {
+      "code": "MLV602",
+      "file": "qat_export.py",
+      "why": "random_split is given generator=torch.Generator().manual_seed(SEED)"
+    },
+    {
+      "code": "MLV602",
+      "file": "multitask.py",
+      "why": "random_split is given generator=torch.Generator().manual_seed(SEED)"
+    },
+    {
+      "code": "MLV602",
+      "file": "distill.py",
+      "why": "random_split is given generator=torch.Generator().manual_seed(SEED)"
+    },
+    {
+      "code": "MLV701",
+      "file": "qat_export.py",
+      "why": "QuantizableCNN.__init__ calls super().__init__() on its first line"
+    },
+    {
+      "code": "MLV701",
+      "file": "multitask.py",
+      "why": "MultiTaskNet.__init__ calls super().__init__() on its first line"
+    },
+    {
+      "code": "MLV701",
+      "file": "distill.py",
+      "why": "Teacher.__init__ and Student.__init__ both call super().__init__() on their first line"
+    },
+    {
+      "code": "MLV702",
+      "file": "multitask.py",
+      "why": "the two heads live in an nn.ModuleDict, which registers them"
+    },
+    {
+      "code": "MLV702",
+      "file": "qat_export.py",
+      "why": "every submodule is a plain attribute or lives inside nn.Sequential"
+    },
+    {
+      "code": "MLV702",
+      "file": "distill.py",
+      "why": "every submodule is a plain attribute or lives inside nn.Sequential"
+    },
+    {
+      "code": "MLV803",
+      "file": "qat_export.py",
+      "why": "torch.save is given quantized.state_dict() and torch.load passes weights_only=True and map_location="
+    },
+    {
+      "code": "MLV803",
+      "file": "multitask.py",
+      "why": "torch.save is given model.state_dict()"
+    },
+    {
+      "code": "MLV803",
+      "file": "distill.py",
+      "why": "torch.save is given student.state_dict() and torch.load passes weights_only=True and map_location="
+    }
+  ],
+  "unsupported": [
+    {
+      "wouldBe": "MLV117",
+      "file": "curriculum.py",
+      "defect": "not a defect - this program gets this shape right",
+      "why": "both train_test_split calls pass stratify= (recorded here rather than as a `forbidden` row because MLV117 is a later-tier rule that is not registered yet)"
+    },
+    {
+      "wouldBe": "MLV206",
+      "file": "multitask.py",
+      "defect": "not a defect - this program gets this shape right",
+      "why": "the three-term uncertainty-weighted objective is summed into one scalar and back-propagated once (recorded here rather than as a `forbidden` row because MLV206 is a later-tier rule that is not registered yet)"
+    },
+    {
+      "wouldBe": "MLV303",
+      "file": "qat_export.py",
+      "defect": "not a defect - this program gets this shape right",
+      "why": "fine_tune() calls model.train() at the top of every epoch, so eval mode is always restored before the next epoch (recorded here rather than as a `forbidden` row because MLV303 is a later-tier rule that is not registered yet)"
+    },
+    {
+      "wouldBe": "MLV404",
+      "file": "multitask.py",
+      "defect": "not a defect - this program gets this shape right",
+      "why": "the classification head is Linear(128, num_classes) with CrossEntropyLoss and the regression head is Linear(128, 1) with MSELoss - both pairings are right (recorded here rather than as a `forbidden` row because MLV404 is a later-tier rule that is not registered yet)"
+    }
+  ]
+}

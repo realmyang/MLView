@@ -52,6 +52,18 @@ _FAMILY_BASE = {
     "hf_dataset": "datasets.Dataset",
     "keras_dataset": "tensorflow.data.Dataset",
     "lightning_module": "pytorch_lightning.LightningModule",
+    # INFRA-03 / INFRA-04 / TAB-01. Each of these is a wrapper object whose
+    # methods *are* the pipeline: `learn.fine_tune(...)`, `engine.save_
+    # checkpoint(...)`, `evaluator.run(...)`, `model.fit()` on a SARIMAX.
+    # Without the family the method call resolves to nothing and the stage it
+    # belongs to is declared absent on correct code.
+    "fastai_learner": "fastai.learner.Learner",
+    "deepspeed_engine": "deepspeed.DeepSpeedEngine",
+    "ignite_evaluator": "ignite.engine.create_supervised_evaluator",
+    "statsmodel": "statsmodels.api.SARIMAX",
+    "prophet": "prophet.Prophet",
+    "timm_scheduler": "timm.scheduler.CosineLRScheduler",
+    "mixup": "timm.data.Mixup",
 }
 
 

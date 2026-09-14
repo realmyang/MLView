@@ -41,9 +41,10 @@ _REPO_ROOT = os.path.dirname(_PLUGIN_ROOT)
 __all__ = [
     "project_dir", "data_dir", "cache_dir", "shared_cache_dir",
     "resolve_path", "resolve_out",
+    "FRAMEWORKS", "normalize_framework",
     "analyzer_identity", "file_signature", "graph_file_for",
     "load_graph", "load_graph_or_file", "load_attributed",
-    "read_source", "rule_doc", "rule_spec", "RULE_DOC_ROOTS",
+    "read_source", "rule_doc", "rule_spec", "rule_codes", "RULE_DOC_ROOTS",
 ]
 
 
@@ -59,6 +60,51 @@ _SKIP_DIRS = {
 
 # In-process memo: (resolved path, framework, maxNodes, signature) -> (graph, path)
 _CACHE: Dict[Any, Any] = {}
+
+
+# --------------------------------------------------------------- argument guards
+#: The six values `--framework` accepts (`analyzer/src/mlview/cli_parser.py`, the
+#: argparse `choices` on `analyze`). The MCP boundary holds the same vocabulary
+#: because of what the value DOES: `mlview.rules.registry._applies` keeps a rule
+#: that declares frameworks only when `framework_filter in spec.frameworks`, so a
+#: name no rule declares disables every framework-specific rule at once instead of
+#: failing. Measured on `samples/vision_pipeline` before this guard existed:
+#: `framework="auto"` -> 54 nodes, 15 findings, 5 high; `framework="pytorch"`,
+#: `"TORCH"` or `"Lightning"` -> 52 nodes, 1 finding, 0 high, with
+#: `frameworks: ["torch", "sklearn", ...]` still reported in the same payload and
+#: no note anywhere in it.
+FRAMEWORKS = ("auto", "torch", "sklearn", "keras", "hf", "lightning")
+
+
+def normalize_framework(framework: Optional[str]) -> str:
+    """The canonical spelling of a ``framework`` argument, or ``ValueError``.
+
+    Case and surrounding whitespace are folded first — ``"TORCH"`` and ``" torch "``
+    name the same extractor filter, and this boundary already folds ``format`` and
+    upper-cases ``code`` the same way. A missing or empty value is ``"auto"``,
+    which is what every caller's default already meant.
+
+    Anything else is a caller mistake the model can fix by retrying, so it raises
+    ``ValueError`` — which ``mlview_mcp.visible_errors`` turns into a ``ToolError``
+    whose text reaches the model verbatim. Analyzing anyway is the one behaviour
+    ruled out: a filter that names no extractor must never quietly return a
+    shorter finding list, because the caller cannot tell that answer from a clean
+    project. This is the MCP half of the CLI's argparse ``choices``.
+    """
+    if framework is None:
+        return "auto"
+    name = str(framework).strip().lower()
+    if not name:
+        return "auto"
+    if name not in FRAMEWORKS:
+        raise ValueError(
+            "framework=%r is not valid; accepted values are %s. An unrecognized "
+            "name matches no rule's declared framework, so it would silently drop "
+            "every framework-specific finding instead of failing; omit the "
+            "argument to analyze with every extractor."
+            % (framework, ", ".join(repr(f) for f in FRAMEWORKS))
+        )
+    return name
 
 
 # ------------------------------------------------------------------ path handling
@@ -297,9 +343,12 @@ def load_graph(
     a clean bill of health for code the run never read. Sidecars written before the
     flag existed carry a shorter key and simply miss, which costs one analysis.
     """
+    # Before the cache key, so `"TORCH"` and `"torch"` are one entry and an
+    # unknown name never reaches `AnalyzeOptions` (nor a sidecar on disk).
+    framework = normalize_framework(framework)
     resolved = resolve_path(path)
     signature = file_signature(resolved)
-    key = (resolved, framework or "auto", int(max_nodes), bool(include_notebooks),
+    key = (resolved, framework, int(max_nodes), bool(include_notebooks),
            signature)
     graph_path = graph_file_for(resolved)
 
@@ -335,7 +384,7 @@ def load_graph(
         graph = analyze_to_dict(
             AnalyzeOptions(
                 paths=(resolved,),
-                framework=framework or "auto",
+                framework=framework,
                 max_nodes=int(max_nodes),
                 include_notebooks=bool(include_notebooks),
             )
@@ -389,13 +438,14 @@ def load_attributed(
         sys.path.insert(0, _SERVER_DIR)
     import mlview_adopt  # noqa: PLC0415 - sibling module, after the sys.path bootstrap
 
+    framework = normalize_framework(framework)
     resolved = resolve_path(path)
     log.info("analyzing %s with attribution (changedSince=%s baseline=%s "
              "includeNotebooks=%s)", resolved, changed_since, baseline,
              bool(include_notebooks))
     with shared_cache_dir():
         graph, notes = mlview_adopt.analyze_attributed(
-            resolved, framework=framework or "auto", max_nodes=int(max_nodes),
+            resolved, framework=framework, max_nodes=int(max_nodes),
             changed_since=changed_since, baseline=baseline,
             include_notebooks=bool(include_notebooks),
         )
@@ -475,4 +525,27 @@ def rule_spec(code: str) -> Optional[Dict[str, Any]]:
         "tags": list(spec.tags), "absence": spec.absence, "enabled": spec.enabled,
         "title": spec.title, "why": spec.why, "fix_hint": spec.fix_hint,
     }
+
+
+def rule_codes() -> Optional[frozenset]:
+    """Every code the registry knows, or ``None`` when the registry cannot say.
+
+    `mlview_issues` passes it so that `code=["NOPE"]` (no such rule — a typo the
+    caller can fix) is distinguishable from `code=["MLV601"]` (a real rule that
+    found nothing here — a fact about the project). Both answer with an empty
+    list today, and an empty list from a listing tool is the shape a model reads
+    as "clean".
+
+    ``None`` rather than an empty set on failure, so a registry that could not be
+    imported cannot be mistaken for "no rule exists" and turn every code into a
+    typo in the note.
+    """
+    try:
+        from mlview.rules import registry  # noqa: PLC0415 - after the bootstrap
+
+        registry.discover_rules()
+        return frozenset(spec.code.upper() for spec in registry.all_rules())
+    except Exception as exc:  # a registry problem must not sink the tool
+        log.warning("rule registry unavailable: %s", exc)
+        return None
 

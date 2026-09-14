@@ -59,6 +59,15 @@ STAGE_IDS = scopes.STAGE_IDS
 
 GRAPH_FORMATS = ("mermaid", "text", "json")
 
+#: `mlview_issues`' documented default row cap, and the floor a non-positive one
+#: is held to. One row, not twenty: `mlview_scope.clamp_depth` holds `depth` at the
+#: nearest LEGAL value rather than at its default, and this is the same treatment.
+DEFAULT_ISSUE_LIMIT = 20
+MIN_ISSUE_LIMIT = 1
+
+#: `mlview_analyze`'s documented graph cap (CONTRACTS section 3, `--max-nodes`).
+DEFAULT_MAX_NODES = 400
+
 
 def _reject(argument: str, value: Any, accepted: Sequence[str], extra: str = "") -> None:
     """Raise the message the model should see for an out-of-range enum value.
@@ -73,6 +82,69 @@ def _reject(argument: str, value: Any, accepted: Sequence[str], extra: str = "")
         "%s=%r is not valid; accepted values are %s%s"
         % (argument, value, ", ".join(repr(a) for a in accepted), extra)
     )
+
+
+def clamp_limit(limit: Any, default: int = DEFAULT_ISSUE_LIMIT) -> tuple:
+    """``(rows, note)`` — the row cap held at or above 1, saying so when it moved.
+
+    The `depth` treatment (`mlview_scope.clamp_depth`) applied to the one other
+    numeric argument that can empty a payload on its own. `limit=0` and
+    `limit=-3` used to return ``issues: []`` beside a ``countBySeverity`` of
+    fifteen findings and no note — and an empty list from a tool the caller asked
+    for a LISTING is the shape a model reads as "there are none".
+
+    Out of range is clamped **and said**, never one without the other: an enum is
+    rejected (`_reject`) because there is no nearest legal value, a bound has one.
+    A value that is not a number at all cannot be honoured, so the documented
+    default is used and the note names it.
+    """
+    if limit is None:
+        return default, None
+    try:
+        value = int(limit)
+    except (TypeError, ValueError):
+        return default, "limit=%r is not an integer; the default %d was used" % (
+            limit, default,
+        )
+    if value < MIN_ISSUE_LIMIT:
+        return MIN_ISSUE_LIMIT, "limit=%d is below the minimum %d; %d was used" % (
+            value, MIN_ISSUE_LIMIT, MIN_ISSUE_LIMIT,
+        )
+    return value, None
+
+
+def max_nodes_note(max_nodes: Any, default: int = DEFAULT_MAX_NODES) -> tuple:
+    """``(budget, note)`` — `maxNodes` as the analyzer will read it, said out loud.
+
+    NOT a clamp, deliberately. CONTRACTS 11.46 A is normative: `apply_node_budget`
+    returns having mutated nothing when ``max_nodes <= 0``, so a non-positive
+    budget means **uncapped**, and `--max-nodes 0` on the CLI means the same
+    thing. Substituting the default here would make the two hosts disagree about
+    one number. What was missing is the sentence: the payload came back with the
+    whole graph and ``truncated: false`` and nothing said the cap had been
+    dropped, so a caller that asked for a small graph believed it got one.
+
+    A value that is not an integer cannot be honoured at all, so the documented
+    default is used and the note names it.
+    """
+    if max_nodes is None:
+        return default, None
+    try:
+        value = int(max_nodes)
+    except (TypeError, ValueError):
+        return default, "maxNodes=%r is not an integer; the default %d was used" % (
+            max_nodes, default,
+        )
+    if value <= 0:
+        # Kept SHORT on purpose: `note` is a PROTECTED key, so every byte of it is
+        # paid for by `fit` shedding a row from `topIssues` — measured, a 232-byte
+        # sentence here cost the digest one of its eight findings. A bound note
+        # must never be more expensive than the finding it displaces.
+        return value, (
+            "maxNodes=%d is not a cap: a non-positive budget keeps the whole graph"
+            % value
+        )
+    return value, None
 
 
 # ------------------------------------------------------------------- mlview_analyze
@@ -148,6 +220,7 @@ def issues_payload(
     scope: Optional[str] = None,
     extra_notes: Sequence[str] = (),
     group_by: Optional[str] = None,
+    known_codes: Optional[Sequence[str]] = None,
 ) -> Dict[str, Any]:
     """The `mlview_issues` result: counts plus the ranked, filtered issue rows.
 
@@ -157,6 +230,12 @@ def issues_payload(
     With ``scope`` set, ``graph`` is expected to be the PROJECTION and only the
     retained findings are listed; the selector is echoed and the filtered-view
     note is added, so "3 issues" cannot be read as "this project has 3 issues".
+
+    ``limit`` is a BOUND, not an enum: out of range is clamped to the nearest legal
+    value and the note says it moved (`clamp_limit`), the way `depth` already was.
+    ``known_codes`` is optional and used only for the note: with it, a `code` entry
+    that names no rule is reported as a typo rather than answering with an empty
+    list a caller cannot tell from a clean project.
 
     With ``group_by`` set (RAIL-GROUP) the surviving rows are folded into one row
     per rule / file / severity and ``issues`` is omitted: eleven codes repeated ten
@@ -233,7 +312,27 @@ def issues_payload(
         groups = group_issues(rows, mode)
 
     matched = len(rows)
-    rows = rows[: max(0, int(limit))]
+    limit, limit_note = clamp_limit(limit)
+    rows = rows[:limit]
+
+    # An empty list is the payload a model is most likely to read as "nothing
+    # here", so every reason it could be empty has to be sayable. `code` is the
+    # one filter whose value can be nonsense: a severity or a groupBy outside the
+    # enum is already rejected outright, and a real rule that simply found
+    # nothing is a fact about the project, not a mistake.
+    code_note = None
+    if wanted:
+        known = {str(c).strip().upper() for c in known_codes} if known_codes is not None else None
+        parts = []
+        unknown = sorted(c for c in wanted if known is not None and c not in known)
+        if unknown:
+            parts.append("%s names no rule in this analyzer" % ", ".join(unknown))
+        if not matched:
+            parts.append(
+                "no finding matched code=%s (%d in this analysis)"
+                % (sorted(wanted), sum(counts.values()))
+            )
+        code_note = "; ".join(parts) or None
     workspace = graph.get("workspace") or {}
     files_analyzed = int(workspace.get("filesAnalyzed") or 0)
     files_failed = int(workspace.get("filesFailed") or 0)
@@ -263,6 +362,15 @@ def issues_payload(
     if coverage:
         out["coverage"] = coverage
     notes = [n for n in extra_notes if n]
+    if code_note:
+        # `code` filters the rows BEFORE they are folded, so this sentence is true
+        # of a grouped answer too.
+        notes.append(code_note)
+    if limit_note and groups is None:
+        # ...whereas `limit` caps only the flat list, which a grouped payload does
+        # not carry. Saying "1 was used" beside eleven groups would describe a cut
+        # that did not happen, which is the failure this note exists to prevent.
+        notes.append(limit_note)
     if groups is not None:
         notes.append(group_note(out["groupBy"], groups, matched))
     if scope:
@@ -614,6 +722,8 @@ __all__ = [
     "fit", "clip_text_lines",
     # the accepted argument values, and the per-tool builders
     "SEVERITY_ORDER", "STAGE_IDS", "GRAPH_FORMATS", "scopes",
+    "DEFAULT_ISSUE_LIMIT", "MIN_ISSUE_LIMIT", "DEFAULT_MAX_NODES",
+    "clamp_limit", "max_nodes_note",
     "analyze_payload", "issues_payload", "graph_payload", "diagnostics_summary",
     "coverage_notes",  # re-exported from mlview_notes: the COVERAGE reader
     # re-exported from mlview_views so callers and tests keep one import

@@ -23,7 +23,9 @@ from . import config as config_mod
 from . import relevance as relevance_mod
 from .build import GraphBuilder
 from .coverage import (note_unconfirmed_train_loops, note_untraced_sites,
+                       note_untyped_backward,
                        single_file_diagnostic)
+from .unknown_framework import unknown_framework_diagnostics
 from .unresolved import unresolved_callee_diagnostics
 from .graph import Diagnostic, MLGraph, SEVERITY_RANK
 from .rollup import apply_node_budget
@@ -169,6 +171,14 @@ def run(options: AnalyzeOptions) -> AnalysisResult:
     for bad in parse_failures:
         diagnostics.append(Diagnostic(kind="parse_error", message=bad.message,
                                       file=bad.relpath, line=bad.line))
+    # ROB-02 / ROB-04: what discovery refused to open, and what `os.walk` could
+    # not enter. Counted in `filesFailed` so `filesFailed: 0` keeps meaning
+    # "nothing went wrong" - a whole package that silently was not there is the
+    # second-worst failure this product can have.
+    for refused_path, why in found.refused:
+        failures += 1
+        diagnostics.append(Diagnostic(kind="parse_error", message=why,
+                                      file=refused_path))
 
     # NB: notebooks are ingested here, after the Python files and before the
     # "nothing parsed" exit, so a workspace that is *only* notebooks is a real
@@ -210,7 +220,12 @@ def run(options: AnalyzeOptions) -> AnalysisResult:
     builder = GraphBuilder(workspace, max_nodes=options.max_nodes)
     graph = builder.build()
     graph.diagnostics = diagnostics + list(graph.diagnostics)
-    graph.filesAnalyzed = len(parsed_files)
+    # ROB-01: a module the IR walk could not finish is a failed file, named.
+    for relpath, why in getattr(workspace, "walk_failures", ()):
+        failures += 1
+        graph.diagnostics.append(Diagnostic(kind="parse_error", message=why,
+                                            file=relpath))
+    graph.filesAnalyzed = len(parsed_files) - len(getattr(workspace, "walk_failures", ()))
     graph.filesFailed = failures
     graph.notebooksSkipped = notebooks_skipped
     graph.configPath = config.path
@@ -240,6 +255,14 @@ def run(options: AnalyzeOptions) -> AnalysisResult:
     # odd-syntax file lost its whole training step with `dynamic: 0` on every
     # node it kept, which is indistinguishable from a clean read.
     graph.diagnostics.extend(unresolved_callee_diagnostics(workspace))
+
+    # DGRG-01 / TAB-01 / PUB-10 / INFRA-03: the same guarantee for a library
+    # MLView has never heard of. `PPO(...)` resolves to a clean FQN through an
+    # ordinary import, so ANA-5a never fires - and the document said
+    # `not detected: model, objective, train, eval, deliver`, `diagnostics: []`
+    # and "No findings: no rule fired on this workspace" about a 95-line
+    # stable-baselines3 script. 11.23 A8's guarantee now holds by construction.
+    graph.diagnostics.extend(unknown_framework_diagnostics(workspace))
 
     # DATAFLOW-IP: every interprocedural chain the hop cap - or a set of call
     # sites the pass refused to merge - stopped. Reported rather than dropped:
@@ -281,6 +304,9 @@ def run(options: AnalyzeOptions) -> AnalysisResult:
     # happens to gate on it ran. Emits diagnostics only - never an issue.
     note_untraced_sites(context)
     note_unconfirmed_train_loops(context)
+    # TAB-02 / DGRG-02: a `.backward()` the IR could not type is the reason the
+    # objective lane can read as empty on a file that plainly back-propagates.
+    note_untyped_backward(context)
 
     _filter_issues(graph, options)
     drop_orphan_ghosts(graph)

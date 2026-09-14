@@ -15,7 +15,7 @@ import { add, button, clear, el, iconButton, on } from '../dom.js';
 import { uiIcon } from '../icons.js';
 import { concernRows, pipelineRows, scopeCatalog, stageRows } from '../scope/catalog.js';
 import type { ScopeGroup, ScopeUnit } from '../scope/catalog.js';
-import { rowSeverity } from '../scope/pipelines.js';
+import { drawnCount, rowSeverity } from '../scope/pipelines.js';
 import type { PipelineRow } from '../scope/pipelines.js';
 import type { MLGraph } from '../types.js';
 
@@ -205,16 +205,28 @@ export class ScopePicker {
   private pipelineRow(row: PipelineRow): HTMLElement {
     const spec = 'pipeline:' + row.entrypoint;
     const shared = row.sharedCount ? ' · ' + row.sharedCount + ' shared' : '';
-    const detail = row.nodeCount + (row.nodeCount === 1 ? ' node' : ' nodes') + shared;
+    // HOSTS-UX-PIPELINECOUNT: the number the CLICK delivers, not the relation's.
+    const drawn = drawnCount(row);
+    const detail = drawn + (drawn === 1 ? ' node' : ' nodes') + shared;
     const el_ = this.row(pipelineName(row.entrypoint), detail, spec, this.state.spec === spec);
     el_.setAttribute('data-pipeline', row.entrypoint);
+    el_.setAttribute('data-pipeline-nodes', String(drawn));
     const sev = rowSeverity(row);
     if (sev) el_.setAttribute('data-sev', sev);
+    // The projection keeps a `context` ancestor so `parent` still forms a
+    // forest (11.3), and that ancestor need not be inside the reach — so the
+    // row's number can exceed the relation's, and the tooltip says which is
+    // which rather than leaving a reader with an unexplained extra card.
+    const kept = drawn - row.nodeCount;
     el_.title =
       row.entrypoint + ' — ' + detail +
       (row.sharedCount
         ? '. The shared nodes are reachable from another entrypoint too, so they are drawn as context rather than claimed by this pipeline.'
-        : '. Nothing here is shared with another entrypoint.');
+        : '. Nothing here is shared with another entrypoint.') +
+      (kept > 0
+        ? ' ' + kept + ' of them is an enclosing scope kept so the containment tree stays whole; this pipeline reaches ' +
+          row.nodeCount + '.'
+        : '');
     return el_;
   }
 

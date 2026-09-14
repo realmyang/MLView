@@ -75,9 +75,26 @@ def build_workspace(root: str, parsed_files: Sequence[ParsedFile],
 
     for parsed in parsed_files:
         dotted = dotted_for(parsed.relpath)
-        symbols = build_symbol_table(parsed.tree, dotted, dotted_names,
-                                     is_package=is_package(parsed.relpath))
-        module = walk_module(parsed, symbols, dotted)
+        # ROB-01: one module must never cost the workspace. A 700-branch `elif`
+        # chain and a 1200-term `+` expression are both legal Python that
+        # `ast.parse` accepts and that blow the interpreter's recursion limit
+        # in the IR walk - and the exception escaped all the way to `cli.main`,
+        # so the run exited 3 with no document at all and every healthy sibling
+        # file was lost with it. The contract's answer for an unusable file is
+        # one diagnostic naming it, which is what this produces.
+        try:
+            symbols = build_symbol_table(parsed.tree, dotted, dotted_names,
+                                         is_package=is_package(parsed.relpath))
+            module = walk_module(parsed, symbols, dotted)
+        except RecursionError:
+            workspace.walk_failures.append(
+                (parsed.relpath, "RecursionError: the module nests too deeply for "
+                                 "static analysis; it was skipped"))
+            continue
+        except Exception as exc:        # pragma: no cover - defensive
+            workspace.walk_failures.append(
+                (parsed.relpath, "%s: %s" % (type(exc).__name__, exc)))
+            continue
         workspace.modules[parsed.relpath] = module
         if dotted:
             workspace.by_dotted[dotted] = module

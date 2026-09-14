@@ -1,0 +1,233 @@
+{
+  "name": "vision_keras_transfer",
+  "title": "Keras/TF transfer learning: frozen EfficientNet trunk, two-phase fit, compile in a helper - written correctly",
+  "origin": "domain-vision round 1: the shape the Keras 'Transfer learning & fine-tuning' guide and every production Keras image project share - a tf.data pipeline module, a model factory module, and a train module whose compile() lives in a helper the model is passed into. Added specifically to pin MLV705: the defective keras twin (vision_keras_cnn_bad) cannot pin it, because there the compile helper annotates its parameter and the rule goes quiet.",
+  "tuned": false,
+  "labelledBy": "domain-vision, 2026-09-13",
+  "expected": [],
+  "forbidden": [
+    {
+      "code": "MLV705",
+      "file": "train.py",
+      "why": "the model IS compiled - compile_model() calls model.compile(optimizer=..., loss=..., metrics=[...]) at train.py:47, and run() calls compile_model(model, ...) at train.py:94 before the first fit and again at train.py:106 before the second. The rule's own message ('no compile() call exists anywhere in this workspace') is factually false about this workspace; the only thing that differs from a silent project is that `compile_model`'s first parameter carries no type annotation"
+    },
+    {
+      "code": "MLV709",
+      "file": "model.py",
+      "why": "the output layer is a bare layers.Dense(num_classes, name='logits') with no activation= at all, which is the correct partner for SparseCategoricalCrossentropy(from_logits=True); no softmax or sigmoid string literal exists in either module"
+    },
+    {
+      "code": "MLV709",
+      "file": "train.py",
+      "why": "same pairing seen from the loss side - from_logits=True is correct here because the head emits logits"
+    },
+    {
+      "code": "MLV121",
+      "file": "pipeline.py",
+      "why": "build_datasets() carves the holdout off `base`, which is never shuffled: take()/skip() run on file order, and shuffle() is applied afterwards inside finalize(train_raw, training=True) to the training half only. This is the documented 'split first, shuffle the training half afterwards' guard"
+    },
+    {
+      "code": "MLV114",
+      "file": "pipeline.py",
+      "why": "augment() is mapped only under `if training:` in finalize(); build_datasets passes training=False for the validation half and build_test_dataset passes training=False, so no random op reaches an evaluation split"
+    },
+    {
+      "code": "MLV601",
+      "file": "train.py",
+      "why": "run() calls set_seeds() first, which calls keras.utils.set_random_seed(SEED) - the documented TF/Keras seeding entry point that covers Python, numpy and TensorFlow at once"
+    },
+    {
+      "code": "MLV602",
+      "file": "pipeline.py",
+      "why": "there is no sklearn or torch splitter here; the split is a tf.data take/skip over a deterministic file order, so there is no random_state= or generator= to ask for"
+    },
+    {
+      "code": "MLV110",
+      "file": "pipeline.py",
+      "why": "this project has no torch DataLoader; the training half is shuffled by tf.data at pipeline.py:54"
+    },
+    {
+      "code": "MLV111",
+      "file": "pipeline.py",
+      "why": "the evaluation halves go through finalize(..., training=False), which never shuffles"
+    },
+    {
+      "code": "MLV112",
+      "file": "pipeline.py",
+      "why": "no torch DataLoader and no num_workers anywhere; tf.data parallelism is AUTOTUNE on map()"
+    },
+    {
+      "code": "MLV305",
+      "file": "train.py",
+      "why": "the metrics are keras.metrics.SparseCategoricalAccuracy and SparseTopKCategoricalAccuracy, which take logits by contract and do their own argmax/topk - they are not sklearn-style metrics fed raw scores"
+    },
+    {
+      "code": "MLV708",
+      "file": "train.py",
+      "why": "there is no HuggingFace Trainer in this project; both fits pass validation_data= and the run ends in model.evaluate() on a third split"
+    },
+    {
+      "code": "MLV207",
+      "file": "train.py",
+      "why": "the only schedule is keras.callbacks.ReduceLROnPlateau, which Keras drives itself on epoch end; nothing steps a scheduler by hand"
+    },
+    {
+      "code": "MLV803",
+      "file": "train.py",
+      "why": "there is no torch.save / torch.load anywhere; persistence is keras ModelCheckpoint and model.export()"
+    }
+  ],
+  "graph": {
+    "edges": 55,
+    "ops": [
+      {
+        "file": "pipeline.py",
+        "line": 47,
+        "symbol": "tf.data.Dataset.from_tensor_slices",
+        "kind": "dataset"
+      },
+      {
+        "file": "pipeline.py",
+        "line": 48,
+        "symbol": "map(decode)",
+        "kind": "transform"
+      },
+      {
+        "file": "pipeline.py",
+        "line": 54,
+        "symbol": "shuffle (train half only)",
+        "kind": "transform"
+      },
+      {
+        "file": "pipeline.py",
+        "line": 56,
+        "symbol": "map(augment)",
+        "kind": "augment"
+      },
+      {
+        "file": "pipeline.py",
+        "line": 57,
+        "symbol": "batch().prefetch()",
+        "kind": "dataloader"
+      },
+      {
+        "file": "pipeline.py",
+        "line": 66,
+        "symbol": "base.take (validation half)",
+        "kind": "split"
+      },
+      {
+        "file": "pipeline.py",
+        "line": 67,
+        "symbol": "base.skip (training half)",
+        "kind": "split"
+      },
+      {
+        "file": "model.py",
+        "line": 35,
+        "symbol": "keras.applications.EfficientNetB3",
+        "kind": "model"
+      },
+      {
+        "file": "model.py",
+        "line": 54,
+        "symbol": "GlobalAveragePooling2D",
+        "kind": "layer"
+      },
+      {
+        "file": "model.py",
+        "line": 55,
+        "symbol": "Dropout",
+        "kind": "layer"
+      },
+      {
+        "file": "model.py",
+        "line": 56,
+        "symbol": "Dense (logits head)",
+        "kind": "layer"
+      },
+      {
+        "file": "model.py",
+        "line": 57,
+        "symbol": "keras.Model",
+        "kind": "model"
+      },
+      {
+        "file": "train.py",
+        "line": 37,
+        "symbol": "keras.utils.set_random_seed",
+        "kind": "config"
+      },
+      {
+        "file": "train.py",
+        "line": 47,
+        "symbol": "model.compile",
+        "kind": "train_loop"
+      },
+      {
+        "file": "train.py",
+        "line": 48,
+        "symbol": "keras.optimizers.Adam",
+        "kind": "optimizer"
+      },
+      {
+        "file": "train.py",
+        "line": 49,
+        "symbol": "SparseCategoricalCrossentropy(from_logits=True)",
+        "kind": "loss"
+      },
+      {
+        "file": "train.py",
+        "line": 51,
+        "symbol": "SparseCategoricalAccuracy",
+        "kind": "metric"
+      },
+      {
+        "file": "train.py",
+        "line": 61,
+        "symbol": "ModelCheckpoint",
+        "kind": "checkpoint"
+      },
+      {
+        "file": "train.py",
+        "line": 66,
+        "symbol": "ReduceLROnPlateau",
+        "kind": "scheduler"
+      },
+      {
+        "file": "train.py",
+        "line": 73,
+        "symbol": "model.evaluate",
+        "kind": "eval_loop"
+      },
+      {
+        "file": "train.py",
+        "line": 82,
+        "symbol": "model.export (SavedModel)",
+        "kind": "artifact"
+      },
+      {
+        "file": "train.py",
+        "line": 97,
+        "symbol": "model.fit (head phase)",
+        "kind": "train_loop"
+      },
+      {
+        "file": "train.py",
+        "line": 108,
+        "symbol": "model.fit (fine-tune phase)",
+        "kind": "train_loop"
+      }
+    ]
+  },
+  "gaps": [
+    {
+      "what": "model.compile (train.py:47), model.evaluate (train.py:73) and model.export (train.py:82) produce no node, because in each case the receiver is an unannotated function parameter. The whole compile/evaluate/export spine of a Keras project is therefore absent from the diagram.",
+      "evidence": "those three ops are labelled and not recovered in either dataflow mode; the two model.fit ops, whose receiver is the local `model` binding in run(), are recovered"
+    },
+    {
+      "what": "compile_model() at train.py:40 is emitted as kind=eval_loop stage=eval and training_callbacks() at train.py:58 as kind=train_loop, though neither function contains a loop",
+      "evidence": "node dump: train.py:40 kind=eval_loop level=unit stage=eval label='compile_model()'; train.py:58 kind=train_loop level=unit stage=train label='training_callbacks()'"
+    }
+  ]
+}

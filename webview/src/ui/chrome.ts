@@ -80,6 +80,41 @@ export interface ChromeState {
 
 let chromeSeq = 0;
 
+/**
+ * How many chips the diagnostic row draws before the rest fold behind one
+ * "N more" chip (HOSTS-UX-CHIPWALL).
+ *
+ * Eight is what fits two lines of the row at the widths this product is used
+ * at, which is the point: the row must never be able to outgrow the picture it
+ * annotates. It is a DISCLOSURE and not a deletion — the "N more" chip draws
+ * every one of them, each message stays on a `title`, and the status bar keeps
+ * counting all of them as "N notes".
+ */
+export const MAX_CHIPS = 8;
+
+/**
+ * One chip, before it is a DOM node.
+ *
+ * Collecting descriptors rather than appending elements is what lets the row
+ * fold identical texts and cap its own length: both are decisions about the
+ * WHOLE row, and the old code had made them one chip at a time.
+ */
+interface ChipSpec {
+  /** The chip's visible text. Identical texts fold into one chip with a count. */
+  text: string;
+  /** Extra classes after `mlv-chip`. */
+  cls: string;
+  /** The uppercase heading drawn before the first chip of a run. */
+  label: string;
+  /** The chip's own `title`, when it has one. */
+  title: string;
+  attrs: [string, string][];
+  /** How many identical entries this chip stands for; 1 draws no count. */
+  count: number;
+  /** The DISTINCT messages behind a folded chip, for its tooltip. */
+  detail: string[];
+}
+
 export class Chrome {
   /**
    * The whole control strip as ONE `role="toolbar"` (VIEW-12).
@@ -94,6 +129,8 @@ export class Chrome {
   readonly toolbar: HTMLElement;
   readonly filterRow: HTMLElement;
   readonly chipRow: HTMLElement;
+  /** The scrolling half of the chip row; the opener sits beside it. */
+  private chipScroll!: HTMLElement;
   readonly banners: HTMLElement;
   readonly status: HTMLElement;
   readonly searchInput: HTMLInputElement;
@@ -120,6 +157,10 @@ export class Chrome {
    */
   readonly exportSlot: HTMLElement;
   private cb: ChromeCallbacks;
+  /** The folded chip descriptors of the current document (HOSTS-UX-CHIPWALL). */
+  private chipSpecs: ChipSpec[] = [];
+  /** Whether the reader has opened the folded tail of the chip row. */
+  private chipsExpanded = false;
 
   constructor(cb: ChromeCallbacks) {
     this.cb = cb;
@@ -268,7 +309,23 @@ export class Chrome {
     this.toolbar.appendChild(rail);
 
     this.filterRow = add(this.bar, el('div', 'mlv-filterrow'));
-    this.chipRow = el('div', 'mlv-chiprow');
+    // HOSTS-UX-CHIPWALL. The chip row is the strip's THIRD row, inside the same
+    // `role="toolbar"` as the toolbar and the filter chips — not because it is
+    // a row of controls (it is mostly static notes, as the filter row is mostly
+    // labels) but because the cap it now carries needs ONE control to open the
+    // folded tail, and a control between the search box and the canvas is a
+    // fifth Tab press to the diagram. VIEW-12 allows four. Inside the roving
+    // group that control costs nothing: the whole strip stays one tab stop, and
+    // the arrow keys reach the opener exactly as they reach every stage chip.
+    // The visual stack is unchanged — `.mlv-chromebar` is a flex column and the
+    // row is appended last, which is where the app used to put it.
+    this.chipRow = add(this.bar, el('div', 'mlv-chiprow'));
+    // The chips SCROLL inside the row's bound; the opener does not. Measured on
+    // yolov5 at 1600x1000: a 12vh row holds four of those sentence chips, so a
+    // trailing opener was the one control the fold cannot do without and the
+    // one thing below the fold. It is a sibling of the scroller, not a chip in
+    // it, which is the only arrangement that cannot scroll away.
+    this.chipScroll = add(this.chipRow, el('div', 'mlv-chiprow__chips'));
     this.banners = el('div', 'mlv-banners');
     this.status = el('div', 'mlv-status');
 
@@ -405,79 +462,94 @@ export class Chrome {
     this.filterRow.hidden = false;
   }
 
+  /**
+   * The chip row, in three steps: COLLECT, FOLD, CAP (HOSTS-UX-CHIPWALL).
+   *
+   * It used to be one step — one chip per `graph.diagnostics` entry, appended
+   * straight to the row. Measured on the pinned public corpus at 1600x1000,
+   * that made `.mlv-chiprow` 2132 px tall on ultralytics/yolov5, 3765 px on
+   * huggingface/pytorch-image-models — and `.mlv-canvas` 0 px on both, because
+   * `.mlv-body` is the `flex: 1 1 auto; min-height: 0` item that absorbs
+   * whatever the rows above it take. Seven of sixteen public repositories drew
+   * a zero-pixel canvas that way, with every card in the DOM and none on
+   * screen, while the toolbar went on reading `400 nodes · 813 edges`. Of
+   * yolov5's 70 chips only 49 were distinct: one sentence was drawn 8 times
+   * verbatim, and `analyzer/tests/fixtures` drew `1 value not traced` 36 times.
+   *
+   * Nothing is deleted here. A fold carries its count, the cap carries a chip
+   * that lists the rest, every message stays on a `title`, the banners keep
+   * their own copies of the coverage and parse diagnostics, and the status bar
+   * still counts every one of them as "N notes".
+   */
   private renderChips(s: ChromeState): void {
-    clear(this.chipRow);
-    const g = s.graph;
-    if (!g) {
+    this.chipSpecs = s.graph ? collectChips(s) : [];
+    this.paintChips();
+  }
+
+  /** Draw `chipSpecs`, honouring the cap and the reader's expansion. */
+  private paintChips(): void {
+    clear(this.chipScroll);
+    const opener = this.chipRow.querySelector('[data-chip-more]');
+    if (opener && opener.parentNode) opener.parentNode.removeChild(opener);
+    const specs = this.chipSpecs;
+    if (!specs.length) {
       this.chipRow.hidden = true;
       return;
     }
-    let any = false;
-    const absent = (g.stages || []).filter((st) => !st.present).map((st) => st.label || st.id);
-    if (absent.length) {
-      any = true;
-      add(this.chipRow, el('span', 'mlv-chiprow__label', 'not detected'));
-      for (const name of absent) add(this.chipRow, el('span', 'mlv-chip', name));
-    }
-    if (s.outOfScopeStages.length) {
-      any = true;
-      add(this.chipRow, el('span', 'mlv-chiprow__label', 'not in this scope'));
-      for (const stage of s.outOfScopeStages) {
-        const chip = add(this.chipRow, el('span', 'mlv-chip mlv-chip--outscope', stage.label || stage.id));
-        chip.setAttribute('data-out-of-scope', stage.id);
+    const hidden = Math.max(0, specs.length - MAX_CHIPS);
+    const capped = hidden > 0 && !this.chipsExpanded;
+    const shown = capped ? specs.slice(0, MAX_CHIPS) : specs;
+    let label = '';
+    for (const spec of shown) {
+      if (spec.label && spec.label !== label) add(this.chipScroll, el('span', 'mlv-chiprow__label', spec.label));
+      if (spec.label) label = spec.label;
+      const node = add(this.chipScroll, el('span', 'mlv-chip' + (spec.cls ? ' ' + spec.cls : ''), spec.text));
+      for (const attr of spec.attrs) node.setAttribute(attr[0], attr[1]);
+      if (spec.count > 1) {
+        const count = add(node, el('span', 'mlv-chip__count', '×' + spec.count));
+        count.setAttribute('data-chip-fold', String(spec.count));
       }
+      const title = chipTitle(spec);
+      if (title) node.title = title;
     }
-    for (const d of g.diagnostics || []) {
-      if (d.kind === 'notebook_skipped') {
-        any = true;
-        add(this.chipRow, el('span', 'mlv-chip', (d.count || 0) + ' notebooks not analyzed'));
-      } else if (d.kind === NOTEBOOK_ANALYZED) {
-        // NB. Without `--include-notebooks` this never appears, because the
-        // diagnostic is never emitted.
-        any = true;
-        // VW-06: ONE diagnostic per notebook, and its `count` is that
-        // notebook's code cells — so the chip is one notebook (the hook keeps
-        // its name) and the cell count is its own attribute.
-        const chip = add(this.chipRow, el('span', 'mlv-chip', notebooksAnalyzedText(d)));
-        chip.setAttribute('data-notebooks-analyzed', '1');
-        chip.setAttribute('data-notebook-cells', String(d.count || 0));
-        chip.title = d.message;
-      } else if (d.kind === 'framework_suppressed') {
-        any = true;
-        const text = d.message + (d.codes && d.codes.length ? ' (' + d.codes.join(', ') + ')' : '');
-        add(this.chipRow, el('span', 'mlv-chip', text));
-      } else if (d.kind === 'config_warning' || d.kind === 'config_unresolved') {
-        // VW-08. These are SENTENCES, not chips — CI-ADOPT's baseline and
-        // --changed-paths warnings carry absolute paths and an instruction, and
-        // the `--changed-paths` one measured 1779 px wide at a 1600 px window,
-        // running 191 px off the page with no scrollbar and no `title`, so the
-        // instruction it exists to give ("Pass the diff itself, or
-        // --changed-since <rev>") was the half that was cut. The full text is
-        // now on the chip's tooltip, and `.mlv-chiprow .mlv-chip` wraps.
-        any = true;
-        const chip = add(this.chipRow, el('span', 'mlv-chip', d.message));
-        chip.setAttribute('data-config-note', d.kind);
-        chip.title = d.message;
-      } else if (COVERAGE_KINDS.indexOf(d.kind) >= 0) {
-        // COVERAGE: a chip that says the analysis was BLIND here, distinct from
-        // the "not detected" row beside it, which says it looked and found none.
-        any = true;
-        const chip = add(this.chipRow, el('span', 'mlv-chip mlv-chip--coverage', coverageChipText(d)));
-        chip.setAttribute('data-coverage', d.kind);
-        chip.title = d.message;
-      } else if (SPECIALLY_RENDERED.indexOf(d.kind) < 0) {
-        // A kind this renderer has never heard of still says what it says
-        // (invariant 1.1/6) rather than vanishing into the "N notes" count.
-        any = true;
-        const chip = add(this.chipRow, el('span', 'mlv-chip', d.message || d.kind));
-        chip.setAttribute('data-diagnostic-kind', d.kind);
+    if (hidden > 0) this.chipRow.appendChild(this.moreChip(hidden, capped));
+    this.chipRow.hidden = false;
+    // The row is inside the roving toolbar: a rebuilt row must hand the strip's
+    // single tab stop back (VIEW-12), exactly as the stage chips do.
+    if (this.roving) this.roving.sync();
+  }
+
+  /**
+   * The one chip that stands for the rest — a real button, never a label.
+   *
+   * `aria-pressed` is deliberately NOT used: `.mlv-chip--btn[aria-pressed="false"]`
+   * is struck through, which is right for a filter that is off and wrong for a
+   * disclosure that is closed.
+   */
+  private moreChip(hidden: number, capped: boolean): HTMLButtonElement {
+    const more = el('button', 'mlv-chip mlv-chip--btn mlv-chip--more') as HTMLButtonElement;
+    more.type = 'button';
+    more.textContent = capped ? '+' + hidden + ' more' : 'show fewer';
+    more.setAttribute('data-chip-more', String(hidden));
+    more.setAttribute('aria-expanded', capped ? 'false' : 'true');
+    more.title = capped
+      ? hidden + ' more note(s) about this run are folded away — press to list them all'
+      : 'Fold the last ' + hidden + ' note(s) back behind one chip';
+    more.setAttribute('aria-label', more.title);
+    on(more, 'click', () => {
+      this.chipsExpanded = !this.chipsExpanded;
+      this.paintChips();
+      // Keep the reader on the control they just pressed: `paintChips` rebuilt
+      // the row, so the button they were on no longer exists.
+      const next = this.chipRow.querySelector('[data-chip-more]') as HTMLElement | null;
+      if (!next) return;
+      try {
+        next.focus();
+      } catch (_e) {
+        /* a host may have detached the row already */
       }
-    }
-    if ((g.workspace.filesFailed || 0) > 0) {
-      any = true;
-      add(this.chipRow, el('span', 'mlv-chip', g.workspace.filesFailed + ' files failed to parse'));
-    }
-    this.chipRow.hidden = !any;
+    });
+    return more;
   }
 
   private renderBanners(s: ChromeState): void {
@@ -631,4 +703,135 @@ export class Chrome {
     const notes = (g.diagnostics || []).length;
     if (notes) add(this.status, el('span', '', notes + (notes === 1 ? ' note' : ' notes')));
   }
+}
+
+/* ── the chip row's three steps (HOSTS-UX-CHIPWALL) ────────────────────── */
+
+/** One descriptor. `detail` never repeats the text it would sit under. */
+function chipSpec(text: string, opts: Partial<ChipSpec> = {}): ChipSpec {
+  const title = opts.title || '';
+  return {
+    text,
+    cls: opts.cls || '',
+    label: opts.label || '',
+    title,
+    attrs: opts.attrs || [],
+    count: 1,
+    detail: title && title !== text ? [title] : [],
+  };
+}
+
+/**
+ * STEP 1 — collect, in the order the row has always drawn them.
+ *
+ * Every branch is the one that was there before; the only change is that each
+ * produces a descriptor instead of appending an element. A diagnostic kind this
+ * renderer has never heard of still says what it says (invariant 1.1/6).
+ */
+function collectChips(s: ChromeState): ChipSpec[] {
+  const g = s.graph as MLGraph;
+  const out: ChipSpec[] = [];
+  for (const stage of (g.stages || []).filter((st) => !st.present)) {
+    out.push(chipSpec(stage.label || stage.id, { label: 'not detected' }));
+  }
+  for (const stage of s.outOfScopeStages) {
+    out.push(
+      chipSpec(stage.label || stage.id, {
+        label: 'not in this scope',
+        cls: 'mlv-chip--outscope',
+        attrs: [['data-out-of-scope', stage.id]],
+      }),
+    );
+  }
+  for (const d of g.diagnostics || []) {
+    if (d.kind === 'notebook_skipped') {
+      out.push(chipSpec((d.count || 0) + ' notebooks not analyzed'));
+    } else if (d.kind === NOTEBOOK_ANALYZED) {
+      // NB. Without `--include-notebooks` this never appears, because the
+      // diagnostic is never emitted.
+      //
+      // VW-06: ONE diagnostic per notebook, and its `count` is that notebook's
+      // code cells — so the chip is one notebook (the hook keeps its name) and
+      // the cell count is its own attribute.
+      out.push(
+        chipSpec(notebooksAnalyzedText(d), {
+          title: d.message,
+          attrs: [
+            ['data-notebooks-analyzed', '1'],
+            ['data-notebook-cells', String(d.count || 0)],
+          ],
+        }),
+      );
+    } else if (d.kind === 'framework_suppressed') {
+      out.push(chipSpec(d.message + (d.codes && d.codes.length ? ' (' + d.codes.join(', ') + ')' : '')));
+    } else if (d.kind === 'config_warning' || d.kind === 'config_unresolved') {
+      // VW-08. These are SENTENCES, not chips — CI-ADOPT's baseline and
+      // --changed-paths warnings carry absolute paths and an instruction, and
+      // the `--changed-paths` one measured 1779 px wide at a 1600 px window,
+      // running 191 px off the page with no scrollbar and no `title`, so the
+      // instruction it exists to give ("Pass the diff itself, or
+      // --changed-since <rev>") was the half that was cut. The full text is
+      // now on the chip's tooltip, and `.mlv-chiprow .mlv-chip` wraps.
+      //
+      // HOSTS-UX-CHIPWALL: and because they are sentences, a repository that
+      // could not open eight config files drew the SAME sentence eight times.
+      out.push(chipSpec(d.message, { title: d.message, attrs: [['data-config-note', d.kind]] }));
+    } else if (COVERAGE_KINDS.indexOf(d.kind) >= 0) {
+      // COVERAGE: a chip that says the analysis was BLIND here, distinct from
+      // the "not detected" row beside it, which says it looked and found none.
+      out.push(
+        chipSpec(coverageChipText(d), {
+          cls: 'mlv-chip--coverage',
+          title: d.message,
+          attrs: [['data-coverage', d.kind]],
+        }),
+      );
+    } else if (SPECIALLY_RENDERED.indexOf(d.kind) < 0) {
+      // A kind this renderer has never heard of still says what it says
+      // (invariant 1.1/6) rather than vanishing into the "N notes" count.
+      out.push(chipSpec(d.message || d.kind, { attrs: [['data-diagnostic-kind', d.kind]] }));
+    }
+  }
+  if ((g.workspace.filesFailed || 0) > 0) {
+    out.push(chipSpec(g.workspace.filesFailed + ' files failed to parse'));
+  }
+  return foldChips(out);
+}
+
+/**
+ * STEP 2 — fold identical chips into one that carries its count.
+ *
+ * Identity is the heading, the variant and the TEXT: two coverage chips that
+ * both read `1 value not traced` are one fact repeated, and drawing it 36 times
+ * (measured on `analyzer/tests/fixtures`) tells a reader nothing the count does
+ * not. The distinct MESSAGES behind the fold are kept for the tooltip, so the
+ * per-file detail is one hover away rather than gone.
+ */
+function foldChips(specs: ChipSpec[]): ChipSpec[] {
+  const out: ChipSpec[] = [];
+  const seen = new Map<string, ChipSpec>();
+  for (const spec of specs) {
+    const key = JSON.stringify([spec.label, spec.cls, spec.text]);
+    const first = seen.get(key);
+    if (!first) {
+      seen.set(key, spec);
+      out.push(spec);
+      continue;
+    }
+    first.count += 1;
+    for (const line of spec.detail) {
+      if (first.detail.indexOf(line) < 0) first.detail.push(line);
+    }
+  }
+  return out;
+}
+
+/** The tooltip: a folded chip states its count and lists what it folded. */
+function chipTitle(spec: ChipSpec): string {
+  if (spec.count <= 1) return spec.title;
+  const head = spec.count + '× ' + spec.text;
+  if (!spec.detail.length) return head;
+  const lines = spec.detail.slice(0, 6);
+  const rest = spec.detail.length - lines.length;
+  return head + '\n' + lines.join('\n') + (rest > 0 ? '\n… and ' + rest + ' more' : '');
 }

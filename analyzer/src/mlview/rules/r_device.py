@@ -34,7 +34,9 @@ _LOSS_ROLES = ("LOSS_CLS", "LOSS_FN")
                "x, y = x.to(device, non_blocking=True), y.to(device).")
 def batch_not_moved_to_device(ctx) -> Iterable[Issue]:
     issues: List[Issue] = []
-    reported: Set[int] = set()
+    #: `id(model_move) -> the Issue that reported it`, so a second offending
+    #: loop can be appended to the first finding's related locations (DGRG-11).
+    reported: dict = {}
     for loop in ctx.loops("batch"):
         calls = calls_in_loop(ctx, loop)
         forward = _model_forward(with_role(calls, "FORWARD"))
@@ -54,14 +56,17 @@ def batch_not_moved_to_device(ctx) -> Iterable[Issue]:
             continue
         if moved:
             continue
-        if id(model_move) in reported:
-            continue                     # one finding per placement, not per loop
         if _dataset_moves(ctx, loop) or _collate_moves(ctx, loop):
+            continue
+        if id(model_move) in reported:
+            # DGRG-11: still one finding per placement - the fix is the same
+            # line for every loop - but the other loops are named, so a reader
+            # who fixes the reported one does not still crash on the next.
+            _note_sibling_loop(reported[id(model_move)], loop, forward)
             continue
         node = ctx.node_for_loop(loop)
         if node is None:
             continue
-        reported.add(id(model_move))
         names = ", ".join(sorted(batch_names))
         evidence = [
             ("fqn_resolved", "%s resolves to %s"
@@ -76,7 +81,7 @@ def batch_not_moved_to_device(ctx) -> Iterable[Issue]:
         if not loop.scope.is_dynamic:
             evidence.append(("scope_static",
                              "no dynamic constructs in %s" % loop.scope.qualname, 1.0))
-        issues.append(ctx.issue(
+        issue = ctx.issue(
             message="The model is moved to a device at %s:%d, but the batch value(s) %s "
                     "in the loop at line %d are never moved before %s."
                     % (model_move.loc.file, model_move.loc.line, names, loop.loc.line,
@@ -86,8 +91,26 @@ def batch_not_moved_to_device(ctx) -> Iterable[Issue]:
                      ("call_site", forward.loc, "the forward pass runs here")],
             evidence=evidence, tags=("correctness", "device", "batch_not_moved"),
             dynamic=loop.scope.is_dynamic,
-            wrapper_gated=_wrapper_handles_placement(ctx, loop)))
+            wrapper_gated=_wrapper_handles_placement(ctx, loop))
+        reported[id(model_move)] = issue
+        issues.append(issue)
     return issues
+
+
+def _note_sibling_loop(issue, loop: LoopIR, forward: CallSite) -> None:
+    """Name another loop with the same unmoved-batch defect (DGRG-11).
+
+    `adv_audio_bad` moves the model at line 88 and never moves a batch: the
+    training loop at 102 and the validation loop at 64 both raise on their
+    first batch, and only one of them was reported. One finding is right - the
+    fix is one line - but a reader who fixes the reported loop and stops still
+    crashes.
+    """
+    related = loop.loc.related_dict(
+        "eval_loop", "and %s at line %d has the same unmoved batch"
+        % (_label(forward), loop.loc.line))
+    if related not in issue.relatedLocs:
+        issue.relatedLocs.append(related)
 
 
 def _is_loss_call(call: CallSite) -> bool:
@@ -147,7 +170,15 @@ def _model_left_behind(ctx, loop: LoopIR, forward: CallSite, moved: Set[str],
     if not _is_model_call(forward):
         # "the model was never moved" is unprovable when no model was resolved
         return None
-    if _any_model_move(ctx, forward.module):
+    # INFRA-02. The module scope is what made the claim false: `engine/
+    # trainer.py` does `model = model.to(device)` and calls
+    # `evaluate(model, loader, device)` in `engine/evaluator.py`, and this rule
+    # then asserted "the model model is never moved" about a workspace whose
+    # own IR carries the move. The docstring above states the opposite intent
+    # ("a model moved in a different file can never be mistaken for a missing
+    # move"); the implementation guaranteed exactly that mistake. A negative
+    # claim needs the whole workspace.
+    if _any_model_move(ctx, None):
         return None
     node = ctx.node_for_loop(loop)
     if node is None:
@@ -181,9 +212,15 @@ def _model_left_behind(ctx, loop: LoopIR, forward: CallSite, moved: Set[str],
 
 
 def _any_model_move(ctx, module=None) -> bool:
+    """Is any model moved to a device anywhere the search was asked to look?
+
+    `module=None` searches the whole workspace, which is what an absence claim
+    about "the model" requires (INFRA-02). Passing a module narrows it, and
+    that narrowing is only ever safe for a *positive* claim.
+    """
     for call in ctx.calls_with_role("TO_DEVICE"):
         if module is not None and call.module is not module:
-            continue                 # a `model` in another file is another model
+            continue
         if any(f.startswith("torch.nn.Module") for f in call.canonical_fqns or ()):
             return True
         receiver = call.receiver

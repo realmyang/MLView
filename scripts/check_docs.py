@@ -1,11 +1,11 @@
 #!/usr/bin/env python
 """Documentation gate: keep the prose honest about the tree it describes.
 
-Fifteen checks, all offline and stdlib-only. Checks 1-8 and 12 live here; the
-seven that compare a number in the prose with the machine-readable copy the tree
-already holds live next door -- checks 9-11 in `scripts/doc_numbers.py`, checks
-13-15 in `scripts/doc_figures.py` -- and are summarised at the bottom of this
-list:
+Eighteen checks, all offline and stdlib-only. Checks 1-8 and 12 live here; the
+ten that compare a number, or a list, in the prose with the machine-readable copy
+the tree already holds live next door -- checks 9-11 in `scripts/doc_numbers.py`,
+checks 13-15 in `scripts/doc_figures.py`, checks 16-18 in
+`scripts/doc_surfaces.py` -- and are summarised at the bottom of this list:
 
 1. **Dead paths.** Every repo-relative path written in backticks or in a Markdown
    link inside a current-state doc must exist on disk. Catches renamed modules,
@@ -77,8 +77,17 @@ list:
     `contracts/scope.cases.json`.
 15. **Two gate documents naming different runs** for "the last full green push".
 
-`scripts/doc_numbers.py` carries checks 9-11 and `scripts/doc_figures.py` checks
-13-15, with the incident behind each.
+16. **A selector the CLI accepts that a user-facing list does not advertise.**
+    `pipeline:` (CONTRACTS 11.47) and `symbol:` were legal everywhere and named
+    in none of `mlview analyze --help`, `README.md` and the two
+    `claude-plugin/commands/*.md` bodies.
+17. **A generated directory a tool calls git-ignored that `.gitignore` does not
+    cover**, so running the tool puts its whole download into `git status`.
+18. **A `test` script that enumerates its test files and misses one**, so
+    `npm test` reports a green suite that never ran the new regression test.
+
+`scripts/doc_numbers.py` carries checks 9-11, `scripts/doc_figures.py` checks
+13-15 and `scripts/doc_surfaces.py` checks 16-18, with the incident behind each.
 
 Usage:  python scripts/check_docs.py [--root DIR] [--quiet]
 Exit 0 when clean, 1 when a problem is found. The report goes to stdout.
@@ -94,6 +103,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import doc_figures  # noqa: E402  - sibling modules, after the sys.path fix above
 import doc_numbers  # noqa: E402
+import doc_surfaces  # noqa: E402
 
 DEFAULT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -407,11 +417,30 @@ def check_gap_bullets(root: Path, path: Path, lines, problems) -> None:
                     % (rel, offset + n + 1))
 
 
+def downloaded_parts(root: Path) -> set:
+    """`ENDING_SKIP_PARTS` plus every directory a tool *downloads* into the tree.
+
+    PUB-01 put 24 third-party repositories under `.public-corpus/` (the name is
+    read from `tools/public_corpus.py`, never spelled here), and they carry 26
+    shell scripts of their own. Holding somebody else's `get_coco.sh` to this
+    repo's line-ending convention would fail the doc gate on a machine that had
+    run `python tools/public_corpus.py fetch` and pass on one that had not --
+    a gate whose verdict depends on what is cached is not a gate.
+    """
+    parts = set(ENDING_SKIP_PARTS)
+    for rel, const in doc_surfaces.GENERATED_DIRS:
+        name, _ = doc_surfaces.generated_dir(root, rel, const)
+        if name:
+            parts.add(name.strip("/"))
+    return parts
+
+
 def shell_scripts(root: Path):
     """Every POSIX shell script that is *source* in this tree."""
+    skip = downloaded_parts(root)
     for path in sorted(root.rglob("*.sh")):
         rel = path.relative_to(root)
-        if ENDING_SKIP_PARTS.intersection(rel.parts) or not path.is_file():
+        if skip.intersection(rel.parts) or not path.is_file():
             continue
         yield path
 
@@ -552,6 +581,8 @@ def run(root: Path):
     # Checks 9-11 and 13-15: numbers the prose shares with a file in the tree.
     doc_numbers.run(root, current, problems)
     doc_figures.run(root, current, problems)
+    # Checks 16-18: lists the prose shares with a file in the tree.
+    doc_surfaces.run(root, current, problems)
     return problems, current + plan + scripts
 
 
@@ -574,7 +605,10 @@ def main(argv=None) -> int:
               "matches the baseline, no silent artifact upload, one e2e step "
               "count, every shipped roadmap item recorded as landed, the "
               "components table agreeing with its own gate paragraph, the scope "
-              "battery quoted at its real size, one last-green-push run id)"
+              "battery quoted at its real size, one last-green-push run id, "
+              "every selector the parser accepts advertised on every list a "
+              "reader sees, every generated directory git-ignored, every test "
+              "file its package's `test` script runs)"
               % len(files))
     return 0
 

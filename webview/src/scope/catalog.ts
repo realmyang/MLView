@@ -8,8 +8,9 @@
  * number of cards the user will actually get.
  */
 
-import { CONCERNS, CONCERN_LABELS, CONCERN_NAMES } from './selector.js';
+import { CONCERNS, CONCERN_LABELS, CONCERN_NAMES, parseScope } from './selector.js';
 import { PipelineIndex } from './pipelines.js';
+import { project } from './project.js';
 import type { PipelineRow } from './pipelines.js';
 import type { IssueCounts, MLGraph, MLNode, Severity } from '../types.js';
 
@@ -172,9 +173,49 @@ export function pipelineIndexOf(graph: MLGraph): PipelineIndex {
   return cachedIndex;
 }
 
-/** The picker's and the chooser's rows, in the analyzer's ranked order. */
+/**
+ * The picker's and the chooser's rows, in the analyzer's ranked order.
+ *
+ * HOSTS-UX-PIPELINECOUNT. Each row also carries `viewCount`: the number of
+ * cards the click actually draws, obtained by running the SAME `project()` the
+ * click runs rather than by re-deriving the projection's rules here. `nodeCount`
+ * is left alone — it is 11.47 A's relation, `exclusiveCount + sharedCount`, and
+ * what the emitted block reports — so the two numbers stay separate facts and
+ * only the one a row PROMISES changes.
+ *
+ * Memoised beside the relation, against the document's identity, because the
+ * picker re-renders on every keystroke in its search box and a projection per
+ * entrypoint per keystroke is not free. A projection that throws — a document
+ * whose `workspace.entrypoints` no longer resolves — leaves `viewCount` unset
+ * and the row falls back to `nodeCount`: a picker must never be the thing that
+ * takes the report down.
+ */
 export function pipelineRows(graph: MLGraph | null): PipelineRow[] {
-  return graph ? pipelineIndexOf(graph).rows() : [];
+  if (!graph) return [];
+  const rows = pipelineIndexOf(graph).rows();
+  const drawn = viewCountsOf(graph, rows);
+  return rows.map((row) => {
+    const count = drawn.get(row.entrypoint);
+    return count === undefined ? row : { ...row, viewCount: count };
+  });
+}
+
+let cachedCountGraph: MLGraph | null = null;
+let cachedCounts: Map<string, number> | null = null;
+
+function viewCountsOf(graph: MLGraph, rows: PipelineRow[]): Map<string, number> {
+  if (cachedCountGraph === graph && cachedCounts) return cachedCounts;
+  const out = new Map<string, number>();
+  for (const row of rows) {
+    try {
+      out.set(row.entrypoint, project(graph, parseScope('pipeline:' + row.entrypoint)).nodes.length);
+    } catch (_e) {
+      /* an entrypoint this document can no longer resolve keeps its own count */
+    }
+  }
+  cachedCountGraph = graph;
+  cachedCounts = out;
+  return out;
 }
 
 /** One row per stage the document declares; absent stages are shown disabled. */

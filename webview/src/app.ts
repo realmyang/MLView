@@ -212,7 +212,7 @@ export class App implements MLViewApp {
       onShowSuppressed: (next) => this.setFilters({ showSuppressed: next }),
       onFit: () => this.view.fit(),
       onZoom: (dir) => this.view.zoomStep(dir),
-      onStage: (stageId) => this.applyFilters(() => this.filters.toggleStage(stageId, this.laneIds())),
+      onStage: (stageId) => this.toggleStage(stageId),
       onClearFilters: () => this.clearFilters(),
       onZoomToSelection: () => this.zoomToSelection(),
       onAction: (id) => this.onAction(id),
@@ -259,7 +259,9 @@ export class App implements MLViewApp {
     // One roving `role="toolbar"` over the toolbar row and the stage-filter row
     // (VIEW-12), so the whole control strip is a single tab stop.
     this.root.appendChild(this.chrome.bar);
-    this.root.appendChild(this.chrome.chipRow);
+    // HOSTS-UX-CHIPWALL: the chip row is the third row INSIDE `chrome.bar` now,
+    // so its one disclosure control lives in the roving toolbar and costs the
+    // path to the canvas nothing (VIEW-12). Same pixels, same order.
     this.root.appendChild(this.diffBar.root);
     this.root.appendChild(this.chrome.banners);
     this.root.appendChild(shell.body);
@@ -1018,6 +1020,26 @@ export class App implements MLViewApp {
     }
     this.renderRail();
     this.saveSoon();
+  }
+
+  /**
+   * A stage chip (HOSTS-UX-STAGERESET).
+   *
+   * The chips dim rather than hide, and with six of seven off the demo shows 45
+   * of 53 cards dimmed, 0 issues in the rail and its "No issues match these
+   * filters" empty state — all correct. Pressing the SEVENTH used to turn every
+   * filter back on with nothing said: the gesture was "hide this one too" and
+   * what happened was "show everything again". The model still resets (an empty
+   * selection is the only resting state it has), and now the viewer says so.
+   */
+  private toggleStage(stageId: string): void {
+    let reset = false;
+    this.applyFilters(() => {
+      reset = this.filters.toggleStage(stageId, this.laneIds());
+    });
+    if (!reset) return;
+    this.view.toast('All stages hidden — showing everything again');
+    this.announce('All stages were hidden, so every stage is shown again.');
   }
 
   private clearFilters(): void {

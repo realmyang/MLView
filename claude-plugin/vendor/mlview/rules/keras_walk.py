@@ -95,15 +95,26 @@ def layer_behind(call: Optional[CallSite]) -> Optional[CallSite]:
     return None
 
 
-def model_construction(compile_call: CallSite) -> Optional[CallSite]:
+def model_construction(compile_call: CallSite, ctx=None) -> Optional[CallSite]:
     """The `keras.Model(...)` / `Sequential(...)` the compiled model came from.
 
     One hop through a workspace builder is followed - `model = build_model()`
     then `model.compile(...)` is how every Keras project is written - and no
     further.
+
+    vision-10 adds the mirror hop. `docs/ISSUE_RULES.md` section 4 specifies
+    MLV709 over "the same **module**", and the walk could only ever pair a head
+    and a loss written inside one function body: when the `compile()` receiver
+    is a **parameter** (`def compile_model(model): model.compile(...)`, the
+    split the Keras guide itself teaches) there is no producer to follow at
+    all. The argument at the resolved call sites is that producer, and it is
+    taken only when every call site agrees - an ambiguous parameter stays
+    unjudged, which is this module's house rule.
     """
     ref = compile_call.receiver
     producer = ref.producer if ref is not None else None
+    if producer is None and ctx is not None:
+        producer = _parameter_producer(ctx, compile_call)
     if producer is None:
         return None
     if K.role_of(producer.fqn) == "KERAS_MODEL":
@@ -119,6 +130,40 @@ def model_construction(compile_call: CallSite) -> Optional[CallSite]:
         if candidate is not None and K.role_of(candidate.fqn) == "KERAS_MODEL":
             return candidate
     return None
+
+
+def _parameter_producer(ctx, compile_call: CallSite) -> Optional[CallSite]:
+    """The single producer every call site passes for this receiver parameter."""
+    func = compile_call.function
+    name = compile_call.receiver_name
+    if func is None or not name or name not in (func.params or ()):
+        return None
+    index = list(func.params).index(name)
+    found: List[CallSite] = []
+    for relpath in sorted(ctx.modules):
+        for call in ctx.modules[relpath].calls:
+            if call.target_function is not func:
+                continue
+            node = call.args[index] if index < len(call.args) \
+                else call.kwarg_nodes.get(name)
+            if node is None:
+                return None              # a call site that does not pass it
+            inner = call_of_node(call.module, node)
+            if inner is None:
+                text = dotted_text(node)
+                ref = binding_of(text, call.scope) if text else None
+                inner = ref.producer if ref is not None else None
+            if inner is None:
+                return None              # unresolved at one site: judge none
+            found.append(inner)
+    if not found:
+        return None
+    first = found[0]
+    for other in found[1:]:
+        if (other.loc.file, other.loc.line, other.loc.col) != \
+                (first.loc.file, first.loc.line, first.loc.col):
+            return None                  # the sites disagree
+    return first
 
 
 def output_layers(ctx, model_call: CallSite) -> List[CallSite]:

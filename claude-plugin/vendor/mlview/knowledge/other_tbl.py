@@ -60,21 +60,65 @@ OTHER.update({
     "datasets.load_dataset": E("dataset", "data", HF, "DATASET", ("RAW_DATA",),
                                "hf_dataset"),
 })
-for _cls in ("AutoModel", "AutoModelForSequenceClassification", "AutoModelForCausalLM",
-             "AutoModelForTokenClassification", "AutoModelForQuestionAnswering"):
+#: PUB-10. The five-class enumeration this used to be declared `model` and
+#: `preprocess` ABSENT on `transformers/examples/pytorch/image-classification/
+#: run_image_classification.py` - a canonical HuggingFace fine-tune - with no
+#: `unverified` qualifier and an empty `diagnostics` list, because
+#: `AutoModelForImageClassification` and `AutoImageProcessor` (the current
+#: spelling; `AutoFeatureExtractor` is the deprecated one) resolved through the
+#: import table and then matched no row. Enumerating heads is a losing game -
+#: transformers adds them faster than a table can - so the *task* suffixes are
+#: listed once and every `AutoModelFor<Task>` is generated from them.
+HF_MODEL_TASKS = (
+    "SequenceClassification", "TokenClassification", "QuestionAnswering",
+    "CausalLM", "MaskedLM", "Seq2SeqLM", "PreTraining", "MultipleChoice",
+    "NextSentencePrediction", "ImageClassification", "ImageSegmentation",
+    "SemanticSegmentation", "InstanceSegmentation", "UniversalSegmentation",
+    "ObjectDetection", "ZeroShotObjectDetection", "ZeroShotImageClassification",
+    "DepthEstimation", "VideoClassification", "MaskedImageModeling",
+    "AudioClassification", "AudioFrameClassification", "AudioXVector",
+    "CTC", "SpeechSeq2Seq", "TextToWaveform", "TextToSpectrogram",
+    "Vision2Seq", "VisualQuestionAnswering", "DocumentQuestionAnswering",
+    "TableQuestionAnswering", "ImageTextToText", "TextEncoding",
+)
+HF_MODEL_CLASSES = ("AutoModel", "AutoBackbone", "AutoModelWithLMHead") + tuple(
+    "AutoModelFor%s" % task for task in HF_MODEL_TASKS)
+#: PUB-10. `AutoImageProcessor` / `AutoVideoProcessor` are the current names.
+HF_PROCESSOR_CLASSES = ("AutoTokenizer", "AutoFeatureExtractor", "AutoProcessor",
+                        "AutoImageProcessor", "AutoVideoProcessor",
+                        "AutoConfig")
+for _cls in HF_MODEL_CLASSES:
     OTHER["transformers.%s.from_pretrained" % _cls] = E(
         "model", "model", HF, "HF_MODEL", ("MODEL",), "module")
+    OTHER["transformers.%s.from_config" % _cls] = E(
+        "model", "model", HF, "HF_MODEL", ("MODEL",), "module")
     OTHER["transformers.%s" % _cls] = E("model", "model", HF, "HF_MODEL", ("MODEL",), "module")
-for _cls in ("AutoTokenizer", "AutoFeatureExtractor", "AutoProcessor"):
-    OTHER["transformers.%s.from_pretrained" % _cls] = E(
-        "transform", "preprocess", HF, "HF_TOKENIZER")
-    OTHER["transformers.%s" % _cls] = E("transform", "preprocess", HF, "HF_TOKENIZER")
+for _cls in HF_PROCESSOR_CLASSES:
+    _row = E("config", "config", HF, "HF_CONFIG") if _cls == "AutoConfig" \
+        else E("transform", "preprocess", HF, "HF_TOKENIZER")
+    OTHER["transformers.%s.from_pretrained" % _cls] = dict(_row)
+    OTHER["transformers.%s" % _cls] = dict(_row)
 HF_METHODS: Dict[str, Entry] = {
     "transformers.Trainer.train": E("train_loop", "train", HF, "HF_TRAIN"),
     "transformers.Trainer.evaluate": E("eval_loop", "eval", HF, "HF_EVAL"),
     "transformers.Trainer.predict": E("predict", "eval", HF, "PREDICT", ("PREDS",)),
     "transformers.Trainer.save_model": E("checkpoint", "deliver", HF, "SAVE"),
+    # INFRA-04: `transformers.Trainer.save_model` was the ONLY SAVE role in the
+    # tree, so the Save / Deploy lane was declared absent on every project that
+    # checkpoints the framework-native way. `unwrapped.save_pretrained(...)` is
+    # what `accelerate`'s own example writes.
+    "transformers.PreTrainedModel.save_pretrained":
+        E("checkpoint", "deliver", HF, "SAVE"),
+    "transformers.PreTrainedTokenizerBase.save_pretrained":
+        E("checkpoint", "deliver", HF, "SAVE"),
+    "transformers.PreTrainedModel.push_to_hub": E("checkpoint", "deliver", HF, "SAVE"),
 }
+#: INFRA-04. `save_pretrained` is reached off an `hf_model` binding under many
+#: spellings (`model.save_pretrained`, `unwrapped.save_pretrained`,
+#: `tokenizer.save_pretrained`), so the method is also registered on the two
+#: families those bindings carry.
+for _base in ("transformers.AutoModel", "transformers.AutoTokenizer"):
+    HF_METHODS["%s.save_pretrained" % _base] = E("checkpoint", "deliver", HF, "SAVE")
 
 # -------------------------------------------------------------- Lightning -
 L = "lightning"
@@ -91,9 +135,71 @@ LIGHTNING_METHODS: Dict[str, Entry] = {
     "pytorch_lightning.Trainer.validate": E("eval_loop", "eval", L, "LIGHTNING_VAL"),
     "pytorch_lightning.Trainer.test": E("eval_loop", "eval", L, "LIGHTNING_TEST"),
 }
+# INFRA-04: `ModelCheckpoint(monitor="val/loss", save_top_k=3)` is how a
+# Lightning project checkpoints, and the deliver lane read as absent without it.
+for _root in ("pytorch_lightning", "lightning", "lightning.pytorch"):
+    OTHER["%s.callbacks.ModelCheckpoint" % _root] = E(
+        "checkpoint", "deliver", L, "SAVE")
+    OTHER["%s.callbacks.EarlyStopping" % _root] = E(
+        "config", "train", L, "CALLBACK")
 
 # ------------------------------------------------------------- accelerate -
 OTHER["accelerate.Accelerator"] = E("train_loop", "train", "other", "ACCELERATOR", (), "accelerator")
+#: The accelerate seed helper seeds `random`, `numpy`, `torch` and `torch.cuda`
+#: - it is exactly the `seed_everything` MLV601 says is absent, and its absence
+#: from this table was a live MLV601 false positive on `infra_accelerate`.
+OTHER["accelerate.utils.set_seed"] = E("config", "config", HF, "SEED")
+OTHER["accelerate.set_seed"] = E("config", "config", HF, "SEED")
+
+# ------------------------------------------ deepspeed / ignite / fastai ----
+# INFRA-03 / INFRA-04: these three own a training loop (they are already in
+# `WRAPPER_FQNS`) and contributed no knowledge rows at all, so a complete
+# fastai script rendered as four nodes with model, objective, train, eval and
+# deliver all declared ABSENT - and `workspace.frameworks` did not even name
+# the library. A declared-absent stage is a positive claim about the code.
+OTHER.update({
+    "deepspeed.initialize": E("train_loop", "train", "other", "ACCELERATOR", (),
+                              "deepspeed_engine"),
+    "ignite.engine.create_supervised_trainer":
+        E("train_loop", "train", "other", "IGNITE_TRAIN"),
+    "ignite.engine.create_supervised_evaluator":
+        E("eval_loop", "eval", "other", "IGNITE_EVAL", (), "ignite_evaluator"),
+    "ignite.engine.Engine": E("train_loop", "train", "other", "IGNITE_TRAIN"),
+    "ignite.handlers.Checkpoint": E("checkpoint", "deliver", "other", "SAVE"),
+    "ignite.handlers.DiskSaver": E("checkpoint", "deliver", "other", "SAVE"),
+    "ignite.metrics.Accuracy": E("metric", "eval", "other", "METRIC"),
+    "ignite.metrics.Loss": E("metric", "eval", "other", "METRIC"),
+    "fastai.vision.learner.vision_learner": E("model", "model", "other", "FASTAI_LEARNER",
+                                              ("MODEL",), "fastai_learner"),
+    "fastai.vision.all.vision_learner": E("model", "model", "other", "FASTAI_LEARNER",
+                                          ("MODEL",), "fastai_learner"),
+    "fastai.learner.Learner": E("model", "model", "other", "FASTAI_LEARNER",
+                                ("MODEL",), "fastai_learner"),
+    "fastai.tabular.all.tabular_learner": E("model", "model", "other", "FASTAI_LEARNER",
+                                            ("MODEL",), "fastai_learner"),
+    "fastai.text.all.text_classifier_learner": E("model", "model", "other",
+                                                 "FASTAI_LEARNER", ("MODEL",),
+                                                 "fastai_learner"),
+    "fastai.vision.data.ImageDataLoaders.from_name_func":
+        E("dataloader", "data", "other", "LOADER", ("LOADER", "RAW_DATA")),
+    "fastai.vision.all.ImageDataLoaders.from_name_func":
+        E("dataloader", "data", "other", "LOADER", ("LOADER", "RAW_DATA")),
+})
+#: Methods of the wrapper objects the rows above mint.
+WRAPPER_METHODS: Dict[str, Entry] = {
+    "deepspeed.DeepSpeedEngine.save_checkpoint": E("checkpoint", "deliver", "other", "SAVE"),
+    "deepspeed.initialize.save_checkpoint": E("checkpoint", "deliver", "other", "SAVE"),
+    "ignite.engine.Engine.run": E("train_loop", "train", "other", "IGNITE_RUN"),
+    "ignite.engine.create_supervised_evaluator.run":
+        E("eval_loop", "eval", "other", "IGNITE_EVAL"),
+    "fastai.learner.Learner.fit": E("train_loop", "train", "other", "FASTAI_FIT"),
+    "fastai.learner.Learner.fit_one_cycle": E("train_loop", "train", "other", "FASTAI_FIT"),
+    "fastai.learner.Learner.fine_tune": E("train_loop", "train", "other", "FASTAI_FIT"),
+    "fastai.learner.Learner.validate": E("eval_loop", "eval", "other", "FASTAI_EVAL"),
+    "fastai.learner.Learner.get_preds": E("predict", "eval", "other", "PREDICT", ("PREDS",)),
+    "fastai.learner.Learner.export": E("checkpoint", "deliver", "other", "SAVE"),
+    "fastai.learner.Learner.save": E("checkpoint", "deliver", "other", "SAVE"),
+}
 OTHER["imblearn.over_sampling.SMOTE"] = E("transform", "preprocess", "imblearn", "RESAMPLE")
 OTHER["imblearn.over_sampling.RandomOverSampler"] = E("transform", "preprocess", "imblearn", "RESAMPLE")
 OTHER["imblearn.under_sampling.RandomUnderSampler"] = E("transform", "preprocess", "imblearn", "RESAMPLE")
@@ -112,11 +218,29 @@ OTHER.update({
     "toml.load": E("config", "config", "other", "CONFIG_LOAD"),
     "omegaconf.OmegaConf.load": E("config", "config", "other", "CONFIG_LOAD"),
     "os.environ.get": E("config", "config", "other", "CONFIG_ENV", weight=0.4),
+    # TAB-12: the singulars were here and the plurals were not, so a project
+    # that builds a dict of metrics drew a run that logs parameters and never
+    # logs a result or a model.
     "mlflow.log_metric": E("tracker", "deliver", "other", "TRACKER"),
+    "mlflow.log_metrics": E("tracker", "deliver", "other", "TRACKER"),
     "mlflow.log_param": E("tracker", "deliver", "other", "TRACKER"),
+    "mlflow.log_params": E("tracker", "deliver", "other", "TRACKER"),
+    "mlflow.set_tag": E("tracker", "deliver", "other", "TRACKER"),
+    "mlflow.set_tags": E("tracker", "deliver", "other", "TRACKER"),
+    "mlflow.start_run": E("tracker", "deliver", "other", "TRACKER"),
+    "mlflow.set_experiment": E("tracker", "deliver", "other", "TRACKER"),
+    "mlflow.log_artifact": E("checkpoint", "deliver", "other", "SAVE"),
     "wandb.init": E("tracker", "deliver", "other", "TRACKER"),
     "wandb.log": E("tracker", "deliver", "other", "TRACKER"),
 })
+#: TAB-12. `mlflow.<flavour>.log_model` / `save_model` write the model artefact,
+#: so they are SAVE rather than TRACKER: the deliver lane should name the
+#: artefact, not just the run.
+for _flavour in ("sklearn", "pytorch", "keras", "tensorflow", "xgboost", "lightgbm",
+                 "transformers", "pyfunc", "onnx", "statsmodels", "prophet"):
+    OTHER["mlflow.%s.log_model" % _flavour] = E("checkpoint", "deliver", "other", "SAVE")
+    OTHER["mlflow.%s.save_model" % _flavour] = E("checkpoint", "deliver", "other", "SAVE")
+    OTHER["mlflow.%s.load_model" % _flavour] = E("checkpoint", "deliver", "other", "LOAD")
 # ---------------------------------------------------- pandas / numpy frames
 #: Shape-preserving DataFrame / Series / ndarray methods. `X = df.drop(columns=
 #: [target])` is *the* canonical way to build a feature matrix in pandas, so the

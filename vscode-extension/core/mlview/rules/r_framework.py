@@ -134,6 +134,24 @@ def _anchor(ctx, call: CallSite):
 
 
 
+def _unresolved_compile(ctx) -> Optional[CallSite]:
+    """A `.compile(...)` in the workspace whose receiver never resolved.
+
+    vision-01. The claim MLV705 makes is "no compile() call exists anywhere in
+    this workspace"; a `.compile(` whose receiver is an untyped parameter is a
+    compile call MLView saw and could not attribute, which is exactly the
+    evidence that makes the claim false.
+    """
+    for relpath in sorted(ctx.modules):
+        for call in ctx.modules[relpath].calls:
+            if (call.method or "") != "compile":
+                continue
+            if K.role_of(call.fqn) == "KERAS_COMPILE":
+                continue                # already counted above
+            return call
+    return None
+
+
 def _has_kwarg(call: CallSite, key: str) -> bool:
     node = call.kwarg_nodes.get(key)
     if node is None:
@@ -169,6 +187,17 @@ def keras_fit_without_compile(ctx) -> Iterable[Issue]:
         return []
     if ctx.calls_with_role("KERAS_LOAD"):
         return []                       # a loaded model arrives already compiled
+    # vision-01. `model.compile(...)` only earns the KERAS_COMPILE role when
+    # its receiver resolves to a Keras model, and an unannotated function
+    # parameter never does - so the textbook `build_model()` /
+    # `compile_model(model)` split produced zero KERAS_COMPILE calls and this
+    # workspace-wide absence claim accused correct code at high / 0.95, with a
+    # message ("no compile() call exists anywhere in this workspace") the
+    # reader can disprove by opening the first file. An unresolved receiver is
+    # not an absence - the same escape hatch MLV201 already uses.
+    unresolved = _unresolved_compile(ctx)
+    if unresolved is not None:
+        return []
     fit = fits[0]
     node = _anchor(ctx, fit)
     evidence = [
@@ -258,6 +287,34 @@ def _dict_has_loss(node: ast.expr) -> Optional[bool]:
     return False
 
 
+#: The calls that only exist under `self.automatic_optimization = False`.
+#: `self.optimizers()` is deliberately NOT here: reaching for the optimizer
+#: while automatic optimization is still on is MLV706's defect, not evidence
+#: of manual mode. `manual_backward` raises outright under automatic
+#: optimization, so it can only mean the flag is off somewhere this rule did
+#: not look.
+_MANUAL_OPT_METHODS = ("manual_backward", "toggle_optimizer", "untoggle_optimizer")
+
+
+def _manual_optimization(module: ModuleIR, cls: ClassIR, step) -> bool:
+    """Is this LightningModule driving the optimizer by hand? (PUB-07)
+
+    Two signals, either sufficient: the class sets
+    `self.automatic_optimization = False` anywhere - the predicate MLV706
+    already uses - or the `training_step` body calls one of the manual-mode
+    APIs, which exist for no other purpose.
+    """
+    if _assigns_literal(cls.node, "automatic_optimization", False):
+        return True
+    for child in ast.walk(step.node):
+        if not isinstance(child, ast.Call) or not isinstance(child.func, ast.Attribute):
+            continue
+        if child.func.attr in _MANUAL_OPT_METHODS \
+                and dotted_text(child.func).startswith("self."):
+            return True
+    return False
+
+
 @rule(code="MLV707", severity="medium", base_prior=0.90, frameworks=["lightning"],
       rule_version=1, tags=["correctness", "framework", "train-loop"],
       title="LightningModule.training_step does not return a loss",
@@ -268,9 +325,16 @@ def _dict_has_loss(node: ast.expr) -> Optional[bool]:
                "key), which is what Lightning calls backward() on.")
 def lightning_training_step_without_loss(ctx) -> Iterable[Issue]:
     issues: List[Issue] = []
-    for _module, cls in _hook_owners(ctx):
+    for module, cls in _hook_owners(ctx):
         step = cls.methods.get("training_step")
         if step is None:
+            continue
+        # PUB-07. Under manual optimization Lightning does not back-propagate
+        # a returned value at all, so returning nothing is the documented,
+        # correct shape - Lightning's own PPO example does it. MLV706 already
+        # owns this predicate; the two rules must not disagree about what
+        # manual optimization is.
+        if _manual_optimization(module, cls, step):
             continue
         returns = _returns_of(step.node)
         values = [r.value for r in returns]
@@ -410,7 +474,7 @@ def keras_activation_contradicts_from_logits(ctx) -> Iterable[Issue]:
             if pair is None:
                 continue
             loss_call, loss_name = pair
-            model_call = _model_construction(compile_call)
+            model_call = _model_construction(compile_call, ctx)
             if model_call is None:
                 continue
             for call in _output_layers(ctx, model_call):

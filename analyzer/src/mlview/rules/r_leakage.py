@@ -3,8 +3,11 @@ MLV103 (preprocessing outside cross-validation)."""
 
 from __future__ import annotations
 
+import ast
+import re
 from typing import Iterable, List, Optional
 
+from .. import knowledge as K
 from ..core.coverage import untraced_reason
 from ..core.graph import Diagnostic, Issue
 from ..ir.model import CallSite
@@ -30,6 +33,18 @@ def fit_before_split(ctx) -> Iterable[Issue]:
     issues: List[Issue] = []
     for fit in ctx.calls_with_role("FIT", "FIT_TRANSFORM"):
         if _stateless(fit):
+            continue
+        # ROB-10 / PUB-02. `sklearn.base.BaseEstimator.fit` carries the role
+        # FIT, so EVERY estimator fit was an MLV101 candidate - and the second
+        # half of the rule accepts a cross-validator's `.split()` as "the
+        # train/test split", so `final.fit(X, y)` after a `KFold` loop, and
+        # `GridSearchCV(...).fit(X, y)` (which refits inside every fold), were
+        # reported high / 0.95 on correct code. That shape is 13 of the 13
+        # high-severity findings MLView produces on scikit-learn's own source.
+        # ISSUE_RULES section 3 scopes this rule to the five preprocessing
+        # namespaces; the implementation kept the roles and dropped the
+        # namespaces. A transformer is what this rule is about.
+        if not _is_transformer_fit(ctx, fit):
             continue
         name, ref = traced_arg(ctx, fit, 0)
         if ref is None or not ref.tags:
@@ -74,7 +89,15 @@ def fit_before_split(ctx) -> Iterable[Issue]:
         if node is None:
             continue
         split_node = ctx.node_for_call(split)
-        target_only = ref.has("TARGET") and not ref.has("FEATURES")
+        # PUB-04. FP-note (c) de-rates a fit on the target alone - the
+        # `LabelEncoder().fit(y)` case - to medium x0.6, and the guard was
+        # keyed on a dataflow TARGET tag that a pandas column subscript never
+        # acquires, so the commonest spelling of the very pattern the note
+        # exists for kept full `high`. The literal column key is reinforcing
+        # evidence in the iron-law-2 sense: it cannot create a finding, it only
+        # de-rates one that already exists.
+        target_only = (ref.has("TARGET") and not ref.has("FEATURES")) \
+            or _target_column(fit)
         evidence = [
             ("fqn_resolved", "%s resolved through the import table" % (fit.fqn or "fit"), 1.0),
             ("dataflow_direct",
@@ -111,8 +134,61 @@ def fit_before_split(ctx) -> Iterable[Issue]:
                     % (_label(fit), name, fit.loc.file, fit.loc.line,
                        split.short_name, split.loc.line),
             loc=fit.loc, node_ids=nodes, related=related, evidence=evidence,
+            severity="medium" if target_only else None,
             dynamic=fit.scope.is_dynamic))
     return issues
+
+
+#: PUB-04. A column key that names the target, for the FP-note (c) de-rate.
+_TARGET_KEY_RE = re.compile(r"(?i)^(label|labels|target|targets|y|class|classes|"
+                            r"outcome|category)$")
+
+
+def _target_column(fit: CallSite) -> bool:
+    """`le.fit(df["label"])` - a fit on a single target column, by its key."""
+    if not fit.args:
+        return False
+    node = fit.args[0]
+    if not isinstance(node, ast.Subscript):
+        return False
+    key = node.slice
+    return bool(isinstance(key, ast.Constant) and isinstance(key.value, str)
+                and _TARGET_KEY_RE.match(key.value))
+
+
+#: The stages a knowledge row must sit in for its `.fit()` to be a
+#: *preprocessing* fit. ISSUE_RULES section 3 names the five sklearn namespaces;
+#: every one of them lands in the `preprocess` stage, and nothing else does.
+_TRANSFORMER_STAGES = ("preprocess",)
+
+
+def _is_transformer_fit(ctx, fit: CallSite) -> bool:
+    """Is this `.fit()` fitting a *transformer*, rather than a model? (ROB-10)
+
+    `fit_transform` is a transformer method by definition and keeps its role.
+    A bare `.fit()` has to be attributed: the receiver's constructor decides,
+    and a receiver that resolves to nothing is not evidence of a transformer -
+    the honest answer there is silence, which is what `ctx.untraced` below
+    already records for the argument side.
+    """
+    for fqn in fit.canonical_fqns or ():
+        if K.role_of(fqn) == "FIT_TRANSFORM":
+            return True
+    ref = fit.receiver
+    producer = ref.producer if ref is not None else None
+    candidates: List[str] = []
+    if producer is not None:
+        candidates.extend(producer.canonical_fqns or ())
+        if producer.fqn:
+            candidates.append(producer.fqn)
+    if ref is not None:
+        candidates.extend(getattr(ref, "via_fqns", ()) or ())
+    entry, _which = K.best_entry(candidates)
+    if entry is None:
+        return False
+    if entry["role"] in ("CV_SEARCH", "PIPELINE", "ESTIMATOR", "MODEL_FACTORY"):
+        return False
+    return entry["stage"] in _TRANSFORMER_STAGES
 
 
 #: TB-10: the wording lives in `core/coverage` now, because the post-rule sweep
@@ -238,9 +314,96 @@ def _split_consuming(ctx, fit: CallSite, splits, targets) -> Optional[CallSite]:
             name = dotted_text(arg)
             if not name:
                 continue
-            if reaches(ctx, name, split.scope, targets):
-                return split
+            if not reaches(ctx, name, split.scope, targets):
+                continue
+            # PUB-03. Reachability here is by dotted NAME, and a sphinx-gallery
+            # script or a notebook is one module scope in which `X` is bound
+            # several times for several unrelated sections. Matching the fit's
+            # `X` to a split's `X` across a rebinding joined two independent
+            # halves of one file into a high / `certain` leak on correct code.
+            # A name that was re-assigned in between is a different value, and
+            # the rule cannot prove otherwise from a name.
+            broken = _rebound_between(fit, split, name, targets)
+            if broken is not None:
+                ctx.untraced(fit, name,
+                             "`%s` is re-assigned at line %d from a value that does not "
+                             "derive from the fitted one, between the fit at line %d and "
+                             "the %s at line %d, so the two sites hold different values "
+                             "and the leak is neither confirmed nor ruled out"
+                             % (name, broken, fit.loc.line, split.short_name,
+                                split.loc.line))
+                continue
+            return split
     return None
+
+
+def _rebound_between(fit: CallSite, split: CallSite, name: str,
+                     targets) -> Optional[int]:
+    """The line that breaks the value chain between the fit and the split.
+
+    PUB-03. Reachability in this rule is by dotted NAME, and a sphinx-gallery
+    script or a notebook is one module scope in which `X` is bound several
+    times for several unrelated sections; matching the fit's `X` to a split's
+    `X` across such a rebinding joined two independent halves of one file into
+    a high / `certain` leak on correct code.
+
+    A rebinding that *reads* one of the tracked names continues the chain -
+    `X = scaler.fit_transform(X)` and `features = imputer.fit_transform(
+    features)` are exactly the shape ISSUE_RULES section 3 says must fire. A
+    rebinding that reads none of them is a different value that happens to
+    share a name, and the rule cannot prove otherwise from a name.
+    """
+    wanted = {name} | {t for t in targets if t}
+    for record in fit.module.assignments:
+        if record.scope is not fit.scope:
+            continue
+        if not (fit.loc.line < record.loc.line < split.loc.line):
+            continue
+        if record.call is fit:
+            continue
+        if not any(n in wanted for t in record.targets for n in _target_names(t)):
+            continue
+        if record.value is not None and _reads_any(record.value, wanted):
+            continue                     # the chain runs through this statement
+        return record.loc.line
+    return None
+
+
+def _target_names(target: ast.expr) -> Iterable[str]:
+    """Every dotted name an assignment target binds, tuple unpacking included.
+
+    PUB-15. `AssignRecord.targets` is the raw `stmt.targets`, so `X, y =
+    load_iris(...)` is **one** `ast.Tuple`, and `dotted_text` of a tuple is
+    empty. `_rebound_between` therefore could not see the single commonest
+    rebinding in scikit-learn code: a sphinx-gallery script that binds `X, y`
+    once per section. The guard the last round added for `X = ...` was blind to
+    `X, y = ...`, which is how MLV101 still reported a high / `certain` leak on
+    `examples/release_highlights/plot_release_highlights_0_24_0.py:153`, where
+    the `sfs.fit(X, y)` at line 153 and the `train_test_split(X, y, ...)` at
+    line 180 are two different datasets (iris and covtype) twenty-five lines
+    apart.
+    """
+    if isinstance(target, (ast.Tuple, ast.List)):
+        for element in target.elts:
+            for name in _target_names(element):
+                yield name
+        return
+    if isinstance(target, ast.Starred):
+        for name in _target_names(target.value):
+            yield name
+        return
+    text = dotted_text(target)
+    if text:
+        yield text
+
+
+def _reads_any(value: ast.expr, names) -> bool:
+    for child in ast.walk(value):
+        if isinstance(child, (ast.Name, ast.Attribute)):
+            text = dotted_text(child)
+            if text and text in names:
+                return True
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -260,6 +423,27 @@ def fit_on_held_out(ctx) -> Iterable[Issue]:
     issues: List[Issue] = []
     for fit in ctx.calls_with_role("FIT", "FIT_TRANSFORM"):
         if _stateless(fit):
+            continue
+        # PUB-14, the MLV102 half of ROB-10 / PUB-02. `sklearn.base.
+        # BaseEstimator.fit` carries the role FIT, so an *estimator* refitted on
+        # the other half of a split was an MLV102 candidate. On the
+        # PythonDataScienceHandbook's `05.03-Hyperparameters-and-Model-
+        # Validation.ipynb`, cell 16 is hand-rolled two-fold cross-validation -
+        #
+        #     y2_model = model.fit(X1, y1).predict(X2)
+        #     y1_model = model.fit(X2, y2).predict(X1)
+        #
+        # - and MLView reported the second line high / `certain` 0.97, calling a
+        # `KNeighborsClassifier` "the transformer" and saying "the held-out
+        # score is not an estimate of unseen-data performance at all" about a
+        # model whose score is computed on the half it was never fitted on. Both
+        # statements are false, on one of the most-read notebooks in the corpus.
+        # This rule's title, `why` and `fix_hint` are all about a transformer,
+        # every `expected` MLV102 label in the labelled corpus is a
+        # `fit_transform` on a transformer, and MLV101 has answered exactly this
+        # question since ROB-10 - so it is answered here with the same function
+        # rather than a second mechanism.
+        if not _is_transformer_fit(ctx, fit):
             continue
         if _semi_supervised(fit.module):
             continue

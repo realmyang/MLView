@@ -44,6 +44,12 @@ class AssignRecord:
     #: ANA-5a: written inside a `match` case body. Which arm ran is undecidable
     #: statically, so a name bound here is the textbook unresolvable callee.
     in_match: bool = False
+    #: INFRA-01: the statement runs under `torch.no_grad()` /
+    #: `inference_mode()`. `CallSite` has carried this since MLV204; an
+    #: assignment needs it for the same reason - there is no autograd graph to
+    #: keep alive under no_grad, so MLV205 has nothing to say about a value
+    #: accumulated there.
+    inside_no_grad: bool = False
 
 
 def literal_str(node: Optional[ast.AST]) -> Optional[str]:
@@ -227,7 +233,8 @@ class _Walker:
         self.module.assignments.append(AssignRecord(
             kind=kind, targets=tuple(targets), value=value, scope=self.scope,
             loc=self.loc(stmt), call=call, stmt_index=index, loop=self.loop,
-            function=self.func, class_ir=self.cls, in_match=self.match_depth > 0))
+            function=self.func, class_ir=self.cls, in_match=self.match_depth > 0,
+            inside_no_grad=self.no_grad > 0))
 
     # -- definitions --------------------------------------------------------
     def visit_function(self, node, index: int, block_id: str) -> None:
@@ -356,7 +363,7 @@ class _Walker:
                     kind="with", targets=(item.optional_vars,), value=expr,
                     scope=self.scope, loc=self.loc(node), call=call,
                     stmt_index=index, loop=self.loop, function=self.func,
-                    class_ir=self.cls))
+                    class_ir=self.cls, inside_no_grad=self.no_grad > 0))
         self.no_grad += no_grad
         if enable_grad:
             self.no_grad = max(0, self.no_grad - enable_grad)
@@ -392,7 +399,7 @@ class _Walker:
                 kind="walrus", targets=(node.target,), value=node.value,
                 scope=self.scope, loc=self.loc(node), call=inner,
                 stmt_index=index, loop=self.loop, function=self.func,
-                class_ir=self.cls))
+                class_ir=self.cls, inside_no_grad=self.no_grad > 0))
             return inner
         elif isinstance(node, ast.Lambda):
             self.visit_expr(node.body, index, block_id)

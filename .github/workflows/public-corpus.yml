@@ -1,0 +1,115 @@
+name: Public corpus
+
+# PUB-01. The labelled corpus (`tools/accuracy.py`) measures MLView against
+# fourteen programs written for it. This job measures it against code nobody
+# wrote for it: twenty-four pinned public ML/DL repositories, analysed three
+# ways each.
+#
+# It asserts the four things that can never be a judgement call - no crash, no
+# exit code outside {0, 4}, every document schema-valid, every run inside the
+# wall-time budget - and one that is: no high-severity finding that a human has
+# not already read and recorded in `analyzer/tests/public_corpus/adjudication.json`.
+# A false positive already recorded there as `state: open` is listed, not fatal;
+# one recorded as `state: fixed` coming back fails the job, which is what makes
+# that file a ratchet rather than a diary.
+#
+# COST. ~1.8 GB of shallow clones and ~3 minutes of analysis, so it is
+# **schedule + manual only**: it never runs on a push or a pull request. Every
+# clone is pinned to a SHA, so a run is reproducible and an upstream force-push
+# cannot silently change what is being measured.
+
+on:
+  schedule:
+    # 04:20 UTC on Mondays. Weekly, not nightly: the corpus is pinned, so the
+    # only thing that changes between runs is MLView itself.
+    - cron: '20 4 * * 1'
+  workflow_dispatch:
+    inputs:
+      repos:
+        description: 'Comma-separated repo names from repos.json (empty = all)'
+        required: false
+        default: ''
+      strict:
+        description: 'Also fail on known-open false positives'
+        type: boolean
+        required: false
+        default: false
+
+concurrency:
+  group: public-corpus-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONUTF8: '1'
+  PYTHONDONTWRITEBYTECODE: '1'
+  MLVIEW_PUBLIC_CORPUS_DIR: ${{ github.workspace }}/.public-corpus
+
+permissions:
+  contents: read
+
+jobs:
+  corpus:
+    name: analyze 24 public repositories
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: analyzer/pyproject.toml
+
+      - name: install the analyzer
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e "analyzer[dev]"
+
+      - name: manifest and gate logic (no corpus needed)
+        run: python -m pytest analyzer/tests/public_corpus -q
+
+      # Shallow, blob-filtered, sparse where the repository is large. Pinned to
+      # a SHA, so the fetch is either exactly what repos.json recorded or an
+      # error - never a moving target.
+      - name: fetch the pinned corpus
+        run: |
+          python tools/public_corpus.py fetch \
+            ${{ github.event.inputs.repos && format('--repo {0}', github.event.inputs.repos) || '' }}
+          du -sh "$MLVIEW_PUBLIC_CORPUS_DIR"
+
+      - name: analyze every target (default, --dataflow ip, --include-notebooks)
+        run: |
+          python tools/public_corpus.py run \
+            --out "$MLVIEW_PUBLIC_CORPUS_DIR/_reports/report.json" \
+            --graphs "$MLVIEW_PUBLIC_CORPUS_DIR/_reports/graphs" \
+            --jobs 4 --budget 60
+
+      - name: gate
+        run: |
+          python tools/public_corpus.py check \
+            --report "$MLVIEW_PUBLIC_CORPUS_DIR/_reports/report.json" \
+            ${{ github.event.inputs.strict == 'true' && '--strict' || '' }}
+
+      # The report is the evidence behind the verdict: every run's exit code,
+      # wall time, node/edge/issue counts, diagnostics and findings. Uploaded
+      # whether the gate passed or failed, because a failure is exactly when
+      # somebody needs to read it. The graph documents are not uploaded - they
+      # are hundreds of megabytes and derivable from the pinned SHAs.
+      - name: upload the report
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: public-corpus-report
+          path: ${{ env.MLVIEW_PUBLIC_CORPUS_DIR }}/_reports/report.json
+          # CI-ARTIFACTS-01, again. MLVIEW_PUBLIC_CORPUS_DIR expands to
+          # `<workspace>/.public-corpus`, a dot-directory, and upload-artifact
+          # skips hidden paths unless this is set: without it the glob matched
+          # nothing, `if-no-files-found: warn` kept the step green, and every
+          # run of this job would have archived no report at all -- the evidence
+          # behind the verdict, missing exactly when somebody needs to read it.
+          # The env reference is why doc-gate check 10 could not see it; it
+          # resolves `${{ env.* }}` now.
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 30

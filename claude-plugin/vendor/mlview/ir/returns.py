@@ -151,6 +151,37 @@ def _slot(expr, func: FunctionIR, workspace, memo, active, depth: int,
     if expr is None:
         return None
     module = func.module
+    # DGRG-02. `return a + b`, `return 0.7 * soft + 0.3 * hard` and
+    # `return -critic(x).mean()` all fell straight through to `None`, so the
+    # value a distillation / PPO / multi-task / VAE / contrastive helper
+    # returns carried no `torch.Tensor` family, `loss.backward()` on it never
+    # earned the BACKWARD role, and MLV201/202/203/205 all went silent on a
+    # loop that genuinely never zeroes its gradients. A sum of two losses is a
+    # loss, so the operands are recursed into and merged.
+    if isinstance(expr, (ast.BinOp, ast.UnaryOp)):
+        operands = [expr.operand] if isinstance(expr, ast.UnaryOp) \
+            else [expr.left, expr.right]
+        slots = [_slot(o, func, workspace, memo, active, depth, max_depth)
+                 for o in operands]
+        kept = [s for s in slots if s]
+        if not kept:
+            return None
+        # `_merge` intersects tags, which is right for two branches of one
+        # return but wrong here: `0.7 * loss` has a literal on one side, and a
+        # literal contributes no tags at all. The union is what "this value is
+        # built out of a loss" means.
+        fqns: List[str] = []
+        tags: Set[str] = set()
+        for slot in kept:
+            for fqn in slot.fqns:
+                if fqn not in fqns:
+                    fqns.append(fqn)
+            tags |= set(slot.tags)
+        classes = {id(s.class_ir): s.class_ir for s in kept if s.class_ir is not None}
+        merged = ReturnSlot(fqns=tuple(fqns[:_MAX_FQNS]), tags=sort_tags(tags),
+                            class_ir=list(classes.values())[0]
+                            if len(classes) == 1 else None)
+        return merged or None
     if isinstance(expr, ast.Call):
         call = getattr(module, "_calls_by_node", {}).get(id(expr))
         if call is None:

@@ -28,7 +28,10 @@ from .other_tbl import (
     KERAS_METHODS,
     LIGHTNING_METHODS,
     OTHER,
+    WRAPPER_METHODS,
 )
+from .stats_tbl import STATS, STATS_METHODS
+from .timm_tbl import TIMM, TIMM_METHODS
 from .sklearn_tbl import SKLEARN, SKLEARN_METHODS, STATELESS_TRANSFORMERS
 from .tf_tbl import (
     KERAS_EXTRA,
@@ -69,6 +72,8 @@ KNOWLEDGE.update(TFDATA)
 KNOWLEDGE.update(KERAS_EXTRA)
 KNOWLEDGE.update(HF_DATA)
 KNOWLEDGE.update(GBM)
+KNOWLEDGE.update(TIMM)
+KNOWLEDGE.update(STATS)
 
 #: Every *method* we recognise, keyed by its canonical base FQN.
 METHODS: Dict[str, Entry] = {}
@@ -84,6 +89,9 @@ METHODS.update(KERAS_EXTRA_METHODS)
 METHODS.update(HF_DATA_METHODS)
 METHODS.update(GBM_METHODS)
 METHODS.update(LIGHTNING_METHOD_ENTRIES)
+METHODS.update(WRAPPER_METHODS)
+METHODS.update(TIMM_METHODS)
+METHODS.update(STATS_METHODS)
 
 #: Everything, for a single lookup.
 ALL: Dict[str, Entry] = {}
@@ -117,6 +125,16 @@ _PREFIX_RULES: Tuple[Tuple[str, Entry], ...] = (
     ("torchvision.datasets.", E("dataset", "data", "torchvision", "DATASET", ("RAW_DATA",), "dataset", 0.8)),
     ("torchvision.models.", E("model", "model", "torchvision", "MODEL_FACTORY", ("MODEL",), "module", 0.8)),
     ("torchmetrics.", E("metric", "eval", "torchmetrics", "METRIC", (), None, 0.8)),
+    # vision-04: timm is the de-facto standard backbone / augmentation /
+    # scheduler library for modern image classification, and there was no timm
+    # row anywhere - so a timm project rendered with no model, no loss, no
+    # forward and no backward, and `workspace.frameworks` did not even name the
+    # library. The exact rows live in `timm_tbl.py`; this is the family net.
+    ("timm.models.", E("model", "model", "torch", "MODEL_FACTORY", ("MODEL",), "module", 0.8)),
+    ("timm.loss.", E("loss", "objective", "torch", "LOSS_CLS", ("LOSS",), None, 0.8)),
+    ("timm.optim.", E("optimizer", "train", "torch", "OPTIMIZER", ("OPTIMIZER",), "optimizer", 0.8)),
+    ("timm.scheduler.", E("scheduler", "train", "torch", "SCHEDULER", (), "scheduler", 0.8)),
+    ("timm.data.", E("transform", "preprocess", "torch", "TRANSFORM", (), None, 0.7)),
     ("sklearn.metrics.", E("metric", "eval", "sklearn", "METRIC", (), None, 0.8)),
     ("sklearn.preprocessing.", E("scaler", "preprocess", "sklearn", "TRANSFORMER", (), "estimator", 0.8)),
     ("sklearn.decomposition.", E("transform", "preprocess", "sklearn", "TRANSFORMER", (), "estimator", 0.8)),
@@ -305,6 +323,14 @@ OP_ROLES = frozenset({
     "TFDATA_MAP", "TFDATA_SHUFFLE", "TFDATA_BATCH", "TFDATA_PREFETCH",
     "TFDATA_SUBSET", "TFDATA_OP", "HF_MAP", "HF_SHUFFLE", "HF_DATA_OP",
     "COLLATOR", "CALLBACK", "GBM_TRAIN",
+    # vision-04 / INFRA-03 / INFRA-04. timm, fastai, ignite and DeepSpeed:
+    # each of these was a lane the analyzer declared ABSENT on correct code
+    # because the call that fills it had no knowledge row at all.
+    # `SCHED_STEP_BATCH` is timm's per-batch `step_update`, kept distinct from
+    # `SCHED_STEP` because "which cadence" is precisely MLV207's question.
+    "SCHED_STEP_BATCH", "EMA_UPDATE",
+    "FASTAI_LEARNER", "FASTAI_FIT", "FASTAI_EVAL",
+    "IGNITE_TRAIN", "IGNITE_EVAL", "IGNITE_RUN",
 })
 
 # ---------------------------------------------------------------------------
@@ -316,6 +342,15 @@ FRAMEWORKS = ("torch", "sklearn", "pandas", "numpy", "keras", "tf", "hf",
               "albumentations", "xgboost", "lightgbm", "other")
 
 _MODULE_FRAMEWORK = {
+    # INFRA-03 / vision-04: a framework MLView does not name is a framework the
+    # reader has no hint MLView did not model, and "stage absent" then reads as
+    # a property of the code rather than as a blind spot. These map onto the
+    # nearest `Framework` enum value rather than inventing one, which would be
+    # a schema change.
+    "timm": "torch",
+    "fastai": "torch",
+    "ignite": "torch",
+    "deepspeed": "torch",
     "torch": "torch",
     "torchvision": "torchvision",
     "torchmetrics": "torchmetrics",

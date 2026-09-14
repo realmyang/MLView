@@ -531,7 +531,15 @@ class GraphBuilder:
             node.stage = stage
             node.stageEvidence = evidence
             wanted = None
-            if node.kind == "function" and stage in ("train", "eval"):
+            # vision-11: only a unit that actually OWNS a loop may be re-kinded
+            # into one. Without this, a transform factory, a Keras `compile()`
+            # wrapper and a callback-list builder were each drawn as a
+            # `train_loop` / `eval_loop` - phantom loops on the diagram, next
+            # to real training loops missing their forward and backward. The
+            # `NodeKind` enum already has `function` for exactly this case, and
+            # the stage lane is unaffected either way.
+            if node.kind == "function" and stage in ("train", "eval") \
+                    and _unit_has_loop(owner):
                 wanted = "train_loop" if stage == "train" else "eval_loop"
             elif node.kind in ("train_loop", "eval_loop") and stage in ("train", "eval"):
                 # the loop's own kind must agree with the lane it is drawn in:
@@ -830,6 +838,28 @@ class GraphBuilder:
             ranked.append((rank, module.relpath))
         ranked.sort()
         return [rel for _rank, rel in ranked[:10]]
+
+
+def _unit_has_loop(owner) -> bool:
+    """Does this unit really contain a loop? (vision-11)
+
+    A `LoopIR` is one by definition. A `FunctionIR` knows its own loops, and a
+    `ClassIR` is asked about its methods. Anything else - a unit with no owner
+    the builder could attach - is left as a `function`, which is the honest
+    answer when the question cannot be asked.
+    """
+    if isinstance(owner, LoopIR):
+        return True
+    if isinstance(owner, FunctionIR):
+        if owner.loops:
+            return True
+        for child in ast.walk(owner.node):
+            if isinstance(child, (ast.For, ast.AsyncFor, ast.While)):
+                return True
+        return False
+    if isinstance(owner, ClassIR):
+        return any(_unit_has_loop(m) for m in owner.methods.values())
+    return False
 
 
 def build_graph(workspace: WorkspaceIR, max_nodes: int = 400) -> Tuple[MLGraph, GraphBuilder]:

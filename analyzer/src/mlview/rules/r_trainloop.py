@@ -403,6 +403,8 @@ def loss_accumulated_with_graph(ctx) -> Iterable[Issue]:
         for name, loop, loc, scope, loss_ref, how in _accumulations(ctx, module):
             if _backwarded(module, name):
                 continue                # deliberate multi-step accumulation
+            if _returned(scope, name):
+                continue                # vision-05: the caller owns the graph
             outer = _defined_outside(module, name, loop, loc)
             if outer is None:
                 continue
@@ -432,9 +434,10 @@ def loss_accumulated_with_graph(ctx) -> Iterable[Issue]:
                 related.append(("call_site", loss_ref.producer.loc,
                                 "the loss is produced here"))
             issues.append(ctx.issue(
-                message="%s %s the tensor %s at %s:%d, so every iteration of the loop at "
+                message="%s %s %s at %s:%d, so every iteration of the loop at "
                         "line %d keeps its autograd graph alive."
-                        % (name, how, loss_ref.name, loc.file, loc.line, loop.loc.line),
+                        % (name, how, _accumulated_label(loss_ref), loc.file, loc.line,
+                           loop.loc.line),
                 loc=loc, node_ids=[node], related=related, evidence=evidence,
                 dynamic=scope.is_dynamic))
     return issues
@@ -445,6 +448,12 @@ def _accumulations(ctx, module):
     out = []
     for record in module.assignments:
         if record.loop is None or record.value is None:
+            continue
+        # INFRA-01 (a). ISSUE_RULES section 3 promises this guard and the code
+        # never had it: under `torch.no_grad()` there is no autograd graph, so
+        # nothing an accumulator holds can keep one alive. `avg_psnr += psnr`
+        # inside a validation loop is the canonical shape.
+        if record.inside_no_grad:
             continue
         name = None
         if record.kind == "aug":
@@ -458,11 +467,16 @@ def _accumulations(ctx, module):
         if name is None or _guarded(record.value):
             continue
         loss_ref = _loss_operand(ctx, record.value, record.scope, name)
-        if loss_ref is not None:
-            out.append((name, record.loop, record.loc, record.scope, loss_ref,
-                        "accumulates"))
+        if loss_ref is None:
+            continue
+        if _detached_upstream(module, record.value, record.scope, record.loc, name):
+            continue
+        out.append((name, record.loop, record.loc, record.scope, loss_ref,
+                    "accumulates"))
     for call in module.calls:
         if (call.method or "") != "append" or call.loop is None or not call.args:
+            continue
+        if call.inside_no_grad:
             continue
         name = call.receiver_name
         container = ctx.binding_of(name, call.scope) if name else None
@@ -471,9 +485,136 @@ def _accumulations(ctx, module):
         if _guarded(call.args[0]):
             continue
         loss_ref = _loss_operand(ctx, call.args[0], call.scope, name)
-        if loss_ref is not None:
-            out.append((name, call.loop, call.loc, call.scope, loss_ref, "collects"))
+        if loss_ref is None:
+            continue
+        if _detached_upstream(module, call.args[0], call.scope, call.loc, name):
+            continue
+        out.append((name, call.loop, call.loc, call.scope, loss_ref, "collects"))
     return out
+
+
+def _detached_upstream(module, value, scope, loc, accumulator: str,
+                       hops: int = 3) -> bool:
+    """Does the accumulated value reach a `.item()` / `float()` / `math.*` hop?
+
+    INFRA-01 (b) / PUB-08. `_guarded` only reads the right-hand side of the
+    accumulation itself, so `psnr = 10 * log10(1 / mse.item())` one statement
+    earlier was invisible and MLV205 called a Python float "the tensor psnr".
+    The walk is bounded and purely syntactic: it follows the binding of each
+    name the expression reads, in the same scope, to the statement that
+    created it, and stops at the first detaching hop.
+    """
+    frontier = [n for n in _names_of(value) if n != accumulator]
+    seen = set(frontier)
+    for _ in range(max(1, hops)):
+        nxt: List[str] = []
+        for name in frontier:
+            record = _last_binding(module, name, scope, loc)
+            if record is None or record.value is None:
+                continue
+            if _guarded(record.value) or _math_only(record.value):
+                return True
+            if _scalar_callee(record):
+                return True
+            for other in _names_of(record.value):
+                if other not in seen and other != accumulator:
+                    seen.add(other)
+                    nxt.append(other)
+        if not nxt:
+            break
+        frontier = nxt
+    return False
+
+
+#: Return annotations that declare the value is a Python number, not a tensor.
+_SCALAR_ANNOTATIONS = ("float", "int", "builtins.float", "builtins.int")
+
+
+def _scalar_callee(record) -> bool:
+    """Was this value produced by a workspace function that returns a scalar?
+
+    `loss = _one_epoch(...)` where `def _one_epoch(...) -> float:` returns
+    `running / max(len(loader), 1)` and `running` accumulated `loss.item()`.
+    The author has declared the type; taking their word for it is cheaper and
+    more reliable than re-deriving it, and a wrong annotation costs a missed
+    finding rather than a false accusation.
+    """
+    call = getattr(record, "call", None)
+    target = getattr(call, "target_function", None) if call is not None else None
+    if target is None:
+        return False
+    annotation = (target.annotations or {}).get("return")
+    if annotation and annotation.split(".")[-1] in ("float", "int"):
+        return True
+    node = getattr(target, "node", None)
+    returns = getattr(node, "returns", None) if node is not None else None
+    text = dotted_text(returns) if returns is not None else None
+    return bool(text and text.split(".")[-1] in ("float", "int"))
+
+
+def _last_binding(module, name: str, scope, loc):
+    """The latest assignment to `name` in `scope` strictly above `loc`."""
+    best = None
+    for record in module.assignments:
+        if record.scope is not scope or record.loc.line >= loc.line:
+            continue
+        if any(dotted_text(t) == name for t in record.targets):
+            best = record
+    return best
+
+
+#: Free functions that cannot return a tensor, so a value built from one is a
+#: Python number however it was spelled (`math.log10`, `math.sqrt`, ...).
+_SCALAR_MODULES = ("math.", "statistics.")
+
+
+def _math_only(value: ast.expr) -> bool:
+    for child in ast.walk(value):
+        if not isinstance(child, ast.Call):
+            continue
+        text = dotted_text(child.func) or ""
+        if text.startswith(_SCALAR_MODULES) or text.split(".")[0] == "math":
+            return True
+    return False
+
+
+def _returned(scope, name: str) -> bool:
+    """Is the accumulator handed back to a caller that may back-propagate it?
+
+    vision-05. ISSUE_RULES MLV205 false-positive note (a) suppresses the rule
+    when `.backward()` is called on the accumulator, and note (b) covers a list
+    later `torch.stack`ed and backwarded. `_backwarded` implements both by
+    matching the accumulator's NAME inside the same module - which never
+    applies to the standard custom-loss shape, where a `nn.Module.forward`
+    accumulates its terms and RETURNS them for the caller to back-propagate
+    under another name in another scope. The graph has to stay alive until
+    then, so the only defensible answer is silence.
+
+    The discriminator against the equally standard `def train_one_epoch(...):
+    running += loss; return running / n` is what the enclosing function does
+    with the gradients: a function that itself calls `.backward()` or
+    `.step()` **is** the training loop, and the value it returns is
+    bookkeeping the caller prints. A function that returns an accumulated
+    tensor and never back-propagates is a loss builder, and this rule cannot
+    see whether its caller detaches.
+    """
+    node = getattr(scope, "node", None)
+    if node is None:
+        return False
+    short = name.split(".")[-1]
+    returned = False
+    for child in ast.walk(node):
+        if isinstance(child, ast.Call) and isinstance(child.func, ast.Attribute) \
+                and child.func.attr in ("backward", "step"):
+            return False              # this scope owns the update: keep firing
+        if not isinstance(child, ast.Return) or child.value is None:
+            continue
+        for sub in ast.walk(child.value):
+            if isinstance(sub, (ast.Name, ast.Attribute)):
+                text = dotted_text(sub) or ""
+                if text and text.split(".")[-1] == short:
+                    returned = True
+    return returned
 
 
 def _names_of(value: ast.expr) -> List[str]:
@@ -497,6 +638,22 @@ def _guarded(value: ast.expr) -> bool:
     return False
 
 
+def _accumulated_label(loss_ref: ValueRef) -> str:
+    """What is actually being added - the tensor, or the call that returns it.
+
+    vision-16. `_loss_operand` returns the binding of any LOSS-tagged name in
+    the accumulation expression, which for `total = total + self.classification(
+    logits, y)` is the **criterion module**, not the tensor. Saying "the tensor
+    self.classification" sends a reader looking for a variable that is an
+    `nn.BCEWithLogitsLoss` instance.
+    """
+    producer = loss_ref.producer
+    role = K.role_of(producer.fqn) if producer is not None else None
+    if role in ("LOSS_CLS",) or (producer is not None and producer.var != loss_ref.name):
+        return "the result of %s(...)" % loss_ref.name
+    return "the tensor %s" % loss_ref.name
+
+
 def _loss_operand(ctx, value: ast.expr, scope, accumulator: str) -> Optional[ValueRef]:
     for text in _names_of(value):
         if text == accumulator:
@@ -513,7 +670,14 @@ def _defined_outside(module, name: str, loop: Optional[LoopIR], loc):
     for other in module.assignments:
         if other.loc.line >= loc.line:
             continue
-        if _within(loop, other.loop):
+        # vision-06: the arguments were the wrong way round. `_within(a, b)`
+        # asks "is a inside b"; the question here is whether the INITIALIZER
+        # lives inside the accumulating loop (reset every pass, nothing to
+        # leak), not whether the accumulating loop lives inside the
+        # initializer's loop - which is true for `running = 0.0` in the epoch
+        # loop and `running += loss` in the batch loop, the placement every
+        # PyTorch tutorial writes and the one this rule most needs to see.
+        if _within(other.loop, loop):
             continue                    # created inside the same loop: reset each pass
         if any(dotted_text(t) == name for t in other.targets):
             best = other
@@ -531,7 +695,14 @@ def _backwarded(module, name: str) -> bool:
                     stacked.add(call.var.split(".")[-1])
     wanted = {short} | stacked
     for call in module.calls:
-        if K.role_of(call.fqn) != "BACKWARD":
+        # The BACKWARD role needs the receiver's binding to resolve to a known
+        # tensor producer, and an accumulator initialised `total = 0.0` never
+        # does - so the role test alone made this guard blind to exactly the
+        # shape the guard exists for. A syntactic `x.backward()` is proof
+        # enough that somebody back-propagates `x`; a rule may stay silent on
+        # weak evidence, but it may not accuse on it.
+        if K.role_of(call.fqn) != "BACKWARD" \
+                and (call.method or call.short_name) != "backward":
             continue
         receiver = (call.receiver_name or "").split(".")[-1]
         if receiver in wanted:

@@ -92,7 +92,12 @@ export class AnswersCard {
     this.head.title = (open ? 'Hide' : 'Show') + ' the four answers this analysis composed';
     if (open) this.root.classList.add('is-open');
     else this.root.classList.remove('is-open');
-    this.countEl.textContent = rows.length + ' of 4 answered';
+    // DGRG-12: the counter says what the answers say, never more.
+    this.countEl.textContent = answeredLabel(rows);
+    this.countEl.title =
+      'An answer counts as answered when it names a place in the code. The rest say so in words: ' +
+      'the emitter found nothing to point at.';
+    this.root.setAttribute('data-answers-answered', String(rows.filter((r) => located(r.answer)).length));
     this.bodyEl.hidden = !open;
 
     clear(this.bodyEl);
@@ -100,6 +105,7 @@ export class AnswersCard {
     for (const row of rows) {
       const item = add(list, el('li', 'mlv-answers__item'));
       item.setAttribute('data-answer', row.key);
+      item.setAttribute('data-answer-located', located(row.answer) ? '1' : '0');
       add(item, el('span', 'mlv-answers__q', row.question));
       const sentence = add(item, el('p', 'mlv-answers__sentence', row.answer.sentence));
       sentence.setAttribute('data-answer-sentence', row.key);
@@ -123,6 +129,38 @@ export class AnswersCard {
       }
     }
   }
+}
+
+/**
+ * DGRG-12 — the counter over the four answers says what the answers say.
+ *
+ * It read `rows.length + ' of 4 answered'`, which counted rows RENDERED rather
+ * than questions answered. On the stable-baselines3 report the header said
+ * "What this pipeline does · 4 of 4 answered" above three rows that begin "No
+ * data entry was detected…", "No loss function was detected…" and "No
+ * evaluation stage was detected…". Every sentence under it was honest; the one
+ * line a reader scans was not.
+ *
+ * `emit/answers.py` composes an answer from NODES: an answer that found
+ * something carries `locs`/`nodeIds` and a confidence, and one that found
+ * nothing carries neither and `confidence: 0.0`. So "did this name a place in
+ * the code" is the emitter's own signal, read rather than guessed — and the
+ * rows that did not are counted as what they say, not silently as answers.
+ */
+function answeredLabel(rows: AnswerRow[]): string {
+  const answered = rows.filter((r) => located(r.answer)).length;
+  const missing = rows.length - answered;
+  return (
+    answered + ' of ' + ANSWER_ROWS.length + ' answered' +
+    (missing > 0 ? ' · ' + missing + ' not detected' : '')
+  );
+}
+
+/** True when the emitter had somewhere in the code to point at. */
+function located(answer: Answer): boolean {
+  const locs = Array.isArray(answer.locs) ? answer.locs.length : 0;
+  const nodes = Array.isArray(answer.nodeIds) ? answer.nodeIds.length : 0;
+  return locs + nodes > 0;
 }
 
 interface AnswerRow {

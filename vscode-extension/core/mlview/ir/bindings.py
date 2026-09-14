@@ -81,7 +81,15 @@ def binding_of(name: Optional[str], scope: Optional[ScopeIR],
     while cur is not None:
         if first and cur.kind != "class" and (at is not None or exclude is not None):
             history = cur.binding_history.get(name)
-            if history and (len(history) > 1 or _produced_by(history[-1], exclude)):
+            # PUB-01: `len(history) > 1` let the ONE-store case through to the
+            # flat map, and the one store can perfectly well be written *below*
+            # the consumer - `loss = bce(pred, true)` followed by `pred =
+            # torch.sigmoid(pred)`, the shape every focal-loss implementation
+            # has. A producer that runs after the use does not reach it (unless
+            # a loop carries it round), so a caller that asked for the ordered
+            # lookup gets it whenever there is any history at all.
+            if history and (len(history) > 1 or _produced_by(history[-1], exclude)
+                            or _only_store_is_below(history, at)):
                 picked = _store_before(history, at, exclude)
                 if picked is not None:
                     return picked
@@ -105,6 +113,27 @@ def binding_of(name: Optional[str], scope: Optional[ScopeIR],
         cur = cur.parent
         first = False
     return None
+
+
+def _only_store_is_below(history: Sequence[ValueRef], line: Optional[int]) -> bool:
+    """PUB-01: the name's single store is written *below* the consumer.
+
+    `len(history) > 1` used to be the whole entry condition for the ordered
+    lookup, so a name with exactly one store went straight to the flat map -
+    and that one store can perfectly well run after the use:
+
+        loss = self.loss_fcn(pred, true)     # the consumer
+        pred = torch.sigmoid(pred)           # the only store for `pred`
+
+    is the shape of every focal-loss implementation, and MLV402 read the
+    sigmoid on the line below as the producer of the line above, emitting high
+    / 0.95 with a message whose own line numbers ran backwards. A store below
+    the consumer reaches it only round a loop, which is what `in_loop` decides.
+    """
+    if line is None or len(history) != 1:
+        return False
+    loc = getattr(history[0], "loc", None)
+    return bool(loc is not None and loc.line > line)
 
 
 def _produced_by(ref: Optional[ValueRef], call: Optional[CallSite]) -> bool:
@@ -484,6 +513,32 @@ def _bind_record(record: AssignRecord, module: ModuleIR, workspace) -> None:
                 is_config = True
             if call.var is None:
                 call.var = name
+        elif isinstance(value, ast.Subscript):
+            # NLP-02. `ir/resolve._chained_receiver` models the subscript hop
+            # when it is written inside the receiver expression
+            # (`enc["train"].train_test_split(...)`), which is the shape
+            # `knowledge/hf_tbl.py` was written for. The equally common shape
+            # captures it into a binding first - `raw = load_dataset(...)
+            # ["train"]` - and everything downstream evaporated: `raw.map(...)`
+            # and `encoded.train_test_split(...)` produced no nodes at all,
+            # MLV601/MLV602 went quiet, and NO diagnostic was emitted. A
+            # projection out of a container does not change what the rows are,
+            # which is the same argument `_FRAME_OP` already makes for
+            # `df.drop(columns=...)`; the family and the data tags travel, at
+            # the same weight, and nothing else does.
+            base_ref, base_call = _subscript_base(value, scope, module)
+            tags.extend(t for t in (base_ref.tags if base_ref is not None else ())
+                        if t in _PROJECTION_TAGS)
+            if base_call is not None:
+                tags.extend(t for t in call_output_tags(base_call, scope)
+                            if t in _PROJECTION_TAGS)
+                via = _trim_via(base_call.canonical_fqns)
+                class_ir = base_call.class_ir
+            if base_ref is not None and not via:
+                via = base_ref.via_fqns or (
+                    _trim_via(base_ref.producer.canonical_fqns)
+                    if base_ref.producer is not None else ())
+                class_ir = class_ir or base_ref.class_ir
         elif value is not None:
             base_name = _estimator_attr_base(value)
             base_ref = binding_of(base_name, scope) if base_name else None
@@ -518,6 +573,35 @@ def _bind_record(record: AssignRecord, module: ModuleIR, workspace) -> None:
             ref.via_fqns = tuple(via)
         ref.opaque = _opaque_kind(value, call, record)
         _store(scope, name, ref)
+
+
+#: NLP-02. The tags a projection out of a container may carry. Selecting a
+#: split out of a `DatasetDict` does not change what the rows are; selecting a
+#: model out of a registry dict would be an entirely different claim, so only
+#: the data tags travel - the same line `helpers.DATA_TAGS` draws for the
+#: `--dataflow ip` projection read.
+_PROJECTION_TAGS = ("RAW_DATA", "FEATURES", "TARGET", "TRAIN_SPLIT",
+                    "VAL_SPLIT", "TEST_SPLIT", "LOADER")
+#: How many nested subscripts the projection is followed through.
+_MAX_SUBSCRIPT_DEPTH = 3
+
+
+def _trim_via(fqns) -> Tuple[str, ...]:
+    return tuple(f for f in (fqns or ()) if f)[:4]
+
+
+def _subscript_base(value, scope, module):
+    """`(ValueRef, CallSite)` for whatever a subscript chain projects out of."""
+    node, depth = value, 0
+    while isinstance(node, ast.Subscript) and depth < _MAX_SUBSCRIPT_DEPTH:
+        node, depth = node.value, depth + 1
+    if isinstance(node, ast.Call):
+        by_node = getattr(module, "_calls_by_node", None)
+        if by_node is None:
+            by_node = {id(c.node): c for c in module.calls}
+        return None, by_node.get(id(node))
+    name = dotted_text(node)
+    return (binding_of(name, scope) if name else None), None
 
 
 #: ANA-5a. Value expressions whose product the analyzer cannot follow, named so

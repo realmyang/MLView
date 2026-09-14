@@ -190,6 +190,15 @@ def random_split_on_temporal_data(ctx) -> Iterable[Issue]:
             shuffle = literal_of(ctx, call.kwarg_nodes.get("shuffle"), call.scope, module)
             if shuffle == "False":
                 continue
+            # PUB-06. `ts_cv.split(X, y)` carries the SPLIT role like every
+            # other splitter's `.split`, so MLView told a scikit-learn example
+            # that `TimeSeriesSplit` "shuffles rows that look like a time
+            # series" and offered "use TimeSeriesSplit" as the fix. A rule may
+            # ask a question; it may not ask one whose premise the receiver
+            # disproves.
+            ordered = _ordered_splitter(ctx, call, module)
+            if ordered is not None:
+                continue
             node = _anchor(ctx, call)
             weight = 1.0 if len(signals) > 2 else 0.8
             evidence = [
@@ -210,6 +219,45 @@ def random_split_on_temporal_data(ctx) -> Iterable[Issue]:
                 related=[("split_site", call.loc, "the shuffled split happens here")],
                 evidence=evidence, stage="data", dynamic=call.scope.is_dynamic))
     return issues
+
+
+#: PUB-06. Cross-validators that preserve row order, so their `.split()` can
+#: never be the shuffled split MLV106 is about. `KFold` / `StratifiedKFold`
+#: default to `shuffle=False` and are handled by reading the constructor.
+ORDERED_SPLITTERS = frozenset({
+    "sklearn.model_selection.TimeSeriesSplit",
+    "sklearn.model_selection.GroupKFold",
+    "sklearn.model_selection.LeaveOneGroupOut",
+    "sklearn.model_selection.LeavePGroupsOut",
+    "sklearn.model_selection.LeaveOneOut",
+    "sklearn.model_selection.LeavePOut",
+    "sklearn.model_selection.PredefinedSplit",
+})
+#: Splitters whose order depends on their own `shuffle=` keyword (default False).
+_SHUFFLE_OPTIONAL_SPLITTERS = frozenset({
+    "sklearn.model_selection.KFold",
+    "sklearn.model_selection.StratifiedKFold",
+    "sklearn.model_selection.GroupShuffleSplit",
+})
+
+
+def _ordered_splitter(ctx, call: CallSite, module: ModuleIR) -> Optional[CallSite]:
+    """The order-preserving cross-validator behind `<cv>.split(...)`, if any."""
+    ref = call.receiver
+    producer = ref.producer if ref is not None else None
+    if producer is None:
+        return None
+    fqns = set(producer.canonical_fqns or ())
+    if producer.fqn:
+        fqns.add(producer.fqn)
+    if fqns & ORDERED_SPLITTERS:
+        return producer
+    if fqns & _SHUFFLE_OPTIONAL_SPLITTERS:
+        state = literal_of(ctx, producer.kwarg_nodes.get("shuffle"),
+                           producer.scope, producer.module)
+        if state in (None, "False"):
+            return producer
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -246,6 +294,54 @@ def _eval_loaders(ctx, module: ModuleIR) -> List[CallSite]:
     return out
 
 
+def _augmenting_factories(ctx) -> Dict[str, CallSite]:
+    """`{function name: Compose call}` for every one-hop transform factory.
+
+    vision-07. `ImageFolder(root, transform=eval_transform())` and the
+    Lightning `transform=self.train_transform()` idiom are how real projects
+    build pipelines, and `dotted_text` on a `Call` yields the callee's name -
+    which is never a Compose binding, so MLV114 saw nothing. Only a single,
+    unambiguous `return Compose(...)` is followed: anything less definite is
+    left unjudged, exactly as the rule leaves an unresolved name alone.
+    """
+    out: Dict[str, CallSite] = {}
+    for relpath in sorted(ctx.modules):
+        module = ctx.modules[relpath]
+        for qualname in sorted(module.functions):
+            func = module.functions[qualname]
+            if len(func.returns) != 1:
+                continue
+            expr = func.returns[0]
+            inner = _by_node(module).get(id(expr))
+            if inner is None:
+                text = dotted_text(expr)
+                ref = ctx.binding_of(text, func.scope) if text else None
+                inner = ref.producer if ref is not None else None
+            if inner is None:
+                continue
+            role = K.role_of(inner.fqn)
+            if role == "TRANSFORM_PIPE":
+                if not any(K.role_of(e.fqn) == "AUGMENT"
+                           for e in _element_calls(inner.module, inner)):
+                    continue
+            elif role != "AUGMENT":
+                continue
+            out.setdefault(func.name, inner)
+    return out
+
+
+def _returned_pipeline(ctx, module: ModuleIR, node, factories):
+    """`(Compose call, label)` for a transform built by an in-workspace call."""
+    if not isinstance(node, ast.Call) or not factories:
+        return None
+    name = dotted_text(node.func) or dotted_text(node) or ""
+    short = name.split(".")[-1]
+    found = factories.get(short)
+    if found is None:
+        return None
+    return found, "%s()" % short
+
+
 @rule(code="MLV114", severity="medium", base_prior=0.90,
       frameworks=["torchvision", "torch"],
       rule_version=1, tags=["evaluation", "data"],
@@ -257,10 +353,14 @@ def _eval_loaders(ctx, module: ModuleIR) -> List[CallSite]:
                "deterministic steps (Resize / CenterCrop / ToTensor / Normalize).")
 def augmentation_in_eval_transform(ctx) -> Iterable[Issue]:
     issues: List[Issue] = []
+    factories = _augmenting_factories(ctx)
     for relpath in sorted(ctx.modules):
         module = ctx.modules[relpath]
         pipelines = _augmenting_pipelines(ctx, module)
-        if not pipelines:
+        # vision-07: a named module-level Compose is only one of the shapes;
+        # a factory function or a DataModule method is the other, and it is
+        # the one every project bigger than one file uses.
+        if not pipelines and not factories:
             continue
         loaders = _eval_loaders(ctx, module)
         if not loaders:
@@ -276,9 +376,22 @@ def augmentation_in_eval_transform(ctx) -> Iterable[Issue]:
             hit = None
             for key in ("transform", "transforms", "target_transform"):
                 node = producer.kwarg_nodes.get(key)
-                text = dotted_text(node) if node is not None else None
+                if node is None:
+                    continue
+                text = dotted_text(node)
                 if text and text.split(".")[-1] in pipelines:
                     hit = (key, pipelines[text.split(".")[-1]], text)
+                    break
+                # vision-07. `dotted_text` is None for `eval_transform()` and
+                # for `self.train_transform()`, which is how every project
+                # bigger than one file builds its pipelines - a factory
+                # function, or the Lightning DataModule method idiom. One hop
+                # into the callee's single returned Compose covers both, and
+                # keeps the "transform -> dataset -> loader" directness this
+                # module's docstring promises.
+                found = _returned_pipeline(ctx, module, node, factories)
+                if found is not None:
+                    hit = (key, found[0], found[1])
                     break
             if hit is None:
                 continue

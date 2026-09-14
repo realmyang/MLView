@@ -1,0 +1,144 @@
+{
+  "name": "vision_lightning_cls_bad",
+  "title": "The same Lightning image classifier with six planted defects",
+  "origin": "domain-vision round 1: the dirty twin of vision_lightning_cls",
+  "tuned": false,
+  "labelledBy": "domain-vision, 2026-09-13",
+  "expected": [
+    {
+      "code": "MLV701",
+      "file": "datamodule.py",
+      "line": 28,
+      "symbol": "ImageDataModule.__init__",
+      "severity": "high",
+      "verdict": "expected",
+      "defect": "ImageDataModule.__init__ never calls super().__init__()",
+      "why": "LightningDataModule's own attributes are never initialised, so save_hyperparameters, the trainer reference and the hook bookkeeping all fail or silently do nothing",
+      "gap": "ISSUE_RULES 3/MLV701 resolves bases against torch.nn.Module and pytorch_lightning/lightning LightningModule only. pl.LightningDataModule is not in that set, so a DataModule that skips super().__init__() - which breaks save_hyperparameters() and the trainer wiring - is out of scope.",
+      "unsupported": true
+    },
+    {
+      "code": "MLV707",
+      "file": "module.py",
+      "line": 47,
+      "symbol": "ImageClassifier.training_step",
+      "severity": "medium",
+      "verdict": "expected",
+      "defect": "training_step returns nothing",
+      "why": "Lightning has no loss to back-propagate, so with automatic optimisation the batch contributes nothing and the run trains on the hand-rolled update alone"
+    },
+    {
+      "code": "MLV706",
+      "file": "module.py",
+      "line": 54,
+      "symbol": "loss.backward()",
+      "severity": "medium",
+      "verdict": "expected",
+      "defect": "training_step calls optimizer.zero_grad(), loss.backward() and optimizer.step() by hand with automatic optimisation still enabled",
+      "why": "Lightning applies its own update on top, so every batch is stepped twice with gradients that have already been consumed"
+    },
+    {
+      "code": "MLV711",
+      "file": "module.py",
+      "line": 78,
+      "symbol": "OneCycleLR returned bare",
+      "severity": "medium",
+      "verdict": "expected",
+      "defect": "configure_optimizers returns ([optimizer], [scheduler]) with no {'interval': 'step'}",
+      "why": "Lightning steps the schedule once per epoch, so a one-cycle built for steps_per_epoch*epochs steps completes its whole cycle in twenty steps and the rest of the run trains at the floor learning rate"
+    },
+    {
+      "code": "MLV114",
+      "file": "datamodule.py",
+      "line": 51,
+      "symbol": "val_ds = ImageFolder(..., transform=self.train_transform())",
+      "severity": "medium",
+      "verdict": "expected",
+      "defect": "setup() builds all three datasets with the augmented training pipeline",
+      "why": "the validation and test images are randomly cropped, flipped and colour-jittered, so the monitored val_acc moves for reasons unrelated to the weights"
+    },
+    {
+      "code": "MLV114",
+      "file": "datamodule.py",
+      "line": 53,
+      "symbol": "test_ds = ImageFolder(..., transform=self.train_transform())",
+      "severity": "medium",
+      "verdict": "acceptable",
+      "defect": "the same one-pipeline-for-three-splits defect, on the test split",
+      "why": "setup() builds test_ds from the same augmented training pipeline, so a second finding here is a correct second instance of defect 2 rather than a new claim; it was not planted separately, which is what `acceptable` is for (docs/ACCURACY.md section 2)"
+    },
+    {
+      "code": "MLV111",
+      "file": "datamodule.py",
+      "line": 62,
+      "symbol": "DataLoader(self.val_ds, shuffle=True)",
+      "severity": "low",
+      "verdict": "expected",
+      "defect": "val_dataloader() passes shuffle=True",
+      "why": "the per-sample validation predictions come back in a different order each epoch"
+    },
+    {
+      "code": "MLV601",
+      "file": "module.py",
+      "anchor": "project",
+      "symbol": "no seed_everything anywhere",
+      "severity": "low",
+      "verdict": "expected",
+      "defect": "pl.seed_everything is gone from main()",
+      "why": "the augmentation draw, the head initialisation and the shuffling all move between runs"
+    }
+  ],
+  "forbidden": [
+    {
+      "code": "MLV110",
+      "file": "datamodule.py",
+      "why": "train_dataloader() still passes shuffle=True"
+    },
+    {
+      "code": "MLV112",
+      "file": "datamodule.py",
+      "why": "the loaders are built inside the DataModule hooks, reached from main() under the __main__ guard"
+    },
+    {
+      "code": "MLV201",
+      "file": "module.py",
+      "why": "zero_grad IS called in the hand-rolled step, and Lightning owns it anyway"
+    },
+    {
+      "code": "MLV202",
+      "file": "module.py",
+      "why": "step() IS called in the hand-rolled step"
+    },
+    {
+      "code": "MLV301",
+      "file": "module.py",
+      "why": "Lightning puts the module in eval mode around validation_step"
+    },
+    {
+      "code": "MLV302",
+      "file": "module.py",
+      "why": "Lightning runs validation_step under no_grad"
+    },
+    {
+      "code": "MLV401",
+      "file": "module.py",
+      "why": "the head still returns logits and the criterion is still CrossEntropyLoss"
+    },
+    {
+      "code": "MLV602",
+      "file": "datamodule.py",
+      "why": "the three splits are still three directories"
+    },
+    {
+      "code": "MLV702",
+      "file": "module.py",
+      "why": "the model is still a single torchvision backbone"
+    }
+  ],
+  "gaps": [
+    {
+      "what": "MLV701 does not cover LightningDataModule: its documented base list is torch.nn.Module, pytorch_lightning.LightningModule and lightning.LightningModule, so a DataModule that skips super().__init__() is never reported",
+      "evidence": "the MLV701 expected label above is a standing miss"
+    }
+  ]
+}

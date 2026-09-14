@@ -132,16 +132,72 @@ def check_accuracy_numbers(root: Path, problems: list) -> None:
 UPLOAD_RE = re.compile(r"uses:\s*actions/upload-artifact@")
 PATH_KEY_RE = re.compile(r"^\s*path:\s*(\S.*?)\s*$")
 HIDDEN_OK_RE = re.compile(r"^\s*include-hidden-files:\s*true\s*$")
+#: `KEY: value` under any `env:` mapping, top-level or per-job. Only used to
+#: resolve `${{ env.KEY }}` inside an upload path.
+ENV_KEY_RE = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*):\s*(\S.*?)\s*$")
+ENV_REF_RE = re.compile(r"\$\{\{\s*env\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
+#: Any other expression (`${{ github.workspace }}`): it cannot introduce a dot
+#: segment of its own, so it is collapsed to a placeholder before the test.
+EXPR_RE = re.compile(r"\$\{\{[^}]*\}\}")
+
+
+def workflow_env(lines) -> dict:
+    """Every `env:` mapping in one workflow, flattened into one dict.
+
+    PUB-01 wrote `path: ${{ env.MLVIEW_PUBLIC_CORPUS_DIR }}/_reports/report.json`
+    where the workflow's own `env:` set that variable to
+    `${{ github.workspace }}/.public-corpus`. The literal path has a hidden
+    segment and the written one does not, so the check that exists for exactly
+    this incident saw nothing. Resolving the reference is the difference between
+    a gate and a spelling convention.
+    """
+    values: dict = {}
+    for index, line in enumerate(lines):
+        if not re.match(r"^\s*env:\s*$", line):
+            continue
+        indent = len(line) - len(line.lstrip())
+        for later in lines[index + 1:]:
+            if not later.strip() or later.lstrip().startswith("#"):
+                continue
+            if len(later) - len(later.lstrip()) <= indent:
+                break
+            found = ENV_KEY_RE.match(later)
+            if found:
+                values[found.group(1)] = found.group(2).strip("'\"")
+    return values
+
+
+def resolve_path(target: str, values: dict) -> str:
+    """`${{ env.X }}/y` -> the literal path, with other expressions collapsed."""
+    for _ in range(4):  # env values may themselves reference env
+        expanded = ENV_REF_RE.sub(
+            lambda m: values.get(m.group(1), m.group(0)), target)
+        if expanded == target:
+            break
+        target = expanded
+    return EXPR_RE.sub("EXPR", target)
 
 
 def _yaml_steps(lines):
-    """Yield the block of lines belonging to each `- ` list item."""
+    """Yield the block of lines belonging to each `- ` list item.
+
+    The block ends at the first non-blank, non-comment line indented no deeper
+    than the item itself -- not merely at the next `- ` item. `on:`'s
+    `- cron: '20 4 * * 1'` sits at indent 4 and every step of the job below it at
+    indent 6, so the old rule found no boundary at all and handed the schedule
+    entry a block running to end of file: one upload step was then reported
+    twice, once under its own name and once under the cron line, in a gate whose
+    whole value is naming the line to go and fix.
+    """
     starts = [n for n, line in enumerate(lines) if re.match(r"^\s*-\s", line)]
-    for index, start in enumerate(starts):
+    for start in starts:
         indent = len(lines[start]) - len(lines[start].lstrip())
         end = len(lines)
-        for later in starts[index + 1:]:
-            if len(lines[later]) - len(lines[later].lstrip()) <= indent:
+        for later in range(start + 1, len(lines)):
+            text = lines[later]
+            if not text.strip() or text.lstrip().startswith("#"):
+                continue
+            if len(text) - len(text.lstrip()) <= indent:
                 end = later
                 break
         yield start, lines[start:end]
@@ -155,6 +211,7 @@ def check_artifact_uploads(root: Path, problems: list) -> None:
     for path in sorted(workflows.glob("*.yml")) + sorted(workflows.glob("*.yaml")):
         rel = path.relative_to(root).as_posix()
         lines = io.open(path, encoding="utf-8", newline="").read().splitlines()
+        values = workflow_env(lines)
         for start, block in _yaml_steps(lines):
             if not any(UPLOAD_RE.search(line) for line in block):
                 continue
@@ -164,7 +221,8 @@ def check_artifact_uploads(root: Path, problems: list) -> None:
                 found = PATH_KEY_RE.match(line)
                 if not found:
                     continue
-                target = found.group(1).strip("'\"")
+                written = found.group(1).strip("'\"")
+                target = resolve_path(written, values)
                 if not any(part.startswith(".") and part not in (".", "..")
                            for part in target.split("/")[:-1]):
                     continue
@@ -173,7 +231,10 @@ def check_artifact_uploads(root: Path, problems: list) -> None:
                     "`include-hidden-files: true` -- upload-artifact skips "
                     "dot-paths, so the glob matches nothing, the step still "
                     "passes under `if-no-files-found: warn`, and the run archives "
-                    "no artifact at all (CI-ARTIFACTS-01)" % (rel, start + 1, target))
+                    "no artifact at all (CI-ARTIFACTS-01)"
+                    % (rel, start + 1,
+                       target if target == written
+                       else "%s (written `%s`)" % (target, written)))
 
 
 # ----------------------------------------------------------------- check 11

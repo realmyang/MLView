@@ -92,11 +92,35 @@ test('dist/mlview.css IS the minification of dist/mlview.dev.css (BUILD-01)', as
 /*
  * BUILD-01's size ratchet.
  *
- * MEASURED ON THIS TREE, 2026-09-10, after PERF-04 (the hierarchical rollup) and
- * MLV-P12 (multi-pipeline workspaces) landed on top of VIEW-08, H5 and ANA-10:
- *   dist/mlview.js       322 438 B (314.9 KB)
- *   dist/mlview.css       71 689 B  (70.0 KB), minified from 125 446 B (-43%)
- *   dist/mlview.dev.css  125 446 B (122.5 KB, never shipped)
+ * MEASURED ON THIS TREE, 2026-09-13, after the hosts-ux hardening round landed
+ * on top of PERF-04 (the hierarchical rollup) and MLV-P12 (multi-pipeline
+ * workspaces):
+ *   dist/mlview.js       327 214 B (319.5 KB)
+ *   dist/mlview.css       72 857 B  (71.1 KB), minified from 130 953 B (-44%)
+ *   dist/mlview.dev.css  130 953 B (127.9 KB, never shipped)
+ *
+ * THE HARDENING ROUND moved the JS by +2 776 B and the CSS by +1 168 B, and BOTH
+ * CAPS with them -- the JS had 636 B of headroom left, which is a ratchet
+ * nobody can land anything through. Where it went, largest first.
+ * HOSTS-UX-CHIPWALL is the item: `ui/chrome.ts` collected its chips as
+ * descriptors and then FOLDS identical texts and CAPS the row at MAX_CHIPS with
+ * one disclosure chip (about 1.2 KB), because one chip per diagnostic made
+ * `.mlv-chiprow` 2 132 px tall on ultralytics/yolov5 and `.mlv-canvas` 0 px --
+ * on seven of sixteen public repositories, with every card in the DOM and none
+ * on screen. HOSTS-UX-PIPELINECOUNT is next (about 0.8 KB): `scope/catalog.ts`
+ * runs the same `project()` the click runs and hands every row a `viewCount`,
+ * and `scope/pipelines.ts` exposes the one `drawnCount` the picker, the chooser
+ * and its accessible name all read -- the picker used to promise 55 nodes where
+ * the projection drew 56. The rest is small and countable: DGRG-12's answered/
+ * not-detected counter in `ui/answers.ts` (about 0.3 KB), HOSTS-UX-FITZOOM's one
+ * branch in `render/canvas.ts` and HOSTS-UX-STAGERESET's return value in
+ * `filters.ts` with its announcement in `app.ts` (about 0.3 KB together). The
+ * CSS is the height bound on `.mlv-chiprow` and `.mlv-banners` that keeps the
+ * canvas from being starved, the disclosure chip, and HOSTS-UX-ANSWERSCROLL's
+ * scroll cue on the two panels that clip their last line. Caps go to JS 326 KB
+ * and CSS 73 KB, leaving 6 610 B (2.0 %) and 1 895 B (2.5 %) -- the same order
+ * every ratchet before them held. The ratchet's job is unchanged: make the NEXT
+ * growth visible.
  *
  * The tree those two landed on shipped 304 818 B of JS and 68 001 B of CSS, so
  * they cost +17 620 B and +3 688 B, and BOTH CAPS MOVE — which is the number a
@@ -196,11 +220,11 @@ test('dist/mlview.css IS the minification of dist/mlview.dev.css (BUILD-01)', as
  * again: `the figures in the block above are the constants below` reads this
  * file and fails on a one-byte disagreement.
  */
-const JS_RECORDED = 322438;
-const CSS_RECORDED = 71689;
+const JS_RECORDED = 327214;
+const CSS_RECORDED = 72857;
 const DRIFT = 2 * 1024;
-const JS_MAX_BYTES = 320 * 1024;
-const CSS_MAX_BYTES = 72 * 1024;
+const JS_MAX_BYTES = 326 * 1024;
+const CSS_MAX_BYTES = 73 * 1024;
 
 const headroom = (size, cap) =>
   size + ' B, ' + (cap - size) + ' B (' + (((cap - size) / cap) * 100).toFixed(1) + ' %) under the ' + cap + ' B ratchet';

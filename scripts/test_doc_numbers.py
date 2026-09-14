@@ -159,6 +159,93 @@ def test_a_hidden_artifact_path_with_the_flag_is_clean():
         shutil.rmtree(root, ignore_errors=True)
 
 
+ENV_UPLOAD_WORKFLOW = """name: Public corpus
+
+on:
+  schedule:
+    - cron: '20 4 * * 1'
+  workflow_dispatch:
+
+env:
+  PYTHONUTF8: '1'
+  MLVIEW_PUBLIC_CORPUS_DIR: ${{ github.workspace }}/%s
+
+jobs:
+  corpus:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: upload the report
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: public-corpus-report
+%s          path: ${{ env.MLVIEW_PUBLIC_CORPUS_DIR }}/_reports/report.json
+          if-no-files-found: warn
+"""
+
+
+def test_a_hidden_artifact_path_behind_an_env_reference_is_caught():
+    """PUB-01 wrote the same defect a second time, spelled through the workflow's
+    own `env:` block, and the check that exists for it saw a path with no dot in
+    it. Resolving the reference is the difference between a gate and a spelling
+    convention."""
+    root = _tree({"README.md": "# mlview\n",
+                  ".github/workflows/public-corpus.yml":
+                      ENV_UPLOAD_WORKFLOW % (".public-corpus", "")})
+    try:
+        problems = check_docs.run(root)[0]
+        assert len(problems) == 1, problems
+        assert "CI-ARTIFACTS-01" in problems[0]
+        assert ".public-corpus/_reports/report.json" in problems[0]
+        # The report names the line to go and fix, and what it resolved to.
+        assert "public-corpus.yml:17" in problems[0], problems
+        assert "written `${{ env.MLVIEW_PUBLIC_CORPUS_DIR }}" in problems[0]
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_an_env_reference_to_a_visible_directory_needs_no_flag():
+    root = _tree({"README.md": "# mlview\n",
+                  ".github/workflows/public-corpus.yml":
+                      ENV_UPLOAD_WORKFLOW % ("public-corpus", "")})
+    try:
+        assert check_docs.run(root)[0] == [], check_docs.run(root)[0]
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_an_env_reference_to_a_hidden_directory_with_the_flag_is_clean():
+    root = _tree({"README.md": "# mlview\n",
+                  ".github/workflows/public-corpus.yml":
+                      ENV_UPLOAD_WORKFLOW
+                      % (".public-corpus",
+                         "          include-hidden-files: true\n")})
+    try:
+        assert check_docs.run(root)[0] == [], check_docs.run(root)[0]
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_a_schedule_entry_does_not_swallow_the_job_below_it():
+    """`- cron:` sits at indent 4 and every step at indent 6, so the old block
+    rule found no boundary and reported the one upload step twice -- once under
+    its own name and once under the cron line."""
+    lines = (ENV_UPLOAD_WORKFLOW % (".public-corpus", "")).splitlines()
+    blocks = dict(doc_numbers._yaml_steps(lines))
+    cron = next(start for start, block in blocks.items()
+                if block[0].lstrip().startswith("- cron"))
+    assert not any("upload-artifact" in line for line in blocks[cron]), blocks[cron]
+
+
+def test_the_real_workflows_upload_what_they_claim_to():
+    """The repo's own `.github/workflows`, including the PUB-01 job whose report
+    is the only evidence behind its verdict."""
+    problems: list = []
+    doc_numbers.check_artifact_uploads(REPO, problems)
+    assert problems == [], "\n".join(problems)
+
+
 def test_a_visible_artifact_path_needs_no_flag():
     root = _tree({"README.md": "# mlview\n",
                   ".github/workflows/ci.yml":

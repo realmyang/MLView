@@ -1,0 +1,131 @@
+{
+  "name": "infra_pkg_layout",
+  "title": "argparse + dataclass config package: data/ models/ engine/ utils/ with relative imports and a console script",
+  "origin": "hardening round 1, tester domain-infra: the src-layout package shape, including three non-ML utility modules",
+  "tuned": false,
+  "labelledBy": "domain-infra, 2026-09-13",
+  "note": "Two planted defects, both recovered, plus two live false positives. MLV501 fires twice on engine/evaluator.py claiming 'the model model is never moved' - the model is moved at engine/trainer.py line 17 and handed straight to evaluate() at line 28. `_any_model_move(ctx, forward.module)` in analyzer/src/mlview/rules/r_device.py restricts that search to the finding's own module, which is exactly backwards from its own docstring. Both rows are recorded as `acceptable` ONLY so this corpus addition does not turn a shared gate red; `forbiddenAfterFix` holds the labels they must become. `--relevance ml` and `--relevance all` produce identical findings here (14 files either way), which is what this program exists to check.  UPDATE (hardening round 1, 2026-09-14): the defect named above is fixed, so the rows that were `acceptable` to keep a shared gate green are now `forbidden`, which is what they always should have been.",
+  "expected": [
+    {
+      "code": "MLV101",
+      "file": "src/tabular_trainer/data/loaders.py",
+      "line": 36,
+      "symbol": "scaler.fit_transform(features)",
+      "severity": "high",
+      "verdict": "expected",
+      "defect": "the scaler is fitted on the whole feature matrix two statements before train_test_split at line 38",
+      "why": "every held-out row contributed its mean and variance to the scaling every training row was normalised with, so the reported test accuracy is optimistic"
+    },
+    {
+      "code": "MLV602",
+      "file": "src/tabular_trainer/data/loaders.py",
+      "line": 38,
+      "symbol": "train_test_split",
+      "severity": "low",
+      "verdict": "expected",
+      "defect": "train_test_split takes stratify= but no random_state=",
+      "why": "the split moves between runs, so two runs of the same config are not comparable"
+    }
+  ],
+  "forbidden": [
+    {
+      "code": "MLV102",
+      "file": "src/tabular_trainer/data/loaders.py",
+      "why": "the fit at line 36 happens before any split exists, so nothing there carries a VAL_SPLIT or TEST_SPLIT tag; the defect is MLV101, and stacking a second finding on one root cause is what section 3's dedupe rule forbids"
+    },
+    {
+      "code": "MLV103",
+      "file": "src/tabular_trainer/data/loaders.py",
+      "why": "there is no cross-validation call anywhere in this package"
+    },
+    {
+      "code": "MLV110",
+      "file": "src/tabular_trainer/data/loaders.py",
+      "why": "the training loader is built with shuffle=True at line 42"
+    },
+    {
+      "code": "MLV111",
+      "file": "src/tabular_trainer/data/loaders.py",
+      "why": "the test loader is built with shuffle=False at line 45"
+    },
+    {
+      "code": "MLV112",
+      "file": "src/tabular_trainer/data/loaders.py",
+      "why": "num_workers comes from the dataclass default 4, but the entrypoint is __main__.py, whose `if __name__ == \"__main__\": sys.exit(main())` guard is the spawn guard, and every loader is built inside run()"
+    },
+    {
+      "code": "MLV201",
+      "file": "src/tabular_trainer/engine/trainer.py",
+      "why": "optimizer.zero_grad(set_to_none=True) is called at line 41, before the forward"
+    },
+    {
+      "code": "MLV202",
+      "file": "src/tabular_trainer/engine/trainer.py",
+      "why": "optimizer.step() is called at line 46"
+    },
+    {
+      "code": "MLV203",
+      "file": "src/tabular_trainer/engine/trainer.py",
+      "why": "the order is zero_grad (41) -> forward (42) -> loss (43) -> backward (44) -> clip (45) -> step (46)"
+    },
+    {
+      "code": "MLV205",
+      "file": "src/tabular_trainer/engine/trainer.py",
+      "why": "the epoch loss is accumulated as running += loss.item(), a Python float"
+    },
+    {
+      "code": "MLV301",
+      "file": "src/tabular_trainer/engine/evaluator.py",
+      "why": "both evaluate() (line 15) and report() (line 32) call model.eval() before their loop and model.train() on the way out"
+    },
+    {
+      "code": "MLV302",
+      "file": "src/tabular_trainer/engine/evaluator.py",
+      "why": "both loops are inside `with torch.no_grad():` (lines 18 and 35)"
+    },
+    {
+      "code": "MLV305",
+      "file": "src/tabular_trainer/engine/evaluator.py",
+      "why": "accuracy_score and f1_score are fed logits.argmax(dim=1), i.e. predicted classes, not scores"
+    },
+    {
+      "code": "MLV306",
+      "file": "src/tabular_trainer/engine/evaluator.py",
+      "why": "there is no ranking metric in this package: only accuracy_score and f1_score"
+    },
+    {
+      "code": "MLV601",
+      "anchor": "project",
+      "why": "seed_everything(cfg.seed) at __main__.py line 34 calls random.seed, numpy.random.seed and torch.manual_seed"
+    },
+    {
+      "code": "MLV701",
+      "file": "src/tabular_trainer/models/mlp.py",
+      "why": "CreditMLP.__init__ calls super().__init__() as its first statement at line 13"
+    },
+    {
+      "code": "MLV702",
+      "file": "src/tabular_trainer/models/mlp.py",
+      "why": "the body is an nn.Sequential and the head is assigned directly; there is no plain list of submodules"
+    },
+    {
+      "code": "MLV803",
+      "file": "src/tabular_trainer/__main__.py",
+      "why": "the checkpoint is model.state_dict() at line 42, and this package never calls torch.load"
+    },
+    {
+      "code": "MLV501",
+      "file": "src/tabular_trainer/engine/evaluator.py",
+      "line": 19,
+      "symbol": "for features, labels in loader",
+      "why": "train() moves the model at engine/trainer.py line 17 and hands it to evaluate() at line 28; the model and the batches are on the same device. Fixed in hardening round 1 (INFRA-02): `_any_model_move` searches the whole workspace for the `model_not_moved` variant, because a negative claim about `the model` cannot be made from one module."
+    },
+    {
+      "code": "MLV501",
+      "file": "src/tabular_trainer/engine/evaluator.py",
+      "line": 36,
+      "symbol": "for features, labels in loader",
+      "why": "train() moves the model at engine/trainer.py line 17 and hands it to evaluate() at line 28; the model and the batches are on the same device. Fixed in hardening round 1 (INFRA-02): `_any_model_move` searches the whole workspace for the `model_not_moved` variant, because a negative claim about `the model` cannot be made from one module."
+    }
+  ]
+}

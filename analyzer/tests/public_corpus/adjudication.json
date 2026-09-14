@@ -1,0 +1,365 @@
+{
+ "schemaVersion": 1,
+ "recorded": "2026-09-14",
+ "reviewer": "hardening/public-repos round 1",
+ "note": [
+  "Every high-severity finding the public corpus produced on 2026-09-13, read",
+  "against the cited source and given one of three verdicts.",
+  "",
+  "  true-positive  - a real defect, or a warning a reviewer would defend.",
+  "  false-positive - the code is correct (or the severity is not defensible);",
+  "                   `guard` names the documented guard that should have",
+  "                   caught it, so the fix has an address.",
+  "  unsure         - the reviewer could not settle it from the source alone.",
+  "",
+  "`state` exists so the file is a ratchet rather than a permanent red light:",
+  "  open  - the analyzer still produces this false positive. `check` lists it",
+  "          and does not fail on it (pass --strict to make it fail).",
+  "  fixed - the analyzer no longer produces it. If it ever comes back,",
+  "          `check` fails: that is the regression half of the ratchet.",
+  "A high finding whose key is absent from this file always fails `check` -",
+  "nobody has read it yet, and an unread high finding is the one thing this",
+  "corpus exists to stop.",
+  "",
+  "Keys are `repo|CODE|repo-relative file|symbol`, so they survive an edit",
+  "above the finding and do not depend on which target happened to find it.",
+  "A path under `.mlview/notebooks/` is the module MLView generates from a",
+  "notebook under --include-notebooks (CONTRACTS 11.29); it is the same defect",
+  "as its .py twin where the repo ships both."
+ ],
+ "verdicts": {
+  "scikit-learn|MLV101|examples/release_highlights/plot_release_highlights_0_24_0.py|sfs.fit": {
+   "verdict": "false-positive",
+   "state": "fixed",
+   "finding": "PUB-15",
+   "severity": "high",
+   "where": "examples/release_highlights/plot_release_highlights_0_24_0.py:153, both dataflow modes (scikit-learn @ dd3ca573)",
+   "why": "`sfs.fit(X, y)` at line 153 fits a SequentialFeatureSelector on iris, bound by `X, y = load_iris(...)` at line 149. The `train_test_split(X, y, ...)` MLView cited is at line 180, twenty-seven lines and one `X, y = fetch_covtype(...)` later: a different dataset in a different section of the same sphinx-gallery script. There is no split of the iris data anywhere in the file, so there is nothing to leak into.",
+   "guard": "PUB-03's `_rebound_between` is the guard, and it read `AssignRecord.targets` through `dotted_text`, which is empty for an `ast.Tuple`. `X, y = load_iris(...)` is therefore invisible to it, and tuple unpacking is how every scikit-learn example binds its data.",
+   "repro": "mlview analyze <scratch>/repro/sfs (19 lines: load_iris into sfs.fit, then fetch_covtype into train_test_split)",
+   "fixedWhy": "PUB-15, fixed in hardening round 1: `_target_names` flattens tuple, list and starred assignment targets, so the guard PUB-03 added for `X = ...` now also sees `X, y = ...`. The finding is gone in both modes and an `untagged_dataflow` coverage note names the rebinding line, so the silence is declared rather than quiet."
+  },
+  "PythonDataScienceHandbook|MLV102|notebooks/.mlview/notebooks/05.03-Hyperparameters-and-Model-Validation.py|model.fit": {
+   "verdict": "false-positive",
+   "state": "fixed",
+   "finding": "PUB-14",
+   "severity": "high",
+   "where": "notebooks/05.03-Hyperparameters-and-Model-Validation.ipynb cell 16, generated module line 37 (PythonDataScienceHandbook @ d6623145)",
+   "why": "Cell 16 is hand-rolled two-fold cross-validation: `y2_model = model.fit(X1, y1).predict(X2)` then `y1_model = model.fit(X2, y2).predict(X1)`. MLView reported the second line at high / certain 0.97, called a KNeighborsClassifier \"the transformer\", and said the held-out score is not an estimate of unseen-data performance - about a model whose only score is computed on the half it was never fitted on. Both statements are false, on one of the most-read notebooks in the corpus.",
+   "guard": "ROB-10 / PUB-02 established `_is_transformer_fit` because `sklearn.base.BaseEstimator.fit` carries the role FIT, so every estimator fit is a candidate. MLV101 calls it; MLV102 did not, although its title, `why` and `fix_hint` are all about a transformer and every `expected` MLV102 label in the labelled corpus is a `fit_transform` on one.",
+   "repro": "mlview analyze <scratch>/repro/kfold (16 lines: the two swapped fit/predict statements)",
+   "fixedWhy": "PUB-14, fixed in hardening round 1: MLV102 now asks `_is_transformer_fit` the same question MLV101 has asked since ROB-10, one mechanism rather than two. Every labelled MLV102 number is unchanged to four decimal places in both dataflow modes (recall 0.8000), and the public corpus drops from 37 high findings to 34."
+  },
+  "yolov5|MLV402|utils/loss.py|self.loss_fcn": {
+   "verdict": "false-positive",
+   "state": "fixed",
+   "finding": "PUB-01",
+   "severity": "high",
+   "where": "utils/loss.py:26 in BCEBlurWithLogitsLoss.forward (yolov5 @ 35b48237)",
+   "why": "The code is correct. `self.loss_fcn` is nn.BCEWithLogitsLoss and it is fed the raw logits `pred` at line 26; the `pred = torch.sigmoid(pred)` on line 27 rebinds the local AFTER the loss has been computed and is only used to build the blur factor. MLView's own message gives the bug away: it cites a producer at line 27 for a use at line 26.",
+   "guard": "MLV402 `_final_producer` (analyzer/src/mlview/rules/r_loss.py) takes the scope's last binding for the argument name instead of the binding that reaches the call site; a producer whose loc is strictly after the use, with no loop enclosing both, cannot have produced that value.",
+   "repro": "mlview issues <scratch>/repro/bce  (12-line file, see the report)",
+   "fixedWhy": "PUB-01, fixed in hardening round 1: `arg_ref` now resolves an argument against the store in effect at the call's own line (`binding_of(..., at=)`, REV-01's ordered lookup), so the `pred = torch.sigmoid(pred)` written one line BELOW the loss no longer reads as its producer."
+  },
+  "scikit-learn|MLV101|examples/model_selection/plot_grid_search_stats.py|search.fit": {
+   "verdict": "false-positive",
+   "state": "fixed",
+   "finding": "PUB-02",
+   "severity": "high",
+   "where": "examples/model_selection/plot_grid_search_stats.py:56 (scikit-learn @ dd3ca573)",
+   "why": "`search` is a GridSearchCV: its `.fit` is cross-validation, not preprocessing, and it refits inside every fold. The cited `split_site` is `cv.split(X, y)` at line 233, which only counts fold sizes. The message calls a GridSearchCV 'the transformer'.",
+   "guard": "MLV101 triggers on knowledge role FIT, and `sklearn.base.BaseEstimator.fit` carries FIT (knowledge/sklearn_tbl.py:120), so every estimator `.fit` qualifies. ISSUE_RULES section 3 scopes MLV101 to preprocessing / decomposition / impute / feature_selection / feature_extraction transformers only.",
+   "repro": "mlview issues <scratch>/repro/gs  (13-line file, see the report)",
+   "fixedWhy": "PUB-02 / ROB-10, fixed in hardening round 1: MLV101's subject is a transformer, not the FIT role - a bare `.fit()` qualifies only when the receiver's constructor resolves to a `preprocess`-stage knowledge row, so `GridSearchCV(...).fit(X, y)` drops out."
+  },
+  "scikit-learn|MLV101|examples/release_highlights/plot_release_highlights_0_23_0.py|HistGradientBoostingRegressor().fit": {
+   "verdict": "false-positive",
+   "state": "fixed",
+   "finding": "PUB-03",
+   "severity": "high",
+   "where": "examples/release_highlights/plot_release_highlights_0_23_0.py:144 (scikit-learn @ dd3ca573)",
+   "why": "Two failures at once. The fit is an estimator fit, not a transformer fit; and the `X` it is fitted on (bound at line 140) is a different value from the `X` the cited split at line 189 consumes (bound at line 187). Nothing leaks.",
+   "guard": "MLV101 FP-note (a) promises 'value identity through the SSA chain, never name equality'. `_split_consuming` matches by dotted name, and the REV5-01 same-scope guard does not help inside one module scope where the name is rebound.",
+   "repro": "mlview issues <scratch>/repro/rebind  (25-line file, see the report)",
+   "fixedWhy": "PUB-02 + PUB-03, fixed in hardening round 1: an estimator fit is no longer a leakage candidate, and a name re-assigned between the fit and the split from a value that does not derive from the fitted one breaks the name-based reachability chain."
+  },
+  "scikit-learn|MLV101|examples/release_highlights/plot_release_highlights_0_23_0.py|HistGradientBoostingRegressor(monotonic_cst=[1, 0]).fit": {
+   "verdict": "false-positive",
+   "state": "fixed",
+   "finding": "PUB-03",
+   "severity": "high",
+   "where": "examples/release_highlights/plot_release_highlights_0_23_0.py:145 (scikit-learn @ dd3ca573)",
+   "why": "The second half of the same pair on line 145; identical cause to line 144.",
+   "guard": "see PUB-03",
+   "repro": "mlview issues <scratch>/repro/rebind",
+   "fixedWhy": "PUB-02 + PUB-03, fixed in hardening round 1: same cause and same fix as the row above."
+  },
+  "PythonDataScienceHandbook|MLV101|notebooks/.mlview/notebooks/05.02-Introducing-Scikit-Learn.py|model.fit": {
+   "verdict": "false-positive",
+   "state": "fixed",
+   "finding": "PUB-03",
+   "severity": "high",
+   "where": "notebooks/05.02-Introducing-Scikit-Learn.ipynb cell 31, generated module line 43 (PythonDataScienceHandbook @ d6623145)",
+   "why": "`model` is a LinearRegression and `X` is the 50-point toy array from cell 29. The split MLView cites is in a later, unrelated section of the same notebook on a different `X`. A notebook is one module scope, so every cell shares a namespace and name-based reachability is at its most wrong here.",
+   "guard": "see PUB-02 (estimator fit carries role FIT) and PUB-03 (name, not value, identity).",
+   "repro": "mlview issues <scratch>/repro/rebind",
+   "fixedWhy": "PUB-02 + PUB-03, fixed in hardening round 1: `LinearRegression().fit(X, y)` is an estimator fit, and a notebook is one module scope in which `X` is bound per section - both halves now guarded."
+  },
+  "keras-io|MLV101|examples/timeseries/eeg_signal_classification.py|le.fit": {
+   "verdict": "false-positive",
+   "state": "fixed",
+   "finding": "PUB-04",
+   "severity": "high",
+   "where": "examples/timeseries/eeg_signal_classification.py:245 (keras-io @ bc58bcd7)",
+   "why": "`le.fit(eeg[\"label\"])` is a LabelEncoder learning the class vocabulary of the target column before the split at line 286. ISSUE_RULES MLV101 FP-note (c) says exactly this case de-rates to medium with confidence x0.6; it was emitted at HIGH with 0.76, so the guard never ran.",
+   "guard": "The TARGET de-rate keys on `ref.has('TARGET') and not ref.has('FEATURES')`, and a pandas column subscript `eeg[\"label\"]` never acquires the TARGET tag, so a LabelEncoder on a DataFrame column - the commonest spelling by far - keeps full high severity.",
+   "repro": "analyze keras-io examples/timeseries at bc58bcd7; the finding is high with confidence 0.76",
+   "fixedWhy": "PUB-04, fixed in hardening round 1: a subscript whose literal key names the target is reinforcing TARGET evidence, so FP-note (c)'s medium x0.6 de-rate now applies to the pandas spelling it was written for. The finding is emitted at medium / 0.46, below the Problems-panel floor, rather than high / 0.76."
+  },
+  "vit-pytorch|MLV301|tests/test_vit.py|def test_vit": {
+   "verdict": "false-positive",
+   "state": "fixed",
+   "finding": "PUB-05",
+   "severity": "high",
+   "where": "tests/test_vit.py:4 (vit-pytorch @ d01bbb31)",
+   "why": "`test_vit` is a pytest unit test that builds a ViT and asserts the output shape. There is no evaluation: no held-out data, no metric, no reported score. MLView classified the function as an evaluation region because its name starts with `test_`.",
+   "guard": "Iron law 2 - 'name regexes reinforce, they never create'. `_eval_named_functions` (analyzer/src/mlview/rules/r_eval.py) admits any function matching _EVAL_NAME_RE, and unlike the loop branch the function branch never calls `_evaluation_evidence`, so the regex alone creates the region and the finding lands at high / 0.85.",
+   "repro": "mlview issues <scratch>/repro/pytest  (two files, ~30 lines, see the report)",
+   "fixedWhy": "PUB-05, fixed in hardening round 1: the function branch of `eval_regions` now demands the same positive evidence the loop branch does (no-grad, a metric, or an eval() call), and a `test_*` function in a test module is excluded structurally."
+  },
+  "stable-baselines3|MLV301|tests/test_utils.py|def test_get_parameters_by_name": {
+   "verdict": "false-positive",
+   "state": "fixed",
+   "finding": "PUB-05",
+   "severity": "high",
+   "where": "tests/test_utils.py:389 (stable-baselines3 @ 7cfb4dd6)",
+   "why": "A pytest unit test that runs `nn.Sequential(Linear, BatchNorm1d)` forward once with the comment '# Initialize stats' - train mode is the point of the call. Calling model.eval() would break the test.",
+   "guard": "see PUB-05",
+   "repro": "mlview issues <scratch>/repro/pytest",
+   "fixedWhy": "PUB-05, fixed in hardening round 1: same cause and same fix as the row above."
+  },
+  "keras-io|MLV121|examples/vision/pointnet.py|dataset.shuffle": {
+   "verdict": "true-positive",
+   "state": "open",
+   "finding": "",
+   "severity": "high",
+   "where": "examples/vision/pointnet.py:153 (keras-io @ bc58bcd7)",
+   "why": "`dataset.shuffle(len(train_points))` at 153, then `dataset.take(n)` -> train and `dataset.skip(n)` -> validation at 156-157. tf.data reshuffles every epoch by default, so the train/validation partition changes on every pass and validation rows are trained on. A real defect in a published Keras example.",
+   "guard": "",
+   "repro": "analyze keras-io examples/vision at bc58bcd7"
+  },
+  "keras-io|MLV121|examples/vision/siamese_network.py|dataset.shuffle": {
+   "verdict": "true-positive",
+   "state": "open",
+   "finding": "",
+   "severity": "high",
+   "where": "examples/vision/siamese_network.py:148 (keras-io @ bc58bcd7)",
+   "why": "`dataset.shuffle(buffer_size=1024)` at 148 then take/skip at 152-153. Same defect shape as pointnet.py.",
+   "guard": "",
+   "repro": "analyze keras-io examples/vision at bc58bcd7"
+  },
+  "keras-io|MLV121|examples/vision/xray_classification_with_tpus.py|ds.shuffle": {
+   "verdict": "true-positive",
+   "state": "open",
+   "finding": "",
+   "severity": "high",
+   "where": "examples/vision/xray_classification_with_tpus.py:129 (keras-io @ bc58bcd7)",
+   "why": "`ds.shuffle(10000)` at 129 then `ds.take(4200)` / `ds.skip(4200)` at 130-131, under the comment 'Let's split the data into a training and validation datasets'. Same defect shape.",
+   "guard": "",
+   "repro": "analyze keras-io examples/vision at bc58bcd7"
+  },
+  "keras-io|MLV121|examples/vision/.mlview/notebooks/ipynb/pointnet.py|dataset.shuffle": {
+   "verdict": "true-positive",
+   "state": "open",
+   "finding": "",
+   "severity": "high",
+   "where": "examples/vision/ipynb/pointnet.ipynb, generated module line 94",
+   "why": "The notebook twin of examples/vision/pointnet.py:153; same defect, found through --include-notebooks.",
+   "guard": "",
+   "repro": "analyze keras-io examples/vision --include-notebooks"
+  },
+  "keras-io|MLV121|examples/vision/.mlview/notebooks/ipynb/siamese_network.py|dataset.shuffle": {
+   "verdict": "true-positive",
+   "state": "open",
+   "finding": "",
+   "severity": "high",
+   "where": "examples/vision/ipynb/siamese_network.ipynb, generated module line 88",
+   "why": "Notebook twin of examples/vision/siamese_network.py:148.",
+   "guard": "",
+   "repro": "analyze keras-io examples/vision --include-notebooks"
+  },
+  "keras-io|MLV121|examples/vision/.mlview/notebooks/ipynb/xray_classification_with_tpus.py|ds.shuffle": {
+   "verdict": "true-positive",
+   "state": "open",
+   "finding": "",
+   "severity": "high",
+   "where": "examples/vision/ipynb/xray_classification_with_tpus.ipynb, generated module line 84",
+   "why": "Notebook twin of examples/vision/xray_classification_with_tpus.py:129.",
+   "guard": "",
+   "repro": "analyze keras-io examples/vision --include-notebooks"
+  },
+  "mlflow|MLV101|examples/paddle/train_low_level_api.py|min_max_scaler.fit_transform": {
+   "verdict": "true-positive",
+   "state": "open",
+   "finding": "",
+   "severity": "high",
+   "where": "examples/paddle/train_low_level_api.py:16 (mlflow @ f38b7e55)",
+   "why": "`MinMaxScaler().fit_transform(X)` on the whole diabetes matrix at 16, `preprocessing.scale` at 17, then `train_test_split(X_normalized, ...)` at 19. Textbook fit-before-split leakage, value-identical through the chain.",
+   "guard": "",
+   "repro": "analyze mlflow examples/paddle at f38b7e55"
+  },
+  "mlflow|MLV101|examples/pytorch/.mlview/notebooks/logging/pytorch_log_model.py|scaler.fit_transform": {
+   "verdict": "true-positive",
+   "state": "open",
+   "finding": "",
+   "severity": "high",
+   "where": "examples/pytorch/logging/pytorch_log_model.ipynb cell 7, generated module line 27",
+   "why": "`StandardScaler().fit_transform(X)` on the full iris matrix, then `train_test_split(X_scaled, y, test_size=0.2)` two lines later. Real leakage in a shipped mlflow notebook.",
+   "guard": "",
+   "repro": "analyze mlflow examples/pytorch --include-notebooks"
+  },
+  "mlflow|MLV101|examples/.mlview/notebooks/pytorch/logging/pytorch_log_model.py|scaler.fit_transform": {
+   "verdict": "true-positive",
+   "state": "open",
+   "finding": "",
+   "severity": "high",
+   "where": "the same notebook reached from the examples/ root target",
+   "why": "Duplicate of the entry above, under the other analysed root.",
+   "guard": "",
+   "repro": "analyze mlflow examples --include-notebooks"
+  },
+  "mlflow|MLV202|examples/pytorch/.mlview/notebooks/logging/pytorch_log_model.py|for inputs, labels in train_loader": {
+   "verdict": "true-positive",
+   "state": "open",
+   "finding": "",
+   "severity": "high",
+   "where": "examples/pytorch/logging/pytorch_log_model.ipynb cell 13, generated module line 84",
+   "why": "The loop calls `curr_loss.backward()` and never steps anything - the notebook constructs no optimizer at all. The model is logged to MLflow having learned nothing, and the printed loss looks plausible. A real, silent defect.",
+   "guard": "",
+   "repro": "analyze mlflow examples/pytorch --include-notebooks"
+  },
+  "mlflow|MLV202|examples/.mlview/notebooks/pytorch/logging/pytorch_log_model.py|for inputs, labels in train_loader": {
+   "verdict": "true-positive",
+   "state": "open",
+   "finding": "",
+   "severity": "high",
+   "where": "the same notebook reached from the examples/ root target",
+   "why": "Duplicate of the entry above, under the other analysed root.",
+   "guard": "",
+   "repro": "analyze mlflow examples --include-notebooks"
+  },
+  "mlflow|MLV401|examples/pytorch/CaptumExample/Titanic_Captum_Interpret.py|criterion": {
+   "verdict": "true-positive",
+   "state": "open",
+   "finding": "",
+   "severity": "high",
+   "where": "examples/pytorch/CaptumExample/Titanic_Captum_Interpret.py:165 (mlflow @ f38b7e55)",
+   "why": "TitanicSimpleNNModel.forward returns `self.softmax(self.linear3(...))` (nn.Softmax at line 80) and the loss at 165 is nn.CrossEntropyLoss, which log-softmaxes again. The classic double-softmax defect, correctly traced across the class boundary.",
+   "guard": "",
+   "repro": "analyze mlflow examples/pytorch at f38b7e55"
+  },
+  "pytorch_geometric|MLV301|examples/lcm_aggr_2nd_min.py|for batch in loader": {
+   "verdict": "true-positive",
+   "state": "open",
+   "finding": "",
+   "severity": "high",
+   "where": "examples/lcm_aggr_2nd_min.py:139 (pytorch_geometric @ 79d33965)",
+   "why": "`test(loader)` is decorated @torch.no_grad() but never calls model.eval(), and `train()` never calls model.train() either, so the LCM model - which holds torch.nn.Dropout in both its encoder (line 97) and its decoder (line 105) - is evaluated with dropout active. The printed Val Acc is noise-inflated.",
+   "guard": "",
+   "repro": "analyze pytorch_geometric examples at 79d33965"
+  },
+  "scikit-learn|MLV101|examples/applications/plot_digits_denoising.py|MinMaxScaler().fit_transform": {
+   "verdict": "true-positive",
+   "state": "open",
+   "finding": "",
+   "severity": "high",
+   "where": "examples/applications/plot_digits_denoising.py:41 (scikit-learn @ dd3ca573)",
+   "why": "A defensible warning rather than a bug: `X = MinMaxScaler().fit_transform(X)` at 41 is value-identical to the `X` that `train_test_split` consumes at 56, so the scaler's min and max do see the held-out rows. Harmless on USPS pixels, and the rule is right about the shape.",
+   "guard": "",
+   "repro": "analyze scikit-learn examples/applications at dd3ca573"
+  },
+  "wandb-examples|MLV301|examples/pytorch/pytorch-cnn-fashion/train.py|for images, labels in test_loader": {
+   "verdict": "true-positive",
+   "state": "open",
+   "finding": "",
+   "severity": "high",
+   "where": "examples/pytorch/pytorch-cnn-fashion/train.py:158 (wandb-examples @ 7fbfc6d1)",
+   "why": "The accuracy loop over test_loader runs inside the training loop with neither model.eval() nor torch.no_grad(), and CNNModel holds nn.Dropout(p=config.dropout) (line 49). The accuracy that is logged to W&B is measured with dropout on.",
+   "guard": "",
+   "repro": "analyze wandb-examples examples/pytorch at 7fbfc6d1"
+  }
+ },
+ "mediumSample": {
+  "note": [
+   "A sample of medium findings, read the same way. `check` does not gate on",
+   "these - medium is allowed to be wrong sometimes by design - but a medium",
+   "false positive that asserts a falsehood about the code is still a bug, and",
+   "three of these do."
+  ],
+  "rows": [
+   {
+    "key": "scikit-learn|MLV106|examples/applications/plot_time_series_lagged_features.py|ts_cv.split",
+    "verdict": "false-positive",
+    "finding": "PUB-06",
+    "where": "lines 152 and 306 (scikit-learn @ dd3ca573)",
+    "why": "`ts_cv` is a TimeSeriesSplit. MLView says it 'shuffles rows that look like a time series' and offers the fix 'Use TimeSeriesSplit(n_splits=...)' - it is telling the user to do what the code already does, and the claim that TimeSeriesSplit shuffles is false.",
+    "guard": "MLV106 must exclude SPLIT-role calls whose receiver resolves to an order-preserving splitter (TimeSeriesSplit, and by the same argument GroupKFold / LeaveOneGroupOut). The `shuffle=False` guard on train_test_split works - line 124 of the same file fires correctly and line 133 does not.",
+    "repro": "mlview issues <scratch>/repro/tscv  (18-line file)"
+   },
+   {
+    "key": "pytorch-lightning|MLV707|examples/pytorch/domain_templates/reinforce_learn_ppo.py|def training_step",
+    "verdict": "false-positive",
+    "finding": "PUB-07",
+    "where": "examples/pytorch/domain_templates/reinforce_learn_ppo.py:380 (pytorch-lightning @ bc858a34)",
+    "why": "PPOLightning sets `self.automatic_optimization = False` at line 196 and its training_step calls self.manual_backward and steps both optimizers itself. Returning nothing is correct under manual optimization. MLView says 'Lightning has nothing to back-propagate and the batch is skipped' at medium / 0.90, above the Problems-panel floor. MLV706 already knows about manual optimization and stayed silent, so the gate exists and MLV707 does not use it.",
+    "guard": "MLV707 must skip a LightningModule whose __init__ assigns `self.automatic_optimization = False`, or whose training_step calls self.manual_backward.",
+    "repro": "mlview issues <scratch>/repro/manualopt  (34-line file)"
+   },
+   {
+    "key": "pytorch-examples|MLV205|super_resolution/main.py|avg_psnr += psnr",
+    "verdict": "false-positive",
+    "finding": "PUB-08",
+    "where": "super_resolution/main.py:72 (pytorch-examples @ acc295dc)",
+    "why": "`psnr = 10 * log10(1 / mse.item())` is a Python float - `.item()` is already applied and math.log10 cannot return a tensor. MLView says 'avg_psnr accumulates the tensor psnr ... keeps its autograd graph alive', which is false on both counts.",
+    "guard": "MLV205 should walk the producer chain of the accumulated value and stay silent once it passes through `.item()`, `float()`, or a `math.*` call.",
+    "repro": "mlview issues <scratch>/repro/psnr2  (24-line file)"
+   },
+   {
+    "key": "keras-io|MLV301|examples/vision/zero_dce.py|def infer",
+    "verdict": "false-positive",
+    "finding": "PUB-09",
+    "where": "examples/vision/zero_dce.py:508 and examples/vision/temporal_latent_bottleneck.py:176 (keras-io @ bc58bcd7)",
+    "why": "Both are Keras programs. MLView tells the user to call `zero_dce_model.eval()` and `test_augmentation.eval()` - methods that do not exist in Keras - and in the second case the 'model' is a keras.Sequential of augmentation layers inside a tf.data map function named test_map_fn. Same name-regex root cause as PUB-05. Confidence lands at 0.20-0.34, below the 0.6 visibility floor, so the Problems panel is spared; the diagram rail is not.",
+    "guard": "see PUB-05, plus: MLV301 declares frameworks=['torch'] and should not fire where the receiver resolves to a keras object.",
+    "repro": "analyze keras-io examples/vision at bc58bcd7"
+   },
+   {
+    "key": "pytorch-examples|MLV110|mnist/main.py|torch.utils.data.DataLoader",
+    "verdict": "unsure",
+    "finding": "",
+    "where": "mnist/main.py:124 (pytorch-examples @ acc295dc)",
+    "why": "`DataLoader(dataset1, **train_kwargs)` where shuffle=True is merged in at line 113 only when `use_accel` is true. On CPU the loader really does not shuffle; on an accelerator it does. MLView cannot resolve the **kwargs and says so by landing at confidence 0.59, just under the visibility floor. Defensible either way - recorded here so a later change in either direction is a deliberate one.",
+    "guard": "",
+    "repro": "analyze pytorch-examples/mnist at acc295dc"
+   },
+   {
+    "key": "DeepLearningExamples|MLV502|PyTorch/Classification/GPUNet/train.py|nn.CrossEntropyLoss().cuda",
+    "verdict": "true-positive",
+    "finding": "",
+    "where": "PyTorch/Classification/GPUNet/{train,validate}.py and models/gpunet_builder.py",
+    "why": "Hard-coded `.cuda()` with no availability check. NVIDIA's repository is GPU-only on purpose, so this is advice rather than a defect - which is exactly what medium severity and the rule's portability wording claim.",
+    "guard": "",
+    "repro": "analyze DeepLearningExamples PyTorch/Classification/GPUNet at 729963dd"
+   },
+   {
+    "key": "scikit-learn|MLV106|examples/applications/plot_time_series_lagged_features.py|train_test_split",
+    "verdict": "true-positive",
+    "finding": "",
+    "where": "examples/applications/plot_time_series_lagged_features.py:124",
+    "why": "A random `train_test_split` on a frame whose features are `shift(...)` lags. The example itself goes on to say this is wrong and switches to TimeSeriesSplit; MLView flagged the line the text warns about.",
+    "guard": "",
+    "repro": "analyze scikit-learn examples/applications at dd3ca573"
+   }
+  ]
+ }
+}

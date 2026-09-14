@@ -764,6 +764,95 @@ html.mlv-fills-page > body > .mlv-root {
 }
 
 /*
+ * HOSTS-UX-CHIPWALL — neither of these bands may starve the diagram.
+ *
+ * `.mlv-body` is `flex: 1 1 auto; min-height: 0`, so it is the item that
+ * absorbs whatever the bands above it take, and neither band had a bound.
+ * MEASURED in Chromium at 1600x1000 on the pinned public corpus:
+ *
+ *   ultralytics/yolov5            chiprow 2132 px   banners 323 px   canvas 0 px
+ *   huggingface/pytorch-image-…   chiprow 3765 px   banners 425 px   canvas 0 px
+ *   mlflow/mlflow examples        chiprow  508 px   banners 511 px   canvas 0 px
+ *
+ * Seven of sixteen public repositories drew a ZERO-PIXEL canvas at both
+ * 1600x1000 and 1280x800 — every card in the DOM, none of them on screen, and
+ * the toolbar still stating `400 nodes · 813 edges`. A viewer that cannot draw
+ * the diagram has nothing left to say, so the two bands are capped together at
+ * 34vh and scroll inside their cap. `ui/chrome.ts` folds and caps the chips
+ * themselves, so the cap here is the floor under a pathological document
+ * rather than the everyday shape.
+ *
+ * The two numbers are the MEASURED budget, not a guess. On yolov5 at 1600x1000
+ * the fixed chrome is 100 px of toolbar and filter row plus a 24 px status bar,
+ * and the Pipeline Answer Card takes 40 % of what is left; at 16vh/28vh the
+ * canvas came back to 262 px, and at 12vh/20vh it is 334 px with both bands
+ * still scrolled to everything they hold. The demo, which carries no
+ * diagnostics at all, is 643 px either way — nothing here touches a document
+ * that had no wall to begin with.
+ *
+ * The print stylesheet hides both bands outright, so nothing here can clip a
+ * printed report.
+ */
+.mlv-chiprow {
+  max-height: 14vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  align-items: flex-start;
+  /*
+   * The row is two items now — the scroller and the opener — and it must not
+   * wrap: a wrapped opener goes below the fold, which is exactly where the one
+   * control the fold cannot do without may not be.
+   */
+  flex-wrap: nowrap;
+}
+
+/*
+ * The chips scroll; the opener beside them does not. A 12vh row holds four of
+ * `config_unresolved`'s sentence chips at 1600x1000, so a trailing opener
+ * inside the scroller was measured below the fold on every public-repo report
+ * that had one.
+ */
+.mlv-chiprow__chips {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--mlv-s4);
+  flex: 1 1 auto;
+  min-width: 0;
+  max-height: 12vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.mlv-chiprow > .mlv-chip--more {
+  flex: none;
+}
+
+.mlv-banners {
+  max-height: 20vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+/*
+ * The one chip that stands for the folded tail. It is a DISCLOSURE, not a
+ * filter, so it never carries `aria-pressed` — `.mlv-chip--btn[aria-pressed="false"]`
+ * is struck through, which would read as "these notes are switched off".
+ */
+.mlv-chip--more {
+  border-style: dashed;
+  color: var(--mlv-text);
+}
+
+/* The count a folded chip carries: `1 value not traced  ×36`. */
+.mlv-chiprow .mlv-chip__count {
+  color: var(--mlv-text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/*
  * VW-08. A diagnostic chip is sometimes a SENTENCE. `.mlv-chip` is
  * `white-space: nowrap` — right for `12 nodes`, wrong for CI-ADOPT's baseline
  * and --changed-paths warnings, which carry an absolute path and an
@@ -1298,6 +1387,12 @@ html.mlv-fills-page > body > .mlv-root {
   border-radius: var(--mlv-r-panel);
   background: var(--mlv-surface);
   box-shadow: var(--mlv-shadow-panel, 0 8px 24px rgba(0, 0, 0, 0.18));
+  /*
+   * HOSTS-UX-ANSWERSCROLL. The body now paints its own background so it can
+   * carry a scroll cue, and it is the panel's LAST child: without this its
+   * square corners would sit over the panel's rounded ones.
+   */
+  overflow: hidden;
 }
 
 /*
@@ -1509,6 +1604,42 @@ h1.mlv-brand {
   gap: var(--mlv-s3);
   font-family: var(--mlv-font-mono);
   font-size: var(--mlv-fs-10);
+}
+
+/*
+ * HOSTS-UX-ANSWERSCROLL — a panel that scrolls says so, in both themes.
+ *
+ * `.mlv-answers` is `max-height: 40%; overflow: auto`. MEASURED in Chromium:
+ * at 1600x1000 the four answers fit (host 204 px, scrollHeight 203); at
+ * 1280x800 the list reflows to two rows and the host is 258 px with a
+ * scrollHeight of 317 — 59 px of content behind a macOS OVERLAY scrollbar,
+ * which is invisible until you scroll. The fourth answer ended on screen at
+ * "…Fix first: MLV702 (high) at model.py:34, MLV101 (high) at" (40 of its 72 px
+ * drawn) and its citation row was 0 of 16 px. At 1024x768 it was 245 px of 357.
+ * `.mlv-legend__body` scrolls the same way and was cut the same way.
+ *
+ * The cue is the classic two-layer scroll shadow, and it is honest by
+ * construction: the covering gradients are `background-attachment: local`, so
+ * they travel with the content and hide the edge shadow exactly when that end
+ * of the content is reached. No JavaScript, no measurement, nothing to keep in
+ * step with a re-render — a panel that fits shows no shadow at all.
+ *
+ * `scrollbar-gutter: stable` reserves the classic scrollbar's width so a
+ * scrollbar that does appear never lands on top of a sentence.
+ */
+.mlv-answers,
+.mlv-legend__body {
+  background-color: var(--mlv-surface);
+  background-image:
+    linear-gradient(to bottom, var(--mlv-surface) 30%, transparent),
+    linear-gradient(to top, var(--mlv-surface) 30%, transparent),
+    linear-gradient(to bottom, var(--mlv-border-strong), transparent),
+    linear-gradient(to top, var(--mlv-border-strong), transparent);
+  background-repeat: no-repeat;
+  background-size: 100% 24px, 100% 24px, 100% 8px, 100% 8px;
+  background-position: top, bottom, top, bottom;
+  background-attachment: local, local, scroll, scroll;
+  scrollbar-gutter: stable;
 }
 
 /* ---- canvas.css ---- */

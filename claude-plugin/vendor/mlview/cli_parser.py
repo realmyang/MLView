@@ -120,8 +120,15 @@ def _add_scope_flags(parser: argparse.ArgumentParser) -> None:
     usage error.
     """
     parser.add_argument("--scope", dest="scope", metavar="SPEC", default=None,
-                        help="project the graph before emitting: "
-                             "unit:|stage:|file:|concern:|node:<target>, or 'all'")
+                        # Every spelling `SCOPE_SPELLINGS` accepts, named here:
+                        # the help text is the only place a CLI user learns a
+                        # selector exists, and `pipeline:` (11.47) and `symbol:`
+                        # were reachable but unadvertised until doc-gate check 16
+                        # started holding this string to the parser's own tuple.
+                        help="project the graph before emitting: 'all', "
+                             "unit:<name>, symbol:<name>, stage:<id>, "
+                             "file:<path.py>, concern:<name>, node:<id>, "
+                             "pipeline:<entrypoint.py>")
     parser.add_argument("--depth", dest="depth", metavar="N", default=None,
                         help="boundary hops 0..2 (default: 1 for unit/node, "
                              "0 for stage/file/concern)")

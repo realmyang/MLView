@@ -28,13 +28,13 @@ rules happened to run.
 from __future__ import annotations
 
 import os
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 from .graph import Diagnostic
 
 __all__ = ["COVERAGE_KINDS", "UNTRACED_ROLES", "UntaggedNotes",
            "note_untraced_sites", "note_unconfirmed_train_loops",
-           "single_file_diagnostic"]
+           "note_untyped_backward", "single_file_diagnostic"]
 
 #: The kinds this module emits. The summary emitter gives them their own block.
 COVERAGE_KINDS = ("untagged_dataflow", "single_file_analysis")
@@ -220,6 +220,56 @@ def note_unconfirmed_train_loops(ctx) -> None:
             file=loop.loc.file, line=loop.loc.line,
             scope=loop.scope.qualname if loop.scope is not None else None,
             codes=["MLV201", "MLV202", "MLV203"]))
+
+
+def note_untyped_backward(ctx) -> None:
+    """A `.backward()` the IR could not type, so no rule and no lane saw it.
+
+    TAB-02 / DGRG-02. `torch.Tensor.backward` earns the BACKWARD role only when
+    the receiver's binding resolves to a known tensor producer. A loss built by
+    a workspace helper (`loss = bpr_loss(pos, neg)`), read off a framework
+    output (`loss = outputs.loss`), or returned as an arithmetic expression is
+    not one - so the `backward()` drew no node, the objective lane came back
+    empty, and `emit/answers._objective` printed the literal sentence *"nothing
+    in the objective stage and no backward() call"* about a file whose next
+    line is `loss.backward()`.
+
+    A rule may stay silent on weak evidence. The **silence** may not be
+    silent: this is the declaration, and `_COVERAGE_KINDS` already turns it
+    into the hedge that replaces the false clause.
+
+    Purely syntactic, and one row per `(file, scope)`. It creates no finding,
+    so iron law 1 is untouched - it only ever removes a claim.
+    """
+    import ast as _ast
+
+    typed = {id(call.node) for call in ctx.calls_with_role("BACKWARD")}
+    seen: Set[Tuple[str, str]] = set()
+    for relpath in sorted(ctx.modules):
+        module = ctx.modules[relpath]
+        for call in module.calls:
+            if (call.method or call.short_name) != "backward":
+                continue
+            if id(call.node) in typed:
+                continue
+            if not isinstance(call.node.func, _ast.Attribute):
+                continue
+            scope = call.scope.qualname if call.scope is not None else ""
+            key = (relpath, scope)
+            if key in seen:
+                continue
+            seen.add(key)
+            receiver = call.receiver_name or "the value"
+            ctx.diagnostics.append(Diagnostic(
+                kind="untagged_dataflow",
+                message="`%s.backward()` at %s:%d back-propagates a value MLView "
+                        "could not type, so it draws no loss node and the objective "
+                        "lane may look empty when it is not: the MLV2xx family did "
+                        "not judge this training step, and their silence is a gap "
+                        "in coverage rather than a clean result."
+                        % (receiver, relpath, call.loc.line),
+                file=relpath, line=call.loc.line, scope=scope or None,
+                codes=["MLV201", "MLV202", "MLV203", "MLV205"]))
 
 
 # ---------------------------------------------------------------------------

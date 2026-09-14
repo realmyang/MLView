@@ -369,6 +369,31 @@ def test_the_real_shell_scripts_are_lf():
         assert b"\r" not in path.read_bytes(), path
 
 
+def test_a_downloaded_repository_is_not_held_to_this_repo_s_line_endings():
+    """PUB-01: `tools/public_corpus.py fetch` clones 24 third-party repositories
+    into the tree, and 26 of their files are shell scripts. Before this, check 7
+    read every one of them, so the doc gate's verdict depended on whether the
+    machine had run `fetch` -- and the tree's own three-script assertion above
+    failed with 26 strangers in the list."""
+    root = _tree({"README.md": "# Demo\n",
+                  "tools/public_corpus.py":
+                      "import os\n\nREPO_ROOT = os.path.dirname(__file__)\n"
+                      'DEFAULT_CORPUS_DIR = os.path.join(REPO_ROOT, ".downloads")\n',
+                  ".gitignore": ".downloads/\n",
+                  "scripts/e2e.sh": "#!/usr/bin/env sh\necho ours\n"})
+    try:
+        theirs = root / ".downloads/yolov5/data/scripts/get_coco.sh"
+        theirs.parent.mkdir(parents=True, exist_ok=True)
+        # CRLF, exactly the thing check 7 fails a file for.
+        io.open(theirs, "wb").write(b"#!/bin/sh\r\necho theirs\r\n")
+        assert [p.name for p in check_docs.shell_scripts(root)] == ["e2e.sh"]
+        assert ".downloads" in check_docs.downloaded_parts(root)
+        problems, _ = check_docs.run(root)
+        assert problems == [], problems
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
 def test_a_doc_may_not_mix_line_endings():
     """A half-converted file turns the next small edit into a whole-file
     rewrite, which is how the stale "39 edges" row rode through review."""
@@ -626,8 +651,9 @@ def test_the_real_roadmap_records_every_shipped_sprint_4_item():
 
 def run_module(module, failed: int = 0) -> int:
     """Run every `test_*` in one module, printing a line each. Shared with
-    `scripts/test_doc_numbers.py` (checks 9-11) and `scripts/test_doc_figures.py`
-    (checks 13-15), which hold the cases for the checks that live next door."""
+    `scripts/test_doc_numbers.py` (checks 9-11), `scripts/test_doc_figures.py`
+    (checks 13-15) and `scripts/test_doc_surfaces.py` (checks 16-18), which hold
+    the cases for the checks that live next door."""
     for name, fn in sorted(vars(module).items()):
         if not name.startswith("test_") or not callable(fn):
             continue
@@ -641,16 +667,18 @@ def run_module(module, failed: int = 0) -> int:
 
 
 def main() -> int:
-    # Checks 1-8 and 12 here, 9-11 and 13-15 next door, and the packaged-VSIX
-    # gate beside them: one self-test entry point, so the e2e drivers and the CI
-    # job keep running every gate's own suite from one line.
+    # Checks 1-8 and 12 here, 9-11, 13-15 and 16-18 next door, and the
+    # packaged-VSIX gate beside them: one self-test entry point, so the e2e
+    # drivers and the CI job keep running every gate's own suite from one line.
     import test_doc_figures
     import test_doc_numbers
+    import test_doc_surfaces
     import test_vsix_check
 
     failed = run_module(sys.modules[__name__])
     failed = run_module(test_doc_numbers, failed)
     failed = run_module(test_doc_figures, failed)
+    failed = run_module(test_doc_surfaces, failed)
     failed = run_module(test_vsix_check, failed)
     print(("%d test(s) failed" % failed) if failed else "check_docs self-test OK")
     return 1 if failed else 0

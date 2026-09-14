@@ -18,10 +18,16 @@ python -m pytest analyzer/tests/accuracy -q # the same thing, asserted
 
 ## 1 · What the corpus is
 
-`analyzer/tests/accuracy/corpus/` holds fourteen labelled projects. Each is a
+`analyzer/tests/accuracy/corpus/` holds **92** labelled projects. Each is a
 directory with a `labels.json` beside its sources; two of them are label files
 alone, pointing at the shipped samples through a `root` key so the corpus never
 forks a second copy of the demo.
+
+Fifteen of the 92 are the original set the table below describes — the programs
+the rules were written against or re-created from the Sprint-2 audit. The other
+77 were added in hardening round 1 (2026-09-14) and are listed by family in
+section 3; every one of them is unseen, and most ship as a correct / defective
+pair so that a zero-false-positive claim has something to be zero about.
 
 | Program | Shape | Labels | Origin |
 |---|---|---|---|
@@ -84,222 +90,362 @@ that exact line** — containment would score an op as recovered merely because
 the function that should have held it exists, which is precisely the failure
 mode the class-method blind spot produces.
 
-## 3 · The numbers on 2026-09-10
+## 3 · The numbers on 2026-09-14
 
-Re-run after the ANA-7 / ANA-8 / ANA-9 rule tiers (`docs/CONTRACTS.md` §11.26),
-which added sixteen rules and grew the corpus from ten labelled programs to
-fourteen. Precision stayed **100%** on every rule and every program; every
-gated recall number moved up; graph fidelity is unchanged, because the four new
-programs deliberately carry no `graph` block. `scripts/check_docs.py` check 9
-holds the headline figures in this section to
-`analyzer/tests/accuracy/baseline.json` so the two cannot drift apart.
+Re-recorded in **hardening round 1**. Two things moved at once and they pull in
+opposite directions, so they are stated apart before they are stated together.
 
-**Re-recorded on 2026-09-10 for ANA-10** (`docs/CONTRACTS.md` §11.45), the
-in-Python half of config resolution: module-level dict literals, dataclass field
-defaults, `argparse` `add_argument(default=)` and the attribute/subscript chains
-rooted at any of them now resolve to literals, so `CFG["workers"]` and
-`cfg.data.workers` read the way `4` already did. Measured A/B on this tree with
-`ir.bindings._resolve_config` stubbed to a no-op, that change alone is the whole
-move: raw recall **71.8% → 73.1%**, visible 64.1% → 65.4%, high+medium
-63.2% → 64.9%, unseen 53.2% → 55.3%, graph fidelity 126 → 127 of 139. Precision
-stays 100% and forbidden findings stay 0 in both dataflow modes. H5's structured
-fixes (§11.42) moved nothing here and could not: they add one optional
-`Issue.fix` field to five findings that already existed and touch no rule gate,
-no evidence and no confidence.
+**The corpus roughly sextupled.** It grew from **15 labelled programs, 78 labels
+and 139 hand-drawn graph ops** to **92 programs, 312 labels and 614 ops** — 77
+new programs and 188 new source files across five families: 25 vision (DCGAN and
+WGAN-GP, VAE, DDPM, SimCLR, detection, U-Net segmentation, 3-D video, ONNX
+serving, timm ViT, Keras CNN and transfer, Lightning classification, ImageNet
+DDP), 15 infrastructure (DDP, FSDP, DeepSpeed, accelerate, Ignite, fastai, JAX /
+Flax, Hydra config trees, the Lightning CLI, a monorepo, a packaged layout,
+serving), 13 tabular (Kaggle-shaped, recsys, forecasting, calibration, a feature
+store, AutoML search, MLflow, statsmodels + Prophet, custom estimators), 12 NLP
+(GPT pre-training, HuggingFace sequence and token classification, seq2seq
+summarisation, LoRA / PEFT, sentence embeddings, an RNN tagger, sklearn text
+pipelines, serving) and 12 advanced (PPO, DQN, stable-baselines3, GNN,
+distillation, MAML, audio, multimodal). Most ship as a **correct / defective
+pair**, which is what makes a zero-false-positive claim mean anything. **No
+label was deleted and none was weakened**; `git log -p
+analyzer/tests/accuracy/corpus` is the record.
 
-The four new programs — `keras_uncompiled`, `lightning_manual`, `hf_no_eval`
-and `torch_mechanics` — are marked **tuned**, like the two shipped samples: they
-were written alongside the rules that find their defects, so they are a ceiling
-rather than a measurement and they are excluded from the unseen headline. The
-unseen numbers moved on **one** label: `keras_tfdata`'s `model.py:16` was
-labelled MLV402, a torch rule that can never resolve on a Keras program, and is
-now labelled MLV709 — the same line, the same severity, the same defect, under
-the code that can actually see it.
+**Nothing got worse, and the headline still went down.** Raw recall reads
+**73.1% -> 72.4%** and high+medium **64.9% -> 64.5%**, because 77 of the 92
+programs are unseen and harder than the fifteen the rules were developed
+against. The control is to score the **same fifteen programs** with this build,
+which is the only comparison where the denominator is unchanged:
+
+| the original 15 programs | raw recall | visible | high+medium | unseen raw |
+|---|---|---|---|---|
+| `hardening` ef4fb71 (the previous baseline) | 73.1% | 65.4% | 64.9% | 55.3% |
+| this build, `local` | **75.6%** | **68.0%** | **66.7%** | **59.6%** |
+| this build, `--dataflow ip` | **82.0%** | **74.4%** | **75.4%** | **70.2%** |
+
+Restricted that way the **previous** baseline passes unchanged — every `perRule`
+row and graph fidelity included — so no detection was lost anywhere in the
+round; the movement is entirely new, harder, unseen code. Both baselines were
+therefore re-recorded with `--allow-regression`, and the reason is written into
+`analyzer/tests/accuracy/baseline.json`'s own `note` field rather than only into
+a commit body. `scripts/check_docs.py` check 9 holds the headline figures in
+this section to that file so the two cannot drift apart.
+
+**Almost every rule is now measured on unseen code.** Under the fifteen-program
+corpus sixteen of the 36 rules carried a `*` — every label they had lived in a
+program they were tuned against, so their `recall` column was a ceiling. **No
+rule carries a `*` today**: all 36 have at least one label in a program nobody
+wrote for them, and the `unseen recall` column is a measurement for every row.
+That is why nine per-rule ratios moved *down* while the rules themselves did not
+change — MLV305 went from one tuned label at 100.0% to six labels at 16.7%, and
+the second number is the true one.
 
 ```
 program                  files found labels    hit   miss     fp  graph
 --------------------------------------------------------------------------
+adv_advanced_clean           4     0      0      0      0      0   n/l
+adv_audio_bad                1    11     11     11      0      0   n/l
+adv_audio_clean              1     0      0      0      0      0   n/l
+adv_distill_bad              1     3      3      3      0      0   n/l
+adv_dqn_bad                  1     7      7      7      0      0   n/l
+adv_gnn_bad                  2     4      7      4      3      0   n/l
+adv_gnn_clean                2     0      0      0      0      0   n/l
+adv_meta_maml_bad            1     4      4      4      0      0   n/l
+adv_multimodal_clean         1     0      0      0      0      0   n/l
+adv_ppo_bad                  1     4      7      4      3      0   n/l
+adv_ppo_clean                1     0      0      0      0      0   n/l
+adv_rl_sb3_clean             1     0      0      0      0      0   n/l
 amp_accumulation             1     3      7      3      4      0 86.7%
 gbm_tabular                  1     3      5      3      2      0 100.0%
 hf_no_eval*                  1     1      1      1      0      0   n/l
-hf_trainer_finetune          3     5      8      5      3      0 91.7%
-hydra_research               4     6     11      6      5      0 81.2%
+hf_trainer_finetune          3     6      8      6      2      0 91.7%
+hydra_research               4     7     11      7      4      0 81.2%
+infra_accelerate             1     0      0      0      0      0   n/l
+infra_compile_amp            1     0      0      0      0      0   n/l
+infra_ddp_correct            2     0      0      0      0      0   n/l
+infra_ddp_sampler_bug        2     2      2      2      0      0   n/l
+infra_deepspeed              2     0      0      0      0      0   n/l
+infra_fastai                 1     0      0      0      0      0   n/l
+infra_fsdp                   1     0      0      0      0      0   n/l
+infra_hydra_conf             5     1      2      0      2      0   n/l
+infra_ignite                 1     0      0      0      0      0   n/l
+infra_jax_flax               1     0      0      0      0      0   n/l
+infra_keras_custom_step      3     0      1      0      1      0   n/l
+infra_lightning_cli          4     1      1      1      0      0   n/l
+infra_monorepo               9     0      0      0      0      0   n/l
+infra_pkg_layout            14     2      2      2      0      0   n/l
+infra_serving                3     0      0      0      0      0   n/l
 keras_se_gate*               3     1      1      1      0      0   n/l
 keras_tfdata                 3     4      5      4      1      0 100.0%
 keras_uncompiled*            3     2      2      2      0      0   n/l
 lightning_manual*            2     3      3      3      0      0   n/l
 lightning_tabular            3     4      6      4      2      0 100.0%
+nlp_gpt_pretrain             2     8     10      8      2      0 91.7%
+nlp_gpt_pretrain_clean       2     0      0      0      0      0 100.0%
+nlp_hf_classification        3     9     12      9      3      0 94.1%
+nlp_hf_classification_clean     3     0      0      0      0      0 94.7%
+nlp_lora_peft                2     2      6      2      4      0   n/l
+nlp_rnn_tagger               2     6      6      6      0      0 93.8%
+nlp_sentence_embedding       2     4      9      4      5      0   n/l
+nlp_seq2seq_summarization     2     7      9      7      2      0 80.0%
+nlp_serving                  2     0      0      0      0      0 37.5%
+nlp_sklearn_text_leaky       1     5      8      5      3      0 86.7%
+nlp_sklearn_text_pipeline     1     0      0      0      0      0 85.7%
+nlp_token_classification     2     4      9      4      5      0 71.4%
+tabular_automl_search        1     0      3      0      3      0 92.9%
+tabular_calibration          1     0      0      0      0      0 86.7%
+tabular_cluster_explore      1     0      0      0      0      0 100.0%
+tabular_custom_estimators     3     0      0      0      0      0 84.2%
+tabular_feature_store        5     0      3      0      3      0 85.0%
+tabular_forecast_clean       2     0      0      0      0      0 60.0%
+tabular_forecast_shuffled     2     1      3      1      2      0 69.2%
+tabular_kaggle_clean         3     0      0      0      0      0 94.7%
+tabular_kaggle_leaky         2     5      7      5      2      0 84.6%
+tabular_mlflow               1     2      3      2      1      0 100.0%
+tabular_recsys_leaky         3     6      7      6      1      0 70.6%
+tabular_recsys_mf            3     0      0      0      0      0 75.0%
+tabular_statsforecast        1     0      0      0      0      0 76.9%
 timeseries_split             2     1      5      1      4      0 91.7%
 timeseries_split_clean       1     0      0      0      0      0 83.3%
 torch_mechanics*             3     9      9      9      0      0   n/l
+vision_ddpm                  2     0      0      0      0      0   n/l
+vision_ddpm_bad              2     5      7      5      2      0   n/l
+vision_detector              4     0      0      0      0      0   n/l
+vision_detector_bad          4    10     11     10      1      0   n/l
+vision_gan                   3     0      0      0      0      0 67.6%
+vision_gan_bad               3     5      9      5      4      0   n/l
+vision_imagenet_ddp          5     0      0      0      0      0 72.7%
+vision_imagenet_ddp_bad      5     7     12      7      5      0   n/l
+vision_keras_cnn             2     0      0      0      0      0   n/l
+vision_keras_cnn_bad         2     2      4      2      2      0   n/l
+vision_keras_transfer        3     0      0      0      0      0 87.0%
+vision_lightning_cls         2     0      0      0      0      0   n/l
+vision_lightning_cls_bad     2     8      7      7      0      0   n/l
+vision_onnx_service          3     0      0      0      0      0   n/l
+vision_onnx_service_bad      3     3      3      3      0      0   n/l
 vision_pipeline*             5    15     15     15      0      0 85.7%
 vision_pipeline_clean*       5     0      0      0      0      0 100.0%
+vision_simclr                2     0      0      0      0      0   n/l
+vision_simclr_bad            2     5      7      5      2      0   n/l
+vision_unet_seg              3     0      0      0      0      0   n/l
+vision_unet_seg_bad          3     8      9      8      1      0   n/l
+vision_vae                   1     0      0      0      0      0   n/l
+vision_vae_bad               1     4      7      4      3      0   n/l
+vision_video3d               2     0      0      0      0      0   n/l
+vision_video3d_bad           2     7      8      7      1      0   n/l
+vision_vit_timm              2     0      0      0      0      0 85.0%
+vision_vit_timm_bad          2     7      8      7      1      0   n/l
+--------------------------------------------------------------------------
+* tuned: the rules were developed against this project; excluded from the
+  unseen headline below.
+```
 
+```
 rule       labels  found  visible   fp  precision   recall     f1 unseen recall
 --------------------------------------------------------------------------------
-MLV101         11      3        3    0     100.0%    27.3%   0.43         20.0%
-MLV102          2      1        1    0     100.0%    50.0%   0.67         50.0%
-MLV103          3      2        2    0     100.0%    66.7%   0.80         50.0%
-MLV106*         1      1        1    0     100.0%   100.0%   1.00             -
-MLV110          2      2        2    0     100.0%   100.0%   1.00        100.0%
-MLV111          3      2        2    0     100.0%    66.7%   0.80         50.0%
-MLV112*         1      1        1    0     100.0%   100.0%   1.00             -
-MLV114*         1      1        1    0     100.0%   100.0%   1.00             -
-MLV121*         2      2        2    0     100.0%   100.0%   1.00             -
-MLV201          3      3        3    0     100.0%   100.0%   1.00        100.0%
-MLV205          3      1        1    0     100.0%    33.3%   0.50          0.0%
-MLV207*         1      1        1    0     100.0%   100.0%   1.00             -
-MLV208*         1      1        1    0     100.0%   100.0%   1.00             -
-MLV209*         1      1        1    0     100.0%   100.0%   1.00             -
-MLV301          4      2        1    0     100.0%    50.0%   0.67         33.3%
-MLV302          4      2        1    0     100.0%    50.0%   0.67         33.3%
-MLV305*         1      1        1    0     100.0%   100.0%   1.00             -
-MLV306*         1      1        1    0     100.0%   100.0%   1.00             -
-MLV401          3      1        1    0     100.0%    33.3%   0.50          0.0%
-MLV501          4      2        1    0     100.0%    50.0%   0.67         33.3%
-MLV502*         1      1        1    0     100.0%   100.0%   1.00             -
-MLV601          8      8        5    0     100.0%   100.0%   1.00        100.0%
-MLV602          8      8        8    0     100.0%   100.0%   1.00        100.0%
-MLV701          1      1        1    0     100.0%   100.0%   1.00        100.0%
-MLV702*         1      1        1    0     100.0%   100.0%   1.00             -
-MLV705*         1      1        1    0     100.0%   100.0%   1.00             -
-MLV706*         1      1        1    0     100.0%   100.0%   1.00             -
-MLV707*         1      1        1    0     100.0%   100.0%   1.00             -
-MLV708*         1      1        1    0     100.0%   100.0%   1.00             -
-MLV709          1      1        1    0     100.0%   100.0%   1.00        100.0%
-MLV711*         1      1        1    0     100.0%   100.0%   1.00             -
-MLV803*         1      1        1    0     100.0%   100.0%   1.00             -
+MLV101         23      8        8    0     100.0%    34.8%   0.52         31.8%
+MLV102          5      4        4    0     100.0%    80.0%   0.89         80.0%
+MLV103          7      2        2    0     100.0%    28.6%   0.44         16.7%
+MLV106          2      1        1    0     100.0%    50.0%   0.67          0.0%
+MLV110         13     12       12    0     100.0%    92.3%   0.96         91.7%
+MLV111         12     12       12    0     100.0%   100.0%   1.00        100.0%
+MLV112         10     10       10    0     100.0%   100.0%   1.00        100.0%
+MLV114          7      3        3    0     100.0%    42.9%   0.60         33.3%
+MLV121          3      3        3    0     100.0%   100.0%   1.00        100.0%
+MLV201         12      9        8    0     100.0%    75.0%   0.86         72.7%
+MLV202          2      1        1    0     100.0%    50.0%   0.67         50.0%
+MLV203          3      2        2    0     100.0%    66.7%   0.80         66.7%
+MLV204          1      1        1    0     100.0%   100.0%   1.00        100.0%
+MLV205         18     10       10    0     100.0%    55.6%   0.71         52.9%
+MLV207          5      4        4    0     100.0%    80.0%   0.89         75.0%
+MLV208          2      1        1    0     100.0%    50.0%   0.67          0.0%
+MLV209          3      3        3    0     100.0%   100.0%   1.00        100.0%
+MLV301         26     16        9    0     100.0%    61.5%   0.76         60.0%
+MLV302         24     16       14    0     100.0%    66.7%   0.80         65.2%
+MLV305          6      1        1    0     100.0%    16.7%   0.29          0.0%
+MLV306          3      2        2    0     100.0%    66.7%   0.80         50.0%
+MLV401         11      6        6    0     100.0%    54.5%   0.71         50.0%
+MLV402          7      2        2    0     100.0%    28.6%   0.44         28.6%
+MLV501         11      6        4    0     100.0%    54.5%   0.71         50.0%
+MLV502          5      5        5    0     100.0%   100.0%   1.00        100.0%
+MLV601         26     23       17    0     100.0%    88.5%   0.94         88.0%
+MLV602         19     19       19    0     100.0%   100.0%   1.00        100.0%
+MLV701          4      4        4    0     100.0%   100.0%   1.00        100.0%
+MLV702          6      6        6    0     100.0%   100.0%   1.00        100.0%
+MLV705          2      1        1    0     100.0%    50.0%   0.67          0.0%
+MLV706          2      2        2    0     100.0%   100.0%   1.00        100.0%
+MLV707          2      2        2    0     100.0%   100.0%   1.00        100.0%
+MLV708          3      3        3    0     100.0%   100.0%   1.00        100.0%
+MLV709          3      2        2    0     100.0%    66.7%   0.80         66.7%
+MLV711          3      3        3    0     100.0%   100.0%   1.00        100.0%
+MLV803         21     21       21    0     100.0%   100.0%   1.00        100.0%
+--------------------------------------------------------------------------------
+visible = confidence >= 0.60, the VS Code Problems panel default.
+* every label for this rule lives in a program the rule was developed
+  against, so its recall column is a ceiling and not a measurement: the
+  unseen column is what the rule is known to find on code nobody tuned it
+  on, and `-` there means nothing unseen has been labelled for it yet.
+```
 
-overall   labels  78   recall  73.1%   visible  65.4%   high+medium  64.9%   precision 100.0%
-unseen    labels  47   recall  55.3%   visible  42.5%   high+medium  37.5%   precision 100.0%
+```
+overall   labels 312   recall  72.4%   visible  66.7%   high+medium  64.5%   precision 100.0%
+unseen    labels 281   recall  69.4%   visible  63.0%   high+medium  60.2%   precision 100.0%
 ```
 
 Two columns exist because the report used to overstate itself. **`n/l`** in the
 graph column is a program with no hand-drawn `graph` block in its `labels.json`:
 nobody drew a diagram for it, so nothing was measured — it used to print
-`100.0%`, four perfect scores off no evidence at all. A **`*` on a rule** means
-every label that rule has lives in a program it was developed against, so its
-`recall` column is a ceiling and its **`unseen recall`** is `-`: nothing unseen
-has been labelled for it yet. Sixteen rules read `recall 100.0%` under the old
-table with nothing saying so.
+`100.0%`, four perfect scores off no evidence at all. A **`*` on a program**
+means the rules were developed against it, so it is excluded from the unseen
+headline; six programs carry it and no rule does.
 
-`keras_se_gate` is the fifteenth program — a squeeze-and-excite Keras classifier
-on a `ds = ds.<op>(...)` tf.data pipeline. It carries the two MLV709
-false-positive shapes and the MLV121 `take(1)` peek as `forbidden` labels and a
-rebinding-style shuffle-before-holdout as `expected`. It is marked **tuned**,
-because those guards were written against its shapes: its zero-forbidden result
-is a regression guard, not an unseen measurement.
+**Precision is 100%.** Zero forbidden findings, zero unlabelled findings, on 92
+projects and 312 labels, in **both** dataflow modes. That is the claim the
+product rests on, it is the one number the gate refuses to let move, and it is
+now backed by four times the evidence it had a week ago. Round 1 started with it
+broken: on this corpus `hardening` at `ef4fb71` measured precision 97.6% with
+**5 forbidden findings**, all five of them high-severity claims about correct
+code.
 
-**Precision is 100%.** Zero forbidden findings, zero unlabelled findings, on
-fifteen projects and 78 labels. That is the claim the product rests on and it now
-has a number behind it.
-
-**Recall is the weakness, and it has three honest readings.** On the eight
-unseen programs:
+**Recall is the weakness, and it has three honest readings.** On the 86 unseen
+programs:
 
 | Reading | Number | What it means |
 |---|---|---|
-| raw recall | **55.3%** | 26 of 47 planted defects produced a finding |
-| visible recall | **42.5%** | …of which only 20 clear `mlview.minConfidence` 0.6, so the rest never reach the VS Code Problems panel |
-| high+medium recall | **37.5%** | 12 of 32 defects that are not reproducibility hygiene |
+| raw recall | **69.4%** | 195 of 281 planted defects produced a finding |
+| visible recall | **63.0%** | …of which 177 clear `mlview.minConfidence` 0.6, so the rest never reach the VS Code Problems panel |
+| high+medium recall | **60.2%** | 124 of 206 defects that are not reproducibility hygiene |
 
-**Reconciling with the audit's ~26%.** The Sprint-2 audit measured ≈26% over
-four hand-written projects. The closest reading here is **37.5%** — the
-high-and-medium-severity number on unseen code — and the gap is explained, not
-argued away: these are *re-creations* of the auditors' probes rather than the
-same files, and this corpus labels the reproducibility pair (MLV601, MLV602)
-that fires on essentially every program, which lifts the raw figure to 55.3%.
-Quote the high+medium number when comparing to the audit, and quote all three
-when reporting progress.
+All three are **up** on the unseen half, and substantially: 55.3% -> 69.4% raw,
+42.5% -> 63.0% visible, 37.5% -> 60.2% high+medium. The unseen set is now 86
+programs rather than eight, so this is the first reading in the project's history
+that is a measurement of unseen recall rather than an anecdote about it.
 
-**What the tiers did and did not buy.** All three unseen readings moved by
-exactly one label, because the sixteen new rules were written against defects
-that the eight unseen programs mostly do not contain: the tiers are recall the
-corpus can now *measure*, not recall it has demonstrated on code nobody wrote
-for them. The overall figures — 73.1% raw over 78 labels — carry the tuned
-programs and should be read as "these rules fire where they are supposed to",
-never as a field measurement. Growing the unseen half of the corpus remains the
-cheapest recall work on the board.
+**Reconciling with the audit's ~26%.** The Sprint-2 audit measured ~26% over
+four hand-written projects. The closest reading here is **60.2%** — the
+high-and-medium-severity number on unseen code. The gap is real and is not
+argued away: these are re-creations of the auditors' probes rather than the same
+files, and this corpus labels the reproducibility pair (MLV601, MLV602) that
+fires on essentially every program, which lifts the raw figure. Quote the
+high+medium number when comparing to the audit, and quote all three when
+reporting progress.
 
-**What ANA-10 bought, and what it did not.** One label, and it is an unseen one:
-MLV201 at `hydra_research/src/train.py:35`, a planted "gradients are never
-zeroed" that was unreachable until the `getattr` registry selection let
-`optimizer_for(...)` resolve to an optimizer. That is MLV201's unseen recall
-moving 50.0% → 100.0% and the corpus's raw unseen recall moving by one label.
-The larger effect is one this table cannot show, because the table only counts
-findings that *should* exist: on `DataLoader(ds, shuffle=CFG["shuffle"])` with
-`CFG["shuffle"] = True`, MLV110 used to report *"shuffle=unset (defaults to
-False)"* at `likely` — a false statement about a correct program. It is gone,
-and no label ever recorded it. A config read can never mint a `certain` finding:
-every read costs one explicit `CONFIG_EVIDENCE_WEIGHT` (0.8) factor and the
-highest registered prior, 0.98, lands at 0.784.
+**Graph fidelity: 522 of 614 hand-labelled ops, 85.0%.** The score reads lower
+than the 127 of 139 (91.4%) recorded on 2026-09-10 for the same reason recall
+does: 475 of the 614 ops are new, hand-drawn on code nobody tuned the builder
+against. 41 of the 92 programs carry a `graph` block; the other 51 carry none
+and contribute nothing to the total, which is the distinction the `n/l` row
+exists to keep. The 41 that do:
 
-**Graph fidelity: 127 of 139 hand-labelled ops, 91.4%.** This half of the table
-has moved three times. It was **92 of 139, 66.2%** until ANA-1 stopped dropping
-ops written inside a class method (`docs/CONTRACTS.md` §11.19), which took it to
-**120 of 139, 86.3%**; FW-RECOG then added the tf.data, HuggingFace `datasets`
-and Lightning-hook tables (§11.23) and it reached 0.9065; ANA-10 (§11.45) added
-the thirteenth `hydra_research` op — the optimizer behind the `getattr` registry
-— for 0.9137. The six ops that
-moved are `keras_tfdata`'s `map` / `shuffle` / `batch` — recognised at all for
-the first time, and anchored on the method name rather than on the start of the
-chain — `hf_trainer_finetune`'s `datasets.Dataset.map`, and the two
-`lightning_tabular` ops its hook units bring in. **Every precision and recall
-number is unchanged**, which is the point: the tables add sight, not verdicts.
-The distribution is still the story, not the average:
+```
+program                       ops    recovered         score      edges
+----------------------------------------------------------------------
+amp_accumulation               15           13         86.7%      30/16
+gbm_tabular                     9            9        100.0%       13/9
+hf_trainer_finetune            12           11         91.7%      23/12
+hydra_research                 16           13         81.2%      49/20
+keras_tfdata                   15           15        100.0%      32/14
+lightning_tabular              13           13        100.0%      35/12
+nlp_gpt_pretrain               24           22         91.7%      42/42
+nlp_gpt_pretrain_clean         23           23        100.0%      46/46
+nlp_hf_classification          17           16         94.1%      22/20
+nlp_hf_classification_clean       19           18         94.7%      26/24
+nlp_rnn_tagger                 16           15         93.8%      37/37
+nlp_seq2seq_summarization       15           12         80.0%      21/18
+nlp_serving                     8            3         37.5%      14/14
+nlp_sklearn_text_leaky         15           13         86.7%      24/24
+nlp_sklearn_text_pipeline       14           12         85.7%      17/17
+nlp_token_classification       14           10         71.4%      28/28
+tabular_automl_search          14           13         92.9%      20/20
+tabular_calibration            15           13         86.7%      35/30
+tabular_cluster_explore        15           15        100.0%      25/23
+tabular_custom_estimators       19           16         84.2%      22/22
+tabular_feature_store          20           17         85.0%      21/21
+tabular_forecast_clean         15            9         60.0%      28/28
+tabular_forecast_shuffled       13            9         69.2%      28/28
+tabular_kaggle_clean           19           18         94.7%      40/40
+tabular_kaggle_leaky           13           11         84.6%      37/37
+tabular_mlflow                 15           15        100.0%      26/25
+tabular_recsys_leaky           17           12         70.6%      35/35
+tabular_recsys_mf              20           15         75.0%      51/51
+tabular_statsforecast          13           10         76.9%      19/16
+timeseries_split               12           11         91.7%      22/14
+timeseries_split_clean          6            5         83.3%        7/6
+vision_gan                     37           25         67.6%    105/105
+vision_imagenet_ddp            22           16         72.7%    128/128
+vision_keras_transfer          23           20         87.0%      55/55
+vision_pipeline                28           24         85.7%      51/45
+vision_pipeline_clean          13           13        100.0%      55/45
+vision_vit_timm                20           17         85.0%      64/48
+----------------------------------------------------------------------
+TOTAL                         614          522         85.0%
+```
 
-* `lightning_tabular` **100.0%** (13 of 13), from 15.4% (2 of 13). Every op in
-  that project is written inside a method body, and the class-method blind spot
-  in `core/build.py` swallowed all of them — `read_csv`, `fit_transform`,
-  `TensorDataset`, `random_split` and both `DataLoader`s drew no node at all.
-  ANA-1 split the one overloaded `CallSite.class_ir` field into *what this call
-  resolves to* and *what class it is written in*, and all thirteen now anchor.
-  This project is what the re-baseline bought, and it is the corpus's only
-  perfect unseen score.
-* `vision_pipeline` **85.7%** (24 of 28), from 60.7%. The Model lane is drawn:
-  `Conv2d`, `BatchNorm2d`, `Dropout`, `AdaptiveAvgPool2d`, `Linear` and
-  `softmax` all carry nodes now. The four still missing are `SmallCNN()` and
-  `ConvBlock()` — instantiations of a class this workspace defines — and the two
-  `model(images)` call sites that go through the instance.
-* `keras_tfdata` **66.7%** (10 of 15) is now the corpus's *worst* score, which
-  is the point of re-measuring. The five missing ops are the whole `tf.data`
-  chain — `from_tensor_slices` twice, `map`, `shuffle`, `batch` — absent from
-  the knowledge tables (FW-RECOG).
-
-**The nineteen still missing.** `python tools/accuracy.py --verbose` prints each
-one by file and line. They are no longer one worklist; they are three:
+**The 92 ops still missing.** `python tools/accuracy.py --verbose` prints each
+one by file and line; grouped by hand from that output they are four families,
+and the first is more than twice the size of any other:
 
 | Family | n | What it looks like |
 |---|---|---|
-| a call through an object whose class this workspace defines | 10 | `model(features)`, `criterion(...)`, `SmallCNN()`, `ConvBlock()`, `build_from_cfg` |
-| a framework method the knowledge tables do not carry (FW-RECOG) | 6 | the five-call `tf.data` chain, and `datasets.map` in the HF project |
-| a call the tables do carry that anchored no node on that exact line | 3 | pandas `shift` in both time-series programs, `optimizer.step` in the hand-written hydra loop |
+| a call through an object or class this workspace defines | 42 | `model(images)`, `criterion(...)`, `SmallCNN()`, `Critic()`, `netD(real_images)`, `bpr_loss`, `WinsorizingTransformer`, `build_from_cfg` |
+| a framework method the knowledge tables still do not carry | 32 | pandas `shift` / `rolling.mean` / `sort_values` / `fillna`, HuggingFace `evaluate.load` and `rouge.compute`, Keras `model.compile` / `evaluate` / `export`, `fitted.forecast` |
+| an sklearn estimator method on a receiver the analyzer cannot type | 10 | `predict_proba`, `decision_function`, `best.fit`, `fit_resample` |
+| a value that reached the line as a function parameter | 8 | `scaler.step(optimizer)` and `scheduler.step()` inside an `engine.py` that takes them as arguments (vision-02), `loss.backward()` on a loss a helper returned |
 
 That list is generated, never asserted, so it is a worklist rather than a claim.
-The ANA-1 entries that used to dominate it are gone.
+The first family is the single biggest unbought recall on the board and has been
+since ANA-1; the fourth is the interprocedural hole round 1 measured and did not
+close.
 
 **Calibration.**
 
 ```
 bucket              n     tp     fp      mean conf  observed prec    error
 --------------------------------------------------------------------------
-certain            24     24      0          0.931         100.0%    0.069
-likely              9      9      0          0.842         100.0%    0.158
-speculative         6      6      0          0.336         100.0%    0.664
+certain           133    133      0          0.935         100.0%    0.065
+likely             71     71      0          0.834         100.0%    0.166
+possible            9      9      0          0.590         100.0%    0.410
+speculative        13     13      0          0.338         100.0%    0.662
+--------------------------------------------------------------------------
+Reported, not gated: at this corpus size a bucket can hold two findings,
+so a single label flips its observed precision by half.
 ```
 
-The confidence model is **under**-confident, not over-confident, and severely
-so at the bottom. Six findings landed in `speculative` at a mean confidence of
-0.34, and every one of them was a genuine planted defect. All six are absence
-findings under `WRAPPER_FACTOR` 0.4 — MLV301, MLV302 and MLV501 on the
-hand-rolled scoring pass inside the HF project, and MLV601 on three
-framework-owned projects. That single multiplier is what makes two whole
-projects publish nothing to the Problems panel, and it is the calibration
-finding this table exists to surface.
+The confidence model is **under**-confident, not over-confident, and severely so
+at the bottom: 13 findings landed in `speculative` at a mean confidence of 0.34
+and every one was a genuine planted defect, and 9 more in `possible` at 0.59.
+Most are absence findings under `WRAPPER_FACTOR` 0.4. That single multiplier is
+what keeps 22 true findings at or below `possible`, and it is the calibration
+finding this table exists to surface. The `certain` bucket now holds **133**
+findings at 100% observed precision, against 24 a week ago.
 
 The calibration table is **reported, not gated**: at this corpus size a bucket
-can hold six findings, so one label flips its observed precision by a sixth.
-It becomes gateable when the corpus is several times larger.
+can still hold nine findings, so one label flips its observed precision by a
+ninth. It becomes gateable when the corpus is several times larger again.
+
+### The history this section replaced
+
+The figures above supersede three earlier recordings, kept here as a record
+rather than as a claim, because a number that moved for a stated reason is worth
+more than a number that was quietly overwritten:
+
+* **2026-09-09, ten programs.** ANA-12 day one.
+* **2026-09-09, fourteen programs.** The ANA-7 / ANA-8 / ANA-9 rule tiers
+  (`docs/CONTRACTS.md` §11.26) added sixteen rules; precision stayed 100% and
+  every gated recall number moved up.
+* **2026-09-10, fifteen programs, 78 labels.** ANA-10's in-Python config
+  resolution (§11.45) — module-level dict literals, dataclass field defaults,
+  `argparse` `default=` and the chains rooted at them — moved raw recall
+  71.8% -> 73.1%, visible 64.1% -> 65.4%, high+medium 63.2% -> 64.9%, unseen
+  53.2% -> 55.3%, and graph fidelity 126 -> 127 of 139 (91.4%), measured A/B with
+  `ir.bindings._resolve_config` stubbed to a no-op. The larger effect was one no
+  table can show, because a table only counts findings that *should* exist: on
+  `DataLoader(ds, shuffle=CFG["shuffle"])` with `CFG["shuffle"] = True`, MLV110
+  used to report *"shuffle=unset (defaults to False)"* at `likely` — a false
+  statement about a correct program. H5's structured fixes (§11.42) moved nothing
+  and could not: they add one optional `Issue.fix` field to findings that already
+  existed and touch no rule gate, no evidence and no confidence.
 
 ## 4 · The gates
 
@@ -382,6 +528,21 @@ ratchet up** — and carries a `dataflow` field so a file can never be read as
 the other mode's floor. `analyzer/tests/core/test_dataflow_ip.py` asserts both
 tolerances inside `pytest analyzer/tests`, alongside the mode's own fixtures.
 
+### The two modes on the 92-program corpus, 2026-09-14
+
+| mode | recall | visible | high+medium | unseen recall | precision | forbidden | unlabelled |
+|---|---|---|---|---|---|---|---|
+| `local` | 72.4% | 66.7% | 64.5% | 69.4% | **100%** | 0 | 0 |
+| `ip` | **76.3%** | **69.9%** | **69.7%** | **73.7%** | **100%** | 0 | 0 |
+
+Graph fidelity is 85.0% in `local` and 85.2% in `ip`: the mode buys exactly one
+op, `nlp_token_classification` 0.7143 -> 0.7857, and nothing else moves. `ip` recovers
+**twelve** labels `local` misses and, on one program, still loses one it finds —
+`mlflow`'s MNIST autolog example (vision-08) — so `local` is not yet a subset of
+`ip`. That is stated here rather than averaged away; it is the mode's one known
+honesty gap and it is tracked as open in
+`analyzer/tests/public_corpus/adjudication.json`.
+
 ### The two modes on the same 15 programs, 2026-09-10
 
 | mode | recall | visible | high+medium | unseen recall | precision | forbidden | unlabelled |
@@ -434,3 +595,90 @@ stays 100%.
 * **A chain past three hops is reported, not scored.** It emits a `truncated`
   diagnostic and no finding, which is a miss the recall column counts and a
   blindness the document names — the distinction this whole file exists to keep.
+
+---
+
+## 7 · Hardening round 1, analyzer (2026-09-14)
+
+Three things happened at once and the numbers below only make sense if they are
+kept apart.
+
+**(a) The corpus roughly sextupled.** Other testers added **77** labelled
+programs (188 source files) — vision, NLP, tabular, advanced (RL / GNN /
+distillation / meta-learning) and infrastructure (DDP, FSDP, DeepSpeed,
+accelerate, Ignite, fastai, Hydra, serving, notebooks). Counted three ways:
+`expected` labels **78 → 312**, `forbidden` labels — the ones that assert
+MLView must stay *silent* — **125 → 1229**, and hand-drawn graph ops
+**139 → 614**. Every per-rule ratio in `analyzer/tests/accuracy/baseline.json`
+is therefore against a different denominator, so both baselines were re-recorded
+by the integrator with `--allow-regression` and the reason written into each
+file's own `note`. Section 3 carries the control that makes the re-record
+honest: over the original fifteen programs alone, this build beats the baseline
+it replaced on every gated number.
+
+**(b) The tree was red when round 1 started.** On the grown corpus, `hardening`
+at `ef4fb71` measured **precision 97.6%** with **5 forbidden findings**, and
+`python -m pytest analyzer/tests` reported **17 failures** — four of them from a
+contract violation (duplicate `Issue.id`s) that three shipped corpus programs
+produced unmutated.
+
+**(c) 47 confirmed analyzer findings were fixed** — the 45 the round's testers
+confirmed, plus PUB-14 and PUB-15, which the public-corpus gate found at
+integration *on the code the other fixes produced*. Both were high-severity
+`certain` claims about correct code, both are recorded in `docs/CONTRACTS.md`
+§11.56, and neither moved a single labelled number: the table below was measured
+before them and is unchanged after them to four decimal places. What the round
+moved, measured on the
+**same** corpus before and after, so the two columns are comparable to each
+other and to nothing else:
+
+| | `hardening` ef4fb71 | after round 1 |
+|---|---|---|
+| local · precision | **97.6%** | **100.0%** |
+| local · forbidden findings | **5** | **0** |
+| local · recall | 64.7% | **72.4%** |
+| local · visible recall (≥ 0.60) | 59.3% | **66.7%** |
+| local · high+medium recall | 56.7% | **64.5%** |
+| `ip` · precision | 97.6% | **100.0%** |
+| `ip` · recall | 68.9% | **76.3%** |
+| graph fidelity | 79.8% | **85.0%** |
+| `pytest analyzer/tests` | 17 failed | **0 failed** (the 8 stale-baseline ratchets of (a) cleared when the integrator re-recorded) |
+
+**The public corpus is the harder measurement**, because nothing there is
+labelled for MLView. 24 pinned repositories, 180 runs (90 targets in `local` and
+`ip`), **180 clean** in 43 s against a 60 s budget, and `python
+tools/public_corpus.py check` reports **ten adjudicated false positives GONE** —
+every one that round 1 targeted, and the two the gate itself found:
+
+| Repository | Code | Site | Finding |
+|---|---|---|---|
+| yolov5 | MLV402 | `utils/loss.py` `self.loss_fcn` | PUB-01 |
+| scikit-learn | MLV101 | `examples/model_selection/plot_grid_search_stats.py` `search.fit` | PUB-02 |
+| scikit-learn | MLV101 | `examples/release_highlights/plot_release_highlights_0_23_0.py` ×2 | PUB-03 |
+| PythonDataScienceHandbook | MLV101 | `05.02-Introducing-Scikit-Learn.ipynb` `model.fit` | PUB-03 |
+| keras-io | MLV101 | `examples/timeseries/eeg_signal_classification.py` `le.fit` | PUB-04 |
+| vit-pytorch | MLV301 | `tests/test_vit.py` | PUB-05 |
+| stable-baselines3 | MLV301 | `tests/test_utils.py` | PUB-05 |
+| PythonDataScienceHandbook | MLV102 | `05.03-Hyperparameters-and-Model-Validation.ipynb` cell 16 | PUB-14 |
+| scikit-learn | MLV101 | `examples/release_highlights/plot_release_highlights_0_24_0.py` `sfs.fit` | PUB-15 |
+
+Their `state` in `analyzer/tests/public_corpus/adjudication.json` is `fixed`, so
+a return is now blocking. High-severity findings across the whole corpus fall
+from **37 to 34**. One adjudicated false positive stays **open**: `ip`
+drops an MLV110 that `local` reports on `mlflow`'s MNIST autolog example
+(vision-08). The mode is documented as a widening of `local`, and `local ⊆ ip`
+is not yet true; that is a known gap, not a fixed one.
+
+### What the recall number still does not say
+
+The eleven percentage points recall did not move are the interprocedural cases
+the round did not reach, and they are named rather than averaged away: a model,
+criterion and optimizer arriving as parameters still cost a training step its
+forward, loss and backward nodes (vision-02); `--dataflow ip` still reports a
+strict subset of `local` on two programs (vision-08); MLV301 still judges an
+architecture from one arbitrary call site when several disagree (vision-09); the
+`--max-nodes` rollup is still not stage-aware, so the config lane still takes a
+median 49% of the budget on a large real repository (PUB-13); and a
+workspace-internal `from x import *` still leaves the objective stage reading as
+absent (ROB-09). Each is a measured hole with a repro, and each is a hole this
+document would rather name than round off.

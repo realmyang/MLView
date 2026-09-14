@@ -25,13 +25,15 @@ powershell -ExecutionPolicy Bypass -File scripts/e2e.ps1     # E2E OK - 20 steps
 |---|---|
 | Design docs | `docs/REQUIREMENTS.md`, `ARCHITECTURE.md`, `ISSUE_RULES.md`, `UX_DESIGN.md`, `CONTRACTS.md` (§10 amendments are the overriding lead decisions) |
 | Contracts | `contracts/graph.schema.json`, `contracts/graph.sample.json` (golden), `contracts/validate_sample.py` (schema + 10 invariant groups) |
-| Analyzer `analyzer/` | Complete. **36 rules**, zero runtime dependencies, `python -m mlview` installed editable. **2087 passed, 4 skipped** on 3.11+ (the skips are the `tomllib` split, in both directions: three tests need a TOML parser, one needs its absence). `analyze --demo --json -` is byte-identical to the golden sample. Scoped views live in `analyzer/src/mlview/core/project.py` + `core/selectors.py`; the relevance prefilter and the fact cache live in `core/relevance.py` + `core/cache.py` and are **on by default** from Sprint 5 — `--relevance {ml,all}` (default `ml`), `--relevance-hops N`, `--no-cache`. Interprocedural dataflow ships behind `--dataflow {local,ip}` (default `local`); `core/config.py` is the one reader of `.mlview.toml` / `[tool.mlview]`; `mlview init` and `mlview diff` are the two new subcommands. |
-| Viewer `webview/` | Complete. `dist/mlview.{js,css}` built. **534 tests pass**, `tsc --noEmit` clean. Flow animation (`src/render/flow.ts`) and the TypeScript half of the projection (`src/scope/project.ts`) ship here. |
-| VS Code extension | Complete. **377 tests pass**, `tsc --noEmit` clean, `out/extension.js` bundled, `npm run package` produced a **754.24 KB VSIX (148 files)** carrying the bundled analyzer when this row was last measured, with `core/mlview` at **96** files — the number `tools/verify.py --all`'s `vsix: synced core` row prints. **Neither number here is the gate**, and both move whenever a module lands in the analyzer: `python scripts/vsix_check.py` is the gate, it re-derives the ceiling, the bundled-core count, the rule-page count and the absence of bytecode from the tree itself, and CI runs it in the `packaging` job. Copilot participant + LM tools are compile- and unit-verified only (Copilot is not installed here). |
-| Claude Code plugin | Complete. MCP server on the `mcp` SDK v2, **still exactly five tools**, each result ≤ 4 KB, plus two `PostToolUse` / `Stop` hooks under `claude-plugin/hooks/`. **373 passed, 7 skipped**, with `python tools/sync-core.py` having run after the analyzer changes (`test_vendor_bytecode.py` is the row that checks it); `claude plugin validate ./claude-plugin --strict` passes. |
+| Analyzer `analyzer/` | Complete. **36 rules**, zero runtime dependencies, `python -m mlview` installed editable. **2395 passed, 7 skipped** on 3.11+ (the skips are the `tomllib` split, in both directions: three tests need a TOML parser, one needs its absence). `analyze --demo --json -` is byte-identical to the golden sample. Scoped views live in `analyzer/src/mlview/core/project.py` + `core/selectors.py`; the relevance prefilter and the fact cache live in `core/relevance.py` + `core/cache.py` and are **on by default** from Sprint 5 — `--relevance {ml,all}` (default `ml`), `--relevance-hops N`, `--no-cache`. Interprocedural dataflow ships behind `--dataflow {local,ip}` (default `local`); `core/config.py` is the one reader of `.mlview.toml` / `[tool.mlview]`; `mlview init` and `mlview diff` are the two new subcommands. |
+| Viewer `webview/` | Complete. `dist/mlview.{js,css}` built. **561 tests pass** (6 `todo`), `tsc --noEmit` clean. Flow animation (`src/render/flow.ts`) and the TypeScript half of the projection (`src/scope/project.ts`) ship here. |
+| VS Code extension | Complete. **401 tests pass**, `tsc --noEmit` clean, `out/extension.js` bundled, `npm run package` produced a **754.24 KB VSIX (148 files)** carrying the bundled analyzer when this row was last measured, with `core/mlview` at **99** files — the number `tools/verify.py --all`'s `vsix: synced core` row prints. **Neither number here is the gate**, and both move whenever a module lands in the analyzer: `python scripts/vsix_check.py` is the gate, it re-derives the ceiling, the bundled-core count, the rule-page count and the absence of bytecode from the tree itself, and CI runs it in the `packaging` job. Copilot participant + LM tools are compile- and unit-verified only (Copilot is not installed here). |
+| Claude Code plugin | Complete. MCP server on the `mcp` SDK v2, **still exactly five tools**, each result ≤ 4 KB, plus two `PostToolUse` / `Stop` hooks under `claude-plugin/hooks/`. **434 passed, 7 skipped**, with `python tools/sync-core.py` having run after the analyzer changes (`test_vendor_bytecode.py` is the row that checks it); `claude plugin validate ./claude-plugin --strict` passes. |
 | Samples | `samples/vision_pipeline` (54 nodes, 51 edges, exactly 15 issues: 5 high / 6 medium / 4 low) and `samples/vision_pipeline_clean` (64 nodes, 0 issues). `expected_issues.json` is machine-checked. |
 | Rule docs | `docs/rules/` — 36 pages plus an index, generated from the registry; 7 carry the optional **What it cannot analyze** section. Every `Issue.docs` deep link resolves. |
 | Demo artifacts | `.mlview/graph.json`, `report.html`, `graph_clean.json`, `report_clean.html`, plus the three scoped reports `split.html`, `optimization.html`, `evaluation.html` — self-contained, zero external references, each inside amendment A4's contracted **100 KB – 2 MB** band. No KB figure is quoted here on purpose: the viewer bundle moves, the band does not, and `scripts/e2e` now measures every emitted report against it and prints the range it found (MLV-R1-H06). Each scoped report embeds the **whole** graph and merely opens at its scope. |
+| Labelled corpus | `analyzer/tests/accuracy/corpus/` — **92 labelled programs**, 312 `expected` labels, 1229 `forbidden` labels, 614 hand-drawn graph ops, scored by `tools/accuracy.py` against two ratchets (`baseline.json`, `baseline.ip.json`). Precision **100.0%** with zero forbidden findings is the gated claim; recall is the measured weakness and `docs/ACCURACY.md` is where it is not rounded off. |
+| Public corpus | `tools/public_corpus.py` + `analyzer/tests/public_corpus/` — **24 pinned third-party repositories**, 90 targets × 2 dataflow modes. Nothing is vendored and nothing is labelled: the gate asserts no crash, exit 0 or 4 only, a schema-valid document, the wall-time budget, and **no new high-severity finding** that a human has not adjudicated in `adjudication.json`. It is the only gate that can see a false positive nobody thought to label — it found two at this round's integration. |
 | Scope fixtures | `contracts/scope.cases.json` (13 selectors + 7 error cases) and `contracts/scope.expected.json`, generated from the Python `project()` over the frozen golden and consumed by the TypeScript port — the parity gate for one algorithm written twice. `scope.cases.json` also carries a growing `fuzzCases` array of counterexamples promoted by `analyzer/tools/scope_fuzz.py`, each minimized to a handful of nodes and carrying its **own** generated graph. |
 
 ## What the integration pass changed
@@ -2259,6 +2261,113 @@ minutes — `e2e (windows, powershell)` 7m53s and `e2e (ubuntu, sh)` 6m29s;
 `smoke (macos)` is skipped on a branch push by design. It took **two fix
 iterations**, recorded above rather than smoothed over: five failures across the
 first two pushes, every one of them something only the matrix could see.
+
+## Hardening round 1 — integrated (2026-09-14)
+
+Not a sprint. The brief was *"test the current implementation extensively and
+carefully; besides fixing bugs, focus on coverage over all possible ML/DL code —
+test against public repos, construct code that mimics real ML/DL applications"*,
+and the product's standing rule decided what counted as a failure: **a
+high-severity false positive on correct code is the worst outcome, and silently
+misrepresenting code — a stage claimed absent, a call dropped, a crash swallowed
+— is the second worst.** Both happened, repeatedly, and both are what this round
+went after.
+
+**Coverage.** Six testers worked in parallel over five surfaces, and the two
+measurements they built are now gates rather than anecdotes:
+
+| Surface | What was covered | What it left in the tree |
+|---|---|---|
+| Public repositories | **24 pinned repos** — transformers, pytorch-lightning, scikit-learn, keras-io, diffusers, detectron2, timm, yolov5, nanoGPT / minGPT, CLIP, stable-diffusion, fastai, flax, mlflow, stable-baselines3, pytorch_geometric, vit-pytorch, DeepLearningExamples, tensorflow-models, wandb-examples, PythonDataScienceHandbook, denoising-diffusion-pytorch, pytorch-examples — at exact SHAs, **90 targets × 2 dataflow modes = 180 runs** | `tools/public_corpus.py` (`fetch` / `run` / `check`) and `analyzer/tests/public_corpus/` — the manifest, the adjudication record and the pytest wrapper |
+| Written ML/DL code | **77 new labelled programs, 188 source files**: 25 vision, 15 infrastructure, 13 tabular, 12 NLP, 12 advanced (RL / GNN / distillation / meta-learning / audio / multimodal), most as a correct / defective pair | `analyzer/tests/accuracy/corpus/` grows 15 → **92 programs**, 78 → **312** expected labels, 125 → **1229** forbidden labels, 139 → **614** hand-drawn graph ops |
+| Robustness | a deep-but-legal AST, a FIFO named `*.py`, a symlink to `/dev/zero`, an unreadable directory, a backslash-continued shell escape in a notebook, `from x import *`, duplicate `Issue.id`s | `analyzer/tests/core/test_hardening_robustness.py`, `test_hardening_perf.py`, `analyzer/tests/fixtures/robustness/` |
+| Hosts and UX | 16 real repositories rendered in all three hosts; every MCP argument driven out of range | `webview/test/hardening_*.test.mjs` (4 files), `vscode-extension/test/hardening_*.test.js` (3), `claude-plugin/tests/test_argument_bounds.py` + `test_hardening_tool_arguments.py` |
+| The tree itself | which selectors are advertised, which directories a tool writes into, which test files a package's `npm test` actually runs | `scripts/doc_surfaces.py` + `scripts/test_doc_surfaces.py` — doc-gate checks **16, 17 and 18** |
+
+**Findings fixed: 49.** 47 in the analyzer, one in the viewer
+(`HOSTS-UX-CHIPWALL`: an unbounded diagnostic chip row collapsed the diagram to
+zero pixels on 7 of 16 real repositories) and one in the Claude Code plugin
+(`HOSTS-UX-FRAMEWORK`: `mlview_analyze` accepted any `framework` string and
+silently returned a stripped analysis — five high findings became zero on
+`pytorch`, a spelling no rule declares). The worst class was the largest: **five
+forbidden findings** — high-severity claims about correct code that the labelled
+corpus explicitly forbids — were firing on `hardening` at `ef4fb71` when the
+round opened, and the precision headline read **97.6%**, not 100%. Nine
+contract amendments came out of it, **§11.50 – §11.56**.
+
+**Two findings were made by the integration itself**, and they are the reason
+the public-corpus gate exists. With every tester's fix in the tree,
+`python tools/public_corpus.py check` refused the build on two NEW high findings
+— neither reachable from 312 labels:
+
+* **PUB-15** — MLV101 reported a `certain` leak at
+  `scikit-learn examples/release_highlights/plot_release_highlights_0_24_0.py:153`,
+  where the fit is on iris and the split it cited is twenty-seven lines later on
+  covtype. PUB-03's rebinding guard read assignment targets through
+  `dotted_text`, which is empty for an `ast.Tuple` — so `X, y = load_iris(...)`,
+  the way scikit-learn binds data, was invisible to it. The shipped PUB-03
+  fixture could not catch this because its fit is an *estimator* fit, which a
+  second, independent guard already silences.
+* **PUB-14** — MLV102 reported a `certain` 0.97 leak on cell 16 of the Python
+  Data Science Handbook's `05.03-Hyperparameters-and-Model-Validation.ipynb`,
+  which is *teaching* two-fold cross-validation. It called a
+  `KNeighborsClassifier` "the transformer" and said the held-out score was not an
+  estimate of unseen-data performance — about a model scored only on the half it
+  was never fitted on. `_is_transformer_fit` has answered exactly this question
+  for MLV101 since ROB-10; MLV102 now asks it too.
+
+Both are `state: "fixed"` in `analyzer/tests/public_corpus/adjudication.json`, so
+a return is blocking, and both cost **nothing**: every accuracy figure is
+identical to four decimal places in both dataflow modes, and the corpus-wide high
+count falls from 37 to 34.
+
+**The recall headline went down, and that is the honest reading.** 73.1% → 72.4%
+raw, because 77 of the 92 programs are new, unseen and harder than the fifteen
+the rules were developed against. The control is in `docs/ACCURACY.md` §3:
+scored over the **original fifteen programs alone**, this build reads 73.1% →
+**75.6%** and the whole previous gate — every `perRule` row and graph fidelity —
+**passes**. Both baselines were re-recorded with `--allow-regression` and the
+reason written into each file's own `note`, never by deleting a label. On the
+**unseen** half every reading is sharply up: 55.3% → **69.4%** raw, 42.5% →
+**63.0%** visible, 37.5% → **60.2%** high+medium, and the unseen set is 86
+programs rather than eight. No rule carries a tuned `*` any more: all 36 have at
+least one label in a program nobody wrote for them.
+
+**Gates, all re-run on this Mac at the integrated tree.** `sh scripts/e2e.sh`
+**20 steps, 0 failed, 0 skipped**; analyzer **2395 passed / 7 skipped** (2087 / 4
+at the Sprint-5 close); webview **561 tests** (534); vscode-extension **401
+tests** (377); claude-plugin **434 passed / 7 skipped** (373 / 7); `python -m
+pytest scripts -q` **99 passed** (74); `npx tsc --noEmit` clean in both
+TypeScript packages; `python tools/verify.py --all` **10 of 10**, including
+`parity: CLI vs MCP — 54 nodes, 51 edges, byte-identical`, both vendored-core
+gates (**99** files) and all three renderer-hash rows;
+`python tools/verify.py --scopes --fuzz 200` **5 of 5** (13 projections + 7 error
+cases, 5 promoted counterexamples, 200 fuzz cases over 40 generated graphs of
+5–259 nodes with **12 rolled up and 21 carrying pipelines**, seed 42532, 2.0 s);
+`python tools/accuracy.py` **PASS** — precision **100.0%** on 36 rules over
+**92 programs and 312 labels**, recall **72.4%** / 66.7% visible / 64.5%
+high+medium, unseen **69.4%** / 63.0% / 60.2%, graph fidelity **85.0%** (522 of
+614), zero forbidden and zero unlabelled findings;
+`python tools/accuracy.py --dataflow ip` **PASS** against its separate ratchet —
+precision **100.0%**, recall **76.3%** / 69.9% visible, unseen **73.7%** / 66.5%,
+graph fidelity **85.2%**;
+`python tools/public_corpus.py run && … check` **gate OK** — 180 runs, **180
+clean**, 43 s wall against a 60 s budget, 34 high / 102 medium / 208 low, no
+traceback, no schema error, every exit code 0 or 4.
+`python contracts/validate_sample.py` green at four budgets —
+`--max-nodes 400 / 40 / 20 / 8` give **54/51, 38/40, 12/18 and 7/4** nodes/edges
+and **15 issues (5 high / 6 medium / 4 low) in all four**;
+`python analyzer/tools/gen_gallery.py --quiet` renders **102 reports plus an
+index**; `python scripts/check_docs.py` **DOC CHECK OK** (19 files, 18 checks).
+
+**What this round did not close**, named rather than averaged away: a model,
+criterion and optimizer arriving as parameters still cost a training step its
+forward, loss and backward nodes (vision-02's residue, 8 of the 92 missing graph
+ops); `--dataflow ip` still reports a strict subset of `local` on one mlflow
+example, so `local ⊆ ip` is not yet true (vision-08, `state: "open"` in the
+adjudication record); and 42 of the 92 missing ops are still a call through an
+object this workspace defines, which has been the largest single recall family
+since ANA-1.
 
 ## Known gaps
 

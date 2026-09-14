@@ -108,11 +108,21 @@ def eval_regions(ctx) -> List[EvalRegion]:
         forwards = [c for c in _model_forwards(calls) if id(c) not in claimed]
         if not forwards or with_role(calls, *_TRAINING_ROLES):
             continue
+        # PUB-05. Unlike the loop branch above, this one never asked for
+        # positive evidence: the name regex alone created the region, and the
+        # regex matches `test`, so every pytest case that builds a module and
+        # runs one forward pass was reported at high / 0.85 - on vit-pytorch's
+        # and stable-baselines3's own test suites among others. Iron law 2 says
+        # a name regex reinforces a dataflow signal and never creates one; this
+        # is that law applied where it was missing.
+        positive = _function_evaluation_evidence(ctx, func, calls)
+        if not positive:
+            continue
         node = ctx.builder.scope_unit.get(func.scope.qualname)
         if node is None:
             continue
-        why = "%s() runs a forward pass and never calls backward() or " \
-              "optimizer.step()" % func.name
+        why = "%s() runs a forward pass, never calls backward() or " \
+              "optimizer.step(), and %s" % (func.name, positive)
         regions.append(EvalRegion(node, func.loc, func.scope, forwards[0], calls,
                                   func=func, why=why))
     regions.sort(key=lambda r: (r.loc.file, r.loc.line, r.loc.col))
@@ -122,6 +132,41 @@ def eval_regions(ctx) -> List[EvalRegion]:
 #: Roles that only appear when a model is being *measured*, not trained.
 _MEASURE_ROLES = ("METRIC", "SCORE_METRIC", "PREDICT", "ARGMAX", "TO_NUMPY", "CV")
 _LOSS_ROLES = ("LOSS_CLS", "LOSS_FN")
+
+
+#: PUB-09. Frameworks whose models have neither `.eval()` nor `torch.no_grad()`.
+#: MLV301/MLV302 declare `frameworks=["torch"]`, and that declaration was
+#: enforced at the workspace, never at the receiver - so a keras-io example
+#: whose `def infer(...)` calls a `keras.Model` was told to call
+#: `zero_dce_model.eval()`, a method that does not exist in Keras.
+_NON_TORCH_FRAMEWORKS = frozenset({"keras", "tf"})
+
+
+def _is_torch_model(call: CallSite) -> bool:
+    """Is the receiver of this forward pass a torch module?
+
+    Silence is the answer whenever the receiver resolves to a framework whose
+    models are not `nn.Module`s. A receiver that resolved to nothing is left
+    alone: that is MLV301's documented unresolved-architecture case, which
+    de-rates rather than disappears.
+    """
+    ref = call.receiver
+    producer = ref.producer if ref is not None else None
+    candidates: List[str] = []
+    if producer is not None:
+        candidates.extend(producer.canonical_fqns or ())
+        if producer.fqn:
+            candidates.append(producer.fqn)
+    if ref is not None:
+        candidates.extend(getattr(ref, "via_fqns", ()) or ())
+    entry, _which = K.best_entry(candidates)
+    if entry is not None and entry["framework"] in _NON_TORCH_FRAMEWORKS:
+        return False
+    cls = ref.class_ir if ref is not None else None
+    cls = cls or call.class_ir
+    if cls is not None and not cls.is_model_module and cls.resolved_bases:
+        return False
+    return True
 
 
 def _model_forwards(calls: Sequence[CallSite]) -> List[CallSite]:
@@ -139,6 +184,8 @@ def _model_forwards(calls: Sequence[CallSite]) -> List[CallSite]:
         if any(K.role_of(f.rsplit(".__call__", 1)[0]) in _LOSS_ROLES
                for f in call.canonical_fqns or ()):
             continue
+        if not _is_torch_model(call):
+            continue                     # PUB-09: not a torch model at all
         out.append(call)
     return out
 
@@ -191,14 +238,56 @@ def framework_hook(func: Optional[FunctionIR]) -> Optional[str]:
     return None
 
 
+def _function_evaluation_evidence(ctx, func: FunctionIR,
+                                  calls: Sequence[CallSite]) -> str:
+    """Why this *function* looks like evaluation, beyond being named like one.
+
+    The same three positive signals the loop branch demands (PUB-05): it runs
+    with gradients off, it measures something, or it iterates a held-out
+    loader. The eval-shaped name is what selected the function; it is not also
+    allowed to be the evidence.
+    """
+    if func.inside_no_grad or any(d in _NO_GRAD_DECORATORS for d in func.decorators or ()):
+        return "it runs with gradients disabled"
+    if any(c.inside_no_grad for c in calls):
+        return "its forward pass runs inside a no-grad context"
+    measured = with_role(calls, *_MEASURE_ROLES)
+    if measured:
+        call = measured[0]
+        return "it computes %s at line %d" % (call.fqn or call.short_name,
+                                              call.loc.line)
+    for call in calls:
+        if K.role_of(call.fqn) == "EVAL_MODE":
+            return "it calls %s at line %d" % (call.short_name, call.loc.line)
+    return ""
+
+
+#: PUB-05. A pytest case is not an evaluation, whatever it is called. `test_*`
+#: is in `_EVAL_NAME_RE` for `test_loop` / `test_step`, and a file under a
+#: `tests/` directory (or named `test_*.py` / `*_test.py`) is where the
+#: collision lives.
+_TEST_FILE_RE = re.compile(r"(?i)(^|/)(test_[^/]*\.py|[^/]*_test\.py)$")
+
+
+def _is_test_module(relpath: str) -> bool:
+    path = (relpath or "").replace("\\", "/")
+    if _TEST_FILE_RE.search(path):
+        return True
+    return any(part in ("test", "tests") for part in path.split("/")[:-1])
+
+
 def _eval_named_functions(ctx) -> List[FunctionIR]:
     out: List[FunctionIR] = []
     for relpath in sorted(ctx.modules):
         module = ctx.modules[relpath]
+        in_tests = _is_test_module(relpath)
         for qualname in sorted(module.functions):
             func = module.functions[qualname]
-            if _EVAL_NAME_RE.match(func.name):
-                out.append(func)
+            if not _EVAL_NAME_RE.match(func.name):
+                continue
+            if in_tests and func.name.lower().startswith("test"):
+                continue                 # a pytest case, not an evaluation loop
+            out.append(func)
     return out
 
 

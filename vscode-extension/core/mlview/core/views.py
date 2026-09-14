@@ -71,13 +71,110 @@ def within_loop(loop: Optional[LoopIR], outer: LoopIR) -> bool:
     return False
 
 
+#: Roles whose presence in a batch loop means the model is being *run*.
+_FORWARD_ROLES = ("FORWARD", "PREDICT", "KERAS_EVAL", "HF_EVAL")
+#: Roles whose presence means the model is being *measured*.
+_MEASURE_ROLES = ("METRIC", "SCORE_METRIC", "ARGMAX", "TO_NUMPY", "CV")
+#: Roles that make a loop a training loop whatever else it contains.
+_TRAINING_ROLES = ("BACKWARD", "OPT_STEP", "ZERO_GRAD", "SCALE")
+
+
 def loop_is_eval(loop: LoopIR) -> bool:
+    """Is this batch loop an evaluation region?
+
+    NLP-01. This used to be exactly two signals - `inside_no_grad`, or the
+    enclosing function's name mapping to the eval stage - and it never asked
+    the question MLV301's own detection sketch asks, even though
+    `loop_backward` sits a few lines below in this same file. The measured
+    consequence on `nlp_token_classification`: `for batch in eval_loader` inside
+    `token_accuracy()` was emitted as a `train_loop` in the `train` lane, the
+    `eval` stage came back `present: false, nodeCount: 0`, MLV301 and MLV302
+    stayed silent in both dataflow modes, and the answer card printed two
+    statements the source disproves - "no backward() call" about a file whose
+    line 41 is `loss.backward()`, and "No evaluation stage was detected" about
+    a function that runs the model and computes a metric. Renaming the function
+    `evaluate` flipped all of it, which is a lane recovered from a name rather
+    than from the loop's contents.
+
+    The third signal is structural: a batch loop that runs a forward pass, and
+    neither back-propagates nor steps an optimizer, is evaluation. It is
+    guarded on the forward pass so an empty data loop is never reclassified.
+    """
     if loop.inside_no_grad:
         return True
     func = loop.function
     if func is not None and name_stage(func.name) == "eval":
         return True
-    return False
+    return _runs_without_training(loop)
+
+
+def _runs_without_training(loop: LoopIR) -> bool:
+    """A batch loop that runs the model and never updates it."""
+    if loop.kind != "batch":
+        return False
+    runs = False
+    for call in loop.module.calls:
+        if not within_loop(call.loop, loop):
+            continue
+        role = K.role_of(call.fqn)
+        if role in _TRAINING_ROLES:
+            return False
+        if role in _FORWARD_ROLES or role in _MEASURE_ROLES:
+            runs = True
+    if not runs:
+        runs = _runs_an_unresolved_model(loop)
+    if not runs:
+        return False
+    # The backward may live one call level down - `train_one_epoch(...)` - and
+    # `loop_backward` is the search that already knows how to find it.
+    return loop_backward(loop) is None
+
+
+#: Methods that only ever appear where a prediction is being turned into a
+#: number: the measurement half of the fallback below.
+_MEASURE_METHODS = ("argmax", "item", "numpy", "topk", "tolist", "softmax",
+                    "sigmoid", "detach", "cpu")
+#: Methods that mean the loop trains, whatever resolved.
+_TRAINING_METHODS = ("backward", "step", "zero_grad", "update", "scale")
+
+
+def _runs_an_unresolved_model(loop: LoopIR) -> bool:
+    """`for batch in eval_loader: logits = model(...)` where `model` is a parameter.
+
+    NLP-01's real shape: the model and the loader both arrive as parameters, so
+    neither the FORWARD role nor the loader tag resolves and the role scan
+    above finds nothing at all. Two things are still true of the source and are
+    checked here, both structural rather than name-based: something that came
+    in from outside the function is **called** inside the loop, and its result
+    is turned into a number. A loop that merely iterates data does neither.
+
+    Purely syntactic and deliberately narrow: any `.backward()` / `.step()` /
+    `.zero_grad()` in the body disqualifies it outright, so a training loop
+    whose calls did not resolve is never reclassified as evaluation.
+    """
+    import ast
+
+    func = loop.function
+    if func is None or not func.params:
+        return False
+    params = set(func.params)
+    called = False
+    measured = False
+    for child in ast.walk(loop.node):
+        if not isinstance(child, ast.Call):
+            continue
+        func_node = child.func
+        if isinstance(func_node, ast.Attribute):
+            if func_node.attr in _TRAINING_METHODS:
+                return False
+            if func_node.attr in _MEASURE_METHODS:
+                measured = True
+            base = func_node.value
+            if isinstance(base, ast.Name) and base.id in params:
+                called = True
+        elif isinstance(func_node, ast.Name) and func_node.id in params:
+            called = True
+    return called and measured
 
 
 def loop_backward(loop: LoopIR) -> Optional[str]:

@@ -202,6 +202,11 @@ def _emit_payload(doc: Dict[str, Any], args, full: Optional[Dict[str, Any]] = No
     return wrote_stdout
 
 
+def _missing_paths(paths) -> list:
+    """Positional paths that do not exist (HOSTS-UX-MISSINGPATH)."""
+    return [p for p in paths or () if not os.path.exists(os.path.expanduser(p))]
+
+
 # ---------------------------------------------------------------- commands
 def _cmd_analyze(args) -> int:
     scope = _scope_from_args(args)          # raises ScopeError -> exit 1, clean stdout
@@ -228,6 +233,16 @@ def _cmd_analyze(args) -> int:
         return EXIT_OK
 
     paths = args.paths or ["."]
+    missing = _missing_paths(paths)
+    if missing:
+        # HOSTS-UX-MISSINGPATH. Section 3 reserves exit 1 for a usage or I/O
+        # error and exit 4 for "nothing analyzable found (no .py files after
+        # filtering)". A path that is not there is the former, and the old
+        # shared branch printed 1156 bytes of clean-looking summary - "0 files
+        # analyzed, frameworks: none detected, No data entry was detected" -
+        # about a directory that does not exist.
+        write_stderr("mlview: no such path: %s" % ", ".join(missing))
+        return EXIT_USAGE
     result = api.analyze_full(_options(args, paths))
     # CI-ADOPT: the analysis above saw the WHOLE workspace; attribution and the
     # baseline are applied to the finished graph, never to the analysis.
@@ -238,7 +253,7 @@ def _cmd_analyze(args) -> int:
     wrote_stdout = _emit_sarif(doc, args) or wrote_stdout
     if not wrote_stdout:
         _print_format(doc, args)
-    note = scope_out.empty_note(doc)
+    note = scope_out.empty_note(doc, scope)
     if note:
         write_stderr(note)
     if result.empty:
@@ -363,7 +378,7 @@ def _cmd_issues(args) -> int:
         write_stdout(header + body)
     if result.empty:
         return EXIT_EMPTY
-    note = scope_out.empty_note(doc)
+    note = scope_out.empty_note(doc, scope)
     if note:
         write_stderr(note)
     if _fail_on_hit({"issues": issues}, args.fail_on):
@@ -424,7 +439,7 @@ def _cmd_render(args) -> int:
         empty = result.empty
     full = doc
     doc = _apply_scope(full, scope)         # raises ScopeError -> exit 1
-    note = scope_out.empty_note(doc)
+    note = scope_out.empty_note(doc, scope)
     if args.fmt == "mermaid":
         text = mermaid_out.render_mermaid(doc)
     elif args.fmt == "text":

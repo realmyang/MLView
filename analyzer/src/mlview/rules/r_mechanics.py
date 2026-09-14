@@ -89,6 +89,78 @@ def _scheduler_name(call: CallSite) -> Optional[str]:
     return name or None
 
 
+def _scheduler_producer(ctx, call: CallSite) -> Optional[CallSite]:
+    """The scheduler constructor, following one hop when it is not local.
+
+    vision-14. MLV207 decides cadence from the receiver's constructor, and a
+    scheduler that arrives as a function parameter (`train_one_epoch(...,
+    scheduler, ...)`) or out of a `build_scheduler(...)` factory has no local
+    constructor at all - so both of the real-world wrong-cadence shapes were
+    invisible: a `OneCycleLR` stepped once per epoch finishes its whole cycle
+    in the first few epochs and then trains at the floor LR, and a `MultiStepLR`
+    with milestones at 20 and 35 stepped per batch blows through both in the
+    first epoch. Neither raises, so the schedule is the only thing that says
+    so. Both hops are taken only when unambiguous.
+    """
+    producer = _producer(call.receiver)
+    if producer is not None and K.role_of(producer.fqn) != "SCHEDULER":
+        # `scheduler = build_scheduler(optimizer, ...)` - one hop into the
+        # callee's single returned constructor.
+        producer = _returned_scheduler(ctx, producer) or producer
+    if producer is not None:
+        return producer
+    return _parameter_scheduler(ctx, call)
+
+
+def _returned_scheduler(ctx, call: CallSite) -> Optional[CallSite]:
+    func = call.target_function
+    if func is None or len(func.returns) != 1:
+        return None
+    expr = func.returns[0]
+    index = {id(c.node): c for c in func.module.calls}
+    inner = index.get(id(expr))
+    if inner is None:
+        name = dotted_text(expr)
+        ref = ctx.binding_of(name, func.scope) if name else None
+        inner = ref.producer if ref is not None else None
+    if inner is None or K.role_of(inner.fqn) != "SCHEDULER":
+        return None
+    return inner
+
+
+def _parameter_scheduler(ctx, call: CallSite) -> Optional[CallSite]:
+    """The constructor every resolved call site passes for this parameter."""
+    func = call.function
+    name = call.receiver_name
+    if func is None or not name or name not in (func.params or ()):
+        return None
+    index = list(func.params).index(name)
+    found: List[CallSite] = []
+    for relpath in sorted(ctx.modules):
+        for site in ctx.modules[relpath].calls:
+            if site.target_function is not func:
+                continue
+            node = site.args[index] if index < len(site.args) \
+                else site.kwarg_nodes.get(name)
+            if node is None:
+                return None
+            text = dotted_text(node)
+            ref = ctx.binding_of(text, site.scope) if text else None
+            inner = ref.producer if ref is not None else None
+            if inner is not None and K.role_of(inner.fqn) != "SCHEDULER":
+                inner = _returned_scheduler(ctx, inner) or inner
+            if inner is None or K.role_of(inner.fqn) != "SCHEDULER":
+                return None
+            found.append(inner)
+    if not found:
+        return None
+    first = found[0]
+    for other in found[1:]:
+        if _tail(other.fqn) != _tail(first.fqn):
+            return None                  # the call sites disagree: judge none
+    return first
+
+
 def _stepsize_uses_len(ctx, producer: CallSite) -> bool:
     """`StepLR(step_size=len(loader) * k)` really is a per-batch schedule."""
     for node in list(producer.args) + list(producer.kwarg_nodes.values()):
@@ -96,6 +168,49 @@ def _stepsize_uses_len(ctx, producer: CallSite) -> bool:
             if isinstance(child, ast.Call) and dotted_text(child.func) == "len":
                 return True
     return False
+
+
+def _via_scheduler_name(call: CallSite) -> Optional[str]:
+    """The scheduler class a factory's return summary already established."""
+    ref = call.receiver
+    for fqn in getattr(ref, "via_fqns", ()) or ():
+        tail = _tail(fqn)
+        if tail in _EPOCH_CADENCE or tail in _BATCH_CADENCE:
+            return tail
+    return None
+
+
+def _sched_step_calls(ctx) -> List[CallSite]:
+    """Every `<scheduler>.step()`, including the ones whose receiver is a parameter.
+
+    vision-14. `ctx.calls_with_role("SCHED_STEP")` needs the receiver's family
+    to resolve, and `def train_one_epoch(..., scheduler, ...)` - the shape
+    torchvision's own reference, timm, detectron2 and mmdet all use - never
+    does, so the rule could not see the call at all. The `.step` name only
+    SELECTS a candidate here; the claim still rests entirely on resolving the
+    constructor through the resolved call sites (`_parameter_scheduler`), and a
+    candidate whose constructor does not resolve is dropped without a word.
+    That is iron law 1 honoured: the match is on the canonical FQN, and the
+    name is how the candidate list is kept cheap.
+    """
+    out: List[CallSite] = []
+    seen = set()
+    for call in ctx.calls_with_role("SCHED_STEP"):
+        seen.add(id(call))
+        out.append(call)
+    for relpath in sorted(ctx.modules):
+        for call in ctx.modules[relpath].calls:
+            if id(call) in seen or (call.method or "") != "step":
+                continue
+            if K.role_of(call.fqn) is not None:
+                continue
+            func = call.function
+            name = call.receiver_name
+            if func is None or not name or name not in (func.params or ()):
+                continue
+            out.append(call)
+    out.sort(key=lambda c: (c.loc.file, c.loc.line, c.loc.col))
+    return out
 
 
 def _encloses_batch_loop(ctx, loop: LoopIR) -> bool:
@@ -114,10 +229,18 @@ def _encloses_batch_loop(ctx, loop: LoopIR) -> bool:
                "and once per batch for OneCycleLR / CyclicLR.")
 def scheduler_wrong_granularity(ctx) -> Iterable[Issue]:
     issues: List[Issue] = []
-    for call in ctx.calls_with_role("SCHED_STEP"):
+    for call in _sched_step_calls(ctx):
         loop = call.loop
-        name = _scheduler_name(call)
-        producer = _producer(call.receiver)
+        producer = _scheduler_producer(ctx, call)
+        name = _tail(producer.fqn) if producer is not None else None
+        if name is not None and name not in _EPOCH_CADENCE and name not in _BATCH_CADENCE:
+            # vision-14: `scheduler = build_scheduler(optimizer, ...)` resolves
+            # the *family* through `ir.returns` (which is why the SCHED_STEP
+            # role was already correct) while `producer.fqn` still names the
+            # factory. The class the factory returns is already on the
+            # binding's `via_fqns`; reading it costs nothing and is what the
+            # cadence question is about.
+            name = _via_scheduler_name(call) or name
         if loop is None or name is None or producer is None:
             continue
         variant = None

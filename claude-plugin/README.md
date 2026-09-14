@@ -122,6 +122,23 @@ discovery is the `"units"` value of an argument that already existed, and
 VIEW-08's comparison is a `"diff"` value of the same one — a diff is another
 projection of the same graph, which is why it did not earn a tool of its own.
 
+**Out-of-range arguments** (CONTRACTS 11.50). An argument with a fixed
+vocabulary is **refused** with the accepted values, because there is no nearest
+legal value to fall back to: `format`, `minSeverity`, `groupBy`, `scope`, and
+`framework` — which accepts exactly the CLI's `auto`, `torch`, `sklearn`,
+`keras`, `hf`, `lightning`, matched without regard to case. `framework:
+"pytorch"` is an error, not a quieter analysis: an unknown name matches no
+rule's declared framework, and on the shipped demo it used to turn 15 findings
+and 5 high into 1 finding and 0 high while still reporting
+`frameworks: ["torch", ...]` in the same payload. An argument with a **bound**
+has a nearest legal value, so it is moved and the payload's `note` says it moved
+— `depth=5 is above the maximum 2; 2 was used`, `limit=-3 is below the minimum
+1; 1 was used`. `maxNodes` is the one exception to "moved": a non-positive
+budget means *uncapped* to the analyzer (and to `--max-nodes 0`), so it is
+honoured and the note says the whole graph was kept. A `code[]` entry that names
+no rule is named in the note too, so an empty list from a typo is never
+indistinguishable from a clean project.
+
 #### The `scope` grammar
 
 | Value | Selects |
