@@ -95,12 +95,12 @@ test('dist/mlview.css IS the minification of dist/mlview.dev.css (BUILD-01)', as
  * MEASURED ON THIS TREE, 2026-09-14, after hardening round 2 landed on top of
  * round 1's hosts-ux work, PERF-04 (the hierarchical rollup) and MLV-P12
  * (multi-pipeline workspaces):
- *   dist/mlview.js       329 631 B (321.9 KB)
- *   dist/mlview.css       73 019 B  (71.3 KB), minified from 133 523 B (-45%)
- *   dist/mlview.dev.css  133 523 B (130.4 KB, never shipped)
+ *   dist/mlview.js       330 421 B (322.7 KB)
+ *   dist/mlview.css       73 127 B  (71.4 KB), minified from 133 939 B (-45%)
+ *   dist/mlview.dev.css  133 939 B (130.8 KB, never shipped)
  *
- * ROUND 2 moved the JS by +2 417 B and the CSS by +162 B, and NEITHER CAP with
- * them: 4 193 B (1.3 %) and 1 733 B (2.3 %) of headroom remain, so the ratchet
+ * ROUND 2 moved the JS by +3 207 B and the CSS by +270 B, and NEITHER CAP with
+ * them: 3 403 B (1.0 %) and 1 625 B (2.2 %) of headroom remain, so the ratchet
  * set below still does its job unchanged. Where it went, largest first.
  * TAB2-10 / HOSTS-UX-R2-06 is the item (CONTRACTS 11.61): `ui/chromenotes.ts`
  * learned `unresolved_callee` as a coverage kind and builds its chip from
@@ -115,11 +115,15 @@ test('dist/mlview.css IS the minification of dist/mlview.dev.css (BUILD-01)', as
  * it honestly: steps 3-7 are now `keptSets`, so `projectedNodeCount` answers a
  * row without step 8's copy of every kept node and edge -- 819 ms -> 101 ms to
  * open a 222-row picker over a 400-node, 2 220-edge public repository, with one
- * implementation still behind both numbers. The rest is two lines:
- * HOSTS-UX-LEGENDPAN widened one `closest()` selector in `ui/shell.ts` so a
- * press on a canvas-hosted overlay is that overlay's gesture, and the CSS is
- * the chip's ellipsis rule plus HOSTS-UX-ANSWERWRAP's `overflow-wrap` on the
- * answer card's sentence and citation row.
+ * implementation still behind both numbers. HOSTS-UX-CLEANSTATE is about
+ * 0.5 KB: `ui/issuelist.ts`'s clean state now appends the coverage sentence the
+ * banner already draws, over the wider set `chromenotes.blindSpots()` selects,
+ * with two more clauses in `coverageHeadline` for the kinds only it hands in.
+ * The last one is a line: HOSTS-UX-LEGENDPAN widened one `closest()` selector
+ * in `ui/shell.ts` so a press on a canvas-hosted overlay is that overlay's
+ * gesture. The CSS is the chip's ellipsis rule, HOSTS-UX-ANSWERWRAP's
+ * `overflow-wrap` on the answer card's sentence and citation row, and the
+ * caveat's own two declarations.
  *
  * THE HARDENING ROUND moved the JS by +2 776 B and the CSS by +1 168 B, and BOTH
  * CAPS with them -- the JS had 636 B of headroom left, which is a ratchet
@@ -242,8 +246,8 @@ test('dist/mlview.css IS the minification of dist/mlview.dev.css (BUILD-01)', as
  * again: `the figures in the block above are the constants below` reads this
  * file and fails on a one-byte disagreement.
  */
-const JS_RECORDED = 329631;
-const CSS_RECORDED = 73019;
+const JS_RECORDED = 330421;
+const CSS_RECORDED = 73127;
 const DRIFT = 2 * 1024;
 const JS_MAX_BYTES = 326 * 1024;
 const CSS_MAX_BYTES = 73 * 1024;

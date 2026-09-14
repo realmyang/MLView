@@ -26,8 +26,17 @@
  * while `nothingAnalyzedState()`, twenty lines below it, lists them. The fix is
  * to make the clean state do what its neighbour already does.
  *
- * The two assertions that fail today are `todo`, so the suite's exit code still
- * reports the state of everything else; the fix is to delete the option.
+ * The two assertions that failed when this file was written were `todo`, so the
+ * suite's exit code still reported the state of everything else; the fix was to
+ * delete the option.
+ *
+ * ROUND 2 deleted it. `cleanState()` now appends the coverage sentence the
+ * banner draws, from the same `chromenotes.coverageHeadline`, over the wider set
+ * `blindSpots()` selects — the three banner kinds plus `parse_error`,
+ * `notebook_skipped` and a `truncated` whose `scope` is not `nodes` (11.59 A1 is
+ * what makes that distinction expressible at all, and 11.60 A2 is the analyzer
+ * half of the same rule). A document with no coverage diagnostic still gets an
+ * unqualified clean result, which is the fourth test below.
  */
 
 import test from 'node:test';
@@ -93,7 +102,6 @@ test('the premise: a zero-issue document draws the clean state and says so', asy
 
 test(
   'a clean result over a BLIND run never reads as a clean bill of health',
-  { todo: 'HOSTS-UX-CLEANSTATE: ui/issuelist.ts cleanState() ignores graph.diagnostics' },
   async () => {
     const { text } = await railText(cleanGraph(COVERAGE));
     assert.doesNotMatch(
@@ -112,7 +120,6 @@ test(
 
 test(
   'the clean state names how many blind spots there were, the way the VS Code chip does',
-  { todo: 'HOSTS-UX-CLEANSTATE: ui/issuelist.ts cleanState() ignores graph.diagnostics' },
   async () => {
     const { text } = await railText(cleanGraph(COVERAGE));
     // 2 + 2 + 2 = 6 sites across the three diagnostics; any honest count is fine,

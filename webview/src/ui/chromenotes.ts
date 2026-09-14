@@ -64,6 +64,32 @@ export const UNRESOLVED_CALLEE = 'unresolved_callee';
 export const COVERAGE_KINDS = ['untagged_dataflow', 'single_file_analysis', UNRESOLVED_CALLEE];
 
 /**
+ * HOSTS-UX-CLEANSTATE. The three kinds above are what the coverage BANNER is
+ * about; blindness is wider than that. A file that failed to parse and a
+ * notebook that was never opened are strictly LARGER gaps than an unresolved
+ * call — CONTRACTS 11.60 A2 settles that for `emit/answers`, and the rail's
+ * clean state answers the same question on the same document, so it reads the
+ * same set.
+ *
+ * `truncated` is here CONDITIONALLY, and `scope` (11.59 A1) is what decides it:
+ * `files`, `rounds` and `dataflow` mean something was not READ, while `nodes`
+ * means the graph was rolled up for display — the reader can see that in the
+ * diagram and it is not a gap in the analysis. Before `scope` existed this
+ * distinction could not be drawn at all, which is why the clean state could not
+ * have been fixed honestly in round 1.
+ */
+export const UNREAD_KINDS = ['parse_error', 'notebook_skipped'];
+
+export function blindSpots(diags: Diagnostic[]): Diagnostic[] {
+  return (diags || []).filter(
+    (d) =>
+      COVERAGE_KINDS.indexOf(d.kind) >= 0 ||
+      UNREAD_KINDS.indexOf(d.kind) >= 0 ||
+      (d.kind === 'truncated' && (d.scope || '') !== 'nodes'),
+  );
+}
+
+/**
  * TAB2-10 — how wide a chip's text may be drawn before it is ellipsised.
  *
  * A chip is a label. Three diagnostic kinds carry a SENTENCE instead — the two
@@ -169,6 +195,24 @@ export function coverageHeadline(diags: Diagnostic[]): string {
   if (unread.length) {
     const n = unread.reduce((sum, d) => sum + (d.count || 1), 0);
     parts.push(n + (n === 1 ? ' call was' : ' calls were') + ' not understood' + scopeList(unread));
+  }
+  // HOSTS-UX-CLEANSTATE: the banner never hands these two in — it passes
+  // COVERAGE_KINDS — but the rail's clean state hands in `blindSpots()`, and a
+  // sentence that silently dropped the largest gap of the three would be the
+  // defect it is there to fix.
+  const skipped = diags.filter((d) => d.kind === 'notebook_skipped');
+  if (skipped.length) {
+    const n = skipped.reduce((sum, d) => sum + (d.count || 1), 0);
+    parts.push(n + (n === 1 ? ' notebook was' : ' notebooks were') + ' not analyzed');
+  }
+  const unparsed = diags.filter((d) => d.kind === 'parse_error');
+  if (unparsed.length) {
+    const n = unparsed.reduce((sum, d) => sum + (d.count || 1), 0);
+    parts.push(n + (n === 1 ? ' file' : ' files') + ' could not be parsed');
+  }
+  const stopped = diags.filter((d) => d.kind === 'truncated' && (d.scope || '') !== 'nodes');
+  if (stopped.length) {
+    parts.push(stopped.length === 1 ? 'one analysis cap was hit' : stopped.length + ' analysis caps were hit');
   }
   // A kind added to COVERAGE_KINDS by a later round still gets a headline that
   // reads as a sentence rather than "Coverage: . A clean result…".

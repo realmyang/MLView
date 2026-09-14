@@ -26,7 +26,7 @@ powershell -ExecutionPolicy Bypass -File scripts/e2e.ps1     # E2E OK - 20 steps
 | Design docs | `docs/REQUIREMENTS.md`, `ARCHITECTURE.md`, `ISSUE_RULES.md`, `UX_DESIGN.md`, `CONTRACTS.md` (§10 amendments are the overriding lead decisions) |
 | Contracts | `contracts/graph.schema.json`, `contracts/graph.sample.json` (golden), `contracts/validate_sample.py` (schema + 10 invariant groups) |
 | Analyzer `analyzer/` | Complete. **36 rules**, zero runtime dependencies, `python -m mlview` installed editable. **2574 passed, 9 skipped** on 3.12+, plus 24 `xfail` (two skips are the `tomllib` split in both directions, two are the offline-HTML fallback a synced viewer bundle makes unreachable, four want public-corpus clones under `MLVIEW_PUBLIC_CORPUS_DIR`, and one is a rule probe that says in words what it could not resolve). On 3.10 / 3.11 eight more skip: two robustness fixtures are written in 3.12-only syntax — PEP 695 `type X = …` and PEP 701 f-strings — and MLView parses with the host's own `ast`, so a host that cannot read them is not the thing under test. `analyze --demo --json -` is byte-identical to the golden sample. Scoped views live in `analyzer/src/mlview/core/project.py` + `core/selectors.py`; the relevance prefilter and the fact cache live in `core/relevance.py` + `core/cache.py` and are **on by default** from Sprint 5 — `--relevance {ml,all}` (default `ml`), `--relevance-hops N`, `--no-cache`. Interprocedural dataflow ships behind `--dataflow {local,ip}` (default `local`); `core/config.py` is the one reader of `.mlview.toml` / `[tool.mlview]`; `mlview init` and `mlview diff` are the two new subcommands. |
-| Viewer `webview/` | Complete. `dist/mlview.{js,css}` built. **583 tests pass** (3 `todo`), `tsc --noEmit` clean. Flow animation (`src/render/flow.ts`) and the TypeScript half of the projection (`src/scope/project.ts`) ship here. |
+| Viewer `webview/` | Complete. `dist/mlview.{js,css}` built. **585 tests pass** (1 `todo`), `tsc --noEmit` clean. Flow animation (`src/render/flow.ts`) and the TypeScript half of the projection (`src/scope/project.ts`) ship here. |
 | VS Code extension | Complete. **404 tests pass**, `tsc --noEmit` clean, `out/extension.js` bundled, `npm run package` produced a **754.24 KB VSIX (148 files)** carrying the bundled analyzer when this row was last measured, with `core/mlview` at **99** files — the number `tools/verify.py --all`'s `vsix: synced core` row prints. **Neither number here is the gate**, and both move whenever a module lands in the analyzer: `python scripts/vsix_check.py` is the gate, it re-derives the ceiling, the bundled-core count, the rule-page count and the absence of bytecode from the tree itself, and CI runs it in the `packaging` job. Copilot participant + LM tools are compile- and unit-verified only (Copilot is not installed here). |
 | Claude Code plugin | Complete. MCP server on the `mcp` SDK v2, **still exactly five tools**, each result ≤ 4 KB, plus two `PostToolUse` / `Stop` hooks under `claude-plugin/hooks/`. **460 passed, 7 skipped**, with `python tools/sync-core.py` having run after the analyzer changes (`test_vendor_bytecode.py` is the row that checks it); `claude plugin validate ./claude-plugin --strict` passes. |
 | Samples | `samples/vision_pipeline` (54 nodes, 51 edges, exactly 15 issues: 5 high / 6 medium / 4 low) and `samples/vision_pipeline_clean` (64 nodes, 0 issues). `expected_issues.json` is machine-checked. |
@@ -2432,13 +2432,13 @@ the three hosts and the tree itself:
 | The analyzer's own declarations | binding shapes (tuple parameters, dict literals, `functools.partial`, factory returns), notebook magics, package walking, report escaping | `analyzer/tests/core/test_round2_analyzer.py` + `test_round2_core.py` (**64 cases**) and three new `analyzer/tests/fixtures/robustness/` trees |
 | The tree itself | the command lines CI generates, the exclusive rule lists a document asserts, and a "known gap" that names its own retirement condition | doc-gate checks **19, 20 and 21** — the gate is now twenty-one checks, still offline and stdlib-only |
 
-**Findings fixed: 53.** Forty-four in the analyzer (`docs/ACCURACY.md` §8 is the
+**Findings fixed: 54.** Forty-four in the analyzer (`docs/ACCURACY.md` §8 is the
 record), three in the tree's own documents and CI (**PUB2-10**, **VIS2-17**,
 **HOSTS-UX-R2-07**), one in the Claude Code plugin (**INFRA-R2-18**: an
 *accepted* `--framework` value silently returned a shorter finding list — a
 high-severity `MLV121` disappeared when a Keras workspace was narrowed to
 `torch` and nothing in the payload said a rule had been disabled), two in the
-renderer (**TAB2-10**, **HOSTS-UX-R2-06**) and three more the integration itself
+renderer (**TAB2-10**, **HOSTS-UX-R2-06**) and four more the integration itself
 made. The worst class was again the largest: `hardening` opened this round with
 **eight forbidden findings** — high-severity claims about correct code the
 labelled corpus explicitly forbids — and precision **97.9%**; it closes at zero
@@ -2474,7 +2474,24 @@ written and the fixes were not, which is an honest hand-off and a blocking one.
   promise `drawnCount`, "the number the click delivers". `unitRow()` and
   `groupRow()` were left promising the match set, so on the frozen golden
   `unit:train.train` offered 4 nodes and drew 9. `scope/catalog.viewCountOf`
-  now runs the same `project()` the click runs for any selector.
+  now runs the same `project()` the click runs for any selector — and
+  `scope/project.ts` pays for it honestly: steps 3-7 are extracted as
+  `keptSets()`, so `projectedNodeCount` answers a row without step 8's copy of
+  every kept node and edge. Opening a 222-row picker over a 400-node, 2 220-edge
+  public repository went 819 ms → 101 ms, with one implementation still behind
+  the promise and the click.
+* **HOSTS-UX-CLEANSTATE** — round 1's own finding, left open by it and closed
+  here because §11.59 A1 is what made it expressible. The Issues rail — the
+  panel a reviewer reads first — said *"No issues found · 213 nodes across 8
+  stages checked — nothing to flag."* on a nanoGPT report whose two banners and
+  whose verdict all said the run had been blind. `cleanState()` now appends the
+  same sentence the banner draws, from the same `coverageHeadline`, over the
+  wider set `blindSpots()` selects: the three banner kinds plus `parse_error`,
+  `notebook_skipped` and a `truncated` whose `scope` is not `nodes` — a rolled-up
+  graph is a display cap the reader can see, not a gap in the analysis. A
+  document with no coverage diagnostic still gets an unqualified clean result.
+  Measured over the 260 pinned public-repository documents: **122 draw the clean
+  state, and 118 of them were drawing it over a run that had been blind.**
 
 **The recall headline went UP, on a corpus 1.7× larger.** Round 1 had to report
 a fall (73.1% → 72.4%) because 77 of its 92 programs were new; this round's 66
@@ -2490,7 +2507,7 @@ can never be satisfied and can never be violated.
 
 **Gates, all re-run on this Mac at the integrated tree.** `sh scripts/e2e.sh`
 **20 steps, 0 failed, 0 skipped**; analyzer **2574 passed / 9 skipped** (2405 / 7
-at the round-1 close); webview **583 tests** (561); vscode-extension **404
+at the round-1 close); webview **585 tests** (561); vscode-extension **404
 tests** (401); claude-plugin **460 passed / 7 skipped** (434 / 7); `python -m
 pytest scripts -q` **119 passed** (99); `npx tsc --noEmit` clean in both
 TypeScript packages; `python tools/verify.py --all` **10 of 10**, including
@@ -2509,17 +2526,14 @@ the slowest single run 17.9 s (timm under `ip`) against the 60 s per-run budget
 CI uses, 50 high / 276 medium / 376 low, zero tracebacks, zero schema errors,
 every exit code 0 or 4.
 
-**What this round did not close**, named rather than averaged away: the viewer's
-Findings panel still prints *"nothing to flag"* over a document carrying
-coverage diagnostics (`HOSTS-UX-CLEANSTATE`, two `todo` tests in
-`webview/test/hardening_cleanstate.test.mjs`) although the answer card, the
-verdict and the coverage banner all now qualify the same absence; Escape still
-does not close the legend, because `dismissTopmost` runs the cascade §11.13
-freezes and adding a rung to it is an amendment rather than a line
-(`HOSTS-UX-LEGENDESC`, one `todo`); and twenty-two points of recall are still
-missing, largest first — MLV208's `GradScaler` through a parameter dict, MLV305
-needing a prediction to carry `LOGITS` or `PROBS`, and a model built by a
-registry (`build_from_cfg("model", cfg)`) still being untyped.
+**What this round did not close**, named rather than averaged away: Escape
+still does not close the legend, because `dismissTopmost` runs the cascade
+§11.13 freezes and adding a rung to it is an amendment rather than a line
+(`HOSTS-UX-LEGENDESC`, the one `todo` left in the viewer suite); and twenty-two
+points of recall are still missing, largest first — MLV208's `GradScaler`
+through a parameter dict, MLV305 needing a prediction to carry `LOGITS` or
+`PROBS`, and a model built by a registry (`build_from_cfg("model", cfg)`) still
+being untyped.
 
 ## Known gaps
 

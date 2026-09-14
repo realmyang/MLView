@@ -393,6 +393,19 @@
   max-width: 34ch;
 }
 
+/*
+ * HOSTS-UX-CLEANSTATE — the caveat under a clean result. Quieter than the
+ * detail above it and wider, because it is a sentence rather than a count, and
+ * it must never be mistaken for a finding: the rail's severity colours mean a
+ * finding and this is the opposite of one.
+ */
+.mlv-clean__caveat {
+  max-width: 44ch;
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-11);
+  overflow-wrap: anywhere;
+}
+
 /* the selected issue row expands in place (MLV-R1-006) */
 .mlv-issue__detail {
   padding: var(--mlv-s3) var(--mlv-s5) var(--mlv-s5) var(--mlv-s8);
