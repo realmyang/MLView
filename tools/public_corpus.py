@@ -88,7 +88,9 @@ class CorpusError(Exception):
 
 
 def corpus_dir() -> str:
-    return os.environ.get("MLVIEW_PUBLIC_CORPUS_DIR") or DEFAULT_CORPUS_DIR
+    # Absolute on purpose: the analyzer children are spawned with their own working
+    # directory, so a relative MLVIEW_PUBLIC_CORPUS_DIR would name a path they cannot see.
+    return os.path.abspath(os.environ.get("MLVIEW_PUBLIC_CORPUS_DIR") or DEFAULT_CORPUS_DIR)
 
 
 def load_manifest(path: str = MANIFEST_PATH) -> Dict[str, Any]:
@@ -610,8 +612,8 @@ def _selectors(args: argparse.Namespace) -> Tuple[List[str], str, str]:
             name = name.strip()
             if name and name not in names:
                 names.append(name)
-    dest = (getattr(args, "corpus_dir_after", None)
-            or getattr(args, "corpus_dir", None) or corpus_dir())
+    dest = os.path.abspath(getattr(args, "corpus_dir_after", None)
+                           or getattr(args, "corpus_dir", None) or corpus_dir())
     manifest = (getattr(args, "manifest_after", None)
                 or getattr(args, "manifest", None) or MANIFEST_PATH)
     return names, dest, manifest
