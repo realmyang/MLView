@@ -17,6 +17,7 @@ import { add, el, iconButton, on, svg } from '../dom.js';
 import { uiIcon } from '../icons.js';
 import { severityGlyph, SEVERITY_ORDER, SEVERITY_WORD } from '../markers.js';
 import { ARROW_HEADS, edgeKindClass, KNOWN_EDGE_KINDS } from '../render/edges.js';
+import { weightStroke } from '../rollup/rolled.js';
 
 export interface LegendRow {
   /** `severity` | `edge` | `state` | `confidence`. */
@@ -44,6 +45,10 @@ const EDGE_DETAIL: Record<string, string> = {
 const STATE_ROWS: LegendRow[] = [
   { group: 'state', key: 'is-ghost', label: 'Missing step', detail: 'A stage the pipeline should have and does not.' },
   { group: 'state', key: 'is-collapsed-group', label: 'Collapsed group', detail: 'A unit folded to one card; the badge counts what is inside.' },
+  // PERF-04. It sits beside the collapsed group on purpose: they look alike and
+  // the difference — one can be opened, the other cannot — is the whole reason
+  // the key has to name both.
+  { group: 'state', key: 'is-rolled-up', label: 'Rolled up', detail: 'The node budget folded other nodes into this card. They are not in this document, so it cannot be opened.' },
   { group: 'state', key: 'is-dynamic', label: 'Dynamic scope', detail: 'A call the analyzer could not resolve statically.' },
   { group: 'state', key: 'is-lowconf', label: 'Low confidence', detail: 'Drawn, but the evidence for it is thin.' },
   { group: 'state', key: 'is-stale', label: 'Stale', detail: 'The file changed since this analysis ran.' },
@@ -83,7 +88,13 @@ export function legendModel(): LegendSection[] {
         key: kind,
         label: kind,
         detail: EDGE_DETAIL[kind] || '',
-      })).concat([{ group: 'edge', key: 'back', label: 'loop back', detail: 'The return leg of a loop, marked with a chevron.' }]),
+      })).concat([
+        { group: 'edge', key: 'back', label: 'loop back', detail: 'The return leg of a loop, marked with a chevron.' },
+        // PERF-04: the thicker stroke is never the only cue — the cable also
+        // carries a `×n` pill and says "weight n" to a screen reader — but the
+        // key still has to say what a thick cable means.
+        { group: 'edge', key: 'weighted', label: 'merged (×n)', detail: 'One cable standing for several connections after the node budget merged them. It counts connections, not call sites.' },
+      ]),
     },
     { id: 'states', title: 'Card states', rows: STATE_ROWS },
     { id: 'confidence', title: 'Confidence', rows: CONFIDENCE_ROWS },
@@ -98,9 +109,17 @@ export function legendModel(): LegendSection[] {
  * shadow the scene's own markers.
  */
 function edgeSwatch(kind: string): SVGElement {
-  const known = edgeKindClass(kind === 'back' ? 'control' : kind);
+  const weighted = kind === 'weighted';
+  const known = edgeKindClass(kind === 'back' || weighted ? kind === 'back' ? 'control' : 'data' : kind);
   const root = svg('svg', { class: 'mlv-legend__swatch', viewBox: '0 0 44 14', width: 44, height: 14, 'aria-hidden': 'true' });
-  const g = svg('g', { class: 'mlv-edge mlv-edge--' + known + (kind === 'back' ? ' mlv-edge--back' : '') });
+  const g = svg('g', {
+    class:
+      'mlv-edge mlv-edge--' + known + (kind === 'back' ? ' mlv-edge--back' : '') +
+      (weighted ? ' mlv-edge--weighted' : ''),
+  });
+  // The swatch shows the REAL stroke width the renderer would use, read from
+  // the same function, so a key that promised "thicker" could not show a hairline.
+  if (weighted) g.style.setProperty('--mlv-edge-w', weightStroke(4) + 'px');
   // `mlv-legend__edge`, never `mlv-edge__path`: edge.css lists both on every
   // kind rule, so the swatch shows the real stroke without becoming a decoy for
   // the queries that walk the scene's cables.
@@ -135,6 +154,8 @@ function stateSwatch(key: string): HTMLElement {
   if (key === 'boundary') card.setAttribute('data-legend-role', 'boundary');
   else card.classList.add(key);
   if (key === 'is-collapsed-group') add(card, el('span', 'mlv-badge__count', '6'));
+  // PERF-04: the chip the real card carries, so the key and the picture agree.
+  if (key === 'is-rolled-up') add(card, el('span', 'mlv-chip mlv-chip--rollup', '12 rolled up'));
   return card;
 }
 

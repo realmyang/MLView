@@ -49,7 +49,9 @@ from .. import knowledge as K
 from ..core.graph import Issue
 from ..ir.model import CallSite, ModuleIR
 from ..ir.symbols import dotted_text
-from .helpers import literal_of, value_sources
+from .helpers import (KWARG_ABSENT, KWARG_RESOLVED, UNRESOLVED_KWARG_WEIGHT,
+                      kwarg_literal, literal_of, note_unresolved_kwarg,
+                      value_sources)
 from .registry import rule
 
 __all__ = ["random_split_on_temporal_data", "augmentation_in_eval_transform",
@@ -416,23 +418,50 @@ def tfdata_shuffle_before_holdout(ctx) -> Iterable[Issue]:
             reached[id(shuffle)].append(holdout)
             break
     for shuffle in order:
-        literal = literal_of(ctx, shuffle.kwarg_nodes.get("reshuffle_each_iteration"),
-                             shuffle.scope, shuffle.module)
-        if literal == "False":
+        # ANA-01: three states, three answers. `reshuffle_each_iteration=False`
+        # is not a leak; an unwritten keyword really does default to True; and a
+        # keyword whose value the analyzer cannot read is neither of those. It
+        # used to take the *absent* branch, so a `reshuffle_each_iteration=
+        # get_flag()` published, at severity high and confidence certain, an
+        # evidence entry reading "shuffle() does not pass
+        # reshuffle_each_iteration=False" about the very line it points at.
+        state, literal = kwarg_literal(ctx, shuffle, "reshuffle_each_iteration")
+        if state == KWARG_RESOLVED and literal == "False":
             continue
         found = _holdout_of(shuffle.module, reached[id(shuffle)])
         if found is None:
             continue
         holdout, why = found
         node = _anchor(ctx, shuffle)
+        if state == KWARG_ABSENT:
+            reshuffle = ("negation_absent",
+                         "shuffle() does not pass reshuffle_each_iteration=False", 1.0)
+            claim = ("and reshuffle_each_iteration defaults to True, so the two "
+                     "halves are re-drawn every epoch")
+        elif state == KWARG_RESOLVED:
+            reshuffle = ("context_confirmed",
+                         "shuffle() passes reshuffle_each_iteration=%s" % literal, 1.0)
+            claim = ("and reshuffle_each_iteration=%s, so the two halves are "
+                     "re-drawn every epoch" % literal)
+        else:
+            reshuffle = ("context_confirmed",
+                         "reshuffle_each_iteration is passed at line %d but its "
+                         "value could not be resolved statically, so whether the "
+                         "halves are re-drawn is unknown" % shuffle.loc.line,
+                         UNRESOLVED_KWARG_WEIGHT)
+            claim = ("and reshuffle_each_iteration is passed an expression MLView "
+                     "could not resolve - if it is not False the two halves are "
+                     "re-drawn every epoch")
+            note_unresolved_kwarg(
+                ctx, shuffle, "reshuffle_each_iteration",
+                "the take()/skip() holdout is only re-drawn every epoch when it is not False")
         evidence = [
             ("fqn_resolved", "%s resolved to %s"
              % (_short(shuffle), shuffle.fqn or "Dataset.shuffle"), 1.0),
             ("dataflow_direct",
              "the shuffled dataset reaches %s at line %d through the tf.data "
              "receiver chain, and %s" % (_short(holdout), holdout.loc.line, why), 1.0),
-            ("negation_absent",
-             "shuffle() does not pass reshuffle_each_iteration=False", 1.0),
+            reshuffle,
         ] + _static(shuffle.scope)
         related = [("split_site", holdout.loc, "the holdout is carved out here"),
                    ("call_site", shuffle.loc, "the shuffle happens here")]
@@ -443,10 +472,9 @@ def tfdata_shuffle_before_holdout(ctx) -> Iterable[Issue]:
                 break
         issues.append(ctx.issue(
             message="%s at %s:%d shuffles before %s at line %d carves out the "
-                    "holdout, and reshuffle_each_iteration defaults to True, so the "
-                    "two halves are re-drawn every epoch."
+                    "holdout, %s."
                     % (_short(shuffle), shuffle.loc.file, shuffle.loc.line,
-                       _short(holdout), holdout.loc.line),
+                       _short(holdout), holdout.loc.line, claim),
             loc=shuffle.loc, node_ids=[node] if node is not None else (),
             related=related,
             evidence=evidence, stage="data", dynamic=shuffle.scope.is_dynamic))

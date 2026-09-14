@@ -84,7 +84,7 @@ that exact line** — containment would score an op as recovered merely because
 the function that should have held it exists, which is precisely the failure
 mode the class-method blind spot produces.
 
-## 3 · The numbers on 2026-09-09
+## 3 · The numbers on 2026-09-10
 
 Re-run after the ANA-7 / ANA-8 / ANA-9 rule tiers (`docs/CONTRACTS.md` §11.26),
 which added sixteen rules and grew the corpus from ten labelled programs to
@@ -93,6 +93,19 @@ gated recall number moved up; graph fidelity is unchanged, because the four new
 programs deliberately carry no `graph` block. `scripts/check_docs.py` check 9
 holds the headline figures in this section to
 `analyzer/tests/accuracy/baseline.json` so the two cannot drift apart.
+
+**Re-recorded on 2026-09-10 for ANA-10** (`docs/CONTRACTS.md` §11.45), the
+in-Python half of config resolution: module-level dict literals, dataclass field
+defaults, `argparse` `add_argument(default=)` and the attribute/subscript chains
+rooted at any of them now resolve to literals, so `CFG["workers"]` and
+`cfg.data.workers` read the way `4` already did. Measured A/B on this tree with
+`ir.bindings._resolve_config` stubbed to a no-op, that change alone is the whole
+move: raw recall **71.8% → 73.1%**, visible 64.1% → 65.4%, high+medium
+63.2% → 64.9%, unseen 53.2% → 55.3%, graph fidelity 126 → 127 of 139. Precision
+stays 100% and forbidden findings stay 0 in both dataflow modes. H5's structured
+fixes (§11.42) moved nothing here and could not: they add one optional
+`Issue.fix` field to five findings that already existed and touch no rule gate,
+no evidence and no confidence.
 
 The four new programs — `keras_uncompiled`, `lightning_manual`, `hf_no_eval`
 and `torch_mechanics` — are marked **tuned**, like the two shipped samples: they
@@ -110,7 +123,7 @@ amp_accumulation             1     3      7      3      4      0 86.7%
 gbm_tabular                  1     3      5      3      2      0 100.0%
 hf_no_eval*                  1     1      1      1      0      0   n/l
 hf_trainer_finetune          3     5      8      5      3      0 91.7%
-hydra_research               4     5     11      5      6      0 75.0%
+hydra_research               4     6     11      6      5      0 81.2%
 keras_se_gate*               3     1      1      1      0      0   n/l
 keras_tfdata                 3     4      5      4      1      0 100.0%
 keras_uncompiled*            3     2      2      2      0      0   n/l
@@ -133,7 +146,7 @@ MLV111          3      2        2    0     100.0%    66.7%   0.80         50.0%
 MLV112*         1      1        1    0     100.0%   100.0%   1.00             -
 MLV114*         1      1        1    0     100.0%   100.0%   1.00             -
 MLV121*         2      2        2    0     100.0%   100.0%   1.00             -
-MLV201          3      2        2    0     100.0%    66.7%   0.80         50.0%
+MLV201          3      3        3    0     100.0%   100.0%   1.00        100.0%
 MLV205          3      1        1    0     100.0%    33.3%   0.50          0.0%
 MLV207*         1      1        1    0     100.0%   100.0%   1.00             -
 MLV208*         1      1        1    0     100.0%   100.0%   1.00             -
@@ -157,8 +170,8 @@ MLV709          1      1        1    0     100.0%   100.0%   1.00        100.0%
 MLV711*         1      1        1    0     100.0%   100.0%   1.00             -
 MLV803*         1      1        1    0     100.0%   100.0%   1.00             -
 
-overall   labels  78   recall  71.8%   visible  64.1%   high+medium  63.2%   precision 100.0%
-unseen    labels  47   recall  53.2%   visible  40.4%   high+medium  34.4%   precision 100.0%
+overall   labels  78   recall  73.1%   visible  65.4%   high+medium  64.9%   precision 100.0%
+unseen    labels  47   recall  55.3%   visible  42.5%   high+medium  37.5%   precision 100.0%
 ```
 
 Two columns exist because the report used to overstate itself. **`n/l`** in the
@@ -186,16 +199,16 @@ unseen programs:
 
 | Reading | Number | What it means |
 |---|---|---|
-| raw recall | **53.2%** | 25 of 47 planted defects produced a finding |
-| visible recall | **40.4%** | …of which only 19 clear `mlview.minConfidence` 0.6, so the rest never reach the VS Code Problems panel |
-| high+medium recall | **34.4%** | 11 of 32 defects that are not reproducibility hygiene |
+| raw recall | **55.3%** | 26 of 47 planted defects produced a finding |
+| visible recall | **42.5%** | …of which only 20 clear `mlview.minConfidence` 0.6, so the rest never reach the VS Code Problems panel |
+| high+medium recall | **37.5%** | 12 of 32 defects that are not reproducibility hygiene |
 
 **Reconciling with the audit's ~26%.** The Sprint-2 audit measured ≈26% over
-four hand-written projects. The closest reading here is **34.4%** — the
+four hand-written projects. The closest reading here is **37.5%** — the
 high-and-medium-severity number on unseen code — and the gap is explained, not
 argued away: these are *re-creations* of the auditors' probes rather than the
 same files, and this corpus labels the reproducibility pair (MLV601, MLV602)
-that fires on essentially every program, which lifts the raw figure to 53.2%.
+that fires on essentially every program, which lifts the raw figure to 55.3%.
 Quote the high+medium number when comparing to the audit, and quote all three
 when reporting progress.
 
@@ -203,16 +216,31 @@ when reporting progress.
 exactly one label, because the sixteen new rules were written against defects
 that the eight unseen programs mostly do not contain: the tiers are recall the
 corpus can now *measure*, not recall it has demonstrated on code nobody wrote
-for them. The overall figures — 71.4% raw over 77 labels — carry the tuned
+for them. The overall figures — 73.1% raw over 78 labels — carry the tuned
 programs and should be read as "these rules fire where they are supposed to",
 never as a field measurement. Growing the unseen half of the corpus remains the
 cheapest recall work on the board.
 
-**Graph fidelity: 126 of 139 hand-labelled ops, 90.6%.** This half of the table
-has moved twice. It was **92 of 139, 66.2%** until ANA-1 stopped dropping ops
-written inside a class method (`docs/CONTRACTS.md` §11.19), which took it to
+**What ANA-10 bought, and what it did not.** One label, and it is an unseen one:
+MLV201 at `hydra_research/src/train.py:35`, a planted "gradients are never
+zeroed" that was unreachable until the `getattr` registry selection let
+`optimizer_for(...)` resolve to an optimizer. That is MLV201's unseen recall
+moving 50.0% → 100.0% and the corpus's raw unseen recall moving by one label.
+The larger effect is one this table cannot show, because the table only counts
+findings that *should* exist: on `DataLoader(ds, shuffle=CFG["shuffle"])` with
+`CFG["shuffle"] = True`, MLV110 used to report *"shuffle=unset (defaults to
+False)"* at `likely` — a false statement about a correct program. It is gone,
+and no label ever recorded it. A config read can never mint a `certain` finding:
+every read costs one explicit `CONFIG_EVIDENCE_WEIGHT` (0.8) factor and the
+highest registered prior, 0.98, lands at 0.784.
+
+**Graph fidelity: 127 of 139 hand-labelled ops, 91.4%.** This half of the table
+has moved three times. It was **92 of 139, 66.2%** until ANA-1 stopped dropping
+ops written inside a class method (`docs/CONTRACTS.md` §11.19), which took it to
 **120 of 139, 86.3%**; FW-RECOG then added the tf.data, HuggingFace `datasets`
-and Lightning-hook tables (§11.23) and it reached 0.9065. The six ops that
+and Lightning-hook tables (§11.23) and it reached 0.9065; ANA-10 (§11.45) added
+the thirteenth `hydra_research` op — the optimizer behind the `getattr` registry
+— for 0.9137. The six ops that
 moved are `keras_tfdata`'s `map` / `shuffle` / `batch` — recognised at all for
 the first time, and anchored on the method name rather than on the start of the
 chain — `hf_trainer_finetune`'s `datasets.Dataset.map`, and the two
@@ -333,3 +361,76 @@ leaving the evidence in a commit body nobody reads next to it.
 * **Notebooks are absent.** The ROADMAP's ANA-12 entry asks for one; notebooks
   are not in this sprint (`NB`), and a corpus entry that scores `0 files
   analyzed` would only measure the skip.
+
+## 6 · `--dataflow ip`, measured separately
+
+DATAFLOW-IP (`docs/CONTRACTS.md` 11.36) adds a second analysis, not a second
+opinion about the first. `--dataflow local` is the default and is the analysis
+every number above describes; `--dataflow ip` additionally carries value tags
+across the object boundary through constructor, return and method-argument
+summaries. The two are scored against **two baselines**, because one number
+cannot gate two analyses:
+
+```
+python tools/accuracy.py                  # local, gates baseline.json
+python tools/accuracy.py --dataflow ip    # ip, gates baseline.ip.json
+```
+
+`analyzer/tests/accuracy/baseline.ip.json` has the same shape and the same two
+tolerances as its local twin — **zero `forbidden` findings ever, recall may only
+ratchet up** — and carries a `dataflow` field so a file can never be read as
+the other mode's floor. `analyzer/tests/core/test_dataflow_ip.py` asserts both
+tolerances inside `pytest analyzer/tests`, alongside the mode's own fixtures.
+
+### The two modes on the same 15 programs, 2026-09-10
+
+| mode | recall | visible | high+medium | unseen recall | precision | forbidden | unlabelled |
+|---|---|---|---|---|---|---|---|
+| `local` | 73.1% | 65.4% | 64.9% | 55.3% | **100%** | 0 | 0 |
+| `ip` | **79.5%** | **71.8%** | **73.7%** | **66.0%** | **100%** | 0 | 0 |
+
+Graph fidelity is 91.4% in both. Every number in the `local` row is the one
+section 3 records, unmoved to four decimal places: the mode is additive by
+construction, and `AnalyzeOptions(paths=...)` with no `dataflow` is byte-for-byte
+`dataflow="local"`.
+
+The recall the mode buys is **five expected labels**, and two of them are the
+high-severity leaks the roadmap named as the whole reason to fund the work: the
+Lightning `DataModule` fitting a `StandardScaler` on the whole feature matrix
+before `random_split` (`lightning_tabular/datamodule.py:27`), and the same shape
+in a research script that scales a whole series before a chronological cut. Both
+now fire with related locations at the construction site and the split site, and
+neither fires at `certain` — see below.
+
+### Why an `ip` finding is never `certain`
+
+Each hop multiplies the confidence product by an explicit interprocedural
+evidence weight (`IP_HOP_WEIGHT`, 0.8), contributed as one `cross_file` evidence
+entry whose detail names the hop chain in words. For MLV101's 0.95 prior that is
+0.760 after one hop, 0.608 after two and 0.486 after three — so a cross-object
+finding lands at `likely` or `possible`, and `certain` (>= 0.9) is arithmetically
+out of reach. The calibration table above therefore reads differently in `ip`:
+the `likely` bucket grows from 16 findings to 21, and its observed precision
+stays 100%.
+
+### What the `ip` numbers do not say
+
+* **The corpus is the same corpus.** It was labelled for `local`, so `ip` is
+  measured on defects nobody planted for it. That is the right direction for a
+  precision claim and the wrong one for a recall claim: the five labels `ip`
+  newly recovers are a floor on what the mode adds, not an estimate of it.
+* **Precision at 100% is 61 findings, not a proof.** The mode's whole risk is a
+  high-severity false positive, and the corpus can only report the ones it has
+  labels for. The three negative fixtures under `analyzer/tests/fixtures/dataflow`
+  — a helper that legitimately receives already-split training rows, a helper
+  called from two sites with different tag sets, and a parameter merely named
+  `X` — are the shapes the mode is most likely to get wrong, and they are
+  asserted at the IR level, not only at the finding level.
+* **Only MLV101 and MLV102 consume the hop chain.** Every other rule reads the
+  widened tags without naming a hop in its evidence or paying its weight. That
+  is where most of the recall difference above comes from, and 11.36's gate G6
+  is written over the whole document so a rule that starts making cross-object
+  claims cannot quietly skip the de-rating.
+* **A chain past three hops is reported, not scored.** It emits a `truncated`
+  diagnostic and no finding, which is a miss the recall column counts and a
+  blindness the document names — the distinction this whole file exists to keep.

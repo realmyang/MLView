@@ -99,6 +99,11 @@ const UI_PATHS: Record<string, string> = {
   minimap: 'M2.4 3.6h11.2v8.8H2.4ZM8.4 7.4h4.4v4.4H8.4Z',
   /** VIEW-07: a picture in a frame — "export the diagram", not the HTML report. */
   image: 'M2.4 3.4h11.2v9.2H2.4ZM2.4 10.6 5.8 7.4l2.4 2.2 2.2-2 3.2 3M10.3 5.3a1.05 1.05 0 1 0 0 2.1 1.05 1.05 0 0 0 0-2.1Z',
+  /** H5: a spanner — "a fix was computed", never "a fix was applied". */
+  wrench:
+    'M10.2 2.2a3.6 3.6 0 0 0-3.3 5l-4.3 4.3 1.9 1.9 4.3-4.3a3.6 3.6 0 0 0 4.6-4.7L11.6 6.3 9.7 4.4Z',
+  /** VIEW-08: two rows, one gained and one lost — the diff overlay. */
+  diff: 'M2.6 4.8h5.2M5.2 2.2v5.2M8.2 11.2h5.2M2.4 13.6 13.6 2.4',
 };
 
 export function uiIcon(name: string, size = 14): SVGElement {

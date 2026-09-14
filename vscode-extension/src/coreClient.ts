@@ -16,7 +16,9 @@ import { emptyGraph, isSchemaCompatible, looksLikeGraph, type MLGraph } from './
 import type { Logger } from './log';
 import { ProgressSplitter, type ProgressFrame } from './progress';
 import { PythonEnvironment, schemaMismatchMessage } from './pythonEnv';
+import { buildAnalyzeArgs, classifyExit, tailLines } from './analyzeArgs';
 import { readSettings, type MlviewSettings } from './settings';
+import { configLogLine, resolveBaseline, resolveConfig } from './mlviewConfig';
 import type { AnalysisScope } from './protocol';
 import { isTrusted, MANAGE_TRUST_ACTION, RESTRICTED_DETAIL, RESTRICTED_MESSAGE } from './trust';
 
@@ -59,99 +61,18 @@ export const DEFAULT_ACTIONS: CoreAction[] = [
   { id: 'showOutput', label: 'Show Output' }
 ];
 
-export interface AnalyzeArgOptions {
-  paths: string[];
-  maxFiles: number;
-  maxNodes: number;
-  exclude: string[];
-  /**
-   * NB: read `.ipynb` files instead of counting them as skipped. Omitted (the default) the
-   * argv is byte-identical to the one this builder produced before notebooks existed, which
-   * is what makes `mlview.includeNotebooks: false` a true no-op rather than a fast path.
-   */
-  includeNotebooks?: boolean;
-  /** When set, the graph is written to this file as a self-contained HTML report instead. */
-  htmlOut?: string;
-  /**
-   * A CONTRACTS.md §11.1 diagram selector (`unit:train.validate`, `concern:evaluation`, ...).
-   * Named `scopeSpec`, not `scope`, because `AnalyzeRequest.scope` is already the
-   * `'workspace' | 'file'` ANALYSIS scope - the same collision §11.7 avoided by naming the
-   * message field `spec`.
-   */
-  scopeSpec?: string;
-  /** Boundary hops, 0..2 (§11.5). Omitted means the per-kind default. */
-  depth?: number;
-  /**
-   * H3: ask the analyzer for `{"t":"progress",...}` frames on **stderr**. Passed only
-   * when a panel is live, so the headless and export paths emit the bytes they emit
-   * today — the flag is the difference between a 5.64 s indeterminate spinner and a
-   * bar that names the file being parsed.
-   */
-  progress?: boolean;
-}
-
 /**
- * Pure argv builder. Order is frozen: `analyze`, the paths, `--json -`, the caps, the excludes,
- * then the optional projection flags. `-X utf8` is prepended by the caller so it is impossible
- * to forget. An unscoped call produces exactly the argv it produced before scopes existed.
+ * The argv, the §3 exit-code table and the stderr tail now live in `src/analyzeArgs.ts`
+ * (H10 + CFG-ONE pushed this file past the ~600-line budget). Re-exported here so every
+ * existing importer - three test files and `src/testEntry.ts` - is unchanged.
  */
-export function buildAnalyzeArgs(opts: AnalyzeArgOptions): string[] {
-  const args = ['-X', 'utf8', '-m', 'mlview', 'analyze', ...opts.paths];
-  if (opts.htmlOut) {
-    args.push('--html', opts.htmlOut, '--format', 'summary');
-  } else {
-    args.push('--json', '-');
-  }
-  args.push('--max-files', String(opts.maxFiles), '--max-nodes', String(opts.maxNodes));
-  for (const glob of opts.exclude) {
-    if (glob.trim().length > 0) {
-      args.push('--exclude', glob.trim());
-    }
-  }
-  // NB: an INGEST flag, so it sits with the excludes and ahead of the projection flags.
-  if (opts.includeNotebooks) {
-    args.push('--include-notebooks');
-  }
-  if (opts.scopeSpec && opts.scopeSpec.trim().length > 0) {
-    args.push('--scope', opts.scopeSpec.trim());
-    if (typeof opts.depth === 'number' && Number.isInteger(opts.depth)) {
-      args.push('--depth', String(opts.depth));
-    }
-  }
-  if (opts.progress) {
-    args.push('--progress-json');
-  }
-  return args;
-}
-
-export type ExitClass = 'ok' | 'nothing-analyzable' | 'usage' | 'internal' | 'fail-on' | 'unknown';
-
-/** CONTRACTS.md §3 exit codes. `2` is never produced here because `--fail-on` is never passed. */
-export function classifyExit(code: number | null): ExitClass {
-  switch (code) {
-    case 0:
-      return 'ok';
-    case 1:
-      return 'usage';
-    case 2:
-      return 'fail-on';
-    case 3:
-      return 'internal';
-    case 4:
-      return 'nothing-analyzable';
-    default:
-      return 'unknown';
-  }
-}
-
-export function tailLines(text: string, count = 8): string {
-  return text
-    .replace(/\r\n/g, '\n')
-    .split('\n')
-    .filter((line) => line.trim().length > 0)
-    .slice(-count)
-    .join('\n');
-}
+export {
+  buildAnalyzeArgs,
+  classifyExit,
+  tailLines,
+  type AnalyzeArgOptions,
+  type ExitClass
+} from './analyzeArgs';
 
 export interface AnalyzeRequest {
   scope: AnalysisScope;
@@ -161,6 +82,15 @@ export interface AnalyzeRequest {
   cwd: string;
   token?: vscode.CancellationToken;
   settings?: MlviewSettings;
+  /**
+   * H10 (11.40): a §11.1 diagram selector, from a language-model tool that asked about one
+   * part of the pipeline. It projects the EMITTED DOCUMENT, so a scoped result is a filtered
+   * view whose counts describe the scope — which is why the caller must not publish it as the
+   * workspace's graph. Absent on every diagram, save and export path.
+   */
+  scopeSpec?: string;
+  /** Boundary hops, 0..2, meaningful only alongside `scopeSpec`. */
+  depth?: number;
   /**
    * H3: set by the caller only when a panel is live. Its presence is what adds
    * `--progress-json` to the argv, so nothing about the headless path changes.
@@ -258,6 +188,32 @@ export class CoreClient implements vscode.Disposable {
     this.inFlight.clear();
   }
 
+  /**
+   * CFG-ONE: what `--config` / `--baseline` should name for this run, logged once so a user
+   * can see in the output channel which file the answer they are looking at was produced with.
+   */
+  private configFlags(request: AnalyzeRequest, settings: MlviewSettings): {
+    configPath?: string;
+    baselinePath?: string;
+  } {
+    const config = resolveConfig(request.cwd, settings);
+    if (config.missing) {
+      this.log.warn(configLogLine(config));
+    } else if (config.path) {
+      this.log.debug(configLogLine(config));
+    }
+    const baseline = resolveBaseline(request.cwd, settings);
+    if (baseline.missing) {
+      this.log.warn(
+        `mlview.baselinePath names ${baseline.missing}, which does not exist - no --baseline was passed`
+      );
+    }
+    return {
+      ...(config.path ? { configPath: config.path } : {}),
+      ...(baseline.path ? { baselinePath: baseline.path } : {})
+    };
+  }
+
   async analyze(request: AnalyzeRequest): Promise<AnalyzeResult> {
     const settings = request.settings ?? readSettings();
     const args = buildAnalyzeArgs({
@@ -266,10 +222,18 @@ export class CoreClient implements vscode.Disposable {
       maxNodes: settings.maxNodes,
       exclude: settings.exclude,
       includeNotebooks: settings.includeNotebooks,
+      ...this.configFlags(request, settings),
+      // H10: only ever set by the language-model tools; every other caller omits it.
+      ...(request.scopeSpec ? { scopeSpec: request.scopeSpec } : {}),
+      ...(typeof request.depth === 'number' ? { depth: request.depth } : {}),
       progress: request.onProgress !== undefined
     });
     const started = Date.now();
-    const run = await this.spawn(scopeKey(request.scope, request.paths[0]), args, request);
+    const run = await this.spawn(
+      scopeKey(request.scope, request.paths[0], request.scopeSpec),
+      args,
+      request
+    );
     const durationMs = Date.now() - started;
     if (run.cancelled) {
       throw new CoreError('cancelled', 'Analysis cancelled.');
@@ -309,6 +273,7 @@ export class CoreClient implements vscode.Disposable {
       maxNodes: settings.maxNodes,
       exclude: settings.exclude,
       includeNotebooks: settings.includeNotebooks,
+      ...this.configFlags(request, settings),
       htmlOut: request.outFile,
       // What the panel is drawing, so the exported report opens on the same diagram (§11.8:
       // the file still embeds the WHOLE graph; the scope is one attribute on the root).
@@ -362,7 +327,42 @@ export class CoreClient implements vscode.Disposable {
     return parsed;
   }
 
-  private async spawn(key: string, args: string[], request: AnalyzeRequest): Promise<RunResult> {
+  /**
+   * CFG-ONE: run one non-analyze CLI verb (`mlview init`, `mlview baseline write`) through
+   * the SAME seam every analysis goes through — the trust gate, the interpreter chain, the
+   * bundled-core PYTHONPATH and the UTF-8 environment are all in `spawn`, and a second
+   * `execFile` anywhere in this extension would be a second place for `untrustedWorkspaces:
+   * "limited"` to be forgotten. Throws a `CoreError` on a non-zero exit.
+   */
+  async runCli(
+    args: string[],
+    request: { cwd: string; key: string; token?: vscode.CancellationToken }
+  ): Promise<{ stdout: string; stderr: string }> {
+    const run = await this.spawn(`cli:${request.key}`, args, request);
+    if (run.cancelled) {
+      throw new CoreError('cancelled', 'Cancelled.');
+    }
+    const outcome = classifyExit(run.code);
+    if (outcome !== 'ok' && outcome !== 'fail-on') {
+      throw new CoreError(
+        outcome === 'usage' ? 'usage' : 'internal',
+        `MLView could not run "${args.filter((a) => !a.startsWith('-X')).slice(1).join(' ')}".`,
+        tailLines(run.stderr) || tailLines(run.stdout),
+        DEFAULT_ACTIONS
+      );
+    }
+    return { stdout: run.stdout, stderr: run.stderr };
+  }
+
+  private async spawn(
+    key: string,
+    args: string[],
+    request: {
+      cwd: string;
+      token?: vscode.CancellationToken;
+      onProgress?: (frame: ProgressFrame) => void;
+    }
+  ): Promise<RunResult> {
     // THE trust gate. This is the only place in the extension that starts a child process, so
     // checking here is what actually keeps the `untrustedWorkspaces: "limited"` promise: no
     // interpreter probe, no `--version` handshake, no analyzer (CONTRACTS.md §6).
@@ -560,8 +560,16 @@ function quoteForLog(arg: string): string {
   return /\s/.test(arg) ? `"${arg}"` : arg;
 }
 
-export function scopeKey(scope: AnalysisScope, path?: string): string {
-  return scope === 'workspace' ? 'workspace' : `file:${path ?? ''}`;
+/**
+ * The single-flight key. `spec` is appended only when a caller asked for a §11.1 projection
+ * (H10's language-model tools), so every existing key is byte-identical: without it a scoped
+ * tool call and the diagram's unscoped run would supersede each other and the diagram would
+ * silently lose its analysis to a question asked in chat.
+ */
+export function scopeKey(scope: AnalysisScope, path?: string, spec?: string): string {
+  const base = scope === 'workspace' ? 'workspace' : `file:${path ?? ''}`;
+  const trimmed = (spec ?? '').trim();
+  return trimmed ? `${base}#${trimmed}` : base;
 }
 
 export function forwardSlashes(p: string): string {

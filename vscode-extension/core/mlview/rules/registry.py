@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from ..core.graph import Diagnostic
+from . import helpers
 
 __all__ = ["RuleSpec", "rule", "REGISTRY", "discover_rules", "all_rules", "run_all",
            "rule_for", "reset_registry", "cross_file_codes"]
@@ -149,4 +150,10 @@ def run_all(ctx, strict: bool = False, disabled: Sequence[str] = (),
                 traceback.print_exc(file=sys.stderr)
         finally:
             ctx.current_rule = None
+    # ANA-10: one sweep, after every rule has run, charging each finding for
+    # the config-resolved literals it read. It lives here rather than inside
+    # `ctx.issue()` because the read happens in `helpers.literal_of` and the
+    # emission happens later in the same rule, and the two are joined by the
+    # source range they share - which only exists once both have happened.
+    helpers.apply_config_derating(ctx)
     return ctx.issues

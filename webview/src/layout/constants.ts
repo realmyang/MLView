@@ -103,3 +103,48 @@ export const LANE_ROUTE_BAND = 20;
 export const ROUTE_CLEARANCE = 8;
 export const GUTTER_LANE_STEP = 14;
 export const CORNER_R = 8;
+
+/**
+ * VIEW-04 — the left channel is reserved per lane PAIR, not per edge.
+ *
+ * It used to be a flat 56 px whatever the document held, while `routeCrossLane`
+ * fanned the edges inside it at `n * 7` with no bound: the seventh skipping edge
+ * of a lane pair was drawn at x = 90 in a channel that ends at 88, i.e. through
+ * the first column of lane boxes, and a 300-node project put roughly twenty
+ * near-parallel runs in there. Every edge of a pair now shares ONE trunk, so the
+ * channel needs one slot per distinct (source lane, target lane) pair and the
+ * width is a function of the pair count.
+ *
+ * `CHANNEL_PAD_L` keeps `channelX` at `CANVAS_MARGIN + 16` — where it has always
+ * been — so a document with two skipping pairs reserves exactly the 56 px it
+ * reserved before.
+ */
+export const CHANNEL_PAD_L = 16;
+export const CHANNEL_PAD_R = 12;
+/** Distance between two trunks in the channel. The old fan-out step, per PAIR. */
+export const CHANNEL_PAIR_STEP = GUTTER_LANE_STEP;
+/**
+ * The channel stops growing here, and this is the number VIEW-01 cares about:
+ * every pixel reserved on the left is a pixel `fit()` has to zoom out to show.
+ * Two pairs still reserve exactly the 56 px the flat channel always did; past
+ * four pairs the STEP shrinks instead of the world growing, down to
+ * `CHANNEL_MIN_STEP`, and past that the trunks share slots. 112 px is twice the
+ * old reservation and costs the shipped demo 3.4 % of its width.
+ */
+export const CHANNEL_MAX_W = 112;
+/** Two trunks closer than this read as one, so slots wrap instead. */
+export const CHANNEL_MIN_STEP = 4;
+
+/**
+ * How far a bundle member may splay off its trunk's shoulder, and the step it
+ * takes. The spread is bounded by the corridor: a lane gutter is `LANE_GUTTER`
+ * = 40 px, so ±13 leaves 7 px of clearance to the bands on either side however
+ * many edges the pair carries.
+ */
+export const BUNDLE_MEMBER_SPREAD = 13;
+export const BUNDLE_MEMBER_STEP = 6;
+/**
+ * A trunk shorter than this is not worth drawing: the group is rendered as its
+ * individual strokes instead, which is also what a one-member group gets.
+ */
+export const BUNDLE_MIN_TRUNK = 28;

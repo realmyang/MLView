@@ -19,7 +19,12 @@ const REQUIRED_COMMANDS = [
   'mlview.exportHtml',
   'mlview.selectInterpreter',
   'mlview.showOutput',
-  'mlview.showRuleDoc'
+  'mlview.showRuleDoc',
+  // H10 (11.40): the multi-root picker.
+  'mlview.activeFolder',
+  // CFG-ONE (11.40): the two configuration commands.
+  'mlview.openConfiguration',
+  'mlview.createBaseline'
 ];
 
 test('engine, version and entry point are pinned as specified', () => {
@@ -142,6 +147,8 @@ test('all mlview.* settings are contributed with the contract defaults', () => {
     'mlview.analyzeOnSave': true,
     'mlview.currentFileAnalysisScope': 'package',
     'mlview.exclude': [],
+    'mlview.configPath': '',
+    'mlview.baselinePath': '',
     'mlview.includeNotebooks': false,
     'mlview.maxFiles': 500,
     'mlview.maxNodes': 400,
@@ -164,6 +171,12 @@ test('all mlview.* settings are contributed with the contract defaults', () => {
   // mlview.includeNotebooks, which ROADMAP NB names explicitly ("behind --include-notebooks /
   // [paths].notebooks (byte-identical behaviour without it)") - the host half of that flag has
   // to be a setting, because there is no other way to reach a CLI flag from the extension.
+  // TWO rows JOINED in Sprint 5 by CFG-ONE (docs/contracts/11.40): mlview.configPath and
+  // mlview.baselinePath. Both are named explicitly by the roadmap entry ("add mlview.configPath,
+  // mlview.baselinePath, MLView: Open MLView Configuration and MLView: Create Baseline From
+  // Current Findings"), and neither can be anything but a setting: they name a FILE, which is
+  // per-folder state a command argument cannot carry across sessions. The active folder is
+  // deliberately NOT among them - it is session state behind `mlview.activeFolder`, the command.
   assert.deepEqual(Object.keys(props).sort(), Object.keys(expected).sort());
   for (const [key, value] of Object.entries(expected)) {
     assert.deepEqual(props[key].default, value, `${key} default`);
@@ -273,4 +286,96 @@ test('the README settings table names exactly the settings the manifest contribu
     [...contributed].sort(),
     'every documented mlview.* setting must exist, and every contributed one must be documented'
   );
+});
+
+/**
+ * MLV-P11 — the getting-started walkthrough.
+ *
+ * `vscode-extension/package.json` contributed **no `walkthroughs` key at all**, and the two
+ * failure modes of one are both silent: a step that invokes a command nobody registered does
+ * nothing when clicked, and a step whose `media.markdown` resolves outside the packaged
+ * extension renders as an empty panel. Both are asserted here, because neither shows up in a
+ * dev host where `<repo>/docs` happens to be next door.
+ */
+test('the walkthrough has five steps, each invoking a command that exists', () => {
+  const walkthroughs = manifest.contributes.walkthroughs;
+  assert.ok(Array.isArray(walkthroughs) && walkthroughs.length === 1);
+  const walkthrough = walkthroughs[0];
+  assert.equal(walkthrough.id, 'mlview.gettingStarted');
+  assert.ok(walkthrough.title.length > 0);
+  assert.ok(walkthrough.description.length > 0);
+  assert.equal(walkthrough.steps.length, 5, 'the roadmap entry specifies five steps');
+
+  const contributed = new Set(manifest.contributes.commands.map((c) => c.command));
+  const ids = new Set();
+  for (const step of walkthrough.steps) {
+    assert.match(step.id, /^mlview\.step\.[a-z]+$/);
+    assert.ok(!ids.has(step.id), `duplicate step id ${step.id}`);
+    ids.add(step.id);
+    assert.ok(step.title.length > 0);
+    // Every step must be ACTIONABLE - "each invoking an already-registered command".
+    const invoked = [...step.description.matchAll(/\(command:([\w.]+)\)/g)].map((m) => m[1]);
+    assert.equal(invoked.length, 1, `${step.id} must offer exactly one command link`);
+    assert.ok(contributed.has(invoked[0]), `${step.id} invokes uncontributed ${invoked[0]}`);
+    assert.deepEqual(step.completionEvents, [`onCommand:${invoked[0]}`]);
+  }
+  // The five the roadmap names: install -> visualize -> read a finding -> Alt+M -> Alt+Shift+M.
+  assert.deepEqual(
+    walkthrough.steps.map((s) => s.id.replace('mlview.step.', '')),
+    ['install', 'visualize', 'problems', 'reveal', 'scope']
+  );
+});
+
+test('every walkthrough page is inside the extension, so a packaged install can render it', () => {
+  const root = path.join(__dirname, '..');
+  for (const step of manifest.contributes.walkthroughs[0].steps) {
+    const markdown = step.media.markdown;
+    assert.ok(markdown, `${step.id} needs a media.markdown page`);
+    assert.ok(!path.isAbsolute(markdown) && !markdown.startsWith('..'), 'relative to the extension');
+    const full = path.join(root, markdown);
+    assert.ok(fs.existsSync(full), `${markdown} is missing - run "npm run sync:walkthrough"`);
+    const text = fs.readFileSync(full, 'utf8');
+    assert.ok(text.length > 200, `${markdown} looks like a placeholder`);
+    assert.match(text, /^# /, `${markdown} must open with a heading`);
+    assert.ok(step.media.altText && step.media.altText.length > 0);
+  }
+  // And the shipped copies are GENERATED: `tools/sync-walkthrough.mjs --check` is the gate
+  // that stops the extension's copy drifting from `<repo>/docs/walkthrough`.
+  const repoPages = path.join(root, '..', 'docs', 'walkthrough');
+  if (!fs.existsSync(repoPages)) {
+    return; // an extension-only checkout has no source to compare against
+  }
+  for (const step of manifest.contributes.walkthroughs[0].steps) {
+    const name = path.basename(step.media.markdown);
+    assert.equal(
+      fs.readFileSync(path.join(root, 'docs', 'walkthrough', name), 'utf8'),
+      fs.readFileSync(path.join(repoPages, name), 'utf8'),
+      `${name} has drifted from docs/walkthrough - run "npm run sync:walkthrough"`
+    );
+  }
+});
+
+test('every 11.1 selector kind is named in all three tool scope descriptions (11.16 drift)', () => {
+  // MLV-P12 (CONTRACTS 11.47 B2) grew the grammar, and `src/lmTools.ts` naming a
+  // kind the manifest does not is exactly the drift 11.16 exists to catch: the
+  // model reads the manifest description, not the TypeScript comment. The kinds
+  // are read from the analyzer's own `core/selectors.py` so this test cannot
+  // fall behind a future addition the way a hand-copied list does.
+  const src = path.join(__dirname, '..', 'core', 'mlview', 'core', 'selectors.py');
+  const text = fs.readFileSync(src, 'utf8');
+  const tuple = /SCOPE_KINDS[^=]*=\s*\(([^)]*)\)/.exec(text);
+  assert.ok(tuple, 'core/selectors.py must declare SCOPE_KINDS as a tuple literal');
+  const kinds = [...tuple[1].matchAll(/["']([a-z_]+)["']/g)].map((m) => m[1]);
+  assert.ok(kinds.includes('pipeline'), 'SCOPE_KINDS must carry `pipeline` after MLV-P12');
+  for (const tool of manifest.contributes.languageModelTools) {
+    const scope = tool.inputSchema.properties && tool.inputSchema.properties.scope;
+    if (!scope) continue;
+    for (const kind of kinds) {
+      assert.ok(
+        scope.description.includes(`"${kind}:`),
+        `${tool.name}'s scope description never names "${kind}:" - the manifest has drifted ` +
+          'from mlview.api.SCOPE_KINDS (CONTRACTS 11.16)'
+      );
+    }
+  }
 });

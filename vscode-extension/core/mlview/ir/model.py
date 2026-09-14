@@ -14,6 +14,10 @@ import ast
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
+#: DATAFLOW-IP. `provenance` imports nothing from this module (or from anywhere
+#: else in `mlview`), so the dependency runs one way and there is no cycle.
+from .provenance import DEFAULT_MAX_HOPS, Hop
+
 __all__ = [
     "Loc", "ValueRef", "CallSite", "LoopIR", "ScopeIR", "FunctionIR",
     "ClassIR", "ModuleIR", "WorkspaceIR", "VALUE_TAGS",
@@ -144,6 +148,12 @@ class ValueRef:
     #: really exists and really has nothing behind it, so a call *through* this
     #: name can say which construct defeated it instead of vanishing.
     opaque: Optional[str] = None
+    #: DATAFLOW-IP. The `ir.provenance.Hop`s this value's tags travelled to get
+    #: here, oldest first. Empty in `--dataflow local`, and empty in `ip` for
+    #: every value dataflow established inside one scope - which is what lets a
+    #: rule ask "is this a cross-object claim?" by asking whether the tuple is
+    #: non-empty, and de-rate exactly those findings.
+    provenance: Tuple[Hop, ...] = ()
 
     def has(self, *tags: str) -> bool:
         return any(t in self.tags for t in tags)
@@ -369,6 +379,16 @@ class WorkspaceIR:
     #: for notebooks. The pipeline fills it after `build_workspace`; rules read
     #: it only through `GraphContext`, never directly.
     notebooks: Dict[str, object] = field(default_factory=dict)
+    #: DATAFLOW-IP - three more appended last, all defaulted, so positional
+    #: construction is unchanged and a `local` run carries exactly the state it
+    #: always carried. `dataflow` is the mode the IR was built in, `ip_max_hops`
+    #: the cap it applied, and `ip_notes` the `(relpath, line, message)` rows for
+    #: every chain the cap (or an ambiguous call-site set) stopped - emitted as
+    #: `truncated` diagnostics, because a truncated chain that says nothing is
+    #: indistinguishable from a value that never had a tag.
+    dataflow: str = "local"
+    ip_max_hops: int = DEFAULT_MAX_HOPS
+    ip_notes: List[Tuple[str, int, str]] = field(default_factory=list)
 
     def all_calls(self) -> List[CallSite]:
         out: List[CallSite] = []

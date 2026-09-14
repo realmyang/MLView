@@ -19,33 +19,35 @@ from ..rules import Suppressor, cross_file_codes, load_config, run_all
 from ..rules import confidence as confidence_mod
 from ..rules.context import GraphContext
 from . import cache as cache_mod
+from . import config as config_mod
 from . import relevance as relevance_mod
 from .build import GraphBuilder
 from .coverage import (note_unconfirmed_train_loops, note_untraced_sites,
                        single_file_diagnostic)
 from .unresolved import unresolved_callee_diagnostics
 from .graph import Diagnostic, MLGraph, SEVERITY_RANK
+from .rollup import apply_node_budget
 from .progress import safe_call
 
 __all__ = ["AnalyzeOptions", "run", "AnalysisResult", "drop_orphan_ghosts",
            "DEFAULT_RELEVANCE", "annotate_notebook_nodes"]
 
-#: PERF-03. The shipped default for `--relevance`, and it is `all` - the
-#: identity mode, in which every discovered file reaches the IR and the rules
-#: exactly as before the prefilter existed.
+#: PERF-03. The shipped default for `--relevance`, and since the Sprint-5
+#: re-baseline (CONTRACTS 11.39) it is `ml`: the IR is built only for files
+#: within `relevance_hops` import hops of a framework import, and the count of
+#: what was set aside is stated on the document.
 #:
-#: ROADMAP's condition for defaulting to `ml` was that `tools/accuracy.py` be
-#: identical in both modes. It **is** - byte-identical over the whole ANA-12
-#: corpus - and `tools/perf_equiv.py` is byte-identical on all three corpora
-#: too. The default stays `all` for a different, measured reason: on workspaces
-#: small enough that the filter saves nothing, it still changes four analyzer
-#: gates, because a two-file fixture with one non-framework module is exactly
-#: the shape where "set aside" and "not analyzed" become visible
-#: (`filesAnalyzed`, `single_file_analysis`'s count, and an unresolved-import
-#: note that moves from the module to the set-aside list). Flipping the default
-#: is a re-baseline, not an optimisation, and CONTRACTS 11.28 records precisely
-#: what it costs so it can be done deliberately.
-DEFAULT_RELEVANCE = "all"
+#: ROADMAP's condition for the flip was that `tools/accuracy.py` be identical
+#: in both modes. It **is** - byte-identical over the whole ANA-12 corpus - and
+#: `tools/perf_equiv.py --expect-same` is byte-identical on all three corpora
+#: with the new default in force. 11.28 A11 held the default at `all` for a
+#: second, measured reason: on workspaces too small for the filter to save
+#: anything it still moves four analyzer gates, because a handful of files with
+#: one non-framework module is exactly the shape where "set aside" becomes
+#: visible. 11.39 moves those four deliberately and records what each of them
+#: now says. `--relevance all` and `MLVIEW_NO_CACHE=1` restore the old paths
+#: exactly; `all` still derives no facts and consults no cache.
+DEFAULT_RELEVANCE = "ml"
 
 
 @dataclass(frozen=True)
@@ -89,6 +91,14 @@ class AnalyzeOptions:
     #: = true`) turns `.ipynb` files from a counted skip into analyzed,
     #: generated Python modules under `<root>/.mlview/notebooks/`.
     include_notebooks: bool = False
+    #: DATAFLOW-IP (CONTRACTS 11.36) - appended last and defaulted to `local`,
+    #: so positional construction, `frozen=True` and hashability are unchanged
+    #: and a run that does not set it emits byte-identical bytes. `ip` runs the
+    #: interprocedural summary pass (`ir.summaries`): constructor arguments,
+    #: return values and method arguments carry value tags across the object
+    #: boundary, every hop is de-rated by an explicit evidence weight, and no
+    #: cross-object finding may reach `certain`.
+    dataflow: str = "local"
 
 
 @dataclass
@@ -115,14 +125,33 @@ def _now_iso() -> str:
 def run(options: AnalyzeOptions) -> AnalysisResult:
     """Analyze `options.paths` and return the complete graph."""
     started = time.perf_counter()
-    config = load_config(options.config_path, None)
+    # CFG-ONE (11.37): resolve the file **before** discovery, against the root
+    # discovery is itself going to report, so `[paths] include/exclude` narrow
+    # the first walk rather than a second one and `[analysis]` is in force for
+    # the whole run. `apply` leaves every option the caller set alone.
+    config = load_config(options.config_path, config_mod.probe_root(options.paths))
+    options = config_mod.apply(options, config)
     excludes = tuple(options.exclude) + tuple(config.excludes)
     want_notebooks = bool(options.include_notebooks or config.notebooks)
     found = discover(options.paths, include=options.include, exclude=excludes,
                      max_files=options.max_files, notebooks=want_notebooks)
-    # a config file inside the discovered root takes effect too
+    # a config file inside the discovered root takes effect too. `probe_root`
+    # is `discover`'s own root function, so this second read finds a file only
+    # when the two disagree - which they do not for any path shape shipped.
     if config.path is None:
+        # CFG-CONFIG-WARNING-DROPPED (11.37 A3/C4): the first read decided
+        # nothing, but it may still have had something to *say* - the measured
+        # case is `--config pyproject.toml` on a file with no [tool.mlview]
+        # table, which `load_config` reports as a warning with `path=None`.
+        # Rebinding `config` here used to throw that warning away, so an
+        # explicit --config that applied nothing also said nothing: exactly the
+        # silent-fallback failure CFG-ONE exists to end.
+        first_warnings = list(config.warnings)
         config = load_config(None, found.root)
+        options = config_mod.apply(options, config)
+        carried = [w for w in first_warnings if w not in config.warnings]
+        if carried:
+            config.warnings = carried + list(config.warnings)
         # NB: `[paths] notebooks` lives in that same file, so the second read
         # can turn notebooks on as well as add excludes.
         reread = bool(options.include_notebooks or config.notebooks)
@@ -173,7 +202,8 @@ def run(options: AnalyzeOptions) -> AnalysisResult:
         return AnalysisResult(graph=graph, empty=True, cache=cache_report,
                               relevance=relevance)
 
-    workspace = build_workspace(found.root, parsed_files)
+    workspace = build_workspace(found.root, parsed_files,
+                                dataflow=getattr(options, "dataflow", "local"))
     # NB: the offset tables ride on the workspace so `GraphContext` can reach
     # them without the rules ever importing `ingest`.
     workspace.notebooks = notebook_maps
@@ -211,6 +241,14 @@ def run(options: AnalyzeOptions) -> AnalysisResult:
     # node it kept, which is indistinguishable from a clean read.
     graph.diagnostics.extend(unresolved_callee_diagnostics(workspace))
 
+    # DATAFLOW-IP: every interprocedural chain the hop cap - or a set of call
+    # sites the pass refused to merge - stopped. Reported rather than dropped:
+    # a truncated chain that says nothing looks exactly like a value that never
+    # carried a tag, which is the one confusion this project refuses to ship.
+    for relpath, line, message in getattr(workspace, "ip_notes", ()) or ():
+        graph.diagnostics.append(Diagnostic(
+            kind="truncated", message=message, file=relpath, line=line))
+
     for relpath, line, message in workspace.unresolved_imports:
         graph.diagnostics.append(Diagnostic(
             kind="dynamic_scope", message=message, file=relpath, line=line,
@@ -246,7 +284,9 @@ def run(options: AnalyzeOptions) -> AnalysisResult:
 
     _filter_issues(graph, options)
     drop_orphan_ghosts(graph)
-    _apply_node_cap(graph, options.max_nodes)
+    # PERF-04 (CONTRACTS 11.46): the cap is a hierarchical rollup now, and it
+    # still runs here - after the rules, before projection (11.2.2).
+    apply_node_budget(graph, options.max_nodes)
     # NB: last, so a ghost minted by an absence rule and a node re-parented by
     # the cap both carry the cell they came from.
     annotate_notebook_nodes(graph, notebook_maps)
@@ -446,109 +486,6 @@ def _filter_issues(graph: MLGraph, options: AnalyzeOptions) -> None:
             continue
         kept.append(issue)
     graph.issues = kept
-
-
-def _apply_node_cap(graph: MLGraph, max_nodes: int) -> None:
-    """`--max-nodes` is a **graph** cap on the finished document (CONTRACTS §3).
-
-    It runs after the rules, not during construction, for two reasons: the
-    older op-only version was not a cap at all (a workspace with more units
-    than the budget came back at full size with `truncated: true` and nothing
-    the caller could act on), and capping first would have hidden findings from
-    the rules themselves.
-
-    Priority order: ghosts and the nodes an issue is anchored on, then their
-    ancestors, then the remaining units, then ops. Survivors whose parent went
-    are re-parented to their nearest kept ancestor, and an issue whose anchors
-    all went is re-anchored the same way - so invariants 1.1.2 and "every issue
-    names at least one node" both hold at any budget.
-    """
-    if max_nodes <= 0 or len(graph.nodes) <= max_nodes:
-        return
-    by_id = {n.id: n for n in graph.nodes}
-
-    def chain(node):
-        out = []
-        parent = by_id.get(node.parent or "")
-        while parent is not None and len(out) < 32:
-            out.append(parent)
-            parent = by_id.get(parent.parent or "")
-        return out
-
-    # An issue's *first* anchor outranks its later ones. Anchor sets grow (a
-    # finding may name the loss node, the model unit and the offending op), and
-    # a budget smaller than the total anchor count used to be spent on second
-    # and third anchors while some other issue lost every one of its own and
-    # was dropped: "lowering the cap must not silence a finding" held only
-    # while every anchor fitted. Measured on `analyzer/tests`: 56 anchors, and
-    # a 50-node budget silenced MLV203 and MLV204 outright.
-    primary = {n.id for n in graph.nodes if n.ghost}
-    anchors = set(primary)
-    for issue in graph.issues:
-        if issue.nodeIds:
-            primary.add(issue.nodeIds[0])
-        anchors.update(issue.nodeIds)
-    ancestors = set()
-    for node in graph.nodes:
-        if node.id in anchors:
-            ancestors.update(p.id for p in chain(node))
-    ancestors -= anchors
-
-    def tier(node) -> int:
-        if node.id in primary:
-            return 0
-        if node.id in anchors:
-            return 1
-        if node.id in ancestors:
-            return 2
-        return 3 if node.level != "op" else 4
-
-    ordered = sorted(graph.nodes, key=lambda n: (tier(n), len(chain(n))) + tuple(n.sort_key))
-    kept = ordered[:max_nodes]
-    keep_ids = {n.id for n in kept}
-    dropped = [n for n in graph.nodes if n.id not in keep_ids]
-    dropped_ops = sum(1 for n in dropped if n.level == "op")
-
-    def surviving(node_id):
-        node = by_id.get(node_id)
-        if node is None:
-            return None
-        if node.id in keep_ids:
-            return node.id
-        for parent in chain(node):
-            if parent.id in keep_ids:
-                return parent.id
-        return None
-
-    for node in kept:
-        node.parent = surviving(node.parent) if node.parent else None
-    lost_issues = []
-    for issue in graph.issues:
-        rehomed = []
-        for nid in issue.nodeIds:
-            survivor = surviving(nid)
-            if survivor and survivor not in rehomed:
-                rehomed.append(survivor)
-        if rehomed:
-            issue.nodeIds = rehomed
-        else:
-            lost_issues.append(issue)
-    if lost_issues:
-        lost = {id(i) for i in lost_issues}
-        graph.issues = [i for i in graph.issues if id(i) not in lost]
-    graph.nodes = [n for n in graph.nodes if n.id in keep_ids]
-    graph.edges = [e for e in graph.edges
-                   if e.source in keep_ids and e.target in keep_ids]
-    graph.truncated = True
-    extra = ("; %d issue(s) went with them" % len(lost_issues)) if lost_issues else ""
-    graph.diagnostics.append(Diagnostic(
-        kind="truncated",
-        message="Graph cap (--max-nodes budget) %d reached: %d operation node(s) and "
-                "%d unit node(s) dropped, %d node(s) kept%s. Raise --max-nodes, or "
-                "narrow the analyzed path, to see the rest."
-                % (max_nodes, dropped_ops, len(dropped) - dropped_ops,
-                   len(graph.nodes), extra),
-        count=len(dropped)))
 
 
 def drop_orphan_ghosts(graph: MLGraph) -> None:

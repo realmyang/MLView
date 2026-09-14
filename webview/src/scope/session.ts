@@ -13,6 +13,8 @@
 import { ScopeError, formatScope, isAll, parseScope } from './selector.js';
 import type { Scope } from './selector.js';
 import { project } from './project.js';
+import { CHANGED_SPEC, projectChanged } from '../diff/changed.js';
+import type { DiffIndex } from '../diff/overlay.js';
 import type { MLGraph, ScopeSummary } from '../types.js';
 
 export interface ScopeSetResult {
@@ -27,9 +29,33 @@ export class ScopeSession {
   private fullGraph: MLGraph | null = null;
   private projected: MLGraph | null = null;
   private active: Scope | null = null;
+  /**
+   * VIEW-08. The diff overlay, when one is loaded, and whether the reader has
+   * asked for "changed only". They live HERE rather than in `App` because a diff
+   * is another projection (11.38, ROADMAP VIEW-08) and this is the object that
+   * owns projection: `reproject()` composes the two in one place, so a scope and
+   * a diff can be on at once without either surface knowing about the other.
+   */
+  private diffIndex: DiffIndex | null = null;
+  private changedOnlyOn = false;
+  /** True when "changed only" was asked for but had nothing to project. */
+  private changedEmpty = false;
 
   get full(): MLGraph | null {
     return this.fullGraph;
+  }
+
+  get diff(): DiffIndex | null {
+    return this.diffIndex;
+  }
+
+  get changedOnly(): boolean {
+    return this.changedOnlyOn;
+  }
+
+  /** True when the document on screen is narrowed to the diff's changed set. */
+  get changedActive(): boolean {
+    return this.changedOnlyOn && !!this.diffIndex && !this.changedEmpty;
   }
 
   get scope(): Scope | null {
@@ -52,6 +78,28 @@ export class ScopeSession {
   setGraph(graph: MLGraph): void {
     this.fullGraph = graph;
     this.reproject();
+  }
+
+  /**
+   * Install or clear the diff overlay. NEVER re-analyses and never touches the
+   * graph: the overlay is a sibling document (11.38 B). Clearing it also turns
+   * "changed only" off, because a chip that narrows to a set nobody can see any
+   * more is a chip that lies.
+   */
+  setDiff(diff: DiffIndex | null): void {
+    this.diffIndex = diff;
+    if (!diff) this.changedOnlyOn = false;
+    this.reproject();
+  }
+
+  /**
+   * Turn "changed only" on or off. Returns false when it was asked for and had
+   * nothing to project — the caller says so instead of drawing an empty diagram.
+   */
+  setChangedOnly(next: boolean): boolean {
+    this.changedOnlyOn = !!next && !!this.diffIndex;
+    this.reproject();
+    return !next || this.changedActive;
   }
 
   /**
@@ -132,15 +180,27 @@ export class ScopeSession {
 
   private reproject(): void {
     const full = this.fullGraph;
+    this.changedEmpty = false;
     if (!full) {
       this.projected = null;
       return;
     }
-    if (!this.active || isAll(this.active)) {
-      this.projected = null;
+    const scoped = !this.active || isAll(this.active) ? null : project(full, this.active);
+    if (!this.changedOnlyOn || !this.diffIndex) {
+      this.projected = scoped;
       return;
     }
-    this.projected = project(full, this.active);
+    // VIEW-08: the diff projection composes ON TOP of the scope's, so the two
+    // narrowings are one document rather than two competing ones.
+    const narrowed = projectChanged(scoped || full, this.diffIndex);
+    if (!narrowed) {
+      // Asked for, and nothing to show. The scope (or the whole graph) stands,
+      // and `changedActive` is false so the caller can say why.
+      this.changedEmpty = true;
+      this.projected = scoped;
+      return;
+    }
+    this.projected = narrowed;
   }
 }
 
@@ -159,12 +219,17 @@ export function sameScope(a: ScopeSummary, b: ScopeSummary): boolean {
  * `total` is PROJECT-LEVEL truth (`view.of`), so a scope can never be read as a
  * clean bill of health. Null when the document is not a projection.
  */
-export function railScopeCounts(graph: MLGraph | null): { shown: number; hidden: number; total: number } | null {
+export function railScopeCounts(
+  graph: MLGraph | null,
+): { shown: number; hidden: number; total: number; where: string } | null {
   if (!graph || !graph.view) return null;
   const shown = (graph.issues || []).filter((i) => !i.suppressed).length;
   const of = graph.view.of.issues;
   const total = of.low + of.medium + of.high;
-  return { shown, hidden: Math.max(0, total - shown), total };
+  // VIEW-08: the same line, with the right noun. "12 outside this scope" over a
+  // diff projection would name a narrowing the reader never chose.
+  const where = graph.view.scope === CHANGED_SPEC ? 'outside the changed set' : 'outside this scope';
+  return { shown, hidden: Math.max(0, total - shown), total, where };
 }
 
 /**

@@ -25,6 +25,7 @@ SRC = os.path.join(REPO, "analyzer", "src")
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
 
+from mlview.rules.fixes import FIX_DOCS  # noqa: E402
 from mlview.rules.registry import RuleSpec, all_rules  # noqa: E402
 
 FIXTURES = os.path.join(REPO, "analyzer", "tests", "fixtures", "rules")
@@ -38,12 +39,21 @@ NOTES: Dict[str, Dict[str, object]] = {
         "detects": "A `FIT` / `FIT_TRANSFORM` call whose primary argument carries "
                    "`RAW_DATA` or `FEATURES` but not `TRAIN_SPLIT`, followed by a "
                    "`SPLIT`-role call whose input is reachable from that value through "
-                   "the SSA-lite chain. Shape-preserving pandas / numpy methods "
-                   "(`df.drop(columns=...)`, `.copy()`, `.fillna()`, `.to_numpy()`, "
-                   "`arr.reshape()`) pass the tags through, so the canonical pandas "
-                   "feature matrix is covered as well as the numpy one.",
+                   "the SSA-lite chain, **written in the same scope as the fit**. "
+                   "Shape-preserving pandas / numpy methods (`df.drop(columns=...)`, "
+                   "`.copy()`, `.fillna()`, `.to_numpy()`, `arr.reshape()`) and the "
+                   "module-level numpy constructors (`np.asarray`, `np.array`, "
+                   "`np.concatenate`, `np.vstack`, `torch.from_numpy`) pass the tags "
+                   "through, so the canonical pandas feature matrix is covered as well "
+                   "as the numpy one.",
         "avoids": ["A split on a *different* dataset - reachability is by value "
                    "identity through the binding chain, never by name equality.",
+                   "A split written in **another function**. Reachability is spelled "
+                   "by dotted name, and a name means something else in a foreign "
+                   "scope, so the claim is confined to one scope in both dataflow "
+                   "modes. A leak whose two halves live in two functions is therefore "
+                   "**not reported** - the honest cost of never reporting a leak that "
+                   "is not there.",
                    "Unsupervised code with no test set - a split site must exist.",
                    "A stateless transformer (`FunctionTransformer`, `Normalizer`) - "
                    "listed in `knowledge/sklearn.yaml:stateless_transformers`.",
@@ -631,6 +641,20 @@ def page(spec: RuleSpec) -> str:
 
     out.append("## How to fix it\n")
     out.append((spec.fix_hint or "See the rule catalog.") + "\n")
+
+    # H5. The page a host deep-links to is where "the lightbulb is empty here"
+    # has to be answerable, so the withheld condition is rendered beside the
+    # offered one rather than only in the amendment.
+    structured = FIX_DOCS.get(spec.code)
+    if structured:
+        out.append("## Structured fix\n")
+        out.append("This rule opts into `Issue.fix` (H5, CONTRACTS 11.42). A host may "
+                   "offer **%s** as a quick fix, graded `%s`. The edit is computed from "
+                   "the AST, it is **never applied automatically**, and no edit is "
+                   "offered at all when the finding lands below the `likely` confidence "
+                   "bucket.\n" % (structured["title"], structured["safety"]))
+        out.append("- **Offered when** %s" % structured["offered"])
+        out.append("- **Withheld when** %s\n" % structured["withheld"])
 
     if bad is not None:
         out.append("## Example that fires\n")

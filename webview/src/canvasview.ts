@@ -19,6 +19,7 @@ import { firstBox, nextBox } from './layout/navigate.js';
 import { minimapDots, renderScene } from './render/scene.js';
 import { planScene, ScenePlan, ScenePlanOptions } from './render/plan.js';
 import { nextMountSerial } from './render/edges.js';
+import { BundleBinding } from './render/bundles.js';
 import { Minimap, ViewportController } from './render/canvas.js';
 import { applyTrace } from './render/trace.js';
 import { FlowBinding } from './render/flowbinding.js';
@@ -89,6 +90,7 @@ export class CanvasView {
   private worldEl: HTMLElement;
   private lanesLayer: HTMLElement;
   private edgesSvg: SVGElement;
+  private bundleGroup: SVGElement;
   private edgeGroup: SVGElement;
   private connectorLayer: SVGElement;
   private nodesLayer: HTMLElement;
@@ -110,6 +112,8 @@ export class CanvasView {
   private focusLocked = false;
   private nodeEls = new Map<string, HTMLElement>();
   private edgeEls = new Map<string, SVGElement>();
+  /** VIEW-04: which cross-lane trunks are drawn, and which cables they hold. */
+  private bundles = new BundleBinding();
   /**
    * This view's identity inside the DOCUMENT. It qualifies every edge path id,
    * so two apps on one page (dev/states.html, or two reports in one host) can
@@ -130,6 +134,7 @@ export class CanvasView {
     this.worldEl = shell.world;
     this.lanesLayer = shell.lanesLayer;
     this.edgesSvg = shell.edgesSvg;
+    this.bundleGroup = shell.bundleGroup;
     this.edgeGroup = shell.edgeGroup;
     this.connectorLayer = shell.connectorLayer;
     this.nodesLayer = shell.nodesLayer;
@@ -203,6 +208,8 @@ export class CanvasView {
         if (!this.hoverId) this.tooltip.hide();
         this.flow.stop();
       },
+      // VIEW-04: opening the bundle is not an intent, it is the hover itself.
+      changed: () => this.syncBundles(),
       openDelayMs: HOVER_OPEN_MS,
       closeDelayMs: HOVER_CLOSE_MS,
     });
@@ -302,6 +309,7 @@ export class CanvasView {
         world: this.worldEl,
         lanes: this.lanesLayer,
         edgesSvg: this.edgesSvg,
+        bundleGroup: this.bundleGroup,
         edgeGroup: this.edgeGroup,
         connectors: this.connectorLayer,
         nodes: this.nodesLayer,
@@ -314,6 +322,8 @@ export class CanvasView {
     );
     this.nodeEls = scene.nodeEls;
     this.edgeEls = scene.edgeEls;
+    this.bundles.adopt(scene.bundleEls, scene.plan.bundles.map((v) => v.bundle));
+    this.syncBundles();
     // Every card and cable the pointer was over went with the old DOM, so no
     // hover survives a rebuild. Without this the latch cascade in `flow.stop()`
     // would resume a stream over a scene that no longer holds that node
@@ -441,10 +451,12 @@ export class CanvasView {
     // `e` / `Shift+E` focus the hit path, and focus alone runs the charge.
     on(element, 'focus', () => {
       g.classList.add('is-hover');
+      this.syncBundles();
       this.flow.pulse(route);
     });
     on(element, 'blur', () => {
       g.classList.remove('is-hover');
+      this.syncBundles();
       this.flow.stop();
     });
   }
@@ -482,6 +494,7 @@ export class CanvasView {
     this.flow.setLatchedEdge(sel && sel.kind === 'edge' ? sel.id : null);
     if (!sel) {
       this.canvasEl.removeAttribute('aria-activedescendant');
+      this.syncBundles();
       this.flow.stop();
       return;
     }
@@ -498,6 +511,7 @@ export class CanvasView {
       this.highlightIssue(sel.id);
     }
     if (this.focusLocked) this.applyTrace(sel.kind === 'node' ? sel.id : null, 'is-focusing');
+    this.syncBundles();
     this.flow.stop();
   }
 
@@ -558,6 +572,9 @@ export class CanvasView {
     // Upstream edges flow inward and downstream outward with no reversal logic:
     // every route's points already run source -> target (FEATURES 2.2).
     this.flow.stream(id);
+    // A charge on a cable inside a collapsed trunk would be a charge on an
+    // invisible cable, so the trunk opens with the stream (VIEW-04).
+    this.syncBundles();
     if (!this.index || !this.frameData) return;
     const box = this.frameData.boxes.get(id);
     if (box) this.tooltip.showNode(this.index, id, box, (issue) => this.host.keep(issue));
@@ -566,6 +583,16 @@ export class CanvasView {
   /** Lineage highlight: upstream + downstream over the routed edges. */
   private applyTrace(id: string | null, cls: string): void {
     applyTrace({ nodes: this.nodeEls, edges: this.edgeEls, canvas: this.canvasEl }, this.routes, id, cls);
+    this.syncBundles();
+  }
+
+  /**
+   * VIEW-04. A cross-lane trunk shows its individual strokes exactly while one
+   * of them is hovered, focused, selected, lit or flowing — four triggers, one
+   * rule, read off the cables themselves so this can never disagree with them.
+   */
+  syncBundles(): void {
+    this.bundles.sync(this.edgeEls);
   }
 
   get isFocusLocked(): boolean {

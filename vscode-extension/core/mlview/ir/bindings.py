@@ -17,6 +17,7 @@ import re
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from .. import knowledge as K
+from .config_values import CONFIG_NAME_RE, resolve_module as _resolve_config
 from .model import CallSite, ModuleIR, ScopeIR, ValueRef, sort_tags
 from .returns import slot_of
 from .scopes import AssignRecord, literal_str
@@ -25,7 +26,10 @@ from .symbols import dotted_text
 __all__ = ["binding_of", "bind_module", "call_output_tags", "names_in",
            "identity_receiver", "CONFIG_NAME_RE", "IDENTITY_METHODS", "TENSOR_ROLES"]
 
-CONFIG_NAME_RE = re.compile(r"(?i)^(cfg|config|args|opts|options|hparams|params|settings)$")
+#: ANA-10 moved the definition to `ir.config_values`, which is the pass that
+#: acts on it, and re-exports it here so every existing importer of
+#: `mlview.ir.bindings.CONFIG_NAME_RE` is unchanged and the two spellings of
+#: "a config-shaped name" cannot drift apart.
 _TEST_NAME_RE = re.compile(r"(?i)^(x|y)?_?(test|holdout)")
 _VAL_NAME_RE = re.compile(r"(?i)^(x|y)?_?(val|valid|validation|dev)")
 _TRAIN_NAME_RE = re.compile(r"(?i)^(x|y)?_?train")
@@ -216,6 +220,34 @@ def _first_arg_tags(call: CallSite, scope: ScopeIR) -> Tuple[str, ...]:
     return tuple(ref.tags) if ref else ()
 
 
+#: The tags a shape-preserving constructor may carry through (IP-03).
+_FRAME_MAKE_TAGS = ("RAW_DATA", "FEATURES", "TARGET", "TRAIN_SPLIT",
+                    "VAL_SPLIT", "TEST_SPLIT")
+
+
+def _frame_make_tags(call: CallSite, scope: ScopeIR) -> Tuple[str, ...]:
+    """The data tags argument 0 of `np.asarray` / `np.concatenate` carries.
+
+    `np.concatenate([X_train, X_test])` passes a **list**, and the honest answer
+    for a list is the INTERSECTION of what its members carry: stacking the
+    training half onto the test half does not produce training rows, and a union
+    would let MLV102 accuse a correct program of fitting on held-out data.
+    """
+    if not call.args:
+        return ()
+    first = call.args[0]
+    if isinstance(first, (ast.List, ast.Tuple)):
+        shared: Optional[set] = None
+        for element in first.elts:
+            ref = binding_of(dotted_text(element), scope)
+            found = {t for t in (ref.tags if ref else ()) if t in _FRAME_MAKE_TAGS}
+            shared = found if shared is None else (shared & found)
+            if not shared:
+                return ()
+        return tuple(sorted(shared or ()))
+    return tuple(t for t in _first_arg_tags(call, scope) if t in _FRAME_MAKE_TAGS)
+
+
 def call_output_tags(call: CallSite, scope: ScopeIR) -> Tuple[str, ...]:
     """The `ValueTag`s of the value a call produces."""
     fqns = list(call.canonical_fqns) or ([call.fqn] if call.fqn else [])
@@ -242,6 +274,13 @@ def call_output_tags(call: CallSite, scope: ScopeIR) -> Tuple[str, ...]:
         # RAW_DATA / FEATURES / TARGET tags `pandas.read_csv` seeded: dropping
         # them on the first hop is what made MLV101 blind to the pandas path.
         tags.extend(receiver.tags)
+    elif role == "FRAME_MAKE":
+        # IP-03: `np.asarray(X)` / `np.concatenate([...])` / `torch.from_numpy(X)`
+        # are the module-level twin of FRAME_OP - same rows, new container - so
+        # the data tags travel through argument 0 rather than through a
+        # receiver. Only the data tags: a MODEL or an OPTIMIZER does not go
+        # through np.asarray, and carrying one would be a different claim.
+        tags.extend(_frame_make_tags(call, scope))
     elif role in ("FIT_TRANSFORM", "TRANSFORM"):
         inherited = [t for t in _first_arg_tags(call, scope) if t != "FITTED_TRANSFORMER"]
         tags.extend(inherited)
@@ -327,6 +366,11 @@ def bind_module(module: ModuleIR, workspace) -> None:
             continue
     _bind_self_params(module)
     _bind_imported_values(module, workspace)
+    # ANA-10: config containers are resolved last, because every source it
+    # reads - a dict literal, a dataclass construction, `parse_args()` - is a
+    # binding this pass has just written, and because the leaves it stores must
+    # never win over a real assignment to the same dotted name.
+    _resolve_config(module, workspace)
 
 
 def _bind_imported_values(module: ModuleIR, workspace) -> None:

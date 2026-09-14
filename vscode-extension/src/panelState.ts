@@ -27,7 +27,8 @@ const DEFERRABLE: ReadonlySet<HostToUiType> = new Set<HostToUiType>([
   'analysisStarted',
   'analysisFailed',
   'setScope',
-  'requestExport'
+  'requestExport',
+  'diffOverlay'
 ]);
 
 /**
@@ -39,7 +40,8 @@ const NEEDS_GRAPH: ReadonlySet<HostToUiType> = new Set<HostToUiType>([
   'revealNode',
   'revealIssue',
   'setScope',
-  'requestExport'
+  'requestExport',
+  'diffOverlay'
 ]);
 
 /** A queue this long means something is wrong; keep the newest and drop the rest. */

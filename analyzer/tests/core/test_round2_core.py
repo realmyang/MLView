@@ -227,11 +227,28 @@ _SIBLING_OK = {
 def test_an_import_that_resolves_to_nothing_is_reported(analyze_ws):
     """Cross-file resolution must never degrade silently: the graph coming
     back smaller with an empty `diagnostics[]` is the failure ML-02 describes."""
-    doc = analyze_ws(_UNRESOLVED)
+    doc = analyze_ws(_UNRESOLVED, relevance="all")
     notes = [d for d in doc["diagnostics"] if d["kind"] == "dynamic_scope"
              and "resolved to nothing" in d["message"]]
     assert notes, doc["diagnostics"]
     assert notes[0]["file"] == "exp/t.py" and notes[0]["line"] == 2
+
+
+def test_under_the_default_the_same_import_is_reported_as_a_set_aside_file(analyze_ws):
+    """CONTRACTS 11.39. `libs/common/utils.py` holds no framework token, so the
+    shipped `--relevance ml` default sets it aside - and `unresolved_imports`
+    only fires when a workspace module of that name *exists*, so the ML-02 note
+    goes with it. What must never happen is both going quiet: the prefilter's
+    own diagnostic names the file and the flag that brings it back, so the
+    reader is still told that something was not read."""
+    doc = analyze_ws(_UNRESOLVED)
+    ml02 = [d for d in doc["diagnostics"] if "resolved to nothing" in d["message"]]
+    aside = [d for d in doc["diagnostics"]
+             if d["kind"] == "config_warning" and "Relevance prefilter" in d["message"]]
+    assert ml02 == []
+    assert len(aside) == 1 and aside[0]["count"] == 1
+    assert "libs/common/utils.py" in aside[0]["message"]
+    assert "--relevance all" in aside[0]["message"]
 
 
 def test_a_resolvable_sibling_import_is_not_reported(analyze_ws):

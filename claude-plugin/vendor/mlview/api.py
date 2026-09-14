@@ -15,6 +15,11 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from .core.graph import MLGraph
 from .core.pipeline import AnalysisResult, AnalyzeOptions, run
+#: DATAFLOW-IP (CONTRACTS 11.36) - re-exported so an in-process host can name
+#: the mode without importing `ir`. `AnalyzeOptions.dataflow` is the option; it
+#: is additive and defaults to `local`, which is the analysis that shipped
+#: before the flag existed.
+from .ir.build_ir import DATAFLOW_MODES, DEFAULT_DATAFLOW
 from .core.project import (CONCERN_ALIASES, CONCERNS, SCOPE_KINDS, Scope,
                            ScopeError, ScopeResolution, parse_scope, project,
                            resolve_scope, scope_catalog)
@@ -29,6 +34,8 @@ __all__ = [
     # scoped views (CONTRACTS 11.6) - additive
     "CONCERNS", "CONCERN_ALIASES", "SCOPE_KINDS", "Scope", "ScopeError",
     "ScopeResolution", "parse_scope", "resolve_scope", "project", "scope_catalog",
+    # interprocedural dataflow (CONTRACTS 11.36) - additive
+    "DATAFLOW_MODES", "DEFAULT_DATAFLOW",
 ]
 
 _SCHEMA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "schema")

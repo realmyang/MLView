@@ -7,8 +7,9 @@
  * taken from `graph.stats.issues` instead would advertise findings neither surface can show.
  */
 
-import type * as vscode from 'vscode';
+import * as vscode from 'vscode';
 import { coverageFor } from './coverage';
+import { folderTooltipLine } from './folders';
 import { countIssues, type IssueCounts, type MLGraph } from './graph';
 import { publishedIssueFilter, selectIssues } from './issues';
 import { notebookCounts, notebookTooltipFragment, type NotebookCounts } from './notebooks';
@@ -61,9 +62,18 @@ export function statusBarTooltip(
    * pip-installs a newer core and sees no change has to be able to find out which
    * analyzer produced the number they are looking at.
    */
-  core?: string
+  core?: string,
+  /**
+   * H10: which of the open folders these counts are about, and how many are not. Absent (and
+   * silent) in a single-folder window, which is nearly every window — the status bar has
+   * always been about one project there, so naming it would be noise. In a multi-root window
+   * a green "MLView" that describes only one of three folders is exactly the "I could not
+   * check" / "I checked and it is fine" confusion the roadmap's standing criterion is about.
+   */
+  folders?: { active?: string; names: readonly string[] }
 ): string {
-  const tail = core ? `\n${core}` : '';
+  const folderLine = folders ? folderTooltipLine(folders.names, folders.active) : undefined;
+  const tail = (core ? `\n${core}` : '') + (folderLine ? `\n${folderLine}` : '');
   if (busy) {
     return `MLView: analyzing…${tail}`;
   }
@@ -100,19 +110,44 @@ export function renderStatusBar(
     failed: boolean;
     /** `pythonEnv.coreDescription()`; absent until the first resolution finishes. */
     core?: string;
+    /** H10: the open folders and which one these counts describe. */
+    folders?: { active?: string; names: readonly string[] };
   }
 ): void {
   const counts: IssueCounts = state.graph
     ? countIssues(selectIssues(state.graph, publishedIssueFilter(state.settings)))
     : { low: 0, medium: 0, high: 0 };
   item.text = statusBarText(counts, state.busy, state.failed);
-  item.tooltip = statusBarTooltip(
+  const text = statusBarTooltip(
     counts,
     state.busy,
     state.failed,
     notebookCounts(state.graph),
     coverageFor(state.graph),
-    state.core
+    state.core,
+    state.folders
   );
+  item.tooltip = decorateTooltip(text, state.folders);
   item.show();
+}
+
+/**
+ * H10 — the picker. In a multi-root window the tooltip becomes a trusted `MarkdownString`
+ * carrying one command link, which is the only affordance VS Code gives a status-bar item for
+ * a SECOND action (`item.command` is already `mlview.showIssues`, and the count is what people
+ * click it for). A single-folder window keeps the plain string it has always had, so the
+ * markdown escaping cannot change what anyone reads today.
+ */
+export function decorateTooltip(
+  text: string,
+  folders?: { active?: string; names: readonly string[] }
+): string | vscode.MarkdownString {
+  if (!folders || folders.names.length < 2) {
+    return text;
+  }
+  const md = new vscode.MarkdownString();
+  md.isTrusted = true;
+  md.appendText(text);
+  md.appendMarkdown('\n\n[Analyze a different folder](command:mlview.activeFolder)');
+  return md;
 }

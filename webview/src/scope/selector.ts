@@ -3,7 +3,7 @@
  * standalone report and the analyzer all accept the same strings.
  *
  *   SPEC  := "all" | KIND ":" TARGET
- *   KIND  := "unit" | "stage" | "file" | "concern" | "node" | "symbol"
+ *   KIND  := "unit" | "stage" | "file" | "concern" | "node" | "symbol" | "pipeline"
  *   DEPTH := 0..2, a SEPARATE parameter — never packed into SPEC
  *
  * One `kind`, one `target`, split on the FIRST colon only, because a node id
@@ -19,7 +19,13 @@
 
 import type { MLGraph } from '../types.js';
 
-export const SCOPE_KINDS = ['unit', 'stage', 'file', 'concern', 'node'];
+/**
+ * MLV-P12 (CONTRACTS 11.47 B2) adds `pipeline`. Extending this list extends the
+ * `bad_selector` candidate set, `SCOPE_SPELLINGS`, `mlview.api.SCOPE_KINDS`, the
+ * MCP `mlview_graph` prose and `analyze --list-scopes` all at once, per §11.16 —
+ * which is exactly why the roadmap made HEALTH-02's fuzzer a precondition.
+ */
+export const SCOPE_KINDS = ['unit', 'stage', 'file', 'concern', 'node', 'pipeline'];
 
 export const STAGE_IDS = ['config', 'data', 'preprocess', 'model', 'objective', 'train', 'eval', 'deliver'];
 
@@ -62,6 +68,9 @@ const DEFAULT_DEPTH: Record<string, number> = {
   stage: 0,
   file: 0,
   concern: 0,
+  // 11.47 B: a pipeline is already a REGION and its relation already carries
+  // containment, so a ring around it is mostly other pipelines.
+  pipeline: 0,
 };
 
 export const MAX_DEPTH = 2;
@@ -74,6 +83,8 @@ export type ScopeErrorCode =
   | 'unknown_concern'
   | 'unknown_node'
   | 'unknown_file'
+  /** MLV-P12 (11.47 B1): candidates are `workspace.entrypoints`, sorted. */
+  | 'unknown_pipeline'
   | 'bad_depth';
 
 export class ScopeError extends Error {
@@ -147,8 +158,23 @@ export function parseScope(spec: string | null | undefined, depth?: number | str
   // "symbol" is the word the user, the docs and every model reach for first.
   if (kind === 'symbol') kind = 'unit';
   if (SCOPE_KINDS.indexOf(kind) < 0) throw new ScopeError('bad_selector', raw.slice(0, at).trim(), SCOPE_SPELLINGS);
-  if (!target) throw new ScopeError('bad_selector', raw, SCOPE_SPELLINGS);
-  if (kind === 'file') target = target.replace(/\\/g, '/');
+  if (!target && kind === 'unit') {
+    // 11.1 spends `bad_selector` on "no `:`, or an unknown kind", and every
+    // other kind has a code of its own for a target it cannot resolve. `unit:`
+    // is the one kind whose unresolvable target is an EMPTY SCOPE rather than
+    // an error — which would turn a typo into a silent zero-node document — so
+    // its empty target is rejected here, with `term: ""`.
+    //
+    // This used to reject an empty target for EVERY kind, which was a silent
+    // divergence from `core/selectors.py` that no frozen case covered:
+    // `node:`, `file:` and now `pipeline:` fall through to the resolver on
+    // purpose, because only it can name this graph's node ids, analyzed files
+    // and entrypoints as the contract's candidate list (11.47 B1).
+    throw new ScopeError('bad_selector', '', SCOPE_SPELLINGS);
+  }
+  // 11.47 B: a pipeline target is an entrypoint PATH, normalized exactly as a
+  // `file:` target is, so a Windows-style spelling resolves.
+  if (kind === 'file' || kind === 'pipeline') target = target.replace(/\\/g, '/');
   if (kind === 'concern') {
     // The alias resolves BEFORE validation, so `concern:inference` and
     // `concern:evaluation` produce byte-identical documents.
@@ -187,7 +213,9 @@ export function viewLabel(scope: Scope, graph: MLGraph, anchorLabels: string[]):
     return (row && row.label) || scope.target;
   }
   if (scope.kind === 'concern') return CONCERN_LABELS[scope.target] || scope.target;
-  if (scope.kind === 'file') return scope.target;
+  // 11.47 B: `view.scope` reports the CANONICAL entrypoint path, and the
+  // breadcrumb names the same string — a pipeline is the script you ran.
+  if (scope.kind === 'file' || scope.kind === 'pipeline') return scope.target;
   if (anchorLabels.length === 1) return anchorLabels[0] || scope.target;
   if (anchorLabels.length > 1) return scope.target + ' (' + anchorLabels.length + ' matches)';
   return scope.target;

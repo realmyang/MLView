@@ -12,8 +12,12 @@
     ctx.follow_call(call)          one level, module-local
     ctx.is_dynamic(scope)          scope (or its ancestors) is dynamic
     ctx.issue(...)                 builder; applies confidence + severity cap
+    ctx.fix(module, title, edits)  builds a validated `Issue.fix` candidate (H5)
     ctx.ghost(kind, parent, label) declares a ghost slot for an absence rule
     ctx.untraced(call, name, why)  declares a COVERAGE gap: the rule was blind
+    ctx.dataflow                   "local" | "ip" (DATAFLOW-IP)
+    ctx.hops(ref)                  interprocedural evidence for a ValueRef
+    ctx.hop_related(ref)           one RelatedLoc per hop, oldest first
 
 Rules never construct `Issue` directly.
 """
@@ -28,8 +32,11 @@ from ..core.graph import (SEVERITY_RANK, Diagnostic, Edge, Evidence, Issue, MLGr
 from ..core.ids import issue_id, node_id
 from ..ir.bindings import binding_of as _binding_of
 from ..ir.model import CallSite, ClassIR, FunctionIR, Loc, LoopIR, ModuleIR, ScopeIR, ValueRef
-from .confidence import (cap_severity, compute_confidence, normalize_evidence,
+from ..ir.provenance import chain_text
+from .confidence import (cap_severity, compute_confidence,
+                         interprocedural_evidence, normalize_evidence,
                          notebook_evidence)
+from .fixes import FIXABLE_BUCKETS, Fix, build_fix
 
 __all__ = ["GraphContext"]
 
@@ -61,6 +68,16 @@ class GraphContext:
         #: NB: generated-module relpath -> NotebookMap, empty on every run
         #: that did not ask for notebooks. Read only by `issue()`.
         self._notebooks: Dict[str, Any] = dict(getattr(workspace, "notebooks", None) or {})
+        #: DATAFLOW-IP. The mode the IR was built in, read off the workspace
+        #: rather than the options so that every construction of a context -
+        #: the pipeline's, a test's - agrees with the IR it was handed.
+        self.dataflow: str = getattr(workspace, "dataflow", "local") or "local"
+        #: IP-01. `(rule code, ScopeIR, ValueRef)` for every value a rule looked
+        #: up whose tags arrived through an interprocedural hop. Filled by
+        #: `binding_of` - the one door a rule reads a value through - and spent
+        #: by `issue()`. Empty on every `--dataflow local` run, because nothing
+        #: there ever carries a provenance chain.
+        self._hop_reads: List[Tuple[str, ScopeIR, ValueRef]] = []
 
     # ------------------------------------------------------------ queries
     def _index(self) -> Dict[str, List[CallSite]]:
@@ -159,7 +176,26 @@ class GraphContext:
     def binding_of(self, name: Optional[str], scope: Optional[ScopeIR],
                    at: Optional[int] = None) -> Optional[ValueRef]:
         """`at` is the 1-based line of the consumer (REV-01 ordered lookup)."""
-        return _binding_of(name, scope, at=at)
+        ref = _binding_of(name, scope, at=at)
+        self.note_hops(ref, scope)
+        return ref
+
+    def note_hops(self, ref, scope: Optional[ScopeIR] = None) -> None:
+        """Record that the running rule consulted an interprocedural value (IP-01).
+
+        Every read goes through `binding_of`, so this is automatic for a rule
+        that asks the context for a value; `traced_arg`'s projection builds a
+        *derived* ref and calls this itself. `issue()` spends the record.
+        """
+        if not getattr(ref, "provenance", ()):
+            return
+        spec = self.current_rule
+        if spec is None:
+            return
+        where = getattr(ref, "scope", None) or scope
+        if where is None:
+            return
+        self._hop_reads.append((spec.code, where, ref))
 
     def class_bases(self, node) -> List[str]:
         """Resolved canonical base FQNs for a class node (or a ClassIR)."""
@@ -267,6 +303,62 @@ class GraphContext:
             scope=call.scope.qualname if call.scope is not None else "",
             variable=name, reason=reason)
 
+    def hops(self, *refs) -> Tuple[Any, ...]:
+        """The interprocedural evidence for these values (DATAFLOW-IP).
+
+        One `cross_file` entry per value that arrived through a hop, carrying
+        the chain in words and `IP_HOP_WEIGHT ** hops` as its weight. Empty for
+        a local value, so a rule may pass every reference it used and pay
+        nothing for the ones dataflow established in one scope.
+        """
+        out: List[Any] = []
+        for ref in refs:
+            out.extend(interprocedural_evidence(ref))
+        return tuple(out)
+
+    def hop_related(self, ref, message: Optional[str] = None) -> List[Any]:
+        """One `RelatedLoc` per hop, oldest first (DATAFLOW-IP).
+
+        A cross-object finding is only auditable if the reader can open the
+        construction site the tag entered through. The roles are the frozen
+        ones - `construction`, `call_site`, `definition` - so this adds no
+        vocabulary to CONTRACTS 11.1.
+        """
+        out: List[Any] = []
+        for hop in getattr(ref, "provenance", ()) or ():
+            loc = getattr(hop, "loc", None)
+            if loc is None:
+                continue
+            out.append((hop.role, loc,
+                        message or ("%s carries %s through this %s hop"
+                                    % (getattr(ref, "name", "the value"),
+                                       ", ".join(ref.tags) or "no tag", hop.kind))))
+        return out
+
+    def hop_chain(self, ref) -> str:
+        """The hop chain of a value, in words (empty when it is local)."""
+        chain = getattr(ref, "provenance", ()) or ()
+        return chain_text(chain) if chain else ""
+
+    def fix(self, module, title: str, edits: Sequence[Any],
+            safety: str = "needs-review") -> Optional[Fix]:
+        """Build one validated `Issue.fix` candidate, or `None` (H5).
+
+        The single door a rule may build an edit through, exactly as `issue()`
+        is the only door it may publish a finding through. Everything a rule
+        could get wrong is checked here rather than in the rule: an edit that
+        no builder could compute (`None` in `edits`), an edit that reaches
+        outside `module`, and - the one that matters - an edit that does not
+        re-parse. A candidate that fails any of them is dropped and the finding
+        ships with its prose `fixHint` alone.
+
+        Returning a candidate is not the same as publishing it: `issue()`
+        drops the fix when the computed confidence lands below `likely`, so a
+        rule can never talk the engine into offering an edit for a finding it
+        is not sure about.
+        """
+        return build_fix(module, title, safety, list(edits))
+
     def ghost(self, kind: str, parent_node: Node, label: str,
               fqn: Optional[str] = None, confidence: float = 0.9) -> Node:
         """Declare a REQUIRED-BUT-ABSENT step in its correct slot (A9)."""
@@ -297,13 +389,20 @@ class GraphContext:
               related: Sequence[Any] = (), evidence: Sequence[Any] = (),
               tags: Sequence[str] = (), dynamic: Optional[bool] = None,
               stage: Optional[str] = None, qualname: Optional[str] = None,
-              severity: Optional[str] = None, wrapper_gated: bool = False) -> Issue:
+              severity: Optional[str] = None, wrapper_gated: bool = False,
+              fix: Optional[Fix] = None) -> Issue:
         """Build one issue: confidence, severity cap, suppression, ids.
 
         `severity` may only **lower** the declared severity (MLV301's
         "drop to medium when the architecture cannot be resolved" refinement);
         a rule can never grade itself up, and the absence cap still applies on
         top of whatever it asks for.
+
+        `fix` is H5's opt-in structured edit, built by `ctx.fix`. It is
+        attached only when the computed confidence lands in `certain` or
+        `likely`: below that the finding itself is a question, and a question
+        does not get to edit somebody's training loop. The rule is not
+        consulted about that - it hands over a candidate and this decides.
         """
         spec = self.current_rule
         if spec is None:  # pragma: no cover - registry always sets it
@@ -319,6 +418,18 @@ class GraphContext:
             raise ValueError("%s: an issue needs a loc" % spec.code)
 
         ev = normalize_evidence(evidence)
+        # IP-01: every finding derived from a value that crossed an object
+        # boundary pays for the crossing, whether or not its rule remembered to
+        # ask. Before this, only `r_leakage` called `ctx.hops(...)`, so MLV111,
+        # MLV114 and MLV301/302 published cross-object claims at `certain` with
+        # evidence reading `dataflow_direct 1.0` - "the tag was established
+        # here" - about a tag that arrived from another file, and with no
+        # RelatedLoc the reader could open to check. "Never `certain`" is only
+        # arithmetic if the arithmetic is unavoidable, so it happens here,
+        # ahead of `compute_confidence`, and not in each rule.
+        hop_ev, hop_related = self._hop_factors(loc, ev)
+        ev = ev + hop_ev
+        related = list(related) + hop_related
         # NB: a finding inside a notebook says which cell it is in, and an
         # order-sensitive rule in an out-of-order notebook is de-rated by the
         # weight of that same factor. Appended last so the evidence a rule
@@ -361,6 +472,12 @@ class GraphContext:
             evidence=list(ev),
             suppressed=self.suppressor.is_suppressed(spec.code, loc.file, loc.line),
             docs="docs/rules/%s.md" % spec.code)
+        # `issue.confidenceBucket`, never `bucket_for(confidence)`: the bucket
+        # the user is shown is computed off the *clamped* value, and a gate that
+        # reads a different number from the one on screen is a gate nobody can
+        # reason about.
+        if fix is not None and issue.confidenceBucket in FIXABLE_BUCKETS:
+            issue.fix = fix
         for node in nodes:
             if issue.id not in node.issueIds:
                 node.issueIds.append(issue.id)
@@ -372,6 +489,37 @@ class GraphContext:
         return issue
 
     # -------------------------------------------------------------- helpers
+    def _hop_factors(self, loc: Loc, evidence: Sequence[Any]
+                     ) -> Tuple[Tuple[Any, ...], List[Any]]:
+        """The `cross_file` factor and hop `RelatedLoc`s this finding owes (IP-01).
+
+        A read counts for a finding when the rule that made it is the rule
+        emitting, and the finding is anchored **inside the scope the value was
+        read in**. That is the same "the two share a source range" join
+        `apply_config_derating` uses, one level coarser because a hop's own
+        location is in the caller's file and can never appear in the finding's
+        own range - which is precisely why the reader needs the RelatedLoc.
+
+        One factor per finding, never one per read: several reads out of the
+        same object are not independent chances of being wrong, so the finding
+        pays the **longest** chain once. A rule that already asked for the
+        factor itself (`r_leakage`) is left exactly as it was.
+        """
+        if not self._hop_reads or self.current_rule is None:
+            return (), []
+        if any(getattr(e, "kind", "") == "cross_file" for e in evidence):
+            return (), []                # the rule paid for it already
+        code = self.current_rule.code
+        worst = None
+        for read_code, scope, ref in self._hop_reads:
+            if read_code != code or not _scope_contains(scope, loc):
+                continue
+            if worst is None or len(ref.provenance) > len(worst.provenance):
+                worst = ref
+        if worst is None:
+            return (), []
+        return tuple(interprocedural_evidence(worst)), self.hop_related(worst)
+
     def _as_node(self, value) -> Optional[Node]:
         if isinstance(value, Node):
             return value
@@ -406,6 +554,25 @@ class GraphContext:
             kind="framework_suppressed",
             message=_gate_message(label, 1),
             codes=[code], count=1))
+
+
+def _scope_contains(scope: ScopeIR, loc: Loc) -> bool:
+    """Is `loc` inside `scope`? (IP-01's join.)
+
+    A module scope owns its whole file; a class or function scope owns the
+    lines of its `def`. `scope.loc` is optional, so a scope with no location
+    falls back to the file test alone - over-approximating in the direction
+    that costs confidence rather than the one that invents it.
+    """
+    if scope is None or loc is None:
+        return False
+    if getattr(scope, "module", None) != getattr(loc, "file", None):
+        return False
+    span = getattr(scope, "loc", None)
+    if span is None or scope.kind == "module":
+        return True
+    end = max(getattr(span, "endLine", span.line) or span.line, span.line)
+    return span.line <= loc.line <= end
 
 
 def _gate_message(label: str, count: int) -> str:

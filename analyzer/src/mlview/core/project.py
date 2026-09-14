@@ -22,6 +22,7 @@ import copy
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
+from .pipelines import build_index, pipeline_catalog, resolve_entrypoint
 from .selectors import (CONCERN_ALIASES, CONCERN_LABELS, CONCERNS, DEFAULT_DEPTH,
                         MAX_DEPTH, SCOPE_KINDS, SCOPE_SPELLINGS, Scope, ScopeError,
                         ascii_lower, parse_scope)
@@ -32,6 +33,7 @@ __all__ = [
     "CONCERNS", "CONCERN_ALIASES", "CONCERN_LABELS", "SCOPE_KINDS", "SCOPE_SPELLINGS",
     "DEFAULT_DEPTH", "MAX_DEPTH", "ScopeError", "Scope", "ScopeResolution",
     "parse_scope", "resolve_scope", "project", "scope_catalog", "view_label",
+    "pipeline_catalog",
 ]
 
 _SEVERITIES = ("high", "medium", "low")
@@ -49,6 +51,11 @@ class ScopeResolution:
     core: Tuple[str, ...]
     ambiguous: bool = False
     warnings: Tuple[str, ...] = ()
+    #: MLV-P12 (CONTRACTS 11.47 C). Nodes the scope must keep but must NOT call
+    #: its own - today only a `pipeline:` scope's shared nodes, the ones another
+    #: entrypoint reaches too. Appended last and defaulted to `()`, so every
+    #: other kind builds exactly the resolution it built before.
+    context: Tuple[str, ...] = ()
 
     @property
     def empty(self) -> bool:
@@ -133,6 +140,39 @@ def _resolve_file(nodes: Sequence[Dict[str, Any]], target: str
                      sorted({file_of(n) for n in nodes if file_of(n)}))
 
 
+def _resolve_pipeline(graph: Dict[str, Any], nodes: Sequence[Dict[str, Any]],
+                      scope: Scope) -> ScopeResolution:
+    """`pipeline:<entrypoint>` (CONTRACTS 11.47 B/C).
+
+    Anchors are the **seeds**: the nodes of the entrypoint file itself, which is
+    what the user named. `core` is the pipeline's *exclusive* reach - everything
+    it reaches that no other entrypoint does - and the shared remainder becomes
+    forced `context`, so a node two pipelines both use is never claimed by one
+    of them. A target that is not an entrypoint is `unknown_pipeline`; an
+    entrypoint whose file contributed no node is an EMPTY scope, not an error,
+    for the same reason `unit:` is (11.2 step 9).
+    """
+    canonical, warnings = resolve_entrypoint(graph, scope.target)
+    if canonical is None:
+        raise ScopeError(
+            "unknown_pipeline", scope.target,
+            [str(e) for e in
+             ((graph.get("workspace") or {}).get("entrypoints") or [])])
+    index = build_index(graph)
+    anchors = tuple(n["id"] for n in nodes
+                    if (n.get("loc") or {}).get("file") == canonical)
+    core = index.core_of(canonical)
+    context = index.context_of(canonical)
+    if anchors:
+        warnings = list(warnings) + [
+            "scope pipeline:%s draws %d node(s) of %d: %d are shared with "
+            "another entrypoint and are shown as context, and %d node(s) of "
+            "this graph belong to no pipeline at all."
+            % (canonical, len(core) + len(context), len(nodes), len(context),
+               len(index.unreached))]
+    return ScopeResolution(scope, anchors, core, False, tuple(warnings), context)
+
+
 def resolve_scope(graph: Dict[str, Any], scope: Scope) -> ScopeResolution:
     """Anchors + core for `scope`, in document order. No projection."""
     nodes: List[Dict[str, Any]] = list(graph.get("nodes") or [])
@@ -153,6 +193,8 @@ def resolve_scope(graph: Dict[str, Any], scope: Scope) -> ScopeResolution:
         if not anchors:
             raise ScopeError("unknown_node", scope.target,
                              [n["id"] for n in nodes])
+    elif scope.kind == "pipeline":
+        return _resolve_pipeline(graph, nodes, scope)
     else:                                                   # unit
         anchors, extra = _resolve_unit(nodes, scope.target)
         warnings.extend(extra)
@@ -207,9 +249,12 @@ def project(graph: Dict[str, Any], scope: Scope) -> Dict[str, Any]:
     resolution = resolve_scope(graph, scope)
     core: Set[str] = set(resolution.core)
 
-    # steps 3-4: boundary rings, then the ancestor closure.
-    boundary = _boundary(edges, core, scope.depth)
-    context = _ancestors(by_id, core | boundary)
+    # steps 3-4: boundary rings, then the ancestor closure. `forced` is
+    # MLV-P12's addition (11.47 C): nodes the scope keeps but never calls its
+    # own. It is empty for every kind but `pipeline`, so nothing else moves.
+    forced: Set[str] = set(resolution.context) - core
+    boundary = _boundary(edges, core, scope.depth) - forced - core
+    context = (_ancestors(by_id, core | boundary | forced) | forced) - core - boundary
     kept: Set[str] = core | boundary | context
 
     kept_edges = [e for e in edges if e["source"] in kept and e["target"] in kept]
@@ -401,7 +446,7 @@ def view_label(graph: Dict[str, Any], scope: Scope,
         return (row or {}).get("label") or scope.target
     if scope.kind == "concern":
         return CONCERN_LABELS.get(scope.target, scope.target)
-    if scope.kind == "file":
+    if scope.kind in ("file", "pipeline"):
         return scope.target
     if len(anchors) == 1:
         return anchors[0].get("label") or scope.target
@@ -511,6 +556,9 @@ def _assemble(graph: Dict[str, Any], scope: Scope, resolution: ScopeResolution,
 
 
 # -------------------------------------------------------------- catalogue
+#: `pipeline_catalog` lives in `pipelines.py` beside the relation it reads and
+#: is re-exported here, so `--list-scopes` and CONTRACTS 11.6 keep one import
+#: path for the whole scoped-view surface.
 def scope_catalog(graph: Dict[str, Any], limit: int = 40) -> List[Dict[str, Any]]:
     """One row per scopable unit - a node with children, or `level` in
     {stage, unit} - sorted `(-nodeCount, file, line, qualname)`.

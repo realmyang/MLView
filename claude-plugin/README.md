@@ -113,12 +113,14 @@ always stays on disk behind `graphPath`.
 |---|---|---|
 | `mlview_analyze` | `path?`, `framework?`, `maxNodes?`, `includeHtml?`, `scope?`, `depth?` | The digest: files, frameworks, stage lanes, node/edge/issue counts, up to 10 top issues, `graphPath`, `reportPath?`; with a scope, also `scope{spec,kind,target,depth,nodesInScope,nodesTotal}` |
 | `mlview_issues` | `path?`, `minSeverity?`, `minConfidence?`, `code?[]`, `limit?`, `scope?`, `depth?`, `groupBy?`, `changedSince?`, `baseline?` | `countBySeverity`, `suppressedCount`, and the issue rows with `file`, `line`, `fixHint` and related sites. A scope keeps only the findings **anchored inside** it. `changedSince` (a git revision) analyses the whole project and then lists only what the change touched, each row carrying `change: new\|touched`; `baseline` marks what a `mlview baseline write` file already records and returns `baselinedCount`. Both degrade to *"every finding, and here is why"* — never to an empty list |
-| `mlview_graph` | `path?`, `format?`, `scope?`, `depth?` | `{format, scope, content}` — **mermaid by default**. Two catalogue values, `"stages"` (the lane summary) and `"units"` (the scopable-unit menu), plus the whole selector grammar below |
+| `mlview_graph` | `path?`, `format?`, `scope?`, `depth?`, `base?` | `{format, scope, content}` — **mermaid by default**. Two catalogue values, `"stages"` (the lane summary) and `"units"` (the scopable-unit menu), plus the whole selector grammar below — and `scope: "diff"` with `base`, which compares this analysis against an earlier document instead of drawing one |
 | `mlview_explain` | `nodeId?` **or** `code?`, `path?`, `graphPath?` | A node with its edges, issues, stage evidence and ≤ 60 lines of real source; or a rule code's documentation |
 | `mlview_open_diagram` | `path?`, `graphPath?`, `out?`, `scope?`, `depth?` | `{reportPath, reportUrl, opened}` — writes the self-contained HTML and launches it. `out` must stay inside the project directory or `MLVIEW_DATA_DIR` |
 
-**Still exactly five tools.** Scoping is an argument, not a sixth tool, and
-discovery is the `"units"` value of an argument that already existed.
+**Still exactly five tools.** Scoping is an argument, not a sixth tool,
+discovery is the `"units"` value of an argument that already existed, and
+VIEW-08's comparison is a `"diff"` value of the same one — a diff is another
+projection of the same graph, which is why it did not earn a tool of its own.
 
 #### The `scope` grammar
 
@@ -133,6 +135,17 @@ discovery is the `"units"` value of an argument that already existed.
 | `"concern:<name>"` | `config` · `data` · `optimization` · `evaluation` — four presets that partition the eight stages. Aliases: `setup`, `preprocessing`, `dataset`, `training`, `inference` |
 | `"node:<nodeId>"` | one node and its neighbourhood |
 | `"symbol:<name>"` | an alias for `unit:<name>` |
+| `"diff"` | **VIEW-08 — not a diagram.** Compares this analysis against the `base` document and returns `{summary{headline, nodes, edges, issues}, content, note, basePath}`, where `content` is the `mlview diff` summary and `issues` is `{new, fixed, persisting}`. `format` and `depth` are ignored. Requires `base`; a `base` that is not an MLView graph — a diff overlay included — is an **error naming the file**, never an empty comparison, because *"0 changes"* is the most dangerous wrong answer this projection can give |
+
+The comparison itself is the **analyzer's** (`mlview.core.diff`, CONTRACTS
+§11.38) — this server computes none of it, so the report, the editor and the
+plugin cannot disagree about what changed. Its caveats ride the payload's
+protected `note` key and are therefore never shed by the 4 KB budget: a `removed`
+node can also mean not-analyzed, truncated, projected away, a different workspace
+root or a different analyzer version, and a **renamed** file is reported as every
+node removed plus every node added, because the §0 stable id embeds the path. Read
+the `note` before quoting the counts; `/mlview-issues --diff-base <file>` is the
+slash-command spelling of the same thing.
 
 `depth` is `0`, `1` or `2` boundary hops, its own argument and never packed into
 the selector. Omit it for the per-kind default — 1 for `unit`/`node` (a point,
@@ -195,6 +208,48 @@ runs the server twice over one data directory, doctoring the cache in between, t
 keep that true. Every log line goes to **stderr** —
 stdout carries protocol frames only.
 
+### Hooks (H8)
+
+`hooks/hooks.json` registers two hooks. They exist because the rest of the plugin is
+**pull-based**: when Claude edits a training file during a session nothing tells it the
+edit introduced MLV203, and the user finds out on the next manual `/mlview-issues`.
+
+| Event | Script | What it does |
+|---|---|---|
+| `PostToolUse` on `Edit\|Write\|NotebookEdit` | `hooks/post_edit.py` | Re-analyzes and adds one bounded `additionalContext` **only when the edit added a finding** |
+| `Stop` | `hooks/stop_summary.py` | The same diff, once per turn, for teams that prefer one summary to one line per edit |
+
+**The discipline is the feature.** A hook that speaks on every edit gets turned off within
+a day, so:
+
+- it exits 0 **immediately** unless the edited path is a `.py` under `CLAUDE_PROJECT_DIR`
+  (or an `.ipynb` when `MLVIEW_INCLUDE_NOTEBOOKS=1`, or `[paths] notebooks = true` is set
+  in the project's configuration);
+- it re-analyzes through the **same `load_graph` cache the MCP tools read**, sharing
+  `MLVIEW_DATA_DIR` for the graph document *and* `<MLVIEW_DATA_DIR>/cache` for the
+  per-file parse cache (both halves call `mlview_workspace.cache_dir()`), so the hook
+  *warms* the cache those tools then read for free;
+- it diffs the issue-id set against the previous run and speaks **only when the set grew**,
+  at most **5 rows**, worst severity first;
+- it gives up after a **3-second** wall clock and exits 0 in silence;
+- it **never blocks** (a hook blocks by exiting 2; these never do) and **never writes into
+  the project** — with nothing naming `MLVIEW_DATA_DIR` it redirects both the document and
+  the parse cache to a temporary directory rather than creating `<project>/.mlview`;
+- the **first** run on a project is silent by construction: there is nothing to diff
+  against, and its whole value is the warm cache.
+
+`MLVIEW_HOOK` decides which of the two speaks: unset or `on` is the PostToolUse hook alone,
+`stop` is the turn summary alone, `both` is both, and **`off` disables them entirely**. An
+unrecognized value is the default rather than an error.
+
+Two things it cannot do, stated rather than discovered: an issue id is content-addressed,
+so an unchanged finding whose line moved comes back with a new id — those are counted
+("*3 existing finding(s) moved line and are not repeated here*") instead of printed as
+new; and the command is the shell form `${MLVIEW_PYTHON:-python} "${CLAUDE_PLUGIN_ROOT}/…"`,
+which on Windows *without* Git Bash is PowerShell and will not expand, so the hook does
+nothing there. It fails silently and never blocks, which is the intended degradation —
+set `MLVIEW_PYTHON` and use a bash-capable shell to get it back.
+
 ### Environment
 
 | Variable | Meaning |
@@ -202,6 +257,9 @@ stdout carries protocol frames only.
 | `MLVIEW_PROJECT_DIR` | The project root. Relative `path` arguments resolve against it. Defaults to the process working directory. |
 | `MLVIEW_DATA_DIR` | Where `graph.json` and `report.html` are written. Defaults to `<project>/.mlview`. |
 | `MLVIEW_NO_OPEN=1` | `mlview_open_diagram` writes the report but does not launch a browser (`opened: false`). Used by the tests and by `scripts/e2e`. |
+| `MLVIEW_HOOK` | H8: which hook speaks — unset/`on` (PostToolUse), `stop`, `both`, or `off`. |
+| `MLVIEW_INCLUDE_NOTEBOOKS=1` | H8: treat an `.ipynb` edit as worth re-analyzing for. |
+| `MLVIEW_CACHE_DIR` | The per-file parse cache (CONTRACTS 11.28), which ships **on** (11.39). The server *and* the hooks default it to `<MLVIEW_DATA_DIR>/cache` — one shared directory, and nothing written into the project. `.mcp.json` names it explicitly as `${CLAUDE_PLUGIN_DATA}/cache`. |
 | `MLVIEW_LOG_LEVEL` | `DEBUG` for verbose stderr logging. |
 
 ## Tests

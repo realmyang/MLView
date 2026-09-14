@@ -14,8 +14,10 @@ import { severityGlyph, SEVERITY_ORDER, normalizeSeverity } from '../markers.js'
 import { appendTrustSections, confidenceChip } from './evidence.js';
 import { defaultExpanded, groupIssues, needsHeader, occurrenceText, RAIL_GROUP_LABEL, RAIL_GROUP_MODES } from './railgroup.js';
 import { appendSuppressActions, stateChip, suppressedSummary } from './suppress.js';
+import { appendFixSection, fixMarker, hasFix } from './fixes.js';
 import type { IssueGroup } from './railgroup.js';
 import type { GraphIndex } from '../layout/model.js';
+import type { DiffIndex, DiffIssueEntry } from '../diff/overlay.js';
 import { isKnownIssueChange, isSetAside } from '../types.js';
 import type { Issue, Loc, RailGroupBy, RelatedLoc } from '../types.js';
 
@@ -30,6 +32,8 @@ export interface IssueListCallbacks {
   onCopyIgnore(code: string): void;
   /** MLV-P10: post `suppressRule` for this code. */
   onDisableRule(code: string): void;
+  /** H5: ask the host to apply `Issue.fix`, or copy it where it cannot. */
+  onApplyFix(issueId: string): void;
 }
 
 export interface IssueListState {
@@ -37,10 +41,14 @@ export interface IssueListState {
   issues: Issue[];
   keep(issue: Issue): boolean;
   selectedIssueId: string | null;
-  scope: { shown: number; hidden: number; total: number } | null;
+  scope: { shown: number; hidden: number; total: number; where: string } | null;
   groupBy: RailGroupBy;
   /** Group keys the user has opened. Session-local; only the mode persists. */
   expanded: Set<string>;
+  /** VIEW-08: the diff overlay, when one is loaded. Null is the normal case. */
+  diff: DiffIndex | null;
+  /** H5: true in a host that can actually make an edit (VS Code). */
+  canApplyFix: boolean;
   /**
    * Everything `keep` tests EXCEPT suppression and baselining (MLV-P10). The
    * collapsed "N suppressed" section is an audit trail of what was set aside,
@@ -86,6 +94,10 @@ export function renderIssuePanel(panel: HTMLElement, s: IssueListState, cb: Issu
     // "No issues found" over a document where three findings were silenced is
     // not a clean bill of health, so the section is drawn here too (MLV-P10).
     if (setAside.length) panel.appendChild(suppressedSection(setAside, s, cb));
+    // VIEW-08: and "no issues" over a diff that fixed fifteen is the BEST news
+    // this product ever delivers. It belongs on the zero screen most of all.
+    const fixedHere = fixedEntries(s);
+    if (fixedHere.length) panel.appendChild(fixedSection(fixedHere, s, cb));
     return;
   }
   for (const sev of SEVERITY_ORDER) {
@@ -101,6 +113,70 @@ export function renderIssuePanel(panel: HTMLElement, s: IssueListState, cb: Issu
     else renderGroups(section, group, sev, s, cb);
   }
   if (setAside.length) panel.appendChild(suppressedSection(setAside, s, cb));
+  const fixed = fixedEntries(s);
+  if (fixed.length) panel.appendChild(fixedSection(fixed, s, cb));
+}
+
+/* ── the collapsed "N fixed by this change" section (VIEW-08) ──────────── */
+
+/** The overlay's `fixed` findings — the ones the BASE document had. */
+function fixedEntries(s: IssueListState): DiffIssueEntry[] {
+  if (!s.diff) return [];
+  const out: DiffIssueEntry[] = [];
+  for (const entry of s.diff.overlay.issues) {
+    if (entry.status === 'fixed') out.push(entry);
+  }
+  return out;
+}
+
+/**
+ * What this change FIXED, folded away but present.
+ *
+ * These rows are not findings in this document — by definition, they are gone —
+ * so they are read-only: no severity filter applies to them, no suppression
+ * action makes sense, and there is no "Go to", because the location they carry
+ * is a line in the OLDER analysis and this page has no source for it. The header
+ * says exactly that, so nobody reads an inert row as a broken button.
+ */
+function fixedSection(rows: DiffIssueEntry[], s: IssueListState, cb: IssueListCallbacks): HTMLElement {
+  const box = el('section', 'mlv-rail__section mlv-rail__fixed');
+  box.setAttribute('data-fixed-section', String(rows.length));
+  const open = s.expanded.has('diff-fixed');
+  if (open) box.classList.add('is-open');
+  const head = el('button', 'mlv-railgroup__head mlv-rail__fixed-head') as HTMLButtonElement;
+  head.type = 'button';
+  head.setAttribute('aria-expanded', open ? 'true' : 'false');
+  head.setAttribute('data-group-toggle', 'diff-fixed');
+  head.appendChild(uiIcon('chevron', 12));
+  const label = rows.length + (rows.length === 1 ? ' finding fixed' : ' findings fixed') + ' by this change';
+  add(head, el('span', 'mlv-railgroup__title', label));
+  head.setAttribute('aria-label', label + ' — reported by the earlier analysis and not by this one');
+  on(head, 'click', () => cb.onToggleGroup('diff-fixed'));
+  box.appendChild(head);
+  if (!open) return box;
+  add(
+    box,
+    el(
+      'div',
+      'mlv-empty-note mlv-rail__fixed-note',
+      'These are findings the EARLIER analysis reported. They are not in this document, so there is nothing here to open or suppress.',
+    ),
+  );
+  const list = add(box, el('ul', 'mlv-issues mlv-issues--readonly'));
+  list.setAttribute('aria-label', 'Findings fixed by this change');
+  for (const entry of rows) {
+    const li = add(list, el('li', 'mlv-issues__item'));
+    const row = add(li, el('div', 'mlv-issue is-fixed'));
+    row.setAttribute('data-fixed-issue', entry.id);
+    row.appendChild(severityGlyph(entry.severity, 14, ''));
+    const text = add(row, el('div', 'mlv-issue__text'));
+    add(text, el('div', 'mlv-issue__title', entry.title || entry.code));
+    const meta = add(text, el('div', 'mlv-issue__meta'));
+    add(meta, el('span', '', entry.code));
+    if (entry.loc) add(meta, el('span', '', entry.loc.file + ':' + entry.loc.line));
+    stateChip(meta, 'mlv-chip--diff mlv-chip--diff-fixed', 'fixed', 'Reported by the earlier analysis and not by this one');
+  }
+  return box;
 }
 
 /* ── the collapsed "N suppressed" section (MLV-P10, CI-ADOPT) ──────────── */
@@ -284,6 +360,23 @@ function issueRow(issue: Issue, s: IssueListState, cb: IssueListCallbacks): HTML
   if (issue.suppressed) stateChip(meta, 'mlv-chip--suppressed', 'suppressed', 'Silenced by a comment or by .mlview.toml');
   // CI-ADOPT: baselined is MARKED, never deleted.
   if (issue.baselined) stateChip(meta, 'mlv-chip--baselined', 'baselined', 'Already in the baseline file, so it does not fail the build');
+  // VIEW-08: how this finding stands against the BASE analysis. Worded "vs base"
+  // so it can never be misread as CI-ADOPT's `new` chip below, which is about
+  // git hunks in one analysis rather than two analyses.
+  const diffStatus = s.diff ? s.diff.issueStatusOf(issue.id) : null;
+  if (diffStatus === 'new' || diffStatus === 'persisting') {
+    stateChip(
+      meta,
+      'mlv-chip--diff mlv-chip--diff-' + diffStatus,
+      diffStatus === 'new' ? 'new vs base' : 'still there',
+      diffStatus === 'new'
+        ? 'The earlier analysis did not report this finding'
+        : 'Both analyses report this finding',
+    ).setAttribute('data-diff-issue', diffStatus);
+  }
+  // H5: the marker, beside the confidence chip the fix was gated on.
+  const marker = fixMarker(issue);
+  if (marker) meta.appendChild(marker);
   // CI-ADOPT: new / touched / existing, when the run was attributed at all.
   if (isKnownIssueChange(issue.change)) {
     stateChip(meta, 'mlv-chip--change mlv-chip--change-' + issue.change, issue.change as string, changeTitle(issue.change as string)).setAttribute(
@@ -311,7 +404,7 @@ function issueRow(issue: Issue, s: IssueListState, cb: IssueListCallbacks): HTML
   // The selected row expands in place with the message, the why line, the fix
   // hint and a Go to button per location — the most valuable content in the
   // product used to be unreachable from the Issues tab entirely (MLV-R1-006).
-  if (selected) li.appendChild(issueDetail(issue, cb));
+  if (selected) li.appendChild(issueDetail(issue, s, cb));
   return li;
 }
 
@@ -323,12 +416,15 @@ function changeTitle(change: string): string {
 }
 
 /** The expanded body of a selected issue row. */
-function issueDetail(issue: Issue, cb: IssueListCallbacks): HTMLElement {
+function issueDetail(issue: Issue, s: IssueListState, cb: IssueListCallbacks): HTMLElement {
   const box = el('div', 'mlv-issue__detail');
   box.setAttribute('data-issue-detail', issue.id);
   if (issue.message) add(box, el('p', 'mlv-insp__line', issue.message));
   if (issue.why) add(box, el('p', 'mlv-insp__line mlv-insp__why', issue.why));
   if (issue.fixHint) add(box, el('div', 'mlv-insp__fix', issue.fixHint));
+  // H5: the prose hint stays — it is what all 36 rules carry — and the computed
+  // edit goes UNDER it, so the reader sees the advice before the diff of it.
+  if (hasFix(issue)) appendFixSection(box, issue, cb, { canApply: s.canApplyFix });
   // MLV-P6: the evidence checklist and the rule card, both as disclosures.
   appendTrustSections(box, issue);
   const actions = add(box, el('div', 'mlv-issue__goto'));
@@ -442,7 +538,7 @@ function nothingAnalyzedState(s: IssueListState): HTMLElement {
 }
 
 /** "3 of 15 findings shown · 12 outside this scope — Show all". */
-function scopeLine(scope: { shown: number; hidden: number; total: number }, cb: IssueListCallbacks): HTMLElement {
+function scopeLine(scope: { shown: number; hidden: number; total: number; where: string }, cb: IssueListCallbacks): HTMLElement {
   const box = el('div', 'mlv-rail__scopeline');
   box.setAttribute('role', 'status');
   box.setAttribute('data-scope-line', '1');
@@ -451,7 +547,8 @@ function scopeLine(scope: { shown: number; hidden: number; total: number }, cb: 
     el(
       'span',
       '',
-      scope.shown + ' of ' + scope.total + (scope.total === 1 ? ' finding' : ' findings') + ' shown · ' + scope.hidden + ' outside this scope',
+      scope.shown + ' of ' + scope.total + (scope.total === 1 ? ' finding' : ' findings') + ' shown · ' + scope.hidden + ' ' +
+        (scope.where || 'outside this scope'),
     ),
   );
   const all = button('mlv-link mlv-link--inline', 'Show all', 'Clear the scope. Filters are separate.');
@@ -461,11 +558,14 @@ function scopeLine(scope: { shown: number; hidden: number; total: number }, cb: 
 }
 
 /** The fourth empty state: in scope, but nothing is wrong HERE. */
-function scopeEmptyState(scope: { hidden: number; total: number }, cb: IssueListCallbacks): HTMLElement {
+function scopeEmptyState(scope: { hidden: number; total: number; where: string }, cb: IssueListCallbacks): HTMLElement {
   const box = el('div', 'mlv-empty-note');
   box.setAttribute('role', 'status');
   box.setAttribute('data-scope-empty-rail', '1');
-  add(box, el('div', 'mlv-clean__title', 'No findings in this scope'));
+  // VIEW-08: "in this scope" would name a narrowing the reader never chose when
+  // the narrowing is the diff's own.
+  const where = scope.where === 'outside the changed set' ? 'in the changed set' : 'in this scope';
+  add(box, el('div', 'mlv-clean__title', 'No findings ' + where));
   add(box, el('div', 'mlv-clean__detail', scope.hidden + ' elsewhere in this project.'));
   const all = button('mlv-btn', 'Show all');
   on(all, 'click', () => cb.onClearScope());

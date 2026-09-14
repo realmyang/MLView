@@ -102,7 +102,16 @@ export type HostToUi =
    * A viewer that does not implement it ignores an unknown type, which is why nothing here
    * blocks on a reply and why the command says what it asked for rather than what it saved.
    */
-  | { v: 1; type: 'requestExport'; kind: ExportKind; scope: ExportScope };
+  | { v: 1; type: 'requestExport'; kind: ExportKind; scope: ExportScope }
+  /**
+   * VIEW-08 (11.38 + this sprint's host amendment). The comparison overlay `mlview diff`
+   * produced, handed to the viewer as an OPTIONAL SIBLING of the graph — never merged into
+   * it, because `schemaVersion` stays 1.0 and an unscoped analyze must emit identical bytes.
+   * `overlay` is the `kind: "mlview-diff"` document verbatim; `null` clears a comparison.
+   * A viewer that does not implement it ignores an unknown type, which is what keeps this
+   * additive across the three hosts.
+   */
+  | { v: 1; type: 'diffOverlay'; overlay: DiffOverlay | null; baseLabel?: string };
 
 export interface OpenLocationMessage {
   v: 1;
@@ -136,6 +145,13 @@ export type UiToHost =
    */
   | SuppressRuleMessage
   /**
+   * H5 (this sprint's host amendment). "Apply the fix on this finding." The viewer sends only
+   * the ISSUE ID: the edits are read from the host's own copy of the graph, so a webview can
+   * never dictate a range or a replacement string. The host then runs the exact code path the
+   * editor lightbulb runs — containment check, `likely` floor and refactor preview included.
+   */
+  | ApplyFixMessage
+  /**
    * VIEW-07. The rendered picture, coming back from the viewer. The webview sandbox has no
    * download of its own, so the bytes travel through the protocol and the HOST owns the
    * save dialog and the write (docs/contracts/11.33-diagram-export.md).
@@ -147,6 +163,26 @@ export type UiToHost =
    * description; it must NEVER trigger a re-analysis.
    */
   | ScopeChangedMessage;
+
+/**
+ * VIEW-08: the overlay document, typed only as far as the host actually reads it. Everything
+ * else travels through verbatim — the viewer owns the rendering and the host owns nothing but
+ * the transport, so widening this type is never how a new overlay field reaches the diagram.
+ */
+export interface DiffOverlay {
+  kind: 'mlview-diff';
+  diffVersion: string;
+  summary?: { headline?: string };
+  notes?: unknown[];
+  [key: string]: unknown;
+}
+
+export interface ApplyFixMessage {
+  v: 1;
+  type: 'applyFix';
+  /** `i:...`, from the graph the host itself published. */
+  issueId: string;
+}
 
 export interface SuppressRuleMessage {
   v: 1;
@@ -206,7 +242,8 @@ export const UI_TO_HOST_TYPES: readonly UiToHostType[] = [
   'log',
   'scopeChanged',
   'suppressRule',
-  'exportFile'
+  'exportFile',
+  'applyFix'
 ];
 
 export const HOST_TO_UI_TYPES: readonly HostToUiType[] = [
@@ -223,7 +260,8 @@ export const HOST_TO_UI_TYPES: readonly HostToUiType[] = [
   'stale',
   'restoreState',
   'setScope',
-  'requestExport'
+  'requestExport',
+  'diffOverlay'
 ];
 
 /** The four error-banner action ids the host answers (CONTRACTS.md §4, UX §12 "hard error"). */
@@ -338,6 +376,11 @@ export function isUiToHost(value: unknown): value is UiToHost {
         (value['absFile'] === undefined || isAbsoluteFilePath(value['absFile'])) &&
         (value['line'] === undefined || (isFiniteNumber(value['line']) && value['line'] >= 1))
       );
+    case 'applyFix':
+      // H5: an id and nothing else. A range or a replacement string arriving from the webview
+      // would be the webview deciding what to write to disk, which is the one thing the
+      // "edits are computed from the AST" guardrail exists to prevent.
+      return typeof value['issueId'] === 'string' && value['issueId'].length > 0;
     case 'exportFile':
       return isExportFile(value);
     case 'scopeChanged':

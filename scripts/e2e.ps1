@@ -146,6 +146,28 @@ if (Test-Path $ReportClean) {
     Add-Result 'render clean report (jsdom)' 'SKIP' '.mlview/report_clean.html was not produced'
 }
 
+# ------------------------------------------------- the diagram leaves as a file
+# VIEW-07, gate row 12d, promoted into the table (PROC-12). `npm test` makes
+# these assertions against the frozen `contracts/graph.sample.json`; this makes
+# the same ones against the 54-node document the analyzer emitted a moment ago,
+# through the bundle `webview/dist` currently holds: one `<g>` per drawn card,
+# one path per routed edge, every document edge reaching the picture, each drawn
+# lane's stage colour present as a literal, well-formed XML, and nothing to
+# fetch -- no `url(`, `foreignObject`, `xlink`, `<image`, `<script`, `@font-face`,
+# `@import` or `var(--`. An SVG that needs the network is a picture that renders
+# differently in the pull request it was pasted into.
+$GraphJson = Join-Path $OutDir 'graph.json'
+if (-not (Test-Path $GraphJson)) {
+    Add-Result 'export diagram (SVG)' 'SKIP' '.mlview/graph.json was not produced'
+} elseif (-not (Test-Path (Join-Path $RepoRoot 'webview/test/export_svg.mjs'))) {
+    Add-Result 'export diagram (SVG)' 'SKIP' 'webview/test/export_svg.mjs is absent'
+} elseif (-not (Test-Path (Join-Path $RepoRoot 'webview/dist/mlview.js'))) {
+    Add-Result 'export diagram (SVG)' 'SKIP' 'webview/dist/mlview.js is not built'
+} else {
+    $SvgOut = '--out=' + (Join-Path $OutDir 'diagram.svg')
+    Invoke-Step 'export diagram (SVG)' (Join-Path $RepoRoot 'webview') { node test/export_svg.mjs $GraphJson $SvgOut }
+}
+
 # --------------------------------------------------- the scoped demo artifacts
 # Feature 2, the three demos from docs/FEATURES_FLOW_AND_SCOPE.md section 8: the
 # custom train/test split, model optimization, and evaluation on the inference

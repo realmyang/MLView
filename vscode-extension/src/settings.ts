@@ -17,6 +17,20 @@ export interface MlviewSettings {
   currentFileAnalysisScope: CurrentFileAnalysisScope;
   exclude: string[];
   /**
+   * CFG-ONE: an explicit `.mlview.toml` (or a `pyproject.toml` carrying `[tool.mlview]`),
+   * absolute or folder-relative. Empty means "discover it": `<root>/.mlview.toml`, then
+   * `<root>/pyproject.toml` when it has the table. See `src/mlviewConfig.ts` for the
+   * precedence — the FILE wins for `disable` and `exclude`, and `mlview.disabledRules` /
+   * `mlview.exclude` are additive filters on top of it.
+   */
+  configPath: string;
+  /**
+   * CI-ADOPT: a `mlview baseline write` file whose findings stop counting. Empty means no
+   * baseline, and one is never discovered: a file that quietly empties the Problems panel has
+   * to be opted into by name.
+   */
+  baselinePath: string;
+  /**
    * NB: pass `--include-notebooks` to the analyzer so `.ipynb` files are read instead of
    * counted and skipped. Default **false**: with it off the extension emits exactly the argv
    * it emitted before notebooks existed, so the default path is byte-identical.
@@ -40,6 +54,8 @@ export const DEFAULT_SETTINGS: MlviewSettings = {
   analyzeOnSave: true,
   currentFileAnalysisScope: 'package',
   exclude: [],
+  configPath: '',
+  baselinePath: '',
   includeNotebooks: false,
   maxFiles: 500,
   maxNodes: 400,
@@ -87,6 +103,8 @@ export function readSettings(resource?: vscode.Uri): MlviewSettings {
       d.currentFileAnalysisScope
     ),
     exclude: stringArray(cfg.get('exclude'), d.exclude),
+    configPath: (cfg.get<string>('configPath') ?? d.configPath).trim(),
+    baselinePath: (cfg.get<string>('baselinePath') ?? d.baselinePath).trim(),
     includeNotebooks: cfg.get<boolean>('includeNotebooks') ?? d.includeNotebooks,
     maxFiles: positiveInt(cfg.get('maxFiles'), d.maxFiles),
     maxNodes: positiveInt(cfg.get('maxNodes'), d.maxNodes),

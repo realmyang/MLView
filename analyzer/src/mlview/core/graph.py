@@ -81,6 +81,11 @@ class Node:
     issueIds: List[str] = field(default_factory=list)
     collapsedByDefault: bool = False
     stageEvidence: List[Evidence] = field(default_factory=list)
+    #: PERF-04 (CONTRACTS 11.46 B1). How many nodes were folded into this one by
+    #: the `--max-nodes` rollup, counted transitively. Appended last and
+    #: defaulted to 0, and emitted **only when non-zero**, so an uncapped
+    #: document is byte-identical to what it was before the field existed.
+    rolledUp: int = 0
 
     def to_dict(self) -> Dict[str, Any]:
         out: Dict[str, Any] = {
@@ -114,6 +119,8 @@ class Node:
         out["issueIds"] = list(self.issueIds)
         out["collapsedByDefault"] = self.collapsedByDefault
         out["stageEvidence"] = [e.to_dict() for e in self.stageEvidence]
+        if self.rolledUp:
+            out["rolledUp"] = int(self.rolledUp)
         return out
 
     @property
@@ -134,6 +141,11 @@ class Edge:
     tags: Tuple[str, ...] = ()
     confidence: float = 0.9
     issueIds: List[str] = field(default_factory=list)
+    #: PERF-04 (CONTRACTS 11.46 B2). How many parallel edges this one stands
+    #: for after the `--max-nodes` rollup re-pointed them at a common ancestor.
+    #: Appended last, defaulted to 0 and emitted **only when >= 2**, so an
+    #: uncapped document is byte-identical to what it was before.
+    weight: int = 0
 
     def to_dict(self) -> Dict[str, Any]:
         out: Dict[str, Any] = {"id": self.id, "kind": self.kind}
@@ -147,6 +159,8 @@ class Edge:
         out["tags"] = list(self.tags)
         out["confidence"] = clamp_confidence(self.confidence)
         out["issueIds"] = list(self.issueIds)
+        if self.weight and self.weight >= 2:
+            out["weight"] = int(self.weight)
         return out
 
     @property
@@ -184,6 +198,14 @@ class Issue:
     baselined: bool = False
     #: `change` - `new` / `touched` / `existing` against a diff.
     change: Optional[str] = None
+    #: H5. `rules.fixes.Fix` - an opt-in structured edit, attached by
+    #: `GraphContext.issue` only for a rule that asked for one AND a finding
+    #: that reached the `likely` bucket. Appended last and defaulted for the
+    #: same reason as the two above, and emitted only when set, so every run of
+    #: every rule that did not opt in is byte-identical to what it was before
+    #: this field existed. Typed loosely on purpose: `core` must not import
+    #: `rules`, and everything this object owes the document is `to_dict()`.
+    fix: Optional[Any] = None
 
     @property
     def confidenceBucket(self) -> str:
@@ -216,6 +238,8 @@ class Issue:
             out["baselined"] = True
         if self.change:
             out["change"] = self.change
+        if self.fix is not None:
+            out["fix"] = self.fix.to_dict()
         out["docs"] = self.docs or ("docs/rules/%s.md" % self.code)
         return out
 
@@ -298,6 +322,13 @@ class MLGraph:
     diagnostics: List[Diagnostic] = field(default_factory=list)
     stages: List[StageSummary] = field(default_factory=list)
     truncated: bool = False
+    #: VIEW-R1. Stage ids that had at least one node **before** `--max-nodes`
+    #: rolled the document up. Not serialized and not part of the schema: it
+    #: exists so `_recount_stages` can keep `present` a statement about the
+    #: analyzed workspace after a fold has moved nodes onto a summary node whose
+    #: stage is a majority vote. A rollup must never be able to turn a stage
+    #: that is there into a stage the document says is absent.
+    stagesBeforeRollup: Tuple[str, ...] = ()
     durationMs: int = 0
     generatedAt: str = "1970-01-01T00:00:00Z"
 
@@ -340,9 +371,11 @@ class MLGraph:
             summary = summaries.get(issue.stage)
             if summary is not None:
                 summary.issueCounts[issue.severity] = summary.issueCounts.get(issue.severity, 0) + 1
+        before = set(self.stagesBeforeRollup or ())
         for summary in summaries.values():
             counts = summary.issueCounts
-            summary.present = bool(summary.nodeCount) or any(counts.values())
+            summary.present = (bool(summary.nodeCount) or any(counts.values())
+                               or summary.id in before)
             summary.maxSeverity = next((s for s in ("high", "medium", "low") if counts.get(s)), None)
         self.stages = [summaries[sid] for sid in STAGE_IDS]
 
@@ -388,6 +421,14 @@ class MLGraph:
                 "truncated": bool(self.truncated),
             },
         }
+        # MLV-P12 (CONTRACTS 11.47 D): an optional block, emitted only when the
+        # workspace really has a choice to offer - two or more non-empty
+        # pipelines. A single-entrypoint workspace emits exactly the bytes it
+        # emitted before the feature existed.
+        from .pipelines import pipelines_block
+        blocks = pipelines_block(doc)
+        if len(blocks) >= 2:
+            doc["pipelines"] = blocks
         # MLV-P1: the four answers are composed from the finished document, so
         # every host gets the same four sentences without asking for them. The
         # import is local because `emit` is a layer above `core` - nothing in

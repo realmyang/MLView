@@ -136,10 +136,30 @@ FRAME_OP_METHODS = (
 ARRAY_OP_METHODS = ("reshape", "astype", "copy", "ravel", "flatten", "squeeze",
                     "transpose", "clip", "round")
 
+#: IP-03. The same argument as `_FRAME_OP`, made for numpy - and it had never
+#: been made. A **module-level** constructor takes its data as argument 0
+#: rather than as a receiver, so `X = np.asarray(raw.data)` dropped the
+#: RAW_DATA / FEATURES tag on the floor and MLV101 went silent on a genuine
+#: leak one wrapper call downstream. `np.asarray` is one of the most common
+#: lines in ML preprocessing, and the recovery was one table entry wide.
+#: `bindings.call_output_tags` reads argument 0 for this role.
+_FRAME_MAKE = E("transform", "data", "numpy", "FRAME_MAKE", (), "frame", 0.4)
+_TENSOR_MAKE = E("transform", "data", "torch", "FRAME_MAKE", (), "frame", 0.4)
+
+#: Shape-preserving numpy constructors: same rows, same columns, new container.
+ARRAY_MAKE_FUNCTIONS = ("asarray", "array", "asanyarray", "ascontiguousarray",
+                        "copy", "concatenate", "vstack", "hstack", "stack",
+                        "column_stack", "row_stack")
+#: The torch half of the same hop: `torch.from_numpy(X)` is how a numpy feature
+#: matrix reaches a `TensorDataset`.
+TENSOR_MAKE_FUNCTIONS = ("from_numpy", "as_tensor", "tensor")
+
 FRAME_METHODS: Dict[str, Entry] = {}
 for _base in ("pandas.DataFrame", "pandas.Series"):
     FRAME_METHODS.update(expand(_base, FRAME_OP_METHODS, _FRAME_OP))
 FRAME_METHODS.update(expand("numpy.ndarray", ARRAY_OP_METHODS, _ARRAY_OP))
+OTHER.update(expand("numpy", ARRAY_MAKE_FUNCTIONS, _FRAME_MAKE))
+OTHER.update(expand("torch", TENSOR_MAKE_FUNCTIONS, _TENSOR_MAKE))
 
 ARGPARSE_METHODS: Dict[str, Entry] = {
     "argparse.ArgumentParser.parse_args": E("config", "config", "other", "CONFIG_LOAD"),

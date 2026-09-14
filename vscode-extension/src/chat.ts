@@ -28,7 +28,7 @@ export interface ChatDeps {
   log: Logger;
   core: CoreLike;
   options(): ToolOptions;
-  showDiagram(focusNodeId?: string): Promise<void>;
+  showDiagram(focusNodeId?: string, scopeSpec?: string): Promise<void>;
 }
 
 const LOCAL_NOTE =

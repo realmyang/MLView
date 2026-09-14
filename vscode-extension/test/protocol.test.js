@@ -46,6 +46,12 @@ const SAMPLES = {
     line: 44
   },
   // VIEW-07 (docs/contracts/11.33-diagram-export.md): the rendered picture, base64.
+  // H5: an issue id and nothing else. The host reads the edits from its own graph.
+  applyFix: {
+    v: 1,
+    type: 'applyFix',
+    issueId: 'i:abc123'
+  },
   exportFile: {
     v: 1,
     type: 'exportFile',
@@ -122,7 +128,12 @@ test('malformed known messages are rejected', () => {
     { v: 1, type: 'exportFile', kind: 'svg' },
     { v: 1, type: 'exportFile', kind: 'gif', data: 'PHN2Zz48L3N2Zz4=' },
     { v: 1, type: 'exportFile', kind: 'svg', data: 'data:image/svg+xml;base64,PHN2Zz4=' },
-    { v: 1, type: 'exportFile', kind: 'svg', data: 'PHN2Zz48L3N2Zz4=', suggestedName: '../x.svg' }
+    { v: 1, type: 'exportFile', kind: 'svg', data: 'PHN2Zz48L3N2Zz4=', suggestedName: '../x.svg' },
+    // H5: an id is the only thing the webview may send. A range or a replacement string is
+    // the webview deciding what gets written to disk, which is exactly what is refused.
+    { v: 1, type: 'applyFix' },
+    { v: 1, type: 'applyFix', issueId: '' },
+    { v: 1, type: 'applyFix', issueId: 7 }
   ]) {
     const result = parseUiToHost(bad);
     assert.equal(result.ok, false, `${JSON.stringify(bad)} should be rejected`);
@@ -141,6 +152,8 @@ test('host -> ui types cover the contract and are guarded', () => {
       'analysisProgress',
       'analysisStarted',
       'cursorHint',
+      // VIEW-08: the comparison overlay, an optional SIBLING of the graph.
+      'diffOverlay',
       'graph',
       'init',
       'requestExport',

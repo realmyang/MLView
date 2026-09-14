@@ -1,6 +1,6 @@
 ---
 description: Print only the MLView issue table for a path — headless, for agent loops and PR descriptions
-argument-hint: "[path] [low|medium|high] [--scope <SPEC>] [--depth <0-2>] [--group-by rule|file|severity] [--changed-since <rev>] [--baseline <file>]"
+argument-hint: "[path] [low|medium|high] [--scope <SPEC>] [--depth <0-2>] [--group-by rule|file|severity] [--changed-since <rev>] [--baseline <file>] [--diff-base <file>]"
 allowed-tools: [Bash, Read, Glob]
 ---
 
@@ -14,8 +14,8 @@ Minimum severity: `$1` — when it is empty, use `low`.
 
 **Two of the tokens in `$ARGUMENTS` are never the path and never the severity:**
 a token starting with `--` is a flag, and the token **immediately after
-`--scope`, `--depth`, `--group-by`, `--changed-since` or `--baseline` is that
-flag's value** — a flag occupies two
+`--scope`, `--depth`, `--group-by`, `--changed-since`, `--baseline` or
+`--diff-base` is that flag's value** — a flag occupies two
 positional slots, so with the path omitted its value lands in `$1`. Read the two
 arguments this way instead of trusting the slots blindly:
 
@@ -63,8 +63,23 @@ because a flag and its value occupy two of them):
   `note` rather than silently forgiven; pass that line on, because a stale
   baseline is a permissive one.
 
-Omit all five entirely when the user did not ask for them; an unscoped, ungrouped,
-unattributed table is the default and is a statement about the whole path.
+- `--diff-base <file>` — VIEW-08. Compare this analysis against an earlier
+  `mlview analyze --json` document and report which findings are **new since
+  that document**. Unlike `--changed-since`, which asks git what the diff
+  touched, this asks the analyzer what the GRAPH did: a finding is `new` when
+  its id is absent from the base, `fixed` when it is absent from the head, and
+  `persisting` when both have it. Findings still come from the normal run — the
+  base only labels them — so the table is the same table with a `change` column,
+  and the counts line ends with ` · N new / N fixed / N persisting since
+  <file>`. **Report the comparison's own `note` verbatim before the table**: a
+  `removed` node (and therefore a `fixed` finding) can also mean the base was
+  truncated, projected, analysed at a different root or written by a different
+  analyzer version, and a renamed file reads as everything removed plus
+  everything added. `--diff-base` is never an answer to "is this project clean".
+
+Omit all six entirely when the user did not ask for them; an unscoped, ungrouped,
+unattributed, uncompared table is the default and is a statement about the whole
+path.
 
 This command is **headless**: no diagram, no browser, no prose beyond the table.
 It exists so an agent loop or a PR description can consume the findings directly.
@@ -107,7 +122,26 @@ carries `--changed-only` with it:
 ```bash
 python -m mlview issues "$0" --min-severity "$1" --changed-since origin/main --changed-only
 python -m mlview issues "$0" --min-severity "$1" --baseline .mlview/baseline.json
-``` A scoped run
+```
+
+`--diff-base` is served by the MCP tool `mlview_graph` with `scope: "diff"` and
+`base` set to the file — **not** by `mlview_issues`, and it does not add a sixth
+tool. Call `mlview_issues` for the table as usual, then `mlview_graph` for the
+comparison, and read `summary.issues` = `{new, fixed, persisting}` off it. On the
+`Bash` fallback, the base is whatever `analyze --json` wrote **before** the
+change and the head is written now — `diff` reads two files and analyzes nothing:
+
+```bash
+python -m mlview analyze "$0" --json .mlview/base.json
+python -m mlview analyze "$0" --json .mlview/head.json
+python -m mlview diff .mlview/base.json .mlview/head.json
+```
+
+The first line is the one you run before the change (keep its output); the second
+and third are what you run after it. If any of them exits `1`, report the message
+it printed on stderr and drop the comparison rather than guessing at the counts —
+exit `1` from `diff` means a missing file, a file that is not JSON, or a document
+that is not an MLView graph, and none of those is "nothing changed". A scoped run
 looks like this — a real selector, not a placeholder:
 
 ```bash

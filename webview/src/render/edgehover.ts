@@ -41,6 +41,12 @@ export interface EdgeHoverHost {
   open(route: RoutedEdge): void;
   /** The pointer settled on nothing: hide and stop, honouring the latches. */
   close(): void;
+  /**
+   * `.is-hover` just moved. Fired IMMEDIATELY, not after the intent delay: the
+   * VIEW-04 bundle a cable belongs to has to open the moment the pointer owns
+   * it, or the reader hovers a trunk and watches nothing happen for 400 ms.
+   */
+  changed?(route: RoutedEdge | null): void;
   openDelayMs: number;
   closeDelayMs: number;
 }
@@ -128,6 +134,7 @@ export class EdgeHover {
         if (parent && parent.lastChild !== g) parent.appendChild(g);
       }
     }
+    if (this.host.changed) this.host.changed(route);
     this.intent(route);
   }
 

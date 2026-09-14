@@ -12,7 +12,7 @@ import pytest
 
 from mlview.api import (CONCERN_ALIASES, CONCERNS, SCOPE_KINDS, Scope, ScopeError,
                         parse_scope)
-from mlview.core.project import DEFAULT_DEPTH, MAX_DEPTH
+from mlview.core.project import DEFAULT_DEPTH, MAX_DEPTH, SCOPE_SPELLINGS
 
 STAGE_IDS = ("config", "data", "preprocess", "model", "objective", "train",
              "eval", "deliver")
@@ -82,13 +82,17 @@ def test_surrounding_whitespace_is_trimmed():
 
 # ------------------------------------------------------------------ depth
 def test_depth_defaults_are_per_kind():
+    # MLV-P12 (CONTRACTS 11.47 B) appends `pipeline` at depth 0: a pipeline is
+    # already a whole region, and its relation carries containment, so a ring
+    # around it is mostly noise. Every pre-existing default is unchanged.
     assert DEFAULT_DEPTH == {"unit": 1, "node": 1, "stage": 0, "file": 0,
-                             "concern": 0, "all": 0}
+                             "concern": 0, "all": 0, "pipeline": 0}
     assert parse_scope("unit:x").depth == 1
     assert parse_scope("node:n:1").depth == 1
     assert parse_scope("stage:train").depth == 0
     assert parse_scope("file:a.py").depth == 0
     assert parse_scope("concern:data").depth == 0
+    assert parse_scope("pipeline:train.py").depth == 0
 
 
 @pytest.mark.parametrize("value", [0, 1, 2, "0", "2", " 1 "])
@@ -201,7 +205,14 @@ def test_parse_format_parse_round_trips(spec):
 
 
 def test_the_kind_tuple_is_frozen():
-    assert SCOPE_KINDS == ("unit", "stage", "file", "concern", "node")
+    """Frozen means *additive only*: MLV-P12 (CONTRACTS 11.47 B2) appends
+    `pipeline` and moves nothing. The five that shipped keep their exact order,
+    because `SCOPE_SPELLINGS` - and therefore the `bad_selector` candidate list
+    both ports must agree on - is derived from this tuple."""
+    assert SCOPE_KINDS[:5] == ("unit", "stage", "file", "concern", "node")
+    assert SCOPE_KINDS == ("unit", "stage", "file", "concern", "node", "pipeline")
+    assert SCOPE_SPELLINGS == ("all", "concern", "file", "node", "pipeline",
+                               "stage", "symbol", "unit")
 
 
 # ------------------------------------------------ case-mismatch prose (F2-08)

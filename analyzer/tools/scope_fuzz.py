@@ -10,9 +10,12 @@ fixture battery proves it on **one** frozen 45-node document over 16 selectors;
 this proves it on generated ones. The documents come from `scope_gen.py` -
 node counts 5..500, hierarchy depth, cross-stage parents, ghost density, issues
 anchored on up to four nodes, issues anchored on an *edge* whose nodes are
-elsewhere, disconnected components - and the selectors span every scope kind at
-every legal depth. This file is the driver: build a batch, run ONE node process
-over it, compare, minimize, promote.
+elsewhere, disconnected components - and from `scope_gen_projections.py`, which
+adds the two Sprint-5 shapes: **rolled-up** documents (11.46: `rolledUp` counts,
+merged edges carrying a `weight`, absorbed internals) and **multi-pipeline** ones
+(11.47: the root `pipelines[]` block). The selectors span every scope kind at
+every legal depth, `pipeline:` included. This file is the driver: build a batch,
+run ONE node process over it, compare, minimize, promote.
 
 Three properties keep it a gate rather than a lottery:
 
@@ -26,7 +29,15 @@ Three properties keep it a gate rather than a lottery:
   `gen_scope_fixtures.py` (Python) and its twin in
   `webview/test/scope_fuzz.test.mjs` (JavaScript), so this checks exactly what
   the parity gate checks: id lists in order, `issue.nodeIds` rotation,
-  `viewRole`, the eight stage rows, `stats` and the whole `view`.
+  `viewRole`, the eight stage rows, `stats` and the whole `view`. The LATER
+  fields that shared digest does not carry - `rolledUp`, `weight`, `pipelines` -
+  are compared through an `_extras` block this driver adds itself, and
+  `digest_extras()` probes the shared digest first so no field is ever compared
+  twice or missed.
+* **It says what it did not do.** A shape the current schema cannot express is
+  reported as NOT GENERATED in the gate row, with the declaration that is
+  missing. A run that checked nothing must never read like a run that found
+  nothing.
 
 Every counterexample is **promoted** with `--promote`: it is minimized by delta
 debugging (each pass proposes random subsets *and* every one-element deletion,
@@ -58,14 +69,29 @@ for _path in (HERE, SRC, CONTRACTS):
     if _path not in sys.path:
         sys.path.insert(0, _path)
 
-from gen_scope_fixtures import (CASES, outcome_of, render,  # noqa: E402
-                                _read, _write)
+from gen_scope_fixtures import CASES, render, _read, _write   # noqa: E402
 import gen_scope_fixtures                                       # noqa: E402
+import scope_gen_projections as projections                     # noqa: E402
+from scope_digest import (digest_extras, extras_of,           # noqa: E402
+                          outcome_with_extras as _outcome)
 from scope_gen import (make_graph, normalize, selectors_for,  # noqa: E402
                        validate)
 from validate_sample import validate_graph                    # noqa: E402
 
 HARNESS = "test/scope_fuzz.test.mjs"
+
+
+# ------------------------------------------------ the LATER projection shapes
+def _normalize(graph: Dict[str, Any]) -> Dict[str, Any]:
+    """`scope_gen.normalize()` plus the LATER blocks.
+
+    Every place a document is *reduced* lands here, so a minimized rolled-up or
+    multi-pipeline document is re-derived as thoroughly as a generated one: the
+    pipelines block is recomputed over the nodes and edges that survived, and
+    `stats.truncated` stays true while any `rolledUp` node is left.
+    """
+    return projections.renormalize(normalize(graph))
+
 
 
 # ------------------------------------------------------------------ harness
@@ -98,28 +124,54 @@ def run_harness(repo_root: str, batch: Dict[str, Any], bundle: Optional[str],
 
 
 def build_batch(seed: int, graphs: int, per_graph: int,
-                on_invalid: Callable[[str, List[str]], None]) -> Dict[str, Any]:
+                on_invalid: Callable[[str, List[str]], None],
+                extras: Optional[Sequence[str]] = None) -> Dict[str, Any]:
     """`graphs` seeded documents, `per_graph` selectors each, with the Python
-    answer already computed. Every document is validated first."""
+    answer already computed. Every document is validated first.
+
+    A share of the documents is decorated with the LATER shapes (PERF-04 rollup,
+    MLV-P12 pipelines) and a fifth of each document's selectors are
+    `pipeline:` ones, so one run spans plain, capped, multi-pipeline and
+    both-at-once documents. `shapes` on each entry records what it actually got,
+    and `notes` records every shape the repository could not yet support.
+    """
     rng = random.Random(seed)
+    extras = list(extras or [])
     out: List[Dict[str, Any]] = []
+    notes: Dict[str, int] = {}
+    n_pipeline = max(1, per_graph // 5) if per_graph > 1 else 0
     for index in range(graphs):
         graph_seed = seed * 1000 + index
         graph = make_graph(graph_seed)
+        graph, skipped = projections.decorate(graph,
+                                              random.Random(graph_seed ^ 0x5EED))
+        graph = _normalize(graph)
+        for note in skipped:
+            notes[note] = notes.get(note, 0) + 1
         errors = validate(graph)
         if errors:
             on_invalid("g%04d" % index, errors)
             continue
+        specs = list(selectors_for(graph, rng, per_graph - n_pipeline))
+        specs += projections.selectors_for(graph, rng, n_pipeline)
         cases = []
-        for case_index, (spec, depth) in enumerate(
-                selectors_for(graph, rng, per_graph)):
+        for case_index, (spec, depth) in enumerate(specs):
             cases.append({"name": "g%04d/c%02d" % (index, case_index),
                           "spec": spec, "depth": depth,
-                          "expect": outcome_of(graph, spec, depth)})
+                          "expect": _outcome(graph, spec, depth, extras)})
         out.append({"name": "g%04d" % index, "seed": graph_seed,
                     "nodes": len(graph["nodes"]), "graph": graph,
+                    # MLV-P12's relation (11.47 A) is written twice as well, and
+                    # a projection carries the block VERBATIM - so a port that
+                    # computes it differently is invisible to the projection
+                    # comparison. This is the second answer to compare.
+                    "relation": {"pipelines": projections.analyzer_block(graph)},
+                    "shapes": {"rolledUp": any("rolledUp" in n
+                                               for n in graph["nodes"]),
+                               "pipelines": len(graph.get("pipelines") or [])},
                     "cases": cases})
-    return {"version": 1, "seed": seed, "graphs": out}
+    return {"version": 1, "seed": seed, "digestExtras": extras,
+            "notes": notes, "graphs": out}
 
 
 # --------------------------------------------------------------- minimizing
@@ -134,7 +186,7 @@ def _drop_nodes(graph: Dict[str, Any], doomed) -> Dict[str, Any]:
         while parent is not None and parent in doomed:
             parent = by_id[parent].get("parent")
         node["parent"] = parent
-    return normalize(reduced)
+    return _normalize(reduced)
 
 
 def _candidates(graph: Dict[str, Any], rng: random.Random
@@ -163,11 +215,11 @@ def _candidates(graph: Dict[str, Any], rng: random.Random
     for edge in (edges if len(edges) <= 24 else rng.sample(edges, 24)):
         reduced = json.loads(json.dumps(graph))
         reduced["edges"] = [e for e in reduced["edges"] if e["id"] != edge["id"]]
-        out.append(("edge " + edge["id"], normalize(reduced)))
+        out.append(("edge " + edge["id"], _normalize(reduced)))
     for issue in (issues if len(issues) <= 24 else rng.sample(issues, 24)):
         reduced = json.loads(json.dumps(graph))
         reduced["issues"] = [i for i in reduced["issues"] if i["id"] != issue["id"]]
-        out.append(("issue " + issue["id"], normalize(reduced)))
+        out.append(("issue " + issue["id"], _normalize(reduced)))
     return out
 
 
@@ -177,6 +229,7 @@ def _size(graph: Dict[str, Any]) -> Tuple[int, int, int]:
 
 def minimize(repo_root: str, graph: Dict[str, Any], spec: str,
              depth: Optional[int], bundle: Optional[str], log,
+             extras: Optional[Sequence[str]] = None,
              max_passes: int = 40, budget: int = 300) -> Dict[str, Any]:
     """Delta-debug the counterexample: each pass proposes many reductions at
     once and ONE node process answers them all, so a 500-node graph becomes a
@@ -188,6 +241,7 @@ def minimize(repo_root: str, graph: Dict[str, Any], spec: str,
     before it is promoted.
     """
     rng = random.Random(0xC0FFEE)
+    extras = list(extras or [])
     deadline = time.time() + budget
     for _ in range(max_passes):
         if time.time() > deadline:
@@ -195,15 +249,23 @@ def minimize(repo_root: str, graph: Dict[str, Any], spec: str,
             break
         probes = []
         for label, reduced in _candidates(graph, rng):
+            # A document with no nodes at all is schema-valid and useless: for a
+            # divergence about the GRAMMAR the graph is irrelevant, so the shrink
+            # would happily bottom out at zero and promote a counterexample
+            # nobody can read. One node is the floor.
+            if not reduced["nodes"]:
+                continue
             if validate_graph(reduced, run_schema=False):
                 continue
             probes.append({"name": label, "graph": reduced,
                            "cases": [{"name": label, "spec": spec, "depth": depth,
-                                      "expect": outcome_of(reduced, spec, depth)}]})
+                                      "expect": _outcome(reduced, spec, depth,
+                                                         extras)}]})
         if not probes:
             break
-        _, _, report = run_harness(repo_root, {"version": 1, "graphs": probes},
-                                   bundle)
+        _, _, report = run_harness(repo_root,
+                                   {"version": 1, "digestExtras": extras,
+                                    "graphs": probes}, bundle)
         failing = {f["graph"] for f in report.get("failures") or []}
         winners = [p for p in probes if p["name"] in failing]
         if not winners:
@@ -218,13 +280,15 @@ def minimize(repo_root: str, graph: Dict[str, Any], spec: str,
 
 
 def _detail_for(repo_root: str, graph: Dict[str, Any], spec: str,
-                depth: Optional[int], bundle: Optional[str]) -> str:
+                depth: Optional[int], bundle: Optional[str],
+                extras: Optional[Sequence[str]] = None) -> str:
     """The divergence, re-measured on one document. Used for a promoted note."""
+    extras = list(extras or [])
     probe = {"name": "min", "graph": graph,
              "cases": [{"name": "min", "spec": spec, "depth": depth,
-                        "expect": outcome_of(graph, spec, depth)}]}
-    _, _, report = run_harness(repo_root, {"version": 1, "graphs": [probe]},
-                               bundle)
+                        "expect": _outcome(graph, spec, depth, extras)}]}
+    _, _, report = run_harness(repo_root, {"version": 1, "digestExtras": extras,
+                                           "graphs": [probe]}, bundle)
     failures = report.get("failures") or []
     return (failures[0].get("detail", "") if failures else
             "no longer diverges on the minimized document")[:200]
@@ -243,16 +307,55 @@ def promote(entries: List[Dict[str, Any]]) -> int:
 
 
 # -------------------------------------------------------------------- driver
+def _clip(text: str, limit: int = 220) -> str:
+    text = " ".join((text or "").split())
+    return text if len(text) <= limit else text[:limit - 3] + "..."
+
+
+def _shape_line(batch: Dict[str, Any]) -> str:
+    """"40 graphs: 14 rolled up, 21 with pipelines (2.3 each)" - what a run
+    actually covered, never what it hoped to cover."""
+    graphs = batch.get("graphs") or []
+    rolled = sum(1 for g in graphs if (g.get("shapes") or {}).get("rolledUp"))
+    piped = [g for g in graphs if (g.get("shapes") or {}).get("pipelines")]
+    blocks = sum((g["shapes"]["pipelines"] for g in piped), 0)
+    extras = batch.get("digestExtras") or []
+    line = ("%d rolled up (PERF-04) + %d with pipelines (MLV-P12, %d blocks); "
+            "compared fields: the shared digest%s"
+            % (rolled, len(piped), blocks,
+               " plus " + ", ".join(extras) if extras else ""))
+    # A zero with no reason beside it reads as a shape that was checked and
+    # found absent. Say which shapes this checkout cannot produce at all.
+    notes = batch.get("notes") or {}
+    blocked = sorted(n for n in notes if n.startswith("unsupported"))
+    if blocked:
+        line += "; NOT GENERATED: " + "; ".join(n.split(": ", 1)[1]
+                                                for n in blocked)
+    other = sorted(n for n in notes if not n.startswith("unsupported"))
+    if other:
+        line += "; " + "; ".join("%d document(s) n/a: %s"
+                                 % (notes[n], n.split(": ", 1)[1]) for n in other)
+    return line
+
+
 def fuzz(repo_root: str, cases: int, seed: int, per_graph: int,
          bundle: Optional[str], do_promote: bool, log,
          env: Optional[Dict[str, str]] = None,
-         max_promote: int = 3) -> Tuple[int, str]:
-    """Returns (failures, one-line summary)."""
+         max_promote: int = 3, on_relation=None) -> Tuple[int, str]:
+    """Returns (failures, one-line summary).
+
+    `on_relation(count, detail)` is called when the two ports disagree about the
+    MLV-P12 relation itself rather than about a projection; `check_fuzz` reports
+    that as its own gate row so a red table says which of the two moved.
+    """
+    on_relation = on_relation or (lambda count, detail: None)
     graphs = max(1, (cases + per_graph - 1) // per_graph)
     invalid: List[str] = []
     started = time.time()
+    extras = digest_extras(log)
     batch = build_batch(seed, graphs, per_graph,
-                        lambda name, errs: invalid.append("%s: %s" % (name, errs[0])))
+                        lambda name, errs: invalid.append("%s: %s" % (name, errs[0])),
+                        extras)
     generated = time.time() - started
     if invalid:
         for line in invalid[:3]:
@@ -264,17 +367,31 @@ def fuzz(repo_root: str, cases: int, seed: int, per_graph: int,
     sizes = sorted(g["nodes"] for g in batch["graphs"])
     log("  %d graphs (%d..%d nodes) x %d selectors = %d cases, generated in %.1fs"
         % (len(batch["graphs"]), sizes[0], sizes[-1], per_graph, total, generated))
+    shape = _shape_line(batch)
+    log("  " + shape)
+    for note in sorted(batch.get("notes") or {}):
+        if note.startswith("unsupported"):
+            log("  NOT GENERATED - " + note.split(": ", 1)[1])
 
     rc, text, report = run_harness(repo_root, batch, bundle, env)
-    failures = report.get("failures") or []
+    everything = report.get("failures") or []
+    failures = [f for f in everything if f.get("kind") != "relation"]
+    relation = [f for f in everything if f.get("kind") == "relation"]
     if not report:
         tail = "\n".join(text.strip().splitlines()[-6:])
         return 1, "the harness produced no report (rc=%d):\n%s" % (rc, tail)
     elapsed = time.time() - started
+    if relation:
+        log("  %d graph(s) DISAGREE about the pipelines[] relation (11.47 A/D)"
+            % len(relation))
+        for row in relation[:3]:
+            log("    %s  %s" % (row["graph"], _clip(row.get("detail", ""))))
+        on_relation(len(relation), relation[0].get("detail", ""))
     if not failures:
-        return 0, ("%d cases over %d generated graphs (%d..%d nodes), python == "
-                   "typescript, %.1fs" % (total, len(batch["graphs"]), sizes[0],
-                                          sizes[-1], elapsed))
+        return 0, ("%d cases over %d generated graphs (%d..%d nodes), %s, python "
+                   "== typescript, %.1fs"
+                   % (total, len(batch["graphs"]), sizes[0], sizes[-1], shape,
+                      elapsed))
 
     log("  %d of %d cases DIVERGE (%.1fs)" % (len(failures), total, elapsed))
     graph_by_name = {g["name"]: g for g in batch["graphs"]}
@@ -282,19 +399,21 @@ def fuzz(repo_root: str, cases: int, seed: int, per_graph: int,
     for failure in failures[:max(1, max_promote)]:
         log("    %s  %s depth=%s" % (failure["case"], failure["spec"],
                                      failure["depth"]))
-        log("      %s" % failure.get("detail", ""))
+        # Clipped: a divergence inside a whole `pipelines[]` block prints
+        # kilobytes, and this line lands in a gate table.
+        log("      %s" % _clip(failure.get("detail", "")))
         if not do_promote:
             continue
         source = graph_by_name[failure["graph"]]
         small = minimize(repo_root, source["graph"], failure["spec"],
-                         failure["depth"], bundle, log)
-        entries.append({
+                         failure["depth"], bundle, log, extras)
+        entry: Dict[str, Any] = {
             "name": "fuzz_%d_%s" % (seed, failure["case"].replace("/", "_")),
             "kind": "fuzz", "spec": failure["spec"], "depth": failure["depth"],
             # The note is re-measured on the MINIMIZED document: the detail from
             # the original names an array index that no longer exists.
             "note": _detail_for(repo_root, small, failure["spec"],
-                                failure["depth"], bundle),
+                                failure["depth"], bundle, extras),
             "discoveredBy": ("analyzer/tools/scope_fuzz.py --seed %d (graph seed "
                              "%d)%s, minimized to %d nodes / %d edges / %d issues"
                              % (seed, source["seed"],
@@ -302,7 +421,16 @@ def fuzz(repo_root: str, cases: int, seed: int, per_graph: int,
                                 else "", len(small["nodes"]),
                                 len(small["edges"]), len(small["issues"]))),
             "graph": small,
-        })
+        }
+        # `gen_scope_fixtures.build_fuzz_expected` computes the expectation with
+        # the SHARED digest, which does not carry the LATER fields. So a case
+        # whose divergence lives in one of them would replay green; the answer
+        # travels in the case row itself, which that generator carries through
+        # verbatim, and the harness compares it whenever it is there.
+        expect = _outcome(small, failure["spec"], failure["depth"], extras)
+        if extras and expect.get("kind") == "project":
+            entry["expectExtras"] = expect["digest"]["_extras"]
+        entries.append(entry)
     if entries:
         added = promote(entries)
         log("  promoted %d counterexample(s) into contracts/scope.cases.json"
@@ -349,18 +477,32 @@ def check_fuzz(repo_root: str, cli_env, base_env, cases: int, seed: int = 0
                  % HARNESS)]
     results = [_replay_row(repo_root, base_env)]
     lines: List[str] = []
+    disagreed: List[Tuple[int, str]] = []
     #: The seed travels in the environment so `verify.py` gains exactly ONE new
     #: option (`--fuzz N`); the nightly workflow sets it to replay a failure.
     seed = seed or int(os.environ.get("MLVIEW_FUZZ_SEED") or 0) or \
         int(time.time()) % 100000
     lines.append("seed %d (MLVIEW_FUZZ_SEED replays it)" % seed)
     failures, summary = fuzz(repo_root, cases, seed, _PER_GRAPH, None, False,
-                             lines.append, env=base_env())
+                             lines.append, env=base_env(),
+                             on_relation=lambda n, detail: disagreed.append((n, detail)))
     if failures:
         results.append(("scopes: fuzz", False,
                         summary + "".join("\n      " + l for l in lines)))
     else:
         results.append(("scopes: fuzz", True, "%s, %s" % (summary, lines[0])))
+    #: MLV-P12's relation is a SECOND algorithm written twice (11.47 A), and a
+    #: projection carries its block through verbatim - so this is its own row.
+    if disagreed:
+        count, detail = disagreed[0]
+        results.append((
+            "scopes: pipelines relation", False,
+            "%d generated graph(s): mlview.core.pipelines.pipelines_block and "
+            "webview/src/scope/pipelines.ts rows() disagree - %s"
+            % (count, _clip(detail, 160))))
+    else:
+        results.append(("scopes: pipelines relation", True,
+                        "the two ports compute the same pipelines[] rows"))
     return results
 
 
@@ -388,11 +530,17 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         sys.stderr.write(line + "\n")
     log("scope fuzz: seed %d, %d cases%s"
         % (seed, args.cases, ", bundle " + args.bundle if args.bundle else ""))
+    disagreed: List[int] = []
     failures, summary = fuzz(REPO, args.cases, seed, max(1, args.per_graph),
                              args.bundle, args.promote, log,
-                             max_promote=args.max_promote)
-    log(("FAIL " if failures else "PASS ") + summary)
-    return 1 if failures else 0
+                             max_promote=args.max_promote,
+                             on_relation=lambda n, detail: disagreed.append(n))
+    if disagreed:
+        summary += ("; and %d graph(s) disagree about the pipelines[] relation"
+                    % disagreed[0])
+    bad = failures or disagreed
+    log(("FAIL " if bad else "PASS ") + summary)
+    return 1 if bad else 0
 
 
 if __name__ == "__main__":

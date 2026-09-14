@@ -19,8 +19,12 @@ from .emit.group_out import GROUP_BY
 #: cannot disagree about the mode names or the default hop count.
 from .core.pipeline import DEFAULT_RELEVANCE
 from .core.relevance import DEFAULT_HOPS, MODES as RELEVANCE_MODES
+#: DATAFLOW-IP. The mode names live with the pass that implements them, so the
+#: flag surface cannot offer a mode `ir.build_ir` does not know.
+from .ir.build_ir import DATAFLOW_MODES, DEFAULT_DATAFLOW
 
-__all__ = ["build_parser", "FORMATS", "GROUP_BY", "RELEVANCE_MODES"]
+__all__ = ["build_parser", "FORMATS", "GROUP_BY", "RELEVANCE_MODES",
+           "DATAFLOW_MODES"]
 
 FORMATS = ("summary", "json", "mermaid", "text")
 
@@ -50,15 +54,16 @@ def _add_adopt_flags(parser: argparse.ArgumentParser) -> None:
 
 
 def _add_perf_flags(parser: argparse.ArgumentParser) -> None:
-    """PERF-03 and CACHE (CONTRACTS 11.28). Three flags, all additive, all with
-    defaults that reproduce today's bytes exactly: `--relevance all` is the
-    identity mode, and the cache can only change how long an answer takes."""
+    """PERF-03 and CACHE (CONTRACTS 11.28, defaults flipped by 11.39). Three
+    flags: `ml` is the shipped mode and `all` is the identity one - it builds
+    the IR for every discovered file, derives no facts and consults no cache,
+    so it reproduces the pre-11.39 bytes exactly."""
     parser.add_argument("--relevance", dest="relevance", choices=RELEVANCE_MODES,
                         default=DEFAULT_RELEVANCE,
-                        help="`all` (default) builds the IR for every discovered "
-                             "file; `ml` builds it only for files within "
+                        help="`ml` (default) builds the IR only for files within "
                              "--relevance-hops import hops of a framework import, "
-                             "and says how many it set aside")
+                             "and says how many it set aside; `all` builds it for "
+                             "every discovered file")
     parser.add_argument("--relevance-hops", dest="relevance_hops", type=int,
                         default=DEFAULT_HOPS, metavar="N",
                         help="import hops, in either direction, that --relevance ml "
@@ -82,6 +87,19 @@ def _add_notebook_flag(parser: argparse.ArgumentParser) -> None:
                              "become `pass  # mlview: magic`, and every finding "
                              "names its cell (default: notebooks are counted "
                              "and skipped)")
+
+
+def _add_dataflow_flag(parser: argparse.ArgumentParser) -> None:
+    """DATAFLOW-IP (CONTRACTS 11.36). One flag, `local` by default, so a command
+    that does not name it emits exactly the bytes it always emitted."""
+    parser.add_argument("--dataflow", dest="dataflow", choices=DATAFLOW_MODES,
+                        default=DEFAULT_DATAFLOW,
+                        help="`local` (default) tracks a value tag inside one "
+                             "scope; `ip` additionally carries it across the "
+                             "object boundary through constructor, return and "
+                             "method-argument summaries, de-rating every finding "
+                             "once per hop and naming the hop chain in its "
+                             "evidence")
 
 
 def _add_group_flag(parser: argparse.ArgumentParser) -> None:
@@ -148,6 +166,7 @@ def build_parser() -> argparse.ArgumentParser:
                          help="emit the golden contracts/graph.sample.json")
     analyze.add_argument("--no-color", action="store_true")
     _add_perf_flags(analyze)
+    _add_dataflow_flag(analyze)
     _add_notebook_flag(analyze)
     _add_group_flag(analyze)
     _add_adopt_flags(analyze)
@@ -177,6 +196,7 @@ def build_parser() -> argparse.ArgumentParser:
     issues.add_argument("--strict", action="store_true")
     issues.add_argument("--no-color", action="store_true")
     _add_perf_flags(issues)
+    _add_dataflow_flag(issues)
     _add_notebook_flag(issues)
     _add_group_flag(issues)
     _add_adopt_flags(issues)
@@ -226,5 +246,47 @@ def build_parser() -> argparse.ArgumentParser:
     rules.add_argument("--json", dest="json_out", action="store_true")
     rules.add_argument("--explain", dest="explain_code", metavar="MLV201")
 
+    _add_init_command(sub)
+    _add_diff_command(sub)
+
     sub.add_parser("schema", help="print the MLGraph JSON Schema")
     return parser
+
+
+def _add_init_command(sub) -> None:
+    """CFG-ONE (CONTRACTS 11.37). `mlview init` writes a commented
+    `.mlview.toml` listing every registered rule with the severity it ships at,
+    generated from the registry so the file cannot drift from the rules.
+
+    Every key in it is commented out, so running `init` cannot change what a
+    later `analyze` reports - the file documents the surface, it does not
+    configure anything until a human uncomments a line.
+    """
+    init = sub.add_parser("init", help="write a commented .mlview.toml")
+    init.add_argument("paths", nargs="*", default=[],
+                      help="the workspace to write it into (default: .)")
+    init.add_argument("--out", dest="out_file", metavar="FILE",
+                      help="write here instead of <root>/.mlview.toml "
+                           "('-' means stdout)")
+    init.add_argument("--force", dest="force", action="store_true",
+                      help="overwrite an existing file")
+    init.add_argument("--no-color", action="store_true")
+
+
+def _add_diff_command(sub) -> None:
+    """VIEW-08 (CONTRACTS 11.38). `mlview diff base.json head.json`.
+
+    Both inputs are documents `mlview analyze --json` already writes, and the
+    output is a **separate overlay document** - never a graph - so
+    `schemaVersion` stays 1.0 and nothing about an ordinary analysis moves.
+    """
+    diff = sub.add_parser("diff", help="compare two analyses (VIEW-08)")
+    diff.add_argument("base_file", metavar="BASE.json",
+                      help="the earlier `mlview analyze --json` document")
+    diff.add_argument("head_file", metavar="HEAD.json",
+                      help="the later one")
+    diff.add_argument("--json", dest="json_out", metavar="FILE|-",
+                      help="write the overlay document ('-' means stdout)")
+    diff.add_argument("--format", dest="fmt", choices=("summary", "json"),
+                      default="summary")
+    diff.add_argument("--no-color", action="store_true")

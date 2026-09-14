@@ -56,9 +56,9 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from accuracy_corpus import (  # noqa: E402  - after the sys.path fix above
-    ACCURACY_DIR, BASELINE_PATH, CORPUS_DIR, EPSILON, HIGH_VALUE, REPO_ROOT,
-    VISIBLE_THRESHOLD, CorpusError, Program, aggregate, load_programs, matches,
-    run_corpus, score_graph, score_program)
+    ACCURACY_DIR, BASELINE_PATH, CORPUS_DIR, EPSILON, HIGH_VALUE,
+    IP_BASELINE_PATH, REPO_ROOT, VISIBLE_THRESHOLD, CorpusError, Program,
+    aggregate, load_programs, matches, run_corpus, score_graph, score_program)
 
 # Re-exported so `analyzer/tests/accuracy/test_accuracy.py` can load this one
 # file and reach the whole surface: the tool a human runs and the module the
@@ -67,7 +67,7 @@ __all__ = ["main", "render", "check", "build_baseline", "load_baseline",
            "baseline_moves", "gated_numbers",
            "run_corpus", "load_programs", "score_program", "score_graph",
            "aggregate", "matches", "Program", "CorpusError", "EPSILON",
-           "VISIBLE_THRESHOLD", "CORPUS_DIR", "BASELINE_PATH"]
+           "VISIBLE_THRESHOLD", "CORPUS_DIR", "BASELINE_PATH", "IP_BASELINE_PATH"]
 
 EXIT_OK, EXIT_FORBIDDEN, EXIT_REGRESSION, EXIT_CORPUS = 0, 2, 3, 4
 
@@ -85,7 +85,10 @@ def render(results: Sequence[Dict[str, Any]], report: Dict[str, Any],
     out: List[str] = []
     add = out.append
 
-    add("MLView accuracy corpus - %d labelled programs" % report["programs"])
+    add("MLView accuracy corpus - %d labelled programs%s"
+        % (report["programs"],
+           "" if report.get("dataflow", "local") == "local"
+           else "  [--dataflow %s]" % report["dataflow"]))
     add("")
     add("%-24s %5s %5s %6s %6s %6s %6s %6s" % (
         "program", "files", "found", "labels", "hit", "miss", "fp", "graph"))
@@ -317,6 +320,7 @@ def build_baseline(report: Dict[str, Any], note: str = "",
         "recordedOn": datetime.date.today().isoformat(),
         "note": note,
         "programs": report["programs"],
+        "dataflow": report.get("dataflow", "local"),
         "overall": report["overall"],
         "unseen": report["unseen"],
         "perRule": report["perRule"],
@@ -378,7 +382,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(
         prog="tools/accuracy.py", description="ANA-12 labelled-accuracy referee")
     parser.add_argument("--corpus", default=CORPUS_DIR)
-    parser.add_argument("--baseline", default=BASELINE_PATH)
+    parser.add_argument("--baseline", default=None,
+                        help="baseline file (default: the one for --dataflow)")
+    # DATAFLOW-IP (CONTRACTS 11.36). `local` is the default here as it is
+    # everywhere else, so `python tools/accuracy.py` with no flags measures and
+    # gates exactly what it always measured and gated. `ip` scores the
+    # interprocedural mode against `baseline.ip.json` - a separate ratchet,
+    # because two different analyses cannot share one.
+    parser.add_argument("--dataflow", choices=("local", "ip"), default="local",
+                        help="which dataflow mode to score (default: local)")
     parser.add_argument("--program", action="append", default=[],
                         help="score only this program (repeatable)")
     parser.add_argument("--update-baseline", action="store_true",
@@ -397,13 +409,17 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                         help="also list every missed label and missing graph op")
     parser.add_argument("--quiet", action="store_true")
     args = parser.parse_args(argv)
+    if args.baseline is None:
+        args.baseline = IP_BASELINE_PATH if args.dataflow == "ip" else BASELINE_PATH
 
     try:
-        results, report = run_corpus(args.corpus, tuple(args.program))
+        results, report = run_corpus(args.corpus, tuple(args.program),
+                                     dataflow=args.dataflow)
     except CorpusError as exc:
         sys.stderr.write("accuracy: %s\n" % exc)
         return EXIT_CORPUS
 
+    report["dataflow"] = args.dataflow
     if not args.quiet:
         print(render(results, report, verbose=args.verbose))
 

@@ -1,0 +1,142 @@
+/* PERF-04 — the rolled-up card and the weighted cable.
+ *
+ * Three rules hold this layer together, and they are the same three the diff
+ * layer follows for the same reason.
+ *
+ * 1. NEVER WEIGHT ALONE. A thicker stroke says "more than one" to a sighted
+ *    reader at a glance and to nobody else: every weighted cable also carries a
+ *    `x7` pill, an `aria-label` that says "weight 7", and a `<title>` that says
+ *    what a weight counts. The same discipline the severity glyphs follow.
+ * 2. NOTHING HERE CHANGES GEOMETRY. The rolled-up card is the same box
+ *    `layout/cardmetrics.ts` reserved — the stack edge is drawn in the card's
+ *    own padding and the weight pill is an SVG child of the edge group — so the
+ *    planner's promise and `export/svg.ts`'s picture stay in agreement (VW-01).
+ * 3. A ROLLED-UP CARD BORROWS THE COLLAPSED-GROUP VISUAL, not its affordance.
+ *    It gets the artifact icon, the count chip and the severity cluster because
+ *    the roadmap asked for exactly that; it does NOT get a chevron, because
+ *    there is nothing in this document to expand. The one visual difference is
+ *    the stack edge below, which says "there is more here than is drawn".
+ */
+
+/* ── the rolled-up card ─────────────────────────────────────────────── */
+
+/*
+ * The stack edge: one offset outline behind the card's bottom-right corner, the
+ * way a pile of paper reads. It is a pseudo-element on a card that already has
+ * `position: relative` (node.css), it is `pointer-events: none` so it can never
+ * eat a click meant for the card, and it is drawn in the shadow colour rather
+ * than an accent because a rolled-up card is a normal card that happens to
+ * stand for several.
+ */
+.mlv-node.is-rolled-up::after {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  left: 6px;
+  height: 4px;
+  border: 1px solid var(--mlv-border-strong);
+  border-top: 0;
+  border-radius: 0 0 var(--mlv-r-card) var(--mlv-r-card);
+  background: var(--mlv-surface-2);
+  content: "";
+  pointer-events: none;
+}
+
+.mlv-chip--rollup {
+  border-color: var(--mlv-border-strong);
+  background: var(--mlv-surface-2);
+  color: var(--mlv-text);
+  font-weight: var(--mlv-fw-semi);
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * The rollup chip NEVER shrinks. `.mlv-node__chips .mlv-chip` is `flex: 0 1 auto`
+ * with an ellipsis so a chip that does not fit is truncated rather than
+ * guillotined — which is right for `insideNoGrad=false` and wrong for the count,
+ * where `7 roll…` loses the only fact the card has about what it swallowed.
+ * Measured on the dev harness: the eval card drew `7 roll…` before this line.
+ * The attribute chips beside it absorb the clipping instead, which is what the
+ * `+n` overflow chip already exists to admit.
+ */
+.mlv-node__chips .mlv-chip--rollup {
+  flex: 0 0 auto;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+/* A boundary stub's contents are outside the scope, so its count is not
+ * openable and not actionable — dim it exactly as scope.css dims its cluster. */
+.mlv-node[data-view-role="boundary"] .mlv-chip--rollup {
+  opacity: 0.55;
+}
+
+/* ── the weighted cable ─────────────────────────────────────────────── */
+
+/*
+ * `--mlv-edge-w` is set on the <g> by `render/edges.ts`. This rule sits AFTER
+ * every per-kind rule in `edge.css` and has the same specificity, so it wins on
+ * source order; the hover, lit and selected rules are one class more specific,
+ * so a heavy cable still lights up under the pointer instead of freezing at its
+ * resting width.
+ */
+.mlv-edge--weighted .mlv-edge__path {
+  stroke-width: var(--mlv-edge-w, 2px);
+}
+
+.mlv-edge__weight {
+  pointer-events: none;
+}
+
+.mlv-edge__weightbg {
+  fill: var(--mlv-surface);
+  stroke: var(--mlv-border-strong);
+  stroke-width: 1;
+}
+
+.mlv-edge__weighttext {
+  fill: var(--mlv-text-2);
+  font-family: var(--mlv-font-mono);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  text-anchor: middle;
+  dominant-baseline: middle;
+}
+
+.mlv-edge.has-issue .mlv-edge__weightbg {
+  stroke: var(--mlv-sev, var(--mlv-border-strong));
+}
+
+/*
+ * At the compact LOD the cards themselves lose their chip rows, and a field of
+ * pills over a dense graph is noise — but the STROKE stays thick, which is the
+ * cue that survives zooming out. The number comes back on the way in.
+ */
+.mlv-canvas[data-lod="compact"] .mlv-edge__weight {
+  display: none;
+}
+
+/* ── the banner ─────────────────────────────────────────────────────── */
+
+.mlv-banner__notes {
+  margin: var(--mlv-s2) 0 0;
+  padding-left: var(--mlv-s5);
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-11);
+}
+
+.mlv-banner__notes li + li {
+  margin-top: 2px;
+}
+
+/* ── high contrast ──────────────────────────────────────────────────── */
+
+:root[data-theme="hc"] .mlv-node.is-rolled-up::after,
+.mlv-root[data-theme="hc"] .mlv-node.is-rolled-up::after {
+  border-color: currentColor;
+}
+
+:root[data-theme="hc"] .mlv-edge__weightbg,
+.mlv-root[data-theme="hc"] .mlv-edge__weightbg {
+  stroke: currentColor;
+}

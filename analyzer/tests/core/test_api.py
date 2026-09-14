@@ -46,11 +46,15 @@ def test_analyze_options_defaults_match_the_contract():
     # CONTRACTS 11.29 (NB) appends `include_notebooks` under the same rule: a
     # defaulted False, so a run that does not name it discovers, parses and
     # emits exactly what it always did - `.ipynb` counted and skipped.
+    # CONTRACTS 11.36 (DATAFLOW-IP) appends `dataflow` under the same rule: a
+    # defaulted "local", which is the analysis that shipped before the option
+    # existed, so a caller that does not name it gets byte-identical bytes.
     assert list(fields) == ["paths", "include", "exclude", "max_files", "max_nodes",
                             "framework", "min_severity", "min_confidence",
                             "config_path", "strict", "scope", "depth", "progress",
                             "relevance", "relevance_hops", "cache",
-                            "include_notebooks"]
+                            "include_notebooks", "dataflow"]
+    assert fields["dataflow"].default == "local"
     assert fields["paths"].default is dataclasses.MISSING, "paths is required"
     assert fields["include"].default == ()
     assert fields["exclude"].default == ()
@@ -64,7 +68,11 @@ def test_analyze_options_defaults_match_the_contract():
     assert fields["scope"].default is None
     assert fields["depth"].default is None
     assert fields["progress"].default is None
-    assert fields["relevance"].default == "all"
+    # CONTRACTS 11.39: the relevance default flipped to `ml` in Sprint 5. It is
+    # the one default on this list that has ever moved, and it moved as a
+    # re-baseline - byte-identical on all three perf corpora and on the whole
+    # accuracy corpus - not as an optimisation.
+    assert fields["relevance"].default == "ml"
     assert fields["relevance_hops"].default == 2
     assert fields["cache"].default is None
     assert fields["include_notebooks"].default is False

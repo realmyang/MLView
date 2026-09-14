@@ -79,6 +79,28 @@ instead of guessing one. `mlview_analyze`, `mlview_issues` and
 exactly five tools**; a scoped result says it is scoped, and `graphPath` keeps
 pointing at the full document, so widening back costs nothing.
 
+**Comparing from an agent (VIEW-08).** `mlview_graph {scope: "diff", base:
+"<earlier analyze --json document>"}` answers *"did my change add a finding"* —
+`summary.issues` is `{new, fixed, persisting}` and `content` is the `mlview diff`
+summary. It is the **sixth value of an argument, not a sixth tool**, because a
+diff is another projection of the same graph. `/mlview-issues --diff-base <file>`
+is the slash-command spelling. A `base` that is not an MLView graph is an error
+naming the file, never an empty comparison, and the payload's protected `note`
+carries every reason a `removed` might not mean "deleted" — including that a
+renamed file reads as everything removed plus everything added.
+
+**Telling you before you ask (H8).** `claude-plugin/hooks/hooks.json` registers a
+`PostToolUse` hook on `Edit|Write|NotebookEdit` and a `Stop` hook. The plugin is
+otherwise entirely pull-based: when Claude edits a training file during a session
+nothing tells it the edit introduced MLV203. The hook re-analyzes through the same
+`load_graph` cache the MCP tools read, diffs the issue-id set against the previous
+run, and **speaks only when the set grew** — at most 5 rows, worst first, under a
+hard 3-second budget after which it exits 0 in silence. It never blocks a tool call
+and never writes into your repository. `MLVIEW_HOOK` chooses which one speaks
+(unset = the edit hook, `stop` = one summary per turn, `both`, `off`), and the
+first run on a project is silent by construction: there is nothing to diff against
+yet, and its value is the warm cache.
+
 `/mlview` prefers the five `mlview_*` MCP tools and **falls back to the CLI
 through `Bash`** when they are unavailable, so the demo does not depend on MCP
 registration succeeding. The plugin needs no `pip install` of MLView itself —
@@ -100,8 +122,15 @@ F5 launches an Extension Development Host. Open a Python ML project in it, then:
   (`Alt+M`, also on the editor context menu) · `Scope Diagram to Symbol`
   (`Alt+Shift+M`, also on the editor context menu — it scopes the panel to the
   unit the cursor is inside) · `Clear Diagram Scope` · `Export HTML` ·
-  `Export Diagram as SVG` / `as PNG` · `Select Interpreter` · `Show Output` ·
+  `Export Diagram as SVG` / `as PNG` · `Select Active Folder` ·
+  `Open MLView Configuration` · `Create Baseline From Current Findings` ·
+  `Save Current Graph As Comparison Base` · `Compare With Saved Base` ·
+  `Compare With Clean Sample` · `Select Interpreter` · `Show Output` ·
   `Show Rule Doc`.
+- **Getting started.** `Help → Get Started` carries a five-step MLView
+  walkthrough — install, visualize the sample, read a finding in Problems,
+  `Alt+M`, `Alt+Shift+M` — each step a single click on a command that already
+  exists. Its pages live in `docs/walkthrough/`.
 - **Exporting the picture.** `Export Diagram as SVG` / `as PNG` ask the open
   diagram for the whole diagram, the current view or the current scope, then a
   save dialog writes the file. The host cannot draw the diagram — only the viewer
@@ -114,6 +143,23 @@ F5 launches an Extension Development Host. Open a Python ML project in it, then:
   are published as diagnostics with `source: "MLView"`, the rule code linking to
   a **local** offline doc page, and `relatedInformation` for every related site.
   Analysis runs on save by default (`mlview.analyzeOnSave`).
+- **One configuration surface (CFG-ONE).** MLView passes `--config` to every
+  analyzer run when the folder has a `.mlview.toml` — or a `pyproject.toml` with a
+  `[tool.mlview]` table — so a checked-in configuration finally applies **in the
+  editor** and not only on the CLI. `mlview.configPath` names one explicitly and
+  `mlview.baselinePath` names a baseline whose findings stop counting. The
+  precedence is stated in both settings descriptions and asserted by a test: **the
+  file wins** for `[rules].disable` and `[paths].exclude`, and `mlview.disabledRules`
+  / `mlview.exclude` are **additive filters on top** — they can hide more, and
+  neither can re-enable a rule the file disabled. `Open MLView Configuration`
+  creates the file with `mlview init` when there is none.
+- **Several folders open (H10).** Every open workspace folder gets its own graph
+  rather than the first one being analysed and the rest silently ignored. The
+  Problems panel shows the union; a CodeLens answers for the folder its file lives
+  in; the diagram, the status bar and the chat/LM answers follow the **active**
+  folder, which the status-bar tooltip names — *"Folder: api — 1 other folder in
+  this workspace is not shown here"* — with a link to switch. A single-folder
+  window sees none of this and behaves exactly as before.
 - **Current file, whole picture.** `Visualize (Current File)` analyses the
   **package directory** around the file and then scopes the diagram to the file
   (`mlview.currentFileAnalysisScope`, default `package`; `file` and `workspace`
@@ -131,8 +177,35 @@ F5 launches an Extension Development Host. Open a Python ML project in it, then:
   finding streamed into chat is followed by an anchor, so it is a click into the
   source.
 - **Copilot agent mode** — `#mlviewAnalyze`, `#mlviewIssues` and `#mlviewDiagram`
-  reference the three language-model tools directly in a prompt.
+  reference the three language-model tools directly in a prompt. All three take
+  the same `scope` and `depth` the MCP tools take, described in **the same words**
+  (a test reads the MCP docstring and asserts it), so *"what does the evaluation
+  stage do here?"* is one question in either assistant. A scoped answer opens by
+  saying it is a filtered view whose counts describe the scope and not the project;
+  an unrecognized selector comes back as an error naming the accepted values,
+  never as a silently substituted default.
 
+- **A fix you can preview, never one that is applied for you (H5).** Where a rule
+  computed one, `Issue.fix` carries `{title, safety, edits[]}` and the lightbulb
+  offers it. The guardrails are the feature: rules **opt in**, so an empty
+  lightbulb means "no edit was computed"; the edits come from the analyzer's
+  **AST**; nothing below the `likely` bucket is offered an edit at all;
+  `isPreferred` is set for `mechanical` and never for `needs-review`; and every
+  edit carries `needsConfirmation` and is applied with `isRefactoring`, so VS Code
+  routes it through the refactor **preview**. There is no `source.fixAll` kind —
+  that is the one `editor.codeActionsOnSave` runs unattended. An edit naming a file
+  outside the workspace is refused, and a fix whose second edit escapes is refused
+  whole. The rail reaches the same path with `applyFix`, sending only the issue id.
+- **Compare two analyses in the editor (VIEW-08).** `Save Current Graph As
+  Comparison Base` writes the analysis you are looking at to
+  `.mlview/comparison-base.json` verbatim; `Compare With Saved Base` re-analyses
+  and runs `mlview diff base head --json -`, and the overlay is drawn on the open
+  diagram as a **sibling** of the graph, so the document on screen does not move.
+  `Compare With Clean Sample` does the same against the shipped clean twin. The
+  diff is the **analyzer's** (§11.38) — all three hosts get one answer from one
+  implementation — and every one of its `notes[]` goes to the output channel in
+  full, with the toast saying how many there are: `−16 nodes` is a claim about two
+  documents, not about your code. A new analysis clears the overlay.
 - **Suppress a false positive without leaving the editor.** The lightbulb on any
   MLView diagnostic offers `Copy ignore comment`, `Add ignore comment on this
   line` (a `WorkspaceEdit`, so it is one undo away) and `Disable rule MLVxxx in
@@ -164,7 +237,38 @@ python -m mlview analyze samples/vision_pipeline --scope concern:optimization --
 python -m mlview analyze samples/vision_pipeline --scope concern:evaluation --depth 1 --format mermaid
 python -m mlview issues  samples/vision_pipeline --scope stage:train
 python -m mlview render  --graph .mlview/graph.json --scope unit:SmallCNN --format mermaid
+
+python -m mlview init                             # a commented .mlview.toml, rules listed from the registry
+python -m mlview diff BASE.json HEAD.json         # what this change added, removed, fixed and broke
+python -m mlview analyze . --dataflow ip          # follow values across the object boundary (see below)
 ```
+
+**Configuration.** `--config FILE`, else `<root>/.mlview.toml`, else
+`[tool.mlview]` in `<root>/pyproject.toml` — the **first match wins outright** and
+is never merged with the others, and the winner is named in the document's
+`configPath`. The file wins for `disable` and `exclude` (a flag may only *add* to
+them); a flag wins for everything under `[analysis]` and for `min_confidence`;
+`include` is additive both ways. Every mistake in the file — unreadable,
+unparseable, wrong type, out of range, unknown key, unknown rule — is one
+`config_warning` on the document and never a failed run.
+
+**Comparing two analyses.** `mlview diff BASE.json HEAD.json` writes a separate
+`mlview-diff` document: which nodes and edges were added, removed or changed,
+which findings are new, fixed or persisting, and a `notes[]` block naming every
+reason a `removed` might not mean "deleted" — not analyzed, truncated, projected
+away, a different root, a different analyzer. Moving code is not a change: `loc`
+is outside the comparison key. It does **no rename detection**, so a renamed file
+reads as every node removed plus every node added.
+
+**Following a value across the object boundary.** `--dataflow ip` (default
+`local`) turns on interprocedural summaries: a constructor argument reaching
+`self.<attr>` and read by a sibling method, a return chain deeper than one level,
+an argument intersected over *every* resolved call site. It is off by default for
+one release. Every hop multiplies the confidence by an explicit weight, so a
+cross-object finding is **never** reported as certain — one hop takes MLView's
+strongest leakage rule from `certain` to `likely` — and the hop chain is named in
+words on the finding. A chain that runs past the hop cap is not propagated and is
+**reported** as a `truncated` diagnostic rather than dropped in silence.
 
 `--scope` takes one selector and `--depth` its 0–2 boundary hops; `--list-scopes`
 prints the catalogue of scopable units. An unusable selector exits `1` with
@@ -298,15 +402,18 @@ flowchart TB
 ```
 MLView/
   docs/                     REQUIREMENTS · ARCHITECTURE · ISSUE_RULES · UX_DESIGN · CONTRACTS
+    walkthrough/            the five VS Code walkthrough pages (synced into the extension)
+    gallery/                GENERATED, gitignored: every fixture and clean program rendered
   contracts/                FROZEN: graph.schema.json · graph.sample.json
   analyzer/                 the Python package `mlview` — the ONE analyzer
     src/mlview/             ingest · ir · core · knowledge · rules · emit · schema
     tests/                  core · rules · fixtures · clean corpus
   webview/                  the ONE renderer; dist/mlview.{js,css} is the bundle
   vscode-extension/         panel · diagnostics · reveal · chat · LM tools · core (the bundled analyzer)
-  claude-plugin/            plugin.json · .mcp.json · commands · skills · server · vendor
+  claude-plugin/            plugin.json · .mcp.json · commands · skills · server · hooks · vendor
   samples/                  vision_pipeline (dirty) + vision_pipeline_clean (twin)
   tools/                    sync-assets.py · sync-core.py · verify.py · wheel_check.py · action/
+  analyzer/tools/           gen_rule_docs.py · gen_gallery.py · the scope fixture generators
   scripts/                  build · e2e (PowerShell and sh) · the doc gate
   .claude-plugin/           marketplace.json — the repo doubles as a local marketplace
   .github/workflows/        ci.yml — the CI matrix (see "Continuous integration")
@@ -356,8 +463,8 @@ three of which fan out over a matrix:
 | `claude-plugin` | ubuntu, Python 3.13 | the plugin suite under `pytest -n auto`, then `tools/sync-core.py --check` |
 | `webview` | ubuntu x Node 20 / 22 | `npm run check`, `build`, `test`, then `tools/sync-assets.py --check` against the bundle just built |
 | `vscode-extension` | ubuntu, Node 20 | `npm run check`, `compile`, `test`, and the doc gate with its self-test |
-| `e2e (ubuntu, sh)` | ubuntu, Python 3.13 + Node 20 | `sh scripts/e2e.sh` — all 19 steps, uploading the emitted reports |
-| `e2e (windows, powershell)` | windows, Python 3.13 + Node 20 | `scripts/e2e.ps1` — the same 19 steps under the other driver |
+| `e2e (ubuntu, sh)` | ubuntu, Python 3.13 + Node 20 | `sh scripts/e2e.sh` — all 20 steps, uploading the emitted reports |
+| `e2e (windows, powershell)` | windows, Python 3.13 + Node 20 | `scripts/e2e.ps1` — the same 20 steps under the other driver |
 | `smoke (macos)` | macos, Python 3.13 + Node 20 | the analyzer and viewer suites — **only on push to `main` and on pull requests** |
 | `packaging (wheel + vsix)` | ubuntu, Python 3.13 + Node 20 | `tools/wheel_check.py` (build the wheel, `pip install` it into a throwaway venv, analyze with it), `sync-core.py --check`, `make_icon.py --check`, `npm run package`, then `scripts/vsix_check.py` — the 1 MB ceiling, the whole bundled analyzer, every rule page, no `__pycache__`, with the measured figures echoed |
 | `accuracy corpus` | ubuntu, Python 3.13 | `tools/accuracy.py` over the ten labelled programs, then `pytest analyzer/tests/accuracy` — zero `forbidden` findings, and recall and graph fidelity may only ratchet up |
@@ -371,18 +478,27 @@ default branch, so it starts firing once this lands on `main`.
 
 The matrix is deliberately lopsided: the repository is private, so minutes are
 metered and weighted (windows 2x, macos 10x), and the fan-out is therefore
-ubuntu-only. **Measured, not estimated** — the last full green branch push
-(run 34320075813, the Sprint 4 review fixes) took **6m30s of wall time and ~38
-billable minutes**: 24 of them the eleven ubuntu jobs, 14 the one Windows job
-(6m26s, billed as 7 min at 2x), and `smoke (macos)` skipped. The rounding rule is what
+ubuntu-only. **Measured, not estimated** — the last full green push
+(run 34454599867, Sprint 5's review-fix integration) took **7m57s of wall time
+and ~44 billable minutes** across the **12 green jobs** a branch push runs,
+macOS skipped;
+`scripts/README.md` row 25 breaks that run down job by job, and it is the same
+run this file and the gate table both mean by "the last full green push".
+The thirteenth job has run on exactly **one** branch push ever
+(run 34422156964, Sprint 5's process wave): **6m25s of wall time and ~68
+billable minutes** across **13 green jobs** — 24 of them the eleven ubuntu jobs,
+14 the one Windows job (6m22s, billed as 7 min at 2x) and **30 the one macOS
+job** (2m30s, billed as 3 min at 10x). The rounding rule is what
 makes that figure reproducible, so it is stated rather than assumed: **each job
 is rounded up to a whole minute on its own** and then multiplied by its runner's
 weight — summing the seconds first and rounding once gives a smaller number that
-GitHub does not charge. On `main` and on pull requests the macOS job runs and
-adds **20** (a ~93-second job, billed as 2 min at 10x), taking the same push to
-**~58**. That single job is therefore over a third of a full run's bill for two
+GitHub does not charge. `smoke (macos)`'s guard was widened to `sprint5` for
+exactly that one verification push and restored immediately after, so those 30
+minutes are a *measurement* of the macOS job's share rather than an estimate of
+it. A branch push with the job skipped is the other **~38** of that run's bill.
+That single job is therefore over a third of a full run's bill for two
 suites ubuntu already runs; because the multiplier and the rounding, not the
-job's contents, are what cost the 20, trimming it cannot help. That decision was
+job's contents, are what cost the 30, trimming it cannot help. That decision was
 taken in Sprint 4: macOS is now covered locally on a development machine that
 runs the full e2e table before every push, so the job runs **only on push to
 `main` and on pull requests** — the two moments where nobody's laptop is the
@@ -425,8 +541,10 @@ carries a `vendor: synced core` row alongside it saying which of the two it was.
 This is a prototype built in one session. The distinction between "works" and
 "compiles" is kept honest here.
 
-**Exercised end to end on this machine (Windows 11, Python 3.13, Node 20.9,
-VS Code 1.136):**
+**Exercised end to end on this machine (macOS 26.6, Python 3.13.15, Node 26.4)
+and, on every push, across the CI matrix (ubuntu and Windows, Python 3.10-3.13,
+Node 20 and 22). No VS Code version is quoted: the Extension Development Host is
+not part of what this list claims — see "Compile-verified only" below.**
 
 - The analyzer core and its rules, with the full pytest suite green.
 - The Claude Code plugin: a real stdio handshake with the MCP server, spawned as
@@ -437,9 +555,11 @@ VS Code 1.136):**
 - The self-contained HTML report: one file, zero external references — including
   the three scoped demo reports (`.mlview/split.html`, `optimization.html`,
   `evaluation.html`).
-- All four parity gates, the scope gate included: the ten-selector battery in
-  `contracts/scope.cases.json` projects identically through the Python
-  `analyzer/src/mlview/core/project.py` and the TypeScript
+- All four parity gates, the scope gate included: the battery in
+  `contracts/scope.cases.json` — **13 projections + 7 error cases** over the
+  frozen golden, plus the **5 promoted counterexamples** that carry their own
+  generated graph, plus the pipelines-relation row — projects identically
+  through the Python `analyzer/src/mlview/core/project.py` and the TypeScript
   `webview/src/scope/project.ts` (`python tools/verify.py --scopes`).
 
 **Compile-verified only:**

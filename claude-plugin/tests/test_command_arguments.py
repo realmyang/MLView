@@ -219,9 +219,17 @@ def test_the_documented_severity_fallback_really_runs(tmp_path):
 
 # ------------------------------------------------------------- the fallback really runs
 def _runnable(argv, tmp_path):
-    """Rewrite a documented fallback so it can run in a test: no browser, temp outputs."""
+    """Rewrite a documented fallback so it can run in a test: no browser, temp outputs.
+
+    VIEW-08 added a second shape to rewrite. `mlview diff` takes two documents as
+    POSITIONAL arguments rather than behind `--json`, and the fallback block writes
+    them with `analyze --json` two lines earlier — so a `*.json` positional of `diff`
+    is redirected into the same tmp directory those writes were redirected into, and
+    the three documented lines still form one runnable sequence.
+    """
     out = []
     skip = False
+    is_diff = "diff" in argv[:4]
     for index, token in enumerate(argv):
         if skip:
             skip = False
@@ -231,6 +239,9 @@ def _runnable(argv, tmp_path):
         if token in ("--json", "--html") and index + 1 < len(argv) and not argv[index + 1].startswith("-"):
             out.extend([token, os.path.join(str(tmp_path), os.path.basename(argv[index + 1]))])
             skip = True
+            continue
+        if is_diff and token.endswith(".json") and not token.startswith("-"):
+            out.append(os.path.join(str(tmp_path), os.path.basename(token)))
             continue
         out.append(token)
     return out

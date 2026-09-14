@@ -444,13 +444,20 @@ def test_an_edge_only_issue_outside_the_scope_is_simply_dropped():
 
 
 # ------------------------------------------------------- the frozen battery
-def test_the_battery_covers_the_ten_cases_and_the_six_error_codes():
+def test_the_battery_covers_every_kind_and_every_error_code():
+    """MLV-P12 (CONTRACTS 11.47 E) grew the battery from 10 + 6 to 13 + 7: three
+    `pipeline:` projections and the new `unknown_pipeline` refusal. The counts
+    are still pinned, because a case silently dropped from the generator is a
+    parity gate that stops testing something."""
     kinds = [c["kind"] for c in cases()]
-    assert kinds.count("project") == 10 and kinds.count("error") == 6
+    assert kinds.count("project") == 13 and kinds.count("error") == 7
     assert {c["error"]["code"] for c in expected().values()
             if c["kind"] == "error"} == {"bad_selector", "unknown_stage",
                                          "unknown_concern", "unknown_node",
-                                         "unknown_file", "bad_depth"}
+                                         "unknown_file", "bad_depth",
+                                         "unknown_pipeline"}
+    specs = {c["spec"].split(":", 1)[0] for c in cases() if c["kind"] == "project"}
+    assert "pipeline" in specs
 
 
 @pytest.mark.parametrize("case", [c for c in cases() if c["kind"] == "project"],

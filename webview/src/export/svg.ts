@@ -33,6 +33,16 @@ import { kindPath } from '../icons.js';
 import { countsTotal, highestSeverity, normalizeSeverity } from '../markers.js';
 import { ARROW_HEADS, edgeKindClass } from '../render/edges.js';
 import { ariaLabelFor, chipsFor } from '../render/nodes.js';
+import {
+  WEIGHT_BADGE_H,
+  WEIGHT_MIN,
+  rollupChipText,
+  rollupCount,
+  weightBadgeAt,
+  weightBadgeText,
+  weightBadgeWidth,
+  weightStroke,
+} from '../rollup/rolled.js';
 import { stageColor, severityColor, Palette } from './palette.js';
 import {
   ADVANCE_CAPS,
@@ -199,7 +209,13 @@ export function buildExportSvg(opts: ExportSvgOptions): ExportSvgResult {
     else cards.push(markup);
   }
 
-  /* edges sit above the bands and under the cards, exactly as the DOM stacks */
+  /* edges sit above the bands and under the cards, exactly as the DOM stacks.
+   *
+   * VIEW-04's `plan.bundles` is deliberately NOT drawn here. A trunk is a
+   * decluttering affordance that trades detail for hover, and a file in a pull
+   * request cannot be hovered — so the exported picture keeps every stroke, and
+   * the gate that counts one `<path data-edge-id>` per planned route keeps
+   * meaning what it says. */
   const cables: string[] = [];
   for (const visual of plan.edges) {
     const route = visual.route;
@@ -294,15 +310,25 @@ function nodeCard(
   const n = visual.node;
   const box = visual.box;
   const collapsedGroup = box.collapsed;
+  // PERF-04. The picture has to agree with the diagram about which cards stand
+  // for more than themselves, so the same `groupLike` test runs in both.
+  const rolled = rollupCount(n);
+  const groupLike = collapsedGroup || rolled > 0;
   const boundary = n.viewRole === 'boundary';
   const top = boundary ? null : highestSeverity(visual.counts);
-  const ghost = !!n.ghost;
+  // VIEW-08: a node the diff says was REMOVED is drawn with the same outline as
+  // a missing step. The exported picture cannot carry the ledge or the chip —
+  // that gap is stated in the amendment — but it must not draw a deleted node as
+  // an ordinary solid card, which would be the picture asserting something false.
+  const ghost = !!n.ghost || n.diffStatus === 'removed';
   const lowConf = typeof n.confidence === 'number' && n.confidence < 0.6;
   const dashed = ghost || lowConf || visual.stale;
 
   const attrs =
     ' data-node-id="' + esc(n.id) + '" data-stage="' + esc(n.stage || 'unknown') +
     '" data-kind="' + esc(n.kind) + '"' + (top ? ' data-sev="' + esc(top) + '"' : '') +
+    (n.diffStatus ? ' data-diff="' + esc(n.diffStatus) + '"' : '') +
+    (rolled ? ' data-rolled-up="' + rolled + '"' : '') +
     (n.viewRole ? ' data-view-role="' + esc(n.viewRole) + '"' : '') +
     (visual.filteredOut ? ' opacity="0.18"' : ghost ? ' opacity="0.92"' : '');
   const out: string[] = ['<g' + attrs + '>'];
@@ -329,7 +355,7 @@ function nodeCard(
     '<rect x="' + num(iconX) + '" y="' + num(iconY) + '" width="' + ICON_BOX + '" height="' + ICON_BOX +
       '" rx="6" fill="' + esc(colour) + '" fill-opacity="0.12"/>',
   );
-  out.push(glyphPath(kindPath(collapsedGroup ? 'artifact' : n.kind), iconX + 5, iconY + 5, 16 / 16, colour, 1.3));
+  out.push(glyphPath(kindPath(groupLike ? 'artifact' : n.kind), iconX + 5, iconY + 5, 16 / 16, colour, 1.3));
 
   /* text block */
   const tx = box.x + TEXT_X;
@@ -349,8 +375,11 @@ function nodeCard(
   const loc = ellipsise(locBits.head, Math.max(12, tw - tailPx), FS_LOC, true, false) + locBits.tail;
   out.push(text(loc, tx, box.y + Y_LOC, { size: FS_LOC, fill: palette.text3, mono: true }));
 
-  const chips = collapsedGroup
-    ? [visual.descendants + ' nodes'].concat(chipsFor(n, null, 14, 1))
+  // PERF-04: `7 rolled up` on the picture too, and for the same reason as on
+  // the card — the two counts mean different things and one wording for both
+  // would erase the difference in the artifact you hand a colleague.
+  const chips = groupLike
+    ? [rolled ? rollupChipText(rolled) : visual.descendants + ' nodes'].concat(chipsFor(n, null, 14, 1))
     : chipsFor(n, chipMetrics(tw), 26, 3);
   if (chips.length && box.h >= CHIP_MIN_H) {
     const chipTop = box.y + box.h - CHIP_BOTTOM;
@@ -367,8 +396,8 @@ function nodeCard(
     }
   }
 
-  if (top && !collapsedGroup) out.push(badge(visual.counts, box.x + box.w + 6, box.y - 6, palette, hc));
-  else if (collapsedGroup && countsTotal(visual.counts) > 0) {
+  if (top && !groupLike) out.push(badge(visual.counts, box.x + box.w + 6, box.y - 6, palette, hc));
+  else if (groupLike && countsTotal(visual.counts) > 0) {
     out.push(cluster(visual.counts, box.x + box.w + 6, box.y + 4, 14, palette, hc));
   }
   out.push('</g>');
@@ -385,8 +414,12 @@ function groupFrame(
   const box = visual.box;
   const boundary = n.viewRole === 'boundary';
   const top = boundary ? null : highestSeverity(visual.counts);
+  // PERF-04: a folded unit keeps its ghosts (11.46 A5), so a rolled-up node can
+  // still be an expanded frame — and the picture has to say so as the DOM does.
+  const rolled = rollupCount(n);
   const out: string[] = [
     '<g data-node-id="' + esc(n.id) + '" data-group="1" data-stage="' + esc(n.stage || 'unknown') + '"' +
+      (rolled ? ' data-rolled-up="' + rolled + '"' : '') +
       (top ? ' data-sev="' + esc(top) + '"' : '') + '>',
   ];
   out.push('<title>' + esc(ariaLabelFor(visual as any)) + '</title>');
@@ -414,6 +447,17 @@ function groupFrame(
       '" height="15" rx="7.5" fill="' + esc(palette.surface2) + '"/>',
   );
   out.push(text(countText, countX + 6, baseline, { size: FS_COUNT, fill: palette.text2 }));
+  if (rolled) {
+    const chip = rollupChipText(rolled);
+    const chipW = width(chip, FS_COUNT, false, false) + 12;
+    const chipX = countX + countW + 6;
+    out.push(
+      '<rect x="' + num(chipX) + '" y="' + num(baseline - 11) + '" width="' + num(chipW) +
+        '" height="15" rx="4" fill="' + esc(palette.surface2) + '" stroke="' + esc(palette.border) +
+        '" stroke-width="0.75"/>',
+    );
+    out.push(text(chip, chipX + 6, baseline, { size: FS_COUNT, fill: palette.text2 }));
+  }
   if (top) out.push(cluster(visual.counts, box.x + box.w - 10, box.y + GROUP_HEADER_H / 2, 13, palette, hc));
   out.push('</g>');
   return out.join('');
@@ -423,11 +467,24 @@ function groupFrame(
 
 function edgeMarkup(
   visual: {
-    route: { id: string; ids: string[]; kind: string; d: string; points: Point[]; mid: Point; back: boolean; count: number; label: string };
+    route: {
+      id: string;
+      ids: string[];
+      kind: string;
+      d: string;
+      points: Point[];
+      mid: Point;
+      /** PERF-04: the weight pill is nudged along this, exactly as in the DOM. */
+      midAngle: number;
+      back: boolean;
+      count: number;
+      label: string;
+    };
     severity: string | null;
     placement?: { x: number; y: number; hidden: boolean; always: boolean; text: string; marker: Point } | undefined;
     filtered?: boolean;
     stage?: string;
+    weight?: number;
   },
   palette: Palette,
   hc: boolean,
@@ -436,12 +493,19 @@ function edgeMarkup(
   const kind = edgeKindClass(r.kind);
   const colour = visual.severity ? severityColor(palette, visual.severity) : palette.edge;
   const style = EDGE_STYLE[kind] || EDGE_STYLE.data;
+  // PERF-04. The picture cannot be hovered, so the thicker stroke and the pill
+  // are the ONLY things that say a cable stands for seven connections — which
+  // is exactly why they are both drawn here rather than left to the DOM.
+  const weight = visual.weight && visual.weight > 1 ? Math.floor(visual.weight) : 1;
+  const weighted = weight >= WEIGHT_MIN;
+  const strokeW = weighted ? Math.max(style.width, weightStroke(weight)) : style.width;
   const out: string[] = [
-    '<g data-edge-kind="' + esc(r.kind) + '"' + (visual.filtered ? ' opacity="0.18"' : '') + '>',
+    '<g data-edge-kind="' + esc(r.kind) + '"' + (weighted ? ' data-edge-weight="' + weight + '"' : '') +
+      (visual.filtered ? ' opacity="0.18"' : '') + '>',
   ];
   out.push(
     '<path data-edge-id="' + esc(r.id) + '" data-edge-ids="' + esc(r.ids.join(' ')) +
-      '" d="' + esc(r.d) + '" fill="none" stroke="' + esc(colour) + '" stroke-width="' + style.width +
+      '" d="' + esc(r.d) + '" fill="none" stroke="' + esc(colour) + '" stroke-width="' + num(strokeW) +
       '" stroke-linecap="round" stroke-linejoin="round"' +
       (style.dash ? ' stroke-dasharray="' + style.dash + '"' : '') +
       ' stroke-opacity="' + (visual.severity ? 0.85 : style.opacity) + '"/>',
@@ -483,8 +547,35 @@ function edgeMarkup(
         '" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>',
     );
   }
+  if (weighted) out.push(weightPill(weight, mark, r.midAngle, !!visual.severity || r.back, palette));
   out.push('</g>');
   return { markup: out.join(''), labelled };
+}
+
+/**
+ * PERF-04's `×7` pill, at the point `rollup/rolled.ts` decides — the same
+ * arithmetic the DOM uses, so the exported picture cannot put the number
+ * somewhere else. FS 9 mono, to match `.mlv-edge__weighttext`.
+ */
+function weightPill(
+  weight: number,
+  mark: Point,
+  angle: number,
+  occupied: boolean,
+  palette: Palette,
+): string {
+  const label = weightBadgeText(weight);
+  const w = weightBadgeWidth(weight);
+  const at = weightBadgeAt(mark, angle, occupied);
+  return (
+    '<g data-weight="' + weight + '">' +
+    '<rect x="' + num(at.x - w / 2) + '" y="' + num(at.y - WEIGHT_BADGE_H / 2) + '" width="' + num(w) +
+    '" height="' + WEIGHT_BADGE_H + '" rx="' + num(WEIGHT_BADGE_H / 2) + '" fill="' + esc(palette.surface) +
+    '" stroke="' + esc(palette.border) + '" stroke-width="1"/>' +
+    '<text x="' + num(at.x) + '" y="' + num(at.y) + '" font-family="' + esc(EXPORT_MONO) +
+    '" font-size="9" fill="' + esc(palette.text2) + '" text-anchor="middle" dominant-baseline="middle">' +
+    esc(label) + '</text></g>'
+  );
 }
 
 /** Stroke treatments, transcribed from `styles/edge.css` one kind at a time. */

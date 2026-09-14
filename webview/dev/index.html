@@ -1764,10 +1764,582 @@
     </script>
     <!-- MLVIEW-SAMPLE-END -->
 
+    <!--
+      VIEW-08. The diff overlay travels as a SECOND `application/json` block
+      beside `#mlview-graph`, exactly as the standalone report will emit it and
+      exactly as `ui/ruledocs.ts` already reads its own sidecar. This one is real
+      output: `mlview diff BASE.json HEAD.json --format json` over a base built
+      from this same sample with the scaler and the optimizer removed, a
+      MinMaxScaler + fit_transform pair added, and the DataLoader's shuffle
+      finding absent. The viewer reads it at mount, so the first paint already
+      carries the ledges, the ghosts and the banner.
+    -->
+    <!-- MLVIEW-DIFF-START -->
+    <script id="mlview-diff" type="application/json">
+{
+  "kind": "mlview-diff",
+  "diffVersion": "1.0",
+  "schemaVersion": "1.0",
+  "generator": {
+    "name": "mlview",
+    "version": "0.1.0"
+  },
+  "base": {
+    "root": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline",
+    "generatedAt": "2026-09-06T12:00:00Z",
+    "analyzerVersion": "0.1.0",
+    "schemaVersion": "1.0",
+    "filesAnalyzed": 5,
+    "nodes": 12,
+    "edges": 11,
+    "issues": 6,
+    "truncated": false
+  },
+  "head": {
+    "root": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline",
+    "generatedAt": "2026-09-06T12:00:00Z",
+    "analyzerVersion": "0.1.0",
+    "schemaVersion": "1.0",
+    "filesAnalyzed": 5,
+    "nodes": 12,
+    "edges": 14,
+    "issues": 6,
+    "truncated": false
+  },
+  "summary": {
+    "nodes": {
+      "added": 2,
+      "removed": 2,
+      "changed": 1,
+      "unchanged": 9
+    },
+    "edges": {
+      "added": 3,
+      "removed": 0,
+      "changed": 0,
+      "unchanged": 11
+    },
+    "issues": {
+      "new": 1,
+      "fixed": 1,
+      "persisting": 5
+    },
+    "headline": "+2 nodes · −2 nodes · 1 new findings · 1 fixed"
+  },
+  "nodes": [
+    {
+      "id": "n:0c0f19a3b7d2",
+      "status": "unchanged",
+      "label": "TrainConfig()",
+      "kind": "config",
+      "level": "op",
+      "stage": "config",
+      "loc": {
+        "file": "config.py",
+        "line": 17
+      }
+    },
+    {
+      "id": "n:1100aa22bb33",
+      "status": "unchanged",
+      "label": "build_loaders()",
+      "kind": "function",
+      "level": "unit",
+      "stage": "data",
+      "loc": {
+        "file": "data.py",
+        "line": 18
+      }
+    },
+    {
+      "id": "n:33dd44ee55ff",
+      "status": "added",
+      "label": "Adam",
+      "kind": "optimizer",
+      "level": "op",
+      "stage": "train",
+      "loc": {
+        "file": "train.py",
+        "line": 34
+      }
+    },
+    {
+      "id": "n:4e8b21c05a97",
+      "status": "added",
+      "label": "StandardScaler",
+      "kind": "scaler",
+      "level": "op",
+      "stage": "preprocess",
+      "loc": {
+        "file": "sklearn_baseline.py",
+        "line": 18
+      }
+    },
+    {
+      "id": "n:5500cc66dd77",
+      "status": "unchanged",
+      "label": "train()",
+      "kind": "entrypoint",
+      "level": "stage",
+      "stage": "train",
+      "loc": {
+        "file": "train.py",
+        "line": 23
+      }
+    },
+    {
+      "id": "n:6a2f83b19c40",
+      "status": "unchanged",
+      "label": "train_test_split()",
+      "kind": "split",
+      "level": "op",
+      "stage": "data",
+      "loc": {
+        "file": "sklearn_baseline.py",
+        "line": 20
+      }
+    },
+    {
+      "id": "n:7c1a90b4e2f0",
+      "status": "changed",
+      "label": "train_loader",
+      "kind": "dataloader",
+      "level": "op",
+      "stage": "data",
+      "loc": {
+        "file": "data.py",
+        "line": 31
+      },
+      "changed": [
+        "issueCodes",
+        "sublabel"
+      ]
+    },
+    {
+      "id": "n:8d3e0f7a2b61",
+      "status": "unchanged",
+      "label": "SmallNet",
+      "kind": "model",
+      "level": "unit",
+      "stage": "model",
+      "loc": {
+        "file": "model.py",
+        "line": 19
+      }
+    },
+    {
+      "id": "n:9c8d7e6f5a4b",
+      "status": "unchanged",
+      "label": "for images, labels in train_loader",
+      "kind": "train_loop",
+      "level": "unit",
+      "stage": "train",
+      "loc": {
+        "file": "train.py",
+        "line": 44
+      }
+    },
+    {
+      "id": "n:aa00bb11cc22",
+      "status": "removed",
+      "label": "MinMaxScaler",
+      "kind": "scaler",
+      "level": "op",
+      "stage": "preprocess",
+      "loc": {
+        "file": "sklearn_baseline.py",
+        "line": 12
+      }
+    },
+    {
+      "id": "n:b45c96e0d817",
+      "status": "unchanged",
+      "label": "CrossEntropyLoss",
+      "kind": "loss",
+      "level": "op",
+      "stage": "objective",
+      "loc": {
+        "file": "train.py",
+        "line": 29
+      }
+    },
+    {
+      "id": "n:bb11cc22dd33",
+      "status": "removed",
+      "label": "fit_transform()",
+      "kind": "transform",
+      "level": "op",
+      "stage": "preprocess",
+      "loc": {
+        "file": "sklearn_baseline.py",
+        "line": 13
+      }
+    },
+    {
+      "id": "n:c072e5a41d38",
+      "status": "unchanged",
+      "label": "validate()",
+      "kind": "eval_loop",
+      "level": "unit",
+      "stage": "eval",
+      "loc": {
+        "file": "train.py",
+        "line": 11
+      }
+    },
+    {
+      "id": "n:ffee11223344",
+      "status": "unchanged",
+      "label": "zero_grad()",
+      "kind": "optimizer",
+      "level": "op",
+      "stage": "train",
+      "loc": {
+        "file": "train.py",
+        "line": 44
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e:00aa11bb22cc",
+      "status": "added",
+      "source": "n:33dd44ee55ff",
+      "target": "n:9c8d7e6f5a4b",
+      "kind": "control",
+      "label": "next batch"
+    },
+    {
+      "id": "e:1a2b3c4d5e6f",
+      "status": "added",
+      "source": "n:4e8b21c05a97",
+      "target": "n:6a2f83b19c40",
+      "kind": "data",
+      "label": "X_scaled"
+    },
+    {
+      "id": "e:4c7d0e2f8a91",
+      "status": "unchanged",
+      "source": "n:8d3e0f7a2b61",
+      "target": "n:b45c96e0d817",
+      "kind": "data",
+      "label": "outputs"
+    },
+    {
+      "id": "e:5d8e1f3a9b02",
+      "status": "unchanged",
+      "source": "n:9c8d7e6f5a4b",
+      "target": "n:8d3e0f7a2b61",
+      "kind": "data",
+      "label": "images"
+    },
+    {
+      "id": "e:6e9f2a4b0c13",
+      "status": "added",
+      "source": "n:b45c96e0d817",
+      "target": "n:33dd44ee55ff",
+      "kind": "data",
+      "label": "grads"
+    },
+    {
+      "id": "e:7f0a3b5c1d24",
+      "status": "unchanged",
+      "source": "n:8d3e0f7a2b61",
+      "target": "n:c072e5a41d38",
+      "kind": "data",
+      "label": "model"
+    },
+    {
+      "id": "e:8a1b4c6d2e35",
+      "status": "unchanged",
+      "source": "n:5500cc66dd77",
+      "target": "n:1100aa22bb33",
+      "kind": "call",
+      "label": "build_loaders(CFG)"
+    },
+    {
+      "id": "e:9b2c5d7e3f46",
+      "status": "unchanged",
+      "source": "n:5500cc66dd77",
+      "target": "n:c072e5a41d38",
+      "kind": "call",
+      "label": "validate(...)"
+    },
+    {
+      "id": "e:9f21ab34cd56",
+      "status": "unchanged",
+      "source": "n:7c1a90b4e2f0",
+      "target": "n:9c8d7e6f5a4b",
+      "kind": "data",
+      "label": "train_loader"
+    },
+    {
+      "id": "e:ac3d6e8f4a57",
+      "status": "unchanged",
+      "source": "n:5500cc66dd77",
+      "target": "n:8d3e0f7a2b61",
+      "kind": "call",
+      "label": "SmallNet(...)"
+    },
+    {
+      "id": "e:bd4e7f9a5b68",
+      "status": "unchanged",
+      "source": "n:5500cc66dd77",
+      "target": "n:9c8d7e6f5a4b",
+      "kind": "control",
+      "label": "enter batch loop"
+    },
+    {
+      "id": "e:ce5f8a0b6c79",
+      "status": "unchanged",
+      "source": "n:9c8d7e6f5a4b",
+      "target": "n:5500cc66dd77",
+      "kind": "control",
+      "label": "next epoch"
+    },
+    {
+      "id": "e:df6a9b1c7d8a",
+      "status": "unchanged",
+      "source": "n:0c0f19a3b7d2",
+      "target": "n:1100aa22bb33",
+      "kind": "config",
+      "label": "CFG"
+    },
+    {
+      "id": "e:e07ac2d8e9ab",
+      "status": "unchanged",
+      "source": "n:0c0f19a3b7d2",
+      "target": "n:7c1a90b4e2f0",
+      "kind": "config",
+      "label": "batch_size"
+    }
+  ],
+  "issues": [
+    {
+      "id": "i:1234abcd5678",
+      "status": "persisting",
+      "code": "MLV201",
+      "severity": "high",
+      "title": "Gradients are never zeroed",
+      "confidenceBucket": "certain",
+      "nodeIds": [
+        "n:ffee11223344",
+        "n:9c8d7e6f5a4b"
+      ],
+      "loc": {
+        "file": "train.py",
+        "line": 44
+      }
+    },
+    {
+      "id": "i:2f9b0d6a5c84",
+      "status": "persisting",
+      "code": "MLV602",
+      "severity": "low",
+      "title": "Split without random_state",
+      "confidenceBucket": "certain",
+      "nodeIds": [
+        "n:6a2f83b19c40"
+      ],
+      "loc": {
+        "file": "sklearn_baseline.py",
+        "line": 20
+      }
+    },
+    {
+      "id": "i:5b3c7d9e1f02",
+      "status": "persisting",
+      "code": "MLV401",
+      "severity": "high",
+      "title": "Softmax output is fed to CrossEntropyLoss",
+      "confidenceBucket": "certain",
+      "nodeIds": [
+        "n:b45c96e0d817",
+        "n:8d3e0f7a2b61"
+      ],
+      "loc": {
+        "file": "train.py",
+        "line": 29
+      }
+    },
+    {
+      "id": "i:6e1a4c8d0b73",
+      "status": "persisting",
+      "code": "MLV302",
+      "severity": "medium",
+      "title": "Evaluation loop is not wrapped in torch.no_grad()",
+      "confidenceBucket": "likely",
+      "nodeIds": [
+        "n:c072e5a41d38"
+      ],
+      "loc": {
+        "file": "train.py",
+        "line": 15
+      }
+    },
+    {
+      "id": "i:8c4d1e7b3a05",
+      "status": "persisting",
+      "code": "MLV601",
+      "severity": "low",
+      "title": "No random seed is set anywhere in the workspace",
+      "confidenceBucket": "certain",
+      "nodeIds": [
+        "n:5500cc66dd77"
+      ],
+      "loc": {
+        "file": "train.py",
+        "line": 23
+      }
+    },
+    {
+      "id": "i:aa11bb22cc33",
+      "status": "new",
+      "code": "MLV110",
+      "severity": "medium",
+      "title": "Training DataLoader does not shuffle",
+      "confidenceBucket": "likely",
+      "nodeIds": [
+        "n:7c1a90b4e2f0"
+      ],
+      "loc": {
+        "file": "data.py",
+        "line": 31
+      }
+    },
+    {
+      "id": "i:cc22dd33ee44",
+      "status": "fixed",
+      "code": "MLV101",
+      "severity": "high",
+      "title": "Scaler fitted before the split",
+      "confidenceBucket": "likely",
+      "nodeIds": [
+        "n:bb11cc22dd33"
+      ],
+      "loc": {
+        "file": "train.py",
+        "line": 15
+      }
+    }
+  ],
+  "notes": []
+}
+    </script>
+    <!-- MLVIEW-DIFF-END -->
+
     <script src="../dist/mlview.js"></script>
     <script>
       (function () {
         var graph = JSON.parse(document.getElementById('mlview-graph').textContent);
+
+        // H5 and ANA-10, demonstrated on the same sample. Both features are
+        // driven by fields an analyzer that already ships them would write, so
+        // the harness writes them here rather than editing the inlined sample
+        // (which `dev/refresh-sample.mjs` regenerates verbatim from
+        // `contracts/graph.sample.json`). Nothing below is renderer behaviour:
+        // it is one document with the two optional shapes filled in.
+        //
+        // ANA-10, in-Python half: a resolved config literal, and a getattr
+        // registry that resolved to one of three exported symbols.
+        graph.nodes.forEach(function (n) {
+          if (n.id === 'n:0c0f19a3b7d2') {
+            n.var = 'batch_size';
+            n.attrs = Object.assign({}, n.attrs, {
+              resolvedValue: '64',
+              resolvedFrom: 'CONFIG["batch_size"] at config.py:9',
+            });
+          }
+          // A `getattr` registry: ONE node standing for three candidate symbols,
+          // which used to be drawn as two `unknown` boxes. It sits on a LEAF
+          // card on purpose — a group box has no sublabel to put it in.
+          if (n.id === 'n:4e8b21c05a97') {
+            n.attrs = Object.assign({}, n.attrs, {
+              alternatives: 'StandardScaler, MinMaxScaler, RobustScaler',
+              resolvedFrom: 'getattr(preprocessing, CFG.scaler) at sklearn_baseline.py:14',
+            });
+          }
+        });
+        // H5: one mechanical fix and one that needs review, both with the exact
+        // half-open range and replacement text a rule computes from the AST.
+        graph.issues.forEach(function (i) {
+          if (i.code === 'MLV201') {
+            i.fix = {
+              title: 'Add optimizer.zero_grad() before the backward pass',
+              safety: 'mechanical',
+              edits: [
+                {
+                  file: 'train.py',
+                  absFile: '/w/train.py',
+                  line: 45,
+                  col: 12,
+                  endLine: 45,
+                  endCol: 12,
+                  newText: 'optimizer.zero_grad()\n            ',
+                },
+              ],
+            };
+          }
+          if (i.code === 'MLV110') {
+            i.fix = {
+              title: 'Pass shuffle=True to the training DataLoader',
+              safety: 'needs-review',
+              edits: [
+                {
+                  file: 'data.py',
+                  absFile: '/w/data.py',
+                  line: 31,
+                  col: 34,
+                  endLine: 31,
+                  endCol: 34,
+                  newText: ', shuffle=True',
+                },
+              ],
+            };
+          }
+        });
+        // PERF-04 and MLV-P12, behind `?later=1` so the default page — and the
+        // devpages gate that opens it — is byte-for-byte what it was.
+        //
+        // Both features are driven by fields an analyzer that already ships
+        // them writes, so the harness fills those in rather than editing the
+        // inlined sample (which `dev/refresh-sample.mjs` regenerates verbatim
+        // from `contracts/graph.sample.json`). Nothing below is renderer
+        // behaviour: it is one document with the two optional shapes present.
+        var laterParams = new URLSearchParams(window.location.search);
+        if (laterParams.get('later')) {
+          // MLV-P12: three entrypoints out of the sample's five files. `data.py`
+          // is reached from `train()` AND owns its own nodes, so `build_loaders`
+          // and `train_loader` come back SHARED — which is the case worth
+          // seeing, because a shared node is drawn as context in both views.
+          graph.workspace = Object.assign({}, graph.workspace, {
+            entrypoints: ['train.py', 'data.py', 'sklearn_baseline.py'],
+          });
+          // PERF-04: two cards that swallowed their children, and two cables
+          // that stand for more than one connection.
+          var ROLLED = { 'n:1100aa22bb33': 4, 'n:c072e5a41d38': 7 };
+          graph.nodes.forEach(function (n) {
+            if (ROLLED[n.id]) n.rolledUp = ROLLED[n.id];
+          });
+          var WEIGHTS = { 'e:9f21ab34cd56': 3, 'e:7f0a3b5c1d24': 9 };
+          graph.edges.forEach(function (e) {
+            if (WEIGHTS[e.id]) e.weight = WEIGHTS[e.id];
+          });
+          graph.stats = Object.assign({}, graph.stats, { truncated: true });
+          // 11.46 D: the words are the diagnostic's job, and `count` is folded
+          // plus dropped — 11 folded here, so the banner derives 2 dropped.
+          graph.diagnostics = (graph.diagnostics || []).concat([
+            {
+              kind: 'truncated',
+              count: 13,
+              message:
+                'node budget 14: 14 node(s) kept. 11 node(s) rolled up — 2 unit(s) absorbed their ' +
+                'operations, 0 file(s) were summarised, 10 edge(s) were merged and 3 were absorbed — ' +
+                'and 2 node(s) were dropped. No findings were lost.',
+            },
+          ]);
+        }
+
         var bridge = MLView.bridges.standalone({
           theme: 'auto',
           onPost: function (msg) {
@@ -1897,6 +2469,35 @@
         embed.style.alignSelf = 'center';
         embed.style.color = 'var(--mlv-link, #2b57c4)';
         bar.appendChild(embed);
+
+        // VIEW-08. The overlay is already on the page as `#mlview-diff`, so the
+        // viewer mounted with it. This toggle exercises the OTHER route — the
+        // `diffOverlay` host message — by posting it at the window the
+        // standalone bridge listens on, which is the same path VS Code uses.
+        var overlayEl = document.getElementById('mlview-diff');
+        var overlay = overlayEl ? JSON.parse(overlayEl.textContent) : null;
+        var diffOn = !!overlay;
+        var diffBtn = document.createElement('button');
+        diffBtn.type = 'button';
+        diffBtn.id = 'dev-diff';
+        diffBtn.textContent = 'diff';
+        diffBtn.title = 'Send or clear the diff overlay through the diffOverlay host message (VIEW-08)';
+        diffBtn.setAttribute('aria-pressed', diffOn ? 'true' : 'false');
+        diffBtn.addEventListener('click', function () {
+          diffOn = !diffOn;
+          diffBtn.setAttribute('aria-pressed', diffOn ? 'true' : 'false');
+          window.postMessage({ v: 1, type: 'diffOverlay', overlay: diffOn ? overlay : null }, '*');
+        });
+        bar.appendChild(diffBtn);
+
+        // PERF-04 / MLV-P12: the same page with the two LATER shapes filled in.
+        var later = document.createElement('a');
+        later.href = laterParams.get('later') ? './index.html' : './index.html?later=1';
+        later.textContent = laterParams.get('later') ? '← plain' : 'rollup + pipelines →';
+        later.title = 'Draw the sample with rolledUp counts, weighted edges and three entrypoints';
+        later.style.alignSelf = 'center';
+        later.style.color = 'var(--mlv-link, #2b57c4)';
+        bar.appendChild(later);
 
         var states = document.createElement('a');
         states.href = './states.html';

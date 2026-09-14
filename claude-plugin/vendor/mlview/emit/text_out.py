@@ -16,7 +16,7 @@ from .answers import render_block as render_answers_block
 from .group_out import render_grouped
 
 __all__ = ["render_text", "render_summary", "render_issue_table", "issue_lines",
-           "diagnostic_block",
+           "diagnostic_block", "fix_block",
            "render_findings", "scope_line", "write_stdout", "write_stdout_bytes",
            "write_stderr", "SEVERITY_MARK"]
 
@@ -130,6 +130,7 @@ def render_summary(doc: Dict[str, Any], show_suppressed: bool = False,
     # chip rows (11.4 F3); the text emitters make the same split, so a scoped
     # CI log cannot be read as a claim about what the project contains.
     scoped = isinstance(doc.get("view"), dict)
+    rolled = bool((doc.get("stats") or {}).get("truncated"))
     absent: List[str] = []
     out_of_view: List[str] = []
     for stage in doc.get("stages", []):
@@ -142,8 +143,18 @@ def render_summary(doc: Dict[str, Any], show_suppressed: bool = False,
             continue
         marks = " ".join("%s%d" % (SEVERITY_MARK[sev], stage_counts.get(sev, 0))
                          for sev in ("high", "medium", "low") if stage_counts.get(sev))
-        lines.append("  %-11s %3d nodes%s" % (stage["id"], stage.get("nodeCount", 0),
-                                              ("   " + marks) if marks else ""))
+        # VIEW-R1: `--max-nodes` folds a stage's nodes onto a summary node whose
+        # stage is a majority vote, so a stage that is really there can end the
+        # fold with nodeCount 0 while its findings stay on the rail. `0 nodes
+        # [i]25` is two numbers that look like a contradiction; say which of the
+        # two describes the workspace and which describes the picture.
+        folded = (rolled and stage.get("present")
+                  and not stage.get("nodeCount") and any(stage_counts.values()))
+        lines.append("  %-11s %3d nodes%s%s"
+                     % (stage["id"], stage.get("nodeCount", 0),
+                        ("   " + marks) if marks else "",
+                        "   (rolled up - its nodes are inside a summary card)"
+                        if folded else ""))
     if out_of_view:
         lines.append("  not in this scope: %s" % ", ".join(out_of_view))
     if absent:
@@ -174,8 +185,51 @@ def render_summary(doc: Dict[str, Any], show_suppressed: bool = False,
     lines.append(heading)
     lines.extend(issue_lines(issues, group_by) if issues else ["  none found"])
 
+    lines.extend(fix_block(doc))
     lines.extend(diagnostic_block(doc))
     return "\n".join(lines) + "\n"
+
+
+def fix_block(doc: Dict[str, Any]) -> List[str]:
+    """H5's `Fixes (N)` block as lines, empty when nothing carries an edit.
+
+    Two things belong here and the second is the one that matters. The first is
+    the list itself: which findings come with a computed edit, how safe it is,
+    and where it lands. The second is the **denominator** - when a rule
+    produced an edit somewhere in this run and not somewhere else, the block
+    says so out loud. `samples/vision_pipeline` is exactly that case: one
+    MLV602 gets `random_state=42` and the other gets nothing, because
+    `data.py` never binds the name `torch` to spell a generator with. Printing
+    only the fixes that exist would let a reader conclude the second split was
+    fine.
+    """
+    issues = [i for i in doc.get("issues", [])
+              if not (i.get("suppressed") or i.get("baselined"))]
+    fixed = [i for i in issues if isinstance(i.get("fix"), dict)]
+    if not fixed:
+        return []
+    fixed.sort(key=lambda i: (_SEV_ORDER.get(i.get("severity"), 3),
+                              i.get("loc", {}).get("file", ""),
+                              i.get("loc", {}).get("line", 0), i.get("code", "")))
+    lines = ["", "Fixes (%d)" % len(fixed)]
+    for issue in fixed:
+        fix = issue["fix"]
+        edits = fix.get("edits") or [{}]
+        where = "%s:%s" % (edits[0].get("file", "?"), edits[0].get("line", "?"))
+        lines.append("  %-12s %-7s %-24s %s"
+                     % (fix.get("safety", ""), issue.get("code", ""), where,
+                        fix.get("title", "")))
+    codes = {i.get("code") for i in fixed}
+    missing = sorted({i.get("code") for i in issues
+                      if i.get("code") in codes and not i.get("fix")})
+    if missing:
+        lines.append("  no edit was computed for %d other finding(s) of %s - "
+                     "see docs/rules/<CODE>.md for when one is withheld"
+                     % (sum(1 for i in issues
+                            if i.get("code") in missing and not i.get("fix")),
+                        ", ".join(missing)))
+    lines.append("  nothing here is applied automatically.")
+    return lines
 
 
 def diagnostic_block(doc: Dict[str, Any], limit: int = 10) -> List[str]:
@@ -269,6 +323,11 @@ def render_issue_table(issues: Sequence[Dict[str, Any]]) -> str:
             # so `--show-suppressed` printed a header netting six findings out
             # over a table that listed them indistinguishably from the rest.
             title += "  (baselined)"
+        # H5: the row says an edit exists; `Fixes (N)` below says what it is.
+        # Marked on the row too because a reader scanning the table for
+        # something to act on should not have to hold two blocks in their head.
+        if isinstance(issue.get("fix"), dict):
+            title += "  (fix)"
         lines.append("  %-4s %-7s %-11s %-28s %s"
                      % (mark, issue.get("code", ""), issue.get("confidenceBucket", ""),
                         where, title))
@@ -327,6 +386,12 @@ def render_findings(issues: Sequence[Dict[str, Any]]) -> str:
         parts.append("      %s" % issue.get("message", ""))
         parts.append("      why: %s" % issue.get("why", ""))
         parts.append("      fix: %s" % issue.get("fixHint", ""))
+        fix = issue.get("fix")
+        if isinstance(fix, dict):
+            edits = fix.get("edits") or [{}]
+            parts.append("      edit: %s [%s] -> %s:%s (not applied)"
+                         % (fix.get("title", ""), fix.get("safety", ""),
+                            edits[0].get("file", "?"), edits[0].get("line", "?")))
         for related in issue.get("relatedLocs", []) or []:
             parts.append("      %s -> %s:%s" % (related.get("role"), related.get("file"),
                                                 related.get("line")))

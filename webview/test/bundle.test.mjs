@@ -92,11 +92,56 @@ test('dist/mlview.css IS the minification of dist/mlview.dev.css (BUILD-01)', as
 /*
  * BUILD-01's size ratchet.
  *
- * MEASURED ON THIS TREE, 2026-09-09, after the Sprint 4 review fixes landed on
- * top of NB (notebook locations) and VIEW-07 (diagram export):
- *   dist/mlview.js       270 784 B (264.4 KB)
- *   dist/mlview.css       60 502 B  (59.1 KB), minified from 103 428 B (-41%)
- *   dist/mlview.dev.css  103 428 B (101.0 KB, never shipped)
+ * MEASURED ON THIS TREE, 2026-09-10, after PERF-04 (the hierarchical rollup) and
+ * MLV-P12 (multi-pipeline workspaces) landed on top of VIEW-08, H5 and ANA-10:
+ *   dist/mlview.js       322 438 B (314.9 KB)
+ *   dist/mlview.css       71 689 B  (70.0 KB), minified from 125 446 B (-43%)
+ *   dist/mlview.dev.css  125 446 B (122.5 KB, never shipped)
+ *
+ * The tree those two landed on shipped 304 818 B of JS and 68 001 B of CSS, so
+ * they cost +17 620 B and +3 688 B, and BOTH CAPS MOVE — which is the number a
+ * lead looks for, so here is where it went. PERF-04 is about 8.5 KB: `rollup/
+ * rolled.ts` is the only module that knows the names of `Node.rolledUp` and
+ * `Edge.weight` and it also owns the stroke curve, the badge geometry shared
+ * with the export, the summary's arithmetic (dropped = the diagnostic's count
+ * minus what is visibly folded) and the six caveats of 11.46 F; the rest is one
+ * branch each in `render/nodes`, `render/edges`, `render/plan`, `export/svg`,
+ * `ui/chrome` and `ui/legend`. MLV-P12 is about 8.8 KB: `scope/pipelines.ts` (the
+ * relation, its case-folding resolver, the scope note and the drift check
+ * against the emitted block), `ui/pipelinechooser.ts` (the panel, its rows and
+ * its four caveats), the picker's Pipelines section, `resolvePipeline` and the
+ * forced-context lines in `scope/project.ts`, and one field each on `ViewState`
+ * and `MLNode` / `MLEdge`. The CSS is one new layer, `styles/rollup.css` (the
+ * stack edge, the count chip, the weighted stroke and its pill, all three
+ * theme-aware), plus the chooser's block in `styles/scope.css`. Caps go to JS
+ * 320 KB and CSS 72 KB, leaving 5 242 B (1.6 %) and 2 039 B (2.8 %) — the same
+ * order the last five ratchets held. The ratchet's job is unchanged: make the
+ * NEXT growth visible.
+ *
+ * BEFORE those two came the viewer half of VIEW-08 (the diff overlay), H5
+ * (structured fixes) and ANA-10 (resolved configuration), on top of VIEW-04, the
+ * Sprint 4 review fixes, NB and VIEW-07; that tree shipped 304 818 B of JS and
+ * 68 001 B of CSS, under caps of JS 303 KB and CSS 68 KB.
+ *
+ * The tree those three landed on shipped 279 080 B of JS and 61 863 B of CSS,
+ * so they cost +25 738 B and +6 138 B, and BOTH CAPS MOVE -- which is the number
+ * a lead looks for, so here is where it went. VIEW-08 is the largest share and
+ * the only one that is a new SUBSYSTEM rather than a new surface: `diff/overlay`
+ * (the reader, the validator and the id index), `diff/adopt` (stamping the
+ * status and resurrecting every removed node as a card the head document does
+ * not contain) and `diff/changed` (the "changed only" projection) come to about
+ * 9.6 KB, with `ui/diffbar` -- the headline, the two documents, seven count
+ * chips and `notes[]` drawn in full -- another 5.2 KB. H5 is `ui/fixes` plus its
+ * two call sites, about 4.0 KB, and ANA-10 is `config/resolved` plus the card
+ * and Inspector branches, about 2.6 KB; the remaining ~3.5 KB is spread across
+ * `app`, `types`, `protocol`, `scope/session`, `scope/project` (the extraction
+ * of `projectResolved`, which is what lets a diff BE a projection instead of a
+ * second rendering path) and `render/nodes`. The CSS is one new layer,
+ * `styles/diff.css`: two themed hues with a light, a dark and a high-contrast
+ * value, the ledge, the ghost treatment, the chips, the fix disclosure and the
+ * rail's fixed-findings section. Caps go to JS 303 KB and CSS 68 KB, leaving
+ * 5 454 B (1.8 %) and 1 631 B (2.3 %) -- the same order the last four ratchets
+ * held. The ratchet's job is unchanged: make the NEXT growth visible.
  *
  * NB moved the JS by +2 991 B and the CSS by +195 B, and moved NEITHER CAP: the
  * item is one small module (`notebook.ts`: the flat-line-to-cell translation,
@@ -126,6 +171,18 @@ test('dist/mlview.css IS the minification of dist/mlview.dev.css (BUILD-01)', as
  * (2.9 %) and 2 230 B (3.6 %) of headroom -- the same order the last two
  * ratchets held. The ratchet's job is unchanged: make the NEXT growth visible.
  *
+ * VIEW-04 then moved the JS by +8 296 B and the CSS by +1 361 B, and BOTH CAPS
+ * with them. The item is four new units -- `layout/channel.ts` (the lane-pair
+ * plan, the barycentre order and the bounded splay), `layout/bundles.ts` (the
+ * trunk and its spurs as geometry), `render/bundles.ts` (the `<g>` and the
+ * expand/collapse binding) and the `.mlv-bundle*` block in `styles/edge.css` --
+ * plus the rewritten `routeCrossLane`, the channel reservation in `layout.ts`
+ * and one field on the scene plan. It is a SECOND drawing of the cross-lane
+ * edges, kept beside the first because the flow charge and the SVG export read
+ * each cable's own `d`, so it costs a layer rather than replacing one. Caps go
+ * to JS 278 KB and CSS 62 KB, leaving 5 592 B (2.0 %) and 1 625 B (2.6 %) --
+ * the same order the last three ratchets held.
+ *
  * The two figures above are GATED, not just written down: `JS_RECORDED` /
  * `CSS_RECORDED` are asserted against the built files with a 2 KB tolerance, so
  * a rebuild that moves the bundle forces this block to be re-measured instead of
@@ -139,11 +196,11 @@ test('dist/mlview.css IS the minification of dist/mlview.dev.css (BUILD-01)', as
  * again: `the figures in the block above are the constants below` reads this
  * file and fails on a one-byte disagreement.
  */
-const JS_RECORDED = 270784;
-const CSS_RECORDED = 60502;
+const JS_RECORDED = 322438;
+const CSS_RECORDED = 71689;
 const DRIFT = 2 * 1024;
-const JS_MAX_BYTES = 268 * 1024;
-const CSS_MAX_BYTES = 61 * 1024;
+const JS_MAX_BYTES = 320 * 1024;
+const CSS_MAX_BYTES = 72 * 1024;
 
 const headroom = (size, cap) =>
   size + ' B, ' + (cap - size) + ' B (' + (((cap - size) / cap) * 100).toFixed(1) + ' %) under the ' + cap + ' B ratchet';

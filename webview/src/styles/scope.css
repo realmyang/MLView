@@ -276,3 +276,151 @@
     width: calc(100% - 2 * var(--mlv-s3));
   }
 }
+
+/* ── the pipeline chooser (MLV-P12) ────────────────────────────────────── */
+
+/*
+ * A question over the diagram, not a mode. It is a scrim plus one panel, drawn
+ * on the app root rather than inside the canvas — a chooser in the world layer
+ * would pan and zoom with the picture — and it is the same vocabulary as the
+ * scope picker below it, because picking a pipeline IS picking a scope.
+ */
+.mlv-pipechooser {
+  position: absolute;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  inset: 0;
+  padding: var(--mlv-s5);
+  background: color-mix(in srgb, var(--mlv-bg) 72%, transparent);
+}
+
+.mlv-pipechooser[hidden] {
+  display: none;
+}
+
+.mlv-pipechooser__panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mlv-s3);
+  width: min(520px, 100%);
+  max-height: min(80vh, 680px);
+  padding: var(--mlv-s5);
+  overflow-y: auto;
+  border: 1px solid var(--mlv-border-strong);
+  border-radius: var(--mlv-r-panel);
+  background: var(--mlv-surface);
+  box-shadow: var(--mlv-sh-3);
+}
+
+.mlv-pipechooser__head {
+  display: flex;
+  align-items: center;
+  gap: var(--mlv-s3);
+}
+
+.mlv-pipechooser__title {
+  flex: 1;
+  margin: 0;
+  font-size: var(--mlv-fs-14);
+  font-weight: var(--mlv-fw-semi);
+}
+
+.mlv-pipechooser__lede {
+  margin: 0;
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-12);
+}
+
+.mlv-pipechooser__rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mlv-s2);
+}
+
+/* VIEW-R4: the list semantics live on this wrapper so the row itself can stay a
+ * plain <button> — `role` on a button REPLACES the button role, which took the
+ * modal's only real actions out of a screen reader's button rotor. */
+.mlv-pipechooser__item {
+  display: flex;
+}
+
+.mlv-pipechooser__row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--mlv-s3);
+  width: 100%;
+  padding: var(--mlv-s3) var(--mlv-s4);
+  border: 1px solid var(--mlv-border);
+  border-radius: var(--mlv-r-btn);
+  background: var(--mlv-surface-2);
+  color: var(--mlv-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mlv-pipechooser__row:hover,
+.mlv-pipechooser__row:focus-visible {
+  border-color: var(--mlv-accent);
+}
+
+/* Severity is a LEFT RULE, never the row's colour: the same discipline the rail
+ * rows follow, so the list survives a greyscale screenshot. */
+.mlv-pipechooser__row[data-sev] {
+  border-left: 3px solid var(--mlv-sev, var(--mlv-border));
+}
+
+.mlv-pipechooser__name {
+  flex: 1;
+  overflow: hidden;
+  font-weight: var(--mlv-fw-medium);
+  font-family: var(--mlv-font-mono);
+  font-size: var(--mlv-fs-12);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mlv-pipechooser__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--mlv-s3);
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-11);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.mlv-pipechooser__findings {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.mlv-pipechooser__shared {
+  padding: 0 var(--mlv-s2);
+  border: 1px dashed var(--mlv-border-strong);
+  border-radius: var(--mlv-r-pill);
+}
+
+.mlv-pipechooser__all {
+  align-self: flex-start;
+}
+
+.mlv-pipechooser__notes {
+  margin: 0;
+  padding-top: var(--mlv-s3);
+  border-top: 1px solid var(--mlv-border);
+}
+
+.mlv-pipechooser__notelist {
+  margin: 0;
+  padding-left: var(--mlv-s5);
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-11);
+}
+
+.mlv-pipechooser__notelist li + li {
+  margin-top: 3px;
+}

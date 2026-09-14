@@ -626,7 +626,8 @@ def test_the_real_roadmap_records_every_shipped_sprint_4_item():
 
 def run_module(module, failed: int = 0) -> int:
     """Run every `test_*` in one module, printing a line each. Shared with
-    `scripts/test_doc_numbers.py`, which holds the cases for checks 9-11."""
+    `scripts/test_doc_numbers.py` (checks 9-11) and `scripts/test_doc_figures.py`
+    (checks 13-15), which hold the cases for the checks that live next door."""
     for name, fn in sorted(vars(module).items()):
         if not name.startswith("test_") or not callable(fn):
             continue
@@ -640,14 +641,16 @@ def run_module(module, failed: int = 0) -> int:
 
 
 def main() -> int:
-    # Checks 1-8 and 12 here, checks 9-11 next door, and the packaged-VSIX gate
-    # beside them: one self-test entry point, so the e2e drivers and the CI job
-    # keep running every gate's own suite from one line.
+    # Checks 1-8 and 12 here, 9-11 and 13-15 next door, and the packaged-VSIX
+    # gate beside them: one self-test entry point, so the e2e drivers and the CI
+    # job keep running every gate's own suite from one line.
+    import test_doc_figures
     import test_doc_numbers
     import test_vsix_check
 
     failed = run_module(sys.modules[__name__])
     failed = run_module(test_doc_numbers, failed)
+    failed = run_module(test_doc_figures, failed)
     failed = run_module(test_vsix_check, failed)
     print(("%d test(s) failed" % failed) if failed else "check_docs self-test OK")
     return 1 if failed else 0

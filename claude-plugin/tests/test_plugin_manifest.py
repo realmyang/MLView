@@ -140,6 +140,48 @@ def test_mcp_json_env_makes_the_plugin_work_without_a_pip_install():
     assert env["MLVIEW_DATA_DIR"] == "${CLAUDE_PLUGIN_DATA}"
 
 
+def test_the_server_and_the_hooks_name_one_parse_cache_outside_the_project(
+    tmp_path, monkeypatch
+):
+    """MCP-CACHE-DIR-UNSET. `.mcp.json` named `MLVIEW_DATA_DIR` and stopped there,
+    so with the parse cache ON by default (11.39) every tool call wrote
+    `<project>/.mlview/cache/facts-*.json` into the analysed repository, while the
+    hook kept its own private `hook-cache` — two components documented as sharing
+    one cache (11.41 C3) sharing only the graph document.
+
+    The env block is the belt; `mlview_workspace.cache_dir()` is the braces, and
+    both have to name the SAME directory or the sharing is fiction again.
+    """
+    import mlview_workspace as workspace
+
+    env = _load(MCP_JSON)["mcpServers"]["mlview"]["env"]
+    assert env["MLVIEW_CACHE_DIR"] == "${CLAUDE_PLUGIN_DATA}/cache", (
+        "the server must name a cache directory of its own; the core default is "
+        "<project>/.mlview/cache, i.e. inside the user's repository"
+    )
+    data = tmp_path / "plugindata"
+    monkeypatch.setenv("MLVIEW_DATA_DIR", str(data))
+    monkeypatch.delenv("MLVIEW_CACHE_DIR", raising=False)
+    # What .mcp.json spells with ${CLAUDE_PLUGIN_DATA} is what the code computes
+    # from MLVIEW_DATA_DIR, so a server started without that env block still
+    # shares the hook's cache instead of seeding one in the repository.
+    computed = workspace.cache_dir()
+    assert computed == str(data / "cache").replace("\\", "/")
+    # Both sides forward-slashed before comparing: `cache_dir()` normalizes and
+    # `str(data)` does not, so on Windows this compared C:/… with C:\… and failed
+    # for spelling rather than for the sharing it is about.
+    expanded = env["MLVIEW_CACHE_DIR"].replace("${CLAUDE_PLUGIN_DATA}", str(data))
+    assert computed == expanded.replace("\\", "/")
+
+    hook_core_source = os.path.join(PLUGIN_ROOT, "hooks", "hook_core.py")
+    with open(hook_core_source, "r", encoding="utf-8") as fh:
+        source = fh.read()
+    assert "shared_cache_dir()" in source, "the hook must go through the same helper"
+    assert 'os.path.join(os.environ["MLVIEW_DATA_DIR"], "hook-cache")' not in source, (
+        "a second, hook-private parse cache is exactly the asymmetry being fixed"
+    )
+
+
 # CLEANUP 7: `.mcp.json` can only spell ONE command, and `python` is the only
 # spelling that works out of the box on Windows. JSON has no comments, so the note
 # that belongs beside that field lives in the README - and it has to stay there.

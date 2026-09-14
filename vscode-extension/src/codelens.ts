@@ -14,8 +14,14 @@ export class MlviewCodeLensProvider implements vscode.CodeLensProvider {
   private readonly emitter = new vscode.EventEmitter<void>();
   readonly onDidChangeCodeLenses = this.emitter.event;
 
+  /**
+   * H10: `getGraph` takes the DOCUMENT, because a CodeLens is per-file and in a multi-root
+   * window the file may belong to a folder that is not the active one. Passing the document is
+   * what lets the controller answer with that folder's graph instead of drawing nothing (or,
+   * worse, drawing another folder's line numbers on this file).
+   */
   constructor(
-    private readonly getGraph: () => MLGraph | undefined,
+    private readonly getGraph: (document: vscode.TextDocument) => MLGraph | undefined,
     private readonly isEnabled: () => boolean
   ) {}
 
@@ -27,7 +33,7 @@ export class MlviewCodeLensProvider implements vscode.CodeLensProvider {
     if (!this.isEnabled()) {
       return [];
     }
-    const graph = this.getGraph();
+    const graph = this.getGraph(document);
     if (!graph || graph.nodes.length === 0) {
       return [];
     }

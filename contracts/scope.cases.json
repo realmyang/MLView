@@ -75,6 +75,27 @@
       "note": "empty but legal: eight stage rows at nodeCount 0, view.empty true, exit 0"
     },
     {
+      "name": "pipeline_train",
+      "kind": "project",
+      "spec": "pipeline:train.py",
+      "depth": null,
+      "note": "the whole pipeline of the only entrypoint; nothing is shared"
+    },
+    {
+      "name": "pipeline_train_basename",
+      "kind": "project",
+      "spec": "pipeline:TRAIN.PY",
+      "depth": 1,
+      "note": "case-folded bare basename, plus one boundary ring"
+    },
+    {
+      "name": "pipeline_train_d2",
+      "kind": "project",
+      "spec": "pipeline:train.py",
+      "depth": 2,
+      "note": "depth monotonicity against the depth-0 case"
+    },
+    {
       "name": "err_bad_selector",
       "kind": "error",
       "spec": "bogus:x",
@@ -115,6 +136,13 @@
       "spec": "stage:train",
       "depth": 3,
       "note": "depth outside 0..2"
+    },
+    {
+      "name": "err_unknown_pipeline",
+      "kind": "error",
+      "spec": "pipeline:nope.py",
+      "depth": null,
+      "note": "not one of workspace.entrypoints (CONTRACTS 11.47 B1)"
     }
   ],
   "fuzzCases": [
@@ -1185,6 +1213,611 @@
           "durationMs": 12,
           "truncated": false
         }
+      }
+    },
+    {
+      "name": "fuzz_22_g0001_c04",
+      "kind": "fuzz",
+      "spec": "pipeline:mod2.py",
+      "depth": null,
+      "note": ".digest.nodes[1][1]: python \"context\" vs typescript \"core\"",
+      "discoveredBy": "analyzer/tools/scope_fuzz.py --seed 22 (graph seed 22001) against an alternative bundle, minimized to 2 nodes / 0 edges / 0 issues",
+      "graph": {
+        "schemaVersion": "1.0",
+        "generator": {
+          "name": "mlview",
+          "version": "0.1.0",
+          "rendererSha": "0000000000000000000000000000000000000000000000000000000000000000",
+          "generatedAt": "2026-09-09T00:00:00Z"
+        },
+        "workspace": {
+          "root": "/w/fuzz2001",
+          "entrypoints": [
+            "main.py",
+            "pkg/mod2.py"
+          ],
+          "filesAnalyzed": 4,
+          "filesFailed": 0,
+          "notebooksSkipped": 0,
+          "frameworks": [
+            "hf"
+          ]
+        },
+        "stages": [
+          {
+            "id": "config",
+            "label": "Config",
+            "order": 0,
+            "present": false,
+            "nodeCount": 0,
+            "issueCounts": {
+              "low": 0,
+              "medium": 0,
+              "high": 0
+            },
+            "maxSeverity": null
+          },
+          {
+            "id": "data",
+            "label": "Data",
+            "order": 1,
+            "present": true,
+            "nodeCount": 1,
+            "issueCounts": {
+              "low": 0,
+              "medium": 0,
+              "high": 0
+            },
+            "maxSeverity": null
+          },
+          {
+            "id": "preprocess",
+            "label": "Preprocess",
+            "order": 2,
+            "present": false,
+            "nodeCount": 0,
+            "issueCounts": {
+              "low": 0,
+              "medium": 0,
+              "high": 0
+            },
+            "maxSeverity": null
+          },
+          {
+            "id": "model",
+            "label": "Model",
+            "order": 3,
+            "present": false,
+            "nodeCount": 0,
+            "issueCounts": {
+              "low": 0,
+              "medium": 0,
+              "high": 0
+            },
+            "maxSeverity": null
+          },
+          {
+            "id": "objective",
+            "label": "Objective",
+            "order": 4,
+            "present": false,
+            "nodeCount": 0,
+            "issueCounts": {
+              "low": 0,
+              "medium": 0,
+              "high": 0
+            },
+            "maxSeverity": null
+          },
+          {
+            "id": "train",
+            "label": "Train",
+            "order": 5,
+            "present": false,
+            "nodeCount": 0,
+            "issueCounts": {
+              "low": 0,
+              "medium": 0,
+              "high": 0
+            },
+            "maxSeverity": null
+          },
+          {
+            "id": "eval",
+            "label": "Eval",
+            "order": 6,
+            "present": true,
+            "nodeCount": 1,
+            "issueCounts": {
+              "low": 0,
+              "medium": 0,
+              "high": 0
+            },
+            "maxSeverity": null
+          },
+          {
+            "id": "deliver",
+            "label": "Deliver",
+            "order": 7,
+            "present": false,
+            "nodeCount": 0,
+            "issueCounts": {
+              "low": 0,
+              "medium": 0,
+              "high": 0
+            },
+            "maxSeverity": null
+          }
+        ],
+        "nodes": [
+          {
+            "kind": "optimizer",
+            "level": "op",
+            "stage": "data",
+            "label": "Net",
+            "qualname": "pkg.mod2.Net",
+            "loc": {
+              "file": "pkg/mod2.py",
+              "absFile": "/w/fuzz2001/pkg/mod2.py",
+              "line": 19,
+              "col": 4,
+              "endLine": 21,
+              "endCol": 11
+            },
+            "parent": "n:351dc3962d2d",
+            "attrs": {},
+            "produces": [
+              {
+                "name": "out",
+                "tags": [
+                  "VAL_SPLIT"
+                ]
+              }
+            ],
+            "consumes": [],
+            "ghost": false,
+            "dynamic": false,
+            "confidence": 0.22,
+            "confidenceBucket": "speculative",
+            "issueIds": [],
+            "collapsedByDefault": true,
+            "stageEvidence": [
+              {
+                "kind": "name_regex",
+                "detail": "generated",
+                "weight": 0.5
+              }
+            ],
+            "id": "n:351dc3962d1d"
+          },
+          {
+            "kind": "entrypoint",
+            "level": "stage",
+            "stage": "eval",
+            "label": "prepare()",
+            "qualname": "main.prepare",
+            "loc": {
+              "file": "main.py",
+              "absFile": "/w/fuzz2001/main.py",
+              "line": 3,
+              "col": 4,
+              "endLine": 3,
+              "endCol": 42
+            },
+            "parent": null,
+            "attrs": {
+              "lr": "1e-3"
+            },
+            "produces": [
+              {
+                "name": "out",
+                "tags": [
+                  "MODEL"
+                ]
+              }
+            ],
+            "consumes": [
+              {
+                "name": "x",
+                "tags": [
+                  "OPTIMIZER"
+                ]
+              }
+            ],
+            "ghost": false,
+            "dynamic": true,
+            "confidence": 0.89,
+            "confidenceBucket": "likely",
+            "issueIds": [],
+            "collapsedByDefault": false,
+            "stageEvidence": [
+              {
+                "kind": "context_confirmed",
+                "detail": "generated",
+                "weight": 0.5
+              }
+            ],
+            "fqn": "sklearn.preprocessing.StandardScaler",
+            "id": "n:351dc3962d2d"
+          }
+        ],
+        "edges": [],
+        "issues": [],
+        "diagnostics": [],
+        "stats": {
+          "nodes": 2,
+          "edges": 0,
+          "issues": {
+            "low": 0,
+            "medium": 0,
+            "high": 0
+          },
+          "suppressed": 0,
+          "durationMs": 12,
+          "truncated": false
+        },
+        "pipelines": [
+          {
+            "entrypoint": "main.py",
+            "label": "main.py",
+            "nodeCount": 2,
+            "exclusiveCount": 1,
+            "sharedCount": 1,
+            "issueCounts": {
+              "low": 0,
+              "medium": 0,
+              "high": 0
+            }
+          },
+          {
+            "entrypoint": "pkg/mod2.py",
+            "label": "pkg/mod2.py",
+            "nodeCount": 2,
+            "exclusiveCount": 1,
+            "sharedCount": 1,
+            "issueCounts": {
+              "low": 0,
+              "medium": 0,
+              "high": 0
+            }
+          }
+        ]
+      },
+      "expectExtras": {
+        "rolledUp": [],
+        "weight": [],
+        "pipelines": [
+          {
+            "entrypoint": "main.py",
+            "label": "main.py",
+            "nodeCount": 2,
+            "exclusiveCount": 1,
+            "sharedCount": 1,
+            "issueCounts": {
+              "low": 0,
+              "medium": 0,
+              "high": 0
+            }
+          },
+          {
+            "entrypoint": "pkg/mod2.py",
+            "label": "pkg/mod2.py",
+            "nodeCount": 2,
+            "exclusiveCount": 1,
+            "sharedCount": 1,
+            "issueCounts": {
+              "low": 0,
+              "medium": 0,
+              "high": 0
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "fuzz_33_g0000_c01",
+      "kind": "fuzz",
+      "spec": "stage:objective",
+      "depth": 0,
+      "note": ".digest._extras.pipelines: python [{\"entrypoint\":\"main.py\",\"label\":\"main.py\",\"nodeCount\":1,\"exclusiveCount\":1,\"sharedCount\":0,\"issueCounts\":{\"low\":0,\"medium\":0,\"high\":0}},{\"entrypoint\":\"pkg/mod8.py\",\"",
+      "discoveredBy": "analyzer/tools/scope_fuzz.py --seed 33 (graph seed 33000) against an alternative bundle, minimized to 2 nodes / 0 edges / 0 issues",
+      "graph": {
+        "schemaVersion": "1.0",
+        "generator": {
+          "name": "mlview",
+          "version": "0.1.0",
+          "rendererSha": "0000000000000000000000000000000000000000000000000000000000000000",
+          "generatedAt": "2026-09-09T00:00:00Z"
+        },
+        "workspace": {
+          "root": "/w/fuzz3000",
+          "entrypoints": [
+            "main.py",
+            "pkg/mod10.py",
+            "pkg/mod8.py"
+          ],
+          "filesAnalyzed": 12,
+          "filesFailed": 0,
+          "notebooksSkipped": 0,
+          "frameworks": [
+            "hf",
+            "keras",
+            "sklearn"
+          ]
+        },
+        "stages": [
+          {
+            "id": "config",
+            "label": "Config",
+            "order": 0,
+            "present": false,
+            "nodeCount": 0,
+            "issueCounts": {
+              "low": 0,
+              "medium": 0,
+              "high": 0
+            },
+            "maxSeverity": null
+          },
+          {
+            "id": "data",
+            "label": "Data",
+            "order": 1,
+            "present": true,
+            "nodeCount": 1,
+            "issueCounts": {
+              "low": 0,
+              "medium": 0,
+              "high": 0
+            },
+            "maxSeverity": null
+          },
+          {
+            "id": "preprocess",
+            "label": "Preprocess",
+            "order": 2,
+            "present": false,
+            "nodeCount": 0,
+            "issueCounts": {
+              "low": 0,
+              "medium": 0,
+              "high": 0
+            },
+            "maxSeverity": null
+          },
+          {
+            "id": "model",
+            "label": "Model",
+            "order": 3,
+            "present": false,
+            "nodeCount": 0,
+            "issueCounts": {
+              "low": 0,
+              "medium": 0,
+              "high": 0
+            },
+            "maxSeverity": null
+          },
+          {
+            "id": "objective",
+            "label": "Objective",
+            "order": 4,
+            "present": false,
+            "nodeCount": 0,
+            "issueCounts": {
+              "low": 0,
+              "medium": 0,
+              "high": 0
+            },
+            "maxSeverity": null
+          },
+          {
+            "id": "train",
+            "label": "Train",
+            "order": 5,
+            "present": false,
+            "nodeCount": 0,
+            "issueCounts": {
+              "low": 0,
+              "medium": 0,
+              "high": 0
+            },
+            "maxSeverity": null
+          },
+          {
+            "id": "eval",
+            "label": "Eval",
+            "order": 6,
+            "present": false,
+            "nodeCount": 0,
+            "issueCounts": {
+              "low": 0,
+              "medium": 0,
+              "high": 0
+            },
+            "maxSeverity": null
+          },
+          {
+            "id": "deliver",
+            "label": "Deliver",
+            "order": 7,
+            "present": true,
+            "nodeCount": 1,
+            "issueCounts": {
+              "low": 0,
+              "medium": 0,
+              "high": 0
+            },
+            "maxSeverity": null
+          }
+        ],
+        "nodes": [
+          {
+            "kind": "class",
+            "level": "unit",
+            "stage": "data",
+            "label": "batch_loop()",
+            "qualname": "main.batch_loop",
+            "loc": {
+              "file": "main.py",
+              "absFile": "/w/fuzz3000/main.py",
+              "line": 5,
+              "col": 4,
+              "endLine": 6,
+              "endCol": 19
+            },
+            "parent": null,
+            "attrs": {},
+            "produces": [
+              {
+                "name": "out",
+                "tags": [
+                  "TARGET"
+                ]
+              }
+            ],
+            "consumes": [],
+            "ghost": false,
+            "dynamic": false,
+            "confidence": 0.45,
+            "confidenceBucket": "speculative",
+            "issueIds": [],
+            "collapsedByDefault": false,
+            "stageEvidence": [
+              {
+                "kind": "fqn_resolved",
+                "detail": "generated",
+                "weight": 0.5
+              }
+            ],
+            "framework": "torch",
+            "id": "n:4fab8129b1dd"
+          },
+          {
+            "kind": "augment",
+            "level": "op",
+            "stage": "deliver",
+            "label": "evaluate",
+            "qualname": "pkg.mod8.evaluate",
+            "loc": {
+              "file": "pkg/mod8.py",
+              "absFile": "/w/fuzz3000/pkg/mod8.py",
+              "line": 6,
+              "col": 4,
+              "endLine": 8,
+              "endCol": 19
+            },
+            "parent": null,
+            "attrs": {
+              "lr": "1e-3"
+            },
+            "produces": [],
+            "consumes": [],
+            "ghost": false,
+            "dynamic": true,
+            "confidence": 0.99,
+            "confidenceBucket": "certain",
+            "issueIds": [],
+            "collapsedByDefault": false,
+            "stageEvidence": [
+              {
+                "kind": "dataflow_direct",
+                "detail": "generated",
+                "weight": 0.5
+              }
+            ],
+            "id": "n:4fab8129b233"
+          }
+        ],
+        "edges": [],
+        "issues": [],
+        "diagnostics": [
+          {
+            "kind": "dynamic_scope",
+            "message": "generated note",
+            "file": "pkg/mod10.py",
+            "line": 16
+          },
+          {
+            "kind": "dynamic_scope",
+            "message": "generated note",
+            "file": "pkg/mod6.py",
+            "line": 29
+          },
+          {
+            "kind": "truncated",
+            "message": "budget reached: 2 node(s) kept; 19 node(s) rolled up into 0 file summary node(s), 0 edge(s) merged, 3 absorbed",
+            "count": 19
+          }
+        ],
+        "stats": {
+          "nodes": 2,
+          "edges": 0,
+          "issues": {
+            "low": 0,
+            "medium": 0,
+            "high": 0
+          },
+          "suppressed": 0,
+          "durationMs": 12,
+          "truncated": true
+        },
+        "pipelines": [
+          {
+            "entrypoint": "main.py",
+            "label": "main.py",
+            "nodeCount": 1,
+            "exclusiveCount": 1,
+            "sharedCount": 0,
+            "issueCounts": {
+              "low": 0,
+              "medium": 0,
+              "high": 0
+            }
+          },
+          {
+            "entrypoint": "pkg/mod8.py",
+            "label": "pkg/mod8.py",
+            "nodeCount": 1,
+            "exclusiveCount": 1,
+            "sharedCount": 0,
+            "issueCounts": {
+              "low": 0,
+              "medium": 0,
+              "high": 0
+            }
+          }
+        ]
+      },
+      "expectExtras": {
+        "rolledUp": [],
+        "weight": [],
+        "pipelines": [
+          {
+            "entrypoint": "main.py",
+            "label": "main.py",
+            "nodeCount": 1,
+            "exclusiveCount": 1,
+            "sharedCount": 0,
+            "issueCounts": {
+              "low": 0,
+              "medium": 0,
+              "high": 0
+            }
+          },
+          {
+            "entrypoint": "pkg/mod8.py",
+            "label": "pkg/mod8.py",
+            "nodeCount": 1,
+            "exclusiveCount": 1,
+            "sharedCount": 0,
+            "issueCounts": {
+              "low": 0,
+              "medium": 0,
+              "high": 0
+            }
+          }
+        ]
       }
     }
   ]

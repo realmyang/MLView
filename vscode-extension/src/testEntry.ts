@@ -64,6 +64,7 @@ export {
   DIAGNOSTIC_COLLECTION_NAME
 } from './diagnostics';
 export {
+  MlviewPanel,
   buildPanelHtml,
   createNonce,
   themeKindOf,
@@ -88,14 +89,37 @@ export {
   runAnalyzeTool,
   runListIssuesTool,
   runShowDiagramTool,
+  scopeArgs,
+  scopeNote,
   TOOL_ANALYZE,
   TOOL_ISSUES,
   TOOL_DIAGRAM
 } from './lmTools';
+// H10 — multi-root folders (docs/contracts/11.40-lm-tools-scope.md).
+export {
+  FolderBook,
+  folderKey,
+  folderPickItems,
+  folderTooltipLine,
+  pickFolder
+} from './folders';
+// CFG-ONE — the one configuration surface and its stated precedence.
+export {
+  configLogLine,
+  createBaseline,
+  openConfiguration,
+  pyprojectHasMlviewTable,
+  resolveAgainstRoot,
+  resolveBaseline,
+  resolveConfig,
+  CONFIG_FILE_NAME,
+  DEFAULT_BASELINE_RELATIVE,
+  PYPROJECT_FILE_NAME
+} from './mlviewConfig';
 export { isTrusted, ensureTrusted, RESTRICTED_MESSAGE } from './trust';
 export { CODELENS_TITLE } from './codelens';
 export { PARTICIPANT_ID, handleChatRequest } from './chat';
-export { statusBarText, statusBarTooltip, renderStatusBar } from './statusBar';
+export { statusBarText, statusBarTooltip, renderStatusBar, decorateTooltip } from './statusBar';
 export {
   coverageChip,
   coverageFor,
@@ -144,6 +168,41 @@ export {
   DISABLE_RULE_COMMAND,
   CONFIG_FILE
 } from './codeActions';
+// H5 — structured fixes (docs/contracts/11.43-host-fixes-and-comparison.md).
+export {
+  applyIssueFix,
+  buildFixEdit,
+  fixActionTitle,
+  isMechanical,
+  issueById,
+  issuesAt,
+  readFix,
+  registerFixActions,
+  MlviewFixActionProvider,
+  APPLY_FIX_COMMAND,
+  FIXABLE_BUCKETS,
+  FIX_SAFETIES,
+  MAX_FIX_EDITS,
+  MAX_FIX_TEXT_CHARS
+} from './fixes';
+// VIEW-08 — the comparison commands and the diff overlay.
+export {
+  comparisonBasePath,
+  compareWithCleanSample,
+  compareWithSavedBase,
+  findCleanTwin,
+  overlayHeadline,
+  overlayNoteLines,
+  readOverlay,
+  registerComparisonCommands,
+  saveComparisonBase,
+  withinRoot,
+  CLEAN_TWIN_RELATIVE,
+  COMPARE_BASE_COMMAND,
+  COMPARE_CLEAN_COMMAND,
+  COMPARISON_BASE_RELATIVE,
+  SAVE_BASE_COMMAND
+} from './compare';
 // VIEW-07 — the diagram picture export (docs/contracts/11.33-diagram-export.md).
 export {
   decodeExportPayload,

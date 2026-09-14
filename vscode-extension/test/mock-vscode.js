@@ -92,6 +92,29 @@ class ThemeIcon {
   }
 }
 
+/**
+ * H10: the status-bar tooltip becomes a trusted MarkdownString in a multi-root window, because
+ * a command link is the only second action a status-bar item can carry. Only what
+ * `decorateTooltip` touches is implemented, and `value` is what a test reads back.
+ */
+class MarkdownString {
+  constructor(value = '') {
+    this.value = value;
+    this.isTrusted = false;
+    this.supportThemeIcons = false;
+  }
+  appendText(text) {
+    // Real VS Code escapes markdown and turns a newline into a hard break; the escaping is
+    // what matters to a test, so `\n` is kept as-is and the specials are escaped.
+    this.value += String(text).replace(/[\\`*_{}[\]()#+\-.!]/g, (c) => '\\' + c);
+    return this;
+  }
+  appendMarkdown(text) {
+    this.value += String(text);
+    return this;
+  }
+}
+
 class CodeLens {
   constructor(range, command) {
     this.range = range;
@@ -125,8 +148,10 @@ class WorkspaceEdit {
   constructor() {
     this.edits = [];
   }
-  replace(uri, range, newText) {
-    this.edits.push({ kind: 'replace', uri, range, newText });
+  replace(uri, range, newText, metadata) {
+    // H5: `metadata.needsConfirmation` is what routes an edit through VS Code's refactor
+    // preview, so it is the thing "never auto-applied" is asserted on. Recorded, not dropped.
+    this.edits.push({ kind: 'replace', uri, range, newText, metadata });
   }
   insert(uri, position, newText) {
     this.edits.push({ kind: 'insert', uri, position, newText });
@@ -199,6 +224,8 @@ function recordingEvent(store) {
 const recorded = {
   /** Every `WorkspaceEdit` handed to `workspace.applyEdit`, newest last. */
   appliedEdits: [],
+  /** H5: the `WorkspaceEditMetadata` of each of those calls, index-aligned. */
+  applyEditMetadata: [],
   /** Every `registerCodeActionsProvider` registration: {selector, provider, metadata}. */
   codeActionProviders: [],
   outputChannels: [],
@@ -222,7 +249,11 @@ const recorded = {
   /** VIEW-07: every showSaveDialog option bag, every quick pick, and every file written. */
   saveDialogs: [],
   quickPicks: [],
-  writtenFiles: []
+  writtenFiles: [],
+  /** CFG-ONE: every workspace.getConfiguration(...).update() call. */
+  configUpdates: [],
+  /** H10: every languages.registerCodeLensProvider registration. */
+  codeLensProviders: []
 };
 
 const configValues = new Map();
@@ -236,6 +267,8 @@ const quickPickAnswers = [];
 let fsWriteError;
 /** Virtual documents keyed by `docKey`, set by `__setDocument`. */
 const documents = new Map();
+/** H5: the subset of those with unsaved edits, set by `__setDirty`. */
+const dirtyDocuments = new Set();
 
 /**
  * One key for one file, whatever spelling reaches us.
@@ -303,13 +336,16 @@ function makeDocument(uri) {
   const key = docKey(uri && uri.fsPath ? uri.fsPath : uri);
   const text = documents.get(key);
   if (text === undefined) {
-    return { uri, lineCount: 400, languageId: 'python', getText: () => '' };
+    return { uri, lineCount: 400, languageId: 'python', isDirty: false, getText: () => '' };
   }
   const lines = text.split('\n');
   return {
     uri,
     languageId: 'python',
     lineCount: lines.length,
+    // H5: an analysis describes the file ON DISK, so an unsaved buffer is stale
+    // coordinates. `__setDirty` marks one, and nothing else in the mock reads it.
+    isDirty: dirtyDocuments.has(key),
     getText: () => text,
     lineAt(line) {
       const value = lines[line];
@@ -376,6 +412,7 @@ const vscode = {
   ThemeColor,
   ThemeIcon,
   CodeLens,
+  MarkdownString,
   CodeAction,
   CodeActionKind,
   WorkspaceEdit,
@@ -387,6 +424,7 @@ const vscode = {
   ColorThemeKind: { Light: 1, Dark: 2, HighContrast: 3, HighContrastLight: 4 },
   TextEditorRevealType: { Default: 0, InCenter: 1, InCenterIfOutsideViewport: 2, AtTop: 3 },
   ProgressLocation: { Notification: 15, Window: 10 },
+  ConfigurationTarget: { Global: 1, Workspace: 2, WorkspaceFolder: 3 },
   window: {
     activeTextEditor: undefined,
     activeColorTheme: { kind: 2 },
@@ -475,6 +513,14 @@ const vscode = {
             if (scoped !== undefined) return scoped;
           }
           return configValues.get(`${section}.${key}`);
+        },
+        // CFG-ONE: `MLView: Create Baseline From Current Findings` offers to point
+        // mlview.baselinePath at what it wrote. Recorded AND applied, so the next read
+        // sees it, exactly like a real settings write.
+        async update(key, value, target) {
+          recorded.configUpdates.push({ section, key, value, target, scope });
+          const prefix = scope === undefined ? '' : `${scope}|`;
+          configValues.set(`${prefix}${section}.${key}`, value);
         }
       };
     },
@@ -485,10 +531,13 @@ const vscode = {
       );
     },
     openTextDocument: async (uri) => makeDocument(uri),
-    applyEdit: async (edit) => {
+    applyEdit: async (edit, metadata) => {
       recorded.appliedEdits.push(edit);
+      recorded.applyEditMetadata.push(metadata);
       // Apply single-line replacements to the virtual document so a test can read back
-      // exactly what the user would see in the editor.
+      // exactly what the user would see in the editor. The splice is COLUMN-accurate: H5's
+      // edits replace a slice of a line (an insertion is an empty range), and a whole-line
+      // replacement is just the slice [0, line.length).
       for (const change of edit.edits || []) {
         if (change.kind !== 'replace') continue;
         const key = docKey(change.uri && change.uri.fsPath);
@@ -496,7 +545,12 @@ const vscode = {
         if (text === undefined) continue;
         const lines = text.split('\n');
         if (change.range.start.line !== change.range.end.line) continue;
-        lines[change.range.start.line] = change.newText;
+        const line = lines[change.range.start.line];
+        if (line === undefined) continue;
+        lines[change.range.start.line] =
+          line.slice(0, change.range.start.character) +
+          change.newText +
+          line.slice(change.range.end.character);
         documents.set(key, lines.join('\n'));
       }
       return true;
@@ -537,7 +591,12 @@ const vscode = {
       recorded.diagnosticCollections.push(collection);
       return collection;
     },
-    registerCodeLensProvider: () => ({ dispose() {} }),
+    registerCodeLensProvider: (selector, provider) => {
+      // H10: a CodeLens is per-DOCUMENT, so `test/multiroot.test.js` has to be able to ask the
+      // real provider what it draws on a file in the folder that is not active.
+      recorded.codeLensProviders.push({ selector, provider });
+      return { dispose() {} };
+    },
     registerCodeActionsProvider: (selector, provider, metadata) => {
       recorded.codeActionProviders.push({ selector, provider, metadata });
       return { dispose() {} };
@@ -592,6 +651,15 @@ const vscode = {
   __getDocument(fsPath) {
     return documents.get(docKey(fsPath));
   },
+  /** H5: mark an open document as having unsaved changes. */
+  __setDirty(fsPath, dirty = true) {
+    const key = docKey(fsPath);
+    if (dirty) {
+      dirtyDocuments.add(key);
+    } else {
+      dirtyDocuments.delete(key);
+    }
+  },
   __setConfig(section, key, value, resource) {
     const scope = resource ? `${String(resource).replace(/\\/g, '/').toLowerCase()}|` : '';
     configValues.set(`${scope}${section}.${key}`, value);
@@ -633,9 +701,12 @@ const vscode = {
     recorded.commands.clear();
     recorded.messages.length = 0;
     recorded.appliedEdits.length = 0;
+    recorded.applyEditMetadata.length = 0;
     recorded.saveDialogs.length = 0;
     recorded.quickPicks.length = 0;
     recorded.writtenFiles.length = 0;
+    recorded.configUpdates.length = 0;
+    recorded.codeLensProviders.length = 0;
     saveDialogAnswers.length = 0;
     quickPickAnswers.length = 0;
     fsWriteError = undefined;
@@ -643,6 +714,7 @@ const vscode = {
     recorded.panels.length = 0;
     messageAnswers.length = 0;
     documents.clear();
+    dirtyDocuments.clear();
     recorded.tools.clear();
     recorded.participants.length = 0;
     recorded.serializers.clear();

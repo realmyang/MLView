@@ -18,6 +18,7 @@ from .. import knowledge as K
 from ..core.graph import Issue
 from ..ir.model import CallSite, LoopIR, ValueRef
 from ..ir.symbols import dotted_text
+from .fixes import zero_grad_fix
 from .helpers import calls_in_loop, first_with_role, loop_chain, with_role
 from .registry import rule
 
@@ -82,7 +83,11 @@ def missing_zero_grad(ctx) -> Iterable[Issue]:
                     % (loop.loc.file, loop.loc.line,
                        _short(backward), backward.loc.line, _short(step), step.loc.line),
             loc=node.loc, node_ids=[ghost, node], related=related, evidence=evidence,
-            dynamic=loop.scope.is_dynamic))
+            dynamic=loop.scope.is_dynamic,
+            # H5: the ghost node already says *where* the missing call belongs;
+            # the fix is that same slot expressed as an edit. `needs-review`,
+            # always - gradient accumulation has this exact shape.
+            fix=zero_grad_fix(ctx, loop, step)))
     return issues
 
 

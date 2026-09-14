@@ -13,14 +13,17 @@
  * per planned edge and a plan that reordered itself would make that flaky.
  */
 
-import { highestSeverity } from '../markers.js';
+import { SEVERITY_ORDER, highestSeverity } from '../markers.js';
+import { routeWeight } from '../rollup/rolled.js';
+import { buildBundles } from '../layout/bundles.js';
+import type { BundleVisual } from './bundles.js';
 import type { GraphIndex, IssuePredicate } from '../layout/model.js';
 import type { LabelPlacement } from '../layout/labels.js';
 import type { LayoutFrame, LayoutLane } from '../layout/layout.js';
 import type { RoutedEdge } from '../layout/routing.js';
 import type { EdgeVisual } from './edges.js';
 import type { NodeVisual } from './nodes.js';
-import type { Issue, IssueCounts, MLNode } from '../types.js';
+import type { Issue, IssueCounts, MLNode, Severity } from '../types.js';
 
 /** A swimlane band plus the aggregated counts its header shows. */
 export interface LaneVisual {
@@ -54,6 +57,12 @@ export interface ScenePlan {
   /** Shallowest first, so a group frame is always planned before its children. */
   nodes: PlannedNode[];
   edges: EdgeVisual[];
+  /**
+   * VIEW-04: the cross-lane trunks, one per lane pair with two or more members.
+   * The DOM renderer draws them under the cables; `export/svg.ts` deliberately
+   * does NOT — a static picture cannot be hovered, so it keeps every stroke.
+   */
+  bundles: BundleVisual[];
 }
 
 /**
@@ -109,10 +118,40 @@ export function planScene(opts: ScenePlanOptions): ScenePlan {
       mountSerial: opts.mountSerial,
       placement: opts.labels ? opts.labels.get(route.id) : undefined,
       filtered: !!((src && opts.isFilteredOut(src)) || (dst && opts.isFilteredOut(dst))),
+      // PERF-04. Summed over the route's OWN merge, so a cable that is both a
+      // renderer merge and a rollup dedupe reports every connection it stands
+      // for. Decided here, in the plan, so the DOM and the SVG export cannot
+      // draw two different numbers on the same cable.
+      weight: routeWeight(route.ids, index.edgeById),
     });
   }
 
-  return { index, frame, lanes, nodes, edges };
+  // VIEW-04. The bundles are decided from the ROUTES, so both renderers see the
+  // same trunks even though only one of them draws them, and the severity a
+  // trunk shows is the worst of the cables it stands for — a bundle that hid a
+  // high finding behind a neutral stroke would be the one thing this layer must
+  // never do.
+  const severityOf = new Map<string, Severity | null>();
+  for (const visual of edges) severityOf.set(visual.route.id, visual.severity);
+  const laneLabel = new Map<string, string>();
+  for (const lane of frame.lanes) laneLabel.set(lane.id, lane.label);
+  const bundles: BundleVisual[] = [];
+  for (const bundle of buildBundles(routes)) {
+    let severity: Severity | null = null;
+    for (const id of bundle.memberIds) {
+      const member = severityOf.get(id) || null;
+      if (member && (!severity || SEVERITY_ORDER.indexOf(member) < SEVERITY_ORDER.indexOf(severity))) severity = member;
+    }
+    bundles.push({
+      bundle,
+      severity,
+      stage: bundle.sourceLane,
+      sourceLabel: laneLabel.get(bundle.sourceLane),
+      targetLabel: laneLabel.get(bundle.targetLane),
+    });
+  }
+
+  return { index, frame, lanes, nodes, edges, bundles };
 }
 
 function compare(a: string, b: string): number {

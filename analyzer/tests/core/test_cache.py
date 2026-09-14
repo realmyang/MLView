@@ -335,7 +335,9 @@ def test_the_no_cache_flag_reaches_the_options():
     assert args.relevance == "ml" and args.relevance_hops == 3
     assert RELEVANCE_MODES == ("ml", "all")
     plain = parser.parse_args(["analyze", "."])
-    assert plain.no_cache is False and plain.relevance == "all"
+    # CONTRACTS 11.39: `ml` is the shipped default, so the cache is consulted
+    # on a plain run - 11.28 B7 keeps `all` from ever reading it.
+    assert plain.no_cache is False and plain.relevance == "ml"
 
 
 def test_the_demo_path_is_untouched_by_either_feature():

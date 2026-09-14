@@ -62,7 +62,14 @@ DOCS_SOURCE = os.path.join(REPO_ROOT, "docs", "rules")
 DOCS_TARGET = os.path.join(REPO_ROOT, "claude-plugin", "docs", "rules")
 DOC_PAGE = re.compile(r"^MLV[0-9]{3}\.md$")
 
-SKIP_DIRS = {"__pycache__", ".pytest_cache", ".mypy_cache", "tests"}
+# `.mlview` is here for the same reason `__pycache__` is (HEALTH-01): the fact
+# cache is ON by default since 11.39 and writes `<root>/.mlview/cache` into
+# whatever directory was analyzed, so anybody who once ran the analyzer over
+# `analyzer/src/mlview` leaves a sidecar that this script would otherwise vendor
+# into the plugin AND the shipped VSIX - and that inflates the file count
+# `tools/verify.py --all` prints on one machine and not another (REV5-05 caught
+# it as a 97-vs-96 disagreement between this Mac and CI).
+SKIP_DIRS = {"__pycache__", ".pytest_cache", ".mypy_cache", ".mlview", "tests"}
 SKIP_SUFFIXES = (".pyc", ".pyo", ".pyd")
 
 

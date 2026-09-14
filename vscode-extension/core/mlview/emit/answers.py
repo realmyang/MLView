@@ -129,6 +129,34 @@ def _dropped_clause(dropped: int) -> str:
             "are not asserted." % (dropped, MIN_CONFIDENCE))
 
 
+def _rolled_up(doc: Dict[str, Any]) -> bool:
+    """Did `--max-nodes` fold this document (VIEW-R1)?
+
+    `stats.truncated` is the document saying so about itself. It matters here
+    because every "No X was detected" sentence below is a claim about the
+    *workspace*, read off the `nodes[]` array - and after PERF-04's rollup that
+    array is a summary of the workspace, not the workspace. On
+    `samples/vision_pipeline --max-nodes 20` the objective node folds into
+    `train()` and the data nodes into a file summary that votes itself into
+    `preprocess`, and the card then stated "No loss function was detected" and
+    "No data entry was detected" about a program with a `CrossEntropyLoss` and
+    two loaders in it. The graph must never claim it looked and found nothing
+    when it was blinded.
+    """
+    stats = doc.get("stats")
+    if isinstance(stats, dict) and stats.get("truncated"):
+        return True
+    return bool(doc.get("truncated"))
+
+
+def _blinded(what: str, raise_hint: str = "") -> str:
+    return ("%s could not be read off this document: the graph was rolled up to "
+            "fit --max-nodes, so what survives is a summary of the workspace "
+            "rather than the workspace. Raise --max-nodes, or scope the analysis "
+            "to one part of the project, to answer this%s."
+            % (what, (" - %s" % raise_hint) if raise_hint else ""))
+
+
 def _answer(sentence: str, cited: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
     """One answer. `confidence` is the **weakest** node it rests on, so the
     number cannot be inflated by a long list with one shaky member; with
@@ -144,12 +172,14 @@ def _answer(sentence: str, cited: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
 
 
 # ---------------------------------------------------------------- the four
-def _data_entry(nodes: List[Dict[str, Any]]) -> Dict[str, Any]:
+def _data_entry(nodes: List[Dict[str, Any]], rolled: bool = False) -> Dict[str, Any]:
     datasets, dropped = _pick(nodes, kind="dataset")
     loaders, dropped_loaders = _pick(nodes, kind="dataloader")
     splits, dropped_splits = _pick(nodes, kind="split")
     dropped += dropped_loaders + dropped_splits
     if not datasets and not loaders:
+        if rolled:
+            return _answer(_blinded("Where the data enters"), ())
         return _answer(
             "No data entry was detected: nothing in this workspace builds a "
             "dataset or a loader, so MLView could not determine where the data "
@@ -193,7 +223,8 @@ def _coverage_clause(doc: Dict[str, Any]) -> str:
     return ", and %d coverage gap(s) were reported" % len(gaps)
 
 
-def _objective(nodes: List[Dict[str, Any]], coverage: str = "") -> Dict[str, Any]:
+def _objective(nodes: List[Dict[str, Any]], coverage: str = "",
+               rolled: bool = False) -> Dict[str, Any]:
     losses, dropped = _pick(nodes, kind="loss")
     optimizers, dropped_opt = _pick(nodes, kind="optimizer")
     dropped += dropped_opt
@@ -203,6 +234,8 @@ def _objective(nodes: List[Dict[str, Any]], coverage: str = "") -> Dict[str, Any
     defined_losses = [n for n in losses if n.get("var")] or losses
     defined_opts = [n for n in optimizers if n.get("var")] or optimizers
     if not defined_losses:
+        if rolled:
+            return _answer(_blinded("What this pipeline optimises"), ())
         # The "no backward() call" half is dropped the moment a call went
         # unread: the analyzer cannot know it, and it was the false half.
         absent = ("No loss function was detected: nothing in the objective "
@@ -227,7 +260,8 @@ def _is_guard(node: Dict[str, Any]) -> bool:
     return fqn.endswith(".eval") or "no_grad" in fqn or "inference_mode" in fqn
 
 
-def _evaluation(nodes: List[Dict[str, Any]], coverage: str = "") -> Dict[str, Any]:
+def _evaluation(nodes: List[Dict[str, Any]], coverage: str = "",
+                rolled: bool = False) -> Dict[str, Any]:
     eval_nodes = [n for n in nodes if n.get("stage") == "eval"]
     loops, dropped = _pick(eval_nodes, kind="eval_loop")
     metrics, dropped_metrics = _pick(eval_nodes, kind="metric")
@@ -236,6 +270,8 @@ def _evaluation(nodes: List[Dict[str, Any]], coverage: str = "") -> Dict[str, An
               and _confident(n)]
     missing = _ghosts(eval_nodes, _is_guard)
     if not loops and not metrics and not guards:
+        if rolled:
+            return _answer(_blinded("Whether this pipeline's quality is measured"), ())
         absent = ("No evaluation stage was detected: nothing computes a metric "
                   "or runs the model in eval mode%s, so MLView cannot say "
                   "whether this pipeline's quality is measured." % coverage
@@ -325,10 +361,11 @@ def compose(doc: Dict[str, Any]) -> Dict[str, Any]:
     """The four answers for a finished MLGraph document. Pure dict -> dict."""
     nodes = _nodes(doc)
     coverage = _coverage_clause(doc)
+    rolled = _rolled_up(doc)
     return {
-        "dataEntry": _data_entry(nodes),
-        "objective": _objective(nodes, coverage),
-        "evaluation": _evaluation(nodes, coverage),
+        "dataEntry": _data_entry(nodes, rolled),
+        "objective": _objective(nodes, coverage, rolled),
+        "evaluation": _evaluation(nodes, coverage, rolled),
         "verdict": _verdict(doc, nodes),
     }
 

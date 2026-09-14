@@ -28,6 +28,11 @@ import {
   LANE_PAD,
   BACK_EDGE_DROP,
   LANE_ROUTE_BAND,
+  CHANNEL_MAX_W,
+  CHANNEL_MIN_STEP,
+  CHANNEL_PAD_L,
+  CHANNEL_PAD_R,
+  CHANNEL_PAIR_STEP,
   edgeWeight,
 } from './constants.js';
 import { cardSize } from './cardmetrics.js';
@@ -65,8 +70,17 @@ export interface LayoutFrame {
   boxes: Map<string, LayoutBox>;
   width: number;
   height: number;
+  /** x of the OUTERMOST trunk in the left channel (VIEW-04 slot 0). */
   channelX: number;
   hasChannel: boolean;
+  /** Distinct (source lane, target lane) pairs that skip a lane. */
+  channelPairs: number;
+  /** How many of those pairs got a slot of their own; the rest share. */
+  channelSlots: number;
+  /** Distance between two neighbouring trunks. Shrinks before the world grows. */
+  channelStep: number;
+  /** Total width reserved to the left of the first lane. */
+  channelW: number;
 }
 
 interface Placer {
@@ -103,23 +117,38 @@ export function layoutGraph(index: GraphIndex, collapsed: Set<string>): LayoutFr
     if (tgt) hasBackEdgeInLane.add(tgt.stage);
   }
 
-  let needChannel = false;
+  // A cross-lane edge that skips a lane needs the left routing channel — and
+  // VIEW-04 reserves it by the number of distinct lane PAIRS, because every edge
+  // of a pair now shares one trunk. Back-edges are excluded: `routeEdges` draws
+  // them as loops inside their own lane and they never reach the channel.
+  const channelPairKeys = new Set<string>();
   {
-    // A cross-lane edge that skips a lane needs the left routing channel.
     const order = new Map<string, number>();
     index.lanes.forEach((l, i) => order.set(l.id, i));
     for (const e of index.graph.edges || []) {
+      if (isBackEdge(e)) continue;
       const s = index.nodeById.get(e.source);
       const t = index.nodeById.get(e.target);
       if (!s || !t) continue;
       const a = order.get(s.stage);
       const b = order.get(t.stage);
       if (a === undefined || b === undefined) continue;
-      if (Math.abs(a - b) > 1) needChannel = true;
+      if (Math.abs(a - b) > 1) channelPairKeys.add(s.stage + '>' + t.stage);
     }
   }
 
-  const channelW = needChannel ? 56 : 0;
+  const channelPairs = channelPairKeys.size;
+  const needChannel = channelPairs > 0;
+  const wanted = CHANNEL_PAD_L + channelPairs * CHANNEL_PAIR_STEP + CHANNEL_PAD_R;
+  const channelW = needChannel ? Math.min(wanted, CHANNEL_MAX_W) : 0;
+  const room = Math.max(0, channelW - CHANNEL_PAD_L - CHANNEL_PAD_R);
+  // Rounded DOWN to the hundredth: `pairs * step` must never exceed the room, or
+  // the last pair loses its slot to a floating-point hair and shares the
+  // OUTERMOST one, which is exactly where a small-span trunk must not go.
+  const channelStep = needChannel
+    ? Math.max(CHANNEL_MIN_STEP, Math.min(CHANNEL_PAIR_STEP, floor2(room / Math.max(1, channelPairs))))
+    : 0;
+  const channelSlots = needChannel ? Math.max(1, Math.min(channelPairs, Math.floor(room / channelStep + 1e-6))) : 0;
   const laneX = CANVAS_MARGIN + channelW;
   let cursorY = CANVAS_MARGIN;
   let maxContentW = LANE_MIN_W;
@@ -164,8 +193,12 @@ export function layoutGraph(index: GraphIndex, collapsed: Set<string>): LayoutFr
     boxes,
     width,
     height,
-    channelX: CANVAS_MARGIN + 16,
+    channelX: CANVAS_MARGIN + CHANNEL_PAD_L,
     hasChannel: needChannel,
+    channelPairs,
+    channelSlots,
+    channelStep,
+    channelW,
   };
 }
 
@@ -307,4 +340,8 @@ function liftTo(index: GraphIndex, id: string, member: Set<string>): string | nu
 
 function round(v: number): number {
   return Math.round(v * 100) / 100;
+}
+
+function floor2(v: number): number {
+  return Math.floor(v * 100) / 100;
 }

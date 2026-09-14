@@ -19,11 +19,21 @@ from .converge import MAX_ROUNDS, state_digest
 from .resolve import (mark_fitted, propagate_parameters, resolve_calls,
                       seed_annotations)
 from .model import ClassIR, ModuleIR, WorkspaceIR, sort_tags
+from .provenance import DEFAULT_MAX_HOPS
 from .returns import ReturnSlot, ReturnSummary, infer_returns
 from .scopes import classify_loops, walk_module
+from .summaries import propagate_summaries
 from .symbols import build_symbol_table
 
-__all__ = ["build_workspace", "dotted_for", "is_package", "FRAMEWORK_ORDER"]
+__all__ = ["build_workspace", "dotted_for", "is_package", "FRAMEWORK_ORDER",
+           "DATAFLOW_MODES", "DEFAULT_DATAFLOW"]
+
+#: DATAFLOW-IP. `local` is this release's default and is byte-identical to the
+#: analysis that shipped before the flag existed; `ip` additionally runs
+#: `ir.summaries` - constructor, return and method-argument summaries - to a
+#: fixed point, so a tag can cross the object boundary.
+DATAFLOW_MODES = ("local", "ip")
+DEFAULT_DATAFLOW = "local"
 
 FRAMEWORK_ORDER = {name: i for i, name in enumerate(K.FRAMEWORKS)}
 _MAX_BASE_ROUNDS = 5
@@ -46,9 +56,20 @@ def is_package(relpath: str) -> bool:
     return relpath.replace("\\", "/").endswith("__init__.py")
 
 
-def build_workspace(root: str, parsed_files: Sequence[ParsedFile]) -> WorkspaceIR:
-    """Build the full workspace IR from parsed files."""
+def build_workspace(root: str, parsed_files: Sequence[ParsedFile],
+                    dataflow: str = DEFAULT_DATAFLOW,
+                    max_hops: int = DEFAULT_MAX_HOPS) -> WorkspaceIR:
+    """Build the full workspace IR from parsed files.
+
+    `dataflow` (DATAFLOW-IP) selects how far a value tag may travel: `local`
+    stops at the first `def`, exactly as before this parameter existed, and
+    `ip` runs the interprocedural summary pass inside every IR round. The
+    parameter is appended last and defaulted, so every existing caller gets the
+    analysis it always got.
+    """
     workspace = WorkspaceIR(root=root)
+    workspace.dataflow = dataflow if dataflow in DATAFLOW_MODES else DEFAULT_DATAFLOW
+    workspace.ip_max_hops = int(max_hops)
     dotted_names = {dotted_for(p.relpath) for p in parsed_files}
     dotted_names.discard("")
 
@@ -99,11 +120,25 @@ def _ir_round(workspace: WorkspaceIR) -> None:
         seed_annotations(workspace.modules[relpath], workspace)
     for relpath in sorted(workspace.modules):
         propagate_parameters(workspace.modules[relpath], workspace)
+    # DATAFLOW-IP: the interprocedural summaries run **after**
+    # `propagate_parameters`, because they correct its first-wins guess with an
+    # intersection over every call site, and **before** `resolve_calls`, so a
+    # receiver typed through a hop resolves in the same round.
+    if getattr(workspace, "dataflow", DEFAULT_DATAFLOW) == "ip":
+        workspace.ip_notes = propagate_summaries(
+            workspace, getattr(workspace, "ip_max_hops", DEFAULT_MAX_HOPS))
     for relpath in sorted(workspace.modules):
         resolve_calls(workspace.modules[relpath], workspace)
     # one level of return-type inference, so the *next* binding round can
-    # type `opt = build_optimizer(model, cfg)` (see ir/returns.py)
-    infer_returns(workspace)
+    # type `opt = build_optimizer(model, cfg)` (see ir/returns.py). DATAFLOW-IP
+    # raises that one level to the hop cap - `propagate_summaries` already ran
+    # the pass to its fixed point, and this last call must not walk back down
+    # to the default depth and overwrite what it found.
+    if getattr(workspace, "dataflow", DEFAULT_DATAFLOW) == "ip":
+        infer_returns(workspace,
+                      max_depth=getattr(workspace, "ip_max_hops", DEFAULT_MAX_HOPS))
+    else:
+        infer_returns(workspace)
     _tag_hook_returns(workspace)
 
 

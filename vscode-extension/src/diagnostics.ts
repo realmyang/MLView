@@ -210,21 +210,43 @@ export class DiagnosticsPublisher implements vscode.Disposable {
     return { extensionDocsDir, repoDocsDir };
   }
 
-  /** Publish the unsuppressed, sufficiently confident issues of one graph. */
-  publish(graph: MLGraph, settings: MlviewSettings): number {
+  /**
+   * Publish the unsuppressed, sufficiently confident issues of one graph — or, in a
+   * multi-root window (H10), of EVERY analyzed folder at once.
+   *
+   * One graph at a time is not an option here: the collection is cleared down to what this
+   * call publishes, so publishing folder B alone would silently wipe folder A's squiggles the
+   * moment the user switched folders. The caller hands over every folder that has a graph and
+   * the Problems panel then shows the union, which is the only reading of "the problems in
+   * this window" that is true.
+   */
+  publish(graphs: MLGraph | readonly MLGraph[], settings: MlviewSettings): number {
     if (!settings.diagnosticsEnabled) {
       this.clear();
       return 0;
     }
-    const issues = selectIssues(graph, publishedIssueFilter(settings));
-    const byTarget = buildDiagnostics(issues, {
-      mode: settings.diagnosticSeverity,
-      ruleDocs: this.ruleDocs(),
-      root: graph.workspace.root
-    });
-
+    const all = Array.isArray(graphs) ? (graphs as readonly MLGraph[]) : [graphs as MLGraph];
     const nextFiles = new Map<string, vscode.Uri>();
-    for (const [key, target] of byTarget) {
+    const merged = new Map<string, DiagnosticTarget>();
+    let issueCount = 0;
+    for (const graph of all) {
+      const issues = selectIssues(graph, publishedIssueFilter(settings));
+      issueCount += issues.length;
+      const byTarget = buildDiagnostics(issues, {
+        mode: settings.diagnosticSeverity,
+        ruleDocs: this.ruleDocs(),
+        root: graph.workspace.root
+      });
+      for (const [key, target] of byTarget) {
+        const existing = merged.get(key);
+        if (existing) {
+          existing.diagnostics.push(...target.diagnostics);
+        } else {
+          merged.set(key, target);
+        }
+      }
+    }
+    for (const [key, target] of merged) {
       nextFiles.set(key, target.uri);
       this.collection.set(target.uri, target.diagnostics);
     }
@@ -237,10 +259,11 @@ export class DiagnosticsPublisher implements vscode.Disposable {
     }
     this.publishedFiles = nextFiles;
     this.log.info(
-      `published ${issues.length} diagnostic(s) across ${nextFiles.size} file(s) ` +
+      `published ${issueCount} diagnostic(s) across ${nextFiles.size} file(s) ` +
+        `from ${all.length} folder graph(s) ` +
         `(minConfidence=${settings.minConfidence}, minSeverity=${settings.minSeverity})`
     );
-    return issues.length;
+    return issueCount;
   }
 
   clear(): void {
