@@ -1,0 +1,117 @@
+{
+  "name": "tabular_online_sgd",
+  "title": "Out-of-core click prediction: partial_fit over read_csv chunks, a hash-bucket holdout and no fit() or train_test_split anywhere",
+  "origin": "hardening round 2, tester domain-tabular: the streaming / incremental-learning false-positive trap",
+  "tuned": false,
+  "labelledBy": "hardening round 2 domain-tabular, 2026-09-14",
+  "expected": [],
+  "forbidden": [
+    {
+      "code": "MLV101",
+      "file": "train.py",
+      "why": "scaler.partial_fit at line 44 is given train_x, which stream.chunks() already separated from the holdout rows at stream.py:36-38; the holdout is only ever transform()ed, at lines 45 and 49"
+    },
+    {
+      "code": "MLV101",
+      "file": "stream.py",
+      "why": "stream.py fits nothing: it reads chunks, computes a hash bucket and slices the frame"
+    },
+    {
+      "code": "MLV102",
+      "file": "train.py",
+      "why": "holdout_x reaches scaler.transform at line 49 and nothing else; partial_fit is called only on train_x. A PARTIAL_FIT role is not a leak by itself - incremental learning is what partial_fit is for"
+    },
+    {
+      "code": "MLV102",
+      "file": "stream.py",
+      "why": "no transformer is touched in stream.py"
+    },
+    {
+      "code": "MLV103",
+      "file": "train.py",
+      "why": "there is no cross_val_score / cross_validate / *SearchCV call in this project; every pass over the data refits the scaler state chunk by chunk"
+    },
+    {
+      "code": "MLV106",
+      "file": "train.py",
+      "why": "`hour` is an integer hour-of-day feature; nothing parses a date, converts one or sorts by one, and the holdout is a hash bucket rather than a random draw"
+    },
+    {
+      "code": "MLV106",
+      "file": "stream.py",
+      "why": "hash_holdout is a modulo on an integer row id - deterministic, order-independent and not a shuffle"
+    },
+    {
+      "code": "MLV305",
+      "file": "train.py",
+      "why": "the only metrics are roc_auc_score and log_loss, both in the score-metric carve-out, and both are fed a predict_proba column"
+    },
+    {
+      "code": "MLV306",
+      "file": "train.py",
+      "why": "roc_auc_score at line 55 is fed model.predict_proba(...)[:, 1] from line 49, a score column rather than a hard label"
+    },
+    {
+      "code": "MLV601",
+      "file": "train.py",
+      "anchor": "project",
+      "why": "seed_everything() seeds random and numpy at lines 30-31 and SGDClassifier carries random_state=SEED"
+    },
+    {
+      "code": "MLV602",
+      "file": "train.py",
+      "why": "there is no splitter object in this project at all: the holdout comes from a deterministic hash bucket, which needs no random_state and cannot take one"
+    },
+    {
+      "code": "MLV602",
+      "file": "stream.py",
+      "why": "hash_holdout has no randomness to seed"
+    },
+    {
+      "code": "MLV201",
+      "file": "train.py",
+      "why": "there is no torch in this project and no hand-written gradient step; the epoch loop drives partial_fit, not backward()"
+    },
+    {
+      "code": "MLV301",
+      "file": "train.py",
+      "why": "model.eval() is a torch idiom with no sklearn equivalent, and the loop at line 42 is a training pass rather than an evaluation loop"
+    },
+    {
+      "code": "MLV302",
+      "file": "train.py",
+      "why": "torch.no_grad() has no meaning in a scikit-learn program"
+    },
+    {
+      "code": "MLV501",
+      "file": "train.py",
+      "why": "no device is ever named in this project"
+    },
+    {
+      "code": "MLV110",
+      "file": "train.py",
+      "why": "there is no torch DataLoader here; the chunk generator yields the file's own order on purpose, because an out-of-core pass cannot shuffle what it has not read"
+    }
+  ],
+  "graph": {
+    "edges": 11,
+    "ops": [
+      {"file": "stream.py", "line": 35, "symbol": "read_csv(chunksize=)", "kind": "dataset"},
+      {"file": "stream.py", "line": 36, "symbol": "hash_holdout", "kind": "split"},
+      {"file": "stream.py", "line": 37, "symbol": "chunk.loc[~held_out]", "kind": "split"},
+      {"file": "stream.py", "line": 38, "symbol": "chunk.loc[held_out]", "kind": "split"},
+      {"file": "train.py", "line": 35, "symbol": "SGDClassifier", "kind": "model"},
+      {"file": "train.py", "line": 42, "symbol": "for train_part, holdout_part in chunks", "kind": "train_loop"},
+      {"file": "train.py", "line": 44, "symbol": "scaler.partial_fit", "kind": "scaler"},
+      {"file": "train.py", "line": 45, "symbol": "model.partial_fit", "kind": "train_loop"},
+      {"file": "train.py", "line": 49, "symbol": "model.predict_proba", "kind": "predict"},
+      {"file": "train.py", "line": 55, "symbol": "roc_auc_score", "kind": "metric"},
+      {"file": "train.py", "line": 56, "symbol": "log_loss", "kind": "metric"},
+      {"file": "train.py", "line": 62, "symbol": "StandardScaler", "kind": "scaler"},
+      {"file": "train.py", "line": 65, "symbol": "for epoch in range(EPOCHS)", "kind": "train_loop"}
+    ]
+  },
+  "notes": [
+    "The honest defect this project does NOT have, and which no rule covers, is that `scaler.partial_fit` keeps updating across epochs, so the holdout rows of epoch 2 are transformed by a state that has already seen epoch 1's training rows. That is correct for online learning - the state is meant to be cumulative - and is recorded here so the distinction is on the record."
+  ]
+}

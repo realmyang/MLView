@@ -1,0 +1,32 @@
+{
+  "name": "infra_fastai",
+  "title": "fastai vision_learner: fine_tune, callbacks, seeded valid_pct split, export",
+  "origin": "hardening round 1, tester domain-infra: the fastai script the ROADMAP's framework list names",
+  "tuned": false,
+  "labelledBy": "domain-infra, 2026-09-13",
+  "note": "A precision trap, and a graph-fidelity probe. MLView reports no findings here - correct - but it also draws only 4 nodes and declares model, objective, train, eval and deliver all ABSENT, on a file that builds a learner (line 45), trains it (line 57), validates it (line 58) and exports it (line 61). fastai appears in WRAPPER_FQNS for the negation gate but in none of the knowledge tables, so nothing it does is drawn. See the domain-infra report, finding INFRA-03.",
+  "stagesObserved": "config and data present; preprocess, model, objective, train, eval and deliver all reported absent.",
+  "expected": [],
+  "forbidden": [
+    {"code": "MLV110", "file": "train_fastai.py",
+     "why": "there is no torch DataLoader in this file; ImageDataLoaders.from_name_func owns batching and shuffling"},
+    {"code": "MLV111", "file": "train_fastai.py",
+     "why": "same: no torch DataLoader is constructed here"},
+    {"code": "MLV114", "file": "train_fastai.py",
+     "why": "aug_transforms is passed as batch_tfms, which fastai applies to the training dataloader only; the validation set is not augmented"},
+    {"code": "MLV201", "file": "train_fastai.py",
+     "why": "fastai's Learner owns the loop - there is no hand-written batch loop, no backward() and no optimizer in this file"},
+    {"code": "MLV202", "file": "train_fastai.py",
+     "why": "same: no backward()/step() pair exists to be unbalanced"},
+    {"code": "MLV301", "file": "train_fastai.py",
+     "why": "Learner.validate() and Learner.get_preds() switch the model to eval mode themselves; there is no hand-written evaluation loop here"},
+    {"code": "MLV302", "file": "train_fastai.py",
+     "why": "same: fastai runs validation under torch.no_grad() internally"},
+    {"code": "MLV501", "file": "train_fastai.py",
+     "why": "fastai owns device placement for both the model and the batches"},
+    {"code": "MLV601", "anchor": "project",
+     "why": "the split is built with seed=42 at line 34, an explicit seed keyword"},
+    {"code": "MLV602", "file": "train_fastai.py",
+     "why": "the valid_pct split at line 33 carries seed=42 at line 34"}
+  ]
+}

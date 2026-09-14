@@ -1,0 +1,93 @@
+{
+  "name": "infra_fsdp",
+  "title": "FSDP: auto-wrap policy, bf16 MixedPrecision, sharded state-dict save, set_epoch",
+  "origin": "hardening round 1, tester domain-infra: the FSDP script the ROADMAP's framework list names",
+  "tuned": false,
+  "labelledBy": "domain-infra, 2026-09-13",
+  "note": "A precision trap with one live false positive. MLV205 fires at line 120 on an accumulation that sits inside `with torch.no_grad():` (line 115). docs/ISSUE_RULES.md section 3 says MLV205 fires only when the accumulation 'is not inside a torch.no_grad() scope'; that guard is documented but not implemented - `_accumulations` in analyzer/src/mlview/rules/r_trainloop.py never reads `inside_no_grad`. Under no_grad there is no autograd graph, so the finding's own message ('keeps its autograd graph alive') is false. Recorded as `acceptable` only so this corpus addition does not turn a shared gate red.  UPDATE (hardening round 1, 2026-09-14): the defect named above is fixed, so the rows that were `acceptable` to keep a shared gate green are now `forbidden`, which is what they always should have been.",
+  "expected": [],
+  "forbidden": [
+    {
+      "code": "MLV110",
+      "file": "train_fsdp.py",
+      "why": "the training loader is built with sampler=train_sampler, a DistributedSampler constructed with shuffle=True at line 79"
+    },
+    {
+      "code": "MLV111",
+      "file": "train_fsdp.py",
+      "why": "the validation sampler is constructed with shuffle=False at line 80"
+    },
+    {
+      "code": "MLV112",
+      "file": "train_fsdp.py",
+      "why": "the module ends in `if __name__ == \"__main__\": main()` and every loader is built inside main()'s call tree"
+    },
+    {
+      "code": "MLV201",
+      "file": "train_fsdp.py",
+      "why": "optimizer.zero_grad(set_to_none=True) is called at line 152, before the forward"
+    },
+    {
+      "code": "MLV202",
+      "file": "train_fsdp.py",
+      "why": "optimizer.step() is called at line 156"
+    },
+    {
+      "code": "MLV203",
+      "file": "train_fsdp.py",
+      "why": "the order is zero_grad (152) -> forward/loss (153) -> backward (154) -> clip (155) -> step (156)"
+    },
+    {
+      "code": "MLV301",
+      "file": "train_fsdp.py",
+      "why": "validate() calls model.eval() at line 112 and restores model.train() at line 124"
+    },
+    {
+      "code": "MLV302",
+      "file": "train_fsdp.py",
+      "why": "the validation loop is inside `with torch.no_grad():` at line 115"
+    },
+    {
+      "code": "MLV501",
+      "file": "train_fsdp.py",
+      "why": "both loops move tokens and labels with .to(device, non_blocking=True) and the model is moved before FSDP wraps it"
+    },
+    {
+      "code": "MLV502",
+      "file": "train_fsdp.py",
+      "why": "every CUDA path in this file is behind torch.cuda.is_available()"
+    },
+    {
+      "code": "MLV601",
+      "anchor": "project",
+      "why": "seed_all(SEED) at line 130 calls random.seed, numpy.random.seed, torch.manual_seed and torch.cuda.manual_seed_all"
+    },
+    {
+      "code": "MLV602",
+      "file": "train_fsdp.py",
+      "why": "there is no sklearn split and no random_split; the DistributedSampler is constructed with an explicit seed=SEED"
+    },
+    {
+      "code": "MLV701",
+      "file": "train_fsdp.py",
+      "why": "EncoderBlock.__init__ (line 34) and TinyEncoder.__init__ (line 54) both call super().__init__() as their first statement"
+    },
+    {
+      "code": "MLV702",
+      "file": "train_fsdp.py",
+      "why": "the six encoder blocks are held in nn.ModuleList at line 56, so they are registered"
+    },
+    {
+      "code": "MLV803",
+      "file": "train_fsdp.py",
+      "why": "the checkpoint is the state dict FSDP.state_dict_type produced, not the module object"
+    },
+    {
+      "code": "MLV205",
+      "file": "train_fsdp.py",
+      "line": 120,
+      "symbol": "total += criterion(...)",
+      "why": "the accumulation is inside `with torch.no_grad():` opened at line 115, so no autograd graph exists to keep alive and nothing grows with the epoch. Fixed in hardening round 1 (INFRA-01): `AssignRecord.inside_no_grad` is carried and MLV205 skips it, which is the guard docs/ISSUE_RULES.md section 3 always promised."
+    }
+  ]
+}

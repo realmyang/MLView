@@ -170,7 +170,17 @@ export class ViewportController {
    * pipeline, and the answer must open showing it (MLV-R3-001).
    */
   fit(padding = 24): void {
-    this.applyFit(padding, false);
+    // HOSTS-UX-FITZOOM. The tall branch is floored at MIN_FIT_ZOOM, which is
+    // right for a FIRST PAINT — below it a card stops being a recognisable
+    // object, so a deeper document opens there and is read by panning. It is
+    // wrong for a reader who has ALREADY gone below that floor: they asked to
+    // see more, and a control labelled "Fit to view" that zooms back IN shows
+    // less. Measured on the demo at 1280x800: first paint 50 % with 10 of 53
+    // cards fully inside the canvas; five presses of Zoom out -> 20 % and 29 of
+    // 53 inside; one press of Fit -> back to 50 % and 10 of 53, with no toast
+    // and nothing announced. So below the floor Fit means what Overview already
+    // means — the WHOLE document — and above it nothing changes.
+    this.applyFit(padding, this.vp.zoom < MIN_FIT_ZOOM);
   }
 
   /**

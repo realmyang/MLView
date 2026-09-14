@@ -26,7 +26,7 @@ what is wrong — how badly and on which line.
 | **2** | **The diagram is interactive; clicking leads to the code** | Every node, edge and issue carries `{file, absFile, line, col, endLine, endCol, symbol, snippet}` — line 1-based, column 0-based, converted exactly once at the host boundary. Clicking a node opens the file with the range selected; clicking an **edge** lands on the *call site* that created the dependency, not on either endpoint's definition; an issue exposes its related locations as named secondary jumps ("go to the split site"). |
 | **3** | **Potential issues are marked on the diagram** | Twenty rules (`MLV1xx` leakage, `MLV2xx` train loop, `MLV3xx` evaluation, `MLV4xx` loss, `MLV5xx` device, `MLV6xx` reproducibility, `MLV7xx` model) attach severity-marked badges to the exact node or edge. A **required-but-absent** step — a missing `optimizer.zero_grad()`, a missing `model.eval()` — is drawn as a dashed **ghost node** in its correct slot, so the diagram shows the hole rather than narrating it. Every finding carries a rule code, a confidence bucket, a message citing real variable names, and a one-sentence fix. |
 | **1a** | **The flow is visible** | Hover a connection and it lights up while a charge runs along it **from outlet to inlet**, the way current runs through a cable; hover a node and its whole lineage streams, staggered 90 ms per hop. Direction is never guessed — every route is emitted source → target, so animating along the edge's own path *is* the direction. The charge takes the severity colour on an edge that carries a finding, so the wrong tensor is the one you watch move into the loss. Under `prefers-reduced-motion`, or above 120 lit edges, the same information is a static chevron plus an outlet and an inlet dot. |
-| **1b** | **You can visualize part of a codebase** | One selector narrows every surface to one part of the pipeline: `unit:SmallCNN`, `unit:train_test_split`, `stage:train`, `file:data.py`, `concern:evaluation`, `node:<id>`, with `depth` 0–2 boundary hops. It is a **view, not a filter**: the Problems panel, `stage.present`, `workspace` and `generator` still describe the whole analysis, and the breadcrumb always says `N of M nodes` with `M` the project's real size. |
+| **1b** | **You can visualize part of a codebase** | One selector narrows every surface to one part of the pipeline: `unit:SmallCNN` (`symbol:` is the same selector spelled the other way), `unit:train_test_split`, `stage:train`, `file:data.py`, `concern:evaluation`, `node:<id>`, `pipeline:train.py` — everything one entrypoint reaches, which is the unit a repo with several training scripts is read in — and `all` for the whole graph, with `depth` 0–2 boundary hops. It is a **view, not a filter**: the Problems panel, `stage.present`, `workspace` and `generator` still describe the whole analysis, and the breadcrumb always says `N of M nodes` with `M` the project's real size. |
 | **4** | **The UI/UX is beautiful, clear, intuitive** | One renderer, three severity marker *shapes* (not only colours, so it survives a greyscale screenshot), a collapsed default view that fits one screen, an issue rail ranked by severity, and design tokens written as `var(--vscode-*, <literal>)` so the same CSS is correct in a VS Code webview, in a light browser and in a dark one. |
 
 The honest counterweight to that table is the [status section](#status--what-is-actually-verified) below.
@@ -467,7 +467,7 @@ three of which fan out over a matrix:
 | `e2e (windows, powershell)` | windows, Python 3.13 + Node 20 | `scripts/e2e.ps1` — the same 20 steps under the other driver |
 | `smoke (macos)` | macos, Python 3.13 + Node 20 | the analyzer and viewer suites — **only on push to `main` and on pull requests** |
 | `packaging (wheel + vsix)` | ubuntu, Python 3.13 + Node 20 | `tools/wheel_check.py` (build the wheel, `pip install` it into a throwaway venv, analyze with it), `sync-core.py --check`, `make_icon.py --check`, `npm run package`, then `scripts/vsix_check.py` — the 1 MB ceiling, the whole bundled analyzer, every rule page, no `__pycache__`, with the measured figures echoed |
-| `accuracy corpus` | ubuntu, Python 3.13 | `tools/accuracy.py` over the ten labelled programs, then `pytest analyzer/tests/accuracy` — zero `forbidden` findings, and recall and graph fidelity may only ratchet up |
+| `accuracy corpus` | ubuntu, Python 3.13 | `tools/accuracy.py` over the **158** labelled programs, then `pytest analyzer/tests/accuracy` — zero `forbidden` findings, and recall and graph fidelity may only ratchet up |
 
 `.github/workflows/nightly.yml` is separate and deliberately not on the push
 path: `python tools/verify.py --scopes --fuzz 2000` builds the viewer from that
@@ -479,9 +479,12 @@ default branch, so it starts firing once this lands on `main`.
 The matrix is deliberately lopsided: the repository is private, so minutes are
 metered and weighted (windows 2x, macos 10x), and the fan-out is therefore
 ubuntu-only. **Measured, not estimated** — the last full green push
-(run 34454599867, Sprint 5's review-fix integration) took **7m57s of wall time
-and ~44 billable minutes** across the **12 green jobs** a branch push runs,
-macOS skipped;
+(run 34815166539, hardening round 2) took **15m39s of wall time
+and ~87 billable minutes** across the **12 green jobs** a branch push runs,
+macOS skipped; round 1 roughly doubled both figures and round 2 added about a
+fifth more, because the analyzer suite grew from 2405 tests to 2574 and the
+labelled corpus from 92 programs to 158 — the Windows end-to-end job alone is
+15m35s of that, and it is billed at 2x;
 `scripts/README.md` row 25 breaks that run down job by job, and it is the same
 run this file and the gate table both mean by "the last full green push".
 The thirteenth job has run on exactly **one** branch push ever
@@ -623,11 +626,17 @@ not part of what this list claims — see "Compile-verified only" below.**
   panel tab description and the digests (`vscode-extension/src/coverage.ts`). The
   in-canvas banner and chip are the viewer's, drawn from `graph.diagnostics` in
   `webview/src/ui/chrome.ts`, which the host passes through untouched.
-- `mlview_issues`'s `groupBy` folds the rows inside the MCP server
-  (`claude-plugin/server/mlview_groups.py`), which is where the plugin's grouping
-  lives. `/mlview-issues --group-by` therefore groups through the MCP tool; its
-  `Bash` fallback line groups only once the matching `--group-by` flag lands on
-  `analyzer/src/mlview/cli.py`.
+- One grouped table, two implementations. `mlview_issues`'s `groupBy` folds the
+  rows inside the MCP server (`claude-plugin/server/mlview_groups.py`), and
+  `--group-by rule|file|severity` folds them again in the analyzer
+  (`analyzer/src/mlview/emit/group_out.py`, reached from `analyze` and `issues`
+  through `group_by` in `analyzer/src/mlview/cli.py`). So `/mlview-issues
+  --group-by` groups through the MCP tool **and** its `Bash` fallback line
+  groups — the flag has shipped on both — but the two foldings are separate code
+  with separate tests (`analyzer/tests/core/test_group_by.py`,
+  `claude-plugin/tests/test_issue_groups.py`) and nothing compares their output,
+  so a divergence in occurrence counts or in which site is quoted as the example
+  would surface as two answers to one question.
 - The framework gate on the absence rules (`MLV301`, `MLV302`, `MLV501`, ...)
   reaches one import hop, no further. `ctx.wrappers_for()` in
   `analyzer/src/mlview/rules/context.py` de-rates a finding only when a

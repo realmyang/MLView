@@ -417,7 +417,15 @@ def run_corpus(corpus_dir: str = CORPUS_DIR, only: Sequence[str] = (),
     programs = load_programs(corpus_dir, only)
     results = []
     for program in programs:
-        doc = analyze_to_dict(AnalyzeOptions(paths=(program.root,), dataflow=dataflow))
+        # DGRG-13: the gate must read the corpus **cold** and leave it
+        # untouched. Since 11.39 made the fact cache a default, one
+        # `tools/accuracy.py` run wrote a `.mlview/cache/facts-<hash>.json`
+        # into each of the ~90 labelled program directories - so the
+        # measurement mutated the tree it measures, a second run was served
+        # from a cache rather than measured, and a cache-invalidation bug would
+        # have been invisible to the gate that exists to catch it.
+        doc = analyze_to_dict(AnalyzeOptions(paths=(program.root,), dataflow=dataflow,
+                                             cache=False))
         results.append(score_program(program, doc))
     return results, aggregate(results)
 

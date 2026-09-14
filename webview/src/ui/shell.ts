@@ -181,8 +181,20 @@ export function wireCanvasGestures(
       }
       // The guard still decides whether a DRAG-PAN may start: dragging a card,
       // the minimap, the zoom cluster or an edge is that widget's gesture.
+      //
+      // HOSTS-UX-LEGENDPAN. The list must name EVERY overlay painted over the
+      // canvas, not only the two the shell builds itself: `app.ts` appends the
+      // legend, the tooltip and the toast stack to `shell.canvas`, and a
+      // pointerdown that is not exempted here calls `setPointerCapture`, which
+      // retargets the rest of the gesture to the canvas — so in a real browser
+      // the legend's own close button never sees its `click`, and a drag inside
+      // the panel pans the diagram underneath it. The rule behind the list is
+      // "a direct child of `.mlv-canvas` that is not `.mlv-world` is chrome",
+      // and `hardening_canvas_overlays.test.mjs` holds the list to it by reading
+      // the canvas's children at runtime.
       const target = ev.target as HTMLElement;
-      if (target.closest && target.closest('.mlv-node, .mlv-group__header, .mlv-minimap, .mlv-zoom, .mlv-edge__hit')) {
+      // ONE string literal on one line: the gate above reads it back out of the bundle.
+      if (target.closest && target.closest('.mlv-node, .mlv-group__header, .mlv-minimap, .mlv-zoom, .mlv-edge__hit, .mlv-legend, .mlv-statehost, .mlv-tooltip, .mlv-toasts')) {
         return;
       }
       panning = true;

@@ -1,0 +1,153 @@
+{
+  "name": "vision_fixmatch",
+  "title": "FixMatch semi-supervised classification: two views, a confidence-masked consistency loss and an EMA shadow model",
+  "origin": "domain-vision round 2: the semi-supervised shape. Three of its idioms look exactly like defects - an in-place EMA update under no_grad, a no_grad pseudo-label block in the middle of a back-propagating loop, and a LambdaLR warmup stepped once per batch",
+  "tuned": false,
+  "labelledBy": "domain-vision, 2026-09-14",
+  "expected": [],
+  "forbidden": [
+    {
+      "code": "MLV207",
+      "file": "train.py",
+      "line": 134,
+      "why": "THE TRAP, AND IT FIRES TODAY (round-2 finding VIS2-04). torch.optim.lr_scheduler.LambdaLR has no intrinsic cadence: the lambda receives whatever counter its owner steps, and cosine_schedule() builds its total_steps as epochs * len(labelled_loader), i.e. a per-STEP schedule. Stepping it once per batch is the only correct cadence, and it is what transformers' get_linear_schedule_with_warmup (which returns a LambdaLR), timm, DETR and the FixMatch reference all do. LambdaLR is not in the epoch-cadence set docs/ISSUE_RULES.md section 4 documents for MLV207; the implementation added it"
+    },
+    {
+      "code": "MLV101",
+      "file": "train.py",
+      "why": "there is no sklearn transformer in this project"
+    },
+    {
+      "code": "MLV102",
+      "file": "train.py",
+      "why": "nothing is fitted on anything here"
+    },
+    {
+      "code": "MLV110",
+      "file": "train.py",
+      "why": "both training loaders are built with shuffle=True"
+    },
+    {
+      "code": "MLV111",
+      "file": "train.py",
+      "why": "the validation loader is built with shuffle=False"
+    },
+    {
+      "code": "MLV112",
+      "file": "train.py",
+      "why": "the loaders are built inside build_loaders(), reached only from main() under the __main__ guard"
+    },
+    {
+      "code": "MLV114",
+      "file": "train.py",
+      "why": "eval_transform() is ToTensor + Normalize only; RandAugment and RandomErasing live in strong_transform(), which reaches the unlabelled training loader alone"
+    },
+    {
+      "code": "MLV114",
+      "file": "data.py",
+      "why": "same - the three pipelines are separate factories and only the two training ones augment"
+    },
+    {
+      "code": "MLV201",
+      "file": "train.py",
+      "why": "optimizer.zero_grad(set_to_none=True) is the first statement of the training step"
+    },
+    {
+      "code": "MLV202",
+      "file": "train.py",
+      "why": "optimizer.step() follows loss.backward() every batch"
+    },
+    {
+      "code": "MLV203",
+      "file": "train.py",
+      "why": "backward() precedes step(); ema.update() after the step is bookkeeping, not an optimizer call"
+    },
+    {
+      "code": "MLV204",
+      "file": "train.py",
+      "why": "THE TRAP: the @torch.no_grad() region inside the training step is the pseudo-label block, which contains no backward(); loss.backward() at line 132 is outside it. ModelEMA.update is decorated @torch.no_grad() and is an in-place weight average, which is the only correct way to write it"
+    },
+    {
+      "code": "MLV205",
+      "file": "train.py",
+      "why": "both running totals accumulate .item()"
+    },
+    {
+      "code": "MLV209",
+      "file": "train.py",
+      "why": "there is no gradient clipping in this project"
+    },
+    {
+      "code": "MLV301",
+      "file": "train.py",
+      "why": "evaluate() calls module.eval() before the loop, and it is called for the student and for the EMA shadow"
+    },
+    {
+      "code": "MLV302",
+      "file": "train.py",
+      "why": "evaluate() carries the @torch.no_grad() decorator"
+    },
+    {
+      "code": "MLV305",
+      "file": "train.py",
+      "why": "accuracy is computed from logits.argmax(dim=1), which decides the class before the comparison"
+    },
+    {
+      "code": "MLV306",
+      "file": "train.py",
+      "why": "no ranking metric is computed anywhere"
+    },
+    {
+      "code": "MLV401",
+      "file": "train.py",
+      "why": "THE TRAP: torch.softmax at line 127 produces the pseudo-label probabilities inside a no_grad block; it never reaches F.cross_entropy, which is fed logits_x and logits_strong directly"
+    },
+    {
+      "code": "MLV402",
+      "file": "train.py",
+      "why": "there is no sigmoid and no BCE loss in this project"
+    },
+    {
+      "code": "MLV501",
+      "file": "train.py",
+      "why": "the model and the EMA shadow are both moved with .to(device) and every batch tensor is moved inside the loop"
+    },
+    {
+      "code": "MLV502",
+      "file": "train.py",
+      "why": "pick_device() checks torch.cuda.is_available()"
+    },
+    {
+      "code": "MLV601",
+      "file": "train.py",
+      "why": "seed_everything() seeds random, numpy, torch and torch.cuda, and the label subset is drawn from an explicitly seeded np.random.default_rng"
+    },
+    {
+      "code": "MLV602",
+      "file": "train.py",
+      "why": "stratified_label_subset uses the seeded generator that is passed to it; there is no sklearn split and no random_split"
+    },
+    {
+      "code": "MLV701",
+      "file": "model.py",
+      "why": "BasicBlock, NetworkBlock and WideResNet all call super().__init__() first"
+    },
+    {
+      "code": "MLV702",
+      "file": "model.py",
+      "why": "the residual blocks are collected into nn.Sequential(*blocks)"
+    },
+    {
+      "code": "MLV803",
+      "file": "train.py",
+      "why": "the checkpoint saves state_dict()s, never the modules"
+    }
+  ],
+  "unsupported": [
+    {
+      "file": "model.py",
+      "why": "LABEL CORRECTED in hardening round 2: MLV703 is not a built rule - it carries the status **later** in docs/ISSUE_RULES.md section 1 - so a label for it can never be satisfied and can never be violated. `analyzer/tests/accuracy/test_accuracy.py::test_every_labelled_code_is_a_real_rule` rejects one, and this row turned that shipped test red. The observation is kept verbatim here so the row can be restored the day the rule ships. Original verdict `forbidden`, original note: THE TRAP: F.dropout at line 41 passes training=self.training explicitly",
+      "wouldBe": "MLV703"
+    }
+  ]
+}

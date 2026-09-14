@@ -1,0 +1,155 @@
+{
+  "name": "vision_vae_bad",
+  "title": "The same convolutional VAE with six planted defects",
+  "origin": "domain-vision round 1: the dirty twin of vision_vae; its composite loss function is what turns the whole train-loop rule family off",
+  "tuned": false,
+  "labelledBy": "domain-vision, 2026-09-13",
+  "expected": [
+    {
+      "code": "MLV402",
+      "file": "vae.py",
+      "line": 93,
+      "symbol": "nn.Sigmoid()",
+      "severity": "high",
+      "verdict": "expected",
+      "defect": "the decoder's Sequential ends in nn.Sigmoid while the reconstruction term is still binary_cross_entropy_with_logits",
+      "why": "the sigmoid is applied twice, so the reconstruction gradient collapses and every sample converges to the dataset mean"
+    },
+    {
+      "code": "MLV201",
+      "file": "vae.py",
+      "line": 150,
+      "symbol": "for images, _labels in loader",
+      "severity": "high",
+      "verdict": "expected",
+      "defect": "the training step never calls optimizer.zero_grad()",
+      "why": "every update applies the running sum of the epoch's gradients, so the ELBO diverges after a few hundred batches"
+    },
+    {
+      "code": "MLV110",
+      "file": "vae.py",
+      "line": 133,
+      "symbol": "DataLoader(dataset, shuffle=False)",
+      "severity": "medium",
+      "verdict": "expected",
+      "defect": "the training loader does not shuffle",
+      "why": "CelebA is stored in identity order, so each batch is one face and the posterior collapses to it"
+    },
+    {
+      "code": "MLV205",
+      "file": "vae.py",
+      "line": 156,
+      "symbol": "running += loss",
+      "severity": "medium",
+      "verdict": "expected",
+      "defect": "the ELBO is accumulated as a live tensor and never reset",
+      "why": "every batch's autograd graph is retained for the whole run"
+    },
+    {
+      "code": "MLV301",
+      "file": "vae.py",
+      "line": 164,
+      "symbol": "model.decoder(z)",
+      "severity": "medium",
+      "verdict": "expected",
+      "defect": "sample() no longer calls model.eval()",
+      "why": "the decoder's BatchNorm2d layers normalise the 64 noise draws by their own statistics and then keep them, so the next training step starts from statistics learned on noise",
+      "gap": "sample() loops over nothing and is not a name in MLV301's eval-function regex, so a VAE sampler run in train mode is out of reach.",
+      "unsupported": true
+    },
+    {
+      "code": "MLV302",
+      "file": "vae.py",
+      "line": 164,
+      "symbol": "sample()",
+      "severity": "medium",
+      "verdict": "expected",
+      "defect": "sample() is no longer decorated @torch.no_grad()",
+      "why": "the decoder graph for 64 images is built and dropped on every epoch",
+      "gap": "same region identification as MLV301.",
+      "unsupported": true
+    },
+    {
+      "code": "MLV803",
+      "file": "vae.py",
+      "line": 160,
+      "symbol": "torch.save(model, \"vae.pt\")",
+      "severity": "low",
+      "verdict": "expected",
+      "defect": "the whole module is pickled instead of its state_dict",
+      "why": "the checkpoint carries the class path and breaks when vae.py moves"
+    }
+  ],
+  "forbidden": [
+    {
+      "code": "MLV111",
+      "file": "vae.py",
+      "why": "there is no evaluation loader in this project"
+    },
+    {
+      "code": "MLV112",
+      "file": "vae.py",
+      "why": "the loader is built inside build_loader(), reached only from train() under the __main__ guard"
+    },
+    {
+      "code": "MLV202",
+      "file": "vae.py",
+      "why": "optimizer.step() is still called every batch"
+    },
+    {
+      "code": "MLV203",
+      "file": "vae.py",
+      "why": "loss.backward() still precedes optimizer.step()"
+    },
+    {
+      "code": "MLV204",
+      "file": "vae.py",
+      "why": "no backward() call is inside a no_grad region"
+    },
+    {
+      "code": "MLV401",
+      "file": "vae.py",
+      "why": "there is no softmax and no CrossEntropyLoss in this project"
+    },
+    {
+      "code": "MLV501",
+      "file": "vae.py",
+      "why": "the images are still moved to the device and the latent draw is still allocated with device="
+    },
+    {
+      "code": "MLV502",
+      "file": "vae.py",
+      "why": "pick_device() still checks torch.cuda.is_available()"
+    },
+    {
+      "code": "MLV601",
+      "file": "vae.py",
+      "why": "seed_everything() still seeds every source"
+    },
+    {
+      "code": "MLV602",
+      "file": "vae.py",
+      "why": "there is no split in this project"
+    },
+    {
+      "code": "MLV701",
+      "file": "vae.py",
+      "why": "every nn.Module subclass still calls super().__init__()"
+    },
+    {
+      "code": "MLV702",
+      "file": "vae.py",
+      "why": "every submodule stack is still an nn.Sequential"
+    }
+  ],
+  "gaps": [
+    {
+      "what": "the KL term is subtracted instead of added, so the optimiser is rewarded for a larger divergence from the prior and the latent space stops being samplable - no rule checks the sign of a variational objective",
+      "evidence": "vae.py:124 against the clean twin's + kl_weight * kl"
+    },
+    {
+      "what": "every train-loop rule is silent on this program because the loss comes from elbo(), a function whose return is an arithmetic combination (reconstruction - kl)/N rather than a direct loss call, so the LOSS tag never reaches loss.backward()",
+      "evidence": "the MLV201 and MLV205 expected labels above are standing misses; minimal repro in the report"
+    }
+  ]
+}

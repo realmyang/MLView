@@ -1,0 +1,224 @@
+{
+  "name": "vision_superres_bad",
+  "title": "The same ESRGAN run with eight planted defects",
+  "origin": "domain-vision round 2: the dirty twin of vision_superres. Its MLV402 label is the one that shows a dict of criteria silencing a high-severity pairing rule (VIS2-06), and its three MLV208 labels are the AMP protocol sub-variants the rule does not reach",
+  "tuned": false,
+  "labelledBy": "domain-vision, 2026-09-14",
+  "expected": [
+    {
+      "code": "MLV402",
+      "file": "train_esrgan.py",
+      "line": 191,
+      "symbol": "nn.BCELoss()",
+      "severity": "high",
+      "verdict": "expected",
+      "defect": "the relativistic adversarial term is nn.BCELoss while the discriminator's last layer is an unbounded nn.Linear",
+      "why": "BCELoss takes log() of its input, so the first negative score produces nan and the whole run dies - or, worse, is clamped and trains on a meaningless gradient",
+      "gap": "the criterion is read out of a dict literal (criteria[\"adversarial\"]), which makes the loss binding an unresolvable subscript. MLView says so in two diagnostics rather than staying silent, but the high-severity pairing is missed. One-line repro in the round-2 report (VIS2-06)."
+    },
+    {
+      "code": "MLV208",
+      "file": "train_esrgan.py",
+      "line": 84,
+      "symbol": "d_loss.backward()",
+      "severity": "medium",
+      "verdict": "expected",
+      "defect": "a bare backward() on the discriminator loss while a GradScaler is in use",
+      "why": "the gradients are never scaled, so under float16 they underflow to zero and the discriminator silently stops learning",
+      "gap": "same dict-of-scalers / untyped-loss cause as the MLV402 label above."
+    },
+    {
+      "code": "MLV208",
+      "file": "train_esrgan.py",
+      "line": 109,
+      "symbol": "g_scaler.step(g_optimizer)",
+      "severity": "medium",
+      "verdict": "expected",
+      "defect": "g_scaler.step() is never followed by g_scaler.update()",
+      "why": "the scale factor never adapts, so the first overflow freezes the generator for the rest of the run",
+      "gap": "the scaler arrives as scalers[\"g\"] out of a dict literal, so the receiver does not resolve to a GradScaler."
+    },
+    {
+      "code": "MLV208",
+      "file": "train_esrgan.py",
+      "line": 108,
+      "symbol": "nn.utils.clip_grad_norm_",
+      "severity": "medium",
+      "verdict": "expected",
+      "defect": "clip_grad_norm_ runs on still-scaled gradients: scaler.unscale_() is gone",
+      "why": "max_norm=1.0 is compared against gradients multiplied by the loss scale (65536 by default), so the clip never engages and the protection is not there",
+      "gap": "this is the fourth documented MLV208 sub-variant and it does not fire even when the scaler IS local and resolved - see the r208a repro in the round-2 report (VIS2-07)."
+    },
+    {
+      "code": "MLV205",
+      "file": "train_esrgan.py",
+      "line": 114,
+      "symbol": "g_running += g_loss",
+      "severity": "medium",
+      "verdict": "expected",
+      "defect": "both running totals keep the live loss tensors",
+      "why": "the generator graph holds the RRDB trunk, the discriminator and a VGG19 slice, so retaining it for a whole epoch is an immediate out-of-memory",
+      "gap": "the loss is untyped for the same dict reason; MLView declares the gap in its untagged_dataflow diagnostic."
+    },
+    {
+      "code": "MLV301",
+      "file": "train_esrgan.py",
+      "line": 130,
+      "symbol": "generator(low_res)",
+      "severity": "medium",
+      "verdict": "expected",
+      "defect": "validate() no longer calls generator.eval()",
+      "why": "the discriminator and the now-unfrozen VGG extractor stay in training mode for the pass that produces the reported PSNR, and the extractor's BatchNorm-free slice still accumulates a graph",
+      "note": "found at confidence 0.51 / possible, below mlview.minConfidence 0.6, so it never reaches the Problems panel: the generator carries no BatchNorm or Dropout, which is the architecture de-rate doing its job"
+    },
+    {
+      "code": "MLV111",
+      "file": "train_esrgan.py",
+      "line": 48,
+      "symbol": "DataLoader(val_set, shuffle=True)",
+      "severity": "low",
+      "verdict": "expected",
+      "defect": "the evaluation loader shuffles",
+      "why": "the per-image PSNR table printed each epoch lists a different set of images, so two epochs cannot be compared image by image"
+    },
+    {
+      "code": "MLV803",
+      "file": "train_esrgan.py",
+      "line": 161,
+      "symbol": "torch.load(path)",
+      "severity": "low",
+      "verdict": "expected",
+      "defect": "torch.load with neither map_location= nor weights_only=True",
+      "why": "a downloaded super-resolution checkpoint executes whatever its pickle says to execute, and a CUDA-saved checkpoint will not load on a CPU machine"
+    },
+    {
+      "code": "MLV201",
+      "file": "train_esrgan.py",
+      "line": 89,
+      "symbol": "the generator update",
+      "severity": "high",
+      "verdict": "acceptable",
+      "defect": "g_optimizer.zero_grad() is gone while d_optimizer.zero_grad() remains",
+      "why": "every generator update applies the running sum of the epoch's gradients",
+      "gap": "MLV201's documented false-positive note (b) suppresses the rule when zero_grad is called on a different but resolved optimizer in a multi-optimizer set, which is exactly this shape. Recorded as `acceptable` rather than as a miss: the guard is the right trade for GAN code and the alternative is a false positive on every correct two-optimizer loop."
+    },
+    {
+      "code": "MLV114",
+      "file": "data.py",
+      "line": 79,
+      "symbol": "low = TF.hflip(low)",
+      "severity": "high",
+      "verdict": "expected",
+      "defect": "the flip and the rotation are applied to the low-resolution member of the pair only",
+      "why": "every augmented pair is geometrically inconsistent, so the generator is trained to un-mirror and un-rotate the image as well as to upsample it - the single most damaging bug in paired super-resolution and one that produces a loss curve that looks merely slow",
+      "gap": "no rule models paired augmentation. MLV114 is the nearest code (the wrong augmentation reaching the wrong place) but it is about the eval pipeline, not about pair consistency.",
+      "unsupported": true
+    }
+  ],
+  "forbidden": [
+    {
+      "code": "MLV101",
+      "file": "train_esrgan.py",
+      "why": "there is no sklearn transformer in this project"
+    },
+    {
+      "code": "MLV110",
+      "file": "train_esrgan.py",
+      "why": "the training loader is built with shuffle=True"
+    },
+    {
+      "code": "MLV112",
+      "file": "train_esrgan.py",
+      "why": "the loaders are built inside build_loaders(), reached only from main() under the __main__ guard"
+    },
+    {
+      "code": "MLV202",
+      "file": "train_esrgan.py",
+      "why": "both optimizers still step every batch"
+    },
+    {
+      "code": "MLV203",
+      "file": "train_esrgan.py",
+      "why": "THE TRAP: d_scaler.step(d_optimizer) legitimately precedes the generator's backward. They are two graphs over two disjoint parameter sets, which is the documented multi-optimizer GAN guard"
+    },
+    {
+      "code": "MLV204",
+      "file": "train_esrgan.py",
+      "why": "the only no_grad region is validate(), which contains no backward()"
+    },
+    {
+      "code": "MLV207",
+      "file": "train_esrgan.py",
+      "why": "MultiStepLR is an epoch schedule and both schedulers are stepped in the epoch loop"
+    },
+    {
+      "code": "MLV209",
+      "file": "train_esrgan.py",
+      "why": "clip_grad_norm_ still runs between backward() and step(); its defect is the missing unscale_, which is MLV208's, and it is labelled there"
+    },
+    {
+      "code": "MLV302",
+      "file": "train_esrgan.py",
+      "why": "validate() still carries the @torch.no_grad() decorator"
+    },
+    {
+      "code": "MLV401",
+      "file": "train_esrgan.py",
+      "why": "there is no softmax and no CrossEntropyLoss in this project"
+    },
+    {
+      "code": "MLV501",
+      "file": "train_esrgan.py",
+      "why": "all three modules are moved with .to(device) and both members of every pair are moved inside the loop"
+    },
+    {
+      "code": "MLV502",
+      "file": "train_esrgan.py",
+      "why": "pick_device() checks torch.cuda.is_available()"
+    },
+    {
+      "code": "MLV601",
+      "file": "train_esrgan.py",
+      "why": "seed_everything() seeds random, numpy, torch and torch.cuda"
+    },
+    {
+      "code": "MLV602",
+      "file": "train_esrgan.py",
+      "why": "there is no split in this project - train/ and val/ are separate directories"
+    },
+    {
+      "code": "MLV701",
+      "file": "models.py",
+      "why": "every nn.Module subclass calls super().__init__() first"
+    },
+    {
+      "code": "MLV702",
+      "file": "models.py",
+      "why": "every submodule container is nn.ModuleList or nn.Sequential"
+    }
+  ],
+  "gaps": [
+    {
+      "what": "no rule models a frozen auxiliary network (perceptual VGG, a teacher, a frozen CLIP encoder): requires_grad_(False) plus a train() override is the protocol, and dropping either is invisible",
+      "evidence": "models.py:119 against the clean twin's lines 118-122"
+    },
+    {
+      "what": "no rule models paired augmentation, where one geometric decision has to be applied to every member of a tuple",
+      "evidence": "data.py:79 against the clean twin's `low, high = TF.hflip(low), TF.hflip(high)`"
+    }
+  ],
+  "unsupported": [
+    {
+      "file": "models.py",
+      "line": 119,
+      "symbol": "VGGFeatures.__init__",
+      "severity": "high",
+      "verdict": "expected",
+      "defect": "the perceptual feature extractor is neither frozen (requires_grad_(False)) nor pinned to eval mode",
+      "why": "LABEL CORRECTED in hardening round 2: MLV703 is not a built rule - it carries the status **later** in docs/ISSUE_RULES.md section 1 - so a label for it can never be satisfied and can never be violated. `analyzer/tests/accuracy/test_accuracy.py::test_every_labelled_code_is_a_real_rule` rejects one, and this row turned that shipped test red. The observation is kept verbatim here so the row can be restored the day the rule ships. Original verdict `expected`, original note: the perceptual term back-propagates through 20 million ImageNet weights no optimizer owns - doubling the step's memory and time - and generator.train() now drags the extractor into training mode, so the distance the generator is scored on is measured by a network whose own behaviour changes between train and eval",
+      "gap": "no rule models a frozen auxiliary network. MLV703 is the nearest code in spirit (a module whose train/eval state is mishandled) but it is written for F.dropout only.",
+      "unsupported": true,
+      "wouldBe": "MLV703"
+    }
+  ]
+}

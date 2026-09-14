@@ -1,0 +1,103 @@
+{
+  "name": "tabular_nested_cv",
+  "title": "Nested cross-validation, HalvingRandomSearchCV, permutation_importance, learning_curve and sklearn's own cross-fitted TargetEncoder - six correct idioms that all look like leaks",
+  "origin": "hardening round 2, tester domain-tabular: the model-selection false-positive trap",
+  "tuned": false,
+  "labelledBy": "hardening round 2 domain-tabular, 2026-09-14",
+  "expected": [],
+  "forbidden": [
+    {
+      "code": "MLV101",
+      "file": "nested.py",
+      "why": "the only fit call in this file is search.fit at line 98, on train_x, and `search` is a HalvingRandomSearchCV whose estimator is a Pipeline - the search refits every step inside every fold. Nothing is fitted outside a Pipeline or a search object"
+    },
+    {
+      "code": "MLV102",
+      "file": "nested.py",
+      "why": "test_x reaches predict_proba at line 119 and nothing else; permutation_importance at line 103 is given train_x, not the holdout"
+    },
+    {
+      "code": "MLV103",
+      "file": "nested.py",
+      "why": "the estimator handed to cross_val_score at line 88 is a GridSearchCV over a Pipeline, and the estimator handed to learning_curve at line 110 is that Pipeline - in both cases every fold refits the imputer, the scaler and the target encoder. This is nested CV, the shape MLV103's fix prescribes"
+    },
+    {
+      "code": "MLV106",
+      "file": "nested.py",
+      "why": "the policy table has no timestamp: vehicle_age and driver_age are durations, and nothing parses a date, converts one or sorts by one"
+    },
+    {
+      "code": "MLV305",
+      "file": "nested.py",
+      "why": "the only metrics are roc_auc_score and average_precision_score, both in the score-metric carve-out, and both are fed a predict_proba column"
+    },
+    {
+      "code": "MLV306",
+      "file": "nested.py",
+      "why": "roc_auc_score at line 121 is fed model.predict_proba(test_x)[:, 1] from line 119, a score column rather than a hard label"
+    },
+    {
+      "code": "MLV601",
+      "file": "nested.py",
+      "anchor": "project",
+      "why": "seed_everything() seeds random and numpy at lines 55-56, the split and all three StratifiedKFold objects carry random_state=SEED, and the classifier, the target encoder, the halving search and permutation_importance each carry random_state=SEED"
+    },
+    {
+      "code": "MLV602",
+      "file": "nested.py",
+      "why": "train_test_split at line 79 and every StratifiedKFold (lines 84, 85, 94, 109) pass random_state=SEED"
+    },
+    {
+      "code": "MLV201",
+      "file": "nested.py",
+      "why": "there is no torch in this project and no hand-written gradient step"
+    },
+    {
+      "code": "MLV301",
+      "file": "nested.py",
+      "why": "model.eval() is a torch idiom with no sklearn equivalent"
+    },
+    {
+      "code": "MLV302",
+      "file": "nested.py",
+      "why": "torch.no_grad() has no meaning in a scikit-learn program"
+    },
+    {
+      "code": "MLV501",
+      "file": "nested.py",
+      "why": "no device is ever named in this project"
+    },
+    {
+      "code": "MLV803",
+      "file": "nested.py",
+      "why": "nothing is pickled or loaded here"
+    }
+  ],
+  "graph": {
+    "edges": 37,
+    "ops": [
+      {"file": "nested.py", "line": 60, "symbol": "read_csv", "kind": "dataset"},
+      {"file": "nested.py", "line": 64, "symbol": "ColumnTransformer", "kind": "transform"},
+      {"file": "nested.py", "line": 65, "symbol": "SimpleImputer", "kind": "transform"},
+      {"file": "nested.py", "line": 66, "symbol": "StandardScaler", "kind": "scaler"},
+      {"file": "nested.py", "line": 67, "symbol": "TargetEncoder", "kind": "transform"},
+      {"file": "nested.py", "line": 70, "symbol": "Pipeline", "kind": "model"},
+      {"file": "nested.py", "line": 72, "symbol": "HistGradientBoostingClassifier", "kind": "model"},
+      {"file": "nested.py", "line": 79, "symbol": "train_test_split", "kind": "split"},
+      {"file": "nested.py", "line": 84, "symbol": "StratifiedKFold", "kind": "split"},
+      {"file": "nested.py", "line": 85, "symbol": "StratifiedKFold", "kind": "split"},
+      {"file": "nested.py", "line": 86, "symbol": "GridSearchCV", "kind": "train_loop"},
+      {"file": "nested.py", "line": 88, "symbol": "cross_val_score", "kind": "train_loop"},
+      {"file": "nested.py", "line": 95, "symbol": "HalvingRandomSearchCV", "kind": "train_loop"},
+      {"file": "nested.py", "line": 98, "symbol": "search.fit", "kind": "train_loop"},
+      {"file": "nested.py", "line": 103, "symbol": "permutation_importance", "kind": "metric"},
+      {"file": "nested.py", "line": 110, "symbol": "learning_curve", "kind": "train_loop"},
+      {"file": "nested.py", "line": 119, "symbol": "predict_proba", "kind": "predict"},
+      {"file": "nested.py", "line": 121, "symbol": "roc_auc_score", "kind": "metric"},
+      {"file": "nested.py", "line": 122, "symbol": "average_precision_score", "kind": "metric"}
+    ]
+  },
+  "notes": [
+    "sklearn.preprocessing.TargetEncoder (line 67) is the sharpest trap in the file: it reads y during fit, which is the surface MLV101's TARGET de-rate exists for, and it is nevertheless correct here because it cross-fits internally (cv=5) and because it is a ColumnTransformer step inside the Pipeline the search refits per fold. A hand-rolled target encoder in the same position with no cross-fit would be a real defect, and no rule distinguishes them."
+  ]
+}

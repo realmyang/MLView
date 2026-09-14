@@ -46,16 +46,33 @@ def _progress_sink(args):
     return ProgressWriter()
 
 
+#: `(option name, argparse dest, documented default)`. The flags default to
+#: `None` in `cli_parser`, so `None` here means "not typed" and anything else
+#: is recorded in `AnalyzeOptions.explicit` - which is what stops a checked-in
+#: `.mlview.toml` from overruling `--max-nodes 400` or `--min-confidence 0.0`.
+_NUMERIC_FLAGS = (("max_files", 500), ("max_nodes", 400), ("min_confidence", 0.0))
+
+
+def _numeric(args, name: str, fallback):
+    value = getattr(args, name, None)
+    return fallback if value is None else value
+
+
+def _explicit(args) -> tuple:
+    return tuple(name for name, _default in _NUMERIC_FLAGS
+                 if getattr(args, name, None) is not None)
+
+
 def _options(args, paths: Sequence[str]) -> AnalyzeOptions:
     return AnalyzeOptions(
         paths=tuple(paths),
         include=tuple(getattr(args, "include", ()) or ()),
         exclude=tuple(getattr(args, "exclude", ()) or ()),
-        max_files=int(getattr(args, "max_files", 500)),
-        max_nodes=int(getattr(args, "max_nodes", 400)),
+        max_files=int(_numeric(args, "max_files", 500)),
+        max_nodes=int(_numeric(args, "max_nodes", 400)),
         framework=getattr(args, "framework", "auto"),
         min_severity=getattr(args, "min_severity", "low"),
-        min_confidence=float(getattr(args, "min_confidence", 0.0)),
+        min_confidence=float(_numeric(args, "min_confidence", 0.0)),
         config_path=getattr(args, "config_path", None),
         strict=bool(getattr(args, "strict", False)),
         progress=_progress_sink(args),
@@ -70,7 +87,8 @@ def _options(args, paths: Sequence[str]) -> AnalyzeOptions:
         # DATAFLOW-IP. `local` is this release's default and the `getattr`
         # default, so a command that does not declare the flag - and every host
         # that builds `AnalyzeOptions` itself - keeps today's analysis exactly.
-        dataflow=getattr(args, "dataflow", DEFAULT_DATAFLOW))
+        dataflow=getattr(args, "dataflow", DEFAULT_DATAFLOW),
+        explicit=_explicit(args))
 
 
 def _scope_from_args(args) -> Optional[Scope]:
@@ -202,6 +220,11 @@ def _emit_payload(doc: Dict[str, Any], args, full: Optional[Dict[str, Any]] = No
     return wrote_stdout
 
 
+def _missing_paths(paths) -> list:
+    """Positional paths that do not exist (HOSTS-UX-MISSINGPATH)."""
+    return [p for p in paths or () if not os.path.exists(os.path.expanduser(p))]
+
+
 # ---------------------------------------------------------------- commands
 def _cmd_analyze(args) -> int:
     scope = _scope_from_args(args)          # raises ScopeError -> exit 1, clean stdout
@@ -228,6 +251,16 @@ def _cmd_analyze(args) -> int:
         return EXIT_OK
 
     paths = args.paths or ["."]
+    missing = _missing_paths(paths)
+    if missing:
+        # HOSTS-UX-MISSINGPATH. Section 3 reserves exit 1 for a usage or I/O
+        # error and exit 4 for "nothing analyzable found (no .py files after
+        # filtering)". A path that is not there is the former, and the old
+        # shared branch printed 1156 bytes of clean-looking summary - "0 files
+        # analyzed, frameworks: none detected, No data entry was detected" -
+        # about a directory that does not exist.
+        write_stderr("mlview: no such path: %s" % ", ".join(missing))
+        return EXIT_USAGE
     result = api.analyze_full(_options(args, paths))
     # CI-ADOPT: the analysis above saw the WHOLE workspace; attribution and the
     # baseline are applied to the finished graph, never to the analysis.
@@ -238,7 +271,7 @@ def _cmd_analyze(args) -> int:
     wrote_stdout = _emit_sarif(doc, args) or wrote_stdout
     if not wrote_stdout:
         _print_format(doc, args)
-    note = scope_out.empty_note(doc)
+    note = scope_out.empty_note(doc, scope)
     if note:
         write_stderr(note)
     if result.empty:
@@ -363,7 +396,7 @@ def _cmd_issues(args) -> int:
         write_stdout(header + body)
     if result.empty:
         return EXIT_EMPTY
-    note = scope_out.empty_note(doc)
+    note = scope_out.empty_note(doc, scope)
     if note:
         write_stderr(note)
     if _fail_on_hit({"issues": issues}, args.fail_on):
@@ -424,7 +457,7 @@ def _cmd_render(args) -> int:
         empty = result.empty
     full = doc
     doc = _apply_scope(full, scope)         # raises ScopeError -> exit 1
-    note = scope_out.empty_note(doc)
+    note = scope_out.empty_note(doc, scope)
     if args.fmt == "mermaid":
         text = mermaid_out.render_mermaid(doc)
     elif args.fmt == "text":
@@ -618,6 +651,18 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     except KeyboardInterrupt:  # pragma: no cover - interactive
         write_stderr("mlview: interrupted")
         return EXIT_INTERNAL
+    except OSError as exc:
+        # ROB-07. README's exit table is `0 ok · 1 usage or I/O · 2 --fail-on ·
+        # 3 internal error`, and an unwritable `--json` / `--sarif` / `--html`
+        # path used to exit **3** with a Python traceback - so a CI harness
+        # reading that code could not tell "MLView has a bug" from "your output
+        # directory is read-only". An `OSError` reaching here is I/O, by
+        # definition; nothing goes to stdout.
+        path = getattr(exc, "filename", None)
+        detail = exc.strerror or str(exc)
+        write_stderr("mlview: cannot write %s: %s" % (path or "the output", detail)
+                     if path else "mlview: I/O error: %s" % detail)
+        return EXIT_USAGE
     except Exception as exc:  # noqa: BLE001 - the CLI must never traceback
         import traceback
         detail = traceback.format_exc(limit=6)

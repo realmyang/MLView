@@ -153,6 +153,7 @@ from mlview_workspace import (  # noqa: E402  (imports the core, so bootstrap fi
     read_source as _read_source,
     resolve_out,
     resolve_path,
+    rule_codes as _rule_codes,
     rule_doc as _rule_doc,
     rule_spec as _rule_spec,
 )
@@ -258,9 +259,24 @@ def mlview_analyze(
         path: file or directory, absolute or relative to the project. Defaults to
             the whole project directory. A DIRECTORY is the honest default — see
             the single-file caveat above.
-        framework: "auto" (default), or one of torch, sklearn, keras, hf, lightning
-            to restrict the extractors.
+        framework: "auto" (default), or one of torch, sklearn, keras, hf,
+            lightning to restrict the rules to the ones that declare it — the
+            same six values the CLI's --framework accepts, matched here without
+            regard to case. ANY OTHER SPELLING IS AN ERROR naming the accepted
+            values, never a quieter analysis: a name no rule declares ("pytorch",
+            "tensorflow", "TORCH " before this was validated) silences every
+            framework-specific rule at once, which on the shipped demo turned 15
+            findings and 5 high into 1 finding and 0 high while still reporting
+            frameworks: ["torch", ...]. Omit it unless the user asked to restrict
+            the analysis; "auto" is the only value that runs every rule. A VALID
+            name that disables rules on THIS workspace is reported rather than
+            left to be noticed: the result then carries a `framework_suppressed`
+            coverage row naming the codes that did not run ("torch" on a Keras
+            project disables MLV121, the high-severity tf.data holdout rule), so
+            a filtered finding list is never mistakable for a clean one.
         maxNodes: graph cap; the result sets truncated=true when it is exceeded.
+            A NON-POSITIVE value disables the cap rather than emptying the
+            graph — the whole document is kept — and the note says so.
         includeHtml: also write the self-contained HTML report and return
             reportPath (it is NOT opened; use mlview_open_diagram for that).
         scope: optional — narrow the DIGEST to one part of the pipeline, e.g.
@@ -291,7 +307,13 @@ def mlview_analyze(
     need detail the digest omits. graphPath always points at the FULL document
     even for a scoped call, so widening back costs nothing.
     """
-    loaded = load_graph(path, framework=framework, max_nodes=maxNodes,
+    # `framework` is validated inside `load_graph` (one chokepoint, so the hooks
+    # and the attributed path get the same guard); `maxNodes` is not clamped,
+    # because a non-positive budget is UNCAPPED per CONTRACTS 11.46 — it is
+    # reported instead, so the answer is never silently wider than it was asked
+    # to be.
+    max_nodes, budget_note = payloads.max_nodes_note(maxNodes)
+    loaded = load_graph(path, framework=framework, max_nodes=max_nodes,
                         include_notebooks=bool(includeNotebooks))
     graph = loaded["graph"]
     # The cache is never keyed on the scope: the FULL document is analyzed and
@@ -304,7 +326,8 @@ def mlview_analyze(
         report_path = render_html(graph, resolve_out(None), scope=spec, depth=hops)
     return payloads.analyze_payload(
         digest(view, limit_bytes=3200), loaded["graphPath"], report_path,
-        graph=graph, scope=spec, extra_notes=notes,
+        graph=graph, scope=spec,
+        extra_notes=([budget_note] if budget_note else []) + list(notes),
     )
 
 
@@ -339,8 +362,13 @@ def mlview_issues(
         minSeverity: "low" (default), "medium" or "high". Any other value is
             rejected with an error rather than quietly treated as "low".
         minConfidence: 0.0-1.0 floor on the rule's confidence.
-        code: restrict to specific rule codes, e.g. ["MLV201", "MLV301"].
-        limit: maximum rows to return (default 20).
+        code: restrict to specific rule codes, e.g. ["MLV201", "MLV301"]. Case is
+            folded. A code no rule in this analyzer uses is named in the `note`,
+            so an empty list from a typo is distinguishable from a real rule that
+            found nothing — and so from a clean project.
+        limit: maximum rows to return (default 20). A value below 1 is held at 1
+            and the note says it moved: `issues: []` beside a countBySeverity of
+            fifteen is the shape a reader takes for "there are none".
         scope: optional — list only the findings inside one part of the pipeline,
             e.g. "concern:evaluation", "unit:train.train", "stage:train",
             "file:model.py", "node:<nodeId>", or "all". A finding is kept when it
@@ -400,11 +428,12 @@ def mlview_issues(
         min_severity=minSeverity,
         min_confidence=float(minConfidence or 0.0),
         codes=code,
-        limit=int(limit),
+        limit=limit,
         graph_path=loaded["graphPath"],
         scope=spec,
         extra_notes=list(loaded.get("notes") or ()) + list(notes),
         group_by=groupBy,
+        known_codes=_rule_codes(),
     )
 
 

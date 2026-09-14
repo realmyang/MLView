@@ -35,7 +35,11 @@ because a flag and its value occupy two of them):
 - `--scope <SPEC>` — list only the findings anchored inside one part of the
   pipeline. One selector, at most once: `unit:<class|function|loop>` ·
   `stage:<id>` · `file:<path.py>` ·
-  `concern:<config|data|optimization|evaluation>` · `node:<nodeId>` · `all`.
+  `concern:<config|data|optimization|evaluation>` · `node:<nodeId>` ·
+  `pipeline:<entrypoint.py>` · `all`. `symbol:` is a spelling of `unit:`, and
+  `pipeline:` lists only the findings anchored inside what one entrypoint
+  reaches — a finding anchored on a module two entrypoints share is reported as
+  outside the view, not as this pipeline's.
 - `--depth <0-2>` — boundary hops around the scope. It widens the *picture*, not
   the findings: only a node inside the scope itself can retain an issue.
 - `--group-by rule|file|severity` — fold the findings into one row per rule, per

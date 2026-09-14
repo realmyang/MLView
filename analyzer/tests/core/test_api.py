@@ -49,12 +49,18 @@ def test_analyze_options_defaults_match_the_contract():
     # CONTRACTS 11.36 (DATAFLOW-IP) appends `dataflow` under the same rule: a
     # defaulted "local", which is the analysis that shipped before the option
     # existed, so a caller that does not name it gets byte-identical bytes.
+    # Hardening round 2 appends `explicit` under the same rule again: a
+    # defaulted `()`, naming the options the caller set on purpose, so a
+    # checked-in `.mlview.toml` can no longer overrule `--max-nodes 400` or
+    # `--min-confidence 0.0` just because the flag happens to equal the
+    # documented default. A caller that does not name it is unaffected.
     assert list(fields) == ["paths", "include", "exclude", "max_files", "max_nodes",
                             "framework", "min_severity", "min_confidence",
                             "config_path", "strict", "scope", "depth", "progress",
                             "relevance", "relevance_hops", "cache",
-                            "include_notebooks", "dataflow"]
+                            "include_notebooks", "dataflow", "explicit"]
     assert fields["dataflow"].default == "local"
+    assert fields["explicit"].default == ()
     assert fields["paths"].default is dataclasses.MISSING, "paths is required"
     assert fields["include"].default == ()
     assert fields["exclude"].default == ()

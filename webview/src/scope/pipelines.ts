@@ -55,6 +55,24 @@ export interface PipelineRow {
   sharedCount: number;
   /** Non-suppressed findings with at least one anchor in `reach(E)`. */
   issueCounts: IssueCounts;
+  /**
+   * The cards the CLICK actually draws (HOSTS-UX-PIPELINECOUNT).
+   *
+   * `nodeCount` is `|reach(E)|`, which is 11.47 A's relation and what the
+   * emitted `pipelines[]` block reports. The PROJECTION is allowed to keep
+   * more: step 7 keeps a `context` ancestor of a kept node so `parent` still
+   * forms a forest (11.3 ViewRole), and that ancestor need not be in the reach.
+   * On `vision_detector_bad` the picker row therefore promised `55 nodes` and
+   * the breadcrumb after the click read `56 of 63 nodes`, with `mlview analyze
+   * --scope pipeline:train.py` agreeing with the viewer and not with the row —
+   * two numbers for one click.
+   *
+   * Filled by `scope/catalog.ts` by running the same `project()` the click
+   * runs, so the row and the breadcrumb are produced by one function. Absent
+   * when nobody computed it; `drawnCount` is then `nodeCount`, which is what
+   * the rows said before.
+   */
+  viewCount?: number;
 }
 
 const SEVERITIES: Severity[] = ['high', 'medium', 'low'];
@@ -262,6 +280,18 @@ function countIssues(graph: MLGraph, ids: Set<string>): IssueCounts {
     if (counts[severity] !== undefined) counts[severity]++;
   }
   return counts;
+}
+
+/**
+ * What a `pipeline:` click will DRAW: the projected count when it is known.
+ *
+ * Every surface that promises a reader a number — the scope picker row, the
+ * chooser row, the accessible name each of them carries — reads this one
+ * function, so none of them can quote the relation while the click delivers the
+ * projection (HOSTS-UX-PIPELINECOUNT).
+ */
+export function drawnCount(row: PipelineRow): number {
+  return typeof row.viewCount === 'number' && row.viewCount > 0 ? row.viewCount : row.nodeCount;
 }
 
 /** The highest severity among a row's findings, for the picker's `data-sev`. */

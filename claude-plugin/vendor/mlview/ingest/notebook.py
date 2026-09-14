@@ -62,6 +62,28 @@ __all__ = [
 #: re-discover a shadow as source), and already where the analyzer writes its
 #: cache - this is not a new place for the tool to put things.
 SHADOW_DIR = ".mlview/notebooks"
+#: PUB-15. The directory that gets the self-ignoring `.gitignore`.
+SELF_IGNORE_DIR = ".mlview"
+
+
+def _write_self_ignore(directory: str) -> None:
+    """Drop a `.gitignore` containing `*` into MLView's own output directory.
+
+    Written once, never overwritten: a user who edits it keeps their edit.
+    Any `OSError` is swallowed - failing to write a convenience file must
+    never fail an analysis.
+    """
+    import os as _os
+
+    path = _os.path.join(directory, ".gitignore")
+    try:
+        if _os.path.exists(path):
+            return
+        _os.makedirs(directory, exist_ok=True)
+        with open(path, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write("# Created by MLView. Generated analysis output; not source.\n*\n")
+    except OSError:
+        pass
 
 #: What a magic, a shell escape or a help query becomes. Never deleted: the
 #: line has to stay a line.
@@ -322,8 +344,27 @@ def _rewrite(lines: Sequence[str]) -> Tuple[List[str], int]:
     out: List[str] = []
     replaced = 0
     depth, triple = 0, ""
+    #: ROB-05. How many following lines belong to a blanked magic because the
+    #: one above them ended in a backslash. `!pip install -q \` with two
+    #: indented continuation lines is the single commonest install cell in a
+    #: public Colab notebook: the first line became `pass  # mlview: magic` and
+    #: the continuations were left as Python, so the generated module raised
+    #: `IndentationError` and the notebook - training loop and all - was
+    #: skipped. In a 655-notebook sweep, 16 of the 23 conversion failures were
+    #: exactly this. A continuation of a non-Python line is not Python either.
+    carry = False
+    carry_indent = ""
     for line in lines:
         stripped = line.strip()
+        if carry:
+            # The continuation keeps the FIRST line's indent, not its own: a
+            # shell continuation is indented for the shell's benefit, and
+            # `pass` at a deeper column than the `pass` above it is the
+            # IndentationError this guard exists to prevent.
+            out.append(carry_indent + MAGIC_LINE)
+            replaced += 1
+            carry = line.rstrip().endswith("\\")
+            continue
         if depth == 0 and not triple and _is_magic(stripped):
             unwrapped = _unwrap_magic(line)
             if unwrapped is not None:
@@ -333,6 +374,8 @@ def _rewrite(lines: Sequence[str]) -> Tuple[List[str], int]:
             indent = line[: len(line) - len(line.lstrip())]
             out.append(indent + MAGIC_LINE)
             replaced += 1
+            carry = line.rstrip().endswith("\\")
+            carry_indent = indent
             continue                   # a magic opens no bracket and no string
         out.append(line)
         depth, triple = _scan(line, depth, triple)
@@ -457,6 +500,11 @@ def ingest_notebooks(root: str, relpaths: Sequence[str]) -> NotebookIngest:
             parent = os.path.dirname(shadow_abs)
             if parent and not os.path.isdir(parent):
                 os.makedirs(parent, exist_ok=True)
+            # PUB-15: `--include-notebooks` writes generated modules into the
+            # ANALYZED repository, which may not be the user's own, and left it
+            # git-dirty with no way to ignore the output. `.pytest_cache` and
+            # `.ruff_cache` solve this by ignoring themselves; so does this.
+            _write_self_ignore("%s/%s" % (root, SELF_IGNORE_DIR))
             with open(shadow_abs, "w", encoding="utf-8", newline="\n") as handle:
                 handle.write(source)
         except OSError as exc:

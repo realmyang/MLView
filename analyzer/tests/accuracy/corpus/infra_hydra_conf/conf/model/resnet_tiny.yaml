@@ -1,0 +1,5 @@
+name: resnet_tiny
+width: 64
+depth: 3
+dropout: 0.2
+classes: 10

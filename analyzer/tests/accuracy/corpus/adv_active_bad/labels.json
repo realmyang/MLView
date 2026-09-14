@@ -1,0 +1,121 @@
+{
+  "name": "adv_active_bad",
+  "title": "Pool-based active learning that acquires from the test split - eight planted defects",
+  "origin": "hardening round 2, 2026-09-14",
+  "tuned": false,
+  "labelledBy": "hardening round 2, domain-generative-rl-graph, 2026-09-14",
+  "note": "The counterpart to `adv_advanced_clean/curriculum.py`, which re-splits its own training rows every round and is NOT a leak. Here the acquisition pool is the test split itself, so every round promotes 200 held-out rows into the labelled set and by round eight the model has been fitted on most of its own test set. MLView reports the two sklearn-shaped leaks (MLV101, MLV102) and the two hygiene findings, and it declares the rest: two `untagged_dataflow` rows name `x_labelled` (a parameter of active_round) and `x_train` by name and say leakage through them is neither confirmed nor ruled out - which is the honest answer for the acquisition leak itself.",
+  "expected": [
+    {
+      "code": "MLV101",
+      "file": "active_loop.py",
+      "line": 37,
+      "symbol": "scaler.fit_transform",
+      "severity": "high",
+      "verdict": "expected",
+      "defect": "StandardScaler is fitted on every row before train_test_split at line 39",
+      "why": "the test rows' mean and variance are baked into the transform the model trains through, so the held-out score is optimistic before the active loop even starts"
+    },
+    {
+      "code": "MLV102",
+      "file": "active_loop.py",
+      "line": 75,
+      "symbol": "scaler.fit",
+      "severity": "high",
+      "verdict": "expected",
+      "defect": "the scaler is re-fitted on x_test inside the acquisition loop",
+      "why": "the transform is learned from the held-out rows once per round, so the leak compounds with every acquisition"
+    },
+    {
+      "code": "MLV306",
+      "file": "active_loop.py",
+      "line": 85,
+      "symbol": "roc_auc_score",
+      "severity": "low",
+      "verdict": "expected",
+      "defect": "roc_auc_score is fed model.predict(x_test), which is hard class labels",
+      "why": "the AUC collapses to a rescaled accuracy and stops being a ranking measure at all"
+    },
+    {
+      "code": "MLV602",
+      "file": "active_loop.py",
+      "line": 39,
+      "symbol": "train_test_split",
+      "severity": "low",
+      "verdict": "expected",
+      "defect": "train_test_split takes no random_state",
+      "why": "the pool and the test set are different on every run, so two runs of the same acquisition curve are not comparable"
+    },
+    {
+      "code": "MLV601",
+      "file": "active_loop.py",
+      "anchor": "project",
+      "symbol": "no seed anywhere",
+      "severity": "low",
+      "verdict": "expected",
+      "defect": "nothing seeds numpy or sklearn",
+      "why": "the split, the forest's bootstrap and the tie-breaking inside argsort all move between runs"
+    }
+  ],
+  "forbidden": [
+    {
+      "code": "MLV106",
+      "file": "active_loop.py",
+      "why": "there is no temporal signal anywhere: no pd.to_datetime, no parse_dates=, no sort_values on a date column and no statsmodels/prophet import"
+    },
+    {
+      "code": "MLV110",
+      "file": "active_loop.py",
+      "why": "there is no torch DataLoader in this project"
+    },
+    {
+      "code": "MLV301",
+      "file": "active_loop.py",
+      "why": "there is no torch model here at all; MLV301 declares frameworks=[\"torch\"] and a RandomForestClassifier has no .eval()"
+    },
+    {
+      "code": "MLV302",
+      "file": "active_loop.py",
+      "why": "same: there is nothing for torch.no_grad() to wrap"
+    },
+    {
+      "code": "MLV305",
+      "file": "active_loop.py",
+      "why": "the only accuracy-family metric is absent; the metric in this file is roc_auc_score, which is in MLV305's score-metrics carve-out"
+    }
+  ],
+  "unsupported": [
+    {
+      "wouldBe": "MLV107",
+      "file": "active_loop.py",
+      "line": 72,
+      "symbol": "active_round(model, x_train, y_train, x_test, y_test)",
+      "defect": "the acquisition pool passed to active_round IS the test split, so every round moves 200 held-out rows into the labelled training set",
+      "why": "MLV107 (test set used for model selection or early stopping) is a later-tier rule that is not built, and no rule models a row-level transfer between splits. MLView declares the gap: `untagged_dataflow` names `x_labelled` at line 56 as a parameter with no dataflow tag and says leakage through it is neither confirmed nor ruled out."
+    },
+    {
+      "wouldBe": "MLV103",
+      "file": "active_loop.py",
+      "line": 79,
+      "symbol": "cross_val_score(model, x_train, y_train, cv=5)",
+      "defect": "cross_val_score is given the bare RandomForestClassifier over a matrix that was already fit_transformed, so the scaling is not refit per fold",
+      "why": "MLV103 requires the FIT_TRANSFORM call to be earlier in the SAME function as the CV call; here the fit_transform is in prepare() and the cross_val_score is in main()."
+    },
+    {
+      "wouldBe": null,
+      "file": "active_loop.py",
+      "line": 56,
+      "symbol": "model.fit(x_labelled, y_labelled)",
+      "defect": "the estimator is refitted from scratch inside the acquisition loop while the caller keeps using the same object to score the pool, so round N's acquisition is made by round N-1's model on rows round N will train on",
+      "why": "no rule models the acquisition/refit ordering of an active-learning loop."
+    },
+    {
+      "wouldBe": "MLV105",
+      "file": "active_loop.py",
+      "line": 31,
+      "symbol": "frame.drop(columns=[\"target\"])",
+      "defect": "none - the target column IS removed from the feature matrix here",
+      "why": "recorded so the absence is deliberate: MLV105 (target left inside the feature matrix) is a later-tier rule that is not built, so it cannot be a `forbidden` row - `test_every_labelled_code_is_a_real_rule` only accepts registered codes."
+    }
+  ]
+}

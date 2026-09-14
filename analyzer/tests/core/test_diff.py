@@ -78,12 +78,18 @@ def test_the_sample_pair_reports_the_added_nodes_and_the_fixed_findings(overlay,
     assert (len(base["nodes"]), len(base["issues"])) == (54, 15)
     assert (len(head["nodes"]), len(head["issues"])) == (64, 0)
     summary = overlay["summary"]
-    assert summary["nodes"] == {"added": 26, "removed": 16, "changed": 11,
-                                "unchanged": 27}
+    # vision-11 (CONTRACTS 11.53): a unit that owns no loop is no longer
+    # re-kinded into a `train_loop` / `eval_loop`, and `Node.id` is
+    # `sha1(file|qualname|kind)` - so three units on each side (the sklearn
+    # `baseline()` among them) now match across the pair instead of counting as
+    # one added and one removed node each. Same 54 / 64 node totals, same
+    # 15 / 0 findings; three phantom loops fewer on the diagram.
+    assert summary["nodes"] == {"added": 25, "removed": 15, "changed": 8,
+                                "unchanged": 31}
     assert summary["edges"] == {"added": 26, "removed": 22, "changed": 1,
                                 "unchanged": 28}
     assert summary["issues"] == {"new": 0, "fixed": 15, "persisting": 0}
-    assert summary["headline"] == "+26 nodes · −16 nodes · 0 new findings · 15 fixed"
+    assert summary["headline"] == "+25 nodes · −15 nodes · 0 new findings · 15 fixed"
 
 
 def test_every_finding_of_the_dirty_sample_is_reported_fixed(overlay, pair):
@@ -249,7 +255,7 @@ def test_the_summary_names_both_sides_and_the_headline(overlay):
     assert overlay["summary"]["headline"] in text
     assert "fixed findings (15)" in text
     assert "new findings (0)" in text
-    assert "added nodes (26)" in text
+    assert "added nodes (25)" in text
 
 
 def test_the_summary_elides_rows_but_never_the_notes(overlay):

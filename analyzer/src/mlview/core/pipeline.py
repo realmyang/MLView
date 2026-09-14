@@ -23,7 +23,9 @@ from . import config as config_mod
 from . import relevance as relevance_mod
 from .build import GraphBuilder
 from .coverage import (note_unconfirmed_train_loops, note_untraced_sites,
+                       note_untyped_backward,
                        single_file_diagnostic)
+from .unknown_framework import unknown_framework_diagnostics
 from .unresolved import unresolved_callee_diagnostics
 from .graph import Diagnostic, MLGraph, SEVERITY_RANK
 from .rollup import apply_node_budget
@@ -99,6 +101,19 @@ class AnalyzeOptions:
     #: boundary, every hop is de-rated by an explicit evidence weight, and no
     #: cross-object finding may reach `certain`.
     dataflow: str = "local"
+    #: The option names the caller set **on purpose**, so `.mlview.toml` cannot
+    #: overrule a flag that happens to equal the documented default. Appended
+    #: last and defaulted to `()`, so positional construction, `frozen=True`
+    #: and hashability are unchanged and every existing caller is byte-for-byte
+    #: unaffected.
+    #:
+    #: `core/config.apply` used to infer "the caller did not ask" from "the
+    #: value equals the dataclass default", which is not the same question:
+    #: `mlview analyze --max-nodes 400` (what the VS Code host types on every
+    #: run) lost to `[analysis] max_nodes = 12` in a checked-in file, and
+    #: `--min-confidence 0.0` lost to a `[rules] min_confidence` floor - so the
+    #: flag a user typed to *see everything* hid findings.
+    explicit: Tuple[str, ...] = ()
 
 
 @dataclass
@@ -169,6 +184,14 @@ def run(options: AnalyzeOptions) -> AnalysisResult:
     for bad in parse_failures:
         diagnostics.append(Diagnostic(kind="parse_error", message=bad.message,
                                       file=bad.relpath, line=bad.line))
+    # ROB-02 / ROB-04: what discovery refused to open, and what `os.walk` could
+    # not enter. Counted in `filesFailed` so `filesFailed: 0` keeps meaning
+    # "nothing went wrong" - a whole package that silently was not there is the
+    # second-worst failure this product can have.
+    for refused_path, why in found.refused:
+        failures += 1
+        diagnostics.append(Diagnostic(kind="parse_error", message=why,
+                                      file=refused_path))
 
     # NB: notebooks are ingested here, after the Python files and before the
     # "nothing parsed" exit, so a workspace that is *only* notebooks is a real
@@ -176,8 +199,14 @@ def run(options: AnalyzeOptions) -> AnalysisResult:
     notebook_maps, notebooks_skipped = _ingest_notebooks(
         found, want_notebooks, parsed_files, diagnostics)
     if found.file_cap_hit:
+        # VIS2-14 / ROB-24 / INFRA-R2-17: four different losses share
+        # `kind: "truncated"` - files never read, nodes rolled up, IR rounds
+        # capped, an interprocedural chain stopped - and they need different
+        # fixes. `scope` (a free-form string the schema already allows) names
+        # which one, so a consumer asking "was the GRAPH capped?" no longer has
+        # to pattern-match English prose. See CONTRACTS 11.59 A.
         diagnostics.append(Diagnostic(
-            kind="truncated",
+            kind="truncated", scope="files",
             message="Discovery capped at %d files (%d found); raise --max-files to widen."
                     % (options.max_files, found.total_found),
             count=found.total_found - len(found.files)))
@@ -210,7 +239,12 @@ def run(options: AnalyzeOptions) -> AnalysisResult:
     builder = GraphBuilder(workspace, max_nodes=options.max_nodes)
     graph = builder.build()
     graph.diagnostics = diagnostics + list(graph.diagnostics)
-    graph.filesAnalyzed = len(parsed_files)
+    # ROB-01: a module the IR walk could not finish is a failed file, named.
+    for relpath, why in getattr(workspace, "walk_failures", ()):
+        failures += 1
+        graph.diagnostics.append(Diagnostic(kind="parse_error", message=why,
+                                            file=relpath))
+    graph.filesAnalyzed = len(parsed_files) - len(getattr(workspace, "walk_failures", ()))
     graph.filesFailed = failures
     graph.notebooksSkipped = notebooks_skipped
     graph.configPath = config.path
@@ -228,7 +262,7 @@ def run(options: AnalyzeOptions) -> AnalysisResult:
         # some cross-module resolution is incomplete. Silence here means the
         # graph just comes back smaller with nothing to point at.
         graph.diagnostics.append(Diagnostic(
-            kind="truncated",
+            kind="truncated", scope="rounds",
             message="Cross-module resolution stopped after %d rounds without "
                     "reaching a fixed point; some imported symbols may be "
                     "unresolved. Narrow the analyzed path, or file the workspace "
@@ -241,13 +275,22 @@ def run(options: AnalyzeOptions) -> AnalysisResult:
     # node it kept, which is indistinguishable from a clean read.
     graph.diagnostics.extend(unresolved_callee_diagnostics(workspace))
 
+    # DGRG-01 / TAB-01 / PUB-10 / INFRA-03: the same guarantee for a library
+    # MLView has never heard of. `PPO(...)` resolves to a clean FQN through an
+    # ordinary import, so ANA-5a never fires - and the document said
+    # `not detected: model, objective, train, eval, deliver`, `diagnostics: []`
+    # and "No findings: no rule fired on this workspace" about a 95-line
+    # stable-baselines3 script. 11.23 A8's guarantee now holds by construction.
+    graph.diagnostics.extend(unknown_framework_diagnostics(workspace))
+
     # DATAFLOW-IP: every interprocedural chain the hop cap - or a set of call
     # sites the pass refused to merge - stopped. Reported rather than dropped:
     # a truncated chain that says nothing looks exactly like a value that never
     # carried a tag, which is the one confusion this project refuses to ship.
     for relpath, line, message in getattr(workspace, "ip_notes", ()) or ():
         graph.diagnostics.append(Diagnostic(
-            kind="truncated", message=message, file=relpath, line=line))
+            kind="truncated", scope="dataflow", message=message,
+            file=relpath, line=line))
 
     for relpath, line, message in workspace.unresolved_imports:
         graph.diagnostics.append(Diagnostic(
@@ -281,6 +324,9 @@ def run(options: AnalyzeOptions) -> AnalysisResult:
     # happens to gate on it ran. Emits diagnostics only - never an issue.
     note_untraced_sites(context)
     note_unconfirmed_train_loops(context)
+    # TAB-02 / DGRG-02: a `.backward()` the IR could not type is the reason the
+    # objective lane can read as empty on a file that plainly back-propagates.
+    note_untyped_backward(context)
 
     _filter_issues(graph, options)
     drop_orphan_ghosts(graph)

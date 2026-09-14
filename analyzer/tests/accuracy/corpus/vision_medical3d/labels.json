@@ -1,0 +1,33 @@
+{
+  "name": "vision_medical3d",
+  "title": "MONAI 3-D UNet segmentation of abdominal CT: keyed dictionary transforms, cached volumes, DiceCELoss and sliding-window validation",
+  "origin": "domain-vision round 2: the medical-imaging shape. Everything but torch.optim and torch.save is MONAI, which MLView has no knowledge table for - the question this program asks is whether the blindness is declared",
+  "tuned": false,
+  "labelledBy": "domain-vision, 2026-09-14",
+  "expected": [],
+  "forbidden": [
+    {"code": "MLV101", "file": "train.py", "why": "there is no sklearn transformer in this project"},
+    {"code": "MLV110", "file": "train.py", "why": "the training loader is built with shuffle=True"},
+    {"code": "MLV111", "file": "train.py", "why": "the validation loader is built with shuffle=False"},
+    {"code": "MLV112", "file": "train.py", "why": "the loaders are built inside build_loaders(), reached only from main() under the __main__ guard"},
+    {"code": "MLV114", "file": "transforms_cfg.py", "why": "val_transforms() contains no Rand* stage at all; the four random stages live in train_transforms()"},
+    {"code": "MLV201", "file": "train.py", "why": "optimizer.zero_grad(set_to_none=True) is the first statement of the training step"},
+    {"code": "MLV202", "file": "train.py", "why": "scaler.step(optimizer) runs every batch"},
+    {"code": "MLV203", "file": "train.py", "why": "the backward precedes the step"},
+    {"code": "MLV204", "file": "train.py", "why": "the only no_grad region is the decorated validate(), which contains no backward()"},
+    {"code": "MLV205", "file": "train.py", "why": "the epoch loss accumulates loss.item(), and the Dice is accumulated inside a DiceMetric object rather than as a running total"},
+    {"code": "MLV207", "file": "train.py", "why": "CosineAnnealingLR is an epoch schedule and scheduler.step() runs in the epoch loop"},
+    {"code": "MLV208", "file": "train.py", "why": "the scaler follows the full protocol: scale(loss).backward(), step(optimizer), update()"},
+    {"code": "MLV301", "file": "train.py", "why": "validate() calls model.eval() before the loop and model.train() on the way out"},
+    {"code": "MLV302", "file": "train.py", "why": "validate() carries the @torch.no_grad() decorator"},
+    {"code": "MLV305", "file": "train.py", "why": "the prediction is discretised by AsDiscrete(argmax=True) before it reaches the DiceMetric"},
+    {"code": "MLV401", "file": "train.py", "why": "there is no torch softmax and no torch CrossEntropyLoss; DiceCELoss applies its own softmax from a keyword, which is the documented MONAI contract"},
+    {"code": "MLV402", "file": "train.py", "why": "there is no sigmoid and no BCE loss in this project"},
+    {"code": "MLV501", "file": "train.py", "why": "the model is moved with .to(device) and both keys of every batch are moved inside both loops"},
+    {"code": "MLV502", "file": "train.py", "why": "pick_device() checks torch.cuda.is_available()"},
+    {"code": "MLV601", "file": "train.py", "why": "main() calls monai.utils.set_determinism(seed=...) AND torch.manual_seed(seed)"},
+    {"code": "MLV602", "file": "train.py", "why": "the split is read from dataset.json; nothing is split at run time"},
+    {"code": "MLV701", "file": "train.py", "why": "there is no nn.Module subclass in this workspace - the network comes from monai.networks.nets"},
+    {"code": "MLV803", "file": "train.py", "why": "the checkpoint saves model.state_dict()"}
+  ]
+}

@@ -22,13 +22,17 @@ from .hooks_tbl import (
     hook_stage,
 )
 from .other_tbl import (
+    ACCELERATE_METHODS,
     ARGPARSE_METHODS,
     FRAME_METHODS,
     HF_METHODS,
     KERAS_METHODS,
     LIGHTNING_METHODS,
     OTHER,
+    WRAPPER_METHODS,
 )
+from .stats_tbl import STATS, STATS_METHODS
+from .timm_tbl import TIMM, TIMM_METHODS
 from .sklearn_tbl import SKLEARN, SKLEARN_METHODS, STATELESS_TRANSFORMERS
 from .tf_tbl import (
     KERAS_EXTRA,
@@ -58,6 +62,7 @@ __all__ = [
     # FW-RECOG (CONTRACTS 11.23) - framework hooks and the model base set
     "HOOK_STAGES", "HOOK_OWNER_BASES", "LIGHTNING_HOOK_ROLES", "LIGHTNING_ROOTS",
     "hook_stage", "MODEL_BASES", "is_model_base",
+    "CANONICAL_ALIASES", "canonical_alias",
 ]
 
 #: Every constructor / free function we recognise.
@@ -69,6 +74,8 @@ KNOWLEDGE.update(TFDATA)
 KNOWLEDGE.update(KERAS_EXTRA)
 KNOWLEDGE.update(HF_DATA)
 KNOWLEDGE.update(GBM)
+KNOWLEDGE.update(TIMM)
+KNOWLEDGE.update(STATS)
 
 #: Every *method* we recognise, keyed by its canonical base FQN.
 METHODS: Dict[str, Entry] = {}
@@ -84,6 +91,10 @@ METHODS.update(KERAS_EXTRA_METHODS)
 METHODS.update(HF_DATA_METHODS)
 METHODS.update(GBM_METHODS)
 METHODS.update(LIGHTNING_METHOD_ENTRIES)
+METHODS.update(WRAPPER_METHODS)
+METHODS.update(ACCELERATE_METHODS)
+METHODS.update(TIMM_METHODS)
+METHODS.update(STATS_METHODS)
 
 #: Everything, for a single lookup.
 ALL: Dict[str, Entry] = {}
@@ -117,6 +128,16 @@ _PREFIX_RULES: Tuple[Tuple[str, Entry], ...] = (
     ("torchvision.datasets.", E("dataset", "data", "torchvision", "DATASET", ("RAW_DATA",), "dataset", 0.8)),
     ("torchvision.models.", E("model", "model", "torchvision", "MODEL_FACTORY", ("MODEL",), "module", 0.8)),
     ("torchmetrics.", E("metric", "eval", "torchmetrics", "METRIC", (), None, 0.8)),
+    # vision-04: timm is the de-facto standard backbone / augmentation /
+    # scheduler library for modern image classification, and there was no timm
+    # row anywhere - so a timm project rendered with no model, no loss, no
+    # forward and no backward, and `workspace.frameworks` did not even name the
+    # library. The exact rows live in `timm_tbl.py`; this is the family net.
+    ("timm.models.", E("model", "model", "torch", "MODEL_FACTORY", ("MODEL",), "module", 0.8)),
+    ("timm.loss.", E("loss", "objective", "torch", "LOSS_CLS", ("LOSS",), None, 0.8)),
+    ("timm.optim.", E("optimizer", "train", "torch", "OPTIMIZER", ("OPTIMIZER",), "optimizer", 0.8)),
+    ("timm.scheduler.", E("scheduler", "train", "torch", "SCHEDULER", (), "scheduler", 0.8)),
+    ("timm.data.", E("transform", "preprocess", "torch", "TRANSFORM", (), None, 0.7)),
     ("sklearn.metrics.", E("metric", "eval", "sklearn", "METRIC", (), None, 0.8)),
     ("sklearn.preprocessing.", E("scaler", "preprocess", "sklearn", "TRANSFORMER", (), "estimator", 0.8)),
     ("sklearn.decomposition.", E("transform", "preprocess", "sklearn", "TRANSFORMER", (), "estimator", 0.8)),
@@ -135,6 +156,40 @@ _PREFIX_RULES: Tuple[Tuple[str, Entry], ...] = (
 ) + TF_PREFIX_RULES
 
 _ALIAS_PREFIXES = (("tf.", "tensorflow."),)
+
+#: VIS2-10 / DGRG2-13. Framework classes that **are** the torch class they are
+#: aliased to - `monai.data.DataLoader`, `torch_geometric.loader.*` and
+#: `accelerate`'s prepared loaders all subclass `torch.utils.data.DataLoader`
+#: and take the same `shuffle=` / `num_workers=` with the same semantics. An
+#: alias, not a re-description: the whole MLV1xx / MLV2xx family then applies
+#: verbatim, which is what "the rule matches a canonical FQN" (iron law 1) is
+#: for. `ir/resolve` rewrites `canonical_fqns` through this map, so a rule that
+#: asks `ctx.calls_of("torch.utils.data.DataLoader")` sees them.
+CANONICAL_ALIASES: Dict[str, str] = {
+    "torch.utils.data.dataloader.DataLoader": "torch.utils.data.DataLoader",
+    "monai.data.DataLoader": "torch.utils.data.DataLoader",
+    "monai.data.ThreadDataLoader": "torch.utils.data.DataLoader",
+    "monai.data.dataloader.DataLoader": "torch.utils.data.DataLoader",
+    "torch_geometric.loader.DataLoader": "torch.utils.data.DataLoader",
+    "torch_geometric.loader.DataListLoader": "torch.utils.data.DataLoader",
+    "torch_geometric.loader.NeighborLoader": "torch.utils.data.DataLoader",
+    "torch_geometric.loader.LinkNeighborLoader": "torch.utils.data.DataLoader",
+    "torch_geometric.loader.ClusterLoader": "torch.utils.data.DataLoader",
+    "torch_geometric.loader.HGTLoader": "torch.utils.data.DataLoader",
+    "torch_geometric.data.DataLoader": "torch.utils.data.DataLoader",
+    "monai.data.Dataset": "torch.utils.data.Dataset",
+    "monai.data.CacheDataset": "torch.utils.data.Dataset",
+    "monai.data.PersistentDataset": "torch.utils.data.Dataset",
+    "monai.data.SmartCacheDataset": "torch.utils.data.Dataset",
+    "monai.data.ArrayDataset": "torch.utils.data.Dataset",
+    "monai.data.decathlon_datalist.load_decathlon_datalist":
+        "torch.utils.data.Dataset",
+}
+
+
+def canonical_alias(fqn: Optional[str]) -> Optional[str]:
+    """The torch FQN a framework subclass is the same thing as, or `fqn`."""
+    return CANONICAL_ALIASES.get(fqn or "", fqn)
 
 #: The prefix rules again, as a dict. Every key ends at a dotted boundary, so a
 #: probe over the progressively shorter dotted prefixes of an FQN - longest
@@ -305,6 +360,14 @@ OP_ROLES = frozenset({
     "TFDATA_MAP", "TFDATA_SHUFFLE", "TFDATA_BATCH", "TFDATA_PREFETCH",
     "TFDATA_SUBSET", "TFDATA_OP", "HF_MAP", "HF_SHUFFLE", "HF_DATA_OP",
     "COLLATOR", "CALLBACK", "GBM_TRAIN",
+    # vision-04 / INFRA-03 / INFRA-04. timm, fastai, ignite and DeepSpeed:
+    # each of these was a lane the analyzer declared ABSENT on correct code
+    # because the call that fills it had no knowledge row at all.
+    # `SCHED_STEP_BATCH` is timm's per-batch `step_update`, kept distinct from
+    # `SCHED_STEP` because "which cadence" is precisely MLV207's question.
+    "SCHED_STEP_BATCH", "EMA_UPDATE",
+    "FASTAI_LEARNER", "FASTAI_FIT", "FASTAI_EVAL",
+    "IGNITE_TRAIN", "IGNITE_EVAL", "IGNITE_RUN",
 })
 
 # ---------------------------------------------------------------------------
@@ -316,6 +379,15 @@ FRAMEWORKS = ("torch", "sklearn", "pandas", "numpy", "keras", "tf", "hf",
               "albumentations", "xgboost", "lightgbm", "other")
 
 _MODULE_FRAMEWORK = {
+    # INFRA-03 / vision-04: a framework MLView does not name is a framework the
+    # reader has no hint MLView did not model, and "stage absent" then reads as
+    # a property of the code rather than as a blind spot. These map onto the
+    # nearest `Framework` enum value rather than inventing one, which would be
+    # a schema change.
+    "timm": "torch",
+    "fastai": "torch",
+    "ignite": "torch",
+    "deepspeed": "torch",
     "torch": "torch",
     "torchvision": "torchvision",
     "torchmetrics": "torchmetrics",
@@ -384,7 +456,18 @@ WRAPPER_BASES = frozenset({
 #: `nn.Module` subclass, so this is a widening of a base set, never a claim
 #: about a class that does not have one. `ClassIR.is_nn_module` keeps its exact
 #: torch meaning; readers that mean "a model class" ask `is_model_module`.
-MODEL_BASES = frozenset({"torch.nn.Module"}) | frozenset(
+#: VIS2-11 adds the three torch containers. `class ConvNormActivation(
+#: nn.Sequential)` is torchvision's own idiom and the shape every modern
+#: backbone block is written in, and `resolved_bases` for it holds
+#: `torch.nn.Sequential` and not `torch.nn.Module` - so MLV301's architecture
+#: probe would not look inside it, the BatchNorm and the Dropout it passes to
+#: `super().__init__(...)` were invisible, and an identical network reported
+#: `medium / 0.51 / possible` instead of `high / 0.85` - below
+#: `mlview.minConfidence`, so the finding never reached the Problems panel at
+#: all. A `Sequential` subclass IS an `nn.Module` subclass; saying so is a
+#: widening of a base set, not a claim about a class that lacks one.
+MODEL_BASES = frozenset({"torch.nn.Module", "torch.nn.Sequential",
+                         "torch.nn.ModuleList", "torch.nn.ModuleDict"}) | frozenset(
     "%s.LightningModule" % root for root in LIGHTNING_ROOTS)
 
 

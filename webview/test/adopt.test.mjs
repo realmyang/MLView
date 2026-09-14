@@ -370,7 +370,14 @@ test('a partial block draws only the answers it carries (MLV-P1)', async () => {
     ['objective', 'verdict'],
     'in the fixed order, with the missing two simply absent',
   );
-  assert.ok(card.textContent.indexOf('2 of 4 answered') >= 0, 'and the header says how many: ' + card.textContent.slice(0, 60));
+  // DGRG-12: the counter counts questions ANSWERED, not rows rendered. This
+  // block draws two rows; `objective` names a line and `verdict` ("Could not
+  // determine which finding matters most", no locs) names none, so one of the
+  // four questions was answered and one of the drawn rows detected nothing.
+  assert.ok(
+    card.textContent.indexOf('1 of 4 answered \u00b7 1 not detected') >= 0,
+    'and the header says how many: ' + card.textContent.slice(0, 80),
+  );
   ctx.app.destroy();
 });
 

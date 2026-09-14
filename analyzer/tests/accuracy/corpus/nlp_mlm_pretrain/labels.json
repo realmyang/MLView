@@ -1,0 +1,193 @@
+{
+  "name": "nlp_mlm_pretrain",
+  "title": "Masked-language-model pre-training from scratch: documents held out before packing, Trainer with an evaluation strategy and a masked-token metric",
+  "origin": "hardening round 2, domain-nlp, 2026-09-14 - the shape round 1 never reached: pre-training rather than fine-tuning, a datasets.map packing chain, and a from-scratch AutoConfig model",
+  "tuned": false,
+  "labelledBy": "hardening round 2, domain-nlp, 2026-09-14",
+  "note": "The correct twin of nlp_mlm_pretrain_bad. Zero findings in both dataflow modes on 2026-09-14. Every forbidden row below names the line that makes the rule wrong here, so a regression in any of them is a false positive on textbook-correct HuggingFace pre-training code.",
+  "expected": [],
+  "forbidden": [
+    {
+      "code": "MLV601",
+      "file": "pretrain_mlm.py",
+      "why": "transformers.set_seed(SEED) is called first in main() (line 67) and TrainingArguments carries seed= and data_seed= (lines 63-64)"
+    },
+    {
+      "code": "MLV602",
+      "file": "corpus.py",
+      "why": "split_documents passes seed=SEED to datasets' train_test_split (line 26)"
+    },
+    {
+      "code": "MLV708",
+      "file": "pretrain_mlm.py",
+      "why": "the Trainer is given eval_dataset= and compute_metrics= (lines 76-78) and TrainingArguments sets eval_strategy=\"epoch\" (line 56)"
+    },
+    {
+      "code": "MLV101",
+      "file": "corpus.py",
+      "why": "nothing in this project fits a transformer: the tokenizer is loaded from a pretrained checkpoint and applied, never fitted, and the held-out slice is cut before any encoding"
+    },
+    {
+      "code": "MLV102",
+      "file": "corpus.py",
+      "why": "the same - no FIT / FIT_TRANSFORM call exists anywhere in the workspace"
+    },
+    {
+      "code": "MLV301",
+      "file": "pretrain_mlm.py",
+      "why": "there is no hand-written evaluation loop at all; trainer.evaluate() owns the eval pass and HuggingFace calls model.eval() inside it"
+    },
+    {
+      "code": "MLV302",
+      "file": "pretrain_mlm.py",
+      "why": "the same - no torch loop exists in this workspace"
+    },
+    {
+      "code": "MLV305",
+      "file": "pretrain_mlm.py",
+      "why": "compute_metrics takes np.argmax(logits, axis=-1) on line 35 before comparing against the labels"
+    },
+    {
+      "code": "MLV110",
+      "file": "pretrain_mlm.py",
+      "why": "no DataLoader is constructed here; the Trainer builds its own and shuffles the training split by default"
+    },
+    {
+      "code": "MLV111",
+      "file": "pretrain_mlm.py",
+      "why": "the same - there is no DataLoader in this workspace"
+    },
+    {
+      "code": "MLV112",
+      "file": "pretrain_mlm.py",
+      "why": "no DataLoader and therefore no num_workers; main() is called from an if __name__ == \"__main__\" guard (line 89)"
+    },
+    {
+      "code": "MLV502",
+      "file": "pretrain_mlm.py",
+      "why": "no .cuda() and no torch.device literal appears anywhere; bf16=True is a dtype, not a device"
+    },
+    {
+      "code": "MLV803",
+      "file": "pretrain_mlm.py",
+      "why": "the checkpoint is written with trainer.save_model / tokenizer.save_pretrained (lines 84-85); torch.save and torch.load do not appear"
+    },
+    {
+      "code": "MLV701",
+      "file": "pretrain_mlm.py",
+      "why": "no nn.Module subclass is defined in this workspace"
+    },
+    {
+      "code": "MLV702",
+      "file": "pretrain_mlm.py",
+      "why": "the same - no module is defined, so no submodule can go unregistered"
+    }
+  ],
+  "unsupported": [
+    {
+      "wouldBe": null,
+      "file": "corpus.py",
+      "line": 26,
+      "symbol": "documents.train_test_split(test_size=VALIDATION_FRACTION, seed=SEED)",
+      "defect": "none - this row records that the correct ordering (split whole documents, then tokenize, then pack) is what makes the program clean",
+      "why": "no rule models block packing across a train/validation boundary, so the defective twin's version of this line cannot be labelled either"
+    },
+    {
+      "wouldBe": "MLV902",
+      "file": "pretrain_mlm.py",
+      "line": 21,
+      "symbol": "AutoConfig.from_pretrained(CHECKPOINT, ...)",
+      "defect": "none - the tokenizer and the config come from the same literal CHECKPOINT",
+      "why": "MLV902 (tokenizer / checkpoint identifier mismatch) is a later-tier rule and is not built, so the correct pairing cannot be scored either"
+    }
+  ],
+  "graph": {
+    "edges": 23,
+    "ops": [
+      {
+        "file": "corpus.py",
+        "line": 16,
+        "symbol": "AutoTokenizer.from_pretrained",
+        "kind": "tokenizer"
+      },
+      {
+        "file": "corpus.py",
+        "line": 20,
+        "symbol": "load_dataset",
+        "kind": "dataset"
+      },
+      {
+        "file": "corpus.py",
+        "line": 26,
+        "symbol": "documents.train_test_split",
+        "kind": "split"
+      },
+      {
+        "file": "corpus.py",
+        "line": 33,
+        "symbol": "split.map",
+        "kind": "transform"
+      },
+      {
+        "file": "corpus.py",
+        "line": 52,
+        "symbol": "encoded.map",
+        "kind": "transform"
+      },
+      {
+        "file": "pretrain_mlm.py",
+        "line": 21,
+        "symbol": "AutoConfig.from_pretrained",
+        "kind": "config"
+      },
+      {
+        "file": "pretrain_mlm.py",
+        "line": 29,
+        "symbol": "AutoModelForMaskedLM.from_config",
+        "kind": "model"
+      },
+      {
+        "file": "pretrain_mlm.py",
+        "line": 35,
+        "symbol": "np.argmax",
+        "kind": "metric"
+      },
+      {
+        "file": "pretrain_mlm.py",
+        "line": 42,
+        "symbol": "TrainingArguments",
+        "kind": "config"
+      },
+      {
+        "file": "pretrain_mlm.py",
+        "line": 70,
+        "symbol": "DataCollatorForLanguageModeling",
+        "kind": "transform"
+      },
+      {
+        "file": "pretrain_mlm.py",
+        "line": 73,
+        "symbol": "Trainer",
+        "kind": "train_loop"
+      },
+      {
+        "file": "pretrain_mlm.py",
+        "line": 81,
+        "symbol": "trainer.train",
+        "kind": "train_loop"
+      },
+      {
+        "file": "pretrain_mlm.py",
+        "line": 82,
+        "symbol": "trainer.evaluate",
+        "kind": "eval_loop"
+      },
+      {
+        "file": "pretrain_mlm.py",
+        "line": 84,
+        "symbol": "trainer.save_model",
+        "kind": "checkpoint"
+      }
+    ]
+  }
+}

@@ -19,7 +19,12 @@ because a flag and its value occupy two of them):
   selector, at most once. `unit:<class|function|loop>` ·
   `stage:<config|data|preprocess|model|objective|train|eval|deliver>` ·
   `file:<path.py>` · `concern:<config|data|optimization|evaluation>` ·
-  `node:<nodeId>` · `all`. `symbol:` is a spelling of `unit:`.
+  `node:<nodeId>` · `pipeline:<entrypoint.py>` · `all`. `symbol:` is a spelling
+  of `unit:`. `pipeline:` is the one to reach for on a repo with several
+  training scripts: it draws everything one entrypoint reaches over data and
+  call edges, and a node two entrypoints share comes back as context rather
+  than as this pipeline's own. Read `pipelines` in the graph document, or call
+  `mlview_graph {scope:'stages'}`, for the entrypoints this workspace has.
 - `--depth <0-2>` — boundary hops around the scope. Omit it for the per-kind
   default (1 for `unit`/`node`, 0 for `stage`/`file`/`concern`).
 - `--include-notebooks` — also analyze `.ipynb` files. Off by default, and the

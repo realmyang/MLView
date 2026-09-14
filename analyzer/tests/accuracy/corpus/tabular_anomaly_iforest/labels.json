@@ -1,0 +1,104 @@
+{
+  "name": "tabular_anomaly_iforest",
+  "title": "Unsupervised anomaly detection on machine telemetry: IsolationForest / OneClassSVM / LOF(novelty=True) fitted on the training window, contamination chosen on a validation split",
+  "origin": "hardening round 2, tester domain-tabular: the unsupervised false-positive trap",
+  "tuned": false,
+  "labelledBy": "hardening round 2 domain-tabular, 2026-09-14",
+  "expected": [],
+  "forbidden": [
+    {
+      "code": "MLV101",
+      "file": "detect.py",
+      "why": "every fit in this file takes train_x, which the split at line 56 produced; the quantile transform is a Pipeline step of each detector, so it is refitted with the detector and never on its own"
+    },
+    {
+      "code": "MLV102",
+      "file": "detect.py",
+      "why": "valid_x reaches detector.predict at line 96 only, and test_x reaches decision_function at lines 119-120 and predict at line 121; nothing is fitted on either. An unsupervised fit(X) with no y is still a fit on the TRAINING window here"
+    },
+    {
+      "code": "MLV103",
+      "file": "detect.py",
+      "why": "there is no cross_val_score / cross_validate / *SearchCV call in this project at all; choose_contamination is a hand-rolled sweep that refits the whole Pipeline for every candidate"
+    },
+    {
+      "code": "MLV106",
+      "file": "detect.py",
+      "why": "the telemetry columns are instantaneous readings; nothing parses a date, converts one or sorts by one, so there is no temporal signal for a random split to violate"
+    },
+    {
+      "code": "MLV305",
+      "file": "detect.py",
+      "why": "f1_score is fed `flags` at lines 97 and 127, and both are produced by a `== -1` comparison followed by astype(int) - a decision, not a score. roc_auc_score and average_precision_score are score metrics and are correctly fed decision_function output"
+    },
+    {
+      "code": "MLV306",
+      "file": "detect.py",
+      "why": "roc_auc_score at lines 123 and 126 is fed the negated decision_function, which is a continuous anomaly score - that is the documented correct argument, not a hard label"
+    },
+    {
+      "code": "MLV601",
+      "file": "detect.py",
+      "anchor": "project",
+      "why": "seed_everything() seeds random and numpy at lines 44-45, both splits carry random_state=SEED, and QuantileTransformer, IsolationForest and EllipticEnvelope each carry random_state=SEED"
+    },
+    {
+      "code": "MLV602",
+      "file": "detect.py",
+      "why": "both train_test_split calls (lines 56 and 58) pass random_state=SEED"
+    },
+    {
+      "code": "MLV201",
+      "file": "detect.py",
+      "why": "there is no torch in this project and no hand-written gradient step"
+    },
+    {
+      "code": "MLV301",
+      "file": "detect.py",
+      "why": "model.eval() is a torch idiom with no sklearn equivalent"
+    },
+    {
+      "code": "MLV302",
+      "file": "detect.py",
+      "why": "torch.no_grad() has no meaning in a scikit-learn program"
+    },
+    {
+      "code": "MLV501",
+      "file": "detect.py",
+      "why": "no device is ever named in this project"
+    },
+    {
+      "code": "MLV803",
+      "file": "detect.py",
+      "why": "nothing is pickled or loaded here"
+    }
+  ],
+  "graph": {
+    "edges": 37,
+    "ops": [
+      {"file": "detect.py", "line": 49, "symbol": "read_csv", "kind": "dataset"},
+      {"file": "detect.py", "line": 56, "symbol": "train_test_split", "kind": "split"},
+      {"file": "detect.py", "line": 58, "symbol": "train_test_split", "kind": "split"},
+      {"file": "detect.py", "line": 64, "symbol": "Pipeline", "kind": "model"},
+      {"file": "detect.py", "line": 65, "symbol": "QuantileTransformer", "kind": "scaler"},
+      {"file": "detect.py", "line": 67, "symbol": "IsolationForest", "kind": "model"},
+      {"file": "detect.py", "line": 77, "symbol": "OneClassSVM", "kind": "model"},
+      {"file": "detect.py", "line": 85, "symbol": "LocalOutlierFactor", "kind": "model"},
+      {"file": "detect.py", "line": 95, "symbol": "detector.fit", "kind": "train_loop"},
+      {"file": "detect.py", "line": 96, "symbol": "detector.predict", "kind": "predict"},
+      {"file": "detect.py", "line": 97, "symbol": "f1_score", "kind": "metric"},
+      {"file": "detect.py", "line": 104, "symbol": "forest.fit", "kind": "train_loop"},
+      {"file": "detect.py", "line": 107, "symbol": "svm.fit", "kind": "train_loop"},
+      {"file": "detect.py", "line": 110, "symbol": "lof.fit", "kind": "train_loop"},
+      {"file": "detect.py", "line": 112, "symbol": "EllipticEnvelope", "kind": "model"},
+      {"file": "detect.py", "line": 113, "symbol": "envelope.fit", "kind": "train_loop"},
+      {"file": "detect.py", "line": 119, "symbol": "decision_function", "kind": "predict"},
+      {"file": "detect.py", "line": 121, "symbol": "forest.predict", "kind": "predict"},
+      {"file": "detect.py", "line": 123, "symbol": "roc_auc_score", "kind": "metric"},
+      {"file": "detect.py", "line": 127, "symbol": "f1_score", "kind": "metric"}
+    ]
+  },
+  "notes": [
+    "This project exists to test the ROB-10 transformer guard from the other side. IsolationForest.fit, OneClassSVM.fit, LocalOutlierFactor.fit and EllipticEnvelope.fit are all bare .fit() calls on a feature matrix with no y at all, in a file that also contains two train_test_split calls - the exact surface MLV101 keys on. All four must stay silent because the receivers are detectors, not transformers, and because their argument is the training window."
+  ]
+}

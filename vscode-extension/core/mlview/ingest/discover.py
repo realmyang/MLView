@@ -7,12 +7,13 @@ forward-slashed workspace-relative path.
 from __future__ import annotations
 
 import os
+import stat
 from dataclasses import dataclass, field
 from fnmatch import fnmatch
 from typing import Iterable, List, Sequence, Tuple
 
 __all__ = ["ALWAYS_PRUNE", "DEFAULT_EXCLUDES", "Discovery", "discover",
-           "normalize_path", "matches_any"]
+           "normalize_path", "matches_any", "is_regular_file"]
 
 DEFAULT_EXCLUDES: Tuple[str, ...] = (
     "**/.venv/**",
@@ -87,6 +88,13 @@ class Discovery:
     file_cap_hit: bool = False
     total_found: int = 0
     missing: List[str] = field(default_factory=list)
+    #: ROB-02 / ROB-04. `(path, reason)` for every entry discovery refused or
+    #: could not enter: a FIFO / socket / device named `*.py`, and a directory
+    #: `os.walk` could not read. Both used to vanish in silence - a FIFO wedged
+    #: the process for ever and an unreadable package simply was not there,
+    #: with `filesFailed: 0` asserting nothing had gone wrong. The pipeline
+    #: turns each into a `parse_error` diagnostic.
+    refused: List[Tuple[str, str]] = field(default_factory=list)
     #: NB. Appended last and empty unless `discover(..., notebooks=True)`:
     #: the `.ipynb` relpaths the caller asked to analyze, sorted. `notebooks`
     #: above stays the **count of every notebook found**, whether or not it is
@@ -95,6 +103,27 @@ class Discovery:
 
     def abspath(self, relpath: str) -> str:
         return "%s/%s" % (self.root, relpath)
+
+
+def is_regular_file(abs_path: str) -> Tuple[bool, str]:
+    """`(ok, reason)` - is this path something it is safe to open and read?
+
+    ROB-02. A repository is untrusted input, and `open()` on a FIFO with no
+    writer blocks for ever while a `*.py` symlink to `/dev/zero` is read until
+    the machine runs out of memory. Neither is a crash the user can see: the
+    analyzer simply never returns. `os.stat` follows symlinks on purpose - the
+    question is what will actually be read, not what the entry looks like.
+    """
+    try:
+        st = os.stat(abs_path)
+    except OSError as exc:
+        # A dangling symlink lands here. The wording matches `parse.read_bytes`
+        # on purpose: it is the same fact - this path cannot be read - and one
+        # sentence for it is what the diagnostic channel is worth.
+        return False, "cannot read file: %s" % (exc.strerror or exc)
+    if not stat.S_ISREG(st.st_mode):
+        return False, "not a regular file"
+    return True, ""
 
 
 def _common_root(paths: Sequence[str]) -> str:
@@ -136,6 +165,7 @@ def discover(
     found: List[str] = []
     notebook_files: List[str] = []
     notebook_count = 0
+    refused: List[Tuple[str, str]] = []
     seen = set()
 
     def consider(abs_file: str) -> None:
@@ -146,6 +176,10 @@ def discover(
         lower = rel.lower()
         if lower.endswith(".ipynb"):
             if not matches_any(rel, excludes):
+                ok, why = is_regular_file(abs_file)
+                if not ok:
+                    refused.append((rel, why))
+                    return
                 seen.add(rel)
                 notebook_count += 1
                 if notebooks and not (include and not matches_any(rel, include)):
@@ -157,14 +191,32 @@ def discover(
             return
         if include and not matches_any(rel, include):
             return
+        ok, why = is_regular_file(abs_file)
+        if not ok:
+            refused.append((rel, why))
+            return
         seen.add(rel)
         found.append(rel)
+
+    def _walk_error(exc: OSError) -> None:
+        """ROB-04: a directory `os.walk` could not enter is a fact, not a gap.
+
+        `os.walk` swallows `PermissionError` by default, so a package the
+        process may not read was skipped in silence and the document reported
+        `filesAnalyzed: 1, filesFailed: 0, diagnostics: []` - a positive claim
+        that nothing had gone wrong about a run that lost a whole package.
+        """
+        path = getattr(exc, "filename", None) or ""
+        rel = _rel(root, normalize_path(path)) if path else "(unknown directory)"
+        refused.append((rel, "%s: the directory could not be read (%s), so every "
+                             "file under it is missing from this analysis"
+                        % (rel, exc.strerror or str(exc))))
 
     for path in sorted(existing):
         if os.path.isfile(path):
             consider(path)
             continue
-        for dirpath, dirnames, filenames in os.walk(path):
+        for dirpath, dirnames, filenames in os.walk(path, onerror=_walk_error):
             dirnames[:] = sorted(
                 d for d in dirnames
                 if d not in _ALWAYS_PRUNE
@@ -174,6 +226,7 @@ def discover(
                 consider(os.path.join(dirpath, name).replace("\\", "/"))
 
     found.sort()
+    refused.sort()
     notebook_files.sort()
     total = len(found)
     cap_hit = total > max_files > 0
@@ -181,4 +234,4 @@ def discover(
         found = found[:max_files]
     return Discovery(root=root, files=found, notebooks=notebook_count,
                      file_cap_hit=cap_hit, total_found=total, missing=missing,
-                     notebook_files=notebook_files)
+                     refused=refused, notebook_files=notebook_files)

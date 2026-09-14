@@ -1,0 +1,125 @@
+{
+  "name": "infra_sagemaker_entry",
+  "title": "SageMaker script mode: a training entrypoint and four inference hooks with no call site, in one module",
+  "origin": "hardening round 2, tester domain-infra: the file that is a trainer and a server at the same time",
+  "tuned": false,
+  "labelledBy": "domain-infra, 2026-09-14",
+  "note": "One planted defect (MLV803 at line 143), recovered at 0.950. The precision claim is the other half: `predict_fn` runs the model, computes a softmax and returns it, and `model_fn` loads a state dict - and neither is drawn as a training loop or reported as an unguarded evaluation, because both call model.eval() and predict_fn carries @torch.no_grad(). The configuration arrives entirely through os.environ defaults on argparse arguments, which MLView resolves into the config lane (21 nodes). One observation, not a finding: `workspace.frameworks` reports `pandas` on a file with no pandas import, because `features.astype(\"float32\")` at line 69 on a numpy array resolves to `pandas.DataFrame.astype` - see INFRA-R2-06.",
+  "stagesObserved": "config, data, model, objective, train, eval and deliver present; preprocess absent, which is correct - nothing here transforms features. local and ip are byte-identical.",
+  "expected": [
+    {
+      "code": "MLV803",
+      "file": "train.py",
+      "line": 143,
+      "symbol": "torch.load",
+      "severity": "low",
+      "verdict": "expected",
+      "defect": "model_fn calls torch.load with neither weights_only= nor map_location=",
+      "why": "the SageMaker training instance has a GPU and the inference instance usually does not, so this load raises on the endpoint; and it unpickles arbitrary objects out of an artefact bucket"
+    }
+  ],
+  "forbidden": [
+    {
+      "code": "MLV110",
+      "file": "train.py",
+      "why": "the training loader is built with shuffle=True at line 112"
+    },
+    {
+      "code": "MLV111",
+      "file": "train.py",
+      "why": "the validation loader is built with shuffle=False at line 113"
+    },
+    {
+      "code": "MLV112",
+      "file": "train.py",
+      "why": "no DataLoader here passes num_workers, and the module ends in an `if __name__ == \"__main__\"` guard"
+    },
+    {
+      "code": "MLV201",
+      "file": "train.py",
+      "why": "optimizer.zero_grad(set_to_none=True) is at line 80, before the forward at 81"
+    },
+    {
+      "code": "MLV202",
+      "file": "train.py",
+      "why": "optimizer.step() is called at line 84, after loss.backward() at line 83"
+    },
+    {
+      "code": "MLV203",
+      "file": "train.py",
+      "why": "the order is zero_grad (80) -> forward (81) -> loss (82) -> backward (83) -> step (84)"
+    },
+    {
+      "code": "MLV205",
+      "file": "train.py",
+      "why": "the epoch loss is accumulated as running += loss.item(), a Python float"
+    },
+    {
+      "code": "MLV207",
+      "file": "train.py",
+      "why": "CosineAnnealingLR is epoch-cadence and scheduler.step() is called in the epoch loop at line 128"
+    },
+    {
+      "code": "MLV301",
+      "file": "train.py",
+      "why": "validate() calls model.eval() at line 92, model_fn calls it at line 145 and predict_fn calls it at line 158; every path that runs the model outside training switches mode first"
+    },
+    {
+      "code": "MLV302",
+      "file": "train.py",
+      "why": "validate() carries @torch.no_grad() at line 89 and predict_fn carries it at line 156"
+    },
+    {
+      "code": "MLV305",
+      "file": "train.py",
+      "why": "the accuracy comparison at line 98 is on model(features).argmax(dim=1), not on raw logits"
+    },
+    {
+      "code": "MLV401",
+      "file": "train.py",
+      "why": "FraudNet.forward returns raw logits and nn.CrossEntropyLoss is fed exactly that; the torch.softmax at line 160 is in predict_fn, on the serving path, and never reaches a loss"
+    },
+    {
+      "code": "MLV402",
+      "file": "train.py",
+      "why": "there is no BCELoss and no BCEWithLogitsLoss in this file"
+    },
+    {
+      "code": "MLV501",
+      "file": "train.py",
+      "why": "the model is moved at line 115 and both loops move every batch value to the same device before the forward (78-79 and 96-97); predict_fn runs on whatever device the endpoint loaded the model onto and has no loop"
+    },
+    {
+      "code": "MLV502",
+      "file": "train.py",
+      "why": "the device is chosen behind torch.cuda.is_available() at line 107; there is no unguarded .cuda()"
+    },
+    {
+      "code": "MLV601",
+      "anchor": "project",
+      "why": "seed_everything(args.seed) at line 106 calls random.seed, numpy.random.seed, torch.manual_seed and torch.cuda.manual_seed_all"
+    },
+    {
+      "code": "MLV602",
+      "file": "train.py",
+      "why": "there is no sklearn splitter and no random_split; SageMaker mounts train and validation as two separate input channels"
+    },
+    {
+      "code": "MLV701",
+      "file": "train.py",
+      "why": "FraudNet.__init__ calls super().__init__() as its first statement at line 42"
+    },
+    {
+      "code": "MLV702",
+      "file": "train.py",
+      "why": "the body is an nn.Sequential; there is no plain list or dict of submodules"
+    }
+  ],
+  "unsupported": [
+    {
+      "file": "train.py",
+      "why": "LABEL CORRECTED in hardening round 2: MLV903 is not a built rule - it carries the status **later** in docs/ISSUE_RULES.md section 1 - so a label for it can never be satisfied and can never be violated. `analyzer/tests/accuracy/test_accuracy.py::test_every_labelled_code_is_a_real_rule` rejects one, and this row turned that shipped test red. The observation is kept verbatim here so the row can be restored the day the rule ships. Original verdict `forbidden`, original note: model_fn, input_fn, predict_fn and output_fn have no call site by design - SageMaker calls them by name - so an orphan-stage claim about them would be wrong",
+      "wouldBe": "MLV903"
+    }
+  ]
+}

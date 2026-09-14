@@ -35,7 +35,13 @@ def no_seed_anywhere(ctx) -> Iterable[Issue]:
         # No ML framework in the workspace: a `for i in range(10)` is just a
         # loop, and there is no randomness for a seed to pin down.
         return []
-    trains = ctx.calls_with_role(*_TRAIN_EVIDENCE_ROLES)
+    # TAB-01: the evidence for "this pipeline needs a seed" has to come from a
+    # framework that owns a random source. `SARIMAX(...).fit()` and
+    # `Prophet().fit()` carry the FIT role like any other fit, and they are
+    # deterministic given their inputs - a `random_state` would have nothing to
+    # seed there, and advising one would be wrong advice about correct code.
+    trains = [c for c in ctx.calls_with_role(*_TRAIN_EVIDENCE_ROLES)
+              if _random_framework(c)]
     loops = ctx.loops("epoch") + ctx.loops("batch")
     if not trains and not loops:
         return []
@@ -63,6 +69,17 @@ def no_seed_anywhere(ctx) -> Iterable[Issue]:
                    witness.short_name + "()" if witness is not None else "a training loop"),
         loc=anchor.loc, node_ids=[anchor], related=related, evidence=evidence,
         dynamic=False)]
+
+
+def _random_framework(call) -> bool:
+    """Does this call belong to a framework with a random source to seed?"""
+    from .. import knowledge as K
+
+    entry, _fqn = K.best_entry(call.canonical_fqns
+                               or ((call.fqn,) if call.fqn else ()))
+    if entry is None:
+        return True                  # unknown: do not narrow the evidence
+    return entry["framework"] in _RANDOM_FRAMEWORKS
 
 
 def _anchor(ctx, loops) -> Optional[Node]:

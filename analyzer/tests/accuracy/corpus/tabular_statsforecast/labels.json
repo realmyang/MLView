@@ -1,0 +1,48 @@
+{
+  "name": "tabular_statsforecast",
+  "title": "Classical forecasting: SARIMAX and Prophet on one weekly series, cut by timestamp",
+  "origin": "hardening round 1, tester domain-tabular: the statsmodels / Prophet shape the rule set has never been measured on",
+  "tuned": false,
+  "labelledBy": "hardening domain-tabular, 2026-09-13",
+  "expected": [],
+  "forbidden": [
+    {"code": "MLV101", "file": "forecast.py",
+     "why": "the Box-Cox transform is fitted on `history` only, after split_by_time has already cut the series at a timestamp; nothing is fitted on the whole frame"},
+    {"code": "MLV102", "file": "forecast.py",
+     "why": "the future window reaches two calls, fitted.forecast and mean_absolute_percentage_error, and is never fitted on"},
+    {"code": "MLV106", "file": "forecast.py",
+     "why": "the holdout is frame.loc[frame.index < cutoff]; this project never shuffles and never calls train_test_split - three temporal signals and no random split is exactly the correct pattern MLV106 asks for"},
+    {"code": "MLV103", "file": "forecast.py",
+     "why": "Prophet's rolling-origin cross_validation refits the whole model per fold; there is no scikit-learn transformer for it to sit outside of"},
+    {"code": "MLV601", "file": "forecast.py", "anchor": "project",
+     "why": "SARIMAX, Prophet and seasonal_decompose are deterministic given their inputs; a random_state would have nothing to seed, and inventing one would be wrong advice"},
+    {"code": "MLV602", "file": "forecast.py",
+     "why": "there is no splitter object here at all - the split is a timestamp comparison"},
+    {"code": "MLV305", "file": "forecast.py",
+     "why": "the only metric is mean_absolute_percentage_error on a continuous target"},
+    {"code": "MLV201", "file": "forecast.py",
+     "why": "no torch, no gradients and no hand-written update step"},
+    {"code": "MLV301", "file": "forecast.py",
+     "why": "model.eval() has no statsmodels or Prophet equivalent"},
+    {"code": "MLV705", "file": "forecast.py",
+     "why": "the .fit() calls here belong to SARIMAX and Prophet; neither is a Keras model and neither has a compile step"}
+  ],
+  "graph": {
+    "edges": 16,
+    "ops": [
+      {"file": "forecast.py", "line": 29, "symbol": "read_csv", "kind": "dataset"},
+      {"file": "forecast.py", "line": 30, "symbol": "sort_values", "kind": "transform"},
+      {"file": "forecast.py", "line": 37, "symbol": "loc cutoff", "kind": "split"},
+      {"file": "forecast.py", "line": 43, "symbol": "boxcox", "kind": "transform"},
+      {"file": "forecast.py", "line": 45, "symbol": "SARIMAX", "kind": "model"},
+      {"file": "forecast.py", "line": 47, "symbol": "model.fit", "kind": "train_loop"},
+      {"file": "forecast.py", "line": 51, "symbol": "fitted.forecast", "kind": "predict"},
+      {"file": "forecast.py", "line": 53, "symbol": "mean_absolute_percentage_error", "kind": "metric"},
+      {"file": "forecast.py", "line": 57, "symbol": "seasonal_decompose", "kind": "transform"},
+      {"file": "forecast.py", "line": 63, "symbol": "Prophet", "kind": "model"},
+      {"file": "forecast.py", "line": 66, "symbol": "model.fit", "kind": "train_loop"},
+      {"file": "forecast.py", "line": 71, "symbol": "cross_validation", "kind": "split"},
+      {"file": "forecast.py", "line": 73, "symbol": "performance_metrics", "kind": "metric"}
+    ]
+  }
+}

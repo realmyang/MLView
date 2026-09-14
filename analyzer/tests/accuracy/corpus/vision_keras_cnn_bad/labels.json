@@ -1,0 +1,67 @@
+{
+  "name": "vision_keras_cnn_bad",
+  "title": "The same Keras CNN with five planted defects",
+  "origin": "domain-vision round 1: the dirty twin of vision_keras_cnn",
+  "tuned": false,
+  "labelledBy": "domain-vision, 2026-09-13",
+  "expected": [
+    {
+      "code": "MLV121",
+      "file": "pipeline.py",
+      "line": 45,
+      "symbol": "base_dataset(...).shuffle(SHUFFLE_BUFFER, seed=SEED)",
+      "severity": "high",
+      "verdict": "expected",
+      "defect": "the base dataset is shuffled and then split with take/skip, with reshuffle_each_iteration left at its default",
+      "why": "tf.data re-draws the buffer every epoch, so the validation rows swap with the training rows on every pass and the holdout stops existing from epoch two"
+    },
+    {
+      "code": "MLV709",
+      "file": "train.py",
+      "line": 36,
+      "symbol": "layers.Dense(num_classes, activation=\"softmax\")",
+      "severity": "high",
+      "verdict": "expected",
+      "defect": "the output layer carries activation=\"softmax\" while the loss is SparseCategoricalCrossentropy(from_logits=True)",
+      "why": "the softmax is applied twice, so the gradient is tiny and the reported accuracy metric is computed on a distribution the loss never saw"
+    },
+    {
+      "code": "MLV705",
+      "file": "train.py",
+      "line": 81,
+      "symbol": "finetune.fit(...)",
+      "severity": "high",
+      "verdict": "expected",
+      "defect": "the fine-tuning head returned by build_finetune_model() is fitted without ever being compiled",
+      "why": "an uncompiled model has no optimizer and no loss, so the call raises the moment it is reached - after the first model has already trained for thirty epochs",
+      "gap": "MLV705 is deliberately a workspace-wide claim (r_framework.py:156-171): it fires only when NO compile() exists anywhere. compile_model() compiles the first model, so the second, genuinely uncompiled model returned by build_finetune_model() can never be reported.",
+      "unsupported": true
+    },
+    {
+      "code": "MLV601",
+      "file": "train.py",
+      "anchor": "project",
+      "symbol": "no set_seeds anywhere",
+      "severity": "low",
+      "verdict": "expected",
+      "defect": "nothing seeds TensorFlow, numpy or Python; the seed= on the shuffle covers the shuffle alone",
+      "why": "the augmentation draw and the weight initialisation move between runs, so two runs of the same script are not comparable"
+    }
+  ],
+  "forbidden": [
+    {
+      "code": "MLV602",
+      "file": "pipeline.py",
+      "why": "the shuffle that creates the split does carry seed=SEED - the defect is the ordering, not the seed"
+    }
+  ],
+  "gaps": [
+    {
+      "what": "the augment map is applied to the validation and test datasets, so the held-out images are randomly flipped and colour-jittered - MLV114 covers torchvision and albumentations only, not a tf.data .map of a random tf.image op",
+      "evidence": "pipeline.py:54 and pipeline.py:62"
+    },
+    {
+      "what": "the fine-tuning head is also built with activation='softmax' and, once compiled, would carry the same from_logits contradiction - MLV709 reports the first head only"
+    }
+  ]
+}

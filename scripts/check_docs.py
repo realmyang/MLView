@@ -1,11 +1,12 @@
 #!/usr/bin/env python
 """Documentation gate: keep the prose honest about the tree it describes.
 
-Fifteen checks, all offline and stdlib-only. Checks 1-8 and 12 live here; the
-seven that compare a number in the prose with the machine-readable copy the tree
-already holds live next door -- checks 9-11 in `scripts/doc_numbers.py`, checks
-13-15 in `scripts/doc_figures.py` -- and are summarised at the bottom of this
-list:
+Twenty-one checks, all offline and stdlib-only. Checks 1-8, 12 and 21 live here;
+the twelve that compare a number, a list, or a command line in the prose with the
+machine-readable copy the tree already holds live next door -- checks 9-11 and
+19-20 in `scripts/doc_numbers.py`, checks 13-15 in `scripts/doc_figures.py`,
+checks 16-18 in `scripts/doc_surfaces.py` -- and are summarised at the bottom of
+this list:
 
 1. **Dead paths.** Every repo-relative path written in backticks or in a Markdown
    link inside a current-state doc must exist on disk. Catches renamed modules,
@@ -77,8 +78,35 @@ list:
     `contracts/scope.cases.json`.
 15. **Two gate documents naming different runs** for "the last full green push".
 
-`scripts/doc_numbers.py` carries checks 9-11 and `scripts/doc_figures.py` checks
-13-15, with the incident behind each.
+16. **A selector the CLI accepts that a user-facing list does not advertise.**
+    `pipeline:` (CONTRACTS 11.47) and `symbol:` were legal everywhere and named
+    in none of `mlview analyze --help`, `README.md` and the two
+    `claude-plugin/commands/*.md` bodies.
+17. **A generated directory a tool calls git-ignored that `.gitignore` does not
+    cover**, so running the tool puts its whole download into `git status`.
+18. **A `test` script that enumerates its test files and misses one**, so
+    `npm test` reports a green suite that never ran the new regression test.
+
+19. **A command line a CI job generates that its own tool would refuse**, checked
+    by handing the arguments to that tool's `build_parser()`.
+20. **A closed list of rule codes the code does not hold**, where the mechanism
+    the prose is describing is rule-agnostic.
+
+21. **A known gap waiting for something that has already landed.** Check 4 made
+    every gap bullet cite a path or a symbol; a bullet may now cite one and still
+    be false, because it names its own retirement condition and the condition is
+    met. `README.md` said the `/mlview-issues` `Bash` fallback "groups only once
+    the matching `--group-by` flag lands on `analyzer/src/mlview/cli.py`" while
+    `mlview issues --group-by rule` had been printing the grouped table for two
+    sprints (HOSTS-UX-R2-07). The bullet named the flag and the file in one
+    clause, so the gate had everything it needed: when a gap says *once X lands
+    on `<path>`* and X is already in that file, the bullet is the stale thing,
+    not the build. Rephrase it as a statement of fact -- the check only fires on
+    a landing clause, never on a bullet that describes what the code does today.
+
+`scripts/doc_numbers.py` carries checks 9-11 and 19-20, `scripts/doc_figures.py`
+checks 13-15 and `scripts/doc_surfaces.py` checks 16-18, with the incident behind
+each.
 
 Usage:  python scripts/check_docs.py [--root DIR] [--quiet]
 Exit 0 when clean, 1 when a problem is found. The report goes to stdout.
@@ -94,6 +122,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import doc_figures  # noqa: E402  - sibling modules, after the sys.path fix above
 import doc_numbers  # noqa: E402
+import doc_surfaces  # noqa: E402
 
 DEFAULT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -407,11 +436,83 @@ def check_gap_bullets(root: Path, path: Path, lines, problems) -> None:
                     % (rel, offset + n + 1))
 
 
+# ------------------------------------------------- check 21: landed gaps
+# A clause that names its own retirement condition: "... groups only once the
+# matching `--group-by` flag lands on `analyzer/src/mlview/cli.py`". The window
+# may not cross a sentence end, so the name and the path have to be in one
+# breath -- but `.py` and `.md` are dots inside a sentence, not the end of one,
+# which is why the boundary is "a dot followed by whitespace" and not "a dot".
+_IN_SENTENCE = r"(?:(?!\.[\s)]|\.$)[^\n])"
+LANDING_RE = re.compile(r"\b(?:once|until|when|after)\b" + _IN_SENTENCE +
+                        r"{0,200}?\bland(?:s|ed|ing)?\b" + _IN_SENTENCE + r"{0,160}",
+                        re.I)
+# The thing being waited for: a command-line flag, or a code symbol check 5
+# would already recognise. Prose in backticks is not a landing condition.
+FLAG_TOKEN_RE = re.compile(r"^--[a-z][a-z0-9-]+$")
+
+
+def _landing_spellings(token: str) -> set:
+    """Every way the named thing could be written in the file that would host it.
+
+    `--group-by` is `group_by` in an argparse `dest` and `"--group-by"` in the
+    `add_argument` call, and a bullet that waits for it is stale either way.
+    """
+    bare = token.lstrip("-")
+    return {token, bare, bare.replace("-", "_")}
+
+
+def check_landed_gaps(root: Path, path: Path, lines, problems) -> None:
+    """HOSTS-UX-R2-07: a gap that waits for something already in the named file."""
+    rel = path.relative_to(root).as_posix()
+    for offset, block in known_gap_sections(lines):
+        for n, text in bullets(block):
+            for clause in LANDING_RE.findall(text):
+                tokens = [t.strip() for t in CODE_RE.findall(clause)]
+                targets = [t for t in tokens
+                           if is_path_claim(root, t) and (root / t).is_file()]
+                names = [t for t in tokens
+                         if FLAG_TOKEN_RE.match(t)
+                         or (SYMBOL_TOKEN_RE.match(t) and CODE_SHAPE_RE.search(t)
+                             and len(t) >= MIN_SYMBOL)]
+                for target in targets:
+                    body = io.open(root / target, encoding="utf-8",
+                                   errors="replace").read()
+                    for name in names:
+                        if name == target or not any(
+                                spelling in body
+                                for spelling in _landing_spellings(name)):
+                            continue
+                        problems.append(
+                            "%s:%d: known gap waits for `%s` to land on `%s`, "
+                            "and it is already there -- say what the build does "
+                            "instead of what it is waiting for (HOSTS-UX-R2-07)"
+                            % (rel, offset + n + 1, name, target))
+
+
+def downloaded_parts(root: Path) -> set:
+    """`ENDING_SKIP_PARTS` plus every directory a tool *downloads* into the tree.
+
+    PUB-01 put 24 third-party repositories under `.public-corpus/` (the name is
+    read from `tools/public_corpus.py`, never spelled here), and they carry 26
+    shell scripts of their own. Holding somebody else's `get_coco.sh` to this
+    repo's line-ending convention would fail the doc gate on a machine that had
+    run `python tools/public_corpus.py fetch` and pass on one that had not --
+    a gate whose verdict depends on what is cached is not a gate.
+    """
+    parts = set(ENDING_SKIP_PARTS)
+    for rel, const in doc_surfaces.GENERATED_DIRS:
+        name, _ = doc_surfaces.generated_dir(root, rel, const)
+        if name:
+            parts.add(name.strip("/"))
+    return parts
+
+
 def shell_scripts(root: Path):
     """Every POSIX shell script that is *source* in this tree."""
+    skip = downloaded_parts(root)
     for path in sorted(root.rglob("*.sh")):
         rel = path.relative_to(root)
-        if ENDING_SKIP_PARTS.intersection(rel.parts) or not path.is_file():
+        if skip.intersection(rel.parts) or not path.is_file():
             continue
         yield path
 
@@ -540,6 +641,7 @@ def run(root: Path):
         check_paths(root, path, lines, problems)
         check_failure_claims(root, path, lines, problems)
         check_gap_bullets(root, path, lines, problems)
+        check_landed_gaps(root, path, lines, problems)
         collect_graph_sizes(root, path, lines, sizes)
     for path in plan:
         lines = read(path)
@@ -552,6 +654,8 @@ def run(root: Path):
     # Checks 9-11 and 13-15: numbers the prose shares with a file in the tree.
     doc_numbers.run(root, current, problems)
     doc_figures.run(root, current, problems)
+    # Checks 16-18: lists the prose shares with a file in the tree.
+    doc_surfaces.run(root, current, problems)
     return problems, current + plan + scripts
 
 
@@ -574,7 +678,12 @@ def main(argv=None) -> int:
               "matches the baseline, no silent artifact upload, one e2e step "
               "count, every shipped roadmap item recorded as landed, the "
               "components table agreeing with its own gate paragraph, the scope "
-              "battery quoted at its real size, one last-green-push run id)"
+              "battery quoted at its real size, one last-green-push run id, "
+              "every selector the parser accepts advertised on every list a "
+              "reader sees, every generated directory git-ignored, every test "
+              "file its package's `test` script runs, every CI command line one "
+              "its own tool accepts, no closed list of rules the code does not "
+              "hold, no known gap waiting for something that has landed)"
               % len(files))
     return 0
 

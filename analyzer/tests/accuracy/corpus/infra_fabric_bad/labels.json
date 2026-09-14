@@ -1,0 +1,149 @@
+{
+  "name": "infra_fabric_bad",
+  "title": "Lightning Fabric with six real defects: no shuffle, shuffled eval, tensor accumulation, no eval()/no_grad, pickled checkpoint",
+  "origin": "hardening round 2, tester domain-infra: the defective half of the Fabric twin pair",
+  "tuned": false,
+  "labelledBy": "domain-infra, 2026-09-14",
+  "note": "The twin differs from infra_fabric only in the six planted defects. Four of the six are recovered (MLV110, MLV111, MLV205, MLV803). MLV301 and MLV302 are NOT, and the reason is worth the whole program: `model, optimizer = fabric.setup(model, optimizer)` at line 130 rebinds `model` from a call MLView cannot resolve, so `model(tokens)` inside validate() stops carrying the FORWARD role, no eval region is built, and both rules go silent with NO diagnostic. Deleting that one line brings both findings back at high / 0.850 and medium / 0.850. The same one-line change reproduces with `model = fabric.setup_module(model)`, with accelerate's `model, optimizer, train_loader, val_loader = accelerator.prepare(...)`, and with a plain in-workspace `def wrap(m, o): return m, o` - and in all four cases the verdict card then reads `No findings: no rule fired on this workspace`. See the domain-infra round-2 report, finding INFRA-R2-04. MLV601 is the same live false positive the correct twin carries (fabric.seed_everything at line 118) and is recorded `acceptable` for the same reason - see INFRA-R2-03.",
+  "stagesObserved": "every stage except preprocess present. As in the correct twin, the TRAINING batch loop at line 80 is drawn as an `eval_loop` in the Evaluate lane because `fabric.backward(loss)` carries no BACKWARD role and `optimizer.step()` arrives as a parameter - see INFRA-R2-01.",
+  "expected": [
+    {
+      "code": "MLV110",
+      "file": "train_fabric.py",
+      "line": 69,
+      "symbol": "torch.utils.data.DataLoader",
+      "severity": "medium",
+      "verdict": "expected",
+      "defect": "the training loader passes neither shuffle= nor sampler=",
+      "why": "Fabric's setup_dataloaders() installs a DistributedSampler but never turns shuffling on for you; with shuffle unset the model sees the 3276 training rows in dataset order every epoch"
+    },
+    {
+      "code": "MLV111",
+      "file": "train_fabric.py",
+      "line": 71,
+      "symbol": "torch.utils.data.DataLoader",
+      "severity": "low",
+      "verdict": "expected",
+      "defect": "the validation loader passes shuffle=True",
+      "why": "predictions stop lining up with the dataset, so a per-sample error dump and a confusion matrix are no longer reproducible between runs"
+    },
+    {
+      "code": "MLV205",
+      "file": "train_fabric.py",
+      "line": 87,
+      "symbol": "running",
+      "severity": "medium",
+      "verdict": "expected",
+      "defect": "running += loss accumulates the tensor, not loss.item()",
+      "why": "every step's autograd graph is held for the whole epoch; on a 51-step epoch that is 51 graphs resident at once, and it OOMs long before the model does"
+    },
+    {
+      "code": "MLV301",
+      "file": "train_fabric.py",
+      "line": 95,
+      "symbol": "torch.nn.Module.eval",
+      "severity": "high",
+      "verdict": "expected",
+      "defect": "validate() never calls model.eval(), and Fabric does not switch modes for you",
+      "why": "nn.Dropout(0.15) at line 47 stays active during validation, so the reported accuracy is measured on a randomly crippled network and moves between runs"
+    },
+    {
+      "code": "MLV302",
+      "file": "train_fabric.py",
+      "line": 95,
+      "symbol": "torch.no_grad",
+      "severity": "medium",
+      "verdict": "expected",
+      "defect": "validate() is neither decorated with @torch.no_grad() nor wrapped in one",
+      "why": "the validation pass builds an autograd graph for every batch and throws it away, which is the ordinary way an eval pass OOMs a run that trains fine"
+    },
+    {
+      "code": "MLV803",
+      "file": "train_fabric.py",
+      "line": 146,
+      "symbol": "torch.save",
+      "severity": "low",
+      "verdict": "expected",
+      "defect": "torch.save(model, ...) pickles the whole module object instead of its state_dict",
+      "why": "LABEL ADDED in hardening round 2: MLV803 has two sites in this file and only the `torch.load` half at line 148 was labelled. The save half at line 146 was undetectable until finding INFRA-R2-04 / DGRG2-01 were fixed - `model, optimizer = fabric.setup(model, optimizer)` erased the MODEL tag, so the rule could not tell a module from a state_dict - and it is the same planted defect the line-148 row describes, seen from the writing end."
+    },
+    {
+      "code": "MLV803",
+      "file": "train_fabric.py",
+      "line": 148,
+      "symbol": "torch.load",
+      "severity": "low",
+      "verdict": "expected",
+      "defect": "torch.save(model, ...) pickles the module object and torch.load() reads it back with no weights_only=",
+      "why": "the checkpoint then depends on this file's class path and unpickles arbitrary objects; torch 2.6 flips weights_only to True and the load starts failing"
+    }
+  ],
+  "acceptableNote": "the MLV601 row below is a live false positive recorded as `acceptable` only so a shared gate stays green; forbiddenAfterFix holds the label it must become",
+  "forbidden": [
+    {
+      "code": "MLV112",
+      "file": "train_fabric.py",
+      "why": "num_workers comes from --workers but every loader is built inside main()'s call tree and the module ends in `if __name__ == \"__main__\": main()`"
+    },
+    {
+      "code": "MLV201",
+      "file": "train_fabric.py",
+      "why": "optimizer.zero_grad(set_to_none=True) is the first statement of the training step at line 81"
+    },
+    {
+      "code": "MLV202",
+      "file": "train_fabric.py",
+      "why": "optimizer.step() is called at line 86, after fabric.backward(loss) at line 84"
+    },
+    {
+      "code": "MLV203",
+      "file": "train_fabric.py",
+      "why": "the order is zero_grad (81) -> forward (82) -> loss (83) -> backward (84) -> clip (85) -> step (86)"
+    },
+    {
+      "code": "MLV207",
+      "file": "train_fabric.py",
+      "why": "CosineAnnealingLR is epoch-cadence and scheduler.step() is called in the epoch loop at line 140"
+    },
+    {
+      "code": "MLV209",
+      "file": "train_fabric.py",
+      "why": "fabric.clip_gradients(...) at line 85 sits between the backward and the step"
+    },
+    {
+      "code": "MLV401",
+      "file": "train_fabric.py",
+      "why": "forward returns raw logits from self.head; there is no softmax anywhere in this file"
+    },
+    {
+      "code": "MLV501",
+      "file": "train_fabric.py",
+      "why": "fabric.setup() and fabric.setup_dataloaders() own placement for both the module and the batches"
+    },
+    {
+      "code": "MLV502",
+      "file": "train_fabric.py",
+      "why": "there is no .cuda() and no 'cuda' literal; accelerator=\"auto\" is what chooses the device"
+    },
+    {
+      "code": "MLV602",
+      "file": "train_fabric.py",
+      "why": "there is no sklearn split and no random_split; build_datasets() cuts at a literal index"
+    },
+    {
+      "code": "MLV701",
+      "file": "train_fabric.py",
+      "why": "TokenClassifier.__init__ calls super().__init__() as its first statement at line 43"
+    },
+    {
+      "code": "MLV702",
+      "file": "train_fabric.py",
+      "why": "the encoder is an nn.Sequential; there is no plain list or dict of submodules"
+    },
+    {
+      "code": "MLV601",
+      "anchor": "project",
+      "why": "fabric.seed_everything(args.seed) is called at line 118 PROMOTED in hardening round 2: `lightning.fabric.Fabric.seed_everything` now carries the SEED role, so MLV601 is silent here and the row is a forbidden label like any other."
+    }
+  ]
+}

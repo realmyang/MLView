@@ -1,0 +1,72 @@
+{
+  "name": "infra_accelerate",
+  "title": "HuggingFace accelerate fine-tune: prepare(), accumulate(), gather_for_metrics, main-process save",
+  "origin": "hardening round 1, tester domain-infra: the accelerate script the ROADMAP's framework list names",
+  "tuned": false,
+  "labelledBy": "domain-infra, 2026-09-13",
+  "note": "A precision trap with one live false positive. MLV601 fires here even though `accelerate.utils.set_seed(args.seed)` is called at line 81: `accelerate.utils.set_seed` / `accelerate.set_seed` are missing from the SEED table in analyzer/src/mlview/knowledge/other_tbl.py, and `is_seeded` only matches a positional seed call through that table. The row is recorded as `acceptable` ONLY so this corpus addition does not turn a shared gate red; the row in `forbiddenAfterFix` is the label it must become in the same commit as the one-line table fix.  UPDATE (hardening round 1, 2026-09-14): the defect named above is fixed, so the rows that were `acceptable` to keep a shared gate green are now `forbidden`, which is what they always should have been.",
+  "expected": [],
+  "forbidden": [
+    {
+      "code": "MLV110",
+      "file": "train_accelerate.py",
+      "why": "the training DataLoader is built with shuffle=True at line 56"
+    },
+    {
+      "code": "MLV111",
+      "file": "train_accelerate.py",
+      "why": "the eval DataLoader is built with shuffle=False at line 58"
+    },
+    {
+      "code": "MLV112",
+      "file": "train_accelerate.py",
+      "why": "no DataLoader in this file passes num_workers at all, so no worker process is spawned"
+    },
+    {
+      "code": "MLV201",
+      "file": "train_accelerate.py",
+      "why": "optimizer.zero_grad() is called at line 113; zeroing at the end of the step rather than the start is the ordering the accelerate examples use and is equally correct"
+    },
+    {
+      "code": "MLV202",
+      "file": "train_accelerate.py",
+      "why": "optimizer.step() is called at line 111 after accelerator.backward(loss) at line 109"
+    },
+    {
+      "code": "MLV203",
+      "file": "train_accelerate.py",
+      "why": "the order is backward (109) -> clip -> step (111) -> scheduler (112) -> zero_grad (113); the zero_grad follows the step, so nothing wipes a gradient that was about to be applied"
+    },
+    {
+      "code": "MLV205",
+      "file": "train_accelerate.py",
+      "why": "the epoch loss is accumulated as running += loss.detach().float().item(), a Python float"
+    },
+    {
+      "code": "MLV301",
+      "file": "train_accelerate.py",
+      "why": "evaluate() calls model.eval() at line 64 and restores model.train() at line 75"
+    },
+    {
+      "code": "MLV302",
+      "file": "train_accelerate.py",
+      "why": "the evaluation loop is inside `with torch.no_grad():` at line 67"
+    },
+    {
+      "code": "MLV501",
+      "file": "train_accelerate.py",
+      "why": "Accelerator.prepare() owns device placement for the model and both dataloaders; moving batches by hand in an accelerate script is the mistake, not the fix"
+    },
+    {
+      "code": "MLV708",
+      "file": "train_accelerate.py",
+      "why": "there is no transformers.Trainer in this file at all - the loop is hand-written over accelerate"
+    },
+    {
+      "code": "MLV601",
+      "anchor": "project",
+      "symbol": "set_seed(args.seed)",
+      "why": "accelerate.utils.set_seed(args.seed) at line 81 seeds random, numpy, torch and torch.cuda - it is exactly the `seed_everything` the message says is absent, so the finding states something false about this file. Fixed in hardening round 1: `accelerate.utils.set_seed` / `accelerate.set_seed` carry the SEED role."
+    }
+  ]
+}
