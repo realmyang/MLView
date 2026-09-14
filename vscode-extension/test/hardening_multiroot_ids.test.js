@@ -33,10 +33,19 @@ const { api, vscode } = require('./harness.js');
 
 const { issueById, applyIssueFix, readFix } = api;
 
-const API_ROOT = path.join(path.sep, 'work', 'api');
-const WORKER_ROOT = path.join(path.sep, 'work', 'worker');
+// `path.resolve` and not `path.join`: on Windows a root-relative path has no
+// drive, and `Uri.file('\\work\\api\\train.py').fsPath` comes back as
+// `D:\\work\\api\\train.py` - the current drive. Resolving here makes the
+// fixtures and the expectations one spelling on every platform, and changes
+// nothing on POSIX, where `path.resolve('/work/api') === '/work/api'`.
+const API_ROOT = path.resolve(path.join(path.sep, 'work', 'api'));
+const WORKER_ROOT = path.resolve(path.join(path.sep, 'work', 'worker'));
 const API_TRAIN = path.join(API_ROOT, 'train.py');
 const WORKER_TRAIN = path.join(WORKER_ROOT, 'train.py');
+
+/** One spelling per file: these assertions are about WHICH file, never about
+ *  the separator or the drive letter the host happens to spell it with. */
+const resolved = (paths) => paths.map((p) => path.resolve(String(p)));
 
 const log = { lines: [], info: (m) => log.lines.push(m), warn: (m) => log.lines.push(m), error: (m) => log.lines.push(m) };
 
@@ -151,7 +160,7 @@ test('applying a fix by id alone edits the FIRST folder, not necessarily the one
 
   const edits = vscode.__recorded.appliedEdits;
   assert.equal(edits.length, 1, 'exactly one WorkspaceEdit');
-  const touched = edits[0].edits.map((e) => e.uri.fsPath);
+  const touched = resolved(edits[0].edits.map((e) => e.uri.fsPath));
   assert.deepEqual(
     touched,
     [API_TRAIN],
@@ -171,7 +180,7 @@ test('the same id in the other folder order edits the other file — the choice 
   const deps = { log, graphs: () => [{ issues: [workerIssue] }, { issues: [apiIssue] }] };
   const result = await applyIssueFix('i:4aaec0fa9d62', deps);
   assert.equal(result.applied, true);
-  const touched = vscode.__recorded.appliedEdits[0].edits.map((e) => e.uri.fsPath);
+  const touched = resolved(vscode.__recorded.appliedEdits[0].edits.map((e) => e.uri.fsPath));
   assert.deepEqual(
     touched,
     [WORKER_TRAIN],
@@ -186,6 +195,6 @@ test('a single-folder window is unaffected: the id names exactly one finding', a
   const deps = { log, graphs: () => [{ issues: [shuffleIssue(API_ROOT)] }] };
   const result = await applyIssueFix('i:4aaec0fa9d62', deps);
   assert.equal(result.applied, true);
-  const touched = vscode.__recorded.appliedEdits[0].edits.map((e) => e.uri.fsPath);
+  const touched = resolved(vscode.__recorded.appliedEdits[0].edits.map((e) => e.uri.fsPath));
   assert.deepEqual(touched, [API_TRAIN]);
 });

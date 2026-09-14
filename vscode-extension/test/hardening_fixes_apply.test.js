@@ -121,6 +121,18 @@ function docFor(absFile) {
   return { uri: vscode.Uri.file(absFile) };
 }
 
+/**
+ * One spelling for one file. The analyzer writes `absFile` forward-slashed
+ * (CONTRACTS section 0: every path in the document is forward-slashed, on every
+ * platform); `Uri.file(...).fsPath` gives the HOST separator. On Windows the
+ * two are `D:/a/MLView/.../train.py` and `D:\\a\\MLView\\...\\train.py` -
+ * the same file, and a strict compare of the two is a test of the separator
+ * rather than of the edit's target.
+ */
+function samePath(a, b) {
+  return path.resolve(String(a)) === path.resolve(String(b));
+}
+
 /** Apply one `vscode.Range`-shaped replacement (0-based line and character) to text. */
 function applyRange(text, range, newText) {
   const lines = text.split('\n');
@@ -251,7 +263,10 @@ maybe('every emitted edit converts §0 exactly once and carries needsConfirmatio
           true,
           `${name}: ${issue.code} edit ${i} would apply without the refactor preview`
         );
-        assert.equal(recorded.uri.fsPath, source.absFile);
+        assert.ok(
+          samePath(recorded.uri.fsPath, source.absFile),
+          `${name}: ${issue.code} edit ${i} names ${recorded.uri.fsPath}, not ${source.absFile}`
+        );
       });
     }
   }
