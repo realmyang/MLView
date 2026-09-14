@@ -95,12 +95,12 @@ test('dist/mlview.css IS the minification of dist/mlview.dev.css (BUILD-01)', as
  * MEASURED ON THIS TREE, 2026-09-14, after hardening round 2 landed on top of
  * round 1's hosts-ux work, PERF-04 (the hierarchical rollup) and MLV-P12
  * (multi-pipeline workspaces):
- *   dist/mlview.js       329 332 B (321.6 KB)
+ *   dist/mlview.js       329 631 B (321.9 KB)
  *   dist/mlview.css       73 019 B  (71.3 KB), minified from 133 523 B (-45%)
  *   dist/mlview.dev.css  133 523 B (130.4 KB, never shipped)
  *
- * ROUND 2 moved the JS by +2 118 B and the CSS by +162 B, and NEITHER CAP with
- * them: 4 492 B (1.3 %) and 1 733 B (2.3 %) of headroom remain, so the ratchet
+ * ROUND 2 moved the JS by +2 417 B and the CSS by +162 B, and NEITHER CAP with
+ * them: 4 193 B (1.3 %) and 1 733 B (2.3 %) of headroom remain, so the ratchet
  * set below still does its job unchanged. Where it went, largest first.
  * TAB2-10 / HOSTS-UX-R2-06 is the item (CONTRACTS 11.61): `ui/chromenotes.ts`
  * learned `unresolved_callee` as a coverage kind and builds its chip from
@@ -111,7 +111,11 @@ test('dist/mlview.css IS the minification of dist/mlview.dev.css (BUILD-01)', as
  * 200 px. HOSTS-UX-ROWCOUNT is next (about 0.4 KB): `scope/catalog.ts` gained
  * `viewCountOf`, which runs the same `project()` the click runs for ANY
  * selector, so a unit or stage row promises the number its own click delivers
- * the way round 1's pipeline rows already did. The rest is two lines:
+ * the way round 1's pipeline rows already did, and `scope/project.ts` pays for
+ * it honestly: steps 3-7 are now `keptSets`, so `projectedNodeCount` answers a
+ * row without step 8's copy of every kept node and edge -- 819 ms -> 101 ms to
+ * open a 222-row picker over a 400-node, 2 220-edge public repository, with one
+ * implementation still behind both numbers. The rest is two lines:
  * HOSTS-UX-LEGENDPAN widened one `closest()` selector in `ui/shell.ts` so a
  * press on a canvas-hosted overlay is that overlay's gesture, and the CSS is
  * the chip's ellipsis rule plus HOSTS-UX-ANSWERWRAP's `overflow-wrap` on the
@@ -238,7 +242,7 @@ test('dist/mlview.css IS the minification of dist/mlview.dev.css (BUILD-01)', as
  * again: `the figures in the block above are the constants below` reads this
  * file and fails on a one-byte disagreement.
  */
-const JS_RECORDED = 329332;
+const JS_RECORDED = 329631;
 const CSS_RECORDED = 73019;
 const DRIFT = 2 * 1024;
 const JS_MAX_BYTES = 326 * 1024;

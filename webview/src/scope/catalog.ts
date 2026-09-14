@@ -10,7 +10,7 @@
 
 import { CONCERNS, CONCERN_LABELS, CONCERN_NAMES, parseScope } from './selector.js';
 import { PipelineIndex } from './pipelines.js';
-import { project } from './project.js';
+import { project, projectedNodeCount } from './project.js';
 import type { PipelineRow } from './pipelines.js';
 import type { IssueCounts, MLGraph, MLNode, Severity } from '../types.js';
 
@@ -252,7 +252,10 @@ export function viewCountOf(graph: MLGraph, spec: string): number | null {
   if (hit !== undefined) return hit;
   let count: number;
   try {
-    count = project(graph, parseScope(spec)).nodes.length;
+    // The count, not the document: `projectedNodeCount` runs the click's own
+    // steps 3-7 and stops before step 8 copies every kept node and edge, which
+    // is what keeps a 222-row menu over a 400-node repository inside a frame.
+    count = projectedNodeCount(graph, parseScope(spec));
   } catch (_e) {
     return null;
   }

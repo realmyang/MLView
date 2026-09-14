@@ -234,12 +234,32 @@ export function project(graph: MLGraph, scope: Scope): MLGraph {
  * `project()`'s behaviour is byte-for-byte what it was — this is an extraction,
  * not a change, and `test/scope_parity.test.mjs` is what says so.
  */
-export function projectResolved(
-  graph: MLGraph,
-  scope: Scope,
-  resolution: ScopeResolution,
-  labelOverride?: string,
-): MLGraph {
+/** What steps 3-7 decide: the sets, before anything is copied. */
+interface KeptSets {
+  core: Set<string>;
+  boundary: Set<string>;
+  kept: Set<string>;
+  keptEdges: MLEdge[];
+  retained: Issue[];
+  promoted: Map<string, string[]>;
+  byId: Map<string, MLNode>;
+}
+
+/**
+ * Steps 3-7 of 11.2 — which nodes, edges and issues survive — and nothing else.
+ *
+ * This is an EXTRACTION from `projectResolved`, in the same sense that
+ * `projectResolved` is one from `project()`: the lines and their order are
+ * unchanged, and `webview/test/scope_parity.test.mjs` is what says so. It exists
+ * because step 8 clones every kept node and every kept edge, and a caller that
+ * only wants `|nodes(D')|` pays that for nothing: `projectedNodeCount` is asked
+ * once per row by the scope picker — 222 rows on a 400-node, 2 220-edge public
+ * repository, where the copying measured 97 % of the work and none of the
+ * answer. One implementation with two consumers is the point: the number a menu
+ * row PROMISES has to come from the steps its own click runs (HOSTS-UX-ROWCOUNT),
+ * and a second copy of the rules would be a second thing to keep in step.
+ */
+function keptSets(graph: MLGraph, scope: Scope, resolution: ScopeResolution): KeptSets {
   const nodes = graph.nodes || [];
   const edges = graph.edges || [];
   const issues = graph.issues || [];
@@ -277,6 +297,36 @@ export function projectResolved(
   retained = pruned.retained;
   kept = pruned.kept;
   keptEdges = pruned.keptEdges;
+
+  return { core, boundary, kept, keptEdges, retained, promoted, byId };
+}
+
+/**
+ * `|nodes(project(D, scope))|` without building `project(D, scope)`.
+ *
+ * Counted over `graph.nodes` rather than as `kept.size` so it is step 8's own
+ * arithmetic: the kept set is a set of ids and the document is the list of
+ * nodes, and the count that matters is how many CARDS get drawn.
+ */
+export function projectedNodeCount(graph: MLGraph, scope: Scope): number {
+  const nodes = graph.nodes || [];
+  if (isAll(scope)) return nodes.length;
+  const { kept } = keptSets(graph, scope, resolveScope(graph, scope));
+  let drawn = 0;
+  for (const node of nodes) {
+    if (kept.has(node.id)) drawn++;
+  }
+  return drawn;
+}
+
+export function projectResolved(
+  graph: MLGraph,
+  scope: Scope,
+  resolution: ScopeResolution,
+  labelOverride?: string,
+): MLGraph {
+  const nodes = graph.nodes || [];
+  const { core, boundary, kept, keptEdges, retained, promoted } = keptSets(graph, scope, resolution);
 
   const liveIssueIds = new Set(retained.map((i) => i.id));
 
