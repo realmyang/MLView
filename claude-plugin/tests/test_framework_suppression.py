@@ -50,6 +50,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 
 import pytest
 
@@ -58,7 +59,7 @@ import mlview_mcp
 import mlview_notes as notes
 import mlview_payloads as payloads
 import mlview_workspace as workspace
-from plugin_support import REPO_ROOT, synthetic_graph
+from plugin_support import PLUGIN_ROOT, REPO_ROOT, synthetic_graph
 
 LIMIT = 4096
 
@@ -222,13 +223,23 @@ def test_the_payload_names_the_rules_the_filter_disabled(project):
     assert filtered["stats"]["issues"]["high"] == 0, "the shorter answer, as measured"
 
     # The tally is a per-KIND sum, and this workspace has two statements under
-    # that one kind: the analyzer's absence gate (1 rule de-rated) and this
-    # filter (3 rules not run). 1 + 3 is what a tally of occurrences means, and
-    # it is why the tally is documented as "not an explanation" - the coverage
-    # row below is the statement, and it names the three.
-    assert filtered["diagnostics"] == [{"kind": "framework_suppressed", "count": 4}]
+    # `framework_suppressed`: the analyzer's absence gate (1 rule de-rated) and
+    # this host's filter note (3 rules not run). 1 + 3 is what a tally of
+    # occurrences means, and it is why the tally is documented as "not an
+    # explanation" - the coverage row below is the statement, and it names the
+    # three. `framework_filter` is C8's: the ANALYZER naming the same three, which
+    # is why exactly one of the two reaches the coverage block (§11.4 C3).
+    assert filtered["diagnostics"] == [
+        {"kind": "framework_suppressed", "count": 4},
+        {"kind": "framework_filter", "count": 3},
+    ]
+    assert len(filtered["coverage"]) == 1, (
+        "one cost, one row: the analyzer's `framework_filter` and this host's "
+        "`framework_suppressed` name the same three rules, and a reader who saw "
+        "both would be invited to add 3 and 3"
+    )
     row = filtered["coverage"][0]
-    assert row["kind"] == "framework_suppressed"
+    assert row["kind"] == "framework_filter", "the producer that ran the rules wins"
     assert row["codes"] == TORCH_ON_KERAS
     assert row["count"] == 3
     for code in TORCH_ON_KERAS:
@@ -362,8 +373,8 @@ def test_every_accepted_filter_fits_the_coverage_block_uncut(framework):
     assert len(rendered["codes"]) <= notes.MAX_CODES
 
 
-def test_all_three_coverage_kinds_fit_one_payload():
-    """The block is protected from the budget walk, so it has to stay bounded."""
+def _widest_graph(with_framework_filter):
+    """A document carrying every coverage kind this host reads, at full width."""
     graph = synthetic_graph(nodes=8, edges=4, issues=60)
     graph["diagnostics"] = [
         {"kind": "single_file_analysis", "message": "x" * 500,
@@ -374,13 +385,50 @@ def test_all_three_coverage_kinds_fit_one_payload():
             {"workspace": {"frameworks": ["torch", "keras", "tf"]}}, "lightning"
         ),
     ]
-    payload = payloads.issues_payload(graph)
-    assert [row["kind"] for row in payload["coverage"]] == list(notes.COVERAGE_KINDS)
+    if with_framework_filter:
+        graph["diagnostics"].append(
+            {"kind": "framework_filter", "message": "z" * 500,
+             "codes": ["MLV121", "MLV705"], "count": 2}
+        )
+    return graph
+
+
+@pytest.mark.parametrize("with_framework_filter", [False, True])
+def test_the_widest_coverage_block_fits_one_payload(with_framework_filter):
+    """The block is protected from the budget walk, so it has to stay bounded.
+
+    Three rows either way, never four: `framework_filter` and the filter half of
+    `framework_suppressed` are two statements of ONE cost (CONTRACTS §11.4 C3),
+    so whichever is present renders and the other does not.
+    """
+    payload = payloads.issues_payload(_widest_graph(with_framework_filter))
+    filter_kind = "framework_filter" if with_framework_filter else "framework_suppressed"
+    assert [row["kind"] for row in payload["coverage"]] == [
+        "single_file_analysis", "untagged_dataflow", filter_kind,
+    ]
     assert budget.payload_size(payload) <= LIMIT
     for row in payload["coverage"]:
         assert len(row["codes"]) <= notes.MAX_CODES
         assert len(row["message"]) <= notes.MAX_MESSAGE
-    assert "framework_suppressed" in payload["note"]
+    assert filter_kind in payload["note"]
+
+
+def test_every_kind_this_host_reads_is_one_the_core_or_this_host_emits():
+    """CONTRACTS §2.6 C9 as restated by §17 E40: a SUBSET rule plus a naming one.
+
+    No coverage kind the core emits may be dropped by a host, and each EXTRA kind
+    a host lists is named in the contract. `framework_suppressed` is the one extra
+    and §11.4 B1 is where it is named.
+    """
+    from mlview.core import coverage as core_coverage
+
+    assert set(core_coverage.COVERAGE_KINDS) <= set(notes.COVERAGE_KINDS), (
+        "a kind the analyzer emits as coverage and this host drops is a caveat "
+        "the model never sees"
+    )
+    assert set(notes.COVERAGE_KINDS) - set(core_coverage.COVERAGE_KINDS) == {
+        "framework_suppressed"
+    }
 
 
 def test_a_kind_with_no_wording_of_its_own_borrows_no_other_kinds_explanation():
@@ -408,3 +456,98 @@ def test_the_document_written_to_disk_stays_schema_valid(project):
         document = json.load(handle)
     assert _filter_notes(document), "the diagnostic under test has to be in there"
     jsonschema.validate(document, schema)
+
+
+# ----------------------------------------------- the prompts that read the row
+# The payload half of C8 is only half the fix: `commands/*.md` is what tells the
+# model what a coverage row MEANS and what to offer when it sees one. Those files
+# enumerated `framework_suppressed` while `coverage_notes` had already started
+# rendering the analyzer's `framework_filter` in its place, so the only
+# instruction that closes the loop - "offer to re-run with auto" - was keyed to a
+# row a current build never emits. These tests pin both directions.
+COMMAND_FILES = ("mlview.md", "mlview-issues.md")
+
+#: A backticked lowercase identifier whose tail is one a coverage kind can have.
+#: Wider than `COVERAGE_KINDS` on purpose: a prompt naming `framework_filtered`
+#: has to fail here, and a check written as `token in COVERAGE_KINDS` could not.
+_KIND_SHAPED = ("_analysis", "_dataflow", "_filter", "_suppressed")
+
+
+def _command_text(name):
+    with open(os.path.join(PLUGIN_ROOT, "commands", name), encoding="utf-8") as fh:
+        return fh.read()
+
+
+def _backticked(text):
+    return set(re.findall(r"`([a-z][a-z0-9]*(?:_[a-z0-9]+)+)`", text))
+
+
+def _coverage_entry(kind):
+    """A diagnostic of `kind` that `coverage_notes` is willing to render."""
+    if kind == "framework_suppressed":
+        # Only the FILTER half of the kind is a coverage caveat, and it is
+        # recognized by its message - so this has to be the real note.
+        return workspace.framework_suppression(
+            {"workspace": {"frameworks": ["keras", "tf"]}}, "torch"
+        )
+    return {"kind": kind, "message": "measured", "codes": ["MLV301"], "count": 1}
+
+
+def test_every_coverage_kind_this_host_can_render_is_explained_by_both_prompts():
+    """Payload -> prompt: a row the model can receive must have prose about it.
+
+    Rendered here rather than read off `COVERAGE_KINDS`, so a kind that stops
+    reaching the block stops being required in the prompts at the same moment.
+    """
+    renderable = set()
+    for kind in notes.COVERAGE_KINDS:
+        renderable.update(
+            row["kind"]
+            for row in notes.coverage_notes({"diagnostics": [_coverage_entry(kind)]})
+        )
+    assert renderable == set(notes.COVERAGE_KINDS), (
+        "every kind in COVERAGE_KINDS renders from a document carrying only it; "
+        "one that cannot is dead weight in the tuple"
+    )
+    for name in COMMAND_FILES:
+        missing = renderable - _backticked(_command_text(name))
+        assert not missing, (
+            "commands/%s never names %s, a coverage row the model can be handed"
+            % (name, ", ".join(sorted(missing)))
+        )
+
+
+def test_no_prompt_names_a_coverage_kind_this_host_cannot_produce():
+    """Prompt -> payload: the other direction, which is how H3 got in."""
+    for name in COMMAND_FILES:
+        named = {t for t in _backticked(_command_text(name))
+                 if t.endswith(_KIND_SHAPED)}
+        assert named <= set(notes.COVERAGE_KINDS), (name, sorted(named))
+
+
+def test_the_re_run_with_auto_offer_is_keyed_to_the_row_the_filter_produces(project):
+    """The one instruction that closes C8's loop has to sit on the rendered kind.
+
+    Measured on the fixture: a `torch` filter on this Keras workspace renders
+    `framework_filter` and nothing else, so prose hung on `framework_suppressed`
+    alone is an instruction the model never reaches.
+    """
+    payload = mlview_mcp.mlview_analyze(path=str(project), framework="torch")
+    rendered = [row["kind"] for row in payload["coverage"]]
+    assert rendered == ["framework_filter"], payload["coverage"]
+
+    text = _command_text("mlview.md")
+    offers = [p for p in text.split("\n\n") if 'framework: "auto"' in p]
+    assert len(offers) == 1, "one offer, or this test is reading the wrong prose"
+    for kind in rendered:
+        assert kind in offers[0], offers[0]
+
+
+def test_the_tool_docstring_names_the_rendered_row_too(project):
+    """`mlview_analyze.__doc__` is prose the model reads before it ever calls the
+    tool, and it promised a `framework_suppressed` coverage row for the same
+    reason the commands did."""
+    doc = mlview_mcp.mlview_analyze.__doc__ or ""
+    payload = mlview_mcp.mlview_analyze(path=str(project), framework="torch")
+    for row in payload["coverage"]:
+        assert row["kind"] in doc, row["kind"]

@@ -107,6 +107,16 @@
       "why": "LABEL CORRECTED in hardening round 2: this row was recorded as `unsupported` only because finding DGRG2-01 (DGRG-18) made it unreachable - `model = torch.load(\"sage_best.pt\")` at line 112, written BELOW both evaluation calls, replaced a MODEL-tagged binding with an untyped checkpoint for the whole scope. `ir/bindings._restored_into` now carries the MODEL tag and the class through a LOAD that restores into a name that already held a model, so the defect is detectable and the row is a planted defect like any other. Original note: same cause as the MLV301 row above: finding DGRG-18."
     },
     {
+      "code": "MLV305",
+      "file": "train_sage.py",
+      "line": 91,
+      "symbol": "accuracy_score",
+      "severity": "medium",
+      "verdict": "expected",
+      "defect": "accuracy_score is fed raw logits instead of the argmax class",
+      "why": "LABEL PROMOTED in the recall campaign (R4, 2026-09-15): this row was `unsupported` only because `torch.cat(predicted).numpy()` carried no LOGITS tag - the tag died in the per-batch list and again in the `.detach().cpu().numpy()` tail. `rules/valuetype.py` now reads both: the collector's list is typed by the intersection of every `append`, and the container/device tail is walked through. The source says so itself at train_sage.py:88 - \"DEFECT: the raw logits are handed to accuracy_score instead of the argmax class\" - and `logits` is the value `model(batch.x, batch.edge_index)` returns, so the finding is a planted defect like any other. Original note: declared: the document carries an `untagged_dataflow` diagnostic naming MLV305 and train_sage.evaluate by name, because torch.cat().numpy() carries no LOGITS tag."
+    },
+    {
       "code": "MLV803",
       "file": "train_sage.py",
       "line": 108,
@@ -205,14 +215,6 @@
     }
   ],
   "unsupported": [
-    {
-      "wouldBe": "MLV305",
-      "file": "train_sage.py",
-      "line": 91,
-      "symbol": "accuracy_score",
-      "defect": "accuracy_score is fed raw logits instead of the argmax class",
-      "why": "declared: the document carries an `untagged_dataflow` diagnostic naming MLV305 and train_sage.evaluate by name, because torch.cat().numpy() carries no LOGITS tag."
-    },
     {
       "wouldBe": "MLV107",
       "file": "train_sage.py",

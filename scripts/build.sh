@@ -5,7 +5,7 @@
 #
 # 1. webview          npm install + npm run build       -> webview/dist/mlview.{js,css}
 # 2. tools/sync-assets.py                               -> the extension and the analyzer get the SAME bundle
-# 3. tools/sync-core.py                                 -> claude-plugin/vendor/mlview (no pip install for the plugin)
+# 3. tools/sync-core.py                                 -> claude-plugin/vendor/mlview (tracked) + vscode-extension/core/mlview (BUILT, gitignored)
 # 4. vscode-extension npm install + compile + check     -> out/extension.js, tsc clean
 # 5. analyzer         pip install -e                    -> `python -m mlview` on this interpreter
 # 6. analyzer         python -m build --wheel           -> analyzer/dist/*.whl (PACKAGING)
@@ -58,6 +58,12 @@ section "2/6 tools/sync-assets.py — one renderer in all three places"
 cd "$REPO_ROOT"
 "$PYTHON" tools/sync-assets.py
 
+# C2: the extension's copy is a gitignored BUILD ARTIFACT, so this step is the
+# only thing that puts it on disk for a fresh clone. `npm run compile` in step 4
+# runs the same script through vscode-extension/tools/sync-core.mjs, so a build
+# that skipped this line would still package a current core — but the plugin's
+# tracked copy is synced here too, and `tools/verify.py --vsix` is strict about
+# the extension's copy existing.
 section "3/6 tools/sync-core.py — vendor the analyzer into the plugin AND the extension"
 "$PYTHON" tools/sync-core.py
 
@@ -83,15 +89,24 @@ fi
 # hard dependency of this repo: without it the step says so and the build carries
 # on, because a missing publishing tool must never redden a developer's build.
 section "6/6 analyzer — build the wheel into analyzer/dist"
+WHEEL_STEP="built"
 if "$PYTHON" -c "import build" >/dev/null 2>&1; then
   rm -rf "$REPO_ROOT/analyzer/dist"
   "$PYTHON" -m build --wheel analyzer
   ls -l "$REPO_ROOT/analyzer/dist"
 else
   echo "build is not installed - skipping the wheel (pip install build)"
+  WHEEL_STEP="skipped"
 fi
 
 "$PYTHON" -m mlview --version
 
-printf '\nBUILD OK\n'
+# FC-15: "BUILD OK" over six steps when the sixth built nothing left the reader
+# with no wheel in analyzer/dist and no idea of it -- which is also what made the
+# e2e wheel row a silent no-op. The banner now says which of the two it was.
+if [ "$WHEEL_STEP" = "skipped" ]; then
+  printf '\nBUILD OK — 5 of 6 steps (wheel skipped: pip install build)\n'
+else
+  printf '\nBUILD OK — 6 steps\n'
+fi
 echo "next: sh scripts/e2e.sh"

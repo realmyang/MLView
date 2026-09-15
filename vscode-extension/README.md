@@ -5,6 +5,12 @@ diagram**, plus a Problems-panel list of what is likely broken, from **static an
 No code is imported or executed, nothing touches the network, and neither PyTorch nor
 scikit-learn needs to be installed.
 
+It is part of [MLView](https://github.com/realmyang/MLView): the repository root's
+[`README.md`](../README.md) is the overview — screenshots, the ninety-second quick start for all
+three hosts, the rule families and the measured accuracy. **Nothing is published yet**: the
+extension is not on the VS Code Marketplace or Open VSX, so installing it means cloning the
+repository and either pressing F5 (below) or building a VSIX with `npm run package`.
+
 This extension is the **host adapter**. It transports and renders; it never analyses:
 
 | It does | It never does |
@@ -48,11 +54,15 @@ JSON on the first non-ASCII identifier or path on Windows.
 
 ## Running it from source (F5)
 
-```powershell
+```sh
 cd vscode-extension
 npm install
 npm run compile          # esbuild -> out/extension.js (cjs, node, external:vscode)
 ```
+
+The three lines are the same in PowerShell. `npm install` needs **Node 20 or newer**; the
+analyzer it spawns needs **Python 3.10+**, and `pip install -e ../analyzer` from a clone is the
+quickest way to have one (the VSIX bundles its own copy instead).
 
 Then press **F5** in VS Code with `vscode-extension/` open. The bundled launch configuration
 starts an Extension Development Host with `--extensionDevelopmentPath=${workspaceFolder}` and
@@ -60,12 +70,17 @@ opens `${workspaceFolder}/../samples/vision_pipeline`.
 
 From a terminal instead:
 
+```sh
+code --extensionDevelopmentPath=<abs>/vscode-extension <abs>/samples/vision_pipeline
+```
+
 ```powershell
 code --extensionDevelopmentPath=<abs>\vscode-extension <abs>\samples\vision_pipeline
 ```
 
 Other scripts: `npm run check` (`tsc --noEmit`), `npm test` (`node --test`, which rebuilds the
-bundles first), `npm run watch`, `npm run sync:rule-docs` (copies `../docs/rules/MLV*.md` into
+bundles first), `npm run watch` (syncs the bundled core once, then rebuilds the bundles on every
+edit), `npm run sync:rule-docs` (copies `../docs/rules/MLV*.md` into
 `docs/rules/`; `npm run compile` and `npm run pretest` already run it), and `npm run package`
 (`npx --yes @vscode/vsce package --no-dependencies --allow-missing-repository` — `vsce` is not a
 devDependency, so this resolves it through npx from the local npm cache). Packaging is verified
@@ -280,6 +295,10 @@ split is:
   tool body is an exported pure function exercised by `node --test` with a stubbed core. They
   have **not** been run against a live Copilot session on this machine.
 
+Closing that gap is a person's job, not a test's: [`../docs/VALIDATION.md`](../docs/VALIDATION.md)
+session A is the 30-minute script for it — what to click, what "working" means for each check,
+and where to write down what you saw.
+
 Registration is feature-detected: `vscode.chat?.createChatParticipant` and
 `vscode.lm?.registerTool` are `typeof`-guarded inside try/catch, and when they are absent the
 output channel logs `chat API unavailable - participant not registered` and activation continues
@@ -307,12 +326,33 @@ src/
   location.ts        THE 1-based -> 0-based conversion, and the workspace-containment guards
                                                                  issues.ts, settings.ts, log.ts
 test/                node --test suites with a mocked `vscode` module
-tools/               sync-rule-docs.mjs (build-time only; excluded from the .vsix)
+tools/               sync-core.mjs, sync-rule-docs.mjs (build-time only; excluded from the .vsix)
+core/mlview/         BUILD ARTIFACT: the bundled analyzer, written by tools/sync-core.mjs
 media/               the synced viewer bundle (written only by tools/sync-assets.py)
 docs/rules/          offline rule pages, copied from <repo>/docs/rules by `npm run compile`
 ```
+
+`core/mlview/` is **not in git**. `compile`, `pretest` and `vscode:prepublish` all run
+`tools/sync-core.mjs`, which writes it out of `<repo>/analyzer/src/mlview`, so a fresh clone
+has no `core/` until one of those has run — and that is correct, because a VSIX is packaged
+from a working tree and a second tracked copy of the analyzer is a second thing to drift.
+(The Claude Code plugin's `vendor/mlview` is the opposite case and *is* tracked: a marketplace
+install copies the plugin directory verbatim off a git ref, with no build step to write
+anything.)
 
 `docs/rules/` is what makes a diagnostic's `code.target` a **local** file in an installed
 extension: `<extensionPath>/docs/rules/MLV201.md`. The `<repo>/docs/rules` fallback in
 `diagnostics.ts` only ever resolves in a dev checkout, so the pages are synced into the
 extension at build time and shipped in the `.vsix`.
+
+---
+
+## More documentation
+
+| Document | What it is for |
+|---|---|
+| [`../README.md`](../README.md) | What MLView is, and the ninety-second demo |
+| [`../docs/STATUS.md`](../docs/STATUS.md) | What is verified today, and the known gaps |
+| [`../docs/CONTRACTS.md`](../docs/CONTRACTS.md) | **Normative.** The schema, the CLI, the MCP tools, the message protocol |
+| [`../docs/VALIDATION.md`](../docs/VALIDATION.md) | Validating this host by hand on another machine, and publishing it |
+| [`../CHANGELOG.md`](../CHANGELOG.md) | The dated history, newest first |

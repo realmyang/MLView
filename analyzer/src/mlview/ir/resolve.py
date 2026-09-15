@@ -12,244 +12,30 @@ mark (`mark_fitted`).
 
 Split out of `bindings.py`, which owns the other direction: assignments ->
 `ValueRef`s. The dependency runs one way, `resolve` -> `bindings`.
+
+Two modules carry what is not the resolution of a single call:
+`ir/resolve_receivers.py` answers "what could this receiver be?" (the family
+tables and the candidate walk), and `ir/resolve_passes.py` holds the three
+cross-call passes. Both are re-exported from here, so `resolve_calls`,
+`seed_annotations`, `propagate_parameters` and `mark_fitted` are still four
+names on one module.
 """
 
 from __future__ import annotations
 
 import ast
-from typing import List, Optional, Tuple
+from typing import Optional, Tuple
 
 from .. import knowledge as K
-from .bindings import TENSOR_ROLES, binding_of, call_output_tags
+from .bindings import binding_of
 from .model import CallSite, ClassIR, ModuleIR, ScopeIR, ValueRef, sort_tags
-from .returns import slot_of
+from .resolve_passes import (_value_of_call, mark_fitted,  # noqa: F401
+                             propagate_parameters, seed_annotations)
+from .resolve_receivers import (_canonical_for_receiver, _class_scope,
+                                _local_lookup)
 from .symbols import dotted_text
 
 __all__ = ["resolve_calls", "seed_annotations", "propagate_parameters", "mark_fitted"]
-
-#: Receiver bases for values that are plain data frames / arrays.
-_FRAME_BASES = ("pandas.DataFrame", "pandas.Series", "numpy.ndarray")
-
-_FAMILY_BASE = {
-    "module": "torch.nn.Module",
-    "loss": "torch.nn.Module",
-    "optimizer": "torch.optim.Optimizer",
-    "scheduler": "torch.optim.lr_scheduler.LRScheduler",
-    "grad_scaler": "torch.amp.GradScaler",
-    "tensor": "torch.Tensor",
-    "estimator": "sklearn.base.BaseEstimator",
-    "splitter": "sklearn.model_selection.BaseCrossValidator",
-    "keras_model": "keras.Model",
-    "hf_trainer": "transformers.Trainer",
-    "lightning_trainer": "pytorch_lightning.Trainer",
-    "argparse": "argparse.ArgumentParser",
-    "loader": "torch.utils.data.DataLoader",
-    "dataset": "torch.utils.data.Dataset",
-    # FW-RECOG (11.23). Each of these is what carries a *chain*: the value the
-    # previous link returned has no name to look up, so the family is the only
-    # thing that says `.map` here is `tensorflow.data.Dataset.map`.
-    "tf_dataset": "tensorflow.data.Dataset",
-    "hf_dataset": "datasets.Dataset",
-    "keras_dataset": "tensorflow.data.Dataset",
-    "lightning_module": "pytorch_lightning.LightningModule",
-    # INFRA-03 / INFRA-04 / TAB-01. Each of these is a wrapper object whose
-    # methods *are* the pipeline: `learn.fine_tune(...)`, `engine.save_
-    # checkpoint(...)`, `evaluator.run(...)`, `model.fit()` on a SARIMAX.
-    # Without the family the method call resolves to nothing and the stage it
-    # belongs to is declared absent on correct code.
-    "fastai_learner": "fastai.learner.Learner",
-    "deepspeed_engine": "deepspeed.DeepSpeedEngine",
-    "ignite_evaluator": "ignite.engine.create_supervised_evaluator",
-    "statsmodel": "statsmodels.api.SARIMAX",
-    "prophet": "prophet.Prophet",
-    "timm_scheduler": "timm.scheduler.CosineLRScheduler",
-    "mixup": "timm.data.Mixup",
-    # INFRA-R2-05 / PUB2-08. The two shapes whose *methods* are the pipeline
-    # and whose constructor nobody writes: a TF2 `GradientTape`, a Keras
-    # optimizer's `apply_gradients`, and the native boosting `Booster` that
-    # `xgb.train(...)` / `lgb.train(...)` hand back.
-    "accelerator": "accelerate.Accelerator",
-    "fabric": "lightning.fabric.Fabric",
-    "grad_tape": "tensorflow.GradientTape",
-    "keras_optimizer": "keras.optimizers.Optimizer",
-    "xgb_booster": "xgboost.Booster",
-    "lgb_booster": "lightgbm.Booster",
-}
-
-
-def _class_scope(scope: ScopeIR) -> Optional[ScopeIR]:
-    cur: Optional[ScopeIR] = scope
-    while cur is not None:
-        if cur.kind == "class":
-            return cur
-        cur = cur.parent
-    return None
-
-
-# ---------------------------------------------------------------------------
-# receiver resolution
-# ---------------------------------------------------------------------------
-
-def _local_lookup(module: ModuleIR, scope: ScopeIR, name: str):
-    """A class or function defined in this module, visible from `scope`."""
-    cur: Optional[ScopeIR] = scope
-    while cur is not None:
-        qual = "%s.%s" % (cur.qualname, name)
-        if qual in module.classes:
-            return module.classes[qual], None
-        if qual in module.functions:
-            return None, module.functions[qual]
-        cur = cur.parent
-    return None, None
-
-
-def _producer_entry(ref: ValueRef):
-    if ref.via_fqns:
-        entry, fqn = K.best_entry(ref.via_fqns)
-        if entry is not None:
-            return entry, fqn
-    producer = ref.producer
-    if producer is None:
-        return None, None
-    return K.best_entry(producer.canonical_fqns or ((producer.fqn,) if producer.fqn else ()))
-
-
-def _family_of_ref(ref: ValueRef) -> Optional[str]:
-    """Which receiver family this value belongs to (`module`, `tensor`, ...)."""
-    entry, _fqn = _producer_entry(ref)
-    if entry is not None and entry["role"] in TENSOR_ROLES:
-        return "tensor"
-    if ref.class_ir is not None:
-        # FW-RECOG: a LightningModule answers to its own method surface first.
-        # It *is* an nn.Module, so without this `self.log(...)` would resolve
-        # through `torch.nn.` and prefix-match to role LAYER - a layer node in
-        # the Model lane for a logging call, the same fabrication 11.19 A2 shut
-        # down for `self.loss_fn`.
-        if ref.class_ir.is_hook_owner:
-            return "lightning_module"
-        if ref.class_ir.is_nn_module:
-            return "module"
-        bases = ref.class_ir.resolved_bases
-        if any(b.startswith("torch.utils.data.") for b in bases):
-            return "dataset"
-        if any(b.startswith("sklearn.") for b in bases):
-            return "estimator"
-    if entry is not None and entry["family"]:
-        return entry["family"]
-    if ref.has("LOSS", "LOGITS", "PROBS", "PREDS", "BATCH"):
-        return "tensor"
-    if ref.has("MODEL"):
-        return "module"
-    if ref.has("OPTIMIZER"):
-        return "optimizer"
-    if ref.has("LOADER"):
-        return "loader"
-    if ref.has("DEVICE"):
-        return "device"
-    if ref.has("RAW_DATA", "FEATURES", "TARGET", "TRAIN_SPLIT", "VAL_SPLIT",
-               "TEST_SPLIT"):
-        return "frame"
-    return None
-
-
-def _is_class_like(entry, producer_fqn: str) -> bool:
-    """May `<producer FQN>.<method>` name a real symbol?
-
-    Only when the producer is a *class* (a knowledge row with a receiver
-    family) and is not itself a method. `cross_val_score` is a plain function,
-    so `sklearn.model_selection.cross_val_score.mean` does not exist - and the
-    `sklearn.model_selection.` prefix rule would happily classify it as a
-    `split` node in the Data lane (CONTRACTS section 1: `Node.fqn` is a
-    "canonical third-party symbol").
-    """
-    if entry is None or not entry.get("family"):
-        return False
-    if entry["role"] in TENSOR_ROLES:
-        return False
-    return producer_fqn not in K.METHODS
-
-
-#: Frameworks whose objects really are `torch.nn.Module` subclasses.
-_TORCH_FRAMEWORKS = ("torch", "torchvision", "lightning", "hf", "torchmetrics")
-
-
-def _is_torch_module(ref: ValueRef, entry, family: Optional[str], method: str) -> bool:
-    """May `torch.nn.Module.<method>` be proposed for this receiver?
-
-    The MODEL tag alone is not enough: an sklearn estimator carries it too, and
-    `torch.nn.` prefix-matches *any* attribute, so an ungated candidate invents
-    symbols like `torch.nn.Module.predict` - which then mislanes the node into
-    the Model lane and adds a phantom `torch` framework to a pure-sklearn file.
-    """
-    if K.lookup_exact("torch.nn.Module.%s" % method) is not None:
-        return True                  # a real nn.Module method, whoever the receiver is
-    if ref.class_ir is not None and ref.class_ir.is_model_module:
-        return True
-    if family in ("module", "loss", "lightning_module") and entry is not None:
-        if entry.get("framework") in _TORCH_FRAMEWORKS:
-            return True
-    return False
-
-
-def _canonical_for_receiver(ref: ValueRef, method: str) -> Tuple[str, ...]:
-    """`obj.m()` -> [<producer FQN>.m, <family base>.m, ...] in specificity order."""
-    out: List[str] = []
-    family = _family_of_ref(ref)
-    entry, producer_fqn = _producer_entry(ref)
-    tensor_like = family == "tensor"
-    torch_module = _is_torch_module(ref, entry, family, method)
-
-    if not tensor_like:
-        if producer_fqn and _is_class_like(entry, producer_fqn):
-            out.append("%s.%s" % (producer_fqn, method))
-        elif ref.class_ir is not None:
-            out.append("%s.%s" % (ref.class_ir.qualname, method))
-    if ref.class_ir is not None:
-        candidate = "%s.%s" % (ref.class_ir.qualname, method)
-        if candidate not in out:
-            out.append(candidate)
-
-    # FW-RECOG. When the receiver's own workspace class **declares** this
-    # method, a framework base may only be proposed for it if that base really
-    # publishes the symbol. `def encode(self, x)` on an nn.Module subclass used
-    # to produce `torch.nn.Module.encode`, which prefix-matches `torch.nn.` to
-    # role LAYER and drew a layer node for a helper the framework never heard
-    # of. `torch.nn.Module.forward` survives because it is an exact row; the
-    # invented ones do not. Same iron law 1 as 11.19 A2, one level up.
-    declared = (ref.class_ir is not None
-                and method in (getattr(ref.class_ir, "methods", None) or {}))
-
-    def add(candidate: str) -> None:
-        if not candidate or candidate in out:
-            return
-        if declared and K.lookup_exact(candidate) is None:
-            return
-        out.append(candidate)
-
-    if family == "frame":
-        # A DataFrame / ndarray has no constructor to hang the method off, so
-        # only *known* frame methods are proposed - never a fabricated symbol.
-        for base in _FRAME_BASES:
-            candidate = "%s.%s" % (base, method)
-            if K.lookup_exact(candidate) is not None:
-                add(candidate)
-    base = _FAMILY_BASE.get(family or "")
-    if base and (base != "torch.nn.Module" or torch_module):
-        add("%s.%s" % (base, method))
-    if family in ("estimator", "splitter"):
-        add("sklearn.base.BaseEstimator.%s" % method)
-    if ref.has("MODEL") and torch_module:
-        add("torch.nn.Module.%s" % method)
-    if ref.has("OPTIMIZER"):
-        add("torch.optim.Optimizer.%s" % method)
-    if tensor_like or ref.has("LOSS", "LOGITS", "PROBS", "PREDS", "BATCH"):
-        add("torch.Tensor.%s" % method)
-
-    seen: List[str] = []
-    for fqn in out:
-        if fqn and fqn not in seen:
-            seen.append(fqn)
-    return tuple(seen)
 
 
 def resolve_calls(module: ModuleIR, workspace) -> None:
@@ -284,6 +70,23 @@ def _class_attr_binding(call: CallSite):
             or cls.scope.bindings.get("self.%s" % func.attr))
 
 
+def _line_of(ref: Optional[ValueRef], call: CallSite) -> Optional[int]:
+    """The line the callee's *binding* is written on, when it is elsewhere.
+
+    REV-PREC-07: the inferred half of `unresolved_callee` describes the
+    binding, not the call, and printing the call's line beside that phrase told
+    the reader that `loss = criterion(model(xb), yb)` - two plain names and no
+    brackets - "is a subscript". The subscript is at the binding, several lines
+    up, and that is the line worth citing. None when the binding is on this
+    very line, where the existing wording is already right.
+    """
+    loc = getattr(ref, "loc", None) if ref is not None else None
+    line = getattr(loc, "line", None)
+    if not line or line == call.loc.line:
+        return None
+    return int(line)
+
+
 def _note_unresolved(call: CallSite) -> None:
     """ANA-5a: a callee that is a real binding with nothing behind it.
 
@@ -298,6 +101,23 @@ def _note_unresolved(call: CallSite) -> None:
     as `len` or `range` has no binding in scope, so it is never flagged and no
     `unknown` node is minted for it.
     """
+    if call.unresolved_inferred:
+        # §5.3 A12', REV-PREC-03. This runs once per IR round on the same
+        # `CallSite`, and the inferred half used to be written once and kept:
+        # a flag set in round 1 survived a round 2 that followed the binding
+        # after all. `parts = build_components()` is the measured shape - the
+        # dict the factory returns is carried into `parts` by `infer_returns`,
+        # which runs at the END of a round, so `m = parts["model"]` is an
+        # opaque subscript for exactly one round while `m(...)` stayed marked
+        # unresolved for the life of the document. The same program with the
+        # dict written in the caller's own scope resolved in round 1 and fired
+        # MLV208; this one went silent, with a coverage note in place of a
+        # high-severity finding. So the inferred half is recomputed here,
+        # every round, from scratch. The syntactic half is a pure function of
+        # the AST and is left exactly as `callee_construct` wrote it.
+        call.unresolved_callee = None
+        call.unresolved_inferred = False
+        call.unresolved_at = None
     if (call.unresolved_callee or call.class_ir is not None
             or call.target_function is not None):
         return
@@ -306,12 +126,16 @@ def _note_unresolved(call: CallSite) -> None:
     attr = _class_attr_binding(call)
     if attr is not None and attr.opaque:
         call.unresolved_callee = attr.opaque
+        call.unresolved_inferred = True
+        call.unresolved_at = _line_of(attr, call)
         return
     if call.receiver is not None:
         # A *method* on an opaque value is still a method; only calling the
         # value itself is the construct ANA-5a is about.
         if call.method == "__call__" and call.receiver.opaque:
             call.unresolved_callee = call.receiver.opaque
+            call.unresolved_inferred = True
+            call.unresolved_at = _line_of(call.receiver, call)
         return
     name = dotted_text(call.node.func)
     if not name:
@@ -321,144 +145,14 @@ def _note_unresolved(call: CallSite) -> None:
         return
     if ref.opaque:
         call.unresolved_callee = ref.opaque
+        call.unresolved_inferred = True
+        call.unresolved_at = _line_of(ref, call)
         return
     if ref.producer is not None or ref.class_ir is not None or ref.via_fqns:
         return
     call.unresolved_callee = "a value the analyzer could not follow"
-
-
-def _annotation_class(module: ModuleIR, workspace, scope: ScopeIR,
-                      fqn: str) -> Optional[ClassIR]:
-    """`def validate(model: Net, ...)` -> the workspace `ClassIR` for `Net`."""
-    if not fqn:
-        return None
-    if workspace is not None:
-        found = workspace.classes.get(fqn)
-        if found is not None:
-            return found
-    cls, _fn = _local_lookup(module, scope, fqn.split(".")[-1])
-    return cls
-
-
-def seed_annotations(module: ModuleIR, workspace=None) -> None:
-    """`def validate(model: nn.Module, ...)` gives `model` the MODEL tag.
-
-    A workspace-local annotation (`model: Net`) resolves through the class
-    registry, which is what lets an eval helper that is never called still
-    know that `model(...)` is a forward pass.
-    """
-    for func in module.functions.values():
-        for param, fqn in func.annotations.items():
-            tags = list(K.tags_of(fqn))
-            cls = _annotation_class(module, workspace, func.scope, fqn)
-            if cls is not None:
-                if cls.is_model_module:
-                    tags.append("MODEL")
-                elif any(b.startswith("torch.utils.data.") for b in cls.resolved_bases):
-                    tags.append("RAW_DATA")
-            entry = K.lookup(fqn)
-            if cls is None and entry is None and not tags:
-                continue
-            existing = func.scope.bindings.get(param)
-            if existing is not None and (existing.tags or existing.class_ir is not None):
-                continue
-            # FW-RECOG: an annotation that names a **known third-party class**
-            # carries its receiver family, not only its tags. `def fit(model:
-            # keras.Model, ...)` used to leave `model` with the MODEL tag and
-            # nothing else, so `model.fit(...)` fell through to the MODEL-tag
-            # fallback, proposed `torch.nn.Module.fit`, prefix-matched
-            # `torch.nn.` to role LAYER - and drew a torch layer node in a
-            # pure-Keras file. The FQN the annotation states is the answer.
-            func.scope.bindings[param] = ValueRef(
-                name=param, scope=func.scope, tags=sort_tags(tags), loc=func.loc,
-                class_ir=cls, via_fqns=(fqn,) if entry is not None else ())
-
-
-def propagate_parameters(module: ModuleIR, workspace) -> None:
-    """One level of module-local function summaries: arg tags -> parameters.
-
-    `train(model, loader)` gives `train`'s `model` parameter the MODEL tag it
-    has at the call site, so `model.eval()` inside resolves.
-    """
-    for call in module.calls:
-        func = call.target_function
-        if func is None:
-            continue
-        params = list(func.params)
-        if func.is_method and params and params[0] == "self":
-            params = params[1:]
-        pairs = []
-        for index, arg in enumerate(call.args):
-            if index >= len(params):
-                break
-            pairs.append((params[index], arg))
-        for key in sorted(call.kwarg_nodes):
-            if key in params:
-                pairs.append((key, call.kwarg_nodes[key]))
-        for param, arg in pairs:
-            name = dotted_text(arg)
-            ref = binding_of(name, call.scope) if name else None
-            if ref is None:
-                # NLP2-01. An argument written **inline** - `train(Net(),
-                # loader)`, `to_device(build_model(), device)` - has no name to
-                # look up, so the parameter stayed untyped and everything
-                # downstream of it evaporated: `model(features)` inside the
-                # callee resolved to nothing, no eval region was built, and
-                # MLV301 (high) and MLV302 vanished on `hydra_research`,
-                # `amp_accumulation` and every project that writes
-                # `model = train(Net(), loader)`. The call site is already in
-                # the IR; reading it costs one dict hit.
-                inner = _inline_call(arg, module)
-                if inner is not None:
-                    ref = _value_of_call(inner, call.scope, param)
-            if ref is None or not (ref.tags or ref.class_ir or ref.via_fqns
-                                   or ref.entries or ref.elements):
-                continue
-            existing = func.scope.bindings.get(param)
-            if existing is not None and (existing.tags or existing.class_ir
-                                         or existing.via_fqns or existing.entries
-                                         or existing.elements):
-                continue
-            func.scope.bindings[param] = ValueRef(
-                name=param, scope=func.scope, tags=ref.tags, producer=ref.producer,
-                loc=func.loc, class_ir=ref.class_ir, is_config=ref.is_config,
-                via_fqns=ref.via_fqns, elements=ref.elements, entries=ref.entries)
-
-
-def _inline_call(node, module: ModuleIR) -> Optional[CallSite]:
-    """The `CallSite` for an argument written as a call expression."""
-    if not isinstance(node, ast.Call):
-        return None
-    by_node = getattr(module, "_calls_by_node", None)
-    if by_node is None:
-        by_node = {id(c.node): c for c in module.calls}
-    return by_node.get(id(node))
-
-
-def mark_fitted(module: ModuleIR) -> None:
-    """A transformer that has been `.fit()` on carries FITTED_TRANSFORMER.
-
-    Runs after the final binding pass, because that pass rebuilds every
-    `ValueRef` from scratch.
-    """
-    for call in module.calls:
-        if K.role_of(call.fqn) not in ("FIT", "FIT_TRANSFORM"):
-            continue
-        ref = binding_of(call.receiver_name, call.scope, exclude=call) or call.receiver
-        if ref is not None:
-            ref.add_tags(("FITTED_TRANSFORMER",))
-
-
-def _value_of_call(inner: CallSite, scope: ScopeIR, name: str) -> ValueRef:
-    """A `ValueRef` standing for the value an inline call produced."""
-    ref = ValueRef(name=name or "<call>", scope=scope,
-                   tags=call_output_tags(inner, scope), producer=inner,
-                   loc=inner.loc, class_ir=inner.class_ir)
-    slot = slot_of(inner)
-    if slot is not None:
-        ref.via_fqns = slot.fqns
-        ref.class_ir = ref.class_ir or slot.class_ir
-    return ref
+    call.unresolved_inferred = True
+    call.unresolved_at = _line_of(ref, call)
 
 
 def _called_value(call: CallSite, module: ModuleIR) -> Optional[ValueRef]:

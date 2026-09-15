@@ -4,18 +4,28 @@ Turns a Python ML codebase into an issue-annotated workflow diagram, from inside
 Claude Code. Static analysis only: nothing is imported, nothing is executed, and
 **torch and scikit-learn do not need to be installed**.
 
+It is part of [MLView](https://github.com/realmyang/MLView): the repository root's
+[`README.md`](../README.md) is the overview — screenshots, the ninety-second quick
+start for all three hosts, the rule families and the measured accuracy. Install it
+either from a clone, by pointing Claude Code at `claude-plugin/` (options 1 and 2
+below), or straight from GitHub through this repository's own marketplace entry
+(option 3, usable since the repository went public and **not yet walked end to end**).
+Nothing is published to PyPI, the VS Code Marketplace or Open VSX.
+
 ```
 claude-plugin/
   .claude-plugin/plugin.json   the manifest (this path is the only one scanned)
+  LICENSE                      MIT, byte-identical to the repository root's copy
   .mcp.json                    the stdio MCP server registration
   commands/                    /mlview · /mlview-issues
   skills/                      mlview-visualize · mlview-triage
   server/mlview_mcp.py         the MCP server: bootstrap + the five tools
-  server/mlview_workspace.py   path resolution, write containment, analysis cache
+  server/mlview_workspace.py   framework filters, the analysis cache, rule pages
+  server/mlview_storage.py     which directory: project, data, parse cache; write containment
   server/mlview_payloads.py    the pure payload builders
   server/mlview_views.py       filtered graph views and their rendered shapes
   server/mlview_budget.py      the 4 KB budget (measured on the SDK's encoding)
-  vendor/mlview/               a synced copy of the analyzer core
+  vendor/mlview/               a synced copy of the analyzer core (TRACKED, see below)
   docs/rules/MLVxxx.md         the rule pages mlview_explain serves (synced)
   tests/                       stdio handshake · payload budget · manifests
 ```
@@ -49,6 +59,17 @@ claude-plugin/
   does not. Prepending both would put an editable checkout ahead of the vendored
   copy and make the vendor gates vacuous.
 
+- **Why `vendor/mlview` is committed, and when it goes away (C2).** It is the one
+  duplicate of `analyzer/src/mlview` still tracked in this repository: `claude
+  plugin install` copies the plugin directory **verbatim** off a git ref, so for
+  this host what git holds is what the user runs, and an untracked `vendor/` is a
+  plugin with no analyzer. The VS Code extension's copy is the opposite case — a
+  VSIX is built from a working tree, so `vscode-extension/core/mlview` is a
+  gitignored build artifact the package step writes. `vendor/` follows it out of
+  the index the day the `mlview` wheel is published: `.mcp.json` can depend on an
+  installed package then, and this directory and its `vendor: synced core` gate
+  row both go.
+
 ## Install
 
 Validate first, always:
@@ -62,8 +83,14 @@ Then pick one:
 **1. Session-only, zero install** (what the demo uses)
 
 ```bash
-claude --plugin-dir C:/absolute/path/to/MLView/claude-plugin
+claude --plugin-dir /absolute/path/to/MLView/claude-plugin      # macOS / Linux
+claude --plugin-dir C:/absolute/path/to/MLView/claude-plugin    # Windows
 ```
+
+On macOS and most Linux there is no bare `python` on `PATH`, and `.mcp.json` spells
+one, so export an absolute 3.10+ interpreter in the shell you launch Claude Code
+from — `export MLVIEW_PYTHON="$(command -v python || command -v python3)"` — the
+same line the root README and `docs/VALIDATION.md` Session C give.
 
 **2. Through the repo-root local marketplace**
 
@@ -73,9 +100,28 @@ claude --plugin-dir C:/absolute/path/to/MLView/claude-plugin
 ```
 
 `.claude-plugin/marketplace.json` at the repo root declares the marketplace
-`mlview-local` with one entry pointing at `./claude-plugin`.
+`mlview-local`, whose first entry points at `./claude-plugin`.
 
-**3. The MCP server only, without the commands and skills**
+**3. From GitHub, with no checkout at all**
+
+```
+/plugin marketplace add realmyang/MLView
+/plugin install mlview@mlview-github
+```
+
+The second entry in that same file is `mlview-github`, a `git-subdir` source over
+this repository's `claude-plugin/` directory — the only source form that carries a
+subdirectory, which is why it is the one a hosted entry may use (CONTRACTS §13.1).
+The analyzer is vendored inside the directory, so there is nothing to `pip install`
+and no build step: what lands on disk is the tree you see here, at the ref you
+installed — including [`LICENSE`](LICENSE), the repository root's MIT text copied
+byte for byte, because an installed plugin that carries a vendored analyzer and no
+licence text is a redistribution with nothing to read it under. The route became reachable when this repository went public; its
+manifest is gated by [`tests/test_plugin_manifest.py`](tests/test_plugin_manifest.py),
+but **the install itself has not been walked on a machine with no checkout** —
+`docs/VALIDATION.md` C10 is where that walk gets recorded when it happens.
+
+**4. The MCP server only, without the commands and skills**
 
 ```bash
 claude mcp add mlview -- python C:/absolute/path/to/MLView/claude-plugin/server/mlview_mcp.py
@@ -276,7 +322,7 @@ set `MLVIEW_PYTHON` and use a bash-capable shell to get it back.
 | `MLVIEW_NO_OPEN=1` | `mlview_open_diagram` writes the report but does not launch a browser (`opened: false`). Used by the tests and by `scripts/e2e`. |
 | `MLVIEW_HOOK` | H8: which hook speaks — unset/`on` (PostToolUse), `stop`, `both`, or `off`. |
 | `MLVIEW_INCLUDE_NOTEBOOKS=1` | H8: treat an `.ipynb` edit as worth re-analyzing for. |
-| `MLVIEW_CACHE_DIR` | The per-file parse cache (CONTRACTS 11.28), which ships **on** (11.39). The server *and* the hooks default it to `<MLVIEW_DATA_DIR>/cache` — one shared directory, and nothing written into the project. `.mcp.json` names it explicitly as `${CLAUDE_PLUGIN_DATA}/cache`. |
+| `MLVIEW_CACHE_DIR` | The per-file parse cache (CONTRACTS 11.28), which ships **on** (11.39). Three answers, and **none of them is inside the project being read**: this variable when you set it; else `<MLVIEW_DATA_DIR>/cache` when a host named its storage directory — one directory shared by the server *and* the hooks, which is why `.mcp.json` names it explicitly as `${CLAUDE_PLUGIN_DATA}/cache`; else whatever `mlview.core.cache.cache_dir_for` answers, because a `claude --plugin-dir` session names neither and this host does not get a second opinion about where a cache belongs (C8, `tests/test_storage_paths.py`). |
 | `MLVIEW_LOG_LEVEL` | `DEBUG` for verbose stderr logging. |
 
 ## Tests
@@ -372,3 +418,15 @@ cd .. && python tools/sync-assets.py
 `agents`, `hooks` or `mcpServers` — the conventional directories are the
 defaults, and `commands`/`agents` *replace* the default scan when set, silently
 dropping everything.
+
+---
+
+## More documentation
+
+| Document | What it is for |
+|---|---|
+| [`../README.md`](../README.md) | What MLView is, and the ninety-second demo |
+| [`../docs/STATUS.md`](../docs/STATUS.md) | What is verified today, and the known gaps |
+| [`../docs/CONTRACTS.md`](../docs/CONTRACTS.md) | **Normative.** The schema, the CLI, the MCP tools, the message protocol |
+| [`../docs/VALIDATION.md`](../docs/VALIDATION.md) | Validating this host by hand on another machine, and publishing it |
+| [`../CHANGELOG.md`](../CHANGELOG.md) | The dated history, newest first |

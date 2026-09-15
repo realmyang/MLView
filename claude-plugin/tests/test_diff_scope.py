@@ -155,21 +155,22 @@ def test_the_sample_pair_reports_the_11_38_E_table_and_fits_the_budget(tmp_path)
 
     assert out["scope"] == "diff"
     assert out["format"] == "text"
-    # Section 11.38 E at the counts CONTRACTS 11.53 B re-records: the dirty
-    # sample as the base, the clean twin as the head. vision-11 stopped
-    # re-kinding a loop-free unit into a `train_loop` / `eval_loop`, and
-    # `Node.id` is `sha1(file|qualname|kind)`, so three units on each side (the
-    # sklearn `baseline()` among them) now match across the pair instead of
-    # counting as one added and one removed node each. `edges` and `issues` are
-    # unchanged, and so are the 54 / 64 node totals behind these deltas.
+    # Section 11.38 E at the counts CONTRACTS 11.53 B re-records, re-measured
+    # after CONTRACTS §5.3 A7-A11 gave the workspace objects cards of their own:
+    # the dirty sample as the base, the clean twin as the head. The pair moved
+    # TOGETHER - 54 -> 59 and 64 -> 70 nodes - so the five extra cards on each
+    # side are five more matches, which is why `unchanged` climbs by five while
+    # `removed` and `changed` do not move at all. `issues` is untouched, which is
+    # the property that matters: the analyzer draws more of the program and
+    # accuses it of nothing new.
     assert out["summary"]["nodes"] == {
-        "added": 25, "removed": 15, "changed": 8, "unchanged": 31
+        "added": 26, "removed": 15, "changed": 8, "unchanged": 36
     }
     assert out["summary"]["edges"] == {
-        "added": 26, "removed": 22, "changed": 1, "unchanged": 28
+        "added": 27, "removed": 22, "changed": 1, "unchanged": 28
     }
     assert out["summary"]["issues"] == {"new": 0, "fixed": 15, "persisting": 0}
-    assert out["summary"]["headline"] == "+25 nodes · −15 nodes · 0 new findings · 15 fixed"
+    assert out["summary"]["headline"] == "+26 nodes · −15 nodes · 0 new findings · 15 fixed"
     assert out["basePath"] == str(base_file)
     assert out["graphPath"] == "/tmp/head.json"
     assert payload_size(out) <= LIMIT_BYTES

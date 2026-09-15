@@ -62,10 +62,14 @@ function graphWith(diagnostics) {
 
 // ------------------------------------------------------------------ reading the diagnostics
 
-test('the coverage kinds are exactly the two the host claims to understand', () => {
+test('the coverage kinds are exactly the three the host claims to understand', () => {
+  // CONTRACTS §2.6 C9 as restated by §17 E40 is a SUBSET rule, and this list is the
+  // host half of it: the core emits these three as coverage, so dropping any one
+  // would be a caveat the reader never sees. `framework_filter` arrived with C8.
   assert.deepEqual([...COVERAGE_DIAGNOSTIC_KINDS], [
     'single_file_analysis',
-    'untagged_dataflow'
+    'untagged_dataflow',
+    'framework_filter'
   ]);
 });
 

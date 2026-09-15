@@ -4,7 +4,7 @@
 #
 # 1. webview          npm install + npm run build       -> webview/dist/mlview.{js,css}
 # 2. tools/sync-assets.py                               -> the extension and the analyzer get the SAME bundle
-# 3. tools/sync-core.py                                 -> claude-plugin/vendor/mlview (no pip install for the plugin)
+# 3. tools/sync-core.py                                 -> claude-plugin/vendor/mlview (tracked) + vscode-extension/core/mlview (BUILT, gitignored)
 # 4. vscode-extension npm install + compile + check     -> out/extension.js, tsc clean
 # 5. analyzer         pip install -e                    -> `python -m mlview` on this interpreter
 #
@@ -74,6 +74,9 @@ $global:LASTEXITCODE = 0
 Assert-Ok 'sync-assets'
 
 # ------------------------------------------------------------------ 3. sync core
+# C2: the extension's copy is a gitignored BUILD ARTIFACT, so this step is the
+# only thing that puts it on disk for a fresh clone (npm run compile in step 4
+# runs the same script through vscode-extension/tools/sync-core.mjs).
 Write-Head '3/6 tools/sync-core.py -- vendor the analyzer into the plugin AND the extension'
 $global:LASTEXITCODE = 0
 & $Python (Join-Path $RepoRoot 'tools/sync-core.py')
@@ -109,6 +112,7 @@ if (-not $SkipPipInstall) {
 # install prompt all name. `build` is not a hard dependency: without it the step
 # says so and the build carries on.
 Write-Head '6/6 analyzer -- build the wheel into analyzer/dist'
+$WheelStep = 'built'
 & $Python -c 'import build' 2>$null
 if ($LASTEXITCODE -eq 0) {
     $dist = Join-Path $RepoRoot 'analyzer/dist'
@@ -119,6 +123,7 @@ if ($LASTEXITCODE -eq 0) {
     Get-ChildItem $dist | Format-Table Name, Length
 } else {
     Write-Host 'build is not installed - skipping the wheel (pip install build)'
+    $WheelStep = 'skipped'
 }
 
 $global:LASTEXITCODE = 0
@@ -126,6 +131,11 @@ $global:LASTEXITCODE = 0
 Assert-Ok 'python -m mlview --version'
 
 Write-Host ''
-Write-Host 'BUILD OK' -ForegroundColor Green
+# FC-15: the banner says whether the sixth step built anything; see build.sh.
+if ($WheelStep -eq 'skipped') {
+    Write-Host 'BUILD OK - 5 of 6 steps (wheel skipped: pip install build)' -ForegroundColor Green
+} else {
+    Write-Host 'BUILD OK - 6 steps' -ForegroundColor Green
+}
 Write-Host 'next: powershell -ExecutionPolicy Bypass -File scripts/e2e.ps1'
 exit 0

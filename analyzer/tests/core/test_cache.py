@@ -191,9 +191,90 @@ def test_the_sidecar_lives_where_the_environment_says(cache_home, workspace):
         os.environ["MLVIEW_CACHE_DIR"].replace("\\", "/"))
 
 
-def test_the_default_sidecar_directory_is_inside_the_project(monkeypatch, workspace):
+def test_the_default_sidecar_directory_is_never_inside_the_project(monkeypatch,
+                                                                   tmp_path,
+                                                                   workspace):
+    """C8. Until now the default was `<root>/.mlview/cache`, so analysing
+    somebody else's repository created a directory in it on the first run. The
+    default is the **user's** cache directory now, keyed by the workspace path,
+    and nothing at all is written into the analyzed folder.
+
+    The cache home is a real absolute path rather than the literal
+    `/tmp/mlview-xdg`, because `cache_dir_for` runs its answer through
+    `os.path.abspath`: a drive-LESS path is not absolute on Windows, so that
+    literal came back as `D:/tmp/mlview-xdg/...` and the equality was a POSIX
+    assumption rather than a claim about the cache. `tmp_path` is absolute on
+    every platform, so only the separator needs spelling.
+    """
     monkeypatch.delenv("MLVIEW_CACHE_DIR", raising=False)
-    assert C.cache_dir_for(workspace).endswith("/.mlview/cache")
+    home = tmp_path / "mlview-xdg"            # a sibling of the workspace
+    monkeypatch.setenv("XDG_CACHE_HOME", str(home))
+    where = C.cache_dir_for(workspace)
+    assert not where.startswith(C._norm(workspace)), where
+    assert ".mlview" not in where, where
+    assert where == str(home).replace("\\", "/") + "/mlview/" + C.root_key(workspace)
+
+
+def test_the_default_sidecar_directory_is_keyed_by_the_workspace(monkeypatch,
+                                                                 tmp_path):
+    """Two workspaces share one per-user directory and must never share a key:
+    the sidecar is `<user cache>/<root key>/facts-<root key>.json`."""
+    monkeypatch.delenv("MLVIEW_CACHE_DIR", raising=False)
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "xdg"))
+    one, two = str(tmp_path / "a"), str(tmp_path / "b")
+    assert C.cache_dir_for(one) != C.cache_dir_for(two)
+    assert C.root_key(one) != C.root_key(two)
+    assert C.root_key(one) == C.root_key(one + "/")   # normalised, not textual
+
+
+def test_the_user_cache_root_follows_the_platform(monkeypatch, tmp_path):
+    """`XDG_CACHE_HOME` wins everywhere when it is set; otherwise the platform's
+    own convention. Asserted for the running platform only - the two branches
+    this machine cannot take are marked `pragma: no cover` in the source.
+
+    `tmp_path` rather than a `/tmp/...` literal for the same reason as the test
+    above: the answer goes through `os.path.abspath`, which puts the current
+    drive on a drive-less path on Windows."""
+    import sys as _sys
+
+    wins = tmp_path / "xdg-wins"
+    monkeypatch.setenv("XDG_CACHE_HOME", str(wins))
+    assert C.user_cache_root() == str(wins).replace("\\", "/") + "/mlview"
+    monkeypatch.delenv("XDG_CACHE_HOME", raising=False)
+    root = C.user_cache_root()
+    if _sys.platform == "darwin":
+        assert root.endswith("/Library/Caches/mlview"), root
+    elif _sys.platform == "win32":  # pragma: no cover - platform
+        assert root.lower().endswith("/mlview/cache"), root
+    else:
+        assert root.endswith("/.cache/mlview"), root
+
+
+def test_the_environment_still_overrides_the_default(monkeypatch, tmp_path,
+                                                     workspace):
+    """A host with its own storage - and a CI job collecting the sidecar as an
+    artifact - still names the directory, and that still wins."""
+    named = tmp_path / "named-by-the-host"
+    monkeypatch.setenv("MLVIEW_CACHE_DIR", str(named))
+    assert C.cache_dir_for(workspace) == str(named).replace("\\", "/")
+
+
+def test_a_default_run_writes_nothing_into_the_analyzed_folder(monkeypatch,
+                                                               tmp_path,
+                                                               workspace):
+    """The property the change exists for, proved end to end: a full analysis
+    with no `MLVIEW_CACHE_DIR` leaves the analyzed tree byte-for-byte as it was."""
+    monkeypatch.delenv("MLVIEW_CACHE_DIR", raising=False)
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "xdg"))
+    before = sorted(os.path.relpath(os.path.join(base, name), workspace)
+                    for base, _dirs, files in os.walk(workspace) for name in files)
+    result = _analyze(workspace)
+    after = sorted(os.path.relpath(os.path.join(base, name), workspace)
+                   for base, _dirs, files in os.walk(workspace) for name in files)
+    assert after == before, "the analyzed folder gained %s" % sorted(
+        set(after) - set(before))
+    assert result.cache is not None and result.cache.path.startswith(
+        str(tmp_path / "xdg").replace("\\", "/"))
 
 
 def test_the_sidecar_is_never_analyzed(cache_home, workspace):

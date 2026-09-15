@@ -1,1 +1,67 @@
+# Line endings are NEVER converted, in either direction.
+#
+# MLView is a cross-platform tool developed on Windows and macOS and tested on
+# both plus Linux, and several gates compare bytes rather than lines:
+# `python -m mlview analyze --demo --json - | cmp - contracts/graph.sample.json`,
+# `tools/sync-core.py --check` (three byte-identical copies of the analyzer) and
+# `analyzer/tools/gen_scope_fixtures.py --check` (a byte-diff of the generated
+# scope fixtures). A checkout that rewrote LF to CRLF would fail every one of
+# them on Windows only, so the working tree always gets exactly what is in the
+# object store.
 * -text
+
+# Force a TEXT diff for source files.
+#
+# `-text` above turns off conversion but leaves git's own binary heuristic on,
+# and that heuristic calls any file with a NUL byte in its first 8000 bytes
+# binary. Two viewer sources build map keys out of `'\0'`-joined fields and
+# carry the separator as a literal NUL - `webview/src/diff/adopt.ts`
+# (`adoptionKey`) and `webview/src/layout/routing.ts` (`routeEdges`) - so
+# without this line `git diff`, `git blame` and GitHub's file view all report
+# "Binary file ... differ" on a TypeScript module anyone can read. The `diff`
+# attribute says "this is text" and costs nothing for the files that already
+# were.
+*.ts   diff
+*.tsx  diff
+*.mts  diff
+*.js   diff
+*.mjs  diff
+*.cjs  diff
+*.py   diff
+*.json diff
+*.md   diff
+*.toml diff
+*.yml  diff
+*.yaml diff
+*.html diff
+*.css  diff
+*.sh   diff
+*.ps1  diff
+
+# Genuinely binary: no diff, no merge.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.webp binary
+*.pdf  binary
+*.woff binary
+*.woff2 binary
+*.vsix binary
+*.whl  binary
+*.zip  binary
+
+# Generated artifacts that are tracked because a host SHIPS them. Collapsing
+# them in review keeps a bundle rebuild from burying a source change; they are
+# still diffable with `git diff --text` and are gated by `tools/verify.py
+# --hashes` (one renderer bundle everywhere), not by eye.
+webview/dist/mlview.js               linguist-generated=true
+webview/dist/mlview.css              linguist-generated=true
+webview/dist/mlview.dev.css          linguist-generated=true
+vscode-extension/media/mlview.js     linguist-generated=true
+vscode-extension/media/mlview.css    linguist-generated=true
+analyzer/src/mlview/emit/assets/*    linguist-generated=true
+claude-plugin/vendor/**              linguist-generated=true
+contracts/scope.expected.json        linguist-generated=true
+webview/dev/index.html               linguist-generated=true

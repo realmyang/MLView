@@ -5,15 +5,104 @@ name: CI
 # while `analyzer/pyproject.toml` declared `requires-python = ">=3.10"` on the
 # strength of nothing.
 #
-# COST. The repository is private, so minutes are metered and weighted: ubuntu
-# 1x, windows 2x, macos 10x. That is why the fan-out is ubuntu-only (four
-# Pythons, two Node majors), Windows is a single end-to-end job and macOS is a
-# single smoke job. Every job caches pip and npm, and `concurrency` cancels a
-# superseded run rather than paying for it twice.
+# MEASURED (2026-09-15, the `public` -> `main` pull request). Every job in this
+# file has now run, green, on the tree it describes. That is the first time:
+# GitHub Actions was blocked at the ACCOUNT level for the two days the
+# consolidation and the recall campaign were written, so until this pull request
+# the whole of that work had been checked on one macOS laptop and nowhere else.
+#
+#   CHEAP TIER - push run 34975663652, 7 jobs, 7m49s wall, all green.
+#     https://github.com/realmyang/MLView/actions/runs/34975663652
+#     e2e (ubuntu, sh) 465 s, analyzer py3.10 458 s, analyzer py3.13 353 s,
+#     webview node 20 77 s, claude-plugin 46 s, accuracy corpus 38 s,
+#     vscode-extension 27 s. 27 weighted minutes, all ubuntu.
+#
+#   FULL TIER - pull_request run 34975667772, the 6 jobs the guard below adds,
+#     12m03s wall, all green.
+#     https://github.com/realmyang/MLView/actions/runs/34975667772
+#     e2e (windows, powershell) 718 s, analyzer py3.12 571 s, smoke (macos)
+#     541 s, analyzer py3.11 497 s, webview node 22 77 s, packaging 35 s.
+#     146 more weighted minutes - 22 ubuntu, 24 windows, 100 macOS.
+#
+#   The weekly `.github/workflows/public-corpus.yml`, dispatched on the same
+#   commit: run 34975673419, green, 37 pinned repositories and 260 analyses.
+#
+#   CONFIRMED TWICE MORE, on the two commits that recorded the numbers above:
+#   push 34977935404 / pull_request 34977944326 (11m15s and 12m39s), then push
+#   34979532914 / pull_request 34979536605 (11m14s and 11m34s). Thirteen green
+#   each time.
+#
+#   Read the three together before treating any single duration as a constant.
+#   The same job on the same code moves a long way between runs: `e2e (ubuntu,
+#   sh)` 465 -> 671 -> 669 s, analyzer py3.10 458 -> 593 -> 590 s, analyzer
+#   py3.12 571 -> 547 -> 414 s, `e2e (windows, powershell)` 718 -> 754 -> 688 s,
+#   `smoke (macos)` 541 -> 480 -> 473 s. The three weighted totals came to 173,
+#   163 and 158 minutes for the identical thirteen jobs, so a `timeout-minutes`
+#   or a cost figure taken from ONE reading is taken from whichever runner
+#   answered that morning. Expect the next reading to differ again; that is the
+#   point of writing three of them down rather than one.
+#
+# It took ONE fix iteration, and the four failures were one mistake made four
+# times, in a place no single-platform run can reach: `os.path.abspath` puts the
+# current DRIVE on a drive-less path on Windows, so three assertions in
+# `analyzer/tests/core/test_cache.py` and one in
+# `analyzer/tests/public_corpus/test_public_corpus.py` compared a real answer
+# (`D:/tmp/...`) against the POSIX literal they had just put in the environment.
+# `e2e (windows, powershell)` was the only red job and one of its twenty steps
+# was the only red step. Nothing in the product was wrong.
+#
+# COST (C6). The two tiers were designed while this repository was PRIVATE, where
+# minutes are metered and weighted - ubuntu 1x, windows 2x, macos 10x, and **each
+# job is rounded up to a whole minute on its own** before its weight is applied.
+# The repository is public now and GitHub charges nothing for a standard runner,
+# so the arithmetic above comes out of nobody's budget. The split stays, for two
+# reasons that were never about money: it is the difference between a 7m49s
+# answer on a branch push and a 12m03s one, and a repository that ever goes
+# private again should not have to rediscover which half of its matrix costs ten
+# times the other.
+#
+#   CHEAP TIER - every push, and every pull request from a fork.
+#     analyzer 3.10 + 3.13 (the two ends of `requires-python`), webview on Node 20,
+#     vscode-extension, claude-plugin, the accuracy corpus and the Linux e2e table.
+#
+#   FULL TIER - pull requests and pushes to `main`, ON TOP of the cheap tier.
+#     analyzer 3.11 + 3.12, webview on Node 22, the Windows e2e table, the macOS
+#     smoke job and packaging. A merge is therefore checked on every interpreter,
+#     every Node major, both e2e drivers and all three platforms - the tiers
+#     change WHEN that costs money, not WHETHER it happens before a merge.
+#
+# The figure worth re-reading is `smoke (macos)`: 541 s is 10 whole minutes at
+# 10x, so **100 weighted minutes - more than the other twelve jobs put together**
+# (73). This header used to estimate it at ~30 from a Sprint-5 run that measured a
+# much smaller analyzer suite; the suite has roughly doubled since. That is the
+# argument for where it sits, not against it: it runs where a merge is at stake
+# and nowhere else.
+#
+# The split is exact rather than approximate: the cheap tier keeps the
+# same-repository double-billing guard (a branch push and a same-repo pull request
+# are two events for one commit), and the full tier runs only on the events the
+# guard excludes. So on a same-repo PR the push event pays for the cheap tier and
+# the pull_request event pays for the rest - each job exactly once, never twice.
+# One caveat the two runs above exposed: a branch created at a commit that is
+# ALREADY on the remote pushes no new commits, GitHub creates no push run for it,
+# and the cheap tier is then skipped on the pull request with nothing having paid
+# for it. The first real commit to the branch restores both halves; if a PR's
+# checks list is missing the seven cheap jobs, that is why.
+#
+# `paths-ignore` on the push trigger is the other half: a commit that touches only
+# Markdown and `docs/` cannot change a gate's outcome, so it runs nothing at all.
+# Pull requests deliberately carry no `paths-ignore`, which is what keeps a
+# docs-only branch from merging without ever having been checked.
+#
+# The weekly `.github/workflows/public-corpus.yml` and the nightly are separate
+# files and separate budgets; neither tier here touches them.
 
 on:
   push:
     branches: ['**']
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
   pull_request:
 
 # One run per ref. A second push to the same branch cancels the first, which is
@@ -34,11 +123,14 @@ permissions:
 
 jobs:
   # ------------------------------------------------------------------ analyzer
-  # The only claim `requires-python = ">=3.10"` has ever had behind it.
+  # The only claim `requires-python = ">=3.10"` has ever had behind it. 3.10 and
+  # 3.13 are the two ends of that range and the two that have ever caught
+  # anything: 3.10 has no `tomllib`, and 3.13 is what everyone here develops on.
+  # `analyzer-extra` below is the SAME four steps on 3.11 and 3.12 - change both.
   analyzer:
     # A branch push and a pull request from the same repository are two events
-    # for one commit; without this every job below would be billed twice. A PR
-    # from a fork has no push event of its own, so it still runs.
+    # for one commit; without this every cheap-tier job would be billed twice. A
+    # PR from a fork has no push event of its own, so it still runs.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     name: analyzer (py${{ matrix.python }})
     runs-on: ubuntu-latest
@@ -46,7 +138,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python: ['3.10', '3.11', '3.12', '3.13']
+        python: ['3.10', '3.13']
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
@@ -63,6 +155,35 @@ jobs:
       - name: --demo is byte-identical to contracts/graph.sample.json
         # The golden is a fixed artefact (CONTRACTS section 0): one byte of drift
         # on any interpreter is a broken contract, not a rounding difference.
+        run: |
+          python -m mlview analyze --demo --json - > "${RUNNER_TEMP}/demo.json"
+          cmp "${RUNNER_TEMP}/demo.json" contracts/graph.sample.json
+
+  # The middle of the supported range, on the two events where a merge is at
+  # stake. Identical to `analyzer` above except for the matrix and the condition.
+  analyzer-extra:
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    name: analyzer (py${{ matrix.python }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.12']
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: analyzer/pyproject.toml
+      - name: install the analyzer
+        run: python -m pip install --upgrade pip && python -m pip install -e "analyzer[dev]"
+      - name: analyzer suite
+        run: python -m pytest analyzer/tests -q
+      - name: the golden document satisfies the frozen contracts
+        run: python contracts/validate_sample.py
+      - name: --demo is byte-identical to contracts/graph.sample.json
         run: |
           python -m mlview analyze --demo --json - > "${RUNNER_TEMP}/demo.json"
           cmp "${RUNNER_TEMP}/demo.json" contracts/graph.sample.json
@@ -90,9 +211,17 @@ jobs:
         # would use it skips itself when the CLI is not on PATH.
         run: python -m pytest claude-plugin/tests -q -n auto
       - name: the vendored core matches analyzer/src
+        # C2: `claude-plugin/vendor/mlview` is the one vendored copy still tracked
+        # - `claude plugin install` copies the plugin directory verbatim off a git
+        # ref, so what git holds is what the user runs. The extension's copy is a
+        # build artifact and is gitignored, so `--check` reports it as "not built"
+        # here rather than as drift; the extension and packaging jobs build it and
+        # then hold it to `tools/verify.py --vsix`, which is strict.
         run: python tools/sync-core.py --check
 
   # ------------------------------------------------------------------- webview
+  # Node 20 is what VS Code 1.100 embeds and what every other job installs.
+  # `webview-extra` below is the SAME five steps on Node 22 - change both.
   webview:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     name: webview (node ${{ matrix.node }})
@@ -101,7 +230,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: ['20', '22']
+        node: ['20']
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -126,6 +255,36 @@ jobs:
         # `generator.rendererSha` is a claim about a bundle nobody ships.
         run: python tools/sync-assets.py --check
 
+  webview-extra:
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    name: webview (node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22']
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+          cache-dependency-path: webview/package-lock.json
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - run: npm ci
+        working-directory: webview
+      - run: npm run check
+        working-directory: webview
+      - run: npm run build
+        working-directory: webview
+      - run: npm test
+        working-directory: webview
+      - name: the three checked-in copies of the bundle match the build
+        run: python tools/sync-assets.py --check
+
   # ----------------------------------------------------------------- extension
   extension:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
@@ -134,6 +293,14 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
+      # Python comes FIRST now: `npm run compile` runs `tools/sync-core.mjs`,
+      # which builds the gitignored `vscode-extension/core/` the suite and the
+      # package both need (C2). A runner's default python3 would do, but pinning
+      # it here means this job fails on a missing interpreter rather than on a
+      # confusing "core is missing" three steps later.
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
       - uses: actions/setup-node@v5
         with:
           node-version: '20'
@@ -147,9 +314,11 @@ jobs:
         working-directory: vscode-extension
       - run: npm test
         working-directory: vscode-extension
-      - uses: actions/setup-python@v6
-        with:
-          python-version: '3.13'
+      - name: the bundled core is built, current, and NOT in the index
+        # The C2 gate in Python, next to the one `core-untracked.test.js` runs in
+        # Node: the copy `npm run compile` just wrote is byte-identical to
+        # analyzer/src/mlview, and `.vscodeignore` still keeps it in the package.
+        run: python tools/verify.py --vsix
       - name: the doc gate and its self-test
         # Here rather than in the analyzer job because scripts/README.md cites
         # vscode-extension/out/test-entry.cjs, which exists only after compile.
@@ -158,7 +327,9 @@ jobs:
           python scripts/check_docs.py
 
   # ---------------------------------------------------------------------- e2e
-  # The whole 20-step e2e table, both drivers, so neither can rot.
+  # The whole 20-step e2e table. Linux on every push, Windows where a merge is at
+  # stake: the second driver is a Windows-portability gate, and at 2x it is the
+  # most expensive thing a branch push was paying for that a laptop can also run.
   e2e-linux:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     name: e2e (ubuntu, sh)
@@ -177,7 +348,11 @@ jobs:
           cache: npm
           cache-dependency-path: webview/package-lock.json
       - name: install the python dependencies
-        run: python -m pip install --upgrade pip && python -m pip install mcp pytest pytest-xdist jsonschema
+        # `build` is here for the `wheel installs and runs` row: without it
+        # `tools/wheel_check.py` has nothing to test and the row is a SKIP, which
+        # is what it silently was - reported as PASS - in every e2e job before
+        # FC-04. The e2e drivers now say SKIP; this line makes it a real check.
+        run: python -m pip install --upgrade pip && python -m pip install mcp pytest pytest-xdist jsonschema build
       - name: sh scripts/e2e.sh
         run: sh scripts/e2e.sh
       - name: upload the emitted reports
@@ -194,7 +369,7 @@ jobs:
           if-no-files-found: warn
 
   e2e-windows:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
     name: e2e (windows, powershell)
     runs-on: windows-latest
     timeout-minutes: 20
@@ -211,7 +386,9 @@ jobs:
           cache: npm
           cache-dependency-path: webview/package-lock.json
       - name: install the python dependencies
-        run: python -m pip install --upgrade pip; python -m pip install mcp pytest pytest-xdist jsonschema
+        # `build` gives the `wheel installs and runs` row something to test; see
+        # the Linux job above (FC-04).
+        run: python -m pip install --upgrade pip; python -m pip install mcp pytest pytest-xdist jsonschema build
       - name: powershell scripts/e2e.ps1
         shell: powershell
         run: .\scripts\e2e.ps1
@@ -232,18 +409,15 @@ jobs:
   # 10x minutes, so one job and only the two suites where a platform difference
   # would actually show: the analyzer's path handling and the viewer's layout.
   #
-  # COST (Sprint 4): macOS is now covered LOCALLY on a development machine that runs
-  # the full 20-step e2e table before every push, so paying 10x for a smoke run on
-  # every branch push bought a signal we already had. It runs on **push to main** and
-  # on **every pull request** - the two moments where nobody's laptop is the referee -
-  # and nowhere else. Note the condition is deliberately NOT the repo-wide
-  # double-billing guard above: on a same-repo PR the push event lands on the feature
-  # branch, so `refs/heads/main` is false there and the pull_request event is the only
-  # one that runs this job.
+  # COST (Sprint 4, kept by C6): macOS is covered LOCALLY on a development machine
+  # that runs the full 20-step e2e table before every push, so paying 10x for a
+  # smoke run on every branch push bought a signal we already had. It runs on
+  # **push to `main`** and on **every pull request** - the two moments where
+  # nobody's laptop is the referee - and nowhere else. One measured run
+  # (34422156964) puts its share at ~30 billable minutes, which is close to a
+  # whole branch push under the cheap tier.
   smoke-macos:
-    if: >-
-      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-      github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
     name: smoke (macos)
     runs-on: macos-latest
     timeout-minutes: 20
@@ -275,8 +449,14 @@ jobs:
   # it), and the VSIX a marketplace install unpacks. A wheel missing its package data
   # installs perfectly and fails on first use; a VSIX missing `core/` has no analyzer
   # at all. Both failures are invisible to every other job in this file.
+  #
+  # C2 makes this job the one that proves the bundled analyzer end to end, because
+  # the bundled analyzer is no longer in the index for a reviewer to read: nothing
+  # here is checked out, `npm run package` builds `core/` through
+  # `vscode:prepublish`, and `vsix_smoke.py` then runs the analyzer OUT OF THE
+  # PACKAGED VSIX and compares its `--demo` with the frozen golden.
   packaging:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
     name: packaging (wheel + vsix)
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -296,15 +476,19 @@ jobs:
         run: |
           python -m pip install --upgrade pip build
           python tools/wheel_check.py
-      - name: the analyzer bundled into the VSIX matches analyzer/src
-        # The condition the lead attached to accepting a third analyzer copy.
-        run: python tools/sync-core.py --check
       - name: the committed icon is what tools/make_icon.py renders
         run: python vscode-extension/tools/make_icon.py --check
       - run: npm ci
         working-directory: vscode-extension
-      - run: npm run compile
+      - name: build the bundled analyzer and the extension
+        # `npm run compile` runs `node tools/sync-core.mjs` first, which is what
+        # writes the gitignored vscode-extension/core/ this job then packages.
+        run: npm run compile
         working-directory: vscode-extension
+      - name: the analyzer just built into vscode-extension/core matches analyzer/src
+        # The condition the lead attached to accepting a third analyzer copy; it
+        # also refuses a `.vscodeignore` that would drop `core/` from the package.
+        run: python tools/verify.py --vsix
       - name: vsce package, with no --allow-missing-repository
         working-directory: vscode-extension
         run: npm run package
@@ -314,6 +498,12 @@ jobs:
       # run so nobody has to hand-copy them into `scripts/README.md` again.
       - name: the VSIX is under 1 MB and carries the whole analyzer
         run: python scripts/vsix_check.py
+      - name: the packaged VSIX actually RUNS its bundled analyzer
+        # C2: unzip the package, put `extension/core` on PYTHONPATH the way
+        # coreClient.ts does, and from outside the repo import mlview (asserting it
+        # resolved inside the unzip), print its version, emit `--demo` byte-for-byte
+        # against contracts/graph.sample.json and analyze a real file.
+        run: python vscode-extension/tools/vsix_smoke.py
       - uses: actions/upload-artifact@v5
         if: always()
         with:
@@ -326,10 +516,10 @@ jobs:
   # ----------------------------------------------------------------- accuracy
   # ANA-12. The referee: the analyzer over `analyzer/tests/accuracy/corpus/`,
   # scored against its labels. Three gates - zero `forbidden` findings ever,
-  # recall only ratchets up against `analyzer/tests/accuracy/baseline.json`, and
-  # graph fidelity only ratchets up. `docs/ACCURACY.md` says what the numbers
-  # mean. One ubuntu job on 3.13: the corpus is ten small projects and the whole
-  # run is under a second, so a matrix would buy nothing but minutes.
+  # recall only ratchets up against the baseline the run's `--dataflow` selects,
+  # and graph fidelity only ratchets up. `docs/ACCURACY.md` says what the numbers
+  # mean. One ubuntu job on 3.13: the corpus is 158 small programs and the whole
+  # run is seconds, so a matrix would buy nothing but minutes.
   accuracy:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     name: accuracy corpus
@@ -346,5 +536,10 @@ jobs:
         run: python -m pip install --upgrade pip && python -m pip install -e "analyzer[dev]"
       - name: precision, recall, graph fidelity and calibration
         run: python tools/accuracy.py --verbose
+      - name: the same three gates in the opt-out dataflow mode
+        # Two modes, two ratchets (`baseline.ip.json` above, `baseline.json`
+        # here), so neither can mask the other. Both spell `--dataflow` out: once
+        # `ip` is the default, a bare run is no longer the `local` column.
+        run: python tools/accuracy.py --dataflow local
       - name: the same three gates, asserted
         run: python -m pytest analyzer/tests/accuracy -q

@@ -270,10 +270,13 @@ def mlview_analyze(
             frameworks: ["torch", ...]. Omit it unless the user asked to restrict
             the analysis; "auto" is the only value that runs every rule. A VALID
             name that disables rules on THIS workspace is reported rather than
-            left to be noticed: the result then carries a `framework_suppressed`
+            left to be noticed: the result then carries a `framework_filter`
             coverage row naming the codes that did not run ("torch" on a Keras
             project disables MLV121, the high-severity tf.data holdout rule), so
-            a filtered finding list is never mistakable for a clean one.
+            a filtered finding list is never mistakable for a clean one. A
+            document cached by an older build states that same cost as a
+            `framework_suppressed` row instead; only one of the two is ever in
+            the block.
         maxNodes: graph cap; the result sets truncated=true when it is exceeded.
             A NON-POSITIVE value disables the cap rather than emptying the
             graph — the whole document is kept — and the note says so.

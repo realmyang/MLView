@@ -28,6 +28,14 @@ mlview = "mlview.cli:main"
 [tool.setuptools]
 package-dir = { "" = "src" }
 include-package-data = true
+# REV-06. `license = { text = "MIT" }` puts one word in METADATA and no licence
+# text anywhere; the built wheel's `dist-info` carried no licence file at all,
+# so `pip install mlview` installed an MIT package with nothing on disk saying
+# so - which is exactly the path docs/VALIDATION.md Part 4 walks a validator
+# down. `analyzer/LICENSE` is byte-identical to the root one and to
+# `vscode-extension/LICENSE`; naming it here is explicit rather than relying on
+# setuptools' default glob, so a rename cannot silently drop it again.
+license-files = ["LICENSE"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -151,19 +151,38 @@ def leaky(csv_path="data/a.csv"):
 }
 
 
-def test_ip_is_never_quieter_than_local_about_a_refused_cross_scope_match(tmp_path):
-    """IP-02. `local` records an `untagged_dataflow` gap here. `ip` resolved the
-    tag through the constructor, then refused the cross-scope match and said
-    nothing at all - a run that looks clean on a program it did not judge."""
+def test_ip_is_never_quieter_than_local_about_a_cross_scope_match(tmp_path):
+    """IP-02, and R5's answer to it.
+
+    `local` records an `untagged_dataflow` gap here and must go on doing so.
+    `ip` used to resolve the tag through the constructor, refuse the
+    cross-scope match and say nothing at all - a run that looked clean on a
+    program it had not judged - and IP-02 made it disclose the refusal. R5
+    removed the need for the refusal on this shape: `_split_after_return`
+    proves the crossing instead of matching a name across scopes, because the
+    split's argument is bound by the very call that invoked the fit's function.
+
+    The property under test is unchanged and is the whole point of IP-02: on a
+    genuine leak shape, `ip` is never quieter than `local`. It is now louder by
+    a finding rather than by a diagnostic - and the finding pays for both hops,
+    so it cannot reach `certain`.
+    """
     root = write_files(str(tmp_path), _ONESITE)
     local = analyze(root, dataflow="local")
     ip = analyze(root, dataflow="ip")
-    assert codes(local, "MLV101") == [] and codes(ip, "MLV101") == []
+    assert codes(local, "MLV101") == [], "local must stay inside one scope"
     assert kinds(local, "untagged_dataflow"), "the control lost its coverage note"
-    disclosed = kinds(ip, "untagged_dataflow") + kinds(ip, "truncated")
-    assert disclosed, "ip reported 0 findings and 0 gaps on a genuine leak shape"
-    said = " ".join(d["message"] for d in disclosed)
-    assert "main.py:15" in said and "refused" in said, said
+    found = codes(ip, "MLV101")
+    assert len(found) == 1, found
+    issue = found[0]
+    assert issue["confidenceBucket"] != "certain", issue["confidence"]
+    assert "prep.py" in issue["loc"]["file"] and issue["loc"]["line"] == 10
+    assert "main.py:15" in issue["message"], issue["message"]
+    hops = [e for e in issue["evidence"] if e["kind"] == "cross_file"]
+    assert len(hops) == 1, "one factor for the whole chain, not one per ref"
+    assert hops[0]["weight"] < 0.8, hops[0]
+    sites = {(r["file"], r["line"]) for r in issue["relatedLocs"]}
+    assert ("main.py", 15) in sites, sites
     assert validate(ip) == []
 
 

@@ -322,8 +322,12 @@ export const ANSWER_ROWS: { key: keyof Answers; question: string }[] = [
  * loop over — `ui/chrome.ts` branches on the members it draws specially and lets
  * everything else fall through to the generic note chip.
  *
- * The last five are the COVERAGE batch: they exist so the product can tell
- * "I checked and it is fine" apart from "I could not check".
+ * The COVERAGE batch — `untagged_dataflow`, `single_file_analysis`,
+ * `unresolved_callee` and `framework_filter` — exists so the product can tell
+ * "I checked and it is fine" apart from "I could not check". The first two and
+ * the last are `core.coverage.COVERAGE_KINDS`, which §2.6 C9 makes a subset of
+ * `ui/chromenotes.COVERAGE_KINDS`; the third is the viewer's own extra, named
+ * by §10.8 A5.
  */
 export const KNOWN_DIAGNOSTIC_KINDS = [
   'parse_error',
@@ -336,6 +340,13 @@ export const KNOWN_DIAGNOSTIC_KINDS = [
   'untagged_dataflow',
   'single_file_analysis',
   'unresolved_callee',
+  /**
+   * NB. `--framework <x>` narrowed the RULE SET, including rules the detected
+   * frameworks would have run (CONTRACTS §2.6 C8). `codes` is what did not run
+   * and `count` is how many — rule codes, never blind sites — so the chrome
+   * counts rules for this kind and adds them to no other total.
+   */
+  'framework_filter',
   'config_unresolved',
   'notebook_analyzed',
   /**

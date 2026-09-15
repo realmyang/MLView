@@ -28,12 +28,23 @@ from .symbols import build_symbol_table
 __all__ = ["build_workspace", "dotted_for", "is_package", "FRAMEWORK_ORDER",
            "DATAFLOW_MODES", "DEFAULT_DATAFLOW"]
 
-#: DATAFLOW-IP. `local` is this release's default and is byte-identical to the
-#: analysis that shipped before the flag existed; `ip` additionally runs
-#: `ir.summaries` - constructor, return and method-argument summaries - to a
-#: fixed point, so a tag can cross the object boundary.
+#: DATAFLOW-IP. `ip` is the default from R1 on: it runs `ir.summaries` -
+#: constructor, return and method-argument summaries - to a fixed point, so a
+#: tag can cross the object boundary. `local` stops at the first `def` and is
+#: byte-identical to the analysis that shipped before the flag existed; it
+#: stays as the opt-out, not as the default.
+#:
+#: The flip is a **widening**, measured, not an opinion: on the labelled corpus
+#: `ip` has the same precision as `local` (100%, zero forbidden findings) and
+#: strictly more recall, every hop costs an explicit `IP_HOP_WEIGHT` factor and
+#: names itself in the evidence, and no cross-object finding can reach
+#: `certain`. The shipped sample is a frozen artefact, so `analyze --demo` and
+#: `contracts/graph.sample.json` are untouched by it.
+#:
+#: This constant is the authority. `AnalyzeOptions.dataflow`, the `--dataflow`
+#: flag and `tools/accuracy.py` all read it rather than spelling "ip" again.
 DATAFLOW_MODES = ("local", "ip")
-DEFAULT_DATAFLOW = "local"
+DEFAULT_DATAFLOW = "ip"
 
 FRAMEWORK_ORDER = {name: i for i, name in enumerate(K.FRAMEWORKS)}
 _MAX_BASE_ROUNDS = 5

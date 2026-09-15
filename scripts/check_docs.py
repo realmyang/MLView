@@ -1,12 +1,13 @@
 #!/usr/bin/env python
 """Documentation gate: keep the prose honest about the tree it describes.
 
-Twenty-one checks, all offline and stdlib-only. Checks 1-8, 12 and 21 live here;
-the twelve that compare a number, a list, or a command line in the prose with the
-machine-readable copy the tree already holds live next door -- checks 9-11 and
-19-20 in `scripts/doc_numbers.py`, checks 13-15 in `scripts/doc_figures.py`,
-checks 16-18 in `scripts/doc_surfaces.py` -- and are summarised at the bottom of
-this list:
+Twenty-three checks, all offline and stdlib-only. Checks 1-8, 12 and 21 live
+here; the thirteen that compare a number, a list, or a command line in the prose
+with the machine-readable copy the tree already holds live next door -- checks
+9-11 and 19-20 in `scripts/doc_numbers.py`, checks 13-15 and 23 in
+`scripts/doc_figures.py`, checks 16-18 in `scripts/doc_surfaces.py` -- and check
+22, which holds a claim that has no copy anywhere at all, lives in
+`scripts/doc_claims.py`. All four are summarised at the bottom of this list:
 
 1. **Dead paths.** Every repo-relative path written in backticks or in a Markdown
    link inside a current-state doc must exist on disk. Catches renamed modules,
@@ -104,9 +105,22 @@ this list:
     not the build. Rephrase it as a statement of fact -- the check only fires on
     a landing clause, never on a bullet that describes what the code does today.
 
+22. **A gate claimed green on a CI matrix that never ran**, with no sentence in
+    the same breath naming the run that was green or saying whether the matrix
+    ran at all -- **and its mirror**: a living document asserting the matrix has
+    not run while another living document in the same tree names a run that was
+    green. `docs/STATUS.md` carried both halves at once for a day (PUB-R01).
+23. **The one paragraph of `docs/CONTRACTS.md` that states a bare figure**: §7's
+    four diff counts and its headline, against the test §7 names as their pin.
+24. **A prose count of the false positives the public corpus caught**, against
+    `analyzer/tests/public_corpus/adjudication.json`. The current-state page said
+    *four* while the file held eleven and `README.md` said eleven (PUB-R02).
+25. **The versions `THIRD_PARTY_NOTICES.md` names**, against the packages under
+    `webview/node_modules`. It abstains where they are not installed (PUB-R11).
+
 `scripts/doc_numbers.py` carries checks 9-11 and 19-20, `scripts/doc_figures.py`
-checks 13-15 and `scripts/doc_surfaces.py` checks 16-18, with the incident behind
-each.
+checks 13-15, 23, 24 and 25, `scripts/doc_surfaces.py` checks 16-18 and
+`scripts/doc_claims.py` check 22 and its mirror, with the incident behind each.
 
 Usage:  python scripts/check_docs.py [--root DIR] [--quiet]
 Exit 0 when clean, 1 when a problem is found. The report goes to stdout.
@@ -120,7 +134,8 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import doc_figures  # noqa: E402  - sibling modules, after the sys.path fix above
+import doc_claims  # noqa: E402  - sibling modules, after the sys.path fix above
+import doc_figures  # noqa: E402
 import doc_numbers  # noqa: E402
 import doc_surfaces  # noqa: E402
 
@@ -128,15 +143,32 @@ DEFAULT_ROOT = Path(__file__).resolve().parent.parent
 
 # Docs that describe the tree as it *is*: every path they name must exist, and
 # they may not claim a green test fails.
+# `THIRD_PARTY_NOTICES.md` is here since PUB-R11: it was the one public-facing
+# community file no check read at all, and it is the file where a wrong version
+# number is a licence-compliance problem rather than a typo. Check 25 holds its
+# two versions to `webview/node_modules`; the path and claim checks apply to it
+# like any other living document.
 CURRENT_GLOBS = ("README.md", "docs/STATUS.md", "docs/ACCURACY.md",
-                 "scripts/README.md", "*/README.md", "docs/rules/README.md")
+                 "scripts/README.md", "*/README.md", "docs/rules/README.md",
+                 "THIRD_PARTY_NOTICES.md")
 # Docs that describe the tree as it was *planned*: frozen design records, checked
 # for dead Markdown links only. Rewriting them to match the build would erase the
 # record of what was decided. docs/CONTRACTS.md is normative and frozen, and is
 # never held to this gate at all.
 PLAN_GLOBS = ("docs/ARCHITECTURE.md", "docs/REQUIREMENTS.md",
               "docs/ISSUE_RULES.md", "docs/UX_DESIGN.md")
-SKIP = {"docs/CONTRACTS.md"}
+# `docs/CONTRACTS.md` is normative and carries the dated measurements of every
+# amendment folded into it; a gate that forced those to be rewritten would make
+# its own §17 errata impossible, which is why every figure in it names the
+# command that settles it instead (CONTRACTS v1.1 §16.4).
+#
+# `docs/archive/` is the same decision one step further: an archived spec must
+# keep, byte for byte, the text the rest of the tree was built against. Nothing
+# under it is collected by the globs above today (they reach one directory deep);
+# the entries below are belt and braces for the day one of them widens.
+SKIP = {"docs/CONTRACTS.md",
+        "docs/archive/README.md",
+        "docs/archive/CONTRACTS-v1.0-amended.md"}
 
 PATH_RE = re.compile(r"`([^`\s]+/[^`\s]*)`")
 LINK_RE = re.compile(r"\[[^\]]*\]\(([^)\s]+)\)")
@@ -492,9 +524,11 @@ def check_landed_gaps(root: Path, path: Path, lines, problems) -> None:
 def downloaded_parts(root: Path) -> set:
     """`ENDING_SKIP_PARTS` plus every directory a tool *downloads* into the tree.
 
-    PUB-01 put 24 third-party repositories under `.public-corpus/` (the name is
-    read from `tools/public_corpus.py`, never spelled here), and they carry 26
-    shell scripts of their own. Holding somebody else's `get_coco.sh` to this
+    PUB-01 put a pinned set of third-party repositories under `.public-corpus/`
+    (the name is read from `tools/public_corpus.py`, never spelled here), and
+    they carry shell scripts of their own -- 24 repositories and 26 scripts when
+    that incident was written, 37 and 169 two waves later, which is exactly why
+    no count belongs in this docstring. Holding somebody else's `get_coco.sh` to this
     repo's line-ending convention would fail the doc gate on a machine that had
     run `python tools/public_corpus.py fetch` and pass on one that had not --
     a gate whose verdict depends on what is cached is not a gate.
@@ -656,6 +690,8 @@ def run(root: Path):
     doc_figures.run(root, current, problems)
     # Checks 16-18: lists the prose shares with a file in the tree.
     doc_surfaces.run(root, current, problems)
+    # Check 22: a claim the tree holds no copy of at all.
+    doc_claims.run(root, current, problems)
     return problems, current + plan + scripts
 
 
@@ -683,7 +719,13 @@ def main(argv=None) -> int:
               "reader sees, every generated directory git-ignored, every test "
               "file its package's `test` script runs, every CI command line one "
               "its own tool accepts, no closed list of rules the code does not "
-              "hold, no known gap waiting for something that has landed)"
+              "hold, no known gap waiting for something that has landed, no "
+              "gate claimed green on a CI matrix without naming the run or "
+              "saying whether the matrix ran and none denying a run another "
+              "document names, the contract's diff figures equal the test that "
+              "pins them, the public corpus's false-positive count equal to its "
+              "adjudication file, and the third-party notice naming the versions "
+              "that are installed)"
               % len(files))
     return 0
 

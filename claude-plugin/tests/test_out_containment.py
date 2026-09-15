@@ -71,7 +71,7 @@ def test_an_absolute_path_inside_the_data_directory_is_allowed(roots):
 @pytest.mark.parametrize(
     "escape",
     [
-        "../../../../Users/realm/AppData/Local/Temp/mlview_escape.html",
+        "../../../../Users/someone/AppData/Local/Temp/mlview_escape.html",
         pytest.param(r"..\..\..\evil.html", marks=WINDOWS_ONLY),
         "sub/../../outside.html",
     ],

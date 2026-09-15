@@ -201,6 +201,16 @@ def test_a_correct_self_held_pipeline_fires_nothing(tmp_path):
     assert [i["code"] for i in doc["issues"]] == [], describe(doc)
     # ... and it is silent because it is correct, not because nothing resolved
     assert call_named(root, "fit").fqn == "sklearn.base.BaseEstimator.fit"
-    # the honest half: MLView says out loud that it could not trace the split
-    kinds = [d["kind"] for d in doc["diagnostics"]]
-    assert "untagged_dataflow" in kinds, doc["diagnostics"]
+    # The precision guard has to hold in BOTH modes - that is the whole of
+    # REV-05, and R1 made `ip` the one a user gets without asking.
+    local = analyze_paths(root, dataflow="local")
+    assert [i["code"] for i in local["issues"]] == [], describe(local)
+    # The honest half, and where R1 moved it: the split happens in a method, so
+    # in `local` the fitted value arrives untagged and MLView says out loud that
+    # it could not trace it. That claim is asserted against `local`, which is
+    # the mode the blindness belongs to; whether `ip`'s method-argument summary
+    # can carry the tag across is `ir.summaries`' business and is asserted in
+    # `test_dataflow_ip.py`, not here. What this test owns is the precision
+    # guard, and it owns it in both modes.
+    assert "untagged_dataflow" in [d["kind"] for d in local["diagnostics"]], \
+        local["diagnostics"]

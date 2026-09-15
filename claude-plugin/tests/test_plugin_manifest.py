@@ -45,6 +45,28 @@ def test_plugin_json_carries_the_contract_fields():
     assert "static-analysis" in manifest["keywords"]
 
 
+def test_the_plugin_ships_the_licence_its_manifest_declares():
+    """`plugin.json` says MIT; a marketplace install must carry the text too.
+
+    A `git-subdir` install copies `claude-plugin/` verbatim off a git ref with no
+    build step, so what lands on the user's disk is the vendored analyzer (130
+    files) and the viewer bundle. The VSIX carries its own copy for exactly this
+    reason (`extension/LICENSE.txt`). The copy is asserted byte-identical to the
+    repository root's, so a drift is a red gate rather than a discovery.
+    """
+    plugin_licence = os.path.join(PLUGIN_ROOT, "LICENSE")
+    root_licence = os.path.join(REPO_ROOT, "LICENSE")
+    assert os.path.isfile(plugin_licence), (
+        "claude-plugin/LICENSE is what an installed plugin is read under"
+    )
+    with open(plugin_licence, "rb") as fh:
+        shipped = fh.read()
+    with open(root_licence, "rb") as fh:
+        root = fh.read()
+    assert shipped == root, "claude-plugin/LICENSE has drifted from the root copy"
+    assert _load(PLUGIN_JSON)["license"] == "MIT" and b"MIT License" in shipped
+
+
 def test_plugin_json_omits_every_component_path_field():
     # CONTRACTS section 5: `skills` ADDS to the default scan while `commands` and
     # `agents` REPLACE it, so setting one by accident silently drops the defaults.
@@ -224,28 +246,87 @@ def test_the_repo_root_marketplace_points_at_this_plugin():
     assert len(names) == len(set(names)), "two entries may not share a name: %s" % names
 
 
+#: Remote source forms whose fetched **repository root** becomes the plugin root.
+#: None of them has a `path` key (Claude Code marketplace reference, verified
+#: 2026-09-15: `github` takes repo/ref/sha, `url` takes url/ref/sha, `archive`
+#: takes url/sha256), so a plugin that lives in a subdirectory cannot be published
+#: through any of them.
+ROOT_IS_THE_PLUGIN = ("github", "url", "archive")
+
+
+def _plugin_subdir(source):
+    """The directory, relative to the fetched tree, that becomes the plugin root.
+
+    ``None`` for the forms that do not resolve against a git tree at all (`npm`,
+    `command`), which this repository does not use.
+    """
+    if isinstance(source, str):
+        return source.lstrip("./") or "."
+    kind = source.get("source")
+    if kind == "git-subdir":
+        return (source.get("path") or "").lstrip("./") or "."
+    if kind in ROOT_IS_THE_PLUGIN:
+        return "."
+    return None
+
+
+def test_the_repository_root_is_not_itself_a_plugin():
+    """The premise every hosted entry has to respect.
+
+    `.claude-plugin/` at the root holds the MARKETPLACE, not a plugin: there is no
+    `plugin.json` beside it and no `commands/`, `skills/` or `.mcp.json` at the root.
+    So any source form that hands Claude Code the repository root publishes a
+    directory with no manifest - and the failure only surfaces after the user
+    installs, because a remote `plugin.json` is not read beforehand.
+    """
+    assert not os.path.isfile(os.path.join(REPO_ROOT, ".claude-plugin", "plugin.json"))
+    for name in ("commands", "skills", "agents", "hooks", ".mcp.json"):
+        assert not os.path.exists(os.path.join(REPO_ROOT, name)), (
+            "%s exists at the repo root; the root-is-the-plugin check below is stale"
+            % name
+        )
+
+
 def test_the_marketplace_also_offers_a_hosted_source():
     """PACKAGING: a checkout is not an install channel.
 
     The local `./claude-plugin` entry only works for somebody who already cloned the
     repo, which is exactly the audience that does not need a marketplace. The hosted
-    entry is the github source form from the Claude Code plugin docs, and it ships
-    beside the local one rather than replacing it so `claude plugin install
-    mlview@mlview-local` keeps working from a checkout.
+    entry ships beside the local one rather than replacing it, so `claude plugin
+    install mlview@mlview-local` keeps working from a checkout.
+
+    It uses **git-subdir**, not `github`: this plugin is at `claude-plugin/`, and the
+    `github` form has no `path` key, so it would have published the repository root -
+    a directory with no `plugin.json`, no `/mlview` commands and no MCP server.
     """
     hosted = _entry("mlview-github")
     source = hosted["source"]
-    assert isinstance(source, dict), "the hosted entry must use the github source object"
-    assert source["source"] == "github"
-    assert "/" in source["repo"], "repo is `owner/name`, not a URL: %r" % source["repo"]
-    assert not source["repo"].startswith("http"), "repo is `owner/name`, not a URL"
+    assert isinstance(source, dict), "the hosted entry must use a source object"
+    assert source["source"] == "git-subdir", (
+        "the plugin is in a subdirectory; only git-subdir carries a `path`"
+    )
+    assert source["url"].startswith("https://") and source["url"].endswith(".git")
+    assert source["path"] == "claude-plugin"
     assert hosted["description"]
 
 
-def test_the_marketplace_source_resolves_to_the_plugin_directory():
-    source = _entry("mlview")["source"].lstrip("./")
-    resolved = os.path.join(REPO_ROOT, source.replace("/", os.sep))
-    assert os.path.isfile(os.path.join(resolved, ".claude-plugin", "plugin.json"))
+@pytest.mark.parametrize("name", ["mlview", "mlview-github"])
+def test_every_marketplace_entry_resolves_to_a_directory_with_a_plugin_manifest(name):
+    """The gate for the whole class: a source that does not name a plugin directory.
+
+    Every entry in this manifest points into THIS repository, so the directory each
+    one will hand to Claude Code can be resolved right here and checked for the one
+    file the plugin loader needs. A form with no `path` resolves to `.` - the repo
+    root - and fails, which is exactly the defect this is here to catch.
+    """
+    subdir = _plugin_subdir(_entry(name)["source"])
+    assert subdir is not None, "unresolvable source form for %r" % name
+    resolved = os.path.join(REPO_ROOT, subdir.replace("/", os.sep))
+    manifest = os.path.join(resolved, ".claude-plugin", "plugin.json")
+    assert os.path.isfile(manifest), (
+        "marketplace entry %r resolves to %s, which has no .claude-plugin/plugin.json"
+        % (name, subdir)
+    )
 
 
 def test_the_plugin_and_marketplace_versions_agree():

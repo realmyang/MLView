@@ -52,18 +52,35 @@ def unresolved_call_count(workspace) -> int:
     return sum(1 for _relpath, _call in _iter_unresolved(workspace))
 
 
-def _site_text(short: str, line: int, construct: str) -> str:
+def _site_text(short: str, line: int, construct: str,
+               bound_at: Optional[int] = None) -> str:
     """One site, named by its callee when the callee has a name to give.
 
     A subscript callee (`BUILDERS[kind]()`) has no name at all, and printing
     `call(...)` for it would invent one - so it is described rather than named.
+
+    `bound_at` is the line the construct is really written on, and it is the
+    difference between a true sentence and a false one (REV-PREC-07). The
+    construct can describe the callee's **binding** rather than the call
+    expression, and the message used to attribute it to the call's line all the
+    same: on a correct program whose only note this was, `loss =
+    criterion(model(xb), yb)` at line 50 - two plain names, no brackets - was
+    reported as "`criterion(...)` at line 50 is a subscript". The subscripts
+    were the bindings at lines 40 and 43. When the construct lives elsewhere,
+    the sentence says where.
     """
+    if bound_at:
+        if short and short != "call":
+            return ("`%s(...)` at line %d was bound from %s at line %d"
+                    % (short, line, construct, bound_at))
+        return ("the call at line %d has a callee bound from %s at line %d"
+                % (line, construct, bound_at))
     if short and short != "call":
         return "`%s(...)` at line %d is %s" % (short, line, construct)
     return "the call at line %d has %s as its callee" % (line, construct)
 
 
-def _message(scope: str, sites: Sequence[Tuple[str, int, str]]) -> str:
+def _message(scope: str, sites: Sequence[Tuple[str, int, str, Optional[int]]]) -> str:
     ordered = sorted(sites, key=lambda s: (s[1], s[0]))
     named = "; ".join(_site_text(*row) for row in ordered[:_NAMED_SITES])
     rest = ordered[_NAMED_SITES:]
@@ -90,7 +107,7 @@ def _message(scope: str, sites: Sequence[Tuple[str, int, str]]) -> str:
 
 def unresolved_callee_diagnostics(workspace) -> List[Diagnostic]:
     """One `unresolved_callee` diagnostic per `(file, scope)`, in sort order."""
-    sites: Dict[Tuple[str, str], List[Tuple[str, int, str]]] = {}
+    sites: Dict[Tuple[str, str], List[Tuple[str, int, str, Optional[int]]]] = {}
     order: List[Tuple[str, str]] = []
     for relpath, call in _iter_unresolved(workspace):
         key = (relpath, call.scope.qualname if call.scope is not None else "")
@@ -98,13 +115,14 @@ def unresolved_callee_diagnostics(workspace) -> List[Diagnostic]:
             sites[key] = []
             order.append(key)
         sites[key].append((call.short_name or "call", call.loc.line,
-                           call.unresolved_callee))
+                           call.unresolved_callee, call.unresolved_at))
     out: List[Diagnostic] = []
     for relpath, scope in order:
         rows = sites[(relpath, scope)]
         out.append(Diagnostic(
             kind=UNRESOLVED_KIND, message=_message(scope, rows),
-            file=relpath or None, line=min(line for _s, line, _c in rows) or None,
+            file=relpath or None,
+            line=min(line for _s, line, _c, _b in rows) or None,
             scope=scope or None, count=len(rows)))
     return out
 

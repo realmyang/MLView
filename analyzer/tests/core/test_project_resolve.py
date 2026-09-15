@@ -48,7 +48,9 @@ def test_tier_3_beats_tier_4_so_unit_train_is_the_function():
     # as a descendant of the function, which is where it belongs.
     assert "train.train.train" not in qualnames(doc, res.anchors)
     assert "train.train.train" in qualnames(doc, res.core)
-    assert len(res.core) == 10
+    # 10 -> 13: GRAPH-R3 draws `model = SmallCNN()` and the two `model(images)`
+    # forward passes, and the first of those is a descendant of `train()`.
+    assert len(res.core) == 13
 
 
 def test_tier_4_catches_a_call_site_op_with_no_definition():

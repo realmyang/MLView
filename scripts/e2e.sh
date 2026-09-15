@@ -254,7 +254,19 @@ fi
 # builds the wheel when `build` is available, installs it into a throwaway venv,
 # runs the CONSOLE SCRIPT (`mlview --version --json`) and then one real analysis --
 # because a wheel missing `schema/*.json` installs perfectly and fails on first use.
-step "wheel installs and runs" "$REPO_ROOT" "$PYTHON" tools/wheel_check.py
+# It exits 3 when there was no wheel to test, which is a SKIP and not a PASS: this
+# row printed PASS over a check that did nothing in every e2e job the project has
+# run, including the green ones the README cites (FC-04).
+printf '\n== %s\n' "wheel installs and runs"
+( cd "$REPO_ROOT" && "$PYTHON" tools/wheel_check.py )
+wheel_code=$?
+if [ $wheel_code -eq 0 ]; then
+  record PASS "wheel installs and runs" ""
+elif [ $wheel_code -eq 3 ]; then
+  record SKIP "wheel installs and runs" "no wheel to test — pip install build"
+else
+  record FAIL "wheel installs and runs" "exit $wheel_code"
+fi
 
 # ------------------------------------------------------------------ parity gates
 # CONTRACTS 11.15 puts the scope gate BETWEEN the CLI-vs-MCP parity gate and the

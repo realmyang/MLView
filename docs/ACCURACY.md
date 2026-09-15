@@ -3,8 +3,18 @@
 ANA-12. MLView's core asset is that it does not lie, and its core weakness is
 how much it misses. Neither number was measured anywhere in this tree until
 now. This document describes the corpus that measures them, the numbers it
-produced on **2026-09-09**, and the three gates that keep them from going
+produced on **2026-09-15**, and the three gates that keep them from going
 backwards.
+
+**Two modes, two ratchets, and since R1 the default is `ip`.** `python
+tools/accuracy.py` with no flags measures and gates what a user actually gets —
+the interprocedural analysis — against `analyzer/tests/accuracy/baseline.ip.json`;
+`--dataflow local` scores the narrower opt-out against `baseline.json`. Both are
+gated, both are at **100% precision with zero forbidden and zero unlabelled
+findings**, and the report header and the `PASS` line now both name the mode and
+the file, so a pasted number can never be ambiguous about which of the two it is.
+Section 3's headline is quoted in **`local`** because the doc gate reads
+`baseline.json`; section 9 gives both.
 
 ```
 python tools/accuracy.py                    # the report and the gate
@@ -18,16 +28,20 @@ python -m pytest analyzer/tests/accuracy -q # the same thing, asserted
 
 ## 1 · What the corpus is
 
-`analyzer/tests/accuracy/corpus/` holds **92** labelled projects. Each is a
+`analyzer/tests/accuracy/corpus/` holds **158** labelled projects. Each is a
 directory with a `labels.json` beside its sources; two of them are label files
 alone, pointing at the shipped samples through a `root` key so the corpus never
 forks a second copy of the demo.
 
-Fifteen of the 92 are the original set the table below describes — the programs
-the rules were written against or re-created from the Sprint-2 audit. The other
-77 were added in hardening round 1 (2026-09-14) and are listed by family in
-section 3; every one of them is unseen, and most ship as a correct / defective
-pair so that a zero-false-positive claim has something to be zero about.
+Fifteen of the 158 are the original set the table below describes — the programs
+the rules were written against or re-created from the Sprint-2 audit. Another 77
+were added in hardening round 1 (2026-09-14) and are listed by family in section
+3, and the remaining 66 in hardening round 2 (section 8), which took the corpus
+92 → 158. Every one of those 143 is unseen — no program labelled after
+2026-09-09 carries `tuned` — and most ship as a correct / defective pair so that
+a zero-false-positive claim has something to be zero about. Sections 8 and 9
+carry the current headline figures; this section describes the shape of the
+corpus rather than the newest measurement of it.
 
 | Program | Shape | Labels | Origin |
 |---|---|---|---|
@@ -47,8 +61,11 @@ pair so that a zero-false-positive claim has something to be zero about.
 | `hf_no_eval` * | a HuggingFace fine-tune that never evaluates | 1 | written alongside ANA-7 |
 
 `*` **tuned**: the rules were developed against these six, so their numbers are
-a ceiling, not a measurement. Every headline below is quoted twice — over the
-whole corpus, and over the **unseen** eight alone.
+a ceiling, not a measurement. A seventh program outside this table carries the
+same flag — `keras_se_gate`, written from the Sprint-4 review's own
+false-positive repros — so the corpus holds seven tuned programs in all. Every
+headline below is quoted twice: over the whole corpus, and over the **unseen**
+programs alone, which is everything except those seven.
 
 ## 2 · What a label is
 
@@ -289,8 +306,8 @@ visible = confidence >= 0.60, the VS Code Problems panel default.
 ```
 
 ```
-overall   labels 545   recall  77.8%   visible  70.1%   high+medium  70.7%   precision 100.0%
-unseen    labels 514   recall  76.5%   visible  68.3%   high+medium  68.7%   precision 100.0%
+overall   labels 546   recall  78.2%   visible  70.7%   high+medium  71.2%   precision 100.0%
+unseen    labels 515   recall  76.9%   visible  68.9%   high+medium  69.3%   precision 100.0%
 ```
 
 Two columns exist because the report used to overstate itself. **`n/l`** in the
@@ -301,8 +318,8 @@ means the rules were developed against it, so it is excluded from the unseen
 headline; six programs carry it and no rule does.
 
 **Precision is 100%.** Zero forbidden findings, zero unlabelled findings, on 158
-projects and 545 labels, in **both** dataflow modes (re-measured in hardening
-round 2 — section 8). That is the claim the
+projects and 546 labels, in **both** dataflow modes (re-measured after the recall
+campaign — section 9). That is the claim the
 product rests on, it is the one number the gate refuses to let move, and it is
 now backed by four times the evidence it had a week ago. Round 1 started with it
 broken: on this corpus `hardening` at `ef4fb71` measured precision 97.6% with
@@ -310,19 +327,21 @@ broken: on this corpus `hardening` at `ef4fb71` measured precision 97.6% with
 code.
 
 **Recall is the weakness, and it has three honest readings.** On the 151 unseen
-programs:
+programs, in `--dataflow local` (the narrower mode; the shipped default is `ip`
+and is two to three points higher on every row — section 9):
 
 | Reading | Number | What it means |
 |---|---|---|
-| raw recall | **76.5%** | 393 of 514 planted defects produced a finding |
-| visible recall | **68.3%** | …of which 351 clear `mlview.minConfidence` 0.6, so the rest never reach the VS Code Problems panel |
-| high+medium recall | **68.7%** | 252 of 367 defects that are not reproducibility hygiene |
+| raw recall | **76.9%** | 396 of 515 planted defects produced a finding |
+| visible recall | **68.9%** | …of which 355 clear `mlview.minConfidence` 0.6, so the rest never reach the VS Code Problems panel |
+| high+medium recall | **69.3%** | 255 of 368 defects that are not reproducibility hygiene |
 
 All three are **up** on the unseen half, and substantially — 55.3% -> 69.4% ->
-76.5% raw, 42.5% -> 63.0% -> 68.3% visible, 37.5% -> 60.2% -> 68.7% high+medium,
-over three measurements on three successively larger unseen sets (eight programs,
-then 86, now 151). This is a measurement of unseen recall rather than an anecdote
-about it.
+76.5% -> 76.9% raw, 42.5% -> 63.0% -> 68.3% -> 68.9% visible, 37.5% -> 60.2% ->
+68.7% -> 69.3% high+medium, over four measurements on successively larger unseen
+sets (eight programs, then 86, then 151). This is a measurement of unseen recall
+rather than an anecdote about it. In the shipped `ip` mode the same three
+readings are **79.2% / 70.9% / 72.5%** — 408 of 515, 365 visible, 267 of 368.
 
 **Reconciling with the audit's ~26%.** The Sprint-2 audit measured ~26% over
 four hand-written projects. The closest reading here is **60.2%** — the
@@ -333,10 +352,12 @@ fires on essentially every program, which lifts the raw figure. Quote the
 high+medium number when comparing to the audit, and quote all three when
 reporting progress.
 
-**Graph fidelity: 985 of 1166 hand-labelled ops, 84.5%.** The score reads lower
-than the 127 of 139 (91.4%) recorded on 2026-09-10 for the same reason recall
-does: 1027 of the 1166 ops are new, hand-drawn on code nobody tuned the builder
-against. 66 of the 158 programs carry a `graph` block; the other 92 carry none
+**Graph fidelity: 1072 of 1166 hand-labelled ops, 91.9%.** Up from 985 / 84.5%
+on 2026-09-14, and the whole of that move is R2 and R3 (section 9): the pandas
+windowing and regrouping families, statsmodels / Prophet / `evaluate` /
+torchmetrics, and — the larger half — `core/workspace_ops`, which draws the
+construction site of a workspace class, the outer forward pass and the object a
+workspace factory returns. Identical in both dataflow modes. 66 of the 158 programs carry a `graph` block; the other 92 carry none
 and contribute nothing to the total, which is the distinction the `n/l` row
 exists to keep. The programs that do:
 
@@ -801,3 +822,173 @@ still untyped, which costs `hydra_research` its MLV301/MLV302/MLV501. And the
 inventory folds before any pipeline lane's operations — but on a package whose
 units really are mostly configuration it still spends most of a 20-node budget
 there, because there is nothing else to spend it on.
+
+---
+
+## 9 · The recall campaign (2026-09-15)
+
+Five items, measured one family at a time against this corpus after every one:
+**R1** made `--dataflow ip` the product default, **R2** widened the knowledge
+tables, **R3** taught the graph to draw objects the *workspace* defines, **R4**
+gave the four score rules one answer to "what does this value hold", and **R5**
+took the four named rule shapes. The corpus was the referee throughout: 158
+programs, both modes, after every family.
+
+### The two modes on the 158-program corpus, 2026-09-15
+
+| mode | recall | visible | high+medium | unseen recall | precision | forbidden | unlabelled |
+|---|---|---|---|---|---|---|---|
+| `local` | **78.2%** | **70.7%** | **71.2%** | **76.9%** | **100%** | 0 | 0 |
+| `ip` *(default)* | **80.4%** | **72.5%** | **74.3%** | **79.2%** | **100%** | 0 | 0 |
+
+Graph fidelity is **1072 of 1166 (91.9%)** in both, up from 985 / 84.5%. Against
+the numbers this replaces — `local` 77.8 / 70.1 / 70.7 / 76.5 and `ip`
+79.1 / 71.2 / 72.5 / 77.8 — every aggregate rose in both modes and nothing fell.
+**The visible column in the table above is the campaign review's**: §5.3 A11 (d), which was
+contractual and unimplemented until the review, resolves one more training loader held on a
+holder object, which took visible recall 72.3% → 72.5% (`ip`) and 70.5% → 70.7% (`local`) and
+MLV110's `visible` column 21 → 22. Disabling that one fallback puts both numbers back, which is
+how the attribution was measured rather than assumed.
+`analyzer/tests/clean` stays at **0 findings**, and the **37** pinned public
+repositories stay at **260 runs, 260 clean, gate OK** under `--strict`, with
+every one of the 49 high findings already adjudicated: no new high finding.
+
+### Per rule, before and after
+
+Recall over the whole corpus. `—` means the number did not move, which for two
+of the five named shapes is itself the result and is explained below.
+
+| rule | labels | `local` before → after | `ip` before → after | what moved it |
+|---|---|---|---|---|
+| MLV101 | 31 | 48.4% → 48.4% | 71.0% → **77.4%** | R5 `_split_after_return` |
+| MLV102 | 10 | 60.0% → 60.0% | 60.0% → **70.0%** | R5 `_fold_projection` |
+| MLV103 | 9 | 22.2% → 22.2% | 22.2% → **44.4%** | R5 `_callee_fit_transform` |
+| MLV114 | 17 | 41.2% → 41.2% | 41.2% → 41.2% | — already wider here (below) |
+| MLV205 | 30 | 73.3% → 73.3% | 73.3% → 73.3% | R18 guards only remove |
+| MLV208 | 7 | 14.3% → **28.6%** | 14.3% → **28.6%** | R5 `_scaler_for` identity |
+| MLV305 | 15 | 14.3% → **20.0%** | 14.3% → **20.0%** | R4 value typing |
+| MLV306 | 8 | 87.5% → 87.5% | 87.5% → 87.5% | R4 widened, corpus saturated |
+| MLV401 | 15 | 53.3% → 53.3% | 53.3% → 53.3% | R4 reached, corpus saturated |
+| MLV402 | 11 | 27.3% → **36.4%** | 27.3% → **36.4%** | R4 value typing |
+
+The three `ip`-only rows are the point of R1: those walks are defined as
+crossings, `local` is defined as the analysis that stops at the first `def`, and
+widening `local` there would make it a second dialect rather than a narrower
+mode. Every one of them pays an `IP_HOP_WEIGHT` per hop, names the chain in its
+evidence, and cannot reach `certain` — the MLV101 shape lands at 0.608,
+`possible`, on the two-module fixture that pins it.
+
+### Two numbers that did not move, and why
+
+**MLV114 needed nothing.** The campaign's version of this rule requires the
+augmenting `Compose` to reach the loader directly; the rule in this tree already
+walks one hop into a factory function or a Lightning `DataModule` method
+(vision-07), accepts a workspace `Dataset` subclass, reads the `Compose`
+elements out of the module that *defines* it rather than the one that uses it,
+and merges a pipeline served to two loaders into one finding. It is a strict
+superset, so there was nothing to port. The 10 misses are a different shape:
+`vision_pose_bad`'s flip that mirrors coordinates without swapping the left/right
+keypoint indices is not an "augmentation in the eval transform" at all.
+
+**MLV208 doubled, and three of its remaining misses are a different guard.**
+R5's claim is that a `scaler.step(...)` in the loop whose receiver resolves to a
+`GradScaler(...)` written anywhere else *is* that scaler, whatever function
+built it. Two shapes reach it: the receiver's own producer is the construction
+(a dict or a tuple the value was carried in), or the receiver came out of a
+**factory** and the return slot's `via_fqns` names `torch.amp.GradScaler`, in
+which case the construction is located inside that callee so the `enabled=`
+literal still has something real to read. `nlp_gpt_pretrain` — `model,
+optimizer, scheduler, scaler = build()` — is the second shape and is the label
+that moved; 14.3% → 28.6%.
+
+On `vision_superres_bad` — `g_scaler, d_scaler = scalers["g"], scalers["d"]`, a
+tuple of two subscripts out of a parameter dict — the walk now resolves the
+construction at `train_esrgan.py:193` where before it resolved nothing, and the
+three labels there are **still** missed by a different and older guard: that
+program builds its scalers as `GradScaler(enabled=args.amp)`, the config
+resolver reads argparse's `store_true` default, and `enabled=False` is a
+documented no-op this rule refuses to judge. Reading an argparse default as a
+fact about the run is a separate decision with its own precision cost and is not
+made here.
+
+### What each item cost and bought
+
+* **R1 — `ip` by default.** `ir.build_ir.DEFAULT_DATAFLOW` is the one authority;
+  `AnalyzeOptions.dataflow`, the `--dataflow` flag and `tools/accuracy.py` all
+  read it. `local` is the opt-out and is still gated by its own ratchet. The
+  shipped sample is a frozen artefact, so `analyze --demo` is byte-identical to
+  `contracts/graph.sample.json` before and after. **Cost:** the fixed-point
+  summary pass runs on every run — measured at 33 ms against 38 ms on
+  `analyzer/tests/clean`, and 0.77–0.82× on `tools/perf_equiv --bench`'s
+  4/50/200-file synthetic corpora against an `origin/sprint5` reference tree,
+  which is the price of the whole campaign and not of R1 alone.
+* **R2 — knowledge tables.** `knowledge/pandas_tbl.py` (windowing and lag,
+  regrouping and joining, the closing aggregations, `to_csv` and friends),
+  `knowledge/metrics_tbl.py` (HuggingFace `evaluate` and torchmetrics **objects**
+  — the `metric.add_batch(...)` / `metric.compute()` pass every `transformers`
+  fine-tune written since 2022), the rest of the Keras `Model` surface including
+  `export`, and the statsmodels roots and `statsmodels.base.model.Model` methods
+  TAB-01 had not reached. Nine new roles, **no rule keys on any of them**: they
+  exist so the diagram can draw the box, and graph fidelity went 84.5% → 86.2%
+  on R2 alone.
+* **R3 — workspace objects.** `core/workspace_ops.py` draws three calls that
+  carried meaning and minted nothing: the **construction site** of a workspace
+  class (`model = SmallCNN()` — the reader's diagram has a box where the model is
+  built, not only where it is declared), the **outer forward pass**
+  (`logits = model(images)`, `loss = criterion(out, y)` — transparency by design
+  swallowed the single most-drawn arrow in any training diagram), and the
+  **factory return** (`opt = build_optimizer(model, cfg)`), with an honest
+  `unknown` box carrying the construct that defeated the analyzer when the
+  return cannot be typed at all. Every node it mints is vote-free, so no unit
+  changes lane because of it. Graph fidelity 86.2% → 91.9%; the shipped sample
+  pair moved together, 54/51/15 → 59/51/15 and 64/55/0 → 70/56/0, with **the
+  findings unchanged**. The carriage half of R3 — a dict, a tuple, a dataclass
+  field, `self.<attr>` across methods, `accelerator.prepare` — was already in
+  this tree from the hardening rounds, by a deliberately different mechanism:
+  `prepare()` and `Fabric.setup()` have **no** knowledge rows here, because
+  `ir/bindings_values._self_wrapped` keeps the types the names already carried
+  rather than inventing an arity rule. The one gap that was real is REC-04, the
+  composition with a **parameter boundary**: a `make_state()` factory returning a
+  dict literal lost everything inside it at the `return`. `ReturnSlot` now
+  carries the resolved per-slot values, so `state["scaler"]` in a callee is the
+  GradScaler — resolved in the scope that *wrote* the literal, which is why no
+  name is ever re-read in a scope it does not belong to.
+* **R4 — value typing.** `rules/valuetype.py` answers *what does this value
+  hold* — `LOGITS`, `PROBS`, `PREDS` — for MLV305/306/401/402 in one place,
+  following two hops the tables alone could not: the `.detach().cpu().numpy()`
+  tail, and one workspace helper's `return`. A per-batch list joined by
+  `np.concatenate(...)` is typed by the **intersection** of every `append`. It
+  mints no tag of its own; a tag fetched out of a callee carries a `return` hop
+  and is de-rated for it. It also unblocked one `unsupported` label:
+  `adv_gnn_sage_bad`'s `accuracy_score(..., torch.cat(predicted).numpy())` was
+  recorded as undetectable because the tag died in the list, and is now an
+  `expected` row like any other.
+* **R5 — four rule shapes.** Three interprocedural leakage walks in
+  `rules/leakage_paths.py` (`_split_after_return`, `_fold_projection`,
+  `_callee_fit_transform`), each `ip`-only and each paying its own hop, plus
+  MLV208's identity arm. The MLV205 half is a **guard**, not a widening: a loop
+  under `torch.no_grad()` builds no graph to keep alive, and a running total the
+  program then back-propagates one arithmetic step later is the live value on
+  purpose. R18's other half — reading a LOSS tag through
+  `loss = criterion(...) / ACCUM_STEPS` — is deliberately **not** shipped: it
+  produced three false positives on the pinned public corpus, and a rule that
+  accuses correct code costs more than a rule that misses a defect.
+
+### What the recall number still does not say
+
+Twenty-two percentage points are still missing in `local` and twenty in `ip`,
+and they are named rather than averaged away. **MLV208** (28.6%) now finds the
+scaler wherever it was built and is stopped by the `enabled=` literal read on
+two programs, and by a variant it does not implement at all — "float16 autocast
+with **no** GradScaler anywhere" — on a third. **MLV114** (41.2%) misses a class
+of defect that is not augmentation-in-eval: a flip that mirrors coordinates
+without swapping the left/right keypoint indices. **MLV401** (53.3%) and
+**MLV306** (87.5%) were both widened by R4 and neither moved, because the labels
+they miss are shapes the value typing still does not reach rather than hops it
+now does. **MLV103** (44.4%) reads one level of callee only, and refuses when
+the caller's binding does not record which tuple position it unpacked — the
+guard that keeps it from blaming the wrong `fit_transform`, measured on
+`nlp_sklearn_text_leaky`. A model built by a **registry**
+(`build_from_cfg("model", cfg)`) is still untyped; R3 now draws an honest
+`unknown` box at the call site instead of nothing, which is a better answer and
+not a fix.

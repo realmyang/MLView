@@ -49,8 +49,14 @@ TRAIN = ("import torch\n"
 
 @pytest.fixture(scope="module")
 def pair():
-    base = analyze_to_dict(AnalyzeOptions(paths=(DIRTY,), cache=False))
-    head = analyze_to_dict(AnalyzeOptions(paths=(CLEAN,), cache=False))
+    # The mode is **named**, not defaulted: this file pins exact counts, and
+    # the two dataflow modes legitimately draw one edge differently on the
+    # clean twin, so a test about the *diff engine* must not move the day the
+    # default mode moves (DATAFLOW-IP R1 flipped it to `ip`).
+    base = analyze_to_dict(AnalyzeOptions(paths=(DIRTY,), cache=False,
+                                          dataflow="ip"))
+    head = analyze_to_dict(AnalyzeOptions(paths=(CLEAN,), cache=False,
+                                          dataflow="ip"))
     return base, head
 
 
@@ -72,24 +78,36 @@ def run(capsysbinary):
 # ------------------------------------------------------------- acceptance
 def test_the_sample_pair_reports_the_added_nodes_and_the_fixed_findings(overlay, pair):
     """ROADMAP VIEW-08's acceptance, at the counts this tree actually produces
-    after the §11.19 re-baseline and its §11.35 erratum: the dirty sample is 54
-    nodes / 51 edges / 15 findings and the clean twin is 64 / 55 / 0."""
+    after the §11.19 re-baseline, its §11.35 erratum, vision-11 and the R3
+    workspace-object pass: the dirty sample is 59 nodes / 51 edges / 15
+    findings and the clean twin is 70 / 56 / 0.
+
+    The pair moved together (54 / 51 / 15 and 64 / 55 / 0 before R3): every
+    added card is a workspace object at the line it is built or applied - the
+    two `model(images)` forward passes, `model = SmallCNN()`, the `ConvBlock()`
+    submodule and `loss = criterion(...)` - and the **findings did not move at
+    all**, which is the property this pair exists to demonstrate.
+    """
     base, head = pair
-    assert (len(base["nodes"]), len(base["issues"])) == (54, 15)
-    assert (len(head["nodes"]), len(head["issues"])) == (64, 0)
+    assert (len(base["nodes"]), len(base["issues"])) == (59, 15)
+    assert (len(head["nodes"]), len(head["issues"])) == (70, 0)
     summary = overlay["summary"]
     # vision-11 (CONTRACTS 11.53): a unit that owns no loop is no longer
     # re-kinded into a `train_loop` / `eval_loop`, and `Node.id` is
     # `sha1(file|qualname|kind)` - so three units on each side (the sklearn
-    # `baseline()` among them) now match across the pair instead of counting as
-    # one added and one removed node each. Same 54 / 64 node totals, same
-    # 15 / 0 findings; three phantom loops fewer on the diagram.
-    assert summary["nodes"] == {"added": 25, "removed": 15, "changed": 8,
-                                "unchanged": 31}
-    assert summary["edges"] == {"added": 26, "removed": 22, "changed": 1,
+    # `baseline()` among them) match across the pair instead of counting as
+    # one added and one removed node each.
+    assert summary["nodes"] == {"added": 26, "removed": 15, "changed": 8,
+                                "unchanged": 36}
+    # One edge is `changed` and not `added`: the `logits -> loss` edge exists in
+    # both documents, and in the dirty one it carries MLV401's marker (R3/G10 -
+    # the marker fell back from the class unit to the producer when the forward
+    # pass became a card of its own), which is a change of annotation, not of
+    # topology.
+    assert summary["edges"] == {"added": 27, "removed": 22, "changed": 1,
                                 "unchanged": 28}
     assert summary["issues"] == {"new": 0, "fixed": 15, "persisting": 0}
-    assert summary["headline"] == "+25 nodes · −15 nodes · 0 new findings · 15 fixed"
+    assert summary["headline"] == "+26 nodes · −15 nodes · 0 new findings · 15 fixed"
 
 
 def test_every_finding_of_the_dirty_sample_is_reported_fixed(overlay, pair):
@@ -255,7 +273,7 @@ def test_the_summary_names_both_sides_and_the_headline(overlay):
     assert overlay["summary"]["headline"] in text
     assert "fixed findings (15)" in text
     assert "new findings (0)" in text
-    assert "added nodes (25)" in text
+    assert "added nodes (26)" in text
 
 
 def test_the_summary_elides_rows_but_never_the_notes(overlay):

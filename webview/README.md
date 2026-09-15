@@ -89,12 +89,14 @@ package's tests and `dev/states.html`. **Hosts must not depend on it.**
 | Module | Responsibility |
 |---|---|
 | `src/main.ts` | the single global: `version`, `mount`, `bridges`, `__internal` |
-| `src/app.ts` | the controller: view state, chrome, rail, search, keys, host protocol |
+| `src/app.ts` | the controller: view state and lifecycle; the work it drives is in `src/app/` |
+| `src/app/` | `build` (the shell and every panel), `documents` (document, scope, diff, chooser), `surfaces` (repaint chrome / diff band / rail), `actions` (the requests posted to the host), `exporting` (VIEW-07), `keys` (the keyboard binding), `messages` (the host protocol, inbound), `state` (`ViewState`, both directions) |
 | `src/canvasview.ts` | the diagram surface: layout frame, scene DOM, viewport, hover, focus, collapse |
+| `src/canvas/` | `host` (what the canvas may ask of the App, and the surface's timings), `wiring` (the gestures a rendered card or cable answers), `emphasis` (selection, hover, the lineage trace, focus mode) |
 | `src/filters.ts` | the filter model (severities, stages, suppressed, query, rule codes) and its predicates |
 | `src/layout/` | `model` (index), `layout` (swimlanes + dagre), `wrap` (rank re-flow), `routing` (elbows, loops), `channel` (the cross-lane trunk plan), `bundles` (trunk + spur geometry), `navigate` (arrow keys) |
 | `src/render/` | `scene`, `nodes`, `edges`, `bundles` (the trunk layer and its expand/collapse binding), `canvas` (viewport + minimap), `trace`, `tooltip`, `connectors` |
-| `src/ui/` | `shell`, `chrome`, `rail`, `issuelist`, `railgroup`, `evidence`, `ruledocs`, `legend`, `gestures`, `states`, `keymap`, `searchbox`, `searchcontroller` |
+| `src/ui/` | `shell`, `chrome`, `chromebanners` (the banner stack, in its contracted order), `chromechips` (what the chip row says about a run, before any of it is a DOM node: collect, fold, cap), `rail`, `issuelist`, `railgroup`, `evidence`, `ruledocs`, `legend`, `gestures`, `states`, `keymap`, `searchbox`, `searchcontroller` |
 | `src/ui/issuelist.ts` | the Issues panel: the "Group by" control, the severity sections, the rows and the four empty states |
 | `src/ui/railgroup.ts` | grouping findings by rule or by file, with occurrence counts (RAIL-GROUP) |
 | `src/ui/evidence.ts` | the confidence chip on every row, the `issue.evidence[]` checklist and the rule card (MLV-P6) |
@@ -111,6 +113,7 @@ package's tests and `dev/states.html`. **Hosts must not depend on it.**
 | `src/bridges.ts` | `vscode()` and `standalone()` host bridges, plus `deepLinkPlan` — the standalone report never navigates itself (CONTRACTS 11.17) |
 | `src/protocol.ts` | `HostToUi` dispatch and filter coercion |
 | `src/demo.ts` | the `__internal` debug surface used by the tests and `dev/states.html` |
+| `src/styles/` | the cascade layers, concatenated by `build.mjs` **in a fixed order**. The chrome is four of them — `chrome` (toolbar, chip row, banners, status bar, search box, minimap), `chromestates` (toasts, the loading / empty states, the filter row), `chromepanels` (scrim, `?` sheet, theme switch, flow and legend toggles, the legend, the `role="toolbar"` wrapper), `chromeanswers` (MLV-P1's card) — and the rail is three: `rail`, `railevidence` (MLV-P6), `railgroups` (RAIL-GROUP + CI-ADOPT). Each is a contiguous slice of the file it came out of, so no rule moved and the minified stylesheet is byte-for-byte what it was. |
 
 ## Layout
 

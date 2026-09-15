@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import ast
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Sequence, Set, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 from .model import ClassIR, FunctionIR, sort_tags
 from .symbols import dotted_text
@@ -54,9 +54,32 @@ class ReturnSlot:
     fqns: Tuple[str, ...] = ()
     tags: Tuple[str, ...] = ()
     class_ir: Optional[ClassIR] = None
+    #: GRAPH-R3. The noun phrase for the construct that defeated the analyzer
+    #: when the return could not be typed **at all** - "a subscript", "a
+    #: lambda", "a dataclass default_factory". A registry factory
+    #: (`return _REGISTRY[group][name](**kwargs)`) is the canonical case, and it
+    #: is present in a large fraction of research repositories. Appended last
+    #: and defaulted, so a slot that names a symbol is exactly what it was:
+    #: this field is set only when `fqns`, `tags` and `class_ir` are all empty,
+    #: and it asserts nothing about what the value *is* - only that the analyzer
+    #: knows it could not follow it, which is what lets `core/workspace_ops`
+    #: draw an honest `unknown` box instead of nothing at all.
+    opaque: Optional[str] = None
+    #: REC-04. The per-slot values of a **container literal** the function hands
+    #: back: `return {"model": model, "scaler": GradScaler(...)}` and
+    #: `return opt_a, opt_b`. `ir/bindings_values` already resolves a literal's
+    #: slots where it is written, and `ValueRef.elements` / `.entries` carry
+    #: them; what R3 shipped could not get them *out* of the function, so a
+    #: `make_state()` factory - which is how the shape is actually written -
+    #: lost every object inside it at the `return`. The refs are resolved in the
+    #: **callee's** scope before they travel, which is why nothing here needs to
+    #: re-read a name in a scope it does not belong to.
+    elements: Tuple[Optional[Any], ...] = ()
+    entries: Tuple[Tuple[str, Any], ...] = ()
 
     def __bool__(self) -> bool:
-        return bool(self.fqns or self.tags or self.class_ir is not None)
+        return bool(self.fqns or self.tags or self.class_ir is not None
+                    or self.opaque or self.elements or self.entries)
 
 
 @dataclass(frozen=True)
@@ -151,6 +174,14 @@ def _slot(expr, func: FunctionIR, workspace, memo, active, depth: int,
     if expr is None:
         return None
     module = func.module
+    if isinstance(expr, (ast.Dict, ast.List, ast.Tuple)):
+        # REC-04: `return {"scaler": GradScaler(...), "model": model}`. The
+        # slots are resolved here, in the scope that wrote them, and travel as
+        # values - never as an AST the caller would have to re-read.
+        from .bindings_values import _literal_elements, _literal_entries
+        slot = ReturnSlot(elements=_literal_elements(expr, func.scope, module),
+                          entries=_literal_entries(expr, func.scope, module))
+        return slot or None
     # DGRG-02. `return a + b`, `return 0.7 * soft + 0.3 * hard` and
     # `return -critic(x).mean()` all fell straight through to `None`, so the
     # value a distillation / PPO / multi-task / VAE / contrastive helper
@@ -222,7 +253,8 @@ def _slot(expr, func: FunctionIR, workspace, memo, active, depth: int,
             return nested.scalar if nested is not None else None
         slot = ReturnSlot(fqns=_trim(call.canonical_fqns),
                           tags=tuple(call_output_tags(call, call.scope)),
-                          class_ir=call.class_ir)
+                          class_ir=call.class_ir,
+                          opaque=call.unresolved_callee)
         return slot or None
     name = dotted_text(expr)
     if not name:
@@ -234,7 +266,9 @@ def _slot(expr, func: FunctionIR, workspace, memo, active, depth: int,
     if not fqns and ref.producer is not None:
         fqns = _trim(ref.producer.canonical_fqns
                      or ((ref.producer.fqn,) if ref.producer.fqn else ()))
-    slot = ReturnSlot(fqns=fqns, tags=tuple(ref.tags), class_ir=ref.class_ir)
+    slot = ReturnSlot(fqns=fqns, tags=tuple(ref.tags), class_ir=ref.class_ir,
+                      opaque=ref.opaque, elements=ref.elements,
+                      entries=ref.entries)
     return slot or None
 
 
@@ -263,6 +297,24 @@ def _merge(slots: Sequence[ReturnSlot]) -> Optional[ReturnSlot]:
     classes = {id(s.class_ir): s.class_ir for s in kept if s.class_ir is not None}
     class_ir = list(classes.values())[0] if len(classes) == 1 else None
 
+    # Opacity is the *last* answer, never a competing one: a branch that names a
+    # symbol tells the reader more than a branch that named nothing, so the
+    # merged slot is opaque only when no branch typed anything.
+    opaque = None
+    if not fqns and not tags and class_ir is None:
+        for slot in kept:
+            if slot.opaque:
+                opaque = slot.opaque
+                break
+
+    # A container survives the merge only when exactly one branch carried one:
+    # two different dicts are not one container, and guessing between them would
+    # make `state["model"]` stand for an object no caller ever returned.
+    holders = [s for s in kept if s.elements or s.entries]
+    holder = holders[0] if len(holders) == 1 else None
+
     slot = ReturnSlot(fqns=tuple(fqns[:_MAX_FQNS]), tags=sort_tags(tags),
-                      class_ir=class_ir)
+                      class_ir=class_ir, opaque=opaque,
+                      elements=holder.elements if holder is not None else (),
+                      entries=holder.entries if holder is not None else ())
     return slot or None

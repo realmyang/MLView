@@ -8,9 +8,15 @@
  *
  * Layout depends only on (graph, collapsed). Selection, hover, focus and the
  * lineage trace are pure class toggles here, so they never trigger a re-render.
+ *
+ * Three neighbours hold the parts that are not geometry, and this class is what
+ * composes them:
+ *
+ *   `canvas/host.ts`      the contract with the App, and the surface's timings
+ *   `canvas/wiring.ts`    the gestures a rendered card or cable answers
+ *   `canvas/emphasis.ts`  selection, hover, the lineage trace and focus mode
  */
 
-import { clear, on } from './dom.js';
 import { GraphIndex } from './layout/model.js';
 import { layoutGraph, LayoutFrame } from './layout/layout.js';
 import { routeEdges, RoutedEdge } from './layout/routing.js';
@@ -21,66 +27,20 @@ import { planScene, ScenePlan, ScenePlanOptions } from './render/plan.js';
 import { nextMountSerial } from './render/edges.js';
 import { BundleBinding } from './render/bundles.js';
 import { Minimap, ViewportController } from './render/canvas.js';
-import { applyTrace } from './render/trace.js';
 import { FlowBinding } from './render/flowbinding.js';
 import { EdgeHover } from './render/edgehover.js';
 import { Tooltip } from './render/tooltip.js';
-import { drawIssueConnectors } from './render/connectors.js';
 import { Toasts, buildEmptyState, buildFilterEmptyState, buildScopeEmptyState } from './ui/states.js';
 import { wireCanvasGestures } from './ui/shell.js';
-import { prefersReducedMotion } from './motion.js';
+import { Emphasis } from './canvas/emphasis.js';
+import { wireEdgeEvents, wireNodeEvents } from './canvas/wiring.js';
+import { HOVER_CLOSE_MS, HOVER_OPEN_MS, MINIMAP_MIN_NODES } from './canvas/host.js';
+import type { CanvasHost, NextSelection } from './canvas/host.js';
 import type { Shell } from './ui/shell.js';
-import type { Issue, MLNode, Sel, Viewport } from './types.js';
+import type { Sel } from './types.js';
 
-/** How long a click on a collapsible box waits for a possible second click. */
-const DOUBLE_CLICK_MS = 220;
-
-/**
- * Hover-card timing (UX_DESIGN §9: "180 ms; 400 ms open delay, 120 ms close
- * delay"). Without them a single sweep of the pointer across the diagram popped
- * and dropped a card — and re-dimmed every unrelated node — once per card it
- * passed over (MLV-R2-W04). The close delay is what stops two adjacent cards
- * from strobing as the pointer crosses the gap between them.
- */
-export const HOVER_OPEN_MS = 400;
-export const HOVER_CLOSE_MS = 120;
-
-/** The graph size at which an overview earns the corner it occupies (UX_DESIGN §1). */
-const MINIMAP_MIN_NODES = 30;
-
-export interface CanvasHost {
-  /** The App's issue filter — a marker is drawn only for issues this keeps. */
-  keep(issue: Issue): boolean;
-  /** True when the stage filters exclude this node (dimmed, not removed). */
-  isFilteredOut(node: MLNode): boolean;
-  /** A node card was clicked or activated with Enter. */
-  activateNode(id: string): void;
-  /** An edge was clicked or activated with Enter. */
-  activateEdge(id: string): void;
-  /** The "clear all filters" affordance of the filtered-empty state. */
-  clearFilters(): void;
-  canReanalyze(): boolean;
-  requestRefresh(): void;
-  announce(text: string): void;
-  /** After a collapse/expand: the App re-applies selection, rail and state. */
-  afterCollapse(): void;
-  onViewportChange(vp: Viewport): void;
-  /** The minimap was collapsed or expanded; the App persists the flag. */
-  onMinimapCollapsed(collapsed: boolean): void;
-  onKeyDown(ev: KeyboardEvent): void;
-  onBackgroundClick(): void;
-  /** The empty scope's two ways out (FEATURES 3.7). */
-  widenScope(): void;
-  clearScope(): void;
-  /** The active scope's selector, or null — drives the scope-empty state. */
-  scopeSpec(): string | null;
-}
-
-export interface NextSelection {
-  id: string;
-  /** False when the box is (partly) outside the viewport and needs centring. */
-  visible: boolean;
-}
+export type { CanvasHost, NextSelection };
+export { HOVER_CLOSE_MS, HOVER_OPEN_MS };
 
 export class CanvasView {
   readonly canvasEl: HTMLElement;
@@ -107,9 +67,6 @@ export class CanvasView {
   private labelPlan: LabelPlan | null = null;
   private collapsedSet = new Set<string>();
   private staleFiles: string[] = [];
-  private hoverId: string | null = null;
-  private hoverTimer: ReturnType<typeof setTimeout> | null = null;
-  private focusLocked = false;
   private nodeEls = new Map<string, HTMLElement>();
   private edgeEls = new Map<string, SVGElement>();
   /** VIEW-04: which cross-lane trunks are drawn, and which cables they hold. */
@@ -123,8 +80,8 @@ export class CanvasView {
   private disposers: (() => void)[] = [];
   /** WHEN a charge runs, and the latch cascade that keeps it running. */
   readonly flow: FlowBinding;
-  /** The node whose lineage stream is latched by focus mode (row 7). */
-  private focusNodeId: string | null = null;
+  /** Selection, hover, the lineage trace and focus mode (canvas/emphasis.ts). */
+  private emphasis: Emphasis;
   /** Which cable the pointer owns, and the delay before that means anything. */
   private edgeHover: EdgeHover;
 
@@ -185,9 +142,26 @@ export class CanvasView {
       nodes: () => this.nodeEls,
       routes: () => this.routes,
       index: () => this.index,
-      hoverNodeId: () => this.hoverId,
-      lockedNodeId: () => (this.focusLocked ? this.focusNodeId : null),
+      hoverNodeId: () => this.emphasis.hoverNodeId,
+      lockedNodeId: () => this.emphasis.lockedNodeId,
       hoverEdgeId: () => this.edgeHover.hoveredId,
+      toast: (text) => this.toasts.show(text),
+    });
+
+    this.emphasis = new Emphasis({
+      canvas: this.canvasEl,
+      connectors: this.connectorLayer,
+      flow: this.flow,
+      tooltip: this.tooltip,
+      nodeEls: () => this.nodeEls,
+      edgeEls: () => this.edgeEls,
+      routes: () => this.routes,
+      index: () => this.index,
+      frame: () => this.frameData,
+      collapsed: () => this.collapsedSet,
+      syncBundles: () => this.syncBundles(),
+      keep: (issue) => this.host.keep(issue),
+      announce: (text) => this.host.announce(text),
       toast: (text) => this.toasts.show(text),
     });
 
@@ -205,7 +179,7 @@ export class CanvasView {
         this.flow.pulse(route);
       },
       close: () => {
-        if (!this.hoverId) this.tooltip.hide();
+        if (!this.emphasis.hoverNodeId) this.tooltip.hide();
         this.flow.stop();
       },
       // VIEW-04: opening the bundle is not an intent, it is the hover itself.
@@ -304,6 +278,10 @@ export class CanvasView {
   render(): void {
     const inputs = this.planInputs();
     if (!inputs) return;
+    // One port per render, not one per card: the scene below calls these for
+    // every node and every edge it builds.
+    const nodePort = this.nodeWiring();
+    const edgePort = this.edgeWiring();
     const scene = renderScene(
       {
         world: this.worldEl,
@@ -316,8 +294,8 @@ export class CanvasView {
       },
       {
         ...inputs,
-        wireNode: (element, id, isGroup) => this.wireNode(element, id, isGroup),
-        wireEdge: (element, route) => this.wireEdge(element, route),
+        wireNode: (element, id, isGroup) => wireNodeEvents(element, id, isGroup, nodePort),
+        wireEdge: (element, route) => wireEdgeEvents(element, route, edgePort),
       },
     );
     this.nodeEls = scene.nodeEls;
@@ -328,7 +306,7 @@ export class CanvasView {
     // hover survives a rebuild. Without this the latch cascade in `flow.stop()`
     // would resume a stream over a scene that no longer holds that node
     // (CONTRACTS 11.14 C1).
-    this.hoverId = null;
+    this.emphasis.resetHover();
     this.edgeHover.reset();
     // The scene DOM was replaced, so every flow element went with it. Reset the
     // controller's memory and re-stamp the canvas (CONTRACTS 11.14 C1); a
@@ -369,96 +347,27 @@ export class CanvasView {
     return buildScopeEmptyState(spec, () => this.host.widenScope(), () => this.host.clearScope());
   }
 
-  /* ── event wiring ──────────────────────────────────────────────────── */
+  /* ── event wiring (canvas/wiring.ts) ───────────────────────────────── */
 
-  private wireNode(element: HTMLElement, id: string, isGroup: boolean): void {
-    const target: HTMLElement = isGroup ? (element.querySelector('.mlv-group__header') as HTMLElement) : element;
-    if (!target) return;
-
-    // The chevron owns the collapse gesture outright (UX_DESIGN §2.4).
-    const chevron = element.querySelector('.mlv-group__chevron-btn') as HTMLElement | null;
-    if (chevron) {
-      on(chevron, 'click', (ev: MouseEvent) => {
-        ev.preventDefault();
-        ev.stopPropagation();
-        if (this.index && this.index.isGroup(id)) this.toggleCollapse(id);
-      });
-      on(chevron, 'dblclick', (ev: MouseEvent) => {
-        ev.preventDefault();
-        ev.stopPropagation();
-      });
-    }
-
-    // A double-click emits click, click, dblclick. Anything that also answers a
-    // double-click must therefore hold its single-click back long enough to see
-    // the second one, or collapsing a group opens its file twice (MLV-R1-010).
-    const collapsible = isGroup || (this.index ? this.index.isGroup(id) : false);
-    let pending: ReturnType<typeof setTimeout> | null = null;
-    const cancelPending = () => {
-      if (pending === null) return;
-      clearTimeout(pending);
-      pending = null;
+  private nodeWiring() {
+    return {
+      isGroup: (id: string) => !!this.index && this.index.isGroup(id),
+      toggleCollapse: (id: string) => this.toggleCollapse(id),
+      hoverIntent: (id: string | null) => this.emphasis.hoverIntent(id),
+      activateNode: (id: string) => this.host.activateNode(id),
+      addDisposer: (dispose: () => void) => this.disposers.push(dispose),
     };
-    this.disposers.push(cancelPending);
-
-    on(target, 'click', (ev: MouseEvent) => {
-      ev.stopPropagation();
-      if (!collapsible) {
-        this.host.activateNode(id);
-        return;
-      }
-      cancelPending();
-      pending = setTimeout(() => {
-        pending = null;
-        this.host.activateNode(id);
-      }, DOUBLE_CLICK_MS);
-    });
-    on(target, 'dblclick', (ev: MouseEvent) => {
-      ev.preventDefault();
-      ev.stopPropagation();
-      cancelPending();
-      if (this.index && this.index.isGroup(id)) this.toggleCollapse(id);
-    });
-    on(target, 'pointerenter', () => this.hoverIntent(id));
-    on(target, 'pointerleave', () => this.hoverIntent(null));
-    on(target, 'keydown', (ev: KeyboardEvent) => {
-      if (ev.key === 'Enter') {
-        ev.preventDefault();
-        this.host.activateNode(id);
-      } else if (ev.key === ' ' && this.index && this.index.isGroup(id)) {
-        ev.preventDefault();
-        this.toggleCollapse(id);
-      }
-    });
   }
 
-  private wireEdge(g: SVGElement, route: RoutedEdge): void {
-    const hit = g.querySelector('.mlv-edge__hit') as SVGElement | null;
-    if (!hit) return;
-    const element = hit as unknown as HTMLElement;
-    on(element, 'click', (ev: MouseEvent) => {
-      ev.stopPropagation();
-      this.host.activateEdge(route.id);
-    });
-    on(element, 'pointerenter', () => this.edgeHover.enter(route));
-    on(element, 'pointerleave', () => this.edgeHover.leave(route));
-    on(element, 'keydown', (ev: KeyboardEvent) => {
-      if (ev.key !== 'Enter') return;
-      ev.preventDefault();
-      this.host.activateEdge(route.id);
-    });
-    // A connection was unreachable from the keyboard before this (FEATURES 2.2):
-    // `e` / `Shift+E` focus the hit path, and focus alone runs the charge.
-    on(element, 'focus', () => {
-      g.classList.add('is-hover');
-      this.syncBundles();
-      this.flow.pulse(route);
-    });
-    on(element, 'blur', () => {
-      g.classList.remove('is-hover');
-      this.syncBundles();
-      this.flow.stop();
-    });
+  private edgeWiring() {
+    return {
+      activateEdge: (id: string) => this.host.activateEdge(id),
+      enterEdge: (route: RoutedEdge) => this.edgeHover.enter(route),
+      leaveEdge: (route: RoutedEdge) => this.edgeHover.leave(route),
+      syncBundles: () => this.syncBundles(),
+      pulse: (route: RoutedEdge) => this.flow.pulse(route),
+      stopFlow: () => this.flow.stop(),
+    };
   }
 
   /* ── flow ──────────────────────────────────────────────── */
@@ -483,107 +392,26 @@ export class CanvasView {
     return this.flow.edgeAnnouncement(route);
   }
 
-  /* ── selection, hover, focus ───────────────────────────────────────── */
+  /* ── selection, hover, focus (canvas/emphasis.ts) ──────────────────── */
 
   applySelection(sel: Sel | null): void {
-    for (const element of this.nodeEls.values()) element.classList.remove('is-selected');
-    for (const element of this.edgeEls.values()) element.classList.remove('is-selected');
-    clear(this.connectorLayer);
-    // Clicking a CARD produces no flow: a pulse on every click makes ordinary
-    // navigation twitch (interaction table row 8). Selecting an EDGE latches one.
-    this.flow.setLatchedEdge(sel && sel.kind === 'edge' ? sel.id : null);
-    if (!sel) {
-      this.canvasEl.removeAttribute('aria-activedescendant');
-      this.syncBundles();
-      this.flow.stop();
-      return;
-    }
-    if (sel.kind === 'node') {
-      const element = this.nodeEls.get(sel.id);
-      if (element) {
-        element.classList.add('is-selected');
-        this.canvasEl.setAttribute('aria-activedescendant', element.id);
-      }
-    } else if (sel.kind === 'edge') {
-      const element = this.edgeEls.get(sel.id);
-      if (element) element.classList.add('is-selected');
-    } else if (sel.kind === 'issue') {
-      this.highlightIssue(sel.id);
-    }
-    if (this.focusLocked) this.applyTrace(sel.kind === 'node' ? sel.id : null, 'is-focusing');
-    this.syncBundles();
-    this.flow.stop();
+    this.emphasis.applySelection(sel);
   }
 
-  private highlightIssue(issueId: string): void {
-    if (!this.index || !this.frameData) return;
-    const issue = this.index.issueById.get(issueId);
-    if (!issue) return;
-    const primary = issue.nodeIds[0];
-    if (primary) {
-      const element = this.nodeEls.get(this.index.visibleRepresentative(primary, this.collapsedSet));
-      if (element) {
-        element.classList.add('is-selected');
-        this.canvasEl.setAttribute('aria-activedescendant', element.id);
-      }
-    }
-    for (const edgeId of issue.edgeIds) {
-      for (const [id, element] of this.edgeEls) {
-        const ids = (element.getAttribute('data-edge-ids') || id).split(' ');
-        if (ids.indexOf(edgeId) >= 0) element.classList.add('is-selected');
-      }
-    }
-    drawIssueConnectors(this.connectorLayer, this.index, this.frameData, this.collapsedSet, issue);
-  }
-
-  /**
-   * Debounced hover. One timer for both directions: entering a neighbouring card
-   * cancels the pending hide, and leaving cancels the pending show, so crossing
-   * the diagram costs nothing until the pointer actually settles.
-   */
   hoverIntent(id: string | null): void {
-    if (this.hoverTimer !== null) {
-      clearTimeout(this.hoverTimer);
-      this.hoverTimer = null;
-    }
-    if (this.hoverId === id) return;
-    const delay = prefersReducedMotion() ? 0 : id ? HOVER_OPEN_MS : HOVER_CLOSE_MS;
-    if (delay <= 0) {
-      this.setHover(id);
-      return;
-    }
-    this.hoverTimer = setTimeout(() => {
-      this.hoverTimer = null;
-      this.setHover(id);
-    }, delay);
+    this.emphasis.hoverIntent(id);
   }
 
   setHover(id: string | null): void {
-    if (this.hoverId === id) return;
-    this.hoverId = id;
-    if (this.focusLocked) return;
-    if (!id) {
-      this.applyTrace(null, 'is-tracing');
-      this.tooltip.hide();
-      this.flow.stop();
-      return;
-    }
-    this.applyTrace(id, 'is-tracing');
-    // Upstream edges flow inward and downstream outward with no reversal logic:
-    // every route's points already run source -> target (FEATURES 2.2).
-    this.flow.stream(id);
-    // A charge on a cable inside a collapsed trunk would be a charge on an
-    // invisible cable, so the trunk opens with the stream (VIEW-04).
-    this.syncBundles();
-    if (!this.index || !this.frameData) return;
-    const box = this.frameData.boxes.get(id);
-    if (box) this.tooltip.showNode(this.index, id, box, (issue) => this.host.keep(issue));
+    this.emphasis.setHover(id);
   }
 
-  /** Lineage highlight: upstream + downstream over the routed edges. */
-  private applyTrace(id: string | null, cls: string): void {
-    applyTrace({ nodes: this.nodeEls, edges: this.edgeEls, canvas: this.canvasEl }, this.routes, id, cls);
-    this.syncBundles();
+  get isFocusLocked(): boolean {
+    return this.emphasis.isFocusLocked;
+  }
+
+  toggleFocusMode(sel: Sel | null): void {
+    this.emphasis.toggleFocusMode(sel);
   }
 
   /**
@@ -593,33 +421,6 @@ export class CanvasView {
    */
   syncBundles(): void {
     this.bundles.sync(this.edgeEls);
-  }
-
-  get isFocusLocked(): boolean {
-    return this.focusLocked;
-  }
-
-  toggleFocusMode(sel: Sel | null): void {
-    if (this.focusLocked) {
-      this.focusLocked = false;
-      this.focusNodeId = null;
-      this.canvasEl.classList.remove('is-focusing');
-      this.applyTrace(null, 'is-focusing');
-      this.flow.clear();
-      this.host.announce('Focus mode off.');
-      return;
-    }
-    if (!sel || sel.kind !== 'node') {
-      this.toasts.show('Select a node first, then press F to focus.');
-      return;
-    }
-    this.focusLocked = true;
-    this.focusNodeId = sel.id;
-    this.canvasEl.classList.remove('is-tracing');
-    this.applyTrace(sel.id, 'is-focusing');
-    // The same stream, latched, so a pipeline can be read at leisure (row 7).
-    this.flow.stream(sel.id);
-    this.host.announce('Focus mode on.');
   }
 
   /* ── collapse, zoom, navigation ────────────────────────────────────── */
@@ -737,10 +538,7 @@ export class CanvasView {
   }
 
   destroy(): void {
-    if (this.hoverTimer !== null) {
-      clearTimeout(this.hoverTimer);
-      this.hoverTimer = null;
-    }
+    this.emphasis.destroy();
     this.edgeHover.destroy();
     for (const dispose of this.disposers) {
       try {

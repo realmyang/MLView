@@ -21,13 +21,25 @@ const dist = join(here, 'dist');
 const CSS_FILES = [
   'tokens.css',
   'base.css',
+  // The chrome is four layers, in this order and no other: the toolbar and its
+  // bands, then the transient toast / loading surfaces, then the panels, then
+  // the answer card. They were one 1 103-line file; splitting it moved no rule,
+  // so the concatenation below is byte-for-byte what that file was.
   'chrome.css',
+  'chromestates.css',
+  'chromepanels.css',
+  'chromeanswers.css',
   'canvas.css',
   'node.css',
   'edge.css',
   'flow.css',
   'scope.css',
+  // The rail is three layers, in this order: the rail itself, then MLV-P6's
+  // evidence surfaces, then RAIL-GROUP's headers and CI-ADOPT's tints. Same
+  // rules, same order, same bytes as the 823-line file they came out of.
   'rail.css',
+  'railevidence.css',
+  'railgroups.css',
   // VIEW-08 / H5 / ANA-10. After `rail.css` because it restyles rail rows and
   // chips defined there, and before `export.css`, which owns the print block.
   'diff.css',

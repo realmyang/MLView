@@ -131,10 +131,15 @@ TORCH["torch.argmax"] = E("metric", "eval", T, "ARGMAX", ("PREDS",))
 TORCH["torch.Tensor.argmax"] = E("metric", "eval", T, "ARGMAX", ("PREDS",))
 TORCH["torch.Tensor.topk"] = E("metric", "eval", T, "ARGMAX", ("PREDS",))
 TORCH["torch.Tensor.max"] = E("metric", "eval", T, "ARGMAX", ("PREDS",), weight=0.5)
+#: GRAPH-R2: the `torchmetric` receiver family. A metric **object** exists to
+#: be `update`d and then `compute`d, and with no family on the constructor row
+#: neither method resolved to anything - the whole point of holding one.
+#: `knowledge/metrics_tbl.py` carries the method surface it resolves to.
 TORCH.update(expand("torchmetrics", [
     "Accuracy", "F1Score", "Precision", "Recall", "AUROC", "ConfusionMatrix",
-    "MeanSquaredError", "R2Score",
-], E("metric", "eval", "torchmetrics", "METRIC")))
+    "MeanSquaredError", "R2Score", "MetricCollection", "MeanAbsoluteError",
+    "AveragePrecision", "CohenKappa", "JaccardIndex", "Dice", "Specificity",
+], E("metric", "eval", "torchmetrics", "METRIC", (), "torchmetric")))
 TORCH.update(expand("torchmetrics.functional", [
     "accuracy", "f1_score", "precision", "recall", "auroc",
 ], E("metric", "eval", "torchmetrics", "METRIC")))

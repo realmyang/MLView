@@ -323,11 +323,22 @@ def test_a_selector_given_on_both_sides_is_merged_not_overwritten():
 
 
 def test_a_single_valued_selector_takes_the_value_nearest_the_subcommand():
+    """Which side wins, not how the winner is spelled.
+
+    `_selectors` absolutises the corpus directory (that is the fix run
+    19dc4d4 shipped, so a relative `--corpus-dir` still reaches the analyzer
+    children), and a drive-less path is not absolute on Windows: `/before`
+    comes back as `D:\\before` there. Comparing against the literal asserted
+    POSIX, not precedence, so the expectation goes through `os.path.abspath`
+    too - on Linux and macOS it is the identity, on Windows it is the host's
+    own spelling.
+    """
     parse = pc.build_parser().parse_args
     before = pc._selectors(parse(["--corpus-dir", "/before", "fetch"]))[1]
     both = pc._selectors(parse(["--corpus-dir", "/before", "fetch",
                                 "--corpus-dir", "/after"]))[1]
-    assert (before, both) == ("/before", "/after")
+    assert (before, both) == (os.path.abspath("/before"),
+                              os.path.abspath("/after"))
 
 
 def test_the_workflow_and_the_cli_are_checked_against_each_other():
