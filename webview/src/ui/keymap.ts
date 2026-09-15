@@ -74,7 +74,7 @@ export const KEYMAP: KeyBinding[] = [
   // sheet is the only place the cascade is described to the user, and a scoped
   // diagram is exactly where someone presses Escape expecting the selection to
   // go and loses the scope instead (MLV-R1-F2-06).
-  { keys: ['Escape'], action: 'escape', description: 'Close the picker or sheet, exit focus mode, clear the scope, clear the selection, leave the canvas' },
+  { keys: ['Escape'], action: 'escape', description: 'Close the picker, sheet or legend, exit focus mode, clear the scope, clear the selection, leave the canvas' },
   { keys: ['Tab', 'Shift+Tab'], action: 'browser', description: 'Move focus out of the diagram (never intercepted)' },
 ];
 

@@ -1037,15 +1037,24 @@ import random                                                # noqa: E402
 
 
 def test_a_corrupt_parse_cache_is_ignored_not_trusted(tmp_path):
-    """The per-file cache lives in the workspace, so anything can happen to it:
-    a truncated write, a `git checkout` over it, an editor's autosave. Three
-    corruptions, three correct analyses."""
+    """The per-file cache is a file on a disk, so anything can happen to it: a
+    truncated write, a `git checkout` over it, an editor's autosave. Three
+    corruptions, three correct analyses.
+
+    C8 moved the directory out of the analyzed folder and into the user's cache
+    root, so the location is asked of `core.cache.cache_dir_for` rather than
+    spelled - the corruption this test performs is the point, not the path.
+    """
+    from mlview.core.cache import cache_dir_for
+
     root = tmp_path / "cache"
     root.mkdir()
     write_bytes(root, "train.py", TRAIN.encode("utf-8"))
     clean = analyze(root)                               # warms the cache
-    cache_dir = os.path.join(str(root), ".mlview", "cache")
+    cache_dir = cache_dir_for(str(root))
     assert os.path.isdir(cache_dir), "the cache was not written"
+    assert not cache_dir.startswith(str(root).replace("\\", "/")), (
+        "C8: the sidecar must never land inside the analyzed folder")
 
     def entries():
         return [os.path.join(cache_dir, n) for n in os.listdir(cache_dir)

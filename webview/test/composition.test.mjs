@@ -189,6 +189,32 @@ test('the Escape cascade is one order: sheet -> focus mode -> scope -> selection
   assert.equal(ctx.document.querySelector('[data-node-id].is-selected'), null, '4: then the selection');
 });
 
+test('the legend is a rung of that cascade: sheet -> legend -> focus mode -> scope', async () => {
+  const ctx = await app();
+  const legend = () => ctx.document.querySelector('[data-legend]');
+  ctx.app.setScope('stage:train');
+  ctx.app.focusNode(BATCH_LOOP);
+  key(ctx, ctx.canvas, 'f');
+  key(ctx, ctx.canvas, 'l');
+  key(ctx, ctx.canvas, '?');
+  assert.equal(legend().hidden, false, 'the legend is open under the sheet');
+
+  key(ctx, ctx.canvas, 'Escape');
+  assert.equal(ctx.document.querySelector('.mlv-sheet').hidden, true, '1: the sheet went first');
+  assert.equal(legend().hidden, false, 'the legend outlived it');
+
+  key(ctx, ctx.canvas, 'Escape');
+  assert.equal(legend().hidden, true, '2: then the legend');
+  assert.ok(ctx.canvas.classList.contains('is-focusing'), 'focus mode is still standing');
+  assert.equal(ctx.app.getScope().spec, 'stage:train', 'and so is the scope');
+
+  key(ctx, ctx.canvas, 'Escape');
+  assert.equal(ctx.canvas.classList.contains('is-focusing'), false, '3: then focus mode');
+  key(ctx, ctx.canvas, 'Escape');
+  assert.equal(ctx.app.getScope().spec, null, '4: then the scope');
+  assert.ok(ctx.document.querySelector('[data-node-id].is-selected'), 'the selection is still standing');
+});
+
 test('focus mode latches a stream inside a scope, and clearing it stops it', async () => {
   const ctx = await app();
   ctx.app.setScope('unit:train.train', { depth: 1 });

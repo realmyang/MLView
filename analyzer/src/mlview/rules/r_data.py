@@ -80,6 +80,22 @@ def loader_name(call: CallSite) -> str:
     return (call.var or "").split(".")[-1]
 
 
+def loader_names(ctx, call: CallSite) -> List[str]:
+    """Every name this DataLoader construction is bound to, sorted.
+
+    `call.var` for a loader built by a factory is None - the construction is
+    assigned to nothing, and the name lives one hop away at the caller. This is
+    the same one-hop lookup `iterating_loops` already makes for MLV110's
+    backward-pass evidence (vision-12), offered to the rules that reason about
+    the *name* (REV-PREC-05): MLV111 fired on `eval_loader = DataLoader(...,
+    shuffle=True)` written in place and stayed silent on the identical loader
+    returned from `def make_eval_loader()`, so a program with both loaders
+    built by factories reported only the MLV110 half of its own defect.
+    """
+    names, _modules = _loader_binding_names(ctx, call)
+    return sorted(names)
+
+
 def iterating_loops(ctx, call: CallSite) -> List[LoopIR]:
     """Every loop that iterates the value this loader was bound to.
 
@@ -323,7 +339,15 @@ def eval_loader_shuffled(ctx) -> Iterable[Issue]:
             continue
         name, ref = dataset_arg(ctx, call)
         tagged = ref is not None and ref.has("VAL_SPLIT", "TEST_SPLIT")
-        named = bool(_EVAL_LOADER_RE.match(loader_name(call)))
+        # REV-PREC-05: **every** name the construction is bound to must read as
+        # an evaluation loader, not merely one of them. A factory called once
+        # as `test_loader = make(...)` names a held-out loader; a factory
+        # called as both `train_loader = make(...)` and `test_loader =
+        # make(...)` names one that is also a training loader, and shuffling
+        # that one is correct. All, not any - the same direction as every other
+        # `x0.8` name signal in this file, which may reinforce and never create.
+        bound = loader_names(ctx, call)
+        named = bool(bound) and all(_EVAL_LOADER_RE.match(n) for n in bound)
         key = dataset_split_key(call)
         keyed = bool(key and _EVAL_LOADER_RE.match(key))
         if not tagged and not named and not keyed:
@@ -340,7 +364,7 @@ def eval_loader_shuffled(ctx) -> Iterable[Issue]:
         elif named:
             evidence.append(("name_regex",
                              "%s only matches the evaluation-loader naming convention"
-                             % loader_name(call), 0.8))
+                             % " / ".join(bound), 0.8))
         else:
             evidence.append(("name_regex",
                              "the dataset argument is the literal `%s` split of a "

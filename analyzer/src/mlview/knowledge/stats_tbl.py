@@ -127,3 +127,70 @@ STATS["sklearn.compose.TransformedTargetRegressor"] = E("model", "model", S, "ES
                                                         ("MODEL",), "estimator")
 STATS["sklearn.inspection.permutation_importance"] = E("metric", "eval", S, "METRIC")
 STATS["sklearn.inspection.PartialDependenceDisplay"] = E("metric", "eval", S, "METRIC")
+# ------------------------------------------------- GRAPH-R2, the rest of it -
+#: TAB-01 covered the roots a forecasting script imports from most often and
+#: left three real gaps, each of which empties a lane on a whole project:
+#:
+#: * `statsmodels.tsa.arima.model.ARIMA` and `statsmodels.tsa.holtwinters.
+#:   ExponentialSmoothing` are the *canonical* module paths - the ones the
+#:   library's own documentation writes - and only the `.api` aliases were here.
+#: * `statsmodels.formula.api.ols("y ~ x", df)` is how half of applied
+#:   statistics writes a model, and it is a free function, not a class.
+#: * `statsmodels.base.model.Model` is the class `fit()` and `predict()`
+#:   actually live on, so a receiver whose family is `statsmodel` but whose
+#:   producer is one of the rows above resolved through `statsmodels.api.SARIMAX`
+#:   alone. Rows on the real base make the family answer for every producer.
+#:
+#: The roles stay the ones TAB-01 chose - `ESTIMATOR` and `FIT` - because
+#: MLV101 and MLV102 already watch `FIT`, and the corpus measures that choice at
+#: 100% precision. A `TS_FIT` role would redraw the same box and tell no rule
+#: anything.
+_TS = E("model", "model", O, "ESTIMATOR", ("MODEL",), "statsmodel")
+
+STATS["statsmodels.tsa.arima.model.ARIMA"] = dict(_TS)
+STATS["statsmodels.tsa.holtwinters.ExponentialSmoothing"] = dict(_TS)
+STATS["statsmodels.tsa.holtwinters.SimpleExpSmoothing"] = dict(_TS)
+STATS["statsmodels.tsa.holtwinters.Holt"] = dict(_TS)
+STATS["statsmodels.tsa.ar_model.AutoReg"] = dict(_TS)
+STATS["statsmodels.tsa.vector_ar.var_model.VAR"] = dict(_TS)
+STATS["statsmodels.tsa.statespace.varmax.VARMAX"] = dict(_TS)
+STATS["statsmodels.tsa.statespace.structural.UnobservedComponents"] = dict(_TS)
+STATS.update(expand("statsmodels.formula.api",
+                    ["ols", "wls", "gls", "glm", "logit", "probit", "poisson",
+                     "mixedlm", "rlm", "quantreg"], _TS))
+for _root in ("statsmodels.api", "statsmodels.discrete.discrete_model"):
+    STATS.update(expand(_root, ["MNLogit", "Poisson", "NegativeBinomial"], _TS))
+STATS["statsmodels.api.RLM"] = dict(_TS)
+STATS["statsmodels.robust.robust_linear_model.RLM"] = dict(_TS)
+for _root in ("statsmodels.tsa.seasonal", "statsmodels.api.tsa",
+              "statsmodels.tsa.api"):
+    STATS["%s.MSTL" % _root] = E("transform", "preprocess", O, "TRANSFORM")
+
+#: The class `fit` / `predict` / `forecast` really live on. `_FAMILY_BASE` maps
+#: `statsmodel` onto one FQN, so these rows are what make a *second* producer
+#: (an `ols(...)`, an `ARIMA(...)` written the long way) resolve its methods -
+#: and `fit()` hands back a **results** object that keeps the family, which is
+#: what lets `res.forecast(24)` resolve one line later.
+for _base in ("statsmodels.base.model.Model", "statsmodels.api.SARIMAX"):
+    STATS_METHODS["%s.fit" % _base] = E("model", "train", O, "FIT")
+    STATS_METHODS["%s.fit_regularized" % _base] = E("model", "train", O, "FIT")
+    for _m in ("predict", "forecast", "get_forecast", "get_prediction"):
+        STATS_METHODS["%s.%s" % (_base, _m)] = E("predict", "eval", O, "PREDICT",
+                                                 ("PREDS",), "statsmodel")
+    STATS_METHODS["%s.summary" % _base] = E("metric", "eval", O, "METRIC", (),
+                                            None, 0.5)
+    STATS_METHODS["%s.conf_int" % _base] = E("metric", "eval", O, "METRIC", (),
+                                             None, 0.5)
+
+for _root in ("prophet", "fbprophet"):
+    STATS_METHODS["%s.Prophet.add_seasonality" % _root] = E(
+        "config", "config", O, "CONFIG_ARG", (), None, 0.5)
+    STATS_METHODS["%s.Prophet.plot" % _root] = E("metric", "eval", O, "METRIC",
+                                                 (), None, 0.3)
+
+#: `ir/resolve_receivers._FAMILY_BASE` reads this, so the mapping lives beside
+#: the rows it depends on instead of being transcribed into the resolver.
+STATS_FAMILY_BASE: Dict[str, str] = {
+    "statsmodel": "statsmodels.api.SARIMAX",
+    "prophet": "prophet.Prophet",
+}

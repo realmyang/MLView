@@ -34,10 +34,11 @@ from .graph import Diagnostic
 
 __all__ = ["COVERAGE_KINDS", "UNTRACED_ROLES", "UntaggedNotes",
            "note_untraced_sites", "note_unconfirmed_train_loops",
-           "note_untyped_backward", "single_file_diagnostic"]
+           "note_untyped_backward", "single_file_diagnostic",
+           "framework_filter_diagnostic"]
 
 #: The kinds this module emits. The summary emitter gives them their own block.
-COVERAGE_KINDS = ("untagged_dataflow", "single_file_analysis")
+COVERAGE_KINDS = ("untagged_dataflow", "single_file_analysis", "framework_filter")
 
 #: Roles the post-rule sweep declares a coverage gap for (TB-10).
 #:
@@ -69,6 +70,8 @@ _NAMED_SIBLINGS = 4
 #: Ceiling on the sibling walk, so the check stays cheap on a huge package.
 #: Past it the message says "at least N" rather than overclaiming a total.
 _SIBLING_CAP = 1000
+#: How many rule codes one `framework_filter` message names before it counts.
+_NAMED_FILTERED = 6
 
 
 # ---------------------------------------------------------------------------
@@ -370,3 +373,39 @@ def single_file_diagnostic(found, workspace, cross_file_codes: Sequence[str],
                    "s" if len(shown) == 1 else "", len(imported),
                    ", ".join(codes) or "none registered"),
         file=analyzed[0], codes=codes or None, count=len(others))
+# ---------------------------------------------------------------------------
+# framework_filter
+# ---------------------------------------------------------------------------
+def framework_filter_diagnostic(framework: str,
+                                skipped: Sequence[str]) -> Optional[Diagnostic]:
+    """The `framework_filter` note, or None when `--framework` cost nothing.
+
+    C8. `--framework torch` is documented as *"restrict framework extractors"*,
+    and what it actually does is narrow the **rule set**: `registry._applies`
+    drops every rule that does not declare that framework, including rules that
+    the detected frameworks would have run. A user who passes it therefore reads
+    a shorter finding list with nothing in the document saying why - the same
+    silent narrowing `single_file_analysis` exists to make loud, and the reason
+    the MCP host renders a coverage block rather than a bare count.
+
+    `skipped` is the codes that would have run under `--framework auto` on this
+    workspace and did not. An empty list is not a caveat: a filter that matched
+    every applicable rule narrowed nothing, and saying otherwise would be crying
+    wolf on the one flag a CI job is most likely to pass.
+    """
+    if not framework or framework == "auto":
+        return None
+    codes = sorted({code for code in skipped if code})
+    if not codes:
+        return None
+    named = ", ".join(codes[:_NAMED_FILTERED])
+    if len(codes) > _NAMED_FILTERED:
+        named += " and %d more" % (len(codes) - _NAMED_FILTERED)
+    return Diagnostic(
+        kind="framework_filter",
+        message="--framework %s narrowed the rule set: %d rule(s) that the "
+                "detected frameworks would have run did not (%s). A clean "
+                "result here is a clean result for %s alone - drop --framework "
+                "(or pass auto) to judge the whole workspace."
+                % (framework, len(codes), named, framework),
+        codes=codes, count=len(codes))

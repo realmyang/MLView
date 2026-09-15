@@ -19,8 +19,21 @@
 
 import type { GraphDiagnostic, MLGraph } from './graph';
 
-/** The `Diagnostic.kind` values this host reads as coverage caveats. */
-export const COVERAGE_DIAGNOSTIC_KINDS = ['single_file_analysis', 'untagged_dataflow'] as const;
+/**
+ * The `Diagnostic.kind` values this host reads as coverage caveats.
+ *
+ * CONTRACTS §2.6 C9 as restated by §17 E40 is a SUBSET rule: no coverage kind the core
+ * emits may be dropped by a host. `framework_filter` is the third the core emits (C8) —
+ * it names the rules a `--framework` filter kept from running. This extension never
+ * passes that flag itself, but it renders documents it did not produce (a `graph.json`
+ * written by the CLI, a shared artifact), and a narrowed run reaching a reader as
+ * `0 findings` with nothing saying why is the exact failure this module exists to stop.
+ */
+export const COVERAGE_DIAGNOSTIC_KINDS = [
+  'single_file_analysis',
+  'untagged_dataflow',
+  'framework_filter'
+] as const;
 export type CoverageKind = (typeof COVERAGE_DIAGNOSTIC_KINDS)[number];
 
 /** How many rule codes a single caveat names before the list is elided. */

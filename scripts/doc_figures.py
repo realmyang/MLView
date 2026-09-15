@@ -1,15 +1,19 @@
 #!/usr/bin/env python
-"""Checks 13, 14 and 15 of the doc gate: the figures a living doc keeps quoting.
+"""Checks 13, 14, 15 and 23 of the doc gate: figures a document keeps quoting.
 
 `doc_numbers.py` (checks 9-11) compares a number in the prose with a
 machine-readable copy in the tree. These three do the same for the three figures
 that rot fastest in `README.md`, `docs/STATUS.md` and `scripts/README.md` -- the
 documents that claim to say what is verified *today*. Stdlib only, offline.
 
-Only those three "living" documents are checked. `docs/CONTRACTS.md` amendments,
-`docs/ROADMAP.md` landed notes and the frozen design records are dated records of
-what was true when they were written; holding them to today's tree would ask the
-history to be rewritten, which is the opposite of the point.
+Only those three "living" documents are checked by 13-15. `docs/CONTRACTS.md`
+amendments, `docs/ROADMAP.md` landed notes and the frozen design records are
+dated records of what was true when they were written; holding them to today's
+tree would ask the history to be rewritten, which is the opposite of the point.
+Check 23 is the single, named exception, and §16.4 is why: every figure in
+CONTRACTS is supposed to name the command that settles it, and §7's diff counts
+are the one paragraph that states four bare numbers instead. It reads that
+paragraph and nothing else in the file.
 
 13. **A summary table that disagrees with the run below it.** The Components
     table at the top of `docs/STATUS.md` is the document's headline: four rows,
@@ -45,6 +49,21 @@ history to be rewritten, which is the opposite of the point.
     therefore be the same id, whichever document quotes it -- unless the block
     says `at the time`, which is how the paragraph that *narrates* this incident
     is allowed to keep quoting both.
+
+23. **The one paragraph of the contract that states a bare figure.** §7's
+    *"The shipped sample pair, measured"* recorded `summary.nodes` as
+    **25 added / 15 removed / 8 changed / 31 unchanged** with the headline
+    `+25 nodes · -15 nodes · ...`, and named `python -m mlview diff` as "the
+    authority for these four counts now" -- while the authority said
+    26 / 15 / 8 / 36 and the two tests §7 names as its only pins had *already*
+    been updated to say so (REV-04). The section's own JSONC sketch carried a
+    third set again, `-16 nodes`, from a round before that. One command, one
+    contract section, three mutually inconsistent figure sets, and no check
+    could see any of them because CONTRACTS.md is in `check_docs.SKIP` by
+    design. `analyzer/tests/core/test_diff.py` asserts the four node counts, the
+    four edge counts and the headline as literals, so it is the machine-readable
+    copy this check needs; it is **read as text**, never imported, the way
+    `doc_surfaces.py` parses `core/selectors.py`.
 
 Imported by `scripts/check_docs.py`; `scripts/test_doc_figures.py` tests it.
 """
@@ -284,8 +303,100 @@ def check_one_green_push(root: Path, paths, problems: list) -> None:
                                      for run, where in sorted(cited.items()))))
 
 
+#: The contract section check 23 reads, and the test that pins its figures.
+CONTRACTS_DOC = "docs/CONTRACTS.md"
+DIFF_PIN_TEST = "analyzer/tests/core/test_diff.py"
+#: `## 7. ` up to the next `## ` heading. Anchored on the heading number so the
+#: check cannot wander into §17's errata, which quote superseded figures on
+#: purpose and must keep quoting them.
+CONTRACTS_S7_RE = re.compile(r"^## 7\.[^\n]*\n(.*?)(?=^## )", re.M | re.S)
+#: `summary["nodes"] == {"added": 26, "removed": 15, ...}` in the pinning test.
+PIN_DICT_RE = re.compile(
+    r"""summary\[.(nodes|edges).\]\s*==\s*\{(.*?)\}""", re.S)
+PIN_FIELD_RE = re.compile(r"""["'](\w+)["']\s*:\s*(\d+)""")
+PIN_HEADLINE_RE = re.compile(r"""summary\[.headline.\]\s*==\s*["'](.+?)["']""")
+#: ...and the three shapes §7 states them in.
+PROSE_NODES_RE = re.compile(
+    r"\*\*(\d+) added / (\d+) removed / (\d+) changed / (\d+) unchanged\*\*")
+PROSE_EDGES_RE = re.compile(r"`summary\.edges` is `(\d+) / (\d+) / (\d+) / (\d+)`")
+PROSE_HEADLINE_RE = re.compile(r'\+\d+ nodes [^`"]*?\d+ fixed')
+
+
+def _diff_pins(root: Path):
+    """The four node counts, the four edge counts and the headline, read as text
+    out of the analyzer's own test. Returns None when the test has been renamed
+    or restructured -- a check that guesses is worse than a check that abstains,
+    and `test_the_real_pin_is_still_readable_and_the_real_contract_agrees` in
+    the suite fails loudly if it ever does abstain on the real tree."""
+    pin = root / DIFF_PIN_TEST
+    if not pin.is_file():
+        return None
+    text = io.open(pin, encoding="utf-8", newline="").read()
+    counts = {}
+    for kind, body in PIN_DICT_RE.findall(text):
+        counts[kind] = {k: int(v) for k, v in PIN_FIELD_RE.findall(body)}
+    headline = PIN_HEADLINE_RE.search(text)
+    if not headline or set(counts) != {"nodes", "edges"}:
+        return None
+    for kind in ("nodes", "edges"):
+        if set(counts[kind]) != {"added", "removed", "changed", "unchanged"}:
+            return None
+    return counts, headline.group(1)
+
+
+def check_contract_diff_figures(root: Path, problems: list) -> None:
+    """REV-04: §7's four counts against the test §7 names as their pin."""
+    doc = root / CONTRACTS_DOC
+    pins = _diff_pins(root)
+    if not doc.is_file() or pins is None:
+        return
+    counts, headline = pins
+    section = CONTRACTS_S7_RE.search(
+        io.open(doc, encoding="utf-8", newline="").read())
+    if section is None:
+        return
+    body = section.group(1)
+    where = "%s §7" % CONTRACTS_DOC
+
+    found = PROSE_NODES_RE.search(body)
+    if found:
+        said = [int(g) for g in found.groups()]
+        want = [counts["nodes"][k]
+                for k in ("added", "removed", "changed", "unchanged")]
+        if said != want:
+            problems.append(
+                "%s: says `summary.nodes` is %s over the shipped sample pair; "
+                "`%s` asserts %s. `python -m mlview diff` settles it and §7 says "
+                "so itself (check 23, REV-04)"
+                % (where, " / ".join(map(str, said)), DIFF_PIN_TEST,
+                   " / ".join(map(str, want))))
+
+    found = PROSE_EDGES_RE.search(body)
+    if found:
+        said = [int(g) for g in found.groups()]
+        want = [counts["edges"][k]
+                for k in ("added", "removed", "changed", "unchanged")]
+        if said != want:
+            problems.append(
+                "%s: says `summary.edges` is %s; `%s` asserts %s (check 23, "
+                "REV-04)" % (where, " / ".join(map(str, said)), DIFF_PIN_TEST,
+                             " / ".join(map(str, want))))
+
+    # Every headline in the section -- the prose one AND the JSONC sketch's
+    # illustrative one, which is how three different figure sets got into one
+    # section in the first place.
+    for quoted in sorted(set(PROSE_HEADLINE_RE.findall(body))):
+        if quoted.replace("\u2212", "-") != headline.replace("\u2212", "-"):
+            problems.append(
+                "%s: quotes the diff headline as %r; `%s` asserts %r. An "
+                "illustrative headline in the schema sketch is still a figure a "
+                "reader will copy (check 23, REV-04)"
+                % (where, quoted, DIFF_PIN_TEST, headline))
+
+
 def run(root: Path, paths, problems: list) -> None:
-    """All three checks, in the order the docstring numbers them."""
+    """All four checks, in the order the docstring numbers them."""
     check_summary_table(root, problems)
     check_scope_battery(root, paths, problems)
     check_one_green_push(root, paths, problems)
+    check_contract_diff_figures(root, problems)

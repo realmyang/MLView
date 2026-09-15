@@ -27,6 +27,17 @@ Four properties are load-bearing and each has a test:
    a missing one (`suppressions[].kind = "external"`, the SARIF spelling of
    "something outside the tool decided this"). Deleting them would make the
    SARIF disagree with `--show-suppressed`.
+5. **`Issue.fix` becomes `result.fixes[]`** (C8). The structured edit of
+   CONTRACTS 11.42 already travels in the JSON document, and the review tools
+   that read SARIF are exactly the surface that can offer it - GitHub renders a
+   `fixes[]` entry as the alert's suggested change. One `artifactChanges` entry,
+   because 11.42 A6 says every edit of one fix names one file; one
+   `replacements` entry per edit, with a **zero-width `deletedRegion`** for an
+   insertion, which is SARIF's own spelling of the same idea. The safety grade
+   rides beside it in `properties.fixSafety`: SARIF has no `isPreferred`, and
+   inventing one would be the second spelling of one decision that 11.42 A5
+   refuses. A finding with no `fix` gets no `fixes` key at all, so every SARIF
+   document MLView produced before this one is unchanged.
 
 Columns are `Loc.col + 1`: MLView's are 0-based, SARIF's are 1-based. The
 document deliberately does **not** declare `columnKind` - `Loc.col` is
@@ -45,7 +56,7 @@ from ..version import __version__
 
 __all__ = ["render_sarif", "sarif_bytes", "write_sarif", "SARIF_VERSION",
            "SARIF_SCHEMA_URI", "URI_BASE_ID", "level_for", "help_uri_for",
-           "DOCS_BASE_URL"]
+           "DOCS_BASE_URL", "fixes_for"]
 
 SARIF_VERSION = "2.1.0"
 SARIF_SCHEMA_URI = ("https://docs.oasis-open.org/sarif/sarif/v2.1.0/errata01/"
@@ -133,6 +144,62 @@ def _physical(loc: Dict[str, Any]) -> Dict[str, Any]:
                                  "region": _region(loc)}}
 
 
+# ------------------------------------------------------------------- fixes
+def _replacement(edit: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """One `TextEdit` -> one SARIF `replacement`, or None if it is not one.
+
+    The region is the range the edit **deletes**; `insertedContent` is what goes
+    in its place. An insertion is a zero-width region, which is how both schemas
+    already spell it, so the two conventions meet without a special case.
+    Columns are 1-based here and 0-based in the document, exactly as everywhere
+    else in this module.
+    """
+    try:
+        line = int(edit["line"])
+        col = int(edit["col"])
+        end_line = int(edit["endLine"])
+        end_col = int(edit["endCol"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    region = {"startLine": max(1, line), "startColumn": col + 1,
+              "endLine": max(1, end_line), "endColumn": end_col + 1}
+    inserted = edit.get("newText")
+    out: Dict[str, Any] = {"deletedRegion": region}
+    if isinstance(inserted, str) and inserted:
+        out["insertedContent"] = {"text": inserted}
+    return out
+
+
+def fixes_for(issue: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """`issue["fix"]` -> SARIF `result.fixes[]`; `[]` when there is no edit.
+
+    Empty rather than absent so the caller decides whether the key exists at
+    all: a `fixes: []` on every result would change every SARIF document MLView
+    has ever written, for no consumer's benefit.
+    """
+    fix = issue.get("fix")
+    if not isinstance(fix, dict):
+        return []
+    edits = [e for e in (fix.get("edits") or []) if isinstance(e, dict)]
+    if not edits:
+        return []
+    replacements = [r for r in (_replacement(e) for e in edits) if r is not None]
+    if len(replacements) != len(edits):
+        # A malformed edit is not a partial fix: 11.42 A6 says the edits of one
+        # fix apply atomically, and half of them is a corrupted file.
+        return []
+    # 11.42 A6: every edit of one fix names one file - the issue's own.
+    uri = (edits[0].get("file") or issue.get("loc", {}).get("file") or "")
+    change = {"artifactLocation": {"uri": uri.replace("\\", "/"),
+                                   "uriBaseId": URI_BASE_ID},
+              "replacements": replacements}
+    entry: Dict[str, Any] = {"artifactChanges": [change]}
+    title = fix.get("title")
+    if isinstance(title, str) and title:
+        entry["description"] = {"text": title}
+    return [entry]
+
+
 # -------------------------------------------------------------- the document
 def render_sarif(doc: Dict[str, Any], tool_version: str = __version__) -> Dict[str, Any]:
     """The SARIF document for an MLGraph document. Pure dict -> dict."""
@@ -167,6 +234,9 @@ def render_sarif(doc: Dict[str, Any], tool_version: str = __version__) -> Dict[s
         suppression = _suppression(issue)
         if suppression is not None:
             result["suppressions"] = [suppression]
+        fixes = fixes_for(issue)
+        if fixes:
+            result["fixes"] = fixes
         result["properties"] = _result_properties(issue)
         results.append(result)
 
@@ -231,6 +301,11 @@ def _result_properties(issue: Dict[str, Any]) -> Dict[str, Any]:
         properties["change"] = issue["change"]
     if issue.get("baselined"):
         properties["baselined"] = True
+    fix = issue.get("fix")
+    if isinstance(fix, dict) and fix.get("safety"):
+        # SARIF has no `isPreferred`; a consumer derives it from this and from
+        # nothing else, which is CONTRACTS 11.42 A5 carried across the boundary.
+        properties["fixSafety"] = fix["safety"]
     return properties
 
 

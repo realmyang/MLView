@@ -33,12 +33,33 @@ export const SPECIALLY_RENDERED = [
   'untagged_dataflow',
   'single_file_analysis',
   'unresolved_callee',
+  'framework_filter',
   'notebook_analyzed',
   // NB. Drawn as a BANNER, not a chip.
 ].concat(OUT_OF_ORDER_KINDS);
 
 /** The kind ANA-5a and CONTRACTS 11.52 both ship under (11.18's reserved kind). */
 export const UNRESOLVED_CALLEE = 'unresolved_callee';
+
+/**
+ * The kind CONTRACTS §2.6 C8 ships `--framework <x>`'s cost under.
+ *
+ * `core.coverage.COVERAGE_KINDS` is `("untagged_dataflow",
+ * "single_file_analysis", "framework_filter")` and C9 makes that tuple a SUBSET
+ * of every host's own list. The plugin and the extension listed this kind from
+ * the day C8 landed; this file did not, and nothing compared it against the
+ * core — the gate C9 names exists for the other two hosts only. The measured
+ * consequence: a clean workspace analysed with `--framework torch` drew the
+ * rail's unqualified *"70 nodes across 7 stages checked — nothing to flag."*
+ * with no banner and no chip, while the document's only diagnostic said five
+ * rules the detected frameworks would have run did not. That is the sentence
+ * `test/hardening_cleanstate.test.mjs` exists to forbid, reached through a kind
+ * the viewer had never heard of.
+ *
+ * `test/hardening_coverage_kinds.test.mjs` is the third gate, and it reads the
+ * analyzer's declaration rather than transcribing it.
+ */
+export const FRAMEWORK_FILTER = 'framework_filter';
 
 /**
  * COVERAGE. The product's worst failure mode is that it cannot tell *"I checked
@@ -60,8 +81,20 @@ export const UNRESOLVED_CALLEE = 'unresolved_callee';
  * Treating it as what it is gives it the same shape as its two siblings: a
  * short countable chip, the sentence on the chip's `title`, and the sentence
  * again in the coverage banner, which is where a paragraph belongs.
+ *
+ * REV-02/H2. `framework_filter` is the fourth, and it is not a viewer opinion
+ * at all: the core emits it (C8) and §2.6 C9 makes the core's tuple a subset of
+ * this list, so its absence here was a contract breach rather than a missing
+ * nicety. It takes the same COVERAGE branch as the other three and gains the
+ * chip shape, the `title`, the banner and the rail's clean-state caveat in one
+ * move — exactly as §10.8 A5 did for `unresolved_callee`.
  */
-export const COVERAGE_KINDS = ['untagged_dataflow', 'single_file_analysis', UNRESOLVED_CALLEE];
+export const COVERAGE_KINDS = [
+  'untagged_dataflow',
+  'single_file_analysis',
+  UNRESOLVED_CALLEE,
+  FRAMEWORK_FILTER,
+];
 
 /**
  * HOSTS-UX-CLEANSTATE. The three kinds above are what the coverage BANNER is
@@ -152,6 +185,7 @@ export function coverageChipText(d: Diagnostic): string {
     return 'single-file analysis' + codes;
   }
   if (d.kind === UNRESOLVED_CALLEE) return unreadCallsChipText(d);
+  if (d.kind === FRAMEWORK_FILTER) return frameworkFilterChipText(d);
   const n = d.count || 0;
   return n > 0 ? n + (n === 1 ? ' value not traced' : ' values not traced') : 'dataflow not traced';
 }
@@ -181,6 +215,35 @@ export function unreadCallsChipText(d: Diagnostic): string {
   return scope ? scope + ' — ' + calls : calls;
 }
 
+/**
+ * REV-02 — `framework_filter` as a chip rather than as a 287-character wall.
+ *
+ * `count` on this kind is SUPPRESSED RULE CODES and not blind sites (§2.6 C9
+ * says so in as many words), so the chip counts rules and the headline gives it
+ * a clause of its own; nothing here adds that number to a blind-spot total.
+ *
+ * The framework's NAME is read off the front of the message, which is the one
+ * place it exists: `core.coverage.framework_filter_diagnostic` builds the row
+ * with `codes` and `count` and no `scope`, and the message it fixes by contract
+ * opens `--framework <name> narrowed the rule set: …`. Reading a leading flag
+ * token is not the guess §10.8 A3 forbids — that clause is about inferring
+ * which of two FLAVOURS a row is, and this kind has one. When the token is not
+ * there the chip simply drops the name and still states the cost, so a reworded
+ * message degrades to a shorter chip rather than to a wrong one.
+ */
+export function frameworkFilterChipText(d: Diagnostic): string {
+  const n = d.count || (d.codes || []).length;
+  const rules = n > 0 ? n + (n === 1 ? ' rule' : ' rules') + ' not run' : 'rules not run';
+  const name = frameworkFilterName(d);
+  return name ? '--framework ' + name + ' — ' + rules : rules;
+}
+
+/** `torch` out of ``--framework torch narrowed …``, or '' when it is not there. */
+function frameworkFilterName(d: Diagnostic): string {
+  const match = /^--framework[ \t]+([A-Za-z0-9_.+-]+)\b/.exec(d.message || '');
+  return match ? match[1] : '';
+}
+
 /** The banner headline: what was not checked, in the reader's words. */
 export function coverageHeadline(diags: Diagnostic[]): string {
   const single = diags.some((d) => d.kind === 'single_file_analysis');
@@ -188,6 +251,21 @@ export function coverageHeadline(diags: Diagnostic[]): string {
   const unread = diags.filter((d) => d.kind === UNRESOLVED_CALLEE);
   const parts: string[] = [];
   if (single) parts.push('only part of this project was analyzed, so cross-file rules could not run');
+  // REV-02. Beside `single_file_analysis`, because the two say the same kind of
+  // thing — rules that would have judged this workspace did not run — and a
+  // reader who sees both should read them together. The number is RULES, never
+  // added to a count of blind sites (§2.6 C9).
+  const filtered = diags.filter((d) => d.kind === FRAMEWORK_FILTER);
+  if (filtered.length) {
+    const n = filtered.reduce((sum, d) => sum + (d.count || (d.codes || []).length || 1), 0);
+    const names = frameworkNames(filtered);
+    parts.push(
+      n +
+        (n === 1 ? ' rule the detected frameworks would have run was' : ' rules the detected frameworks would have run were') +
+        ' not run' +
+        (names ? ' under --framework ' + names : ' because of --framework'),
+    );
+  }
   if (untagged.length) {
     const n = untagged.reduce((sum, d) => sum + (d.count || 1), 0);
     parts.push(n + (n === 1 ? ' value' : ' values') + ' reaching a fit or split could not be traced');
@@ -220,6 +298,17 @@ export function coverageHeadline(diags: Diagnostic[]): string {
     parts.push(diags.length + (diags.length === 1 ? ' coverage gap was' : ' coverage gaps were') + ' reported');
   }
   return 'Coverage: ' + parts.join('; ') + '. A clean result here is not a clean bill of health.';
+}
+
+/** `torch` / `torch, sklearn` — the filters a run of these rows names, bounded. */
+function frameworkNames(diags: Diagnostic[]): string {
+  const names: string[] = [];
+  for (const d of diags) {
+    const name = frameworkFilterName(d);
+    if (name && names.indexOf(name) < 0) names.push(name);
+  }
+  const rest = names.length - 3;
+  return names.slice(0, 3).join(', ') + (rest > 0 ? ' and ' + rest + ' more' : '');
 }
 
 /** `(lifelines, sksurv)` — the scopes a run of diagnostics names, bounded. */

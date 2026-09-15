@@ -553,12 +553,14 @@
     ]
   },
   "scripts": {
-    "compile": "node tools/sync-rule-docs.mjs && node tools/sync-walkthrough.mjs && node esbuild.mjs",
-    "watch": "node esbuild.mjs --watch",
+    "compile": "node tools/sync-core.mjs && node tools/sync-rule-docs.mjs && node tools/sync-walkthrough.mjs && node esbuild.mjs",
+    "watch": "node tools/sync-core.mjs && node esbuild.mjs --watch",
     "check": "tsc --noEmit",
+    "sync:core": "node tools/sync-core.mjs",
     "sync:rule-docs": "node tools/sync-rule-docs.mjs",
-    "pretest": "node tools/sync-rule-docs.mjs && node tools/sync-walkthrough.mjs && node esbuild.mjs",
+    "pretest": "node tools/sync-core.mjs && node tools/sync-rule-docs.mjs && node tools/sync-walkthrough.mjs && node esbuild.mjs",
     "test": "node tools/run-tests.mjs",
+    "vscode:prepublish": "npm run compile",
     "package": "npx --yes @vscode/vsce package --no-dependencies",
     "check:panel": "node --test test/panelhtml.test.js",
     "sync:walkthrough": "node tools/sync-walkthrough.mjs"

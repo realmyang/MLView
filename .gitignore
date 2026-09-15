@@ -2,6 +2,16 @@
 node_modules/
 vscode-extension/out/
 *.vsix
+# C2: `vscode-extension/core/mlview` is the analyzer the VSIX SHIPS, and it is a
+# BUILT artifact, not a source of truth. `tools/sync-core.py` writes it, `npm run
+# compile`, `npm run package` (through `vscode:prepublish`) and `scripts/build.*`
+# all run that first, and `tools/verify.py --vsix` checks the built copy against
+# `analyzer/src/mlview`.
+# One analyzer is tracked in this repository (`analyzer/src/mlview`) plus one
+# vendored copy that a marketplace install of the Claude Code plugin needs
+# verbatim (`claude-plugin/vendor/mlview`, which goes away once the wheel is on
+# PyPI). A third tracked copy only ever added ~120 files of review surface.
+vscode-extension/core/
 # PACKAGING: `python -m build --wheel analyzer` (scripts/build.sh step 6) writes both.
 analyzer/dist/
 analyzer/build/
@@ -15,7 +25,7 @@ __pycache__/
 # repositories into tools/public_corpus.py's DEFAULT_CORPUS_DIR (override it with
 # MLVIEW_PUBLIC_CORPUS_DIR). The manifest pins every SHA, so the clones are
 # reproducible from analyzer/tests/public_corpus/repos.json and are never
-# committed. Without this line a developer who runs `fetch` gets 24 untracked
+# committed. Without this line a developer who runs `fetch` gets 37 untracked
 # repositories in `git status`, and the module docstring's "git-ignored" is false.
 .public-corpus/
 
@@ -28,7 +38,9 @@ webview/.mlview/
 docs/gallery/
 
 # local orchestration backups and scratch
-.workflows/backup/
+# C5: `.workflows/` held the multi-agent orchestration scripts of past sprints —
+# session artifacts full of absolute machine paths, not part of the product.
+.workflows/
 *.log
 .DS_Store
 Thumbs.db

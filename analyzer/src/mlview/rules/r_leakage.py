@@ -9,11 +9,15 @@ from typing import Iterable, List, Optional
 
 from .. import knowledge as K
 from ..core.coverage import untraced_reason
-from ..core.graph import Diagnostic, Issue
+from ..core.graph import Issue
 from ..ir.model import CallSite
 from ..ir.symbols import dotted_text
 from ..knowledge import STATELESS_TRANSFORMERS
 from .helpers import arg_ref, reaches, traced_arg
+from .leakage_paths import (_callee_fit_transform, _fold_projection,
+                            _note_refused_split, _semi_supervised,
+                            _split_after_return, _split_consuming,
+                            _split_producing)
 from .registry import rule
 
 __all__ = ["fit_before_split", "fit_on_held_out", "preprocessing_outside_cv"]
@@ -75,6 +79,17 @@ def fit_before_split(ctx) -> Iterable[Issue]:
         # provenance chain, where `hops()` de-rates it below `certain` and names
         # the hops it travelled.
         split = _split_consuming(ctx, fit, splits, targets)
+        returned_ref = None
+        if split is None:
+            # R5: the fit and the split are in different functions, and the
+            # value crossed between them through a `return`. This is the whole
+            # shape of a feature-engineering module - `build_matrix()` scales
+            # the series, `walk_forward()` folds it - and it is exactly the
+            # cross-object claim REV5-01 says must come back through
+            # provenance rather than through a name match. It does: the split's
+            # argument has to be bound by the very call to this function, at a
+            # returned position the fitted value feeds.
+            split, returned_ref = _split_after_return(ctx, fit, splits, name, ref)
         if split is None:
             # IP-02: a value whose tag arrived interprocedurally, whose only
             # candidate split is in another scope, is not a clean result - it is
@@ -101,7 +116,11 @@ def fit_before_split(ctx) -> Iterable[Issue]:
         evidence = [
             ("fqn_resolved", "%s resolved through the import table" % (fit.fqn or "fit"), 1.0),
             ("dataflow_direct",
-             "%s flows into %s at line %d" % (name, split.short_name, split.loc.line), 1.0),
+             ("the value %s produces is returned into %s:%d, where %s reads it"
+              % (name, split.loc.file, split.loc.line, split.short_name))
+             if returned_ref is not None else
+             ("%s flows into %s at line %d"
+              % (name, split.short_name, split.loc.line)), 1.0),
         ]
         # A dynamic scope is de-rated once, by the engine (x0.7).
         if not fit.scope.is_dynamic:
@@ -113,12 +132,19 @@ def fit_before_split(ctx) -> Iterable[Issue]:
         # so a cross-object finding is de-rated arithmetically and can never
         # reach `certain`; and one RelatedLoc per hop, so the reader can open
         # the construction site the tag entered through.
-        evidence.extend(ctx.hops(ref))
+        #
+        # ONE ref, never both: R5's `_split_after_return` builds its chain by
+        # `extend`ing the fit's own, so `returned_ref` already contains every
+        # hop `ref` has plus the `return`. Charging both would pay for the
+        # first hop twice - 0.8 x 0.64 rather than 0.64 - and print its
+        # construction site twice in `relatedLocs`.
+        hop_ref = returned_ref if returned_ref is not None else ref
+        evidence.extend(ctx.hops(hop_ref))
         related = [
             ("fit_site", fit.loc, "fitted on the full dataset here"),
             ("split_site", split.loc, "split happens later, at line %d" % split.loc.line),
         ]
-        related.extend(ctx.hop_related(ref))
+        related.extend(ctx.hop_related(hop_ref))
         # Only a **cross-object** finding gets it. A finding whose value
         # dataflow established locally reads identically in both modes, which
         # is what makes `ip` a widening of `local` rather than a second dialect.
@@ -128,11 +154,19 @@ def fit_before_split(ctx) -> Iterable[Issue]:
                             "the transformer is constructed here"))
         nodes = [node] + ([split_node] if split_node is not None and split_node is not node
                           else [])
+        if returned_ref is not None:
+            message = ("%s is fitted on %s at %s:%d, and the value it produces is "
+                       "returned into %s:%d, where %s splits it - so the transformer "
+                       "sees the held-out rows."
+                       % (_label(fit), name, fit.loc.file, fit.loc.line,
+                          split.loc.file, split.loc.line, split.short_name))
+        else:
+            message = ("%s is fitted on %s at %s:%d, before %s splits it at line %d, so "
+                       "the transformer sees the held-out rows."
+                       % (_label(fit), name, fit.loc.file, fit.loc.line,
+                          split.short_name, split.loc.line))
         issues.append(ctx.issue(
-            message="%s is fitted on %s at %s:%d, before %s splits it at line %d, so the "
-                    "transformer sees the held-out rows."
-                    % (_label(fit), name, fit.loc.file, fit.loc.line,
-                       split.short_name, split.loc.line),
+            message=message,
             loc=fit.loc, node_ids=nodes, related=related, evidence=evidence,
             severity="medium" if target_only else None,
             dynamic=fit.scope.is_dynamic))
@@ -226,193 +260,6 @@ def _stateless(call: CallSite) -> bool:
     return bool(fqn and fqn in STATELESS_TRANSFORMERS)
 
 
-def _cross_scope_split(ctx, fit: CallSite, splits, targets,
-                       ref) -> Optional[CallSite]:
-    """The split that a *scope* guard - and only a scope guard - rejected.
-
-    Two shapes, both of them a refusal rather than a clean read:
-
-    1. a split written in another scope of the fit's own module whose argument
-       still reaches the fitted value by name (the shape the scope guard exists
-       to reject), and
-    2. a split at or after the line the tag **entered** this scope through -
-       `Scaled(X)` in the caller, `train_test_split(...)` on the next line.
-       That is the commonest cross-object leak shape there is, and no name path
-       joins the two halves, so only the hop's own location can find it.
-    """
-    for split in splits:
-        if split.module is not fit.module or split.scope is fit.scope:
-            continue
-        for arg in list(split.args) + [split.kwarg_nodes[k] for k in sorted(split.kwarg_nodes)]:
-            name = dotted_text(arg)
-            if name and reaches(ctx, name, split.scope, targets):
-                return split
-    best: Optional[CallSite] = None
-    for hop in getattr(ref, "provenance", ()) or ():
-        loc = getattr(hop, "loc", None)
-        if loc is None:
-            continue
-        for split in splits:
-            if split.loc.file != loc.file or split.loc.line < loc.line:
-                continue
-            if split.scope is fit.scope:
-                continue
-            if best is None or (split.loc.line, split.loc.col) < (best.loc.line, best.loc.col):
-                best = split
-    return best
-
-
-def _note_refused_split(ctx, fit: CallSite, name: Optional[str], ref, splits) -> None:
-    """IP-02: disclose a cross-object match the scope guard refused.
-
-    Only for a value whose tag arrived through an interprocedural hop. A local
-    value that finds no split in its own scope is an ordinary clean read, and
-    a note on every one of those would be noise rather than candour; a value
-    that travelled into this scope and whose only candidate split is written
-    somewhere else is a *refusal*, and 11.36 N5 already requires DATAFLOW-IP to
-    say so for the hop cap. This is the same class of refusal.
-    """
-    if not getattr(ref, "provenance", ()):
-        return
-    targets = {name, fit.var}
-    split = _cross_scope_split(ctx, fit, splits, targets, ref)
-    if split is None:
-        return
-    spec = getattr(ctx, "current_rule", None)
-    message = (
-        "%s found a later %s at %s:%d, but `%s` reached %s only through an "
-        "interprocedural hop (%s), so the cross-scope match was refused: "
-        "leakage through `%s` is neither confirmed nor ruled out."
-        % (spec.code if spec is not None else "MLView", split.short_name,
-           split.loc.file, split.loc.line, name or "the value",
-           fit.scope.qualname if fit.scope is not None else "this scope",
-           ctx.hop_chain(ref) or "one hop", name or "it"))
-    for existing in ctx.diagnostics:
-        if existing.kind == "truncated" and existing.message == message:
-            return
-    # CONTRACTS 11.59 A1: on a `truncated` row `scope` names WHICH CAP stopped
-    # the analysis - one of `files`, `nodes`, `rounds`, `dataflow` - so that a
-    # consumer asking "was the graph capped?" never has to read English. This
-    # row is the interprocedural refusal, so it is `dataflow`, the same literal
-    # `core/pipeline` gives the hop cap. The scope this happened IN is not lost:
-    # `fit.scope.qualname` is already in the message above, which is where a
-    # name belongs on a row whose `scope` field is a closed vocabulary.
-    ctx.diagnostics.append(Diagnostic(
-        kind="truncated", scope="dataflow", message=message,
-        file=fit.loc.file, line=fit.loc.line,
-        ruleCode=spec.code if spec is not None else None))
-
-
-def _split_consuming(ctx, fit: CallSite, splits, targets) -> Optional[CallSite]:
-    """The later split whose input derives from the fit's input or output.
-
-    The split must be written in the fit's own scope (REV5-01): the reachability
-    test below matches by dotted **name**, and a name means something else in a
-    foreign scope. See `fit_before_split`.
-    """
-    for split in splits:
-        if split.module is not fit.module:
-            continue
-        if split.scope is not fit.scope:
-            continue
-        if split.loc.line < fit.loc.line:
-            continue
-        for arg in list(split.args) + [split.kwarg_nodes[k] for k in sorted(split.kwarg_nodes)]:
-            name = dotted_text(arg)
-            if not name:
-                continue
-            if not reaches(ctx, name, split.scope, targets):
-                continue
-            # PUB-03. Reachability here is by dotted NAME, and a sphinx-gallery
-            # script or a notebook is one module scope in which `X` is bound
-            # several times for several unrelated sections. Matching the fit's
-            # `X` to a split's `X` across a rebinding joined two independent
-            # halves of one file into a high / `certain` leak on correct code.
-            # A name that was re-assigned in between is a different value, and
-            # the rule cannot prove otherwise from a name.
-            broken = _rebound_between(fit, split, name, targets)
-            if broken is not None:
-                ctx.untraced(fit, name,
-                             "`%s` is re-assigned at line %d from a value that does not "
-                             "derive from the fitted one, between the fit at line %d and "
-                             "the %s at line %d, so the two sites hold different values "
-                             "and the leak is neither confirmed nor ruled out"
-                             % (name, broken, fit.loc.line, split.short_name,
-                                split.loc.line))
-                continue
-            return split
-    return None
-
-
-def _rebound_between(fit: CallSite, split: CallSite, name: str,
-                     targets) -> Optional[int]:
-    """The line that breaks the value chain between the fit and the split.
-
-    PUB-03. Reachability in this rule is by dotted NAME, and a sphinx-gallery
-    script or a notebook is one module scope in which `X` is bound several
-    times for several unrelated sections; matching the fit's `X` to a split's
-    `X` across such a rebinding joined two independent halves of one file into
-    a high / `certain` leak on correct code.
-
-    A rebinding that *reads* one of the tracked names continues the chain -
-    `X = scaler.fit_transform(X)` and `features = imputer.fit_transform(
-    features)` are exactly the shape ISSUE_RULES section 3 says must fire. A
-    rebinding that reads none of them is a different value that happens to
-    share a name, and the rule cannot prove otherwise from a name.
-    """
-    wanted = {name} | {t for t in targets if t}
-    for record in fit.module.assignments:
-        if record.scope is not fit.scope:
-            continue
-        if not (fit.loc.line < record.loc.line < split.loc.line):
-            continue
-        if record.call is fit:
-            continue
-        if not any(n in wanted for t in record.targets for n in _target_names(t)):
-            continue
-        if record.value is not None and _reads_any(record.value, wanted):
-            continue                     # the chain runs through this statement
-        return record.loc.line
-    return None
-
-
-def _target_names(target: ast.expr) -> Iterable[str]:
-    """Every dotted name an assignment target binds, tuple unpacking included.
-
-    PUB-15. `AssignRecord.targets` is the raw `stmt.targets`, so `X, y =
-    load_iris(...)` is **one** `ast.Tuple`, and `dotted_text` of a tuple is
-    empty. `_rebound_between` therefore could not see the single commonest
-    rebinding in scikit-learn code: a sphinx-gallery script that binds `X, y`
-    once per section. The guard the last round added for `X = ...` was blind to
-    `X, y = ...`, which is how MLV101 still reported a high / `certain` leak on
-    `examples/release_highlights/plot_release_highlights_0_24_0.py:153`, where
-    the `sfs.fit(X, y)` at line 153 and the `train_test_split(X, y, ...)` at
-    line 180 are two different datasets (iris and covtype) twenty-five lines
-    apart.
-    """
-    if isinstance(target, (ast.Tuple, ast.List)):
-        for element in target.elts:
-            for name in _target_names(element):
-                yield name
-        return
-    if isinstance(target, ast.Starred):
-        for name in _target_names(target.value):
-            yield name
-        return
-    text = dotted_text(target)
-    if text:
-        yield text
-
-
-def _reads_any(value: ast.expr, names) -> bool:
-    for child in ast.walk(value):
-        if isinstance(child, (ast.Name, ast.Attribute)):
-            text = dotted_text(child)
-            if text and text in names:
-                return True
-    return False
-
-
 # ---------------------------------------------------------------------------
 # MLV102
 # ---------------------------------------------------------------------------
@@ -455,6 +302,16 @@ def fit_on_held_out(ctx) -> Iterable[Issue]:
         if _semi_supervised(fit.module):
             continue
         name, ref = traced_arg(ctx, fit, 0)
+        fold = None
+        if ref is not None and ref.tags and not ref.has(*_HELD_OUT) \
+                and not ref.has("TRAIN_SPLIT"):
+            # R5: `fold_scaler.fit_transform(features[test_idx])`. The rows are
+            # a *fold*, not a named split, so no tag ever says TEST_SPLIT - the
+            # fact lives in the index: position 1 of the tuple a scikit-learn
+            # splitter yields is the held-out half, by the splitter protocol.
+            fold = _fold_projection(ctx, fit)
+            if fold is not None:
+                name, ref = fold[0], fold[1]
         if ref is None or not ref.tags:
             ctx.untraced(fit, name, _untraced_reason(fit, name, ref))
             continue
@@ -465,16 +322,22 @@ def fit_on_held_out(ctx) -> Iterable[Issue]:
         node = ctx.node_for_call(fit) or ctx.unit_for_call(fit)
         if node is None:
             continue
-        split = _split_producing(ref)
+        split = _split_producing(ref) if fold is None else fold[2]
         which = "TEST_SPLIT" if ref.has("TEST_SPLIT") else "VAL_SPLIT"
         by_dataflow = split is not None
+        if fold is not None:
+            detail = ("%s indexes the fold at position 1 of the tuple %s yields at "
+                      "line %d, which is the held-out half"
+                      % (name, _label(split), split.loc.line))
+        elif by_dataflow:
+            detail = "%s carries %s from the split at line %d" % (name, which,
+                                                                  split.loc.line)
+        else:
+            detail = "%s carries %s by naming convention alone" % (name, which)
         evidence = [
             ("fqn_resolved", "%s resolved through the import table" % (fit.fqn or "fit"),
              1.0),
-            ("dataflow_direct" if by_dataflow else "name_regex",
-             "%s carries %s %s" % (name, which,
-                                   "from the split at line %d" % split.loc.line
-                                   if by_dataflow else "by naming convention alone"),
+            ("dataflow_direct" if by_dataflow else "name_regex", detail,
              1.0 if by_dataflow else 0.8),
         ]
         if not fit.scope.is_dynamic:
@@ -492,22 +355,6 @@ def fit_on_held_out(ctx) -> Iterable[Issue]:
             loc=fit.loc, node_ids=[node], related=related, evidence=evidence,
             dynamic=fit.scope.is_dynamic))
     return issues
-
-
-def _semi_supervised(module) -> bool:
-    """Transductive learning legitimately fits on unlabeled test features."""
-    for fqn in module.symbols.aliases.values():
-        if fqn.startswith("sklearn.semi_supervised"):
-            return True
-    return False
-
-
-def _split_producing(ref) -> Optional[CallSite]:
-    producer = ref.producer
-    if producer is None:
-        return None
-    from .. import knowledge as K
-    return producer if K.role_of(producer.fqn) in ("SPLIT", "SPLITTER") else None
 
 
 # ---------------------------------------------------------------------------
@@ -533,9 +380,16 @@ def preprocessing_outside_cv(ctx) -> Iterable[Issue]:
         if not data_name:
             continue
         fit = _feeding_fit_transform(ctx, cv_call, data_name)
+        hop_ref = None
+        if fit is None:
+            # R5: the fit is one `def` away. `features, target = build_matrix(p)`
+            # then `cross_val_score(est, features, target)` is the commonest
+            # spelling of this defect in a research repo, and the local pass
+            # cannot see it because the two halves are in different functions.
+            fit, hop_ref = _callee_fit_transform(ctx, cv_call, data_name)
         if fit is None:
             continue
-        if _already_reported(ctx, fit):
+        if _already_reported(ctx, fit, cv_call):
             continue                     # MLV101 owns this root cause
         node = ctx.node_for_call(cv_call) or ctx.unit_for_call(cv_call)
         if node is None:
@@ -554,15 +408,21 @@ def preprocessing_outside_cv(ctx) -> Iterable[Issue]:
         if not cv_call.scope.is_dynamic:
             evidence.append(("scope_static",
                              "no dynamic constructs in %s" % cv_call.scope.qualname, 1.0))
+        related = [("fit_site", fit.loc, "fitted once, outside the folds"),
+                   ("call_site", cv_call.loc, "cross-validation runs here")]
+        # 11.36 G6: a claim that crossed the object boundary pays one
+        # IP_HOP_WEIGHT per hop and names the chain, so it can never be
+        # `certain`; a claim established inside one scope pays nothing and
+        # reads exactly as it did before this path existed.
+        evidence.extend(ctx.hops(hop_ref))
+        related.extend(ctx.hop_related(hop_ref))
         issues.append(ctx.issue(
             message="%s at %s:%d cross-validates a bare estimator over %s, which %s "
                     "already fitted on the whole set at line %d - the folds share its "
                     "statistics."
                     % (cv_call.short_name, cv_call.loc.file, cv_call.loc.line, data_name,
                        _label(fit), fit.loc.line),
-            loc=cv_call.loc, node_ids=[node],
-            related=[("fit_site", fit.loc, "fitted once, outside the folds"),
-                     ("call_site", cv_call.loc, "cross-validation runs here")],
+            loc=cv_call.loc, node_ids=[node], related=related,
             evidence=evidence, dynamic=cv_call.scope.is_dynamic))
     return issues
 
@@ -629,10 +489,19 @@ def _feeding_fit_transform(ctx, cv_call: CallSite, data_name: str) -> Optional[C
     return best
 
 
-def _already_reported(ctx, fit: CallSite) -> bool:
-    """MLV101 fired on the same transformer: never stack two findings."""
+def _already_reported(ctx, fit: CallSite, cv_call: CallSite) -> bool:
+    """MLV101 fired on the same transformer *in front of the same reader*.
+
+    Never stack two findings on one statement - but MLV101 is anchored on the
+    fit site and MLV103 on the cross-validation call, and since the fit may now
+    be a `def` and a file away (`_callee_fit_transform`), "the same statement"
+    has to mean the same file. A reader of `train.py` who is told nothing
+    because `features.py` already carries an MLV101 has been told nothing about
+    the folds, which is the only thing MLV103 exists to say.
+    """
     for issue in ctx.issues:
         if issue.code == "MLV101" and issue.loc.file == fit.loc.file \
-                and issue.loc.line == fit.loc.line:
+                and issue.loc.line == fit.loc.line \
+                and issue.loc.file == cv_call.loc.file:
             return True
     return False

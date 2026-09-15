@@ -60,11 +60,32 @@ def test_every_layer_built_in___init___is_an_op_under_its_class(demo):
             continue
         parent = by_id.get(node["parent"] or "")
         assert parent is not None, "%s has no parent unit" % node["label"]
-        owners.setdefault(parent["label"], set()).add(node["fqn"])
+        # GRAPH-R3: `self.blocks = [ConvBlock(...) ...]` is an op too, and it
+        # names a **workspace** class - so it carries no `fqn`, which
+        # CONTRACTS section 1 reserves for a canonical third-party symbol. It
+        # is asserted by label below instead of being fabricated an FQN here.
+        owners.setdefault(parent["label"], set()).add(node.get("fqn"))
     assert {"torch.nn.Conv2d", "torch.nn.BatchNorm2d", "torch.nn.Dropout"} <= \
         owners.get("ConvBlock", set()), owners
     assert {"torch.nn.Conv2d", "torch.nn.AdaptiveAvgPool2d", "torch.nn.Linear"} <= \
         owners.get("SmallCNN", set()), owners
+
+
+def test_a_workspace_submodule_is_an_op_where_it_is_built(demo):
+    """GRAPH-R3: `self.blocks = [ConvBlock(w, w) for _ in range(depth)]` is a
+    `layer` op on its own line, not a fold onto the `ConvBlock` class card.
+
+    The hand-drawn diagram for the shipped sample puts a box at `model.py:34`
+    (`analyzer/tests/accuracy/corpus/vision_pipeline/labels.json`) and MLView
+    anchored nothing there: the construction site of a workspace class was the
+    one place the class was *used*, and it was invisible.
+    """
+    built = [n for n in _in_file(demo, "model.py")
+             if n["level"] == "op" and n["label"] == "ConvBlock()"]
+    assert len(built) == 1, [n["label"] for n in _in_file(demo, "model.py")]
+    assert built[0]["kind"] == "layer" and built[0]["stage"] == "model"
+    assert built[0]["loc"]["line"] == 34
+    assert "fqn" not in built[0], "a workspace class is not a canonical symbol"
 
 
 def test_the_model_lane_is_no_longer_three_nodes(demo):

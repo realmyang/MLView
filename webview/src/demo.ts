@@ -54,6 +54,7 @@ import {
   chromeBandHeight,
   coverageChipText,
   coverageHeadline,
+  frameworkFilterChipText,
   unreadCallsChipText,
 } from './ui/chromenotes.js';
 import { ruleDocFor, setRuleDocs } from './ui/ruledocs.js';
@@ -520,6 +521,7 @@ export const internals = {
     coverageKinds: COVERAGE_KINDS,
     coverageChipText,
     coverageHeadline,
+    frameworkFilterChipText,
     unreadCallsChipText,
     bandHeight: chromeBandHeight,
     BANNER_PX,

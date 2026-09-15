@@ -7,18 +7,10 @@ import { add, button, clear, el, iconButton, on } from '../dom.js';
 import { uiIcon } from '../icons.js';
 import { severityGlyph, SEVERITY_ORDER } from '../markers.js';
 import { RovingGroup } from './roving.js';
-import {
-  COVERAGE_KINDS,
-  SPECIALLY_RENDERED,
-  chromeBandHeight,
-  coverageChipText,
-  coverageHeadline,
-  describe,
-  notebooksAnalyzedText,
-  stat,
-} from './chromenotes.js';
-import { NOTEBOOK_ANALYZED, outOfOrderDiagnostics, outOfOrderHeadline } from '../notebook.js';
-import { rollupCaveats, rollupHeadline, rollupSummary } from '../rollup/rolled.js';
+import { chromeBandHeight, stat } from './chromenotes.js';
+import { renderBanners } from './chromebanners.js';
+import { MAX_CHIPS, chipTitle, collectChips } from './chromechips.js';
+import type { ChipSpec } from './chromechips.js';
 import { suppressedSummary } from './suppress.js';
 import { isSetAside } from '../types.js';
 import type { Capabilities, Filters, MLGraph, Severity, Stage } from '../types.js';
@@ -80,41 +72,6 @@ export interface ChromeState {
 }
 
 let chromeSeq = 0;
-
-/**
- * How many chips the diagnostic row draws before the rest fold behind one
- * "N more" chip (HOSTS-UX-CHIPWALL).
- *
- * Eight is what fits two lines of the row at the widths this product is used
- * at, which is the point: the row must never be able to outgrow the picture it
- * annotates. It is a DISCLOSURE and not a deletion — the "N more" chip draws
- * every one of them, each message stays on a `title`, and the status bar keeps
- * counting all of them as "N notes".
- */
-export const MAX_CHIPS = 8;
-
-/**
- * One chip, before it is a DOM node.
- *
- * Collecting descriptors rather than appending elements is what lets the row
- * fold identical texts and cap its own length: both are decisions about the
- * WHOLE row, and the old code had made them one chip at a time.
- */
-interface ChipSpec {
-  /** The chip's visible text. Identical texts fold into one chip with a count. */
-  text: string;
-  /** Extra classes after `mlv-chip`. */
-  cls: string;
-  /** The uppercase heading drawn before the first chip of a run. */
-  label: string;
-  /** The chip's own `title`, when it has one. */
-  title: string;
-  attrs: [string, string][];
-  /** How many identical entries this chip stands for; 1 draws no count. */
-  count: number;
-  /** The DISTINCT messages behind a folded chip, for its tooltip. */
-  detail: string[];
-}
 
 export class Chrome {
   /**
@@ -396,7 +353,7 @@ export class Chrome {
 
     this.renderStageFilters(s);
     this.renderChips(s);
-    this.renderBanners(s);
+    renderBanners(this.banners, s, this.cb);
     this.renderStatus(s);
     // The stage chip row was just rebuilt: put the strip's single tab stop back
     // (VIEW-12).
@@ -576,136 +533,6 @@ export class Chrome {
     return chromeBandHeight(banners, chips);
   }
 
-  private renderBanners(s: ChromeState): void {
-    clear(this.banners);
-    const g = s.graph;
-    let any = false;
-
-    if (s.error) {
-      any = true;
-      const b = this.banner('error', 'Analysis failed — ' + s.error.message, s.error.detail);
-      const actions = add(b, el('div', 'mlv-banner__actions'));
-      for (const a of s.error.actions || []) {
-        const btn = button('mlv-btn', a.label);
-        on(btn, 'click', () => this.cb.onAction(a.id));
-        actions.appendChild(btn);
-      }
-      const copy = button('mlv-btn', 'Copy details');
-      on(copy, 'click', () => this.cb.onAction('mlview.copyErrorDetails'));
-      actions.appendChild(copy);
-      this.banners.appendChild(b);
-    }
-
-    if (s.stale.length && !s.dismissed.has('stale')) {
-      any = true;
-      const names = s.stale.slice(0, 3).join(', ') + (s.stale.length > 3 ? ' and ' + (s.stale.length - 3) + ' more' : '');
-      const b = this.banner('warn', 'Files changed since this analysis: ' + names);
-      const actions = add(b, el('div', 'mlv-banner__actions'));
-      if (s.capabilities.canReanalyze) {
-        const btn = button('mlv-btn mlv-btn--primary', 'Re-analyze');
-        on(btn, 'click', () => this.cb.onRefresh());
-        actions.appendChild(btn);
-      }
-      actions.appendChild(this.dismissButton('stale'));
-      this.banners.appendChild(b);
-    }
-
-    if (g) {
-      const parseErrors = (g.diagnostics || []).filter((d) => d.kind === 'parse_error');
-      if (parseErrors.length && !s.dismissed.has('parse')) {
-        any = true;
-        const b = this.banner('warn', parseErrors.length + ' file(s) could not be parsed', describe(parseErrors));
-        add(b, el('div', 'mlv-banner__actions')).appendChild(this.dismissButton('parse'));
-        this.banners.appendChild(b);
-      }
-
-      // NB. ABOVE the coverage banner: a notebook last run out of order makes
-      // the fit-before-split family unreliable, and that has to be read before
-      // the findings it de-rates.
-      const outOfOrder = outOfOrderDiagnostics(g.diagnostics || []);
-      if (outOfOrder.length && !s.dismissed.has('notebook-order')) {
-        any = true;
-        const b = this.banner('warn', outOfOrderHeadline(outOfOrder), describe(outOfOrder));
-        b.setAttribute('data-notebook-order-banner', String(outOfOrder.length));
-        add(b, el('div', 'mlv-banner__actions')).appendChild(this.dismissButton('notebook-order'));
-        this.banners.appendChild(b);
-      }
-      // COVERAGE. One banner for everything the run could NOT see, above the
-      // "partial understanding" note, because "I did not look" outranks "I
-      // looked and was unsure".
-      const coverage = (g.diagnostics || []).filter((d) => COVERAGE_KINDS.indexOf(d.kind) >= 0);
-      if (coverage.length && !s.dismissed.has('coverage')) {
-        any = true;
-        const b = this.banner('warn', coverageHeadline(coverage), describe(coverage));
-        b.setAttribute('data-coverage-banner', String(coverage.length));
-        add(b, el('div', 'mlv-banner__actions')).appendChild(this.dismissButton('coverage'));
-        this.banners.appendChild(b);
-      }
-
-      const dynamicDiags = (g.diagnostics || []).filter((d) => d.kind === 'dynamic_scope');
-      if ((dynamicDiags.length > 0 || s.dynamicNodes > 0) && !s.dismissed.has('dynamic')) {
-        any = true;
-        const detail = dynamicDiags.length ? describe(dynamicDiags) : undefined;
-        const b = this.banner(
-          'info',
-          'Partial understanding: some calls could not be resolved (config-driven or dynamic). ' +
-            s.dynamicNodes +
-            ' node(s) are shown with reduced confidence.',
-          detail,
-        );
-        add(b, el('div', 'mlv-banner__actions')).appendChild(this.dismissButton('dynamic'));
-        this.banners.appendChild(b);
-      }
-
-      // PERF-04. A capped document is now ROLLED UP rather than mutilated, and
-      // the banner has to say which of the two it is looking at: a document
-      // carrying folded cards or weighted cables gets the rollup wording and
-      // its caveats, and one written by an analyzer that still deletes keeps
-      // the old sentence, because for that document the old sentence is true.
-      const rollup = rollupSummary(g);
-      if (rollup && !s.dismissed.has('truncated')) {
-        any = true;
-        // The analyzer's own sentence is the DETAIL, verbatim: 11.46 D makes it
-        // the place the per-phase counts and any lost findings are named, and a
-        // paraphrase would be a second set of numbers to keep in step.
-        const b = this.banner('info', rollupHeadline(rollup), rollup.message || undefined);
-        b.setAttribute('data-rollup-banner', String(rollup.folded));
-        const body = (b.querySelector('.mlv-banner__text') as HTMLElement) || b;
-        const notes = add(body, el('ul', 'mlv-banner__notes'));
-        notes.setAttribute('data-rollup-notes', String(rollupCaveats(rollup).length));
-        for (const text of rollupCaveats(rollup)) add(notes, el('li', '', text));
-        add(b, el('div', 'mlv-banner__actions')).appendChild(this.dismissButton('truncated'));
-        this.banners.appendChild(b);
-      } else if (g.stats && g.stats.truncated && !s.dismissed.has('truncated')) {
-        any = true;
-        const b = this.banner(
-          'warn',
-          'Graph truncated at ' + g.nodes.length + ' nodes — narrow the scope with --include, or collapse groups.',
-        );
-        add(b, el('div', 'mlv-banner__actions')).appendChild(this.dismissButton('truncated'));
-        this.banners.appendChild(b);
-      }
-    }
-
-    this.banners.hidden = !any;
-  }
-
-  private banner(kind: string, text: string, detail?: string): HTMLElement {
-    const b = el('div', 'mlv-banner mlv-banner--' + kind);
-    b.setAttribute('role', kind === 'error' ? 'alert' : 'status');
-    const body = add(b, el('div', 'mlv-banner__text'));
-    add(body, el('div', '', text));
-    if (detail) add(body, el('pre', 'mlv-banner__detail', detail));
-    return b;
-  }
-
-  private dismissButton(key: string): HTMLButtonElement {
-    const btn = iconButton('mlv-btn mlv-btn--icon', 'Dismiss');
-    btn.appendChild(uiIcon('close'));
-    on(btn, 'click', () => this.cb.onDismiss(key));
-    return btn;
-  }
-
   private renderStatus(s: ChromeState): void {
     clear(this.status);
     const g = s.graph;
@@ -729,141 +556,3 @@ export class Chrome {
   }
 }
 
-/* ── the chip row's three steps (HOSTS-UX-CHIPWALL) ────────────────────── */
-
-/** One descriptor. `detail` never repeats the text it would sit under. */
-function chipSpec(text: string, opts: Partial<ChipSpec> = {}): ChipSpec {
-  const title = opts.title || '';
-  return {
-    text,
-    cls: opts.cls || '',
-    label: opts.label || '',
-    title,
-    attrs: opts.attrs || [],
-    count: 1,
-    detail: title && title !== text ? [title] : [],
-  };
-}
-
-/**
- * STEP 1 — collect, in the order the row has always drawn them.
- *
- * Every branch is the one that was there before; the only change is that each
- * produces a descriptor instead of appending an element. A diagnostic kind this
- * renderer has never heard of still says what it says (invariant 1.1/6).
- */
-function collectChips(s: ChromeState): ChipSpec[] {
-  const g = s.graph as MLGraph;
-  const out: ChipSpec[] = [];
-  for (const stage of (g.stages || []).filter((st) => !st.present)) {
-    out.push(chipSpec(stage.label || stage.id, { label: 'not detected' }));
-  }
-  for (const stage of s.outOfScopeStages) {
-    out.push(
-      chipSpec(stage.label || stage.id, {
-        label: 'not in this scope',
-        cls: 'mlv-chip--outscope',
-        attrs: [['data-out-of-scope', stage.id]],
-      }),
-    );
-  }
-  for (const d of g.diagnostics || []) {
-    if (d.kind === 'notebook_skipped') {
-      out.push(chipSpec((d.count || 0) + ' notebooks not analyzed'));
-    } else if (d.kind === NOTEBOOK_ANALYZED) {
-      // NB. Without `--include-notebooks` this never appears, because the
-      // diagnostic is never emitted.
-      //
-      // VW-06: ONE diagnostic per notebook, and its `count` is that notebook's
-      // code cells — so the chip is one notebook (the hook keeps its name) and
-      // the cell count is its own attribute.
-      out.push(
-        chipSpec(notebooksAnalyzedText(d), {
-          title: d.message,
-          attrs: [
-            ['data-notebooks-analyzed', '1'],
-            ['data-notebook-cells', String(d.count || 0)],
-          ],
-        }),
-      );
-    } else if (d.kind === 'framework_suppressed') {
-      out.push(chipSpec(d.message + (d.codes && d.codes.length ? ' (' + d.codes.join(', ') + ')' : '')));
-    } else if (d.kind === 'config_warning' || d.kind === 'config_unresolved') {
-      // VW-08. These are SENTENCES, not chips — CI-ADOPT's baseline and
-      // --changed-paths warnings carry absolute paths and an instruction, and
-      // the `--changed-paths` one measured 1779 px wide at a 1600 px window,
-      // running 191 px off the page with no scrollbar and no `title`, so the
-      // instruction it exists to give ("Pass the diff itself, or
-      // --changed-since <rev>") was the half that was cut. The full text is
-      // now on the chip's tooltip, and `.mlv-chiprow .mlv-chip` wraps.
-      //
-      // HOSTS-UX-CHIPWALL: and because they are sentences, a repository that
-      // could not open eight config files drew the SAME sentence eight times.
-      out.push(chipSpec(d.message, { title: d.message, attrs: [['data-config-note', d.kind]] }));
-    } else if (COVERAGE_KINDS.indexOf(d.kind) >= 0) {
-      // COVERAGE: a chip that says the analysis was BLIND here, distinct from
-      // the "not detected" row beside it, which says it looked and found none.
-      out.push(
-        chipSpec(coverageChipText(d), {
-          cls: 'mlv-chip--coverage',
-          title: d.message,
-          attrs: [['data-coverage', d.kind]],
-        }),
-      );
-    } else if (SPECIALLY_RENDERED.indexOf(d.kind) < 0) {
-      // A kind this renderer has never heard of still says what it says
-      // (invariant 1.1/6) rather than vanishing into the "N notes" count.
-      out.push(chipSpec(d.message || d.kind, { attrs: [['data-diagnostic-kind', d.kind]] }));
-    }
-  }
-  if ((g.workspace.filesFailed || 0) > 0) {
-    out.push(chipSpec(g.workspace.filesFailed + ' files failed to parse'));
-  }
-  return foldChips(out);
-}
-
-/**
- * STEP 2 — fold identical chips into one that carries its count.
- *
- * Identity is the heading, the variant and the TEXT: two coverage chips that
- * both read `1 value not traced` are one fact repeated, and drawing it 36 times
- * (measured on `analyzer/tests/fixtures`) tells a reader nothing the count does
- * not. The distinct MESSAGES behind the fold are kept for the tooltip, so the
- * per-file detail is one hover away rather than gone.
- */
-function foldChips(specs: ChipSpec[]): ChipSpec[] {
-  const out: ChipSpec[] = [];
-  const seen = new Map<string, ChipSpec>();
-  for (const spec of specs) {
-    const key = JSON.stringify([spec.label, spec.cls, spec.text]);
-    const first = seen.get(key);
-    if (!first) {
-      seen.set(key, spec);
-      out.push(spec);
-      continue;
-    }
-    first.count += 1;
-    for (const line of spec.detail) {
-      if (first.detail.indexOf(line) < 0) first.detail.push(line);
-    }
-  }
-  return out;
-}
-
-/**
- * The tooltip: a folded chip states its count and lists what it folded.
- *
- * TAB2-10: every chip now carries one, falling back to its own text. The
- * stylesheet ellipsises a chip wider than `CHIP_TEXT_CH`, and a reader must
- * always have somewhere to recover the tail from — the generic chip of
- * invariant 1.1/6 had no `title` at all, so a long message from a kind this
- * renderer has never heard of would have been the one that could not be read.
- */
-function chipTitle(spec: ChipSpec): string {
-  if (spec.count <= 1) return spec.title || spec.text;
-  const head = spec.count + '× ' + spec.text;
-  if (!spec.detail.length) return head;
-  const lines = spec.detail.slice(0, 6);
-  const rest = spec.detail.length - lines.length;
-  return head + '\n' + lines.join('\n') + (rest > 0 ? '\n… and ' + rest + ' more' : '');
-}

@@ -15,6 +15,7 @@ import traceback
 from dataclasses import dataclass, field
 from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
+from ..core.coverage import framework_filter_diagnostic
 from ..core.graph import Diagnostic
 from . import helpers
 
@@ -128,10 +129,16 @@ def run_all(ctx, strict: bool = False, disabled: Sequence[str] = (),
             framework: str = "auto") -> List:
     """Run every enabled rule against `ctx`; returns the issues it produced."""
     off = {c.upper() for c in disabled or ()}
+    #: C8: the codes `--framework <x>` dropped that `auto` would have run. The
+    #: caveat is emitted once, after the loop, so the narrowing is a property of
+    #: the run rather than one diagnostic per rule.
+    narrowed: List[str] = []
     for spec in all_rules():
         if not spec.enabled or spec.code.upper() in off:
             continue
         if not _applies(spec, ctx.frameworks, framework):
+            if _applies(spec, ctx.frameworks, "auto"):
+                narrowed.append(spec.code)
             continue
         ctx.current_rule = spec
         try:
@@ -156,4 +163,7 @@ def run_all(ctx, strict: bool = False, disabled: Sequence[str] = (),
     # emission happens later in the same rule, and the two are joined by the
     # source range they share - which only exists once both have happened.
     helpers.apply_config_derating(ctx)
+    caveat = framework_filter_diagnostic(framework, narrowed)
+    if caveat is not None:
+        ctx.diagnostics.append(caveat)
     return ctx.issues

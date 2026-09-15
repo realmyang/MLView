@@ -956,7 +956,8 @@
             "single_file_analysis",
             "unresolved_callee",
             "config_unresolved",
-            "notebook_analyzed"
+            "notebook_analyzed",
+            "framework_filter"
           ]
         },
         "message": {
@@ -980,7 +981,7 @@
           "items": {
             "$ref": "#/$defs/RuleCode"
           },
-          "description": "For framework_suppressed: which rules were not applied."
+          "description": "For framework_suppressed: which rules were de-rated. For framework_filter: which rules --framework dropped. For single_file_analysis / untagged_dataflow: which rules could not run."
         },
         "count": {
           "type": "integer",

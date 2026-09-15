@@ -85,15 +85,33 @@ class _Fact:
         return bool(self.tags or self.class_ir is not None)
 
 
-def _fact_at(site: CallSite, arg: Optional[ast.expr]) -> _Fact:
+def _fact_at(site: CallSite, arg: Optional[ast.expr],
+             read_calls: bool = False) -> _Fact:
     from .bindings import binding_of        # local: bindings imports this module's peers
 
     if arg is None:
         return _Fact()
-    name = dotted_text(arg)
-    if not name:
-        return _Fact()
-    ref = binding_of(name, site.scope, at=site.loc.line)
+    if read_calls and isinstance(arg, ast.Call):
+        # REV-PREC-04. `State(model=model, criterion=nn.CrossEntropyLoss())`:
+        # half the arguments of a real holder construction are written in
+        # place, and this read only names. `dotted_text` of a call is its
+        # callee, which names no value, so the whole constructor summary came
+        # back empty for exactly the fields a trainer constructs inline - and
+        # the LOSS one is the field the MLV2xx family needs. `_value_facts` is
+        # the same reader `ir/bindings_values` uses for a literal container's
+        # slots: it asks the call site what it resolved to and invents nothing.
+        #
+        # CONSTRUCTOR only, deliberately. For a plain parameter the existing
+        # reading is load-bearing: `self.attn(self.ln1(x))` hands `forward`'s
+        # `x` the module `self.ln1` names, and two `nlp_gpt_pretrain` dataflow
+        # edges are drawn from it - `ip` must never report less than `local`.
+        from .bindings_values import _value_facts
+        ref = _value_facts(arg, site.scope, site.module)
+    else:
+        name = dotted_text(arg)
+        if not name:
+            return _Fact()
+        ref = binding_of(name, site.scope, at=site.loc.line)
     if ref is None:
         return _Fact()
     return _Fact(tags=ref.tags, class_ir=ref.class_ir, is_config=ref.is_config,
@@ -253,8 +271,13 @@ def _chain_for(sites: Sequence[CallSite], func: FunctionIR, kind: str,
 
 
 def _summarize_args(func: FunctionIR, sites: Sequence[CallSite], kind: str,
-                    max_hops: int, notes: List[Tuple[str, int, str]]) -> bool:
-    """Argument -> parameter, intersected over `sites`. True when anything moved."""
+                    max_hops: int, notes: List[Tuple[str, int, str]],
+                    read_calls: bool = False) -> bool:
+    """Argument -> parameter, intersected over `sites`. True when anything moved.
+
+    `read_calls` lets an argument written in place (`Loss()`) be typed from its
+    own call site rather than from its callee's name; CONSTRUCTOR passes it.
+    """
     params = list(func.params)
     if func.is_method and params and params[0] == "self":
         params = params[1:]
@@ -263,7 +286,8 @@ def _summarize_args(func: FunctionIR, sites: Sequence[CallSite], kind: str,
     mapped = [_pairs(site, params) for site in sites]
     changed = False
     for param in params:
-        facts = [_fact_at(site, mapped[i].get(param)) for i, site in enumerate(sites)]
+        facts = [_fact_at(site, mapped[i].get(param), read_calls)
+                 for i, site in enumerate(sites)]
         merged = _intersect(facts)
         if not merged.known():
             if _seed(func, param, merged, (), len(sites), notes, sites[0]):
@@ -306,13 +330,128 @@ def _init_attributes(init: FunctionIR) -> List[Tuple[str, str, object]]:
     return out
 
 
+def _via_of(ref: ValueRef) -> Tuple[str, ...]:
+    """What the value **is**, as canonical FQNs, for an attribute to inherit.
+
+    A tag says what a value is *for*; this says what it is. It is read only
+    where an attribute adopts a constructor argument (REV-PREC-04), never
+    where a *parameter* adopts one: a parameter is a new name for a value the
+    callee may do anything with, and giving `def forward(self, x)` the FQNs of
+    whatever the caller passed made `x.size()` resolve to
+    `torch.nn.LayerNorm.size` on `nlp_gpt_pretrain` - two dataflow edges that
+    `local` draws and `ip` then did not.
+    """
+    if ref.via_fqns:
+        return tuple(ref.via_fqns)
+    producer = ref.producer
+    if producer is None:
+        return ()
+    return tuple(f for f in (producer.canonical_fqns or ()) if f)[:4]
+
+
+def _annotated_fields(cls: ClassIR) -> List[str]:
+    """The annotated class-body fields, in source order (`§5.3 A11 (c)`).
+
+    `@dataclass class State: model: nn.Module; criterion: nn.Module` declares
+    its constructor in its body and has no `__init__` for CONSTRUCTOR to read,
+    so a holder written the way the standard library recommends carried
+    nothing at all. Only `x: T` - an `ast.AnnAssign` on a plain name - counts;
+    a field with no annotation is not part of the generated signature, and a
+    `ClassVar` is not a field, so both are skipped.
+    """
+    out: List[str] = []
+    for stmt in cls.node.body:
+        if not isinstance(stmt, ast.AnnAssign) or not isinstance(stmt.target, ast.Name):
+            continue
+        annotation = dotted_text(stmt.annotation) or ""
+        if annotation.rsplit(".", 1)[-1] == "ClassVar":
+            continue
+        out.append(stmt.target.id)
+    return out
+
+
+def _positional_fields_are_safe(cls: ClassIR) -> bool:
+    """May a *positional* argument be mapped onto field *i*?
+
+    Only a `@dataclass` (or an `attrs` class, which spells it the same way)
+    promises that, and the promise is the decorator. A class that merely has
+    annotated class-body attributes and inherits its `__init__` from a base
+    MLView cannot see would have its arguments mapped onto the wrong fields, so
+    positional arguments are refused there. **Keyword** arguments need no such
+    promise: a keyword that matches a declared field names that field.
+    """
+    for node in cls.node.decorator_list:
+        text = dotted_text(node) or dotted_text(getattr(node, "func", None)) or ""
+        if text.rsplit(".", 1)[-1] in ("dataclass", "define", "attrs", "attr", "s"):
+            return True
+    return False
+
+
+def _field_summary(cls: ClassIR, sites: Sequence[CallSite], max_hops: int,
+                   notes: List[Tuple[str, int, str]]) -> bool:
+    """§5.3 A11 (c) for a class whose constructor is its annotated body."""
+    fields = _annotated_fields(cls)
+    if not fields:
+        return False
+    positional = _positional_fields_are_safe(cls)
+    changed = False
+    for index, field_name in enumerate(fields):
+        args: List[Optional[ast.expr]] = []
+        for site in sites:
+            arg = site.kwarg_nodes.get(field_name)
+            if arg is None and positional and index < len(site.args):
+                arg = site.args[index]
+            args.append(arg)
+        if all(a is None for a in args):
+            continue
+        merged = _intersect([_fact_at(site, args[i], True)
+                             for i, site in enumerate(sites)])
+        if not merged.known():
+            continue
+        hop = Hop(kind="constructor",
+                  detail="%s(...)" % (sites[0].short_name or cls.name),
+                  loc=sites[0].loc)
+        chain = extend((), hop, max_hops)
+        if chain is None:
+            notes.append((sites[0].loc.file, sites[0].loc.line,
+                          "a value tag reached `%s.%s` after the %d-hop "
+                          "interprocedural cap; MLView stops following it there."
+                          % (cls.qualname, field_name, max_hops)))
+            continue
+        attr = "self.%s" % field_name
+        target = cls.scope.bindings.get(attr)
+        if target is None:
+            target = ValueRef(name=attr, scope=cls.scope, loc=cls.loc)
+            cls.scope.bindings[attr] = target
+            changed = True
+        before = (tuple(target.tags), tuple(getattr(target, "provenance", ())),
+                  tuple(target.via_fqns))
+        target.add_tags(merged.tags)
+        if not target.via_fqns and merged.producer is not None:
+            target.via_fqns = tuple(
+                f for f in (merged.producer.canonical_fqns or ()) if f)[:4]
+        if target.class_ir is None:
+            target.class_ir = merged.class_ir
+        if target.producer is None:
+            target.producer = merged.producer
+        if not getattr(target, "provenance", ()):
+            target.provenance = chain
+        if (tuple(target.tags), tuple(target.provenance),
+                tuple(target.via_fqns)) != before:
+            changed = True
+    return changed
+
+
 def _constructor_summary(cls: ClassIR, sites: Sequence[CallSite], max_hops: int,
                          notes: List[Tuple[str, int, str]]) -> bool:
     """Ctor argument -> `__init__` parameter -> `self.<attr>`, into the class scope."""
-    init = cls.methods.get("__init__")
-    if init is None or not sites:
+    if not sites:
         return False
-    changed = _summarize_args(init, sites, "constructor", max_hops, notes)
+    init = cls.methods.get("__init__")
+    if init is None:
+        return _field_summary(cls, sites, max_hops, notes)
+    changed = _summarize_args(init, sites, "constructor", max_hops, notes,
+                              read_calls=True)
     for attr, param, loc in _init_attributes(init):
         seed = init.scope.bindings.get(param)
         if seed is None or not seed.tags or not getattr(seed, "provenance", ()):
@@ -325,13 +464,32 @@ def _constructor_summary(cls: ClassIR, sites: Sequence[CallSite], max_hops: int,
             target = ValueRef(name=attr, scope=cls.scope, loc=loc)
             cls.scope.bindings[attr] = target
             changed = True
-        before = (tuple(target.tags), tuple(getattr(target, "provenance", ())))
+        before = (tuple(target.tags), tuple(getattr(target, "provenance", ())),
+                  tuple(target.via_fqns))
         # Union into the attribute: the parameter is one of the things the
         # attribute can hold, never the only one.
         target.add_tags(seed.tags)
+        # REV-PREC-04. The tag alone was carried, and a tag is not an
+        # identity. `self.criterion = criterion` gave `Bundle.criterion` the
+        # LOSS tag and nothing else, so `bundle.criterion(model(x), y)`
+        # resolved to `m.Bundle.criterion` - a name, not a symbol - the call
+        # produced no LOSS-tagged value, `loss.backward()` was not a backward
+        # pass of anything, and MLV201/202/203/205 (two of them HIGH) skipped
+        # the training step with only a coverage note. The MODEL half of §5.3
+        # A11(c) survived this because a model is reached through its own
+        # `class_ir`; the criterion half is reached only through its FQN. What
+        # the attribute can be told is what the argument resolved to, which is
+        # exactly `via_fqns` / `class_ir` / the producing call - never a guess.
+        if not target.via_fqns:
+            target.via_fqns = _via_of(seed)
+        if target.class_ir is None:
+            target.class_ir = seed.class_ir
+        if target.producer is None:
+            target.producer = seed.producer
         if not getattr(target, "provenance", ()):
             target.provenance = tuple(seed.provenance)
-        if (tuple(target.tags), tuple(target.provenance)) != before:
+        if (tuple(target.tags), tuple(target.provenance),
+                tuple(target.via_fqns)) != before:
             changed = True
     return changed
 

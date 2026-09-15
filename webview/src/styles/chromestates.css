@@ -1,0 +1,176 @@
+/*
+ * The chrome's TRANSIENT surfaces: the toast stack, the loading / empty /
+ * error states with their skeleton and progress bar, and the stage filter
+ * row that dims what they leave behind.
+ *
+ * Split out of `chrome.css`, which is the toolbar and the bands under it.
+ * The two files are concatenated IN THIS ORDER (build.mjs), so every rule
+ * keeps the source position — and therefore the cascade — it always had.
+ */
+
+/* toasts */
+.mlv-toasts {
+  position: absolute;
+  left: 50%;
+  bottom: var(--mlv-s7);
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: var(--mlv-s3);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.mlv-toast {
+  min-width: 240px;
+  max-width: 360px;
+  padding: var(--mlv-s4) var(--mlv-s5);
+  border: 1px solid var(--mlv-border-strong);
+  border-radius: var(--mlv-r-btn);
+  background: var(--mlv-surface);
+  box-shadow: var(--mlv-sh-2);
+  font-size: var(--mlv-fs-12);
+  text-align: center;
+}
+
+/* The standalone bridge's own toast, mounted OUTSIDE the `.mlv-toasts` stack
+ * (which is `pointer-events: none`). It may carry the "Open in VS Code" link of
+ * CONTRACTS 11.17 — the only affordance left on a page that must never navigate
+ * itself — so it re-enables pointer events for itself rather than relying on
+ * where it happens to be mounted.
+ *
+ * It also restates the type and text colour that every other surface INHERITS
+ * from `.mlv-root`. `showFloatingToast` prefers to mount inside `.mlv-root` for
+ * exactly that inheritance, but it falls back to `<body>`, where nothing is
+ * inherited: the card kept its token background and picked up the UA's black
+ * Times New Roman, i.e. black on the dark surface in a dark theme. The one
+ * message a reader gets after pressing "go to" must not be the least legible
+ * thing on the page. */
+.mlv-toast--floating {
+  pointer-events: auto;
+  font-family: var(--mlv-font);
+  line-height: var(--mlv-lh-body);
+  color: var(--mlv-text);
+}
+
+/* `block`, not `inline-block`: the sentence in front of it wraps, and an inline
+ * link takes whatever room is left on the last line — "…jump into VS CodeOpen
+ * in VS Code", with no separation between the message and the affordance. Its
+ * own line is also a bigger target for the one action this toast offers. */
+.mlv-toast__link {
+  display: block;
+  margin-top: var(--mlv-s2);
+  color: var(--mlv-link);
+  font-weight: 600;
+  text-decoration: underline;
+}
+
+/* full-canvas states */
+.mlv-state {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--mlv-s9);
+  background: var(--mlv-bg);
+}
+
+.mlv-state[hidden] {
+  display: none;
+}
+
+.mlv-state__inner {
+  width: min(460px, 100%);
+  text-align: center;
+}
+
+.mlv-state__title {
+  margin: 0 0 var(--mlv-s4);
+  font-size: var(--mlv-fs-16);
+  font-weight: var(--mlv-fw-semi);
+}
+
+.mlv-state__body {
+  margin: 0 0 var(--mlv-s5);
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-12);
+}
+
+.mlv-state__list {
+  margin: 0 auto var(--mlv-s5);
+  padding: 0;
+  list-style: none;
+  text-align: left;
+  max-width: 420px;
+  color: var(--mlv-text-2);
+  font-family: var(--mlv-font-mono);
+  font-size: var(--mlv-fs-10);
+}
+
+.mlv-state__actions {
+  display: flex;
+  gap: var(--mlv-s4);
+  justify-content: center;
+}
+
+/* loading skeleton */
+.mlv-skeleton {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--mlv-s6);
+  width: min(560px, 100%);
+  margin: 0 auto var(--mlv-s7);
+}
+
+.mlv-skeleton__card {
+  height: 56px;
+  border-radius: var(--mlv-r-node);
+  background: var(--mlv-surface-2);
+  animation: mlv-shimmer 1200ms linear infinite;
+}
+
+.mlv-skeleton__card:nth-child(2) { animation-delay: 120ms; }
+.mlv-skeleton__card:nth-child(3) { animation-delay: 240ms; }
+.mlv-skeleton__card:nth-child(4) { animation-delay: 360ms; }
+.mlv-skeleton__card:nth-child(5) { animation-delay: 480ms; }
+.mlv-skeleton__card:nth-child(6) { animation-delay: 600ms; }
+
+@keyframes mlv-shimmer {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+
+.mlv-progress {
+  width: 240px;
+  height: 2px;
+  margin: 0 auto var(--mlv-s4);
+  background: var(--mlv-surface-2);
+  border-radius: var(--mlv-r-pill);
+  overflow: hidden;
+}
+
+.mlv-progress__bar {
+  height: 100%;
+  width: 0;
+  background: var(--mlv-accent);
+  transition: width var(--mlv-dur-2) var(--mlv-ease);
+}
+
+.mlv-filterrow {
+  gap: var(--mlv-s3);
+}
+
+.mlv-filterrow .mlv-chip--stage {
+  color: var(--mlv-text);
+}
+
+.mlv-btn[disabled] {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.mlv-edge.is-filtered {
+  display: none;
+}
