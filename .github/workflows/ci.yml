@@ -5,35 +5,74 @@ name: CI
 # while `analyzer/pyproject.toml` declared `requires-python = ">=3.10"` on the
 # strength of nothing.
 #
-# COST (C6). The repository is private, so minutes are metered and weighted:
-# ubuntu 1x, windows 2x, macos 10x, and **each job is rounded up to a whole
-# minute on its own** before its weight is applied. A branch push used to run all
-# twelve jobs; on the last measured green push (34815166539, the hardening
-# round-2 integration) those twelve cost ~87 billable minutes. The matrix is now
-# split into two tiers, and the same push runs seven for roughly a third of that:
+# MEASURED (2026-09-15, the `public` -> `main` pull request). Every job in this
+# file has now run, green, on the tree it describes. That is the first time:
+# GitHub Actions was blocked at the ACCOUNT level for the two days the
+# consolidation and the recall campaign were written, so until this pull request
+# the whole of that work had been checked on one macOS laptop and nowhere else.
+#
+#   CHEAP TIER - push run 34975663652, 7 jobs, 7m49s wall, all green.
+#     https://github.com/realmyang/MLView/actions/runs/34975663652
+#     e2e (ubuntu, sh) 465 s, analyzer py3.10 458 s, analyzer py3.13 353 s,
+#     webview node 20 77 s, claude-plugin 46 s, accuracy corpus 38 s,
+#     vscode-extension 27 s. 27 weighted minutes, all ubuntu.
+#
+#   FULL TIER - pull_request run 34975667772, the 6 jobs the guard below adds,
+#     12m03s wall, all green.
+#     https://github.com/realmyang/MLView/actions/runs/34975667772
+#     e2e (windows, powershell) 718 s, analyzer py3.12 571 s, smoke (macos)
+#     541 s, analyzer py3.11 497 s, webview node 22 77 s, packaging 35 s.
+#     146 more weighted minutes - 22 ubuntu, 24 windows, 100 macOS.
+#
+#   The weekly `.github/workflows/public-corpus.yml`, dispatched on the same
+#   commit: run 34975673419, green, 37 pinned repositories and 260 analyses.
+#
+# It took ONE fix iteration, and the four failures were one mistake made four
+# times, in a place no single-platform run can reach: `os.path.abspath` puts the
+# current DRIVE on a drive-less path on Windows, so three assertions in
+# `analyzer/tests/core/test_cache.py` and one in
+# `analyzer/tests/public_corpus/test_public_corpus.py` compared a real answer
+# (`D:/tmp/...`) against the POSIX literal they had just put in the environment.
+# `e2e (windows, powershell)` was the only red job and one of its twenty steps
+# was the only red step. Nothing in the product was wrong.
+#
+# COST (C6). The two tiers were designed while this repository was PRIVATE, where
+# minutes are metered and weighted - ubuntu 1x, windows 2x, macos 10x, and **each
+# job is rounded up to a whole minute on its own** before its weight is applied.
+# The repository is public now and GitHub charges nothing for a standard runner,
+# so the arithmetic above comes out of nobody's budget. The split stays, for two
+# reasons that were never about money: it is the difference between a 7m49s
+# answer on a branch push and a 12m03s one, and a repository that ever goes
+# private again should not have to rediscover which half of its matrix costs ten
+# times the other.
 #
 #   CHEAP TIER - every push, and every pull request from a fork.
 #     analyzer 3.10 + 3.13 (the two ends of `requires-python`), webview on Node 20,
 #     vscode-extension, claude-plugin, the accuracy corpus and the Linux e2e table.
-#     ~33 billable minutes on the durations of that run: e2e 13, the two analyzer
-#     jobs 10-18 (the record keeps the four of them as a 275-533 s range, so their
-#     split is a bound, not a reading), Node 20 3-4, and 1 each for the extension,
-#     the plugin and the accuracy corpus.
 #
 #   FULL TIER - pull requests and pushes to `main`, ON TOP of the cheap tier.
 #     analyzer 3.11 + 3.12, webview on Node 22, the Windows e2e table, the macOS
-#     smoke job and packaging. ~84 more: ~18 ubuntu, 16 x 2 = 32 for the one
-#     Windows job (935 s), and ~30 for macOS (3 x 10, the Sprint-5 process push's
-#     reading - it is skipped on a branch push, so no run in the record above
-#     measured it). A merge is therefore still checked on every interpreter, every
-#     Node major, both e2e drivers and all three platforms - the tiers change WHEN
-#     that costs money, not WHETHER it happens before a merge.
+#     smoke job and packaging. A merge is therefore checked on every interpreter,
+#     every Node major, both e2e drivers and all three platforms - the tiers
+#     change WHEN that costs money, not WHETHER it happens before a merge.
+#
+# The figure worth re-reading is `smoke (macos)`: 541 s is 10 whole minutes at
+# 10x, so **100 weighted minutes - more than the other twelve jobs put together**
+# (73). This header used to estimate it at ~30 from a Sprint-5 run that measured a
+# much smaller analyzer suite; the suite has roughly doubled since. That is the
+# argument for where it sits, not against it: it runs where a merge is at stake
+# and nowhere else.
 #
 # The split is exact rather than approximate: the cheap tier keeps the
 # same-repository double-billing guard (a branch push and a same-repo pull request
 # are two events for one commit), and the full tier runs only on the events the
 # guard excludes. So on a same-repo PR the push event pays for the cheap tier and
 # the pull_request event pays for the rest - each job exactly once, never twice.
+# One caveat the two runs above exposed: a branch created at a commit that is
+# ALREADY on the remote pushes no new commits, GitHub creates no push run for it,
+# and the cheap tier is then skipped on the pull request with nothing having paid
+# for it. The first real commit to the branch restores both halves; if a PR's
+# checks list is missing the seven cheap jobs, that is why.
 #
 # `paths-ignore` on the push trigger is the other half: a commit that touches only
 # Markdown and `docs/` cannot change a gate's outcome, so it runs nothing at all.

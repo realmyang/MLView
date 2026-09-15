@@ -77,6 +77,23 @@ Both figures are arithmetic over the per-job durations of the last full green
 push (run 34454599867), which ran 12 jobs for about 44 billable minutes.
 """
 
+#: The second escape, and the one this check was blind to until the matrix
+#: actually ran: green and "CI matrix" in one breath, with the run named. The
+#: paragraph above never puts the two words near each other, so it passed
+#: without ever exercising the escape it was written for.
+GREEN_MATRIX_WITH_RUN = """# Demo
+
+Every gate above is green across the CI matrix: run 34975667772 took all
+thirteen jobs on ubuntu, Windows and macOS, Python 3.10-3.13 and Node 20/22.
+"""
+
+#: ...and the same sentence with the run id taken out, which must still fail.
+GREEN_MATRIX_WITHOUT_RUN = """# Demo
+
+Every gate above is green across the CI matrix: all thirteen jobs on ubuntu,
+Windows and macOS, Python 3.10-3.13 and Node 20/22.
+"""
+
 #: A doc may describe the matrix all it likes when it claims nothing green.
 DESCRIPTIVE_README = """# Demo
 
@@ -122,6 +139,34 @@ def test_a_green_push_named_by_run_id_is_not_a_matrix_claim():
     root = _tree({"README.md": RUN_ID_README})
     try:
         assert check_docs.run(root)[0] == []
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_a_green_matrix_is_sayable_once_the_run_is_named():
+    """The escape the rule always claimed and the code never had.
+
+    Until 2026-09-15 no run on any branch had started a job, so every honest
+    sentence about the matrix was a negative one and the negations were enough.
+    Once run 34975667772 took all thirteen jobs, a check that accepted only
+    "the matrix has not run" would have forbidden the true sentence and
+    permitted nothing but the false one.
+    """
+    root = _tree({"README.md": GREEN_MATRIX_WITH_RUN})
+    try:
+        assert check_docs.run(root)[0] == []
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_the_same_claim_with_no_run_named_is_still_caught():
+    """The escape is the run id, not the wording: take it out and this is the
+    defect again, which is what keeps the new branch from being a hole."""
+    root = _tree({"README.md": GREEN_MATRIX_WITHOUT_RUN})
+    try:
+        problems, _ = check_docs.run(root)
+        assert len(problems) == 1, problems
+        assert "DOCS-CI-OVERCLAIM" in problems[0], problems
     finally:
         shutil.rmtree(root, ignore_errors=True)
 

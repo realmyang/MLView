@@ -106,7 +106,8 @@ with the machine-readable copy the tree already holds live next door -- checks
     a landing clause, never on a bullet that describes what the code does today.
 
 22. **A gate claimed green on a CI matrix that never ran**, with no sentence in
-    the same breath saying whether the matrix ran at all.
+    the same breath naming the run that was green or saying whether the matrix
+    ran at all.
 23. **The one paragraph of `docs/CONTRACTS.md` that states a bare figure**: §7's
     four diff counts and its headline, against the test §7 names as their pin.
 
@@ -706,8 +707,9 @@ def main(argv=None) -> int:
               "file its package's `test` script runs, every CI command line one "
               "its own tool accepts, no closed list of rules the code does not "
               "hold, no known gap waiting for something that has landed, no "
-              "gate claimed green on a CI matrix without saying whether the "
-              "matrix ran, and the contract's diff figures equal the test that "
+              "gate claimed green on a CI matrix without naming the run or "
+              "saying whether the matrix ran, and the contract's diff figures "
+              "equal the test that "
               "pins them)"
               % len(files))
     return 0

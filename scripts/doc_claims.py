@@ -26,8 +26,9 @@ analyzer -- the doc gate runs in a CI job that sets up Python but never installs
     The rule is narrow on purpose. A document may describe the matrix, name it,
     say what it would cover, or report that one identified run was green. What it
     may not do is put a **green claim and the matrix in the same breath** without
-    saying in that same breath whether the matrix ran. Saying it did not run is
-    the escape, and it is the whole fix.
+    saying in that same breath whether the matrix ran. There are two escapes:
+    saying it did not run, and naming the run that did (`run <id>`, which check
+    15 then holds to one id across every document that cites one).
 
 Only the "living" documents are checked, for the reason `doc_figures.py` gives:
 a dated record of what was true when it was written is not a claim about today.
@@ -56,10 +57,24 @@ GREEN_CI_OK_RE = re.compile(
     r"has\s+not\s+run|have\s+not\s+run|never\s+run|not\s+started|would\s+not"
     r"|is\s+blocked|unstarted|no\s+CI\s+job", re.I)
 
-MESSAGE = ("%s:%d: claims a gate is green on CI (%r), but no CI job has started "
-           "on this branch -- say what the matrix did run, or name the block, "
-           "the way CHANGELOG.md and scripts/README.md row 25 do "
-           "(check 22, DOCS-CI-OVERCLAIM)")
+#: ...or names the run. The rule above has always had two escapes and only one
+#: of them was implemented: the prose says a document may "report that one
+#: identified run was green", and until the matrix actually ran, no document had
+#: cause to. It ran (`public` -> `main`, runs 34975663652 and 34975667772), and
+#: the negations above were then the ONLY way past the check -- a gate that
+#: accepts "the matrix has not run" and refuses "the matrix is green, here is
+#: which run" is a gate that forbids the true sentence and permits only the
+#: false one. A run id is what makes the claim checkable: `gh run view <id>`
+#: settles it, and check 15 (`doc_figures.check_one_green_push`) already holds
+#: every document that cites one to the SAME id, so this escape cannot be used
+#: to wave at a different run in every file.
+RUN_CITED_RE = re.compile(r"\brun\s+\d{6,}\b", re.I)
+
+MESSAGE = ("%s:%d: claims a gate is green on CI (%r) without saying, in that "
+           "same breath, which run was green or whether the matrix ran at all "
+           "-- cite the run (`run 34975667772`), say what the matrix did run, "
+           "or name the block, the way CHANGELOG.md and scripts/README.md "
+           "row 25 do (check 22, DOCS-CI-OVERCLAIM)")
 
 
 def paragraphs(lines):
@@ -88,7 +103,7 @@ def check_document(rel: str, lines, problems: list) -> None:
     """Check 22 over one document's lines, appending to `problems`."""
     for n, text in paragraphs(lines):
         found = GREEN_CI_RE.search(text)
-        if not found or GREEN_CI_OK_RE.search(text):
+        if not found or GREEN_CI_OK_RE.search(text) or RUN_CITED_RE.search(text):
             continue
         problems.append(MESSAGE % (rel, n, found.group(0)[:70]))
 
