@@ -112,6 +112,14 @@ jobs:
       # leaves the assertion doing its job, because what it exists to catch is a
       # run that has gone quadratic or stopped making progress, and that is an
       # order of magnitude, not 4 %.
+      #
+      # And the runner is not steady, which is the other half of the argument.
+      # Three runs of this job on the same pinned corpus put that one target at
+      # **62.5 s, 43.7 s and 61.5 s** (34974208055, 34975673419 and 34982508080;
+      # the whole corpus took 232, 162 and 232 s of wall). A ceiling two of the
+      # three readings cross is not measuring the analyzer, it is measuring the
+      # morning. 120 is above all three with room to spare and still an order of
+      # magnitude below a run that has stopped making progress.
       - name: analyze every target (default, --dataflow ip, --include-notebooks)
         env:
           REPOS: ${{ github.event.inputs.repos }}
