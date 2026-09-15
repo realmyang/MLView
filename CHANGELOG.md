@@ -13,6 +13,120 @@ today.
 
 ---
 
+## Unreleased — recall (2026-09-15)
+
+Five items, R1–R5, integrated in one commit. **The constraint was precision,
+never recall**, and it held: 100% precision with **zero `forbidden` findings**
+and zero unlabelled findings on the labelled corpus in both dataflow modes, 0
+findings on `analyzer/tests/clean` and `samples/vision_pipeline_clean` in both
+modes, and **zero new high-severity findings** on the public corpus. Full record:
+`docs/ACCURACY.md` §8; normative text: `docs/CONTRACTS.md` §3.11 R1.1–R1.5,
+§5.3 A7–A13, §14.2 F16–F21 / R13–R21, §17 E25–E26.
+
+| | `local` | **`ip`** (now the default) |
+|---|---|---|
+| overall recall | 73.1% → **82.0%** | 79.5% → **93.6%** |
+| unseen recall | 55.3% → **70.2%** | 66.0% → **89.4%** |
+| unseen high+medium | 37.5% → **56.2%** | 53.1% → **84.4%** |
+| graph fidelity | 91.4% → **99.4%** | 91.4% → **99.4%** |
+| precision / forbidden | **100% / 0** | **100% / 0** |
+
+**R1 — `--dataflow ip` is the default.** `ir.build_ir.DEFAULT_DATAFLOW` is the
+single authority; `AnalyzeOptions.dataflow`, the `--dataflow` flag on `analyze`
+and `issues`, and `tools/accuracy.py`'s own default all read it and none spells a
+mode again. `local` stays a shipped, gated opt-out with its own ratchet. The flip
+is a widening and the four things that make it one are gates, not claims (§3.11
+R1.3); `samples/vision_pipeline` is byte-identical in the two modes bar
+`stats.durationMs`, so `contracts/graph.sample.json` is untouched and
+`analyze --demo --json -` is still 46 078 bytes, byte for byte.
+`tools/perf_equiv.py --expect-same` against a pre-R1 tree now **fails** on
+purpose (§3.11 R1.4); `--expect-diff` is the claim this wave makes, and it passes.
+
+**R2 — two new knowledge tables.** `knowledge/pandas_tbl.py` (lag / window /
+reshape / write families, ten more readers, and `df.loc[…]` / `df.iloc[…]`
+indexer stripping, which used to stop a frame's tags dead one line before every
+leakage rule needed them) and `knowledge/stats_tbl.py` (statsmodels, Prophet,
+HuggingFace `evaluate`, torchmetrics `update` / `compute`), plus the rest of the
+Keras `Model` surface. **Nine new roles, six new receiver families, and not one
+rule keys on any of them** — the tables add sight, not verdicts.
+
+**R3 — calls through workspace-defined objects.** `core/workspace_ops.py` (314
+lines) mints a card for constructing a workspace class, invoking one
+(`logits = model(images)` → `predict`, `loss = criterion(…)` → `loss`, for the
+**outer** forward pass only) and the object a workspace factory returns — plus
+five ways a script carries such an object: `self.<attr>` across siblings, a dict
+or tuple literal (`ir/containers.py`), a dataclass field, an attribute of a
+workspace object, and a rebinding wrapper (`accelerator.prepare`, `Fabric.setup`,
+`torch.compile`, DDP). A factory whose return cannot be typed at all gets an
+honest `unknown` card naming the construct that defeated it
+(`ReturnSlot.opaque`). No card invents an `fqn` and none votes on a lane.
+Graph fidelity **127/139 → 163/164**; `hf_no_eval` and `lightning_manual` were
+hand-labelled in the same wave, each recording its provenance in `graph.drawnBy`,
+which is why the denominator moved.
+
+**R4 — LOGITS / PROBS / PREDS typing.** `rules/valuetype.py` is the one place a
+rule asks what a scored value is. It **mints no tag**; it follows the answer
+through a container / device / dtype tail and through one workspace callee's
+`return`, capped at three hops, and comes back empty rather than guessing.
+MLV305, MLV306, MLV401 and MLV402 consume it; a value fetched out of a callee
+pays `IP_HOP_WEIGHT` once and names the crossing, so a helper-traced MLV401 lands
+at 0.760 and can never read `certain`. MLV401 / MLV402 also switched to
+`is_model_module` (a `LightningModule` counts) and now emit **one finding per
+root cause**, which removed a real duplicate on the public corpus.
+
+**R5 — the named shapes.** MLV101 through a `return`, MLV102 through a CV fold
+index (`X[test_idx]`, position 1 by the scikit-learn splitter protocol, not by
+name), MLV103 through a callee, MLV111's `DatasetDict` split spelling, and two
+corrections to MLV205's accumulator test. The first three are **`ip`-only by
+construction**, which is why `local` moves less. Per rule, default mode:
+MLV103 66.7% → **100%**, MLV101 72.7% → **90.9%**, MLV401 33.3% → **66.7%**,
+MLV102 50% → **100%**, MLV111 66.7% → **100%**, MLV205 33.3% → **100%**,
+MLV301 / MLV302 / MLV501 50% → **75%** in both modes. MLV208, MLV305, MLV114
+were already at 100%. **MLV402 has no label in this corpus and its recall is
+therefore unmeasured, not met** — the one target of the seven this wave cannot
+claim.
+
+**Public corpus, `main` against this tree**, 37 pinned repositories, 112 targets,
+3 modes, **260 runs**, the dataflow mode spelled explicitly on both sides:
+`ip` 285 → 291 findings, `local` 286 → 292, `notebooks` 213 → 212 — **0 new
+high-severity findings in every mode**, 3 removed (`peft`'s duplicated MLV401),
+and with them 4 `duplicate issue ids` schema/invariant violations the baseline
+produced. The strict gate's blocking count falls 47 → 43 and every one of the 43
+is also in the baseline. One host bug surfaced: the corpus runner spells `local`
+*by omission*, so with the default flipped its `local` and `notebooks` columns
+silently became `ip` runs — exactly what §3.11 R1.2 warns a host about, and a
+one-line fix in that runner.
+
+**Two contract deviations, stated rather than discovered.** §17 **E25**: the
+demo went 54 → **59 nodes** (51 edges, 15 findings, unchanged), MLV401's
+`nodeIds[0]` moved from the `CrossEntropyLoss()` construction to the
+`criterion(logits, labels)` computation — the line a reader points at — and its
+edge-borne marker moved from `model → loss` to the `logits → loss` edge that now
+expresses it, with the anchor nodes unmoved.
+`samples/vision_pipeline/expected_issues.json` is unchanged and all 15 findings
+keep their code, line, severity and confidence. §17 **E26**: PERF-04's *"edge
+retention over 40% at `--max-nodes 400`"* no longer holds at that literal budget
+— the same 525-file synthetic now draws 2 297 nodes instead of 1 972, so 400 is
+a 5.7× fold instead of a 4.9× one and retention reads 33.7%; 40% is first reached
+at 495. `edges_lost == 0`, zero floating cards and every finding surviving every
+budget are all unchanged, the deletion cap this replaced still retains 0.8% at
+the same budget, and `test_edge_retention_at_the_roadmap_budget` now asserts two
+measured floors (> 30% at 400, > 40% at 500) and states the deviation in its
+docstring instead of asserting the old clause against a made-up denominator.
+
+**Gates.** analyzer **2 197 passed / 4 skipped**; webview **536**;
+vscode-extension **381**; claude-plugin **373 passed / 7 skipped**;
+`pytest scripts` **74**; `tsc --noEmit` clean in both TypeScript packages;
+`tools/verify.py --all` **10/10**; `--scopes --fuzz 200` **5/5**;
+`scripts/e2e.sh` **20 steps, 0 failed, 0 skipped**; `check_docs.py` OK;
+`accuracy.py` PASS in both modes. Regenerated because the graph legitimately
+moved: `vscode-extension/test/fixtures/vision_pipeline.graph.json` (54 → 59
+nodes, the regeneration its own header documents) and both accuracy baselines,
+whose `note` fields now say what earned the number. `contracts/graph.sample.json`
+was **not** regenerated — it never is.
+
+---
+
 ## Unreleased — consolidation (2026-09-15)
 
 One wave with no behaviour change except the four small items named under

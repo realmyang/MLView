@@ -84,7 +84,35 @@ def binding_of(name: Optional[str], scope: Optional[ScopeIR],
             return None          # the only store for the name is the call's own
         cur = cur.parent
         first = False
-    return None
+    return _attribute_of_object(name, scope)
+
+
+def _attribute_of_object(name: str, scope: ScopeIR) -> Optional[ValueRef]:
+    """GRAPH-R3: `bundle.model` -> what `Bundle` stores in `self.model`.
+
+    An object is a name in the caller's scope and its fields are names in its
+    **class's** scope, and nothing joined the two: a `@dataclass Bundle(model,
+    optimizer)` handed around a training script - or any plain class that does
+    `self.model = model` in `__init__` - answered nothing for `bundle.model`,
+    so `bundle.model(x)` drew no node and `bundle.optimizer.step()` resolved to
+    no symbol. The class scope is exactly where `bindings._store` already
+    redirects every `self.*` store, and where DATAFLOW-IP's CONSTRUCTOR summary
+    writes the arguments a construction site passed.
+
+    One level, and only for a **workspace class the base name resolves to**, so
+    no FQN is invented and `cfg.paths` (a config value, not an object) is
+    untouched. `self.` is never re-entered: a method's own `self.x` was
+    answered by the class-scope walk above, several lines earlier.
+    """
+    base, _dot, attr = name.rpartition(".")
+    if not base or not attr or base.startswith("self"):
+        return None
+    holder = binding_of(base, scope)
+    cls = holder.class_ir if holder is not None else None
+    if cls is None or cls.scope is None:
+        return None
+    return (cls.scope.bindings.get("self.%s" % attr)
+            or cls.scope.bindings.get(attr))
 
 
 def _produced_by(ref: Optional[ValueRef], call: Optional[CallSite]) -> bool:

@@ -152,7 +152,7 @@ def _chained_receiver(call: CallSite, module: ModuleIR) -> Optional[ValueRef]:
     if isinstance(inner_node, ast.Subscript):
         # `X = df[cols].to_numpy()` - the subscript preserves the frame's tags,
         # but it is not a name, so there is no binding to look up.
-        base = binding_of(dotted_text(inner_node.value), call.scope,
+        base = binding_of(_frame_base(inner_node.value), call.scope,
                           at=call.loc.line, exclude=call)
         if base is None:
             return None
@@ -160,6 +160,20 @@ def _chained_receiver(call: CallSite, module: ModuleIR) -> Optional[ValueRef]:
                         producer=base.producer, loc=base.loc,
                         class_ir=base.class_ir, via_fqns=base.via_fqns)
     return None
+
+
+def _frame_base(node: ast.AST) -> Optional[str]:
+    """The frame behind an indexer: `df.loc` / `df.iloc` / `df.values` -> `df`.
+
+    GRAPH-R2. `X = df.loc[:, cols].to_numpy()` is the ordinary way to build a
+    feature matrix, and `dotted_text` answers `df.loc` for it - a name nothing
+    ever binds - so the frame's RAW_DATA / FEATURES tags stopped at the
+    indexer and every leakage rule downstream went quiet. Only the *known*
+    indexer attributes are stripped, so `cfg.paths[0]` is untouched.
+    """
+    if isinstance(node, ast.Attribute) and node.attr in K.FRAME_ACCESSORS:
+        return dotted_text(node.value)
+    return dotted_text(node)
 
 
 def _attribute_callable(receiver_name: str, method: str, scope: ScopeIR,

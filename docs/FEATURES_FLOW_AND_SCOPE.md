@@ -6,7 +6,7 @@ explains, §11 binds. Where the two disagree, §11 wins.
 **Requirements:** `docs/REQUIREMENTS.md` **R2.11** (flow) and **R1.12** (scoped views).
 
 Every number in §8 was produced by running the real projection algorithm over the real analyzed document
-(`.mlview/graph.json` — `samples/vision_pipeline`, 54 nodes / 51 edges / 15 issues) and over the frozen
+(`.mlview/graph.json` — `samples/vision_pipeline`, 59 nodes / 51 edges / 15 issues) and over the frozen
 `contracts/graph.sample.json` (12 / 14 / 6). Nothing here is estimated.
 
 ---
@@ -594,10 +594,10 @@ Plus `s` on a selection, `Shift+S` to clear, `]`/`[` to step depth, and — only
 component the inventory at `docs/UX_DESIGN.md:559` already reserves:
 
 ```
-⤢  Scoped to baseline()  ·  depth 1  ·  13 of 54 nodes    [−] [+]    [×]
+⤢  Scoped to baseline()  ·  depth 1  ·  13 of 59 nodes    [−] [+]    [×]
 ```
 
-- The `13 of 54` comes from `view.of.nodes` — **project-level truth**, so a scoped view can never be read as a
+- The `13 of 59` comes from `view.of.nodes` — **project-level truth**, so a scoped view can never be read as a
   statement about the project.
 - `title` carries the raw selector; an overflow item **Copy scope** puts `unit:sklearn_baseline.baseline` on the
   clipboard, ready to paste into `/mlview --scope`.
@@ -667,7 +667,7 @@ clearing one never clears the other.
 | **F2-A3** | P0 | Graph invariants 1.1.1-1.1.8 hold on every projected document: ids unique; `parent` a forest with strictly lower parent level; `issue.nodeIds[0] ∈ nodes[]`; every `edge.source`/`target` ∈ `nodes[]`; every ghost has ≥1 retained issue. |
 | **F2-A4** | P0 | Every output array is a **subsequence** of the corresponding unscoped array, in the same relative order — asserted directly, for `nodes`, `edges` and `issues`, on every battery case. |
 | **F2-A5** | P0 | Issue retention, measured on `samples/vision_pipeline`: `concern:evaluation` depth 1 → exactly `{MLV103, MLV301, MLV302}`; `unit:SmallCNN` depth 1 → exactly `{MLV401, MLV702}` with MLV401's `nodeIds[0] == n:3e1a658e7bad`; `stage:train` → exactly `{MLV201, MLV205, MLV501, MLV601}`; `concern:optimization` → exactly `{MLV201, MLV205, MLV401, MLV501, MLV601, MLV702}`. |
-| **F2-A6** | P0 | Roles, measured on `samples/vision_pipeline`: `concern:evaluation` depth 1 → 7 core / 7 boundary / 3 context, and the context set is exactly `{data.__main__, sklearn_baseline.baseline, train.train}`; `unit:sklearn_baseline.baseline` → 13 core / 0 boundary / 0 context. |
+| **F2-A6** | P0 | Roles, measured on `samples/vision_pipeline`: `concern:evaluation` depth 1 → 8 core / 8 boundary / 3 context, and the context set is exactly `{data.__main__, sklearn_baseline.baseline, train.train}`; `unit:sklearn_baseline.baseline` → 13 core / 0 boundary / 0 context. |
 | **F2-A7** | P0 | `stage.present` is carried through: under `unit:sklearn_baseline.baseline`, stages that are `present: true` unscoped are still `present: true` at `nodeCount: 0`; the seven `workspace` keys are byte-equal to the unscoped run. |
 | **F2-A8** | P0 | **No empty bands.** Under `concern:evaluation` depth 1, `frame.lanes` contains only lanes with ≥1 drawn root; no lane has height with zero boxes inside it; `config` and `objective` appear in the "not in this scope" chip row. |
 | **F2-A9** | P0 | Determinism: two projections of the same document with the same scope are byte-identical, in-process twice and once in a subprocess with a different `PYTHONHASHSEED`. |
@@ -763,7 +763,7 @@ report already emits:
 Both bodies live in a new `src/scopeCommands.ts` mirroring `revealInDiagram.ts:29-76`, so `panel.ts` grows only
 `postSetScope` plus an `onScopeChanged` handler.
 
-**Panel title** reflects the scope: `MLView — validate()` with description `4 of 54 nodes`, from the
+**Panel title** reflects the scope: `MLView — validate()` with description `5 of 59 nodes`, from the
 `scopeChanged` message. Three lines, and it is what makes the feature feel real.
 
 **Settings: none added.** Deliberate. The flow toggle is renderer-owned and rides the existing
@@ -995,9 +995,10 @@ Put the caret on `samples/vision_pipeline/train.py:44` (inside `validate`) and r
 Symbol** (`Alt+Shift+M`). `findNodeAtLine` returns the narrowest node (the batch loop `n:e37b3b62a066`);
 the parent climb reaches `train.validate`. The panel posts `setScope("unit:train.validate")`.
 
-Panel tab: **MLView — validate()**, description **9 of 54 nodes**. In scope: `validate()`, its batch loop, `preds`,
-and the `model.eval()` ghost (4 core); boundary `model.SmallCNN`, `data.val_loader`, `train.train.epoch_loop`;
-context `train.train`, `data.__main__`. Rail: MLV301 + MLV302, with
+Panel tab: **MLView — validate()**, description **11 of 59 nodes**. In scope: `validate()`, its batch loop,
+`logits` (the forward pass, drawn since GRAPH-R3), `preds`, and the `model.eval()` ghost (5 core); boundary
+`model.SmallCNN`, `train.train.model`, `data.val_loader`, `train.train.epoch_loop`; context `train.train`,
+`data.__main__`. Rail: MLV301 + MLV302, with
 *"2 of 15 findings shown · 13 outside this scope — Show all"*.
 
 **The Problems panel still shows all 15 findings.** The scope is a view, not a mute button.

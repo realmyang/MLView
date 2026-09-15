@@ -27,7 +27,14 @@ NOTES: Dict[str, Dict[str, object]] = {
                    "module-level numpy constructors (`np.asarray`, `np.array`, "
                    "`np.concatenate`, `np.vstack`, `torch.from_numpy`) pass the tags "
                    "through, so the canonical pandas feature matrix is covered as well "
-                   "as the numpy one.",
+                   "as the numpy one. In `--dataflow ip` a second path applies when no "
+                   "split is written in the fit's own scope: if the fitted value is "
+                   "**returned** and the caller hands the returned position straight to "
+                   "a split, that is the same leak with a `def` in the middle. The "
+                   "match is by the argument binding's own producer - the very call to "
+                   "this function, at a returned position the fit feeds - never by "
+                   "name, and it costs one `IP_HOP_WEIGHT`, so it lands at `likely` and "
+                   "never at `certain`.",
         "avoids": ["A split on a *different* dataset - reachability is by value "
                    "identity through the binding chain, never by name equality.",
                    "A split written in **another function**. Reachability is spelled "
@@ -43,7 +50,13 @@ NOTES: Dict[str, Dict[str, object]] = {
     },
     "MLV102": {
         "detects": "A `FIT` / `FIT_TRANSFORM` call whose primary argument carries "
-                   "`VAL_SPLIT` or `TEST_SPLIT`. Statement order does not matter.",
+                   "`VAL_SPLIT` or `TEST_SPLIT`. Statement order does not matter. In "
+                   "`--dataflow ip` the argument may also be a **fold**: "
+                   "`scaler.fit_transform(X[test_idx])`, where `test_idx` is the second "
+                   "name unpacked from the header of a `fold` loop over a `SPLIT`-role "
+                   "`splitter.split(...)`. Position 1 of that tuple is the held-out "
+                   "half by the scikit-learn splitter protocol - a fact about the "
+                   "library, not a guess about the name.",
         "avoids": ["Transductive / semi-supervised code - skipped when the module "
                    "imports `sklearn.semi_supervised.*`.",
                    "A stateless transformer learns nothing, so re-fitting it on the "
@@ -56,14 +69,21 @@ NOTES: Dict[str, Dict[str, object]] = {
         "detects": "A `CV`-role call (or `GridSearchCV.fit`) whose estimator argument "
                    "is a bare estimator rather than a `Pipeline`, together with a "
                    "`FIT_TRANSFORM` earlier in the same function whose output flows "
-                   "into the CV call's `X`.",
+                   "into the CV call's `X`. In `--dataflow ip` the fit may be one `def` "
+                   "away: the CV's `X` is resolved to the workspace call that produced "
+                   "it, the callee's `return` is read at the tuple position the caller "
+                   "unpacked, and a non-stateless `fit_transform` whose output reaches "
+                   "that position is the fit every fold now shares. The crossing costs "
+                   "one `IP_HOP_WEIGHT` and names itself in the evidence.",
         "avoids": ["A `Pipeline` / `make_pipeline` estimator - the transform is refit "
                    "per fold, which is the correct answer.",
                    "An estimator that cannot be resolved at all - the rule stays quiet "
                    "rather than guessing.",
                    "Stateless transformers, which are fold-invariant.",
-                   "A transformer MLV101 already reported at the same line: one root "
-                   "cause never yields two findings."],
+                   "A transformer MLV101 already reported at the same line **of the "
+                   "same file**: one root cause never yields two findings. When the fit "
+                   "is a file away, MLV103 still speaks - a reader of the training "
+                   "script would otherwise be told nothing about the folds."],
     },
     "MLV110": {
         "detects": "A `DataLoader(...)` whose dataset carries `TRAIN_SPLIT` (or whose "
@@ -81,7 +101,12 @@ NOTES: Dict[str, Dict[str, object]] = {
     "MLV111": {
         "detects": "A `DataLoader(...)` with the literal `shuffle=True` whose dataset "
                    "carries `VAL_SPLIT` / `TEST_SPLIT`, or whose variable matches the "
-                   "evaluation naming convention.",
+                   "evaluation naming convention, or - the split-dictionary spelling - "
+                   "whose dataset argument is `d['test']` / `d['val']` where `d` is a "
+                   "value the analyzer already traced to data. `dotted_text` answers "
+                   "`None` for a subscript, so that third form used to have no name, no "
+                   "tags and no finding; it is weighed as name evidence, never as "
+                   "dataflow evidence.",
         "avoids": ["Training loaders, which *should* shuffle.",
                    "This is deliberately `low`: shuffled evaluation is legitimate when "
                    "you are sampling examples to look at. The cost is per-sample "
@@ -160,13 +185,22 @@ NOTES: Dict[str, Dict[str, object]] = {
     "MLV205": {
         "detects": "`total += loss`, `total = total + loss` or `losses.append(loss)` "
                    "inside a loop, where the accumulated value carries `LOSS`, the "
-                   "accumulator is created outside the loop, and the right-hand side "
-                   "is not wrapped in `.item()`, `.detach()` or `float()`.",
+                   "accumulator is created outside **the accumulating loop** - one "
+                   "reset per epoch and one addition per batch still holds a whole "
+                   "epoch of autograd graphs - and the right-hand side is not wrapped "
+                   "in `.item()`, `.detach()` or `float()`. The `LOSS` tag is read "
+                   "through one arithmetic step, because `loss = criterion(...) / "
+                   "ACCUM_STEPS` is how every gradient-accumulation tutorial is written "
+                   "and a division does not take a tensor off the graph.",
         "avoids": ["Deliberate multi-step accumulation for a single `backward()`: "
                    "suppressed when the accumulator itself is back-propagated.",
                    "A list of tensors later `torch.stack`ed and backwarded - the same "
                    "suppression follows the stack.",
-                   "An accumulator created *inside* the loop, which is reset each pass."],
+                   "An accumulator created *inside* the accumulating loop, which is "
+                   "reset each pass.",
+                   "A value the author already took off the graph before the "
+                   "arithmetic: `loss = criterion(...).item() / n` is guarded, and the "
+                   "arithmetic read stops there rather than reading through it."],
     },
     "MLV301": {
         "detects": "An eval region - a loop over a loader, or an evaluation-named "
@@ -218,13 +252,24 @@ NOTES: Dict[str, Dict[str, object]] = {
                    "model whose `forward` returns one, or through the last element of "
                    "its final `nn.Sequential` - for a bare "
                    "`net = nn.Sequential(..., nn.Softmax(dim=1))` binding as well as "
-                   "for a Sequential stored on an attribute of an `nn.Module`.",
+                   "for a Sequential stored on an attribute of an `nn.Module`. The "
+                   "model class is `is_model_module`, not `is_nn_module`, so a "
+                   "`pl.LightningModule` whose `forward` softmaxes and whose "
+                   "`training_step` calls `F.cross_entropy(self(x), y)` is seen. When "
+                   "no model class resolves, the chain follows one workspace **helper** "
+                   "whose `return` is the softmax, at the cost of one `IP_HOP_WEIGHT`, "
+                   "so a helper-traced pairing is `likely` and never `certain`.",
         "avoids": ["A user class merely *named* `Softmax`: matching is on canonical "
                    "FQNs resolved through the import table, never on the attribute "
                    "name.",
                    "A softmax applied under an `if`, which is de-rated.",
                    "Softmax computed elsewhere for reporting, which never reaches the "
-                   "loss input."],
+                   "loss input - including a helper that hands back raw logits while "
+                   "the file softmaxes a detached copy afterwards.",
+                   "The same softmax reported twice. One root cause is one finding: a "
+                   "`LightningModule` that applies the same `forward` in "
+                   "`training_step` and `validation_step` gets one, keyed on the "
+                   "offending softmax and the model class it lives in."],
         "rendering": "the marker is drawn on the `model -> loss` **edge**, and the "
                      "multi-location connector links the softmax site to the loss.",
     },
@@ -234,11 +279,17 @@ NOTES: Dict[str, Dict[str, object]] = {
                    "`binary_cross_entropy_with_logits` and the chain ends in a sigmoid. "
                    "`missing_sigmoid`: the loss is `BCELoss` / "
                    "`binary_cross_entropy` and the resolved chain ends in something "
-                   "that is not.",
+                   "that is not. The chain reads the model class first "
+                   "(`is_model_module`, so a `LightningModule` counts) and then one "
+                   "workspace **helper** whose `return` is the squashing op, at the "
+                   "cost of one `IP_HOP_WEIGHT`.",
         "avoids": ["A user class named `Sigmoid` that is not `nn.Sigmoid` - FQN "
                    "resolution again.",
                    "An unresolvable producer: the rule stays quiet rather than "
-                   "guessing which half applies."],
+                   "guessing which half applies.",
+                   "The same head reported twice from two loss sites; the variant is "
+                   "part of the key, so a head feeding `BCEWithLogitsLoss` in one place "
+                   "and `BCELoss` in another is still two different mistakes."],
     },
     "MLV501": {
         "detects": "Two symmetric halves, reported with a `variant` tag. "
@@ -503,7 +554,12 @@ NOTES: Dict[str, Dict[str, object]] = {
         "detects": "A class metric (`accuracy_score`, `f1_score`, `precision_score`, "
                    "`recall_score`, `confusion_matrix`, the torchmetrics functionals) "
                    "whose prediction argument carries `LOGITS` or `PROBS` and was not "
-                   "produced by `argmax` / `round` / `topk` / a threshold comparison.",
+                   "produced by `argmax` / `round` / `topk` / a threshold comparison. "
+                   "The argument is typed by `rules.valuetype`, which reads the "
+                   "knowledge-table answer first and then, only when there is none, "
+                   "follows a workspace helper's `return` and the "
+                   "`.detach().cpu().numpy()` tail every torch program writes before it "
+                   "hands a tensor to sklearn.",
         "avoids": ["The score-metric carve-out - `roc_auc_score`, "
                    "`average_precision_score`, `log_loss`, the curves and the ranking "
                    "metrics - which legitimately take scores and are checked before "
@@ -511,15 +567,20 @@ NOTES: Dict[str, Dict[str, object]] = {
                    "Regression metrics, which are not on the class-metric list at all.",
                    "An `argmax` anywhere on the producing chain, including "
                    "`probs.argmax(axis=1)` and a subscript."],
-        "cannot": "A prediction returned by a helper function looks unproduced to a "
-                  "flow-insensitive IR, so the finding is **de-rated** to evidence "
-                  "weight 0.6 rather than dropped; DATAFLOW-IP is what would resolve "
-                  "it.",
+        "cannot": "A prediction whose producer is outside the scope is still "
+                  "**de-rated** to evidence weight 0.6 rather than dropped. The "
+                  "commonest case of that - a helper function's `return` - is now read "
+                  "rather than guessed at, and a value the pass had to fetch out of a "
+                  "callee carries its hop into the finding's confidence.",
     },
     "MLV306": {
         "detects": "A `roc_auc_score` / `average_precision_score` whose score argument "
-                   "is bound to a `predict(...)` call, whose knowledge-table tag is "
-                   "`PREDS`.",
+                   "carries `PREDS` and was produced by a `PREDICT`- or `ARGMAX`-role "
+                   "call. A hard label is a hard label however the decision was taken, "
+                   "and `probs.argmax(axis=1)` is the commoner spelling in a torch "
+                   "program. The argument is typed by `rules.valuetype`, so the answer "
+                   "survives a workspace helper's `return` and a "
+                   "`.detach().cpu().numpy()` tail.",
         "avoids": ["`predict_proba(...)[:, 1]` and `decision_function(...)`, which "
                    "carry `PROBS` / `LOGITS`.",
                    "`accuracy_score(y, clf.predict(X))`, where hard labels are exactly "

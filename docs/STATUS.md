@@ -18,16 +18,16 @@ self-contained HTML report, a VS Code webview, and the Claude Code plugin.
 
 | Piece | State |
 |---|---|
-| Analyzer `analyzer/` | **36 rules**, zero runtime dependencies, installed editable as `python -m mlview`. **2109 passed / 4 skipped** (the skips are the `tomllib` split, in both directions). `analyze --demo --json -` is byte-identical to `contracts/graph.sample.json`. |
+| Analyzer `analyzer/` | **36 rules**, zero runtime dependencies, installed editable as `python -m mlview`. **2197 passed / 4 skipped** (the skips are the `tomllib` split, in both directions). Interprocedural dataflow (`--dataflow ip`) is the **default** since 2026-09-15; `--dataflow local` is the shipped opt-out. `analyze --demo --json -` is byte-identical to `contracts/graph.sample.json`. |
 | Viewer `webview/` | One renderer, built to `webview/dist/mlview.js` + `mlview.css`. **536 tests**, `tsc --noEmit` clean. Scope projection (`webview/src/scope/project.ts`), flow animation, SVG/PNG export and the diff overlay all live here. |
-| VS Code extension | **381 tests**, `tsc --noEmit` clean, `out/extension.js` bundled, 19 commands and 16 settings. Ships the analyzer inside the VSIX — `core/mlview` at **113** files, the number `python tools/verify.py --all`'s `vsix: synced core` row prints — so no `pip install` is required. **That figure is not the gate**: it moves with every analyzer module, and `python scripts/vsix_check.py` re-derives it, the 1 MB ceiling and the rule-page count from the tree. Copilot participant and LM tools are compile- and unit-verified only. |
+| VS Code extension | **381 tests**, `tsc --noEmit` clean, `out/extension.js` bundled, 19 commands and 16 settings. Ships the analyzer inside the VSIX — `core/mlview` at **120** files, the number `python tools/verify.py --all`'s `vsix: synced core` row prints — so no `pip install` is required. **That figure is not the gate**: it moves with every analyzer module, and `python scripts/vsix_check.py` re-derives it, the 1 MB ceiling and the rule-page count from the tree. Copilot participant and LM tools are compile- and unit-verified only. |
 | Claude Code plugin | MCP server on the `mcp` SDK v2, **exactly five tools**, each result ≤ 4 KB, plus `PostToolUse` / `Stop` hooks under `claude-plugin/hooks/`. **373 passed / 7 skipped**. |
 | Contracts | `contracts/graph.schema.json`, `contracts/graph.sample.json` (the frozen golden), `contracts/validate_sample.py` (schema + 10 invariant groups), `contracts/scope.cases.json` (13 projecting cases + 7 error cases + 5 promoted counterexamples). |
-| Samples | `samples/vision_pipeline` — 54 nodes, 51 edges, exactly 15 issues (5 high / 6 medium / 4 low) — and `samples/vision_pipeline_clean`, 0 issues. `expected_issues.json` is machine-checked. |
+| Samples | `samples/vision_pipeline` — 59 nodes, 51 edges, exactly 15 issues (5 high / 6 medium / 4 low) — and `samples/vision_pipeline_clean`, 0 issues. `expected_issues.json` is machine-checked. |
 | Rule docs | `docs/rules/` — 36 pages plus an index, generated from the registry. Every `Issue.docs` deep link resolves. |
 | Accuracy corpus | `analyzer/tests/accuracy/corpus/` with `analyzer/tests/accuracy/baseline.json` as the ratchet; `docs/ACCURACY.md` is the record. |
 
-**Gates**, on this Mac (macOS 26.6, Python 3.13, Node 26): analyzer **2109
+**Gates**, on this Mac (macOS 26.6, Python 3.13, Node 26): analyzer **2197
 passed / 4 skipped**; webview **536 tests**; vscode-extension **381 tests**;
 claude-plugin **373 passed / 7 skipped**; `python -m pytest scripts -q` **74
 passed**; `npx tsc --noEmit` clean in both TypeScript packages;
@@ -44,18 +44,23 @@ its command, and `scripts/README.md` says what each green row proves.
 and graph fidelity may only ratchet up, and a `forbidden` finding fails the run
 outright whatever the baseline says.
 
+These are the **default mode's** figures (`--dataflow ip`, CONTRACTS §3.11 R1.1).
+
 | Reading | Value |
 |---|---|
-| Precision | **100%** — zero false positives, zero forbidden findings |
-| Recall, whole corpus | **73.1%** raw · 65.4% visible · 64.9% high+medium |
-| Recall, unseen programs only | **55.3%** raw · 42.5% visible · 37.5% high+medium |
-| Graph fidelity | **91.4%** — 127 of 139 hand-labelled ops |
-| With `--dataflow ip` | recall **79.5%**, unseen **66.0%**, precision still 100% |
+| Precision | **100%** — zero false positives, zero forbidden findings, zero unlabelled findings |
+| Recall, whole corpus | **93.6%** raw · 82.0% visible · 91.2% high+medium |
+| Recall, unseen programs only | **89.4%** raw · 70.2% visible · 84.4% high+medium |
+| Graph fidelity | **99.4%** — 163 of 164 hand-labelled ops |
+| With `--dataflow local` (the opt-out) | recall **82.0%**, unseen **70.2%**, precision still 100% |
 
-`docs/ACCURACY.md` is the full record — what a label is, which programs are
-*tuned* (the rules were written against them, so their numbers are a ceiling),
-and the remaining recall gap per rule. Recall is this product's weakness: on
-unseen code, roughly two in five planted defects still produce nothing.
+On the public corpus — 37 pinned third-party repositories, 112 targets, 260 runs
+— the recall wave adds **zero new high-severity findings** in every mode.
+
+`docs/ACCURACY.md` is the full record: what a label is, which programs are
+*tuned*, §8 for the wave that produced these numbers, and the gap per rule.
+Recall is still the weakness and the corpus is still 15 programs — one unseen
+label in nine produces nothing, and **MLV402 has no label at all**.
 
 ## Running it
 
@@ -102,11 +107,11 @@ python tools/accuracy.py                  # the labelled corpus and its ratchet
 **Exercised end to end** on this machine and, on every push, across the CI
 matrix — `.github/workflows/ci.yml` runs a fast tier on a push and the full
 matrix (ubuntu, Windows and macOS, Python 3.10–3.13, two Node versions) on every
-pull request and every push to `main`: the analyzer and its rules; the CLI including `--demo` byte parity and every documented exit code;
-a real stdio MCP handshake with `PYTHONPATH` pointing only at
-`claude-plugin/vendor`, which also proves the no-`pip install` path; the
-self-contained HTML report and the scoped demo reports; and all four parity
-gates.
+pull request and every push to `main`: the analyzer and its rules; the CLI,
+including `--demo` byte parity and every documented exit code; a real stdio MCP
+handshake with `PYTHONPATH` pointing only at `claude-plugin/vendor`, which also
+proves the no-`pip install` path; the self-contained and scoped HTML reports;
+and all four parity gates.
 
 **Compile-verified only**: the VS Code Extension Development Host (F5) has never
 been driven under automation, and GitHub Copilot is not installed on the build
@@ -121,9 +126,9 @@ machine.
 
 None blocks the demo. Roughly in the order they matter:
 
-- **No live host run.** The extension has never been driven inside a real VS
-  Code webview and the chat surfaces have never met a live Copilot session; both
-  are covered by unit tests against `vscode-extension/test/mock-vscode.js` plus a
+- **No live host run.** The extension has never run inside a real VS Code
+  webview and the chat surfaces have never met a live Copilot session; both are
+  covered by unit tests against `vscode-extension/test/mock-vscode.js` plus a
   real subprocess test against a fake CLI.
 - **Loop nesting is flattened.** Invariant §1.1.2 plus a three-value `NodeLevel`
   cannot express function → epoch loop → batch loop → op, so an inner loop is a
@@ -135,35 +140,37 @@ None blocks the demo. Roughly in the order they matter:
   `import config` then `config.N` does not.
 - **The framework gate reaches one import hop.** `ctx.wrappers_for()` in
   `analyzer/src/mlview/rules/context.py` de-rates an absence finding only when a
-  Lightning / HF Trainer / accelerate / ignite / fastai / DDP / FSDP wrapper sits
-  in the finding's own module or in a workspace module it imports —
-  `_detect_wrappers()` in `analyzer/src/mlview/ir/build_ir.py` walks exactly one
-  hop. When it fires it caps severity at `medium` and multiplies confidence by
-  0.4; it never drops a finding.
+  Lightning / HF Trainer / accelerate / ignite / fastai / DDP / FSDP wrapper sits in
+  the finding's own module or one it imports — `_detect_wrappers()` in
+  `analyzer/src/mlview/ir/build_ir.py` walks exactly one hop. It caps severity at
+  `medium` and multiplies confidence by 0.4; it never drops a finding.
 - **`MLV201`'s `negation_absent` evidence line reads the workspace-wide set.**
   `analyzer/src/mlview/rules/r_trainloop.py` composes that sentence from
   `ctx.wrappers` rather than from the per-module set the gate uses, so an ungated
   hand-written loop can carry "framework wrapper detected: Lightning" beside a
   `certain` finding. Severity and confidence are right; the sentence contradicts
   them.
+- **MLV402 is unmeasured.** No program under
+  `analyzer/tests/accuracy/corpus/` carries an MLV402 label, so `tools/accuracy.py`
+  cannot report its recall; the two paths `analyzer/src/mlview/rules/valuetype.py`
+  opened for it are covered by fixtures only.
 - **The interprocedural hop cap is a guess.** `DEFAULT_MAX_HOPS` in
   `analyzer/src/mlview/ir/provenance.py` is deep enough for caller → ctor →
   attribute → sibling method and shallow enough that two hops stay above
   `speculative`, and nothing measured that choice. A chain past it is not
   propagated and **is** reported as a `truncated` diagnostic.
 - **A fold is lossy about *which* thing.** After
-  `analyzer/src/mlview/core/rollup.py` folds a file or a directory the diagram
-  shows one card carrying `rolledUp` and nothing says what was inside it; the summary's `kind` and `stage` are a majority vote
-  and nothing records that the vote was close. Every finding survives with a real
-  `loc`, so this is legibility, not correctness.
+  `analyzer/src/mlview/core/rollup.py` folds a file or directory the diagram shows
+  one card carrying `rolledUp` and nothing says what was inside it; the summary's
+  `kind` and `stage` are a majority vote with no record of how close it was. Every
+  finding survives with a real `loc`, so this is legibility, not correctness.
 - **A `pipeline:` view draws the other entrypoints, greyed.**
   `analyzer/src/mlview/core/pipelines.py` pulls in up to one file per neighbour as
   context, `workspace.entrypoints` is a heuristic capped at 10, and nodes in no
   pipeline are counted but never named.
 - **A structured fix lands at coordinates nobody can prove are current.**
-  `vscode-extension/src/fixes.ts` refuses an unsaved buffer and a file shorter
-  than the analysis saw, and VS Code shows the refactor preview — but a file
-  edited, saved and left the same length passes both checks.
+  `vscode-extension/src/fixes.ts` refuses an unsaved buffer and a file shorter than
+  the analysis saw — but a file edited, saved and left the same length passes both.
 - **The multi-root diagram shows one folder at a time.** `folderTooltipLine` in
   `vscode-extension/src/folders.ts` names the folder the count describes and how
   many it does not; the Problems panel is the only surface showing the union.

@@ -33,7 +33,8 @@ def _slot_key(slot) -> Any:
     if slot is None:
         return None
     cls = getattr(slot, "class_ir", None)
-    return (slot.fqns, slot.tags, cls.qualname if cls is not None else None)
+    return (slot.fqns, slot.tags, cls.qualname if cls is not None else None,
+            getattr(slot, "opaque", None))
 
 
 def summary_key(summary) -> Any:

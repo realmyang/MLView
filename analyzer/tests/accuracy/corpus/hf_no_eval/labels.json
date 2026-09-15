@@ -7,19 +7,79 @@
   "labelledBy": "ANA-7, 2026-09-09",
   "note": "No `graph` block: added for its findings, not for a hand-drawn diagram.",
   "expected": [
-    {"code": "MLV708", "file": "train.py", "line": 45, "symbol": "Trainer(...)",
-     "severity": "medium", "verdict": "expected",
-     "defect": "the Trainer has no eval_dataset, no compute_metrics, and TrainingArguments names no evaluation strategy",
-     "why": "the only number the run reports is the training loss, so overfitting is invisible and the checkpoint kept is the last one rather than the best one"}
+    {
+      "code": "MLV708",
+      "file": "train.py",
+      "line": 45,
+      "symbol": "Trainer(...)",
+      "severity": "medium",
+      "verdict": "expected",
+      "defect": "the Trainer has no eval_dataset, no compute_metrics, and TrainingArguments names no evaluation strategy",
+      "why": "the only number the run reports is the training loss, so overfitting is invisible and the checkpoint kept is the last one rather than the best one"
+    }
   ],
   "forbidden": [
-    {"code": "MLV601", "file": "train.py",
-     "why": "transformers.set_seed(SEED) is called at line 22 and TrainingArguments carries seed=SEED"},
-    {"code": "MLV201", "file": "train.py",
-     "why": "the HuggingFace Trainer owns the optimisation loop - no hand-written backward/step exists here"},
-    {"code": "MLV202", "file": "train.py",
-     "why": "same: there is no gradient update in this file for a rule to find missing"},
-    {"code": "MLV305", "file": "train.py",
-     "why": "no metric is computed anywhere in this project - that absence is what MLV708 reports, and MLV305 has nothing to judge"}
-  ]
+    {
+      "code": "MLV601",
+      "file": "train.py",
+      "why": "transformers.set_seed(SEED) is called at line 22 and TrainingArguments carries seed=SEED"
+    },
+    {
+      "code": "MLV201",
+      "file": "train.py",
+      "why": "the HuggingFace Trainer owns the optimisation loop - no hand-written backward/step exists here"
+    },
+    {
+      "code": "MLV202",
+      "file": "train.py",
+      "why": "same: there is no gradient update in this file for a rule to find missing"
+    },
+    {
+      "code": "MLV305",
+      "file": "train.py",
+      "why": "no metric is computed anywhere in this project - that absence is what MLV708 reports, and MLV305 has nothing to judge"
+    }
+  ],
+  "graph": {
+    "drawnBy": "drawn from the source on 2026-09-14 (GRAPH-R3), following the convention the sibling `hf_trainer_finetune` program already established; scored 6 of 6 against the pre-change analyzer, so the block is not a record of what this tree happens to draw",
+    "edges": 7,
+    "ops": [
+      {
+        "file": "train.py",
+        "line": 23,
+        "symbol": "load_dataset",
+        "kind": "dataset"
+      },
+      {
+        "file": "train.py",
+        "line": 28,
+        "symbol": "map",
+        "kind": "transform"
+      },
+      {
+        "file": "train.py",
+        "line": 29,
+        "symbol": "from_pretrained",
+        "kind": "model"
+      },
+      {
+        "file": "train.py",
+        "line": 45,
+        "symbol": "Trainer",
+        "kind": "train_loop"
+      },
+      {
+        "file": "train.py",
+        "line": 51,
+        "symbol": "trainer.train",
+        "kind": "train_loop"
+      },
+      {
+        "file": "train.py",
+        "line": 52,
+        "symbol": "trainer.save_model",
+        "kind": "checkpoint"
+      }
+    ]
+  }
 }

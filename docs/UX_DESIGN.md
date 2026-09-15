@@ -29,7 +29,7 @@ Identical in the VS Code webview and the standalone HTML report; only the `HostB
 ├──────────────────────────────────────────────────────────────────────────────────┤
 │ CHIPS  not detected: augment · tracking │ not in this scope: config · objective   │
 ├──────────────────────────────────────────────────────────────────────────────────┤
-│ BREADCRUMB 32px  Scoped to baseline()  ·  depth 1  ·  13 of 54 nodes  [−][+]  [×] │
+│ BREADCRUMB 32px  Scoped to baseline()  ·  depth 1  ·  13 of 59 nodes  [−][+]  [×] │
 ├───────────────────────────────────────────────────────┬──────────────────────────┤
 │                                                       │  RAIL 360px              │
 │  ┌ CONFIG ─────────────────────────────────────────┐  │ ┌──────────────────────┐ │

@@ -15,6 +15,7 @@ from ..ir.model import CallSite
 from ..ir.symbols import dotted_text
 from .helpers import value_sources
 from .holdout_tables import _DECIDED, _by_node
+from .valuetype import value_tags
 
 
 def _prediction_arg(call: CallSite) -> Optional[ast.expr]:
@@ -61,14 +62,38 @@ def _decided(ctx, node: ast.expr, call: CallSite) -> bool:
 
 def _scored_value(ctx, call: CallSite, node: ast.expr):
     """`(tags, producer, name)` for the prediction argument of a metric call."""
+    tags, producer, name, _ref = scored_value(ctx, call, node)
+    return tags, producer, name
+
+
+def scored_value(ctx, call: CallSite, node: ast.expr):
+    """`(tags, producer, name, ref)` - `_scored_value` plus what it cost (R4).
+
+    The direct read comes first and is unchanged, so a metric whose argument
+    the knowledge tables already type reads exactly as it did. Only when that
+    answers nothing does `rules.valuetype` go looking through the helper and
+    the `.detach().cpu().numpy()` tail - and if it finds the answer inside a
+    callee, the `ref` it hands back carries the hop the finding must pay for.
+    """
     index = _by_node(call.module)
     if isinstance(node, ast.Call):
         producer = index.get(id(node))
         if producer is None:
-            return (), None, dotted_text(node)
-        return K.tags_of(producer.fqn), producer, dotted_text(node)
+            return (), None, dotted_text(node), None
+        direct = K.tags_of(producer.fqn)
+        if direct:
+            return direct, producer, dotted_text(node), None
+        found = value_tags(ctx, node, call.scope, call.module)
+        if found.tags:
+            return found.tags, found.producer or producer, dotted_text(node), found.ref
+        return direct, producer, dotted_text(node), None
     name = dotted_text(node)
     ref = ctx.binding_of(name, call.scope) if name else None
     if ref is None:
-        return (), None, name
-    return tuple(ref.tags), ref.producer, name
+        return (), None, name, None
+    if ref.tags:
+        return tuple(ref.tags), ref.producer, name, ref
+    found = value_tags(ctx, node, call.scope, call.module)
+    if found.tags:
+        return found.tags, found.producer, name, found.ref
+    return tuple(ref.tags), ref.producer, name, ref

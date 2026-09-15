@@ -20,6 +20,9 @@ from ..ir.model import CallSite, LoopIR, ValueRef
 from ..ir.symbols import dotted_text
 from .fixes import zero_grad_fix
 from .helpers import calls_in_loop, first_with_role, loop_chain, with_role
+# MLV205's reading of an accumulator lives next door; the five `@rule` entry
+# points stay here, so `RuleSpec.module` (and every rule page) is unchanged.
+from .loss_accum import accumulations, backwarded, defined_outside, within
 from .registry import rule
 
 __all__ = ["missing_zero_grad", "gradients_never_applied", "step_before_backward",
@@ -153,17 +156,6 @@ _ACCUM_SAFE = ("item", "detach", "float", "cpu", "numpy", "tolist")
 _GRAD_INPUT_METHODS = ("requires_grad_", "retain_grad")
 
 
-def _within(loop: Optional[LoopIR], outer: Optional[LoopIR]) -> bool:
-    """True when `loop` is `outer` or nested inside it."""
-    if outer is None:
-        return False
-    while loop is not None:
-        if loop is outer:
-            return True
-        loop = loop.parent_loop
-    return False
-
-
 def _searched_calls(ctx, loop: LoopIR) -> List[CallSite]:
     """The loop body, every enclosing loop body, and the enclosing function."""
     out = list(calls_in_loop(ctx, loop))
@@ -265,7 +257,7 @@ def gradients_never_applied(ctx) -> Iterable[Issue]:
 def step_before_backward(ctx) -> Iterable[Issue]:
     issues: List[Issue] = []
     for loop in ctx.loops("batch"):
-        body = [c for c in loop.module.calls if _within(c.loop, loop)]
+        body = [c for c in loop.module.calls if within(c.loop, loop)]
         steps = with_role(body, "OPT_STEP")
         backwards = with_role(body, "BACKWARD")
         if not steps or not backwards:
@@ -400,10 +392,10 @@ def loss_accumulated_with_graph(ctx) -> Iterable[Issue]:
     issues: List[Issue] = []
     for relpath in sorted(ctx.modules):
         module = ctx.modules[relpath]
-        for name, loop, loc, scope, loss_ref, how in _accumulations(ctx, module):
-            if _backwarded(module, name):
+        for name, loop, loc, scope, loss_ref, how in accumulations(ctx, module):
+            if backwarded(module, name):
                 continue                # deliberate multi-step accumulation
-            outer = _defined_outside(module, name, loop, loc)
+            outer = defined_outside(module, name, loop, loc)
             if outer is None:
                 continue
             node = (ctx.node_for_loop(loop) if loop is not None else None) \
@@ -438,107 +430,3 @@ def loss_accumulated_with_graph(ctx) -> Iterable[Issue]:
                 loc=loc, node_ids=[node], related=related, evidence=evidence,
                 dynamic=scope.is_dynamic))
     return issues
-
-
-def _accumulations(ctx, module):
-    """`total += loss`, `total = total + loss` and `losses.append(loss)` in a loop."""
-    out = []
-    for record in module.assignments:
-        if record.loop is None or record.value is None:
-            continue
-        name = None
-        if record.kind == "aug":
-            name = dotted_text(record.targets[0]) if record.targets else None
-        elif record.kind == "assign" and isinstance(record.value, ast.BinOp):
-            for target in record.targets:
-                text = dotted_text(target)
-                if text and text in _names_of(record.value):
-                    name = text
-                    break
-        if name is None or _guarded(record.value):
-            continue
-        loss_ref = _loss_operand(ctx, record.value, record.scope, name)
-        if loss_ref is not None:
-            out.append((name, record.loop, record.loc, record.scope, loss_ref,
-                        "accumulates"))
-    for call in module.calls:
-        if (call.method or "") != "append" or call.loop is None or not call.args:
-            continue
-        name = call.receiver_name
-        container = ctx.binding_of(name, call.scope) if name else None
-        if container is None or container.literal not in ("[]", "()"):
-            continue
-        if _guarded(call.args[0]):
-            continue
-        loss_ref = _loss_operand(ctx, call.args[0], call.scope, name)
-        if loss_ref is not None:
-            out.append((name, call.loop, call.loc, call.scope, loss_ref, "collects"))
-    return out
-
-
-def _names_of(value: ast.expr) -> List[str]:
-    out: List[str] = []
-    for child in ast.walk(value):
-        text = dotted_text(child) if isinstance(child, (ast.Name, ast.Attribute)) else None
-        if text and text not in out:
-            out.append(text)
-    return out
-
-
-def _guarded(value: ast.expr) -> bool:
-    for child in ast.walk(value):
-        if not isinstance(child, ast.Call):
-            continue
-        func = child.func
-        if isinstance(func, ast.Attribute) and func.attr in _ACCUM_SAFE:
-            return True
-        if isinstance(func, ast.Name) and func.id in ("float", "int", "len", "sum"):
-            return True
-    return False
-
-
-def _loss_operand(ctx, value: ast.expr, scope, accumulator: str) -> Optional[ValueRef]:
-    for text in _names_of(value):
-        if text == accumulator:
-            continue
-        ref = ctx.binding_of(text, scope)
-        if ref is not None and ref.has("LOSS"):
-            return ref
-    return None
-
-
-def _defined_outside(module, name: str, loop: Optional[LoopIR], loc):
-    """The statement that created the accumulator outside the loop, if any."""
-    best = None
-    for other in module.assignments:
-        if other.loc.line >= loc.line:
-            continue
-        if _within(loop, other.loop):
-            continue                    # created inside the same loop: reset each pass
-        if any(dotted_text(t) == name for t in other.targets):
-            best = other
-    return best
-
-
-def _backwarded(module, name: str) -> bool:
-    """`total_loss.backward()` (or `torch.stack(losses).backward()`) is deliberate."""
-    short = name.split(".")[-1]
-    stacked = set()
-    for call in module.calls:
-        if (call.fqn or "").endswith(("torch.stack", "torch.cat")) and call.var:
-            for arg in call.args:
-                if (dotted_text(arg) or "").split(".")[-1] == short:
-                    stacked.add(call.var.split(".")[-1])
-    wanted = {short} | stacked
-    for call in module.calls:
-        if K.role_of(call.fqn) != "BACKWARD":
-            continue
-        receiver = (call.receiver_name or "").split(".")[-1]
-        if receiver in wanted:
-            return True
-        for child in ast.walk(call.node):
-            text = dotted_text(child) if isinstance(child, (ast.Name, ast.Attribute)) \
-                else None
-            if text and text.split(".")[-1] in wanted:
-                return True
-    return False

@@ -13,7 +13,7 @@
  * `foreignObject`, no webfont, no `http` outside the namespace declaration), it
  * carries the stage colours as literals, and its regions mean what they say.
  *
- * The demo figures — 54 cards, 51 edges — are asserted against
+ * The demo figures — 59 cards, 51 edges — are asserted against
  * `.mlview/graph.json` when `scripts/e2e` has produced it, and derived from the
  * frozen `contracts/graph.sample.json` always, so a clean checkout still gates.
  */
@@ -152,13 +152,15 @@ test('one <g> per drawn node and one path per routed edge (VIEW-07)', async () =
   assert.equal(result.edgeIds.length, layout.edges.length);
 });
 
-test('the demo SVG carries all 54 cards and all 51 edges (VIEW-07)', { skip: !demo && 'run scripts/e2e first — no .mlview/graph.json' }, async () => {
+test('the demo SVG carries all 59 cards and all 51 edges (VIEW-07)', { skip: !demo && 'run scripts/e2e first — no .mlview/graph.json' }, async () => {
   const { result, covered } = await assertOneToOne(demo, '.mlview/graph.json');
-  // The re-baselined demo is 54 nodes / 51 edges (CONTRACTS 11.19 as amended by
-  // ROADMAP REV-06; the brief's "52" predates the removed backwards edge).
-  assert.equal(demo.nodes.length, 54, 'the demo document is the re-baselined one');
+  // The demo is 59 nodes / 51 edges (CONTRACTS 14.1, and 17 E25 for the move
+  // from 54: RECALL R3 draws a card for each workspace object at the line it is
+  // built or applied, which is five lines of the sample that had no box. The
+  // edge total and all 15 findings are unchanged.)
+  assert.equal(demo.nodes.length, 59, 'the demo document is the re-baselined one');
   assert.equal(demo.edges.length, 51, 'and carries 51 edges');
-  assert.equal(result.nodeIds.length, 54, 'all 54 cards are in the SVG: ' + result.nodeIds.length);
+  assert.equal(result.nodeIds.length, 59, 'all 59 cards are in the SVG: ' + result.nodeIds.length);
   assert.equal(covered.size, 51, 'and every one of the 51 document edges: ' + covered.size);
   for (const edge of demo.edges) assert.ok(covered.has(edge.id), 'edge ' + edge.id + ' reached the SVG');
 });

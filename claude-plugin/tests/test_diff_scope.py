@@ -155,15 +155,21 @@ def test_the_sample_pair_reports_the_11_38_E_table_and_fits_the_budget(tmp_path)
 
     assert out["scope"] == "diff"
     assert out["format"] == "text"
-    # Section 11.38 E, exactly: the dirty sample as the base, the clean twin as the head.
+    # Section 7 E, exactly: the dirty sample as the base, the clean twin as the
+    # head, in whatever mode `AnalyzeOptions` defaults to - which is what the
+    # plugin itself does, so this test has to move when the default moves.
+    # It did: GRAPH-R3 draws a card for each workspace object at the line it is
+    # built or applied, which adds one node to the dirty sample's side of the
+    # pair and five to the clean twin's (CONTRACTS 17 E25), and the findings
+    # did not move at all - still 15 fixed, 0 new.
     assert out["summary"]["nodes"] == {
-        "added": 26, "removed": 16, "changed": 11, "unchanged": 27
+        "added": 27, "removed": 16, "changed": 11, "unchanged": 32
     }
     assert out["summary"]["edges"] == {
-        "added": 26, "removed": 22, "changed": 1, "unchanged": 28
+        "added": 27, "removed": 22, "changed": 1, "unchanged": 28
     }
     assert out["summary"]["issues"] == {"new": 0, "fixed": 15, "persisting": 0}
-    assert out["summary"]["headline"] == "+26 nodes · −16 nodes · 0 new findings · 15 fixed"
+    assert out["summary"]["headline"] == "+27 nodes · −16 nodes · 0 new findings · 15 fixed"
     assert out["basePath"] == str(base_file)
     assert out["graphPath"] == "/tmp/head.json"
     assert payload_size(out) <= LIMIT_BYTES

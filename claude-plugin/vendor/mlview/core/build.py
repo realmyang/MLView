@@ -16,7 +16,7 @@ from __future__ import annotations
 from typing import Dict, List, Set, Tuple
 
 from ..ir.model import CallSite, LoopIR, ModuleIR, WorkspaceIR
-from . import config_nodes
+from . import config_nodes, workspace_ops
 from .build_edges import EdgesMixin
 from .build_ops import OpsMixin
 from .build_roles import NOT_DRAWN_ROLES, TRANSPARENT_ROLES
@@ -55,6 +55,11 @@ class GraphBuilder(UnitsMixin, OpsMixin, EdgesMixin):
         self.hook_stage: Dict[str, Tuple[str, str]] = {}
         #: id(FunctionIR) -> the hook unit node minted for it.
         self.hook_unit: Dict[int, Node] = {}
+        #: Ids of the `core/workspace_ops` nodes whose lane is a property of
+        #: *where* they run rather than of what they are - a forward pass is
+        #: training inside a train loop and evaluation inside an eval loop - so
+        #: they are re-staged from their parent once the units have voted.
+        self.inherit_stage: Set[str] = set()
 
     # ------------------------------------------------------------------ API
     def build(self) -> MLGraph:
@@ -64,6 +69,7 @@ class GraphBuilder(UnitsMixin, OpsMixin, EdgesMixin):
         config_nodes.config_diagnostics(self)
         self._resolve_transparent()
         self._assign_stages()
+        workspace_ops.restage_inherited(self)
         self._promote_levels()
         self._create_edges()
         graph = MLGraph(root=self.ws.root)

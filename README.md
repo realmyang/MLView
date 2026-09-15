@@ -63,7 +63,7 @@ python -m mlview analyze samples/vision_pipeline --html report.html --open
 ```
 
 `samples/vision_pipeline` is a small PyTorch + scikit-learn project written to
-be read, never run: 54 nodes, 51 edges and exactly 15 findings (5 high, 6
+be read, never run: 59 nodes, 51 edges and exactly 15 findings (5 high, 6
 medium, 4 low). `samples/vision_pipeline_clean` is its corrected twin and
 reports none. The report is one self-contained HTML file with zero external
 references.
@@ -140,7 +140,7 @@ python -m mlview analyze --demo --json -         # the golden sample document
 |---|---|
 | `--scope SPEC` / `--depth N` | Narrow every surface to one part of the pipeline; `--list-scopes` prints the catalogue of scopable units |
 | `--config FILE` | Configuration: this file, else `<root>/.mlview.toml`, else `[tool.mlview]` in `pyproject.toml`. **First match wins outright**, never merged, and the winner is named in the document's `configPath` |
-| `--dataflow {local,ip}` | Follow values across the object boundary. Every hop multiplies confidence by an explicit weight, so a cross-object finding is never reported as `certain` |
+| `--dataflow {local,ip}` | Follow values across the object boundary. **`ip` is the default**; `local` is the narrower opt-out. Every hop multiplies confidence by an explicit weight, so a cross-object finding is never reported as `certain` |
 | `--relevance {ml,all}` / `--relevance-hops N` | The prefilter that keeps only the modules within N import hops of ML code. `--no-cache` turns off the per-file fact cache |
 | `--max-nodes N` | A node budget that **folds** rather than deletes: ops into their unit, then files, then directories, each fold carrying a `rolledUp` count |
 | `--include-notebooks` | Analyze `.ipynb` too. Each notebook becomes one generated module under `.mlview/notebooks/`; a non-monotonic `execution_count` de-rates the rules that depend on cell order and says so |

@@ -45,6 +45,13 @@ _FAMILY_BASE = {
     "keras_dataset": "tensorflow.data.Dataset",
     "lightning_module": "pytorch_lightning.LightningModule",
 }
+#: GRAPH-R2 (knowledge/stats_tbl.py). statsmodels / Prophet / `evaluate` /
+#: torchmetrics receiver bases, contributed by the table that defines them so
+#: adding a framework stays data rather than code.
+_FAMILY_BASE.update(K.STATS_FAMILY_BASE)
+#: GRAPH-R3: the two wrappers that rebind a script's objects.
+_FAMILY_BASE.update({"accelerator": "accelerate.Accelerator",
+                     "fabric": "pytorch_lightning.Fabric"})
 
 
 def _class_scope(scope: ScopeIR) -> Optional[ScopeIR]:

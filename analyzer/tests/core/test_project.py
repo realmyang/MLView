@@ -38,13 +38,19 @@ def roles(doc):
 
 # ------------------------------------------------------- roles and counts
 def test_concern_evaluation_roles_and_context_set():
-    """F2-A6, measured: 7 core / 7 boundary / 3 context."""
+    """F2-A6, measured: 8 core / 8 boundary / 3 context.
+
+    7 / 7 / 3 before GRAPH-R3: `logits = model(images)` in `validate()` is now
+    a `predict` op of its own (it was folded onto the `SmallCNN` class card),
+    so the evaluation concern has one more core node and its one-hop ring one
+    more boundary node. The context set is unchanged.
+    """
     doc = scoped("concern:evaluation", 1)
     parts = roles(doc)
-    assert [len(parts[k]) for k in ("core", "boundary", "context")] == [7, 7, 3]
+    assert [len(parts[k]) for k in ("core", "boundary", "context")] == [8, 8, 3]
     assert sorted(parts["context"]) == ["data.__main__", "sklearn_baseline.baseline",
                                         "train.train"]
-    assert doc["view"]["counts"] == {"core": 7, "boundary": 7, "context": 3}
+    assert doc["view"]["counts"] == {"core": 8, "boundary": 8, "context": 3}
     assert (doc["view"]["counts"]["core"] + doc["view"]["counts"]["boundary"]
             + doc["view"]["counts"]["context"]) == doc["stats"]["nodes"]
 
@@ -58,10 +64,15 @@ def test_a_unit_scope_can_be_entirely_self_contained():
 
 def test_the_ancestor_closure_keeps_the_containment_forest_a_forest():
     """`stage:train` gains exactly one `context` node - the parent of a node
-    whose lane it is not (CONTRACTS 11.15: 9 -> 10, a one-node superset)."""
+    whose lane it is not (CONTRACTS 11.15: a one-node superset).
+
+    9 core before GRAPH-R3, 11 after: the training loop's forward pass
+    (`logits`) and its loss computation (`loss`) are ops of their own instead
+    of being folded onto the `SmallCNN` class and the `criterion` construction.
+    """
     doc = scoped("stage:train")
     parts = roles(doc)
-    assert len(parts["core"]) == 9
+    assert len(parts["core"]) == 11
     assert parts["context"] == ["sklearn_baseline.baseline"]
     kept = {n["id"] for n in doc["nodes"]}
     for node in doc["nodes"]:
@@ -80,7 +91,11 @@ def test_a_parent_crossing_a_stage_lane_is_untouched():
 @pytest.mark.parametrize("spec,depth,codes", [
     ("concern:evaluation", 1, {"MLV103", "MLV301", "MLV302"}),
     ("unit:SmallCNN", 1, {"MLV401", "MLV702"}),
-    ("stage:train", None, {"MLV201", "MLV205", "MLV501", "MLV601"}),
+    # GRAPH-R3: MLV401's primary anchor moved from the `criterion =
+    # CrossEntropyLoss()` construction (Objective) to the `loss =
+    # criterion(logits, labels)` computation (Train), so the train lane now
+    # retains it.
+    ("stage:train", None, {"MLV201", "MLV205", "MLV401", "MLV501", "MLV601"}),
     ("concern:optimization", None,
      {"MLV201", "MLV205", "MLV401", "MLV501", "MLV601", "MLV702"}),
     ("unit:sklearn_baseline.baseline", None, {"MLV101", "MLV103", "MLV602"}),
@@ -92,11 +107,22 @@ def test_issue_retention_is_measured_and_exact(spec, depth, codes):
 
 
 def test_an_issue_anchored_on_a_boundary_node_is_dropped():
-    doc = scoped("unit:SmallCNN", 1)
-    criterion = next(n for n in doc["nodes"]
-                     if n["qualname"] == "train.train.criterion")
-    assert criterion["viewRole"] == "boundary"
-    assert "MLV205" not in codes_of(doc), "a boundary node's own findings are out"
+    """A boundary stub is drawn so the reader sees where flow enters; its own
+    findings are **not** retained by it.
+
+    The example moved with GRAPH-R3: `train.train.criterion` used to be the
+    one-hop neighbour of `SmallCNN` (the forward pass folded onto the class
+    card, so the class had a data edge straight into the criterion). The
+    forward pass is its own node now, and the same property is asserted on
+    `model.SmallCNN` itself, which is a boundary node of the evaluation
+    concern and carries MLV401 and MLV702 there.
+    """
+    doc = scoped("concern:evaluation", 1)
+    smallcnn = next(n for n in doc["nodes"] if n["qualname"] == "model.SmallCNN")
+    assert smallcnn["viewRole"] == "boundary"
+    assert smallcnn["issueIds"] == [], "a boundary stub carries no reverse link"
+    assert not {"MLV401", "MLV702"} & codes_of(doc), \
+        "a boundary node's own findings are out"
 
 
 def test_the_stable_rotation_puts_the_badge_on_a_core_card():
@@ -118,17 +144,30 @@ def test_the_stable_rotation_puts_the_badge_on_a_core_card():
     doc = scoped("unit:SmallCNN", 1)
     after = next(i for i in doc["issues"] if i["code"] == "MLV401")
     assert after["nodeIds"][0] == smallcnn["id"]
-    pivot = before["nodeIds"].index(smallcnn["id"])
-    assert after["nodeIds"] == before["nodeIds"][pivot:] + before["nodeIds"][:pivot], \
+    # CONTRACTS 11.2 step 6 in the order it states: **filter** to the kept ids
+    # (order preserved), then stably rotate the first core element to index 0.
+    # Written against the filtered list because GRAPH-R3 moved MLV401's primary
+    # anchor to `train.train.loss`, which this scope does not keep - and a
+    # rotation of a list that lost an element is still a rotation of what is
+    # left, which is the property the step actually promises.
+    kept = {n["id"] for n in doc["nodes"]}
+    filtered = [n for n in before["nodeIds"] if n in kept]
+    pivot = filtered.index(smallcnn["id"])
+    assert after["nodeIds"] == filtered[pivot:] + filtered[:pivot], \
         "a rotation, not a sort: the rest keeps its relative order"
 
 
 def test_an_edge_borne_issue_needs_both_endpoints_in_core():
-    """MLV401 also names an edge; under a scope that keeps the edge but not
-    both endpoints as core, the edge alone must not retain it."""
-    doc = scoped("unit:train.train.criterion", 0)
+    """A one-node scope keeps MLV401 through its own anchor, and a scope that
+    holds neither anchor nor a live retaining edge drops it.
+
+    The anchor is `train.train.loss` since GRAPH-R3 (it was
+    `train.train.criterion`, the construction, before the loss *computation*
+    had a node of its own).
+    """
+    doc = scoped("unit:train.train.loss", 0)
     assert doc["view"]["counts"]["core"] == 1
-    assert "MLV401" in codes_of(doc), "the criterion IS core here"
+    assert "MLV401" in codes_of(doc), "the loss computation IS core here"
     narrowed = scoped("stage:eval")
     assert "MLV401" not in codes_of(narrowed)
 

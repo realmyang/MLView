@@ -86,14 +86,11 @@ class _Fact:
 
 
 def _fact_at(site: CallSite, arg: Optional[ast.expr]) -> _Fact:
-    from .bindings import binding_of        # local: bindings imports this module's peers
+    # GRAPH-R3: `argument_value` reads a name *or* an inline construction, so
+    # `train(Net(), loader)` states the same fact `train(model, loader)` does.
+    from .resolve_passes import argument_value   # local: peers import each other
 
-    if arg is None:
-        return _Fact()
-    name = dotted_text(arg)
-    if not name:
-        return _Fact()
-    ref = binding_of(name, site.scope, at=site.loc.line)
+    ref = argument_value(site, arg) if arg is not None else None
     if ref is None:
         return _Fact()
     return _Fact(tags=ref.tags, class_ir=ref.class_ir, is_config=ref.is_config,

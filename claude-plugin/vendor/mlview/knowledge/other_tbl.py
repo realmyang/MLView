@@ -94,6 +94,45 @@ LIGHTNING_METHODS: Dict[str, Entry] = {
 
 # ------------------------------------------------------------- accelerate -
 OTHER["accelerate.Accelerator"] = E("train_loop", "train", "other", "ACCELERATOR", (), "accelerator")
+
+#: GRAPH-R3. `accelerate` and Lightning `Fabric` both **rebind** the objects a
+#: script already built - `model, optimizer, loader = accelerator.prepare(model,
+#: optimizer, loader)` - and neither method surface existed, so a script written
+#: the way both projects' own quickstarts write it lost its model, its optimizer
+#: and its loader on one line. `WRAP_PREPARE` is the rebinding role;
+#: `ir/bindings_store` gives position *i* of the result the identity of argument
+#: *i*, which is what `prepare` documents itself as doing.
+WRAP_METHODS: Dict[str, Entry] = {
+    "accelerate.Accelerator.prepare": E("model", "train", "other", "WRAP_PREPARE",
+                                        (), "accelerator"),
+    "accelerate.Accelerator.prepare_model": E("model", "model", "other", "WRAP_MODEL",
+                                              ("MODEL",), "module"),
+    "accelerate.Accelerator.prepare_data_loader": E("dataloader", "data", "other",
+                                                    "WRAP_PREPARE", ("LOADER",), "loader"),
+    "accelerate.Accelerator.prepare_optimizer": E("optimizer", "train", "other",
+                                                  "WRAP_PREPARE", ("OPTIMIZER",),
+                                                  "optimizer"),
+    "accelerate.Accelerator.backward": E("loss", "train", "other", "BACKWARD"),
+    "accelerate.Accelerator.unwrap_model": E("model", "model", "other", "WRAP_PREPARE",
+                                             ("MODEL",), "module"),
+    "accelerate.Accelerator.clip_grad_norm_": E("optimizer", "train", "other",
+                                                "CLIP_GRAD"),
+    "accelerate.Accelerator.accumulate": E("train_loop", "train", "other",
+                                           "ACCELERATOR", (), "accelerator", 0.6),
+    "accelerate.Accelerator.save_state": E("checkpoint", "deliver", "other", "SAVE"),
+    "accelerate.Accelerator.wait_for_everyone": E("train_loop", "train", "other",
+                                                  "ACCELERATOR", (), "accelerator", 0.2),
+}
+for _root in ("pytorch_lightning", "lightning", "lightning.fabric"):
+    WRAP_METHODS["%s.Fabric.setup" % _root] = E("model", "train", L, "WRAP_PREPARE",
+                                                (), "fabric")
+    WRAP_METHODS["%s.Fabric.setup_dataloaders" % _root] = E(
+        "dataloader", "data", L, "WRAP_PREPARE", ("LOADER",), "loader")
+    WRAP_METHODS["%s.Fabric.setup_module" % _root] = E("model", "model", L,
+                                                       "WRAP_MODEL", ("MODEL",), "module")
+    WRAP_METHODS["%s.Fabric.setup_optimizers" % _root] = E(
+        "optimizer", "train", L, "WRAP_PREPARE", ("OPTIMIZER",), "optimizer")
+    WRAP_METHODS["%s.Fabric.backward" % _root] = E("loss", "train", L, "BACKWARD")
 OTHER["imblearn.over_sampling.SMOTE"] = E("transform", "preprocess", "imblearn", "RESAMPLE")
 OTHER["imblearn.over_sampling.RandomOverSampler"] = E("transform", "preprocess", "imblearn", "RESAMPLE")
 OTHER["imblearn.under_sampling.RandomUnderSampler"] = E("transform", "preprocess", "imblearn", "RESAMPLE")

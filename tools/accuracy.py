@@ -59,6 +59,10 @@ from accuracy_corpus import (  # noqa: E402  - after the sys.path fix above
     ACCURACY_DIR, BASELINE_PATH, CORPUS_DIR, EPSILON, HIGH_VALUE,
     IP_BASELINE_PATH, REPO_ROOT, VISIBLE_THRESHOLD, CorpusError, Program,
     aggregate, load_programs, matches, run_corpus, score_graph, score_program)
+# R1: the tool's default dataflow mode is the product's, read from the one
+# constant that decides it rather than spelled again here. `accuracy_corpus`
+# has already put `analyzer/src` on the path.
+from mlview.api import DATAFLOW_MODES, DEFAULT_DATAFLOW  # noqa: E402
 
 # Re-exported so `analyzer/tests/accuracy/test_accuracy.py` can load this one
 # file and reach the whole surface: the tool a human runs and the module the
@@ -87,7 +91,7 @@ def render(results: Sequence[Dict[str, Any]], report: Dict[str, Any],
 
     add("MLView accuracy corpus - %d labelled programs%s"
         % (report["programs"],
-           "" if report.get("dataflow", "local") == "local"
+           "" if report.get("dataflow", DEFAULT_DATAFLOW) == DEFAULT_DATAFLOW
            else "  [--dataflow %s]" % report["dataflow"]))
     add("")
     add("%-24s %5s %5s %6s %6s %6s %6s %6s" % (
@@ -320,7 +324,7 @@ def build_baseline(report: Dict[str, Any], note: str = "",
         "recordedOn": datetime.date.today().isoformat(),
         "note": note,
         "programs": report["programs"],
-        "dataflow": report.get("dataflow", "local"),
+        "dataflow": report.get("dataflow", DEFAULT_DATAFLOW),
         "overall": report["overall"],
         "unseen": report["unseen"],
         "perRule": report["perRule"],
@@ -384,13 +388,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--corpus", default=CORPUS_DIR)
     parser.add_argument("--baseline", default=None,
                         help="baseline file (default: the one for --dataflow)")
-    # DATAFLOW-IP (CONTRACTS 11.36). `local` is the default here as it is
-    # everywhere else, so `python tools/accuracy.py` with no flags measures and
-    # gates exactly what it always measured and gated. `ip` scores the
-    # interprocedural mode against `baseline.ip.json` - a separate ratchet,
-    # because two different analyses cannot share one.
-    parser.add_argument("--dataflow", choices=("local", "ip"), default="local",
-                        help="which dataflow mode to score (default: local)")
+    # DATAFLOW-IP (CONTRACTS 11.36) / R1. The tool's default follows the
+    # product's: `python tools/accuracy.py` with no flags measures and gates
+    # what a user actually gets, which is now `ip`, scored against
+    # `baseline.ip.json`. `--dataflow local` scores the narrower mode against
+    # `baseline.json` - a separate ratchet, because two different analyses
+    # cannot share one, and `local` is still shipped and still gated.
+    parser.add_argument("--dataflow", choices=DATAFLOW_MODES,
+                        default=DEFAULT_DATAFLOW,
+                        help="which dataflow mode to score (default: %s)"
+                             % DEFAULT_DATAFLOW)
     parser.add_argument("--program", action="append", default=[],
                         help="score only this program (repeatable)")
     parser.add_argument("--update-baseline", action="store_true",

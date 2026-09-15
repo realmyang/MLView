@@ -84,13 +84,49 @@ def lightning_ip():
 
 
 # --------------------------------------------------------------- the mode
-def test_local_is_the_default_and_the_flag_is_the_identity():
-    """A caller that does not name the mode gets `local`, and naming `local`
-    changes nothing: the option is additive in the CONTRACTS 11.6 sense."""
+def test_ip_is_the_default_and_the_flag_is_the_identity():
+    """R1: a caller that does not name the mode gets `ip`, and naming `ip`
+    changes nothing - the option is still additive in the CONTRACTS 11.6 sense,
+    it is the side it defaults to that moved."""
     root = os.path.join(CORPUS, "lightning_tabular")
     unset = analyze_to_dict(AnalyzeOptions(paths=(root,)))
-    named = analyze(root, "local")
+    named = analyze(root, "ip")
     assert _stable(unset) == _stable(named)
+
+
+def test_local_is_still_reachable_and_is_the_narrower_analysis():
+    """R1.2: `local` is the opt-out, not a deprecation. It still runs, it still
+    produces a valid document, and it still sees strictly less - the whole
+    reason `ip` became the default."""
+    root = os.path.join(CORPUS, "lightning_tabular")
+    local = analyze(root, "local")
+    ip = analyze(root, "ip")
+    assert _stable(local) != _stable(ip), (
+        "if the two modes agreed on this program the flip would be a no-op")
+    assert len(local["issues"]) < len(ip["issues"]), describe(local)
+
+
+def test_the_default_constant_is_the_one_authority():
+    """R1.1: three surfaces read `DEFAULT_DATAFLOW`; none spells a mode again."""
+    from mlview.api import DEFAULT_DATAFLOW
+    from mlview.cli_parser import build_parser
+
+    assert DEFAULT_DATAFLOW == "ip"
+    assert AnalyzeOptions(paths=()).dataflow == DEFAULT_DATAFLOW
+    args = build_parser().parse_args(["analyze", "."])
+    assert args.dataflow == DEFAULT_DATAFLOW
+
+
+def test_the_shipped_sample_is_byte_identical_in_both_modes():
+    """R1.3(4): the flip may not move `contracts/graph.sample.json`.
+
+    `analyze --demo` reads the shipped file, so the demo is safe by
+    construction; this asserts the stronger thing - that a live analysis of the
+    sample agrees with itself across the two modes, which is what makes the
+    golden regenerable in either.
+    """
+    sample = os.path.join(REPO_ROOT, "samples", "vision_pipeline")
+    assert _stable(analyze(sample, "local")) == _stable(analyze(sample, "ip"))
 
 
 def _stable(doc):

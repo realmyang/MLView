@@ -54,9 +54,21 @@ class ReturnSlot:
     fqns: Tuple[str, ...] = ()
     tags: Tuple[str, ...] = ()
     class_ir: Optional[ClassIR] = None
+    #: GRAPH-R3. The noun phrase for the construct that defeated the analyzer
+    #: when the return could not be typed **at all** - "a subscript", "a
+    #: lambda", "a dataclass default_factory". A registry factory
+    #: (`return _REGISTRY[group][name](**kwargs)`) is the canonical case, and it
+    #: is present in a large fraction of research repositories. Appended last
+    #: and defaulted, so a slot that names a symbol is exactly what it was:
+    #: this field is set only when `fqns`, `tags` and `class_ir` are all empty,
+    #: and it asserts nothing about what the value *is* - only that the analyzer
+    #: knows it could not follow it, which is what lets `core/workspace_ops`
+    #: draw an honest `unknown` box instead of nothing at all.
+    opaque: Optional[str] = None
 
     def __bool__(self) -> bool:
-        return bool(self.fqns or self.tags or self.class_ir is not None)
+        return bool(self.fqns or self.tags or self.class_ir is not None
+                    or self.opaque)
 
 
 @dataclass(frozen=True)
@@ -161,7 +173,8 @@ def _slot(expr, func: FunctionIR, workspace, memo, active, depth: int,
             return nested.scalar if nested is not None else None
         slot = ReturnSlot(fqns=_trim(call.canonical_fqns),
                           tags=tuple(call_output_tags(call, call.scope)),
-                          class_ir=call.class_ir)
+                          class_ir=call.class_ir,
+                          opaque=call.unresolved_callee)
         return slot or None
     name = dotted_text(expr)
     if not name:
@@ -173,7 +186,8 @@ def _slot(expr, func: FunctionIR, workspace, memo, active, depth: int,
     if not fqns and ref.producer is not None:
         fqns = _trim(ref.producer.canonical_fqns
                      or ((ref.producer.fqn,) if ref.producer.fqn else ()))
-    slot = ReturnSlot(fqns=fqns, tags=tuple(ref.tags), class_ir=ref.class_ir)
+    slot = ReturnSlot(fqns=fqns, tags=tuple(ref.tags), class_ir=ref.class_ir,
+                      opaque=ref.opaque)
     return slot or None
 
 
@@ -202,6 +216,16 @@ def _merge(slots: Sequence[ReturnSlot]) -> Optional[ReturnSlot]:
     classes = {id(s.class_ir): s.class_ir for s in kept if s.class_ir is not None}
     class_ir = list(classes.values())[0] if len(classes) == 1 else None
 
+    # Opacity is the *last* answer, never a competing one: a branch that names a
+    # symbol tells the reader more than a branch that named nothing, so the
+    # merged slot is opaque only when no branch typed anything.
+    opaque = None
+    if not fqns and not tags and class_ir is None:
+        for slot in kept:
+            if slot.opaque:
+                opaque = slot.opaque
+                break
+
     slot = ReturnSlot(fqns=tuple(fqns[:_MAX_FQNS]), tags=sort_tags(tags),
-                      class_ir=class_ir)
+                      class_ir=class_ir, opaque=opaque)
     return slot or None

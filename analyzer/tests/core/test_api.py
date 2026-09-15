@@ -46,15 +46,20 @@ def test_analyze_options_defaults_match_the_contract():
     # CONTRACTS 11.29 (NB) appends `include_notebooks` under the same rule: a
     # defaulted False, so a run that does not name it discovers, parses and
     # emits exactly what it always did - `.ipynb` counted and skipped.
-    # CONTRACTS 11.36 (DATAFLOW-IP) appends `dataflow` under the same rule: a
-    # defaulted "local", which is the analysis that shipped before the option
-    # existed, so a caller that does not name it gets byte-identical bytes.
+    # CONTRACTS 11.36 (DATAFLOW-IP) appends `dataflow` under the same rule, and
+    # R1 flips which side it defaults to: `ip`, read from
+    # `ir.build_ir.DEFAULT_DATAFLOW` rather than spelled here, so the constant
+    # stays the one authority. `local` remains a supported, gated mode - the
+    # opt-out, not a deprecation - and the shipped sample is byte-identical
+    # under both, so `analyze --demo` is untouched.
     assert list(fields) == ["paths", "include", "exclude", "max_files", "max_nodes",
                             "framework", "min_severity", "min_confidence",
                             "config_path", "strict", "scope", "depth", "progress",
                             "relevance", "relevance_hops", "cache",
                             "include_notebooks", "dataflow"]
-    assert fields["dataflow"].default == "local"
+    from mlview.api import DEFAULT_DATAFLOW
+
+    assert fields["dataflow"].default == DEFAULT_DATAFLOW == "ip"
     assert fields["paths"].default is dataclasses.MISSING, "paths is required"
     assert fields["include"].default == ()
     assert fields["exclude"].default == ()

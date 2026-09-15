@@ -11,6 +11,8 @@ from ..ir.model import CallSite, ClassIR, ValueRef
 from ..ir.symbols import dotted_text
 from .helpers import arg_ref
 from .registry import rule
+from ..ir.provenance import IP_HOP_WEIGHT
+from .valuetype import returned_call_with_role
 
 __all__ = ["softmax_before_cross_entropy", "sigmoid_bce_mismatch"]
 
@@ -27,11 +29,26 @@ _SOFTMAX_ROLES = ("SOFTMAX", "LOG_SOFTMAX")
                "probabilities for reporting.")
 def softmax_before_cross_entropy(ctx) -> Iterable[Issue]:
     issues: List[Issue] = []
+    reported: List[Tuple[str, int, int, str]] = []
     for loss_call in _cross_entropy_calls(ctx):
         name, ref = arg_ref(ctx, loss_call, 0)
         softmax_call, model_cls, source = _trace(ctx, loss_call, ref)
         if softmax_call is None:
             continue
+        # One root cause, one finding. A LightningModule applies the same
+        # `forward` in `training_step` *and* in `validation_step`, and a
+        # hand-written loop calls the same criterion in train and eval - so the
+        # per-loss-call loop reported the identical softmax twice, from two
+        # lines, with two identical `final_layer` related locations. The second
+        # copy is noise, and on the labelled corpus it was a false positive.
+        # The key is the offending softmax plus the model class it lives in;
+        # two different models that each softmax before a CE still get one
+        # finding each. Ordering is `_cross_entropy_calls`'s (file, line, col),
+        # so the survivor is the first loss site in source order.
+        key = _root_cause(softmax_call, model_cls)
+        if key in reported:
+            continue
+        reported.append(key)
         loss_node = ctx.node_for_call(loss_call) or ctx.unit_for_call(loss_call)
         if loss_node is None:
             continue
@@ -41,6 +58,18 @@ def softmax_before_cross_entropy(ctx) -> Iterable[Issue]:
         elif ref is not None:
             model_node = ctx.builder._producer_node(ref)
         edge = ctx.edge_between(model_node, loss_node, "data")
+        # G10: with the forward pass drawn as a card of its own, the
+        # model -> loss connection is two hops (SmallCNN -> logits -> loss), so
+        # the model's class unit no longer has a direct data edge into the loss
+        # and `edgeIds` came back empty. The edge that expresses the connection
+        # now is `logits -> loss`, whose source is the producer of the very
+        # value handed to the loss. The ANCHOR NODES do not move -- the class
+        # unit is what a reader wants to open -- only the edge falls back, and
+        # a graph with no forward-pass card keeps the edge it always had.
+        if edge is None and ref is not None:
+            producer = ctx.builder._producer_node(ref)
+            if producer is not None and producer is not model_node:
+                edge = ctx.edge_between(producer, loss_node, "data")
         nodes = [loss_node] + ([model_node] if model_node is not None
                                and model_node is not loss_node else [])
         # REV-06: ANA-1 mints an op node for the offending `softmax()` call
@@ -61,11 +90,23 @@ def softmax_before_cross_entropy(ctx) -> Iterable[Issue]:
         ]
         if source == "conditional":
             evidence.append(("context_confirmed", "softmax sits inside a conditional", 0.6))
+        elif source == "helper":
+            # One `def` crossed, one IP_HOP_WEIGHT paid (11.36 G6): 0.95 x 0.8
+            # is 0.76, so a helper-traced pairing lands at `likely` and a
+            # cross-object claim still cannot reach `certain`.
+            evidence.append(("cross_file",
+                             "%s is what %s hands back, one function away"
+                             % (softmax_call.fqn or softmax_call.short_name,
+                                name or "the helper"), IP_HOP_WEIGHT))
+        # 11.36 G6: the helper hop is a crossing, and a crossing is paid for.
+        evidence.extend(ctx.hops(ref))
+        related_hops = ctx.hop_related(ref)
         related = [("final_layer", softmax_call.loc,
                     "%s applied here" % (softmax_call.fqn or softmax_call.short_name))]
         if model_cls is not None:
             related.append(("definition", model_cls.loc,
                             "model class %s" % model_cls.name))
+        related.extend(related_hops)
         issues.append(ctx.issue(
             message="The value passed to %s at %s:%d comes from %s at %s:%d, so the "
                     "probabilities are log-softmaxed twice."
@@ -91,7 +132,14 @@ def _cross_entropy_calls(ctx) -> List[CallSite]:
         fqn = call.fqn or ""
         if fqn.endswith("CrossEntropyLoss.__call__") and call not in out:
             out.append(call)
+    out.sort(key=lambda c: (c.loc.file, c.loc.line, c.loc.col))
     return out
+
+
+def _root_cause(final: CallSite, cls: Optional[ClassIR]) -> Tuple[str, int, int, str]:
+    """What two findings would have to share to be the same defect."""
+    return (final.loc.file, final.loc.line, final.loc.col,
+            cls.qualname if cls is not None else "")
 
 
 def _trace(ctx, loss_call: CallSite, ref: Optional[ValueRef]):
@@ -120,11 +168,29 @@ def _trace(ctx, loss_call: CallSite, ref: Optional[ValueRef]):
             return tail, None, "direct"
         model_ref = producer.receiver
         cls = model_ref.class_ir if model_ref is not None else producer.class_ir
-        if cls is not None and cls.is_nn_module:
+        # FW-RECOG: `is_model_module`, not `is_nn_module`. A
+        # `pl.LightningModule` subclasses `nn.Module`, so `self(features)` in a
+        # `training_step` is a model forward in every sense this rule cares
+        # about - and `is_nn_module` answers False for it, which is what made
+        # the whole Lightning half of MLV401 unreachable
+        # (`lightning_tabular/module.py:29`, a softmax returned by `forward`
+        # and fed straight to `F.cross_entropy`).
+        if cls is not None and cls.is_model_module:
             found, source = _forward_softmax(ctx, cls)
             if found is not None:
                 return found, cls, source
             break
+        # R4: `scores = probabilities(model, x)` then `F.cross_entropy(scores, y)`.
+        # The helper's `return` is the softmax, and until now the chain stopped
+        # at a workspace call it could not name. **After** the model-class
+        # branch, never before it: a model's `forward` is a workspace function
+        # too, and pre-empting the class path would cost the finding its model
+        # class, its model -> loss edge and its `definition` location - the
+        # three things that make MLV401 navigable - and charge it a helper hop
+        # for a call it never crossed.
+        helper = returned_call_with_role(ctx, producer, tuple(_SOFTMAX_ROLES))
+        if helper is not None:
+            return helper, None, "helper"
         if model_ref is None:
             break
         current = model_ref
@@ -235,9 +301,10 @@ _LOGIT_ROLES = ("LAYER", "NORM", "NORM_TRAIN_SENSITIVE", "CONTAINER", "DROPOUT")
                "or feed sigmoid outputs to BCELoss - never the mismatched pairing.")
 def sigmoid_bce_mismatch(ctx) -> Iterable[Issue]:
     issues: List[Issue] = []
+    reported: List[Tuple[str, int, int, str]] = []
     for loss_call, variant in _bce_calls(ctx):
         name, ref = arg_ref(ctx, loss_call, 0)
-        final, cls, resolved = _final_producer(ctx, loss_call, ref)
+        final, cls, resolved, via_helper = _final_producer(ctx, loss_call, ref)
         if not resolved or final is None:
             continue
         is_sigmoid = _role_of(final) == "SIGMOID"
@@ -245,6 +312,14 @@ def sigmoid_bce_mismatch(ctx) -> Iterable[Issue]:
             continue
         if variant == "missing_sigmoid" and is_sigmoid:
             continue
+        # One root cause, one finding - see `softmax_before_cross_entropy`.
+        # The variant is part of the key: the same head feeding a
+        # `BCEWithLogitsLoss` in one place and a `BCELoss` in another is two
+        # different mistakes, not one reported twice.
+        key = _root_cause(final, cls)[:3] + (variant,)
+        if key in reported:
+            continue
+        reported.append(key)
         loss_node = ctx.node_for_call(loss_call) or ctx.unit_for_call(loss_call)
         if loss_node is None:
             continue
@@ -254,6 +329,18 @@ def sigmoid_bce_mismatch(ctx) -> Iterable[Issue]:
         elif ref is not None:
             model_node = ctx.builder._producer_node(ref)
         edge = ctx.edge_between(model_node, loss_node, "data")
+        # G10: with the forward pass drawn as a card of its own, the
+        # model -> loss connection is two hops (SmallCNN -> logits -> loss), so
+        # the model's class unit no longer has a direct data edge into the loss
+        # and `edgeIds` came back empty. The edge that expresses the connection
+        # now is `logits -> loss`, whose source is the producer of the very
+        # value handed to the loss. The ANCHOR NODES do not move -- the class
+        # unit is what a reader wants to open -- only the edge falls back, and
+        # a graph with no forward-pass card keeps the edge it always had.
+        if edge is None and ref is not None:
+            producer = ctx.builder._producer_node(ref)
+            if producer is not None and producer is not model_node:
+                edge = ctx.edge_between(producer, loss_node, "data")
         nodes = [loss_node] + ([model_node] if model_node is not None
                                and model_node is not loss_node else [])
         final_name = final.fqn or final.short_name
@@ -270,6 +357,11 @@ def sigmoid_bce_mismatch(ctx) -> Iterable[Issue]:
             evidence.append(("class_base",
                              "%s is an nn.Module whose forward() was resolved" % cls.name,
                              1.0))
+        if via_helper:
+            # See MLV401: one `def` crossed, one IP_HOP_WEIGHT paid (11.36 G6).
+            evidence.append(("cross_file",
+                             "%s is what %s hands back, one function away"
+                             % (final_name, name or "the helper"), IP_HOP_WEIGHT))
         related = [("final_layer", final.loc, "%s is the last operation" % final_name)]
         if cls is not None:
             related.append(("definition", cls.loc, "model class %s" % cls.name))
@@ -332,35 +424,54 @@ def _final_producer(ctx, loss_call: CallSite, ref: Optional[ValueRef]):
     return _walk_final(ctx, start, 0)
 
 
+def _final_label(call: CallSite) -> str:
+    return call.fqn or call.short_name
+
+
 def _walk_final(ctx, call: Optional[CallSite], depth: int):
+    """`(final op, model class, resolved, through a helper)`."""
     if call is None or depth > 3:
-        return None, None, False
+        return None, None, False, False
     role = _role_of(call)
     if role in ("SIGMOID", "SOFTMAX", "LOG_SOFTMAX"):
-        return call, None, True
+        return call, None, True, False
     cls = _forward_class(call)
     if cls is not None:
         inner = _forward_final_call(ctx, cls)
         if inner is None:
-            return None, cls, False
-        found, _cls, ok = _walk_final(ctx, inner, depth + 1)
+            return None, cls, False, False
+        found, _cls, ok, via = _walk_final(ctx, inner, depth + 1)
         if found is not None and ok:
-            return found, cls, True
-        return inner, cls, _role_of(inner) in _LOGIT_ROLES
+            return found, cls, True, via
+        return inner, cls, _role_of(inner) in _LOGIT_ROLES, False
+    # R4: the same helper hop MLV401 walks, and in the same place - after the
+    # model class, which is a workspace function too. A binary head written as
+    # `def scores(m, x): return torch.sigmoid(m(x))` pairs just as wrongly with
+    # `BCEWithLogitsLoss` as an inline sigmoid does.
+    helper = returned_call_with_role(ctx, call, ("SIGMOID", "SOFTMAX",
+                                                 "LOG_SOFTMAX") + tuple(_LOGIT_ROLES))
+    if helper is not None:
+        return helper, None, True, True
     if role in _LOGIT_ROLES:
-        return call, None, True
-    return call, None, False
+        return call, None, True, False
+    return call, None, False, False
 
 
 def _forward_class(call: CallSite) -> Optional[ClassIR]:
-    """The nn.Module whose `forward` this call is."""
+    """The model class whose `forward` this call is.
+
+    FW-RECOG: `is_model_module`, for the reason `_trace` gives - a
+    `LightningModule`'s `self(x)` is a model forward, and MLV402's sigmoid/BCE
+    pairing is written inside `training_step` at least as often as it is
+    written in a hand-rolled loop.
+    """
     if _role_of(call) != "FORWARD":
         return None
     ref = call.receiver
     cls = ref.class_ir if ref is not None else None
     if cls is None:
         cls = call.class_ir
-    return cls if cls is not None and cls.is_nn_module else None
+    return cls if cls is not None and cls.is_model_module else None
 
 
 def _forward_final_call(ctx, cls: ClassIR) -> Optional[CallSite]:

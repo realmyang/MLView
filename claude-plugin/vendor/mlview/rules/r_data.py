@@ -15,9 +15,9 @@ from ..core.graph import Issue
 from ..ir.model import CallSite, LoopIR
 from ..ir.symbols import dotted_text
 from .fixes import shuffle_false_fix
-from .helpers import (KWARG_ABSENT, KWARG_RESOLVED, UNRESOLVED_KWARG_WEIGHT,
-                      calls_in_loop, kwarg_literal, literal_of,
-                      note_unresolved_kwarg, with_role)
+from .helpers import (DATA_TAGS, KWARG_ABSENT, KWARG_RESOLVED,
+                      UNRESOLVED_KWARG_WEIGHT, calls_in_loop, kwarg_literal,
+                      literal_of, note_unresolved_kwarg, with_role)
 from .registry import rule
 
 __all__ = ["train_loader_not_shuffled", "eval_loader_shuffled", "workers_without_guard"]
@@ -29,6 +29,11 @@ _EVAL_LOADER_RE = re.compile(r"(?i)^(val|valid|validation|test|eval|holdout)_?"
 _SEQUENCE_HINT_RE = re.compile(r"(?i)(sequence|sequential|timeseries|time_series|curriculum"
                                r"|series|forecast|temporal)")
 _SAMPLER_KEYS = ("sampler", "batch_sampler")
+#: The keys a *split dictionary* uses for its held-out half. `encoded["test"]`
+#: is how every HuggingFace `DatasetDict` and most hand-rolled split dicts are
+#: indexed, and `dotted_text` answers `None` for a `Subscript`, so the loader's
+#: dataset argument had no name, no tags and no finding.
+_SPLIT_KEY_RE = re.compile(r"(?i)^(val|valid|validation|test|eval|holdout|dev)$")
 
 
 # ---------------------------------------------------------------------------
@@ -51,6 +56,32 @@ def dataset_arg(ctx, call: CallSite):
 
 def loader_name(call: CallSite) -> str:
     return (call.var or "").split(".")[-1]
+
+
+def held_out_key(ctx, call: CallSite):
+    """`(text, key, base ref)` when the dataset argument is `split_dict["test"]`.
+
+    Two facts have to hold together, and neither is enough alone: the subscript
+    base must be a value the analyzer already traced to *data* (so a config
+    dict indexed by a coincidence of spelling is not a dataset), and the key
+    must be a literal naming the held-out half. The result is name evidence,
+    not dataflow evidence, and the caller weighs it as such.
+    """
+    node = call.args[0] if call.args else call.kwarg_nodes.get("dataset")
+    if not isinstance(node, ast.Subscript):
+        return None, None, None
+    key = node.slice
+    if not isinstance(key, ast.Constant) or not isinstance(key.value, str):
+        return None, None, None
+    if not _SPLIT_KEY_RE.match(key.value):
+        return None, None, None
+    base = dotted_text(node.value)
+    if not base:
+        return None, None, None
+    ref = ctx.binding_of(base, call.scope)
+    if ref is None or not ref.has(*DATA_TAGS):
+        return None, None, None
+    return '%s["%s"]' % (base, key.value), key.value, ref
 
 
 def iterating_loops(ctx, call: CallSite) -> List[LoopIR]:
@@ -234,8 +265,12 @@ def eval_loader_shuffled(ctx) -> Iterable[Issue]:
         name, ref = dataset_arg(ctx, call)
         tagged = ref is not None and ref.has("VAL_SPLIT", "TEST_SPLIT")
         named = bool(_EVAL_LOADER_RE.match(loader_name(call)))
+        keyed_text = keyed_key = None
         if not tagged and not named:
-            continue
+            keyed_text, keyed_key, keyed_ref = held_out_key(ctx, call)
+            if keyed_text is None:
+                continue
+            name = keyed_text
         node = ctx.node_for_call(call)
         if node is None:
             continue
@@ -245,6 +280,11 @@ def eval_loader_shuffled(ctx) -> Iterable[Issue]:
                              "%s carries %s from the split"
                              % (ref.name, "/".join(t for t in ref.tags
                                                    if t in ("VAL_SPLIT", "TEST_SPLIT"))), 1.0))
+        elif keyed_key is not None:
+            evidence.append(("name_regex",
+                             "%s indexes %s, which the analyzer traced to data, under "
+                             "the held-out key %r" % (keyed_text, keyed_ref.name,
+                                                      keyed_key), 0.8))
         else:
             evidence.append(("name_regex",
                              "%s only matches the evaluation-loader naming convention"

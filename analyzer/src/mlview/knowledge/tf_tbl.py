@@ -189,9 +189,30 @@ for _root in KERAS_ROOTS:
         "transform", "preprocess", _f, "TRANSFORM")
     KERAS_EXTRA["%s.Sequential" % _root] = E(
         "model", "model", _f, "KERAS_MODEL", ("MODEL",), "keras_model")
+    # GRAPH-R2: the module-level save / load pair, written under three roots
+    # and two sub-namespaces in the wild.
+    for _mid in ("models", "saving"):
+        KERAS_EXTRA["%s.%s.save_model" % (_root, _mid)] = E(
+            "checkpoint", "deliver", _f, "SAVE")
+        KERAS_EXTRA["%s.%s.load_model" % (_root, _mid)] = E(
+            "model", "model", _f, "KERAS_LOAD", ("MODEL",), "keras_model")
+    KERAS_EXTRA["%s.saving.save_weights" % _root] = E(
+        "checkpoint", "deliver", _f, "SAVE")
 
 KERAS_EXTRA_METHODS.update({
     "keras.Model.evaluate": E("eval_loop", "eval", K, "KERAS_EVAL"),
+    # GRAPH-R2. The rest of the `Model` surface a Keras project actually uses.
+    # `export` is the SavedModel / TF-Lite hand-off and had no row at all, so a
+    # Keras repository's Save / Deploy lane was empty however it shipped.
+    "keras.Model.export": E("checkpoint", "deliver", K, "KERAS_EXPORT"),
+    "keras.Model.predict_on_batch": E("predict", "eval", K, "PREDICT", ("PREDS",)),
+    "keras.Model.train_on_batch": E("train_loop", "train", K, "KERAS_FIT"),
+    "keras.Model.test_on_batch": E("eval_loop", "eval", K, "KERAS_EVAL"),
+    "keras.Model.fit_generator": E("train_loop", "train", K, "KERAS_FIT"),
+    "keras.Model.evaluate_generator": E("eval_loop", "eval", K, "KERAS_EVAL"),
+    "keras.Model.predict_generator": E("predict", "eval", K, "PREDICT", ("PREDS",)),
+    "keras.Model.get_layer": E("layer", "model", K, "LAYER", ("MODEL",), "keras_model"),
+    "keras.Model.build": E("model", "model", K, "MODEL_SUMMARY", (), "keras_model", 0.3),
     "keras.Model.save_weights": E("checkpoint", "deliver", K, "SAVE"),
     "keras.Model.load_weights": E("checkpoint", "deliver", K, "LOAD"),
     "keras.Model.summary": E("model", "model", K, "MODEL_SUMMARY"),

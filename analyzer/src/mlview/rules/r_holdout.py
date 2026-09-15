@@ -51,7 +51,8 @@ from .helpers import (KWARG_ABSENT, KWARG_RESOLVED, UNRESOLVED_KWARG_WEIGHT,
                       kwarg_literal, literal_of, note_unresolved_kwarg)
 from .registry import rule
 
-from .holdout_scores import _decided, _prediction_arg, _scored_value
+from .holdout_scores import (_decided, _prediction_arg, _scored_value,
+                             scored_value)
 from .holdout_splits import (_HOLDOUT_PAIR, _augmenting_pipelines, _eval_loaders,
                              _holdout_of, _subset_name, _temporal_signals,
                              _upstream)
@@ -293,7 +294,7 @@ def metric_on_raw_scores(ctx) -> Iterable[Issue]:
             node = _prediction_arg(call)
             if node is None:
                 continue
-            tags, producer, name = _scored_value(ctx, call, node)
+            tags, producer, name, scored_ref = scored_value(ctx, call, node)
             decided = _decided(ctx, node, call)
             if not ({"LOGITS", "PROBS"} & set(tags)):
                 # A value that is visibly argmaxed / rounded / thresholded is
@@ -323,10 +324,14 @@ def metric_on_raw_scores(ctx) -> Iterable[Issue]:
                  "and never judged" % (call.short_name, "roc_auc_score, "
                                        "average_precision_score, log_loss"), 1.0),
             ] + _static(call.scope)
+            # 11.36 G6: only a value this rule had to fetch out of a callee
+            # carries a chain, and only that finding pays for it.
+            evidence.extend(ctx.hops(scored_ref))
             related = [("call_site", call.loc, "the metric is computed here")]
             if producer is not None:
                 related.append(("construction", producer.loc,
                                 "%s is produced here" % name))
+            related.extend(ctx.hop_related(scored_ref))
             issues.append(ctx.issue(
                 message="%s at %s:%d scores %s, which carries %s rather than class "
                         "predictions, so it compares continuous values with integer "
@@ -360,12 +365,15 @@ def ranking_metric_on_hard_labels(ctx) -> Iterable[Issue]:
             node = _prediction_arg(call)
             if node is None:
                 continue
-            tags, producer, name = _scored_value(ctx, call, node)
-            if producer is None or K.role_of(producer.fqn) != "PREDICT":
+            tags, producer, name, scored_ref = scored_value(ctx, call, node)
+            if producer is None or "PREDS" not in tags:
                 continue
-            if "PREDS" not in tags:
+            role = K.role_of(producer.fqn)
+            if role not in ("PREDICT", "ARGMAX"):
                 continue
             anchor = _anchor(ctx, call)
+            source = "predict()" if role == "PREDICT" else (
+                producer.fqn or producer.short_name)
             evidence = [
                 ("fqn_resolved", "%s resolved to %s" % (call.short_name, call.fqn), 1.0),
                 ("dataflow_direct",
@@ -375,13 +383,16 @@ def ranking_metric_on_hard_labels(ctx) -> Iterable[Issue]:
                  "predict_proba carries PROBS and decision_function carries LOGITS; "
                  "neither was used here", 1.0),
             ] + _static(call.scope)
+            evidence.extend(ctx.hops(scored_ref))
+            related = [("call_site", call.loc, "the ranking metric is computed here"),
+                       ("construction", producer.loc,
+                        "%s is produced by %s here" % (name, source))]
+            related.extend(ctx.hop_related(scored_ref))
             issues.append(ctx.issue(
-                message="%s at %s:%d ranks %s, which comes from predict() and holds "
+                message="%s at %s:%d ranks %s, which comes from %s and holds "
                         "hard class labels rather than scores."
-                        % (call.short_name, call.loc.file, call.loc.line, name),
+                        % (call.short_name, call.loc.file, call.loc.line, name, source),
                 loc=call.loc, node_ids=[anchor] if anchor is not None else (),
-                related=[("call_site", call.loc, "the ranking metric is computed here"),
-                         ("construction", producer.loc,
-                          "%s is produced by predict() here" % name)],
+                related=related,
                 evidence=evidence, stage="eval", dynamic=call.scope.is_dynamic))
     return issues

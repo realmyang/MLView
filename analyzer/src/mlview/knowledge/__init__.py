@@ -21,6 +21,8 @@ from .hooks_tbl import (
     LIGHTNING_ROOTS,
     hook_stage,
 )
+from .pandas_tbl import FRAME_ACCESSORS, PANDAS, PANDAS_METHODS
+from .stats_tbl import STATS, STATS_FAMILY_BASE, STATS_METHODS
 from .other_tbl import (
     ARGPARSE_METHODS,
     FRAME_METHODS,
@@ -28,6 +30,7 @@ from .other_tbl import (
     KERAS_METHODS,
     LIGHTNING_METHODS,
     OTHER,
+    WRAP_METHODS,
 )
 from .sklearn_tbl import SKLEARN, SKLEARN_METHODS, STATELESS_TRANSFORMERS
 from .tf_tbl import (
@@ -58,6 +61,9 @@ __all__ = [
     # FW-RECOG (CONTRACTS 11.23) - framework hooks and the model base set
     "HOOK_STAGES", "HOOK_OWNER_BASES", "LIGHTNING_HOOK_ROLES", "LIGHTNING_ROOTS",
     "hook_stage", "MODEL_BASES", "is_model_base",
+    # GRAPH-R2 - pandas beyond the shape-preserving hop, time-series
+    # estimators and metric objects.
+    "FRAME_ACCESSORS", "STATS_FAMILY_BASE",
 ]
 
 #: Every constructor / free function we recognise.
@@ -69,6 +75,8 @@ KNOWLEDGE.update(TFDATA)
 KNOWLEDGE.update(KERAS_EXTRA)
 KNOWLEDGE.update(HF_DATA)
 KNOWLEDGE.update(GBM)
+KNOWLEDGE.update(PANDAS)
+KNOWLEDGE.update(STATS)
 
 #: Every *method* we recognise, keyed by its canonical base FQN.
 METHODS: Dict[str, Entry] = {}
@@ -84,6 +92,9 @@ METHODS.update(KERAS_EXTRA_METHODS)
 METHODS.update(HF_DATA_METHODS)
 METHODS.update(GBM_METHODS)
 METHODS.update(LIGHTNING_METHOD_ENTRIES)
+METHODS.update(PANDAS_METHODS)
+METHODS.update(STATS_METHODS)
+METHODS.update(WRAP_METHODS)
 
 #: Everything, for a single lookup.
 ALL: Dict[str, Entry] = {}
@@ -116,7 +127,11 @@ _PREFIX_RULES: Tuple[Tuple[str, Entry], ...] = (
     ("torchvision.transforms.", E("transform", "preprocess", "torchvision", "TRANSFORM", (), None, 0.8)),
     ("torchvision.datasets.", E("dataset", "data", "torchvision", "DATASET", ("RAW_DATA",), "dataset", 0.8)),
     ("torchvision.models.", E("model", "model", "torchvision", "MODEL_FACTORY", ("MODEL",), "module", 0.8)),
-    ("torchmetrics.", E("metric", "eval", "torchmetrics", "METRIC", (), None, 0.8)),
+    # GRAPH-R2: the `torchmetric` family is what makes `acc.update(...)` /
+    # `acc.compute()` resolve - a metric object with no family answered to
+    # nothing, which is the entire point of holding one.
+    ("torchmetrics.", E("metric", "eval", "torchmetrics", "METRIC", (),
+                        "torchmetric", 0.8)),
     ("sklearn.metrics.", E("metric", "eval", "sklearn", "METRIC", (), None, 0.8)),
     ("sklearn.preprocessing.", E("scaler", "preprocess", "sklearn", "TRANSFORMER", (), "estimator", 0.8)),
     ("sklearn.decomposition.", E("transform", "preprocess", "sklearn", "TRANSFORMER", (), "estimator", 0.8)),
@@ -131,6 +146,8 @@ _PREFIX_RULES: Tuple[Tuple[str, Entry], ...] = (
     ("sklearn.cluster.", E("model", "model", "sklearn", "ESTIMATOR", ("MODEL",), "estimator", 0.8)),
     ("sklearn.datasets.", E("dataset", "data", "sklearn", "DATASET", ("RAW_DATA",), None, 0.8)),
     ("imblearn.", E("transform", "preprocess", "imblearn", "RESAMPLE", (), "estimator", 0.7)),
+    ("statsmodels.tsa.", E("model", "model", "other", "TS_MODEL", ("MODEL",),
+                           "statsmodel", 0.7)),
     ("albumentations.", E("augment", "preprocess", "albumentations", "AUGMENT", (), None, 0.7)),
 ) + TF_PREFIX_RULES
 
@@ -305,6 +322,11 @@ OP_ROLES = frozenset({
     "TFDATA_MAP", "TFDATA_SHUFFLE", "TFDATA_BATCH", "TFDATA_PREFETCH",
     "TFDATA_SUBSET", "TFDATA_OP", "HF_MAP", "HF_SHUFFLE", "HF_DATA_OP",
     "COLLATOR", "CALLBACK", "GBM_TRAIN",
+    # GRAPH-R2 (knowledge/pandas_tbl.py, knowledge/stats_tbl.py). The pandas
+    # families that change what the data means, the time-series estimators and
+    # the metric objects. `FRAME_OP` stays transparent; these do not.
+    "FRAME_TEMPORAL", "FRAME_RESHAPE", "FRAME_WRITE", "TS_FIT", "TS_MODEL",
+    "HF_METRIC", "METRIC_UPDATE", "KERAS_EXPORT", "WRAP_PREPARE",
 })
 
 # ---------------------------------------------------------------------------

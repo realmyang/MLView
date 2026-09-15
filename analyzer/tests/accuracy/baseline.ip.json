@@ -1,85 +1,93 @@
 {
   "calibration": {
     "certain": {
-      "error": 0.0714,
+      "error": 0.0716,
       "fp": 0,
-      "meanConfidence": 0.9286,
-      "n": 35,
+      "meanConfidence": 0.9284,
+      "n": 37,
       "observedPrecision": 1.0,
-      "tp": 35
+      "tp": 37
     },
     "likely": {
-      "error": 0.1842,
+      "error": 0.1805,
       "fp": 0,
-      "meanConfidence": 0.8158,
-      "n": 21,
+      "meanConfidence": 0.8195,
+      "n": 26,
       "observedPrecision": 1.0,
-      "tp": 21
+      "tp": 26
+    },
+    "possible": {
+      "error": 0.372,
+      "fp": 0,
+      "meanConfidence": 0.628,
+      "n": 2,
+      "observedPrecision": 1.0,
+      "tp": 2
     },
     "speculative": {
-      "error": 0.6637,
+      "error": 0.6262,
       "fp": 0,
-      "meanConfidence": 0.3363,
-      "n": 6,
+      "meanConfidence": 0.3737,
+      "n": 8,
       "observedPrecision": 1.0,
-      "tp": 6
+      "tp": 8
     }
   },
   "dataflow": "ip",
   "graphFidelity": {
-    "opsLabelled": 139,
-    "opsRecovered": 127,
-    "score": 0.9137
+    "opsLabelled": 164,
+    "opsRecovered": 163,
+    "score": 0.9939
   },
-  "note": "Re-recorded by Sprint-5 wave 2 (2026-09-10), the `--dataflow ip` twin of `baseline.json`. The move was earned by ANA-10's in-Python config resolution (11.45): module-level dict literals, dataclass field defaults, argparse `default=` and the attribute/subscript chains rooted at them now resolve to literals, so `CFG[\"workers\"]` and `cfg.data.workers` read like `4` does. In this mode: overall recall 0.7821 -> 0.7949, visible 0.7051 -> 0.7179, high+medium 0.7193 -> 0.7368, unseen 0.6383 -> 0.6596, graph fidelity 126 -> 127 of 139 (the `getattr` selection node makes hydra_research's optimizer_for(...) resolve to an optimizer). The single new finding is the same planted defect the local twin gained, MLV201 at hydra_research/src/train.py:35. Precision stays 1.0 and forbidden findings stay 0; config resolution and an interprocedural hop each cost an explicit 0.8 evidence weight, so neither can mint a `certain` finding. H5 (11.42) is finding-neutral by construction and moved nothing here. Recall may only ratchet up; a forbidden finding is never tolerated. Regenerate with `python tools/accuracy.py --dataflow ip --update-baseline` and say in the commit body which change earned the new number.",
+  "note": "Overall recall 0.7949 -> 0.9359, unseen 0.6596 -> 0.8936, high+medium 0.9123, visible 0.8205. This is the DEFAULT mode from this wave on. Recall wave, 2026-09-15 (branch `consolidate`), the whole Track-3 change set, measured against the figures this file carried at main b46a27c. What earned it: (R1) `--dataflow ip` became the product default from the one constant `ir.build_ir.DEFAULT_DATAFLOW` (CONTRACTS 3.11 R1.1-R1.5), `local` stays a shipped, gated opt-out. (R2) two new knowledge tables - `knowledge/pandas_tbl.py` (pandas beyond the shape-preserving hop) and `knowledge/stats_tbl.py` (statsmodels, Prophet, HuggingFace `evaluate`, torchmetrics) - plus the rest of the Keras Model surface and pandas indexer stripping (14.2 F16-F21). Nine new roles, none keyed on by any rule. (R3) `core/workspace_ops.py` draws the three call shapes through workspace-defined objects - constructing a workspace class, invoking one, and a factory's returned object - with `ReturnSlot.opaque` for a factory nobody can follow, and object carriage through dict/tuple literals, dataclass fields, `self.<attr>` and rebinding wrappers (5.3 A7-A12'). (R4) `rules/valuetype.py` types LOGITS/PROBS/PREDS through a workspace helper's `return` and a `.detach().cpu().numpy()` tail for MLV305/306/401/402, which pay one IP_HOP_WEIGHT for the crossing (5.3 A13, 14.2 R19-R21). (R5) interprocedural detection paths for MLV101 (through a return), MLV102 (through a CV fold index) and MLV103 (through a callee), the split-dictionary spelling for MLV111, and two corrections to MLV205's accumulator test (14.2 R13-R18). Graph fidelity 127/139 = 0.9137 -> 163/164 = 0.9939: the denominator moved because hf_no_eval and lightning_manual were hand-labelled with `graph` blocks in the same wave, each recording its provenance in `graph.drawnBy`; scored against the old denominator alone it is 138/139. PRECISION IS UNCHANGED AND IS THE CONSTRAINT: 1.0 with 0 forbidden and 0 unlabelled findings in BOTH dataflow modes, 0 findings on `analyzer/tests/clean` and on `samples/vision_pipeline_clean` in both modes. Recall may only ratchet up; a forbidden finding is never tolerated. Regenerate with `python tools/accuracy.py --update-baseline` and say in the commit body which change earned the new number.",
   "overall": {
     "expectedLabels": 78,
     "falsePositives": 0,
     "highValueLabels": 57,
-    "highValueRecall": 0.7368,
-    "highValueRecovered": 42,
+    "highValueRecall": 0.9123,
+    "highValueRecovered": 52,
     "precision": 1.0,
-    "recall": 0.7949,
-    "recovered": 62,
-    "visibleRecall": 0.7179,
-    "visibleRecovered": 56
+    "recall": 0.9359,
+    "recovered": 73,
+    "visibleRecall": 0.8205,
+    "visibleRecovered": 64
   },
   "perRule": {
     "MLV101": {
       "expected": 11,
-      "f1": 0.8421,
+      "f1": 0.9524,
       "falsePositives": 0,
       "precision": 1.0,
-      "recall": 0.7273,
-      "recovered": 8,
+      "recall": 0.9091,
+      "recovered": 10,
       "unseenExpected": 10,
-      "unseenRecall": 0.7,
-      "unseenRecovered": 7,
+      "unseenRecall": 0.9,
+      "unseenRecovered": 9,
       "visible": 8
     },
     "MLV102": {
       "expected": 2,
-      "f1": 0.6667,
+      "f1": 1.0,
       "falsePositives": 0,
       "precision": 1.0,
-      "recall": 0.5,
-      "recovered": 1,
+      "recall": 1.0,
+      "recovered": 2,
       "unseenExpected": 2,
-      "unseenRecall": 0.5,
-      "unseenRecovered": 1,
-      "visible": 1
+      "unseenRecall": 1.0,
+      "unseenRecovered": 2,
+      "visible": 2
     },
     "MLV103": {
       "expected": 3,
-      "f1": 0.8,
+      "f1": 1.0,
       "falsePositives": 0,
       "precision": 1.0,
-      "recall": 0.6667,
-      "recovered": 2,
+      "recall": 1.0,
+      "recovered": 3,
       "unseenExpected": 2,
-      "unseenRecall": 0.5,
-      "unseenRecovered": 1,
-      "visible": 2
+      "unseenRecall": 1.0,
+      "unseenRecovered": 2,
+      "visible": 3
     },
     "MLV106": {
       "expected": 1,
@@ -107,14 +115,14 @@
     },
     "MLV111": {
       "expected": 3,
-      "f1": 0.8,
+      "f1": 1.0,
       "falsePositives": 0,
       "precision": 1.0,
-      "recall": 0.6667,
-      "recovered": 2,
+      "recall": 1.0,
+      "recovered": 3,
       "unseenExpected": 2,
-      "unseenRecall": 0.5,
-      "unseenRecovered": 1,
+      "unseenRecall": 1.0,
+      "unseenRecovered": 2,
       "visible": 2
     },
     "MLV112": {
@@ -167,15 +175,15 @@
     },
     "MLV205": {
       "expected": 3,
-      "f1": 0.5,
+      "f1": 1.0,
       "falsePositives": 0,
       "precision": 1.0,
-      "recall": 0.3333,
-      "recovered": 1,
+      "recall": 1.0,
+      "recovered": 3,
       "unseenExpected": 2,
-      "unseenRecall": 0.0,
-      "unseenRecovered": 0,
-      "visible": 1
+      "unseenRecall": 1.0,
+      "unseenRecovered": 2,
+      "visible": 3
     },
     "MLV207": {
       "expected": 1,
@@ -215,27 +223,27 @@
     },
     "MLV301": {
       "expected": 4,
-      "f1": 0.6667,
+      "f1": 0.8571,
       "falsePositives": 0,
       "precision": 1.0,
-      "recall": 0.5,
-      "recovered": 2,
+      "recall": 0.75,
+      "recovered": 3,
       "unseenExpected": 3,
-      "unseenRecall": 0.3333,
-      "unseenRecovered": 1,
-      "visible": 1
+      "unseenRecall": 0.6667,
+      "unseenRecovered": 2,
+      "visible": 2
     },
     "MLV302": {
       "expected": 4,
-      "f1": 0.6667,
+      "f1": 0.8571,
       "falsePositives": 0,
       "precision": 1.0,
-      "recall": 0.5,
-      "recovered": 2,
+      "recall": 0.75,
+      "recovered": 3,
       "unseenExpected": 3,
-      "unseenRecall": 0.3333,
-      "unseenRecovered": 1,
-      "visible": 1
+      "unseenRecall": 0.6667,
+      "unseenRecovered": 2,
+      "visible": 2
     },
     "MLV305": {
       "expected": 1,
@@ -263,27 +271,27 @@
     },
     "MLV401": {
       "expected": 3,
-      "f1": 0.5,
+      "f1": 0.8,
       "falsePositives": 0,
       "precision": 1.0,
-      "recall": 0.3333,
-      "recovered": 1,
+      "recall": 0.6667,
+      "recovered": 2,
       "unseenExpected": 2,
-      "unseenRecall": 0.0,
-      "unseenRecovered": 0,
-      "visible": 1
+      "unseenRecall": 0.5,
+      "unseenRecovered": 1,
+      "visible": 2
     },
     "MLV501": {
       "expected": 4,
-      "f1": 0.6667,
+      "f1": 0.8571,
       "falsePositives": 0,
       "precision": 1.0,
-      "recall": 0.5,
-      "recovered": 2,
+      "recall": 0.75,
+      "recovered": 3,
       "unseenExpected": 3,
-      "unseenRecall": 0.3333,
-      "unseenRecovered": 1,
-      "visible": 1
+      "unseenRecall": 0.6667,
+      "unseenRecovered": 2,
+      "visible": 2
     },
     "MLV502": {
       "expected": 1,
@@ -431,17 +439,17 @@
     }
   },
   "programs": 15,
-  "recordedOn": "2026-09-10",
+  "recordedOn": "2026-09-15",
   "unseen": {
     "expectedLabels": 47,
     "falsePositives": 0,
     "highValueLabels": 32,
-    "highValueRecall": 0.5312,
-    "highValueRecovered": 17,
+    "highValueRecall": 0.8438,
+    "highValueRecovered": 27,
     "precision": 1.0,
-    "recall": 0.6596,
-    "recovered": 31,
-    "visibleRecall": 0.5319,
-    "visibleRecovered": 25
+    "recall": 0.8936,
+    "recovered": 42,
+    "visibleRecall": 0.7021,
+    "visibleRecovered": 33
   }
 }

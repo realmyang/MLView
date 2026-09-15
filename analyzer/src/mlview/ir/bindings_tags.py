@@ -123,10 +123,13 @@ def call_output_tags(call: CallSite, scope: ScopeIR) -> Tuple[str, ...]:
             tags.extend(slot.tags)
 
     receiver = call.receiver
-    if role == "FRAME_OP" and receiver is not None:
+    if role in ("FRAME_OP", "FRAME_TEMPORAL", "FRAME_RESHAPE") and receiver is not None:
         # `X = df.drop(columns=[target])` / `.copy()` / `.to_numpy()` keeps the
         # RAW_DATA / FEATURES / TARGET tags `pandas.read_csv` seeded: dropping
         # them on the first hop is what made MLV101 blind to the pandas path.
+        # GRAPH-R2 adds the two families that are drawn rather than folded away
+        # (`shift`, `rolling`, `groupby`, `merge`): a lag column is still the
+        # same feature matrix, so the tags travel exactly as far as they did.
         tags.extend(receiver.tags)
     elif role == "FRAME_MAKE":
         # IP-03: `np.asarray(X)` / `np.concatenate([...])` / `torch.from_numpy(X)`

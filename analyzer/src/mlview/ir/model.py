@@ -148,6 +148,13 @@ class ValueRef:
     #: really exists and really has nothing behind it, so a call *through* this
     #: name can say which construct defeated it instead of vanishing.
     opaque: Optional[str] = None
+    #: GRAPH-R3. The dict / tuple / list **literal** that built this value,
+    #: when it is one. Appended last and defaulted, so nothing that does not
+    #: read it can tell it exists. It is what lets `scaler = ctx["scaler"]` and
+    #: `opt_a, opt_b = optimizers` recover the object a container is carrying -
+    #: see `ir.containers`, which is the only reader. The AST node is the one
+    #: already in `ModuleIR.tree`; nothing is copied and nothing is re-parsed.
+    container: Optional[ast.AST] = None
     #: DATAFLOW-IP. The `ir.provenance.Hop`s this value's tags travelled to get
     #: here, oldest first. Empty in `--dataflow local`, and empty in `ip` for
     #: every value dataflow established inside one scope - which is what lets a

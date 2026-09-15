@@ -13,7 +13,7 @@ from ..ir import config_values as CV
 from ..ir.bindings import binding_of
 from ..ir.model import CallSite, ClassIR, FunctionIR, LoopIR, ModuleIR, ValueRef
 from ..ir.symbols import dotted_text
-from . import config_nodes
+from . import config_nodes, workspace_ops
 from .build_roles import NOT_DRAWN_ROLES, TRANSPARENT_ROLES
 from .graph import Evidence, Node, Port
 from .ids import node_id
@@ -36,13 +36,19 @@ class OpsMixin:
             # F9, applied before the unit shortcuts below: mapping the call
             # onto its class's node is what let a logging call carry edges.
             return
-        # calls into workspace definitions map onto the definition's unit node
+        # calls into workspace definitions map onto the definition's unit node,
+        # unless the construction / factory return says something of its own
+        # (`core/workspace_ops`), in which case the call site gets a box.
         if call.class_ir is not None:
+            if workspace_ops.construction_op(self, call, module) is not None:
+                return
             target = self.scope_unit.get(call.class_ir.scope.qualname)
             if target is not None:
                 self.node_for_call[id(call)] = target
                 return
         if call.target_function is not None:
+            if workspace_ops.factory_op(self, call, module) is not None:
+                return
             target = self.scope_unit.get(call.target_function.scope.qualname)
             if target is not None:
                 self.node_for_call[id(call)] = target
@@ -69,7 +75,11 @@ class OpsMixin:
                 entry = resolved_entry
         role = entry.get("role") if entry else None
         if role in TRANSPARENT_ROLES:
-            return                       # resolved in _resolve_transparent
+            # ... except the outer forward pass: `logits = model(images)` and
+            # `loss = criterion(out, y)` are the two most drawn boxes in any
+            # training diagram, and transparency swallowed both.
+            workspace_ops.invoke_op(self, call, module, entry)
+            return                       # otherwise: _resolve_transparent
         if entry is None or role not in K.OP_ROLES:
             alternatives = CV.alternatives_for(module, call)
             if alternatives is not None:
@@ -247,12 +257,19 @@ class OpsMixin:
             return node
         ref = call.receiver
         if ref is not None:
+            # The **construction site** answers before the class definition:
+            # since `core/workspace_ops` draws `model = SmallCNN()` as its own
+            # op, that node is the instance this chain flows from, and the class
+            # node is where the instance was *declared*. Falling back to the
+            # class keeps every graph that has no construction node unchanged.
+            if ref.producer is not None:
+                through = self._through(ref.producer, depth + 1)
+                if through is not None:
+                    return through
             if ref.class_ir is not None:
                 unit = self.scope_unit.get(ref.class_ir.scope.qualname)
                 if unit is not None:
                     return unit
-            if ref.producer is not None:
-                return self._through(ref.producer, depth + 1)
         return None
 
     # --------------------------------------------------------------- stages
