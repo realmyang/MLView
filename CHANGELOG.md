@@ -97,6 +97,17 @@ reported as such rather than quoted as a pass.
 `check_docs.py` **DOC CHECK OK**; `perf_equiv.py --expect-diff` against `main`
 **exit 0** and `--expect-same` **exit 1**, which is §3.11 R1.4's stated result.
 
+**CI on this push.** Run **34922905647** created exactly the seven cheap-tier
+jobs and marked all five full-tier jobs `skipped` — C6's split working, for the
+third push running — and every one of the seven failed with **zero steps
+executed**, under the annotation the three previous pushes carry: *"The job was
+not started because recent account payments have failed or your spending limit
+needs to be increased"*. `gh run rerun --failed` reproduced it exactly, seven for
+seven, so the block is the account's and is not this branch's to fix. **No gate
+in this entry was therefore verified on CI**; every one was run on this Mac, and
+the figures above are that run. Still uncovered anywhere: Python 3.10, 3.11 and
+3.12, the Windows and macOS runners, and the five full-tier jobs.
+
 ---
 
 ## Unreleased — recall (2026-09-15)
