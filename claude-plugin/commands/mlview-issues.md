@@ -195,11 +195,13 @@ occurrences", never "10 issues found" when there are twelve groups.
 **A single file is not a project.** When the target path is one `.py` file, four
 rules (MLV301, MLV302, MLV401, MLV501) cannot fire at all, because each needs a
 sibling module — measured: 3 findings for `train.py` where its directory yields 7.
-The payload then carries a `coverage` row of kind `single_file_analysis`, and one of
+The payload then carries a `coverage` row of kind `single_file_analysis`, one of
 kind `untagged_dataflow` when a key argument could not be traced so the leakage
-rules could not check it. When either appears, add one line after the table naming
-the rules from that row's `codes` — quote them, do not guess — and never present the
-result as a clean file; its `count` is blind spots, not rules. Prefer running on the containing directory and passing
+rules could not check it, and one of kind `framework_suppressed` when a framework
+filter narrowed the rule set. When any of them appears, add one line after the table
+naming the rules from that row's `codes` — quote them, do not guess — and never
+present the result as a clean file; its `count` is blind spots or suppressed rule
+codes, not rules that ran and found nothing. Prefer running on the containing directory and passing
 ` --scope file:<name>.py`: that recovers those rules and still answers about the
 one file.
 

@@ -53,7 +53,12 @@ const PROJECTS = [
   path.join(CORPUS, 'hf_no_eval'),
   path.join(CORPUS, 'gbm_tabular'),
   path.join(CORPUS, 'timeseries_split'),
-  path.join(CORPUS, 'amp_accumulation')
+  path.join(CORPUS, 'amp_accumulation'),
+  // Carries an `untagged_dataflow` caveat under the `ip` default, which is what keeps
+  // the coverage test below from going vacuous: before `--dataflow ip` became the
+  // default (CONTRACTS §3.11 R1.1) four of the twelve above carried one, and none does
+  // now — a wider analysis is exactly an analysis with fewer blind spots to report.
+  path.join(CORPUS, 'adv_asr_ctc_bad')
 ].filter((p) => fs.existsSync(p));
 
 const PYTHON = process.env.MLVIEW_TEST_PYTHON || 'python3';
@@ -185,7 +190,7 @@ maybe('every unit and every file in every project yields a well-formed scope sel
 });
 
 maybe('a document carrying a coverage caveat never reaches the user as a clean bill of health', () => {
-  const KINDS = ['single_file_analysis', 'untagged_dataflow'];
+  const KINDS = ['single_file_analysis', 'untagged_dataflow', 'framework_filter'];
   let sawOne = false;
   for (const project of PROJECTS) {
     const graph = graphOf(project);

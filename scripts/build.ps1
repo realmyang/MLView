@@ -4,7 +4,7 @@
 #
 # 1. webview          npm install + npm run build       -> webview/dist/mlview.{js,css}
 # 2. tools/sync-assets.py                               -> the extension and the analyzer get the SAME bundle
-# 3. tools/sync-core.py                                 -> claude-plugin/vendor/mlview (no pip install for the plugin)
+# 3. tools/sync-core.py                                 -> claude-plugin/vendor/mlview (tracked) + vscode-extension/core/mlview (BUILT, gitignored)
 # 4. vscode-extension npm install + compile + check     -> out/extension.js, tsc clean
 # 5. analyzer         pip install -e                    -> `python -m mlview` on this interpreter
 #
@@ -74,6 +74,9 @@ $global:LASTEXITCODE = 0
 Assert-Ok 'sync-assets'
 
 # ------------------------------------------------------------------ 3. sync core
+# C2: the extension's copy is a gitignored BUILD ARTIFACT, so this step is the
+# only thing that puts it on disk for a fresh clone (npm run compile in step 4
+# runs the same script through vscode-extension/tools/sync-core.mjs).
 Write-Head '3/6 tools/sync-core.py -- vendor the analyzer into the plugin AND the extension'
 $global:LASTEXITCODE = 0
 & $Python (Join-Path $RepoRoot 'tools/sync-core.py')

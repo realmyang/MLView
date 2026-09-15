@@ -136,7 +136,18 @@ CURRENT_GLOBS = ("README.md", "docs/STATUS.md", "docs/ACCURACY.md",
 # never held to this gate at all.
 PLAN_GLOBS = ("docs/ARCHITECTURE.md", "docs/REQUIREMENTS.md",
               "docs/ISSUE_RULES.md", "docs/UX_DESIGN.md")
-SKIP = {"docs/CONTRACTS.md"}
+# `docs/CONTRACTS.md` is normative and carries the dated measurements of every
+# amendment folded into it; a gate that forced those to be rewritten would make
+# its own §17 errata impossible, which is why every figure in it names the
+# command that settles it instead (CONTRACTS v1.1 §16.4).
+#
+# `docs/archive/` is the same decision one step further: an archived spec must
+# keep, byte for byte, the text the rest of the tree was built against. Nothing
+# under it is collected by the globs above today (they reach one directory deep);
+# the entries below are belt and braces for the day one of them widens.
+SKIP = {"docs/CONTRACTS.md",
+        "docs/archive/README.md",
+        "docs/archive/CONTRACTS-v1.0-amended.md"}
 
 PATH_RE = re.compile(r"`([^`\s]+/[^`\s]*)`")
 LINK_RE = re.compile(r"\[[^\]]*\]\(([^)\s]+)\)")

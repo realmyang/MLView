@@ -8,9 +8,10 @@
  * Two behaviours live here in full because they are keyboard behaviours and
  * nothing else calls them:
  *
- *  - THE Escape cascade, in this exact order — shortcut sheet -> focus mode ->
- *    scope -> selection -> blur. One owner writes that order ONCE
- *    (CONTRACTS 11.13); whichever rung fires also stops the flow it owned.
+ *  - THE Escape cascade, in this exact order — shortcut sheet -> legend ->
+ *    focus mode -> scope -> selection -> blur. One owner writes that order ONCE
+ *    (CONTRACTS v1.1 §10.1, which is where v1.0 §11.13 now lives); whichever
+ *    rung fires also stops the flow it owned.
  *  - `e` / `Shift+E`, which walk the selection's connections over the LIVE
  *    routes, so only routes present in the current projection are ever selected
  *    (CONTRACTS 11.14 C4). A cached incident list would focus a route that is no
@@ -40,6 +41,9 @@ export interface KeyContext {
   move(key: string): void;
   /** VIEW-10: the legend panel and the flow animation, both keyboard-reachable. */
   toggleLegend(): void;
+  /** Whether the legend is showing — its rung of the Escape cascade. */
+  legendOpen(): boolean;
+  closeLegend(): void;
   toggleFlow(): void;
   toggleSeverity(sev: Severity): void;
   toggleRail(): void;
@@ -63,6 +67,11 @@ export function commandPortFor(ctx: KeyContext): CommandPort {
     dismissTopmost: () => {
       if (ctx.closeScopePicker()) return;
       if (ctx.sheetOpen()) ctx.toggleShortcuts(false);
+      // The legend is a PANEL over the diagram, opened with `l` and closed with
+      // its own [x] — and Escape is what a reader presses at a panel. It sits
+      // above focus mode because it is the shallower thing on screen: dismissing
+      // it must never also throw away the focus, scope or selection underneath.
+      else if (ctx.legendOpen()) ctx.closeLegend();
       else if (ctx.view().isFocusLocked) ctx.view().toggleFocusMode(ctx.selection());
       else if (ctx.scopeSpec()) ctx.setScope(null);
       else if (ctx.selection()) {

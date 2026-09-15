@@ -33,7 +33,12 @@ def _slot_key(slot) -> Any:
     if slot is None:
         return None
     cls = getattr(slot, "class_ir", None)
-    return (slot.fqns, slot.tags, cls.qualname if cls is not None else None)
+    return (slot.fqns, slot.tags, cls.qualname if cls is not None else None,
+            getattr(slot, "opaque", None),
+            # REC-04: the container slots a `return` carries are state too, so a
+            # round that first resolves one must not look like a fixed point.
+            tuple(sorted(k for k, _v in getattr(slot, "entries", ()) or ())),
+            len(getattr(slot, "elements", ()) or ()))
 
 
 def summary_key(summary) -> Any:

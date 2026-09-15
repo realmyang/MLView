@@ -205,13 +205,22 @@ def _load_validator():
 
 
 # ------------------------------------------------------------------- run
-def _cli_argv(python: str, target: str, json_out: str, mode: str,
+def _cli_argv(python: str, target: str, json_out: str, dataflow: str,
               notebooks: bool) -> List[str]:
+    """The exact command line one target/mode pair is analysed with.
+
+    `--dataflow` is passed EXPLICITLY for both values, never left to the CLI's
+    default. This grid exists to compare the two dataflow modes against each
+    other, and the moment one of them became the default (R1), a column that
+    said nothing was no longer a column that meant `local` — it meant "whatever
+    the default is today", i.e. the same run as the other column under a
+    different name, with the report's own `argv` field unable to show it.
+    """
+    if dataflow not in ("local", "ip"):
+        raise CorpusError("unknown dataflow mode %r (expected local or ip)" % dataflow)
     argv = [python, "-X", "utf8", "-m", "mlview", "analyze", target,
             "--json", json_out, "--format", "summary", "--no-cache",
-            "--no-color"]
-    if mode == "ip":
-        argv += ["--dataflow", "ip"]
+            "--no-color", "--dataflow", dataflow]
     if notebooks:
         argv += ["--include-notebooks"]
     return argv
@@ -281,6 +290,9 @@ def run_one(repo: Dict[str, Any], target: str, mode: str, dest_root: str,
     slug = "%s__%s__%s" % (repo["name"],
                            target.replace("/", "_").replace(".", "root"), mode)
     json_out = os.path.join(out_dir, slug + ".json")
+    # Three columns, two dataflow modes: `notebooks` is a `local` run that also
+    # reads `.ipynb`. Both dataflow spellings go on the command line explicitly,
+    # so the report's `argv` records what ran rather than what the default was.
     argv = _cli_argv(python, abs_target, json_out,
                      "ip" if mode == "ip" else "local", notebooks)
     env = dict(os.environ)

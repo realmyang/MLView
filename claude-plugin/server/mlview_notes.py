@@ -25,17 +25,29 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional, Sequence
 
 #: The ``Diagnostic.kind`` values this host reads as coverage caveats. Closed, and
-#: in the order a payload renders them: the two the ANALYZER emits lead, because
-#: they say what the run could not see; the one this HOST emits follows, because
+#: in the order a payload renders them: the three the ANALYZER emits lead, because
+#: they say what the run could not see; the one this HOST derives follows, because
 #: it says what the caller asked not to run.
 #:
-#: ``framework_suppressed`` is one entry longer than `coverage.ts`'s list, and
-#: only HALF of that kind belongs here — see :func:`is_framework_filter_note`. The
-#: VS Code extension never passes a framework filter (nothing in
-#: `vscode-extension/src` or its `package.json` settings sends one), so no
-#: document it reads can carry the half that is a coverage caveat, and the lists
-#: have not drifted.
-COVERAGE_KINDS = ("single_file_analysis", "untagged_dataflow", "framework_suppressed")
+#: CONTRACTS §2.6 C9 as restated by §17 E40 is a SUBSET rule, not an equality: no
+#: coverage kind the core emits may be dropped by a host, and each extra kind a
+#: host lists is named in the contract. ``framework_filter`` is the core's — it
+#: arrived with C8 and dropping it would have let a run the MODEL ITSELF narrowed
+#: come back as a clean bill of health. ``framework_suppressed`` is the extra one,
+#: and only HALF of that kind belongs here — see :func:`is_framework_filter_note`.
+#:
+#: The two say the SAME cost when both are present, which is why
+#: :func:`mlview_workspace.note_framework_suppression` stands its own note down
+#: when the analyzer has already made the statement: §11.4 C3 forbids a reader
+#: adding the two counts together, and the way to make that impossible is to
+#: never write both. The host's note survives only where the analyzer was silent —
+#: a ``graph.json`` cached by a build older than C8.
+COVERAGE_KINDS = (
+    "single_file_analysis",
+    "untagged_dataflow",
+    "framework_filter",
+    "framework_suppressed",
+)
 
 #: Every message :func:`mlview_workspace.framework_suppression` writes begins with
 #: this, and no other producer of the kind does.
@@ -163,6 +175,10 @@ _DEFAULT_MESSAGES = {
         "A key argument carried no dataflow tag, so the leakage rules could not "
         "check it - a gap in coverage, not a clean result."
     ),
+    "framework_filter": (
+        "A --framework filter narrowed the rule set, so rules the detected "
+        "frameworks would have run did not - a filtered answer, not a clean one."
+    ),
 }
 
 #: For a kind with no sentence of its own: says the run was incomplete and nothing
@@ -190,14 +206,32 @@ def coverage_notes(graph: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
     ``diagnostics`` tally, and nothing here invents a caveat the analyzer did not
     emit.
     """
+    diagnostics = (graph or {}).get("diagnostics") or []
+    # C8 gave the ANALYZER the same statement this host has derived since 11.57:
+    # `framework_filter` names the codes a `--framework` filter dropped, from the
+    # same registry, and the host's `framework_suppressed` filter note names them
+    # again. CONTRACTS §11.4 C3 forbids a reader adding the two counts together;
+    # rendering both here is what would invite it, and the note built from this
+    # block read "MLV121, MLV705, MLV709 could not run" twice in one sentence.
+    # The analyzer's is the one kept - it is the producer that ran the rules - and
+    # the host's survives in `diagnostics` (where 11.57 B1's gates read it) and
+    # renders whenever the analyzer was silent: a `graph.json` cached by a build
+    # older than C8, which `analyzer_identity()` still serves.
+    analyzer_said_it = any(
+        isinstance(e, dict) and e.get("kind") == "framework_filter"
+        for e in diagnostics
+    )
     by_kind: Dict[str, Dict[str, Any]] = {}
-    for entry in (graph or {}).get("diagnostics") or []:
+    for entry in diagnostics:
         kind = entry.get("kind")
         if kind not in COVERAGE_KINDS:
             continue
-        if kind == "framework_suppressed" and not is_framework_filter_note(entry):
-            # The analyzer's absence gate, not a filter: those rules ran.
-            continue
+        if kind == "framework_suppressed":
+            if not is_framework_filter_note(entry):
+                # The analyzer's absence gate, not a filter: those rules ran.
+                continue
+            if analyzer_said_it:
+                continue
         codes = [c for c in (entry.get("codes") or []) if isinstance(c, str)]
         note = by_kind.get(kind)
         if note is None:

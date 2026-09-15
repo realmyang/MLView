@@ -222,13 +222,23 @@ def test_the_payload_names_the_rules_the_filter_disabled(project):
     assert filtered["stats"]["issues"]["high"] == 0, "the shorter answer, as measured"
 
     # The tally is a per-KIND sum, and this workspace has two statements under
-    # that one kind: the analyzer's absence gate (1 rule de-rated) and this
-    # filter (3 rules not run). 1 + 3 is what a tally of occurrences means, and
-    # it is why the tally is documented as "not an explanation" - the coverage
-    # row below is the statement, and it names the three.
-    assert filtered["diagnostics"] == [{"kind": "framework_suppressed", "count": 4}]
+    # `framework_suppressed`: the analyzer's absence gate (1 rule de-rated) and
+    # this host's filter note (3 rules not run). 1 + 3 is what a tally of
+    # occurrences means, and it is why the tally is documented as "not an
+    # explanation" - the coverage row below is the statement, and it names the
+    # three. `framework_filter` is C8's: the ANALYZER naming the same three, which
+    # is why exactly one of the two reaches the coverage block (§11.4 C3).
+    assert filtered["diagnostics"] == [
+        {"kind": "framework_suppressed", "count": 4},
+        {"kind": "framework_filter", "count": 3},
+    ]
+    assert len(filtered["coverage"]) == 1, (
+        "one cost, one row: the analyzer's `framework_filter` and this host's "
+        "`framework_suppressed` name the same three rules, and a reader who saw "
+        "both would be invited to add 3 and 3"
+    )
     row = filtered["coverage"][0]
-    assert row["kind"] == "framework_suppressed"
+    assert row["kind"] == "framework_filter", "the producer that ran the rules wins"
     assert row["codes"] == TORCH_ON_KERAS
     assert row["count"] == 3
     for code in TORCH_ON_KERAS:
@@ -362,8 +372,8 @@ def test_every_accepted_filter_fits_the_coverage_block_uncut(framework):
     assert len(rendered["codes"]) <= notes.MAX_CODES
 
 
-def test_all_three_coverage_kinds_fit_one_payload():
-    """The block is protected from the budget walk, so it has to stay bounded."""
+def _widest_graph(with_framework_filter):
+    """A document carrying every coverage kind this host reads, at full width."""
     graph = synthetic_graph(nodes=8, edges=4, issues=60)
     graph["diagnostics"] = [
         {"kind": "single_file_analysis", "message": "x" * 500,
@@ -374,13 +384,50 @@ def test_all_three_coverage_kinds_fit_one_payload():
             {"workspace": {"frameworks": ["torch", "keras", "tf"]}}, "lightning"
         ),
     ]
-    payload = payloads.issues_payload(graph)
-    assert [row["kind"] for row in payload["coverage"]] == list(notes.COVERAGE_KINDS)
+    if with_framework_filter:
+        graph["diagnostics"].append(
+            {"kind": "framework_filter", "message": "z" * 500,
+             "codes": ["MLV121", "MLV705"], "count": 2}
+        )
+    return graph
+
+
+@pytest.mark.parametrize("with_framework_filter", [False, True])
+def test_the_widest_coverage_block_fits_one_payload(with_framework_filter):
+    """The block is protected from the budget walk, so it has to stay bounded.
+
+    Three rows either way, never four: `framework_filter` and the filter half of
+    `framework_suppressed` are two statements of ONE cost (CONTRACTS §11.4 C3),
+    so whichever is present renders and the other does not.
+    """
+    payload = payloads.issues_payload(_widest_graph(with_framework_filter))
+    filter_kind = "framework_filter" if with_framework_filter else "framework_suppressed"
+    assert [row["kind"] for row in payload["coverage"]] == [
+        "single_file_analysis", "untagged_dataflow", filter_kind,
+    ]
     assert budget.payload_size(payload) <= LIMIT
     for row in payload["coverage"]:
         assert len(row["codes"]) <= notes.MAX_CODES
         assert len(row["message"]) <= notes.MAX_MESSAGE
-    assert "framework_suppressed" in payload["note"]
+    assert filter_kind in payload["note"]
+
+
+def test_every_kind_this_host_reads_is_one_the_core_or_this_host_emits():
+    """CONTRACTS §2.6 C9 as restated by §17 E40: a SUBSET rule plus a naming one.
+
+    No coverage kind the core emits may be dropped by a host, and each EXTRA kind
+    a host lists is named in the contract. `framework_suppressed` is the one extra
+    and §11.4 B1 is where it is named.
+    """
+    from mlview.core import coverage as core_coverage
+
+    assert set(core_coverage.COVERAGE_KINDS) <= set(notes.COVERAGE_KINDS), (
+        "a kind the analyzer emits as coverage and this host drops is a caveat "
+        "the model never sees"
+    )
+    assert set(notes.COVERAGE_KINDS) - set(core_coverage.COVERAGE_KINDS) == {
+        "framework_suppressed"
+    }
 
 
 def test_a_kind_with_no_wording_of_its_own_borrows_no_other_kinds_explanation():

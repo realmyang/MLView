@@ -1,0 +1,164 @@
+/*
+ * MLV-P1 — the Pipeline Answer Card, pinned above the canvas, and the one
+ * scroll-shadow rule it shares with the legend body.
+ *
+ * Last of the four `chrome*.css` layers (build.mjs), which is where it has
+ * always sat: the shared rule at the foot has to come after both of the
+ * surfaces it applies to.
+ */
+
+/*
+ * MLV-P1 — the Pipeline Answer Card, pinned above the canvas.
+ *
+ * `order: -1` lifts it above the canvas VISUALLY while it stays after the
+ * canvas in DOM order, which is what keeps the canvas within four Tab presses
+ * of the top of the document (VIEW-12).
+ */
+.mlv-answers {
+  order: -1;
+  flex: none;
+  max-height: 40%;
+  overflow: auto;
+  border-bottom: 1px solid var(--mlv-border);
+  background: var(--mlv-surface);
+}
+
+.mlv-answers[hidden] {
+  display: none;
+}
+
+.mlv-answers__head {
+  display: flex;
+  align-items: center;
+  gap: var(--mlv-s3);
+  width: 100%;
+  padding: var(--mlv-s3) var(--mlv-s5);
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mlv-answers__head:hover {
+  background: var(--mlv-surface-2);
+}
+
+.mlv-answers__head .mlv-uicon {
+  flex: none;
+  transition: transform var(--mlv-dur-1) var(--mlv-ease);
+}
+
+.mlv-answers.is-open .mlv-answers__head .mlv-uicon {
+  transform: rotate(90deg);
+}
+
+.mlv-answers__title {
+  color: var(--mlv-text);
+  font-size: var(--mlv-fs-12);
+  font-weight: var(--mlv-fw-semi);
+}
+
+.mlv-answers__count {
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-11);
+}
+
+.mlv-answers__body[hidden] {
+  display: none;
+}
+
+.mlv-answers__list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--mlv-s3) var(--mlv-s5);
+  margin: 0;
+  padding: 0 var(--mlv-s5) var(--mlv-s4);
+  list-style: none;
+}
+
+.mlv-answers__item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.mlv-answers__q {
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-10);
+  letter-spacing: var(--mlv-track-caps);
+  text-transform: uppercase;
+}
+
+/*
+ * HOSTS-UX-ANSWERWRAP — a workspace-relative path is ONE token, and it must be
+ * allowed to break.
+ *
+ * `.mlv-answers__list` is a grid of `minmax(260px, 1fr)` columns and an answer
+ * cites its evidence as `dir/dir/file.py:205`, which offers no break
+ * opportunity at all. MEASURED at 1600x1000 on DeepLearningExamples: the "How
+ * is it evaluated?" sentence was scrollWidth 391 in a clientWidth 295 column
+ * and, the item being `overflow: visible`, was PAINTED OVER the answer beside
+ * it — "…image_classification/training.py:205" and "MLV803 (low) at"
+ * composited into "…/tMLIVN803G.(low)205at". 7 of 90 real reports did it, at
+ * both viewports.
+ *
+ * `anywhere` rather than `break-word` on purpose: only `anywhere` lowers the
+ * element's MIN-CONTENT width, which is what lets the grid column and the
+ * flex-item citation buttons actually shrink to the space they were given. It
+ * is also inherited, so the `.mlv-link` inside the citation row breaks with it.
+ * `.mlv-insp__fqn` has solved the same problem since VW-02.
+ */
+.mlv-answers__sentence {
+  margin: 0;
+  color: var(--mlv-text);
+  font-size: var(--mlv-fs-12);
+  overflow-wrap: anywhere;
+}
+
+.mlv-answers__cites {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--mlv-s3);
+  font-family: var(--mlv-font-mono);
+  font-size: var(--mlv-fs-10);
+  overflow-wrap: anywhere;
+}
+
+/*
+ * HOSTS-UX-ANSWERSCROLL — a panel that scrolls says so, in both themes.
+ *
+ * `.mlv-answers` is `max-height: 40%; overflow: auto`. MEASURED in Chromium:
+ * at 1600x1000 the four answers fit (host 204 px, scrollHeight 203); at
+ * 1280x800 the list reflows to two rows and the host is 258 px with a
+ * scrollHeight of 317 — 59 px of content behind a macOS OVERLAY scrollbar,
+ * which is invisible until you scroll. The fourth answer ended on screen at
+ * "…Fix first: MLV702 (high) at model.py:34, MLV101 (high) at" (40 of its 72 px
+ * drawn) and its citation row was 0 of 16 px. At 1024x768 it was 245 px of 357.
+ * `.mlv-legend__body` scrolls the same way and was cut the same way.
+ *
+ * The cue is the classic two-layer scroll shadow, and it is honest by
+ * construction: the covering gradients are `background-attachment: local`, so
+ * they travel with the content and hide the edge shadow exactly when that end
+ * of the content is reached. No JavaScript, no measurement, nothing to keep in
+ * step with a re-render — a panel that fits shows no shadow at all.
+ *
+ * `scrollbar-gutter: stable` reserves the classic scrollbar's width so a
+ * scrollbar that does appear never lands on top of a sentence.
+ */
+.mlv-answers,
+.mlv-legend__body {
+  background-color: var(--mlv-surface);
+  background-image:
+    linear-gradient(to bottom, var(--mlv-surface) 30%, transparent),
+    linear-gradient(to top, var(--mlv-surface) 30%, transparent),
+    linear-gradient(to bottom, var(--mlv-border-strong), transparent),
+    linear-gradient(to top, var(--mlv-border-strong), transparent);
+  background-repeat: no-repeat;
+  background-size: 100% 24px, 100% 24px, 100% 8px, 100% 8px;
+  background-position: top, bottom, top, bottom;
+  background-attachment: local, local, scroll, scroll;
+  scrollbar-gutter: stable;
+}

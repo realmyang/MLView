@@ -24,13 +24,35 @@
  *   ----------+----------------+----------------------------------------------
  *   yes       | either         | COPY: clipboard + a toast carrying an
  *   no        | no             | COPY: "Open in VS Code" anchor, target=_blank
- *   no        | yes            | LAUNCH: hidden iframe -> OS protocol handler,
- *             |                | with the copy + toast as the 400 ms fallback
+ *   no        | yes            | LAUNCH: a transient SEPARATE browsing context
+ *             |                | -> OS protocol handler, closed again, with the
+ *             |                | copy + toast as the fallback
  *
  * The anchor in the copy toast is deliberate: a host that permits the protocol
  * still gets a one-click jump, and a sandbox WITHOUT `allow-popups` merely drops
  * the click on the floor — silently, into a new browsing context, leaving the
  * report exactly where it was. That is the whole difference from the old path.
+ *
+ * On that "SEPARATE" in the LAUNCH row (MLV-R3-WEB-H2). The launch used to go
+ * through a hidden `<iframe src="vscode://...">` appended to this document. It
+ * never moved the page — and it still killed the report: measured in Chrome 141
+ * on macOS, ONE node click in a `file://` report left the document receiving NO
+ * keydown at all, ever again. A capture listener on `document` recorded zero
+ * events; `l`, `?`, `f`, `s`, `[`, `]`, `e`, the arrows and Escape were all
+ * dead, and nothing brought them back: not removing the frame, not focusing the
+ * canvas, not `window.focus()`, not clicking the background, not navigating the
+ * frame to `about:blank` first. The cause is not the frame but the LAUNCH: the
+ * same page with `location.href = 'vscode://…'` dies identically, while the
+ * same frame pointed at an UNREGISTERED scheme (`zzqq://…`) does not die at all.
+ * Handing the URL to the OS costs the launching browsing context its keyboard.
+ *
+ * So the launch is done in a context this report can afford to lose: a named,
+ * transient window opened for the URL and closed again ~700 ms later. It is not
+ * a navigation of this document (CONTRACTS 11.17 is untouched — the page stays
+ * exactly where it is, the diagram is never replaced), it is detectable when a
+ * host refuses it (`window.open` returns null, which the silent iframe could
+ * never report), and the name means a run of "Go to" clicks reuses the one
+ * context instead of stacking them.
  */
 
 import { el, on } from './dom.js';
@@ -274,54 +296,104 @@ function isLocalDocument(): boolean {
 }
 
 /**
- * Hand a URL to the OS protocol handler through a hidden iframe.
- *
- * A child frame's navigation to an external scheme invokes the handler exactly
- * as a top-level one does, but anything that goes wrong replaces a 0x0 element
- * that is removed a moment later — the report itself is never the thing that
- * moves. This is the ONLY place the deep link is navigated to at all, and it is
- * reached only when the document is top-level AND local.
+ * The name of the one transient context a launch may own. Named rather than
+ * `_blank`, so a run of "Go to" clicks REUSES it: the old frame sweep (R3-DL-03)
+ * exists here as a property of the target name, plus the explicit close below.
  */
-function launchDeepLink(url: string): void {
+const LAUNCH_TARGET = 'mlview-deeplink';
+
+/**
+ * How long that context is kept. Long enough for the browser to commit the
+ * navigation and hand the URL to the OS; short enough that it is gone before the
+ * reader has looked at it.
+ */
+const LAUNCH_CLOSE_MS = 700;
+
+/**
+ * The old 400 ms blur probe, moved behind the close. The clipboard fallback
+ * needs THIS document focused — `execCommand('copy')` fails in an unfocused one
+ * — and the transient context holds focus until it is closed.
+ */
+const LAUNCH_FALLBACK_MS = LAUNCH_CLOSE_MS + 200;
+
+let launchWindow: Window | null = null;
+let launchTimer: any = null;
+
+/** Close the transient context, if this report still owns one. */
+function closeLaunchWindow(): void {
+  if (launchTimer) {
+    clearTimeout(launchTimer);
+    launchTimer = null;
+  }
+  const win = launchWindow;
+  launchWindow = null;
+  if (!win) return;
   try {
-    if (!url) return;
-    if (typeof document === 'undefined' || !document.body) return;
-    // The removal timeout below never prevented ACCUMULATION, whatever its
-    // comment used to claim: six "Go to" clicks inside 1500 ms left six frames
-    // attached — six simultaneous OS protocol invocations, i.e. six "Open Visual
-    // Studio Code?" prompts (R3-DL-03). One at a time, newest wins.
-    const stale = document.querySelectorAll('iframe.mlv-deeplink');
-    for (let i = 0; i < stale.length; i++) {
-      const old = stale[i];
-      if (old.parentNode) old.parentNode.removeChild(old);
-    }
-    const frame = document.createElement('iframe');
-    frame.className = 'mlv-deeplink';
-    frame.hidden = true;
-    frame.setAttribute('aria-hidden', 'true');
-    frame.setAttribute('tabindex', '-1');
-    frame.setAttribute('title', 'Opening in VS Code');
-    frame.style.position = 'fixed';
-    frame.style.width = '0';
-    frame.style.height = '0';
-    frame.style.border = '0';
-    frame.style.opacity = '0';
-    frame.src = url;
-    document.body.appendChild(frame);
-    // Long enough for the handler to be invoked. A rapid sequence of "Go to"
-    // clicks is handled by the sweep above, not by this delay.
-    setTimeout(() => {
-      if (frame.parentNode) frame.parentNode.removeChild(frame);
-    }, 1500);
+    if (!win.closed) win.close();
   } catch (_e) {
-    /* the OS hand-off is best effort; the 400 ms fallback still copies */
+    /* a context this document no longer owns closes itself, or stays */
+  }
+}
+
+/**
+ * Put focus back where the gesture started — never on `<body>` (11.17.1 D4).
+ *
+ * Only the ELEMENT is refocused. `window.focus()` is not called: a document
+ * cannot reliably ask for the window back, the browser hands it to the opener
+ * when the transient context closes, and in a host without it the call is noise
+ * on the console — which library code does not make.
+ */
+function restoreLaunchFocus(previous: HTMLElement | null): void {
+  if (!previous || !previous.isConnected || typeof previous.focus !== 'function') return;
+  if (typeof document === 'undefined' || !document) return;
+  // Only when focus was DROPPED. 700 ms is long enough for the reader to have
+  // moved on — into the search box, into the rail — and a viewer that yanks
+  // focus back out of what someone is typing in is worse than the thing this
+  // repairs.
+  const active = document.activeElement as HTMLElement | null;
+  if (active && active !== document.body && active !== document.documentElement) return;
+  try {
+    previous.focus();
+  } catch (_e) {
+    /* the element may have been re-rendered while the launch stood */
+  }
+}
+
+/**
+ * Hand a URL to the OS protocol handler from a context that is NOT this one.
+ *
+ * Returns whether a context was actually created: a popup blocker, a host with
+ * no `window.open`, or a refusal all report themselves here, which is the one
+ * thing the hidden iframe could never do — it failed silently and left the
+ * reader with nothing. This document is not navigated, not replaced and not
+ * moved; it simply is not the context that spends its keyboard on the hand-off.
+ */
+function launchDeepLink(url: string): boolean {
+  try {
+    if (!url) return false;
+    if (typeof window === 'undefined' || typeof window.open !== 'function') return false;
+    const previous =
+      typeof document !== 'undefined' && document ? (document.activeElement as HTMLElement | null) : null;
+    closeLaunchWindow();
+    const win = window.open(url, LAUNCH_TARGET);
+    if (!win) return false;
+    launchWindow = win;
+    launchTimer = setTimeout(() => {
+      launchTimer = null;
+      closeLaunchWindow();
+      restoreLaunchFocus(previous);
+    }, LAUNCH_CLOSE_MS);
+    return true;
+  } catch (_e) {
+    return false;
   }
 }
 
 /**
  * Open a location. The document is NEVER navigated (CONTRACTS 11.17): there is
  * no `anchor.click()` on a same-frame link and no `location.href` assignment
- * anywhere on this path.
+ * anywhere on this path — and since MLV-R3-WEB-H2, no browsing context inside
+ * this document either.
  */
 function openInEditor(absFile: string, file: string, line: number, col: number): void {
   const plan = deepLinkPlan({ embedded: isEmbedded(), local: isLocalDocument(), absFile, file, line, col });
@@ -330,19 +402,25 @@ function openInEditor(absFile: string, file: string, line: number, col: number):
     return;
   }
   // Top-level AND file:. Try the OS, and keep the existing blur-based detection:
-  // if focus never left the page within 400 ms nothing handled the URL, so fall
-  // back to the clipboard exactly as before.
+  // if focus never left the page nothing handled the URL, so fall back to the
+  // clipboard exactly as before.
   let blurred = false;
   const onBlur = () => {
     blurred = true;
   };
   if (typeof window !== 'undefined') window.addEventListener('blur', onBlur, { once: true });
-  launchDeepLink(plan.url);
+  if (!launchDeepLink(plan.url)) {
+    // Refused — and refusals are now visible. Say so at once, and keep the
+    // anchor: it is the only way left from here to the editor.
+    if (typeof window !== 'undefined') window.removeEventListener('blur', onBlur);
+    copyText(plan.copyText, plan.toast, plan.url);
+    return;
+  }
   setTimeout(() => {
     if (typeof window !== 'undefined') window.removeEventListener('blur', onBlur);
     if (blurred) return;
     copyText(plan.copyText, plan.toast);
-  }, 400);
+  }, LAUNCH_FALLBACK_MS);
 }
 
 /**

@@ -110,6 +110,33 @@ test('the legend opens from the toolbar and from a key, and persists (VIEW-10)',
   assert.equal(ctx.document.querySelector('[data-legend]').hidden, false, 'and `l` toggles it');
 });
 
+test('Escape closes the legend, and closes nothing else with it (VIEW-10)', async () => {
+  const ctx = await mount();
+  const legend = () => ctx.document.querySelector('[data-legend]');
+  key(ctx, ctx.canvas, 'l');
+  assert.equal(legend().hidden, false, 'the legend is open');
+  // A selection underneath it: the legend rung must take Escape without also
+  // throwing away what the reader had selected.
+  ctx.app.focusNode(sample.nodes[0].id);
+  assert.ok(ctx.document.querySelector('[data-node-id].is-selected'), 'a node is selected');
+
+  key(ctx, ctx.canvas, 'Escape');
+  assert.equal(legend().hidden, true, 'Escape closed the legend');
+  assert.equal(ctx.app.getState().legendOpen, undefined, 'and persisted it closed, exactly as [x] does');
+  assert.ok(ctx.document.querySelector('[data-node-id].is-selected'), 'the selection is still standing');
+
+  key(ctx, ctx.canvas, 'Escape');
+  assert.equal(ctx.document.querySelector('[data-node-id].is-selected'), null, 'the next Escape takes the selection');
+
+  // ...and the sheet outranks the legend, so `?` over an open legend still
+  // answers Escape first (the order is asserted end to end in composition).
+  key(ctx, ctx.canvas, 'l');
+  key(ctx, ctx.canvas, '?');
+  key(ctx, ctx.canvas, 'Escape');
+  assert.equal(ctx.document.querySelector('.mlv-sheet').hidden, true, 'the sheet went first');
+  assert.equal(legend().hidden, false, 'the legend is still open');
+});
+
 test('the legend appears in the ? shortcut sheet (VIEW-10)', async () => {
   const ctx = await mount();
   const sheet = ctx.document.querySelector('.mlv-sheet');

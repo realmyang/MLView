@@ -439,9 +439,15 @@ def test_the_hydra_program_gains_config_edges_and_loses_its_registry_boxes():
     assert "src/models.py" in files
     unknown = sorted((n["loc"]["file"], n["loc"]["line"])
                      for n in doc["nodes"] if n["kind"] == "unknown")
-    assert unknown == [("src/models.py", 39), ("src/registry.py", 21)], (
+    assert unknown == [("src/models.py", 39), ("src/registry.py", 21),
+                       ("src/train.py", 29)], (
         "the two getattr registry boxes are gone; the subscript callee and the "
-        "unresolvable receiver honestly remain")
+        "unresolvable receiver honestly remain - and GRAPH-R3 adds the third: "
+        "`model = build_from_cfg(...)` calls a workspace factory whose return "
+        "bottoms out in that same subscript, so the *call site* now says so "
+        "too instead of folding onto `build_from_cfg()`'s own card two files "
+        "away. The hand-drawn diagram has a box there "
+        "(`corpus/hydra_research/labels.json`, src/train.py:29)")
     assert validate(doc) == []
 
 

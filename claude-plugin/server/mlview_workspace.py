@@ -27,13 +27,12 @@ filtered finding list can never be read as a clean one.
 
 from __future__ import annotations
 
-import contextlib
 import hashlib
 import json
 import logging
 import os
 import sys
-from typing import Any, Dict, Iterator, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence
 
 from mlview.api import AnalyzeOptions, analyze_to_dict
 from mlview_notes import (  # the reader of the note written below
@@ -48,7 +47,7 @@ _PLUGIN_ROOT = os.path.dirname(_SERVER_DIR)
 _REPO_ROOT = os.path.dirname(_PLUGIN_ROOT)
 
 __all__ = [
-    "project_dir", "data_dir", "cache_dir", "shared_cache_dir",
+    "project_dir", "named_data_dir", "data_dir", "cache_dir", "shared_cache_dir",
     "resolve_path", "resolve_out",
     "FRAMEWORKS", "normalize_framework",
     "framework_suppression", "note_framework_suppression",
@@ -79,7 +78,7 @@ _CACHE: Dict[Any, Any] = {}
 #: that declares frameworks only when `framework_filter in spec.frameworks`, so a
 #: name no rule declares disables every framework-specific rule at once instead of
 #: failing. Measured on `samples/vision_pipeline` before this guard existed:
-#: `framework="auto"` -> 54 nodes, 15 findings, 5 high; `framework="pytorch"`,
+#: `framework="auto"` -> 59 nodes, 15 findings, 5 high; `framework="pytorch"`,
 #: `"TORCH"` or `"Lightning"` -> 52 nodes, 1 finding, 0 high, with
 #: `frameworks: ["torch", "sklearn", ...]` still reported in the same payload and
 #: no note anywhere in it.
@@ -270,135 +269,21 @@ def note_framework_suppression(
     return note
 
 
-# ------------------------------------------------------------------ path handling
-def _norm(path: str) -> str:
-    return os.path.abspath(path).replace("\\", "/")
-
-
-def project_dir() -> str:
-    """MLVIEW_PROJECT_DIR when set and real, otherwise the current directory."""
-    raw = (os.environ.get("MLVIEW_PROJECT_DIR") or "").strip()
-    if raw and os.path.isdir(raw):
-        return _norm(raw)
-    return _norm(os.getcwd())
-
-
-def data_dir() -> str:
-    """Where graph.json and report.html live: MLVIEW_DATA_DIR or <project>/.mlview."""
-    raw = (os.environ.get("MLVIEW_DATA_DIR") or "").strip()
-    base = _norm(raw) if raw else os.path.join(project_dir(), ".mlview")
-    base = base.replace("\\", "/")
-    os.makedirs(base, exist_ok=True)
-    return base
-
-
-def cache_dir() -> str:
-    """The per-file parse cache: MLVIEW_CACHE_DIR, else ``<data_dir>/cache``.
-
-    The core's own default is ``<root>/.mlview/cache`` (CONTRACTS 11.28 B5), and
-    since the Sprint-5 default flip (11.39) that cache is ON — so with nothing
-    naming a directory, every ``mlview_*`` tool call writes a sidecar *into the
-    repository being analysed*. That is a sanctioned cost for a bare
-    ``python -m mlview analyze .``; it is not one for a host that already has a
-    private directory to write in, which is why 11.28 B9 makes the VS Code
-    extension pass its own. Deriving it from ``data_dir()`` gives the plugin the
-    same treatment without a second variable to configure, and it is also what
-    makes 11.41 C3 true: the hooks and the MCP tools share the *parse* cache and
-    not merely the graph document, because both halves compute this one path.
-
-    With no ``MLVIEW_DATA_DIR`` named this is ``<project>/.mlview/cache`` — byte
-    for byte the core default — so a checkout run without the plugin's env is
-    unchanged.
-    """
-    raw = (os.environ.get("MLVIEW_CACHE_DIR") or "").strip()
-    if raw:
-        return _norm(raw)
-    return os.path.join(data_dir(), "cache").replace("\\", "/")
-
-
-@contextlib.contextmanager
-def shared_cache_dir() -> Iterator[None]:
-    """Run an analysis with ``MLVIEW_CACHE_DIR`` pointing at :func:`cache_dir`.
-
-    Scoped to the call rather than set once at import: the variable is read by the
-    core at analysis time and by nothing else, and a long-lived server that
-    mutated its own environment permanently would carry one project's directory
-    into a later call resolved against a different one. A host that named the
-    variable itself keeps it — this only fills the hole.
-    """
-    if (os.environ.get("MLVIEW_CACHE_DIR") or "").strip():
-        yield
-        return
-    os.environ["MLVIEW_CACHE_DIR"] = cache_dir()
-    try:
-        yield
-    finally:
-        os.environ.pop("MLVIEW_CACHE_DIR", None)
-
-
-def resolve_path(path: Optional[str]) -> str:
-    """Resolve a tool's ``path`` argument against the project directory.
-
-    A missing path is a caller mistake, not a crash, so this raises ``ValueError``
-    and the ``visible_errors`` wrapper re-raises it as ``ToolError`` — which is
-    what carries the message into the ``isError`` result the model reads, so it
-    can retry with a real path instead of seeing a bare "tool failed".
-    """
-    root = project_dir()
-    if not path or not str(path).strip():
-        return root
-    raw = str(path).strip()
-    candidate = raw if os.path.isabs(raw) else os.path.join(root, raw)
-    candidate = _norm(candidate)
-    if not os.path.exists(candidate):
-        raise ValueError(
-            "path not found: %r (resolved to %s). Pass a path relative to the "
-            "project directory %s, or an absolute path." % (raw, candidate, root)
-        )
-    return candidate
-
-
-def _contains(root: str, target: str) -> bool:
-    """True when ``target`` is ``root`` itself or lives underneath it.
-
-    Compared with ``os.path.normcase`` so a drive letter or a directory that
-    differs only in case on Windows is still recognized as the same place.
-    """
-    def key(value: str) -> str:
-        # normcase lowercases AND flips to backslashes on Windows; flip back so
-        # one separator is compared throughout.
-        return os.path.normcase(value).replace("\\", "/")
-
-    root = key(root).rstrip("/")
-    target = key(target)
-    return target == root or target.startswith(root + "/")
-
-
-def resolve_out(target: Optional[str], default_name: str = "report.html") -> str:
-    """Resolve a caller-supplied output path, refusing anything outside the roots.
-
-    ``mlview_open_diagram`` writes ~270 KB of HTML to this path and then hands it
-    to ``os.startfile``, and the caller is a language model reading untrusted
-    source — so ``out="../../../../Users/me/.bashrc"`` must be a refusal, not an
-    overwrite. The permitted roots are the project directory and MLVIEW_DATA_DIR,
-    the same containment obligation CONTRACTS section 4 puts on ``openLocation``.
-    """
-    roots = []
-    for root in (project_dir(), data_dir()):
-        if root and root not in roots:
-            roots.append(root)
-    raw = (str(target).strip() if target is not None else "")
-    if not raw:
-        return os.path.join(data_dir(), default_name).replace("\\", "/")
-    full = _norm(raw if os.path.isabs(raw) else os.path.join(project_dir(), raw))
-    if not any(_contains(root, full) for root in roots):
-        raise ValueError(
-            "out must stay inside the project directory or MLVIEW_DATA_DIR; %r "
-            "resolves to %s, which is outside %s. Pass a relative path such as "
-            "'.mlview/report.html', or omit out entirely."
-            % (raw, full, " and ".join(roots))
-        )
-    return full
+# ---- path handling: `mlview_storage`, re-exported here -------------------------
+# Moved out when C8's cache wiring pushed this module past the line ceiling.
+# Re-exported unchanged: `mlview_payloads`, `mlview_mcp`, `mlview_views` and four
+# test modules already import these names from here.
+from mlview_storage import (  # noqa: E402  (after the core bootstrap, like the rest)
+    _contains,
+    _norm,
+    cache_dir,
+    data_dir,
+    named_data_dir,
+    project_dir,
+    resolve_out,
+    resolve_path,
+    shared_cache_dir,
+)
 
 
 _ANALYZER_IDENTITY: Optional[str] = None

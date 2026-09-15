@@ -1,0 +1,181 @@
+/*
+ * MLV-P6 — the confidence chip every finding row carries, the `evidence[]`
+ * checklist behind its twisty, the rule card under that, and PERF-04's
+ * occurrence-weight bar.
+ *
+ * Split out of `rail.css`, which is the rail itself: the tab strip, the rows
+ * and the Outline tree. The three `rail*.css` layers are concatenated IN THIS
+ * ORDER (build.mjs) — rail -> railevidence -> railgroups — so every rule keeps
+ * the source position, and therefore the cascade, it always had.
+ */
+
+/* ── MLV-P6: the confidence chip, the evidence list and the rule card ───── */
+
+/*
+ * The bucket chip is drawn on EVERY row now (MLV-P6). It was drawn only for
+ * `possible` / `speculative`, which made `certain` and `likely` — the two
+ * buckets a reviewer acts on — indistinguishable, and made a missing chip
+ * ambiguous between "sure" and "the renderer forgot". Because it is now always
+ * present, it must READ as a scale: colour AND a leading mark, never colour
+ * alone (spec requirement 3).
+ */
+.mlv-chip--conf {
+  font-variant-numeric: tabular-nums;
+}
+
+.mlv-chip--conf::before {
+  content: "●●●●";
+  letter-spacing: -0.5px;
+  font-size: 7px;
+  color: var(--mlv-text-3);
+}
+
+.mlv-chip--conf-certain::before {
+  content: "●●●●";
+  color: var(--mlv-text);
+}
+
+.mlv-chip--conf-likely::before {
+  content: "●●●○";
+}
+
+.mlv-chip--conf-possible::before {
+  content: "●●○○";
+}
+
+.mlv-chip--conf-speculative::before {
+  content: "●○○○";
+}
+
+.mlv-chip--conf-certain {
+  color: var(--mlv-text);
+}
+
+.mlv-chip--conf-possible,
+.mlv-chip--conf-speculative {
+  border-color: var(--mlv-border-strong);
+}
+
+.mlv-disclosure {
+  margin-top: var(--mlv-s4);
+  border: 1px solid var(--mlv-border);
+  border-radius: var(--mlv-r-btn);
+  background: var(--mlv-surface-2);
+}
+
+.mlv-disclosure[hidden] {
+  display: none;
+}
+
+.mlv-disclosure__summary {
+  padding: var(--mlv-s3) var(--mlv-s4);
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-11);
+  font-weight: var(--mlv-fw-medium);
+  cursor: pointer;
+  list-style: none;
+}
+
+.mlv-disclosure__summary::-webkit-details-marker {
+  display: none;
+}
+
+.mlv-disclosure__summary::before {
+  content: "▸ ";
+  color: var(--mlv-text-3);
+}
+
+.mlv-disclosure[open] > .mlv-disclosure__summary::before {
+  content: "▾ ";
+}
+
+.mlv-disclosure__summary:focus-visible {
+  outline: 2px solid var(--mlv-accent);
+  outline-offset: -2px;
+}
+
+.mlv-ev {
+  margin: 0;
+  padding: 0 var(--mlv-s4) var(--mlv-s4);
+  list-style: none;
+}
+
+.mlv-ev__item + .mlv-ev__item {
+  margin-top: var(--mlv-s3);
+  padding-top: var(--mlv-s3);
+  border-top: 1px solid var(--mlv-border);
+}
+
+.mlv-ev__head {
+  display: flex;
+  align-items: center;
+  gap: var(--mlv-s3);
+}
+
+.mlv-ev__kind {
+  flex: 1 1 auto;
+  color: var(--mlv-text);
+  font-size: var(--mlv-fs-11);
+  font-weight: var(--mlv-fw-medium);
+}
+
+/* The weight reads as a number AND a bar, so it is never colour or width alone. */
+.mlv-ev__weight {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--mlv-s2);
+  flex: none;
+}
+
+.mlv-ev__bar {
+  display: inline-block;
+  height: 4px;
+  min-width: 1px;
+  max-width: 48px;
+  border-radius: var(--mlv-r-pill);
+  background: var(--mlv-accent);
+}
+
+.mlv-ev__weight-value {
+  color: var(--mlv-text-3);
+  font-family: var(--mlv-font-mono);
+  font-size: var(--mlv-fs-10);
+  font-variant-numeric: tabular-nums;
+}
+
+.mlv-ev__detail {
+  margin-top: var(--mlv-s2);
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-11);
+  line-height: var(--mlv-lh-body);
+}
+
+.mlv-ruledoc {
+  padding: 0 var(--mlv-s4) var(--mlv-s4);
+}
+
+.mlv-ruledoc__row + .mlv-ruledoc__row {
+  margin-top: var(--mlv-s4);
+}
+
+.mlv-ruledoc__label {
+  color: var(--mlv-text-3);
+  font-size: var(--mlv-fs-10);
+  font-weight: var(--mlv-fw-semi);
+  letter-spacing: var(--mlv-track-caps);
+  text-transform: uppercase;
+}
+
+.mlv-ruledoc__text {
+  margin: var(--mlv-s2) 0 0;
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-11);
+  line-height: var(--mlv-lh-body);
+}
+
+.mlv-ruledoc__source {
+  margin-top: var(--mlv-s4);
+  color: var(--mlv-text-3);
+  font-family: var(--mlv-font-mono);
+  font-size: var(--mlv-fs-10);
+}

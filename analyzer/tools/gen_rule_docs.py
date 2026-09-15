@@ -45,15 +45,24 @@ NOTES: Dict[str, Dict[str, object]] = {
                    "module-level numpy constructors (`np.asarray`, `np.array`, "
                    "`np.concatenate`, `np.vstack`, `torch.from_numpy`) pass the tags "
                    "through, so the canonical pandas feature matrix is covered as well "
-                   "as the numpy one.",
+                   "as the numpy one.\n\n"
+                   "In `--dataflow ip` a second shape is reached (R5): the fit and "
+                   "the split are in **different functions**, and the value crossed "
+                   "between them through a `return`. No name is matched across "
+                   "scopes - the split's argument has to be bound by the very call "
+                   "site that invoked the fit's function, at a returned position the "
+                   "fitted value feeds - so the claim rests on the call graph rather "
+                   "than on a spelling. It pays one `IP_HOP_WEIGHT` per hop, names "
+                   "the chain in its evidence, and can never reach `certain`.",
         "avoids": ["A split on a *different* dataset - reachability is by value "
                    "identity through the binding chain, never by name equality.",
-                   "A split written in **another function**. Reachability is spelled "
-                   "by dotted name, and a name means something else in a foreign "
-                   "scope, so the claim is confined to one scope in both dataflow "
-                   "modes. A leak whose two halves live in two functions is therefore "
-                   "**not reported** - the honest cost of never reporting a leak that "
-                   "is not there.",
+                   "A split written in **another function** that the call graph does "
+                   "not join. Name reachability stays confined to one scope in both "
+                   "modes, because a name means something else in a foreign scope; "
+                   "only the `return`-carried shape above crosses, and only in `ip`. "
+                   "A leak whose two halves are joined by nothing the analyzer can "
+                   "see is still **not reported** - the honest cost of never "
+                   "reporting a leak that is not there.",
                    "Unsupervised code with no test set - a split site must exist.",
                    "A stateless transformer (`FunctionTransformer`, `Normalizer`) - "
                    "listed in `knowledge/sklearn.yaml:stateless_transformers`.",
@@ -61,7 +70,15 @@ NOTES: Dict[str, Dict[str, object]] = {
     },
     "MLV102": {
         "detects": "A `FIT` / `FIT_TRANSFORM` call whose primary argument carries "
-                   "`VAL_SPLIT` or `TEST_SPLIT`. Statement order does not matter.",
+                   "`VAL_SPLIT` or `TEST_SPLIT`. Statement order does not matter.\n\n"
+                   "In `--dataflow ip` the rows may also be a **fold** rather than a "
+                   "named split (R5): `scaler.fit_transform(features[test_idx])`, "
+                   "where `test_idx` is position **1** of the tuple a scikit-learn "
+                   "cross-validator yields and the `for` header iterating it is the "
+                   "very `SPLIT` call the index came from. Position 1 is the held-out "
+                   "half by the splitter protocol, so the fact lives in the index "
+                   "rather than in a tag; every step has to hold, and the finding "
+                   "pays a projection hop.",
         "avoids": ["Transductive / semi-supervised code - skipped when the module "
                    "imports `sklearn.semi_supervised.*`.",
                    "A stateless transformer learns nothing, so re-fitting it on the "
@@ -74,7 +91,18 @@ NOTES: Dict[str, Dict[str, object]] = {
         "detects": "A `CV`-role call (or `GridSearchCV.fit`) whose estimator argument "
                    "is a bare estimator rather than a `Pipeline`, together with a "
                    "`FIT_TRANSFORM` earlier in the same function whose output flows "
-                   "into the CV call's `X`.",
+                   "into the CV call's `X`.\n\n"
+                   "In `--dataflow ip` the fit may be one `def` away (R5): the CV's "
+                   "`X` is resolved to the workspace call that produced it, the "
+                   "callee's `return` is read **at the tuple position the caller "
+                   "unpacked**, and a non-stateless `fit_transform` whose output "
+                   "reaches that returned value is the fit whose statistics every "
+                   "fold shares. A returned *call* stands for the names it is written "
+                   "on, so `return scaler.fit_transform(frame)` reads the same as the "
+                   "two-statement spelling. When the caller's binding does not say "
+                   "which position it unpacked, only a returned value of the same "
+                   "name is accepted - a helper that hands back five values does not "
+                   "match on all five.",
         "avoids": ["A `Pipeline` / `make_pipeline` estimator - the transform is refit "
                    "per fold, which is the correct answer.",
                    "An estimator that cannot be resolved at all - the rule stays quiet "
@@ -184,7 +212,14 @@ NOTES: Dict[str, Dict[str, object]] = {
                    "suppressed when the accumulator itself is back-propagated.",
                    "A list of tensors later `torch.stack`ed and backwarded - the same "
                    "suppression follows the stack.",
-                   "An accumulator created *inside* the loop, which is reset each pass."],
+                   "An accumulator created *inside* the loop, which is reset each pass.",
+                   "A loop inside `torch.no_grad()` or under a `@torch.no_grad()` "
+                   "decorator (R18): there is no autograd graph behind a validation "
+                   "total, so nothing is kept alive.",
+                   "A running total the program then **uses** as a live tensor - "
+                   "`style_loss += mse(...)`, `total = content + style_loss`, "
+                   "`total.backward()`. One arithmetic step, in the accumulator's own "
+                   "scope; `.item()` there would detach the term from training."],
     },
     "MLV301": {
         "detects": "An eval region - a loop over a loader, or an evaluation-named "
@@ -236,13 +271,27 @@ NOTES: Dict[str, Dict[str, object]] = {
                    "model whose `forward` returns one, or through the last element of "
                    "its final `nn.Sequential` - for a bare "
                    "`net = nn.Sequential(..., nn.Softmax(dim=1))` binding as well as "
-                   "for a Sequential stored on an attribute of an `nn.Module`.",
+                   "for a Sequential stored on an attribute of an `nn.Module`. The "
+                   "model class is any **model module** (`is_model_module`), so a "
+                   "`pl.LightningModule`'s `self(features)` in a `training_step` is a "
+                   "forward pass here exactly as a bare `nn.Module`'s is. Failing "
+                   "that - and only after the model-class branch, which is what keeps "
+                   "the finding its class, its edge and its `definition` location - "
+                   "R4 reads one workspace helper's `return`: "
+                   "`def probabilities(m, x): return F.softmax(m(x), dim=-1)` pairs "
+                   "just as wrongly as an inline softmax, and pays one "
+                   "`IP_HOP_WEIGHT` for the crossing.",
         "avoids": ["A user class merely *named* `Softmax`: matching is on canonical "
                    "FQNs resolved through the import table, never on the attribute "
                    "name.",
                    "A softmax applied under an `if`, which is de-rated.",
                    "Softmax computed elsewhere for reporting, which never reaches the "
-                   "loss input."],
+                   "loss input.",
+                   "The **same** softmax reported twice. One root cause is one "
+                   "finding: a LightningModule applies one `forward` in both "
+                   "`training_step` and `validation_step`, so the second loss site "
+                   "merges into the first finding's `relatedLocs` instead of raising "
+                   "a copy."],
         "rendering": "the marker is drawn on the `model -> loss` **edge**, and the "
                      "multi-location connector links the softmax site to the loss.",
     },
@@ -252,7 +301,11 @@ NOTES: Dict[str, Dict[str, object]] = {
                    "`binary_cross_entropy_with_logits` and the chain ends in a sigmoid. "
                    "`missing_sigmoid`: the loss is `BCELoss` / "
                    "`binary_cross_entropy` and the resolved chain ends in something "
-                   "that is not.",
+                   "that is not. The chain steps through shape-only tensor methods "
+                   "(`.squeeze(-1)`, `.view(...)`), reads both operands of a "
+                   "`BinOp` argument, resolves a forward through any **model module** "
+                   "rather than only a bare `nn.Module`, and - R4 - through one "
+                   "workspace helper's `return`, which pays an `IP_HOP_WEIGHT`.",
         "avoids": ["A user class named `Sigmoid` that is not `nn.Sigmoid` - FQN "
                    "resolution again.",
                    "An unresolvable producer: the rule stays quiet rather than "
@@ -432,7 +485,11 @@ NOTES: Dict[str, Dict[str, object]] = {
         "avoids": ["`GradScaler(enabled=False)`, which is a no-op.",
                    "The correct accumulation protocol, where scale, unscale_, clip, "
                    "step and update are spread across two blocks of one loop.",
-                   "A scaler built in a different function from the loop."],
+                   "A loop with no scaler at all - proximity first, then identity: "
+                   "a `scaler.step(...)` in this very loop whose receiver resolves to "
+                   "a `GradScaler(...)` built elsewhere (a `make_state()` factory, a "
+                   "parameter dict) is that scaler, whatever function built it. The "
+                   "first arm guesses from position; the second one knows."],
         "cannot": "A non-literal `GradScaler(enabled=cfg.amp)`. That **de-rates** the "
                   "finding to evidence weight 0.6 - it never suppresses it and never "
                   "escalates it.",
@@ -550,15 +607,25 @@ NOTES: Dict[str, Dict[str, object]] = {
                    "Regression metrics, which are not on the class-metric list at all.",
                    "An `argmax` anywhere on the producing chain, including "
                    "`probs.argmax(axis=1)` and a subscript."],
-        "cannot": "A prediction returned by a helper function looks unproduced to a "
-                  "flow-insensitive IR, so the finding is **de-rated** to evidence "
-                  "weight 0.6 rather than dropped; DATAFLOW-IP is what would resolve "
-                  "it.",
+        "cannot": "A prediction the value typing cannot follow at all - built by a "
+                  "construct `rules/valuetype` does not read, or arriving from outside "
+                  "the workspace. R4 closed the two commonest gaps: the "
+                  "`.detach().cpu().numpy()` tail, which changes the container and "
+                  "not what the value holds, and a workspace helper whose `return` is "
+                  "the softmax (`probs = probabilities(model, x)`); a per-batch list "
+                  "later joined by `np.concatenate(...)` is typed by the "
+                  "**intersection** of every `append`, so one unreadable append "
+                  "yields no answer rather than a guess. A value the walk still "
+                  "cannot type leaves the finding **de-rated** to evidence weight 0.6 "
+                  "rather than dropped.",
     },
     "MLV306": {
-        "detects": "A `roc_auc_score` / `average_precision_score` whose score argument "
-                   "is bound to a `predict(...)` call, whose knowledge-table tag is "
-                   "`PREDS`.",
+        "detects": "A `roc_auc_score` / `average_precision_score` whose score "
+                   "argument carries `PREDS` and was produced by a `PREDICT` or an "
+                   "`ARGMAX` role - `clf.predict(X)`, and since R4 also "
+                   "`logits.argmax(dim=1)`, which is the torch spelling of the same "
+                   "mistake. The value typing follows the same two hops MLV305 reads: "
+                   "the tensor tail and one workspace helper.",
         "avoids": ["`predict_proba(...)[:, 1]` and `decision_function(...)`, which "
                    "carry `PROBS` / `LOGITS`.",
                    "`accuracy_score(y, clf.predict(X))`, where hard labels are exactly "

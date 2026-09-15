@@ -14,7 +14,7 @@ from typing import Callable, List, Optional, Sequence, Tuple
 from ..ingest.discover import discover, normalize_path
 from ..ingest import notebook as notebook_mod
 from ..ingest.parse import parse_all, parse_bytes, parse_file, read_bytes
-from ..ir.build_ir import build_workspace
+from ..ir.build_ir import DEFAULT_DATAFLOW, build_workspace
 from ..rules import Suppressor, cross_file_codes, load_config, run_all
 from ..rules import confidence as confidence_mod
 from ..rules.context import GraphContext
@@ -93,14 +93,18 @@ class AnalyzeOptions:
     #: = true`) turns `.ipynb` files from a counted skip into analyzed,
     #: generated Python modules under `<root>/.mlview/notebooks/`.
     include_notebooks: bool = False
-    #: DATAFLOW-IP (CONTRACTS 11.36) - appended last and defaulted to `local`,
-    #: so positional construction, `frozen=True` and hashability are unchanged
-    #: and a run that does not set it emits byte-identical bytes. `ip` runs the
+    #: DATAFLOW-IP (CONTRACTS 11.36) - appended last, so positional
+    #: construction, `frozen=True` and hashability are unchanged. `ip` runs the
     #: interprocedural summary pass (`ir.summaries`): constructor arguments,
     #: return values and method arguments carry value tags across the object
     #: boundary, every hop is de-rated by an explicit evidence weight, and no
     #: cross-object finding may reach `certain`.
-    dataflow: str = "local"
+    #:
+    #: R1 makes `ip` the default, and this field reads `DEFAULT_DATAFLOW`
+    #: rather than naming a mode, so the constant in `ir.build_ir` stays the
+    #: one place the product default is written down. A host that wants the
+    #: narrower analysis passes `dataflow="local"` explicitly.
+    dataflow: str = DEFAULT_DATAFLOW
     #: The option names the caller set **on purpose**, so `.mlview.toml` cannot
     #: overrule a flag that happens to equal the documented default. Appended
     #: last and defaulted to `()`, so positional construction, `frozen=True`
@@ -232,7 +236,8 @@ def run(options: AnalyzeOptions) -> AnalysisResult:
                               relevance=relevance)
 
     workspace = build_workspace(found.root, parsed_files,
-                                dataflow=getattr(options, "dataflow", "local"))
+                                dataflow=getattr(options, "dataflow",
+                                                 DEFAULT_DATAFLOW))
     # NB: the offset tables ride on the workspace so `GraphContext` can reach
     # them without the rules ever importing `ingest`.
     workspace.notebooks = notebook_maps

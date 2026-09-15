@@ -590,7 +590,14 @@ html.mlv-fills-page > body > .mlv-root {
 }
 
 /* ---- chrome.css ---- */
-/* Toolbar, chip row, banners, status bar, search, minimap, toasts, states. */
+/*
+ * Toolbar, chip row, banners, status bar, search box, minimap.
+ *
+ * The first of four `chrome*.css` layers: the toasts and the loading /
+ * empty states are in `chromestates.css`, the sheet, theme switch and
+ * legend in `chromepanels.css`, and MLV-P1's answer card in
+ * `chromeanswers.css`. They concatenate in that order (build.mjs).
+ */
 
 /*
  * The toolbar WRAPS (MLV-R1-009). It used to be a single nowrap row inside an
@@ -1041,6 +1048,17 @@ html.mlv-fills-page > body > .mlv-root {
   stroke-width: 1;
 }
 
+/* ---- chromestates.css ---- */
+/*
+ * The chrome's TRANSIENT surfaces: the toast stack, the loading / empty /
+ * error states with their skeleton and progress bar, and the stage filter
+ * row that dims what they leave behind.
+ *
+ * Split out of `chrome.css`, which is the toolbar and the bands under it.
+ * The two files are concatenated IN THIS ORDER (build.mjs), so every rule
+ * keeps the source position — and therefore the cascade — it always had.
+ */
+
 /* toasts */
 .mlv-toasts {
   position: absolute;
@@ -1208,6 +1226,17 @@ html.mlv-fills-page > body > .mlv-root {
   display: none;
 }
 
+/* ---- chromepanels.css ---- */
+/*
+ * The chrome's PANELS: the narrow-window scrim, the `?` shortcut sheet and
+ * its keycaps, the theme switch, the search list's foot, the flow and legend
+ * toggles, the legend itself, and the `role="toolbar"` wrapper that holds the
+ * two chrome rows together.
+ *
+ * Third of the four `chrome*.css` layers, concatenated in order (build.mjs):
+ * chrome -> chromestates -> chromepanels -> chromeanswers. Every rule keeps
+ * the source position, and therefore the cascade, it always had.
+ */
 
 /*
  * Below the 900 px breakpoint the rail becomes an overlay drawer with a scrim
@@ -1536,6 +1565,16 @@ h1.mlv-brand {
   font-size: var(--mlv-fs-11);
   font-weight: var(--mlv-fw-regular);
 }
+
+/* ---- chromeanswers.css ---- */
+/*
+ * MLV-P1 — the Pipeline Answer Card, pinned above the canvas, and the one
+ * scroll-shadow rule it shares with the legend body.
+ *
+ * Last of the four `chrome*.css` layers (build.mjs), which is where it has
+ * always sat: the shared rule at the foot has to come after both of the
+ * surfaces it applies to.
+ */
 
 /*
  * MLV-P1 — the Pipeline Answer Card, pinned above the canvas.
@@ -3332,7 +3371,14 @@ body.vscode-high-contrast-light .mlv-edge__charge-halo,
 }
 
 /* ---- rail.css ---- */
-/* Side rail: Issues, Inspector, Outline. */
+/*
+ * Side rail: Issues, Inspector, Outline.
+ *
+ * The first of three `rail*.css` layers: MLV-P6's confidence chip,
+ * evidence list and rule card are in `railevidence.css`, and RAIL-GROUP's
+ * group headers with CI-ADOPT's tints in `railgroups.css`. They
+ * concatenate in that order (build.mjs).
+ */
 
 .mlv-rail {
   position: relative;
@@ -3786,6 +3832,18 @@ body.vscode-high-contrast-light .mlv-edge__charge-halo,
   }
 }
 
+/* ---- railevidence.css ---- */
+/*
+ * MLV-P6 — the confidence chip every finding row carries, the `evidence[]`
+ * checklist behind its twisty, the rule card under that, and PERF-04's
+ * occurrence-weight bar.
+ *
+ * Split out of `rail.css`, which is the rail itself: the tab strip, the rows
+ * and the Outline tree. The three `rail*.css` layers are concatenated IN THIS
+ * ORDER (build.mjs) — rail -> railevidence -> railgroups — so every rule keeps
+ * the source position, and therefore the cascade, it always had.
+ */
+
 /* ── MLV-P6: the confidence chip, the evidence list and the rule card ───── */
 
 /*
@@ -3956,6 +4014,17 @@ body.vscode-high-contrast-light .mlv-edge__charge-halo,
   font-family: var(--mlv-font-mono);
   font-size: var(--mlv-fs-10);
 }
+
+/* ---- railgroups.css ---- */
+/*
+ * RAIL-GROUP — the "Group by" control and the rule / file group headers it
+ * draws — plus CI-ADOPT's new / touched / existing tints, which are worn by
+ * the same rows.
+ *
+ * Last of the three `rail*.css` layers (build.mjs): rail -> railevidence ->
+ * railgroups. The tints restyle rows defined in both files above, so source
+ * order is what makes them win.
+ */
 
 /* ── RAIL-GROUP: the group-by control and the rule / file groups ────────── */
 

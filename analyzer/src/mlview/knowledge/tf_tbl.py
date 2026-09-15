@@ -192,6 +192,15 @@ for _root in KERAS_ROOTS:
         "transform", "preprocess", _f, "TRANSFORM")
     KERAS_EXTRA["%s.Sequential" % _root] = E(
         "model", "model", _f, "KERAS_MODEL", ("MODEL",), "keras_model")
+    # GRAPH-R2: the module-level save / load pair, written under three roots
+    # and two sub-namespaces in the wild.
+    for _mid in ("models", "saving"):
+        KERAS_EXTRA["%s.%s.save_model" % (_root, _mid)] = E(
+            "checkpoint", "deliver", _f, "SAVE")
+        KERAS_EXTRA["%s.%s.load_model" % (_root, _mid)] = E(
+            "model", "model", _f, "KERAS_LOAD", ("MODEL",), "keras_model")
+    KERAS_EXTRA["%s.saving.save_weights" % _root] = E(
+        "checkpoint", "deliver", _f, "SAVE")
 
 #: INFRA-R2-05. The TF2 custom training loop - `with tf.GradientTape() as tape`,
 #: `tape.gradient(...)`, `optimizer.apply_gradients(...)` - is one of exactly
@@ -206,6 +215,23 @@ for _root in KERAS_ROOTS:
 #: mixed workspace.
 KERAS_EXTRA["tensorflow.GradientTape"] = E(
     "train_loop", "train", TF, "GRAD_TAPE", (), "grad_tape")
+
+#: GRAPH-R2. The rest of the `Model` surface a Keras project actually uses.
+#: `export` is the SavedModel / TF-Lite hand-off and had no row at all, so a
+#: Keras repository's Save / Deploy lane was empty however it shipped.
+KERAS_EXTRA_METHODS.update({
+    "keras.Model.export": E("checkpoint", "deliver", K, "KERAS_EXPORT"),
+    "keras.Model.predict_on_batch": E("predict", "eval", K, "PREDICT", ("PREDS",)),
+    "keras.Model.train_on_batch": E("train_loop", "train", K, "KERAS_FIT"),
+    "keras.Model.test_on_batch": E("eval_loop", "eval", K, "KERAS_EVAL"),
+    "keras.Model.fit_generator": E("train_loop", "train", K, "KERAS_FIT"),
+    "keras.Model.evaluate_generator": E("eval_loop", "eval", K, "KERAS_EVAL"),
+    "keras.Model.predict_generator": E("predict", "eval", K, "PREDICT", ("PREDS",)),
+    "keras.Model.get_layer": E("layer", "model", K, "LAYER", ("MODEL",),
+                               "keras_model"),
+    "keras.Model.build": E("model", "model", K, "MODEL_SUMMARY", (),
+                           "keras_model", 0.3),
+})
 
 KERAS_EXTRA_METHODS.update({
     "tensorflow.GradientTape.gradient": E(

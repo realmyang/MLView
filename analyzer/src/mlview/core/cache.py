@@ -38,8 +38,14 @@ always re-run over the whole kept set, which is what keeps cross-file findings
 intact.
 
 **The key** is `(content digest, analyzer identity, python major.minor)`, with
-the workspace root folded into the file name. Nothing about the analysis
-*options* is in it, because nothing about them changes what a file imports.
+the workspace root folded into the file name *and* into the directory name.
+Nothing about the analysis *options* is in it, because nothing about them
+changes what a file imports.
+
+**Where it lives.** In the **user's** cache directory, never in the analyzed
+folder: `python -m mlview analyze <somebody else's repo>` writes nothing into
+that repo. `MLVIEW_CACHE_DIR` overrides, which is what a host with its own
+storage (and a CI job that collects the sidecar as an artifact) passes.
 
 **Trust.** The sidecar is JSON, never executable, and it is authenticated with
 an HMAC over a 32-byte secret stored in the **user's** home
@@ -52,7 +58,13 @@ Environment:
 
 ===========================  ==================================================
 ``MLVIEW_NO_CACHE=1``        disable it entirely (`--no-cache` does the same)
-``MLVIEW_CACHE_DIR``         where sidecars live (default ``<root>/.mlview/cache``)
+``MLVIEW_CACHE_DIR``         where sidecars live (default: the user's own cache
+                             directory - ``$XDG_CACHE_HOME/mlview``, else
+                             ``%LOCALAPPDATA%/mlview`` on Windows,
+                             ``~/Library/Caches/mlview`` on macOS,
+                             ``~/.cache/mlview`` elsewhere - under a directory
+                             named for the workspace path's hash. **Never**
+                             inside the analyzed folder.)
 ``MLVIEW_CACHE_KEY_FILE``    where the MAC secret lives (default ``~/.mlview/cache.key``)
 ``MLVIEW_CACHE_MAX_ENTRIES`` entry ceiling, default 20000
 ``MLVIEW_CACHE_LOG=1``       write the one-line status to stderr as well as to logging
@@ -73,7 +85,8 @@ from typing import Any, Dict, Optional, Tuple
 __all__ = [
     "CACHE_FORMAT", "CacheReport", "FactCache", "analyzer_identity", "announce",
     "cache_dir_for", "content_digest", "file_signature", "is_disabled",
-    "open_cache", "python_tag", "reset_identity_cache",
+    "open_cache", "python_tag", "reset_identity_cache", "root_key",
+    "user_cache_root",
 ]
 
 log = logging.getLogger("mlview.cache")
@@ -224,16 +237,52 @@ def is_disabled() -> bool:
     return _flag("MLVIEW_NO_CACHE")
 
 
-def cache_dir_for(root: str) -> str:
-    """`MLVIEW_CACHE_DIR`, else `<root>/.mlview/cache`.
+def user_cache_root() -> str:
+    """The **user's** cache directory for MLView, per the platform's convention.
 
-    `.mlview` is in `ingest.discover`'s always-prune set, so the cache can
-    never become input to the analysis it is caching.
+    `XDG_CACHE_HOME` wins on every platform when it is set, because a user who
+    has set it has said where caches go. Otherwise: `%LOCALAPPDATA%\\mlview` on
+    Windows, `~/Library/Caches/mlview` on macOS, `~/.cache/mlview` elsewhere.
+    """
+    xdg = (os.environ.get("XDG_CACHE_HOME") or "").strip()
+    if xdg:
+        return _norm(os.path.join(xdg, "mlview"))
+    if sys.platform == "win32":                      # pragma: no cover - platform
+        local = (os.environ.get("LOCALAPPDATA") or "").strip()
+        if local:
+            return _norm(os.path.join(local, "mlview", "cache"))
+    elif sys.platform == "darwin":                   # pragma: no cover - platform
+        return _norm(os.path.join(os.path.expanduser("~"), "Library", "Caches",
+                                  "mlview"))
+    return _norm(os.path.join(os.path.expanduser("~"), ".cache", "mlview"))
+
+
+def root_key(root: str) -> str:
+    """The workspace half of the cache key: 16 hex chars over the absolute root.
+
+    The sidecar's own file name carries this too (`facts-<key>.json`), so the
+    per-user directory holds one file per analyzed workspace and two workspaces
+    can never read each other's facts.
+    """
+    return hashlib.blake2b(_norm(root).encode("utf-8"), digest_size=8).hexdigest()
+
+
+def cache_dir_for(root: str) -> str:
+    """`MLVIEW_CACHE_DIR`, else `<user cache root>/<workspace key>`.
+
+    **Nothing is written into the analyzed folder.** Until C8 the default was
+    `<root>/.mlview/cache`, so `python -m mlview analyze .` created a directory
+    inside somebody else's repository on the first run - a tool that writes into
+    the tree it is reading is a tool people switch off, and the three hosts each
+    had to remember to pass `MLVIEW_CACHE_DIR` to stop it. The default is now the
+    user's own cache directory, keyed by the workspace's absolute path, and
+    `MLVIEW_CACHE_DIR` still overrides it for a host (or a CI job collecting the
+    sidecar as an artifact) that wants the file somewhere specific.
     """
     raw = (os.environ.get("MLVIEW_CACHE_DIR") or "").strip()
     if raw:
         return _norm(raw)
-    return _norm(os.path.join(root, ".mlview", "cache"))
+    return _norm(os.path.join(user_cache_root(), root_key(root)))
 
 
 def _key_file() -> str:
@@ -469,7 +518,7 @@ def open_cache(root: str, enabled: Optional[bool] = None) -> Optional[FactCache]
                           or _DEFAULT_MAX_ENTRIES)
     except ValueError:
         max_entries = _DEFAULT_MAX_ENTRIES
-    stem = hashlib.blake2b(_norm(root).encode("utf-8"), digest_size=8).hexdigest()
+    stem = root_key(root)
     path = os.path.join(cache_dir_for(root), "facts-%s.json" % stem).replace("\\", "/")
     return FactCache(path, secret, identity, max_entries=max(1, max_entries))
 

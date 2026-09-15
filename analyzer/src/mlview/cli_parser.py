@@ -90,16 +90,16 @@ def _add_notebook_flag(parser: argparse.ArgumentParser) -> None:
 
 
 def _add_dataflow_flag(parser: argparse.ArgumentParser) -> None:
-    """DATAFLOW-IP (CONTRACTS 11.36). One flag, `local` by default, so a command
-    that does not name it emits exactly the bytes it always emitted."""
+    """DATAFLOW-IP (CONTRACTS 11.36). One flag; `ir.build_ir.DEFAULT_DATAFLOW`
+    decides which mode it defaults to, and since R1 that is `ip`."""
     parser.add_argument("--dataflow", dest="dataflow", choices=DATAFLOW_MODES,
                         default=DEFAULT_DATAFLOW,
-                        help="`local` (default) tracks a value tag inside one "
-                             "scope; `ip` additionally carries it across the "
+                        help="`ip` (default) carries a value tag across the "
                              "object boundary through constructor, return and "
                              "method-argument summaries, de-rating every finding "
                              "once per hop and naming the hop chain in its "
-                             "evidence")
+                             "evidence; `local` stops at the first def and is "
+                             "the narrower, faster analysis")
 
 
 def _add_group_flag(parser: argparse.ArgumentParser) -> None:

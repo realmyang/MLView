@@ -110,6 +110,24 @@ function wrap(window, errors, outer) {
     clicked.push(this.getAttribute('href') || '');
     return realClick.apply(this, arguments);
   };
+  // The launch context (MLV-R3-WEB-H2). jsdom cannot open one — it has no
+  // navigation — so the handle is a stand-in that records what was asked for
+  // and whether the report closed it again. `blocked` reproduces a popup
+  // blocker, the refusal the hidden iframe could never report.
+  const opened = [];
+  let blocked = false;
+  window.open = function patchedOpen(url, target) {
+    const handle = {
+      url: String(url == null ? '' : url),
+      target: String(target == null ? '' : target),
+      closed: false,
+      close() {
+        this.closed = true;
+      },
+    };
+    opened.push(handle);
+    return blocked ? null : handle;
+  };
   return {
     window,
     outer: outer || window,
@@ -117,6 +135,10 @@ function wrap(window, errors, outer) {
     errors,
     copied,
     clicked,
+    opened,
+    blockPopups: (on = true) => {
+      blocked = on;
+    },
     MLView: window.MLView,
     toasts: () => Array.from(window.document.querySelectorAll('.mlv-toast')),
     frames: () => Array.from(window.document.querySelectorAll('iframe')),
@@ -204,7 +226,13 @@ test('the whole viewer works inside a frame, and Go to never blanks it (11.17)',
 
 /* ── TOP-LEVEL + file: the one context that may launch ────────────────── */
 
-test('a local top-level report launches through a hidden iframe (11.17)', async () => {
+test('a local top-level report launches from a SEPARATE context (11.17, MLV-R3-WEB-H2)', async () => {
+  // It used to launch from a hidden `<iframe src="vscode://...">` inside this
+  // document. That never moved the page and still killed it: measured in Chrome
+  // 141 on macOS, ONE node click in a file:// report left the document receiving
+  // no keydown at all, for the rest of the session. Handing the URL to the OS
+  // costs the LAUNCHING browsing context its keyboard, so the launching context
+  // must not be this one.
   const ctx = page('file:///C:/w/report.html');
   assert.equal(ctx.window.location.protocol, 'file:');
   assert.ok(ctx.window.self === ctx.window.top, 'top-level');
@@ -213,26 +241,40 @@ test('a local top-level report launches through a hidden iframe (11.17)', async 
   const bridge = ctx.MLView.bridges.standalone({ theme: 'light' });
   bridge.post(LOC);
 
-  const frames = ctx.frames();
-  assert.equal(frames.length, 1, 'the OS hand-off goes through a frame, not through this document');
-  assert.equal(frames[0].getAttribute('src'), DEEP_LINK);
-  assert.equal(frames[0].hidden, true, 'invisible');
-  assert.equal(frames[0].getAttribute('aria-hidden'), 'true', 'and out of the accessibility tree');
-  assert.equal(frames[0].getAttribute('tabindex'), '-1');
+  assert.equal(ctx.opened.length, 1, 'the OS hand-off goes through a context of its own');
+  assert.equal(ctx.opened[0].url, DEEP_LINK);
+  assert.equal(ctx.opened[0].target, 'mlview-deeplink', 'named, so a run of clicks reuses the one context');
+  assert.equal(ctx.opened[0].closed, false, 'and it is still open while the handler is being invoked');
+  assert.equal(ctx.frames().length, 0, 'NO browsing context is created inside the report');
   assert.deepEqual(ctx.clicked, [], 'no anchor click anywhere on this path');
   assert.equal(ctx.window.location.href, before, 'and the document itself never moved');
 
-  // No blur follows in jsdom, so the 400 ms fallback copies, exactly as before.
-  await sleep(500);
+  // No blur follows in jsdom, so the fallback copies, exactly as before.
+  await sleep(1100);
+  assert.equal(ctx.opened[0].closed, true, 'the context is transient — it is closed again');
   assert.deepEqual(ctx.copied, ['train.py:44']);
   const toasts = ctx.toasts();
   assert.equal(toasts.length, 1);
   assert.equal(toasts[0].textContent, 'Copied train.py:44', 'the launch fallback keeps the old, shorter copy');
   assert.equal(toasts[0].querySelector('a'), null, 'no link here: this reader can already reach the handler');
+  assert.equal(ctx.frames().length, 0);
+  assert.deepEqual(ctx.errors, []);
+});
 
-  // The frame is temporary; a run of Go to clicks must not accumulate frames.
-  await sleep(1300);
-  assert.equal(ctx.frames().length, 0, 'the launch frame is removed again');
+test('a refused launch says so at once, with the anchor (MLV-R3-WEB-H2)', async () => {
+  // The hidden iframe failed silently. A blocked popup is visible: `window.open`
+  // returns null, and the reader gets the clipboard and a way out immediately
+  // rather than a 900 ms silence.
+  const ctx = page('file:///C:/w/report.html');
+  ctx.blockPopups();
+  ctx.MLView.bridges.standalone({ theme: 'light' }).post(LOC);
+  await sleep(40);
+  assert.equal(ctx.opened.length, 1, 'it was attempted');
+  assert.equal(ctx.frames().length, 0, 'and no frame was left behind as a consolation');
+  assert.deepEqual(ctx.copied, ['train.py:44'], 'the location is on the clipboard without waiting');
+  const toast = ctx.document.querySelector('.mlv-toast--floating');
+  assert.ok(toast, 'and the reader is told');
+  assert.equal(toast.querySelector('a').getAttribute('href'), DEEP_LINK, 'with the one way left to the editor');
   assert.deepEqual(ctx.errors, []);
 });
 
@@ -284,8 +326,14 @@ test('nothing in bridges.ts can navigate the document (11.17)', async () => {
   assert.equal(code.indexOf('location.href ='), -1, 'and an href assignment is the other way to do it');
   assert.equal(code.indexOf('location.assign'), -1);
   assert.equal(code.indexOf('location.replace'), -1);
-  assert.equal(code.indexOf('window.open'), -1, 'a popup is a navigation the host may also kill');
-  assert.ok(code.indexOf("createElement('iframe')") > 0, 'the launch goes through a frame');
+  // MLV-R3-WEB-H2: and it may not create a browsing context INSIDE the document
+  // either. A hidden iframe never moved the page — it took its keyboard, which
+  // is the same page lost by a slower road.
+  assert.equal(code.indexOf("createElement('iframe')"), -1, 'the launch may not happen in this frame tree');
+  assert.equal(code.indexOf('mlv-deeplink'), -1, 'and the old frame class is gone with it');
+  const opens = code.split('window.open').length - 1;
+  assert.equal(opens, 2, 'exactly one open — its guard and its call: ' + opens);
+  assert.ok(code.indexOf('window.open(url, LAUNCH_TARGET)') > 0, 'into the one named transient context');
   assert.ok(code.indexOf('deepLinkPlan') > 0, 'through the one decision function');
 });
 
@@ -393,18 +441,60 @@ test('floating toasts replace rather than stack (R3-DL-02)', async () => {
   assert.equal(links[0].getAttribute('href'), 'vscode://file//w/model.py:34:4');
 });
 
-test('a run of Go to clicks never accumulates launch frames (R3-DL-03)', async () => {
-  // The 1500 ms removal delay claimed to prevent this and never did: six clicks
-  // inside the window left six frames attached, i.e. six simultaneous OS
-  // protocol invocations.
+test('a run of Go to clicks never leaves two hand-offs open (R3-DL-03)', async () => {
+  // Six clicks used to leave six frames attached — six simultaneous OS protocol
+  // invocations, i.e. six "Open Visual Studio Code?" prompts. One at a time,
+  // newest wins: every earlier context is closed before the next is opened, and
+  // they all share one target name, so a real browser reuses a single context.
   const ctx = page('file:///C:/w/report.html');
   const bridge = ctx.MLView.bridges.standalone({ theme: 'light' });
   for (let i = 0; i < 6; i++) bridge.post({ ...LOC, line: 40 + i });
-  const frames = ctx.document.querySelectorAll('iframe.mlv-deeplink');
-  assert.equal(frames.length, 1, 'one hand-off at a time');
-  assert.equal(frames[0].getAttribute('src'), 'vscode://file//w/train.py:45:4', 'and it is the location last asked for');
-  await sleep(1700);
-  assert.equal(ctx.document.querySelectorAll('iframe.mlv-deeplink').length, 0, 'still temporary');
+  assert.equal(ctx.opened.length, 6);
+  assert.deepEqual(
+    ctx.opened.map((w) => w.closed),
+    [true, true, true, true, true, false],
+    'one hand-off at a time',
+  );
+  assert.deepEqual(new Set(ctx.opened.map((w) => w.target)), new Set(['mlview-deeplink']), 'into the one context');
+  assert.equal(ctx.opened[5].url, 'vscode://file//w/train.py:45:4', 'and it is the location last asked for');
+  assert.equal(ctx.frames().length, 0, 'and never a frame in the report');
+  await sleep(1100);
+  assert.equal(ctx.opened[5].closed, true, 'still temporary');
+});
+
+test('a node click leaves the canvas keymap alive (MLV-R3-WEB-H2)', async () => {
+  // The regression this file exists for. Every other keyboard test drives the
+  // keymap without ever having clicked a node, which is why 536 webview tests
+  // were green over a report whose keyboard died on the first click. Order
+  // matters here: select a node — the gesture that posts `openLocation` and
+  // launches — and THEN press a key.
+  const ctx = page('file:///C:/w/report.html');
+  const app = ctx.MLView.mount(ctx.document.getElementById('mlview-root'), sample, ctx.MLView.bridges.standalone({ theme: 'light' }));
+  const canvas = ctx.document.querySelector('.mlv-canvas');
+  const legendBtn = ctx.document.querySelector('.mlv-btn--legend');
+  const press = (target, key) =>
+    target.dispatchEvent(new ctx.window.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+
+  canvas.focus();
+  press(canvas, 'l');
+  assert.equal(legendBtn.getAttribute('aria-pressed'), 'true', 'before any click, `l` opens the legend');
+  press(canvas, 'Escape');
+  assert.equal(legendBtn.getAttribute('aria-pressed'), 'false', 'and Escape closes it');
+
+  const card = ctx.document.querySelector('.mlv-node');
+  card.dispatchEvent(new ctx.window.MouseEvent('click', { bubbles: true, cancelable: true }));
+  await sleep(1100);
+  assert.equal(ctx.opened.length, 1, 'the click did ask the OS to open the location');
+  assert.equal(ctx.frames().length, 0, 'and did it without a browsing context in this document');
+
+  const focused = ctx.document.activeElement;
+  assert.notEqual(focused, ctx.document.body, 'focus is never dropped on <body> (11.17.1 D4)');
+  press(focused, 'l');
+  assert.equal(legendBtn.getAttribute('aria-pressed'), 'true', 'and `l` still opens the legend AFTER a node click');
+  press(focused, 'Escape');
+  assert.equal(legendBtn.getAttribute('aria-pressed'), 'false', 'Escape still closes it');
+  app.destroy();
+  assert.deepEqual(ctx.errors, []);
 });
 
 /* ── R3-DL-04: the URL is a URL ────────────────────────────────────────── */

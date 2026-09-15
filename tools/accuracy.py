@@ -59,6 +59,10 @@ from accuracy_corpus import (  # noqa: E402  - after the sys.path fix above
     ACCURACY_DIR, BASELINE_PATH, CORPUS_DIR, EPSILON, HIGH_VALUE,
     IP_BASELINE_PATH, REPO_ROOT, VISIBLE_THRESHOLD, CorpusError, Program,
     aggregate, load_programs, matches, run_corpus, score_graph, score_program)
+# R1: the tool's default dataflow mode is the product's, read from the one
+# constant that decides it rather than spelled again here. `accuracy_corpus`
+# has already put `analyzer/src` on the path.
+from mlview.api import DATAFLOW_MODES, DEFAULT_DATAFLOW  # noqa: E402
 
 # Re-exported so `analyzer/tests/accuracy/test_accuracy.py` can load this one
 # file and reach the whole surface: the tool a human runs and the module the
@@ -85,10 +89,13 @@ def render(results: Sequence[Dict[str, Any]], report: Dict[str, Any],
     out: List[str] = []
     add = out.append
 
-    add("MLView accuracy corpus - %d labelled programs%s"
-        % (report["programs"],
-           "" if report.get("dataflow", "local") == "local"
-           else "  [--dataflow %s]" % report["dataflow"]))
+    # REC-08: unconditionally. The header used to name the mode only when it
+    # was *not* the default, so the report CI and `scripts/e2e.sh` produce - the
+    # shipped default - was the one report that could not be identified, while
+    # the opt-out carried a marker. Two reports that differ by eleven points of
+    # recall have to be told apart by reading them, not by counting.
+    add("MLView accuracy corpus - %d labelled programs  [--dataflow %s]"
+        % (report["programs"], report.get("dataflow", DEFAULT_DATAFLOW)))
     add("")
     add("%-24s %5s %5s %6s %6s %6s %6s %6s" % (
         "program", "files", "found", "labels", "hit", "miss", "fp", "graph"))
@@ -320,7 +327,7 @@ def build_baseline(report: Dict[str, Any], note: str = "",
         "recordedOn": datetime.date.today().isoformat(),
         "note": note,
         "programs": report["programs"],
-        "dataflow": report.get("dataflow", "local"),
+        "dataflow": report.get("dataflow", DEFAULT_DATAFLOW),
         "overall": report["overall"],
         "unseen": report["unseen"],
         "perRule": report["perRule"],
@@ -353,6 +360,23 @@ def _update_baseline(args, report: Dict[str, Any]) -> int:
         return EXIT_FORBIDDEN
 
     previous = load_baseline(args.baseline)
+    # REC-05. `ip` became the product default on 2026-09-15, so `tools/accuracy.py
+    # --update-baseline` with no flags now rewrites baseline.ip.json - and the
+    # documented recipe "run it, then run it again with --dataflow ip" silently
+    # became the same command twice, rewriting one ratchet twice and never
+    # touching the other. Every baseline carries the mode it scores, so the
+    # mismatch is one comparison: a run may only ever write the file for its own
+    # mode, whatever --baseline names.
+    if previous is not None:
+        recorded = previous.get("dataflow")
+        if recorded and recorded != args.dataflow:
+            sys.stderr.write(
+                "accuracy: refusing to overwrite %s - it is the `%s` ratchet and "
+                "this run scored `%s`. Re-run with `--dataflow %s`, or name the "
+                "other baseline with --baseline.\n"
+                % (args.baseline, recorded, args.dataflow, recorded))
+            return EXIT_CORPUS
+
     down, up = baseline_moves(report, previous)
     for label, was, now in down:
         print("baseline DOWN  %-28s %.4f -> %.4f" % (label, was, now))
@@ -384,13 +408,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--corpus", default=CORPUS_DIR)
     parser.add_argument("--baseline", default=None,
                         help="baseline file (default: the one for --dataflow)")
-    # DATAFLOW-IP (CONTRACTS 11.36). `local` is the default here as it is
-    # everywhere else, so `python tools/accuracy.py` with no flags measures and
-    # gates exactly what it always measured and gated. `ip` scores the
-    # interprocedural mode against `baseline.ip.json` - a separate ratchet,
-    # because two different analyses cannot share one.
-    parser.add_argument("--dataflow", choices=("local", "ip"), default="local",
-                        help="which dataflow mode to score (default: local)")
+    # DATAFLOW-IP (CONTRACTS 11.36) / R1. The tool's default follows the
+    # product's: `python tools/accuracy.py` with no flags measures and gates
+    # what a user actually gets, which is now `ip`, scored against
+    # `baseline.ip.json`. `--dataflow local` scores the narrower mode against
+    # `baseline.json` - a separate ratchet, because two different analyses
+    # cannot share one, and `local` is still shipped and still gated.
+    parser.add_argument("--dataflow", choices=DATAFLOW_MODES,
+                        default=DEFAULT_DATAFLOW,
+                        help="which dataflow mode to score (default: %s)"
+                             % DEFAULT_DATAFLOW)
     parser.add_argument("--program", action="append", default=[],
                         help="score only this program (repeatable)")
     parser.add_argument("--update-baseline", action="store_true",
@@ -437,7 +464,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print("no baseline at %s - run --update-baseline to record one"
               % args.baseline)
     if not failures:
-        print("accuracy gate: PASS")
+        # REC-08: name the mode and the file the ratchet was read from, so a
+        # pasted PASS line says what it passed against.
+        print("accuracy gate: PASS  (%s, %s)"
+              % (report.get("dataflow", DEFAULT_DATAFLOW),
+                 os.path.relpath(args.baseline, REPO_ROOT).replace(os.sep, "/")
+                 if baseline is not None else "no baseline"))
         return EXIT_OK
     for line in failures:
         print("accuracy gate: FAIL - %s" % line)

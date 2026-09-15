@@ -31,7 +31,13 @@ from .other_tbl import (
     OTHER,
     WRAPPER_METHODS,
 )
-from .stats_tbl import STATS, STATS_METHODS
+from .metrics_tbl import (
+    METRIC_FAMILY_BASE,
+    METRIC_OBJECTS,
+    METRIC_OBJECT_METHODS,
+)
+from .pandas_tbl import FRAME_ACCESSORS, PANDAS, PANDAS_METHODS
+from .stats_tbl import STATS, STATS_FAMILY_BASE, STATS_METHODS
 from .timm_tbl import TIMM, TIMM_METHODS
 from .sklearn_tbl import SKLEARN, SKLEARN_METHODS, STATELESS_TRANSFORMERS
 from .tf_tbl import (
@@ -63,6 +69,9 @@ __all__ = [
     "HOOK_STAGES", "HOOK_OWNER_BASES", "LIGHTNING_HOOK_ROLES", "LIGHTNING_ROOTS",
     "hook_stage", "MODEL_BASES", "is_model_base",
     "CANONICAL_ALIASES", "canonical_alias",
+    # GRAPH-R2 - pandas beyond the shape-preserving hop, time-series
+    # estimators and metric objects.
+    "FRAME_ACCESSORS", "FAMILY_BASES",
 ]
 
 #: Every constructor / free function we recognise.
@@ -76,6 +85,8 @@ KNOWLEDGE.update(HF_DATA)
 KNOWLEDGE.update(GBM)
 KNOWLEDGE.update(TIMM)
 KNOWLEDGE.update(STATS)
+KNOWLEDGE.update(PANDAS)
+KNOWLEDGE.update(METRIC_OBJECTS)
 
 #: Every *method* we recognise, keyed by its canonical base FQN.
 METHODS: Dict[str, Entry] = {}
@@ -95,6 +106,8 @@ METHODS.update(WRAPPER_METHODS)
 METHODS.update(ACCELERATE_METHODS)
 METHODS.update(TIMM_METHODS)
 METHODS.update(STATS_METHODS)
+METHODS.update(PANDAS_METHODS)
+METHODS.update(METRIC_OBJECT_METHODS)
 
 #: Everything, for a single lookup.
 ALL: Dict[str, Entry] = {}
@@ -127,7 +140,11 @@ _PREFIX_RULES: Tuple[Tuple[str, Entry], ...] = (
     ("torchvision.transforms.", E("transform", "preprocess", "torchvision", "TRANSFORM", (), None, 0.8)),
     ("torchvision.datasets.", E("dataset", "data", "torchvision", "DATASET", ("RAW_DATA",), "dataset", 0.8)),
     ("torchvision.models.", E("model", "model", "torchvision", "MODEL_FACTORY", ("MODEL",), "module", 0.8)),
-    ("torchmetrics.", E("metric", "eval", "torchmetrics", "METRIC", (), None, 0.8)),
+    # GRAPH-R2: the `torchmetric` family is what makes `acc.update(...)` /
+    # `acc.compute()` resolve - a metric object with no family answered to
+    # nothing, which is the entire point of holding one.
+    ("torchmetrics.", E("metric", "eval", "torchmetrics", "METRIC", (),
+                        "torchmetric", 0.8)),
     # vision-04: timm is the de-facto standard backbone / augmentation /
     # scheduler library for modern image classification, and there was no timm
     # row anywhere - so a timm project rendered with no model, no loss, no
@@ -154,6 +171,13 @@ _PREFIX_RULES: Tuple[Tuple[str, Entry], ...] = (
     ("imblearn.", E("transform", "preprocess", "imblearn", "RESAMPLE", (), "estimator", 0.7)),
     ("albumentations.", E("augment", "preprocess", "albumentations", "AUGMENT", (), None, 0.7)),
 ) + TF_PREFIX_RULES
+
+#: GRAPH-R2. Receiver families contributed by the tables that define them,
+#: so `ir/resolve_receivers._FAMILY_BASE` reads one mapping instead of keeping
+#: a transcription of every table's private choice.
+FAMILY_BASES: Dict[str, str] = {}
+FAMILY_BASES.update(STATS_FAMILY_BASE)
+FAMILY_BASES.update(METRIC_FAMILY_BASE)
 
 _ALIAS_PREFIXES = (("tf.", "tensorflow."),)
 
@@ -368,6 +392,13 @@ OP_ROLES = frozenset({
     "SCHED_STEP_BATCH", "EMA_UPDATE",
     "FASTAI_LEARNER", "FASTAI_FIT", "FASTAI_EVAL",
     "IGNITE_TRAIN", "IGNITE_EVAL", "IGNITE_RUN",
+    # GRAPH-R2 (knowledge/pandas_tbl.py, knowledge/metrics_tbl.py). The pandas
+    # families that change what the data means, and the metric objects.
+    # `FRAME_OP` stays transparent; these do not. `HF_METRIC` is the
+    # `evaluate.load(...)` construction, `METRIC_UPDATE` the in-loop feed, and
+    # `KERAS_EXPORT` the SavedModel hand-off that had no row at all.
+    "FRAME_TEMPORAL", "FRAME_RESHAPE", "FRAME_WRITE",
+    "HF_METRIC", "METRIC_UPDATE", "KERAS_EXPORT",
 })
 
 # ---------------------------------------------------------------------------

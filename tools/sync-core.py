@@ -7,6 +7,18 @@ Two hosts ship a copy of the analyzer, for the same reason and under the same ru
     analyzer/src/mlview/**   ->  vscode-extension/core/mlview/**     (PYTHONPATH for the VSIX)
     docs/rules/MLV*.md       ->  claude-plugin/docs/rules/MLV*.md
 
+ONE of those two copies is tracked and one is BUILT (C2).
+`claude-plugin/vendor/mlview` stays in git because `claude plugin install` copies
+the plugin directory verbatim off a marketplace ref: whatever git holds is what
+the user runs, so an untracked vendor directory is a plugin with no analyzer. It
+goes away the day the `mlview` wheel is on PyPI and `.mcp.json` can depend on it.
+`vscode-extension/core/mlview` is the opposite case: the VSIX is a build artifact
+that `vsce package` produces from a working tree, so the copy only has to exist
+at package time. It is gitignored, and `npm run compile`, `npm run pretest`,
+`vsce package`'s `vscode:prepublish` and `scripts/build.*` all run this script
+first (through `vscode-extension/tools/sync-core.mjs` in the npm cases), so it is
+always there when it counts.
+
 `claude-plugin/vendor` is what `.mcp.json` puts on PYTHONPATH, so a vendored core
 is what lets the plugin work with **no pip install at all** (CONTRACTS A1, 6.2).
 `vscode-extension/core` is the same idea for a marketplace install: PACKAGING's
@@ -15,6 +27,10 @@ with a bare Python 3.10+ and no MLView checkout still gets a diagram
 (`docs/CONTRACTS.md §11.25`). Three copies of one analyzer only stay one
 analyzer because `--check` is a gate: `tools/verify.py --all` runs it as the
 `vendor: synced core` and `vsix: synced core` rows, and CI runs it directly.
+`--check` holds a TRACKED copy to the source unconditionally; a BUILT copy that
+nobody has built yet is reported as "not built" rather than as drift, because a
+fresh clone legitimately has none (`tools/verify.py --vsix`, which runs after a
+build, is the row that insists it exists).
 
 The rule-doc copy is the plugin's equivalent of
 `vscode-extension/tools/sync-rule-docs.mjs`. `mlview_explain(code=...)` resolves
@@ -63,12 +79,14 @@ DOCS_TARGET = os.path.join(REPO_ROOT, "claude-plugin", "docs", "rules")
 DOC_PAGE = re.compile(r"^MLV[0-9]{3}\.md$")
 
 # `.mlview` is here for the same reason `__pycache__` is (HEALTH-01): the fact
-# cache is ON by default since 11.39 and writes `<root>/.mlview/cache` into
-# whatever directory was analyzed, so anybody who once ran the analyzer over
-# `analyzer/src/mlview` leaves a sidecar that this script would otherwise vendor
-# into the plugin AND the shipped VSIX - and that inflates the file count
+# cache is ON by default since 11.39, and while it wrote `<root>/.mlview/cache`
+# into whatever directory was analyzed, anybody who once ran the analyzer over
+# `analyzer/src/mlview` left a sidecar that this script would otherwise vendor
+# into the plugin AND the shipped VSIX - and that inflated the file count
 # `tools/verify.py --all` prints on one machine and not another (REV5-05 caught
-# it as a 97-vs-96 disagreement between this Mac and CI).
+# it as a 97-vs-96 disagreement between this Mac and CI). The skip stays whatever
+# the default cache directory is: a rule that stops an artifact from being
+# shipped is not one to delete the week the source of the artifact is fixed.
 SKIP_DIRS = {"__pycache__", ".pytest_cache", ".mypy_cache", ".mlview", "tests"}
 SKIP_SUFFIXES = (".pyc", ".pyo", ".pyd")
 
@@ -84,12 +102,15 @@ class Copy(NamedTuple):
     root: str
     #: Repo-relative spelling, for the human-readable messages.
     label: str
+    #: True when the copy is gitignored and produced at build time (C2). Absence is
+    #: then a build that has not run, not drift, so `--check` says so and moves on.
+    generated: bool
 
 
 #: Every copy of `analyzer/src/mlview` this script owns, in table order.
 COPIES: Tuple[Copy, ...] = (
-    Copy("vendor", TARGET, VENDOR_ROOT, "claude-plugin/vendor/mlview"),
-    Copy("vsix", VSIX_TARGET, VSIX_ROOT, "vscode-extension/core/mlview"),
+    Copy("vendor", TARGET, VENDOR_ROOT, "claude-plugin/vendor/mlview", False),
+    Copy("vsix", VSIX_TARGET, VSIX_ROOT, "vscode-extension/core/mlview", True),
 )
 
 
@@ -257,8 +278,19 @@ def _report_tree_drift(copy: Copy, to_copy: List[str], to_delete: List[str]) -> 
 
 
 def check_tree(copy: Copy) -> Tuple[bool, str]:
-    """`(ok, detail)` for ONE vendored copy. Used by `tools/verify.py`'s gate rows."""
+    """`(ok, detail)` for ONE vendored copy. Used by `tools/verify.py`'s gate rows.
+
+    Strict on purpose, unlike `check()`: this is the gate row that runs after a
+    build, so a generated copy that is missing is a build that did not happen and
+    therefore a VSIX that would ship without an analyzer.
+    """
     if not os.path.isdir(copy.target):
+        if copy.generated:
+            return False, (
+                "%s does not exist — it is a gitignored build artifact; run "
+                "`python tools/sync-core.py` (or `npm run compile` in "
+                "vscode-extension, which does)" % copy.label
+            )
         return False, "%s does not exist — run tools/sync-core.py" % copy.label
     to_copy, to_delete, unchanged = plan(copy.target)
     if to_copy or to_delete:
@@ -271,8 +303,15 @@ def check_tree(copy: Copy) -> Tuple[bool, str]:
 
 
 def check(quiet: bool = False) -> int:
+    unbuilt: List[str] = []
     for copy in COPIES:
         if not os.path.isdir(copy.target):
+            if copy.generated:
+                # C2: a build artifact nobody has built. `npm run compile`, `npm run
+                # package` and `scripts/build.*` all produce it; a fresh clone that
+                # has run none of them is not a drifted tree.
+                unbuilt.append(copy.label)
+                continue
             print(
                 "sync-core: FAIL %s does not exist — run tools/sync-core.py" % copy.label,
                 file=sys.stderr,
@@ -309,11 +348,18 @@ def check(quiet: bool = False) -> int:
 
     if not quiet:
         matched = len(plan(TARGET)[2])
+        checked = [copy.label for copy in COPIES if copy.label not in unbuilt]
+        where = ("each of %d copies (%s)" % (len(checked), ", ".join(checked))
+                 if len(checked) != 1 else checked[0])
         print(
-            "sync-core: OK %d files match analyzer/src/mlview in each of %d copies, "
-            "%d rule pages match docs/rules"
-            % (matched, len(COPIES), len(doc_same))
+            "sync-core: OK %d files match analyzer/src/mlview in %s, "
+            "%d rule pages match docs/rules" % (matched, where, len(doc_same))
         )
+        for label in unbuilt:
+            print(
+                "sync-core: %s is not built (gitignored build artifact) — "
+                "`npm run compile` in vscode-extension writes it" % label
+            )
     return 0
 
 
