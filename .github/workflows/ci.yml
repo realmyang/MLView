@@ -27,14 +27,20 @@ name: CI
 #   The weekly `.github/workflows/public-corpus.yml`, dispatched on the same
 #   commit: run 34975673419, green, 37 pinned repositories and 260 analyses.
 #
-#   CONFIRMED on the next commit: push run 34977935404 (7 jobs, 11m15s) and
-#   pull_request run 34977944326 (6 jobs, 12m39s), thirteen green again. Read
-#   the two together before treating any single duration as a constant - the
-#   same job on the same code moved a long way between them: `e2e (ubuntu, sh)`
-#   465 -> 671 s, analyzer py3.10 458 -> 593 s, `e2e (windows, powershell)`
-#   718 -> 754 s, `smoke (macos)` 541 -> 480 s. The weighted totals are a BAND,
-#   163-173 minutes, not a figure, and a timeout set from one reading would be
-#   set from the lucky one.
+#   CONFIRMED TWICE MORE, on the two commits that recorded the numbers above:
+#   push 34977935404 / pull_request 34977944326 (11m15s and 12m39s), then push
+#   34979532914 / pull_request 34979536605 (11m14s and 11m34s). Thirteen green
+#   each time.
+#
+#   Read the three together before treating any single duration as a constant.
+#   The same job on the same code moves a long way between runs: `e2e (ubuntu,
+#   sh)` 465 -> 671 -> 669 s, analyzer py3.10 458 -> 593 -> 590 s, analyzer
+#   py3.12 571 -> 547 -> 414 s, `e2e (windows, powershell)` 718 -> 754 -> 688 s,
+#   `smoke (macos)` 541 -> 480 -> 473 s. The three weighted totals came to 173,
+#   163 and 158 minutes for the identical thirteen jobs, so a `timeout-minutes`
+#   or a cost figure taken from ONE reading is taken from whichever runner
+#   answered that morning. Expect the next reading to differ again; that is the
+#   point of writing three of them down rather than one.
 #
 # It took ONE fix iteration, and the four failures were one mistake made four
 # times, in a place no single-platform run can reach: `os.path.abspath` puts the
