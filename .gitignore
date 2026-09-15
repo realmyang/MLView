@@ -29,6 +29,15 @@ __pycache__/
 # repositories in `git status`, and the module docstring's "git-ignored" is false.
 .public-corpus/
 
+# `python -m mlview init` writes `<root>/.mlview.toml` (CONTRACTS D1), and running
+# the tool on its OWN checkout - a demo, an e2e pass, the VS Code "Open MLView
+# Configuration" command - lands one here. Every key in it is commented out, so
+# it configures nothing; it is a generated artifact, not this repository's
+# config. Only the leading slash is ignored, so a `.mlview.toml` a USER commits
+# in their own project is untouched, and `git add -f .mlview.toml` still works
+# the day MLView decides to dogfood a real one.
+/.mlview.toml
+
 # generated demo artifacts (scripts/e2e regenerates them)
 .mlview/
 webview/.mlview/
@@ -47,3 +56,15 @@ Thumbs.db
 
 # local virtual environment (macOS setup)
 .venv/
+
+# editor and OS scratch that no checkout should carry
+.idea/
+*.swp
+*~
+
+# coverage output (`pytest --cov`, `c8`/`nyc`); no gate reads a committed report
+.coverage
+.coverage.*
+htmlcov/
+coverage/
+.nyc_output/

@@ -21,10 +21,13 @@ anywhere. Specifically:
   `#mlviewDiagram` in agent mode have **never met a live Copilot session**. They
   are contributed correctly and type-check, and that is all anyone can honestly
   claim.
-- **No CI job has ever run on this line of work.** GitHub Actions billing is
-  blocked at the account level, so every job comes back unstarted. That is not a
-  green matrix waiting to be re-read: Python 3.10, 3.11 and 3.12, Windows and
-  macOS have been exercised by nobody. The build machine has 3.13 alone.
+- **CI ran late, and only at the end.** GitHub Actions billing was blocked at
+  the account level for the whole of the consolidation and the recall campaign,
+  so every job came back unstarted and all of that work was checked on the build
+  machine — Python 3.13 alone — and nowhere else. The matrix has run since the
+  repository went public: thirteen green jobs on the `public` → `main` pull
+  request (run 34983316368 and run 34983321423), which is where Python 3.10,
+  3.11 and 3.12, Windows and macOS are exercised. Nothing has run on `main`.
 - Nothing has been published: **no PyPI release, no Marketplace extension, no
   Open VSX extension, no hosted plugin marketplace, no GitHub release**. Every
   command in Part 4 is written from the tools' own documentation and has not

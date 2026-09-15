@@ -7,7 +7,7 @@
     "generatedAt": "2026-09-08T20:22:36Z"
   },
   "workspace": {
-    "root": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline",
+    "root": "/home/mlview/MLView/samples/vision_pipeline",
     "entrypoints": [
       "train.py",
       "config.py",
@@ -140,7 +140,7 @@
       "qualname": "config.__main__",
       "loc": {
         "file": "config.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/config.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/config.py",
         "line": 10,
         "col": 0,
         "endLine": 10,
@@ -150,7 +150,7 @@
       },
       "defLoc": {
         "file": "config.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/config.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/config.py",
         "line": 10,
         "col": 0,
         "endLine": 10,
@@ -194,7 +194,7 @@
       "var": "device",
       "loc": {
         "file": "train.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
         "line": 19,
         "col": 13,
         "endLine": 19,
@@ -240,7 +240,7 @@
       "var": "full_train",
       "loc": {
         "file": "data.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/data.py",
         "line": 26,
         "col": 13,
         "endLine": 27,
@@ -294,7 +294,7 @@
       "var": "test_ds",
       "loc": {
         "file": "data.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/data.py",
         "line": 28,
         "col": 10,
         "endLine": 29,
@@ -347,7 +347,7 @@
       "framework": "torch",
       "loc": {
         "file": "data.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/data.py",
         "line": 31,
         "col": 19,
         "endLine": 31,
@@ -395,7 +395,7 @@
       "var": "train_loader",
       "loc": {
         "file": "data.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/data.py",
         "line": 33,
         "col": 15,
         "endLine": 33,
@@ -453,7 +453,7 @@
       "var": "val_loader",
       "loc": {
         "file": "data.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/data.py",
         "line": 34,
         "col": 13,
         "endLine": 34,
@@ -510,7 +510,7 @@
       "var": "test_loader",
       "loc": {
         "file": "data.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/data.py",
         "line": 35,
         "col": 14,
         "endLine": 35,
@@ -569,7 +569,7 @@
       "var": "raw",
       "loc": {
         "file": "sklearn_baseline.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/sklearn_baseline.py",
         "line": 19,
         "col": 10,
         "endLine": 19,
@@ -614,7 +614,7 @@
       "framework": "sklearn",
       "loc": {
         "file": "sklearn_baseline.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/sklearn_baseline.py",
         "line": 26,
         "col": 39,
         "endLine": 27,
@@ -668,7 +668,7 @@
       "qualname": "data.__main__",
       "loc": {
         "file": "data.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/data.py",
         "line": 15,
         "col": 0,
         "endLine": 20,
@@ -677,7 +677,7 @@
       },
       "defLoc": {
         "file": "data.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/data.py",
         "line": 15,
         "col": 0,
         "endLine": 20,
@@ -720,7 +720,7 @@
       "var": "TRAIN_TRANSFORM",
       "loc": {
         "file": "data.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/data.py",
         "line": 15,
         "col": 18,
         "endLine": 20,
@@ -763,7 +763,7 @@
       "framework": "torchvision",
       "loc": {
         "file": "data.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/data.py",
         "line": 16,
         "col": 4,
         "endLine": 16,
@@ -802,7 +802,7 @@
       "framework": "torchvision",
       "loc": {
         "file": "data.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/data.py",
         "line": 17,
         "col": 4,
         "endLine": 17,
@@ -839,7 +839,7 @@
       "framework": "torchvision",
       "loc": {
         "file": "data.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/data.py",
         "line": 18,
         "col": 4,
         "endLine": 18,
@@ -876,7 +876,7 @@
       "framework": "torchvision",
       "loc": {
         "file": "data.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/data.py",
         "line": 19,
         "col": 4,
         "endLine": 19,
@@ -915,7 +915,7 @@
       "var": "EVAL_TRANSFORM",
       "loc": {
         "file": "data.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/data.py",
         "line": 21,
         "col": 17,
         "endLine": 24,
@@ -957,7 +957,7 @@
       "framework": "torchvision",
       "loc": {
         "file": "data.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/data.py",
         "line": 22,
         "col": 4,
         "endLine": 22,
@@ -994,7 +994,7 @@
       "framework": "torchvision",
       "loc": {
         "file": "data.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/data.py",
         "line": 23,
         "col": 4,
         "endLine": 23,
@@ -1029,7 +1029,7 @@
       "qualname": "sklearn_baseline.baseline",
       "loc": {
         "file": "sklearn_baseline.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/sklearn_baseline.py",
         "line": 18,
         "col": 0,
         "endLine": 37,
@@ -1039,7 +1039,7 @@
       },
       "defLoc": {
         "file": "sklearn_baseline.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/sklearn_baseline.py",
         "line": 18,
         "col": 0,
         "endLine": 37,
@@ -1083,7 +1083,7 @@
       "var": "scaler",
       "loc": {
         "file": "sklearn_baseline.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/sklearn_baseline.py",
         "line": 23,
         "col": 13,
         "endLine": 23,
@@ -1129,7 +1129,7 @@
       "var": "X_scaled",
       "loc": {
         "file": "sklearn_baseline.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/sklearn_baseline.py",
         "line": 24,
         "col": 15,
         "endLine": 24,
@@ -1197,7 +1197,7 @@
       "var": "pca",
       "loc": {
         "file": "sklearn_baseline.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/sklearn_baseline.py",
         "line": 29,
         "col": 10,
         "endLine": 29,
@@ -1243,7 +1243,7 @@
       "var": "X_train_pca",
       "loc": {
         "file": "sklearn_baseline.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/sklearn_baseline.py",
         "line": 30,
         "col": 18,
         "endLine": 30,
@@ -1309,7 +1309,7 @@
       "var": "X_test_pca",
       "loc": {
         "file": "sklearn_baseline.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/sklearn_baseline.py",
         "line": 31,
         "col": 17,
         "endLine": 31,
@@ -1372,7 +1372,7 @@
       "qualname": "model.ConvBlock",
       "loc": {
         "file": "model.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/model.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/model.py",
         "line": 14,
         "col": 0,
         "endLine": 24,
@@ -1382,7 +1382,7 @@
       },
       "defLoc": {
         "file": "model.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/model.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/model.py",
         "line": 14,
         "col": 0,
         "endLine": 24,
@@ -1421,7 +1421,7 @@
       "var": "self.conv",
       "loc": {
         "file": "model.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/model.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/model.py",
         "line": 19,
         "col": 20,
         "endLine": 19,
@@ -1470,7 +1470,7 @@
       "var": "self.norm",
       "loc": {
         "file": "model.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/model.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/model.py",
         "line": 20,
         "col": 20,
         "endLine": 20,
@@ -1516,7 +1516,7 @@
       "var": "self.drop",
       "loc": {
         "file": "model.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/model.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/model.py",
         "line": 21,
         "col": 20,
         "endLine": 21,
@@ -1560,7 +1560,7 @@
       "framework": "torch",
       "loc": {
         "file": "model.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/model.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/model.py",
         "line": 24,
         "col": 25,
         "endLine": 24,
@@ -1603,7 +1603,7 @@
       "qualname": "model.SmallCNN",
       "loc": {
         "file": "model.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/model.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/model.py",
         "line": 27,
         "col": 0,
         "endLine": 43,
@@ -1613,7 +1613,7 @@
       },
       "defLoc": {
         "file": "model.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/model.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/model.py",
         "line": 27,
         "col": 0,
         "endLine": 43,
@@ -1655,7 +1655,7 @@
       "var": "self.stem",
       "loc": {
         "file": "model.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/model.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/model.py",
         "line": 33,
         "col": 20,
         "endLine": 33,
@@ -1704,7 +1704,7 @@
       "var": "self.pool",
       "loc": {
         "file": "model.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/model.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/model.py",
         "line": 35,
         "col": 20,
         "endLine": 35,
@@ -1750,7 +1750,7 @@
       "var": "self.head",
       "loc": {
         "file": "model.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/model.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/model.py",
         "line": 36,
         "col": 20,
         "endLine": 36,
@@ -1796,7 +1796,7 @@
       "var": "x",
       "loc": {
         "file": "model.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/model.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/model.py",
         "line": 39,
         "col": 12,
         "endLine": 39,
@@ -1846,7 +1846,7 @@
       "framework": "torch",
       "loc": {
         "file": "model.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/model.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/model.py",
         "line": 43,
         "col": 15,
         "endLine": 43,
@@ -1896,7 +1896,7 @@
       "var": "clf",
       "loc": {
         "file": "sklearn_baseline.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/sklearn_baseline.py",
         "line": 33,
         "col": 10,
         "endLine": 33,
@@ -1945,7 +1945,7 @@
       "var": "criterion",
       "loc": {
         "file": "train.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
         "line": 22,
         "col": 16,
         "endLine": 22,
@@ -1991,7 +1991,7 @@
       "framework": "sklearn",
       "loc": {
         "file": "sklearn_baseline.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/sklearn_baseline.py",
         "line": 35,
         "col": 4,
         "endLine": 35,
@@ -2053,7 +2053,7 @@
       "qualname": "train.train",
       "loc": {
         "file": "train.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
         "line": 18,
         "col": 0,
         "endLine": 38,
@@ -2063,7 +2063,7 @@
       },
       "defLoc": {
         "file": "train.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
         "line": 18,
         "col": 0,
         "endLine": 38,
@@ -2102,7 +2102,7 @@
       "var": "optimizer",
       "loc": {
         "file": "train.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
         "line": 23,
         "col": 16,
         "endLine": 24,
@@ -2146,7 +2146,7 @@
       "framework": "torch",
       "loc": {
         "file": "train.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
         "line": 27,
         "col": 4,
         "endLine": 27,
@@ -2194,7 +2194,7 @@
       "qualname": "train.train.epoch_loop",
       "loc": {
         "file": "train.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
         "line": 28,
         "col": 4,
         "endLine": 37,
@@ -2249,7 +2249,7 @@
       "fqn": "torch.optim.Optimizer.zero_grad",
       "loc": {
         "file": "train.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
         "line": 29,
         "col": 8,
         "endLine": 34,
@@ -2287,7 +2287,7 @@
       "qualname": "train.train.batch_loop",
       "loc": {
         "file": "train.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
         "line": 29,
         "col": 8,
         "endLine": 34,
@@ -2352,7 +2352,7 @@
       "framework": "torch",
       "loc": {
         "file": "train.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
         "line": 32,
         "col": 12,
         "endLine": 32,
@@ -2401,7 +2401,7 @@
       "framework": "torch",
       "loc": {
         "file": "train.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
         "line": 33,
         "col": 12,
         "endLine": 33,
@@ -2452,7 +2452,7 @@
       "var": "scores",
       "loc": {
         "file": "sklearn_baseline.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/sklearn_baseline.py",
         "line": 34,
         "col": 13,
         "endLine": 34,
@@ -2520,7 +2520,7 @@
       "var": "holdout",
       "loc": {
         "file": "sklearn_baseline.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/sklearn_baseline.py",
         "line": 36,
         "col": 14,
         "endLine": 36,
@@ -2570,7 +2570,7 @@
       "framework": "sklearn",
       "loc": {
         "file": "sklearn_baseline.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/sklearn_baseline.py",
         "line": 36,
         "col": 37,
         "endLine": 36,
@@ -2625,7 +2625,7 @@
       "qualname": "train.validate",
       "loc": {
         "file": "train.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
         "line": 41,
         "col": 0,
         "endLine": 49,
@@ -2635,7 +2635,7 @@
       },
       "defLoc": {
         "file": "train.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
         "line": 41,
         "col": 0,
         "endLine": 49,
@@ -2672,7 +2672,7 @@
       "fqn": "torch.nn.Module.eval",
       "loc": {
         "file": "train.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
         "line": 44,
         "col": 4,
         "endLine": 48,
@@ -2710,7 +2710,7 @@
       "qualname": "train.validate.batch_loop",
       "loc": {
         "file": "train.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
         "line": 44,
         "col": 4,
         "endLine": 48,
@@ -2776,7 +2776,7 @@
       "var": "preds",
       "loc": {
         "file": "train.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
         "line": 46,
         "col": 16,
         "endLine": 46,
@@ -2833,7 +2833,7 @@
       "label": "loss",
       "loc": {
         "file": "train.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
         "line": 32,
         "col": 12,
         "endLine": 32,
@@ -2856,7 +2856,7 @@
       "label": "next batch",
       "loc": {
         "file": "train.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
         "line": 29,
         "col": 8,
         "endLine": 34,
@@ -2876,7 +2876,7 @@
       "label": "test_ds",
       "loc": {
         "file": "data.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/data.py",
         "line": 35,
         "col": 25,
         "endLine": 35,
@@ -2899,7 +2899,7 @@
       "label": "EVAL_TRANSFORM",
       "loc": {
         "file": "data.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/data.py",
         "line": 29,
         "col": 49,
         "endLine": 29,
@@ -2919,7 +2919,7 @@
       "label": "X_train_pca",
       "loc": {
         "file": "sklearn_baseline.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/sklearn_baseline.py",
         "line": 35,
         "col": 12,
         "endLine": 35,
@@ -2942,7 +2942,7 @@
       "label": "X_train_pca",
       "loc": {
         "file": "sklearn_baseline.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/sklearn_baseline.py",
         "line": 34,
         "col": 34,
         "endLine": 34,
@@ -2965,7 +2965,7 @@
       "label": "scaler",
       "loc": {
         "file": "sklearn_baseline.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/sklearn_baseline.py",
         "line": 24,
         "col": 15,
         "endLine": 24,
@@ -2987,7 +2987,7 @@
       "label": "ConvBlock()",
       "loc": {
         "file": "model.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/model.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/model.py",
         "line": 34,
         "col": 23,
         "endLine": 34,
@@ -3007,7 +3007,7 @@
       "label": "model",
       "loc": {
         "file": "train.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
         "line": 27,
         "col": 4,
         "endLine": 27,
@@ -3029,7 +3029,7 @@
       "label": "logits",
       "loc": {
         "file": "train.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
         "line": 31,
         "col": 29,
         "endLine": 31,
@@ -3053,7 +3053,7 @@
       "label": "logits",
       "loc": {
         "file": "train.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
         "line": 46,
         "col": 16,
         "endLine": 46,
@@ -3075,7 +3075,7 @@
       "label": "model",
       "loc": {
         "file": "train.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
         "line": 35,
         "col": 28,
         "endLine": 35,
@@ -3097,7 +3097,7 @@
       "label": "parameters",
       "loc": {
         "file": "train.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
         "line": 23,
         "col": 27,
         "endLine": 23,
@@ -3117,7 +3117,7 @@
       "label": "x",
       "loc": {
         "file": "model.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/model.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/model.py",
         "line": 43,
         "col": 35,
         "endLine": 43,
@@ -3137,7 +3137,7 @@
       "label": "pca",
       "loc": {
         "file": "sklearn_baseline.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/sklearn_baseline.py",
         "line": 30,
         "col": 18,
         "endLine": 30,
@@ -3159,7 +3159,7 @@
       "label": "pca",
       "loc": {
         "file": "sklearn_baseline.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/sklearn_baseline.py",
         "line": 31,
         "col": 17,
         "endLine": 31,
@@ -3181,7 +3181,7 @@
       "label": "X_train",
       "loc": {
         "file": "sklearn_baseline.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/sklearn_baseline.py",
         "line": 30,
         "col": 36,
         "endLine": 30,
@@ -3204,7 +3204,7 @@
       "label": "y_train",
       "loc": {
         "file": "sklearn_baseline.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/sklearn_baseline.py",
         "line": 35,
         "col": 25,
         "endLine": 35,
@@ -3227,7 +3227,7 @@
       "label": "y_train",
       "loc": {
         "file": "sklearn_baseline.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/sklearn_baseline.py",
         "line": 34,
         "col": 47,
         "endLine": 34,
@@ -3250,7 +3250,7 @@
       "label": "y_test",
       "loc": {
         "file": "sklearn_baseline.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/sklearn_baseline.py",
         "line": 36,
         "col": 29,
         "endLine": 36,
@@ -3273,7 +3273,7 @@
       "label": "X_test",
       "loc": {
         "file": "sklearn_baseline.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/sklearn_baseline.py",
         "line": 31,
         "col": 31,
         "endLine": 31,
@@ -3296,7 +3296,7 @@
       "label": "device",
       "loc": {
         "file": "train.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
         "line": 21,
         "col": 13,
         "endLine": 21,
@@ -3319,7 +3319,7 @@
       "label": "next batch",
       "loc": {
         "file": "train.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
         "line": 44,
         "col": 4,
         "endLine": 48,
@@ -3339,7 +3339,7 @@
       "label": "X_test_pca",
       "loc": {
         "file": "sklearn_baseline.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/sklearn_baseline.py",
         "line": 36,
         "col": 49,
         "endLine": 36,
@@ -3362,7 +3362,7 @@
       "label": "train_loader",
       "loc": {
         "file": "train.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
         "line": 29,
         "col": 30,
         "endLine": 29,
@@ -3385,7 +3385,7 @@
       "label": "val_loader",
       "loc": {
         "file": "train.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
         "line": 35,
         "col": 35,
         "endLine": 35,
@@ -3408,7 +3408,7 @@
       "label": "loader",
       "loc": {
         "file": "train.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
         "line": 44,
         "col": 26,
         "endLine": 44,
@@ -3431,7 +3431,7 @@
       "label": "full_train",
       "loc": {
         "file": "data.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/data.py",
         "line": 31,
         "col": 32,
         "endLine": 31,
@@ -3453,7 +3453,7 @@
       "label": "self.stem",
       "loc": {
         "file": "model.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/model.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/model.py",
         "line": 39,
         "col": 19,
         "endLine": 39,
@@ -3475,7 +3475,7 @@
       "label": "X_scaled",
       "loc": {
         "file": "sklearn_baseline.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/sklearn_baseline.py",
         "line": 27,
         "col": 8,
         "endLine": 27,
@@ -3498,7 +3498,7 @@
       "label": "predict",
       "loc": {
         "file": "sklearn_baseline.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/sklearn_baseline.py",
         "line": 36,
         "col": 37,
         "endLine": 36,
@@ -3519,7 +3519,7 @@
       "label": "enter batch loop",
       "loc": {
         "file": "train.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
         "line": 44,
         "col": 4,
         "endLine": 48,
@@ -3539,7 +3539,7 @@
       "label": "clf",
       "loc": {
         "file": "sklearn_baseline.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/sklearn_baseline.py",
         "line": 35,
         "col": 4,
         "endLine": 35,
@@ -3562,7 +3562,7 @@
       "label": "clf",
       "loc": {
         "file": "sklearn_baseline.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/sklearn_baseline.py",
         "line": 34,
         "col": 29,
         "endLine": 34,
@@ -3585,7 +3585,7 @@
       "label": "clf",
       "loc": {
         "file": "sklearn_baseline.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/sklearn_baseline.py",
         "line": 36,
         "col": 37,
         "endLine": 36,
@@ -3608,7 +3608,7 @@
       "label": "self.conv",
       "loc": {
         "file": "model.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/model.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/model.py",
         "line": 24,
         "col": 42,
         "endLine": 24,
@@ -3630,7 +3630,7 @@
       "label": "TRAIN_TRANSFORM",
       "loc": {
         "file": "data.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/data.py",
         "line": 27,
         "col": 52,
         "endLine": 27,
@@ -3650,7 +3650,7 @@
       "label": "self.norm",
       "loc": {
         "file": "model.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/model.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/model.py",
         "line": 24,
         "col": 32,
         "endLine": 24,
@@ -3672,7 +3672,7 @@
       "label": "train_ds",
       "loc": {
         "file": "data.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/data.py",
         "line": 33,
         "col": 26,
         "endLine": 33,
@@ -3695,7 +3695,7 @@
       "label": "val_ds",
       "loc": {
         "file": "data.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/data.py",
         "line": 34,
         "col": 24,
         "endLine": 34,
@@ -3718,7 +3718,7 @@
       "label": "self.head",
       "loc": {
         "file": "model.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/model.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/model.py",
         "line": 43,
         "col": 25,
         "endLine": 43,
@@ -3740,7 +3740,7 @@
       "label": "validate()",
       "loc": {
         "file": "train.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
         "line": 35,
         "col": 19,
         "endLine": 35,
@@ -3761,7 +3761,7 @@
       "label": "enter batch loop",
       "loc": {
         "file": "train.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
         "line": 29,
         "col": 8,
         "endLine": 34,
@@ -3781,7 +3781,7 @@
       "label": "images",
       "loc": {
         "file": "train.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
         "line": 45,
         "col": 23,
         "endLine": 45,
@@ -3801,7 +3801,7 @@
       "label": "optimizer",
       "loc": {
         "file": "train.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
         "line": 33,
         "col": 12,
         "endLine": 33,
@@ -3823,7 +3823,7 @@
       "label": "SmallCNN()",
       "loc": {
         "file": "train.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
         "line": 20,
         "col": 12,
         "endLine": 20,
@@ -3844,7 +3844,7 @@
       "label": "enter epoch loop",
       "loc": {
         "file": "train.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
         "line": 28,
         "col": 4,
         "endLine": 37,
@@ -3865,7 +3865,7 @@
       "label": "next epoch",
       "loc": {
         "file": "train.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
         "line": 28,
         "col": 4,
         "endLine": 37,
@@ -3885,7 +3885,7 @@
       "label": "labels",
       "loc": {
         "file": "train.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
         "line": 31,
         "col": 37,
         "endLine": 31,
@@ -3905,7 +3905,7 @@
       "label": "images",
       "loc": {
         "file": "train.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
         "line": 30,
         "col": 27,
         "endLine": 30,
@@ -3925,7 +3925,7 @@
       "label": "relu",
       "loc": {
         "file": "model.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/model.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/model.py",
         "line": 24,
         "col": 25,
         "endLine": 24,
@@ -3952,7 +3952,7 @@
       "fixHint": "Wrap the container in nn.ModuleList([...]) or nn.ModuleDict({...}) so the submodules are registered as children.",
       "loc": {
         "file": "model.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/model.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/model.py",
         "line": 34,
         "col": 8,
         "endLine": 34,
@@ -3965,7 +3965,7 @@
           "role": "construction",
           "message": "model.ConvBlock built here",
           "file": "model.py",
-          "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/model.py",
+          "absFile": "/home/mlview/MLView/samples/vision_pipeline/model.py",
           "line": 34,
           "col": 23,
           "endLine": 34,
@@ -3977,7 +3977,7 @@
           "role": "definition",
           "message": "class SmallCNN",
           "file": "model.py",
-          "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/model.py",
+          "absFile": "/home/mlview/MLView/samples/vision_pipeline/model.py",
           "line": 27,
           "col": 0,
           "endLine": 43,
@@ -4036,7 +4036,7 @@
       "fixHint": "Split first, then fit_transform on the training rows and transform the rest - or put the transformer and estimator in a sklearn Pipeline.",
       "loc": {
         "file": "sklearn_baseline.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/sklearn_baseline.py",
         "line": 24,
         "col": 15,
         "endLine": 24,
@@ -4049,7 +4049,7 @@
           "role": "fit_site",
           "message": "fitted on the full dataset here",
           "file": "sklearn_baseline.py",
-          "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+          "absFile": "/home/mlview/MLView/samples/vision_pipeline/sklearn_baseline.py",
           "line": 24,
           "col": 15,
           "endLine": 24,
@@ -4061,7 +4061,7 @@
           "role": "split_site",
           "message": "split happens later, at line 26",
           "file": "sklearn_baseline.py",
-          "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+          "absFile": "/home/mlview/MLView/samples/vision_pipeline/sklearn_baseline.py",
           "line": 26,
           "col": 39,
           "endLine": 27,
@@ -4117,7 +4117,7 @@
       "fixHint": "Call optimizer.zero_grad(set_to_none=True) as the first statement of the training step, before the forward pass.",
       "loc": {
         "file": "train.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
         "line": 29,
         "col": 8,
         "endLine": 34,
@@ -4130,7 +4130,7 @@
           "role": "optimizer_site",
           "message": "optimizer created here",
           "file": "train.py",
-          "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+          "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
           "line": 23,
           "col": 16,
           "endLine": 24,
@@ -4142,7 +4142,7 @@
           "role": "backward_site",
           "message": "backward here",
           "file": "train.py",
-          "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+          "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
           "line": 32,
           "col": 12,
           "endLine": 32,
@@ -4202,7 +4202,7 @@
       "fixHint": "Return raw logits from forward() and apply softmax only where you need probabilities for reporting.",
       "loc": {
         "file": "train.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
         "line": 31,
         "col": 19,
         "endLine": 31,
@@ -4215,7 +4215,7 @@
           "role": "final_layer",
           "message": "torch.nn.functional.softmax applied here",
           "file": "model.py",
-          "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/model.py",
+          "absFile": "/home/mlview/MLView/samples/vision_pipeline/model.py",
           "line": 43,
           "col": 15,
           "endLine": 43,
@@ -4227,7 +4227,7 @@
           "role": "definition",
           "message": "model class SmallCNN",
           "file": "model.py",
-          "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/model.py",
+          "absFile": "/home/mlview/MLView/samples/vision_pipeline/model.py",
           "line": 27,
           "col": 0,
           "endLine": 43,
@@ -4285,7 +4285,7 @@
       "fixHint": "Call model.eval() before the validation loop and model.train() when returning to training.",
       "loc": {
         "file": "train.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
         "line": 44,
         "col": 4,
         "endLine": 48,
@@ -4298,7 +4298,7 @@
           "role": "eval_loop",
           "message": "the loop at line 44 over loader runs a forward pass, never calls backward() or optimizer.step(), and it sits in validate()",
           "file": "train.py",
-          "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+          "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
           "line": 44,
           "col": 4,
           "endLine": 48,
@@ -4310,7 +4310,7 @@
           "role": "call_site",
           "message": "forward pass here",
           "file": "train.py",
-          "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+          "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
           "line": 45,
           "col": 17,
           "endLine": 45,
@@ -4322,7 +4322,7 @@
           "role": "definition",
           "message": "model class SmallCNN",
           "file": "model.py",
-          "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/model.py",
+          "absFile": "/home/mlview/MLView/samples/vision_pipeline/model.py",
           "line": 27,
           "col": 0,
           "endLine": 43,
@@ -4387,7 +4387,7 @@
       "fixHint": "Pass shuffle=True to the training DataLoader, or give it a shuffling sampler such as RandomSampler / DistributedSampler.",
       "loc": {
         "file": "data.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/data.py",
         "line": 33,
         "col": 15,
         "endLine": 33,
@@ -4400,7 +4400,7 @@
           "role": "construction",
           "message": "DataLoader built here",
           "file": "data.py",
-          "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+          "absFile": "/home/mlview/MLView/samples/vision_pipeline/data.py",
           "line": 33,
           "col": 15,
           "endLine": 33,
@@ -4454,7 +4454,7 @@
       "fixHint": "Move the entrypoint into a function and call it from if __name__ == \"__main__\": main().",
       "loc": {
         "file": "data.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/data.py",
         "line": 33,
         "col": 15,
         "endLine": 33,
@@ -4467,7 +4467,7 @@
           "role": "construction",
           "message": "worker processes requested here",
           "file": "data.py",
-          "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+          "absFile": "/home/mlview/MLView/samples/vision_pipeline/data.py",
           "line": 33,
           "col": 15,
           "endLine": 33,
@@ -4521,7 +4521,7 @@
       "fixHint": "Wrap the transformer and the estimator in sklearn.pipeline.Pipeline and pass the pipeline to the CV call, so preprocessing is refit per fold.",
       "loc": {
         "file": "sklearn_baseline.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/sklearn_baseline.py",
         "line": 34,
         "col": 13,
         "endLine": 34,
@@ -4534,7 +4534,7 @@
           "role": "fit_site",
           "message": "fitted once, outside the folds",
           "file": "sklearn_baseline.py",
-          "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+          "absFile": "/home/mlview/MLView/samples/vision_pipeline/sklearn_baseline.py",
           "line": 30,
           "col": 18,
           "endLine": 30,
@@ -4546,7 +4546,7 @@
           "role": "call_site",
           "message": "cross-validation runs here",
           "file": "sklearn_baseline.py",
-          "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+          "absFile": "/home/mlview/MLView/samples/vision_pipeline/sklearn_baseline.py",
           "line": 34,
           "col": 13,
           "endLine": 34,
@@ -4605,7 +4605,7 @@
       "fixHint": "Move each batch inside the loop: x, y = x.to(device, non_blocking=True), y.to(device).",
       "loc": {
         "file": "train.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
         "line": 29,
         "col": 8,
         "endLine": 34,
@@ -4618,7 +4618,7 @@
           "role": "construction",
           "message": "the model is moved here",
           "file": "train.py",
-          "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+          "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
           "line": 21,
           "col": 4,
           "endLine": 21,
@@ -4630,7 +4630,7 @@
           "role": "call_site",
           "message": "the forward pass runs here",
           "file": "train.py",
-          "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+          "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
           "line": 30,
           "col": 21,
           "endLine": 30,
@@ -4690,7 +4690,7 @@
       "fixHint": "Accumulate scalars: running_loss += loss.item() (or loss.detach()).",
       "loc": {
         "file": "train.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
         "line": 34,
         "col": 12,
         "endLine": 34,
@@ -4703,7 +4703,7 @@
           "role": "construction",
           "message": "running_loss is created here, outside the loop",
           "file": "train.py",
-          "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+          "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
           "line": 26,
           "col": 4,
           "endLine": 26,
@@ -4715,7 +4715,7 @@
           "role": "call_site",
           "message": "the loss is produced here",
           "file": "train.py",
-          "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+          "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
           "line": 31,
           "col": 19,
           "endLine": 31,
@@ -4774,7 +4774,7 @@
       "fixHint": "Wrap the evaluation loop in with torch.no_grad(): (or torch.inference_mode()), or decorate the function with @torch.no_grad().",
       "loc": {
         "file": "train.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
         "line": 44,
         "col": 4,
         "endLine": 48,
@@ -4787,7 +4787,7 @@
           "role": "eval_loop",
           "message": "the loop at line 44 over loader runs a forward pass, never calls backward() or optimizer.step(), and it sits in validate()",
           "file": "train.py",
-          "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+          "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
           "line": 44,
           "col": 4,
           "endLine": 48,
@@ -4799,7 +4799,7 @@
           "role": "call_site",
           "message": "forward pass here",
           "file": "train.py",
-          "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+          "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
           "line": 45,
           "col": 17,
           "endLine": 45,
@@ -4858,7 +4858,7 @@
       "fixHint": "Pass random_state=42 (scikit-learn) or generator=torch.Generator().manual_seed(42) (PyTorch) so the split is reproducible independently of global RNG state.",
       "loc": {
         "file": "data.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/data.py",
         "line": 31,
         "col": 19,
         "endLine": 31,
@@ -4871,7 +4871,7 @@
           "role": "split_site",
           "message": "split happens here",
           "file": "data.py",
-          "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+          "absFile": "/home/mlview/MLView/samples/vision_pipeline/data.py",
           "line": 31,
           "col": 19,
           "endLine": 31,
@@ -4926,7 +4926,7 @@
       "fixHint": "Use shuffle=False on validation and test DataLoaders so predictions stay aligned with the dataset order.",
       "loc": {
         "file": "data.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/data.py",
         "line": 35,
         "col": 14,
         "endLine": 35,
@@ -4939,7 +4939,7 @@
           "role": "construction",
           "message": "DataLoader built here",
           "file": "data.py",
-          "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+          "absFile": "/home/mlview/MLView/samples/vision_pipeline/data.py",
           "line": 35,
           "col": 14,
           "endLine": 35,
@@ -4993,7 +4993,7 @@
       "fixHint": "Pass random_state=42 (scikit-learn) or generator=torch.Generator().manual_seed(42) (PyTorch) so the split is reproducible independently of global RNG state.",
       "loc": {
         "file": "sklearn_baseline.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/sklearn_baseline.py",
         "line": 26,
         "col": 39,
         "endLine": 27,
@@ -5006,7 +5006,7 @@
           "role": "split_site",
           "message": "split happens here",
           "file": "sklearn_baseline.py",
-          "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/sklearn_baseline.py",
+          "absFile": "/home/mlview/MLView/samples/vision_pipeline/sklearn_baseline.py",
           "line": 26,
           "col": 39,
           "endLine": 27,
@@ -5061,7 +5061,7 @@
       "fixHint": "Seed every source at startup: random.seed(s); np.random.seed(s); torch.manual_seed(s); torch.cuda.manual_seed_all(s).",
       "loc": {
         "file": "train.py",
-        "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/train.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
         "line": 28,
         "col": 4,
         "endLine": 37,
@@ -5074,7 +5074,7 @@
           "role": "construction",
           "message": "randomness starts here",
           "file": "data.py",
-          "absFile": "C:/Users/realm/Desktop/MLView/samples/vision_pipeline/data.py",
+          "absFile": "/home/mlview/MLView/samples/vision_pipeline/data.py",
           "line": 31,
           "col": 19,
           "endLine": 31,

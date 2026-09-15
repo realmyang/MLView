@@ -68,7 +68,7 @@ test('openLocation resolves a workspace-relative file against the root', () => {
 test('the workspace-containment guard refuses an out-of-workspace path', () => {
   // SECURITY: node paths come from parsing arbitrary source; the webview must not be able to
   // talk the extension into opening ~/.ssh/id_rsa.
-  const escaped = '../../../../Users/realm/.ssh/id_rsa';
+  const escaped = '../../../../Users/someone/.ssh/id_rsa';
   const inside = (p) => p.startsWith(path.resolve(ROOT) + path.sep);
   const target = resolveOpenTarget(
     { file: escaped, absFile: escaped, line: 1, col: 0, endLine: 1, endCol: 1 },

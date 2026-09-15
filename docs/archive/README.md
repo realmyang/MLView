@@ -23,6 +23,14 @@ that were rejected and why. Every amendment here opens with that story. If you a
 clause and cannot see why it exists, its amendment is where the answer is — find the amendment number
 in v1.1 §18, then search this file for `### 11.<n>` or `**A<n> —`.
 
+**The machine paths in an archived document are history too.** `CONTRACTS-v1.0-amended.md` quotes
+two example documents that were produced on the author's own Windows machine, so its `workspace.root`
+and its `loc.absFile` are a `C:\Users\<name>\Desktop\...` path, written verbatim and still there.
+The living tree carries a neutral `/home/mlview/MLView` root everywhere instead -
+`contracts/graph.sample.json` and everything generated from it - and nothing outside this directory
+names a real machine. The archive keeps what it printed on the day it was written, because a
+byte-for-byte copy that has been edited is no longer evidence of anything.
+
 **A figure in an archived amendment is a dated measurement, not a current fact.** The demo's node and
 edge counts, corpus recall numbers, bundle sizes and timings were all true when written. §11.35 is an
 erratum correcting one of them in place of an edit, §11.53 B restates the `mlview diff` table it

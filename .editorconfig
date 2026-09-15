@@ -1,0 +1,56 @@
+# EditorConfig — https://editorconfig.org
+#
+# The conventions already in the tree, written down so an editor applies them
+# without anybody being asked to. They are not enforced by a formatter: MLView
+# ships no autoformatter, and a reformat-the-world commit would bury a real
+# change. What IS gated is the line ending — `scripts/check_docs.py` check 7
+# fails the build on a POSIX shell script written with CRLF, because
+# `#!/usr/bin/env sh<CR>` asks the kernel for a program named `sh<CR>` and a
+# stray CR rides on the end of every variable the script assigns. Git is told
+# the same thing by `.gitattributes` (`* -text`: no normalisation, so whatever
+# is committed is what lands on disk on every platform).
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+# The analyzer, the tools and the gates. 4 spaces, PEP 8.
+[*.py]
+indent_size = 4
+
+# Viewer and extension sources, and everything npm reads.
+[*.{ts,tsx,js,mjs,cjs,json,jsonc}]
+indent_size = 2
+
+# Workflows, the pre-commit hook manifest, issue forms.
+[*.{yml,yaml}]
+indent_size = 2
+
+# `scripts/*.sh` is the POSIX twin of `scripts/*.ps1`; both must stay runnable
+# from a Windows checkout, which is why the LF rule above has no exception here.
+[*.sh]
+indent_size = 2
+
+# PowerShell 5.1-compatible drivers.
+[*.ps1]
+indent_size = 4
+
+[*.{css,html}]
+indent_size = 2
+
+# Markdown: two trailing spaces are a hard line break, so trimming them edits
+# the prose. The docs in this repo are hand-wrapped at ~80 columns.
+[*.md]
+trim_trailing_whitespace = false
+
+# Generated, vendored or third-party. Nobody hand-edits these; leave whatever
+# their generator wrote.
+[{vscode-extension/core/**,claude-plugin/vendor/**,webview/dist/**,vscode-extension/out/**,docs/archive/**,.public-corpus/**}]
+trim_trailing_whitespace = false
+insert_final_newline = false

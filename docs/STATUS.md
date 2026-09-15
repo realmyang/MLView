@@ -1,5 +1,13 @@
 # MLView — current state
 
+[![CI](https://github.com/realmyang/MLView/actions/workflows/ci.yml/badge.svg)](https://github.com/realmyang/MLView/actions/workflows/ci.yml)
+[![status: preview](https://img.shields.io/badge/status-preview-orange.svg)](STATUS.md)
+
+The badge reports the newest run on `main`. The overview a first-time reader wants —
+the screenshots, the ninety-second quick start per host, the rule families and the
+measured accuracy — is the root [`README.md`](../README.md); this page is the detail
+behind it.
+
 What is in the tree today, what is verified, and how to run all of it on
 Windows, macOS and Linux. The dated history — every sprint and hardening round
 at the figures it measured — is [`CHANGELOG.md`](../CHANGELOG.md); the normative
@@ -127,12 +135,16 @@ python tools/public_corpus.py check --corpus-dir .public-corpus --report pc.json
 
 ## What is verified, and what is not
 
-**Exercised end to end on this machine** — and **only** on this machine.
+**Exercised end to end on this machine, and now by CI as well.**
 `.github/workflows/ci.yml` runs a cheap tier on a push and adds the rest on a
-pull request and on a push to `main`, but **no CI job has started on this line
-of work**: Actions billing is blocked at the account level and every job comes
-back unstarted. So **Python 3.10, 3.11 and 3.12, Windows and macOS are
-unverified** — this machine has 3.13 alone, and `CHANGELOG.md` records it.
+pull request and on a push to `main`. Actions billing was blocked at the account
+level for the whole of the consolidation and the recall campaign, so every job
+came back unstarted and all of that work was checked here alone. The block went
+with the repository going public: the matrix has run on the `public` → `main`
+pull request and all thirteen jobs are green — run 34983316368 for the seven
+cheap-tier jobs and run 34983321423 for the other six. So **Python 3.10, 3.11
+and 3.12, Windows and macOS are exercised there rather than here** — this machine
+has 3.13 alone, and `CHANGELOG.md` records what was measured when.
 
 What *is* exercised here: the analyzer and its rules; the CLI, including
 `--demo` byte parity and every documented exit code; a real stdio MCP handshake

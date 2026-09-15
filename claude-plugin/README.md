@@ -4,6 +4,12 @@ Turns a Python ML codebase into an issue-annotated workflow diagram, from inside
 Claude Code. Static analysis only: nothing is imported, nothing is executed, and
 **torch and scikit-learn do not need to be installed**.
 
+It is part of [MLView](https://github.com/realmyang/MLView): the repository root's
+[`README.md`](../README.md) is the overview — screenshots, the ninety-second quick
+start for all three hosts, the rule families and the measured accuracy. **There is
+no hosted marketplace yet**, so installing means cloning the repository and pointing
+Claude Code at `claude-plugin/` (option 1 or 2 below).
+
 ```
 claude-plugin/
   .claude-plugin/plugin.json   the manifest (this path is the only one scanned)
@@ -74,8 +80,14 @@ Then pick one:
 **1. Session-only, zero install** (what the demo uses)
 
 ```bash
-claude --plugin-dir C:/absolute/path/to/MLView/claude-plugin
+claude --plugin-dir /absolute/path/to/MLView/claude-plugin      # macOS / Linux
+claude --plugin-dir C:/absolute/path/to/MLView/claude-plugin    # Windows
 ```
+
+On macOS and most Linux there is no bare `python` on `PATH`, and `.mcp.json` spells
+one, so export an absolute 3.10+ interpreter in the shell you launch Claude Code
+from — `export MLVIEW_PYTHON="$(command -v python || command -v python3)"` — the
+same line the root README and `docs/VALIDATION.md` Session C give.
 
 **2. Through the repo-root local marketplace**
 

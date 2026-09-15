@@ -28,16 +28,20 @@ python -m pytest analyzer/tests/accuracy -q # the same thing, asserted
 
 ## 1 · What the corpus is
 
-`analyzer/tests/accuracy/corpus/` holds **92** labelled projects. Each is a
+`analyzer/tests/accuracy/corpus/` holds **158** labelled projects. Each is a
 directory with a `labels.json` beside its sources; two of them are label files
 alone, pointing at the shipped samples through a `root` key so the corpus never
 forks a second copy of the demo.
 
-Fifteen of the 92 are the original set the table below describes — the programs
-the rules were written against or re-created from the Sprint-2 audit. The other
-77 were added in hardening round 1 (2026-09-14) and are listed by family in
-section 3; every one of them is unseen, and most ship as a correct / defective
-pair so that a zero-false-positive claim has something to be zero about.
+Fifteen of the 158 are the original set the table below describes — the programs
+the rules were written against or re-created from the Sprint-2 audit. Another 77
+were added in hardening round 1 (2026-09-14) and are listed by family in section
+3, and the remaining 66 in hardening round 2 (section 8), which took the corpus
+92 → 158. Every one of those 143 is unseen — no program labelled after
+2026-09-09 carries `tuned` — and most ship as a correct / defective pair so that
+a zero-false-positive claim has something to be zero about. Sections 8 and 9
+carry the current headline figures; this section describes the shape of the
+corpus rather than the newest measurement of it.
 
 | Program | Shape | Labels | Origin |
 |---|---|---|---|
@@ -57,8 +61,11 @@ pair so that a zero-false-positive claim has something to be zero about.
 | `hf_no_eval` * | a HuggingFace fine-tune that never evaluates | 1 | written alongside ANA-7 |
 
 `*` **tuned**: the rules were developed against these six, so their numbers are
-a ceiling, not a measurement. Every headline below is quoted twice — over the
-whole corpus, and over the **unseen** eight alone.
+a ceiling, not a measurement. A seventh program outside this table carries the
+same flag — `keras_se_gate`, written from the Sprint-4 review's own
+false-positive repros — so the corpus holds seven tuned programs in all. Every
+headline below is quoted twice: over the whole corpus, and over the **unseen**
+programs alone, which is everything except those seven.
 
 ## 2 · What a label is
 

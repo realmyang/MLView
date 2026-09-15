@@ -5,6 +5,12 @@ diagram**, plus a Problems-panel list of what is likely broken, from **static an
 No code is imported or executed, nothing touches the network, and neither PyTorch nor
 scikit-learn needs to be installed.
 
+It is part of [MLView](https://github.com/realmyang/MLView): the repository root's
+[`README.md`](../README.md) is the overview — screenshots, the ninety-second quick start for all
+three hosts, the rule families and the measured accuracy. **Nothing is published yet**: the
+extension is not on the VS Code Marketplace or Open VSX, so installing it means cloning the
+repository and either pressing F5 (below) or building a VSIX with `npm run package`.
+
 This extension is the **host adapter**. It transports and renders; it never analyses:
 
 | It does | It never does |
@@ -48,17 +54,25 @@ JSON on the first non-ASCII identifier or path on Windows.
 
 ## Running it from source (F5)
 
-```powershell
+```sh
 cd vscode-extension
 npm install
 npm run compile          # esbuild -> out/extension.js (cjs, node, external:vscode)
 ```
+
+The three lines are the same in PowerShell. `npm install` needs **Node 20 or newer**; the
+analyzer it spawns needs **Python 3.10+**, and `pip install -e ../analyzer` from a clone is the
+quickest way to have one (the VSIX bundles its own copy instead).
 
 Then press **F5** in VS Code with `vscode-extension/` open. The bundled launch configuration
 starts an Extension Development Host with `--extensionDevelopmentPath=${workspaceFolder}` and
 opens `${workspaceFolder}/../samples/vision_pipeline`.
 
 From a terminal instead:
+
+```sh
+code --extensionDevelopmentPath=<abs>/vscode-extension <abs>/samples/vision_pipeline
+```
 
 ```powershell
 code --extensionDevelopmentPath=<abs>\vscode-extension <abs>\samples\vision_pipeline

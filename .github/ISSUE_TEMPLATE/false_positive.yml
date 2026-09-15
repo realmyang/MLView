@@ -1,0 +1,141 @@
+name: False positive — MLView flagged correct code
+description: A rule fired on code that is right. This is the most valuable report this project takes.
+title: "[MLV___] false positive: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Thank you — please do file this.**
+
+        MLView's one strong claim is that it does not lie: precision is
+        **100% on every rule** across the labelled corpus, and the corpus gate
+        treats a single unlabelled finding as a failure. A false positive is
+        therefore not a nuisance report, it is a gate that was missing. Every
+        confirmed one usually ends up as a `forbidden` label in
+        `analyzer/tests/accuracy/corpus/`, which means it can never come back.
+
+        Before you write it up, two things worth 60 seconds:
+
+        * Open the rule's own page —
+          `docs/rules/<CODE>.md`, e.g.
+          [docs/rules/MLV101.md](https://github.com/realmyang/MLView/blob/main/docs/rules/MLV101.md)
+          — and read **What it looks for** and, on some rules, **What it cannot
+          analyze**. Several rules state their own blind spots, and your case may
+          already be named there (which is still worth reporting, as a
+          *confirmation with a real-world example*).
+        * To unblock yourself right now: `# mlview: ignore[MLV101]` on the
+          flagged line or the line above it, or `[rules] disable = ["MLV101"]`
+          in a `.mlview.toml`. Suppressed findings are still emitted with
+          `suppressed: true`, so nothing is hidden from you.
+  - type: input
+    id: code
+    attributes:
+      label: Rule code
+      description: The code on the finding, e.g. MLV101. One issue per code, please.
+      placeholder: MLV101
+    validations:
+      required: true
+  - type: textarea
+    id: correct-code
+    attributes:
+      label: The code MLView flagged, and enough around it to be judged
+      description: >
+        The smallest snippet that still reproduces it. If the reason it is
+        correct lives in another function or another file, include that too —
+        MLView follows a call into a workspace module exactly one level, so a
+        two-hop helper is very often the whole story.
+      render: python
+    validations:
+      required: true
+  - type: textarea
+    id: why-correct
+    attributes:
+      label: Why this code is correct
+      description: >
+        The part only you can supply. What does the flagged statement actually
+        do, and what is the invariant the rule missed? "The scaler is fitted
+        inside the fold, the loop variable is the training index" is exactly
+        the right level of detail.
+    validations:
+      required: true
+  - type: textarea
+    id: finding
+    attributes:
+      label: The finding as MLView reported it
+      description: >
+        Message, severity and confidence. The quickest way to get all of it:
+        `python -m mlview issues <path> --code MLV101 --json`. In VS Code it is
+        the Problems entry plus the hover; in the report it is the issue rail
+        row. Paste the JSON if you have it.
+      render: shell
+    validations:
+      required: true
+  - type: dropdown
+    id: confidence
+    attributes:
+      label: Confidence bucket shown on the finding
+      description: >
+        This matters more than it looks. MLView is allowed to be wrong at
+        `speculative` and `possible`; a wrong finding at `certain` or `likely`
+        is a different and more serious defect, and it is triaged differently.
+      options:
+        - certain
+        - likely
+        - possible
+        - speculative
+        - "I could not tell"
+    validations:
+      required: true
+  - type: dropdown
+    id: host
+    attributes:
+      label: Where you saw it
+      options:
+        - Command line (python -m mlview)
+        - Standalone HTML report
+        - VS Code extension (Problems panel or diagram)
+        - Claude Code plugin / MCP tools
+    validations:
+      required: true
+  - type: dropdown
+    id: dataflow
+    attributes:
+      label: Dataflow mode
+      description: >
+        `ip` is the shipped default. If you have not passed `--dataflow`, it is
+        `ip`. A finding that only `ip` produces is a different defect from one
+        both modes produce — `ip` must never report *more* than it can justify.
+      options:
+        - "ip (the default)"
+        - "local (--dataflow local)"
+        - "both"
+        - "I did not check"
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: MLView version
+      description: "`python -m mlview --version`"
+      placeholder: mlview 0.1.0 (schema 1.0)
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: OS and Python version
+      placeholder: "macOS 15.6 / Python 3.12.4"
+    validations:
+      required: true
+  - type: checkboxes
+    id: corpus
+    attributes:
+      label: May we keep this?
+      options:
+        - label: >
+            This snippet may be added to MLView's labelled corpus as a
+            `forbidden` label (MIT licensed, like the rest of the repository),
+            so the rule can never fire on it again. Leave unticked if the code
+            is not yours to give — a paraphrase is fine, and we will write one.
+          required: false

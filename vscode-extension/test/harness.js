@@ -53,7 +53,7 @@ function syntheticGraph(nodeCount, issueCount = 60) {
     'eval',
     'deliver'
   ];
-  const root = 'C:/Users/realm/Desktop/MLView/samples/synthetic_pipeline_with_a_long_name';
+  const root = '/home/mlview/MLView/samples/synthetic_pipeline_with_a_long_name';
   const hex = (n) => n.toString(16).padStart(12, '0');
   const nodes = [];
   for (let i = 0; i < nodeCount; i += 1) {
