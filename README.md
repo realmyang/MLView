@@ -233,7 +233,7 @@ python scripts/check_docs.py               # every claim in these docs, against 
 at the account level for the whole of this line of work, so all of it was checked
 on one macOS laptop and nowhere else until the repository went public. The matrix
 has run since, on the `public` → `main` pull request, and every job came back
-green: run 34983316368 took the seven cheap-tier jobs and run 34983321423 the six
+green: run 34986234828 took the seven cheap-tier jobs and run 34986239243 the six
 the cheap tier excludes — thirteen jobs over Ubuntu, Windows and macOS, Python
 3.10, 3.11, 3.12 and 3.13, Node 20 and 22, the wheel and the VSIX. It took one
 fix iteration, and all four failures were one test-side assumption about Windows
@@ -252,8 +252,10 @@ same code came to 173, 163 and 158 weighted minutes on three consecutive
 mornings, with single jobs moving by a quarter between them. Read all three
 before treating any one duration as a constant.
 
-The last full green push is run 34983316368, the thirteen-job pair described
-above. [`CHANGELOG.md`](CHANGELOG.md) records what was measured when.
+The last full green push at the time of writing is run 34986234828 with its
+pull-request half — the same thirteen jobs, over the tree that carries these
+screenshots, the third-party notices and the community files.
+[`CHANGELOG.md`](CHANGELOG.md) records what was measured when.
 
 Nothing has been published anywhere yet — no PyPI release, no Marketplace or Open
 VSX extension, no hosted plugin marketplace — so installing means cloning this repository.

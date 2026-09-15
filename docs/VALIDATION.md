@@ -26,7 +26,7 @@ anywhere. Specifically:
   so every job came back unstarted and all of that work was checked on the build
   machine — Python 3.13 alone — and nowhere else. The matrix has run since the
   repository went public: thirteen green jobs on the `public` → `main` pull
-  request (run 34983316368 and run 34983321423), which is where Python 3.10,
+  request (run 34986234828 and run 34986239243), which is where Python 3.10,
   3.11 and 3.12, Windows and macOS are exercised. Nothing has run on `main`.
 - Nothing has been published: **no PyPI release, no Marketplace extension, no
   Open VSX extension, no hosted plugin marketplace, no GitHub release**. Every

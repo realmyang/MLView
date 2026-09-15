@@ -141,8 +141,8 @@ pull request and on a push to `main`. Actions billing was blocked at the account
 level for the whole of the consolidation and the recall campaign, so every job
 came back unstarted and all of that work was checked here alone. The block went
 with the repository going public: the matrix has run on the `public` → `main`
-pull request and all thirteen jobs are green — run 34983316368 for the seven
-cheap-tier jobs and run 34983321423 for the other six. So **Python 3.10, 3.11
+pull request and all thirteen jobs are green — run 34986234828 for the seven
+cheap-tier jobs and run 34986239243 for the other six. So **Python 3.10, 3.11
 and 3.12, Windows and macOS are exercised there rather than here** — this machine
 has 3.13 alone, and `CHANGELOG.md` records what was measured when.
 

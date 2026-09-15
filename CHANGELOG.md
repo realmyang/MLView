@@ -11,10 +11,14 @@ are deliberately not rewritten when the tree moves on — `docs/STATUS.md`,
 `docs/ACCURACY.md` and `analyzer/tests/accuracy/baseline*.json` say what is true
 today.
 
-**No entry below was ever confirmed by CI.** GitHub Actions billing is blocked
-at the account level, so every job on this line of work comes back unstarted.
-Where an entry quotes a CI run id, that run predates the block; everything since
-is a measurement from one machine.
+**Most entries below were written before CI could confirm them.** GitHub Actions
+billing was blocked at the account level for the hardening rounds, the
+consolidation and the recall campaign, so every job came back unstarted and each
+of those entries is a measurement from one machine. The block went with the
+repository going public on 2026-09-15: the matrix has since run green over the
+tree the Unreleased entry describes — thirteen jobs, run 34986234828 and run
+34986239243. Where an older entry quotes a CI run id, that run predates the
+block.
 
 ---
 
@@ -288,9 +292,53 @@ on every unflagged run, and `tools/perf_equiv.py --bench` measures 0.76–0.84×
 against an `origin/sprint5` reference on 4-, 50- and 200-file corpora. Roughly a
 fifth of that is the `ip` default and the rest is R3's extra graph pass.
 
-**Gates, all local.** Actions billing is blocked at the account level, so **no
-CI job ran and none can be claimed**; every figure here is this Mac (macOS 26.6,
-Python 3.13, Node 26) and nothing else. `sh scripts/e2e.sh` 20 steps, all green;
+### Public readiness
+
+The repository went public on 2026-09-15, and this is what that took. **No
+machine is named in the tree any more**: the golden document's workspace root
+moved from a real Windows home directory to the neutral `/home/mlview/MLView`,
+and every artifact derived from it was regenerated with the repository's own
+generators, so the golden, its two mirrors, `contracts/scope.expected.json`, the
+plugin vendor copy and the webview dev page still agree and `analyze --demo` is
+still byte-identical. Two path-traversal test payloads that carried the author's
+username now use the `Users/someone` convention. The frozen v1.0 spec keeps its
+historical path on purpose; `docs/archive/README.md` says why. A scan of every
+commit on every ref found no secret and no email but git author metadata.
+
+`THIRD_PARTY_NOTICES.md` is new and records the whole redistribution surface —
+`@dagrejs/dagre` 3.1.1 and `@dagrejs/graphlib` 4.0.5, MIT, verbatim, and which of
+the four artifacts carries them. The wheel is not exempt: it declares no Python
+dependency but ships `emit/assets/mlview.js` with dagre inlined. `CONTRIBUTING.md`,
+`CODE_OF_CONDUCT.md`, `SECURITY.md`, four issue forms, a pull-request template,
+`.editorconfig`, `docs/README.md` and `docs/CONTRIBUTING-RULES.md` landed with
+it, each written from the tools rather than from a template. `README.md` became a
+landing page — badges, three screenshots of the shipped sample under
+`docs/media/`, a quick start per host, the rule families, the measured accuracy
+table and the known gaps.
+
+`.gitattributes` gained a `diff` attribute for source extensions, which fixes a
+real defect rather than a preference: `webview/src/diff/adopt.ts` embeds literal
+NUL bytes as string-join separators inside git's 8000-byte binary-detection
+window, so `git diff` printed *"Binary files … differ"* for a TypeScript module.
+`.gitignore` gained `/.mlview.toml`, which MLView writes into its own checkout on
+every e2e pass.
+
+Six documents were corrected because the matrix finally ran: `README.md`,
+`docs/STATUS.md`, `CONTRIBUTING.md`, `docs/VALIDATION.md`, the pull-request
+template and this file all said, in their own words, that the CI matrix had never
+run on this line of work. That was true when written and false once thirteen jobs
+came back green, and the doc gate could not catch it because *"the matrix has not
+run"* was the one escape check 22 implemented — so the check now also accepts a
+cited `run <id>`, and the documents cite one. `docs/ACCURACY.md` §1 still opened
+on the 92-program corpus; it holds 158.
+
+**Gates, local first and then on CI.** Every figure here was measured on this
+Mac (macOS 26.6, Python 3.13, Node 26) while Actions billing was blocked at the
+account level; the matrix confirmed the tree afterwards, on the `public` → `main`
+pull request — thirteen green jobs over Ubuntu, Windows and macOS, Python 3.10
+through 3.13 and Node 20/22 (run 34986234828 and run 34986239243), with one fix
+iteration whose four failures were all one test-side assumption about Windows
+drive letters. `sh scripts/e2e.sh` 20 steps, all green;
 `python tools/verify.py --all` 10 rows; `python tools/verify.py --scopes --fuzz
 200` 5 rows; `python tools/accuracy.py` and `--dataflow local` over the
 158-program corpus, both PASS; `python tools/public_corpus.py run` then

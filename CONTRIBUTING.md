@@ -428,11 +428,13 @@ this repository: GitHub Actions was billing-blocked at the account level for the
 whole of the consolidation and recall work, so all of it was checked on one
 machine — Python 3.13, macOS — and nowhere else. That ended when the repository
 went public. The matrix has run on the `public` → `main` pull request and all
-thirteen jobs came back green: run 34983316368 took the seven cheap-tier jobs
-and run 34983321423 the six the cheap tier excludes, which is the first time
-every job in `.github/workflows/ci.yml` had executed on any branch of this
-project. `main` itself has had no run since the block was lifted, so the badge
-at the top of the README stays red until this merges. The rule the documents
+thirteen jobs came back green: run 34986234828 took the seven cheap-tier jobs
+and run 34986239243 the six the cheap tier excludes. The first time every job in
+`.github/workflows/ci.yml` executed on any branch of this project was run
+34975663652 with its pull-request half, one Windows fix earlier; the matrix has
+been green on every commit of the branch since. `main` itself has had no run
+since the block was lifted, so the badge at the top of the README stays red
+until this merges. The rule the documents
 live under is unchanged: a claim that something is green on CI has to name the
 run that was green, which is what `scripts/check_docs.py` check 22 enforces.
 
