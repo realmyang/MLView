@@ -114,6 +114,17 @@ the same budget, and `test_edge_retention_at_the_roadmap_budget` now asserts two
 measured floors (> 30% at 400, > 40% at 500) and states the deviation in its
 docstring instead of asserting the old clause against a made-up denominator.
 
+**CI on this push: nothing ran, and it is still the account.** Run
+**34913235938** created exactly the seven cheap-tier jobs and marked all five
+full-tier jobs `skipped` — the C6 split working again — but **every one of the
+seven failed with zero steps executed**, under the same annotation the two
+previous pushes carry: *"The job was not started because recent account payments
+have failed or your spending limit needs to be increased"*. A rerun of the failed
+jobs reproduced it exactly. So **no gate in this entry was verified on CI**;
+every one of them was run locally on this Mac instead, from a cleaned `.mlview`,
+and the figures below are that run. Still not covered anywhere: Python
+3.10 / 3.11 / 3.12 and the Windows and macOS runners.
+
 **Gates.** analyzer **2 197 passed / 4 skipped**; webview **536**;
 vscode-extension **381**; claude-plugin **373 passed / 7 skipped**;
 `pytest scripts` **74**; `tsc --noEmit` clean in both TypeScript packages;
