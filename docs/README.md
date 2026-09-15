@@ -45,6 +45,8 @@ before you cite one:
 | [`VALIDATION.md`](VALIDATION.md) | The runbook for validating MLView by hand on a machine it was not built on, and the step-by-step publishing procedure |
 | [`DEMO_LOG.md`](DEMO_LOG.md) | The template you copy and fill in *while* you validate; completed logs live in `docs/demo-logs/` |
 | [`ROADMAP.md`](ROADMAP.md) | The ranked backlog from four audits, with the acceptance clause and the landing measurement for each shipped item |
+| [`RESEARCH_COVERAGE_ACCURACY.md`](RESEARCH_COVERAGE_ACCURACY.md) | The 2026-09-15 research review: where the recall goes (107 misses in seven causes), three defects in shipped rules, 37 candidate rules in three tiers with their false-positive exposure measured on the public corpus, and a three-sprint sequence. Advisory, like `ROADMAP.md` |
+| [`research/sources.md`](research/sources.md) | The numbered bibliography that review cites, each entry marked with how far it was verified |
 | [`../scripts/README.md`](../scripts/README.md) | The gate table: every row, the single command that runs just that row, what green proves, and the two CI tiers with their cost |
 
 ## Rules
