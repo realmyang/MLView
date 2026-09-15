@@ -135,7 +135,8 @@ Recall is the weakness, and [`docs/ACCURACY.md`](docs/ACCURACY.md) names the gap
 rule. A second gate, `python tools/public_corpus.py`, analyzes **37 pinned third-party
 repositories** and refuses any new high-severity finding no human has adjudicated: it is
 the only gate that can see a false positive nobody thought to label, and it has caught
-four.
+eleven — every one of them adjudicated against the cited source, fixed, and now a
+blocking regression if it returns.
 
 ---
 
