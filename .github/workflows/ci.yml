@@ -27,6 +27,15 @@ name: CI
 #   The weekly `.github/workflows/public-corpus.yml`, dispatched on the same
 #   commit: run 34975673419, green, 37 pinned repositories and 260 analyses.
 #
+#   CONFIRMED on the next commit: push run 34977935404 (7 jobs, 11m15s) and
+#   pull_request run 34977944326 (6 jobs, 12m39s), thirteen green again. Read
+#   the two together before treating any single duration as a constant - the
+#   same job on the same code moved a long way between them: `e2e (ubuntu, sh)`
+#   465 -> 671 s, analyzer py3.10 458 -> 593 s, `e2e (windows, powershell)`
+#   718 -> 754 s, `smoke (macos)` 541 -> 480 s. The weighted totals are a BAND,
+#   163-173 minutes, not a figure, and a timeout set from one reading would be
+#   set from the lucky one.
+#
 # It took ONE fix iteration, and the four failures were one mistake made four
 # times, in a place no single-platform run can reach: `os.path.abspath` puts the
 # current DRIVE on a drive-less path on Windows, so three assertions in
