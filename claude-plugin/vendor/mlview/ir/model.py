@@ -217,6 +217,23 @@ class CallSite:
     #: `DYNAMIC_FACTOR` 0.7 applies per scope, so widening the scope flag would
     #: move the confidence of every finding in the same function.
     unresolved_callee: Optional[str] = None
+    #: Which half of §5.3 A12' wrote `unresolved_callee`. The **syntactic**
+    #: half (`ir/scopes.callee_construct`) is a pure function of the AST and is
+    #: preserved; the **inferred** half (a binding that exists with nothing
+    #: behind it) is recomputed on every IR round, because a binding the first
+    #: round could not follow is routinely followed by a later one - a dict a
+    #: factory returns is carried into the caller at the END of a round, so
+    #: `parts["model"]` is opaque for exactly one round and `parts["model"](x)`
+    #: used to report itself unresolved for the life of the document. Appended
+    #: last and defaulted; `ir/resolve._note_unresolved` is the only writer.
+    unresolved_inferred: bool = False
+    #: The line the construct named by `unresolved_callee` is actually written
+    #: on, when that is **not** this call's own line. The inferred half
+    #: describes the callee's *binding*, and the diagnostic used to print the
+    #: call's line beside it - telling the reader that `loss = criterion(...)`,
+    #: a line holding two plain names, "is a subscript" (REV-PREC-07). Appended
+    #: last and defaulted; `ir/resolve._note_unresolved` is the only writer.
+    unresolved_at: Optional[int] = None
 
     def matches(self, *fqns: str) -> bool:
         return any(f in self.canonical_fqns for f in fqns)

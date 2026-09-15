@@ -18,19 +18,19 @@ self-contained HTML report, a VS Code webview, and the Claude Code plugin.
 
 | Piece | State |
 |---|---|
-| Analyzer `analyzer/` | **36 rules**, zero runtime dependencies, installed editable as `python -m mlview`. **2621 passed / 9 skipped** plus 24 `xfail`. On 3.10 / 3.11 eight more skip: two robustness fixtures are PEP 695 / PEP 701 source, and MLView parses with the host's own `ast`, so a host that cannot read them is not the thing under test. `analyze --demo --json -` is byte-identical to `contracts/graph.sample.json` at 46 078 bytes. |
-| Viewer `webview/` | One renderer, built to `webview/dist/mlview.js` + `mlview.css`. **590 tests**, `tsc --noEmit` clean. Scope projection (`webview/src/scope/project.ts`), flow animation, SVG/PNG export and the diff overlay all live here. |
+| Analyzer `analyzer/` | **36 rules**, zero runtime dependencies, installed editable as `python -m mlview`. **2654 passed / 9 skipped** plus 24 `xfail`. On 3.10 / 3.11 eight more skip: two robustness fixtures are PEP 695 / PEP 701 source, and MLView parses with the host's own `ast`, so a host that cannot read them is not the thing under test. `analyze --demo --json -` is byte-identical to `contracts/graph.sample.json` at 46 078 bytes. |
+| Viewer `webview/` | One renderer, built to `webview/dist/mlview.js` + `mlview.css`. **599 tests** (598 pass, 1 todo), `tsc --noEmit` clean. Scope projection (`webview/src/scope/project.ts`), flow animation, SVG/PNG export and the diff overlay all live here. |
 | VS Code extension | **410 tests**, `tsc --noEmit` clean, `out/extension.js` bundled, 19 commands and 16 settings. Ships the analyzer inside the VSIX, so no `pip install` is required — `core/mlview` at **130** files, the number `python tools/verify.py --all`'s `vsix: synced core` row prints. The bundled copy under `vscode-extension/core/` is a **build artifact** written by `vscode-extension/tools/sync-core.mjs` at compile and package time, not a tracked directory, and **that figure is not the gate**: it moves with every analyzer module, and `python scripts/vsix_check.py` re-derives it, the 1 MB ceiling and the rule-page count from the tree. Copilot participant and LM tools are compile- and unit-verified only. |
-| Claude Code plugin | MCP server on the `mcp` SDK v2, **exactly five tools**, each result ≤ 4 KB, plus `PostToolUse` / `Stop` hooks under `claude-plugin/hooks/`. **472 passed / 7 skipped**. `claude-plugin/vendor/mlview` is **tracked** on purpose: a marketplace install copies the plugin directory verbatim off a git ref with no build step. |
+| Claude Code plugin | MCP server on the `mcp` SDK v2, **exactly five tools**, each result ≤ 4 KB, plus `PostToolUse` / `Stop` hooks under `claude-plugin/hooks/`. **476 passed / 7 skipped**. `claude-plugin/vendor/mlview` is **tracked** on purpose: a marketplace install copies the plugin directory verbatim off a git ref with no build step. |
 | Contracts | `contracts/graph.schema.json`, `contracts/graph.sample.json` (the frozen golden), `contracts/validate_sample.py` (schema + 10 invariant groups), `contracts/scope.cases.json` (13 projecting cases + 7 error cases + 5 promoted counterexamples). |
 | Samples | `samples/vision_pipeline` — 59 nodes, 51 edges, exactly 15 issues (5 high / 6 medium / 4 low) — and `samples/vision_pipeline_clean`, 70 nodes and 0 issues. `expected_issues.json` is machine-checked. |
 | Rule docs | `docs/rules/` — 36 pages plus an index, generated from the registry. Every `Issue.docs` deep link resolves. |
 | Labelled corpus | `analyzer/tests/accuracy/corpus/` — **158 labelled programs**, **546** scored `expected` labels, 2327 `forbidden` labels, 1166 hand-drawn graph ops, scored by `tools/accuracy.py` against two ratchets (`baseline.json`, `baseline.ip.json`). `docs/ACCURACY.md` is the record. |
 | Public corpus | `tools/public_corpus.py` + `analyzer/tests/public_corpus/` — **37 pinned third-party repositories**, 112 targets × 3 modes (`local`, `ip`, `--include-notebooks`) = **260 runs**. Nothing is vendored and nothing is labelled: the gate asserts no crash, exit 0 or 4 only, a schema-valid document, the wall-time budget, and **no new high-severity finding** a human has not adjudicated in `adjudication.json`. It is the only gate that can see a false positive nobody thought to label, and it has caught four. |
 
-**Gates**, on this Mac (macOS 26.6, Python 3.13, Node 26): analyzer **2621
-passed / 9 skipped**; webview **590 tests**; vscode-extension **410 tests**;
-claude-plugin **472 passed / 7 skipped**; `python -m pytest scripts -q` **119
+**Gates**, on this Mac (macOS 26.6, Python 3.13, Node 26): analyzer **2654
+passed / 9 skipped**; webview **599 tests**; vscode-extension **410 tests**;
+claude-plugin **476 passed / 7 skipped**; `python -m pytest scripts -q` **132
 passed**; `npx tsc --noEmit` clean in both TypeScript packages;
 `python tools/accuracy.py` **PASS** in both dataflow modes;
 `python scripts/check_docs.py` **DOC CHECK OK**; `sh scripts/e2e.sh` **20
@@ -45,7 +45,8 @@ before a release: `scripts/e2e` prints every row with its command, and
 `scripts/README.md` says what each green row proves.
 
 **Every gate in that paragraph was run locally, on this macOS machine, at the
-consolidation-and-recall integration on 2026-09-15 — and nowhere else.** GitHub
+consolidation-and-recall integration on 2026-09-15, and run again in full after
+the campaign review's fixes the same day — and nowhere else.** GitHub
 Actions is blocked at the **account** level (*"The job was not started because
 recent account payments have failed or your spending limit needs to be
 increased"*), so no CI job has started on this line of work and **no claim of a
@@ -62,8 +63,8 @@ outright whatever the baseline says.
 | Reading | `--dataflow ip` | `--dataflow local` |
 |---|---|---|
 | Precision | **100.0%** — zero false positives, zero forbidden, zero unlabelled | **100.0%**, the same three zeroes |
-| Recall, whole corpus (546 labels) | **80.4%** raw · 72.3% visible · 74.3% high+medium | **78.2%** · 70.5% · 71.2% |
-| Recall, unseen only (515 labels) | **79.2%** raw · 70.7% visible · 72.5% high+medium | **76.9%** · 68.7% · 69.3% |
+| Recall, whole corpus (546 labels) | **80.4%** raw · 72.5% visible · 74.3% high+medium | **78.2%** · 70.7% · 71.2% |
+| Recall, unseen only (515 labels) | **79.2%** raw · 70.9% visible · 72.5% high+medium | **76.9%** · 68.9% · 69.3% |
 
 Recall is the measured weakness and `docs/ACCURACY.md` is where it is not
 rounded off: what a label is, which programs are *tuned*, and the gap per rule.

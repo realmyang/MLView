@@ -65,7 +65,8 @@ code --extensionDevelopmentPath=<abs>\vscode-extension <abs>\samples\vision_pipe
 ```
 
 Other scripts: `npm run check` (`tsc --noEmit`), `npm test` (`node --test`, which rebuilds the
-bundles first), `npm run watch`, `npm run sync:rule-docs` (copies `../docs/rules/MLV*.md` into
+bundles first), `npm run watch` (syncs the bundled core once, then rebuilds the bundles on every
+edit), `npm run sync:rule-docs` (copies `../docs/rules/MLV*.md` into
 `docs/rules/`; `npm run compile` and `npm run pretest` already run it), and `npm run package`
 (`npx --yes @vscode/vsce package --no-dependencies --allow-missing-repository` — `vsce` is not a
 devDependency, so this resolves it through npx from the local npm cache). Packaging is verified

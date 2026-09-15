@@ -7,15 +7,15 @@
  * `analyzer/src/mlview` in the index, re-committed on every analyzer change, and
  * pure review surface — nobody reads a mechanical copy, and `tools/sync-core.py`
  * already refuses to let it drift. It is now gitignored and written at build
- * time: `npm run compile`, `npm run pretest` and `vsce package`'s
- * `vscode:prepublish` all run `tools/sync-core.mjs` first.
+ * time: `npm run compile`, `npm run pretest`, `npm run watch` and `vsce
+ * package`'s `vscode:prepublish` all run `tools/sync-core.mjs` first.
  *
  * Which moves the risk rather than removing it. The old failure was "the tracked
  * copy drifted", caught by `tools/sync-core.py --check`. The new one is "nothing
  * built it", which no other suite can see: a VSIX packaged without `core/` is
  * under the size ceiling, passes every unit test, installs cleanly and has no
  * analyzer at all. So this file asserts the whole chain that makes the artifact
- * appear — the ignore rule, the three scripts that run the builder, the builder
+ * appear — the ignore rule, every script that runs the builder, the builder
  * itself, and `.vscodeignore`'s negation that keeps the result in the package —
  * plus, when a git is available, that the directory really is out of the index.
  *
@@ -123,9 +123,16 @@ test('the builder exists and is the wrapper, not a second copier', () => {
   );
 });
 
-test('compile, pretest and vscode:prepublish all build the core FIRST', () => {
+test('every script that bundles builds the core FIRST, and so does prepublish', () => {
   const scripts = manifest.scripts || {};
-  for (const name of ['compile', 'pretest']) {
+  // Every script whose output is a runnable extension — not just the two that a
+  // gate happens to run. `watch` is the one that is easy to forget: a contributor
+  // who starts at `npm run watch` and presses F5 on a fresh clone never runs
+  // `compile`, so `core/` never appears and the Extension Development Host
+  // silently falls through coreClient.ts's precedence chain to whatever mlview is
+  // pip-installed — a DIFFERENT analyzer from the one being edited, named as such
+  // in the status-bar tooltip and in no error anywhere.
+  for (const name of ['compile', 'pretest', 'watch']) {
     const script = scripts[name];
     assert.ok(script, `package.json has no "${name}" script`);
     assert.match(

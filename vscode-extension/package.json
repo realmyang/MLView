@@ -554,7 +554,7 @@
   },
   "scripts": {
     "compile": "node tools/sync-core.mjs && node tools/sync-rule-docs.mjs && node tools/sync-walkthrough.mjs && node esbuild.mjs",
-    "watch": "node esbuild.mjs --watch",
+    "watch": "node tools/sync-core.mjs && node esbuild.mjs --watch",
     "check": "tsc --noEmit",
     "sync:core": "node tools/sync-core.mjs",
     "sync:rule-docs": "node tools/sync-rule-docs.mjs",

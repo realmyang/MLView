@@ -97,7 +97,43 @@ def binding_of(name: Optional[str], scope: Optional[ScopeIR],
             return None          # the only store for the name is the call's own
         cur = cur.parent
         first = False
-    return None
+    return _holder_field(name, scope, at, exclude)
+
+
+def _holder_field(name: str, scope: ScopeIR, at: Optional[int],
+                  exclude: Optional[CallSite]) -> Optional[ValueRef]:
+    """§5.3 A11 (d): `bundle.criterion` is what `Bundle` stores in `self.criterion`.
+
+    The fallback, **once and last**: the scope chain has already said it has no
+    binding for this dotted name, and the only thing left that can know is the
+    workspace class the base resolves to. `criterion = nn.CrossEntropyLoss()`
+    handed to a holder's constructor was reachable from the holder's own
+    methods (`self.criterion`) and from nowhere else, so a trainer written as
+    `bundle.criterion(model(x), y)` produced no LOSS-tagged value,
+    `loss.backward()` back-propagated something MLView could not type, and
+    MLV201/202/203/205 - two of them **high** - all skipped the training step
+    with only a coverage note. The MODEL half of the same holder never showed
+    it, because a model is reached through its own `class_ir`.
+
+    Three things keep it narrow, and they are the clause's own words. **One
+    level**: the base is a plain name, never itself a dotted path, so this
+    never walks a chain of holders. **Only a workspace class**: the base must
+    resolve to a `ClassIR` MLView read, so no FQN is invented for a third-party
+    object. **`self.` is never re-entered**: `_store` already redirects a
+    method's `self.x` onto the class scope, so that name answers above and
+    never reaches here.
+    """
+    if not name or "." not in name:
+        return None
+    base, _, attr = name.rpartition(".")
+    if not base or not attr or "." in base or base == "self":
+        return None
+    holder = binding_of(base, scope, at=at, exclude=exclude)
+    cls = holder.class_ir if holder is not None else None
+    if cls is None or cls.scope is None:
+        return None
+    return (cls.scope.bindings.get("self.%s" % attr)
+            or cls.scope.bindings.get(attr))
 
 
 def _only_store_is_below(history: Sequence[ValueRef], line: Optional[int]) -> bool:

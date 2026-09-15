@@ -41,7 +41,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional, Sequence
 
 from .answers_text import (FIELDS, MIN_CONFIDENCE, _COVERAGE_KINDS,  # noqa: F401
-                           _COVERAGE_PHRASE, _LABELS, _MAX_CITED,
+                           _COVERAGE_PHRASE, _FILTER_KINDS, _LABELS, _MAX_CITED,
                            _SEVERITY_RANK, _at, _blinded, _cite, _confident,
                            _dropped_clause, _ghosts, _join, _listing, _loc,
                            _nodes, _pick, _rolled_up)
@@ -140,7 +140,9 @@ def _coverage_clause(doc: Dict[str, Any]) -> str:
         rows = [d for d in gaps if d.get("kind") == kind]
         if not rows:
             continue
-        if kind == "unresolved_callee":
+        if kind == "unresolved_callee" or kind in _FILTER_KINDS:
+            # Both count the *things* the gap is about - calls that could not
+            # be read, rules that did not run - rather than the diagnostics.
             count = sum(int(d.get("count") or 1) for d in rows)
         else:
             count = len(rows)
@@ -387,6 +389,43 @@ def _evaluation(nodes: List[Dict[str, Any]], coverage: str = "",
     return _answer(sentence + _dropped_clause(dropped), cited)
 
 
+def _verdict_caveat(doc: Dict[str, Any]) -> str:
+    """The "not a clean bill of health" clause, in its two halves.
+
+    A blind spot and a filter are different admissions and must not share a
+    total. `unresolved_callee` and friends mean *MLView could not read this*;
+    `framework_filter` means *MLView read it and deliberately did not run N
+    rules on it* (§2.6 C9). Counting the filter as one more "coverage gap"
+    would understate it by however many rules it dropped - 22 on the measured
+    `--framework hf` run - and counting its rules among the blind spots would
+    overstate the blindness. So each half brings its own number, and the one
+    sentence they share is the one the card, the MCP digest and the `verdict:`
+    row all render verbatim.
+    """
+    coverage = [d for d in (doc.get("diagnostics") or [])
+                if isinstance(d, dict) and d.get("kind") in _COVERAGE_KINDS]
+    if not coverage:
+        return ""
+    blind = [d for d in coverage if d.get("kind") not in _FILTER_KINDS]
+    filtered = [d for d in coverage if d.get("kind") in _FILTER_KINDS]
+    reasons: List[str] = []
+    if blind:
+        kinds = sorted({d.get("kind", "") for d in blind})
+        reasons.append("reported %d coverage gap(s) (%s)"
+                       % (len(blind), ", ".join(kinds)))
+    if filtered:
+        codes = sorted({c for d in filtered for c in (d.get("codes") or []) if c})
+        count = len(codes) or sum(int(d.get("count") or 1) for d in filtered)
+        named = ""
+        if codes:
+            named = " (%s)" % ", ".join(codes[:_MAX_CITED])
+            if len(codes) > _MAX_CITED:
+                named = named[:-1] + " and %d more)" % (len(codes) - _MAX_CITED)
+        reasons.append("did not run %d rule(s) a --framework filter dropped%s"
+                       % (count, named))
+    return " MLView also %s, so this is not a clean bill of health." % _join(reasons)
+
+
 def _verdict(doc: Dict[str, Any], nodes: List[Dict[str, Any]]) -> Dict[str, Any]:
     by_id = {n.get("id"): n for n in nodes}
     issues = [i for i in (doc.get("issues") or []) if isinstance(i, dict)]
@@ -394,13 +433,7 @@ def _verdict(doc: Dict[str, Any], nodes: List[Dict[str, Any]]) -> Dict[str, Any]
     counts = {"high": 0, "medium": 0, "low": 0}
     for issue in live:
         counts[issue.get("severity", "low")] = counts.get(issue.get("severity", "low"), 0) + 1
-    coverage = [d for d in (doc.get("diagnostics") or [])
-                if isinstance(d, dict) and d.get("kind") in _COVERAGE_KINDS]
-    caveat = ""
-    if coverage:
-        kinds = sorted({d.get("kind", "") for d in coverage})
-        caveat = (" MLView also reported %d coverage gap(s) (%s), so this is not "
-                  "a clean bill of health." % (len(coverage), ", ".join(kinds)))
+    caveat = _verdict_caveat(doc)
     baselined = sum(1 for i in issues if i.get("baselined"))
     baselined_clause = (" %d further finding(s) are baselined." % baselined) if baselined else ""
     if not live:

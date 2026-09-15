@@ -334,6 +334,114 @@ def test_the_real_docs_name_one_last_green_push():
     assert "last full green push" in text, "README no longer makes the claim"
 
 
+# ── check 23: §7's diff figures against the test §7 names as their pin ─────
+
+#: The shape of the paragraph, cut down to the three figures the check reads.
+_S7 = (
+    "## 7. Diff\n\n"
+    "**The shipped sample pair, measured.** `summary.nodes` over `a` against\n"
+    "`b` is **%s**, headline `%s`; `summary.edges` is `%s` and\n"
+    "`summary.issues` is `0 new / 15 fixed / 0 persisting`.\n\n"
+    "## 8. Next\n"
+)
+
+#: The pinning test, cut down to the three assertions `_diff_pins` reads.
+_PIN = (
+    'def test_the_shipped_pair():\n'
+    '    assert summary["nodes"] == {"added": 26, "removed": 15, "changed": 8,\n'
+    '                                "unchanged": 36}\n'
+    '    assert summary["edges"] == {"added": 27, "removed": 22, "changed": 1,\n'
+    '                                "unchanged": 28}\n'
+    '    assert summary["headline"] == "+26 nodes − 15 fixed"\n'
+)
+
+#: §17's errata quote superseded figures on purpose and must keep quoting them.
+_ERRATA = (
+    "\n## 17. Errata\n\n"
+    "| E36 | The figures were **26 added / 16 removed / 11 changed / 27 "
+    "unchanged**, headline `+26 nodes − 16 fixed`. |\n"
+)
+
+_GOOD = ("26 added / 15 removed / 8 changed / 36 unchanged",
+         "+26 nodes − 15 fixed", "27 / 22 / 1 / 28")
+
+
+def _diff_tree(nodes: str, headline: str, edges: str, extra: str = "") -> Path:
+    return _tree({"docs/CONTRACTS.md": _S7 % (nodes, headline, edges) + extra,
+                  "analyzer/tests/core/test_diff.py": _PIN})
+
+
+def _diff_problems(root: Path) -> list:
+    problems: list = []
+    doc_figures.check_contract_diff_figures(root, problems)
+    return problems
+
+
+def test_the_contract_figures_that_match_the_pin_pass():
+    root = _diff_tree(*_GOOD)
+    try:
+        assert _diff_problems(root) == []
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_the_rev04_defect_is_caught_in_all_three_places():
+    """REV-04, word for word: the node counts, the edge counts and an
+    illustrative headline from a round before that, in one section."""
+    root = _diff_tree("25 added / 15 removed / 8 changed / 31 unchanged",
+                      "+26 nodes − 16 fixed", "26 / 22 / 1 / 28")
+    try:
+        problems = _diff_problems(root)
+        assert len(problems) == 3, problems
+        assert "`summary.nodes` is 25 / 15 / 8 / 31" in problems[0], problems
+        assert "`summary.edges` is 26 / 22 / 1 / 28" in problems[1], problems
+        assert "headline" in problems[2], problems
+        assert all("check 23" in p for p in problems), problems
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_an_errata_section_quoting_a_superseded_figure_is_not_read():
+    """§17 E36 records the figures that were wrong, on purpose. The check is
+    anchored on the `## 7.` heading precisely so it cannot reach them."""
+    root = _diff_tree(*_GOOD, extra=_ERRATA)
+    try:
+        assert _diff_problems(root) == []
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_the_check_abstains_rather_than_guesses_when_the_pin_moves():
+    """A renamed or restructured pin must silence the check, not fail it: a
+    check that guesses at a number is worse than one that says nothing."""
+    root = _tree({
+        "docs/CONTRACTS.md": _S7 % ("1 added / 2 removed / 3 changed / 4 "
+                                    "unchanged", "+9 nodes − 9 fixed",
+                                    "5 / 6 / 7 / 8"),
+        "analyzer/tests/core/test_diff.py": "def test_nothing():\n    pass\n",
+    })
+    try:
+        assert doc_figures._diff_pins(root) is None
+        assert _diff_problems(root) == []
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_the_real_pin_is_still_readable_and_the_real_contract_agrees():
+    """The one case that runs against this repository. If `test_diff.py` is ever
+    restructured past `_diff_pins`, this fails loudly rather than letting check
+    23 abstain in silence forever."""
+    pins = doc_figures._diff_pins(REPO)
+    assert pins is not None, (
+        "`%s` no longer states its summary assertions in a shape check 23 can "
+        "read -- teach `_diff_pins` the new shape or the gate is dead"
+        % doc_figures.DIFF_PIN_TEST)
+    counts, headline = pins
+    assert set(counts) == {"nodes", "edges"} and headline.startswith("+")
+    problems = _diff_problems(REPO)
+    assert problems == [], "\n".join(problems)
+
+
 def main() -> int:
     from test_check_docs import run_module
 

@@ -132,6 +132,137 @@ Confirmed by the campaign's own review, one fix each:
   C8's first clause, listed here too because it was found by review rather than
   planned.
 
+### Review round 2 — the rebuild's own review, process and docs
+
+The rebuild was reviewed again on its real base. Five findings were confirmed
+against the process-and-docs surfaces; each is fixed at its cause and, where a
+check could have seen it, a check now does. The doc gate is **twenty-three
+checks**, up from twenty-one.
+
+- **The doc gate's check 22 was cited by the contract and absent from the
+  tree.** `scripts/doc_claims.py` — the gate that forbids a green claim and the
+  CI matrix in one breath without saying whether the matrix ran — was written
+  during the first campaign and never carried onto this base, while
+  `docs/CONTRACTS.md` §16.4 and §17 E28 both asserted it was running (**no CI
+  job has started on this line of work at all**, which is the whole reason the
+  check exists). It is back
+  as **check 22** (it collided with `doc_surfaces`' check 16 before), wired into
+  `check_docs.run`, and `scripts/test_doc_claims.py` now pins two things the
+  first round could not: that the module is *wired in* rather than merely
+  present, and that `docs/CONTRACTS.md` names no `scripts/*.py` missing from the
+  tree — CONTRACTS is in `check_docs.SKIP` by design, which is exactly how a
+  contract came to name a file that did not exist.
+- **§7's `mlview diff` figures were three mutually inconsistent sets.** The
+  prose said 25 / 15 / 8 / 31 and named `python -m mlview diff` as the authority;
+  the authority says **26 / 15 / 8 / 36**, edges **27 / 22 / 1 / 28**, headline
+  `+26 nodes · −15 nodes · 0 new findings · 15 fixed`, and both pinning tests had
+  already been updated to say so. The section's own JSONC sketch carried a third
+  set again. All three are corrected, §17 E36 stops restating a live figure, and
+  new **check 23** holds §7 to `analyzer/tests/core/test_diff.py` — the one place
+  the doc gate reads CONTRACTS, anchored on the `## 7.` heading so §17's errata
+  keep quoting the superseded figures they exist to record.
+- **`docs/VALIDATION.md` C5 named a coverage row that never appears.** A
+  `--framework` run emits one coverage row and its kind is `framework_filter`;
+  `framework_suppressed` appears only in the bare `diagnostics` tally, the same
+  cost stated twice (§11.4 C3). A validator checking the kind would have recorded
+  a fail against correct behaviour on the one row that exercises C8 end to end.
+- **§4.0 prescribed `python tools/wheel_check.py --sdist`, a flag that does not
+  exist.** The tool takes `--no-build` and nothing else. The line is gone and the
+  gap it papered over is stated instead: **the sdist is published untested** —
+  nothing in the repo or in CI builds or smoke-tests one — with the by-hand
+  equivalent written out, because a version can never be re-uploaded.
+- **B2 told the validator the standalone report "cannot open your editor".** It
+  can, and for exactly the report Session B produces: `deepLinkPlan` returns
+  `launch` for a top-level `file:` document and hands the `vscode://` URL to the
+  OS through a transient window it closes after ~700 ms. Only an embedded or
+  `http(s)` report copies. The row now describes both outcomes and says which one
+  is the fail (silence).
+
+Four minors went with them: §18's amendment index is total again (§7.1–§7.5 and
+§10 had no rows), §2.6 C9's gate citations name the three tests that exist — two of
+which read the analyzer's own declaration, while the extension's is a hardcoded
+transcription and is recorded as a stated gap — §14.2 R19 says where its negative fixtures actually live, and the five
+clauses §19.1 corrects now say so where a reader meets them. The stale counts
+that no check reads — "24 third-party repositories with 26 shell scripts", the
+VSIX row's 162 files / 110 core files — are replaced by the constant or the
+command that settles them rather than by newer numbers.
+
+### Review round 3 — the analyzer and the viewer, read against the contract
+
+The same review read the build against `docs/CONTRACTS.md` rather than against
+its own diff, and confirmed ten more. **Eight of the ten are the contract being
+right and the code being wrong**: the clause was written, folded and shipped as
+prose, and nothing in the tree ever asserted it — which is §16.4's stated gap
+(no gate compares the contract to the build) arriving as ten defects at once.
+Every one is now gated by a test that reads the analyzer's **own declaration**
+rather than a transcription of it, and the clauses are folded as
+`docs/CONTRACTS.md` **§19.4 A9–A19**.
+
+- **A `--framework`-narrowed run still returned a flat clean bill of health.**
+  C8 put `framework_filter` in the core and in two hosts' coverage blocks and
+  never in `emit/answers_text`, the tuple the Answer Card, the MCP `answers`
+  payload and the CLI `verdict:` row are all built from. On
+  `samples/vision_pipeline_clean` the verdict under `--framework torch` was
+  byte-identical to the verdict under `--framework auto` — *"No findings: no
+  rule fired on this workspace."* — with a coverage block one screen below it
+  naming five rules that did not run. The verdict now carries both admissions in
+  one sentence and counts a filter in **rules**, never folded into a blind-spot
+  total.
+- **The viewer read two of the core's three coverage kinds**, and its own extra
+  as the third. On the same project the rail said *"nothing to flag"*, drew zero
+  banners, and put the whole caveat into one **287-character** generic chip. It
+  now draws a 38-character chip, a clause in the coverage banner and the rail's
+  clean-state caveat, and `webview/test/hardening_coverage_kinds.test.mjs`
+  **parses** `core/coverage.py` so the next kind the core adds cannot drift out
+  of the viewer silently.
+- **Both slash-command prompts told the model to read a coverage row this host
+  never renders** — `framework_suppressed` where a `--framework` run emits
+  `framework_filter`.
+- **A criterion reached through a dataclass field or a constructor parameter
+  never earned the LOSS role**, so MLV201 / MLV202 / MLV203 / MLV205 — two of
+  them high — all skipped the training step behind a coverage note. §5.3 A11 (c)
+  and (d) were contractual and unimplemented; what travels is now the field's
+  **identity**, not only its tag. Deliberately **not** extended to a plain
+  parameter: doing so made `x.size()` resolve to `torch.nn.LayerNorm.size` and
+  cost `nlp_gpt_pretrain` two dataflow edges `local` draws, and `ip` must never
+  report less than `local`.
+- **A dict returned from a factory did not carry its entries**, though the same
+  dict written in the caller's own scope did, because the inferred half of
+  `unresolved_callee` was written once instead of recomputed each IR round —
+  which A12′ already said in as many words. MLV208 was the finding lost.
+- **R4's value tags died at a tuple-position `return`, and its three hops were
+  being spent on things that cross no object.** A per-batch helper, a collector
+  and a `.detach().cpu().numpy()` tail spend four between them, so MLV305 went
+  silent two *object* hops from a value that reaches `accuracy_score` with no
+  argmax. A hop is now **crossing an object**; the free links have their own
+  bound.
+- **MLV103 fired or stayed silent on whether the caller happened to reuse the
+  callee's argument name**, and a bare `return pca.fit_transform(X)` was silent
+  where the two-line spelling fired — R13's third form, which R15 claims to read
+  as well. A returned call contributes its operands and not its callee text, and
+  §19.1 A5's ambiguity guard is narrowed to the tuple-or-list returns it was
+  measured on. The precision case it exists for is pinned by name.
+- **MLV111 still read `call.var`** where MLV110 had been given the one-hop name
+  lookup, so a program that inverts both shuffle flags behind two factories
+  reported only its MLV110 half. MLV111 requires **every** name the construction
+  is bound to to read as an evaluation loader; a name may reinforce and never
+  create.
+- **C3's split of `analyzer/tools/gen_rule_docs.py` was lost** — 850 lines,
+  while two documents claimed the 750-line inequality. Split along the line the
+  rule codes already draw (253 / 333 / 323) with byte-identical output.
+- **`analyzer/LICENSE` was the third copy C7 never landed**, and
+  `analyzer/pyproject.toml` named no `license-files`, so the wheel a validator is
+  walked into publishing carried **no licence file at all**.
+
+**What moved on the corpus**, both readings up and both ratcheted: visible recall
+72.3% → **72.5%** (`ip`) and 70.5% → **70.7%** (`local`), with MLV110's `visible`
+column 21 → 22 — all of it earned by §5.3 A11 (d), measured by disabling that one
+fallback and watching both numbers go back. The other fixes move no corpus number,
+because the 158 programs do not spell those shapes; each is gated instead by
+`analyzer/tests/core/test_campaign_review_fixes.py` — 23 tests, one per confirmed
+finding, each a **pair** of programs differing only in the thing MLView should not
+have cared about.
+
 ### What it measured
 
 Over the 158-program labelled corpus, **precision stayed at 100.0% with zero
@@ -163,11 +294,13 @@ Python 3.13, Node 26) and nothing else. `sh scripts/e2e.sh` 20 steps, all green;
 `python tools/verify.py --all` 10 rows; `python tools/verify.py --scopes --fuzz
 200` 5 rows; `python tools/accuracy.py` and `--dataflow local` over the
 158-program corpus, both PASS; `python tools/public_corpus.py run` then
-`check --strict` over the 37 pinned repositories — 260 runs, 260 clean, **no new
-high-severity finding**; `mlview analyze --demo` byte-identical to
+`check --strict` over the 37 pinned repositories — 260 runs, 260 clean,
+49 high / 276 medium / 381 low, **no new high-severity finding**; `mlview analyze --demo` byte-identical to
 `contracts/graph.sample.json` at 46 078 bytes; `python scripts/check_docs.py`
-**DOC CHECK OK**. Suites: analyzer 2621 passed / 9 skipped / 24 xfail, webview
-590, vscode-extension 410, claude-plugin 472 passed / 7 skipped, scripts 119.
+**DOC CHECK OK**. Suites: analyzer 2654 passed / 9 skipped / 24 xfail, webview
+599 (598 pass, 1 todo), vscode-extension 410, claude-plugin 476 passed / 7
+skipped, scripts 132. Every row was run once at the rebuild and again after
+the review fixes below; the figures are the second run.
 
 ---
 

@@ -36,12 +36,16 @@ from typing import Any, Dict, List, Optional, Sequence
 #: come back as a clean bill of health. ``framework_suppressed`` is the extra one,
 #: and only HALF of that kind belongs here — see :func:`is_framework_filter_note`.
 #:
-#: The two say the SAME cost when both are present, which is why
-#: :func:`mlview_workspace.note_framework_suppression` stands its own note down
-#: when the analyzer has already made the statement: §11.4 C3 forbids a reader
-#: adding the two counts together, and the way to make that impossible is to
-#: never write both. The host's note survives only where the analyzer was silent —
-#: a ``graph.json`` cached by a build older than C8.
+#: The two say the SAME cost when both are present, and BOTH are written: on every
+#: non-auto run :func:`mlview_workspace.note_framework_suppression` appends the
+#: host's note to ``graph["diagnostics"]`` - and so to the ``graph.json`` on disk -
+#: beside the analyzer's ``framework_filter``. That is deliberate: §11.4 B3 has the
+#: ``{kind, count}`` tally carry each producer's own statement, and 11.57 B1's gates
+#: read the host's there. It is §11.4 C3 that forbids adding the two counts
+#: together, and that is an obligation on the READER; the way this module makes it
+#: impossible to trip over is :func:`coverage_notes`, which renders exactly ONE of
+#: them - the analyzer's whenever it spoke, the host's only where it was silent, as
+#: in a ``graph.json`` cached by a build older than C8.
 COVERAGE_KINDS = (
     "single_file_analysis",
     "untagged_dataflow",

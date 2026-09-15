@@ -13,7 +13,7 @@ what a call hands back, and `ir/bindings_lookup._store` to write the result.
 from __future__ import annotations
 
 import ast
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 from .. import knowledge as K
 from .bindings_lookup import _REBINDING, _store, binding_of, names_in
@@ -221,6 +221,7 @@ def _bind_record(record: AssignRecord, module: ModuleIR, workspace) -> None:
         class_ir = None
         is_config = False
         via: Tuple[str, ...] = ()
+        picked: Optional[ValueRef] = None
         if call is not None:
             tags.extend(call_output_tags(call, scope))
             class_ir = call.class_ir or _identity_class(call)
@@ -301,8 +302,21 @@ def _bind_record(record: AssignRecord, module: ModuleIR, workspace) -> None:
             # restored into a name that already held a model.
             _adopt(ref, _self_wrapped(call, name, scope)
                    or _restored_into(call, name, scope))
-        ref.elements = _literal_elements(value, scope, module)
-        ref.entries = _literal_entries(value, scope, module)
+        if picked is not None:
+            # REV-PREC-03. The slot's *producer* is the call that made the
+            # value - `GradScaler()`, `nn.Linear(4, 3)` - and copying only its
+            # tags left `scaler = parts["scaler"]` with no producer at all.
+            # MLV208's identity arm (`_scaler_behind`) walks exactly that
+            # producer to find the construction inside the factory, so a
+            # GradScaler handed over in a parameter dict was invisible while
+            # the same GradScaler handed over in a tuple was not: `opt, scaler
+            # = build(model)` fired and `parts = build(); scaler =
+            # parts["scaler"]` did not. `_adopt` is the same carriage the tuple
+            # path above already uses, and it keeps whatever this binding
+            # already knows.
+            _adopt(ref, picked)
+        ref.elements = _literal_elements(value, scope, module) or ref.elements
+        ref.entries = _literal_entries(value, scope, module) or ref.entries
         if not ref.elements and not ref.entries and slot is not None:
             # REC-04: `state = make_state()` where the callee returns a dict
             # literal. The slots were resolved in the callee's scope by
@@ -310,7 +324,11 @@ def _bind_record(record: AssignRecord, module: ModuleIR, workspace) -> None:
             # opaque subscript - the shape GRAPH-R3's carriage stopped at.
             ref.elements = slot.elements
             ref.entries = slot.entries
-        ref.opaque = _opaque_kind(value, call, record)
+        # §5.3 A12': "a subscript the analyzer **did** follow into a literal
+        # is no longer marked `opaque` - a resolved object must not report
+        # itself as a gap." `picked` is that resolution.
+        ref.opaque = None if picked is not None else _opaque_kind(
+            value, call, record)
         _store(scope, name, ref)
 
 

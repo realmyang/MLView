@@ -70,6 +70,23 @@ def _class_attr_binding(call: CallSite):
             or cls.scope.bindings.get("self.%s" % func.attr))
 
 
+def _line_of(ref: Optional[ValueRef], call: CallSite) -> Optional[int]:
+    """The line the callee's *binding* is written on, when it is elsewhere.
+
+    REV-PREC-07: the inferred half of `unresolved_callee` describes the
+    binding, not the call, and printing the call's line beside that phrase told
+    the reader that `loss = criterion(model(xb), yb)` - two plain names and no
+    brackets - "is a subscript". The subscript is at the binding, several lines
+    up, and that is the line worth citing. None when the binding is on this
+    very line, where the existing wording is already right.
+    """
+    loc = getattr(ref, "loc", None) if ref is not None else None
+    line = getattr(loc, "line", None)
+    if not line or line == call.loc.line:
+        return None
+    return int(line)
+
+
 def _note_unresolved(call: CallSite) -> None:
     """ANA-5a: a callee that is a real binding with nothing behind it.
 
@@ -84,6 +101,23 @@ def _note_unresolved(call: CallSite) -> None:
     as `len` or `range` has no binding in scope, so it is never flagged and no
     `unknown` node is minted for it.
     """
+    if call.unresolved_inferred:
+        # §5.3 A12', REV-PREC-03. This runs once per IR round on the same
+        # `CallSite`, and the inferred half used to be written once and kept:
+        # a flag set in round 1 survived a round 2 that followed the binding
+        # after all. `parts = build_components()` is the measured shape - the
+        # dict the factory returns is carried into `parts` by `infer_returns`,
+        # which runs at the END of a round, so `m = parts["model"]` is an
+        # opaque subscript for exactly one round while `m(...)` stayed marked
+        # unresolved for the life of the document. The same program with the
+        # dict written in the caller's own scope resolved in round 1 and fired
+        # MLV208; this one went silent, with a coverage note in place of a
+        # high-severity finding. So the inferred half is recomputed here,
+        # every round, from scratch. The syntactic half is a pure function of
+        # the AST and is left exactly as `callee_construct` wrote it.
+        call.unresolved_callee = None
+        call.unresolved_inferred = False
+        call.unresolved_at = None
     if (call.unresolved_callee or call.class_ir is not None
             or call.target_function is not None):
         return
@@ -92,12 +126,16 @@ def _note_unresolved(call: CallSite) -> None:
     attr = _class_attr_binding(call)
     if attr is not None and attr.opaque:
         call.unresolved_callee = attr.opaque
+        call.unresolved_inferred = True
+        call.unresolved_at = _line_of(attr, call)
         return
     if call.receiver is not None:
         # A *method* on an opaque value is still a method; only calling the
         # value itself is the construct ANA-5a is about.
         if call.method == "__call__" and call.receiver.opaque:
             call.unresolved_callee = call.receiver.opaque
+            call.unresolved_inferred = True
+            call.unresolved_at = _line_of(call.receiver, call)
         return
     name = dotted_text(call.node.func)
     if not name:
@@ -107,10 +145,14 @@ def _note_unresolved(call: CallSite) -> None:
         return
     if ref.opaque:
         call.unresolved_callee = ref.opaque
+        call.unresolved_inferred = True
+        call.unresolved_at = _line_of(ref, call)
         return
     if ref.producer is not None or ref.class_ir is not None or ref.via_fqns:
         return
     call.unresolved_callee = "a value the analyzer could not follow"
+    call.unresolved_inferred = True
+    call.unresolved_at = _line_of(ref, call)
 
 
 def _called_value(call: CallSite, module: ModuleIR) -> Optional[ValueRef]:

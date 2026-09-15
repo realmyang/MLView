@@ -30,10 +30,27 @@ _SEVERITY_RANK = {"low": 0, "medium": 1, "high": 2}
 #: whose only ML file failed to parse, whose notebooks were never opened, or
 #: whose directory could not be read. A kind that means **we did not read
 #: something** must always reach the verdict.
+#:
+#: C8/REV-H1 adds `framework_filter`, the one kind that means **we did not
+#: run something**: `--framework torch` on a workspace that also imports
+#: sklearn drops five rules, the Coverage block says so, and the verdict one
+#: screen above it used to read "No findings: no rule fired on this workspace"
+#: with no qualification at all - the document contradicting itself in the
+#: sentence that is read most. It is counted apart from the blind spots below
+#: (§2.6 C9): nothing here was unreadable, a filter simply kept rules from
+#: running, so it earns its own clause rather than a place in a blind-spot
+#: total. `test_answers_coverage_kinds` pins this tuple as a superset of
+#: `core.coverage.COVERAGE_KINDS`, so the next kind the core adds cannot drop
+#: out of the verdict the way this one did.
 _COVERAGE_KINDS = ("untagged_dataflow", "single_file_analysis", "unresolved_callee",
-                   "parse_error", "notebook_skipped", "truncated")
+                   "parse_error", "notebook_skipped", "truncated",
+                   "framework_filter")
+#: The kinds that mean a rule never ran, rather than that something could not
+#: be read. Counted in rule codes, and never folded into a blind-spot total.
+_FILTER_KINDS = ("framework_filter",)
 #: How each kind is said in the absence clause, in this order.
 _COVERAGE_PHRASE = (
+    ("framework_filter", "%d rule(s) were not run by a --framework filter"),
     ("unresolved_callee", "%d call(s) could not be read"),
     ("parse_error", "%d file(s) could not be parsed"),
     ("notebook_skipped", "%d notebook(s) were not analyzed - re-run with "

@@ -157,7 +157,7 @@ python -m mlview analyze <your project> --html report.html --open
 | # | Check | "Working" means |
 |---|---|---|
 | B1 | The report opens offline | One HTML file, no network requests (check DevTools → Network: it should be empty), same diagram as the panel. |
-| B2 | Click a node, then the "copy path" affordance | The report cannot open your editor, so it copies a `file:line` and a `vscode://file/...` link. Paste one into a terminal or the browser bar and confirm it points at the right place. **Then press `?` and an arrow key**: the keyboard must still work after that click. A deep link that steals the keyboard from the page is a confirmed past defect, and it makes every later check in this session read as broken. |
+| B2 | Click a node, then the "Go to `file:line`" affordance | A local (`file://`) report — which is what the command above produces — hands the `vscode://file/...` URL to the OS in a transient window it then closes after ~700 ms, so **VS Code should jump to the line** and the toast reads `Copied <file>:<line>`. If nothing handles the protocol, or the browser blocks the popup, the report says so at once instead of failing silently: it puts `file:line` on the clipboard and leaves an **Open in VS Code** anchor in the toast. A report opened over `http(s)`, or embedded in the VS Code panel, never launches at all — it only copies, and its toast says so ("open the report locally to jump into VS Code"). Either outcome is a pass; *silence* is the fail. **Then press `?` and an arrow key**: the keyboard must still work after that click. A deep link that steals the keyboard from the page is a confirmed past defect (§17 E30), and it makes every later check in this session read as broken. |
 | B3 | The **Answer Card** above the canvas | Four honest sentences: where data enters, what is optimized, how it is evaluated, and a verdict. If MLView could not read something, the verdict says so rather than giving a clean bill of health. |
 | B4 | The issue rail | Ranked by severity; each row jumps to its node. Suppressed and baselined findings are in a collapsed section, not silently dropped. On a project with no findings, a clean state that follows a *blind* run must repeat the caveat rather than say "nothing to flag". |
 | B5 | Theme switch, the legend, the shortcut sheet | The report is legible in light and dark. The legend opens from the toolbar button and `?` opens the shortcut sheet; **`Escape` closes whichever is open** and leaves the rest of the view alone. |
@@ -192,7 +192,7 @@ claude --plugin-dir C:\absolute\path\to\MLView\claude-plugin
 | C2 | `/mlview-issues <your project> high` | A ranked list of high-severity findings, each citable. |
 | C3 | `/mlview-issues <your project> --group-by rule` | One row per rule with an occurrence count and up to three sites, not a flat repeated list. |
 | C4 | `/mlview <your project> --scope concern:evaluation --depth 1` | A scoped answer that **says it is scoped** and still reports the project's real size. |
-| C5 | Ask the model to analyze with `framework: "torch"` on a project that is not torch-only | The answer must say that the filter dropped rules, naming the codes from the `coverage` row of kind `framework_suppressed`, and offer to re-run with `"auto"`. A shorter finding list presented as a cleaner project is a fail. |
+| C5 | Ask the model to analyze with `framework: "torch"` on a project that is not torch-only | The answer must say that the filter dropped rules, naming the codes from the `coverage` row of kind **`framework_filter`** — that row carries the `codes[]`, and it is the only coverage row a `--framework` run adds. The payload's `diagnostics` tally *also* carries a bare `{kind: "framework_suppressed", count: N}` of the **same** count: the analyzer's `framework_filter` and the host's own suppression note are two statements of one cost (§11.4 C3), the host stands its own note down whenever the core emitted `framework_filter`, and the two counts must never be added together. Then the model must offer to re-run with `"auto"`. A shorter finding list presented as a cleaner project is a fail. |
 | C6 | Ask the model to open the diagram | `mlview_open_diagram` writes an HTML report and returns its path; the model must not claim it can export an image. |
 | C7 | Let Claude **edit a training file** in a way that introduces a defect (delete an `optimizer.zero_grad()`, or fit a scaler before a split) | The `PostToolUse` hook speaks up **only because the finding set grew**, at most 5 rows. The first edit in a session is silent by design — there is nothing to diff against yet. Run a second edit to see it. |
 | C8 | Then check your own repo for a stray `.mlview/` | A `--plugin-dir` session names no storage directory of its own, so this is the route that used to seed a cache inside the analyzed project. `git status` in your repo should be unchanged. |
@@ -279,11 +279,15 @@ python tools/public_corpus.py check --corpus-dir .public-corpus --report pc.json
 # 4. The packaged artifacts build and run:
 python tools/wheel_check.py                 # builds the wheel, installs it in a
                                             # throwaway venv, analyzes with it
-python tools/wheel_check.py --sdist         # the same, for the source distribution
-                                            # 4.1 uploads — `pip install mlview` falls
-                                            # back to it on any platform without a
-                                            # matching wheel, and a version can never
-                                            # be re-uploaded
+                                            # NOTE the sdist 4.1 also uploads is
+                                            # NOT gated: nothing in the repo or in CI
+                                            # builds or smoke-tests one, and
+                                            # `wheel_check.py` takes only `--no-build`.
+                                            # `pip install mlview` falls back to the
+                                            # sdist on any platform without a matching
+                                            # wheel, and a version can never be
+                                            # re-uploaded — so if 4.1 is a real upload,
+                                            # install the built tarball by hand first.
 cd vscode-extension && npm run package && cd ..
 python scripts/vsix_check.py                # ceiling, bundled core, rule pages, no bytecode
 ```
@@ -372,6 +376,16 @@ The last line matters: the wheel must carry `schema/*.json` and `emit/assets/*`
 as package data, or it installs perfectly and fails on the first analysis. That
 is exactly what `tools/wheel_check.py` gates, and it is worth re-running against
 the *published* wheel, not only the local build.
+
+**The sdist is published untested, and that is a stated gap, not an oversight.**
+`tools/wheel_check.py` builds and installs the **wheel** — it takes `--no-build`
+and nothing else — and neither `scripts/e2e` nor CI's `packaging` job builds a
+source distribution at all. The package-data failure above is exactly as
+invisible in an sdist as in a wheel, and `pip install mlview` falls back to the
+sdist on any platform with no matching wheel. Since a version can never be
+re-uploaded, do the equivalent by hand before the real upload: `pip install
+analyzer/dist/mlview-*.tar.gz` into a throwaway venv and run the two commands
+above against it. Record the result in `docs/DEMO_LOG.md` beside the wheel row.
 
 **If the name is taken.** `mlview` may already exist on PyPI. If so, pick a new
 distribution name (`mlview-analyzer`, say), change `name =` in **both**

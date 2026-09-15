@@ -299,8 +299,8 @@ visible = confidence >= 0.60, the VS Code Problems panel default.
 ```
 
 ```
-overall   labels 546   recall  78.2%   visible  70.5%   high+medium  71.2%   precision 100.0%
-unseen    labels 515   recall  76.9%   visible  68.7%   high+medium  69.3%   precision 100.0%
+overall   labels 546   recall  78.2%   visible  70.7%   high+medium  71.2%   precision 100.0%
+unseen    labels 515   recall  76.9%   visible  68.9%   high+medium  69.3%   precision 100.0%
 ```
 
 Two columns exist because the report used to overstate itself. **`n/l`** in the
@@ -326,15 +326,15 @@ and is two to three points higher on every row — section 9):
 | Reading | Number | What it means |
 |---|---|---|
 | raw recall | **76.9%** | 396 of 515 planted defects produced a finding |
-| visible recall | **68.7%** | …of which 354 clear `mlview.minConfidence` 0.6, so the rest never reach the VS Code Problems panel |
+| visible recall | **68.9%** | …of which 355 clear `mlview.minConfidence` 0.6, so the rest never reach the VS Code Problems panel |
 | high+medium recall | **69.3%** | 255 of 368 defects that are not reproducibility hygiene |
 
 All three are **up** on the unseen half, and substantially — 55.3% -> 69.4% ->
-76.5% -> 76.9% raw, 42.5% -> 63.0% -> 68.3% -> 68.7% visible, 37.5% -> 60.2% ->
+76.5% -> 76.9% raw, 42.5% -> 63.0% -> 68.3% -> 68.9% visible, 37.5% -> 60.2% ->
 68.7% -> 69.3% high+medium, over four measurements on successively larger unseen
 sets (eight programs, then 86, then 151). This is a measurement of unseen recall
 rather than an anecdote about it. In the shipped `ip` mode the same three
-readings are **79.2% / 70.7% / 72.5%** — 408 of 515, 364 visible, 267 of 368.
+readings are **79.2% / 70.9% / 72.5%** — 408 of 515, 365 visible, 267 of 368.
 
 **Reconciling with the audit's ~26%.** The Sprint-2 audit measured ~26% over
 four hand-written projects. The closest reading here is **60.2%** — the
@@ -831,12 +831,17 @@ programs, both modes, after every family.
 
 | mode | recall | visible | high+medium | unseen recall | precision | forbidden | unlabelled |
 |---|---|---|---|---|---|---|---|
-| `local` | **78.2%** | **70.5%** | **71.2%** | **76.9%** | **100%** | 0 | 0 |
-| `ip` *(default)* | **80.4%** | **72.3%** | **74.3%** | **79.2%** | **100%** | 0 | 0 |
+| `local` | **78.2%** | **70.7%** | **71.2%** | **76.9%** | **100%** | 0 | 0 |
+| `ip` *(default)* | **80.4%** | **72.5%** | **74.3%** | **79.2%** | **100%** | 0 | 0 |
 
 Graph fidelity is **1072 of 1166 (91.9%)** in both, up from 985 / 84.5%. Against
 the numbers this replaces — `local` 77.8 / 70.1 / 70.7 / 76.5 and `ip`
 79.1 / 71.2 / 72.5 / 77.8 — every aggregate rose in both modes and nothing fell.
+**The visible column in the table above is the campaign review's**: §5.3 A11 (d), which was
+contractual and unimplemented until the review, resolves one more training loader held on a
+holder object, which took visible recall 72.3% → 72.5% (`ip`) and 70.5% → 70.7% (`local`) and
+MLV110's `visible` column 21 → 22. Disabling that one fallback puts both numbers back, which is
+how the attribution was measured rather than assumed.
 `analyzer/tests/clean` stays at **0 findings**, and the **37** pinned public
 repositories stay at **260 runs, 260 clean, gate OK** under `--strict`, with
 every one of the 49 high findings already adjudicated: no new high finding.

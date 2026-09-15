@@ -427,6 +427,17 @@ def _fold_projection(ctx, fit: CallSite):
     return text, derived, splitter
 
 
+def _returns_a_container(func) -> bool:
+    """Does this function ever hand back a tuple or a list **literal**?
+
+    The only shape where "which value did the caller take?" is a real question
+    (REV-PREC-02). A single `return <expr>` has exactly one position, so there
+    is nothing to disambiguate and the §19 A5 guard below can only ever remove
+    a true finding from it.
+    """
+    return any(isinstance(expr, (ast.Tuple, ast.List)) for expr in func.returns)
+
+
 def _returned_names(func, index: Optional[int]) -> List[str]:
     """The names a function hands back, at one tuple position or at all of them.
 
@@ -434,6 +445,16 @@ def _returned_names(func, index: Optional[int]) -> List[str]:
     so `return pca.fit_transform(X)` says `X` the way
     `reduced = pca.fit_transform(X); return reduced` says `reduced`. Without
     that, MLV103 read only the half of its own rule that happens to bind a name.
+
+    REV-05 / REV-PREC-02: a call's own `dotted_text` is its *callee*
+    (`pca.fit_transform`), which names no value, so it is not a returned name
+    and is not recorded as one. It used to be, and the cost was paid twice: a
+    plain scalar `return pca.fit_transform(X)` looked like a two-value return
+    to the ambiguity guard in `_callee_fit_transform`, which then demanded that
+    the caller's binding share a name with the callee's *argument* - so MLV103
+    fired or stayed silent on whether the caller happened to reuse the callee's
+    parameter name, and the bare-call form §14.2 R15 promises was silent
+    outright.
     """
     out: List[str] = []
     for expr in func.returns:
@@ -443,16 +464,16 @@ def _returned_names(func, index: Optional[int]) -> List[str]:
                 continue
             elements = [elements[index]]
         for element in elements:
+            if isinstance(element, ast.Call):
+                # `dotted_text` of a call is its *callee*, which names no
+                # value; the value is what the call was written on.
+                for operand in _call_operands(_returned_call(func, element)):
+                    if operand not in out:
+                        out.append(operand)
+                continue
             text = dotted_text(element)
             if text and text not in out:
                 out.append(text)
-            if not isinstance(element, ast.Call):
-                continue
-            # `dotted_text` of a call is its *callee*, which names no value;
-            # the value is what the call was written on.
-            for operand in _call_operands(_returned_call(func, element)):
-                if operand not in out:
-                    out.append(operand)
     return out
 
 
@@ -476,7 +497,7 @@ def _callee_fit_transform(ctx, cv_call: CallSite, data_name: str):
         return None, None
     index = getattr(ref, "index", None)
     returned = _returned_names(func, index)
-    if index is None and len(returned) > 1:
+    if index is None and len(returned) > 1 and _returns_a_container(func):
         # The caller's binding does not say WHICH tuple position it unpacked -
         # the commonest reason being that `data_name` is a parameter whose
         # value reached this scope through a summary, one call further out. A
@@ -489,6 +510,12 @@ def _callee_fit_transform(ctx, cv_call: CallSite, data_name: str):
         # With no position, the only identity left is the name, and a callee
         # that hands nothing back under this name has not been shown to be the
         # producer at all. Refuse rather than guess: iron law 2.
+        #
+        # REV-PREC-02 narrows this to the shape it was measured on: a callee
+        # that really hands back a tuple or a list. `nlp_sklearn_text_leaky`'s
+        # helper returns a 7-tuple, so the precision case is untouched; a
+        # single `return scaler.fit_transform(frame)` has one position, nothing
+        # to disambiguate, and is no longer refused.
         short = data_name.split(".")[-1]
         named = [n for n in returned if n.split(".")[-1] == short]
         if not named:

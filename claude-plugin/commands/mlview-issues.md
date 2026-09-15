@@ -197,8 +197,10 @@ rules (MLV301, MLV302, MLV401, MLV501) cannot fire at all, because each needs a
 sibling module — measured: 3 findings for `train.py` where its directory yields 7.
 The payload then carries a `coverage` row of kind `single_file_analysis`, one of
 kind `untagged_dataflow` when a key argument could not be traced so the leakage
-rules could not check it, and one of kind `framework_suppressed` when a framework
-filter narrowed the rule set. When any of them appears, add one line after the table
+rules could not check it, and one of kind `framework_filter` when a framework
+filter narrowed the rule set (`framework_suppressed` instead when the document
+was cached by an older build — the same cost, stated by this host rather than by
+the analyzer, and never both). When any of them appears, add one line after the table
 naming the rules from that row's `codes` — quote them, do not guess — and never
 present the result as a clean file; its `count` is blind spots or suppressed rule
 codes, not rules that ran and found nothing. Prefer running on the containing directory and passing

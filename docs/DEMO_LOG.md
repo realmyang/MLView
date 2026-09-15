@@ -87,7 +87,7 @@ evidence.
 | # | Check | Result | Note |
 |---|---|---|---|
 | B1 | Report opens offline, zero network requests | | |
-| B2 | Copy path / `vscode://file/...` link points at the right place — **and the keyboard still works after that click** | | press `?` and an arrow key afterwards |
+| B2 | "Go to `file:line`" on a **local** report: VS Code jumps, **or** the toast says the launch was refused and offers *Open in VS Code* — **and the keyboard still works after that click** | | which of the two; press `?` and an arrow key afterwards |
 | B3 | Answer Card: four sentences, honest verdict | | paste it |
 | B4 | Issue rail ranked; suppressed findings collapsed, not dropped; a clean state after a blind run repeats the caveat | | |
 | B5 | Light and dark theme; legend and `?` shortcut sheet open; **Escape closes whichever is open** | | |
@@ -103,7 +103,7 @@ evidence.
 | C2 | `/mlview-issues <project> high` | | |
 | C3 | `/mlview-issues <project> --group-by rule` | | |
 | C4 | `/mlview <project> --scope concern:evaluation --depth 1` | | did it say it was scoped |
-| C5 | `framework: "torch"` on a non-torch project names the suppressed rules | | paste the sentence |
+| C5 | `framework: "torch"` on a non-torch project names the suppressed rules, from the `coverage` row of kind **`framework_filter`** | | paste the sentence; the `framework_suppressed` tally entry is the same cost stated twice, never a second one |
 | C6 | `mlview_open_diagram` returns a report path, claims no image export | | |
 | C7 | `PostToolUse` hook speaks after a **second** edit that adds a finding | | what it said |
 | C8 | No stray `.mlview/` in the analyzed repo after the session | | `git status` in your repo |

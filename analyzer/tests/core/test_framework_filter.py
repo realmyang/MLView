@@ -24,6 +24,7 @@ import pytest
 from core_support import REPO_ROOT, validate, write_files
 from mlview.api import AnalyzeOptions, analyze_to_dict
 from mlview.core.coverage import COVERAGE_KINDS, framework_filter_diagnostic
+from mlview.emit.answers_text import _COVERAGE_KINDS, _COVERAGE_PHRASE
 from mlview.rules import all_rules
 
 SAMPLE_DIR = os.path.join(REPO_ROOT, "samples", "vision_pipeline")
@@ -171,3 +172,80 @@ def test_a_filter_that_costs_nothing_stays_silent(tmp_path):
     # so assert the shape rather than absence, and that it never invents codes.
     for note in _filter_notes(doc):
         assert note["codes"] and note["count"] == len(note["codes"])
+
+
+# ------------------------------------------------------- the verdict (REV-H1)
+#
+# C8 put the caveat in the Coverage block and stopped there. The Answer Card's
+# `verdict:` - the single most-read sentence in the product, rendered verbatim
+# by the standalone report, the MCP `answers` payload and the CLI summary -
+# read "No findings: no rule fired on this workspace." for a narrowed run and
+# for an unnarrowed one alike, one screen above a Coverage block saying the
+# opposite. A document must not contradict itself.
+def test_the_verdict_is_not_a_clean_bill_of_health_under_a_filter(keras_doc):
+    """The property: a narrowed run's verdict says it was narrowed."""
+    verdict = keras_doc["answers"]["verdict"]["sentence"]
+    assert "not a clean bill of health" in verdict, verdict
+    assert "--framework filter" in verdict, verdict
+
+
+def test_the_verdict_counts_rules_not_diagnostics(keras_doc):
+    """One `framework_filter` diagnostic stands for N rules that did not run.
+    Counting it as "1 coverage gap" would understate it by N-1; counting its
+    rules among the blind spots would overstate the blindness. So the filter
+    brings its own number, and that number is the rule count."""
+    note = _filter_notes(keras_doc)[0]
+    verdict = keras_doc["answers"]["verdict"]["sentence"]
+    assert "did not run %d rule(s)" % note["count"] in verdict, verdict
+    blind = [d for d in keras_doc["diagnostics"]
+             if d["kind"] in _COVERAGE_KINDS and d["kind"] != "framework_filter"]
+    if blind:
+        assert "reported %d coverage gap(s)" % len(blind) in verdict, verdict
+    else:
+        assert "coverage gap(s)" not in verdict, verdict
+
+
+def test_an_unfiltered_verdict_is_unchanged(auto_doc):
+    """The caveat must cost nothing when the flag was not passed."""
+    verdict = auto_doc["answers"]["verdict"]["sentence"]
+    assert "--framework filter" not in verdict, verdict
+
+
+def test_the_clean_workspace_pair_differs_only_by_the_caveat(tmp_path):
+    """The measured H1 case, end to end: the same clean torch+sklearn
+    workspace under `auto` and under `--framework torch`. Before the fix both
+    verdicts were the byte-identical string "No findings: no rule fired on this
+    workspace." while the filtered run's Coverage block named five dropped
+    rules."""
+    root = write_files(str(tmp_path / "ws"), {
+        "train.py": TORCH_TRAIN,
+        "base.py": ("from sklearn.linear_model import LogisticRegression\n"
+                    "from sklearn.model_selection import train_test_split\n\n\n"
+                    "def run(X, y):\n"
+                    "    a, b, c, d = train_test_split(X, y, random_state=0)\n"
+                    "    return LogisticRegression().fit(a, c).score(b, d)\n"),
+    })
+    wide = _analyze([root])["answers"]["verdict"]["sentence"]
+    narrow = _analyze([root], framework="torch")["answers"]["verdict"]["sentence"]
+    assert wide != narrow
+    assert "--framework filter" in narrow and "--framework filter" not in wide
+
+
+def test_every_coverage_kind_the_core_declares_reaches_the_verdict():
+    """The gate, so the next kind cannot drop out the way this one did.
+
+    `emit/answers_text._COVERAGE_KINDS` is a hand-written literal and
+    `core.coverage.COVERAGE_KINDS` is the core's declaration; C8 added
+    `framework_filter` to the second and not the first, and nothing noticed
+    because no assertion related them. This one does."""
+    missing = set(COVERAGE_KINDS) - set(_COVERAGE_KINDS)
+    assert not missing, (
+        "core.coverage declares %s, which emit/answers_text never reads, so "
+        "the Answer Card verdict is blind to it" % sorted(missing))
+
+
+def test_every_verdict_kind_has_a_phrase():
+    """`_coverage_clause` renders `_COVERAGE_PHRASE`; a kind in `_COVERAGE_KINDS`
+    with no phrase falls through to the bare "N coverage gap(s)" fallback and
+    loses its name."""
+    assert {k for k, _ in _COVERAGE_PHRASE} == set(_COVERAGE_KINDS)

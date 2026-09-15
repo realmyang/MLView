@@ -57,8 +57,16 @@ __all__ = ["SCORE_TAGS", "Scored", "value_tags", "returned_call_with_role",
 SCORE_TAGS = ("LOGITS", "PROBS", "PREDS")
 
 #: Roles whose output is squashed into a probability, and roles whose output is
-#: not. `LOG_SOFTMAX` is deliberately a logit: log-probabilities are unbounded
-#: below and `CrossEntropyLoss` is the *correct* partner for them.
+#: not. `LOG_SOFTMAX` is deliberately a **logit**, because its correct partner
+#: is `NLLLoss`: log-probabilities are unbounded below, and `CrossEntropyLoss`
+#: *is* `log_softmax` + `NLLLoss`, so feeding it a log-softmaxed value applies
+#: log-softmax twice. MLV401 therefore still fires on `log_softmax ->
+#: CrossEntropyLoss` and stays silent on `log_softmax -> NLLLoss`, which is
+#: what the tag is for. (REV-PREC-06: this comment used to say
+#: `CrossEntropyLoss` was the correct partner, contradicting the rule it
+#: documents - and two of the adjudicated public-corpus high findings, at
+#: `peft/.../image_classification_timm_peft_lora.py:61` and `:77`, are exactly
+#: this double log-softmax and are true positives.)
 PROB_ROLES = frozenset({"SOFTMAX", "SIGMOID"})
 LOGIT_ROLES = frozenset({"LOG_SOFTMAX"})
 #: Roles that take the class decision, after which nothing is a score any more.
@@ -80,8 +88,22 @@ _PASSTHROUGH_METHODS = frozenset({
 })
 
 #: How many hops `value_tags` will walk before it gives up. Three is the same
-#: cap `ir.provenance` uses, for the same reason.
+#: cap `ir.provenance` uses, for the same reason: a hop is **crossing an
+#: object** - entering a workspace function, reading what it hands back.
 _MAX_DEPTH = 3
+
+#: How many *free* links one walk may follow: a collector (`_COLLECTORS`) and a
+#: tensor tail (`_PASSTHROUGH_ROLES` / `_PASSTHROUGH_METHODS`) cross no object
+#: and change nothing about what the value is, which is what `_collected_tags`
+#: already says in prose - "crossing no object, it costs no hop of its own".
+#: They used to be charged a hop all the same, and the bill came due on the
+#: commonest real shape there is: a per-batch helper, a `np.concatenate`, and a
+#: `.detach().cpu().numpy()` tail spend four of a budget of three between them,
+#: so MLV305 went silent two *object* hops from the value (REV-PREC-01). This
+#: is a separate, deliberately generous budget, and it exists only to keep a
+#: pathological receiver chain from recursing without end - it is not a
+#: statement about how far the analyzer will reason.
+_MAX_FREE = 8
 
 
 @dataclass(frozen=True)
@@ -103,8 +125,26 @@ class Scored:
         return any(t in self.tags for t in tags)
 
 
+def _charge(call: CallSite) -> int:
+    """1 for a call that crosses an object, 0 for one that does not.
+
+    A collector and a tensor tail hand back the same values in a different
+    container; the module already refuses to charge `_collected_tags` for the
+    crossing it does not make, and this is the same rule applied at the one
+    place that was still billing for it - the *entry* into such a call.
+    """
+    if (call.method or call.short_name or "") in _COLLECTORS:
+        return 0
+    role = K.role_of(call.fqn or "")
+    if role in _PASSTHROUGH_ROLES:
+        return 0
+    if role is None and (call.method or "") in _PASSTHROUGH_METHODS:
+        return 0
+    return 1
+
+
 def value_tags(ctx, node: Optional[ast.expr], scope, module,
-               depth: int = 0) -> Scored:
+               depth: int = 0, free: int = 0) -> Scored:
     """What the expression `node` holds, following helpers and tensor tails.
 
     Returns whatever the *shortest* answer is: a knowledge-table entry on the
@@ -113,10 +153,10 @@ def value_tags(ctx, node: Optional[ast.expr], scope, module,
     at `_MAX_DEPTH`, and an expression it cannot type comes back with empty
     tags - never with a guess.
     """
-    if node is None or depth > _MAX_DEPTH:
+    if node is None or depth > _MAX_DEPTH or free > _MAX_FREE:
         return Scored()
     if isinstance(node, ast.Call):
-        return _call_tags(ctx, node, scope, module, depth)
+        return _call_tags(ctx, node, scope, module, depth, free)
     name = dotted_text(node)
     if not name:
         return Scored()
@@ -128,14 +168,20 @@ def value_tags(ctx, node: Optional[ast.expr], scope, module,
     producer = ref.producer
     if producer is None:
         return Scored(tuple(ref.tags), None, name, ref)
-    found = _through_call(ctx, producer, depth + 1)
+    # REV-PREC-01: `y_true, y_pred = evaluate(...)` records WHICH position the
+    # caller took (`ValueRef.index`, set by `ir/bindings_store`), and the
+    # callee's `return a, b` has to be read at that position or the tag is
+    # read off the wrong value - or, as it was, off none at all.
+    found = _through_call(ctx, producer, depth + _charge(producer), free,
+                          index=getattr(ref, "index", None))
     if not found.tags:
         return Scored(tuple(ref.tags), producer, name, ref)
     return Scored(found.tags, found.producer, name,
                   _carry(ctx, ref, found, scope), found.through_callee)
 
 
-def _call_tags(ctx, node: ast.Call, scope, module, depth: int) -> Scored:
+def _call_tags(ctx, node: ast.Call, scope, module, depth: int,
+               free: int = 0) -> Scored:
     """The tags of an expression written as a call, in place."""
     index = getattr(module, "_calls_by_node", None) or {}
     call = index.get(id(node))
@@ -145,21 +191,32 @@ def _call_tags(ctx, node: ast.Call, scope, module, depth: int) -> Scored:
     direct = K.tags_of(call.fqn)
     if _scoring(direct):
         return Scored(tuple(direct), call, text)
-    found = _through_call(ctx, call, depth + 1)
+    charge = _charge(call)
+    found = _through_call(ctx, call, depth + charge, free + (1 - charge))
     if found.tags:
         return Scored(found.tags, found.producer, text, found.ref,
                       found.through_callee)
     return Scored(tuple(direct), call, text)
 
 
-def _through_call(ctx, call: CallSite, depth: int) -> Scored:
+def _through_call(ctx, call: CallSite, depth: int, free: int = 0,
+                  index: Optional[int] = None) -> Scored:
     """What a call hands back when its own FQN does not say.
 
     Two shapes, in order: a tensor tail (`.detach()`, `.cpu()`, `.numpy()`)
     whose receiver holds the answer, and a call into a workspace function whose
     `return` does.
+
+    `index` is the tuple position the **caller** unpacked, or None for a scalar
+    binding. `y_true, y_pred = evaluate(model, loader)` is how a batched
+    evaluation is actually written, and without the position the walk asked
+    what the whole `return preds, labels` tuple holds - which is nothing, since
+    a tuple carries no tags - and MLV305/306 went silent on the canonical
+    spelling of their own defect (REV-PREC-01). It is deliberately not passed
+    down the receiver recursions below: those walk a different value, whose
+    position this index says nothing about.
     """
-    if depth > _MAX_DEPTH:
+    if depth > _MAX_DEPTH or free > _MAX_FREE:
         return Scored()
     direct = K.tags_of(call.fqn)
     if _scoring(direct):
@@ -172,19 +229,24 @@ def _through_call(ctx, call: CallSite, depth: int) -> Scored:
             return Scored(tuple(receiver.tags), receiver.producer,
                           receiver.name, receiver)
         if receiver is not None and receiver.producer is not None:
-            return _through_call(ctx, receiver.producer, depth + 1)
+            return _through_call(ctx, receiver.producer,
+                                 depth + _charge(receiver.producer), free + 1)
         inline = _inline_receiver(call)
         if inline is not None:
-            return _through_call(ctx, inline, depth + 1)
+            return _through_call(ctx, inline, depth + _charge(inline), free + 1)
         return Scored()
-    collected = _collected_tags(ctx, call, depth)
+    collected = _collected_tags(ctx, call, depth, free)
     if collected.tags:
         return collected
     func = getattr(call, "target_function", None)
     if func is None:
         return Scored()
     for expr in reversed(func.returns):
-        found = value_tags(ctx, expr, func.scope, func.module, depth)
+        if index is not None and isinstance(expr, (ast.Tuple, ast.List)):
+            if index >= len(expr.elts):
+                continue
+            expr = expr.elts[index]
+        found = value_tags(ctx, expr, func.scope, func.module, depth, free)
         if found.tags:
             return Scored(found.tags, found.producer, found.name, found.ref,
                           through_callee=True)
@@ -233,7 +295,7 @@ _COLLECTORS = frozenset({"concatenate", "concat", "stack", "cat", "vstack",
                          "hstack", "asarray", "array"})
 
 
-def _collected_tags(ctx, call: CallSite, depth: int) -> Scored:
+def _collected_tags(ctx, call: CallSite, depth: int, free: int = 0) -> Scored:
     """`np.concatenate(predictions)` after `predictions.append(scores)` (REC-07).
 
     A batched evaluation loop collects one array per batch and joins them once
@@ -265,7 +327,8 @@ def _collected_tags(ctx, call: CallSite, depth: int) -> Scored:
             continue
         if other.receiver_name != name or not other.args:
             continue
-        answer = value_tags(ctx, other.args[0], other.scope, other.module, depth)
+        answer = value_tags(ctx, other.args[0], other.scope, other.module,
+                            depth, free)
         if not answer.tags:
             return Scored()          # one append MLView could not read: no answer
         found.append(answer)
