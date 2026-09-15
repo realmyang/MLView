@@ -17,7 +17,8 @@ consolidation and the recall campaign, so every job came back unstarted and each
 of those entries is a measurement from one machine. The block went with the
 repository going public on 2026-09-15: the matrix has since run green over the
 tree the Unreleased entry describes — thirteen jobs, run 34986234828 and run
-34986239243. Where an older entry quotes a CI run id, that run predates the
+34986239243, and thirteen again over its review fixes, run 35001150997 and run
+35001153856. Where an older entry quotes a CI run id, that run predates the
 block.
 
 ---
@@ -432,7 +433,13 @@ history on a public repository breaks every clone.
 `python tools/verify.py --all` **10 of 10**; `sh scripts/e2e.sh` **20 steps, 0
 failed, 0 skipped**; `python tools/accuracy.py` PASS in both dataflow modes;
 `python tools/public_corpus.py check --strict` gate OK over the 37 pinned
-repositories. The matrix has not run on this round's commits yet.
+repositories. **And on CI**: the thirteen jobs took this round's commit green on
+the first attempt too — run 35001150997 for the seven cheap-tier jobs, run
+35001153856 for the six the cheap tier excludes. Those two are the first runs in
+this project's history where `wheel installs and runs` was a real check on both
+drivers (`wheel-check: OK mlview-0.1.0-py3-none-any.whl -> mlview 0.1.0, 4
+node(s), 2 issue(s) in a clean venv`, Ubuntu and Windows alike) rather than a
+PASS printed over a step that did nothing.
 
 ---
 

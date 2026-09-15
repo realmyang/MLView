@@ -266,9 +266,10 @@ same code came to 173, 163 and 158 weighted minutes on three consecutive
 mornings, with single jobs moving by a quarter between them. Read all three
 before treating any one duration as a constant.
 
-The last full green push at the time of writing is run 34986234828 with its
-pull-request half — the same thirteen jobs, over the tree that carries these
-screenshots, the third-party notices and the community files.
+The last full green push at the time of writing is run 35001150997 with its
+pull-request half run 35001153856 — the same thirteen jobs, over the tree that
+carries these screenshots, the third-party notices, the community files and the
+public review's fixes.
 [`CHANGELOG.md`](CHANGELOG.md) records what was measured when.
 
 Nothing has been published anywhere yet — no PyPI release, no Marketplace or Open
