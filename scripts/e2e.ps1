@@ -292,7 +292,21 @@ if (-not (Test-Path $CrossHost)) {
 # PACKAGING. The same tool the .sh driver runs, so the two tables stay one table:
 # build the wheel when `build` is installed, pip install it into a throwaway venv,
 # run `mlview --version --json` through the console script, then one real analysis.
-Invoke-Step 'wheel installs and runs' $RepoRoot { & $Python tools/wheel_check.py }
+# Exit 3 means there was no wheel to test, which is a SKIP and not a PASS (FC-04).
+Write-Host ''
+Write-Host '== wheel installs and runs' -ForegroundColor Cyan
+Push-Location $RepoRoot
+$global:LASTEXITCODE = 0
+& $Python tools/wheel_check.py
+$WheelCode = $LASTEXITCODE
+Pop-Location
+if ($WheelCode -eq 0) {
+    Add-Result 'wheel installs and runs' 'PASS' ''
+} elseif ($WheelCode -eq 3) {
+    Add-Result 'wheel installs and runs' 'SKIP' 'no wheel to test -- pip install build'
+} else {
+    Add-Result 'wheel installs and runs' 'FAIL' ('exit ' + $WheelCode)
+}
 
 Invoke-Step 'scope parity (tools/verify.py --scopes)' $RepoRoot { & $Python tools/verify.py --scopes }
 Invoke-Step 'parity gates (tools/verify.py --all)' $RepoRoot { & $Python tools/verify.py --all }

@@ -44,6 +44,7 @@ import os
 
 import pytest
 
+import mlview_budget as budget
 import mlview_mcp
 import mlview_payloads as payloads
 import mlview_workspace as workspace
@@ -294,6 +295,10 @@ def test_a_bound_note_never_costs_the_digest_a_finding():
     `note` is a PROTECTED key, so `fit` pays for it out of the lists. A note that
     displaces a finding is a worse misrepresentation than the silence it fixed,
     which is why the wording is short and this is a gate.
+
+    This case measures the invariant on ONE checkout, whose absolute paths are
+    whatever this machine's are; `test_a_bound_note_is_free_at_any_checkout_depth`
+    is the one that measures it at every depth.
     """
     capped = mlview_mcp.mlview_analyze(path=SAMPLE, maxNodes=400)
     uncapped = mlview_mcp.mlview_analyze(path=SAMPLE, maxNodes=0)
@@ -305,6 +310,86 @@ def mlview_payload_size(payload):
     from mlview_budget import payload_size
 
     return payload_size(payload)
+
+
+# ------------------------------------------------- the note reserve (FC-05)
+#: The bound notes the two tables above produce, alone and joined — the caveats
+#: B4 is about, taken from the builders rather than copied as literals.
+def _bound_notes():
+    joined = [payloads.max_nodes_note(0)[1], payloads.clamp_limit(0)[1]]
+    return tuple(joined) + ("; ".join(joined),)
+
+
+def _digest_like(path_padding: int = 0):
+    """A payload shaped like `mlview_analyze`'s, with the absolute paths padded.
+
+    `root` and `graphPath` are absolute, and their length is a property of the
+    MACHINE, not of the project: a CI workspace, a nested monorepo or a Windows
+    profile directory adds a hundred bytes the analysis never chose. Padding them
+    measures the same answer at several checkout depths without moving the tree.
+    """
+    root = "/" + "d" * (24 + path_padding) + "/proj"
+    return {
+        "schemaVersion": "1.0",
+        "root": root,
+        "filesAnalyzed": 5, "filesFailed": 0, "notebooksSkipped": 0,
+        "frameworks": ["torch", "sklearn", "numpy", "torchvision"],
+        "stats": {"nodes": 59, "edges": 51,
+                  "issues": {"low": 4, "medium": 6, "high": 5}},
+        "lanes": [{"stage": stage, "label": stage.title(), "nodeCount": 8,
+                   "maxSeverity": "high"}
+                  for stage in ("config", "data", "preprocess", "model",
+                                "objective", "train", "eval")],
+        "topIssues": [{"code": "MLV%d" % (101 + i), "severity": "high",
+                       "confidenceBucket": "certain",
+                       "title": "A finding with a title as long as the real ones are",
+                       "file": "train.py", "line": 29 + i} for i in range(10)],
+        "graphPath": root + "/.mlview/graph.json",
+        "truncated": False,
+    }
+
+
+def test_a_bound_note_is_free_at_any_checkout_depth():
+    """FC-05: the rows a payload keeps must not depend on where it was checked out.
+
+    `fit` used to measure the payload against a flat 4096, so the absolute paths
+    inside it were spent out of the same budget as the findings: at one checkout
+    depth a caveat still fitted and at the next it shed a row. Measured over this
+    sweep before `NOTE_RESERVE` existed, 134 of the 690 (padding, note) pairs came
+    back with one `topIssues` row fewer than the caveat-free payload at the same
+    padding — silently, because the same tree at a shorter path answered with all
+    of them. The reserve is what makes the walk caveat-independent by construction.
+    """
+    notes = _bound_notes()
+    shed_somewhere = False
+    for padding in range(0, 460, 2):
+        payload = _digest_like(padding)
+        bare = budget.fit(payload)
+        shed_somewhere = shed_somewhere or len(bare["topIssues"]) < 10
+        for note in notes:
+            noted = budget.fit(dict(payload, note=note))
+            assert len(noted["topIssues"]) == len(bare["topIssues"]), (
+                "a %d-byte caveat cost a finding at padding %d"
+                % (len(note), padding)
+            )
+            assert noted["note"] == note, "the caveat itself is never clipped"
+            assert budget.payload_size(noted) <= budget.LIMIT_BYTES
+    assert shed_somewhere, "the sweep must reach the cap, or it proves nothing"
+
+
+def test_the_reserve_is_large_enough_for_the_bound_notes_it_exists_for():
+    """A reserve smaller than the caveats it covers would be decoration.
+
+    The two bound notes joined are the longest this file can produce; the reserve
+    is measured against their cost in the encoding the budget is measured in
+    (`caveat_cost`, keys and separators included), not against `len(text)`.
+    """
+    longest = max(_bound_notes(), key=len)
+    cost = budget.caveat_cost({"note": longest, "topIssues": []})
+    assert cost <= budget.NOTE_RESERVE, (
+        "the longest bound note costs %d bytes against a %d-byte reserve"
+        % (cost, budget.NOTE_RESERVE)
+    )
 
 
 # ------------------------------------------------------------------ code[] note

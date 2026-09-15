@@ -45,6 +45,28 @@ def test_plugin_json_carries_the_contract_fields():
     assert "static-analysis" in manifest["keywords"]
 
 
+def test_the_plugin_ships_the_licence_its_manifest_declares():
+    """`plugin.json` says MIT; a marketplace install must carry the text too.
+
+    A `git-subdir` install copies `claude-plugin/` verbatim off a git ref with no
+    build step, so what lands on the user's disk is the vendored analyzer (130
+    files) and the viewer bundle. The VSIX carries its own copy for exactly this
+    reason (`extension/LICENSE.txt`). The copy is asserted byte-identical to the
+    repository root's, so a drift is a red gate rather than a discovery.
+    """
+    plugin_licence = os.path.join(PLUGIN_ROOT, "LICENSE")
+    root_licence = os.path.join(REPO_ROOT, "LICENSE")
+    assert os.path.isfile(plugin_licence), (
+        "claude-plugin/LICENSE is what an installed plugin is read under"
+    )
+    with open(plugin_licence, "rb") as fh:
+        shipped = fh.read()
+    with open(root_licence, "rb") as fh:
+        root = fh.read()
+    assert shipped == root, "claude-plugin/LICENSE has drifted from the root copy"
+    assert _load(PLUGIN_JSON)["license"] == "MIT" and b"MIT License" in shipped
+
+
 def test_plugin_json_omits_every_component_path_field():
     # CONTRACTS section 5: `skills` ADDS to the default scan while `commands` and
     # `agents` REPLACE it, so setting one by accident silently drops the defaults.

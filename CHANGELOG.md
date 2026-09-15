@@ -300,7 +300,10 @@ moved from a real Windows home directory to the neutral `/home/mlview/MLView`,
 and every artifact derived from it was regenerated with the repository's own
 generators, so the golden, its two mirrors, `contracts/scope.expected.json`, the
 plugin vendor copy and the webview dev page still agree and `analyze --demo` is
-still byte-identical. Two path-traversal test payloads that carried the author's
+still byte-identical — at **45 588** bytes now rather than 46 078, because the
+shorter root shortens every absolute path the document carries. Notes dated
+before this round, here and in `docs/CONTRACTS.md`, quote the larger figure and
+were true when written. Two path-traversal test payloads that carried the author's
 username now use the `Users/someone` convention. The frozen v1.0 spec keeps its
 historical path on purpose; `docs/archive/README.md` says why. A scan of every
 commit on every ref found no secret and no email but git author metadata.
@@ -336,19 +339,100 @@ on the 92-program corpus; it holds 158.
 Mac (macOS 26.6, Python 3.13, Node 26) while Actions billing was blocked at the
 account level; the matrix confirmed the tree afterwards, on the `public` → `main`
 pull request — thirteen green jobs over Ubuntu, Windows and macOS, Python 3.10
-through 3.13 and Node 20/22 (run 34986234828 and run 34986239243), with one fix
-iteration whose four failures were all one test-side assumption about Windows
-drive letters. `sh scripts/e2e.sh` 20 steps, all green;
+through 3.13 and Node 20/22 (run 34986234828 and run 34986239243), both green on
+their first attempt; the one fix iteration belongs to the branch's first
+pull-request run, 34974162339, whose four failures were all one test-side
+assumption about Windows drive letters. `sh scripts/e2e.sh` 20 steps, all green;
 `python tools/verify.py --all` 10 rows; `python tools/verify.py --scopes --fuzz
 200` 5 rows; `python tools/accuracy.py` and `--dataflow local` over the
 158-program corpus, both PASS; `python tools/public_corpus.py run` then
 `check --strict` over the 37 pinned repositories — 260 runs, 260 clean,
 49 high / 276 medium / 381 low, **no new high-severity finding**; `mlview analyze --demo` byte-identical to
-`contracts/graph.sample.json` at 46 078 bytes; `python scripts/check_docs.py`
+`contracts/graph.sample.json` at 45 588 bytes; `python scripts/check_docs.py`
 **DOC CHECK OK**. Suites: analyzer 2654 passed / 9 skipped / 24 xfail, webview
-599 (598 pass, 1 todo), vscode-extension 410, claude-plugin 476 passed / 7
-skipped, scripts 132. Every row was run once at the rebuild and again after
+599 (598 pass, 1 todo), vscode-extension 415, claude-plugin 479 passed / 7
+skipped, scripts 146. Every row was run once at the rebuild and again after
 the review fixes below; the figures are the second run.
+
+### Public review round — the documented setup, the gate table, the CI claims
+
+The first review of the tree as a stranger meets it: a clone built by following
+`CONTRIBUTING.md` line by line, and every CI and accuracy claim re-measured.
+
+**The documented setup did not run the gates it promised.** `analyzer` declares
+`dependencies = []` and puts pytest and jsonschema behind a `dev` extra, so a
+venv built exactly as §1 said — `pip install -e analyzer` — had no pytest, no
+jsonschema, no `mcp` SDK and no `build`, and `sh scripts/e2e.sh`, the next
+command on the page, answered `20 steps · 3 failed` on a correct tree. CI never
+hit it because the e2e jobs install those packages by name. Every setup block in
+`README.md`, `CONTRIBUTING.md`, `docs/STATUS.md` and `docs/VALIDATION.md` now
+reads `pip install -e "analyzer[dev]" mcp build`, with the reason next to it, and
+each names `python3 --version` first because macOS's `/usr/bin/python3` is 3.9
+and the package refuses it.
+
+**Two gate rows lied in opposite directions.** `tools/verify.py --all` turned a
+missing optional SDK into `FAIL parity: CLI vs MCP — No module named 'anyio'`
+and exit 1 — the one red row a newcomer saw was the one that meant nothing — so
+a gate that cannot run now reports **SKIP** with the one-line fix and does not
+set the exit status. `vendor: synced core` was built only on that gate's success
+path, so any parity failure served **nine** rows where four documents promise
+ten, with the row `CONTRIBUTING.md` sends plugin contributors to read simply
+absent; it is computed first now and printed on every path. In the other
+direction, `tools/wheel_check.py` exited 0 when there was no wheel to test and
+both e2e drivers recorded `PASS wheel installs and runs` over a check that had
+done nothing — in every e2e job this project has ever run, including the green
+ones the README cites, because neither e2e job installed `build`. The tool exits
+**3** for that case, both drivers record `SKIP` with the reason, both e2e CI jobs
+install `build`, and `scripts/build.{sh,ps1}` says `BUILD OK — 5 of 6 steps
+(wheel skipped)` rather than claiming six.
+
+**The docs contradicted each other about CI and about accuracy.**
+`docs/STATUS.md` still said, in the present tense, that Actions was
+billing-blocked and that *"no claim of a green CI run is made anywhere in this
+repository"* — eighty lines above its own paragraph naming thirteen green jobs,
+and while four other documents named the runs. `docs/README.md`, the index every
+document link goes through, ended its description of the doc gate with *"which,
+on this line of work, it has not run at all"*. `docs/VALIDATION.md` told the next
+validator both scheduled workflows had never run and that billing was blocked;
+both are on `main` and each has been proved by dispatch (nightly run
+34984606964, public corpus run 34982508080 at 260 runs, 260 clean). §16.4 of the
+contract still carried *"not yet by measurement"* as live normative text. And
+`docs/STATUS.md` said the public corpus had caught **four** false positives where
+`adjudication.json` holds eleven and `README.md` says eleven — a factor of nearly
+three on the number that is the whole argument for that gate.
+
+**Both halves are now gated, because prose that drifts once drifts again.** The
+doc gate is **twenty-five checks**. Check 22 gained its mirror: once a living
+document names a run that was green, no living document may assert the matrix has
+not run. Check **24** holds any prose count of the public corpus's false
+positives to `analyzer/tests/public_corpus/adjudication.json`, reading
+spelled-out numbers and the shape that states the figure without repeating the
+noun. Check **25** holds the versions in `THIRD_PARTY_NOTICES.md` — until now the
+one public-facing file no check read at all — to the packages under
+`webview/node_modules`, abstaining where they are not installed. Both new checks
+carry the meta-escape check 22 needed: a paragraph that documents the rule is not
+a claim about the tree.
+
+Smaller: the Python badge said 3.11+ against a `requires-python = ">=3.10"` that
+CI exercises on 3.10; the hero screenshot's alt text described eight stage bands
+where seven are drawn and the eighth is the one the sample does not have (which
+is a feature of the viewer, so it says so now); the README credited a fix
+iteration to two runs that were green first time; `docs/ROADMAP.md`, linked as
+the backlog a contributor picks work from, sized that work in agent-days;
+`project.md` was indexed nowhere and is now in `docs/README.md` as what it is;
+`SECURITY.md`'s preferred route was GitHub private vulnerability reporting, which
+is **disabled on the repository**, so step 1 is conditional on the button being
+there until the setting is turned on; and `docs/STATUS.md` records, as a standing
+gap, that the git history still carries the old orchestration scripts with their
+absolute paths — a decision taken rather than an oversight, since rewriting
+history on a public repository breaks every clone.
+
+**Gates after this round**, on this Mac: `python scripts/check_docs.py`
+**DOC CHECK OK (21 files)**; `python -m pytest scripts -q` **146 passed**;
+`python tools/verify.py --all` **10 of 10**; `sh scripts/e2e.sh` **20 steps, 0
+failed, 0 skipped**; `python tools/accuracy.py` PASS in both dataflow modes;
+`python tools/public_corpus.py check --strict` gate OK over the 37 pinned
+repositories. The matrix has not run on this round's commits yet.
 
 ---
 

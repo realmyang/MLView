@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/realmyang/MLView/actions/workflows/ci.yml/badge.svg)](https://github.com/realmyang/MLView/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](docs/VALIDATION.md)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](docs/VALIDATION.md)
 [![status: preview](https://img.shields.io/badge/status-preview-orange.svg)](docs/STATUS.md)
 
 **MLView turns a Python machine-learning codebase into one interactive,
@@ -16,7 +16,7 @@ code, the four questions an ML reviewer actually asks: where does data enter and
 where is it split, what is being optimized and by what, is the evaluation
 honest, and what is wrong — how badly and on which line.
 
-![The MLView report on samples/vision_pipeline: eight stage bands from configuration to evaluate, typed edges between them, severity markers on the nodes that carry findings, and the issue rail on the right.](docs/media/hero.png)
+![The MLView report on samples/vision_pipeline: seven stage bands from configuration to evaluate, with the eighth — deliver — declared absent rather than dropped, typed edges between them, severity markers on the nodes that carry findings, and the issue rail on the right.](docs/media/hero.png)
 
 *The shipped sample, `samples/vision_pipeline`: 59 nodes, 51 edges, 15 findings
 (5 high / 6 medium / 4 low), in one self-contained HTML file with zero external
@@ -31,10 +31,16 @@ runbook used to check MLView by hand on a machine it was not built on.
 
 ### The command line
 
+Requirements: **Python 3.10+** (3.11+ to read a `.mlview.toml`, which needs
+`tomllib`) and **Node 20+** to build the viewer bundle. Check the interpreter
+before the venv — macOS ships Xcode's `/usr/bin/python3`, which is 3.9 and too
+old: `brew install python@3.13`, then `python3.13 -m venv .venv`.
+
 ```sh
 git clone https://github.com/realmyang/MLView && cd MLView
+python3 --version                                  # 3.10+; macOS ships 3.9
 python3 -m venv .venv && . .venv/bin/activate      # Windows: py -3 -m venv .venv
-python -m pip install -e analyzer
+python -m pip install -e "analyzer[dev]" mcp build # the gates' own dependencies
 sh scripts/build.sh                                # Windows: scripts/build.ps1
 
 python -m mlview analyze samples/vision_pipeline --format summary
@@ -43,10 +49,15 @@ python -m mlview issues  samples/vision_pipeline --min-severity high
 python -m mlview explain MLV101                    # the rule page, offline
 ```
 
-Requirements: **Python 3.10+** (3.11+ to read a `.mlview.toml`, which needs
-`tomllib`) and **Node 20+** to build the viewer bundle. No ML framework is
-needed — a machine with neither torch nor scikit-learn installed is a *better*
-test of MLView, not a worse one.
+`analyzer` itself has **no runtime dependency at all**; `pip install -e analyzer`
+is enough to run the four commands above. The extras are what the gates need:
+`[dev]` brings pytest and jsonschema, `mcp` the SDK the plugin suite and the
+CLI-vs-MCP parity row drive, `build` the wheel `tools/wheel_check.py` installs.
+Without them those rows report themselves rather than pretending —
+`tools/verify.py` prints `SKIP parity: CLI vs MCP` and the e2e table
+`SKIP wheel installs and runs` — but the full table needs all three. No ML
+framework is needed: a machine with neither torch nor scikit-learn installed is
+a *better* test of MLView, not a worse one.
 
 ### VS Code / GitHub Copilot
 
@@ -236,10 +247,12 @@ on one macOS laptop and nowhere else until the repository went public. The matri
 has run since, on the `public` → `main` pull request, and every job came back
 green: run 34986234828 took the seven cheap-tier jobs and run 34986239243 the six
 the cheap tier excludes — thirteen jobs over Ubuntu, Windows and macOS, Python
-3.10, 3.11, 3.12 and 3.13, Node 20 and 22, the wheel and the VSIX. It took one
-fix iteration, and all four failures were one test-side assumption about Windows
-drive letters; nothing in the analyzer, the viewer, the extension or the plugin
-was wrong.
+3.10, 3.11, 3.12 and 3.13, Node 20 and 22, the wheel and the VSIX. Both were
+green on the first attempt. The fix iteration belongs earlier, to the branch's
+first pull-request run — run 34974162339, where `e2e (windows, powershell)` was
+the only red job and all four failures were one test-side assumption about
+Windows drive letters; nothing in the analyzer, the viewer, the extension or the
+plugin was wrong, and every run since has been green on its first attempt.
 
 The badge at the top of this page reports the newest run on `main`, and `main`
 has had none since the block was lifted — so it stays red until this work merges

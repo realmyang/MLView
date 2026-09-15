@@ -188,6 +188,73 @@ def test_the_real_repo_makes_no_such_claim():
     assert problems == [], problems
 
 
+#: The mirror defect, word for word as docs/STATUS.md carried it on the day the
+#: repository went public -- eighty lines above the same file's paragraph naming
+#: thirteen green jobs, and while README, CONTRIBUTING and scripts/README.md all
+#: named the runs (PUB-R01).
+UNDERCLAIM_STATUS = """# Status
+
+GitHub Actions is blocked at the account level, so no CI job has started on this
+line of work and no claim of a green CI run is made anywhere in this repository.
+Python 3.10 / 3.11 / 3.12, Windows and macOS-on-a-runner are therefore unverified.
+"""
+
+#: ...and the other half of the same tree, which is what makes it a contradiction
+#: rather than a dated statement: a living document naming a run that was green.
+GREEN_RUN_README = """# Demo
+
+The CI matrix is green: run 34986234828 took the seven cheap-tier jobs and run
+34986239243 the six the cheap tier excludes, thirteen jobs in all.
+"""
+
+
+def test_a_denial_is_caught_once_another_document_names_a_green_run():
+    """PUB-R01: check 22 stopped `green on the matrix` while the matrix had never
+    started. The inverse -- `the matrix has not run` while the tree names a run
+    that was green -- is the same defect read backwards, and it shipped."""
+    root = _tree({"README.md": GREEN_RUN_README, "docs/STATUS.md": UNDERCLAIM_STATUS})
+    try:
+        problems, _ = check_docs.run(root)
+        assert len(problems) == 1, problems
+        assert "DOCS-CI-UNDERCLAIM" in problems[0], problems
+        assert "docs/STATUS.md" in problems[0], problems
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_the_same_denial_is_fine_while_nothing_has_named_a_run():
+    """The rule is about a contradiction inside one tree, not about the wording.
+    While no document names a green run, saying the matrix has not run is simply
+    true -- and it is check 22's own first escape."""
+    root = _tree({"docs/STATUS.md": UNDERCLAIM_STATUS})
+    try:
+        assert check_docs.run(root)[0] == []
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_a_denial_that_names_the_run_in_the_same_breath_passes():
+    """`neither has fired on its schedule yet; run 34984606964 proved it by
+    dispatch` is the sentence this check wants written, not one it forbids."""
+    root = _tree({"README.md": GREEN_RUN_README, "docs/STATUS.md": """# Status
+
+Neither scheduled workflow has run on its schedule since the block was lifted,
+but each has been proved by dispatch: run 34984606964 and run 34982508080.
+"""})
+    try:
+        assert check_docs.run(root)[0] == []
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_the_real_repo_does_not_deny_what_it_measures():
+    """The tree this ships in must not carry the mirror defect either."""
+    current, _ = check_docs.docs(REPO)
+    problems: list = []
+    doc_claims.run(REPO, current, problems)
+    assert problems == [], problems
+
+
 def test_the_gate_is_wired_into_check_docs():
     """REV-01: the module existing is not the gate running. `check_docs.run`
     must call it, or the whole file is decoration -- which is precisely how the

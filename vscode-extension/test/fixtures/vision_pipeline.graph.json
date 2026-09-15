@@ -3,8 +3,8 @@
   "generator": {
     "name": "mlview",
     "version": "0.1.0",
-    "rendererSha": "c7fcdac3c67f1ac0393714fd3844a878130c3a9479d53081cd83e252fd6b270f",
-    "generatedAt": "2026-09-08T20:22:36Z"
+    "rendererSha": "c5ca03f8dd2c3f67733c30ff91acccdebb6f6a1f0d20d5b3f6aee30aca2a976d",
+    "generatedAt": "2026-09-15T16:38:02Z"
   },
   "workspace": {
     "root": "/home/mlview/MLView/samples/vision_pipeline",
@@ -68,7 +68,7 @@
       "label": "Model",
       "order": 3,
       "present": true,
-      "nodeCount": 12,
+      "nodeCount": 14,
       "issueCounts": {
         "low": 0,
         "medium": 0,
@@ -85,20 +85,20 @@
       "issueCounts": {
         "low": 0,
         "medium": 0,
-        "high": 1
+        "high": 0
       },
-      "maxSeverity": "high"
+      "maxSeverity": null
     },
     {
       "id": "train",
       "label": "Train",
       "order": 5,
       "present": true,
-      "nodeCount": 9,
+      "nodeCount": 11,
       "issueCounts": {
         "low": 1,
         "medium": 2,
-        "high": 1
+        "high": 2
       },
       "maxSeverity": "high"
     },
@@ -107,7 +107,7 @@
       "label": "Evaluate",
       "order": 6,
       "present": true,
-      "nodeCount": 7,
+      "nodeCount": 8,
       "issueCounts": {
         "low": 0,
         "medium": 2,
@@ -1630,8 +1630,8 @@
       "confidence": 0.95,
       "confidenceBucket": "certain",
       "issueIds": [
-        "i:c16a18404ac2",
-        "i:da22948c4710"
+        "i:339c1137fe4f",
+        "i:c16a18404ac2"
       ],
       "collapsedByDefault": false,
       "stageEvidence": [
@@ -1687,6 +1687,42 @@
         {
           "kind": "knowledge_table",
           "detail": "torch.nn.Conv2d -> model",
+          "weight": 1.0
+        }
+      ]
+    },
+    {
+      "id": "n:ef0427d2215b",
+      "kind": "layer",
+      "level": "op",
+      "stage": "model",
+      "label": "ConvBlock()",
+      "sublabel": "ConvBlock",
+      "qualname": "model.SmallCNN.__init__.ConvBlock",
+      "loc": {
+        "file": "model.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/model.py",
+        "line": 34,
+        "col": 23,
+        "endLine": 34,
+        "endCol": 46,
+        "symbol": "ConvBlock",
+        "snippet": "        self.blocks = [ConvBlock(width, width) for _ in range(depth)]"
+      },
+      "parent": "n:3e1a658e7bad",
+      "attrs": {},
+      "produces": [],
+      "consumes": [],
+      "ghost": false,
+      "dynamic": false,
+      "confidence": 0.9,
+      "confidenceBucket": "certain",
+      "issueIds": [],
+      "collapsedByDefault": false,
+      "stageEvidence": [
+        {
+          "kind": "class_base",
+          "detail": "ConvBlock is built inside SmallCNN, so it is a submodule",
           "weight": 1.0
         }
       ]
@@ -1872,7 +1908,7 @@
       "confidence": 0.95,
       "confidenceBucket": "certain",
       "issueIds": [
-        "i:da22948c4710"
+        "i:339c1137fe4f"
       ],
       "collapsedByDefault": false,
       "stageEvidence": [
@@ -1933,6 +1969,50 @@
       ]
     },
     {
+      "id": "n:2a0c1b21bfe3",
+      "kind": "model",
+      "level": "op",
+      "stage": "model",
+      "label": "model",
+      "sublabel": "SmallCNN",
+      "qualname": "train.train.model",
+      "var": "model",
+      "loc": {
+        "file": "train.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
+        "line": 20,
+        "col": 12,
+        "endLine": 20,
+        "endCol": 22,
+        "symbol": "SmallCNN",
+        "snippet": "    model = SmallCNN()"
+      },
+      "parent": "n:ec0fae6f55a7",
+      "attrs": {},
+      "produces": [
+        {
+          "name": "model",
+          "tags": [
+            "MODEL"
+          ]
+        }
+      ],
+      "consumes": [],
+      "ghost": false,
+      "dynamic": false,
+      "confidence": 0.9,
+      "confidenceBucket": "certain",
+      "issueIds": [],
+      "collapsedByDefault": false,
+      "stageEvidence": [
+        {
+          "kind": "class_base",
+          "detail": "SmallCNN subclasses a model base",
+          "weight": 1.0
+        }
+      ]
+    },
+    {
       "id": "n:096816f94864",
       "kind": "loss",
       "level": "op",
@@ -1968,9 +2048,7 @@
       "dynamic": false,
       "confidence": 0.95,
       "confidenceBucket": "certain",
-      "issueIds": [
-        "i:da22948c4710"
-      ],
+      "issueIds": [],
       "collapsedByDefault": false,
       "stageEvidence": [
         {
@@ -2338,6 +2416,122 @@
           "kind": "context_confirmed",
           "detail": "loop body calls backward()",
           "weight": 1.0
+        }
+      ]
+    },
+    {
+      "id": "n:253aa102fd0c",
+      "kind": "predict",
+      "level": "op",
+      "stage": "train",
+      "label": "logits",
+      "sublabel": "model(...)",
+      "qualname": "train.train.logits",
+      "var": "logits",
+      "loc": {
+        "file": "train.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
+        "line": 30,
+        "col": 21,
+        "endLine": 30,
+        "endCol": 34,
+        "symbol": "model",
+        "snippet": "            logits = model(images)"
+      },
+      "parent": "n:f50f0f38c0ea",
+      "attrs": {},
+      "produces": [
+        {
+          "name": "logits",
+          "tags": [
+            "LOGITS"
+          ]
+        }
+      ],
+      "consumes": [
+        {
+          "name": "images",
+          "tags": []
+        }
+      ],
+      "ghost": false,
+      "dynamic": false,
+      "confidence": 0.85,
+      "confidenceBucket": "likely",
+      "issueIds": [],
+      "collapsedByDefault": false,
+      "stageEvidence": [
+        {
+          "kind": "dataflow_direct",
+          "detail": "model is a model, so calling it is a forward pass",
+          "weight": 1.0
+        },
+        {
+          "kind": "context_confirmed",
+          "detail": "drawn in the lane of the unit it runs in",
+          "weight": 0.9
+        }
+      ]
+    },
+    {
+      "id": "n:46fc70444a8f",
+      "kind": "loss",
+      "level": "op",
+      "stage": "train",
+      "label": "loss",
+      "sublabel": "criterion(...)",
+      "qualname": "train.train.loss",
+      "var": "loss",
+      "loc": {
+        "file": "train.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
+        "line": 31,
+        "col": 19,
+        "endLine": 31,
+        "endCol": 44,
+        "symbol": "criterion",
+        "snippet": "            loss = criterion(logits, labels)"
+      },
+      "parent": "n:f50f0f38c0ea",
+      "attrs": {},
+      "produces": [
+        {
+          "name": "loss",
+          "tags": [
+            "LOSS"
+          ]
+        }
+      ],
+      "consumes": [
+        {
+          "name": "logits",
+          "tags": [
+            "LOGITS"
+          ]
+        },
+        {
+          "name": "labels",
+          "tags": []
+        }
+      ],
+      "ghost": false,
+      "dynamic": false,
+      "confidence": 0.85,
+      "confidenceBucket": "likely",
+      "issueIds": [
+        "i:339c1137fe4f"
+      ],
+      "collapsedByDefault": false,
+      "stageEvidence": [
+        {
+          "kind": "dataflow_direct",
+          "detail": "criterion is a criterion, so calling it computes the loss",
+          "weight": 1.0
+        },
+        {
+          "kind": "context_confirmed",
+          "detail": "drawn in the lane of the unit it runs in",
+          "weight": 0.9
         }
       ]
     },
@@ -2764,6 +2958,60 @@
       ]
     },
     {
+      "id": "n:eb91b2ec8c39",
+      "kind": "predict",
+      "level": "op",
+      "stage": "eval",
+      "label": "logits",
+      "sublabel": "model(...)",
+      "qualname": "train.validate.logits",
+      "var": "logits",
+      "loc": {
+        "file": "train.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
+        "line": 45,
+        "col": 17,
+        "endLine": 45,
+        "endCol": 30,
+        "symbol": "model",
+        "snippet": "        logits = model(images)"
+      },
+      "parent": "n:e37b3b62a066",
+      "attrs": {},
+      "produces": [
+        {
+          "name": "logits",
+          "tags": [
+            "LOGITS"
+          ]
+        }
+      ],
+      "consumes": [
+        {
+          "name": "images",
+          "tags": []
+        }
+      ],
+      "ghost": false,
+      "dynamic": false,
+      "confidence": 0.85,
+      "confidenceBucket": "likely",
+      "issueIds": [],
+      "collapsedByDefault": false,
+      "stageEvidence": [
+        {
+          "kind": "dataflow_direct",
+          "detail": "model is a model, so calling it is a forward pass",
+          "weight": 1.0
+        },
+        {
+          "kind": "context_confirmed",
+          "detail": "drawn in the lane of the unit it runs in",
+          "weight": 0.9
+        }
+      ]
+    },
+    {
       "id": "n:63c37e8ea611",
       "kind": "metric",
       "level": "op",
@@ -2826,20 +3074,20 @@
   ],
   "edges": [
     {
-      "id": "e:65940c9bc1f2",
+      "id": "e:41d8d03fd424",
       "kind": "data",
       "source": "n:096816f94864",
-      "target": "n:6d794bda1b23",
-      "label": "loss",
+      "target": "n:46fc70444a8f",
+      "label": "criterion",
       "loc": {
         "file": "train.py",
         "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
-        "line": 32,
-        "col": 12,
-        "endLine": 32,
-        "endCol": 27,
-        "symbol": "loss.backward",
-        "snippet": "            loss.backward()"
+        "line": 31,
+        "col": 19,
+        "endLine": 31,
+        "endCol": 44,
+        "symbol": "criterion",
+        "snippet": "            loss = criterion(logits, labels)"
       },
       "tags": [
         "LOSS"
@@ -2888,6 +3136,116 @@
         "RAW_DATA",
         "TEST_SPLIT"
       ],
+      "confidence": 0.9,
+      "issueIds": []
+    },
+    {
+      "id": "e:bdb84087378c",
+      "kind": "data",
+      "source": "n:253aa102fd0c",
+      "target": "n:46fc70444a8f",
+      "label": "logits",
+      "loc": {
+        "file": "train.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
+        "line": 31,
+        "col": 29,
+        "endLine": 31,
+        "endCol": 35,
+        "symbol": "logits",
+        "snippet": "            loss = criterion(logits, labels)"
+      },
+      "tags": [
+        "LOGITS"
+      ],
+      "confidence": 0.9,
+      "issueIds": [
+        "i:339c1137fe4f"
+      ]
+    },
+    {
+      "id": "e:d591b4385f88",
+      "kind": "data",
+      "source": "n:2a0c1b21bfe3",
+      "target": "n:034d65913362",
+      "label": "model",
+      "loc": {
+        "file": "train.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
+        "line": 27,
+        "col": 4,
+        "endLine": 27,
+        "endCol": 17,
+        "symbol": "model.train",
+        "snippet": "    model.train()"
+      },
+      "tags": [
+        "MODEL"
+      ],
+      "confidence": 0.85,
+      "issueIds": []
+    },
+    {
+      "id": "e:ebc739ffc4ea",
+      "kind": "data",
+      "source": "n:2a0c1b21bfe3",
+      "target": "n:253aa102fd0c",
+      "label": "model",
+      "loc": {
+        "file": "train.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
+        "line": 30,
+        "col": 21,
+        "endLine": 30,
+        "endCol": 34,
+        "symbol": "model",
+        "snippet": "            logits = model(images)"
+      },
+      "tags": [
+        "MODEL"
+      ],
+      "confidence": 0.85,
+      "issueIds": []
+    },
+    {
+      "id": "e:da3b826d96d1",
+      "kind": "data",
+      "source": "n:2a0c1b21bfe3",
+      "target": "n:96f075118291",
+      "label": "model",
+      "loc": {
+        "file": "train.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
+        "line": 35,
+        "col": 28,
+        "endLine": 35,
+        "endCol": 33,
+        "symbol": "model",
+        "snippet": "        accuracy = validate(model, val_loader)"
+      },
+      "tags": [
+        "MODEL"
+      ],
+      "confidence": 0.9,
+      "issueIds": []
+    },
+    {
+      "id": "e:1c1fc5b2935b",
+      "kind": "data",
+      "source": "n:2a0c1b21bfe3",
+      "target": "n:e4eafb169acc",
+      "label": "parameters",
+      "loc": {
+        "file": "train.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
+        "line": 23,
+        "col": 27,
+        "endLine": 23,
+        "endCol": 45,
+        "symbol": "model.parameters",
+        "snippet": "    optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE,"
+      },
+      "tags": [],
       "confidence": 0.9,
       "issueIds": []
     },
@@ -3000,113 +3358,47 @@
       "issueIds": []
     },
     {
-      "id": "e:dd953a1babd4",
+      "id": "e:ff4f20f8a4cd",
       "kind": "data",
       "source": "n:3e1a658e7bad",
-      "target": "n:034d65913362",
+      "target": "n:eb91b2ec8c39",
       "label": "model",
       "loc": {
         "file": "train.py",
         "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
-        "line": 27,
-        "col": 4,
-        "endLine": 27,
-        "endCol": 17,
-        "symbol": "model.train",
-        "snippet": "    model.train()"
-      },
-      "tags": [
-        "MODEL"
-      ],
-      "confidence": 0.85,
-      "issueIds": []
-    },
-    {
-      "id": "e:be0648ecd817",
-      "kind": "data",
-      "source": "n:3e1a658e7bad",
-      "target": "n:096816f94864",
-      "label": "logits",
-      "loc": {
-        "file": "train.py",
-        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
-        "line": 31,
-        "col": 29,
-        "endLine": 31,
-        "endCol": 35,
-        "symbol": "logits",
-        "snippet": "            loss = criterion(logits, labels)"
-      },
-      "tags": [
-        "LOGITS"
-      ],
-      "confidence": 0.9,
-      "issueIds": [
-        "i:da22948c4710"
-      ]
-    },
-    {
-      "id": "e:11ec2cf0e13f",
-      "kind": "data",
-      "source": "n:3e1a658e7bad",
-      "target": "n:63c37e8ea611",
-      "label": "logits",
-      "loc": {
-        "file": "train.py",
-        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
-        "line": 46,
-        "col": 16,
-        "endLine": 46,
-        "endCol": 36,
-        "symbol": "logits.argmax",
-        "snippet": "        preds = logits.argmax(dim=1)"
-      },
-      "tags": [
-        "LOGITS"
-      ],
-      "confidence": 0.85,
-      "issueIds": []
-    },
-    {
-      "id": "e:80e8953c5856",
-      "kind": "data",
-      "source": "n:3e1a658e7bad",
-      "target": "n:96f075118291",
-      "label": "model",
-      "loc": {
-        "file": "train.py",
-        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
-        "line": 35,
-        "col": 28,
-        "endLine": 35,
-        "endCol": 33,
+        "line": 45,
+        "col": 17,
+        "endLine": 45,
+        "endCol": 30,
         "symbol": "model",
-        "snippet": "        accuracy = validate(model, val_loader)"
+        "snippet": "        logits = model(images)"
       },
       "tags": [
         "MODEL"
       ],
-      "confidence": 0.9,
+      "confidence": 0.85,
       "issueIds": []
     },
     {
-      "id": "e:0e98533a5c5c",
+      "id": "e:06db0b6886d1",
       "kind": "data",
-      "source": "n:3e1a658e7bad",
-      "target": "n:e4eafb169acc",
-      "label": "parameters",
+      "source": "n:46fc70444a8f",
+      "target": "n:6d794bda1b23",
+      "label": "loss",
       "loc": {
         "file": "train.py",
         "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
-        "line": 23,
-        "col": 27,
-        "endLine": 23,
-        "endCol": 45,
-        "symbol": "model.parameters",
-        "snippet": "    optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE,"
+        "line": 32,
+        "col": 12,
+        "endLine": 32,
+        "endCol": 27,
+        "symbol": "loss.backward",
+        "snippet": "            loss.backward()"
       },
-      "tags": [],
-      "confidence": 0.9,
+      "tags": [
+        "LOSS"
+      ],
+      "confidence": 0.85,
       "issueIds": []
     },
     {
@@ -3289,10 +3581,10 @@
       "issueIds": []
     },
     {
-      "id": "e:0f66f54a51b8",
+      "id": "e:25001aea7b48",
       "kind": "data",
       "source": "n:5a3c24196768",
-      "target": "n:3e1a658e7bad",
+      "target": "n:2a0c1b21bfe3",
       "label": "device",
       "loc": {
         "file": "train.py",
@@ -3774,26 +4066,6 @@
       "issueIds": []
     },
     {
-      "id": "e:0bb8df95cdac",
-      "kind": "data",
-      "source": "n:e37b3b62a066",
-      "target": "n:3e1a658e7bad",
-      "label": "images",
-      "loc": {
-        "file": "train.py",
-        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
-        "line": 45,
-        "col": 23,
-        "endLine": 45,
-        "endCol": 29,
-        "symbol": "images",
-        "snippet": "        logits = model(images)"
-      },
-      "tags": [],
-      "confidence": 0.9,
-      "issueIds": []
-    },
-    {
       "id": "e:5a84172c42be",
       "kind": "data",
       "source": "n:e4eafb169acc",
@@ -3811,6 +4083,28 @@
       },
       "tags": [
         "OPTIMIZER"
+      ],
+      "confidence": 0.85,
+      "issueIds": []
+    },
+    {
+      "id": "e:5b82aeef878a",
+      "kind": "data",
+      "source": "n:eb91b2ec8c39",
+      "target": "n:63c37e8ea611",
+      "label": "logits",
+      "loc": {
+        "file": "train.py",
+        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
+        "line": 46,
+        "col": 16,
+        "endLine": 46,
+        "endCol": 36,
+        "symbol": "logits.argmax",
+        "snippet": "        preds = logits.argmax(dim=1)"
+      },
+      "tags": [
+        "LOGITS"
       ],
       "confidence": 0.85,
       "issueIds": []
@@ -3875,46 +4169,6 @@
       },
       "tags": [],
       "confidence": 0.99,
-      "issueIds": []
-    },
-    {
-      "id": "e:da569a37b10e",
-      "kind": "data",
-      "source": "n:f50f0f38c0ea",
-      "target": "n:096816f94864",
-      "label": "labels",
-      "loc": {
-        "file": "train.py",
-        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
-        "line": 31,
-        "col": 37,
-        "endLine": 31,
-        "endCol": 43,
-        "symbol": "labels",
-        "snippet": "            loss = criterion(logits, labels)"
-      },
-      "tags": [],
-      "confidence": 0.9,
-      "issueIds": []
-    },
-    {
-      "id": "e:e232272f3e64",
-      "kind": "data",
-      "source": "n:f50f0f38c0ea",
-      "target": "n:3e1a658e7bad",
-      "label": "images",
-      "loc": {
-        "file": "train.py",
-        "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
-        "line": 30,
-        "col": 27,
-        "endLine": 30,
-        "endCol": 33,
-        "symbol": "images",
-        "snippet": "            logits = model(images)"
-      },
-      "tags": [],
-      "confidence": 0.9,
       "issueIds": []
     },
     {
@@ -4187,10 +4441,25 @@
         }
       ],
       "suppressed": false,
+      "fix": {
+        "title": "Zero the gradients at the top of the batch loop",
+        "safety": "needs-review",
+        "edits": [
+          {
+            "file": "train.py",
+            "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
+            "line": 30,
+            "col": 12,
+            "endLine": 30,
+            "endCol": 12,
+            "newText": "optimizer.zero_grad(set_to_none=True)\n            "
+          }
+        ]
+      },
       "docs": "docs/rules/MLV201.md"
     },
     {
-      "id": "i:da22948c4710",
+      "id": "i:339c1137fe4f",
       "code": "MLV401",
       "ruleVersion": 1,
       "severity": "high",
@@ -4237,14 +4506,14 @@
         }
       ],
       "nodeIds": [
-        "n:096816f94864",
+        "n:46fc70444a8f",
         "n:3e1a658e7bad",
         "n:5b88d52bab14"
       ],
       "edgeIds": [
-        "e:be0648ecd817"
+        "e:bdb84087378c"
       ],
-      "stage": "objective",
+      "stage": "train",
       "frameworks": [
         "torch"
       ],
@@ -4372,6 +4641,21 @@
         }
       ],
       "suppressed": false,
+      "fix": {
+        "title": "Switch model to eval mode before this region",
+        "safety": "needs-review",
+        "edits": [
+          {
+            "file": "train.py",
+            "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
+            "line": 44,
+            "col": 4,
+            "endLine": 44,
+            "endCol": 4,
+            "newText": "model.eval()\n    "
+          }
+        ]
+      },
       "docs": "docs/rules/MLV301.md"
     },
     {
@@ -4382,7 +4666,7 @@
       "confidence": 0.85,
       "confidenceBucket": "likely",
       "title": "Training DataLoader does not shuffle",
-      "message": "The training DataLoader at data.py:33 is built with shuffle=unset (defaults to False) and no sampler=, so train_ds is consumed in dataset order every epoch.",
+      "message": "The training DataLoader at data.py:33 is built with shuffle= unset (it defaults to False) and no sampler=, so train_ds is consumed in dataset order every epoch.",
       "why": "Batches arrive in dataset order, so gradients are correlated with however the files were sorted and the model can learn the ordering instead of the task.",
       "fixHint": "Pass shuffle=True to the training DataLoader, or give it a shuffling sampler such as RandomSampler / DistributedSampler.",
       "loc": {
@@ -4637,6 +4921,18 @@
           "endCol": 34,
           "symbol": "model",
           "snippet": "            logits = model(images)"
+        },
+        {
+          "role": "eval_loop",
+          "message": "and model() at line 44 has the same unmoved batch",
+          "file": "train.py",
+          "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
+          "line": 44,
+          "col": 4,
+          "endLine": 48,
+          "endCol": 31,
+          "symbol": "for images, labels in loader",
+          "snippet": "    for images, labels in loader:"
         }
       ],
       "nodeIds": [
@@ -4843,6 +5139,21 @@
         }
       ],
       "suppressed": false,
+      "fix": {
+        "title": "Decorate validate() with @torch.no_grad()",
+        "safety": "needs-review",
+        "edits": [
+          {
+            "file": "train.py",
+            "absFile": "/home/mlview/MLView/samples/vision_pipeline/train.py",
+            "line": 41,
+            "col": 0,
+            "endLine": 41,
+            "endCol": 0,
+            "newText": "@torch.no_grad()\n"
+          }
+        ]
+      },
       "docs": "docs/rules/MLV302.md"
     },
     {
@@ -4887,7 +5198,8 @@
       "stage": "data",
       "frameworks": [
         "sklearn",
-        "torch"
+        "torch",
+        "hf"
       ],
       "tags": [
         "reproducibility",
@@ -4978,6 +5290,21 @@
         }
       ],
       "suppressed": false,
+      "fix": {
+        "title": "Set shuffle=False on this evaluation DataLoader",
+        "safety": "mechanical",
+        "edits": [
+          {
+            "file": "data.py",
+            "absFile": "/home/mlview/MLView/samples/vision_pipeline/data.py",
+            "line": 35,
+            "col": 70,
+            "endLine": 35,
+            "endCol": 74,
+            "newText": "False"
+          }
+        ]
+      },
       "docs": "docs/rules/MLV111.md"
     },
     {
@@ -5022,7 +5349,8 @@
       "stage": "data",
       "frameworks": [
         "sklearn",
-        "torch"
+        "torch",
+        "hf"
       ],
       "tags": [
         "reproducibility",
@@ -5046,6 +5374,21 @@
         }
       ],
       "suppressed": false,
+      "fix": {
+        "title": "Add random_state= to this split",
+        "safety": "mechanical",
+        "edits": [
+          {
+            "file": "sklearn_baseline.py",
+            "absFile": "/home/mlview/MLView/samples/vision_pipeline/sklearn_baseline.py",
+            "line": 27,
+            "col": 44,
+            "endLine": 27,
+            "endCol": 44,
+            "newText": ", random_state=42"
+          }
+        ]
+      },
       "docs": "docs/rules/MLV602.md"
     },
     {
@@ -5115,7 +5458,7 @@
   ],
   "diagnostics": [],
   "stats": {
-    "nodes": 54,
+    "nodes": 59,
     "edges": 51,
     "issues": {
       "low": 4,
@@ -5123,7 +5466,154 @@
       "high": 5
     },
     "suppressed": 0,
-    "durationMs": 18,
+    "durationMs": 23,
     "truncated": false
+  },
+  "pipelines": [
+    {
+      "entrypoint": "train.py",
+      "label": "train.py",
+      "nodeCount": 32,
+      "exclusiveCount": 30,
+      "sharedCount": 2,
+      "issueCounts": {
+        "low": 1,
+        "medium": 5,
+        "high": 4
+      }
+    },
+    {
+      "entrypoint": "config.py",
+      "label": "config.py",
+      "nodeCount": 1,
+      "exclusiveCount": 1,
+      "sharedCount": 0,
+      "issueCounts": {
+        "low": 0,
+        "medium": 0,
+        "high": 0
+      }
+    },
+    {
+      "entrypoint": "data.py",
+      "label": "data.py",
+      "nodeCount": 18,
+      "exclusiveCount": 15,
+      "sharedCount": 3,
+      "issueCounts": {
+        "low": 2,
+        "medium": 5,
+        "high": 2
+      }
+    }
+  ],
+  "answers": {
+    "dataEntry": {
+      "sentence": "Data enters at full_train at data.py:26, test_ds at data.py:28 and raw at sklearn_baseline.py:19, feeding 3 loader(s); the train/test boundary is set by random_split() at data.py:31 and train_test_split() at sklearn_baseline.py:26.",
+      "nodeIds": [
+        "n:7e635cb90004",
+        "n:20099151128c",
+        "n:e82c5cf343af",
+        "n:cb660849f937",
+        "n:55662bceebd0"
+      ],
+      "locs": [
+        {
+          "file": "data.py",
+          "line": 26
+        },
+        {
+          "file": "data.py",
+          "line": 28
+        },
+        {
+          "file": "sklearn_baseline.py",
+          "line": 19
+        },
+        {
+          "file": "data.py",
+          "line": 31
+        },
+        {
+          "file": "sklearn_baseline.py",
+          "line": 26
+        }
+      ],
+      "confidence": 0.95
+    },
+    "objective": {
+      "sentence": "The objective is criterion (torch.nn.CrossEntropyLoss) at train.py:22 and loss at train.py:31, optimised by optimizer (torch.optim.Adam) at train.py:23.",
+      "nodeIds": [
+        "n:096816f94864",
+        "n:46fc70444a8f",
+        "n:e4eafb169acc"
+      ],
+      "locs": [
+        {
+          "file": "train.py",
+          "line": 22
+        },
+        {
+          "file": "train.py",
+          "line": 31
+        },
+        {
+          "file": "train.py",
+          "line": 23
+        }
+      ],
+      "confidence": 0.85
+    },
+    "evaluation": {
+      "sentence": "Evaluation runs in for images, labels in loader at train.py:44 and validate() at train.py:41, computing scores at sklearn_baseline.py:34 and holdout at sklearn_baseline.py:36 (+1 more); the eval path is NOT guarded - no model.eval() or torch.no_grad() covers train.py:44.",
+      "nodeIds": [
+        "n:e37b3b62a066",
+        "n:96f075118291",
+        "n:50da266549be",
+        "n:5f3e530003c1"
+      ],
+      "locs": [
+        {
+          "file": "train.py",
+          "line": 44
+        },
+        {
+          "file": "train.py",
+          "line": 41
+        },
+        {
+          "file": "sklearn_baseline.py",
+          "line": 34
+        },
+        {
+          "file": "sklearn_baseline.py",
+          "line": 36
+        }
+      ],
+      "confidence": 0.95
+    },
+    "verdict": {
+      "sentence": "15 finding(s): 5 high / 6 medium / 4 low. Fix first: MLV702 (high) at model.py:34, MLV101 (high) at sklearn_baseline.py:24 and MLV201 (high) at train.py:29.",
+      "nodeIds": [
+        "n:3e1a658e7bad",
+        "n:81ba8f7992dc",
+        "n:f50f0f38c0ea"
+      ],
+      "locs": [
+        {
+          "file": "model.py",
+          "line": 34
+        },
+        {
+          "file": "sklearn_baseline.py",
+          "line": 24
+        },
+        {
+          "file": "train.py",
+          "line": 29
+        }
+      ],
+      "confidence": 0.9
+    }
   }
 }

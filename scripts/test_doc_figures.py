@@ -442,6 +442,122 @@ def test_the_real_pin_is_still_readable_and_the_real_contract_agrees():
     assert problems == [], "\n".join(problems)
 
 
+# ── check 24: the false positives the public corpus actually caught ────────
+
+#: Eleven verdicts, four of them false positives, in the shape the real file uses.
+def _adjudication(false_positives: int, true_positives: int = 2) -> str:
+    verdicts = {}
+    for n in range(false_positives):
+        verdicts["fp%d" % n] = {"verdict": "false-positive", "state": "fixed"}
+    for n in range(true_positives):
+        verdicts["tp%d" % n] = {"verdict": "true-positive", "state": "open"}
+    return json.dumps({"schemaVersion": 1, "verdicts": verdicts}, indent=2)
+
+
+#: PUB-R02, word for word as `docs/STATUS.md` carried it: the figure stated
+#: without repeating the noun, which is how it survived every reading of the page.
+_STATUS_CAUGHT = """# Status
+
+It is the only gate that can see a false positive nobody thought to label, and
+it has caught four.
+"""
+
+
+def test_a_stale_false_positive_count_is_caught():
+    root = _tree({"docs/STATUS.md": _STATUS_CAUGHT,
+                  "analyzer/tests/public_corpus/adjudication.json": _adjudication(11)})
+    try:
+        problems, _ = check_docs.run(root)
+        assert len(problems) == 1, problems
+        assert "PUB-R02" in problems[0] and "caught four" in problems[0], problems
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_the_count_spelled_with_the_noun_is_read_too():
+    root = _tree({"docs/STATUS.md": "# Status\n\nThe public corpus has found "
+                                    "four false positives no label could.\n",
+                  "analyzer/tests/public_corpus/adjudication.json": _adjudication(11)})
+    try:
+        problems, _ = check_docs.run(root)
+        assert len(problems) == 1 and "PUB-R02" in problems[0], problems
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_the_labelled_corpus_zero_is_a_different_measurement():
+    """`zero false positives` on the labelled corpus is precision, not this gate,
+    and it lives in paragraphs that name neither the corpus nor the file."""
+    root = _tree({"docs/STATUS.md": "# Status\n\n| Precision | **100.0%** — zero "
+                                    "false positives, zero forbidden |\n",
+                  "analyzer/tests/public_corpus/adjudication.json": _adjudication(11)})
+    try:
+        assert check_docs.run(root)[0] == []
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_the_real_docs_quote_the_real_adjudication_count():
+    """The one case that runs against this repository, and the one that stops the
+    check abstaining in silence if the file is ever reshaped."""
+    want = doc_figures._adjudicated_false_positives(REPO)
+    assert want == 11, want
+    current, _ = check_docs.docs(REPO)
+    problems: list = []
+    doc_figures.check_false_positive_count(REPO, current, problems)
+    assert problems == [], "\n".join(problems)
+
+
+# ── check 25: the third-party notice against the packages on disk ──────────
+def test_a_notice_naming_the_wrong_version_is_caught():
+    root = _tree({
+        "THIRD_PARTY_NOTICES.md": "# Third-party notices\n\n"
+                                  "## @dagrejs/dagre 3.0.0 — MIT\n\nlayout.\n",
+        "webview/node_modules/@dagrejs/dagre/package.json":
+            json.dumps({"name": "@dagrejs/dagre", "version": "3.1.1"}),
+    })
+    try:
+        problems: list = []
+        doc_figures.check_notice_versions(root, problems)
+        assert len(problems) == 1 and "PUB-R11" in problems[0], problems
+        assert "3.0.0" in problems[0] and "3.1.1" in problems[0], problems
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_a_notice_that_lost_a_package_is_caught():
+    root = _tree({
+        "THIRD_PARTY_NOTICES.md": "# Third-party notices\n\nNothing here.\n",
+        "webview/node_modules/@dagrejs/graphlib/package.json":
+            json.dumps({"name": "@dagrejs/graphlib", "version": "4.0.5"}),
+    })
+    try:
+        problems: list = []
+        doc_figures.check_notice_versions(root, problems)
+        assert len(problems) == 1 and "@dagrejs/graphlib" in problems[0], problems
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_the_check_abstains_where_the_packages_are_not_installed():
+    """The doc gate runs in a CI job that never installs `webview/node_modules`;
+    a check that failed there would be a check nobody could keep green."""
+    root = _tree({"THIRD_PARTY_NOTICES.md": "# Third-party notices\n\n"
+                                            "## @dagrejs/dagre 9.9.9 — MIT\n"})
+    try:
+        problems: list = []
+        doc_figures.check_notice_versions(root, problems)
+        assert problems == [], problems
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_the_real_notice_matches_the_real_packages():
+    problems: list = []
+    doc_figures.check_notice_versions(REPO, problems)
+    assert problems == [], "\n".join(problems)
+
+
 def main() -> int:
     from test_check_docs import run_module
 

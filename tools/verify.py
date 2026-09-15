@@ -11,7 +11,9 @@
     python tools/verify.py --vsix       # the analyzer bundled into the VSIX is current
 
 Exit code 0 when every selected gate passes, 1 otherwise, with a table naming
-what failed and how to fix it (CONTRACTS section 9, amendment A2).
+what failed and how to fix it (CONTRACTS section 9, amendment A2). A gate that cannot
+run reports **SKIP** and does not fail the run -- today only CLI-vs-MCP without the
+optional `mcp` SDK, which used to print FAIL and read as a real break (FC-02).
 
 **Gate 1 — one analyzer.** `python -m mlview analyze <corpus> --json -` and the
 MCP server's `mlview_analyze` (driven as a real subprocess over stdio through the
@@ -91,7 +93,10 @@ CORPUS_CANDIDATES = (
     os.path.join("analyzer", "tests", "fixtures"),
 )
 
-Result = Tuple[str, bool, str]  # (gate name, passed, detail)
+#: A row of the gate table: True (PASS), False (FAIL) or None (SKIP). A gate that
+#: could not run is not a gate that failed -- without the optional `mcp` SDK the
+#: one red row a fresh clone saw was the one row that meant nothing (FC-02).
+Result = Tuple[str, Optional[bool], str]  # (gate name, passed/failed/None, detail)
 
 
 # ------------------------------------------------------------------------ helpers
@@ -352,76 +357,91 @@ def _corpus_fingerprint(corpus: str) -> str:
     return hashlib.sha1(chr(10).join(parts).encode("utf-8")).hexdigest()
 
 
+def _vendor_row() -> Result:
+    """The `vendor: synced core` row, computed on its own."""
+    if _vendor_is_stale():
+        return ("vendor: synced core", False,
+                "claude-plugin/vendor has drifted — run tools/sync-core.py")
+    return ("vendor: synced core", True, "matches analyzer/src/mlview")
+
+
+def _parity(ok: Optional[bool], detail: str) -> List[Result]:
+    """The parity row and the vendor row — the only way out of `check_parity`.
+
+    `vendor: synced core` used to be built on the success path alone, so every
+    parity failure silently dropped it: nine rows where four documents promise
+    ten (FC-03). Pairing them here makes that unrepeatable.
+    """
+    return [("parity: CLI vs MCP", ok, detail), _vendor_row()]
+
+
+def _mcp_sdk_missing() -> Optional[str]:
+    """The first import `_mcp_graphs` needs and cannot find, or None.
+
+    The SDK is deliberately not vendored and not a dependency of `mlview`.
+    Probing lets the row say SKIP with the one-line fix instead of FAIL with
+    `No module named 'anyio'`, which reads like a real parity break (FC-02).
+    """
+    import importlib.util  # noqa: PLC0415 - only this probe needs it
+
+    for module in ("anyio", "mcp"):
+        try:
+            if importlib.util.find_spec(module) is None:
+                return module
+        except (ImportError, ValueError):  # a broken or namespace-only install
+            return module
+    return None
+
+
+MCP_SKIP = ("the `mcp` SDK is not installed (%s) — `python -m pip install mcp`, "
+            "or `pip install -e \"analyzer[dev]\" mcp build` for the whole table")
+
+
 def check_parity(_attempt: int = 0) -> List[Result]:
     corpus = find_corpus()
     if corpus is None:
-        return [("parity: CLI vs MCP", False, "no corpus found (samples/ or analyzer/tests/fixtures/)")]
+        return _parity(False, "no corpus found (samples/ or analyzer/tests/fixtures/)")
     if not os.path.isdir(os.path.join(VENDOR, "mlview")):
-        return [("parity: CLI vs MCP", False, "claude-plugin/vendor/mlview missing — run tools/sync-core.py")]
+        return _parity(False, "claude-plugin/vendor/mlview missing — run tools/sync-core.py")
+
+    # FC-02: a missing optional SDK is a gate that could not run, not a red gate.
+    absent = _mcp_sdk_missing()
+    if absent:
+        return _parity(None, MCP_SKIP % ("no module named %r" % absent))
 
     before = _corpus_fingerprint(corpus)
     try:
         cli = _cli_graph(corpus)
     except Exception as exc:  # noqa: BLE001 - report, do not crash the gate table
-        return [("parity: CLI vs MCP", False, "CLI failed: %s" % exc)]
+        return _parity(False, "CLI failed: %s" % exc)
     try:
         mcp, revived = _mcp_graphs(corpus)
+    except ModuleNotFoundError as exc:  # the SDK's own dependencies, mid-import
+        return _parity(None, MCP_SKIP % exc)
     except Exception as exc:  # noqa: BLE001
-        return [("parity: CLI vs MCP", False, "MCP failed: %s" % exc)]
+        return _parity(False, "MCP failed: %s" % exc)
 
     if _canonical(mcp) != _canonical(revived):
-        return [
-            (
-                "parity: CLI vs MCP",
-                False,
-                "the MCP served a cache written by a different analyzer (%s) — "
-                "load_graph must key its .sig sidecar on analyzer_identity()"
-                % _first_difference(
-                    _strip_volatile(mcp), _strip_volatile(revived),
-                    "fresh", "from cache",
-                ),
-            )
-        ]
+        return _parity(
+            False,
+            "the MCP served a cache written by a different analyzer (%s) — "
+            "load_graph must key its .sig sidecar on analyzer_identity()"
+            % _first_difference(_strip_volatile(mcp), _strip_volatile(revived),
+                                "fresh", "from cache"))
 
     if _canonical(cli) != _canonical(mcp):
         # The two runs are sequential, so a corpus edited between them looks
         # exactly like a parity failure. Retry once before believing it.
         if _attempt == 0 and _corpus_fingerprint(corpus) != before:
             return check_parity(_attempt + 1)
+        if _vendor_is_stale():
+            return _parity(False, "documents differ AND claude-plugin/vendor is stale — "
+                                  "run `python tools/sync-core.py`, then re-run")
+        return _parity(False, "%s — %s" % (corpus, _first_difference(
+            _strip_volatile(cli), _strip_volatile(mcp))))
 
-    if _canonical(cli) != _canonical(mcp) and _vendor_is_stale():
-        return [
-            (
-                "parity: CLI vs MCP",
-                False,
-                "documents differ AND claude-plugin/vendor is stale — "
-                "run `python tools/sync-core.py`, then re-run",
-            )
-        ]
-
-    vendor_row: Result = (
-        ("vendor: synced core", False, "claude-plugin/vendor has drifted — run tools/sync-core.py")
-        if _vendor_is_stale()
-        else ("vendor: synced core", True, "matches analyzer/src/mlview")
-    )
-
-    if _canonical(cli) == _canonical(mcp):
-        return [
-            (
-                "parity: CLI vs MCP",
-                True,
-                "%s — %d nodes, %d edges, byte-identical"
-                % (corpus, len(cli.get("nodes", [])), len(cli.get("edges", []))),
-            ),
-            vendor_row,
-        ]
-    return [
-        (
-            "parity: CLI vs MCP",
-            False,
-            "%s — %s" % (corpus, _first_difference(_strip_volatile(cli), _strip_volatile(mcp))),
-        )
-    ]
+    return _parity(True, "%s — %d nodes, %d edges, byte-identical"
+                         % (corpus, len(cli.get("nodes", [])), len(cli.get("edges", []))))
 
 
 # --------------------------------------------------- gate 6: the VSIX's own core
@@ -642,11 +662,16 @@ def print_table(results: List[Result]) -> None:
     print("  %-6s %-*s  %s" % ("", width, "GATE", "DETAIL"))
     print("  %s" % ("-" * (width + 40)))
     for name, ok, detail in results:
-        print("  %-6s %-*s  %s" % ("PASS" if ok else "FAIL", width, name, detail))
-    failed = [name for name, ok, _ in results if not ok]
+        status = "SKIP" if ok is None else ("PASS" if ok else "FAIL")
+        print("  %-6s %-*s  %s" % (status, width, name, detail))
+    failed = [name for name, ok, _ in results if ok is False]
+    skipped = [name for name, ok, _ in results if ok is None]
     print("")
     if failed:
         print("  %d of %d gates FAILED: %s" % (len(failed), len(results), ", ".join(failed)))
+    elif skipped:  # the row count never moves, so "10 rows" stays true either way
+        print("  %d of %d gates passed, %d skipped: %s"
+              % (len(results) - len(skipped), len(results), len(skipped), ", ".join(skipped)))
     else:
         print("  all %d gates passed" % len(results))
     print("")
@@ -716,7 +741,8 @@ def main(argv: List[str] | None = None) -> int:
         results += check_hashes()
 
     print_table(results)
-    return 0 if all(ok for _, ok, _ in results) else 1
+    # A SKIP (ok is None) is not a failure: see `_mcp_sdk_missing` (FC-02).
+    return 0 if all(ok is not False for _, ok, _ in results) else 1
 
 
 if __name__ == "__main__":

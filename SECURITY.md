@@ -103,10 +103,13 @@ next tag carries it.
 Please report privately first, and give the maintainer a reasonable window to
 fix it before disclosing.
 
-1. **Preferred:** open a private report from the repository's **Security** tab
-   → *Report a vulnerability* (GitHub private vulnerability reporting). It
-   creates a draft advisory only the maintainer can see.
-2. **If that is not available to you:** open a normal issue on
+1. **If the repository's Security tab offers *Report a vulnerability*,** use it:
+   GitHub private vulnerability reporting creates a draft advisory only the
+   maintainer can see, and it is the best route there is. It is a per-repository
+   setting rather than something this file can turn on, so check for the button
+   before relying on it — if it is not there, it is not enabled yet and step 2
+   is the route.
+2. **Otherwise:** open a normal issue on
    <https://github.com/realmyang/MLView/issues> saying *only* that you have a
    security report and how you would like to be contacted. **Do not put the
    details, the proof of concept or the affected input in a public issue.** The

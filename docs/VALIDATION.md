@@ -54,7 +54,8 @@ observations. A check that fails is a result, not a mistake — write it down.
 | VS Code | **1.100.0+** | the extension host |
 | GitHub Copilot | any | `@mlview` and agent mode — *optional*, and the point of the exercise if you have it |
 | Claude Code CLI | any recent | `/mlview`, the MCP tools, the hooks |
-| `mcp` (Python) | **v2**, verified against `mcp==2.1.1` | Session C only. `python -m pip install mcp`. The plugin vendors MLView but **not** the MCP SDK, so without it `claude-plugin/server/mlview_mcp.py` cannot import and none of the five `mlview_*` tools appear. |
+| `mcp` (Python) | **v2**, verified against `mcp==2.1.1` | Session C, and the `parity: CLI vs MCP` row of `tools/verify.py` wherever it is run. `python -m pip install mcp`. The plugin vendors MLView but **not** the MCP SDK, so without it `claude-plugin/server/mlview_mcp.py` cannot import, none of the five `mlview_*` tools appear, and the parity row reports `SKIP`. |
+| `build` (Python) | any recent | Only for the `wheel installs and runs` row: `tools/wheel_check.py` and `scripts/build.sh` step 6/6 both skip with a message when it is absent, so the row says `SKIP` and nothing has installed the artifact `pip install mlview` will deliver. |
 | `MLVIEW_PYTHON` | an env var, not a package | Session C only. `claude-plugin/.mcp.json` runs `${MLVIEW_PYTHON:-python}`, and on macOS and most Linux there is **no bare `python`** on `PATH`; macOS's `/usr/bin/python3` is Xcode's 3.9, which the server refuses. Export an absolute path to a 3.10+ interpreter — ideally the venv's — in the shell you launch Claude Code from. |
 
 No ML framework is needed. MLView never imports the code it reads, so a machine
@@ -68,11 +69,12 @@ one.
 git clone https://github.com/realmyang/MLView
 cd MLView
 
+python3 --version                                  # 3.10+; macOS ships Xcode's 3.9
 python3 -m venv .venv && . .venv/bin/activate
-python -m pip install -e analyzer
+python -m pip install -e "analyzer[dev]" mcp build # the package, then the gates' extras
 
 sh scripts/build.sh                                # BUILD OK — 6 steps
-sh scripts/e2e.sh                                  # E2E OK — 20 steps, 0 failed
+sh scripts/e2e.sh                                  # E2E OK — 20 steps, 0 failed, 0 skipped
 ```
 
 ```powershell
@@ -86,11 +88,20 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass   # Activate.ps1 is a
 py -3 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 $env:PYTHONUTF8 = "1"
-python -m pip install -e analyzer
+python -m pip install -e "analyzer[dev]" mcp build
 
 powershell -ExecutionPolicy Bypass -File scripts/build.ps1
 powershell -ExecutionPolicy Bypass -File scripts/e2e.ps1
 ```
+
+The three extras are the gates', not the package's: `mlview` declares
+`dependencies = []`, so a bare `pip install -e analyzer` leaves the two pytest
+suites and the parity gate with nothing to run on, and `sh scripts/e2e.sh`
+reports three failures that are about the venv and not about the tree. `[dev]`
+is pytest and jsonschema, `mcp` is the SDK the plugin suite and the CLI-vs-MCP
+row drive, `build` is what puts a wheel in `analyzer/dist` for the wheel row.
+Missing `mcp` or `build` now shows as `SKIP` on the row that needed it rather
+than red — record a `SKIP` as *not checked here*, which is what it means.
 
 `scripts/e2e` is the whole acceptance table in one pass: it builds, runs every
 suite, analyzes both samples, writes the scoped reports, and runs the parity,
@@ -538,10 +549,15 @@ venv.
   one is added (`uses: realmyang/MLView/tools/action@v0.1.0` is the line users
   copy), pin it to the tag rather than to `@main` from the start.
 - **The scheduled workflows.** `.github/workflows/nightly.yml` and
-  `.github/workflows/public-corpus.yml` only start firing once they are on the
-  default branch — and neither has ever run, because Actions billing is blocked.
-  Confirm both ran the day after the merge, and treat the first public-corpus
-  run as a measurement, not a formality.
+  `.github/workflows/public-corpus.yml` are already on the default branch, and
+  each has been proved by `workflow_dispatch` since billing was unblocked —
+  nightly run 34984606964, and public corpus run 34982508080 at 260 runs, 260
+  clean, after run 34974208055 went red on the 60 s per-run budget. Neither has
+  completed on its **schedule** yet, so that is what to confirm after the merge,
+  and treat the first scheduled public-corpus run as a measurement, not a
+  formality. Note also that `nightly.yml` fires on `main`'s tree at the next
+  04:17 UTC tick whatever that tree contains: until the merge lands, that is a
+  red run on a public Actions tab if the older code cannot pass today's fuzzer.
 - **`docs/STATUS.md`** should stop saying the hosts are compile-verified only,
   for whichever of them this validation run actually exercised. That is the
   whole point of Part 3's log: it is the evidence that lets a line in the status

@@ -112,6 +112,7 @@ if (-not $SkipPipInstall) {
 # install prompt all name. `build` is not a hard dependency: without it the step
 # says so and the build carries on.
 Write-Head '6/6 analyzer -- build the wheel into analyzer/dist'
+$WheelStep = 'built'
 & $Python -c 'import build' 2>$null
 if ($LASTEXITCODE -eq 0) {
     $dist = Join-Path $RepoRoot 'analyzer/dist'
@@ -122,6 +123,7 @@ if ($LASTEXITCODE -eq 0) {
     Get-ChildItem $dist | Format-Table Name, Length
 } else {
     Write-Host 'build is not installed - skipping the wheel (pip install build)'
+    $WheelStep = 'skipped'
 }
 
 $global:LASTEXITCODE = 0
@@ -129,6 +131,11 @@ $global:LASTEXITCODE = 0
 Assert-Ok 'python -m mlview --version'
 
 Write-Host ''
-Write-Host 'BUILD OK' -ForegroundColor Green
+# FC-15: the banner says whether the sixth step built anything; see build.sh.
+if ($WheelStep -eq 'skipped') {
+    Write-Host 'BUILD OK - 5 of 6 steps (wheel skipped: pip install build)' -ForegroundColor Green
+} else {
+    Write-Host 'BUILD OK - 6 steps' -ForegroundColor Green
+}
 Write-Host 'next: powershell -ExecutionPolicy Bypass -File scripts/e2e.ps1'
 exit 0

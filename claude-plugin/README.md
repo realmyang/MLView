@@ -6,13 +6,16 @@ Claude Code. Static analysis only: nothing is imported, nothing is executed, and
 
 It is part of [MLView](https://github.com/realmyang/MLView): the repository root's
 [`README.md`](../README.md) is the overview — screenshots, the ninety-second quick
-start for all three hosts, the rule families and the measured accuracy. **There is
-no hosted marketplace yet**, so installing means cloning the repository and pointing
-Claude Code at `claude-plugin/` (option 1 or 2 below).
+start for all three hosts, the rule families and the measured accuracy. Install it
+either from a clone, by pointing Claude Code at `claude-plugin/` (options 1 and 2
+below), or straight from GitHub through this repository's own marketplace entry
+(option 3, usable since the repository went public and **not yet walked end to end**).
+Nothing is published to PyPI, the VS Code Marketplace or Open VSX.
 
 ```
 claude-plugin/
   .claude-plugin/plugin.json   the manifest (this path is the only one scanned)
+  LICENSE                      MIT, byte-identical to the repository root's copy
   .mcp.json                    the stdio MCP server registration
   commands/                    /mlview · /mlview-issues
   skills/                      mlview-visualize · mlview-triage
@@ -97,9 +100,28 @@ same line the root README and `docs/VALIDATION.md` Session C give.
 ```
 
 `.claude-plugin/marketplace.json` at the repo root declares the marketplace
-`mlview-local` with one entry pointing at `./claude-plugin`.
+`mlview-local`, whose first entry points at `./claude-plugin`.
 
-**3. The MCP server only, without the commands and skills**
+**3. From GitHub, with no checkout at all**
+
+```
+/plugin marketplace add realmyang/MLView
+/plugin install mlview@mlview-github
+```
+
+The second entry in that same file is `mlview-github`, a `git-subdir` source over
+this repository's `claude-plugin/` directory — the only source form that carries a
+subdirectory, which is why it is the one a hosted entry may use (CONTRACTS §13.1).
+The analyzer is vendored inside the directory, so there is nothing to `pip install`
+and no build step: what lands on disk is the tree you see here, at the ref you
+installed — including [`LICENSE`](LICENSE), the repository root's MIT text copied
+byte for byte, because an installed plugin that carries a vendored analyzer and no
+licence text is a redistribution with nothing to read it under. The route became reachable when this repository went public; its
+manifest is gated by [`tests/test_plugin_manifest.py`](tests/test_plugin_manifest.py),
+but **the install itself has not been walked on a machine with no checkout** —
+`docs/VALIDATION.md` C10 is where that walk gets recorded when it happens.
+
+**4. The MCP server only, without the commands and skills**
 
 ```bash
 claude mcp add mlview -- python C:/absolute/path/to/MLView/claude-plugin/server/mlview_mcp.py

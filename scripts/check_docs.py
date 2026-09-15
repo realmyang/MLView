@@ -107,13 +107,20 @@ with the machine-readable copy the tree already holds live next door -- checks
 
 22. **A gate claimed green on a CI matrix that never ran**, with no sentence in
     the same breath naming the run that was green or saying whether the matrix
-    ran at all.
+    ran at all -- **and its mirror**: a living document asserting the matrix has
+    not run while another living document in the same tree names a run that was
+    green. `docs/STATUS.md` carried both halves at once for a day (PUB-R01).
 23. **The one paragraph of `docs/CONTRACTS.md` that states a bare figure**: §7's
     four diff counts and its headline, against the test §7 names as their pin.
+24. **A prose count of the false positives the public corpus caught**, against
+    `analyzer/tests/public_corpus/adjudication.json`. The current-state page said
+    *four* while the file held eleven and `README.md` said eleven (PUB-R02).
+25. **The versions `THIRD_PARTY_NOTICES.md` names**, against the packages under
+    `webview/node_modules`. It abstains where they are not installed (PUB-R11).
 
 `scripts/doc_numbers.py` carries checks 9-11 and 19-20, `scripts/doc_figures.py`
-checks 13-15 and 23, `scripts/doc_surfaces.py` checks 16-18 and
-`scripts/doc_claims.py` check 22, with the incident behind each.
+checks 13-15, 23, 24 and 25, `scripts/doc_surfaces.py` checks 16-18 and
+`scripts/doc_claims.py` check 22 and its mirror, with the incident behind each.
 
 Usage:  python scripts/check_docs.py [--root DIR] [--quiet]
 Exit 0 when clean, 1 when a problem is found. The report goes to stdout.
@@ -136,8 +143,14 @@ DEFAULT_ROOT = Path(__file__).resolve().parent.parent
 
 # Docs that describe the tree as it *is*: every path they name must exist, and
 # they may not claim a green test fails.
+# `THIRD_PARTY_NOTICES.md` is here since PUB-R11: it was the one public-facing
+# community file no check read at all, and it is the file where a wrong version
+# number is a licence-compliance problem rather than a typo. Check 25 holds its
+# two versions to `webview/node_modules`; the path and claim checks apply to it
+# like any other living document.
 CURRENT_GLOBS = ("README.md", "docs/STATUS.md", "docs/ACCURACY.md",
-                 "scripts/README.md", "*/README.md", "docs/rules/README.md")
+                 "scripts/README.md", "*/README.md", "docs/rules/README.md",
+                 "THIRD_PARTY_NOTICES.md")
 # Docs that describe the tree as it was *planned*: frozen design records, checked
 # for dead Markdown links only. Rewriting them to match the build would erase the
 # record of what was decided. docs/CONTRACTS.md is normative and frozen, and is
@@ -708,9 +721,11 @@ def main(argv=None) -> int:
               "its own tool accepts, no closed list of rules the code does not "
               "hold, no known gap waiting for something that has landed, no "
               "gate claimed green on a CI matrix without naming the run or "
-              "saying whether the matrix ran, and the contract's diff figures "
-              "equal the test that "
-              "pins them)"
+              "saying whether the matrix ran and none denying a run another "
+              "document names, the contract's diff figures equal the test that "
+              "pins them, the public corpus's false-positive count equal to its "
+              "adjudication file, and the third-party notice naming the versions "
+              "that are installed)"
               % len(files))
     return 0
 

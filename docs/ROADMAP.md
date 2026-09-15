@@ -183,7 +183,7 @@ Two of four answers come from the rail, one from the diagram, one needs a scope 
 
 ## (c) Prioritised proposals
 
-Value 1–5 · Effort **S** = a few hours for one agent, **M** = one agent-day, **L** = multi-agent build.
+Value 1–5 · Effort **S** = a few hours, **M** = about a day, **L** = a multi-day piece of work spanning several components.
 
 ### Ranking summary
 

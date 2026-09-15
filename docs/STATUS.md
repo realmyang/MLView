@@ -26,19 +26,19 @@ self-contained HTML report, a VS Code webview, and the Claude Code plugin.
 
 | Piece | State |
 |---|---|
-| Analyzer `analyzer/` | **36 rules**, zero runtime dependencies, installed editable as `python -m mlview`. **2654 passed / 9 skipped** plus 24 `xfail`. On 3.10 / 3.11 eight more skip: two robustness fixtures are PEP 695 / PEP 701 source, and MLView parses with the host's own `ast`, so a host that cannot read them is not the thing under test. `analyze --demo --json -` is byte-identical to `contracts/graph.sample.json` at 46 078 bytes. |
+| Analyzer `analyzer/` | **36 rules**, zero runtime dependencies, installed editable as `python -m mlview`. **2654 passed / 9 skipped** plus 24 `xfail`. On 3.10 / 3.11 eight more skip: two robustness fixtures are PEP 695 / PEP 701 source, and MLView parses with the host's own `ast`, so a host that cannot read them is not the thing under test. `analyze --demo --json -` is byte-identical to `contracts/graph.sample.json` at 45 588 bytes. |
 | Viewer `webview/` | One renderer, built to `webview/dist/mlview.js` + `mlview.css`. **599 tests** (598 pass, 1 todo), `tsc --noEmit` clean. Scope projection (`webview/src/scope/project.ts`), flow animation, SVG/PNG export and the diff overlay all live here. |
-| VS Code extension | **410 tests**, `tsc --noEmit` clean, `out/extension.js` bundled, 19 commands and 16 settings. Ships the analyzer inside the VSIX, so no `pip install` is required — `core/mlview` at **130** files, the number `python tools/verify.py --all`'s `vsix: synced core` row prints. The bundled copy under `vscode-extension/core/` is a **build artifact** written by `vscode-extension/tools/sync-core.mjs` at compile and package time, not a tracked directory, and **that figure is not the gate**: it moves with every analyzer module, and `python scripts/vsix_check.py` re-derives it, the 1 MB ceiling and the rule-page count from the tree. Copilot participant and LM tools are compile- and unit-verified only. |
-| Claude Code plugin | MCP server on the `mcp` SDK v2, **exactly five tools**, each result ≤ 4 KB, plus `PostToolUse` / `Stop` hooks under `claude-plugin/hooks/`. **476 passed / 7 skipped**. `claude-plugin/vendor/mlview` is **tracked** on purpose: a marketplace install copies the plugin directory verbatim off a git ref with no build step. |
+| VS Code extension | **415 tests**, `tsc --noEmit` clean, `out/extension.js` bundled, 19 commands and 16 settings. Ships the analyzer inside the VSIX, so no `pip install` is required — `core/mlview` at **130** files, the number `python tools/verify.py --all`'s `vsix: synced core` row prints. The bundled copy under `vscode-extension/core/` is a **build artifact** written by `vscode-extension/tools/sync-core.mjs` at compile and package time, not a tracked directory, and **that figure is not the gate**: it moves with every analyzer module, and `python scripts/vsix_check.py` re-derives it, the 1 MB ceiling and the rule-page count from the tree. Copilot participant and LM tools are compile- and unit-verified only. |
+| Claude Code plugin | MCP server on the `mcp` SDK v2, **exactly five tools**, each result ≤ 4 KB, plus `PostToolUse` / `Stop` hooks under `claude-plugin/hooks/`. **479 passed / 7 skipped**. `claude-plugin/vendor/mlview` is **tracked** on purpose: a marketplace install copies the plugin directory verbatim off a git ref with no build step. |
 | Contracts | `contracts/graph.schema.json`, `contracts/graph.sample.json` (the frozen golden), `contracts/validate_sample.py` (schema + 10 invariant groups), `contracts/scope.cases.json` (13 projecting cases + 7 error cases + 5 promoted counterexamples). |
 | Samples | `samples/vision_pipeline` — 59 nodes, 51 edges, exactly 15 issues (5 high / 6 medium / 4 low) — and `samples/vision_pipeline_clean`, 70 nodes and 0 issues. `expected_issues.json` is machine-checked. |
 | Rule docs | `docs/rules/` — 36 pages plus an index, generated from the registry. Every `Issue.docs` deep link resolves. |
 | Labelled corpus | `analyzer/tests/accuracy/corpus/` — **158 labelled programs**, **546** scored `expected` labels, 2327 `forbidden` labels, 1166 hand-drawn graph ops, scored by `tools/accuracy.py` against two ratchets (`baseline.json`, `baseline.ip.json`). `docs/ACCURACY.md` is the record. |
-| Public corpus | `tools/public_corpus.py` + `analyzer/tests/public_corpus/` — **37 pinned third-party repositories**, 112 targets × 3 modes (`local`, `ip`, `--include-notebooks`) = **260 runs**. Nothing is vendored and nothing is labelled: the gate asserts no crash, exit 0 or 4 only, a schema-valid document, the wall-time budget, and **no new high-severity finding** a human has not adjudicated in `adjudication.json`. It is the only gate that can see a false positive nobody thought to label, and it has caught four. |
+| Public corpus | `tools/public_corpus.py` + `analyzer/tests/public_corpus/` — **37 pinned third-party repositories**, 112 targets × 3 modes (`local`, `ip`, `--include-notebooks`) = **260 runs**. Nothing is vendored and nothing is labelled: the gate asserts no crash, exit 0 or 4 only, a schema-valid document, the wall-time budget, and **no new high-severity finding** a human has not adjudicated in `adjudication.json`. It is the only gate that can see a false positive nobody thought to label, and it has caught **eleven** — every one adjudicated against the cited source in `adjudication.json`, every one fixed, and a blocking regression if it returns. |
 
 **Gates**, on this Mac (macOS 26.6, Python 3.13, Node 26): analyzer **2654
-passed / 9 skipped**; webview **599 tests**; vscode-extension **410 tests**;
-claude-plugin **476 passed / 7 skipped**; `python -m pytest scripts -q` **132
+passed / 9 skipped**; webview **599 tests**; vscode-extension **415 tests**;
+claude-plugin **479 passed / 7 skipped**; `python -m pytest scripts -q` **146
 passed**; `npx tsc --noEmit` clean in both TypeScript packages;
 `python tools/accuracy.py` **PASS** in both dataflow modes;
 `python scripts/check_docs.py` **DOC CHECK OK**; `sh scripts/e2e.sh` **20
@@ -54,13 +54,16 @@ before a release: `scripts/e2e` prints every row with its command, and
 
 **Every gate in that paragraph was run locally, on this macOS machine, at the
 consolidation-and-recall integration on 2026-09-15, and run again in full after
-the campaign review's fixes the same day — and nowhere else.** GitHub
-Actions is blocked at the **account** level (*"The job was not started because
-recent account payments have failed or your spending limit needs to be
-increased"*), so no CI job has started on this line of work and **no claim of a
-green CI run is made anywhere in this repository**. Python 3.10 / 3.11 / 3.12,
-Windows and macOS-on-a-runner are therefore unverified; see *What is verified,
-and what is not* below.
+the campaign review's fixes the same day.** GitHub Actions was blocked at the
+**account** level (*"The job was not started because recent account payments
+have failed or your spending limit needs to be increased"*) for the whole of the
+consolidation and recall work, so none of it was checked anywhere but here — and
+that ended when the repository went public. The matrix has since run on the
+`public` → `main` pull request and all thirteen jobs came back green: run
+34986234828 for the seven cheap-tier jobs, run 34986239243 for the six the cheap
+tier excludes. **Python 3.10 / 3.11 / 3.12, Windows and macOS-on-a-runner are
+exercised there rather than here**, where the only interpreter is 3.13; see
+*What is verified, and what is not* below.
 
 ## Accuracy headline
 
@@ -85,8 +88,9 @@ labelled: `tools/public_corpus.py check --strict` asserts no crash, no schema
 error, every exit code 0 or 4, every run inside its wall-time budget, and **no
 new high-severity finding** that a human has not written down in
 `analyzer/tests/public_corpus/adjudication.json`. That last one is the gate that
-has actually caught things: four false positives no label in the tree could
-have found.
+has actually caught things: **eleven** false positives no label in the tree
+could have found — 33 adjudicated verdicts, 22 of them true positives and
+eleven false, every false one fixed and pinned so its return fails the gate.
 
 ## Running it
 
@@ -96,7 +100,7 @@ system Python.
 ```sh
 # macOS / Linux
 python3 -m venv .venv && . .venv/bin/activate
-python -m pip install -e analyzer
+python -m pip install -e "analyzer[dev]" mcp build
 sh scripts/build.sh        # 6 steps: viewer bundle, sync, compile, package, wheel
 sh scripts/e2e.sh          # the whole gate table, 20 steps, PASS/FAIL per row
 ```
@@ -104,7 +108,7 @@ sh scripts/e2e.sh          # the whole gate table, 20 steps, PASS/FAIL per row
 ```powershell
 # Windows (PowerShell 5.1 or newer)
 py -3 -m venv .venv; .\.venv\Scripts\Activate.ps1
-python -m pip install -e analyzer
+python -m pip install -e "analyzer[dev]" mcp build
 powershell -ExecutionPolicy Bypass -File scripts/build.ps1
 powershell -ExecutionPolicy Bypass -File scripts/e2e.ps1
 ```
@@ -112,7 +116,11 @@ powershell -ExecutionPolicy Bypass -File scripts/e2e.ps1
 Requirements: **Python 3.10+** (3.11+ to read `.mlview.toml`, which needs
 `tomllib`) and **Node 20+**; set `PYTHONUTF8=1` on Windows. Both drivers run the
 same table and print the same rows, and `scripts/pythonpick.sh` finds the POSIX
-driver a 3.10+ interpreter.
+driver a 3.10+ interpreter. The package itself has no dependency; the three
+extras are the gates' — `[dev]` is pytest and jsonschema, `mcp` is the SDK the
+plugin suite and the CLI-vs-MCP parity row drive, `build` is what the wheel row
+installs. Leave one out and the row that needs it reports `SKIP` with the
+missing piece named, which is honest but is not a checked row.
 
 Individual suites and gates:
 
@@ -227,6 +235,16 @@ None blocks the demo. Roughly in the order they matter:
   prints the scopable-unit catalogue; the four concerns and the eight stage ids
   are discovered from this document, the MCP tool description, or the candidates
   an unusable selector prints.
+- **The git history still carries the old orchestration scripts.** `.workflows/`
+  left the index and is gitignored — `CHANGELOG.md` records it as C5 — but six
+  commits reachable from the published branches still contain those files, and
+  they open with absolute paths on the maintainer's laptop and a scratch session
+  id. A scan of all 106 objects of history found no credential of any kind, and
+  the tracked tree carries no machine path, so this is an accepted disclosure of
+  an OS account name and a directory layout, not a leak: rewriting history on a
+  public repository would break every clone and every open pull request, which
+  is a worse trade. Recorded here so the question is not reopened by each new
+  reader.
 
 ## Open contract change requests
 

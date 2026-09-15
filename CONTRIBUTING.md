@@ -39,18 +39,36 @@ You need **Python 3.10+** (3.11+ to use a `.mlview.toml`: 3.10 has no
 is required — MLView never imports the code it reads, so a machine with neither
 torch nor scikit-learn installed is a *better* test of it, not a worse one.
 
+Check the interpreter before you build the venv: macOS's `/usr/bin/python3` is
+Xcode's **3.9**, which `pip install -e analyzer` refuses outright
+(*"requires a different Python: 3.9.6 not in '>=3.10'"*). `brew install
+python@3.13`, then use `python3.13 -m venv .venv`.
+
 ### macOS / Linux
 
 ```sh
 git clone https://github.com/realmyang/MLView
 cd MLView
 
+python3 --version                            # 3.10+; macOS ships 3.9
 python3 -m venv .venv && . .venv/bin/activate
-python -m pip install -e analyzer
+python -m pip install -e "analyzer[dev]" mcp build
 
 sh scripts/build.sh          # BUILD OK — 6 steps
-sh scripts/e2e.sh            # E2E OK — 20 steps, 0 failed
+sh scripts/e2e.sh            # E2E OK — 20 steps, 0 failed, 0 skipped
 ```
+
+**Install the three extras, not just the package.** `mlview` itself declares
+`dependencies = []`, so a venv built with a bare `pip install -e analyzer` has
+no pytest, no jsonschema, no `mcp` SDK and no `build` — and `sh scripts/e2e.sh`,
+the second command on this page, then reports `20 steps · 3 failed` on the two
+pytest suites and the parity gate, none of which is a defect in the tree. This
+is the line `.github/workflows/ci.yml` uses, spelled for one machine: `[dev]` is
+pytest and jsonschema, `mcp` is the SDK the plugin suite and the CLI-vs-MCP
+parity row drive (deliberately not vendored), `build` is what puts a wheel in
+`analyzer/dist` for `tools/wheel_check.py` to install. Without `mcp` the parity
+row now reports `SKIP` rather than red, and without `build` the wheel row does;
+a skipped row is honest, but it is not a checked row.
 
 ### Windows (PowerShell 5.1 or newer)
 
@@ -64,7 +82,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass   # Activate.ps1 is a
 py -3 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 $env:PYTHONUTF8 = "1"
-python -m pip install -e analyzer
+python -m pip install -e "analyzer[dev]" mcp build
 
 powershell -ExecutionPolicy Bypass -File scripts/build.ps1
 powershell -ExecutionPolicy Bypass -File scripts/e2e.ps1
@@ -103,10 +121,11 @@ optional.
 ### Optional pieces
 
 * **The Claude Code plugin** needs the official MCP SDK — `python -m pip install
-  mcp` (v2; verified against 2.1.1). It is deliberately not vendored. It also
-  needs `MLVIEW_PYTHON` set to an absolute path to a 3.10+ interpreter, because
-  `claude-plugin/.mcp.json` defaults to a bare `python`, which does not exist on
-  most macOS and Linux systems.
+  mcp` (v2; verified against 2.1.1), which the install line above already
+  carries. It is deliberately not vendored. It also needs `MLVIEW_PYTHON` set to
+  an absolute path to a 3.10+ interpreter, because `claude-plugin/.mcp.json`
+  defaults to a bare `python`, which does not exist on most macOS and Linux
+  systems.
 * **The public-repository corpus** clones ~1.9 GB of third-party repositories.
   You only need it when you change what a rule fires on (section 6).
 
@@ -160,13 +179,16 @@ this is the subset that matters:
 Three notes that save an hour each:
 
 * **`python scripts/check_docs.py` runs on every change, including a code-only
-  one.** Twenty-three checks, all offline: dead paths, dead links, a "known
+  one.** Twenty-five checks, all offline: dead paths, dead links, a "known
   gap" bullet describing a failure somebody already fixed, a gap bullet citing
   a symbol that has been renamed away, a build-state sentence inside a frozen
   plan document, a CRLF shell script, two documents disagreeing about the size
-  of the demo graph, a CI command line the tool it invokes would reject, and a
-  gate claimed green on a matrix that never ran. It catches renames long before
-  a reader does.
+  of the demo graph, a CI command line the tool it invokes would reject, a gate
+  claimed green on a matrix that never ran *and* a document denying a run
+  another document names, a false-positive count that is not the one in
+  `analyzer/tests/public_corpus/adjudication.json`, and a third-party notice
+  naming a version that is not installed. It catches renames long before a
+  reader does.
 * **A "known gap" bullet must cite something the gate can check** — a repo path
   or a code symbol, in backticks. A rule code is not enough: `MLV301` says
   nothing about the tree. A claim nobody can retire is a claim that will rot.

@@ -394,9 +394,138 @@ def check_contract_diff_figures(root: Path, problems: list) -> None:
                 % (where, quoted, DIFF_PIN_TEST, headline))
 
 
+# ------------------------------------ check 24: the adjudicated false positives
+#: The public corpus's own record. Every verdict in it was written by a person
+#: who read the cited source, which is what makes the count quotable at all.
+ADJUDICATION = "analyzer/tests/public_corpus/adjudication.json"
+#: A paragraph only states this figure when it is talking about that gate. The
+#: labelled corpus's "zero false positives" is a different measurement in the same
+#: words, and it lives in paragraphs that name neither the corpus nor the file.
+FP_CONTEXT_RE = re.compile(r"public\s+corpus|adjudicat|nobody\s+thought\s+to\s+label",
+                           re.I)
+FP_COUNT_RE = re.compile(r"\*{0,2}([A-Za-z]+|\d+)\*{0,2}\s+(?:adjudicated\s+)?"
+                         r"false\s+positives?\b", re.I)
+#: ...and the shape the wrong sentence was actually written in. "It is the only
+#: gate that can see a false positive nobody thought to label, and it has caught
+#: four" states the figure without repeating the noun, which is exactly how it
+#: escaped every reading of the page (PUB-R02).
+FP_CAUGHT_RE = re.compile(r"\b(?:has\s+)?caught\s+\*{0,2}([A-Za-z]+|\d+)\*{0,2}\b", re.I)
+#: The escape, and the same one check 22's mirror needs: a paragraph that names
+#: this check is documenting the rule, not stating the figure. `scripts/README.md`
+#: row 18c quotes the wrong sentence verbatim so a reader knows what was wrong,
+#: and a gate that fails its own documentation for quoting it teaches people to
+#: stop writing the documentation.
+FP_META_RE = re.compile(r"check\s*24|PUB-R02|doc_figures", re.I)
+#: Written-out numbers count: "it has caught four" was the whole of PUB-R02, and a
+#: check that only reads digits would have passed the sentence that was wrong.
+WORD_NUMBERS = {"zero": 0, "no": 0, "one": 1, "two": 2, "three": 3, "four": 4,
+                "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+                "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14,
+                "fifteen": 15, "sixteen": 16, "seventeen": 17, "eighteen": 18,
+                "nineteen": 19, "twenty": 20}
+
+
+def _adjudicated_false_positives(root: Path):
+    """How many verdicts in the public corpus's record are false positives.
+
+    None when the file is unreadable or shaped differently than expected -- a
+    check that guesses is worse than one that abstains, and the suite asserts it
+    does not abstain on the real tree.
+    """
+    path = root / ADJUDICATION
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(io.open(path, encoding="utf-8").read())
+        verdicts = data["verdicts"]
+        return sum(1 for v in verdicts.values() if v.get("verdict") == "false-positive")
+    except (ValueError, KeyError, TypeError, AttributeError):
+        return None
+
+
+def check_false_positive_count(root: Path, paths, problems: list) -> None:
+    """Check 24: a prose count of the false positives the public corpus caught,
+    against the file that holds them.
+
+    `docs/STATUS.md` said *four* in two places while `adjudication.json` held
+    eleven and `README.md` said eleven -- the current-state page contradicting the
+    front page by a factor of nearly three, on the number that is the whole
+    argument for the gate existing. The last commit before the review was titled
+    *"Correct the README's count of false positives the public corpus caught"*;
+    the same correction was not carried to STATUS. Deriving it is the fix, because
+    the figure moves again the next time the gate catches something (PUB-R02).
+    """
+    want = _adjudicated_false_positives(root)
+    if want is None:
+        return
+    for path in paths:
+        rel = path.relative_to(root).as_posix()
+        if rel not in LIVING_DOCS:
+            continue
+        for start, block in _blocks(_lines(path)):
+            text = " ".join(block)
+            if (not FP_CONTEXT_RE.search(text) or HISTORICAL_RE.search(text)
+                    or FP_META_RE.search(text)):
+                continue
+            for found in list(FP_COUNT_RE.finditer(text)) + list(FP_CAUGHT_RE.finditer(text)):
+                token = found.group(1).lower()
+                said = int(token) if token.isdigit() else WORD_NUMBERS.get(token)
+                if said is None or said == want:
+                    continue
+                problems.append(
+                    "%s:%d: says the public corpus caught %s false positive(s); "
+                    "`%s` holds %d with verdict `false-positive` -- the count is "
+                    "in the file, so quote it or drop the figure (check 24, "
+                    "PUB-R02)" % (rel, start, found.group(1), ADJUDICATION, want))
+
+
+# ------------------------------- check 25: the third-party notice's own versions
+NOTICES = "THIRD_PARTY_NOTICES.md"
+#: The two packages the viewer bundle inlines, and where their real versions live.
+NOTICE_PACKAGES = ("@dagrejs/dagre", "@dagrejs/graphlib")
+NOTICE_VERSION_RE = "## %s (\\S+) — MIT"
+
+
+def check_notice_versions(root: Path, problems: list) -> None:
+    """Check 25: the versions `THIRD_PARTY_NOTICES.md` names are the ones on disk.
+
+    This is the one public-facing document where a wrong version number is a
+    licence-compliance problem rather than a typo, and until PUB-R11 it was the
+    one community file no check read at all. It abstains when `webview/node_modules`
+    has not been installed -- the doc gate runs in a CI job that never touches it.
+    """
+    notices = root / NOTICES
+    if not notices.is_file():
+        return
+    text = io.open(notices, encoding="utf-8").read()
+    for package in NOTICE_PACKAGES:
+        manifest = root / "webview" / "node_modules" / Path(package) / "package.json"
+        if not manifest.is_file():
+            continue  # not installed here; nothing to compare against
+        try:
+            installed = json.loads(io.open(manifest, encoding="utf-8").read())["version"]
+        except (ValueError, KeyError):  # pragma: no cover - a corrupt package.json
+            continue
+        said = re.search(NOTICE_VERSION_RE % re.escape(package), text)
+        if not said:
+            problems.append(
+                "%s: names no version for `%s`, which the viewer bundle inlines "
+                "and every artifact redistributes -- the section heading is "
+                "`## %s <version> — MIT` (check 25, PUB-R11)"
+                % (NOTICES, package, package))
+        elif said.group(1) != installed:
+            problems.append(
+                "%s: says `%s` %s; `webview/node_modules` has %s. A notice that "
+                "names the wrong version is a licence claim about software that "
+                "is not the software shipped (check 25, PUB-R11)"
+                % (NOTICES, package, said.group(1), installed))
+
+
 def run(root: Path, paths, problems: list) -> None:
-    """All four checks, in the order the docstring numbers them."""
+    """All six checks, in the order the docstring numbers them."""
     check_summary_table(root, problems)
     check_scope_battery(root, paths, problems)
     check_one_green_push(root, paths, problems)
     check_contract_diff_figures(root, problems)
+    check_false_positive_count(root, paths, problems)
+    check_notice_versions(root, problems)

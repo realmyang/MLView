@@ -5,10 +5,18 @@
  *
  * The fixture is a REAL analyzer run over `samples/vision_pipeline`, so `findEnclosingUnit` is
  * asserted against the shape the analyzer actually emits rather than a hand-written graph.
- * Regenerate it with:
+ * Regenerate it — in a commit of its own, because a graph-content change can move the
+ * assertions below — with:
  *
- *   PYTHONUTF8=1 python -m mlview analyze samples/vision_pipeline \
- *     --json vscode-extension/test/fixtures/vision_pipeline.graph.json --format summary
+ *   python vscode-extension/tools/make_scope_fixture.py
+ *
+ * NOT with the bare CLI. The raw document embeds `workspace.root` and an `absFile` on every
+ * node, edge, issue, related location and fix edit, so a hand-run writes ~164 copies of the
+ * runner's own home directory into a public repository. The script runs the same CLI and then
+ * rewrites every path under this checkout to the neutral `/home/mlview/MLView` the committed
+ * fixture uses, refusing to write if one real path survives. `--check` regenerates in a
+ * temporary directory and byte-compares instead of writing; `test/fixture.test.js` runs both
+ * halves of that guarantee, so this recipe cannot rot and the fixture cannot go stale.
  */
 
 const test = require('node:test');

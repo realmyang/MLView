@@ -2,7 +2,13 @@
 """Install the built wheel into a throwaway venv and run it (PACKAGING).
 
     python tools/wheel_check.py            # build if needed, install, run
-    python tools/wheel_check.py --no-build # fail rather than build a missing wheel
+    python tools/wheel_check.py --no-build # do not build a missing wheel
+
+Exit 0 when the wheel installed and analyzed, 1 when it did not, and **3 when
+there was no wheel to test at all** -- `build` is not installed and so nothing
+was checked. The third code exists because both e2e drivers recorded the skip as
+`PASS wheel installs and runs`, a row visually identical to a real check, in
+every e2e job this project has ever run (FC-04). They now record SKIP.
 
 `pip install mlview` is now the instruction the VS Code extension prints, the line
 `tools/action/action.yml` runs in CI, and the thing `.pre-commit-hooks.yaml` resolves
@@ -47,6 +53,11 @@ SAMPLE = (
     "    Xs = StandardScaler().fit_transform(X)\n"
     "    return train_test_split(Xs, y, test_size=0.2)\n"
 )
+
+
+#: Exit code for "there was no wheel to test", distinct from 0 (it installed and
+#: ran) and 1 (it is broken). Both e2e drivers read it and record SKIP (FC-04).
+SKIP_EXIT = 3
 
 
 def _run(argv, **kwargs):
@@ -178,7 +189,7 @@ def main(argv=None) -> int:
     if not wheel:
         print("wheel-check: SKIP no wheel in analyzer/dist - run `pip install build` "
               "then `python -m build --wheel analyzer` (scripts/build.sh does both)")
-        return 0
+        return SKIP_EXIT
     return check(wheel)
 
 

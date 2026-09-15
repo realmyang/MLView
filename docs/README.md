@@ -14,7 +14,8 @@ before you cite one:
   it is, and `scripts/check_docs.py` holds them to it: every path they name
   must exist, every gap bullet must cite something checkable, and a green
   verdict written in the same breath as the CI matrix has to say whether that
-  matrix ran — which, on this line of work, it has not run at all.
+  matrix ran and name the run when it did (here: runs 34986234828 and
+  34986239243, thirteen green jobs on the `public` → `main` pull request).
 * **Frozen plan records** — the design documents in the third table below. They
   say what was *decided*, not what was built. The gate link-checks them and
   nothing else, and fails on a sentence inside one that reports what the build
@@ -68,6 +69,7 @@ against.
 | [`FEATURES_FLOW_AND_SCOPE.md`](FEATURES_FLOW_AND_SCOPE.md) | The flow animation and the scoped views, designed in full before either was written |
 | [`archive/README.md`](archive/README.md) | Why the archive exists and what is not allowed to change in it |
 | [`archive/CONTRACTS-v1.0-amended.md`](archive/CONTRACTS-v1.0-amended.md) | Contracts v1.0 plus its 75 amendments, verbatim — the record of *why* v1.1 reads as it does |
+| [`../project.md`](../project.md) | The four-line kickoff brief the project was started from, kept verbatim because the frozen plan records answer to it. It predates the 36 rules and the third host; nothing in it describes the tree |
 
 ## Per-directory READMEs
 

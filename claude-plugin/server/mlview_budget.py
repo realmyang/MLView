@@ -42,6 +42,34 @@ PROTECTED_KEYS = frozenset(
     }
 )
 
+#: The free-text caveat keys — the ones a bound, a filter or a coverage gap
+#: speaks through. They are PROTECTED above, which is why they need `NOTE_RESERVE`.
+NOTE_KEYS = ("note", "docNote")
+
+#: Bytes `fit` holds back for `NOTE_KEYS` **whether or not a caveat is present**.
+#:
+#: Without it the budget walk is not a function of the answer alone: `note` is
+#: protected, so its bytes come out of the lists, and a payload sitting near the
+#: cap answers with one row fewer the moment a caveat appears. How near the cap it
+#: sits is decided by the absolute paths inside it — `root` and `graphPath` — whose
+#: length is a property of the MACHINE, not of the project. Measured on
+#: `samples/vision_pipeline` with the same graph: at a 74-character `graphPath` the
+#: payload was 3932 B without a caveat and 4014 B with the 82-byte `maxNodes=0` one,
+#: both carrying eight `topIssues`; at the 174-character `graphPath` a pytest data
+#: directory hands out, the caveat-free payload still carried eight (4032 B) and the
+#: caveated one crossed 4096 and shed the eighth — the same shortening a user gets
+#: in a CI workspace, a nested monorepo or a Windows profile directory (CONTRACTS
+#: §11 B4: "a bound note must never cost a finding").
+#:
+#: Reserving the bytes up front makes the walk caveat-independent by construction:
+#: a payload carrying a caveat of `c` bytes is measured against `limit - (RESERVE
+#: - c)`, the same ceiling the caveat-free payload is measured against, so both
+#: shed exactly the same rows at any checkout depth. 160 B covers every **bound**
+#: note the tools emit, including two of them joined (`maxNodes=...` at 68 B plus
+#: `limit=...` at 59 B); a longer caveat — the coverage block, a filtered-view
+#: sentence — pays only for its excess, exactly as it does today.
+NOTE_RESERVE = 160
+
 
 # --------------------------------------------------------------------------- size
 def serialize(payload: Any) -> str:
@@ -91,25 +119,52 @@ def _longest_text_key(payload: Dict[str, Any]) -> Optional[str]:
     return best if best_len > 80 else None
 
 
-def fit(payload: Dict[str, Any], limit: int = LIMIT_BYTES) -> Dict[str, Any]:
+def caveat_cost(payload: Dict[str, Any]) -> int:
+    """Bytes the `NOTE_KEYS` cost ``payload`` — keys, quoting and separators too.
+
+    Measured by difference rather than from ``len(text)`` so that the reserve
+    accounting matches the encoding the budget is measured in exactly: a 68-character
+    note costs 82 bytes of indented JSON, and a reserve that ignored the other 14
+    would still let the caveat move the shedding decision.
+    """
+    if not any(key in payload for key in NOTE_KEYS):
+        return 0
+    bare = {k: v for k, v in payload.items() if k not in NOTE_KEYS}
+    return payload_size(payload) - payload_size(bare)
+
+
+def fit(payload: Dict[str, Any], limit: int = LIMIT_BYTES,
+        note_reserve: int = NOTE_RESERVE) -> Dict[str, Any]:
     """Shrink ``payload`` until it fits ``limit`` bytes.
 
     Lists are shed first (longest list, last element), because a shorter list is
     still a correct answer; only then are long free-text fields clipped.  The
     payload is marked ``truncated: true`` the moment anything is removed.
+
+    ``note_reserve`` bytes are held back for the caveat keys whether or not a
+    caveat is present, so that what a payload sheds is a function of the answer
+    and not of the caveats printed beside it — see `NOTE_RESERVE`. A caveat larger
+    than the reserve pays for its excess in the ordinary way.
     """
     out = dict(payload)
-    if payload_size(out) <= limit:
+    # The reserve is a SHARE of the budget, never the budget: a caller that asks
+    # for a 512-byte payload — the fitter's own unit tests do — must not spend a
+    # third of it holding room for a caveat that is not there. An eighth is above
+    # NOTE_RESERVE at the contractual 4096 and below it wherever a caller has
+    # deliberately asked for something small.
+    reserve = min(note_reserve, limit // 8)
+    budget = max(0, limit - max(0, reserve - caveat_cost(out)))
+    if payload_size(out) <= budget:
         return out
 
     out["truncated"] = True
-    while payload_size(out) > limit:
+    while payload_size(out) > budget:
         key = _longest_list_key(out)
         if key is None:
             break
         out[key] = list(out[key])[:-1]
 
-    while payload_size(out) > limit:
+    while payload_size(out) > budget:
         key = _longest_text_key(out)
         if key is None:
             break
@@ -138,6 +193,6 @@ def clip_text_lines(text: str, budget: int, note: str) -> Tuple[str, bool]:
 
 
 __all__ = [
-    "LIMIT_BYTES", "PROTECTED_KEYS", "payload_size", "compact_size", "serialize",
-    "fit", "clip_text_lines",
+    "LIMIT_BYTES", "PROTECTED_KEYS", "NOTE_KEYS", "NOTE_RESERVE", "payload_size",
+    "compact_size", "serialize", "caveat_cost", "fit", "clip_text_lines",
 ]

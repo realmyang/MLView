@@ -348,7 +348,11 @@ jobs:
           cache: npm
           cache-dependency-path: webview/package-lock.json
       - name: install the python dependencies
-        run: python -m pip install --upgrade pip && python -m pip install mcp pytest pytest-xdist jsonschema
+        # `build` is here for the `wheel installs and runs` row: without it
+        # `tools/wheel_check.py` has nothing to test and the row is a SKIP, which
+        # is what it silently was - reported as PASS - in every e2e job before
+        # FC-04. The e2e drivers now say SKIP; this line makes it a real check.
+        run: python -m pip install --upgrade pip && python -m pip install mcp pytest pytest-xdist jsonschema build
       - name: sh scripts/e2e.sh
         run: sh scripts/e2e.sh
       - name: upload the emitted reports
@@ -382,7 +386,9 @@ jobs:
           cache: npm
           cache-dependency-path: webview/package-lock.json
       - name: install the python dependencies
-        run: python -m pip install --upgrade pip; python -m pip install mcp pytest pytest-xdist jsonschema
+        # `build` gives the `wheel installs and runs` row something to test; see
+        # the Linux job above (FC-04).
+        run: python -m pip install --upgrade pip; python -m pip install mcp pytest pytest-xdist jsonschema build
       - name: powershell scripts/e2e.ps1
         shell: powershell
         run: .\scripts\e2e.ps1
