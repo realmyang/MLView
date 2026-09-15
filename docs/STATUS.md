@@ -18,18 +18,18 @@ self-contained HTML report, a VS Code webview, and the Claude Code plugin.
 
 | Piece | State |
 |---|---|
-| Analyzer `analyzer/` | **36 rules**, zero runtime dependencies, installed editable as `python -m mlview`. **2197 passed / 4 skipped** (the skips are the `tomllib` split, in both directions). Interprocedural dataflow (`--dataflow ip`) is the **default** since 2026-09-15; `--dataflow local` is the shipped opt-out. `analyze --demo --json -` is byte-identical to `contracts/graph.sample.json`. |
-| Viewer `webview/` | One renderer, built to `webview/dist/mlview.js` + `mlview.css`. **536 tests**, `tsc --noEmit` clean. Scope projection (`webview/src/scope/project.ts`), flow animation, SVG/PNG export and the diff overlay all live here. |
-| VS Code extension | **381 tests**, `tsc --noEmit` clean, `out/extension.js` bundled, 19 commands and 16 settings. Ships the analyzer inside the VSIX — `core/mlview` at **120** files, the number `python tools/verify.py --all`'s `vsix: synced core` row prints — so no `pip install` is required. **That figure is not the gate**: it moves with every analyzer module, and `python scripts/vsix_check.py` re-derives it, the 1 MB ceiling and the rule-page count from the tree. Copilot participant and LM tools are compile- and unit-verified only. |
-| Claude Code plugin | MCP server on the `mcp` SDK v2, **exactly five tools**, each result ≤ 4 KB, plus `PostToolUse` / `Stop` hooks under `claude-plugin/hooks/`. **373 passed / 7 skipped**. |
+| Analyzer `analyzer/` | **36 rules**, zero runtime dependencies, installed editable as `python -m mlview`. **2229 passed / 4 skipped** (the skips are the `tomllib` split, in both directions). Interprocedural dataflow (`--dataflow ip`) is the **default** since 2026-09-15; `--dataflow local` is the shipped opt-out. `analyze --demo --json -` is byte-identical to `contracts/graph.sample.json`. |
+| Viewer `webview/` | One renderer, built to `webview/dist/mlview.js` + `mlview.css`. **538 tests**, `tsc --noEmit` clean. Scope projection (`webview/src/scope/project.ts`), flow animation, SVG/PNG export and the diff overlay all live here. |
+| VS Code extension | **385 tests**, `tsc --noEmit` clean, `out/extension.js` bundled, 19 commands and 16 settings. Ships the analyzer inside the VSIX — `core/mlview` at **120** files, the number `python tools/verify.py --all`'s `vsix: synced core` row prints — so no `pip install` is required. **That figure is not the gate**: it moves with every analyzer module, and `python scripts/vsix_check.py` re-derives it, the 1 MB ceiling and the rule-page count from the tree. Copilot participant and LM tools are compile- and unit-verified only. |
+| Claude Code plugin | MCP server on the `mcp` SDK v2, **exactly five tools**, each result ≤ 4 KB, plus `PostToolUse` / `Stop` hooks under `claude-plugin/hooks/`. **387 passed / 7 skipped**. |
 | Contracts | `contracts/graph.schema.json`, `contracts/graph.sample.json` (the frozen golden), `contracts/validate_sample.py` (schema + 10 invariant groups), `contracts/scope.cases.json` (13 projecting cases + 7 error cases + 5 promoted counterexamples). |
 | Samples | `samples/vision_pipeline` — 59 nodes, 51 edges, exactly 15 issues (5 high / 6 medium / 4 low) — and `samples/vision_pipeline_clean`, 0 issues. `expected_issues.json` is machine-checked. |
 | Rule docs | `docs/rules/` — 36 pages plus an index, generated from the registry. Every `Issue.docs` deep link resolves. |
 | Accuracy corpus | `analyzer/tests/accuracy/corpus/` with `analyzer/tests/accuracy/baseline.json` as the ratchet; `docs/ACCURACY.md` is the record. |
 
-**Gates**, on this Mac (macOS 26.6, Python 3.13, Node 26): analyzer **2197
-passed / 4 skipped**; webview **536 tests**; vscode-extension **381 tests**;
-claude-plugin **373 passed / 7 skipped**; `python -m pytest scripts -q` **74
+**Gates**, on this Mac (macOS 26.6, Python 3.13, Node 26): analyzer **2229
+passed / 4 skipped**; webview **538 tests**; vscode-extension **385 tests**;
+claude-plugin **387 passed / 7 skipped**; `python -m pytest scripts -q` **80
 passed**; `npx tsc --noEmit` clean in both TypeScript packages;
 `python tools/accuracy.py` **PASS**; `python scripts/check_docs.py` **DOC CHECK
 OK**; `sh scripts/e2e.sh` **20 steps, 0 failed, 0 skipped**;
@@ -48,14 +48,24 @@ These are the **default mode's** figures (`--dataflow ip`, CONTRACTS §3.11 R1.1
 
 | Reading | Value |
 |---|---|
-| Precision | **100%** — zero false positives, zero forbidden findings, zero unlabelled findings |
-| Recall, whole corpus | **93.6%** raw · 82.0% visible · 91.2% high+medium |
-| Recall, unseen programs only | **89.4%** raw · 70.2% visible · 84.4% high+medium |
-| Graph fidelity | **99.4%** — 163 of 164 hand-labelled ops |
+| Precision · graph fidelity | **100%** — zero false positives, zero forbidden, zero unlabelled · **99.4%**, 163 of 164 hand-labelled ops |
+| Recall — whole corpus · unseen only | **93.6%** raw · 82.0% visible · 91.2% high+medium — and **89.4%** raw · 70.2% visible · 84.4% high+medium |
 | With `--dataflow local` (the opt-out) | recall **82.0%**, unseen **70.2%**, precision still 100% |
 
 On the public corpus — 37 pinned third-party repositories, 112 targets, 260 runs
 — the recall wave adds **zero new high-severity findings** in every mode.
+**That measurement has no gate in this tree.** Its runner (`public_corpus.py`,
+which would live under `tools/`) and its adjudication record are on an unmerged
+hardening branch — a **different analyzer lineage**, since `git merge-base
+hardening main` is `ef4fb71` and none of that branch's rule fixes are here.
+Re-run on 2026-09-15 against this tree with that branch's runner, the four
+objective assertions pass — **260 runs over 37 repositories, 0 tracebacks, exit
+codes 0 and 4 only, 0 schema/invariant errors, every run inside the 60 s
+budget**, 94 high / 265 medium / 373 low findings — and the four `local`-only
+findings `docs/ACCURACY.md` §6 names reproduce exactly. The fifth assertion, the
+adjudication ratchet, measures the branch gap rather than this tree and is
+**not applicable here**; `docs/ACCURACY.md` §8.3 has the breakdown. Every other
+figure on this page has a command beside it.
 
 `docs/ACCURACY.md` is the full record: what a label is, which programs are
 *tuned*, §8 for the wave that produced these numbers, and the gap per rule.
@@ -64,7 +74,7 @@ label in nine produces nothing, and **MLV402 has no label at all**.
 
 ## Running it
 
-The same four steps on every platform. Use a virtual environment; never the
+The same four steps on every platform; use a virtual environment, never the
 system Python.
 
 ```sh
@@ -84,9 +94,9 @@ powershell -ExecutionPolicy Bypass -File scripts/e2e.ps1
 ```
 
 Requirements: **Python 3.10+** (3.11+ to read `.mlview.toml`, which needs
-`tomllib`) and **Node 20+**. Set `PYTHONUTF8=1` on Windows. The two drivers run
-the same table and print the same rows; `scripts/pythonpick.sh` is how the POSIX
-driver finds a 3.10+ interpreter.
+`tomllib`) and **Node 20+**; set `PYTHONUTF8=1` on Windows. Both drivers run the
+same table and print the same rows, and `scripts/pythonpick.sh` finds the POSIX
+driver a 3.10+ interpreter.
 
 Individual suites and gates:
 
@@ -97,30 +107,34 @@ python -m pytest scripts -q               # the doc and packaging gates
 cd webview && npm test                    # layout, bundle hygiene, parity, contrast
 cd vscode-extension && npm test           # protocol, ranges, CSP, digests, mapping
 python tools/verify.py --all              # the parity gates
-python tools/accuracy.py                  # the labelled corpus and its ratchet
+python tools/accuracy.py                  # the labelled corpus, ip (the default)
+python tools/accuracy.py --dataflow local # the same for the opt-out mode
 ```
 
 ---
 
 ## What is verified, and what is not
 
-**Exercised end to end** on this machine and, on every push, across the CI
-matrix — `.github/workflows/ci.yml` runs a fast tier on a push and the full
-matrix (ubuntu, Windows and macOS, Python 3.10–3.13, two Node versions) on every
-pull request and every push to `main`: the analyzer and its rules; the CLI,
+**Exercised end to end on this machine** — and **only** on this machine.
+`.github/workflows/ci.yml` runs a fast tier on a push and the full matrix
+(ubuntu, Windows and macOS, Python 3.10–3.13, two Node versions) on every pull
+request and every push to `main`, but **no CI job has started on this branch**:
+Actions billing is blocked and every job comes back unstarted (see
+`CHANGELOG.md`). So **Python 3.10, 3.11 and 3.12, Windows and macOS are
+unverified** — this machine has 3.13 alone. What *is* exercised here: the
+analyzer and its rules; the CLI,
 including `--demo` byte parity and every documented exit code; a real stdio MCP
 handshake with `PYTHONPATH` pointing only at `claude-plugin/vendor`, which also
 proves the no-`pip install` path; the self-contained and scoped HTML reports;
 and all four parity gates.
 
 **Compile-verified only**: the VS Code Extension Development Host (F5) has never
-been driven under automation, and GitHub Copilot is not installed on the build
-machine, so `@mlview` and the three language-model tools are type-checked and
-unit-tested against a mocked `vscode` but have never met a live Copilot session.
-The exercised Copilot surface is the `DiagnosticCollection` — what a Copilot
-agent reads today is the Problems panel, and that path is tested.
-`docs/VALIDATION.md` is the runbook for closing that gap by hand on a second
-machine.
+been driven under automation and Copilot is not installed here, so `@mlview` and
+the three language-model tools are type-checked and unit-tested against a mocked
+`vscode` and have never met a live Copilot session. The exercised Copilot surface
+is the `DiagnosticCollection` — what a Copilot agent reads today is the Problems
+panel, and that path is tested. `docs/VALIDATION.md` is the runbook for closing
+both gaps by hand on a second machine.
 
 ## Known gaps
 
@@ -132,42 +146,41 @@ None blocks the demo. Roughly in the order they matter:
   real subprocess test against a fake CLI.
 - **Loop nesting is flattened.** Invariant §1.1.2 plus a three-value `NodeLevel`
   cannot express function → epoch loop → batch loop → op, so an inner loop is a
-  sibling of its epoch loop. The true depth survives in `LoopIR.depth` and
-  `LoopIR.parent_loop` in `analyzer/src/mlview/ir/model.py`; it cannot be drawn.
+  sibling of its epoch loop. The depth survives in `LoopIR.depth` /
+  `LoopIR.parent_loop` (`analyzer/src/mlview/ir/model.py`); it cannot be drawn.
 - **Cross-file call following is one level.** `analyzer/src/mlview/ir/resolve.py`
   fills `target_function` for a call into a workspace module and stops, so a rule
   cannot chase a helper that a helper calls. `from config import N` resolves;
   `import config` then `config.N` does not.
-- **The framework gate reaches one import hop.** `ctx.wrappers_for()` in
-  `analyzer/src/mlview/rules/context.py` de-rates an absence finding only when a
+- **The framework gate reaches one import hop.** `ctx.wrappers_for()`
+  (`analyzer/src/mlview/rules/context.py`) de-rates an absence finding only when a
   Lightning / HF Trainer / accelerate / ignite / fastai / DDP / FSDP wrapper sits in
   the finding's own module or one it imports — `_detect_wrappers()` in
   `analyzer/src/mlview/ir/build_ir.py` walks exactly one hop. It caps severity at
-  `medium` and multiplies confidence by 0.4; it never drops a finding.
+  `medium` and scales confidence by 0.4; it never drops a finding.
 - **`MLV201`'s `negation_absent` evidence line reads the workspace-wide set.**
   `analyzer/src/mlview/rules/r_trainloop.py` composes that sentence from
-  `ctx.wrappers` rather than from the per-module set the gate uses, so an ungated
+  `ctx.wrappers`, not from the per-module set the gate uses, so an ungated
   hand-written loop can carry "framework wrapper detected: Lightning" beside a
-  `certain` finding. Severity and confidence are right; the sentence contradicts
-  them.
-- **MLV402 is unmeasured.** No program under
-  `analyzer/tests/accuracy/corpus/` carries an MLV402 label, so `tools/accuracy.py`
-  cannot report its recall; the two paths `analyzer/src/mlview/rules/valuetype.py`
-  opened for it are covered by fixtures only.
-- **The interprocedural hop cap is a guess.** `DEFAULT_MAX_HOPS` in
-  `analyzer/src/mlview/ir/provenance.py` is deep enough for caller → ctor →
+  `certain` finding. Severity and confidence are right; the sentence is not.
+- **MLV402 is unmeasured.** No program under `analyzer/tests/accuracy/corpus/`
+  carries an MLV402 label, so `tools/accuracy.py` cannot report its recall; the
+  two paths `analyzer/src/mlview/rules/valuetype.py` opened for it have fixtures
+  only.
+- **The interprocedural hop cap is a guess.** `DEFAULT_MAX_HOPS`
+  (`analyzer/src/mlview/ir/provenance.py`) is deep enough for caller → ctor →
   attribute → sibling method and shallow enough that two hops stay above
-  `speculative`, and nothing measured that choice. A chain past it is not
-  propagated and **is** reported as a `truncated` diagnostic.
+  `speculative`; nothing measured that choice. A chain past it is not propagated
+  and **is** reported as a `truncated` diagnostic.
 - **A fold is lossy about *which* thing.** After
   `analyzer/src/mlview/core/rollup.py` folds a file or directory the diagram shows
   one card carrying `rolledUp` and nothing says what was inside it; the summary's
   `kind` and `stage` are a majority vote with no record of how close it was. Every
-  finding survives with a real `loc`, so this is legibility, not correctness.
+  finding keeps a real `loc`, so this is legibility, not correctness.
 - **A `pipeline:` view draws the other entrypoints, greyed.**
   `analyzer/src/mlview/core/pipelines.py` pulls in up to one file per neighbour as
   context, `workspace.entrypoints` is a heuristic capped at 10, and nodes in no
-  pipeline are counted but never named.
+  pipeline are counted, never named.
 - **A structured fix lands at coordinates nobody can prove are current.**
   `vscode-extension/src/fixes.ts` refuses an unsaved buffer and a file shorter than
   the analysis saw — but a file edited, saved and left the same length passes both.
@@ -180,12 +193,14 @@ None blocks the demo. Roughly in the order they matter:
   that sentence to place a squiggle. A test pins the format on both sides.
 - **The Claude Code hooks do nothing on Windows without Git Bash.** The command
   in `claude-plugin/hooks/hooks.json` is shell form, which is PowerShell there,
-  and `${MLVIEW_PYTHON:-python}` does not expand. The hook fails to start, which
-  is non-blocking, so the degradation is silence rather than a broken session.
-- **`--list-scopes` lists units only.**
-  `analyzer/src/mlview/emit/scope_out.py` prints the scopable-unit catalogue; the
-  four concerns and the eight stage ids are discovered from this document, from
-  the MCP tool description, or from the candidates an unusable selector prints.
+  and `${MLVIEW_PYTHON:-python}` does not expand. Nothing runs — but the exit is
+  non-zero, and a non-zero `PostToolUse` exit raises a visible *hook error*
+  notice on every edit, so the degradation is **noise, not silence**. A
+  `"shell": "bash"` field on both entries is the fix; it is not applied yet.
+- **`--list-scopes` lists units only.** `analyzer/src/mlview/emit/scope_out.py`
+  prints the scopable-unit catalogue; the four concerns and the eight stage ids
+  are discovered from this document, the MCP tool description, or the candidates
+  an unusable selector prints.
 
 ## Open contract change requests
 

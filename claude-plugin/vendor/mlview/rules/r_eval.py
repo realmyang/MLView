@@ -15,12 +15,13 @@ from typing import Iterable, List, Optional, Sequence
 from .. import knowledge as K
 from ..core.graph import Issue, Node
 from ..ir.model import CallSite, ClassIR, FunctionIR, Loc, LoopIR, ScopeIR, ValueRef
+from ..ir.symbols import dotted_text
 from .fixes import eval_mode_fix, no_grad_fix
 from .helpers import calls_in_loop, with_role
 from .registry import rule
 
 __all__ = ["EvalRegion", "eval_regions", "eval_loop_without_eval_mode",
-           "eval_loop_without_no_grad"]
+           "eval_loop_without_no_grad", "test_context"]
 
 _EVAL_NAME_RE = re.compile(r"(?i)^(validate|validation|evaluate|evaluation|val|test|"
                            r"testing|predict|prediction|inference|infer|score)(_|$)")
@@ -84,6 +85,8 @@ def eval_regions(ctx) -> List[EvalRegion]:
     for loop in ctx.loops("batch"):
         if framework_hook(loop.function):
             continue
+        if test_context(loop.module, loop.function, loop.node):
+            continue
         calls = calls_in_loop(ctx, loop)
         forwards = _model_forwards(calls)
         if not forwards or with_role(calls, *_TRAINING_ROLES):
@@ -103,6 +106,8 @@ def eval_regions(ctx) -> List[EvalRegion]:
             claimed.add(id(call))
     for func in _eval_named_functions(ctx):
         if framework_hook(func):
+            continue
+        if test_context(func.module, func, func.node):
             continue
         calls = list(func.calls)
         forwards = [c for c in _model_forwards(calls) if id(c) not in claimed]
@@ -189,6 +194,72 @@ def framework_hook(func: Optional[FunctionIR]) -> Optional[str]:
             return func.name
         func = func.parent_function
     return None
+
+
+#: A module that is a test suite: a file named like one, or one under a
+#: `tests/` directory. Checked together with an `import pytest` / `unittest`
+#: and a test-shaped function, never on its own.
+_TEST_FILE_RE = re.compile(r"(?i)(^|/)(test_[^/]+|[^/]+_test)\.py$")
+_TEST_DIRS = ("tests", "test", "testing")
+_TEST_IMPORTS = ("pytest", "unittest", "nose", "absl.testing")
+_ASSERT_RE = re.compile(r"(?i)(^|\.)assert")
+
+
+def test_context(module, func: Optional[FunctionIR],
+                 node: Optional[ast.AST]) -> Optional[str]:
+    """The reason this region is a *test*, not an evaluation - or None.
+
+    `_EVAL_NAME_RE` reads any function whose name starts `test` as an
+    evaluation entrypoint, so an ordinary pytest module is an evaluation loop
+    and MLV301 puts a **high** finding on `def test_output_shape()`. A test that
+    asserts a shape or a causal-masking property has no reason to call
+    `.eval()`: the region is not evaluation at all, so - exactly like
+    `framework_hook` - it is removed before either rule sees it rather than
+    de-rated afterwards.
+
+    Two halves, and both have to hold, because each alone is too broad: the
+    **module** must be a test suite (named like one, or under a `tests/`
+    directory, or importing a test framework) and the **region** must be
+    test-shaped (a `test*` function, or a body whose work ends in assertions).
+    A guard may only silence, so a shape it misses costs a false negative.
+    """
+    if module is None or not _test_module(module):
+        return None
+    name = None
+    walk = func
+    while walk is not None:
+        if walk.name.lower().startswith("test"):
+            name = walk.name
+            break
+        walk = walk.parent_function
+    if name is not None:
+        return "%s() is a test, not an evaluation" % name
+    body = node if node is not None else (func.node if func is not None else None)
+    if body is not None and _asserts(body):
+        return "the region asserts rather than scores"
+    return None
+
+
+def _test_module(module) -> bool:
+    relpath = (getattr(module, "relpath", "") or "").replace("\\", "/")
+    if _TEST_FILE_RE.search(relpath):
+        return True
+    if any(part in _TEST_DIRS for part in relpath.split("/")[:-1]):
+        return True
+    return any(imported in _TEST_IMPORTS or imported.startswith("unittest.")
+               for imported in (getattr(module, "imports", ()) or ()))
+
+
+def _asserts(node: ast.AST) -> bool:
+    """Does this body take its conclusions with assertions rather than scores?"""
+    for child in ast.walk(node):
+        if isinstance(child, ast.Assert):
+            return True
+        if isinstance(child, ast.Call):
+            text = dotted_text(child.func) or ""
+            if _ASSERT_RE.search(text):
+                return True
+    return False
 
 
 def _eval_named_functions(ctx) -> List[FunctionIR]:

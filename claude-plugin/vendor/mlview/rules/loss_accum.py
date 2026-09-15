@@ -8,6 +8,17 @@ Three questions, and the rule is the conjunction of their answers:
     _accumulations       which statements add a tensor to a running total
     _defined_outside     does the accumulator outlive the loop that adds to it
     _backwarded          was the accumulation deliberate - one backward() on it
+    _no_grad_region      is there any autograd graph here to keep alive
+    _consumed_downstream is the running total the value the code goes on to use
+
+`no_grad_region` and `consumed_downstream` are the two *silencing* readers the
+widening to "any accumulating loop" forgot. A loop under `torch.no_grad()` has
+no graph to retain, so `running_vloss += vloss` there is correct code; and an
+accumulator the program goes on to `backward()` (directly, or through one
+arithmetic step - `total = content + style; total.backward()`) or to `return`
+out of its own function (a loss module's `forward` collecting per-term losses)
+is holding the graph **on purpose**, and taking `.item()` there would silently
+stop training. Both may only ever silence MLV205, never raise it.
 
 `_within` lives here because `_defined_outside` is the reader that has to get
 it exactly right: "outside the loop" means outside the loop that **accumulates**,
@@ -26,7 +37,8 @@ from .. import knowledge as K
 from ..ir.model import CallSite, LoopIR, ValueRef
 from ..ir.symbols import dotted_text
 
-__all__ = ["accumulations", "defined_outside", "backwarded", "within"]
+__all__ = ["accumulations", "defined_outside", "backwarded", "within",
+           "no_grad_region", "consumed_downstream"]
 
 _ACCUM_SAFE = ("item", "detach", "float", "cpu", "numpy", "tolist")
 
@@ -105,6 +117,8 @@ def _loss_operand(ctx, value: ast.expr, scope, accumulator: str,
     for text in _names_of(value):
         if text == accumulator:
             continue
+        if module is not None and _already_detached(module, text, scope):
+            continue
         ref = ctx.binding_of(text, scope)
         if ref is not None and ref.has("LOSS"):
             return ref
@@ -112,6 +126,38 @@ def _loss_operand(ctx, value: ast.expr, scope, accumulator: str,
                 ctx, module, text, scope):
             return ref
     return None
+
+
+def _already_detached(module, name: str, scope) -> bool:
+    """`total_loss += loss.item()` - a running Python float, not a tensor.
+
+    The LOSS tag reaches `total_loss` because `loss` carries it and the binding
+    pass unions the operand's tags; `.item()` is not a call whose output type
+    the tables re-state. So the *second* reader - `losses.append(total_loss)` -
+    saw a live loss where the author had already taken the scalar. True only
+    when the name is written in this scope and **every** write to it is one the
+    `_ACCUM_SAFE` guard already accepts, so a name with one unguarded write
+    stays exactly as visible as it was.
+    """
+    seen = False
+    for record in module.assignments:
+        if record.scope is not scope or record.value is None:
+            continue
+        if not any(dotted_text(t) == name for t in record.targets):
+            continue
+        if _initialiser(record.value):
+            continue                 # `total_loss = 0.0` puts no tensor in
+        seen = True
+        if not _guarded(record.value):
+            return False
+    return seen
+
+
+def _initialiser(value: ast.expr) -> bool:
+    """`0`, `0.0`, `[]`, `()` - the statement that *creates* an accumulator."""
+    if isinstance(value, ast.Constant) and isinstance(value.value, (int, float)):
+        return not isinstance(value.value, bool)
+    return isinstance(value, (ast.List, ast.Tuple)) and not value.elts
 
 
 def _loss_by_arithmetic(ctx, module, name: str, scope) -> bool:
@@ -207,4 +253,95 @@ def backwarded(module, name: str) -> bool:
                 else None
             if text and text.split(".")[-1] in wanted:
                 return True
+    return False
+
+
+def no_grad_region(loop: Optional[LoopIR]) -> bool:
+    """True when the accumulation runs where autograd builds no graph.
+
+    R18(a) widened MLV205 from "the training loop" to *any* accumulating loop
+    and so inherited every validation loop ever written:
+
+        with torch.no_grad():
+            for vinputs, vlabels in validation_loader:
+                running_vloss += loss_fn(model(vinputs), vlabels)
+
+    There is no graph behind `vloss`, so nothing is kept alive and the finding
+    is simply wrong. The `with` block and the `@torch.no_grad()` decorator are
+    the same fact recorded in two places (`ir.scopes_walk`), so both are read.
+    """
+    if loop is None:
+        return False
+    if loop.inside_no_grad:
+        return True
+    func = loop.function
+    return bool(func is not None and func.inside_no_grad)
+
+
+def consumed_downstream(module, name: str, scope,
+                        accumulated: Optional[str] = None) -> bool:
+    """True when the program *uses* the running total as a live tensor.
+
+    Two spellings of one intent, and neither is a defect:
+
+    * ``style_loss += mse_loss(...)`` then ``total = content + style_loss``
+      then ``total.backward()`` - the accumulation is one operand of the loss
+      that is actually backpropagated, one arithmetic step away, which is the
+      same single BinOp hop `_loss_by_arithmetic` already reads in the other
+      direction; and
+    * ``losses.append(term_loss.mean((1,)))`` inside a loss module's own
+      ``forward``, which then ``return``s the sum - the caller backpropagates
+      it, so `.item()` here would detach the whole loss from training.
+
+    The `return` arm asks one more question than the `backward()` arm, because
+    `losses.append(loss)` after `loss.backward()` also ends in `return losses`
+    and *is* the defect: when the collected tensor has already been
+    backpropagated in this very scope, the running total is a record of the
+    epoch rather than the loss, and handing it back keeps every graph alive.
+
+    One level only: a name assigned *directly from* an expression mentioning
+    the accumulator, in the accumulator's own scope. Nothing here can raise the
+    rule, so a missed derivation costs a false negative and never a false
+    positive.
+    """
+    derived = _derived_names(module, name, scope)
+    if any(backwarded(module, candidate) for candidate in derived):
+        return True
+    if accumulated and backwarded(module, accumulated):
+        # The tensor being collected is already backpropagated *here*, so the
+        # running total is a record of what happened, not the value the caller
+        # will differentiate - `losses.append(loss)` after `loss.backward()`.
+        # Handing that record back is exactly the leak MLV205 reports.
+        return False
+    return _returned(module, derived, scope)
+
+
+def _derived_names(module, name: str, scope) -> List[str]:
+    """`name`, plus every name assigned from an expression that mentions it."""
+    out = [name]
+    for record in module.assignments:
+        if record.scope is not scope or record.value is None:
+            continue
+        if name not in _names_of(record.value):
+            continue
+        for target in record.targets:
+            text = dotted_text(target)
+            if text and text not in out:
+                out.append(text)
+    return out
+
+
+def _returned(module, names: List[str], scope) -> bool:
+    """Does the function that owns `scope` hand one of `names` back?"""
+    wanted = set(names)
+    for func in (module.functions or {}).values():
+        if func.scope is not scope:
+            continue
+        for expr in func.returns:
+            for child in ast.walk(expr):
+                if not isinstance(child, (ast.Name, ast.Attribute)):
+                    continue
+                text = dotted_text(child)
+                if text and text in wanted:
+                    return True
     return False

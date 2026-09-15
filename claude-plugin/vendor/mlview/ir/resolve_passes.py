@@ -101,6 +101,11 @@ def argument_value(site: CallSite, arg) -> Optional[ValueRef]:
     if slot is not None:
         ref.via_fqns = slot.fqns
         ref.class_ir = ref.class_ir or slot.class_ir
+        # REC-04: `train(make_state(), ds)` - the argument is the container the
+        # factory returned, and the parameter has to be able to inherit it.
+        ref.container = slot.container
+        ref.container_scope = slot.container_scope
+        ref.container_module = slot.container_module
     return ref
 
 

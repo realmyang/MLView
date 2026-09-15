@@ -230,8 +230,14 @@ last full green push (run 34454599867) down job by job.
 
 ## What is verified, and what is not
 
-Every gate above is green on the build machine and on the CI matrix. What that
-does **not** cover: the VS Code Extension Development Host has never been driven
+Every gate above is green on the build machine. **The CI matrix has not run.**
+GitHub has refused to start a job on this branch since its Actions billing was
+blocked, so nothing in this tree has been executed on Python 3.10, 3.11 or 3.12,
+on Windows or on macOS — the build machine has only 3.13 — and the full-tier jobs
+(`analyzer-extra`, `webview-extra`, `e2e-windows`, `smoke-macos`, `packaging`)
+have never run at all. `CHANGELOG.md` records it push by push, and
+`scripts/README.md` row 25 names the last run that did execute. What the matrix
+would not cover either: the VS Code Extension Development Host has never been driven
 under automation, and GitHub Copilot is not installed on the build machine, so
 `@mlview` and the three language-model tools are type-checked and unit-tested
 against a mocked `vscode` and have never met a live Copilot session. The

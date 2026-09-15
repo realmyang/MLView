@@ -78,9 +78,11 @@ def check_accuracy_numbers(root: Path, problems: list) -> None:
 
     def complain(n, said, holds, what):
         problems.append(
-            "%s:%d: says %s but %s holds %s -- re-run `python tools/accuracy.py` "
-            "and paste the current numbers; the gate and the honesty document may "
-            "not disagree about %s (TB-08)"
+            "%s:%d: says %s but %s holds %s -- re-run "
+            "`python tools/accuracy.py --dataflow local` (this check reads the "
+            "LOCAL baseline, and a bare run is `ip` since 2026-09-15) and paste "
+            "the current numbers; the gate and the honesty document may not "
+            "disagree about %s (TB-08)"
             % (ACCURACY_DOC, n, said, ACCURACY_BASELINE, holds, what))
 
     graph = baseline.get("graphFidelity") or {}

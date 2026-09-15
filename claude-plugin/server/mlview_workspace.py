@@ -39,7 +39,7 @@ _PLUGIN_ROOT = os.path.dirname(_SERVER_DIR)
 _REPO_ROOT = os.path.dirname(_PLUGIN_ROOT)
 
 __all__ = [
-    "project_dir", "data_dir", "cache_dir", "shared_cache_dir",
+    "project_dir", "named_data_dir", "data_dir", "cache_dir", "shared_cache_dir",
     "resolve_path", "resolve_out",
     "analyzer_identity", "file_signature", "graph_file_for",
     "load_graph", "load_graph_or_file", "load_attributed",
@@ -74,35 +74,63 @@ def project_dir() -> str:
     return _norm(os.getcwd())
 
 
-def data_dir() -> str:
-    """Where graph.json and report.html live: MLVIEW_DATA_DIR or <project>/.mlview."""
-    raw = (os.environ.get("MLVIEW_DATA_DIR") or "").strip()
-    base = _norm(raw) if raw else os.path.join(project_dir(), ".mlview")
+def named_data_dir() -> Optional[str]:
+    """The host's own storage directory, when the host named one.
+
+    ``.mcp.json`` sets ``MLVIEW_DATA_DIR=${CLAUDE_PLUGIN_DATA}``, but a process
+    that did not inherit it may still see ``CLAUDE_PLUGIN_DATA`` itself — a
+    ``claude --plugin-dir`` session is the measured case — so both names are
+    honoured, exactly as ``hooks/hook_core.hook_data_dir`` already does. ``None``
+    means no host named anything and the defaults below apply.
+    """
+    for var in ("MLVIEW_DATA_DIR", "CLAUDE_PLUGIN_DATA"):
+        raw = (os.environ.get(var) or "").strip()
+        if raw:
+            return _norm(raw)
+    return None
+
+
+def data_dir(create: bool = True) -> str:
+    """Where graph.json and report.html live: the host's directory, else <project>/.mlview.
+
+    ``create=False`` resolves the path without touching the disk. ``resolve_out``
+    needs the string only to decide whether a model-supplied ``out`` is contained,
+    and creating a directory inside somebody's repository as a side effect of
+    ANSWERING A QUESTION is how ``.mlview/`` appeared in projects nobody had run a
+    report on. Everything that actually writes here keeps ``create=True``.
+    """
+    base = named_data_dir() or _norm(os.path.join(project_dir(), ".mlview"))
     base = base.replace("\\", "/")
-    os.makedirs(base, exist_ok=True)
+    if create:
+        os.makedirs(base, exist_ok=True)
     return base
 
 
 def cache_dir() -> str:
-    """The per-file parse cache: MLVIEW_CACHE_DIR, else ``<data_dir>/cache``.
+    """The per-file parse cache: MLVIEW_CACHE_DIR, else the host's dir, else the core's.
 
-    Since C8 the core's own default is the **user's** cache directory keyed by
-    the workspace path, never ``<root>/.mlview/cache``, so this no longer stands
-    between the user's repository and a sidecar — the core does that itself now.
-    It is still computed here, and for the reason that outlived the original
-    one: it is what makes 11.41 C3 true, that the hooks and the MCP tools share
-    the *parse* cache and not merely the graph document, because both halves
-    compute this one path. One plugin, one directory, actually shared.
+    Three answers, in order, and **none of them is inside the analyzed project**:
 
-    With no ``MLVIEW_DATA_DIR`` named this is ``<project>/.mlview/cache``, which
-    is where the plugin has always put it; a checkout run without the plugin's
-    env is unchanged, and a run with it keeps everything under one directory the
-    user can delete in one go.
+    1. ``MLVIEW_CACHE_DIR`` — a host (or a CI job collecting the sidecar) named it.
+    2. ``<data_dir>/cache`` when a host named its storage directory. This is what
+       makes 11.41 C3 true — the hooks and the MCP tools share the *parse* cache
+       and not merely the graph document, because both halves compute this one
+       path — and it keeps everything under one directory the user can delete.
+    3. Otherwise the core's own ``cache_dir_for(project)``: the user's cache
+       directory keyed by the workspace path. Until C8 this fell through to
+       ``<project>/.mlview/cache``, so a ``--plugin-dir`` session, or any direct
+       run of this server, wrote a sidecar into the repository it was reading —
+       the one thing C8 says must never happen by default. The core stopped doing
+       it; this host was still doing it for itself.
     """
     raw = (os.environ.get("MLVIEW_CACHE_DIR") or "").strip()
     if raw:
         return _norm(raw)
-    return os.path.join(data_dir(), "cache").replace("\\", "/")
+    if named_data_dir() is not None:
+        return os.path.join(data_dir(), "cache").replace("\\", "/")
+    from mlview.core.cache import cache_dir_for
+
+    return cache_dir_for(project_dir()).replace("\\", "/")
 
 
 @contextlib.contextmanager
@@ -173,7 +201,7 @@ def resolve_out(target: Optional[str], default_name: str = "report.html") -> str
     the same containment obligation CONTRACTS section 4 puts on ``openLocation``.
     """
     roots = []
-    for root in (project_dir(), data_dir()):
+    for root in (project_dir(), data_dir(create=False)):
         if root and root not in roots:
             roots.append(root)
     raw = (str(target).strip() if target is not None else "")

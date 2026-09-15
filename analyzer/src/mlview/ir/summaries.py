@@ -71,18 +71,28 @@ _MAX_NOTES = 25
 class _Fact:
     """The tags, class and provenance one argument expression contributes."""
 
-    __slots__ = ("tags", "class_ir", "is_config", "producer", "chain")
+    __slots__ = ("tags", "class_ir", "is_config", "producer", "chain",
+                 "container", "container_scope", "container_module")
 
     def __init__(self, tags=(), class_ir=None, is_config=False, producer=None,
-                 chain=()) -> None:
+                 chain=(), container=None, container_scope=None,
+                 container_module=None) -> None:
         self.tags: Set[str] = set(tags)
         self.class_ir = class_ir
         self.is_config = bool(is_config)
         self.producer = producer
         self.chain: Tuple[Hop, ...] = tuple(chain)
+        #: REC-04. The dict / tuple / list literal this argument *is*, with the
+        #: scope its elements must be read in. A `state` parameter read as
+        #: `state["scaler"]` was the one shape GRAPH-R3's carriage could not
+        #: reach, because carriage stopped at the scope that wrote the literal.
+        self.container = container
+        self.container_scope = container_scope
+        self.container_module = container_module
 
     def known(self) -> bool:
-        return bool(self.tags or self.class_ir is not None)
+        return bool(self.tags or self.class_ir is not None
+                    or self.container is not None)
 
 
 def _fact_at(site: CallSite, arg: Optional[ast.expr]) -> _Fact:
@@ -94,7 +104,12 @@ def _fact_at(site: CallSite, arg: Optional[ast.expr]) -> _Fact:
     if ref is None:
         return _Fact()
     return _Fact(tags=ref.tags, class_ir=ref.class_ir, is_config=ref.is_config,
-                 producer=ref.producer, chain=getattr(ref, "provenance", ()))
+                 producer=ref.producer, chain=getattr(ref, "provenance", ()),
+                 container=getattr(ref, "container", None),
+                 container_scope=getattr(ref, "container_scope", None) or (
+                     ref.scope if getattr(ref, "container", None) is not None
+                     else None),
+                 container_module=getattr(ref, "container_module", None))
 
 
 def _pairs(site: CallSite, params: Sequence[str]) -> Dict[str, ast.expr]:
@@ -128,9 +143,20 @@ def _intersect(facts: Sequence[_Fact]) -> _Fact:
     classes = {id(f.class_ir) for f in facts}
     class_ir = facts[0].class_ir if (len(classes) == 1
                                      and facts[0].class_ir is not None) else None
+    # The same discipline for the container: every site has to be passing the
+    # very same literal, or the parameter inherits none. Two call sites with
+    # two different dicts agree on nothing, and a guessed container would make
+    # `state["model"]` in the callee stand for an object no caller passed.
+    holders = {id(f.container) for f in facts}
+    holder = (facts[0] if len(holders) == 1 and facts[0].container is not None
+              else None)
     return _Fact(tags=tags, class_ir=class_ir,
                  is_config=all(f.is_config for f in facts),
-                 producer=facts[0].producer if len(facts) == 1 else None)
+                 producer=facts[0].producer if len(facts) == 1 else None,
+                 container=holder.container if holder is not None else None,
+                 container_scope=holder.container_scope if holder is not None else None,
+                 container_module=holder.container_module if holder is not None
+                 else None)
 
 
 # ---------------------------------------------------------------------------
@@ -174,11 +200,14 @@ def _seed(func: FunctionIR, param: str, fact: _Fact, chain: Tuple[Hop, ...],
     tags = sort_tags(fact.tags)
     if (existing is not None and tuple(existing.tags) == tags
             and existing.class_ir is fact.class_ir
+            and getattr(existing, "container", None) is fact.container
             and tuple(getattr(existing, "provenance", ())) == chain):
         return False
     scope.bindings[param] = ValueRef(
         name=param, scope=scope, tags=tags, producer=fact.producer, loc=func.loc,
-        class_ir=fact.class_ir, is_config=fact.is_config, provenance=chain)
+        class_ir=fact.class_ir, is_config=fact.is_config, provenance=chain,
+        container=fact.container, container_scope=fact.container_scope,
+        container_module=fact.container_module)
     return True
 
 

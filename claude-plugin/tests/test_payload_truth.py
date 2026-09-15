@@ -436,13 +436,133 @@ def test_the_coverage_block_is_bounded_so_protecting_it_cannot_starve_a_payload(
         message="x" * 4000,
         codes=["MLV%03d" % n for n in range(101, 141)],
     )
-    graph = _corpus(1, 0, [huge, dict(UNTAGGED_DIAGNOSTIC, message="y" * 4000)])
+    graph = _corpus(
+        1,
+        0,
+        [
+            huge,
+            dict(UNTAGGED_DIAGNOSTIC, message="y" * 4000),
+            dict(FRAMEWORK_FILTER_DIAGNOSTIC, message="z" * 4000,
+                 codes=["MLV%03d" % n for n in range(201, 241)]),
+        ],
+    )
     payload = payloads.issues_payload(graph)
     assert mlview_budget.payload_size(payload) <= LIMIT
     for note in payload["coverage"]:
         assert len(note["codes"]) <= 6
         assert len(note["message"]) <= 400
     assert payload["coverage"][0]["message"].endswith("...")
+
+
+def test_a_hostile_coverage_block_still_leaves_room_for_a_finding():
+    """Three kinds cost more than two, so the protected block is re-measured.
+
+    All three at their bound - 40 codes and 4000 bytes of message each - serialize
+    to 1881 bytes of the 4096, and the payload lands at 3510 with a finding still
+    in it. Real messages are ~360 bytes and name a handful of codes, so the block
+    costs ~1.4 KB in the worst case anyone will actually see; this is the ceiling.
+    """
+    codes = ["MLV%03d" % n for n in range(101, 141)]
+    graph = _corpus(
+        1,
+        0,
+        [
+            dict(SINGLE_FILE_DIAGNOSTIC, message="x" * 4000, codes=codes),
+            dict(UNTAGGED_DIAGNOSTIC, message="y" * 4000, codes=codes),
+            dict(FRAMEWORK_FILTER_DIAGNOSTIC, message="z" * 4000, codes=codes),
+        ],
+    )
+    graph["issues"] = synthetic_graph(nodes=8, edges=4, issues=60)["issues"]
+    payload = payloads.issues_payload(graph)
+    assert mlview_budget.payload_size(payload) <= LIMIT
+    assert len(payload["coverage"]) == 3
+    assert payload["issues"], "the coverage block starved the findings out entirely"
+
+
+# -------------------------------------------------- framework_filter (CONTRACTS 11.57 C3)
+# `mlview_analyze(framework=...)` is a MODEL-settable argument, and a value other
+# than "auto" narrows the RULE SET, not just the extractors. The core says so with
+# a third coverage kind; this host carried a two-element list, so the caveat was
+# dropped and the model saw a shorter finding list with no explanation - measured on
+# a one-file torch project, `framework="sklearn"` reported 0 high / 0 medium where
+# "auto" reported 1 high / 1 medium, and the only trace was `framework_filter x21`
+# in the tally, which reads as 21 occurrences rather than 21 suppressed rules.
+FRAMEWORK_FILTER_MESSAGE = (
+    "--framework sklearn narrowed the rule set: 3 rule(s) that the detected "
+    "frameworks would have run did not (MLV201, MLV202, MLV205). A clean result "
+    "here is a clean result for sklearn alone - drop --framework (or pass auto) to "
+    "judge the whole workspace."
+)
+FRAMEWORK_FILTER_DIAGNOSTIC = {
+    "kind": "framework_filter",
+    "message": FRAMEWORK_FILTER_MESSAGE,
+    "codes": ["MLV201", "MLV202", "MLV205"],
+    "count": 3,
+}
+
+
+def test_this_host_reads_every_coverage_kind_the_core_emits():
+    """The gate for the class, not the instance.
+
+    `framework_filter` shipped in the core and in neither host, so a run the model
+    itself narrowed came back as a clean bill of health. Membership is compared as a
+    SET: render order is each host's own choice (this module renders the two oldest
+    kinds first, as `coverage.ts` does), but a kind the core can emit and this host
+    does not know is a caveat the model never sees.
+    """
+    from mlview.core.coverage import COVERAGE_KINDS as CORE_KINDS
+
+    import mlview_notes
+
+    assert set(mlview_notes.COVERAGE_KINDS) == set(CORE_KINDS), (
+        "the core emits %s; this host reads %s"
+        % (sorted(CORE_KINDS), sorted(mlview_notes.COVERAGE_KINDS))
+    )
+    assert len(set(mlview_notes.COVERAGE_KINDS)) == len(mlview_notes.COVERAGE_KINDS)
+
+
+def test_a_narrowed_framework_is_reported_as_a_caveat_not_a_clean_result():
+    payload = payloads.issues_payload(_corpus(1, 0, [FRAMEWORK_FILTER_DIAGNOSTIC]))
+    note = payload["coverage"][0]
+    assert note["kind"] == "framework_filter"
+    assert note["codes"] == ["MLV201", "MLV202", "MLV205"]
+    assert note["message"] == FRAMEWORK_FILTER_MESSAGE, "the analyzer's own wording"
+    for code in ("MLV201", "MLV202", "MLV205"):
+        assert code in payload["note"], payload["note"]
+    assert "floor" in payload["note"] and "clean bill of health" in payload["note"]
+    assert mlview_budget.payload_size(payload) <= LIMIT
+
+
+def test_the_analyze_payload_also_carries_the_framework_caveat():
+    from mlview.api import digest
+
+    graph = _corpus(1, 0, [FRAMEWORK_FILTER_DIAGNOSTIC])
+    payload = payloads.analyze_payload(
+        digest(graph, limit_bytes=3200), "C:/proj/.mlview/graph.json", graph=graph
+    )
+    assert payload["coverage"][0]["codes"] == ["MLV201", "MLV202", "MLV205"]
+    assert "MLV201" in payload["note"]
+    assert payload["diagnostics"] == [{"kind": "framework_filter", "count": 3}]
+
+
+def test_all_three_coverage_kinds_fit_the_budget_together():
+    graph = _corpus(
+        1, 0, [FRAMEWORK_FILTER_DIAGNOSTIC, UNTAGGED_DIAGNOSTIC, SINGLE_FILE_DIAGNOSTIC]
+    )
+    payload = payloads.issues_payload(graph)
+    assert [c["kind"] for c in payload["coverage"]] == [
+        "single_file_analysis",
+        "untagged_dataflow",
+        "framework_filter",
+    ]
+    assert mlview_budget.payload_size(payload) <= LIMIT
+
+
+def test_a_framework_caveat_with_no_message_still_says_the_rules_were_dropped():
+    graph = _corpus(1, 0, [{"kind": "framework_filter", "count": 2}])
+    note = payloads.issues_payload(graph)["coverage"][0]
+    assert "narrowed the rule set" in note["message"]
+    assert note["codes"] == []
 
 
 def test_a_diagnostic_with_no_message_or_codes_still_says_the_run_was_blind():

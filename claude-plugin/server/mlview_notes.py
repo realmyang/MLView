@@ -8,7 +8,7 @@ They all answer the same question: *is an empty result good news?*
   Python - or one whose every file failed to parse - reading as a clean bill of
   health, which is exactly what ``commands/mlview-issues.md`` tells the model to say.
 * ``coverage_notes`` / ``coverage_note`` (ROADMAP COVERAGE) are the *blind spot*
-  half: the analyzer's two coverage diagnostics name the rules that could not run,
+  half: the analyzer's coverage diagnostics name the rules that could not run,
   and a ``{kind, count}`` tally drops precisely that. ``commands/mlview.md`` tells
   the model to "name the rules that could not run before you report the count", so
   the codes and the analyzer's own sentence have to be IN the payload; without them
@@ -25,8 +25,16 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional, Sequence
 
 #: The ``Diagnostic.kind`` values this host reads as coverage caveats. Closed, and
-#: in the order a payload renders them; the same list as `coverage.ts` uses.
-COVERAGE_KINDS = ("single_file_analysis", "untagged_dataflow")
+#: in the order a payload renders them; the same SET as `mlview.core.coverage`
+#: emits and as `coverage.ts` reads, which
+#: ``tests/test_payload_truth.py::test_this_host_reads_every_coverage_kind_the_core_emits``
+#: gates - a kind that lands in the core and in neither host is a caveat the model
+#: never sees. ``framework_filter`` is third because ``mlview_analyze`` lets the
+#: MODEL set ``framework``: narrowing it drops rules the detected frameworks would
+#: have run, and without this entry the shorter finding list arrived with no
+#: explanation at all - exactly the false clean bill of health this module exists
+#: to prevent. Render order is each host's own; only the membership is shared.
+COVERAGE_KINDS = ("single_file_analysis", "untagged_dataflow", "framework_filter")
 
 #: How many rule codes one caveat carries before the list is elided. There are only
 #: a handful of cross-file / leakage rules, so this is a safety valve rather than a
@@ -36,7 +44,7 @@ MAX_CODES = 6
 
 #: How much of the analyzer's own sentence survives into the payload. The longest
 #: real message today is ~360 bytes; 400 keeps every one of them whole while capping
-#: the block at ~1 KB of the 4 KB budget even with both kinds present.
+#: the block at ~1.4 KB of the 4 KB budget even with all three kinds present.
 MAX_MESSAGE = 400
 
 
@@ -56,9 +64,10 @@ def diagnostics_summary(graph: Dict[str, Any]) -> List[Dict[str, Any]]:
     a `parse_error` never reaches the model through any tool and "0 issues" cannot
     be told apart from "every file failed to parse". It costs ~30 bytes per kind.
 
-    This is a TALLY, not an explanation: for the two coverage kinds the count is
-    sibling modules / untraced sites, never rules, and ``coverage_notes`` below is
-    what carries the wording and the rule codes.
+    This is a TALLY, not an explanation: the count means something different for
+    every kind - sibling modules for ``single_file_analysis``, untraced sites for
+    ``untagged_dataflow``, suppressed rule codes for ``framework_filter`` - and
+    ``coverage_notes`` below is what carries the wording that says which.
     """
     tally: Dict[str, int] = {}
     for entry in graph.get("diagnostics") or []:
@@ -111,6 +120,12 @@ def _default_message(kind: str) -> str:
         return (
             "Only part of the project was analyzed, so the rules that need "
             "cross-file evidence could not run."
+        )
+    if kind == "framework_filter":
+        return (
+            "A framework filter narrowed the rule set, so rules the detected "
+            "frameworks would have run did not - a clean result here is a clean "
+            "result for that framework alone."
         )
     return (
         "A key argument carried no dataflow tag, so the leakage rules could not "

@@ -15,6 +15,7 @@ from typing import Any, Dict, Iterable, List, Sequence, Tuple
 from .. import knowledge as K
 from ..ingest.parse import ParsedFile
 from .bindings import bind_module, binding_of
+from .bindings_store import rebind_containers
 from .converge import MAX_ROUNDS, state_digest
 from .resolve import (mark_fitted, propagate_parameters, resolve_calls,
                       seed_annotations)
@@ -138,6 +139,11 @@ def _ir_round(workspace: WorkspaceIR) -> None:
     if getattr(workspace, "dataflow", DEFAULT_DATAFLOW) == "ip":
         workspace.ip_notes = propagate_summaries(
             workspace, getattr(workspace, "ip_max_hops", DEFAULT_MAX_HOPS))
+    # REC-04: the summaries may have just told a parameter which container it
+    # holds; `state["scaler"]` is a binding, not a call, so it has to be read
+    # again here - before `resolve_calls`, so the receiver resolves this round.
+    for relpath in sorted(workspace.modules):
+        rebind_containers(workspace.modules[relpath], workspace)
     for relpath in sorted(workspace.modules):
         resolve_calls(workspace.modules[relpath], workspace)
     # one level of return-type inference, so the *next* binding round can

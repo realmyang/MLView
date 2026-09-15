@@ -14,10 +14,11 @@
     {
       "name": "mlview-github",
       "source": {
-        "source": "github",
-        "repo": "realmyang/MLView"
+        "source": "git-subdir",
+        "url": "https://github.com/realmyang/MLView.git",
+        "path": "claude-plugin"
       },
-      "description": "The same MLView plugin, installed from GitHub — for a machine with no MLView checkout. The analyzer is vendored inside the plugin, so there is nothing to pip install."
+      "description": "The same MLView plugin, installed from GitHub — for a machine with no MLView checkout. The plugin lives in the repository's claude-plugin/ subdirectory, so this is the git-subdir source; the analyzer is vendored inside it, so there is nothing to pip install."
     }
   ]
 }

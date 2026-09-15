@@ -76,9 +76,11 @@ list:
 14. **A fixture battery quoted at the size it used to be**, against
     `contracts/scope.cases.json`.
 15. **Two gate documents naming different runs** for "the last full green push".
+16. **A gate claimed green on a CI matrix that never ran** (DOCS-CI-OVERCLAIM):
+    a green claim and the matrix in one breath, saying nothing about whether it ran.
 
-`scripts/doc_numbers.py` carries checks 9-11 and `scripts/doc_figures.py` checks
-13-15, with the incident behind each.
+`scripts/doc_numbers.py` carries checks 9-11, `scripts/doc_figures.py` checks
+13-15 and `scripts/doc_claims.py` check 16, with the incident behind each.
 
 Usage:  python scripts/check_docs.py [--root DIR] [--quiet]
 Exit 0 when clean, 1 when a problem is found. The report goes to stdout.
@@ -92,7 +94,8 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import doc_figures  # noqa: E402  - sibling modules, after the sys.path fix above
+import doc_claims  # noqa: E402  - sibling modules, after the sys.path fix above
+import doc_figures  # noqa: E402
 import doc_numbers  # noqa: E402
 
 DEFAULT_ROOT = Path(__file__).resolve().parent.parent
@@ -164,12 +167,12 @@ _SYMBOL_CACHE: dict = {}
 # ---------------------------------------------------------- line endings
 # Generated and vendored trees keep whatever endings their tools wrote; the
 # pristine pre-feature snapshot under .workflows/ is a diffing aid, not source;
-# and `.public-corpus/` is 24 CLONED third-party repositories that
-# `tools/public_corpus.py fetch` drops in the working directory - 169 of their
-# shell scripts are not this project's source and their line endings are not this
-# project's business. Without that entry this gate's own regression test fails on
-# every machine that has ever fetched the corpus, which is every machine that
-# follows docs/VALIDATION.md.
+# and `.public-corpus/` is CLONED third-party repositories (the runner that fetches
+# them is not in this tree - see docs/ACCURACY.md 8.3) dropped in the working
+# directory - hundreds of their shell scripts are not this project's source and
+# their line endings are not this project's business. Without that entry this
+# gate's own regression test fails on every machine that has ever fetched the
+# corpus.
 ENDING_SKIP_PARTS = SOURCE_SKIP_PARTS | {".workflows", ".public-corpus"}
 CR, LF = bytes([13]), bytes([10])
 CRLF = CR + LF
@@ -571,6 +574,7 @@ def run(root: Path):
     # Checks 9-11 and 13-15: numbers the prose shares with a file in the tree.
     doc_numbers.run(root, current, problems)
     doc_figures.run(root, current, problems)
+    doc_claims.run(root, current, problems)  # 16: a claim with no copy anywhere
     return problems, current + plan + scripts
 
 
@@ -593,7 +597,8 @@ def main(argv=None) -> int:
               "matches the baseline, no silent artifact upload, one e2e step "
               "count, every shipped roadmap item recorded as landed, the "
               "components table agreeing with its own gate paragraph, the scope "
-              "battery quoted at its real size, one last-green-push run id)"
+              "battery quoted at its real size, one last-green-push run id, "
+              "no gate claimed green on a CI matrix that never ran)"
               % len(files))
     return 0
 

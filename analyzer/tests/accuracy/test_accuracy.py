@@ -6,6 +6,11 @@ analyzer/tests` and not only the dedicated CI job.
 
 The three gates, in the order they matter:
 
+This module measures **`--dataflow local`** against `baseline.json`; the `ip`
+ratchet - the shipped default since R1 - is `test_dataflow_ip.py`, against
+`baseline.ip.json`. Both modes are gated, and each is scored against its own
+floor.
+
 1. **zero `forbidden` findings, ever** - the tolerance is not a baseline and
    never ratchets. A high-severity marker on correct code is the one failure
    the project says costs it its credibility.
@@ -46,14 +51,21 @@ accuracy = _load_tool()
 
 @pytest.fixture(scope="module")
 def run():
-    """The whole corpus, analyzed once."""
-    results, report = accuracy.run_corpus()
+    """The whole corpus, analyzed once, in **`local`** mode.
+
+    REC-06: this fixture used to call `run_corpus()` bare and score whichever
+    mode that signature happened to default to, while asserting against
+    `baseline.json` - the `local` ratchet. The two agreed only by accident, and
+    stopped agreeing the day `ip` became the product default. The mode is named
+    here, beside the baseline it gates; the `ip` ratchet is `test_dataflow_ip`.
+    """
+    results, report = accuracy.run_corpus(dataflow="local")
     return results, report
 
 
 @pytest.fixture(scope="module")
 def baseline():
-    data = accuracy.load_baseline()
+    data = accuracy.load_baseline(accuracy.BASELINE_PATH)
     assert data is not None, (
         "analyzer/tests/accuracy/baseline.json is missing - record it with "
         "`python tools/accuracy.py --update-baseline`")
@@ -411,6 +423,40 @@ def test_update_baseline_still_ratchets_up_without_a_flag(tmp_path, monkeypatch)
                 ["--baseline", path, "--update-baseline", "--quiet"])
     assert code == accuracy.EXIT_OK
     assert json.load(open(path, encoding="utf-8"))["overall"]["recall"] == 0.70
+
+
+def test_update_baseline_refuses_to_write_the_other_mode_s_ratchet(tmp_path,
+                                                                   monkeypatch,
+                                                                   capsys):
+    """REC-05: a run may only rewrite the baseline for the mode it scored.
+
+    `ip` became the product default, so a bare `--update-baseline` now targets
+    `baseline.ip.json`; the documented recipe ("run it, then run it again with
+    `--dataflow ip`") became the same command twice, rewriting one ratchet twice
+    and never touching the other. Every baseline records its own mode, so the
+    guard is one comparison.
+    """
+    report = _fake_report(recall=0.60)
+    report["dataflow"] = "local"
+    path = _write_baseline(tmp_path, report)
+    assert json.load(open(path, encoding="utf-8"))["dataflow"] == "local"
+    before = open(path, encoding="utf-8").read()
+
+    # The default mode is `ip`; this baseline is the `local` ratchet.
+    code = _run(monkeypatch, _fake_report(recall=0.90),
+                ["--baseline", path, "--update-baseline", "--quiet"])
+    assert code == accuracy.EXIT_CORPUS
+    assert open(path, encoding="utf-8").read() == before, "the file was rewritten"
+    err = capsys.readouterr().err
+    assert "it is the `local` ratchet" in err and "--dataflow local" in err
+
+    # Naming the mode explicitly writes it.
+    local = _fake_report(recall=0.90)
+    local["dataflow"] = "local"
+    assert _run(monkeypatch, local,
+                ["--baseline", path, "--update-baseline", "--quiet",
+                 "--dataflow", "local"]) == accuracy.EXIT_OK
+    assert json.load(open(path, encoding="utf-8"))["overall"]["recall"] == 0.90
 
 
 def test_update_baseline_refuses_while_a_forbidden_finding_fires(tmp_path,

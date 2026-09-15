@@ -65,10 +65,19 @@ class ReturnSlot:
     #: knows it could not follow it, which is what lets `core/workspace_ops`
     #: draw an honest `unknown` box instead of nothing at all.
     opaque: Optional[str] = None
+    #: REC-04. The dict / list / tuple **literal** the function returns, with
+    #: the scope and module its element expressions must be read in. GRAPH-R3
+    #: resolves an object out of a container only where the literal is assigned
+    #: to a name in the same scope, so a `make_state()` factory - which is how
+    #: the shape is actually written - lost everything inside it at the
+    #: `return`. Carried exactly one level, like every other slot field.
+    container: Optional[Any] = None
+    container_scope: Optional[Any] = None
+    container_module: Optional[Any] = None
 
     def __bool__(self) -> bool:
         return bool(self.fqns or self.tags or self.class_ir is not None
-                    or self.opaque)
+                    or self.opaque or self.container is not None)
 
 
 @dataclass(frozen=True)
@@ -163,6 +172,12 @@ def _slot(expr, func: FunctionIR, workspace, memo, active, depth: int,
     if expr is None:
         return None
     module = func.module
+    if isinstance(expr, (ast.Dict, ast.List, ast.Tuple)):
+        # REC-04: `return {"scaler": GradScaler(...), "model": model}`. The
+        # literal itself is the answer; its elements are read later, in the
+        # scope that wrote them.
+        return ReturnSlot(container=expr, container_scope=func.scope,
+                          container_module=module)
     if isinstance(expr, ast.Call):
         call = getattr(module, "_calls_by_node", {}).get(id(expr))
         if call is None:
@@ -187,7 +202,11 @@ def _slot(expr, func: FunctionIR, workspace, memo, active, depth: int,
         fqns = _trim(ref.producer.canonical_fqns
                      or ((ref.producer.fqn,) if ref.producer.fqn else ()))
     slot = ReturnSlot(fqns=fqns, tags=tuple(ref.tags), class_ir=ref.class_ir,
-                      opaque=ref.opaque)
+                      opaque=ref.opaque, container=ref.container,
+                      container_scope=(ref.container_scope or func.scope)
+                      if ref.container is not None else None,
+                      container_module=(ref.container_module or module)
+                      if ref.container is not None else None)
     return slot or None
 
 
@@ -226,6 +245,17 @@ def _merge(slots: Sequence[ReturnSlot]) -> Optional[ReturnSlot]:
                 opaque = slot.opaque
                 break
 
+    # A container survives the merge only when every branch returned the very
+    # same literal; two different dicts are not one container.
+    containers = {id(s.container): s for s in kept if s.container is not None}
+    holder = (list(containers.values())[0]
+              if len(containers) == 1 and len(containers) == len(kept) else None)
+
     slot = ReturnSlot(fqns=tuple(fqns[:_MAX_FQNS]), tags=sort_tags(tags),
-                      class_ir=class_ir, opaque=opaque)
+                      class_ir=class_ir, opaque=opaque,
+                      container=holder.container if holder is not None else None,
+                      container_scope=holder.container_scope if holder is not None
+                      else None,
+                      container_module=holder.container_module if holder is not None
+                      else None)
     return slot or None

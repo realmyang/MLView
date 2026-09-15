@@ -102,7 +102,45 @@ def note_refused_split(ctx, fit: CallSite, name: Optional[str], ref, splits) -> 
         ruleCode=spec.code if spec is not None else None))
 
 
-def _fed_return_positions(ctx, func, produced) -> List[Optional[int]]:
+def _returned_call(func, element) -> Optional[CallSite]:
+    """The `CallSite` behind a `return <call>`, when the analyzer resolved one.
+
+    `dotted_text` yields None for an `ast.Call`, which used to end both
+    interprocedural leakage walks before they looked at anything: a helper
+    written `return scaler.fit_transform(frame)` - the idiomatic spelling -
+    produced an empty position list, while the same helper refactored to
+    `matrix = scaler.fit_transform(frame); return matrix` produced a finding.
+    The two spellings are the same program and now read the same.
+    """
+    if not isinstance(element, ast.Call):
+        return None
+    index = getattr(func.module, "_calls_by_node", None) or {}
+    return index.get(id(element))
+
+
+def _call_operands(call: Optional[CallSite]) -> List[str]:
+    """The dotted names a call is written on - its receiver and its arguments.
+
+    One level, literal, and no deeper: `scaler.fit_transform(frame)` stands for
+    `frame` and for `scaler`, which is exactly what the name form of the same
+    return would have said.
+    """
+    if call is None:
+        return []
+    out: List[str] = []
+    for node in list(call.args) + [call.kwarg_nodes[k]
+                                   for k in sorted(call.kwarg_nodes)]:
+        text = dotted_text(node)
+        if text and text not in out:
+            out.append(text)
+    for text in (call.var, call.receiver_name):
+        if text and text not in out:
+            out.append(text)
+    return out
+
+
+def _fed_return_positions(ctx, func, produced, fit: Optional[CallSite] = None
+                          ) -> List[Optional[int]]:
     """Which returned positions of `func` carry a value derived from the fit.
 
     `None` in the list means the function returns a scalar rather than a tuple.
@@ -113,7 +151,17 @@ def _fed_return_positions(ctx, func, produced) -> List[Optional[int]]:
         elements = list(expr.elts) if tupled else [expr]
         for index, element in enumerate(elements):
             text = dotted_text(element)
-            if not text or not reaches(ctx, text, func.scope, produced):
+            fed = bool(text) and reaches(ctx, text, func.scope, produced)
+            if not fed:
+                # `return scaler.fit_transform(frame)`: `dotted_text` gives the
+                # *callee* (`scaler.fit_transform`), which reaches nothing, so
+                # the call itself is what has to be read.
+                call = _returned_call(func, element)
+                fed = call is not None and (
+                    call is fit
+                    or any(reaches(ctx, operand, func.scope, produced)
+                           for operand in _call_operands(call)))
+            if not fed:
                 continue
             slot = index if tupled else None
             if slot not in out:
@@ -147,7 +195,7 @@ def split_after_return(ctx, fit: CallSite, splits, name: Optional[str], ref):
     produced = {t for t in (fit.var, name) if t}
     if not produced:
         return None, None
-    positions = _fed_return_positions(ctx, func, produced)
+    positions = _fed_return_positions(ctx, func, produced, fit)
     if not positions:
         return None, None
     for caller in _callers_of(ctx, func):
@@ -265,7 +313,13 @@ def fold_projection(ctx, fit: CallSite):
 
 
 def _returned_names(func, index: Optional[int]) -> List[str]:
-    """The names a function hands back, at one tuple position or at all of them."""
+    """The names a function hands back, at one tuple position or at all of them.
+
+    A returned **call** stands for the names it is written on (`_call_operands`),
+    so `return pca.fit_transform(X)` says `X` the way
+    `reduced = pca.fit_transform(X); return reduced` says `reduced`. Without
+    that, R15 read only the half of its own rule that happens to bind a name.
+    """
     out: List[str] = []
     for expr in func.returns:
         elements = list(expr.elts) if isinstance(expr, (ast.Tuple, ast.List)) else [expr]
@@ -277,6 +331,13 @@ def _returned_names(func, index: Optional[int]) -> List[str]:
             text = dotted_text(element)
             if text and text not in out:
                 out.append(text)
+            if not isinstance(element, ast.Call):
+                continue
+            # `dotted_text` of a call is its *callee*, which names no value;
+            # the value is what the call was written on.
+            for operand in _call_operands(_returned_call(func, element)):
+                if operand not in out:
+                    out.append(operand)
     return out
 
 

@@ -22,7 +22,8 @@ from .fixes import zero_grad_fix
 from .helpers import calls_in_loop, first_with_role, loop_chain, with_role
 # MLV205's reading of an accumulator lives next door; the five `@rule` entry
 # points stay here, so `RuleSpec.module` (and every rule page) is unchanged.
-from .loss_accum import accumulations, backwarded, defined_outside, within
+from .loss_accum import (accumulations, backwarded, consumed_downstream,
+                         defined_outside, no_grad_region, within)
 from .registry import rule
 
 __all__ = ["missing_zero_grad", "gradients_never_applied", "step_before_backward",
@@ -395,6 +396,10 @@ def loss_accumulated_with_graph(ctx) -> Iterable[Issue]:
         for name, loop, loc, scope, loss_ref, how in accumulations(ctx, module):
             if backwarded(module, name):
                 continue                # deliberate multi-step accumulation
+            if no_grad_region(loop):
+                continue                # no autograd graph here to keep alive
+            if consumed_downstream(module, name, scope, loss_ref.name):
+                continue                # the running total is the live value
             outer = defined_outside(module, name, loop, loc)
             if outer is None:
                 continue

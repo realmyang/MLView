@@ -54,6 +54,20 @@ def _import_analyzer():
     return AnalyzeOptions, analyze_to_dict
 
 
+def _default_dataflow() -> str:
+    """The product default, read from the one place 3.11 R1.1 says owns it.
+
+    REC-06: this module used to spell `"local"` again in `run_corpus`'s
+    signature, which is exactly the drift R1.1 exists to prevent - the CLI
+    scored `ip` while `pytest analyzer/tests/accuracy` scored `local` and both
+    called themselves "the default". Read lazily, because the analyzer is not
+    importable until `_import_analyzer` has fixed `sys.path`.
+    """
+    _import_analyzer()
+    from mlview.api import DEFAULT_DATAFLOW
+    return DEFAULT_DATAFLOW
+
+
 # -------------------------------------------------------------------- corpus
 class CorpusError(Exception):
     pass
@@ -407,17 +421,27 @@ def _rule_ratios(data: Dict[str, int]) -> Dict[str, Any]:
 
 
 def run_corpus(corpus_dir: str = CORPUS_DIR, only: Sequence[str] = (),
-               dataflow: str = "local"
+               dataflow: Optional[str] = None
                ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
-    """Score the corpus. `dataflow` (DATAFLOW-IP, CONTRACTS 11.36) is appended
-    last and defaults to `local`, so the referee measures exactly what it always
-    measured unless it is asked for the interprocedural mode - which is scored
-    against its own baseline file, never against this one."""
+    """Score the corpus in `dataflow` mode (DATAFLOW-IP, CONTRACTS 11.36).
+
+    `None` means the **product default**, read from `mlview.api`'s
+    `DEFAULT_DATAFLOW` - the single authority 3.11 R1.1 names. Each mode is
+    scored against its own baseline file, never against the other's; a caller
+    that wants the non-default ratchet names its mode, and the report says
+    which mode it scored either way."""
     AnalyzeOptions, analyze_to_dict = _import_analyzer()
+    if dataflow is None:
+        dataflow = _default_dataflow()
     programs = load_programs(corpus_dir, only)
     results = []
     for program in programs:
         doc = analyze_to_dict(AnalyzeOptions(paths=(program.root,), dataflow=dataflow))
         results.append(score_program(program, doc))
-    return results, aggregate(results)
+    report = aggregate(results)
+    # REC-06 / REC-08: the report names the mode it scored, whichever entry
+    # point produced it, so a pasted report is never ambiguous about which of
+    # the two ratchets it belongs to.
+    report["dataflow"] = dataflow
+    return results, report
 

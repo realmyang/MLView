@@ -30,7 +30,8 @@ from typing import Any, Optional
 from .model import ModuleIR, ScopeIR, ValueRef
 from .symbols import dotted_text
 
-__all__ = ["is_container", "element_expr", "subscript_key", "expr_value"]
+__all__ = ["is_container", "element_expr", "subscript_key", "expr_value",
+           "carried_element"]
 
 #: A container literal worth remembering on the `ValueRef` that binds it.
 _CONTAINERS = (ast.Dict, ast.Tuple, ast.List)
@@ -93,3 +94,21 @@ def expr_value(expr: Optional[ast.expr], scope: ScopeIR,
         return ref
     name = dotted_text(expr)
     return binding_of(name, scope, at=at) if name else None
+
+
+def carried_element(base: Optional[ValueRef], key: Any, scope: ScopeIR,
+                    module: Optional[ModuleIR]) -> Optional[ValueRef]:
+    """The element `key` selects out of whatever literal `base` is carrying.
+
+    REC-04: the literal is read **where it was written**. `state =
+    make_state()` carries a dict whose `"model"` element is the name `model` in
+    *make_state*'s scope; resolving that name in the caller's scope finds a
+    different `model` or none at all, and both answers are wrong. When the
+    container never travelled, `container_scope` is None and this is exactly
+    the scope-local read GRAPH-R3 shipped.
+    """
+    if base is None or base.container is None:
+        return None
+    home = base.container_scope or scope
+    home_module = base.container_module if base.container_scope is not None else module
+    return expr_value(element_expr(base.container, key), home, home_module)

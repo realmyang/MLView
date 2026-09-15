@@ -18,7 +18,11 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const { api, vscode } = require('./harness.js');
+
+const REPO_ROOT = path.join(__dirname, '..', '..');
 
 const {
   coverageChip,
@@ -54,6 +58,16 @@ const UNTAGGED = {
   line: 12
 };
 
+const FRAMEWORK_FILTER = {
+  kind: 'framework_filter',
+  message:
+    '--framework keras narrowed the rule set: 3 rule(s) that the detected frameworks would ' +
+    'have run did not (MLV201, MLV202, MLV205). A clean result here is a clean result for ' +
+    'keras alone - drop --framework (or pass auto) to judge the whole workspace.',
+  codes: ['MLV201', 'MLV202', 'MLV205'],
+  count: 3
+};
+
 function graphWith(diagnostics) {
   const graph = emptyGraph('C:/ws');
   graph.diagnostics = diagnostics;
@@ -62,11 +76,32 @@ function graphWith(diagnostics) {
 
 // ------------------------------------------------------------------ reading the diagnostics
 
-test('the coverage kinds are exactly the two the host claims to understand', () => {
+test('the coverage kinds are exactly the three the host claims to understand', () => {
   assert.deepEqual([...COVERAGE_DIAGNOSTIC_KINDS], [
     'single_file_analysis',
-    'untagged_dataflow'
+    'untagged_dataflow',
+    'framework_filter'
   ]);
+});
+
+test('this host reads every coverage kind the core emits', () => {
+  // The gate for the class, not the instance: `framework_filter` shipped in the core and in
+  // neither host, so a run the user narrowed with `--framework` read as a clean bill of health.
+  // Membership is compared as a SET — render order is each host's own (CONTRACTS §2.6 C8).
+  const source = fs.readFileSync(
+    path.join(REPO_ROOT, 'analyzer', 'src', 'mlview', 'core', 'coverage.py'),
+    'utf8'
+  );
+  const match = /^COVERAGE_KINDS = \(([^)]*)\)/m.exec(source);
+  assert.ok(match, 'core.coverage must declare COVERAGE_KINDS as a tuple literal');
+  const coreKinds = [...match[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+  assert.ok(coreKinds.length >= 3, coreKinds.join(', '));
+  assert.deepEqual(
+    [...COVERAGE_DIAGNOSTIC_KINDS].sort(),
+    [...coreKinds].sort(),
+    `the core emits ${coreKinds.join(', ')}; this host reads ${COVERAGE_DIAGNOSTIC_KINDS.join(', ')}`
+  );
+  assert.equal(new Set(COVERAGE_DIAGNOSTIC_KINDS).size, COVERAGE_DIAGNOSTIC_KINDS.length);
 });
 
 test('a graph with no coverage diagnostics produces no caveat anywhere', () => {
@@ -118,6 +153,39 @@ test('the chip counts blind spots and never uses the word clean', () => {
     coverageChip(coverageNotes(graphWith([SINGLE_FILE, { ...UNTAGGED, count: 6 }]))),
     'coverage: incomplete (7 blind spots)'
   );
+});
+
+// ------------------------------------------------------------------- the narrowed framework
+
+test('a narrowed framework is a caveat, not a clean result', () => {
+  const notes = coverageNotes(graphWith([FRAMEWORK_FILTER]));
+  assert.deepEqual(notes.map((n) => n.kind), ['framework_filter']);
+  assert.equal(notes[0].count, 3, 'the count is suppressed rule codes');
+  const lines = coverageLines(notes);
+  assert.ok(lines[0].startsWith('--framework keras narrowed the rule set'), lines[0]);
+  assert.ok(lines[0].includes('MLV201, MLV202, MLV205'), lines[0]);
+  // The count is rules, not sites, so it is never suffixed as one.
+  assert.ok(!lines[0].includes('(3 sites)'), lines[0]);
+  assert.ok(!lines[0].toLowerCase().includes('clean result for the whole'), lines[0]);
+});
+
+test('suppressed rules are not tallied as blind spots', () => {
+  assert.equal(
+    coverageChip(coverageNotes(graphWith([FRAMEWORK_FILTER]))),
+    'coverage: incomplete (framework filter)'
+  );
+  assert.equal(
+    coverageChip(coverageNotes(graphWith([FRAMEWORK_FILTER, SINGLE_FILE]))),
+    'coverage: incomplete (1 blind spot)',
+    'three suppressed rule codes are not three blind sites'
+  );
+});
+
+test('a framework_filter sent with no message of its own still renders a usable sentence', () => {
+  const lines = coverageLines(coverageNotes(graphWith([{ kind: 'framework_filter' }])));
+  assert.equal(lines.length, 1);
+  assert.ok(lines[0].includes('framework'), lines[0]);
+  assert.ok(!lines[0].includes('undefined'), lines[0]);
 });
 
 // -------------------------------------------------------------------------- the status bar

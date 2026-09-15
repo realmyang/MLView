@@ -42,7 +42,7 @@ from __future__ import annotations
 
 import ast
 from dataclasses import dataclass
-from typing import Optional, Sequence, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 from .. import knowledge as K
 from ..ir.model import CallSite, ValueRef
@@ -177,6 +177,9 @@ def _through_call(ctx, call: CallSite, depth: int) -> Scored:
         if inline is not None:
             return _through_call(ctx, inline, depth + 1)
         return Scored()
+    collected = _collected_tags(ctx, call, depth)
+    if collected.tags:
+        return collected
     func = getattr(call, "target_function", None)
     if func is None:
         return Scored()
@@ -221,6 +224,61 @@ def returned_call_with_role(ctx, call: Optional[CallSite],
         if deeper is not None:
             return deeper
     return None
+
+
+#: The one-argument collectors that turn a per-batch list back into an array.
+#: `np.concatenate(predictions)` is how a batched evaluation is actually
+#: written, and the tag used to die in the list.
+_COLLECTORS = frozenset({"concatenate", "concat", "stack", "cat", "vstack",
+                         "hstack", "asarray", "array"})
+
+
+def _collected_tags(ctx, call: CallSite, depth: int) -> Scored:
+    """`np.concatenate(predictions)` after `predictions.append(scores)` (REC-07).
+
+    A batched evaluation loop collects one array per batch and joins them once
+    at the end; nothing about that changes what the values *are*, and MLV305 /
+    MLV401 / MLV402 went silent on the dominant real-world spelling of their
+    own defect because the tag stopped at the list.
+
+    The same literal-only discipline `ir.containers` uses: the list must be an
+    empty `[]` bound in this scope, and only `append` calls on it in that scope
+    are read - no aliasing, no mutation modelling beyond the appends in sight.
+    And the same **intersection** discipline 3.11 N6 uses: every append has to
+    agree, so a list that also receives an argmaxed value yields nothing rather
+    than a union that would make a correct program look wrong. Crossing no
+    object, it costs no hop of its own; an append whose own answer came out of
+    a callee still carries that callee's hop, because `value_tags` minted it.
+    """
+    if (call.method or call.short_name or "") not in _COLLECTORS:
+        return Scored()
+    node = call.args[0] if call.args else None
+    name = dotted_text(node) if node is not None else None
+    if not name:
+        return Scored()
+    ref = ctx.binding_of(name, call.scope)
+    if ref is None or ref.literal != "[]":
+        return Scored()
+    found: List[Scored] = []
+    for other in call.module.calls:
+        if (other.method or "") != "append" or other.scope is not call.scope:
+            continue
+        if other.receiver_name != name or not other.args:
+            continue
+        answer = value_tags(ctx, other.args[0], other.scope, other.module, depth)
+        if not answer.tags:
+            return Scored()          # one append MLView could not read: no answer
+        found.append(answer)
+    if not found:
+        return Scored()
+    tags = set(found[0].tags)
+    for answer in found[1:]:
+        tags &= set(answer.tags)
+    if not tags:
+        return Scored()
+    first = found[0]
+    return Scored(tuple(t for t in first.tags if t in tags), first.producer,
+                  name, first.ref, first.through_callee)
 
 
 def _inline_receiver(call: CallSite) -> Optional[CallSite]:

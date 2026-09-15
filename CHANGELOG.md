@@ -13,15 +13,105 @@ today.
 
 ---
 
+## Unreleased — review fixes (2026-09-15)
+
+The Consolidate and Recall reviews, integrated. Fourteen confirmed findings, one
+fix each, and every one of them is a claim this tree made that the tree did not
+keep. Nothing here is a new feature; three are analyzer behaviour changes, and
+each ships with the fixture that fails without it.
+
+**The viewer's keyboard died on the first click.** A `launch` deep link appended
+a hidden `<iframe src="vscode://…">` to the report's own document, and handing a
+URL to the OS protocol handler costs the **launching browsing context** its
+keyboard — permanently. Measured in Chrome 141 on macOS 25.6: after one click on
+a node card, `l`, `?`, `f`, `s`, `[`, `]`, `e`, the arrows and Escape never
+reached the document again, so a hand validation of the viewer read as broken
+from its second step. 536 green webview tests stood over it because no keyboard
+test pressed a key **after** a click. A launch now opens one named transient
+context (`window.open(url, 'mlview-deeplink')`), closes it after 700 ms, and a
+**refused** launch is answered at once with the copy toast and its anchor rather
+than a 400 ms silence that read as success. `docs/CONTRACTS.md` §10.4 D7–D9,
+§17 E30.
+
+**A `--framework` caveat that reached neither host.** `framework_filter` shipped
+in the core alone, and `api.digest` drops `graph["diagnostics"]` wholesale, so a
+model that passed `framework="sklearn"` at a torch project read `0 high / 0
+medium` where `auto` reports `1 high / 1 medium` — with no sentence anywhere
+saying why. Both hosts now read the core's full set, each gated **against the
+analyzer's own declaration** rather than a transcription (§2.6 C9). The
+suppressed-rule count is never tallied as a blind site.
+
+**A marketplace entry that installed a directory with no plugin in it.** The
+`github` source form has no `path` key: the fetched tree's root becomes the
+plugin root, and this repository's root holds a marketplace manifest and no
+`plugin.json`. The hosted entry is `git-subdir` at `path: "claude-plugin"`, and
+`test_plugin_manifest.py` now asserts that every entry's resolved directory
+really contains a manifest (§13.1, §17 E32).
+
+**Three analyzer corrections, all narrowing or widening on purpose.** MLV205's
+widening to *any* accumulating loop accused correct code, so the rule now states
+its three silencing conditions — no graph, the accumulator **is** the live value,
+already detached — with the `return` arm refused when the collected tensor is
+itself back-propagated, which keeps the genuine live-graph accumulator firing
+(§14.2 R18 c). R13 / R15 read a `return` only when it bound a name first, so
+`return scaler.fit_transform(frame)` missed while `out = …; return out` hit; the
+bare-call form is now read through `module._calls_by_node`, one level, literal
+(§14.2 R13). Carriage crosses a `return` **and** a parameter, one hop each, with
+the callee's own scope carried beside the literal and §3.11 N6's intersection at
+the parameter — which is the GradScaler-in-a-parameter-dict the campaign named
+(§5.3 A12′). A collector list joined by `np.concatenate` keeps the intersection
+of what was appended (§5.3 A13), and a **test region** is removed before MLV301
+and MLV302 see it, so a pytest module is no longer an evaluation loop (§14.2
+R23).
+
+**The contracts fold.** The three `docs/contracts/*.md` fragments are folded into
+the sections that own their clauses and deleted; §18's fragment table records
+where each one went. `docs/CONTRACTS.md` is **1 589 lines** (1 515 at the
+consolidation wave). §3.11 R1.3 (2) — *"a rule that fires in `local` and not in
+`ip` is a regression"* — is restated as the recall inequality it always meant,
+because as a per-finding claim it is false on real code and gated nowhere (§17
+E29); §17 gains E29–E33, and the two line budgets are restated against a
+measurement rather than a memory (no tracked source file over 750; eleven between
+600 and 750, listed).
+
+**What this wave could not settle.** The public-corpus figure quoted here and in
+`docs/STATUS.md` still has **no gate in this tree**: the runner and its
+adjudication record are on an unmerged hardening branch, and `git merge-base
+hardening main` is `ef4fb71`, so that branch's rule fixes are not here and its
+verdicts do not describe this analyzer. Re-run against this tree with that
+branch's runner on 2026-09-15, the four objective assertions pass — **260 runs
+over 37 repositories, 0 tracebacks, exit codes 0 and 4 only, 0 schema/invariant
+errors, every run inside the 60 s budget**, 94 high / 265 medium / 373 low — and
+the three MLV205 medium false positives the review named are gone while the
+genuine one at `wandb-examples/examples/sacred/pytorch_test.py:111` still fires.
+The fifth assertion, the adjudication ratchet, measures the branch gap and is
+reported as such rather than quoted as a pass.
+
+**Gates on this Mac** (macOS 26.6, Python 3.13, Node 26): `sh scripts/e2e.sh`
+**20 steps, 0 failed, 0 skipped**; analyzer **2229 passed / 4 skipped**; webview
+**538**; vscode-extension **385**; claude-plugin **387 passed / 7 skipped**;
+`pytest scripts` **80 passed**; `tsc --noEmit` clean in both TypeScript packages;
+`tools/verify.py --all` **10 of 10**; `--scopes --fuzz 200` **5 of 5**;
+`tools/accuracy.py` **PASS** (`ip`, 93.6% / 89.4% unseen) and `--dataflow local`
+**PASS** (82.0% / 70.2%), precision **100%** and zero `forbidden` in both;
+`check_docs.py` **DOC CHECK OK**; `perf_equiv.py --expect-diff` against `main`
+**exit 0** and `--expect-same` **exit 1**, which is §3.11 R1.4's stated result.
+
+---
+
 ## Unreleased — recall (2026-09-15)
 
 Five items, R1–R5, integrated in one commit. **The constraint was precision,
 never recall**, and it held: 100% precision with **zero `forbidden` findings**
 and zero unlabelled findings on the labelled corpus in both dataflow modes, 0
 findings on `analyzer/tests/clean` and `samples/vision_pipeline_clean` in both
-modes, and **zero new high-severity findings** on the public corpus. Full record:
-`docs/ACCURACY.md` §8; normative text: `docs/CONTRACTS.md` §3.11 R1.1–R1.5,
-§5.3 A7–A13, §14.2 F16–F21 / R13–R21, §17 E25–E26.
+modes, and **zero new high-severity findings** on the public corpus — that last
+one a recorded observation rather than a gated one, because the corpus runner and
+its adjudication record live on an unmerged hardening branch and not in this tree
+(`docs/STATUS.md` and `docs/ACCURACY.md` §8.3 say exactly what was and was not
+re-runnable here). Full record: `docs/ACCURACY.md` §8; normative text:
+`docs/CONTRACTS.md` §3.11 R1.1–R1.5, §5.3 A7–A13, §14.2 F16–F21 / R13–R21,
+§17 E25–E26.
 
 | | `local` | **`ip`** (now the default) |
 |---|---|---|
@@ -86,7 +176,10 @@ were already at 100%. **MLV402 has no label in this corpus and its recall is
 therefore unmeasured, not met** — the one target of the seven this wave cannot
 claim.
 
-**Public corpus, `main` against this tree**, 37 pinned repositories, 112 targets,
+**Public corpus, `main` against this tree** — measured with a runner that is
+**not in this tree** (its `public_corpus.py` and the adjudication file are on an
+unmerged hardening branch), so nothing here re-runs or gates it — 37 pinned
+repositories, 112 targets,
 3 modes, **260 runs**, the dataflow mode spelled explicitly on both sides:
 `ip` 285 → 291 findings, `local` 286 → 292, `notebooks` 213 → 212 — **0 new
 high-severity findings in every mode**, 3 removed (`peft`'s duplicated MLV401),

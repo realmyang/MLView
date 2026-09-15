@@ -2,7 +2,8 @@
 """Install the built wheel into a throwaway venv and run it (PACKAGING).
 
     python tools/wheel_check.py            # build if needed, install, run
-    python tools/wheel_check.py --no-build # fail rather than build a missing wheel
+    python tools/wheel_check.py --sdist    # the same, for the source distribution
+    python tools/wheel_check.py --no-build # fail rather than build a missing artifact
 
 `pip install mlview` is now the instruction the VS Code extension prints, the line
 `tools/action/action.yml` runs in CI, and the thing `.pre-commit-hooks.yaml` resolves
@@ -12,6 +13,13 @@ then fails on the first analysis. So the acceptance is end to end and deliberate
 paranoid — a fresh interpreter, no MLView on `sys.path`, `mlview --version --json`
 through the **console script** (not `python -m`), and then one real analysis, because
 `--version` alone cannot tell a complete wheel from one missing its package data.
+
+`--sdist` runs the identical acceptance against `analyzer/dist/*.tar.gz`, because
+`twine upload analyzer/dist/*` publishes BOTH and `pip install mlview` falls back to
+the sdist on any platform with no matching wheel. An sdist can omit package data a
+wheel carries (a `MANIFEST.in`/`sdist` include is a separate mechanism from
+`[tool.setuptools.package-data]`), and PyPI never lets a version be re-uploaded, so
+the fallback artifact is gated before the first upload rather than after it.
 
 One driver, called identically by `scripts/e2e.sh` and `scripts/e2e.ps1`, so the two
 tables stay the same table (`scripts/doc_numbers.py` check 11).
@@ -53,23 +61,36 @@ def _run(argv, **kwargs):
     return subprocess.run(argv, capture_output=True, text=True, check=False, **kwargs)
 
 
+def _newest(pattern: str) -> str:
+    found = sorted(glob.glob(os.path.join(DIST, pattern)), key=os.path.getmtime)
+    return found[-1] if found else ""
+
+
 def newest_wheel() -> str:
-    wheels = sorted(glob.glob(os.path.join(DIST, "*.whl")), key=os.path.getmtime)
-    return wheels[-1] if wheels else ""
+    return _newest("*.whl")
 
 
-def build_wheel() -> str:
-    """Build it if `build` is installed; return the wheel path or ''."""
+def newest_sdist() -> str:
+    return _newest("*.tar.gz")
+
+
+def build_dist(flag: str = "--wheel") -> str:
+    """Build it if `build` is installed; return the artifact path or ''."""
     probe = _run([sys.executable, "-c", "import build"])
     if probe.returncode != 0:
         return ""
-    made = _run([sys.executable, "-m", "build", "--wheel", ANALYZER], cwd=REPO_ROOT)
+    made = _run([sys.executable, "-m", "build", flag, ANALYZER], cwd=REPO_ROOT)
     if made.returncode != 0:
-        print("wheel-check: `python -m build --wheel analyzer` failed:", file=sys.stderr)
+        print("wheel-check: `python -m build %s analyzer` failed:" % flag, file=sys.stderr)
         print(made.stdout[-2000:], file=sys.stderr)
         print(made.stderr[-2000:], file=sys.stderr)
         return ""
-    return newest_wheel()
+    return newest_sdist() if flag == "--sdist" else newest_wheel()
+
+
+def build_wheel() -> str:
+    """Kept for callers that predate `--sdist`."""
+    return build_dist("--wheel")
 
 
 def venv_python(root: str) -> str:
@@ -169,17 +190,21 @@ def main(argv=None) -> int:
         description="pip install analyzer/dist/*.whl into a throwaway venv and run it.",
     )
     parser.add_argument("--no-build", action="store_true",
-                        help="do not build a missing wheel; report and exit 0")
+                        help="do not build a missing artifact; report and exit 0")
+    parser.add_argument("--sdist", action="store_true",
+                        help="gate the source distribution instead of the wheel")
     args = parser.parse_args(argv)
 
-    wheel = newest_wheel()
-    if not wheel and not args.no_build:
-        wheel = build_wheel()
-    if not wheel:
-        print("wheel-check: SKIP no wheel in analyzer/dist - run `pip install build` "
-              "then `python -m build --wheel analyzer` (scripts/build.sh does both)")
+    flag = "--sdist" if args.sdist else "--wheel"
+    artifact = newest_sdist() if args.sdist else newest_wheel()
+    if not artifact and not args.no_build:
+        artifact = build_dist(flag)
+    if not artifact:
+        print("wheel-check: SKIP no %s in analyzer/dist - run `pip install build` "
+              "then `python -m build %s analyzer` (scripts/build.sh does both)"
+              % ("sdist" if args.sdist else "wheel", flag))
         return 0
-    return check(wheel)
+    return check(artifact)
 
 
 if __name__ == "__main__":

@@ -152,18 +152,25 @@ def leaky(csv_path="data/a.csv"):
 
 
 def test_ip_is_never_quieter_than_local_about_a_refused_cross_scope_match(tmp_path):
-    """IP-02. `local` records an `untagged_dataflow` gap here. `ip` resolved the
-    tag through the constructor, then refused the cross-scope match and said
-    nothing at all - a run that looks clean on a program it did not judge."""
+    """IP-02, now one step stronger. `local` records an `untagged_dataflow` gap
+    here and must keep it. `ip` used to resolve the tag through the constructor,
+    refuse the cross-scope match and say nothing at all; REC-03 taught R13 to
+    read `return self.scaler.fit_transform(self.rows)` - a bare returned call,
+    which `dotted_text` reports as its *callee* - so the genuine leak this
+    fixture was always written around is now **reported** rather than merely
+    disclosed. Silence in `ip` is still the one thing forbidden."""
     root = write_files(str(tmp_path), _ONESITE)
     local = analyze(root, dataflow="local")
     ip = analyze(root, dataflow="ip")
-    assert codes(local, "MLV101") == [] and codes(ip, "MLV101") == []
+    assert codes(local, "MLV101") == [], "local matches names in one scope only"
     assert kinds(local, "untagged_dataflow"), "the control lost its coverage note"
-    disclosed = kinds(ip, "untagged_dataflow") + kinds(ip, "truncated")
-    assert disclosed, "ip reported 0 findings and 0 gaps on a genuine leak shape"
-    said = " ".join(d["message"] for d in disclosed)
-    assert "main.py:15" in said and "refused" in said, said
+    found = codes(ip, "MLV101")
+    assert len(found) == 1, "ip went quiet on a genuine leak shape"
+    issue = found[0]
+    assert issue["loc"]["file"] == "prep.py" and issue["loc"]["line"] == 10
+    assert "main.py:15" in issue["message"], issue["message"]
+    # A cross-object claim still pays for every hop it travelled (11.36 G6).
+    assert issue["confidenceBucket"] != "certain", issue["confidence"]
     assert validate(ip) == []
 
 

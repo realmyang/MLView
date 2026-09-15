@@ -14,13 +14,14 @@ from .bindings_lookup import _store, binding_of, names_in
 from .bindings_tags import (_estimator_attr_base, _reinforce, _split_positions,
                             call_output_tags, identity_receiver)
 from .config_values import CONFIG_NAME_RE, resolve_module as _resolve_config
-from .containers import element_expr, expr_value, is_container, subscript_key
+from .containers import (carried_element, element_expr, expr_value,
+                         is_container, subscript_key)
 from .model import CallSite, ModuleIR, ValueRef, sort_tags
 from .returns import slot_of
 from .scopes_records import AssignRecord, literal_str
 from .symbols import dotted_text
 
-__all__ = ["bind_module"]
+__all__ = ["bind_module", "rebind_containers"]
 
 
 # ---------------------------------------------------------------------------
@@ -42,6 +43,43 @@ def bind_module(module: ModuleIR, workspace) -> None:
     # binding this pass has just written, and because the leaves it stores must
     # never win over a real assignment to the same dotted name.
     _resolve_config(module, workspace)
+
+
+def rebind_containers(module: ModuleIR, workspace) -> None:
+    """REC-04: resolve `state["scaler"]` once `state` is known to be a container.
+
+    `bind_module` clears and rebuilds every binding at the top of each IR round,
+    so a parameter binding that `ir.summaries` wrote in round N is gone before
+    round N+1 reads `scaler = state["scaler"]`. The tag propagation never
+    noticed, because only *rules* read parameter tags - but the container read
+    happens inside the binding pass itself, which is why the GradScaler carried
+    in a parameter dict stayed invisible however far the summaries travelled.
+
+    This pass runs straight after the summaries, in the same round, and only
+    ever **upgrades**: a name whose binding already resolved to something keeps
+    what it had, and a subscript that still resolves to nothing is left exactly
+    as unresolved as it was - including its `opaque` note.
+    """
+    for record in module.assignments:
+        if record.call is not None or not isinstance(record.value, ast.Subscript):
+            continue
+        for target in record.targets:
+            name = dotted_text(target)
+            if not name:
+                continue
+            ref = record.scope.bindings.get(name)
+            if ref is None or ref.tags or ref.producer is not None \
+                    or ref.class_ir is not None:
+                continue
+            carried = _carried_element(record.value, record.scope, module)
+            if carried is None:
+                continue
+            ref.tags = sort_tags(tuple(_reinforce(name, list(carried.tags))))
+            ref.producer = carried.producer
+            ref.class_ir = carried.class_ir
+            if not ref.via_fqns:
+                ref.via_fqns = carried.via_fqns
+            ref.opaque = None
 
 
 def _bind_imported_values(module: ModuleIR, workspace) -> None:
@@ -145,6 +183,7 @@ def _bind_record(record: AssignRecord, module: ModuleIR, workspace) -> None:
             if slot is not None:
                 ref.via_fqns = slot.fqns
                 ref.class_ir = ref.class_ir or slot.class_ir
+                _carry_container(ref, slot)
             _store(scope, name, ref)
         return
 
@@ -220,6 +259,7 @@ def _bind_record(record: AssignRecord, module: ModuleIR, workspace) -> None:
         if slot is not None:
             ref.via_fqns = slot.fqns
             ref.class_ir = ref.class_ir or slot.class_ir
+            _carry_container(ref, slot)
         if not ref.via_fqns:
             passthrough = identity_receiver(call)
             if passthrough is not None and passthrough.via_fqns:
@@ -228,7 +268,11 @@ def _bind_record(record: AssignRecord, module: ModuleIR, workspace) -> None:
             ref.via_fqns = tuple(via)
         if ref.class_ir is None and producer_override is not None:
             ref.class_ir = producer_override.class_ir
-        ref.opaque = _opaque_kind(value, call, record)
+        # REC-04: a subscript the analyzer *did* follow into a container
+        # literal is not an unresolved construct; saying it is made a resolved
+        # object report itself as a gap.
+        ref.opaque = (None if producer_override is not None or class_ir is not None
+                      else _opaque_kind(value, call, record))
         _store(scope, name, ref)
         _bind_construction_attrs(call, name, scope, module)
 
@@ -336,6 +380,22 @@ def _bind_construction_attrs(call: Optional[CallSite], name: str, scope, module)
                         via_fqns=value.via_fqns))
 
 
+def _carry_container(ref: ValueRef, slot) -> None:
+    """REC-04: `state = make_state()` keeps the literal the factory returned.
+
+    Only when the name has no container of its own - a real literal on the
+    right-hand side always wins - and only with the scope the elements have to
+    be read in, so nothing here can make a name in one scope stand for a name
+    in another.
+    """
+    holder = getattr(slot, "container", None)
+    if holder is None or ref.container is not None:
+        return
+    ref.container = holder
+    ref.container_scope = getattr(slot, "container_scope", None)
+    ref.container_module = getattr(slot, "container_module", None)
+
+
 def _carried_element(value, scope, module) -> Optional[ValueRef]:
     """`ctx["scaler"]` / `pair[0]` -> the element of the literal behind it."""
     if not isinstance(value, ast.Subscript):
@@ -344,21 +404,23 @@ def _carried_element(value, scope, module) -> Optional[ValueRef]:
     if key is None:
         return None
     base = binding_of(dotted_text(value.value), scope)
-    if base is None or base.container is None:
-        return None
-    return expr_value(element_expr(base.container, key), scope, module)
+    return carried_element(base, key, scope, module)
 
 
 def _carried_elements(value, scope, module) -> Optional[List[Optional[ValueRef]]]:
     """`a, b = pair` -> one `ValueRef` per position of the tuple behind `pair`."""
     node = value
+    base = None
     if not is_container(node):
         name = dotted_text(node) if node is not None else None
         base = binding_of(name, scope) if name else None
         node = base.container if base is not None else None
     if not isinstance(node, (ast.Tuple, ast.List)):
         return None
-    return [expr_value(elt, scope, module) for elt in node.elts]
+    home = (base.container_scope or scope) if base is not None else scope
+    home_module = (base.container_module if base is not None
+                   and base.container_scope is not None else module)
+    return [expr_value(elt, home, home_module) for elt in node.elts]
 
 
 def _identity_class(call: Optional[CallSite]):

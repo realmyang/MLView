@@ -155,6 +155,15 @@ class ValueRef:
     #: see `ir.containers`, which is the only reader. The AST node is the one
     #: already in `ModuleIR.tree`; nothing is copied and nothing is re-parsed.
     container: Optional[ast.AST] = None
+    #: REC-04. Where `container`'s element expressions have to be read, when it
+    #: is not this value's own scope. A dict built inside `make_state()` and
+    #: handed back to `state = make_state()` names `model` in **make_state's**
+    #: scope; reading `state["model"]` in the caller's scope resolves a
+    #: different `model`, or none. Set together with `container` and only when
+    #: the literal travelled; left None for the scope-local case, which is
+    #: byte-identical to what GRAPH-R3 shipped.
+    container_scope: Optional["ScopeIR"] = None
+    container_module: Optional[Any] = None
     #: DATAFLOW-IP. The `ir.provenance.Hop`s this value's tags travelled to get
     #: here, oldest first. Empty in `--dataflow local`, and empty in `ip` for
     #: every value dataflow established inside one scope - which is what lets a

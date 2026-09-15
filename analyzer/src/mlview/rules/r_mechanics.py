@@ -159,8 +159,18 @@ def scheduler_wrong_granularity(ctx) -> Iterable[Issue]:
 # ---------------------------------------------------------------------------
 # MLV208
 # ---------------------------------------------------------------------------
-def _scaler_for(ctx, loop: LoopIR) -> Optional[CallSite]:
-    """The `GradScaler(...)` construction that governs this loop, if any."""
+def _scaler_for(ctx, loop: LoopIR,
+                body: Sequence[CallSite] = ()) -> Optional[CallSite]:
+    """The `GradScaler(...)` construction that governs this loop, if any.
+
+    Proximity first - the construction in the loop's own function - and then,
+    REC-04, **identity**: a `scaler.step(optimizer)` in this very loop whose
+    receiver resolves to a `GradScaler(...)` written somewhere else is that
+    scaler, whatever function built it. That is the shape a `make_state()` /
+    `build()` factory writes, and it is the one the dataflow can now follow all
+    the way through a parameter dict. Identity is strictly better evidence than
+    proximity: the first arm guesses from position, the second one *knows*.
+    """
     best = None
     for call in ctx.calls_with_role("GRAD_SCALER"):
         if call.module is not loop.module:
@@ -170,7 +180,14 @@ def _scaler_for(ctx, loop: LoopIR) -> Optional[CallSite]:
             continue
         if best is None or call.loc.line < best.loc.line:
             best = call
-    return best
+    if best is not None:
+        return best
+    for call in body:
+        receiver = call.receiver
+        producer = receiver.producer if receiver is not None else None
+        if producer is not None and K.role_of(producer.fqn) == "GRAD_SCALER":
+            return producer
+    return None
 
 
 def _scaler_enabled(ctx, scaler: CallSite) -> Tuple[bool, float, str]:
@@ -215,13 +232,13 @@ def _is_scaled(module: ModuleIR, call: CallSite) -> bool:
 def amp_scaler_protocol(ctx) -> Iterable[Issue]:
     issues: List[Issue] = []
     for loop in ctx.loops("batch"):
-        scaler = _scaler_for(ctx, loop)
+        body = calls_in_loop(ctx, loop, follow=False)
+        scaler = _scaler_for(ctx, loop, body)
         if scaler is None:
             continue
         judgeable, weight, detail = _scaler_enabled(ctx, scaler)
         if not judgeable:
             continue
-        body = calls_in_loop(ctx, loop, follow=False)
         found = _protocol_fault(ctx, loop, body)
         if found is None:
             continue

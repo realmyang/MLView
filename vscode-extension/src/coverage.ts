@@ -1,11 +1,17 @@
 /**
  * "I could not check" is not "I checked and it is fine" (ROADMAP COVERAGE).
  *
- * The analyzer emits two coverage diagnostics — `single_file_analysis` when the analysed path
- * set is a strict subset of the discoverable Python under the root, and `untagged_dataflow`
- * when a FIT / SPLIT / LOADER / FORWARD call's key argument carried no tag, so the leakage
- * rules could not reason about it. Both mean the run was BLIND somewhere, and a host that shows
- * only the finding count turns that into a clean bill of health.
+ * The analyzer emits three coverage diagnostics — `single_file_analysis` when the analysed path
+ * set is a strict subset of the discoverable Python under the root, `untagged_dataflow` when a
+ * FIT / SPLIT / LOADER / FORWARD call's key argument carried no tag, so the leakage rules could
+ * not reason about it, and `framework_filter` when `--framework <x>` narrowed the RULE SET. All
+ * three mean the finding count below them is a floor, and a host that shows only the count turns
+ * that into a clean bill of health.
+ *
+ * The set this host reads MUST equal `mlview.core.coverage.COVERAGE_KINDS` (CONTRACTS §2.6 C8,
+ * §11.18); `test/coverage.test.js` asserts that equality against the analyzer source, because
+ * `framework_filter` shipped in the core alone and a narrowed run therefore read as clean.
+ * Render order is this host's own — only membership is shared.
  *
  * This module is the host's single reader of those diagnostics. It is pure and takes the graph
  * document, so `test/coverage.test.js` asserts every rendering with no `vscode` object; the
@@ -20,7 +26,11 @@
 import type { GraphDiagnostic, MLGraph } from './graph';
 
 /** The `Diagnostic.kind` values this host reads as coverage caveats. */
-export const COVERAGE_DIAGNOSTIC_KINDS = ['single_file_analysis', 'untagged_dataflow'] as const;
+export const COVERAGE_DIAGNOSTIC_KINDS = [
+  'single_file_analysis',
+  'untagged_dataflow',
+  'framework_filter'
+] as const;
 export type CoverageKind = (typeof COVERAGE_DIAGNOSTIC_KINDS)[number];
 
 /** How many rule codes a single caveat names before the list is elided. */
@@ -88,16 +98,32 @@ export function coverageNotes(graph: MLGraph | undefined): CoverageNote[] {
 
 /** The fallback wording when the analyzer sent the kind with no message of its own. */
 function defaultMessage(kind: CoverageKind): string {
-  return kind === 'single_file_analysis'
-    ? 'Only part of the project was analyzed, so the cross-file rules could not run.'
-    : 'A key argument could not be traced, so the leakage rules could not check it.';
+  if (kind === 'single_file_analysis') {
+    return 'Only part of the project was analyzed, so the cross-file rules could not run.';
+  }
+  if (kind === 'framework_filter') {
+    return (
+      'A framework filter narrowed the rule set, so rules the detected frameworks would have ' +
+      'run did not — a clean result here is a clean result for that framework alone.'
+    );
+  }
+  return 'A key argument could not be traced, so the leakage rules could not check it.';
+}
+
+/**
+ * `framework_filter`'s `count` is SUPPRESSED RULE CODES, not blind sites, so it is neither
+ * tallied as a site nor suffixed with one. Its own message says what the number counts, and
+ * §2.6 C8 requires a host to carry that sentence rather than present a bare tally.
+ */
+function countsSites(kind: CoverageKind): boolean {
+  return kind !== 'framework_filter';
 }
 
 /** One line per caveat: the analyzer's message, the extra sites, and the rules that stayed silent. */
 export function coverageLines(notes: CoverageNote[]): string[] {
   return notes.map((note) => {
     const head = note.message.trim() || defaultMessage(note.kind);
-    const more = note.count > 1 ? ` (${note.count} sites)` : '';
+    const more = countsSites(note.kind) && note.count > 1 ? ` (${note.count} sites)` : '';
     const shown = note.codes.slice(0, MAX_CODES);
     const rest = note.codes.length - shown.length;
     const codes = shown.length
@@ -115,7 +141,10 @@ export function coverageChip(notes: CoverageNote[]): string | undefined {
   if (notes.length === 0) {
     return undefined;
   }
-  const sites = notes.reduce((sum, note) => sum + note.count, 0);
+  const sites = notes.reduce((sum, note) => sum + (countsSites(note.kind) ? note.count : 0), 0);
+  if (sites === 0) {
+    return 'coverage: incomplete (framework filter)';
+  }
   return `coverage: incomplete (${sites} ${sites === 1 ? 'blind spot' : 'blind spots'})`;
 }
 

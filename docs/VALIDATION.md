@@ -43,6 +43,8 @@ observations. A check that fails is a result, not a mistake — write it down.
 | VS Code | **1.100.0+** | the extension host |
 | GitHub Copilot | any | `@mlview` and agent mode — *optional*, and the point of the exercise if you have it |
 | Claude Code CLI | any recent | `/mlview`, the MCP tools, the hooks |
+| `mcp` (Python) | **v2**, verified against `mcp==2.1.1` | Session C only. `python -m pip install mcp`. The plugin vendors MLView but **not** the MCP SDK, so without it `claude-plugin/server/mlview_mcp.py` cannot import and none of the five `mlview_*` tools appear. |
+| `MLVIEW_PYTHON` | an env var, not a package | Session C only. `claude-plugin/.mcp.json` runs `${MLVIEW_PYTHON:-python}`, and on macOS and most Linux there is **no bare `python`** on `PATH`; macOS's `/usr/bin/python3` is Xcode's 3.9, which the server refuses. Export an absolute path to a 3.10+ interpreter — ideally the venv's — in the shell you launch Claude Code from. |
 
 No ML framework is needed. MLView never imports the code it reads, so a machine
 with neither torch nor scikit-learn installed is a **better** test, not a worse
@@ -66,6 +68,9 @@ sh scripts/e2e.sh                                  # E2E OK — 20 steps, 0 fail
 git clone https://github.com/realmyang/MLView
 cd MLView
 
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass   # Activate.ps1 is an
+                                                            # unsigned local script and the
+                                                            # client default is Restricted
 py -3 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 $env:PYTHONUTF8 = "1"
@@ -146,20 +151,32 @@ python -m mlview explain MLV101
 ### Session C · Claude Code
 
 ```sh
+python -m pip install mcp            # the SDK the server imports; not vendored
+export MLVIEW_PYTHON="$(command -v python || command -v python3)"   # a 3.10+
+                        # interpreter, by absolute path: `.mcp.json` defaults
+                        # to a bare `python`, which usually does not exist
+
 claude plugin validate ./claude-plugin --strict
 claude --plugin-dir /absolute/path/to/MLView/claude-plugin
 ```
 
+```powershell
+# Windows, PowerShell
+python -m pip install mcp
+$env:MLVIEW_PYTHON = (Get-Command python).Source
+```
+
 | # | Do this | "Working" means |
 |---|---|---|
+| C0 | Start the session and ask what MLView tools are available | The five `mlview_*` tools are listed. If they are not, the server failed to start: read its stderr, which names the fix in one line (a missing `mcp`, or an interpreter older than 3.10). Do **not** record C1-C5 as failures until C0 passes — they all fail for that one reason. |
 | C1 | `/mlview <your project>` | The model analyzes, summarizes, and offers to open the diagram. The answer cites real files and line numbers from your repo. |
 | C2 | `/mlview-issues <your project> high` | A ranked list of high-severity findings, each citable. |
 | C3 | `/mlview-issues <your project> --group-by rule` | One row per rule with an occurrence count and up to three sites, not a flat repeated list. |
 | C4 | `/mlview <your project> --scope concern:evaluation --depth 1` | A scoped answer that **says it is scoped** and still reports the project's real size. |
 | C5 | Ask the model to open the diagram | `mlview_open_diagram` writes an HTML report and returns its path; the model must not claim it can export an image. |
 | C6 | Let Claude **edit a training file** in a way that introduces a defect (delete an `optimizer.zero_grad()`, or fit a scaler before a split) | The `PostToolUse` hook speaks up **only because the finding set grew**, at most 5 rows. The first edit in a session is silent by design — there is nothing to diff against yet. Run a second edit to see it. |
-| C7 | On Windows without Git Bash | The hook is expected to be silent: the command in `claude-plugin/hooks/hooks.json` is shell form, which is PowerShell there. Silence is the documented degradation; record whether that is what you saw. |
-| C8 | Marketplace install path: `/plugin marketplace add <this repo or a local path>` then install `mlview` from it | The plugin installs and the five tools appear. See Part 4.4 for hosting the marketplace file. |
+| C7 | On Windows without Git Bash | The command in `claude-plugin/hooks/hooks.json` is shell form, and Claude Code falls back to PowerShell when Git Bash is absent. PowerShell reads `${MLVIEW_PYTHON:-python}` as a variable *named* `MLVIEW_PYTHON:-python`, which is unset, so the hook runs nothing and exits non-zero — and a non-zero `PostToolUse` exit surfaces a **`<hook name> hook error` notice carrying the first line of stderr**, on every Edit and Write. **Expect a visible error notice, not silence**; record the exact text. (Silence would mean something else again. The fix is a `"shell": "bash"` field on both hook entries, or exec form; neither is applied yet.) |
+| C8 | Marketplace install path: `/plugin marketplace add <this repo or a local path>` then install `mlview` from it | The plugin installs and the five tools appear. See Part 4.3 for hosting the marketplace file. |
 
 ---
 
@@ -168,13 +185,24 @@ claude --plugin-dir /absolute/path/to/MLView/claude-plugin
 Copy `docs/DEMO_LOG.md`, fill in one row per check, and keep it with the run:
 
 ```sh
-cp docs/DEMO_LOG.md docs/demo-logs/2026-09-14-<your-machine>.md
 mkdir -p docs/demo-logs/screenshots
+cp docs/DEMO_LOG.md "docs/demo-logs/$(date +%F)-<your-machine>.md"
 ```
+
+```powershell
+# Windows, PowerShell
+New-Item -ItemType Directory -Force docs/demo-logs/screenshots | Out-Null
+Copy-Item docs/DEMO_LOG.md "docs/demo-logs/$(Get-Date -Format yyyy-MM-dd)-<your-machine>.md"
+```
+
+**The `mkdir` comes first on purpose.** A fresh clone carries
+`docs/demo-logs/.gitkeep` and nothing else, and `screenshots/` is not there at
+all; copying into a directory that does not exist fails and takes the rest of
+the block with it.
 
 One row per check — **pass / fail / note** — plus the environment block at the
 top (OS, Python, Node, VS Code, Copilot, Claude Code versions) and the repo it
-was run against. Screenshots go in the `screenshots/` directory beside the log
+was run against. Screenshots go in `docs/demo-logs/screenshots/` — one shared directory, not one per log —
 and are referenced by file name from the row that needed them; a screenshot
 with no row is not evidence of anything.
 
@@ -220,6 +248,11 @@ python scripts/check_docs.py
 # 3. The packaged artifacts build and run:
 python tools/wheel_check.py                 # builds the wheel, installs it in a
                                             # throwaway venv, analyzes with it
+python tools/wheel_check.py --sdist         # the same, for the source distribution
+                                            # 4.1 uploads -- `pip install mlview` falls
+                                            # back to it on any platform without a
+                                            # matching wheel, and a version can never
+                                            # be re-uploaded
 cd vscode-extension && npm run package && cd ..
 python scripts/vsix_check.py                # ceiling, bundled core, rule pages, no bytecode
 ```
@@ -295,6 +328,11 @@ Manage**. The publisher id must equal `publisher` in
 `vscode-extension/package.json`, which is currently **`mlview`** — if that id is
 unavailable, change the field and re-run `npm run package`.
 
+**Azure DevOps retires global Personal Access Tokens on 1 December 2026.** If you
+are publishing after that date these instructions are stale: use Microsoft Entra
+ID authentication instead (workload identity federation for automated publishing)
+and follow the current VS Code publishing document rather than this paragraph.
+
 ```sh
 npm install -g @vscode/vsce
 
@@ -338,7 +376,8 @@ add the repository and install from it.
 ```sh
 # From this repo (already committed):
 cat .claude-plugin/marketplace.json     # entry "mlview" from ./claude-plugin,
-                                        # entry "mlview-github" from github:realmyang/MLView
+                                        # entry "mlview-github" from git-subdir
+                                        # github.com/realmyang/MLView @ claude-plugin
 claude plugin validate ./claude-plugin --strict
 ```
 
@@ -380,10 +419,15 @@ venv.
 
 ### 4.5 What to update afterwards
 
-- **README install lines.** `README.md`, `vscode-extension/README.md` and
-  `claude-plugin/README.md` currently say `pip install -e analyzer` and "install
-  from a checkout". Once the wheel is public they should say `pip install
-  mlview`, and the extension one should point at the Marketplace listing.
+- **README install lines.** `vscode-extension/README.md` still tells the reader to
+  `pip install -e <repo>/analyzer`; once the wheel is public it should say
+  `pip install mlview` and point at the Marketplace listing. `README.md` already
+  carries `pip install mlview` as a parenthetical ("or: pip install mlview, once
+  published") — promote it to the primary line and demote the editable install to
+  the contributor note. `claude-plugin/README.md` needs **no** change until the
+  vendored analyzer goes away: its install story is deliberately the opposite one
+  (no `pip install` of MLView at all; `.mcp.json` puts `claude-plugin/vendor` on
+  `PYTHONPATH`).
 - **Drop the vendored analyzer from the plugin.** `claude-plugin/vendor/mlview`
   exists only because a marketplace install copies the plugin directory verbatim
   with no build step. Once `pip install mlview` works, the plugin can depend on
@@ -391,10 +435,11 @@ venv.
   away. Do this as its own change: it removes a gate, so it needs the plugin
   suite re-run against a pip-installed core with `PYTHONPATH` **not** pointing at
   `vendor/`.
-- **Pin the GitHub Action.** `README.md` documents
-  `uses: realmyang/MLView/tools/action@main`; after a release it should be
-  `@v0.1.0`, and `tools/action/action.yml` should install the published version
-  rather than the checkout.
+- **Pin the GitHub Action.** `tools/action/action.yml` is a composite action that
+  installs the checkout; after a release it should install the published wheel
+  instead. No `uses:` line is documented anywhere in this repository today — if
+  one is added (`uses: realmyang/MLView/tools/action@v0.1.0` is the line users
+  copy), pin it to the tag rather than to `@main` from the start.
 - **The nightly workflow.** `.github/workflows/nightly.yml` only starts firing
   once it is on the default branch — confirm it ran the day after the merge.
 - **`docs/STATUS.md`** should stop saying the hosts are compile-verified only,

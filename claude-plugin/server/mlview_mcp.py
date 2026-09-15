@@ -249,7 +249,9 @@ def mlview_analyze(
     row of kind `single_file_analysis` whose `codes` name the rules that could not
     run; quote those codes to the user rather than reporting the shorter list as a
     clean file. The same applies to `untagged_dataflow`, which says a key argument
-    could not be traced, so the leakage rules could not check it. Analyze the
+    could not be traced, so the leakage rules could not check it, and to
+    `framework_filter`, which says a non-"auto" `framework` argument dropped rules
+    the detected frameworks would have run. Analyze the
     directory and pass
     `scope="file:<name>.py"` when the question really is about one file: that
     recovers the cross-file rules and still answers about the file.
@@ -259,7 +261,11 @@ def mlview_analyze(
             the whole project directory. A DIRECTORY is the honest default — see
             the single-file caveat above.
         framework: "auto" (default), or one of torch, sklearn, keras, hf, lightning
-            to restrict the extractors.
+            to restrict the extractors. PREFER "auto": anything else narrows the
+            RULE SET as well, so the finding list gets shorter without the project
+            getting cleaner. When it costs findings the result carries a
+            `framework_filter` coverage row whose `codes` name the rules that did
+            not run; quote them, and offer to re-run with "auto".
         maxNodes: graph cap; the result sets truncated=true when it is exceeded.
         includeHtml: also write the self-contained HTML report and return
             reportPath (it is NOT opened; use mlview_open_diagram for that).

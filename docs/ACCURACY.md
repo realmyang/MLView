@@ -7,10 +7,13 @@ produced on **2026-09-09**, and the three gates that keep them from going
 backwards.
 
 ```
-python tools/accuracy.py                    # the report and the gate
+python tools/accuracy.py                    # the report and the gate, in `ip` -
+                                            #   the product default since 2026-09-15
+python tools/accuracy.py --dataflow local   # the opt-out mode, gated separately
 python tools/accuracy.py --verbose          # every missed label and missing op
 python tools/accuracy.py --program hydra_research --no-gate
-python tools/accuracy.py --update-baseline  # ratchet, after a rule change earns it
+python tools/accuracy.py --dataflow ip    --update-baseline   # the ip ratchet
+python tools/accuracy.py --dataflow local --update-baseline   # the local ratchet
 python -m pytest analyzer/tests/accuracy -q # the same thing, asserted
 ```
 
@@ -350,8 +353,11 @@ signal does not depend on being able to reach GitHub Actions.
 
 The baseline is a floor, never a pin — a rule that starts finding something it
 used to miss passes. When a change legitimately earns a new number, re-record
-it with `python tools/accuracy.py --update-baseline` and say in the commit body
-which change earned it.
+it with `python tools/accuracy.py --dataflow <mode> --update-baseline` — naming
+the mode, because the bare command means `ip` now — and say in the commit body
+which change earned it. `--update-baseline` **refuses to write a baseline whose
+own `dataflow` field disagrees with the run**, so the two ratchets can no longer
+be crossed by omission (REC-05).
 
 `--update-baseline` enforces gate 2 rather than bypassing it (fixed 2026-09-08,
 TB-02 — it used to rewrite the file unconditionally, so one command erased a
@@ -400,8 +406,8 @@ is the analysis every number in section 3 describes. The two are scored against
 **two baselines**, because one number cannot gate two analyses:
 
 ```
-python tools/accuracy.py                  # local, gates baseline.json
-python tools/accuracy.py --dataflow ip    # ip, gates baseline.ip.json
+python tools/accuracy.py                     # ip (the DEFAULT), gates baseline.ip.json
+python tools/accuracy.py --dataflow local    # local (the opt-out), gates baseline.json
 ```
 
 `analyzer/tests/accuracy/baseline.ip.json` has the same shape and the same two
@@ -434,8 +440,37 @@ that scales a whole series before a chronological cut.
 **It now buys nine**, and the gap between the rows is what R5 added (§8): the
 three interprocedural paths for MLV101 / MLV102 / MLV103 are `ip`-only by
 construction (§3.11 R1.5), so `local` is deliberately the narrower analysis and
-moves less. No finding fires in `local` and not in `ip`; that direction is a
-regression, not a trade (§3.11 R1.3).
+moves less.
+
+### What "`ip` is a widening" does and does not claim
+
+**`ip` recall >= `local` recall, per rule and overall, on this labelled
+corpus.** That is the gate; it is measured by `tools/accuracy.py` in both modes
+against two baselines, and it holds.
+
+It is **not** the claim that every individual finding of `local` reappears in
+`ip`. That stronger sentence stood here until 2026-09-15 - "No finding fires in
+`local` and not in `ip`; that direction is a regression, not a trade" - and it
+is false on real code: the wider analysis can *resolve* something that then
+withdraws a finding, and the withdrawal is usually the better answer. Swept over
+all 37 clones of the public corpus in both modes, **four findings fire in
+`local` and are absent in `ip`**:
+
+| finding | why `ip` withdraws it |
+|---|---|
+| `mlflow/.../pytorch/MNIST/mnist_autolog_example.py:70` MLV110 | Lightning becomes visible in `ip`, so the framework de-rating applies |
+| `pytorch-examples/distributed/minGPT-ddp/mingpt/trainer.py:120` MLV501 | `ip` resolves the DDP wrapper, `negation_absent` fires, and the finding drops below the visibility threshold (`framework_suppressed: Training loop handled by DistributedDataParallel`) |
+| `pytorch-tutorials/intermediate_source/torch_compile_tutorial.py:245` MLV301 | the interprocedural hop weight takes the finding under the threshold |
+| the same file and line, MLV302 | the same |
+
+In three of the four, `ip` is the better answer. Two mechanisms produce all of
+them - **framework recognition** (a wrapper `local` could not see) and **the hop
+weight** (a cross-object claim paying for its crossing) - both deliberate, both
+silencing-only, and neither a regression. What is gated is the recall
+inequality; what is recorded here is the measured exception set, re-derived by
+running the corpus in both modes and differencing on
+`(code, severity, file, line)`. `docs/CONTRACTS.md` §3.11 R1.3 carries the same
+restatement.
 
 ### Why an `ip` finding is never `certain`
 
@@ -566,8 +601,11 @@ registry model, which nothing in this tree has.
 
 ### 7.5 · The ratchet, run
 
-`python tools/accuracy.py --update-baseline` and the same with `--dataflow ip`
-were run on **2026-09-15**, and every gated number moved **up**; neither command
+`python tools/accuracy.py --dataflow local --update-baseline` and
+`python tools/accuracy.py --dataflow ip --update-baseline` were run on
+**2026-09-15** — both modes spelled out, because with `ip` now the default a bare
+`--update-baseline` writes the `ip` ratchet and the pair would otherwise be one
+command twice (REC-05) — and every gated number moved **up**; neither command
 had to record a downward move, and neither was given `--allow-regression`.
 Section 3 above quotes the new `local` figures and section 6 the new `ip` ones,
 which is what `scripts/doc_numbers.py` check 9 requires. Both baselines carry a
@@ -640,7 +678,36 @@ each 50.0% → **75.0%** in *both* modes — the last three because R3 finally b
 a model held in a bare function parameter, which is what `validate(model, loader)`
 needs.
 
-### 8.3 · The public corpus: zero new high findings
+### 8.3 · The public corpus: zero new high findings — and five wrong ones
+
+> **Erratum, 2026-09-15 (REC-02).** The heading below is literally true and
+> materially incomplete, and it is corrected here rather than quietly rewritten.
+> `new high = 0` is not the whole precision question: of the **seven** findings
+> this wave added on the 37-clone public corpus, adjudicating each one by hand
+> gives **two true positives and five false positives**, all `medium`.
+>
+> | new finding | verdict |
+> |---|---|
+> | `pytorch_geometric/examples/arma.py:56` MLV302 | **true** — a real `eval()` without `no_grad()` |
+> | `wandb-examples/examples/sacred/pytorch_test.py:111` MLV205 | **true** — a genuine live-graph accumulator |
+> | `diffusers/.../lpl/lpl_loss.py:180` MLV205 | false — a loss module's own `forward` must keep the graph it collects |
+> | `pytorch-examples/fast_neural_style/neural_style.py:91` MLV205 | false — `style_loss` is one BinOp from the tensor that is back-propagated |
+> | `pytorch-tutorials/beginner_source/introyt/trainingyt.py:307` MLV205 | false — accumulation under `torch.no_grad()`, no graph to keep |
+> | two rows of the pre-existing MLV301/302-on-a-pytest-file family | false — see §8.5 (REC-09) |
+>
+> All five are fixed in §8.5, along with two pre-existing MLV205 false positives
+> the same guards reach. A document that exists to say what the tool cannot do
+> has to report new findings by **adjudication**, not only by severity.
+
+
+
+**This measurement cannot be reproduced from this tree.** The runner (a
+`public_corpus.py` that would live under `tools/`), its adjudication corpus under
+`analyzer/tests/` and the `check --strict` ratchet are all on an unmerged
+hardening branch; no
+command in this repository re-runs the table below, and the `0 new high` claim is
+therefore a recorded observation rather than a gated one until that branch lands.
+Everything else in this document is re-derivable with `python tools/accuracy.py`.
 
 37 pinned third-party repositories, 112 targets, three modes, **260 runs**,
 `main`'s analyzer against this tree, the dataflow mode spelled explicitly on
@@ -670,6 +737,11 @@ measured with the mode spelled on both sides.
 
 ### 8.4 · What this wave did not close
 
+* **The public-corpus gate is not in this tree** (§8.3). The runner and its
+  adjudication file are on an unmerged branch, so §8.3's table cannot be re-run
+  or ratcheted here. When that branch merges, re-run
+  `public_corpus check --strict` against the merged adjudication file and this
+  claim becomes gated again.
 * **MLV402 has no label in this corpus** (§8.2), so one of the seven targets is
   unevaluated rather than met.
 * **`hydra_research`'s decorator registry** — §7.4. One hand-labelled op and
@@ -685,3 +757,102 @@ measured with the mode spelled on both sides.
 * **The corpus is still 15 programs and 78 labels.** Every figure in this
   section is measured on it, and growing the unseen half remains the cheapest
   recall work on the board.
+
+---
+
+## 9 · The Consolidate corrections, 2026-09-15
+
+Five confirmed analyzer findings from the Consolidate review, fixed at the root
+cause. Measured the same way §8.3 was measured — every pinned target of the 37
+public clones, both dataflow modes, this tree against the tree it started from,
+differenced on `(code, severity, file, line)`.
+
+| | before | **after** |
+|---|---|---|
+| public-corpus findings, `ip` | 291 | **269** |
+| public-corpus findings, `local` | 292 | **270** |
+| **added** | — | **0** |
+| **removed** | — | **22** (17 `medium`, 5 `high`) |
+| labelled corpus, `ip` recall | 93.6% | **93.6%** |
+| labelled corpus, `local` recall | 82.0% | **82.0%** |
+| precision / forbidden, both modes | 100% / 0 | **100% / 0** |
+
+Nothing was added anywhere; all 22 removals are adjudicated false positives.
+
+**REC-02 — MLV205 accused three correct shapes.** R18(a) widened the rule to
+*any* accumulating loop and lost three silencing conditions. All three are now
+read, and all three may only silence: a loop under `torch.no_grad()` (or a
+`@torch.no_grad()`-decorated function) has no graph to keep; an accumulator one
+arithmetic step from the tensor the program `backward()`s is holding the graph
+on purpose; and a running total the enclosing function `return`s is the value
+the caller will differentiate. The `return` arm asks one more question than the
+others, because `losses.append(loss)` *after* `loss.backward()` also ends in
+`return losses` and **is** the defect — so when the collected tensor is already
+back-propagated in that scope, the rule still fires. A fourth, narrower guard
+stops `losses.append(total_loss)` being read as live when every write to
+`total_loss` went through `.item()` / `.detach()` / `float()`. Six MLV205 false
+positives removed, the one true positive kept. Fixtures:
+`MLV205_no_grad_good.py`, `MLV205_backwarded_good.py`, `MLV205_returned_good.py`.
+
+**REC-03 — the leakage walks only read a `return` that bound a name first.**
+`dotted_text` of an `ast.Call` is its *callee* (`scaler.fit_transform`), which
+names no value, so `return scaler.fit_transform(frame)` produced an empty
+returned-position list while `matrix = scaler.fit_transform(frame); return
+matrix` produced a `high` MLV101 — the same program, one refactoring apart. Both
+R13 and R15 now resolve a returned call through `module._calls_by_node` and read
+the names it is written on. This also turns `test_review_fixes.py`'s IP-02
+fixture from a *disclosed gap* into a reported finding: the `Scaled` class whose
+`run()` returns `self.scaler.fit_transform(self.rows)` into a caller that splits
+it is now MLV101 at `prep.py:10`. Fixtures: `MLV101_return_call_bad.py`,
+`MLV103_return_call_bad.py`.
+
+**REC-04 — carriage stopped at the scope that wrote the literal.** §5.3 A11
+resolves an object out of a dict / tuple / dataclass, but only where the literal
+is assigned to a name in the same scope, so the `make_state()` factory — which
+is how the shape is actually written — lost everything inside it at the
+`return`. A container literal now travels exactly one hop, twice: `ReturnSlot`
+carries it out of a function (with the scope and module its elements must be
+read in, because `{"model": model}` names `model` in the *callee*), and a
+parameter inherits it when **every** resolved call site passes the same literal
+— the intersection discipline of §3.11 N6, so two call sites with two different
+dicts carry nothing. Two supporting corrections were needed and are worth more
+than the feature: a subscript the analyzer *did* follow is no longer marked
+`opaque`, and `unresolved_callee`'s inferred half is recomputed each IR round
+instead of being written once in round 1 and never cleared — a name the first
+round could not follow used to report itself as a gap for the life of the run.
+MLV208's `_scaler_for` gained an identity arm to match: a `scaler.step(...)` in
+the loop whose receiver resolves to a `GradScaler(...)` **is** that scaler,
+whatever function built it.
+
+**REC-07 — the per-batch list.** `predictions.append(raw_scores(model, x))` then
+`accuracy_score(y, np.concatenate(predictions))` is how a batched evaluation is
+written, and the PROBS tag died in the list. `rules/valuetype` now walks one
+bounded collector hop (`np.concatenate` / `stack` / `torch.cat` / …) back to the
+appends it can see in the same scope, over a list bound to an empty `[]` — the
+literal-only discipline of `ir.containers`. It **intersects** the appends rather
+than unioning them, so a list that also receives an argmaxed value yields
+nothing. It crosses no object, so it costs no hop of its own. Fixtures:
+`MLV305_batched_bad.py` and its negative twin `MLV305_batched_good.py`.
+
+**REC-09 — a pytest module is not an evaluation region.** `_EVAL_NAME_RE` reads
+any `test*` function as an evaluation entrypoint, so an ordinary test suite drew
+`high` MLV301s on assertions about tensor shapes. A test region is now removed
+before either rule sees it, exactly as a framework hook is, and both halves have
+to hold: the **module** is a test suite (named like one, under a `tests/`
+directory, or importing `pytest`/`unittest`) *and* the **region** is test-shaped
+(a `test*` function, or a body whose conclusions are assertions). Sixteen
+findings removed across three repositories (`LLMs-from-scratch`,
+`stable-baselines3`, `vit-pytorch`), five of them `high`. Fixture:
+`MLV301_pytest_good.py`.
+
+Two reporting corrections came with them. `tools/accuracy_corpus.run_corpus()`
+no longer spells a mode of its own — it reads `mlview.api.DEFAULT_DATAFLOW`, the
+single authority §3.11 R1.1 names — and `analyzer/tests/accuracy/test_accuracy.py`
+now says out loud that it scores **`local`** against `baseline.json` (the `ip`
+ratchet is `test_dataflow_ip.py` against `baseline.ip.json`). And every report
+names its mode and the baseline the gate read, in both modes:
+
+```
+MLView accuracy corpus - 15 labelled programs  [--dataflow ip]
+accuracy gate: PASS  (ip, analyzer/tests/accuracy/baseline.ip.json)
+```

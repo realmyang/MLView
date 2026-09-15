@@ -34,7 +34,8 @@ PROTECTED_KEYS = frozenset(
         # whole point of the payload when it is present.
         "note", "docNote", "docPath", "diagnostics",
         # ROADMAP COVERAGE: the rules that could NOT run. Bounded by
-        # `mlview_notes.MAX_CODES` / `MAX_MESSAGE` to ~1 KB worst case, so
+        # `mlview_notes.MAX_CODES` / `MAX_MESSAGE` to 1881 bytes with all three
+        # kinds at their bound (measured; ~1.4 KB with real messages), so
         # protecting it cannot starve the payload — and shedding it would leave
         # the model a finding count it has no way to know is a floor.
         "coverage",

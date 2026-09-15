@@ -25,6 +25,7 @@ from .model import CallSite, ClassIR, ModuleIR, ScopeIR, ValueRef
 from .resolve_passes import mark_fitted, propagate_parameters, seed_annotations
 from .resolve_receivers import _canonical_for_receiver, _class_scope, _local_lookup
 from .returns import slot_of
+from .scopes_walk import callee_construct
 from .symbols import dotted_text
 
 __all__ = ["resolve_calls", "seed_annotations", "propagate_parameters", "mark_fitted"]
@@ -76,6 +77,18 @@ def _note_unresolved(call: CallSite) -> None:
     as `len` or `range` has no binding in scope, so it is never flagged and no
     `unknown` node is minted for it.
     """
+    # REC-04: the *inferred* half is recomputed every round, not remembered.
+    # It used to be written once and never cleared, so a name the first IR
+    # round could not follow stayed "a subscript" for the life of the run even
+    # after a later round resolved it - `model = state["model"]`, followed into
+    # the dict a factory returned, still reported itself as a gap. The
+    # syntactic half (`callee_construct`, a pure function of the AST) is left
+    # exactly as it was, including the one place `_resolve_one` deliberately
+    # clears it: the Keras functional API, where the flag was a first guess and
+    # the resolution is the answer.
+    syntactic = callee_construct(call.node.func)
+    if call.unresolved_callee and call.unresolved_callee != syntactic:
+        call.unresolved_callee = None
     if (call.unresolved_callee or call.class_ir is not None
             or call.target_function is not None):
         return
