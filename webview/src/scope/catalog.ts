@@ -8,8 +8,9 @@
  * number of cards the user will actually get.
  */
 
-import { CONCERNS, CONCERN_LABELS, CONCERN_NAMES } from './selector.js';
+import { CONCERNS, CONCERN_LABELS, CONCERN_NAMES, parseScope } from './selector.js';
 import { PipelineIndex } from './pipelines.js';
+import { project, projectedNodeCount } from './project.js';
 import type { PipelineRow } from './pipelines.js';
 import type { IssueCounts, MLGraph, MLNode, Severity } from '../types.js';
 
@@ -172,9 +173,94 @@ export function pipelineIndexOf(graph: MLGraph): PipelineIndex {
   return cachedIndex;
 }
 
-/** The picker's and the chooser's rows, in the analyzer's ranked order. */
+/**
+ * The picker's and the chooser's rows, in the analyzer's ranked order.
+ *
+ * HOSTS-UX-PIPELINECOUNT. Each row also carries `viewCount`: the number of
+ * cards the click actually draws, obtained by running the SAME `project()` the
+ * click runs rather than by re-deriving the projection's rules here. `nodeCount`
+ * is left alone — it is 11.47 A's relation, `exclusiveCount + sharedCount`, and
+ * what the emitted block reports — so the two numbers stay separate facts and
+ * only the one a row PROMISES changes.
+ *
+ * Memoised beside the relation, against the document's identity, because the
+ * picker re-renders on every keystroke in its search box and a projection per
+ * entrypoint per keystroke is not free. A projection that throws — a document
+ * whose `workspace.entrypoints` no longer resolves — leaves `viewCount` unset
+ * and the row falls back to `nodeCount`: a picker must never be the thing that
+ * takes the report down.
+ */
 export function pipelineRows(graph: MLGraph | null): PipelineRow[] {
-  return graph ? pipelineIndexOf(graph).rows() : [];
+  if (!graph) return [];
+  const rows = pipelineIndexOf(graph).rows();
+  const drawn = viewCountsOf(graph, rows);
+  return rows.map((row) => {
+    const count = drawn.get(row.entrypoint);
+    return count === undefined ? row : { ...row, viewCount: count };
+  });
+}
+
+let cachedCountGraph: MLGraph | null = null;
+let cachedCounts: Map<string, number> | null = null;
+
+function viewCountsOf(graph: MLGraph, rows: PipelineRow[]): Map<string, number> {
+  if (cachedCountGraph === graph && cachedCounts) return cachedCounts;
+  const out = new Map<string, number>();
+  for (const row of rows) {
+    try {
+      out.set(row.entrypoint, project(graph, parseScope('pipeline:' + row.entrypoint)).nodes.length);
+    } catch (_e) {
+      /* an entrypoint this document can no longer resolve keeps its own count */
+    }
+  }
+  cachedCountGraph = graph;
+  cachedCounts = out;
+  return out;
+}
+
+/**
+ * HOSTS-UX-ROWCOUNT. The number of cards a row's own click draws, for ANY
+ * selector — the generalisation of `pipelineRows`' `viewCount` above.
+ *
+ * `ScopeUnit.nodeCount` and `ScopeGroup.nodes` are relation facts: the subtree,
+ * or the nodes carrying that stage. The CLICK runs `project()`, which applies
+ * the kind's default depth and keeps the `context` ancestors that hold the
+ * containment tree together (11.2), so the two numbers differ — on the frozen
+ * golden `unit:model.SmallNet` matched 1 and drew 5. Both numbers are correct
+ * about different things; only the one a MENU PROMISES has to be the one the
+ * click delivers, so the relation counts are left alone and the picker asks
+ * here instead.
+ *
+ * It runs the same `project()` the click runs rather than re-deriving the
+ * projection's rules, for the reason round 1 gave about the pipeline rows: a
+ * second copy of the rules is a second set of numbers to keep in step.
+ *
+ * Memoised per `(document identity, spec)` because the picker re-renders on
+ * every keystroke in its search box and lists up to 200 units. A selector this
+ * document cannot resolve returns `null` and the caller keeps the relation's
+ * number: a picker must never be the thing that takes the report down.
+ */
+let cachedSpecGraph: MLGraph | null = null;
+let cachedSpecCounts: Map<string, number> | null = null;
+
+export function viewCountOf(graph: MLGraph, spec: string): number | null {
+  if (cachedSpecGraph !== graph || !cachedSpecCounts) {
+    cachedSpecGraph = graph;
+    cachedSpecCounts = new Map<string, number>();
+  }
+  const hit = cachedSpecCounts.get(spec);
+  if (hit !== undefined) return hit;
+  let count: number;
+  try {
+    // The count, not the document: `projectedNodeCount` runs the click's own
+    // steps 3-7 and stops before step 8 copies every kept node and edge, which
+    // is what keeps a 222-row menu over a 400-node repository inside a frame.
+    count = projectedNodeCount(graph, parseScope(spec));
+  } catch (_e) {
+    return null;
+  }
+  cachedSpecCounts.set(spec, count);
+  return count;
 }
 
 /** One row per stage the document declares; absent stages are shown disabled. */

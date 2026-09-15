@@ -1,0 +1,50 @@
+{
+  "name": "tabular_forecast_clean",
+  "title": "An hourly load forecast done correctly: shifted windows, a chronological cut and TimeSeriesSplit over a Pipeline",
+  "origin": "hardening round 1, tester domain-tabular: the correct half of the time-series pair",
+  "tuned": false,
+  "labelledBy": "hardening domain-tabular, 2026-09-13",
+  "expected": [],
+  "forbidden": [
+    {"code": "MLV101", "file": "train.py",
+     "why": "the StandardScaler is a Pipeline step, so cross_val_score refits it inside every fold and fit_and_score refits it on the training window; nothing is fitted before the cut"},
+    {"code": "MLV102", "file": "train.py",
+     "why": "the future window reaches exactly one call, estimator.predict at line 50; nothing is ever fitted on it"},
+    {"code": "MLV103", "file": "train.py",
+     "why": "the estimator handed to cross_val_score is make_estimator(), a Pipeline whose first step is the scaler"},
+    {"code": "MLV106", "file": "train.py",
+     "why": "this project never shuffles: the holdout is frame.iloc[:cutoff] / frame.iloc[cutoff:] and the folds come from TimeSeriesSplit"},
+    {"code": "MLV106", "file": "lags.py",
+     "why": "lags.py contains no split at all; it parses and sorts the timestamp, which is the signal MLV106 looks for, not the defect"},
+    {"code": "MLV601", "file": "train.py", "anchor": "project",
+     "why": "the only stochastic component is HistGradientBoostingRegressor and it carries random_state=SEED at line 28"},
+    {"code": "MLV602", "file": "train.py",
+     "why": "TimeSeriesSplit is deterministic by construction - it has no random_state, and asking for one would be wrong advice on a chronological split"},
+    {"code": "MLV305", "file": "train.py",
+     "why": "the only metric is mean_absolute_error on a regression target; there are no class predictions in this project"},
+    {"code": "MLV306", "file": "train.py",
+     "why": "no ranking metric appears in this project"},
+    {"code": "MLV110", "file": "train.py",
+     "why": "there is no DataLoader and no torch in this project"}
+  ],
+  "graph": {
+    "edges": 28,
+    "ops": [
+      {"file": "lags.py", "line": 18, "symbol": "read_csv", "kind": "dataset"},
+      {"file": "lags.py", "line": 19, "symbol": "sort_values", "kind": "transform"},
+      {"file": "lags.py", "line": 25, "symbol": "shift", "kind": "transform"},
+      {"file": "lags.py", "line": 31, "symbol": "shift", "kind": "transform"},
+      {"file": "lags.py", "line": 33, "symbol": "rolling.mean", "kind": "transform"},
+      {"file": "lags.py", "line": 48, "symbol": "dropna", "kind": "transform"},
+      {"file": "train.py", "line": 26, "symbol": "StandardScaler", "kind": "scaler"},
+      {"file": "train.py", "line": 27, "symbol": "HistGradientBoostingRegressor", "kind": "model"},
+      {"file": "train.py", "line": 25, "symbol": "Pipeline", "kind": "model"},
+      {"file": "train.py", "line": 35, "symbol": "iloc cut", "kind": "split"},
+      {"file": "train.py", "line": 41, "symbol": "TimeSeriesSplit", "kind": "split"},
+      {"file": "train.py", "line": 42, "symbol": "cross_val_score", "kind": "metric"},
+      {"file": "train.py", "line": 49, "symbol": "estimator.fit", "kind": "train_loop"},
+      {"file": "train.py", "line": 50, "symbol": "estimator.predict", "kind": "predict"},
+      {"file": "train.py", "line": 51, "symbol": "mean_absolute_error", "kind": "metric"}
+    ]
+  }
+}

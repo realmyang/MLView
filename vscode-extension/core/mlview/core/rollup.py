@@ -48,6 +48,29 @@ DIR_ROLLUP_KIND = "dir-rollup"
 _MAX_CHAIN = 64
 _MAX_GHOST_ROUNDS = 8
 
+#: PUB2-11 / INFRA-R2-19. The lanes the product exists to show. The budget used
+#: to be purely structural, and on the largest real frameworks what survived was
+#: the scaffolding rather than the workflow: on tensorflow/models `official/
+#: vision`, 398 of 1136 nodes kept and the lanes were config 382 (96%), eval 5,
+#: deliver 6, data 2, model 2, **train 1** - 175 `class` nodes, 109 `function`
+#: nodes and 98 `entrypoint` nodes, i.e. the file and class inventory. Measured
+#: on the corpus at `max_nodes=20`, `infra_pkg_layout` gave config 75% of the
+#: budget while the Train lane got 2 nodes and the Eval lane 1.
+#:
+#: A config-lane `class` / `function` / `entrypoint` node that carries no
+#: operation is inventory, not workflow: it is folded first, and it loses every
+#: tie in the deletion order. Nothing is *deleted* that would otherwise have
+#: survived on evidence - a node anchoring a finding keeps its tier, and the
+#: `stagesBeforeRollup` census still stops a fold from minting an absence.
+_PIPELINE_STAGES = ("data", "preprocess", "model", "objective", "train",
+                    "eval", "deliver")
+
+
+def _is_inventory(node: Node) -> bool:
+    """A config-lane container node that carries no operation of its own."""
+    return (node.stage == "config"
+            and node.kind in ("class", "function", "entrypoint", "module"))
+
 
 # --------------------------------------------------------------- entry point
 def apply_node_budget(graph: MLGraph, max_nodes: int) -> Optional[RollupReport]:
@@ -115,7 +138,7 @@ def apply_node_budget(graph: MLGraph, max_nodes: int) -> Optional[RollupReport]:
     # it, so that is what is counted.
     kept_ids = {n.id for n in graph.nodes}
     graph.diagnostics.append(Diagnostic(
-        kind="truncated", message=report.message(),
+        kind="truncated", scope="nodes", message=report.message(),
         count=sum(1 for n in nodes if n.id not in kept_ids)))
     return report
 
@@ -139,10 +162,13 @@ def _fold_ops(nodes: Sequence[Node], by_id: Dict[str, Node],
         issues: Set[str] = set()
         for kid in kids:
             issues |= anchored.get(kid, set())
-        groups.append((len(issues), -len(kids), tuple(node.sort_key), node.id, kids))
-    groups.sort(key=lambda g: g[:3])
+        groups.append((0 if _is_inventory(node) else 1, len(issues), -len(kids),
+                       tuple(node.sort_key), node.id, kids))
+    # PUB2-11: the config lane's inventory folds before any pipeline lane's
+    # operations do, so the budget is spent on the workflow.
+    groups.sort(key=lambda g: g[:4])
 
-    for _issues, _size, _key, parent_id, kids in groups:
+    for _lane, _issues, _size, _key, parent_id, kids in groups:
         if alive <= max_nodes:
             break
         for kid in kids:
@@ -370,7 +396,8 @@ def _choose_survivors(graph: MLGraph, survivors: Sequence[Node],
         return 3 if node.level != "op" else 4
 
     ordered = sorted(survivors,
-                     key=lambda n: (tier(n), len(chain(n.id))) + tuple(n.sort_key))
+                     key=lambda n: (tier(n), 1 if _is_inventory(n) else 0,
+                                    len(chain(n.id))) + tuple(n.sort_key))
     return {n.id for n in ordered[:max_nodes]}
 
 

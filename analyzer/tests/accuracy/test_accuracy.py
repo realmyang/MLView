@@ -212,15 +212,38 @@ def test_a_program_with_no_graph_block_scores_nothing_rather_than_everything(run
 
 def test_a_rule_labelled_only_in_tuned_programs_is_marked_as_such(run):
     """`recall 100.0%` off a single label in a program written alongside the
-    rule is a ceiling, not a measurement, and the table has to say so."""
+    rule is a ceiling, not a measurement, and the table has to say so.
+
+    Hardening round 1 grew the corpus from 15 programs to 92 and **every** rule
+    now carries at least one unseen label, so the corpus no longer contains the
+    case. That is the outcome this project wanted and it is asserted as such
+    below; the marking itself is still exercised, on a copy of the real report
+    with one rule's unseen labels taken away, so the `*` cannot rot while no
+    program happens to need it.
+    """
     results, report = run
     tuned_only = [code for code, data in report["perRule"].items()
                   if data["expected"] and not data["unseenExpected"]]
-    assert tuned_only, "the interesting case is a rule with no unseen label"
-    text = accuracy.render(results, report)
-    for code in tuned_only:
-        assert "%s*" % code in text, code
+    assert tuned_only == [], (
+        "every rule is expected to have an unseen label on this corpus; %s "
+        "lost theirs" % tuned_only)
+    for code in tuned_only:  # pragma: no cover - empty while the corpus is whole
         assert report["perRule"][code]["unseenRecall"] is None
+
+    text = accuracy.render(results, report)
+    assert "*" not in "".join(line for line in text.splitlines()
+                              if line.startswith("MLV")), text
+
+    # The marking, on a report that does contain the case.
+    import copy
+    ceiling = copy.deepcopy(report)
+    victim = next(code for code, data in ceiling["perRule"].items()
+                  if data["expected"])
+    ceiling["perRule"][victim].update(unseenExpected=0, unseenRecovered=0,
+                                      unseenRecall=None)
+    marked = accuracy.render(results, ceiling)
+    assert "%s*" % victim in marked, victim
+
     unseen_scored = [code for code, data in report["perRule"].items()
                      if data["unseenExpected"]]
     assert unseen_scored, "the interesting case is a rule with an unseen label"
@@ -232,12 +255,24 @@ def test_a_rule_labelled_only_in_tuned_programs_is_marked_as_such(run):
 
 
 def test_the_calibration_table_bins_every_matched_finding(run):
+    """Every finding the scorer counted as a true or a false positive is in a
+    bucket.
+
+    An `acceptable` label is deliberately neither: the tool *may* say this, so a
+    finding that matches one is not scored in either direction and is not binned
+    (`tools/accuracy_corpus.py` skips the row before `bucket_of`). It is
+    therefore excluded here too, rather than making the calibration table count
+    findings its own precision column does not.
+    """
     results, report = run
     binned = sum(entry["n"] for entry in report["calibration"].values())
-    findings = sum(len(r["rows"]) - sum(1 for row in r["rows"] if row["issue"] is None)
-                   for r in results)
+    findings = sum(1 for r in results for row in r["rows"]
+                   if row["issue"] is not None and row["verdict"] != "acceptable")
     findings += report["forbiddenFindings"] + report["unlabelledFindings"]
     assert binned == findings
+    # and the exclusion is real on this corpus, not a hypothetical
+    assert any(row["issue"] is not None and row["verdict"] == "acceptable"
+               for r in results for row in r["rows"])
 
 
 def test_the_baseline_on_disk_is_the_shape_the_gate_reads(baseline):

@@ -15,6 +15,7 @@ import { appendTrustSections, confidenceChip } from './evidence.js';
 import { defaultExpanded, groupIssues, needsHeader, occurrenceText, RAIL_GROUP_LABEL, RAIL_GROUP_MODES } from './railgroup.js';
 import { appendSuppressActions, stateChip, suppressedSummary } from './suppress.js';
 import { appendFixSection, fixMarker, hasFix } from './fixes.js';
+import { blindSpots, coverageHeadline } from './chromenotes.js';
 import type { IssueGroup } from './railgroup.js';
 import type { GraphIndex } from '../layout/model.js';
 import type { DiffIndex, DiffIssueEntry } from '../diff/overlay.js';
@@ -486,7 +487,24 @@ function wireListbox(list: HTMLElement, cb: IssueListCallbacks): void {
 
 /* ── the four zeros ────────────────────────────────────────────────────── */
 
-/** The zero-issue result: good news, stated as good news. */
+/**
+ * The zero-issue result: good news, stated as good news — and only when it IS
+ * good news.
+ *
+ * HOSTS-UX-CLEANSTATE. The standing criterion is *never look clean when you
+ * were blind*, and this was the last surface breaking it. On `karpathy/nanoGPT`
+ * the same document carries `untagged_dataflow` x2, `unresolved_callee` and
+ * `notebook_skipped`; the two banners say so, the answer card's verdict says so
+ * (11.60 A2), and the Issues rail — the panel a reviewer reads first — said
+ * *"No issues found · 213 nodes across 8 stages checked — nothing to flag."*
+ * with nothing beside it.
+ *
+ * The caveat is the SAME sentence the coverage banner draws, from the same
+ * function, over the wider set `blindSpots()` selects: two surfaces agreeing
+ * because they call one thing, rather than because someone kept them in step.
+ * A document with no coverage diagnostic at all is untouched — an unqualified
+ * clean result is still allowed to be an unqualified clean result.
+ */
 function cleanState(s: IssueListState): HTMLElement {
   const box = el('div', 'mlv-clean');
   box.setAttribute('role', 'status');
@@ -504,6 +522,11 @@ function cleanState(s: IssueListState): HTMLElement {
         nodes + (nodes === 1 ? ' node' : ' nodes') + ' across ' + stages + (stages === 1 ? ' stage' : ' stages') + ' checked — nothing to flag.',
       ),
     );
+    const blind = blindSpots(index.graph.diagnostics || []);
+    if (blind.length) {
+      const caveat = add(box, el('div', 'mlv-clean__caveat', coverageHeadline(blind)));
+      caveat.setAttribute('data-clean-coverage', String(blind.length));
+    }
   }
   return box;
 }

@@ -24,7 +24,15 @@ __all__ = ["train_loader_not_shuffled", "eval_loader_shuffled", "workers_without
 
 LOADER_FQN = "torch.utils.data.DataLoader"
 _TRAIN_LOADER_RE = re.compile(r"(?i)^(train_?(loader|dl|data|batches)?|(loader|dl)_?train)$")
-_EVAL_LOADER_RE = re.compile(r"(?i)^(val|valid|validation|test|eval|holdout)_?"
+#: DGRG2-11 / VIS2-18. `dev` is the canonical held-out name in LibriSpeech
+#: (`dev-clean`), GLUE and CoNLL; `query` and `gallery` are the canonical names
+#: in retrieval and re-identification. Both were missing, so
+#: `dev_loader` and `query_loader` could not be evaluation loaders at all.
+#: Reinforcing-only under iron law 2 - the regex cannot create a tag, only let
+#: a finding that already has dataflow or structural evidence be seen - so
+#: widening it costs no precision.
+_EVAL_LOADER_RE = re.compile(r"(?i)^(val|valid|validation|dev|devel|test|eval|holdout|"
+                             r"query|gallery)_?"
                              r"(loader|dl|data|batches)?$")
 _SEQUENCE_HINT_RE = re.compile(r"(?i)(sequence|sequential|timeseries|time_series|curriculum"
                                r"|series|forecast|temporal)")
@@ -49,23 +57,101 @@ def dataset_arg(ctx, call: CallSite):
     return name, ctx.binding_of(name, call.scope)
 
 
+def dataset_split_key(call: CallSite) -> Optional[str]:
+    """The literal split key of a subscripted dataset argument (NLP-14).
+
+    `DataLoader(split["test"], shuffle=True)` names the held-out split right
+    there in the constructor, and MLV111 stayed silent because the subscript
+    carries no dataflow tag (NLP-03) and the variable was called `loader`
+    rather than `test_loader`, so nothing reinforced. Iron law 2 is satisfied:
+    this is evidence of exactly the kind a variable name already provides -
+    reinforcing, never creating - and it is charged the same x0.8 factor.
+    """
+    node = call.args[0] if call.args else call.kwarg_nodes.get("dataset")
+    while isinstance(node, ast.Subscript):
+        key = node.slice
+        if isinstance(key, ast.Constant) and isinstance(key.value, str):
+            return key.value
+        node = node.value
+    return None
+
+
 def loader_name(call: CallSite) -> str:
     return (call.var or "").split(".")[-1]
 
 
 def iterating_loops(ctx, call: CallSite) -> List[LoopIR]:
-    """Every loop that iterates the value this loader was bound to."""
+    """Every loop that iterates the value this loader was bound to.
+
+    vision-12: `call.var` is the name the construction was assigned to, and a
+    `def build_loader(): return DataLoader(...)` factory assigns it to nothing
+    - so the documented MLV110 clause "a loader also counts as a training
+    loader if the `for` loop iterating it contains a `.backward()` call" could
+    never apply to the layout every project bigger than one file uses. The
+    caller's binding is the loader's name; one hop finds it.
+    """
     out: List[LoopIR] = []
-    if not call.var:
+    names, cross_module = _loader_binding_names(ctx, call)
+    if not names:
         return out
     for loop in ctx.loops():
-        if loop.module is not call.module:
-            continue
         if loop.iterates is not None and loop.iterates.producer is call:
-            out.append(loop)
-        elif loop.iter_text and loop.iter_text.split(".")[-1] == call.var.split(".")[-1]:
+            out.append(loop)          # value identity: always correct
+            continue
+        if not loop.iter_text:
+            continue
+        tail = loop.iter_text.split(".")[-1]
+        if tail not in names:
+            continue
+        # PUB2-02. The guard here read
+        #     `if tail in names and (loop.module is call.module or tail in names)`
+        # and `A and (B or A)` is `A`, so the module check never applied: EVERY
+        # loop in the workspace whose iterable ended in the same bare
+        # identifier was attributed to this construction. Measured on
+        # pytorch/tutorials, a correctly built `test_loader` in
+        # knowledge_distillation_tutorial.py was reported as "the **training**
+        # DataLoader ... consumed in dataset order every epoch", with the
+        # decisive evidence "the loop at line 272 over this loader calls
+        # backward()" - line 272 of that file is prose inside a comment block,
+        # and the loop lives in fgsm_tutorial.py, a different module with a
+        # different `test_loader` over a different dataset.
+        #
+        # A bare identifier match is only allowed where the name really did
+        # travel: the same module, or one of the modules that call the factory
+        # this loader is returned from.
+        if loop.module is call.module or id(loop.module) in cross_module:
             out.append(loop)
     return out
+
+
+def _loader_binding_names(ctx, call: CallSite):
+    """`(names, modules)` this DataLoader construction is bound to.
+
+    `modules` is the set of modules that actually call the factory the loader
+    is returned from - the only places a cross-module name match is evidence of
+    anything.
+    """
+    names: set = set()
+    modules: set = set()
+    if call.var:
+        names.add(call.var.split(".")[-1])
+        return names, modules
+    func = call.function
+    if func is None or len(func.returns) != 1:
+        return names, modules
+    expr = func.returns[0]
+    if expr is not call.node:
+        text = dotted_text(expr)
+        if not text or text.split(".")[-1] != (call.var or "").split(".")[-1]:
+            local = ctx.binding_of(text, func.scope) if text else None
+            if local is None or local.producer is not call:
+                return names, modules
+    for relpath in sorted(ctx.modules):
+        for site in ctx.modules[relpath].calls:
+            if site.target_function is func and site.var:
+                names.add(site.var.split(".")[-1])
+                modules.add(id(site.module))
+    return names, modules
 
 
 def _loop_has_role(ctx, loop: LoopIR, *roles: str) -> bool:
@@ -198,9 +284,13 @@ def _training_loader(ctx, call: CallSite, ref) -> Tuple[bool, List, bool]:
         return True, evidence, True
     for loop in iterating_loops(ctx, call):
         if _loop_has_role(ctx, loop, "BACKWARD"):
+            # PUB2-02: the file as well as the line. A cross-module attribution
+            # that is legitimate stays readable, and one that is not is obvious
+            # on sight instead of sending the reader to a line number the file
+            # it points at does not have.
             evidence.append(("context_confirmed",
-                             "the loop at line %d over this loader calls backward()"
-                             % loop.loc.line, 1.0))
+                             "the loop at %s:%d over this loader calls backward()"
+                             % (loop.loc.file, loop.loc.line), 1.0))
             return True, evidence, True
     if _TRAIN_LOADER_RE.match(loader_name(call)):
         return True, evidence, False
@@ -234,7 +324,9 @@ def eval_loader_shuffled(ctx) -> Iterable[Issue]:
         name, ref = dataset_arg(ctx, call)
         tagged = ref is not None and ref.has("VAL_SPLIT", "TEST_SPLIT")
         named = bool(_EVAL_LOADER_RE.match(loader_name(call)))
-        if not tagged and not named:
+        key = dataset_split_key(call)
+        keyed = bool(key and _EVAL_LOADER_RE.match(key))
+        if not tagged and not named and not keyed:
             continue
         node = ctx.node_for_call(call)
         if node is None:
@@ -245,10 +337,15 @@ def eval_loader_shuffled(ctx) -> Iterable[Issue]:
                              "%s carries %s from the split"
                              % (ref.name, "/".join(t for t in ref.tags
                                                    if t in ("VAL_SPLIT", "TEST_SPLIT"))), 1.0))
-        else:
+        elif named:
             evidence.append(("name_regex",
                              "%s only matches the evaluation-loader naming convention"
                              % loader_name(call), 0.8))
+        else:
+            evidence.append(("name_regex",
+                             "the dataset argument is the literal `%s` split of a "
+                             "split container, which names the held-out half but "
+                             "carries no dataflow tag" % key, 0.8))
         if not call.scope.is_dynamic:
             evidence.append(("scope_static",
                              "no dynamic constructs in %s" % call.scope.qualname, 1.0))
@@ -327,15 +424,56 @@ def _runs_at_import(call: CallSite) -> Optional[str]:
     func = call.function
     if func is None:
         return None
+    return _import_time_chain(module, func, guard)
+
+
+#: How many call hops the import-time reachability walk follows.
+_IMPORT_CHAIN_DEPTH = 6
+
+
+def _import_time_chain(module, func, guard) -> Optional[str]:
+    """The module-scope call chain that reaches `func`, as a sentence.
+
+    The walk used to be **one** hop - a helper called directly at module scope
+    - and the real shape is deeper: a bare `main()` call at the foot of the
+    file (often wrapped in a print), `main()` calling `fit()`, `fit()` calling
+    `build_loaders()`. Three hops, and
+    the loader is built at import time just as surely as if it were written at
+    module scope. `tabular_seq_lstm_bad` (two loaders), `nlp_mlm_pretrain_bad`
+    and `nlp_reranker_bad` all have exactly that chain, and MLV112 - a rule
+    whose base prior is 0.98 because the question is purely syntactic - saw
+    none of them.
+
+    The chain is reported in full, so the reader can see which call at module
+    scope is the one to move behind a guard.
+    """
+    callers = {}
     for caller in module.calls:
-        if caller.target_function is not func:
-            continue
-        if caller.function is not None or caller.enclosing_class is not None:
-            continue
-        if guard is not None and _inside(guard, caller.node):
-            continue
-        return ("%s() is called at module scope (line %d), so the loader is built while "
-                "the module is imported" % (func.name, caller.loc.line))
+        target = caller.target_function
+        if target is not None:
+            callers.setdefault(id(target), []).append(caller)
+    frontier = [(func, [])]
+    seen = {id(func)}
+    depth = 0
+    while frontier and depth <= _IMPORT_CHAIN_DEPTH:
+        nxt = []
+        for current, path in frontier:
+            for caller in callers.get(id(current), ()):
+                if caller.function is None and caller.enclosing_class is None:
+                    if guard is not None and _inside(guard, caller.node):
+                        continue
+                    chain = " <- ".join(["%s()" % current.name]
+                                        + ["%s()" % f.name for f in path])
+                    return ("%s is called at module scope (line %d), so the loader "
+                            "is built while the module is imported"
+                            % (chain, caller.loc.line))
+                owner = caller.function
+                if owner is None or id(owner) in seen:
+                    continue
+                seen.add(id(owner))
+                nxt.append((owner, path + [current]))
+        frontier = nxt
+        depth += 1
     return None
 
 

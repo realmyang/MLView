@@ -79,14 +79,23 @@ def error_text(exc) -> str:
     return "\n".join(lines)
 
 
-def empty_note(doc: Dict[str, Any]) -> Optional[str]:
-    """The stderr note for a valid selector that matched nothing (exit 0)."""
+def empty_note(doc: Dict[str, Any], scope: Any = None) -> Optional[str]:
+    """The stderr note for a valid selector that matched nothing (exit 0).
+
+    ROB-13: `view.scope` is the **normalized** selector, because that is what
+    hosts read back; `core/selectors.parse_scope` folds `symbol:` into `unit:`
+    on purpose. Quoting the normalized form here told the user about a flag
+    value they never wrote, on the one code path whose whole job is to help
+    them find the right one - so when the caller still has the parsed `Scope`,
+    its `as_typed` spelling wins.
+    """
     view = doc.get("view")
     if not isinstance(view, dict) or not view.get("empty"):
         return None
+    spelling = getattr(scope, "as_typed", None) or view.get("scope", "?")
     return ("mlview: scope %s matched no nodes; the whole graph has %d node(s). "
             "Nothing to draw is a finding, not an error."
-            % (view.get("scope", "?"), view.get("of", {}).get("nodes", 0)))
+            % (spelling, view.get("of", {}).get("nodes", 0)))
 
 
 def issues_scope_suffix(doc: Dict[str, Any]) -> str:

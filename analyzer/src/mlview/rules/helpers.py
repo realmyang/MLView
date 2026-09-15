@@ -222,13 +222,27 @@ def first_with_role(calls: Iterable[CallSite], *roles: str) -> Optional[CallSite
 
 
 def arg_ref(ctx, call: CallSite, index: int = 0) -> Tuple[Optional[str], Optional[ValueRef]]:
-    """The name and binding of a positional argument."""
+    """The name and binding of a positional argument, as of the call's own line.
+
+    PUB-01. Without `at`, `binding_of` answers with the scope's **last** store
+    for the name rather than the one that reaches this call. The measured cost
+    was a high / `certain` MLV402 on yolov5's `BCEBlurWithLogitsLoss.forward`
+    and on every focal-loss implementation written the same way:
+
+        loss = self.loss_fcn(pred, true)     # line 26 - correct, raw logits
+        pred = torch.sigmoid(pred)           # line 27 - rebinds AFTER the use
+
+    and a message that gave the defect away - "its input comes from
+    torch.sigmoid at m.py:17" for a use at m.py:16. REV-01 built the ordered
+    lookup for exactly this; the argument reader simply never asked for it.
+    """
     if index >= len(call.args):
         return None, None
     name = dotted_text(call.args[index])
     if not name:
         return None, None
-    return name, ctx.binding_of(name, call.scope)
+    return name, ctx.binding_of(name, call.scope, at=call.loc.line,
+                                in_loop=call.loop is not None)
 
 
 def traced_arg(ctx, call: CallSite, index: int = 0
@@ -418,6 +432,13 @@ def _names(fact: str, issue) -> bool:
     return leaf in (issue.message or "") or key in (issue.message or "")
 
 
+def _absence_codes() -> frozenset:
+    """Rule codes declared `absence=True` - they conclude a call is missing."""
+    from .registry import all_rules
+
+    return frozenset(spec.code for spec in all_rules() if getattr(spec, "absence", False))
+
+
 def apply_config_derating(ctx) -> None:
     """Charge every finding that used a config-resolved literal for the read.
 
@@ -433,12 +454,23 @@ def apply_config_derating(ctx) -> None:
     notes.extend(_kwarg_notes(ctx))
     if not notes:
         return
+    absence_codes = _absence_codes()
     for index, issue in enumerate(ctx.issues):
         spans = _issue_spans(issue)
         matched = [n for n in notes
                    if (not n[0] or n[0] == issue.code) and index >= n[3]
                    and any(f == n[1] and start <= n[2] <= end
                            for f, start, end in spans)]
+        # INFRA-13: an *absence* rule concludes that a call is not there. No
+        # value of `args.lr` can make `zero_grad()` appear or disappear, and
+        # MLV201 was paying x0.8 for a read that happened only because the
+        # optimizer's construction site is one of the finding's related
+        # locations - the difference between 0.36 and 0.288. A rule that did
+        # not branch on the value does not pay for it; the read is still
+        # charged when the finding's own message names the key, which is the
+        # case where the value really was an operand.
+        if matched and issue.code in absence_codes:
+            matched = [n for n in matched if _names(n[5], issue)]
         if not matched:
             continue
         weight = min(n[4] for n in matched)

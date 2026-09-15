@@ -642,7 +642,17 @@ def print_table(results: List[Result]) -> None:
     print("")
 
 
-def main(argv: List[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
+    """The command line, as a parser.
+
+    Public so a command line can be checked without being run: doc-gate check 19
+    (`scripts/doc_numbers.py`) parses the `python tools/verify.py ...` lines
+    `.github/workflows/nightly.yml` generates with this parser, because a CI line
+    argparse would reject is a job that fails at 4 a.m. for a reason nobody's
+    machine can reproduce (PUB2-10, where exactly that happened to
+    `tools/public_corpus.py`). Importing this module must therefore stay
+    stdlib-only and side-effect-free.
+    """
     parser = argparse.ArgumentParser(
         prog="verify", description="MLView parity gates: one analyzer, one renderer, one version."
     )
@@ -659,7 +669,11 @@ def main(argv: List[str] | None = None) -> int:
     parser.add_argument("--fuzz", type=int, default=0, metavar="N",
                         help="also differential-fuzz the two project() ports over N "
                              "generated graphs (200 locally, 2000 nightly); needs --scopes")
-    args = parser.parse_args(argv)
+    return parser
+
+
+def main(argv: List[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
 
     run_all = args.all or not (
         args.parity or args.scopes or args.hashes or args.versions or args.docs or args.vsix

@@ -266,14 +266,18 @@ test('the whole COVERAGE batch is accepted, and unknown kinds still render (COVE
   assert.ok(row.textContent.indexOf('did you mean MLV601?') >= 0, 'config_unresolved reads like config_warning');
   const generic = Array.from(ctx.document.querySelectorAll('[data-diagnostic-kind]'));
   const kinds = generic.map((c) => c.getAttribute('data-diagnostic-kind')).sort();
-  // `unresolved_callee` has no purpose-built surface in the viewer half, so it
-  // takes the same generic path a kind from the future does -- which is the
-  // point: neither vanishes into the "N notes" count.
-  assert.equal(kinds.join(','), 'a_kind_from_the_future,unresolved_callee');
+  // A kind this renderer has never heard of still says what it says
+  // (invariant 1.1/6) rather than vanishing into the "N notes" count.
+  //
+  // TAB2-10 moved `unresolved_callee` OFF this generic path: it is what
+  // `emit/answers._COVERAGE_KINDS` has counted as a coverage gap since
+  // CONTRACTS 11.52, and the two halves of the product disagreeing about that
+  // is what drew its 262-character message as a chip. It is now a coverage
+  // claim in the viewer too — short chip, sentence on the tooltip, sentence in
+  // the banner — which the test below this one pins.
+  assert.equal(kinds.join(','), 'a_kind_from_the_future');
   const future = generic.find((c) => c.getAttribute('data-diagnostic-kind') === 'a_kind_from_the_future');
   assert.equal(future.textContent, 'Something this renderer has never heard of.');
-  // None of the four is a coverage claim, so no coverage banner is raised.
-  assert.equal(ctx.document.querySelector('[data-coverage-banner]'), null);
   // And the status bar still counts every note.
   assert.ok(ctx.document.querySelector('.mlv-status').textContent.indexOf('4 notes') >= 0);
 });

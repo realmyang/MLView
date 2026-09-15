@@ -78,6 +78,10 @@ class GraphContext:
         #: by `issue()`. Empty on every `--dataflow local` run, because nothing
         #: there ever carries a provenance chain.
         self._hop_reads: List[Tuple[str, ScopeIR, ValueRef]] = []
+        #: ROB-03. Every `Issue.id` this context has minted, so `_unique_id`
+        #: can keep CONTRACTS section 0 invariant 1 true by construction
+        #: instead of leaving it to each rule not to fire twice.
+        self._minted_ids: set = set()
 
     # ------------------------------------------------------------ queries
     def _index(self) -> Dict[str, List[CallSite]]:
@@ -174,9 +178,15 @@ class GraphContext:
         return out
 
     def binding_of(self, name: Optional[str], scope: Optional[ScopeIR],
-                   at: Optional[int] = None) -> Optional[ValueRef]:
-        """`at` is the 1-based line of the consumer (REV-01 ordered lookup)."""
-        ref = _binding_of(name, scope, at=at)
+                   at: Optional[int] = None, in_loop: bool = False) -> Optional[ValueRef]:
+        """`at` is the 1-based line of the consumer (REV-01 ordered lookup).
+
+        `in_loop` says the consumer is inside a loop, where a store written
+        *below* it really can reach it on the next iteration - so the last
+        store is the honest answer there and `None` is the honest answer
+        outside one.
+        """
+        ref = _binding_of(name, scope, at=at, in_loop=in_loop)
         self.note_hops(ref, scope)
         return ref
 
@@ -453,9 +463,21 @@ class GraphContext:
         if gate:
             self._note_gate(spec.code, self.wrappers_for(loc.file))
 
-        qual = qualname or (primary.qualname if primary is not None else loc.symbol or "")
+        # ROB-03 / NLP-09. `Issue.id` must be unique inside one document
+        # (CONTRACTS section 0 invariant 1) *and* content-addressed, never
+        # line-derived (the same section, and `test_id_stability.py`). The old
+        # fallback - `loc.symbol` - collapsed two findings of one rule on two
+        # call sites of the same criterion into one id, and every host keyed on
+        # the id (Problems reveal, `applyFix`, `mlview diff`, the baseline)
+        # then treated two distinct high-severity findings as one. The
+        # enclosing scope's qualname separates the overwhelmingly common case
+        # (a train path and an eval path); `_unique_id` is the last-resort
+        # tiebreak for two findings that are genuinely indistinguishable by
+        # content, and it keeps the invariant true by construction.
+        qual = qualname or (primary.qualname if primary is not None
+                            else self._anchor_qualname(loc))
         issue = Issue(
-            id=issue_id(spec.code, loc.file, qual, loc.symbol or ""),
+            id=self._unique_id(spec.code, loc, qual),
             code=spec.code, ruleVersion=spec.rule_version, severity=severity,
             confidence=confidence,
             title=title or spec.title or spec.code,
@@ -489,6 +511,55 @@ class GraphContext:
         return issue
 
     # -------------------------------------------------------------- helpers
+    def _anchor_qualname(self, loc: Loc) -> str:
+        """`<innermost enclosing scope>.<symbol>` for a finding with no node.
+
+        A rule that anchors on a bare call site (MLV401/MLV402 among them)
+        hands `issue()` a `loc` and nothing else. Naming only `loc.symbol`
+        made `criterion` the whole identity of the finding, so the same
+        criterion called on the training path and on the evaluation path
+        minted one id twice. The scope qualname is structural, not positional:
+        it survives an edit above the function exactly as a node qualname does.
+        """
+        symbol = loc.symbol or ""
+        module = self.modules.get(loc.file)
+        if module is None:
+            return symbol
+        best: Optional[ScopeIR] = None
+        for scope in module.scopes:
+            if scope.kind == "module" or not _scope_contains(scope, loc):
+                continue
+            span = getattr(scope, "loc", None)
+            if span is None:
+                continue
+            if best is None or span.line > (best.loc.line if best.loc else -1):
+                best = scope
+        if best is None:
+            return symbol
+        return "%s.%s" % (best.qualname, symbol) if symbol else best.qualname
+
+    def _unique_id(self, code: str, loc: Loc, qual: str) -> str:
+        """`issue_id` with the document-uniqueness invariant enforced.
+
+        Two findings that agree on code, file, scope and symbol are the one
+        case no content-addressed scheme can separate without reading the
+        line - so the tiebreak is an occurrence counter on the symbol
+        component, deterministic for a given document because rules run in
+        registry order and each emits in source order. Everything else keeps
+        the §0 formula untouched.
+        """
+        symbol = loc.symbol or ""
+        base = issue_id(code, loc.file, qual, symbol)
+        if base not in self._minted_ids:
+            self._minted_ids.add(base)
+            return base
+        for nth in range(2, 1000):
+            candidate = issue_id(code, loc.file, qual, "%s#%d" % (symbol, nth))
+            if candidate not in self._minted_ids:
+                self._minted_ids.add(candidate)
+                return candidate
+        return base  # pragma: no cover - 1000 identical findings in one scope
+
     def _hop_factors(self, loc: Loc, evidence: Sequence[Any]
                      ) -> Tuple[Tuple[Any, ...], List[Any]]:
         """The `cross_file` factor and hop `RelatedLoc`s this finding owes (IP-01).

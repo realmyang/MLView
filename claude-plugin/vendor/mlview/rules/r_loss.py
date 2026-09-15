@@ -235,6 +235,11 @@ _LOGIT_ROLES = ("LAYER", "NORM", "NORM_TRAIN_SENSITIVE", "CONTAINER", "DROPOUT")
                "or feed sigmoid outputs to BCELoss - never the mismatched pairing.")
 def sigmoid_bce_mismatch(ctx) -> Iterable[Issue]:
     issues: List[Issue] = []
+    #: `(criterion construction, producing layer) -> the Issue already raised`.
+    #: One wrong pairing is one defect and one edit; a GAN that evaluates the
+    #: same criterion against the same discriminator four times in one loop
+    #: body was getting four identical findings (NLP2-17).
+    reported: dict = {}
     for loss_call, variant in _bce_calls(ctx):
         name, ref = arg_ref(ctx, loss_call, 0)
         final, cls, resolved = _final_producer(ctx, loss_call, ref)
@@ -273,6 +278,25 @@ def sigmoid_bce_mismatch(ctx) -> Iterable[Issue]:
         related = [("final_layer", final.loc, "%s is the last operation" % final_name)]
         if cls is not None:
             related.append(("definition", cls.loc, "model class %s" % cls.name))
+        # Where the criterion was BUILT is the line the fix is applied to -
+        # `nn.BCELoss()` becomes `nn.BCEWithLogitsLoss()` there, not at the
+        # call - and on a multi-loss dict it is the only place the reader can
+        # see which of them this is about.
+        criterion = loss_call.receiver.producer if loss_call.receiver is not None else None
+        if criterion is None:
+            criterion = _attribute_producer(ctx, loss_call)
+        if criterion is not None and criterion is not loss_call:
+            related.append(("construction", criterion.loc,
+                            "the criterion is built here"))
+        key = (id(criterion) if criterion is not None else None, id(final), variant)
+        previous = reported.get(key)
+        if previous is not None:
+            extra = loss_call.loc.related_dict(
+                "call_site", "and %s at %s:%d is the same pairing"
+                % (_label(loss_call), loss_call.loc.file, loss_call.loc.line))
+            if extra not in previous.relatedLocs:
+                previous.relatedLocs.append(extra)
+            continue
         if variant == "double_sigmoid":
             message = ("%s at %s:%d is a logits loss, but its input comes from %s at "
                        "%s:%d - the sigmoid is applied twice."
@@ -283,12 +307,14 @@ def sigmoid_bce_mismatch(ctx) -> Iterable[Issue]:
                        "%s:%d, which returns unbounded logits."
                        % (_label(loss_call), loss_call.loc.file, loss_call.loc.line,
                           final_name, final.loc.file, final.loc.line))
-        issues.append(ctx.issue(
+        issue = ctx.issue(
             message=message, loc=loss_call.loc, node_ids=nodes,
             edge_ids=[edge] if edge is not None else (),
             related=related, evidence=evidence,
             tags=("correctness", "objective", variant),
-            dynamic=loss_call.scope.is_dynamic))
+            dynamic=loss_call.scope.is_dynamic)
+        reported[key] = issue
+        issues.append(issue)
     return issues
 
 
@@ -317,11 +343,72 @@ def _role_of(call: Optional[CallSite]) -> Optional[str]:
     return entry["role"] if entry else None
 
 
+#: NLP2-17. Shape-only tensor methods cannot change whether a value is a logit
+#: or a probability, so the walk steps through them to reach the activation that
+#: produced it. `CrossEncoder.forward` ending in
+#: `self.squash(self.head(pooled)).squeeze(-1)` hid an `nn.Sigmoid` from
+#: MLV402's chain walk, on a textbook double sigmoid.
+_SHAPE_ONLY = ("squeeze", "unsqueeze", "view", "reshape", "flatten", "permute",
+               "transpose", "contiguous", "expand", "expand_as", "ravel", "t")
+
+
+def _through_shape_ops(ctx, call: Optional[CallSite], depth: int = 0
+                       ) -> Optional[CallSite]:
+    """Step past `.squeeze(-1)` / `.view(...)` to the call that produced it."""
+    while call is not None and depth < 4:
+        if (call.method or "") not in _SHAPE_ONLY:
+            return call
+        depth += 1
+        inner = call.receiver.producer if call.receiver is not None else None
+        if inner is None:
+            node = getattr(call.node, "func", None)
+            base = getattr(node, "value", None)
+            inner = (_call_site_for(ctx, call.module, base)
+                     if isinstance(base, ast.Call) else None)
+        call = inner
+    return call
+
+
+def _loss_input_calls(ctx, loss_call: CallSite) -> List[CallSite]:
+    """Every call the loss's first argument could have come from.
+
+    NLP2-17: the argument may be an `ast.BinOp` - a pairwise ranking loss is
+    `criterion(positive_scores - negative_scores, target)` - and reading only
+    `args[0]` when it is a bare `Call` missed both operands.
+    """
+    if not loss_call.args:
+        return []
+    out: List[CallSite] = []
+    stack = [loss_call.args[0]]
+    seen = 0
+    while stack and seen < 8:
+        node = stack.pop()
+        seen += 1
+        if isinstance(node, ast.Call):
+            found = _call_site_for(ctx, loss_call.module, node)
+            if found is not None:
+                out.append(found)
+        elif isinstance(node, ast.BinOp) and isinstance(node.op, (ast.Add, ast.Sub)):
+            stack.extend([node.left, node.right])
+        elif isinstance(node, ast.UnaryOp):
+            stack.append(node.operand)
+        else:
+            name = dotted_text(node)
+            ref = ctx.binding_of(name, loss_call.scope,
+                                 at=loss_call.loc.line) if name else None
+            if ref is not None and ref.producer is not None:
+                out.append(ref.producer)
+    return out
+
+
 def _final_producer(ctx, loss_call: CallSite, ref: Optional[ValueRef]):
     """`(call, model class, resolved)` for the last op that produced the loss input."""
-    start: Optional[CallSite] = None
-    if loss_call.args and isinstance(loss_call.args[0], ast.Call):
-        start = _call_site_for(ctx, loss_call.module, loss_call.args[0])
+    candidates = _loss_input_calls(ctx, loss_call)
+    for start in candidates:
+        found, cls, ok = _walk_final(ctx, _through_shape_ops(ctx, start), 0)
+        if ok:
+            return found, cls, ok
+    start = candidates[0] if candidates else None
     current = ref
     seen = 0
     while start is None and current is not None and seen < 4:
@@ -329,7 +416,7 @@ def _final_producer(ctx, loss_call: CallSite, ref: Optional[ValueRef]):
         start = current.producer
         if start is None:
             current = None
-    return _walk_final(ctx, start, 0)
+    return _walk_final(ctx, _through_shape_ops(ctx, start), 0)
 
 
 def _walk_final(ctx, call: Optional[CallSite], depth: int):
@@ -343,7 +430,8 @@ def _walk_final(ctx, call: Optional[CallSite], depth: int):
         inner = _forward_final_call(ctx, cls)
         if inner is None:
             return None, cls, False
-        found, _cls, ok = _walk_final(ctx, inner, depth + 1)
+        found, _cls, ok = _walk_final(ctx, _through_shape_ops(ctx, inner),
+                                      depth + 1)
         if found is not None and ok:
             return found, cls, True
         return inner, cls, _role_of(inner) in _LOGIT_ROLES

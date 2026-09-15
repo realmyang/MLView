@@ -92,11 +92,61 @@ test('dist/mlview.css IS the minification of dist/mlview.dev.css (BUILD-01)', as
 /*
  * BUILD-01's size ratchet.
  *
- * MEASURED ON THIS TREE, 2026-09-10, after PERF-04 (the hierarchical rollup) and
- * MLV-P12 (multi-pipeline workspaces) landed on top of VIEW-08, H5 and ANA-10:
- *   dist/mlview.js       322 438 B (314.9 KB)
- *   dist/mlview.css       71 689 B  (70.0 KB), minified from 125 446 B (-43%)
- *   dist/mlview.dev.css  125 446 B (122.5 KB, never shipped)
+ * MEASURED ON THIS TREE, 2026-09-14, after hardening round 2 landed on top of
+ * round 1's hosts-ux work, PERF-04 (the hierarchical rollup) and MLV-P12
+ * (multi-pipeline workspaces):
+ *   dist/mlview.js       330 421 B (322.7 KB)
+ *   dist/mlview.css       73 127 B  (71.4 KB), minified from 133 939 B (-45%)
+ *   dist/mlview.dev.css  133 939 B (130.8 KB, never shipped)
+ *
+ * ROUND 2 moved the JS by +3 207 B and the CSS by +270 B, and NEITHER CAP with
+ * them: 3 403 B (1.0 %) and 1 625 B (2.2 %) of headroom remain, so the ratchet
+ * set below still does its job unchanged. Where it went, largest first.
+ * TAB2-10 / HOSTS-UX-R2-06 is the item (CONTRACTS 11.61): `ui/chromenotes.ts`
+ * learned `unresolved_callee` as a coverage kind and builds its chip from
+ * `scope` and `count` instead of printing a 349-character sentence into the
+ * chip row, `ui/chrome.ts` paints every chip's text in its own
+ * `.mlv-chip__text` with a `title`, and `chromeBandHeight` decides whether the
+ * answer card starts closed on a document whose banners and chips already fill
+ * 200 px. HOSTS-UX-ROWCOUNT is next (about 0.4 KB): `scope/catalog.ts` gained
+ * `viewCountOf`, which runs the same `project()` the click runs for ANY
+ * selector, so a unit or stage row promises the number its own click delivers
+ * the way round 1's pipeline rows already did, and `scope/project.ts` pays for
+ * it honestly: steps 3-7 are now `keptSets`, so `projectedNodeCount` answers a
+ * row without step 8's copy of every kept node and edge -- 819 ms -> 101 ms to
+ * open a 222-row picker over a 400-node, 2 220-edge public repository, with one
+ * implementation still behind both numbers. HOSTS-UX-CLEANSTATE is about
+ * 0.5 KB: `ui/issuelist.ts`'s clean state now appends the coverage sentence the
+ * banner already draws, over the wider set `chromenotes.blindSpots()` selects,
+ * with two more clauses in `coverageHeadline` for the kinds only it hands in.
+ * The last one is a line: HOSTS-UX-LEGENDPAN widened one `closest()` selector
+ * in `ui/shell.ts` so a press on a canvas-hosted overlay is that overlay's
+ * gesture. The CSS is the chip's ellipsis rule, HOSTS-UX-ANSWERWRAP's
+ * `overflow-wrap` on the answer card's sentence and citation row, and the
+ * caveat's own two declarations.
+ *
+ * THE HARDENING ROUND moved the JS by +2 776 B and the CSS by +1 168 B, and BOTH
+ * CAPS with them -- the JS had 636 B of headroom left, which is a ratchet
+ * nobody can land anything through. Where it went, largest first.
+ * HOSTS-UX-CHIPWALL is the item: `ui/chrome.ts` collected its chips as
+ * descriptors and then FOLDS identical texts and CAPS the row at MAX_CHIPS with
+ * one disclosure chip (about 1.2 KB), because one chip per diagnostic made
+ * `.mlv-chiprow` 2 132 px tall on ultralytics/yolov5 and `.mlv-canvas` 0 px --
+ * on seven of sixteen public repositories, with every card in the DOM and none
+ * on screen. HOSTS-UX-PIPELINECOUNT is next (about 0.8 KB): `scope/catalog.ts`
+ * runs the same `project()` the click runs and hands every row a `viewCount`,
+ * and `scope/pipelines.ts` exposes the one `drawnCount` the picker, the chooser
+ * and its accessible name all read -- the picker used to promise 55 nodes where
+ * the projection drew 56. The rest is small and countable: DGRG-12's answered/
+ * not-detected counter in `ui/answers.ts` (about 0.3 KB), HOSTS-UX-FITZOOM's one
+ * branch in `render/canvas.ts` and HOSTS-UX-STAGERESET's return value in
+ * `filters.ts` with its announcement in `app.ts` (about 0.3 KB together). The
+ * CSS is the height bound on `.mlv-chiprow` and `.mlv-banners` that keeps the
+ * canvas from being starved, the disclosure chip, and HOSTS-UX-ANSWERSCROLL's
+ * scroll cue on the two panels that clip their last line. Caps go to JS 326 KB
+ * and CSS 73 KB, leaving 6 610 B (2.0 %) and 1 895 B (2.5 %) -- the same order
+ * every ratchet before them held. The ratchet's job is unchanged: make the NEXT
+ * growth visible.
  *
  * The tree those two landed on shipped 304 818 B of JS and 68 001 B of CSS, so
  * they cost +17 620 B and +3 688 B, and BOTH CAPS MOVE — which is the number a
@@ -196,11 +246,11 @@ test('dist/mlview.css IS the minification of dist/mlview.dev.css (BUILD-01)', as
  * again: `the figures in the block above are the constants below` reads this
  * file and fails on a one-byte disagreement.
  */
-const JS_RECORDED = 322438;
-const CSS_RECORDED = 71689;
+const JS_RECORDED = 330421;
+const CSS_RECORDED = 73127;
 const DRIFT = 2 * 1024;
-const JS_MAX_BYTES = 320 * 1024;
-const CSS_MAX_BYTES = 72 * 1024;
+const JS_MAX_BYTES = 326 * 1024;
+const CSS_MAX_BYTES = 73 * 1024;
 
 const headroom = (size, cap) =>
   size + ' B, ' + (cap - size) + ' B (' + (((cap - size) / cap) * 100).toFixed(1) + ' %) under the ' + cap + ' B ratchet';

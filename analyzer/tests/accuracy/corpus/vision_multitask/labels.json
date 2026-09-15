@@ -1,0 +1,147 @@
+{
+  "name": "vision_multitask",
+  "title": "A shared-backbone detection + segmentation trainer on the 2024 PyTorch stack: channels_last, torch.compile, bfloat16 autocast and gradient accumulation",
+  "origin": "domain-vision round 2: three idioms that read like defects and are not - bf16 autocast with no GradScaler, zero_grad/step inside an accumulation guard, and a model rebound to torch.compile() before the optimizer is built",
+  "tuned": false,
+  "labelledBy": "domain-vision, 2026-09-14",
+  "expected": [],
+  "forbidden": [
+    {
+      "code": "MLV101",
+      "file": "train.py",
+      "why": "there is no sklearn transformer in this project"
+    },
+    {
+      "code": "MLV110",
+      "file": "train.py",
+      "why": "the training loader is built with shuffle=True"
+    },
+    {
+      "code": "MLV111",
+      "file": "train.py",
+      "why": "the validation loader is built with shuffle=False"
+    },
+    {
+      "code": "MLV112",
+      "file": "train.py",
+      "why": "the loaders are built inside build_loaders(), reached only from main() under the __main__ guard"
+    },
+    {
+      "code": "MLV114",
+      "file": "data.py",
+      "why": "eval_augment() is LongestMaxSize, PadIfNeeded, Normalize and ToTensorV2 - no random stage at all. The six random stages live in train_augment()"
+    },
+    {
+      "code": "MLV201",
+      "file": "train.py",
+      "why": "THE TRAP: optimizer.zero_grad(set_to_none=True) runs once before the loop and again inside `if (step + 1) % accum == 0`, which is what gradient accumulation is"
+    },
+    {
+      "code": "MLV202",
+      "file": "train.py",
+      "why": "THE TRAP: optimizer.step() sits inside the same accumulation guard, which the rule's If-descent is documented to handle"
+    },
+    {
+      "code": "MLV203",
+      "file": "train.py",
+      "why": "loss.backward() precedes the guarded step, and the zero_grad inside the guard runs after it - which is the correct accumulation order, not the backward -> zero_grad -> step inversion"
+    },
+    {
+      "code": "MLV204",
+      "file": "train.py",
+      "why": "the only no_grad region is the decorated evaluate(), which contains no backward()"
+    },
+    {
+      "code": "MLV205",
+      "file": "train.py",
+      "why": "the running total accumulates losses[\"total\"].item()"
+    },
+    {
+      "code": "MLV207",
+      "file": "train.py",
+      "why": "OneCycleLR is a per-batch schedule and scheduler.step() runs inside the batch loop, on the accumulation boundary, with steps_per_epoch computed to match"
+    },
+    {
+      "code": "MLV208",
+      "file": "train.py",
+      "why": "THE TRAP: there is no GradScaler and there should not be one. bfloat16 carries fp32's exponent range, so there is nothing to scale; adding a scaler is the mistake here"
+    },
+    {
+      "code": "MLV209",
+      "file": "train.py",
+      "why": "clip_grad_norm_ runs between the backward and the step, inside the accumulation guard"
+    },
+    {
+      "code": "MLV301",
+      "file": "train.py",
+      "why": "evaluate() calls model.eval() before the loop and model.train() on the way out"
+    },
+    {
+      "code": "MLV302",
+      "file": "train.py",
+      "why": "evaluate() carries the @torch.no_grad() decorator"
+    },
+    {
+      "code": "MLV305",
+      "file": "train.py",
+      "why": "the mask is thresholded and the class is argmax-ed before either is compared"
+    },
+    {
+      "code": "MLV401",
+      "file": "model.py",
+      "why": "the detection class branch returns raw logits and MultiTaskLoss pairs it with nn.CrossEntropyLoss - the correct pairing; there is no softmax in this project"
+    },
+    {
+      "code": "MLV402",
+      "file": "model.py",
+      "why": "THE TRAP: SegmentationHead returns logits, mask_bce is nn.BCEWithLogitsLoss, and the sigmoid at line 114 is inside soft_dice, which is a different term that needs probabilities. The producer of the BCE input never reaches a sigmoid"
+    },
+    {
+      "code": "MLV402",
+      "file": "train.py",
+      "why": "the sigmoid in evaluate() is applied to the head's logits for thresholding, not for a loss"
+    },
+    {
+      "code": "MLV501",
+      "file": "train.py",
+      "why": "the model and the criterion are moved with .to(device) and move() moves the images and every target tensor inside both loops"
+    },
+    {
+      "code": "MLV502",
+      "file": "train.py",
+      "why": "pick_device() checks torch.cuda.is_available()"
+    },
+    {
+      "code": "MLV601",
+      "file": "train.py",
+      "why": "seed_everything() seeds random, numpy, torch and torch.cuda"
+    },
+    {
+      "code": "MLV602",
+      "file": "train.py",
+      "why": "the split is two directories on disk; nothing is split at run time"
+    },
+    {
+      "code": "MLV701",
+      "file": "model.py",
+      "why": "ConvNormAct, Encoder, SegmentationHead, DetectionHead, MultiTaskNet and MultiTaskLoss all chain super().__init__()"
+    },
+    {
+      "code": "MLV702",
+      "file": "model.py",
+      "why": "the encoder stages are wrapped in nn.ModuleList"
+    },
+    {
+      "code": "MLV803",
+      "file": "train.py",
+      "why": "the checkpoint saves model.state_dict()"
+    }
+  ],
+  "unsupported": [
+    {
+      "file": "train.py",
+      "why": "LABEL CORRECTED in hardening round 2: MLV211 is not a built rule - it carries the status **later** in docs/ISSUE_RULES.md section 1 - so a label for it can never be satisfied and can never be violated. `analyzer/tests/accuracy/test_accuracy.py::test_every_labelled_code_is_a_real_rule` rejects one, and this row turned that shipped test red. The observation is kept verbatim here so the row can be restored the day the rule ships. Original verdict `forbidden`, original note: THE TRAP: the model is rebound to torch.compile(model) BEFORE torch.optim.AdamW(model.parameters()) is built, so the optimizer already owns the compiled module's parameters",
+      "wouldBe": "MLV211"
+    }
+  ]
+}

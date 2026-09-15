@@ -11,6 +11,14 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 
+# PUB-01: `python tools/public_corpus.py fetch` clones ~1.8 GB of pinned public
+# repositories into tools/public_corpus.py's DEFAULT_CORPUS_DIR (override it with
+# MLVIEW_PUBLIC_CORPUS_DIR). The manifest pins every SHA, so the clones are
+# reproducible from analyzer/tests/public_corpus/repos.json and are never
+# committed. Without this line a developer who runs `fetch` gets 24 untracked
+# repositories in `git status`, and the module docstring's "git-ignored" is false.
+.public-corpus/
+
 # generated demo artifacts (scripts/e2e regenerates them)
 .mlview/
 webview/.mlview/

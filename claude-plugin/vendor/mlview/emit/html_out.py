@@ -52,9 +52,20 @@ def _esc(value: Any) -> str:
 
 
 def _json_block(doc: Dict[str, Any]) -> str:
+    """The graph as JSON that is safe inside `<script type="application/json">`.
+
+    Two byte sequences must never reach the HTML tokenizer intact: `</`, which
+    could close the block early, and `<!--`, which opens a comment state. Both
+    are escaped **with sequences JSON itself defines** - `\\/` is one of JSON's
+    seven escapes, and `\\u0021` is the `!`. `\\!` is not a JSON escape, and the
+    report's own bootstrap reads this block back with `JSON.parse(...)`: a
+    single `<!--` anywhere in a source line therefore used to throw
+    `SyntaxError: Bad escaped character in JSON`, `MLView.mount` never ran, and
+    the reader got a blank page while the CLI still exited 0 (ROB-18).
+    """
     import json
     text = json.dumps(doc, ensure_ascii=False, separators=(",", ":"))
-    return text.replace("</", "<\\/").replace("<!--", "<\\!--")
+    return text.replace("</", "<\\/").replace("<!--", "<\\u0021--")
 
 
 def _link(loc: Dict[str, Any]) -> str:

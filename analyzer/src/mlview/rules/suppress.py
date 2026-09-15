@@ -55,7 +55,12 @@ class Suppressor:
         whole_file = False
         marks: Dict[int, Optional[Set[str]]] = {}
         for number, text in enumerate(lines, start=1):
-            if "mlview" not in text:
+            # ROB-12: `IGNORE_RE` is compiled with `re.IGNORECASE`, which is
+            # a promise that the directive's case does not matter. This guard
+            # is what makes the index cheap on a large file, so it stays - it
+            # just has to fold case the way the regex behind it does, or
+            # `# MLVIEW: IGNORE[MLV201]` is silently inert.
+            if "mlview" not in text.lower():
                 continue
             match = IGNORE_RE.search(text)
             if not match:

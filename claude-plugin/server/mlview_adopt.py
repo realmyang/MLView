@@ -98,11 +98,20 @@ def analyze_attributed(
     the count that was dropped comes back in the notes.
     """
     from mlview.api import AnalyzeOptions, analyze  # noqa: PLC0415
+    from mlview_workspace import normalize_framework  # noqa: PLC0415 - sibling
 
+    # The same guard `load_graph` applies, at the second (and only other) place in
+    # this server that builds `AnalyzeOptions`. It is not defence in depth for its
+    # own sake: `rules.registry._applies` silently drops every rule that declares a
+    # framework when the filter names none of them, so an unvalidated string here
+    # would answer "what did this PR introduce" with a stripped rule set and no
+    # note. Both constructions going through one vocabulary is what
+    # `test_argument_bounds.py` asserts statically, over every module in this
+    # directory that builds `AnalyzeOptions`.
     graph = analyze(
         AnalyzeOptions(
             paths=(resolved,),
-            framework=framework or "auto",
+            framework=normalize_framework(framework),
             max_nodes=int(max_nodes),
             include_notebooks=bool(include_notebooks),
         )

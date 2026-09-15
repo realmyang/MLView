@@ -16,7 +16,7 @@ word "scope" for lexical scopes.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, Optional, Sequence, Tuple
 
 from ..knowledge import STAGE_IDS
@@ -150,10 +150,19 @@ class Scope:
     target: str
     depth: int
     spec: str
+    #: ROB-13. The selector exactly as the user wrote it, before `symbol:` was
+    #: folded into `unit:`. Messages that exist to help somebody find the right
+    #: selector must quote the one they typed; `spec` stays normalized, because
+    #: that is what hosts read back out of `view.scope`.
+    spelling: str = field(default="", compare=False, repr=False)
 
     @property
     def is_all(self) -> bool:
         return self.kind == "all"
+
+    @property
+    def as_typed(self) -> str:
+        return self.spelling or self.spec
 
 
 def ascii_lower(text: str) -> str:
@@ -198,7 +207,7 @@ def parse_scope(spec: Optional[str], depth: Optional[Any] = None) -> Scope:
     """
     text = (spec or "").strip()
     if not text or ascii_lower(text) == "all":
-        return Scope("all", "", _parse_depth(depth, "all"), "all")
+        return Scope("all", "", _parse_depth(depth, "all"), "all", text or "all")
     if ":" not in text:
         raise ScopeError("bad_selector", text, SCOPE_SPELLINGS)
     raw_kind, target = text.split(":", 1)
@@ -232,4 +241,5 @@ def parse_scope(spec: Optional[str], depth: Optional[Any] = None) -> Scope:
     # requires (the graph's node ids, the analyzed `loc.file` values, this
     # workspace's entrypoints), so it raises `unknown_node` / `unknown_file` /
     # `unknown_pipeline` with `term: ""` and a real candidate list.
-    return Scope(kind, target, _parse_depth(depth, kind), "%s:%s" % (kind, target))
+    return Scope(kind, target, _parse_depth(depth, kind), "%s:%s" % (kind, target),
+                 text)

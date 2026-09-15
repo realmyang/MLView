@@ -1,0 +1,220 @@
+{
+  "name": "nlp_instruction_sft",
+  "title": "Instruction tuning with TRL's SFTTrainer over a 4-bit quantised base and a LoRA adapter, packed chat-template text and a token-accuracy metric",
+  "origin": "hardening round 2, domain-nlp, 2026-09-14 - the 2025/26 LLM post-training stack (trl + peft + bitsandbytes), which no corpus program covered",
+  "tuned": false,
+  "labelledBy": "hardening round 2, domain-nlp, 2026-09-14",
+  "note": "Zero findings in both dataflow modes on 2026-09-14, which is the right answer - this program is correct. What it measures is coverage rather than precision: MLView has no knowledge table for trl or peft and says so in two unresolved_callee diagnostics, and the consequence is that the objective, train, eval and deliver stages are all declared ABSENT on a complete fine-tuning script. The declaration is honest; the blind spot is real and is recorded as NLP2-11.",
+  "expected": [],
+  "forbidden": [
+    {
+      "code": "MLV601",
+      "file": "train_sft.py",
+      "why": "transformers.set_seed(SEED) is the first statement of main() (line 88) and SFTConfig carries seed= and data_seed= (lines 83-84)"
+    },
+    {
+      "code": "MLV602",
+      "file": "sft_data.py",
+      "why": "the dataset arrives already split into train and test (line 11); the only shuffle passes seed=SEED (line 34)"
+    },
+    {
+      "code": "MLV708",
+      "file": "train_sft.py",
+      "why": "the SFTTrainer is given eval_dataset= and compute_metrics= (lines 97-99) and SFTConfig sets eval_strategy=\"epoch\" (line 76)"
+    },
+    {
+      "code": "MLV305",
+      "file": "train_sft.py",
+      "why": "compute_metrics takes np.argmax(logits[:, :-1, :], axis=-1) on line 54 before the comparison"
+    },
+    {
+      "code": "MLV301",
+      "file": "train_sft.py",
+      "why": "there is no hand-written evaluation loop; the SFTTrainer owns the eval pass"
+    },
+    {
+      "code": "MLV302",
+      "file": "train_sft.py",
+      "why": "the same - no torch loop exists in this workspace"
+    },
+    {
+      "code": "MLV201",
+      "file": "train_sft.py",
+      "why": "there is no hand-written training step - trainer.train() owns zero_grad, backward and step"
+    },
+    {
+      "code": "MLV202",
+      "file": "train_sft.py",
+      "why": "the same - no backward() appears anywhere"
+    },
+    {
+      "code": "MLV110",
+      "file": "train_sft.py",
+      "why": "no DataLoader is constructed here; the Trainer builds its own"
+    },
+    {
+      "code": "MLV111",
+      "file": "train_sft.py",
+      "why": "the same"
+    },
+    {
+      "code": "MLV112",
+      "file": "train_sft.py",
+      "why": "the same, and main() is reachable only from the __main__ guard (line 109)"
+    },
+    {
+      "code": "MLV501",
+      "file": "train_sft.py",
+      "why": "device_map=\"auto\" (line 42) is accelerate's placement and the Trainer moves the batches; nothing is moved by hand"
+    },
+    {
+      "code": "MLV502",
+      "file": "train_sft.py",
+      "why": "no .cuda() and no torch.device literal appears anywhere; torch.bfloat16 is a dtype"
+    },
+    {
+      "code": "MLV701",
+      "file": "train_sft.py",
+      "why": "no nn.Module subclass is defined in this workspace"
+    },
+    {
+      "code": "MLV702",
+      "file": "train_sft.py",
+      "why": "the same"
+    },
+    {
+      "code": "MLV803",
+      "file": "train_sft.py",
+      "why": "the adapter is written with trainer.save_model / tokenizer.save_pretrained (lines 104-105); torch.save and torch.load do not appear"
+    },
+    {
+      "code": "MLV101",
+      "file": "sft_data.py",
+      "why": "nothing is fitted - the chat template is applied, and the tokenizer comes from a pretrained checkpoint"
+    },
+    {
+      "code": "MLV102",
+      "file": "sft_data.py",
+      "why": "the same, and the eval rows are only rendered, never fitted on"
+    },
+    {
+      "code": "MLV709",
+      "file": "train_sft.py",
+      "why": "there is no Keras code in this project"
+    }
+  ],
+  "unsupported": [
+    {
+      "wouldBe": null,
+      "file": "train_sft.py",
+      "line": 46,
+      "symbol": "get_peft_model(model, lora_config())",
+      "defect": "none - use_cache is disabled before the wrap and print_trainable_parameters confirms the adapter attached",
+      "why": "MLView has no knowledge table for peft, so neither this nor its failure modes (an adapter applied to a model that was already wrapped, target_modules that match nothing) can be scored"
+    },
+    {
+      "wouldBe": null,
+      "file": "train_sft.py",
+      "line": 94,
+      "symbol": "SFTTrainer(...)",
+      "defect": "none - the SFTTrainer is a transformers.Trainer subclass and is configured with an eval dataset, a metric and an evaluation strategy",
+      "why": "MLView has no knowledge table for trl, so MLV708 cannot judge an SFTTrainer / DPOTrainer / GRPOTrainer at all, in either direction"
+    },
+    {
+      "wouldBe": null,
+      "file": "train_sft.py",
+      "line": 20,
+      "symbol": "BitsAndBytesConfig(load_in_4bit=True, ...)",
+      "defect": "none - nf4 with double quantisation and a bfloat16 compute dtype is the documented QLoRA configuration",
+      "why": "no rule models quantisation configuration"
+    },
+    {
+      "file": "train_sft.py",
+      "why": "LABEL CORRECTED in hardening round 2: MLV211 is not a built rule - it carries the status **later** in docs/ISSUE_RULES.md section 1 - so a label for it can never be satisfied and can never be violated. `analyzer/tests/accuracy/test_accuracy.py::test_every_labelled_code_is_a_real_rule` rejects one, and this row turned that shipped test red. The observation is kept verbatim here so the row can be restored the day the rule ships. Original verdict `forbidden`, original note: the Trainer builds the optimizer after get_peft_model has already wrapped the model, so no optimizer can be left holding stale parameters",
+      "wouldBe": "MLV211"
+    }
+  ],
+  "graph": {
+    "edges": 12,
+    "ops": [
+      {
+        "file": "sft_data.py",
+        "line": 10,
+        "symbol": "load_dataset",
+        "kind": "dataset"
+      },
+      {
+        "file": "sft_data.py",
+        "line": 25,
+        "symbol": "tokenizer.apply_chat_template",
+        "kind": "transform"
+      },
+      {
+        "file": "sft_data.py",
+        "line": 30,
+        "symbol": "train_rows.map",
+        "kind": "transform"
+      },
+      {
+        "file": "train_sft.py",
+        "line": 41,
+        "symbol": "AutoModelForCausalLM.from_pretrained",
+        "kind": "model"
+      },
+      {
+        "file": "train_sft.py",
+        "line": 46,
+        "symbol": "get_peft_model",
+        "kind": "model"
+      },
+      {
+        "file": "train_sft.py",
+        "line": 54,
+        "symbol": "np.argmax",
+        "kind": "metric"
+      },
+      {
+        "file": "train_sft.py",
+        "line": 61,
+        "symbol": "SFTConfig",
+        "kind": "config"
+      },
+      {
+        "file": "train_sft.py",
+        "line": 88,
+        "symbol": "set_seed",
+        "kind": "config"
+      },
+      {
+        "file": "train_sft.py",
+        "line": 89,
+        "symbol": "AutoTokenizer.from_pretrained",
+        "kind": "tokenizer"
+      },
+      {
+        "file": "train_sft.py",
+        "line": 94,
+        "symbol": "SFTTrainer",
+        "kind": "train_loop"
+      },
+      {
+        "file": "train_sft.py",
+        "line": 102,
+        "symbol": "trainer.train",
+        "kind": "train_loop"
+      },
+      {
+        "file": "train_sft.py",
+        "line": 103,
+        "symbol": "trainer.evaluate",
+        "kind": "eval_loop"
+      },
+      {
+        "file": "train_sft.py",
+        "line": 104,
+        "symbol": "trainer.save_model",
+        "kind": "checkpoint"
+      }
+    ]
+  }
+}

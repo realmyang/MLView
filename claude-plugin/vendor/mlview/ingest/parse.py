@@ -9,6 +9,7 @@ from __future__ import annotations
 import ast
 import io
 import tokenize
+import warnings
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
@@ -80,9 +81,20 @@ class ParsedFile:
 
 
 def parse_source(source: str, relpath: str, abspath: str):
-    """Parse already-decoded source. Returns (ParsedFile | None, ParseFailure | None)."""
+    """Parse already-decoded source. Returns (ParsedFile | None, ParseFailure | None).
+
+    PUB-14: `ast.parse` raises CPython's own `SyntaxWarning` for things like an
+    invalid escape sequence in the **analyzed** source, and the default warning
+    filter prints it - the offending source line and all - on MLView's stderr,
+    where the VS Code output channel and the MCP server log it as though the
+    analyzer had failed. A fact about somebody else's code belongs in
+    `diagnostics[]` or nowhere; it never belongs on this process's stderr.
+    """
     try:
-        tree = ast.parse(source, filename=relpath)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", SyntaxWarning)
+            warnings.simplefilter("ignore", DeprecationWarning)
+            tree = ast.parse(source, filename=relpath)
     except SyntaxError as exc:
         return None, ParseFailure(relpath, "%s: %s" % (type(exc).__name__, exc.msg),
                                   getattr(exc, "lineno", None) or 1)

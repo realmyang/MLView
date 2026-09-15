@@ -127,9 +127,28 @@ def test_exit_4_for_a_directory_of_non_python_files(run, tmp_path):
     assert run("analyze", str(root))[0] == 4
 
 
-def test_exit_4_for_a_path_that_does_not_exist(run, tmp_path):
-    code, _out, _err = run("analyze", str(tmp_path / "nowhere"))
+def test_exit_1_and_silent_stdout_for_a_path_that_does_not_exist(run, tmp_path):
+    """HOSTS-UX-MISSINGPATH (CONTRACTS 11.51).
+
+    Section 3 reserves exit 1 for "usage or I/O error" and exit 4 for "nothing
+    analyzable found (no `.py` files after filtering)". A path that is not
+    there is the first, not the second - and the old shared branch printed a
+    full, clean-looking summary on stdout about a directory that does not
+    exist.
+    """
+    code, out, err = run("analyze", str(tmp_path / "nowhere"))
+    assert code == 1
+    assert out == b""
+    assert "no such path" in err
+
+
+def test_exit_4_for_a_directory_that_holds_no_python(run, tmp_path):
+    """A path that exists and holds nothing analyzable really is a result."""
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    code, _out, err = run("analyze", str(empty))
     assert code == 4
+    assert "no analyzable Python files found" in err
 
 
 # ----------------------------------------------------------------- --json -

@@ -192,16 +192,74 @@ def test_a_helper_that_receives_training_rows_knows_that_it_did():
 
 
 def test_two_call_sites_intersect_rather_than_union():
-    """`summarize(train_x)` and `summarize(test_x)`. Union would give the
-    parameter TRAIN_SPLIT *and* TEST_SPLIT and fire MLV102 at severity high on
-    correct code; the intersection is FEATURES and nothing else."""
+    """`summarize(train_x)` and `summarize(test_x)`.
+
+    The **interprocedural contribution** is the intersection - FEATURES, which
+    is what both sites really agree on - and never the union, because the union
+    would hand the parameter TRAIN_SPLIT *and* TEST_SPLIT and MLV102 ("fitted on
+    held-out data", severity high) would fire inside `summarize` on two correct
+    calls. That is CONTRACTS 11.36 N3 and it is unchanged.
+
+    What VIS2-05 / PUB2-05 / TAB2-01 changed is what happens to the tag
+    `propagate_parameters` had already derived *locally* from the first call
+    site. The intersection used to REPLACE it, so `ip` came back with fewer
+    tags, fewer findings and fewer edges than the mode it is documented as
+    widening - silently. It is now unioned with, so `ip` can only add:
+
+    * the property the reader is promised (no leakage finding here) still holds
+      in both modes, which is the assertion that matters;
+    * the ip pass contributed TEST_SPLIT to nothing, which is the intersection
+      doing its job;
+    * and whatever `local` derived survives, which is what makes
+      `findings(local) <= findings(ip)` true.
+    """
+    for mode in ("local", "ip"):
+        doc = analyze(fixture("two_call_sites"), dataflow=mode)
+        codes = {i["code"] for i in doc["issues"] if not i.get("suppressed")}
+        assert not (codes & {"MLV101", "MLV102", "MLV103"}), (mode, sorted(codes))
     result = analyze_full(AnalyzeOptions(paths=(fixture("two_call_sites"),),
                                          dataflow="ip"))
     param = _binding(result.workspace, "report.summarize", "values")
     assert param is not None
-    assert tuple(param.tags) == ("FEATURES",), param.tags
-    assert "TRAIN_SPLIT" not in param.tags and "TEST_SPLIT" not in param.tags
+    assert "FEATURES" in param.tags, param.tags
+    assert "TEST_SPLIT" not in param.tags, (
+        "the ip pass contributed a tag only one call site states")
     assert param.provenance, "the intersected fact still records its hop"
+
+
+def test_ip_never_reports_less_than_local():
+    """VIS2-05 / TAB2-01. `--dataflow ip` is documented as a widening of
+    `local` - "a second analysis, not a second opinion" - and it was measurably
+    a narrowing: 20 of ~100 corpus programs lost graph edges under it, 7 lost
+    whole nodes, and on a semi-supervised program it lost MLV301 (**high**) and
+    MLV302 with `diagnostics == []` in both modes, so the deeper mode read as a
+    clean bill of health.
+
+    The invariant, asserted over the whole labelled corpus: every finding
+    `local` reports, `ip` reports too, and the graph does not shrink.
+    """
+    import os
+    corpus = os.path.join(REPO_ROOT, "analyzer", "tests", "accuracy", "corpus")
+    lost = []
+    for name in sorted(os.listdir(corpus)):
+        root = os.path.join(corpus, name)
+        if not os.path.isdir(root):
+            continue
+        local = analyze(root, dataflow="local")
+        wide = analyze(root, dataflow="ip")
+
+        def keys(doc):
+            return {(i["code"], (i.get("loc") or {}).get("file"),
+                     (i.get("loc") or {}).get("line"))
+                    for i in doc["issues"] if not i.get("suppressed")}
+
+        missing = keys(local) - keys(wide)
+        if missing:
+            lost.append("%s: %s" % (name, sorted(missing)))
+        if len(wide["edges"]) < len(local["edges"]):
+            lost.append("%s: %d edges in local, %d in ip"
+                        % (name, len(local["edges"]), len(wide["edges"])))
+    assert not lost, "--dataflow ip returned less than local:\n" + "\n".join(lost)
 
 
 def _binding(workspace, scope_qualname: str, name: str):

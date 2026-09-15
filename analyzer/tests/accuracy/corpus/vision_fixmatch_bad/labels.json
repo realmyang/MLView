@@ -1,0 +1,222 @@
+{
+  "name": "vision_fixmatch_bad",
+  "title": "The same FixMatch run with nine planted defects",
+  "origin": "domain-vision round 2: the dirty twin of vision_fixmatch. Its MLV301 is the label that shows --dataflow ip dropping a high-severity finding local reports (VIS2-05)",
+  "tuned": false,
+  "labelledBy": "domain-vision, 2026-09-14",
+  "expected": [
+    {
+      "code": "MLV701",
+      "file": "model.py",
+      "line": 48,
+      "symbol": "NetworkBlock.__init__",
+      "severity": "high",
+      "verdict": "expected",
+      "defect": "NetworkBlock.__init__ never calls super().__init__()",
+      "why": "nn.Module's _parameters / _modules dicts are never created, so the very first attribute assignment raises AttributeError"
+    },
+    {
+      "code": "MLV702",
+      "file": "model.py",
+      "line": 54,
+      "symbol": "self.blocks = [BasicBlock(...) for ...]",
+      "severity": "high",
+      "verdict": "expected",
+      "defect": "the residual blocks are held in a plain list comprehension",
+      "why": "none of them is registered, so they get no gradients, do not move with .to(device) and are absent from every state_dict - the network trains its first and last layer only"
+    },
+    {
+      "code": "MLV301",
+      "file": "train.py",
+      "line": 155,
+      "symbol": "module(images)",
+      "severity": "high",
+      "verdict": "expected",
+      "defect": "evaluate() no longer calls module.eval()",
+      "why": "every BatchNorm2d in the WideResNet updates its running statistics from the validation split, so the statistics the next epoch trains with were learned on data the model is scored against",
+      "gap": "local reports this at high / 0.85; --dataflow ip drops it entirely, with no diagnostic. Minimal 38-line repro in the round-2 report (VIS2-05)."
+    },
+    {
+      "code": "MLV205",
+      "file": "train.py",
+      "line": 138,
+      "symbol": "supervised_total += supervised",
+      "severity": "medium",
+      "verdict": "expected",
+      "defect": "both running totals keep the live loss tensors",
+      "why": "every batch's autograd graph is retained for the whole epoch, and a FixMatch step holds three forward passes worth of graph"
+    },
+    {
+      "code": "MLV302",
+      "file": "train.py",
+      "line": 152,
+      "symbol": "for images, targets in loader",
+      "severity": "medium",
+      "verdict": "expected",
+      "defect": "evaluate() is no longer decorated @torch.no_grad()",
+      "why": "the graph for the whole validation set is built twice per epoch - once for the student, once for the shadow - and discarded",
+      "gap": "same as MLV301: local reports it, --dataflow ip does not (VIS2-05)."
+    },
+    {
+      "code": "MLV110",
+      "file": "train.py",
+      "line": 71,
+      "symbol": "DataLoader(unlabelled, shuffle=False)",
+      "severity": "medium",
+      "verdict": "expected",
+      "defect": "the unlabelled loader does not shuffle",
+      "why": "the pool is stored in class order, so every unlabelled batch is one class; the confidence mask then selects that class and the pseudo-label distribution collapses onto it",
+      "gap": "MLV110 needs the dataset to carry TRAIN_SPLIT or the loader name to match (?i)train_?(loader|dl). An unlabelled pool is neither - `unlabelled_loader` is a training loader by role and by no other signal, and the loop that consumes it does so through next(iter(...)) rather than a for statement, so the backward() clause cannot reach it either."
+    },
+    {
+      "code": "MLV114",
+      "file": "train.py",
+      "line": 63,
+      "symbol": "ImageListDataset(val_rows, transform=strong_transform())",
+      "severity": "medium",
+      "verdict": "expected",
+      "defect": "the validation split is read through the strong (RandAugment + RandomErasing) pipeline",
+      "why": "the reported accuracy is measured on images the model was never meant to see at test time, and it moves by several points between runs for that reason alone",
+      "gap": "MLV114 requires the dataset construction to resolve to a knowledge-table DATASET row; ImageListDataset is a workspace Dataset subclass. See VIS2-01."
+    },
+    {
+      "code": "MLV111",
+      "file": "train.py",
+      "line": 76,
+      "symbol": "DataLoader(validation, shuffle=True)",
+      "severity": "low",
+      "verdict": "expected",
+      "defect": "the evaluation loader shuffles",
+      "why": "the student and the shadow are scored on two different orderings of the same split, so the two accuracies printed side by side are not comparable batch for batch"
+    },
+    {
+      "code": "MLV601",
+      "file": "train.py",
+      "anchor": "project",
+      "symbol": "np.random.default_rng()",
+      "severity": "low",
+      "verdict": "expected",
+      "defect": "nothing is seeded and the label subset is drawn from an unseeded generator",
+      "why": "the 25-labels-per-class benchmark is a different benchmark on every run, which is the one thing a semi-supervised result has to hold fixed"
+    },
+    {
+      "code": "MLV203",
+      "file": "train.py",
+      "line": 133,
+      "symbol": "ema.update(model)",
+      "severity": "medium",
+      "verdict": "expected",
+      "defect": "the EMA shadow is updated before optimizer.step() instead of after",
+      "why": "the shadow averages the weights the student is about to leave rather than the ones it reaches, so it lags the student by one step forever and the 'EMA accuracy' that is checkpointed is not the quantity the paper reports",
+      "gap": "MLV203 is the nearest rule - it is about an ordering defect inside one training step - but it only compares OPT_STEP against BACKWARD. No rule models the EMA protocol.",
+      "unsupported": true
+    },
+    {
+      "code": "MLV305",
+      "file": "train.py",
+      "line": 123,
+      "symbol": "torch.softmax(logits_strong.detach() / temperature)",
+      "severity": "high",
+      "verdict": "expected",
+      "defect": "the pseudo-label and the confidence mask are read off the strong view instead of the weak one",
+      "why": "FixMatch's premise is that the weakly augmented view is the reliable teacher; taking both the label and the confidence from the RandAugment-ed view makes the model its own noisy teacher, and training collapses to whichever class the mask first admits",
+      "gap": "no rule models the two-view consistency protocol. MLV305 is the nearest code (a metric or a decision taken from the wrong tensor) but it is written for sklearn / torchmetrics class metrics.",
+      "unsupported": true
+    }
+  ],
+  "forbidden": [
+    {
+      "code": "MLV207",
+      "file": "train.py",
+      "line": 135,
+      "why": "same trap as the clean twin, and it fires: LambdaLR has no intrinsic cadence and this one is built over epochs * len(labelled_loader) steps, so stepping it per batch is correct. Round-2 finding VIS2-04"
+    },
+    {
+      "code": "MLV101",
+      "file": "train.py",
+      "why": "there is no sklearn transformer in this project"
+    },
+    {
+      "code": "MLV102",
+      "file": "train.py",
+      "why": "nothing is fitted on anything here"
+    },
+    {
+      "code": "MLV112",
+      "file": "train.py",
+      "why": "the loaders are built inside build_loaders(), reached only from main() under the __main__ guard"
+    },
+    {
+      "code": "MLV201",
+      "file": "train.py",
+      "why": "optimizer.zero_grad(set_to_none=True) is still the first statement of the training step"
+    },
+    {
+      "code": "MLV202",
+      "file": "train.py",
+      "why": "optimizer.step() is still called every batch"
+    },
+    {
+      "code": "MLV204",
+      "file": "train.py",
+      "why": "loss.backward() at line 130 is outside the no_grad pseudo-label block; ModelEMA.update is decorated @torch.no_grad() and contains no backward()"
+    },
+    {
+      "code": "MLV209",
+      "file": "train.py",
+      "why": "there is no gradient clipping in this project"
+    },
+    {
+      "code": "MLV306",
+      "file": "train.py",
+      "why": "no ranking metric is computed anywhere"
+    },
+    {
+      "code": "MLV401",
+      "file": "train.py",
+      "why": "the softmax at line 123 stays inside the no_grad block and never reaches F.cross_entropy, which is fed logits directly"
+    },
+    {
+      "code": "MLV402",
+      "file": "train.py",
+      "why": "there is no sigmoid and no BCE loss in this project"
+    },
+    {
+      "code": "MLV501",
+      "file": "train.py",
+      "why": "the model and the shadow are both moved with .to(device) and every batch tensor is moved inside the loop"
+    },
+    {
+      "code": "MLV502",
+      "file": "train.py",
+      "why": "pick_device() still checks torch.cuda.is_available()"
+    },
+    {
+      "code": "MLV602",
+      "file": "train.py",
+      "why": "there is no sklearn split and no random_split; the unseeded draw is labelled as MLV601 above"
+    },
+    {
+      "code": "MLV803",
+      "file": "train.py",
+      "why": "the checkpoint still saves state_dict()s, never the modules"
+    }
+  ],
+  "gaps": [
+    {
+      "what": "no rule models the EMA/shadow-model protocol: update after the optimizer step, decay applied to parameters and a straight copy for buffers, and the shadow evaluated rather than trained",
+      "evidence": "train.py:133 against the clean twin's line 135"
+    },
+    {
+      "what": "no rule models the two-view consistency protocol, so reading the pseudo-label off the strong view - the single most damaging FixMatch bug - is invisible",
+      "evidence": "train.py:123 against the clean twin's logits_weak"
+    }
+  ],
+  "unsupported": [
+    {
+      "file": "model.py",
+      "why": "LABEL CORRECTED in hardening round 2: MLV703 is not a built rule - it carries the status **later** in docs/ISSUE_RULES.md section 1 - so a label for it can never be satisfied and can never be violated. `analyzer/tests/accuracy/test_accuracy.py::test_every_labelled_code_is_a_real_rule` rejects one, and this row turned that shipped test red. The observation is kept verbatim here so the row can be restored the day the rule ships. Original verdict `forbidden`, original note: F.dropout still passes training=self.training",
+      "wouldBe": "MLV703"
+    }
+  ]
+}

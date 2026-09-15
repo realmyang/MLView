@@ -43,7 +43,7 @@ import { uiIcon } from '../icons.js';
 import { severityGlyph } from '../markers.js';
 import { pipelineName } from './scopepicker.js';
 import { pipelineIndexOf } from '../scope/catalog.js';
-import { pipelineDrift, rowSeverity } from '../scope/pipelines.js';
+import { drawnCount, pipelineDrift, rowSeverity } from '../scope/pipelines.js';
 import type { PipelineRow } from '../scope/pipelines.js';
 import type { MLGraph } from '../types.js';
 
@@ -235,7 +235,10 @@ export class PipelineChooser {
     if (sev) b.setAttribute('data-sev', sev);
     add(b, el('span', 'mlv-pipechooser__name', pipelineName(row.entrypoint)));
     const meta = add(b, el('span', 'mlv-pipechooser__meta'));
-    add(meta, el('span', 'mlv-pipechooser__count', row.nodeCount + (row.nodeCount === 1 ? ' node' : ' nodes')));
+    // HOSTS-UX-PIPELINECOUNT: `drawnCount`, so the modal, the scope picker and
+    // the breadcrumb the click produces are one number from one function.
+    const drawn = drawnCount(row);
+    add(meta, el('span', 'mlv-pipechooser__count', drawn + (drawn === 1 ? ' node' : ' nodes')));
     if (row.sharedCount) {
       const shared = add(meta, el('span', 'mlv-pipechooser__shared', row.sharedCount + ' shared'));
       shared.title =
@@ -333,7 +336,8 @@ export function chooserCaveats(graph: MLGraph, rows: PipelineRow[], heldBack = 0
  */
 export function rowLabel(row: PipelineRow): string {
   const total = row.issueCounts.high + row.issueCounts.medium + row.issueCounts.low;
-  let out = row.entrypoint + ', ' + row.nodeCount + (row.nodeCount === 1 ? ' node' : ' nodes');
+  const drawn = drawnCount(row);
+  let out = row.entrypoint + ', ' + drawn + (drawn === 1 ? ' node' : ' nodes');
   if (row.sharedCount) out += ', ' + row.sharedCount + ' shared with another pipeline';
   if (total) out += ', ' + total + (total === 1 ? ' finding' : ' findings');
   return out + '.';
@@ -349,7 +353,7 @@ function indistinguishable(graph: MLGraph, rows: PipelineRow[]): boolean {
   if (rows.length < 2) return false;
   if (!(graph.stats && graph.stats.truncated)) return false;
   const key = (row: PipelineRow): string =>
-    row.nodeCount + '/' + row.sharedCount + '/' + row.issueCounts.high + '/' + row.issueCounts.medium + '/' +
+    drawnCount(row) + '/' + row.sharedCount + '/' + row.issueCounts.high + '/' + row.issueCounts.medium + '/' +
     row.issueCounts.low;
   const first = key(rows[0]);
   return rows.every((row) => key(row) === first);

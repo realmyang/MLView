@@ -518,7 +518,8 @@ def _assemble(graph: Dict[str, Any], scope: Scope, resolution: ScopeResolution,
         diagnostics.append({
             "kind": "config_warning",
             "message": "scope %s matched no nodes; the whole graph has %d node(s). "
-                       "This is a finding, not an error." % (scope.spec, len(all_nodes))})
+                       "This is a finding, not an error."
+                       % (scope.as_typed, len(all_nodes))})
     if (graph.get("stats") or {}).get("truncated"):
         diagnostics.append({
             "kind": "truncated",

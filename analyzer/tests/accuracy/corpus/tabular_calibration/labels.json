@@ -1,0 +1,154 @@
+{
+  "name": "tabular_calibration",
+  "title": "Probability calibration and threshold tuning on a third split - three shapes that look like leakage and are the correct procedure",
+  "origin": "hardening round 1, tester domain-tabular: a pure false-positive trap",
+  "tuned": false,
+  "labelledBy": "hardening domain-tabular, 2026-09-13",
+  "expected": [],
+  "forbidden": [
+    {
+      "code": "MLV101",
+      "file": "calibrate.py",
+      "why": "the scaler is a Pipeline step fitted by base.fit(train_x, ...) at line 49, after both splits; nothing is fitted before a split"
+    },
+    {
+      "code": "MLV102",
+      "file": "calibrate.py",
+      "why": "the calibrator is fitted on calib_x, which is the *training* half of the second split and exists for exactly this purpose; test_x reaches only predict_proba at line 71"
+    },
+    {
+      "code": "MLV103",
+      "file": "calibrate.py",
+      "why": "there is no cross-validation call here - cv='prefit' says the base estimator was fitted elsewhere on its own split"
+    },
+    {
+      "code": "MLV305",
+      "file": "calibrate.py",
+      "why": "every f1/precision/recall call is fed `decisions`, produced by a threshold comparison and .astype(int) at lines 63 and 72; roc_auc_score and brier_score_loss are in the score-metric carve-out and are fed probabilities on purpose"
+    },
+    {
+      "code": "MLV306",
+      "file": "calibrate.py",
+      "why": "roc_auc_score is given the probability column, not predict() output"
+    },
+    {
+      "code": "MLV106",
+      "file": "calibrate.py",
+      "why": "there is no timestamp in this project"
+    },
+    {
+      "code": "MLV601",
+      "file": "calibrate.py",
+      "anchor": "project",
+      "why": "both splits and the estimator carry random_state=SEED"
+    },
+    {
+      "code": "MLV602",
+      "file": "calibrate.py",
+      "why": "both train_test_split calls pass random_state=SEED"
+    },
+    {
+      "code": "MLV301",
+      "file": "calibrate.py",
+      "why": "there is no torch module in this project"
+    }
+  ],
+  "graph": {
+    "edges": 30,
+    "ops": [
+      {
+        "file": "calibrate.py",
+        "line": 85,
+        "symbol": "read_csv",
+        "kind": "dataset"
+      },
+      {
+        "file": "calibrate.py",
+        "line": 37,
+        "symbol": "train_test_split",
+        "kind": "split"
+      },
+      {
+        "file": "calibrate.py",
+        "line": 39,
+        "symbol": "train_test_split",
+        "kind": "split"
+      },
+      {
+        "file": "calibrate.py",
+        "line": 46,
+        "symbol": "StandardScaler",
+        "kind": "scaler"
+      },
+      {
+        "file": "calibrate.py",
+        "line": 47,
+        "symbol": "HistGradientBoostingClassifier",
+        "kind": "model"
+      },
+      {
+        "file": "calibrate.py",
+        "line": 45,
+        "symbol": "Pipeline",
+        "kind": "model"
+      },
+      {
+        "file": "calibrate.py",
+        "line": 49,
+        "symbol": "base.fit",
+        "kind": "train_loop"
+      },
+      {
+        "file": "calibrate.py",
+        "line": 54,
+        "symbol": "CalibratedClassifierCV",
+        "kind": "model"
+      },
+      {
+        "file": "calibrate.py",
+        "line": 55,
+        "symbol": "calibrator.fit",
+        "kind": "train_loop"
+      },
+      {
+        "file": "calibrate.py",
+        "line": 60,
+        "symbol": "predict_proba",
+        "kind": "predict"
+      },
+      {
+        "file": "calibrate.py",
+        "line": 64,
+        "symbol": "f1_score",
+        "kind": "metric"
+      },
+      {
+        "file": "calibrate.py",
+        "line": 71,
+        "symbol": "predict_proba",
+        "kind": "predict"
+      },
+      {
+        "file": "calibrate.py",
+        "line": 73,
+        "symbol": "calibration_curve",
+        "kind": "metric"
+      },
+      {
+        "file": "calibrate.py",
+        "line": 75,
+        "symbol": "roc_auc_score",
+        "kind": "metric"
+      },
+      {
+        "file": "calibrate.py",
+        "line": 76,
+        "symbol": "brier_score_loss",
+        "kind": "metric"
+      }
+    ]
+  },
+  "notes": [
+    "MLV117 (train_test_split without stratify=) is catalogued but not implemented, so it cannot carry a forbidden label; for the record, in calibrate.py: both splits pass stratify="
+  ]
+}

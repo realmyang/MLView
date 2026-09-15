@@ -78,8 +78,18 @@ export class AnswersCard {
     return this.openState;
   }
 
-  /** Draw the block, or hide the card entirely when there is none. */
-  update(answers: Answers | undefined, open: boolean): void {
+  /**
+   * Draw the block, or hide the card entirely when there is none.
+   *
+   * `yielded` is HOSTS-UX-R2-06: on a document whose banners and chip row
+   * already fill the top of the window this card starts CLOSED, so the reader
+   * gets the diagram instead. Nothing is hidden by it — the header still states
+   * `1 of 4 answered · 3 not detected`, which is the line a reader scans, and
+   * one press opens the rest. The flag only changes the DEFAULT and the
+   * sentence the header's tooltip gives for it; a reader who opens the card
+   * keeps it open, here and on the next report (`ViewState.answersOpen`).
+   */
+  update(answers: Answers | undefined, open: boolean, yielded = false): void {
     this.openState = open;
     const rows = readableRows(answers);
     this.root.hidden = rows.length === 0;
@@ -89,10 +99,20 @@ export class AnswersCard {
       return;
     }
     this.head.setAttribute('aria-expanded', open ? 'true' : 'false');
-    this.head.title = (open ? 'Hide' : 'Show') + ' the four answers this analysis composed';
+    this.root.setAttribute('data-answers-yielded', yielded ? '1' : '0');
+    this.head.title =
+      (open ? 'Hide' : 'Show') + ' the four answers this analysis composed' +
+      (yielded && !open
+        ? ' — it starts closed on this report because the notes above it already fill the top of the window'
+        : '');
     if (open) this.root.classList.add('is-open');
     else this.root.classList.remove('is-open');
-    this.countEl.textContent = rows.length + ' of 4 answered';
+    // DGRG-12: the counter says what the answers say, never more.
+    this.countEl.textContent = answeredLabel(rows);
+    this.countEl.title =
+      'An answer counts as answered when it names a place in the code. The rest say so in words: ' +
+      'the emitter found nothing to point at.';
+    this.root.setAttribute('data-answers-answered', String(rows.filter((r) => located(r.answer)).length));
     this.bodyEl.hidden = !open;
 
     clear(this.bodyEl);
@@ -100,6 +120,7 @@ export class AnswersCard {
     for (const row of rows) {
       const item = add(list, el('li', 'mlv-answers__item'));
       item.setAttribute('data-answer', row.key);
+      item.setAttribute('data-answer-located', located(row.answer) ? '1' : '0');
       add(item, el('span', 'mlv-answers__q', row.question));
       const sentence = add(item, el('p', 'mlv-answers__sentence', row.answer.sentence));
       sentence.setAttribute('data-answer-sentence', row.key);
@@ -123,6 +144,38 @@ export class AnswersCard {
       }
     }
   }
+}
+
+/**
+ * DGRG-12 — the counter over the four answers says what the answers say.
+ *
+ * It read `rows.length + ' of 4 answered'`, which counted rows RENDERED rather
+ * than questions answered. On the stable-baselines3 report the header said
+ * "What this pipeline does · 4 of 4 answered" above three rows that begin "No
+ * data entry was detected…", "No loss function was detected…" and "No
+ * evaluation stage was detected…". Every sentence under it was honest; the one
+ * line a reader scans was not.
+ *
+ * `emit/answers.py` composes an answer from NODES: an answer that found
+ * something carries `locs`/`nodeIds` and a confidence, and one that found
+ * nothing carries neither and `confidence: 0.0`. So "did this name a place in
+ * the code" is the emitter's own signal, read rather than guessed — and the
+ * rows that did not are counted as what they say, not silently as answers.
+ */
+function answeredLabel(rows: AnswerRow[]): string {
+  const answered = rows.filter((r) => located(r.answer)).length;
+  const missing = rows.length - answered;
+  return (
+    answered + ' of ' + ANSWER_ROWS.length + ' answered' +
+    (missing > 0 ? ' · ' + missing + ' not detected' : '')
+  );
+}
+
+/** True when the emitter had somewhere in the code to point at. */
+function located(answer: Answer): boolean {
+  const locs = Array.isArray(answer.locs) ? answer.locs.length : 0;
+  const nodes = Array.isArray(answer.nodeIds) ? answer.nodeIds.length : 0;
+  return locs + nodes > 0;
 }
 
 interface AnswerRow {

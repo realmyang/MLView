@@ -43,6 +43,19 @@ import { locationHit, parseLocationQuery, pathMatches } from './searchloc.js';
 import { normalizeWheel, panDelta, wheelIntent, wheelZoomFactor, COARSE_PX, LINE_PX, PINCH_GAIN, ZOOM_BASE } from './ui/gestures.js';
 import { groupIssues, occurrenceText, sanitizeGroupBy } from './ui/railgroup.js';
 import { disableSnippet, ignoreComment, suppressedSummary } from './ui/suppress.js';
+import {
+  BANNER_PX,
+  CHIPS_PER_LINE,
+  CHIP_LINE_PX,
+  CHIPROW_PAD_PX,
+  CHIP_TEXT_CH,
+  CHROME_CROWDED_PX,
+  COVERAGE_KINDS,
+  chromeBandHeight,
+  coverageChipText,
+  coverageHeadline,
+  unreadCallsChipText,
+} from './ui/chromenotes.js';
 import { ruleDocFor, setRuleDocs } from './ui/ruledocs.js';
 import { legendModel } from './ui/legend.js';
 import { FLOW, lineageHops, polylineLength, pulseDurationMs, streamGapPx } from './render/flow.js';
@@ -497,6 +510,24 @@ export const internals = {
   },
   /** MLV-P10: the two strings the rail, the Inspector and the bridge all use. */
   suppression: { ignoreComment, disableSnippet, suppressedSummary },
+  /**
+   * TAB2-10 and HOSTS-UX-R2-06: the chip row's text budget and the band-height
+   * estimate the answer card's default is decided by, so a gate states the rule
+   * rather than transcribing a number out of a rendered page.
+   */
+  chrome: {
+    CHIP_TEXT_CH,
+    coverageKinds: COVERAGE_KINDS,
+    coverageChipText,
+    coverageHeadline,
+    unreadCallsChipText,
+    bandHeight: chromeBandHeight,
+    BANNER_PX,
+    CHIPROW_PAD_PX,
+    CHIP_LINE_PX,
+    CHIPS_PER_LINE,
+    CHROME_CROWDED_PX,
+  },
   tooltipPlacement,
   searchGraph,
   /** VIEW-09ab: the detailed result and the `path:line` resolver behind it. */

@@ -188,6 +188,34 @@ TORCH_METHODS: Dict[str, Entry] = {
     "torch.Generator.manual_seed": E("config", "config", T, "SEED"),
 }
 
+#: vision-03 / DGRG-02. Shape-changing but **type-preserving** tensor methods:
+#: the result of `critic(x).mean()` is still a tensor, and `.backward()` on it
+#: is still the BACKWARD role. Before these rows, `torch.Tensor.backward` only
+#: earned its role when the receiver's binding resolved to a *known tensor
+#: producer* - a criterion call did, a reduction over a model output did not -
+#: so a WGAN critic loss, a contrastive loss, a triplet loss and every
+#: hand-reduced `reduction='none'` loss produced no `loss` node, no `backward()`
+#: node, and silenced MLV201, MLV202, MLV203 and MLV204 entirely. The tags stay
+#: `("LOSS",)`: a value reduced to a scalar and then back-propagated is the
+#: objective, which is what restores the loss node and the objective lane.
+TENSOR_REDUCTIONS = ("mean", "sum", "norm", "median", "prod", "std", "var",
+                     "nanmean", "nansum", "amax", "amin", "logsumexp")
+#: Element-wise / reshaping methods that also return a tensor. Kept separate
+#: because a reshape is not an objective - no LOSS tag is minted for these.
+TENSOR_OPS = ("pow", "clamp", "clamp_min", "clamp_max", "abs", "sqrt", "exp",
+              "log", "log1p", "sigmoid", "softmax", "relu", "neg", "reciprocal",
+              "view", "reshape", "squeeze", "unsqueeze", "flatten", "permute",
+              "transpose", "contiguous", "float", "double", "half", "long",
+              "int", "bool", "type_as", "expand", "expand_as", "repeat",
+              "masked_fill", "where", "gather", "index_select", "narrow",
+              "add", "sub", "mul", "div", "matmul", "clone")
+for _method in TENSOR_REDUCTIONS:
+    TORCH_METHODS["torch.Tensor.%s" % _method] = E(
+        "loss", "objective", T, "TENSOR_REDUCE", ("LOSS",), "tensor")
+for _method in TENSOR_OPS:
+    TORCH_METHODS["torch.Tensor.%s" % _method] = E(
+        "layer", "model", T, "TENSOR_OP", (), "tensor", 0.4)
+
 #: Receiver family -> (base FQN prefix, method names that resolve to it).
 TORCH_FAMILY_BASE = {
     "optimizer": "torch.optim.Optimizer",

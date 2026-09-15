@@ -1,0 +1,110 @@
+{
+  "name": "tabular_imbalance_pipeline",
+  "title": "1:400 fraud detection with SMOTE inside an imblearn Pipeline, a three-way split and the threshold tuned on the validation half",
+  "origin": "hardening round 2, tester domain-tabular: the correct half of the imbalance pair",
+  "tuned": false,
+  "labelledBy": "hardening round 2 domain-tabular, 2026-09-14",
+  "expected": [],
+  "forbidden": [
+    {
+      "code": "MLV101",
+      "file": "train.py",
+      "why": "the only fit call in this project is model.fit at line 88, on train_x; every transformer and the resampler are Pipeline steps and are refit by whoever holds the pipeline"
+    },
+    {
+      "code": "MLV101",
+      "file": "pipeline.py",
+      "why": "pipeline.py declares the imputer, scaler, encoder and SMOTENC as steps and calls fit on none of them"
+    },
+    {
+      "code": "MLV102",
+      "file": "train.py",
+      "why": "valid_x reaches predict_proba at line 62 and test_x reaches predict_proba at line 70; nothing is fitted on either"
+    },
+    {
+      "code": "MLV103",
+      "file": "train.py",
+      "why": "cross_val_score at line 56 is handed build_estimator(), an imblearn Pipeline whose first step is the ColumnTransformer - which is the fix MLV103 asks for; the resampler is a step too, so each fold resamples only its own training half"
+    },
+    {
+      "code": "MLV103",
+      "file": "pipeline.py",
+      "why": "no CV call exists in pipeline.py"
+    },
+    {
+      "code": "MLV106",
+      "file": "train.py",
+      "why": "hour_of_day is an integer hour-of-day feature, not a timestamp: nothing parses a date, converts one or sorts by one, so there is no temporal signal to split wrongly"
+    },
+    {
+      "code": "MLV305",
+      "file": "train.py",
+      "why": "f1_score at line 75 is fed `decisions`, produced by the threshold comparison at line 72; roc_auc_score and average_precision_score are score metrics fed a predict_proba column"
+    },
+    {
+      "code": "MLV306",
+      "file": "train.py",
+      "why": "roc_auc_score is fed model.predict_proba(test_x)[:, 1] at line 70, a score column rather than a hard label"
+    },
+    {
+      "code": "MLV601",
+      "file": "train.py",
+      "anchor": "project",
+      "why": "seed_everything() seeds random and numpy at lines 33-34, both splits and the StratifiedKFold carry random_state=SEED, and SMOTENC and the classifier carry random_state=SEED"
+    },
+    {
+      "code": "MLV602",
+      "file": "train.py",
+      "why": "both train_test_split calls (lines 47 and 49) and StratifiedKFold at line 55 pass random_state=SEED"
+    },
+    {
+      "code": "MLV201",
+      "file": "train.py",
+      "why": "there is no torch in this project and no hand-written gradient step"
+    },
+    {
+      "code": "MLV301",
+      "file": "train.py",
+      "why": "model.eval() is a torch idiom with no sklearn equivalent"
+    },
+    {
+      "code": "MLV302",
+      "file": "train.py",
+      "why": "torch.no_grad() has no meaning in a scikit-learn program"
+    },
+    {
+      "code": "MLV501",
+      "file": "train.py",
+      "why": "no device is ever named in this project"
+    }
+  ],
+  "graph": {
+    "edges": 35,
+    "ops": [
+      {"file": "pipeline.py", "line": 30, "symbol": "SimpleImputer", "kind": "transform"},
+      {"file": "pipeline.py", "line": 31, "symbol": "RobustScaler", "kind": "scaler"},
+      {"file": "pipeline.py", "line": 34, "symbol": "SimpleImputer", "kind": "transform"},
+      {"file": "pipeline.py", "line": 35, "symbol": "OneHotEncoder", "kind": "transform"},
+      {"file": "pipeline.py", "line": 37, "symbol": "ColumnTransformer", "kind": "transform"},
+      {"file": "pipeline.py", "line": 45, "symbol": "ImbPipeline", "kind": "model"},
+      {"file": "pipeline.py", "line": 47, "symbol": "SMOTENC", "kind": "transform"},
+      {"file": "pipeline.py", "line": 50, "symbol": "HistGradientBoostingClassifier", "kind": "model"},
+      {"file": "train.py", "line": 38, "symbol": "read_csv", "kind": "dataset"},
+      {"file": "train.py", "line": 47, "symbol": "train_test_split", "kind": "split"},
+      {"file": "train.py", "line": 49, "symbol": "train_test_split", "kind": "split"},
+      {"file": "train.py", "line": 55, "symbol": "StratifiedKFold", "kind": "split"},
+      {"file": "train.py", "line": 56, "symbol": "cross_val_score", "kind": "train_loop"},
+      {"file": "train.py", "line": 62, "symbol": "predict_proba", "kind": "predict"},
+      {"file": "train.py", "line": 63, "symbol": "precision_recall_curve", "kind": "metric"},
+      {"file": "train.py", "line": 70, "symbol": "predict_proba", "kind": "predict"},
+      {"file": "train.py", "line": 73, "symbol": "roc_auc_score", "kind": "metric"},
+      {"file": "train.py", "line": 74, "symbol": "average_precision_score", "kind": "metric"},
+      {"file": "train.py", "line": 75, "symbol": "f1_score", "kind": "metric"},
+      {"file": "train.py", "line": 88, "symbol": "model.fit", "kind": "train_loop"}
+    ]
+  },
+  "notes": [
+    "This project is the direct false-positive trap for MLV104 (resampling before the split), which is catalogued but not implemented. If MLV104 is ever built, the SMOTENC declared at pipeline.py:47 must stay silent: it is a Pipeline step, so imblearn calls fit_resample on each fold's training half and leaves the validation half untouched. A rule that keys on 'a resampler exists' rather than on where it is fitted fires here.",
+    "MLV117 (train_test_split without stratify=) is catalogued but not implemented; for the record, both splits pass stratify="
+  ]
+}

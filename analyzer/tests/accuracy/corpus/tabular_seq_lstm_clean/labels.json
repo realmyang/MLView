@@ -1,0 +1,171 @@
+{
+  "name": "tabular_seq_lstm_clean",
+  "title": "A torch LSTM load forecaster: chronological cut, scaler fitted on the past only, sliding windows, and every training mechanic in its place",
+  "origin": "hardening round 2, tester domain-tabular: the correct half of the sequence-forecasting pair",
+  "tuned": false,
+  "labelledBy": "hardening round 2 domain-tabular, 2026-09-14",
+  "expected": [],
+  "forbidden": [
+    {
+      "code": "MLV101",
+      "file": "windows.py",
+      "why": "the cut at line 36 happens before the fit at line 69, and the fit's argument is past[FEATURES] - the training window; the validation window reaches transform at line 70 only"
+    },
+    {
+      "code": "MLV102",
+      "file": "windows.py",
+      "why": "the validation window reaches scaler.transform at line 70 and nothing else; fit_transform is never given `future`"
+    },
+    {
+      "code": "MLV106",
+      "file": "windows.py",
+      "why": "this file is explicitly temporal - parse_dates at line 29, sort_values at line 30 - and it is cut by position at lines 38-39 rather than by a random draw. There is no train_test_split, random_split or shuffling splitter anywhere in the project"
+    },
+    {
+      "code": "MLV110",
+      "file": "train.py",
+      "why": "the training loader passes shuffle=True at line 43; windows are independent samples once the chronological cut has been made, so shuffling them is correct"
+    },
+    {
+      "code": "MLV111",
+      "file": "train.py",
+      "why": "the validation loader passes shuffle=False at line 45"
+    },
+    {
+      "code": "MLV112",
+      "file": "train.py",
+      "why": "the module has an if __name__ == \"__main__\" guard at line 116 and both loaders are built inside build_loaders(), reached only from main() under that guard - so nothing constructs a worker pool at import time"
+    },
+    {
+      "code": "MLV201",
+      "file": "train.py",
+      "why": "optimizer.zero_grad(set_to_none=True) is called at line 57, before the forward pass and the backward call"
+    },
+    {
+      "code": "MLV202",
+      "file": "train.py",
+      "why": "optimizer.step() is called at line 62, after backward() at line 60"
+    },
+    {
+      "code": "MLV203",
+      "file": "train.py",
+      "why": "backward() is at line 60 and step() at line 62, in that order, in the same block"
+    },
+    {
+      "code": "MLV204",
+      "file": "train.py",
+      "why": "the only backward() is at line 60, inside train_one_epoch, which is not under any no_grad scope; the @torch.no_grad() decorator is on evaluate(), which never backpropagates"
+    },
+    {
+      "code": "MLV205",
+      "file": "train.py",
+      "why": "the running loss is accumulated through .item() at line 64, and the two evaluation accumulators at lines 78-79 both end in .item() as well"
+    },
+    {
+      "code": "MLV207",
+      "file": "train.py",
+      "why": "CosineAnnealingLR is an epoch-cadence scheduler and is stepped once per epoch at line 100, inside the epoch loop and outside the batch loop"
+    },
+    {
+      "code": "MLV209",
+      "file": "train.py",
+      "why": "clip_grad_norm_ at line 61 sits strictly between backward() at line 60 and step() at line 62"
+    },
+    {
+      "code": "MLV301",
+      "file": "train.py",
+      "why": "evaluate() calls model.eval() at line 70 before the loop at line 74, and model.train() is restored at line 51 at the top of every training epoch"
+    },
+    {
+      "code": "MLV302",
+      "file": "train.py",
+      "why": "evaluate() carries the @torch.no_grad() decorator at line 68"
+    },
+    {
+      "code": "MLV305",
+      "file": "train.py",
+      "why": "this is a regression task; the reported numbers are an MSE and an MAE, and no class metric is called anywhere"
+    },
+    {
+      "code": "MLV401",
+      "file": "model.py",
+      "why": "the head returns raw values for SmoothL1Loss; there is no softmax, log_softmax or CrossEntropyLoss in the project"
+    },
+    {
+      "code": "MLV402",
+      "file": "model.py",
+      "why": "there is no sigmoid and no BCE loss in the project"
+    },
+    {
+      "code": "MLV501",
+      "file": "train.py",
+      "why": "both batch tensors are moved to the device at lines 54-55 and again at lines 75-76, on the same device the model was moved to at line 90"
+    },
+    {
+      "code": "MLV502",
+      "file": "train.py",
+      "why": "pick_device() at line 39 guards the cuda literal with torch.cuda.is_available()"
+    },
+    {
+      "code": "MLV601",
+      "file": "train.py",
+      "anchor": "project",
+      "why": "seed_everything() seeds random, numpy and torch at lines 33-35"
+    },
+    {
+      "code": "MLV602",
+      "file": "train.py",
+      "why": "there is no random splitter in this project: the holdout is a positional slice of a sorted frame"
+    },
+    {
+      "code": "MLV701",
+      "file": "model.py",
+      "why": "LoadForecaster.__init__ calls super().__init__() at line 13"
+    },
+    {
+      "code": "MLV702",
+      "file": "model.py",
+      "why": "every submodule is an attribute or an nn.Sequential; none is held in a plain list or dict"
+    },
+    {
+      "code": "MLV803",
+      "file": "train.py",
+      "why": "torch.save writes model.state_dict() at line 103 and torch.load passes both map_location= and weights_only=True at lines 106-107"
+    }
+  ],
+  "graph": {
+    "edges": 63,
+    "ops": [
+      {"file": "windows.py", "line": 29, "symbol": "read_csv", "kind": "dataset"},
+      {"file": "windows.py", "line": 30, "symbol": "sort_values", "kind": "transform"},
+      {"file": "windows.py", "line": 36, "symbol": "chronological_cut", "kind": "split"},
+      {"file": "windows.py", "line": 43, "symbol": "WindowDataset", "kind": "dataset"},
+      {"file": "windows.py", "line": 68, "symbol": "StandardScaler", "kind": "scaler"},
+      {"file": "windows.py", "line": 69, "symbol": "scaler.fit_transform", "kind": "scaler"},
+      {"file": "windows.py", "line": 70, "symbol": "scaler.transform", "kind": "scaler"},
+      {"file": "windows.py", "line": 73, "symbol": "WindowDataset", "kind": "dataset"},
+      {"file": "windows.py", "line": 74, "symbol": "WindowDataset", "kind": "dataset"},
+      {"file": "model.py", "line": 14, "symbol": "nn.LSTM", "kind": "model"},
+      {"file": "model.py", "line": 18, "symbol": "nn.Sequential", "kind": "model"},
+      {"file": "train.py", "line": 43, "symbol": "DataLoader", "kind": "loader"},
+      {"file": "train.py", "line": 45, "symbol": "DataLoader", "kind": "loader"},
+      {"file": "train.py", "line": 53, "symbol": "for history, future in loader", "kind": "train_loop"},
+      {"file": "train.py", "line": 57, "symbol": "optimizer.zero_grad", "kind": "optimizer"},
+      {"file": "train.py", "line": 58, "symbol": "model(history)", "kind": "forward"},
+      {"file": "train.py", "line": 59, "symbol": "criterion", "kind": "loss"},
+      {"file": "train.py", "line": 60, "symbol": "loss.backward", "kind": "backward"},
+      {"file": "train.py", "line": 62, "symbol": "optimizer.step", "kind": "optimizer"},
+      {"file": "train.py", "line": 74, "symbol": "for history, future in loader", "kind": "eval_loop"},
+      {"file": "train.py", "line": 77, "symbol": "model(history)", "kind": "forward"},
+      {"file": "train.py", "line": 91, "symbol": "nn.SmoothL1Loss", "kind": "loss"},
+      {"file": "train.py", "line": 92, "symbol": "AdamW", "kind": "optimizer"},
+      {"file": "train.py", "line": 93, "symbol": "CosineAnnealingLR", "kind": "scheduler"},
+      {"file": "train.py", "line": 96, "symbol": "for epoch in range(EPOCHS)", "kind": "train_loop"},
+      {"file": "train.py", "line": 103, "symbol": "torch.save", "kind": "checkpoint"},
+      {"file": "train.py", "line": 106, "symbol": "torch.load", "kind": "checkpoint"}
+    ]
+  },
+  "notes": [
+    "num_workers=4 on both loaders is deliberate: it makes MLV112 a live question and the __main__ guard at line 116 the answer. The defective twin removes the guard and keeps the workers."
+  ]
+}
