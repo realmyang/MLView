@@ -23,6 +23,36 @@ block.
 
 ---
 
+## Unreleased — research review of coverage and accuracy (2026-09-16)
+
+Documentation only; no analyzer, viewer or host code changed. Seven research
+passes over the shipped rules, the 158-program corpus and the 37 pinned public
+repositories, written up as [`docs/RESEARCH_COVERAGE_ACCURACY.md`](docs/RESEARCH_COVERAGE_ACCURACY.md)
+with a 120-entry bibliography in `docs/research/sources.md`.
+
+- **Baseline reproduced** before anything was proposed: 80.4 % recall (72.5 %
+  visible above the 0.60 confidence floor), 100 % precision, graph fidelity
+  91.9 %, 706 public-corpus findings with 0 adjudicated false positives.
+- **Every one of the 107 missed labels classified** into seven causes, with the
+  two smallest IR changes (identity through a subscript or a shape-preserving
+  method, and HuggingFace output objects) worth 22 of them.
+- **Three defects in shipped rules found by measurement**, each with a
+  reproduced fixture: `keras.Model.predict` tagged as hard labels (an `MLV306`
+  false positive and an `MLV305` false negative at once), `GroupShuffleSplit`
+  and `StratifiedGroupKFold` swapped in `MLV106`'s shuffle table, and
+  `MLV803`'s `torch.load` arm accusing a default that torch 2.6+ no longer has.
+  None is fixed in this entry; they are Sprint A of the document's §8.
+- **37 candidate rules in three tiers**, each with its naive false-positive
+  count measured by an AST sweep over the 4,467 public-corpus files before the
+  rule was designed; four measure zero, and one (`MLV117`) is recommended
+  against on that evidence.
+- **The gate cannot yet accept a new rule**: the corpus labels exactly the 36
+  shipped codes, so the first run of any new rule fails the ratchet on every
+  program it fires on. The document's §7.1 proposes the adjudication step that
+  fixes that.
+
+---
+
 ## Unreleased — consolidation and recall (2026-09-15)
 
 One campaign, three strands: make the tree say one true thing about itself

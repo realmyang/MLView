@@ -27,6 +27,12 @@ gate (`scripts/check_docs.py` check 12) keeps that note from being forgotten.
 For what is true today, read [`docs/STATUS.md`](STATUS.md); for what changed
 when, [`CHANGELOG.md`](../CHANGELOG.md).
 
+For the **next** backlog — the candidate rule catalog and the accuracy program
+researched on 2026-09-15, with a three-sprint sequence — read
+[`docs/RESEARCH_COVERAGE_ACCURACY.md`](RESEARCH_COVERAGE_ACCURACY.md). It is
+advisory in the same sense as this file: nothing in it is authorised until it is
+written into `docs/CONTRACTS.md`.
+
 ---
 
 ## (a) Executive summary
