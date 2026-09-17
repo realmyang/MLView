@@ -1,10 +1,11 @@
 # Native development artifact snapshots
 
-These five files are byte-identical snapshots published by native assistants
+These files are byte-identical snapshots published by native assistants
 during the September 17, 2026 development exercise. They are checked in so
 reviewers can inspect concrete WorkflowDocument outputs without relying on the
 ignored run directories. [`manifest.json`](manifest.json) records their hashes
-and provenance.
+and provenance. Initial outputs remain immutable; challenged revisions are
+stored separately under [`refinements/`](refinements/) with explicit parents.
 
 This is artifact publication only. The snapshots are model-authored outputs,
 not semantic ground truth, human-approved references, accuracy measurements, or
@@ -19,9 +20,12 @@ The notebook artifact records the original installed skill layout under
 `.agents/skills/mlview/`; reconstructing that layout is required to revalidate
 all of its recorded file hashes. The snapshot itself remains reviewable here.
 Reconstructing each artifact's recorded files from that commit, together with
-its frozen helper, passed all five validations in clean temporary workspaces.
+its frozen helper, passed all eight validations in clean temporary workspaces.
 
-Provisional source review found that the Codex GAN artifact can imply that its
+Provisional source review found that the initial Codex GAN artifact can imply that its
 running loss sums are periodically printed. The source instead prints current
-batch losses while the accumulated variables are never read. The artifact is
-preserved unchanged; this is a future challenge case for semantic evaluation.
+batch losses while the accumulated variables are never read. The initial
+artifact is preserved unchanged as the challenge case. The actual challenge
+child, `codex-dev-gan-r2.mlview.json`, corrects the explanation while retaining
+all node, edge, finding, evidence, and phase IDs. Its semantics still await
+human review and carry no accuracy score.

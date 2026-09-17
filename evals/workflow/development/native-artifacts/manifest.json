@@ -53,6 +53,46 @@
       "sha256": "a5d7ae7311c6ed1d24b8ba3c3449cf5ba3793b275521eb12cad3d71e777c43ab",
       "revision": "dev-config-distill-r1",
       "finalUiResponseObserved": null
+    },
+    {
+      "host": "copilot",
+      "task": "dev-config",
+      "path": "copilot/dev-config.mlview.json",
+      "bytes": 20883,
+      "sha256": "f2ab3caf7a59497a41dc33b356c800c4a67b571fa9cd5892c514ffa7a0f05e78",
+      "revision": "rev-distill-1",
+      "finalUiResponseObserved": null
+    },
+    {
+      "host": "claude-code",
+      "task": "dev-sklearn",
+      "path": "claude-code/dev-sklearn.mlview.json",
+      "bytes": 41548,
+      "sha256": "ec84f1eca09cfdc15c1f86523280e25a255165825e4cfd65f4df26aa4e070a7f",
+      "revision": "dev-sklearn-r1",
+      "finalUiResponseObserved": null
+    }
+  ],
+  "refinements": [
+    {
+      "host": "codex",
+      "task": "dev-gan",
+      "path": "refinements/codex-dev-gan-r2.mlview.json",
+      "bytes": 25198,
+      "sha256": "e57927985012ab9f45da9c80db9fa5a7025f5a1c54d745011476cfa31c47f175",
+      "revision": "rev-dcgan-loss-cycle-20260917-2",
+      "parentRevision": "rev-dcgan-loss-cycle-20260917-1",
+      "parentSha256": "feb87853568777b3bc24cef099c7112167574070191c8e5e925b4217a4e7135c",
+      "challenge": "Correct the explanation of cumulative running sums versus current-batch losses printed every 100 steps.",
+      "stableIdCounts": {
+        "nodes": {"preserved": 16, "parent": 16, "child": 16},
+        "edges": {"preserved": 19, "parent": 19, "child": 19},
+        "findings": {"preserved": 1, "parent": 1, "child": 1},
+        "evidence": {"preserved": 16, "parent": 16, "child": 16},
+        "phases": {"preserved": 8, "parent": 8, "child": 8}
+      },
+      "humanSemanticReview": "pending",
+      "accuracyScore": null
     }
   ]
 }

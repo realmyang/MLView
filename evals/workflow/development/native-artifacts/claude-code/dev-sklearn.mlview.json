@@ -1,0 +1,1109 @@
+{
+  "coverage": {
+    "inspectedFiles": [
+      "analyzer/tests/accuracy/corpus/tabular_group_cv_clean/train.py"
+    ],
+    "limitations": [
+      "`encoders` (TargetEncoder) is imported but its source is not in this workspace. Fold containment is verified at the call sites only; whether TargetEncoder.fit uses just the X/y it is given, how it smooths or handles unseen categories, and whether fit_transform cross-fits could not be inspected.",
+      "`features` (engineer, split_frame, CATEGORICAL, GROUP, TARGET) is imported but its source is not in this workspace. engineer() runs on the full frame before any split; whether it is row-wise/stateless or learns dataset-wide statistics is unresolved. Which columns split_frame() keeps as model features (including whether the target and the account key are dropped) is also unresolved.",
+      "Library behaviour is inferred from general knowledge, not read from installed packages: scikit-learn Pipeline forwarding y in fit_transform and not in transform, group exclusivity of GroupShuffleSplit/StratifiedGroupKFold, and CatBoost keeping the best iteration when an eval_set is supplied.",
+      "Static reading only: nothing was run, so the data file data/accounts.csv, actual fold sizes, class balance per fold, best iterations, and metric values are unknown.",
+      "The per-fold AUC is measured on the same validation rows that choose the early-stopping round, so cv_roc_auc is mildly selection-informed. This is noted in node detail and not raised as a finding because the holdout metrics are independent.",
+      "No tests, configs, notebooks, launch scripts, or documentation accompany the entrypoint in this workspace, so no alternative launch scenario could be checked."
+    ],
+    "status": "scoped",
+    "summary": "The selected entrypoint was read in full (126 lines) and every call site that fits, applies, or scores a component was traced. Within this file, each fitted object (target-encoder Pipeline, CatBoost booster) is constructed inside the fold loop and fitted only on fold-train rows; validation rows reach transform/eval_set/predict_proba only; holdout rows reach evaluate() only. No leakage finding is raised: nothing in the inspected code shows one, and the two uninspectable modules are recorded as unresolved rather than suspected."
+  },
+  "edges": [
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-main-head"
+      ],
+      "id": "e-main-seed",
+      "kind": "control",
+      "label": "first call",
+      "source": "entry-main",
+      "target": "seed"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-main-load"
+      ],
+      "id": "e-seed-load",
+      "kind": "control",
+      "label": "then load(csv_path)",
+      "source": "seed",
+      "target": "load-engineer"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-main-load",
+        "ev-main-split-frame"
+      ],
+      "id": "e-load-splitframe",
+      "kind": "data",
+      "label": "engineered frame",
+      "source": "load-engineer",
+      "target": "split-frame"
+    },
+    {
+      "basis": "unresolved",
+      "evidence": [
+        "ev-import-features"
+      ],
+      "id": "e-featimpl-load",
+      "kind": "dependency",
+      "label": "engineer() body not available",
+      "source": "features-impl",
+      "target": "load-engineer"
+    },
+    {
+      "basis": "unresolved",
+      "evidence": [
+        "ev-import-features"
+      ],
+      "id": "e-featimpl-splitframe",
+      "kind": "dependency",
+      "label": "split_frame() body not available",
+      "source": "features-impl",
+      "target": "split-frame"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-main-holdout"
+      ],
+      "id": "e-splitframe-holdout",
+      "kind": "data",
+      "label": "features, labels, groups",
+      "source": "split-frame",
+      "target": "holdout-split"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-holdout-splitter",
+        "ev-holdout-slices"
+      ],
+      "id": "e-holdout-dev",
+      "kind": "data",
+      "label": "train_index rows (~80% of accounts)",
+      "source": "holdout-split",
+      "target": "dev-partition"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-holdout-splitter",
+        "ev-holdout-slices"
+      ],
+      "id": "e-holdout-test",
+      "kind": "data",
+      "label": "test_index rows (~20% of accounts)",
+      "source": "holdout-split",
+      "target": "test-partition"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-main-cv",
+        "ev-cv-loop"
+      ],
+      "id": "e-dev-cv",
+      "kind": "data",
+      "label": "train_x, train_y, train_groups",
+      "source": "dev-partition",
+      "target": "cv-splitter"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-cv-loop",
+        "ev-fold-slices"
+      ],
+      "id": "e-splitter-slice",
+      "kind": "data",
+      "label": "fold_train / fold_valid indices",
+      "source": "cv-splitter",
+      "target": "fold-slice"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-fold-encoder-new"
+      ],
+      "id": "e-slice-encnew",
+      "kind": "control",
+      "label": "then build this fold's encoder",
+      "source": "fold-slice",
+      "target": "fold-encoder-new"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-fold-encoder-new",
+        "ev-fold-encoder-fit"
+      ],
+      "id": "e-encnew-fit",
+      "kind": "data",
+      "label": "unfitted Pipeline",
+      "source": "fold-encoder-new",
+      "target": "fold-encoder-fit"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-fold-encoder-fit"
+      ],
+      "id": "e-slice-fit",
+      "kind": "data",
+      "label": "inner_train_x + inner_train_y (fit data)",
+      "source": "fold-slice",
+      "target": "fold-encoder-fit"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-fold-encoder-fit",
+        "ev-fold-encoder-apply"
+      ],
+      "id": "e-fit-apply",
+      "kind": "data",
+      "label": "encoder state fitted on fold-train",
+      "source": "fold-encoder-fit",
+      "target": "fold-encoder-apply"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-fold-encoder-apply"
+      ],
+      "id": "e-slice-apply",
+      "kind": "data",
+      "label": "inner_valid_x (features only)",
+      "source": "fold-slice",
+      "target": "fold-encoder-apply"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-fold-pools"
+      ],
+      "id": "e-fit-pools",
+      "kind": "data",
+      "label": "encoded_train",
+      "source": "fold-encoder-fit",
+      "target": "fold-pools"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-fold-pools"
+      ],
+      "id": "e-apply-pools",
+      "kind": "data",
+      "label": "encoded_valid",
+      "source": "fold-encoder-apply",
+      "target": "fold-pools"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-fold-pools"
+      ],
+      "id": "e-slice-pools",
+      "kind": "data",
+      "label": "inner_train_y / inner_valid_y as Pool labels",
+      "source": "fold-slice",
+      "target": "fold-pools"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-fold-booster"
+      ],
+      "id": "e-pools-boost",
+      "kind": "data",
+      "label": "train_pool to fit; valid_pool as eval_set",
+      "source": "fold-pools",
+      "target": "fold-booster-fit"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-fold-score"
+      ],
+      "id": "e-boost-score",
+      "kind": "data",
+      "label": "early-stopped booster",
+      "source": "fold-booster-fit",
+      "target": "fold-score"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-fold-score"
+      ],
+      "id": "e-pools-score",
+      "kind": "data",
+      "label": "valid_pool scored",
+      "source": "fold-pools",
+      "target": "fold-score"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-cv-loop",
+        "ev-constants"
+      ],
+      "id": "e-score-next",
+      "kind": "loop",
+      "label": "next fold (5 total)",
+      "source": "fold-score",
+      "target": "cv-splitter"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-fold-score",
+        "ev-cv-return"
+      ],
+      "id": "e-score-agg",
+      "kind": "data",
+      "label": "scores, best_rounds",
+      "source": "fold-score",
+      "target": "cv-aggregate"
+    },
+    {
+      "basis": "unresolved",
+      "evidence": [
+        "ev-import-encoders"
+      ],
+      "id": "e-tencimpl-encnew",
+      "kind": "dependency",
+      "label": "TargetEncoder body not available",
+      "source": "target-encoder-impl",
+      "target": "fold-encoder-new"
+    },
+    {
+      "basis": "unresolved",
+      "evidence": [
+        "ev-import-encoders"
+      ],
+      "id": "e-tencimpl-final",
+      "kind": "dependency",
+      "label": "TargetEncoder body not available",
+      "source": "target-encoder-impl",
+      "target": "final-encoder-fit"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-main-final",
+        "ev-final-encoder"
+      ],
+      "id": "e-dev-final",
+      "kind": "data",
+      "label": "train_x, train_y (all development rows)",
+      "source": "dev-partition",
+      "target": "final-encoder-fit"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-main-final",
+        "ev-final-booster"
+      ],
+      "id": "e-agg-final",
+      "kind": "data",
+      "label": "cv['rounds'] sets iteration budget",
+      "source": "cv-aggregate",
+      "target": "final-booster-fit"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-final-booster"
+      ],
+      "id": "e-finalenc-boost",
+      "kind": "data",
+      "label": "encoded_train",
+      "source": "final-encoder-fit",
+      "target": "final-booster-fit"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-final-return",
+        "ev-main-eval",
+        "ev-eval-encode"
+      ],
+      "id": "e-finalenc-test",
+      "kind": "data",
+      "label": "development-fitted encoder",
+      "source": "final-encoder-fit",
+      "target": "test-encode"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-main-eval",
+        "ev-eval-encode"
+      ],
+      "id": "e-test-encode",
+      "kind": "data",
+      "label": "test_x",
+      "source": "test-partition",
+      "target": "test-encode"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-eval-predict"
+      ],
+      "id": "e-encode-predict",
+      "kind": "data",
+      "label": "encoded_test",
+      "source": "test-encode",
+      "target": "test-predict"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-final-return",
+        "ev-main-eval",
+        "ev-eval-predict"
+      ],
+      "id": "e-finalboost-predict",
+      "kind": "data",
+      "label": "final booster",
+      "source": "final-booster-fit",
+      "target": "test-predict"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-eval-metrics"
+      ],
+      "id": "e-predict-metrics",
+      "kind": "data",
+      "label": "positive-class scores",
+      "source": "test-predict",
+      "target": "test-metrics"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-main-eval",
+        "ev-eval-metrics"
+      ],
+      "id": "e-test-metrics",
+      "kind": "data",
+      "label": "test_y (reference labels)",
+      "source": "test-partition",
+      "target": "test-metrics"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-main-eval"
+      ],
+      "id": "e-metrics-report",
+      "kind": "data",
+      "label": "roc_auc, average_precision",
+      "source": "test-metrics",
+      "target": "report"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-main-cv-report"
+      ],
+      "id": "e-agg-report",
+      "kind": "data",
+      "label": "cv['auc'] -> cv_roc_auc",
+      "source": "cv-aggregate",
+      "target": "report"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-main-accounts"
+      ],
+      "id": "e-test-report",
+      "kind": "data",
+      "label": "test_x.index -> held-out account count",
+      "source": "test-partition",
+      "target": "report"
+    }
+  ],
+  "evidence": [
+    {
+      "endLine": 5,
+      "file": "analyzer/tests/accuracy/corpus/tabular_group_cv_clean/train.py",
+      "id": "ev-doc-group",
+      "line": 3,
+      "quote": "The thing this file is careful about is the *group*: every row of one\n`account_id` must land on the same side of every cut, or the model memorises\nthe account instead of learning churn."
+    },
+    {
+      "endLine": 14,
+      "file": "analyzer/tests/accuracy/corpus/tabular_group_cv_clean/train.py",
+      "id": "ev-doc-claims",
+      "line": 7,
+      "quote": "* the holdout is carved with `GroupShuffleSplit`, so no account straddles it;\n* the inner folds come from `StratifiedGroupKFold`, which keeps the class\n  balance *and* the account boundary;\n* the target encoder is fitted inside each fold, on that fold's training rows\n  only, through a `Pipeline` - so no fold ever sees its own validation means;\n* CatBoost's early stopping watches the inner validation `Pool`, never the\n  held-out test rows;\n* the test rows reach exactly one call, `predict_proba`, at the very end."
+    },
+    {
+      "endLine": 22,
+      "file": "analyzer/tests/accuracy/corpus/tabular_group_cv_clean/train.py",
+      "id": "ev-import-catboost",
+      "line": 22,
+      "quote": "from catboost import CatBoostClassifier, Pool"
+    },
+    {
+      "endLine": 25,
+      "file": "analyzer/tests/accuracy/corpus/tabular_group_cv_clean/train.py",
+      "id": "ev-import-sklearn",
+      "line": 23,
+      "quote": "from sklearn.metrics import average_precision_score, roc_auc_score\nfrom sklearn.model_selection import GroupShuffleSplit, StratifiedGroupKFold\nfrom sklearn.pipeline import Pipeline"
+    },
+    {
+      "endLine": 27,
+      "file": "analyzer/tests/accuracy/corpus/tabular_group_cv_clean/train.py",
+      "id": "ev-import-encoders",
+      "line": 27,
+      "quote": "from encoders import TargetEncoder"
+    },
+    {
+      "endLine": 28,
+      "file": "analyzer/tests/accuracy/corpus/tabular_group_cv_clean/train.py",
+      "id": "ev-import-features",
+      "line": 28,
+      "quote": "from features import CATEGORICAL, GROUP, TARGET, engineer, split_frame"
+    },
+    {
+      "endLine": 31,
+      "file": "analyzer/tests/accuracy/corpus/tabular_group_cv_clean/train.py",
+      "id": "ev-constants",
+      "line": 30,
+      "quote": "SEED = 17\nN_FOLDS = 5"
+    },
+    {
+      "endLine": 36,
+      "file": "analyzer/tests/accuracy/corpus/tabular_group_cv_clean/train.py",
+      "id": "ev-seed",
+      "line": 34,
+      "quote": "def seed_everything(seed: int = SEED) -> None:\n    random.seed(seed)\n    np.random.seed(seed)"
+    },
+    {
+      "endLine": 40,
+      "file": "analyzer/tests/accuracy/corpus/tabular_group_cv_clean/train.py",
+      "id": "ev-load",
+      "line": 39,
+      "quote": "def load(csv_path: str) -> pd.DataFrame:\n    return engineer(pd.read_csv(csv_path))"
+    },
+    {
+      "endLine": 45,
+      "file": "analyzer/tests/accuracy/corpus/tabular_group_cv_clean/train.py",
+      "id": "ev-holdout-splitter",
+      "line": 43,
+      "quote": "def holdout_by_group(features, labels, groups):\n    splitter = GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=SEED)\n    train_index, test_index = next(splitter.split(features, labels, groups))"
+    },
+    {
+      "endLine": 49,
+      "file": "analyzer/tests/accuracy/corpus/tabular_group_cv_clean/train.py",
+      "id": "ev-holdout-slices",
+      "line": 46,
+      "quote": "    train_x = features.iloc[train_index]\n    test_x = features.iloc[test_index]\n    train_y = labels.iloc[train_index]\n    test_y = labels.iloc[test_index]"
+    },
+    {
+      "endLine": 50,
+      "file": "analyzer/tests/accuracy/corpus/tabular_group_cv_clean/train.py",
+      "id": "ev-holdout-return",
+      "line": 50,
+      "quote": "    return train_x, test_x, train_y, test_y, groups.iloc[train_index]"
+    },
+    {
+      "endLine": 54,
+      "file": "analyzer/tests/accuracy/corpus/tabular_group_cv_clean/train.py",
+      "id": "ev-build-encoder",
+      "line": 53,
+      "quote": "def build_encoder() -> Pipeline:\n    return Pipeline(steps=[(\"target_enc\", TargetEncoder(CATEGORICAL))])"
+    },
+    {
+      "endLine": 61,
+      "file": "analyzer/tests/accuracy/corpus/tabular_group_cv_clean/train.py",
+      "id": "ev-build-booster",
+      "line": 57,
+      "quote": "def build_booster(iterations: int = 2000) -> CatBoostClassifier:\n    return CatBoostClassifier(iterations=iterations, learning_rate=0.03,\n                              depth=6, loss_function=\"Logloss\",\n                              eval_metric=\"AUC\", random_seed=SEED,\n                              verbose=False)"
+    },
+    {
+      "endLine": 66,
+      "file": "analyzer/tests/accuracy/corpus/tabular_group_cv_clean/train.py",
+      "id": "ev-cv-splitter",
+      "line": 64,
+      "quote": "def cross_validate_groups(train_x, train_y, train_groups) -> dict:\n    folds = StratifiedGroupKFold(n_splits=N_FOLDS, shuffle=True,\n                                 random_state=SEED)"
+    },
+    {
+      "endLine": 68,
+      "file": "analyzer/tests/accuracy/corpus/tabular_group_cv_clean/train.py",
+      "id": "ev-cv-state",
+      "line": 67,
+      "quote": "    scores = []\n    best_rounds = []"
+    },
+    {
+      "endLine": 69,
+      "file": "analyzer/tests/accuracy/corpus/tabular_group_cv_clean/train.py",
+      "id": "ev-cv-loop",
+      "line": 69,
+      "quote": "    for fold_train, fold_valid in folds.split(train_x, train_y, train_groups):"
+    },
+    {
+      "endLine": 73,
+      "file": "analyzer/tests/accuracy/corpus/tabular_group_cv_clean/train.py",
+      "id": "ev-fold-slices",
+      "line": 70,
+      "quote": "        inner_train_x = train_x.iloc[fold_train]\n        inner_train_y = train_y.iloc[fold_train]\n        inner_valid_x = train_x.iloc[fold_valid]\n        inner_valid_y = train_y.iloc[fold_valid]"
+    },
+    {
+      "endLine": 75,
+      "file": "analyzer/tests/accuracy/corpus/tabular_group_cv_clean/train.py",
+      "id": "ev-fold-encoder-new",
+      "line": 75,
+      "quote": "        encoder = build_encoder()"
+    },
+    {
+      "endLine": 76,
+      "file": "analyzer/tests/accuracy/corpus/tabular_group_cv_clean/train.py",
+      "id": "ev-fold-encoder-fit",
+      "line": 76,
+      "quote": "        encoded_train = encoder.fit_transform(inner_train_x, inner_train_y)"
+    },
+    {
+      "endLine": 77,
+      "file": "analyzer/tests/accuracy/corpus/tabular_group_cv_clean/train.py",
+      "id": "ev-fold-encoder-apply",
+      "line": 77,
+      "quote": "        encoded_valid = encoder.transform(inner_valid_x)"
+    },
+    {
+      "endLine": 80,
+      "file": "analyzer/tests/accuracy/corpus/tabular_group_cv_clean/train.py",
+      "id": "ev-fold-pools",
+      "line": 79,
+      "quote": "        train_pool = Pool(encoded_train, inner_train_y)\n        valid_pool = Pool(encoded_valid, inner_valid_y)"
+    },
+    {
+      "endLine": 84,
+      "file": "analyzer/tests/accuracy/corpus/tabular_group_cv_clean/train.py",
+      "id": "ev-fold-booster",
+      "line": 82,
+      "quote": "        booster = build_booster()\n        booster.fit(train_pool, eval_set=valid_pool,\n                    early_stopping_rounds=200, verbose=False)"
+    },
+    {
+      "endLine": 88,
+      "file": "analyzer/tests/accuracy/corpus/tabular_group_cv_clean/train.py",
+      "id": "ev-fold-score",
+      "line": 86,
+      "quote": "        fold_scores = booster.predict_proba(valid_pool)[:, 1]\n        scores.append(roc_auc_score(inner_valid_y, fold_scores))\n        best_rounds.append(int(booster.get_best_iteration() or 1))"
+    },
+    {
+      "endLine": 90,
+      "file": "analyzer/tests/accuracy/corpus/tabular_group_cv_clean/train.py",
+      "id": "ev-cv-return",
+      "line": 89,
+      "quote": "    return {\"auc\": float(np.mean(scores)),\n            \"rounds\": int(np.median(best_rounds))}"
+    },
+    {
+      "endLine": 95,
+      "file": "analyzer/tests/accuracy/corpus/tabular_group_cv_clean/train.py",
+      "id": "ev-final-encoder",
+      "line": 93,
+      "quote": "def fit_final(train_x, train_y, rounds: int):\n    encoder = build_encoder()\n    encoded_train = encoder.fit_transform(train_x, train_y)"
+    },
+    {
+      "endLine": 97,
+      "file": "analyzer/tests/accuracy/corpus/tabular_group_cv_clean/train.py",
+      "id": "ev-final-booster",
+      "line": 96,
+      "quote": "    booster = build_booster(iterations=max(rounds, 50))\n    booster.fit(Pool(encoded_train, train_y), verbose=False)"
+    },
+    {
+      "endLine": 98,
+      "file": "analyzer/tests/accuracy/corpus/tabular_group_cv_clean/train.py",
+      "id": "ev-final-return",
+      "line": 98,
+      "quote": "    return encoder, booster"
+    },
+    {
+      "endLine": 102,
+      "file": "analyzer/tests/accuracy/corpus/tabular_group_cv_clean/train.py",
+      "id": "ev-eval-encode",
+      "line": 101,
+      "quote": "def evaluate(encoder, booster, test_x, test_y) -> dict:\n    encoded_test = encoder.transform(test_x)"
+    },
+    {
+      "endLine": 103,
+      "file": "analyzer/tests/accuracy/corpus/tabular_group_cv_clean/train.py",
+      "id": "ev-eval-predict",
+      "line": 103,
+      "quote": "    scores = booster.predict_proba(Pool(encoded_test))[:, 1]"
+    },
+    {
+      "endLine": 107,
+      "file": "analyzer/tests/accuracy/corpus/tabular_group_cv_clean/train.py",
+      "id": "ev-eval-metrics",
+      "line": 104,
+      "quote": "    return {\n        \"roc_auc\": float(roc_auc_score(test_y, scores)),\n        \"average_precision\": float(average_precision_score(test_y, scores)),\n    }"
+    },
+    {
+      "endLine": 111,
+      "file": "analyzer/tests/accuracy/corpus/tabular_group_cv_clean/train.py",
+      "id": "ev-main-head",
+      "line": 110,
+      "quote": "def main(csv_path: str = \"data/accounts.csv\") -> dict:\n    seed_everything()"
+    },
+    {
+      "endLine": 112,
+      "file": "analyzer/tests/accuracy/corpus/tabular_group_cv_clean/train.py",
+      "id": "ev-main-load",
+      "line": 112,
+      "quote": "    frame = load(csv_path)"
+    },
+    {
+      "endLine": 113,
+      "file": "analyzer/tests/accuracy/corpus/tabular_group_cv_clean/train.py",
+      "id": "ev-main-split-frame",
+      "line": 113,
+      "quote": "    features, labels, groups = split_frame(frame)"
+    },
+    {
+      "endLine": 115,
+      "file": "analyzer/tests/accuracy/corpus/tabular_group_cv_clean/train.py",
+      "id": "ev-main-holdout",
+      "line": 114,
+      "quote": "    train_x, test_x, train_y, test_y, train_groups = holdout_by_group(\n        features, labels, groups)"
+    },
+    {
+      "endLine": 117,
+      "file": "analyzer/tests/accuracy/corpus/tabular_group_cv_clean/train.py",
+      "id": "ev-main-cv",
+      "line": 117,
+      "quote": "    cv = cross_validate_groups(train_x, train_y, train_groups)"
+    },
+    {
+      "endLine": 118,
+      "file": "analyzer/tests/accuracy/corpus/tabular_group_cv_clean/train.py",
+      "id": "ev-main-final",
+      "line": 118,
+      "quote": "    encoder, booster = fit_final(train_x, train_y, cv[\"rounds\"])"
+    },
+    {
+      "endLine": 119,
+      "file": "analyzer/tests/accuracy/corpus/tabular_group_cv_clean/train.py",
+      "id": "ev-main-eval",
+      "line": 119,
+      "quote": "    report = evaluate(encoder, booster, test_x, test_y)"
+    },
+    {
+      "endLine": 120,
+      "file": "analyzer/tests/accuracy/corpus/tabular_group_cv_clean/train.py",
+      "id": "ev-main-cv-report",
+      "line": 120,
+      "quote": "    report[\"cv_roc_auc\"] = cv[\"auc\"]"
+    },
+    {
+      "endLine": 121,
+      "file": "analyzer/tests/accuracy/corpus/tabular_group_cv_clean/train.py",
+      "id": "ev-main-accounts",
+      "line": 121,
+      "quote": "    report[\"accounts_held_out\"] = int(frame.loc[test_x.index, GROUP].nunique())"
+    },
+    {
+      "endLine": 122,
+      "file": "analyzer/tests/accuracy/corpus/tabular_group_cv_clean/train.py",
+      "id": "ev-main-return",
+      "line": 122,
+      "quote": "    return report"
+    },
+    {
+      "endLine": 126,
+      "file": "analyzer/tests/accuracy/corpus/tabular_group_cv_clean/train.py",
+      "id": "ev-main-guard",
+      "line": 125,
+      "quote": "if __name__ == \"__main__\":\n    print(main())"
+    }
+  ],
+  "findings": [],
+  "nodes": [
+    {
+      "basis": "observed",
+      "detail": "The __main__ guard prints main() with no arguments, so csv_path takes its default. main() is a straight-line sequence: seed, load, split_frame, group holdout, grouped CV, final refit, holdout evaluation, report. There is no argparse, config file, or environment lookup in this file.",
+      "evidence": [
+        "ev-main-guard",
+        "ev-main-head",
+        "ev-main-load",
+        "ev-main-split-frame",
+        "ev-main-holdout",
+        "ev-main-cv",
+        "ev-main-final",
+        "ev-main-eval",
+        "ev-main-return"
+      ],
+      "id": "entry-main",
+      "kind": "entrypoint",
+      "label": "main(csv_path=\"data/accounts.csv\") drives the run",
+      "phase": "setup"
+    },
+    {
+      "basis": "observed",
+      "detail": "Seeds `random` and `numpy.random`. Both splitters and CatBoost additionally receive SEED explicitly, so fold membership does not depend on global RNG state.",
+      "evidence": [
+        "ev-constants",
+        "ev-seed",
+        "ev-holdout-splitter",
+        "ev-cv-splitter",
+        "ev-build-booster"
+      ],
+      "id": "seed",
+      "kind": "setup",
+      "label": "Seed Python and NumPy RNGs (SEED = 17)",
+      "phase": "setup"
+    },
+    {
+      "basis": "observed",
+      "detail": "load() returns engineer(pd.read_csv(csv_path)). This is the only transformation that runs BEFORE any split, so it sees every row, including future holdout and validation rows. Whether that matters depends entirely on engineer()'s body: a row-wise/stateless transform is harmless here; one that learns dataset-wide or label-dependent statistics would not be fold-contained. The body is not in this workspace (see 'features module'), so this is recorded as unresolved, not as leakage.",
+      "evidence": [
+        "ev-load",
+        "ev-main-load"
+      ],
+      "id": "load-engineer",
+      "kind": "transform",
+      "label": "Read CSV, then engineer() over the whole frame",
+      "phase": "setup"
+    },
+    {
+      "basis": "observed",
+      "detail": "Separates the engineered frame into model inputs, the churn target, and the per-row account group key. Which columns end up in `features` (in particular whether TARGET and GROUP are dropped) is decided inside split_frame, whose source is not in this workspace.",
+      "evidence": [
+        "ev-main-split-frame"
+      ],
+      "id": "split-frame",
+      "kind": "data",
+      "label": "split_frame(frame) -> features, labels, groups",
+      "phase": "setup"
+    },
+    {
+      "basis": "unresolved",
+      "detail": "Imported as a top-level sibling module, but no features.py exists anywhere in this workspace. Unresolved: whether engineer() is stateless, which columns split_frame() keeps as features, and the values of CATEGORICAL/GROUP/TARGET. The docstring says the group is `account_id`.",
+      "evidence": [
+        "ev-import-features",
+        "ev-doc-group"
+      ],
+      "id": "features-impl",
+      "kind": "external",
+      "label": "features module: engineer, split_frame, CATEGORICAL, GROUP, TARGET (source not in workspace)",
+      "phase": "setup"
+    },
+    {
+      "basis": "observed",
+      "detail": "holdout_by_group() passes `groups` as the third argument of splitter.split(), so the single 80/20 cut is made over accounts, not rows: no account contributes rows to both sides. Under scikit-learn semantics (not read here) test_size=0.2 is a fraction of groups, so the row share may differ from 20%.",
+      "evidence": [
+        "ev-holdout-splitter",
+        "ev-main-holdout"
+      ],
+      "id": "holdout-split",
+      "kind": "split",
+      "label": "GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=17) split on account groups",
+      "phase": "holdout"
+    },
+    {
+      "basis": "observed",
+      "detail": "Positional .iloc slices by train_index. groups.iloc[train_index] is returned as train_groups, so the group key stays row-aligned with train_x/train_y for the inner splitter.",
+      "evidence": [
+        "ev-holdout-slices",
+        "ev-holdout-return"
+      ],
+      "id": "dev-partition",
+      "kind": "data",
+      "label": "Development rows: train_x, train_y, train_groups",
+      "phase": "holdout"
+    },
+    {
+      "basis": "observed",
+      "detail": "Every later use of test_x/test_y in the file: evaluate() (encoder.transform, predict_proba, two metrics) and one account count for the report. Neither cross_validate_groups() nor fit_final() receives them.",
+      "evidence": [
+        "ev-holdout-slices",
+        "ev-holdout-return",
+        "ev-main-holdout",
+        "ev-main-cv",
+        "ev-main-final",
+        "ev-main-eval",
+        "ev-main-accounts"
+      ],
+      "id": "test-partition",
+      "kind": "data",
+      "label": "Holdout rows: test_x, test_y (unused until evaluate())",
+      "phase": "holdout"
+    },
+    {
+      "basis": "observed",
+      "detail": "How fitted state stays inside the training fold, as implemented: (1) fold indices come from a splitter keyed on train_groups, so an account is never on both sides of a fold; (2) build_encoder() is called inside the loop body, giving each fold a new unfitted Pipeline; (3) the only fit call on the encoder receives inner_train_x/inner_train_y; (4) validation rows reach the encoder only through transform(), without labels; (5) build_booster() is also called per fold, so no model state carries over; (6) only the development partition enters this function. The module docstring states the same intent; the claims were checked against the code lines cited on the child steps rather than taken on trust.",
+      "evidence": [
+        "ev-cv-splitter",
+        "ev-cv-loop",
+        "ev-doc-claims"
+      ],
+      "id": "cv-loop",
+      "kind": "loop",
+      "label": "cross_validate_groups(): 5-fold StratifiedGroupKFold loop",
+      "phase": "cv"
+    },
+    {
+      "basis": "observed",
+      "detail": "Labels drive stratification and train_groups drives group exclusivity. Inputs are the development partition only. scores/best_rounds accumulators are initialised before the loop.",
+      "evidence": [
+        "ev-cv-splitter",
+        "ev-cv-loop",
+        "ev-constants"
+      ],
+      "id": "cv-splitter",
+      "kind": "split",
+      "label": "StratifiedGroupKFold(n_splits=5, shuffle=True, random_state=17).split(train_x, train_y, train_groups)",
+      "parent": "cv-loop",
+      "phase": "cv"
+    },
+    {
+      "basis": "observed",
+      "detail": "Four .iloc slices of the development partition: inner_train_x/y from fold_train and inner_valid_x/y from fold_valid. Positional indexing matches the positional indices that split() yields.",
+      "evidence": [
+        "ev-fold-slices"
+      ],
+      "id": "fold-slice",
+      "kind": "data",
+      "label": "Slice fold-train / fold-valid rows by position",
+      "parent": "cv-loop",
+      "phase": "cv"
+    },
+    {
+      "basis": "observed",
+      "detail": "build_encoder() constructs a new Pipeline and a new TargetEncoder on every call and it is called inside the loop body, so category->target statistics learned in one fold cannot persist into the next. The Pipeline has a single step; the booster is deliberately outside it and is handled separately via CatBoost Pools.",
+      "evidence": [
+        "ev-fold-encoder-new",
+        "ev-build-encoder"
+      ],
+      "id": "fold-encoder-new",
+      "kind": "preprocessing",
+      "label": "New Pipeline([('target_enc', TargetEncoder(CATEGORICAL))]) for this fold",
+      "parent": "cv-loop",
+      "phase": "cv"
+    },
+    {
+      "basis": "observed",
+      "detail": "The only place a fold's encoder is fitted. Both arguments are fold-train slices, so the target statistics are computed without any validation-fold or holdout label. That Pipeline.fit_transform forwards y to its last step is scikit-learn library behaviour (inferred, not read here). Not determinable from this workspace: whether TargetEncoder.fit_transform smooths or cross-fits the training rows' own encodings; that affects in-fold overfitting, not train/validation separation.",
+      "evidence": [
+        "ev-fold-encoder-fit"
+      ],
+      "id": "fold-encoder-fit",
+      "kind": "preprocessing",
+      "label": "encoder.fit_transform(inner_train_x, inner_train_y): fit on fold-train only",
+      "parent": "cv-loop",
+      "phase": "cv"
+    },
+    {
+      "basis": "observed",
+      "detail": "Validation features are mapped with the statistics fitted one line earlier. inner_valid_y is not an argument, so validation labels cannot enter the encoding at this call site. Because folds are group-exclusive, any category value tied to an unseen account would need the encoder's unseen-category fallback, whose behaviour is part of the uninspected TargetEncoder source.",
+      "evidence": [
+        "ev-fold-encoder-apply"
+      ],
+      "id": "fold-encoder-apply",
+      "kind": "preprocessing",
+      "label": "encoder.transform(inner_valid_x): apply only, no labels",
+      "parent": "cv-loop",
+      "phase": "cv"
+    },
+    {
+      "basis": "observed",
+      "detail": "Pool(encoded_train, inner_train_y) and Pool(encoded_valid, inner_valid_y). Validation labels first appear here, attached to the validation Pool for early stopping and scoring; they are never in the training Pool.",
+      "evidence": [
+        "ev-fold-pools"
+      ],
+      "id": "fold-pools",
+      "kind": "data",
+      "label": "Wrap encoded frames as CatBoost Pools (train_pool, valid_pool)",
+      "parent": "cv-loop",
+      "phase": "cv"
+    },
+    {
+      "basis": "observed",
+      "detail": "build_booster() defaults: iterations=2000, learning_rate=0.03, depth=6, Logloss loss, AUC eval metric, random_seed=17. Gradients come from train_pool; valid_pool is eval_set, so its labels choose the stopping round. The holdout is not passed here. Caveat, not leakage: the same validation rows that pick the stopping round are then scored, so the fold AUC is a selection-informed estimate; the holdout metrics are the independent figure.",
+      "evidence": [
+        "ev-fold-booster",
+        "ev-build-booster",
+        "ev-import-catboost"
+      ],
+      "id": "fold-booster-fit",
+      "kind": "training",
+      "label": "New CatBoostClassifier fit on train_pool; early stopping (200 rounds) watches valid_pool",
+      "parent": "cv-loop",
+      "phase": "cv"
+    },
+    {
+      "basis": "observed",
+      "detail": "Positive-class probabilities on the fold's validation Pool are scored against inner_valid_y. get_best_iteration() is stored with an `or 1` fallback for a None/0 result.",
+      "evidence": [
+        "ev-fold-score"
+      ],
+      "id": "fold-score",
+      "kind": "evaluation",
+      "label": "predict_proba(valid_pool) -> roc_auc_score; record best iteration",
+      "parent": "cv-loop",
+      "phase": "cv"
+    },
+    {
+      "basis": "observed",
+      "detail": "{'auc': mean(scores), 'rounds': median(best_rounds)}. Only these two scalars leave the CV phase; no fitted encoder or booster from any fold is reused later.",
+      "evidence": [
+        "ev-cv-state",
+        "ev-cv-return"
+      ],
+      "id": "cv-aggregate",
+      "kind": "metric",
+      "label": "Return mean fold AUC and median best iteration",
+      "parent": "cv-loop",
+      "phase": "cv"
+    },
+    {
+      "basis": "unresolved",
+      "detail": "Imported from a top-level module named `encoders` (not sklearn.preprocessing or category_encoders); presumably a project-local sibling of train.py, but no encoders.py exists in this workspace. Unresolved: smoothing or prior handling, unseen-category fallback, whether fit_transform cross-fits, and whether transform() is a pure function of fitted state. The call sites give it only fold-train data at fit time; whether the class respects that contract internally cannot be confirmed here.",
+      "evidence": [
+        "ev-import-encoders"
+      ],
+      "id": "target-encoder-impl",
+      "kind": "external",
+      "label": "encoders.TargetEncoder fit/transform semantics (source not in workspace)",
+      "phase": "cv"
+    },
+    {
+      "basis": "observed",
+      "detail": "fit_final() builds another new Pipeline and fits it on train_x/train_y, i.e. the 80% development partition. Holdout rows are not arguments of fit_final().",
+      "evidence": [
+        "ev-final-encoder",
+        "ev-main-final"
+      ],
+      "id": "final-encoder-fit",
+      "kind": "preprocessing",
+      "label": "New encoder: fit_transform on all development rows",
+      "phase": "final"
+    },
+    {
+      "basis": "observed",
+      "detail": "The tree budget is fixed from the CV median, floored at 50. fit() receives only Pool(encoded_train, train_y) with no eval_set and no early stopping, so nothing from the holdout can steer training. Returns (encoder, booster).",
+      "evidence": [
+        "ev-final-booster",
+        "ev-final-return"
+      ],
+      "id": "final-booster-fit",
+      "kind": "training",
+      "label": "CatBoost refit, iterations = max(cv rounds, 50), no eval_set",
+      "phase": "final"
+    },
+    {
+      "basis": "observed",
+      "detail": "First use of holdout features. The development-fitted encoder is applied with transform(); test_y is not passed and no fit method is called in evaluate().",
+      "evidence": [
+        "ev-eval-encode",
+        "ev-main-eval"
+      ],
+      "id": "test-encode",
+      "kind": "preprocessing",
+      "label": "encoder.transform(test_x): apply only",
+      "phase": "evaluation"
+    },
+    {
+      "basis": "observed",
+      "detail": "The holdout Pool is built without labels, so the booster only sees encoded features.",
+      "evidence": [
+        "ev-eval-predict"
+      ],
+      "id": "test-predict",
+      "kind": "evaluation",
+      "label": "booster.predict_proba(Pool(encoded_test))[:, 1]",
+      "phase": "evaluation"
+    },
+    {
+      "basis": "observed",
+      "detail": "test_y is used only here, as the reference for the two reported holdout metrics.",
+      "evidence": [
+        "ev-eval-metrics",
+        "ev-import-sklearn"
+      ],
+      "id": "test-metrics",
+      "kind": "metric",
+      "label": "roc_auc_score and average_precision_score against test_y",
+      "phase": "evaluation"
+    },
+    {
+      "basis": "observed",
+      "detail": "Adds the CV mean AUC and the number of distinct held-out accounts, read from frame[GROUP] by test_x.index. That lookup is reporting only and assumes split_frame() preserved the frame index. The dict is returned and printed; nothing is written to disk in this file.",
+      "evidence": [
+        "ev-main-cv-report",
+        "ev-main-accounts",
+        "ev-main-return",
+        "ev-main-guard"
+      ],
+      "id": "report",
+      "kind": "output",
+      "label": "Report: holdout metrics + cv_roc_auc + accounts_held_out",
+      "phase": "evaluation"
+    }
+  ],
+  "phases": [
+    {
+      "id": "setup",
+      "label": "Setup and data loading"
+    },
+    {
+      "id": "holdout",
+      "label": "Group-aware holdout split"
+    },
+    {
+      "id": "cv",
+      "label": "Grouped cross-validation (per-fold fit and score)"
+    },
+    {
+      "id": "final",
+      "label": "Final refit on development rows"
+    },
+    {
+      "id": "evaluation",
+      "label": "Holdout evaluation and report"
+    }
+  ],
+  "producer": {
+    "host": "claude-code",
+    "kind": "host-llm",
+    "model": "claude-fable-5-1"
+  },
+  "request": {
+    "configuration": "No CLI arguments, config files, or environment lookups exist in the entrypoint. Assumed launch: `python train.py` -> main() with default csv_path='data/accounts.csv'. Module constants SEED=17, N_FOLDS=5. Holdout: GroupShuffleSplit(n_splits=1, test_size=0.2). CV booster: build_booster() defaults (iterations=2000, learning_rate=0.03, depth=6, loss_function='Logloss', eval_metric='AUC') with early_stopping_rounds=200. Final booster: iterations=max(median CV best iteration, 50), no eval_set. No overrides assumed.",
+    "entrypoints": [
+      "analyzer/tests/accuracy/corpus/tabular_group_cv_clean/train.py"
+    ],
+    "question": "Explain how grouped cross-validation keeps transformations inside the training folds. Identify the split, fitted preprocessing, estimator, and evaluation flow; inspect implementation before alleging leakage.",
+    "scope": "Single scenario: train.py run as a script (the __main__ guard calls main() with defaults). Traced from CSV load through group holdout, 5-fold StratifiedGroupKFold with per-fold target encoding and CatBoost early stopping, final refit, and holdout evaluation. Static reading only; the target was not imported or executed. The imported sibling modules `encoders` and `features` are absent from the workspace and are shown as unresolved."
+  },
+  "revision": {
+    "id": "dev-sklearn-r1"
+  },
+  "title": "Grouped CV churn workflow: where the target encoder and booster are fitted",
+  "verification": {
+    "files": {
+      "analyzer/tests/accuracy/corpus/tabular_group_cv_clean/train.py": "95ee00aad24de83f0eb426b08c0029d2d052aab93fc6bd1ddf738a5aaa4e8566"
+    },
+    "publishedAt": "2026-09-17T17:15:48.052045Z"
+  },
+  "workflowVersion": "1.0"
+}
