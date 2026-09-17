@@ -4,9 +4,11 @@ The user approved [the direction plan](LLM_DIRECTION_PLAN.md) on 2026-09-16.
 Implementation is published on `llm-workflow` in
 [draft PR #9](https://github.com/realmyang/MLView/pull/9). The September 17
 publication retry succeeded after the GitHub credential gained the required
-`workflow` scope. [Push CI](https://github.com/realmyang/MLView/actions/runs/35263547094)
-started for `e93c838`; remote results are separate from the local validation
-record below. The repository's earlier accuracy measurements and CI run IDs
+`workflow` scope. All 13 active CI jobs passed at `d1461b4`:
+[push, seven jobs](https://github.com/realmyang/MLView/actions/runs/35267155314) and
+[PR, six jobs](https://github.com/realmyang/MLView/actions/runs/35267159574), including
+Windows PowerShell end-to-end. Remote results are separate from the local
+validation record below. The repository's earlier accuracy measurements and CI run IDs
 apply to the legacy static product.
 
 The earlier September 17 credential check confirmed repository write access
@@ -33,7 +35,8 @@ The first remote matrix passed twelve jobs but its
 [Windows end-to-end job](https://github.com/realmyang/MLView/actions/runs/35264141214)
 found four test expectations comparing short Windows paths with expanded paths.
 The expectations now use the same asynchronous canonical-path API as the
-validator, retaining exact assertions. Follow-up results are tracked in the PR.
+validator, retaining exact assertions. The successful `d1461b4` matrix includes
+that correction and the immediate-navigation selection fix described below.
 
 ## Implemented components
 
@@ -99,10 +102,10 @@ supported runtime matrix or another operating system.
 |---|---|
 | Analyzer suite | 2,654 passed; 9 skipped; 24 expected failures |
 | Shared viewer suite | 607 passed; 1 existing TODO; no failures |
-| VS Code extension suite, after live UI fixes | 434 passed |
+| VS Code extension suite, initial live UI fixes | 434 passed; later follow-up: 437, recorded below |
 | Claude plugin suite | 475 passed; 6 skipped; 3 expected failures |
 | Skill helper, installation, distribution parity and evaluation tests | 24 passed, plus 4 subtests |
-| Eight developer workflow scenarios | All published artifacts passed structure, exact citations and current-source fingerprint checks; semantic review pending |
+| Original eight developer workflow scenarios | All published artifacts passed structure, exact citations and current-source fingerprint checks; semantic review pending |
 | Authored UI/host integration | Actual bootstrap, viewer bundle and host handlers passed source-click, refinement, SVG-save and revision tests with mocked VS Code APIs |
 | Native artifact rendering | Actual built viewer rendered all declared nodes from Codex, Copilot and Claude outputs and exported SVG revision provenance in jsdom |
 | Documentation | Self-test and living-document gate passed after removing stale legacy README assumptions |
@@ -130,8 +133,8 @@ are `.mlview/dist/mlview-skill-shared.zip` and
 `.mlview/dist/mlview-skill-claude-code.zip`. These are ignored build outputs,
 not published releases. [The usage guide](LLM_WORKFLOW.md) explains installation.
 
-[Development run notes](../evals/workflow/DEVELOPMENT_RUNS.md) preserve the eight
-scenarios' counts, critique corrections and validator repairs. The first smoke
+[Development run notes](../evals/workflow/DEVELOPMENT_RUNS.md) preserve the original
+eight scenarios' counts, critique corrections and validator repairs. The first smoke
 incorrectly framed correct teacher freezing as a finding; this informed the
 skill's finding guidance. Successful validation did not detect that semantic
 mistake, which is why human adjudication remains a separate gate.
@@ -172,10 +175,11 @@ published five validated artifacts before desktop control failed. The
 [requested retry](demo-logs/2026-09-17-development-retry.md) completed Copilot's
 configured-training case and Claude's grouped-CV case, bringing the total to
 seven initial artifacts. A late Claude GAN publication during the
-[next retry](demo-logs/2026-09-17-publication-desktop-retry.md) brings the total
-to **eight initial artifacts out of twelve skill cases**. Four skill cases and
-all three no-skill baselines remain pending. Copilot's grouped-CV session was
-still repairing a draft at the last UI observation. Copilot Auto routed the
+[next retry](demo-logs/2026-09-17-publication-desktop-retry.md) was the eighth
+initial artifact. The subsequent unlocked-desktop retry completed Copilot's
+grouped-CV publication, bringing the total to **nine initial artifacts out of
+twelve skill cases**, and captured the completed Codex no-skill baseline.
+Three skill cases and two baselines remain pending. Copilot Auto routed the
 two tasks to different models, so this is exploratory development evidence,
 not a controlled model comparison.
 
@@ -183,10 +187,10 @@ The retry also exercised selected-node Challenge and selected-finding prompt
 copying in the real viewer. The original Codex GAN conversation published a
 child revision correcting the misleading logging explanation: the source
 prints current-batch losses, not the running sums. All phase, node, edge,
-finding and evidence IDs were retained. The eight initial outputs and the
+finding and evidence IDs were retained. The nine initial outputs and the
 child revision are preserved as [immutable snapshots](../evals/workflow/development/native-artifacts/README.md).
 Reconstructing their recorded files from commit `36dbbe5`, including installed
-skill layouts where recorded, passed all nine helper validations. Human
+skill layouts where recorded, passed all ten helper validations. Human
 semantic review remains pending; exact citations alone had not detected the
 initial semantic error.
 
@@ -198,7 +202,8 @@ viewer, restores the selected edge and verifies the copied refinement prompt.
 The extension's 437 tests, TypeScript check and cross-host handshake passed.
 The rebuilt VSIX has 182 files, measures 914.68 KB and has SHA-256
 `d2749561f81af9b25030dd74b0b0884302f993d92fa766dc4df9ef9b4f5b0933`.
-Its live installation and source-return acceptance check remain pending.
+Its subsequent live installation succeeded, but the source-return check exposed
+the second timing race described below.
 
 The post-fix full `sh scripts/e2e.sh --skip-npm-install` run passed **20 of 20
 gates**, with zero failed or skipped gates. Component totals and existing
@@ -238,17 +243,40 @@ The latest renderer SHA-256 is
 `705218d660b6b9f544ae261233f952c9ffb7d4c886ba1c2c48cb9b6eb68cbd07`.
 The rebuilt VSIX SHA-256 is
 `9de5a9d97818a8cd392e6578c21d0c1e400c3d1176d42fe6db0a2948f66e409f`
-(182 files, 914.7 KB). Its live installation and acceptance remain pending:
-desktop inventory works, but Code attachment again failed after a REPL reset.
-The late Claude GAN artifact passed independent validation; its final native
-response and repair count were not observed. Provisional source review flags
+(182 files, 914.7 KB). After the user confirmed a visible, unlocked desktop,
+attachment recovered and this build passed live installation and source-return
+acceptance in the completed macOS Codex GAN workspace. Activating the edge
+`e-g-step-metrics` opened source line 94; returning created a new webview while
+retaining the selected edge. Refine and the copied prompt both retained its ID,
+scenario, evidence and parent revision. The installed renderer hash matches
+the packaged renderer. This closes that specific live regression check; it
+does not establish every host or platform combination.
+The final responses for the late Claude GAN and Codex notebook artifacts were
+subsequently recovered from their native conversations; both report zero
+validator repair rounds. Claude reports 74 edges while its immutable artifact
+contains 72, a recorded discrepancy. Provisional source review flags
 overbroad evidence-basis labels and an unconditional synchronization claim that
 needs qualification for the source's CPU branch. The original remains intact.
 The broader local 20-gate result above predates this additional timing fix;
 the new targeted checks and follow-up remote CI provide separate evidence.
 
+A separate native Codex partial-publication check produced
+`partial-data-preprocessing-r1`: three phases, five nodes, seven edges, two
+findings and six evidence records. Independent helper validation passed.
+Coverage is explicitly partial: cells 0–2 cover inputs and preprocessing,
+while cell 3's model, training and evaluation remain unreviewed. The original
+full notebook artifact, notebook source and installed skill stayed unchanged.
+This lifecycle check is excluded from the twelve initial cases. Desktop
+control then returned `cgWindowNotFound` on both the existing handle and a fresh
+attachment, while inventory still listed VS Code. Its final chat response,
+repair count and live partial-diagram acceptance were not observed.
+
 ## Remaining validation
 
+- Three native skill cases and two no-skill baselines await explicit approval
+  to trust their isolated VS Code workspaces. Automatic approval review rejected
+  the first trust action because it enables tasks, debugging and extensions;
+  no trust change or workaround was made.
 - Extend the basic all-host round trip to the remaining notebook, export,
   fault-injection and budget/cancellation checks in [the runbook](LLM_WORKFLOW.md);
   do not infer these untested combinations from the Codex exercise.

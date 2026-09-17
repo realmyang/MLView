@@ -10,8 +10,10 @@ stored separately under [`refinements/`](refinements/) with explicit parents.
 This is artifact publication only. The snapshots are model-authored outputs,
 not semantic ground truth, human-approved references, accuracy measurements, or
 proof of a complete native UI workflow. Human semantic review remains pending.
-Raw assistant and UI logs remain ignored. In particular, the final native UI
-responses for the Codex notebook and Claude Code GAN runs were not observed.
+Raw assistant and UI logs remain ignored. Final native UI responses for the
+Codex notebook and Claude Code GAN runs were initially unavailable after a
+desktop-control failure, then recovered and observed in their completed native
+sessions. This recovery does not establish diagram UI acceptance.
 
 The recorded source bytes match repository commit
 `36dbbe5597de496b9807b0e52ef232ceca1df89e` and installed skill SHA-256
@@ -20,7 +22,7 @@ The notebook artifact records the original installed skill layout under
 `.agents/skills/mlview/`; reconstructing that layout is required to revalidate
 all of its recorded file hashes. The snapshot itself remains reviewable here.
 Reconstructing each artifact's recorded files from that commit, together with
-its frozen helper, passed all nine validations in clean temporary workspaces.
+its frozen helper, passed all ten validations in clean temporary workspaces.
 
 Provisional source review found that the initial Codex GAN artifact can imply that its
 running loss sums are periodically printed. The source instead prints current
@@ -38,3 +40,10 @@ are labelled observed where the available evidence supports inferred; the
 parameter-set claims are broader than the supplied source proves. The snapshot
 is preserved unchanged, passed publication-safety review, and still awaits
 human semantic review.
+
+The Copilot grouped-CV snapshot supports the visible call-site flow. Its
+`observed` labels overstate what the supplied source establishes about
+StratifiedGroupKFold library behavior and conditional class balance. Missing
+custom encoder and feature modules also leave their internal fitting and
+preprocessing behavior unverified. These are provisional review notes; the
+original output remains unchanged pending human review.

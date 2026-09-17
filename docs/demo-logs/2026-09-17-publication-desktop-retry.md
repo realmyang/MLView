@@ -8,7 +8,10 @@ passed all seven active jobs at code revision `e93c838`. The
 documentation-only revision `9ca50d5`, passed five jobs and failed Windows e2e.
 Four extension assertions compared short 8.3 paths with expanded paths. Their
 expectations now use asynchronous `realpath`, matching the validator while
-retaining exact comparisons. Follow-up CI is linked from the PR.
+retaining exact comparisons. The final matrix at `d1461b4` passed all 13 active
+jobs: [push, seven](https://github.com/realmyang/MLView/actions/runs/35267155314)
+and [PR, six](https://github.com/realmyang/MLView/actions/runs/35267159574), including
+Windows PowerShell end-to-end.
 
 ## Desktop investigation and retry
 
@@ -71,3 +74,73 @@ skill workspaces still match the frozen source and four-file skill content.
 Exact prompts, partial UI observations and hashes are retained under the
 ignored `.mlview/sprint-20260917` directory. Human semantic review and the
 held-out pilot remain pending; this retry supplies no accuracy score.
+
+## Follow-up after the unlocked-desktop confirmation
+
+The user confirmed that VS Code was visible on an unlocked Mac desktop.
+A direct bundle-ID attachment then succeeded in 2.68 seconds. That observation
+does not establish the cause of the earlier attachment failures.
+
+The final `9de5a9d9…` VSIX installed successfully, and only the completed Codex
+GAN workspace was reloaded. Its installed renderer hash matched the packaged
+`705218d6…` renderer. Activating `record completed alternating update` opened
+source line 94. Returning to the diagram created a new webview and retained the
+edge in Inspector. Refine displayed `edge: e-g-step-metrics`; the copied prompt
+contained that stable ID, the scenario, both evidence IDs and the correct
+parent revision. The prompt was inspected in a temporary unsaved editor, then
+discarded without modifying source or publishing another revision.
+
+This is a live pass for installation and the immediate-navigation selection
+regression in the macOS Codex GAN workspace. It does not establish other native
+host or platform combinations. A command-palette clipboard timeout was worked
+around by setting the observed text field; it was separate from the earlier
+window-attachment failures. The exact observation and copied prompt are retained
+in the ignored `native/codex/dev-gan/remount-retry3/ui.md` evidence record.
+
+The original app handle remained usable across workspace switches and new
+windows. A separate attachment attempt made by a Sol subagent remained pending
+for 364 seconds before root orchestration interrupted that tool call; it returned
+no handle or UI state. The root's existing handle then refreshed successfully
+in 1.92 seconds. No native assistant session was stopped by that interruption.
+
+Copilot's grouped-CV run completed after its remaining local draft-generation,
+validation and publication command was approved. Its `rev-1` artifact has four
+phases, six nodes, five edges, five evidence records and no findings; SHA-256
+`19a250761c99a03e9137d7a7b61c9859d4b98c584c236f092b80b5ee3e4e933f`.
+The installed helper passed, and the source and skill still matched the frozen
+input. Copilot's final response reported two repair categories and its UI showed
+19 steps, 4m 36s and 7.3 credits with MAI-Code-1.1-Flash. The displayed duration
+does not include the long approval wait and is not total elapsed wall time.
+Its library-semantics labels and missing custom encoder/feature implementations
+remain provisional-review caveats, not human-adjudicated findings.
+
+The completed Codex no-skill baseline response was recovered and copied unchanged
+into ignored evidence. Its UI displayed the final answer with no chats running,
+despite retaining the earlier interruption marker. The final Claude GAN and
+Codex notebook responses were also recovered: both reported zero validator
+repair rounds. Claude's claimed 74 edges differs from the artifact's measured
+72; the original artifact remains unchanged.
+
+The batch now has nine of twelve initial publications and one of three baseline
+responses. The five remaining isolated workspaces need VS Code trust. Automatic
+approval review rejected the first trust action because it enables tasks,
+debugging and extensions and requires explicit user approval. An approval
+request covering those five folders is pending; no trust workaround was used.
+
+While that approval was pending, a new Codex chat in the already trusted notebook
+workspace published a separate partial overview, `partial-data-preprocessing-r1`.
+Its SHA-256 is
+`765798c9390c46bc070810fa59e6208e7d51371352ccca9bbd16e7c6f45fae0b`;
+it contains three phases, five nodes, seven edges, two findings and six evidence
+records. Independent validation with the frozen helper passed. It explicitly
+covers cells 0–2's inputs and preprocessing, with cell 3's model, loss,
+backward/update and evaluation work still unreviewed. The original full notebook
+artifact, notebook source and installed skill remained byte-identical. This
+separate lifecycle test is preserved in ignored evidence and does not increase
+the initial-case or baseline counts.
+
+Around 21:15 UTC, the existing desktop handle failed with `cgWindowNotFound`
+in 0.073 seconds. Inventory still listed Code, but a fresh bundle-ID attachment
+returned the same error in 0.018 seconds. The partial artifact appeared on disk,
+but its final native response, repair count and live diagram acceptance were
+not observed. No native assistant session was stopped or window reloaded.

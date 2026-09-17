@@ -42,7 +42,7 @@
       "bytes": 19137,
       "sha256": "315993b9f909f79b7b03e32aa3d8b60f6ed5cf076239bca753be51e78229ab5a",
       "revision": "rev-leak-out-of-order-native-1",
-      "finalUiResponseObserved": false,
+      "finalUiResponseObserved": true,
       "revalidationRequirement": "Reconstruct the original .agents/skills/mlview installed layout to validate every recorded file hash."
     },
     {
@@ -79,8 +79,18 @@
       "bytes": 59043,
       "sha256": "7f2a72ea47471b4ef9fe534fff5daa15146b584a3eef8f07a80eda67fd330737",
       "revision": "rev-dev-gan-20260917-1",
-      "finalUiResponseObserved": false,
+      "finalUiResponseObserved": true,
       "provisionalChallenge": "Framework, autograd, and gradient-flow semantics should be qualified as inferred; every netD parameter is unproven without models.py; host-device synchronization from .item() is conditional on CUDA; project-local and workspace inventory wording is overbroad. Publication-safety review passed; human semantic review remains pending."
+    },
+    {
+      "host": "copilot",
+      "task": "dev-sklearn",
+      "path": "copilot/dev-sklearn.mlview.json",
+      "bytes": 9201,
+      "sha256": "19a250761c99a03e9137d7a7b61c9859d4b98c584c236f092b80b5ee3e4e933f",
+      "revision": "rev-1",
+      "finalUiResponseObserved": true,
+      "provisionalChallenge": "The call-site flow is supported, but StratifiedGroupKFold library behavior and its conditional class-balance guarantee are labelled observed rather than library-inferred. Missing custom encoders/features modules prevent proving TargetEncoder internal fitting and preprocessing semantics. Human semantic review remains pending."
     }
   ],
   "refinements": [

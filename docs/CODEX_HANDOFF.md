@@ -38,6 +38,21 @@
 > live checks pending. See the implementation page for revision-specific CI and
 > exact acceptance boundaries. No held-out pilot or human semantic scoring has
 > started.
+> The final `d1461b4` remote matrix passed all 13 active jobs, including Windows
+> PowerShell end-to-end. After the user confirmed that VS Code was visible on
+> an unlocked desktop, connection recovered. The final `9de5a9d9…` VSIX passed
+> live installation, immediate edge-to-source navigation, selected-edge restore
+> after remount and copied refinement-prompt verification in the completed
+> macOS Codex GAN workspace. Remaining native runs are recorded separately;
+> this check does not establish all-host or all-platform acceptance.
+> Copilot's grouped-CV task subsequently published the ninth initial artifact,
+> and the completed Codex no-skill baseline response was captured. The final
+> responses for Codex's notebook and Claude's GAN were also recovered. Three
+> skill cases and two baselines remain pending workspace-trust approval.
+> A separate partial notebook overview also passed helper validation with
+> explicit unfinished work and unchanged original inputs. It is outside the
+> initial-case matrix; its final response and live diagram remain unobserved
+> after another `cgWindowNotFound` failure. No native session was stopped.
 > The static-only direction and “next Sprint A” below
 > are the historical takeover snapshot, not the current roadmap.
 
