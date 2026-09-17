@@ -11,7 +11,7 @@ This is artifact publication only. The snapshots are model-authored outputs,
 not semantic ground truth, human-approved references, accuracy measurements, or
 proof of a complete native UI workflow. Human semantic review remains pending.
 Raw assistant and UI logs remain ignored. In particular, the final native UI
-response for the Codex notebook run was not observed.
+responses for the Codex notebook and Claude Code GAN runs were not observed.
 
 The recorded source bytes match repository commit
 `36dbbe5597de496b9807b0e52ef232ceca1df89e` and installed skill SHA-256
@@ -20,7 +20,7 @@ The notebook artifact records the original installed skill layout under
 `.agents/skills/mlview/`; reconstructing that layout is required to revalidate
 all of its recorded file hashes. The snapshot itself remains reviewable here.
 Reconstructing each artifact's recorded files from that commit, together with
-its frozen helper, passed all eight validations in clean temporary workspaces.
+its frozen helper, passed all nine validations in clean temporary workspaces.
 
 Provisional source review found that the initial Codex GAN artifact can imply that its
 running loss sums are periodically printed. The source instead prints current
@@ -29,3 +29,12 @@ artifact is preserved unchanged as the challenge case. The actual challenge
 child, `codex-dev-gan-r2.mlview.json`, corrects the explanation while retaining
 all node, edge, finding, evidence, and phase IDs. Its semantics still await
 human review and carry no accuracy score.
+
+Provisional source review of the Claude Code GAN snapshot found its core control
+order, optimizer ownership, detach/attached paths, alternating cycle, and two
+findings materially source-supported. Several framework and gradient statements
+are labelled observed where the available evidence supports inferred; the
+`.item()` synchronization cost is conditional on CUDA, and a few inventory and
+parameter-set claims are broader than the supplied source proves. The snapshot
+is preserved unchanged, passed publication-safety review, and still awaits
+human semantic review.

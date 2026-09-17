@@ -171,7 +171,9 @@ The [initial native development exercise](demo-logs/2026-09-17-development-nativ
 published five validated artifacts before desktop control failed. The
 [requested retry](demo-logs/2026-09-17-development-retry.md) completed Copilot's
 configured-training case and Claude's grouped-CV case, bringing the total to
-**seven initial artifacts out of twelve skill cases**. Five skill cases and
+seven initial artifacts. A late Claude GAN publication during the
+[next retry](demo-logs/2026-09-17-publication-desktop-retry.md) brings the total
+to **eight initial artifacts out of twelve skill cases**. Four skill cases and
 all three no-skill baselines remain pending. Copilot's grouped-CV session was
 still repairing a draft at the last UI observation. Copilot Auto routed the
 two tasks to different models, so this is exploratory development evidence,
@@ -181,10 +183,10 @@ The retry also exercised selected-node Challenge and selected-finding prompt
 copying in the real viewer. The original Codex GAN conversation published a
 child revision correcting the misleading logging explanation: the source
 prints current-batch losses, not the running sums. All phase, node, edge,
-finding and evidence IDs were retained. The seven initial outputs and the
+finding and evidence IDs were retained. The eight initial outputs and the
 child revision are preserved as [immutable snapshots](../evals/workflow/development/native-artifacts/README.md).
 Reconstructing their recorded files from commit `36dbbe5`, including installed
-skill layouts where recorded, passed all eight helper validations. Human
+skill layouts where recorded, passed all nine helper validations. Human
 semantic review remains pending; exact citations alone had not detected the
 initial semantic error.
 
@@ -238,6 +240,10 @@ The rebuilt VSIX SHA-256 is
 `9de5a9d97818a8cd392e6578c21d0c1e400c3d1176d42fe6db0a2948f66e409f`
 (182 files, 914.7 KB). Its live installation and acceptance remain pending:
 desktop inventory works, but Code attachment again failed after a REPL reset.
+The late Claude GAN artifact passed independent validation; its final native
+response and repair count were not observed. Provisional source review flags
+overbroad evidence-basis labels and an unconditional synchronization claim that
+needs qualification for the source's CPU branch. The original remains intact.
 The broader local 20-gate result above predates this additional timing fix;
 the new targeted checks and follow-up remote CI provide separate evidence.
 

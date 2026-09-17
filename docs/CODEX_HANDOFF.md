@@ -32,8 +32,9 @@
 > because the webview may disappear before its debounced save. An immediate
 > destruction regression fails without that fix and passes with it. Remote CI
 > also exposed four Windows path-expectation mismatches, now corrected in tests.
-> Desktop control recovered and then
-> failed again, leaving five skill cases, three no-skill baselines and remaining
+> A late Claude GAN publication brings the initial artifact count to eight;
+> its final native UI response was not observed. Desktop control recovered and
+> then failed again, leaving four skill cases, three no-skill baselines and remaining
 > live checks pending. See the implementation page for revision-specific CI and
 > exact acceptance boundaries. No held-out pilot or human semantic scoring has
 > started.

@@ -71,6 +71,16 @@
       "sha256": "ec84f1eca09cfdc15c1f86523280e25a255165825e4cfd65f4df26aa4e070a7f",
       "revision": "dev-sklearn-r1",
       "finalUiResponseObserved": null
+    },
+    {
+      "host": "claude-code",
+      "task": "dev-gan",
+      "path": "claude-code/dev-gan.mlview.json",
+      "bytes": 59043,
+      "sha256": "7f2a72ea47471b4ef9fe534fff5daa15146b584a3eef8f07a80eda67fd330737",
+      "revision": "rev-dev-gan-20260917-1",
+      "finalUiResponseObserved": false,
+      "provisionalChallenge": "Framework, autograd, and gradient-flow semantics should be qualified as inferred; every netD parameter is unproven without models.py; host-device synchronization from .item() is conditional on CUDA; project-local and workspace inventory wording is overbroad. Publication-safety review passed; human semantic review remains pending."
     }
   ],
   "refinements": [

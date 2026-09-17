@@ -44,15 +44,29 @@ and subsequent UI work; it is not counted as another attachment timeout.
 
 ## Native run status
 
-The batch remains at seven validated initial artifacts and one validated GAN
-child revision. During this retry, Copilot's grouped-CV task resumed, Claude's
+The batch initially contained seven validated initial artifacts and one validated
+GAN child revision. During this retry, Copilot's grouped-CV task resumed, Claude's
 GAN task started with Fable 5.1 Extra high, and a source-only Codex configured-
 training baseline started with GPT-5.6 Sol Ultra. The baseline UI unexpectedly
 showed `You stopped after 32s`; its cause was not established, and Resume
 returned it to an active state. None of these three runs had a final response
 or a newly published artifact at the last observation.
 
-Five skill cases and three baselines remain incomplete. All twelve prepared
+After desktop access failed, Claude's GAN artifact appeared on disk and passed
+independent validation against the frozen source. Revision
+`rev-dev-gan-20260917-1` contains 36 nodes, 72 edges, nine phases, two findings
+and 51 evidence records. Its SHA-256 is
+`7f2a72ea47471b4ef9fe534fff5daa15146b584a3eef8f07a80eda67fd330737`.
+It is preserved unchanged among the
+[native snapshots](../../evals/workflow/development/native-artifacts/README.md).
+This raises the total to eight validated initial artifacts plus the GAN child.
+The final native response and repair count were not observed. Provisional review
+found source-supported update ordering and gradient paths, with overbroad
+`observed` labels for framework interpretations and a synchronization claim
+that needs to distinguish CUDA from the source's CPU fallback. Those model
+review notes are not human adjudication or a live UI pass.
+
+Four skill cases and three baselines remain incomplete. All twelve prepared
 skill workspaces still match the frozen source and four-file skill content.
 Exact prompts, partial UI observations and hashes are retained under the
 ignored `.mlview/sprint-20260917` directory. Human semantic review and the
