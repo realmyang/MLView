@@ -62,6 +62,15 @@
 > The adapter fix passed targeted suites and the rebuilt VSIX passed live
 > partial-display acceptance. All 13 CI jobs at `6509e4f` passed before this
 > latest display fix; see the implementation page for exact acceptance boundaries.
+> The September 18 local-time retry recovered the two interrupted Copilot chats
+> in their already trusted workspaces and completed both: the development batch
+> now has all twelve initial skill artifacts and all three baseline responses.
+> GAN reported one validator repair; the notebook reported zero. Both diagrams
+> opened and navigated to the expected source line/cell with selection retained.
+> Frozen inputs stayed unchanged; semantic limitations are preserved for review
+> rather than edited out of the original model outputs. All thirteen CI jobs
+> passed at `0103178`, including the partial-display fix. Human adjudication,
+> the held-out pilot and broader live-host/platform checks remain pending.
 > The static-only direction and “next Sprint A” below
 > are the historical takeover snapshot, not the current roadmap.
 

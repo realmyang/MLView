@@ -1,8 +1,8 @@
 # Native development artifact snapshots
 
 These files are byte-identical snapshots published by native assistants
-during the September 17, 2026 development exercise. They are checked in so
-reviewers can inspect concrete WorkflowDocument outputs without relying on the
+during the September 17–18, 2026 local-time development exercise. They are
+checked in so reviewers can inspect concrete WorkflowDocument outputs without relying on the
 ignored run directories. [`manifest.json`](manifest.json) records their hashes
 and provenance. Initial outputs remain immutable; challenged revisions are
 stored separately under [`refinements/`](refinements/) with explicit parents.
@@ -22,7 +22,7 @@ The notebook artifact records the original installed skill layout under
 `.agents/skills/mlview/`; reconstructing that layout is required to revalidate
 all of its recorded file hashes. The snapshot itself remains reviewable here.
 Replaying every artifact against its preserved frozen source and installed
-skill/helper workspace passed all eleven validations. This replay checks
+skill/helper workspace passed all thirteen validations. This replay checks
 structure and exact source references; it does not supply semantic approval.
 
 Provisional source review found that the initial Codex GAN artifact can imply that its
@@ -58,3 +58,12 @@ StratifiedGroupKFold library behavior and conditional class balance. Missing
 custom encoder and feature modules also leave their internal fitting and
 preprocessing behavior unverified. These are provisional review notes; the
 original output remains unchanged pending human review.
+
+The Copilot notebook snapshot preserves a concise, runtime-qualified
+execution-order analysis, but provisional review found material omissions:
+whole-dataset scaling before the split, missing gradient clearing, an unused
+test split, and absent evaluation. The Copilot GAN snapshot correctly explains
+the core alternating update paths, while its running-metrics text can imply
+that accumulated sums are printed. Both immutable outputs passed helper,
+provenance, safety, and live diagram-navigation checks; human semantic review
+remains pending.

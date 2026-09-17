@@ -4,10 +4,10 @@ The user approved [the direction plan](LLM_DIRECTION_PLAN.md) on 2026-09-16.
 Implementation is published on `llm-workflow` in
 [draft PR #9](https://github.com/realmyang/MLView/pull/9). The September 17
 publication retry succeeded after the GitHub credential gained the required
-`workflow` scope. All 13 active CI jobs passed at `6509e4f`:
-[push, seven jobs](https://github.com/realmyang/MLView/actions/runs/35276066934) and
-[PR, six jobs](https://github.com/realmyang/MLView/actions/runs/35276073282), including
-Windows PowerShell end-to-end. That matrix predates the partial-coverage display
+`workflow` scope. All 13 active CI jobs passed at `0103178`:
+[push, seven jobs](https://github.com/realmyang/MLView/actions/runs/35280429266) and
+[PR, six jobs](https://github.com/realmyang/MLView/actions/runs/35280432668), including
+Windows PowerShell end-to-end. This matrix includes the partial-coverage display
 fix documented below. Remote results are separate from the local
 validation record below. The repository's earlier accuracy measurements and CI run IDs
 apply to the legacy static product.
@@ -179,20 +179,20 @@ seven initial artifacts. A late Claude GAN publication during the
 [next retry](demo-logs/2026-09-17-publication-desktop-retry.md) was the eighth
 initial artifact. The subsequent unlocked-desktop retry completed Copilot's
 grouped-CV publication. After explicit workspace-trust approval, Claude
-completed the notebook case, bringing the total to **ten initial artifacts out
-of twelve skill cases**. All three no-skill baselines are captured; Copilot
-GAN and notebook cases remain pending completion. Copilot Auto routed the
-two tasks to different models, so this is exploratory development evidence,
+completed the notebook case. The September 18 local-time retry then resumed
+Copilot's interrupted GAN and notebook chats and completed **all twelve initial
+skill artifacts and all three no-skill baselines**. Copilot Auto routed tasks
+and resumptions to different models, so this is exploratory development evidence,
 not a controlled model comparison.
 
 The retry also exercised selected-node Challenge and selected-finding prompt
 copying in the real viewer. The original Codex GAN conversation published a
 child revision correcting the misleading logging explanation: the source
 prints current-batch losses, not the running sums. All phase, node, edge,
-finding and evidence IDs were retained. The ten initial outputs and the
+finding and evidence IDs were retained. The twelve initial outputs and the
 child revision are preserved as [immutable snapshots](../evals/workflow/development/native-artifacts/README.md).
-Replaying their helpers against the preserved frozen workspaces, whose source
-matches commit `36dbbe5`, passed all eleven validations. Human
+Replaying all thirteen snapshots against their preserved frozen workspaces,
+whose source matches commit `36dbbe5`, passed every helper validation. Human
 semantic review remains pending; exact citations alone had not detected the
 initial semantic error.
 
@@ -291,19 +291,47 @@ five nodes, seven edges, its partial status and four limitations, with no
 truncation banner. This closes the specific macOS partial-publication display
 check. Viewer tests passed 607 with one existing TODO; extension tests passed
 437 with zero skips; both TypeScript checks and all ten parity gates passed.
-The regenerated fixture differs only in renderer provenance. Remote CI for
-this additional display fix is separate from the `6509e4f` result above.
+The regenerated fixture differs only in renderer provenance. All thirteen
+remote CI jobs subsequently passed at `0103178`, including this display fix.
+
+## Final development-case retry — September 18 local time
+
+Desktop access recovered with only the main repository window open. Reopening
+the two already trusted Copilot workspaces recovered their original chats:
+GAN had a saved draft and an unavailable old terminal result; the notebook had
+stopped before drafting. Both were resumed in the same conversations without
+changing the frozen source or installed skill. The additional resume prompts
+and interruption history are preserved in ignored evidence; these are not
+uninterrupted single-turn runs.
+
+Copilot Auto routed both resumptions to MAI-Code-1.1-Flash. GAN published
+`rev-1` with six phases, eleven nodes, eleven edges, one finding and seventeen
+evidence records after one reported validator repair. The notebook published
+`dev-notebook-rev-1` with four phases, four nodes, three edges, one finding and
+four evidence records with zero reported repairs. Both final native responses
+were observed. Their displayed 3m 24s and 2m 41s durations describe the resumed
+segments, not total elapsed time including the earlier interruption.
+
+Both new diagrams opened in the installed VS Code extension. GAN's detached
+fake-path node opened `train_dcgan.py` at line 86 with its selection retained
+in the Inspector. The notebook training node opened cell 4 of 4 (zero-based
+cell 3), with its exact source quotation and selection retained. No analyzed
+source was executed. These checks establish publication, rendering and selected
+source navigation for these two cases, not every host/platform combination.
+
+Provisional model review still identifies semantic limitations: GAN's metrics
+wording can imply that running sums are printed, although the source prints
+current-batch losses. The notebook correctly qualifies execution-count history,
+but omits whole-data scaler fitting before the split, missing gradient clearing
+between batches, and the absence of test evaluation or saved outputs. The
+original artifacts are preserved unchanged for human adjudication. Passing the
+helper's structural and citation checks is not an accuracy verdict.
 
 ## Remaining validation
 
-- Copilot GAN and notebook runs started in their approved, trusted workspaces.
-  They were last observed running after source/interpreter approvals; publication
-  remains unobserved. All five trust changes succeeded
-  after explicit user approval. Desktop attachment again returned
-  `cgWindowNotFound`; no native run was stopped and no trust workaround was used.
-- Extend the basic all-host round trip to the remaining notebook, export,
-  fault-injection and budget/cancellation checks in [the runbook](LLM_WORKFLOW.md);
-  do not infer these untested combinations from the Codex exercise.
+- Complete the notebook, export, fault-injection and budget/cancellation
+  combinations not yet exercised across every host in [the runbook](LLM_WORKFLOW.md);
+  do not infer untested combinations from another host's exercise.
 - Human semantic adjudication is required for the development tasks and the
   held-out benchmark. Valid citations alone do not establish supported claims.
   Eight source-linked [reference candidates](../evals/workflow/reference-candidates/README.md)

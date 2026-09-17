@@ -101,6 +101,28 @@
       "revision": "rev-20260917-leak-out-of-order-1",
       "finalUiResponseObserved": true,
       "provisionalChallenge": "The next-batch updated-weights loop edge is conditional on another batch, whose existence is unknown because row count is unavailable. The missing-zero_grad source fact is observed, while its behavioral impact and dtype/scaler/CrossEntropyLoss semantics use disclosed library knowledge; severity remains a model judgment. Recorded execution order is correctly qualified as hypothetical metadata rather than proof of runtime execution."
+    },
+    {
+      "host": "copilot",
+      "task": "dev-notebook",
+      "path": "copilot/dev-notebook.mlview.json",
+      "bytes": 7276,
+      "sha256": "6fe4fbd79af4d30f47462a5c9d469c9f1943adca7e37029720f8f3e4f93139d4",
+      "revision": "dev-notebook-rev-1",
+      "finalUiResponseObserved": true,
+      "liveDiagramAcceptance": "passed",
+      "provisionalChallenge": "The output omits whole-X scaling before split, missing zero_grad, the unused test split, and absent evaluation/metrics/checkpoints; execution-order language is qualified; single gradient-descent loop is loose wording for Adam. Human semantic review remains pending."
+    },
+    {
+      "host": "copilot",
+      "task": "dev-gan",
+      "path": "copilot/dev-gan.mlview.json",
+      "bytes": 17810,
+      "sha256": "6451e734b53fbea73d8f621729b8bfc0c529f9db79209850c4ec9b0251b193fe",
+      "revision": "rev-1",
+      "finalUiResponseObserved": true,
+      "liveDiagramAcceptance": "passed",
+      "provisionalChallenge": "running_metrics can imply accumulated sums are printed every 100 batches; source prints current-batch losses. Framework/autograd effects labelled observed should be inferred. Human semantic review remains pending."
     }
   ],
   "refinements": [

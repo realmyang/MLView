@@ -1,0 +1,432 @@
+{
+  "coverage": {
+    "inspectedFiles": [
+      "analyzer/tests/accuracy/corpus/vision_gan/train_dcgan.py"
+    ],
+    "limitations": [
+      "The imported models module is not present in the inspected workspace source, so layer-level Generator/Discriminator architecture, parameter counts, and weights_init behavior are unresolved.",
+      "The target was not imported or executed, so runtime tensor shapes beyond source literals, dataset contents, device choice, and observed loss values are not validated.",
+      "The loader's number of batches per epoch depends on the runtime dataset and drop_last behavior; the source does not establish an exact iteration count."
+    ],
+    "status": "scoped",
+    "summary": "The selected training entrypoint was inspected for data setup, construction, alternating optimization, gradient paths, repeated phases, metrics, and epoch outputs."
+  },
+  "edges": [
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-setup-seed"
+      ],
+      "id": "edge-setup-epoch",
+      "label": "starts",
+      "source": "construct_models_optimizers",
+      "target": "epoch_repeat"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-epoch-loop"
+      ],
+      "id": "edge-epoch-batch",
+      "label": "iterates over loader",
+      "source": "epoch_repeat",
+      "target": "batch_repeat"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-batch-inputs"
+      ],
+      "id": "edge-batch-d",
+      "label": "first update",
+      "source": "batch_repeat",
+      "target": "d_real_path"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-d-real",
+        "ev-d-loss-step"
+      ],
+      "id": "edge-d-real-loss",
+      "label": "loss_real",
+      "source": "d_real_path",
+      "target": "d_loss_update"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-d-fake",
+        "ev-d-loss-step"
+      ],
+      "id": "edge-d-fake-loss",
+      "label": "loss_fake",
+      "source": "d_fake_detached_path",
+      "target": "d_loss_update"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-d-loss-step",
+        "ev-g-path"
+      ],
+      "id": "edge-d-step-g",
+      "label": "then",
+      "source": "d_loss_update",
+      "target": "g_path"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-g-path",
+        "ev-g-loss-step"
+      ],
+      "id": "edge-g-loss-step",
+      "label": "loss_g",
+      "source": "g_path",
+      "target": "g_loss_update"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-metrics"
+      ],
+      "id": "edge-g-repeat",
+      "label": "record losses",
+      "source": "g_loss_update",
+      "target": "running_metrics"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-metrics"
+      ],
+      "id": "edge-metrics-batch",
+      "label": "next batch",
+      "source": "running_metrics",
+      "target": "batch_repeat"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-epoch-output"
+      ],
+      "id": "edge-batch-output",
+      "label": "after batch iteration",
+      "source": "batch_repeat",
+      "target": "sample_checkpoint"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-epoch-output"
+      ],
+      "id": "edge-output-epoch",
+      "label": "next epoch",
+      "source": "sample_checkpoint",
+      "target": "epoch_repeat"
+    }
+  ],
+  "evidence": [
+    {
+      "endLine": 20,
+      "file": "analyzer/tests/accuracy/corpus/vision_gan/train_dcgan.py",
+      "id": "ev-imports",
+      "line": 20,
+      "quote": "from models import LATENT_DIM, Discriminator, Generator, weights_init"
+    },
+    {
+      "endLine": 65,
+      "file": "analyzer/tests/accuracy/corpus/vision_gan/train_dcgan.py",
+      "id": "ev-setup-seed",
+      "line": 57,
+      "quote": "def train(epochs: int = EPOCHS) -> tuple:\n    seed_everything()\n    device = pick_device()\n    loader = build_loader()\n\n    netG = Generator().to(device)\n    netD = Discriminator().to(device)\n    netG.apply(weights_init)\n    netD.apply(weights_init)"
+    },
+    {
+      "endLine": 54,
+      "file": "analyzer/tests/accuracy/corpus/vision_gan/train_dcgan.py",
+      "id": "ev-setup-loader",
+      "line": 43,
+      "quote": "def build_loader(batch_size: int = BATCH_SIZE, workers: int = WORKERS) -> DataLoader:\n    \"\"\"A GAN has no held-out split: every image is a training image.\"\"\"\n    pipeline = transforms.Compose([\n        transforms.Resize(64),\n        transforms.CenterCrop(64),\n        transforms.RandomHorizontalFlip(),\n        transforms.ToTensor(),\n        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),\n    ])\n    dataset = ImageFolder(DATA_ROOT, transform=pipeline)\n    return DataLoader(dataset, batch_size=batch_size, shuffle=True,\n                      num_workers=workers, pin_memory=True, drop_last=True)"
+    },
+    {
+      "endLine": 69,
+      "file": "analyzer/tests/accuracy/corpus/vision_gan/train_dcgan.py",
+      "id": "ev-models-optimizers",
+      "line": 67,
+      "quote": "    criterion = nn.BCEWithLogitsLoss()\n    opt_g = torch.optim.Adam(netG.parameters(), lr=LR, betas=BETAS)\n    opt_d = torch.optim.Adam(netD.parameters(), lr=LR, betas=BETAS)"
+    },
+    {
+      "endLine": 76,
+      "file": "analyzer/tests/accuracy/corpus/vision_gan/train_dcgan.py",
+      "id": "ev-epoch-loop",
+      "line": 75,
+      "quote": "    for epoch in range(epochs):\n        for step, (real_images, _labels) in enumerate(loader):"
+    },
+    {
+      "endLine": 80,
+      "file": "analyzer/tests/accuracy/corpus/vision_gan/train_dcgan.py",
+      "id": "ev-batch-inputs",
+      "line": 77,
+      "quote": "            real_images = real_images.to(device, non_blocking=True)\n            batch = real_images.size(0)\n            real_labels = torch.ones(batch, device=device)\n            fake_labels = torch.zeros(batch, device=device)"
+    },
+    {
+      "endLine": 92,
+      "file": "analyzer/tests/accuracy/corpus/vision_gan/train_dcgan.py",
+      "id": "ev-d-update",
+      "line": 82,
+      "quote": "            # --- discriminator: maximise log D(x) + log(1 - D(G(z)))\n            opt_d.zero_grad(set_to_none=True)\n            logits_real = netD(real_images)\n            loss_real = criterion(logits_real, real_labels)\n            noise = torch.randn(batch, LATENT_DIM, 1, 1, device=device)\n            fake_images = netG(noise)\n            logits_fake = netD(fake_images.detach())\n            loss_fake = criterion(logits_fake, fake_labels)\n            loss_d = loss_real + loss_fake\n            loss_d.backward()\n            opt_d.step()"
+    },
+    {
+      "endLine": 85,
+      "file": "analyzer/tests/accuracy/corpus/vision_gan/train_dcgan.py",
+      "id": "ev-d-real",
+      "line": 83,
+      "quote": "            opt_d.zero_grad(set_to_none=True)\n            logits_real = netD(real_images)\n            loss_real = criterion(logits_real, real_labels)"
+    },
+    {
+      "endLine": 89,
+      "file": "analyzer/tests/accuracy/corpus/vision_gan/train_dcgan.py",
+      "id": "ev-d-fake",
+      "line": 86,
+      "quote": "            noise = torch.randn(batch, LATENT_DIM, 1, 1, device=device)\n            fake_images = netG(noise)\n            logits_fake = netD(fake_images.detach())\n            loss_fake = criterion(logits_fake, fake_labels)"
+    },
+    {
+      "endLine": 92,
+      "file": "analyzer/tests/accuracy/corpus/vision_gan/train_dcgan.py",
+      "id": "ev-d-loss-step",
+      "line": 89,
+      "quote": "            loss_fake = criterion(logits_fake, fake_labels)\n            loss_d = loss_real + loss_fake\n            loss_d.backward()\n            opt_d.step()"
+    },
+    {
+      "endLine": 99,
+      "file": "analyzer/tests/accuracy/corpus/vision_gan/train_dcgan.py",
+      "id": "ev-g-update",
+      "line": 94,
+      "quote": "            # --- generator: maximise log D(G(z))\n            opt_g.zero_grad(set_to_none=True)\n            logits_for_g = netD(fake_images)\n            loss_g = criterion(logits_for_g, real_labels)\n            loss_g.backward()\n            opt_g.step()"
+    },
+    {
+      "endLine": 97,
+      "file": "analyzer/tests/accuracy/corpus/vision_gan/train_dcgan.py",
+      "id": "ev-g-path",
+      "line": 95,
+      "quote": "            opt_g.zero_grad(set_to_none=True)\n            logits_for_g = netD(fake_images)\n            loss_g = criterion(logits_for_g, real_labels)"
+    },
+    {
+      "endLine": 99,
+      "file": "analyzer/tests/accuracy/corpus/vision_gan/train_dcgan.py",
+      "id": "ev-g-loss-step",
+      "line": 97,
+      "quote": "            loss_g = criterion(logits_for_g, real_labels)\n            loss_g.backward()\n            opt_g.step()"
+    },
+    {
+      "endLine": 5,
+      "file": "analyzer/tests/accuracy/corpus/vision_gan/train_dcgan.py",
+      "id": "ev-order",
+      "line": 1,
+      "quote": "\"\"\"DCGAN training: two networks, two optimisers, one batch loop.\n\nThe ordering that looks wrong to a linter and is right to a practitioner:\n`opt_d.step()` genuinely precedes `loss_g.backward()`, because they belong to\ntwo different optimisation problems."
+    },
+    {
+      "endLine": 105,
+      "file": "analyzer/tests/accuracy/corpus/vision_gan/train_dcgan.py",
+      "id": "ev-metrics",
+      "line": 101,
+      "quote": "            d_running += loss_d.item()\n            g_running += loss_g.item()\n            if step % 100 == 0:\n                print(\"epoch %d step %d loss_d %.4f loss_g %.4f\"\n                      % (epoch, step, loss_d.item(), loss_g.item()))"
+    },
+    {
+      "endLine": 109,
+      "file": "analyzer/tests/accuracy/corpus/vision_gan/train_dcgan.py",
+      "id": "ev-epoch-output",
+      "line": 107,
+      "quote": "        sample_grid(netG, fixed_noise, epoch)\n        torch.save({\"netG\": netG.state_dict(), \"netD\": netD.state_dict()},\n                   \"dcgan_epoch%d.pt\" % epoch)"
+    },
+    {
+      "endLine": 122,
+      "file": "analyzer/tests/accuracy/corpus/vision_gan/train_dcgan.py",
+      "id": "ev-sample-grid",
+      "line": 114,
+      "quote": "@torch.no_grad()\ndef sample_grid(netG, noise: torch.Tensor, epoch: int) -> str:\n    \"\"\"Write a fixed-noise grid so the run can be watched frame by frame.\"\"\"\n    netG.eval()\n    images = netG(noise)\n    path = \"%s/epoch_%03d.png\" % (SAMPLE_DIR, epoch)\n    save_image(images * 0.5 + 0.5, path, nrow=8)\n    netG.train()\n    return path"
+    }
+  ],
+  "findings": [
+    {
+      "basis": "unresolved",
+      "evidence": [
+        "ev-imports"
+      ],
+      "id": "finding-models-unresolved",
+      "message": "The entrypoint imports Generator and Discriminator from models, but no models module is present in the inspected workspace source. The workflow explains the visible training loop and gradient routing, not layer-by-layer architecture details.",
+      "nodeIds": [
+        "construct_models_optimizers"
+      ],
+      "severity": "low",
+      "title": "Model architecture is outside the inspected source"
+    }
+  ],
+  "nodes": [
+    {
+      "basis": "observed",
+      "detail": "Seeds Python, NumPy, and Torch; selects CUDA when available; loads ImageFolder data with resize/crop/flip/tensor/normalization transforms and a shuffled drop_last DataLoader.",
+      "evidence": [
+        "ev-setup-seed",
+        "ev-setup-loader"
+      ],
+      "id": "seed_device_loader",
+      "label": "Seed, select device, and build loader",
+      "phase": "setup"
+    },
+    {
+      "basis": "observed",
+      "detail": "Creates Generator and Discriminator on the selected device, applies weights_init, uses BCEWithLogitsLoss, and creates opt_g over netG.parameters() and opt_d over netD.parameters(). The internal layer architectures are unresolved because the imported models module is not present in the inspected workspace directory.",
+      "evidence": [
+        "ev-models-optimizers"
+      ],
+      "id": "construct_models_optimizers",
+      "label": "Construct G, D, loss, and optimizers",
+      "phase": "setup"
+    },
+    {
+      "basis": "observed",
+      "detail": "The outer loop repeats the batch cycle for range(epochs); with the selected default this is 25 epochs.",
+      "evidence": [
+        "ev-epoch-loop"
+      ],
+      "id": "epoch_repeat",
+      "label": "Repeat for each epoch",
+      "phase": "epoch_loop"
+    },
+    {
+      "basis": "observed",
+      "detail": "Each batch moves real images to the device, derives batch size, creates real_labels=1 and fake_labels=0, and then runs the discriminator update followed by the generator update.",
+      "evidence": [
+        "ev-batch-inputs",
+        "ev-d-update",
+        "ev-g-update"
+      ],
+      "id": "batch_repeat",
+      "label": "Repeat for each shuffled batch",
+      "phase": "batch_cycle"
+    },
+    {
+      "basis": "observed",
+      "detail": "After opt_d.zero_grad, netD(real_images) produces logits_real and BCEWithLogitsLoss(logits_real, real_labels) produces loss_real. Backpropagating the combined discriminator loss sends gradients through the real-image discriminator path into netD parameters.",
+      "evidence": [
+        "ev-d-real"
+      ],
+      "id": "d_real_path",
+      "label": "Classify real images",
+      "phase": "discriminator_update"
+    },
+    {
+      "basis": "observed",
+      "detail": "Noise is passed through netG to make fake_images. netD(fake_images.detach()) produces logits_fake, and BCEWithLogitsLoss(logits_fake, fake_labels) produces loss_fake. detach cuts this discriminator-loss path at fake_images, so loss_d.backward reaches netD through the fake branch but does not propagate from this branch into netG.",
+      "evidence": [
+        "ev-d-fake"
+      ],
+      "id": "d_fake_detached_path",
+      "label": "Classify detached generated images",
+      "phase": "discriminator_update"
+    },
+    {
+      "basis": "observed",
+      "detail": "loss_d = loss_real + loss_fake, then loss_d.backward() accumulates discriminator gradients and opt_d.step() updates only the parameters registered in opt_d, namely netD.parameters(). This is the discriminator half of the alternating update.",
+      "evidence": [
+        "ev-d-loss-step"
+      ],
+      "id": "d_loss_update",
+      "label": "Sum discriminator losses and step D",
+      "phase": "discriminator_update"
+    },
+    {
+      "basis": "observed",
+      "detail": "After opt_g.zero_grad, the original non-detached fake_images is passed to netD. The resulting logits_for_g are compared to real_labels=1, so the generator loss trains generated samples to be classified as real. The path for this loss is logits_for_g -> netD computation -> fake_images -> netG computation; the source does not disable netD gradients during this pass, although opt_g is the optimizer stepped afterward.",
+      "evidence": [
+        "ev-g-path"
+      ],
+      "id": "g_path",
+      "label": "Send the same fake graph through D for G",
+      "phase": "generator_update"
+    },
+    {
+      "basis": "observed",
+      "detail": "loss_g = BCEWithLogitsLoss(logits_for_g, real_labels), loss_g.backward() backpropagates through the non-detached fake path into netG, and opt_g.step() updates only netG.parameters(). This occurs after the discriminator step and is a separate optimization problem.",
+      "evidence": [
+        "ev-g-loss-step",
+        "ev-order"
+      ],
+      "id": "g_loss_update",
+      "label": "Backpropagate generator loss and step G",
+      "phase": "generator_update"
+    },
+    {
+      "basis": "observed",
+      "detail": "The scalar loss values are read with item(), accumulated into d_running and g_running, and printed every 100 batch steps.",
+      "evidence": [
+        "ev-metrics"
+      ],
+      "id": "running_metrics",
+      "label": "Accumulate and periodically print losses",
+      "phase": "batch_cycle"
+    },
+    {
+      "basis": "observed",
+      "detail": "After all batches in an epoch, sample_grid runs netG under no_grad with fixed_noise, writes an image grid, and restores training mode; then state_dicts for netG and netD are saved to an epoch checkpoint.",
+      "evidence": [
+        "ev-epoch-output",
+        "ev-sample-grid"
+      ],
+      "id": "sample_checkpoint",
+      "label": "Sample fixed-noise grid and save checkpoints",
+      "phase": "epoch_outputs"
+    }
+  ],
+  "phases": [
+    {
+      "id": "setup",
+      "label": "Setup"
+    },
+    {
+      "id": "epoch_loop",
+      "label": "Repeated epoch loop"
+    },
+    {
+      "id": "batch_cycle",
+      "label": "Repeated batch cycle"
+    },
+    {
+      "id": "discriminator_update",
+      "label": "Discriminator update"
+    },
+    {
+      "id": "generator_update",
+      "label": "Generator update"
+    },
+    {
+      "id": "epoch_outputs",
+      "label": "Epoch outputs"
+    }
+  ],
+  "producer": {
+    "host": "copilot",
+    "kind": "host-llm"
+  },
+  "request": {
+    "configuration": "train_dcgan.py defaults: train(epochs=25), DATA_ROOT=data/celeba, BATCH_SIZE=128, LR=2e-4, BETAS=(0.5, 0.999); no command-line overrides selected. Runtime dataset availability and imported model definitions are unresolved because this artifact inspects source only.",
+    "entrypoints": [
+      "analyzer/tests/accuracy/corpus/vision_gan/train_dcgan.py"
+    ],
+    "question": "Explain discriminator and generator losses, gradient paths, detached tensors, optimizer targets, alternating updates, repeated phases, and the iteration cycle.",
+    "scope": "Selected DCGAN training entrypoint"
+  },
+  "revision": {
+    "id": "rev-1"
+  },
+  "title": "DCGAN alternating generator and discriminator training",
+  "verification": {
+    "files": {
+      "analyzer/tests/accuracy/corpus/vision_gan/train_dcgan.py": "18e257c47f577c4764803438c27855195a0619746a8d6383e99656e71eaa7315"
+    },
+    "publishedAt": "2026-09-17T22:22:40.884052Z"
+  },
+  "workflowVersion": "1.0"
+}

@@ -1,6 +1,6 @@
 # Development semantic review workspace
 
-The later [native artifact snapshots](native-artifacts/README.md) preserve ten
+The later [native artifact snapshots](native-artifacts/README.md) preserve twelve
 fresh initial host-authored outputs and one challenged child revision. The
 [initial log](../../../docs/demo-logs/2026-09-17-development-native.md) and
 [retry log](../../../docs/demo-logs/2026-09-17-development-retry.md) and
@@ -42,8 +42,8 @@ Run `python tools/workflow_eval.py development-plan` to initialize 12 pending
 skill records (four tasks across Copilot, Codex, and Claude Code) plus three
 matched `dev-config` baseline records without MLView. Skill completion requires
 a native artifact and UI evidence; baselines require the native response and
-UI evidence. The September 17 batch has ten completed skill cases and all
-three completed baselines, with two Copilot skill cases still pending.
+UI evidence. The September 17–18 local-time batch has all twelve skill cases
+and all three baselines completed.
 The held-out `plan` command still
 emits the unchanged 72-run matrix. After development review, the held-out pilot
 may be staged as 24 first runs followed by 48 repeats; this is a protocol only,

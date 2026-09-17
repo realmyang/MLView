@@ -208,3 +208,72 @@ Desktop attachment again returned `cgWindowNotFound` on both the existing
 handle and a fresh attachment. Trust is resolved; no native run was stopped.
 The user was asked to restore a visible, unlocked desktop. Human semantic
 review and the held-out pilot remain pending, with no accuracy score claimed.
+
+## Final two Copilot cases — September 18 local time
+
+The next requested retry recovered desktop access. Only the main repository
+window appeared in VS Code's Window menu. The two already trusted isolated
+Copilot workspaces were reopened, and their original sessions were selected
+from native chat history. GAN had stopped after drafting and a validator
+invocation whose terminal was no longer available; the notebook had stopped
+after source and helper inspection without a draft. Neither had a published
+artifact. The frozen source and complete installed skill trees remained intact.
+
+Both original conversations received a short continuation prompt at 00:18
+local time to finish critique, validation and publication under the original
+constraints. The GAN prompt explicitly resumed the saved draft. The notebook
+prompt resumed the prior source analysis. No semantic-review feedback was
+supplied to either run, and no source or skill was edited. Copilot Auto routed
+both resumptions to MAI-Code-1.1-Flash, with individual local command approvals.
+
+| Completed case | Published revision | Phases / nodes / edges / findings / evidence | Reported validator repairs | Native resumed-segment display |
+|---|---|---|---|---|
+| Copilot GAN | `rev-1` | 6 / 11 / 11 / 1 / 17 | 1 | 12 steps, 3m 24s, 7.3 credits |
+| Copilot notebook | `dev-notebook-rev-1` | 4 / 4 / 3 / 1 / 4 | 0 | 2m 41s, 4.2 credits |
+
+Both final responses were visible with Send disabled and no active Cancel
+button; the footers showed 00:22. These durations exclude the interrupted
+original turns and approval delays and are not total elapsed measurements.
+The notebook's todo widget still showed its first item despite its successful
+publication and final answer; no completion claim relies on that widget.
+Ignored observer logs explicitly transcribe selected native accessibility
+observations; they are not byte-identical response exports or screenshots.
+
+Published GAN SHA-256:
+`6451e734b53fbea73d8f621729b8bfc0c529f9db79209850c4ec9b0251b193fe`.
+Published notebook SHA-256:
+`6fe4fbd79af4d30f47462a5c9d469c9f1943adca7e37029720f8f3e4f93139d4`.
+The GAN repair corrected producer, edge, finding and evidence formatting.
+Both originals are preserved as byte-identical public snapshots after privacy
+inspection. Machine paths and native transcript details remain in ignored
+evidence. Source and installed skill hashes still match the frozen inputs.
+
+The installed extension opened both diagrams with their expected revisions,
+counts and three coverage limitations each. GAN's `d_fake_detached_path` node
+opened `train_dcgan.py` at line 86, column 1; the Inspector retained the node
+and lines 86–89's noise, generation, detach and loss quotation. The notebook's
+`train-model` node opened cell 4 of 4 (zero-based cell 3), while its Inspector
+retained the selected node and exact training-loop quotation. No target code
+or notebook cell was executed. GAN omits the optional model name in its artifact;
+the native chat, not the diagram, supplies the observed routed model.
+
+Provisional source review found no privacy issue, but retained semantic caveats.
+GAN's metrics sentence can imply running sums are printed, while lines 101–105
+print current-batch losses. Several autograd claims are labelled observed even
+though they depend on framework semantics. The notebook carefully qualifies
+execution metadata but omits whole-data scaling before the split, missing
+gradient clearing between batches, and the lack of test evaluation and saved
+outputs. These are model-authored review observations, not human verdicts;
+the evaluation artifacts were not changed to remove them.
+
+This completes the development batch's twelve initial skill publications and
+three no-skill baselines. The challenged Codex GAN child and separate partial
+overview retain their distinct roles. Human semantic adjudication and the
+held-out pilot remain pending; no LLM accuracy percentage is claimed.
+
+All thirteen remote CI jobs also passed at `0103178`, including the latest
+partial-coverage display fix:
+[push, seven jobs](https://github.com/realmyang/MLView/actions/runs/35280429266) and
+[PR, six jobs](https://github.com/realmyang/MLView/actions/runs/35280432668), including
+Windows end-to-end. This is exact-revision evidence, separate from the later
+artifact/documentation additions. Draft PR #9 remains open; no merge occurred.
