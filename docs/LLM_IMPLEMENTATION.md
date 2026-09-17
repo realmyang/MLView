@@ -7,6 +7,26 @@ attempted, but GitHub rejected the configured credential because it lacks the
 for this branch yet. The repository's earlier accuracy measurements and CI run
 IDs apply to the legacy static product.
 
+The September 17 credential check confirmed repository write access
+(`canPush: true`) but only the `repo` token scope. GitHub rejected the push
+specifically because it changes `.github/workflows/ci.yml`, which additionally
+requires `workflow` for this classic personal access token. Git's existing
+credential helper and GitHub CLI have separate authentication state; `gh` is
+currently logged out. No credential value was displayed or saved in run logs.
+The account owner can authorize the missing scope through the browser and
+configure Git to use that login:
+
+```sh
+gh auth login --hostname github.com --git-protocol https --web --scopes workflow
+gh auth setup-git --hostname github.com
+```
+
+See GitHub's [workflow permission requirement](https://docs.github.com/en/rest/repos/contents#create-or-update-file-contents),
+[CLI login](https://cli.github.com/manual/gh_auth_login) and
+[Git credential setup](https://cli.github.com/manual/gh_auth_setup-git).
+Once authentication is corrected, the remaining publication steps are push,
+draft PR creation and observing the new revision's CI results.
+
 ## Implemented components
 
 | Component | Responsibility |
@@ -129,7 +149,8 @@ The VSIX contains 182 files and measures 914.67 KB. Its local SHA-256 is
 `fab55253feba1fbaff42b48322ba905219cc1c5b5ea77972b6c58af0fdbb51a6`.
 The renderer SHA-256 is
 `68175c0f8a41b5a323eda09b8e1be3f3be52d54961c780bf7765791568bdb17b`.
-These identify the locally tested build, not a marketplace release.
+These identify the first quality-sprint build, not a marketplace release.
+The retry below produced a newer VSIX with a selection-restoration fix.
 
 Four [provisional development reviews](../evals/workflow/development/README.md)
 separate false defect claims, overextended evidence, omitted behavior and
@@ -138,23 +159,57 @@ decisions. The [pilot protocol](../evals/workflow/README.md) now requires an
 adjudicated 24-run first stage before the 48 repeats can begin. No held-out
 session has been launched by this sprint.
 
-The [fresh native development exercise](demo-logs/2026-09-17-development-native.md)
-published five validated artifacts: all four Codex tasks and Claude's configured
-distillation case. Seven skill cases and three no-skill baselines remain pending;
-two of those skill sessions had started when desktop control failed. The five
-outputs are preserved as [immutable native snapshots](../evals/workflow/development/native-artifacts/README.md).
-Reconstructing each snapshot's recorded files from commit `36dbbe5`, including
-the notebook's installed skill layout, passed all five helper validations.
-Provisional source review identified a misleading GAN logging explanation;
-exact citations alone did not catch that semantic error. Human review remains
-pending and no accuracy score is reported.
+The [initial native development exercise](demo-logs/2026-09-17-development-native.md)
+published five validated artifacts before desktop control failed. The
+[requested retry](demo-logs/2026-09-17-development-retry.md) completed Copilot's
+configured-training case and Claude's grouped-CV case, bringing the total to
+**seven initial artifacts out of twelve skill cases**. Five skill cases and
+all three no-skill baselines remain pending. Copilot's grouped-CV session was
+still repairing a draft at the last UI observation. Copilot Auto routed the
+two tasks to different models, so this is exploratory development evidence,
+not a controlled model comparison.
 
-The new selected-item refinement UI, native Stop/partial-publication check and
-new VSIX live installation were not completed: the desktop connection repeatedly
-returned `cgWindowNotFound`, then an independent reconnect timed out. The earlier
-basic all-host UI exercise remains historical evidence, separate from this
-sprint's updated controls. Raw observations and a validated 15-record status
-matrix are retained under the ignored `.mlview/sprint-20260917` directory.
+The retry also exercised selected-node Challenge and selected-finding prompt
+copying in the real viewer. The original Codex GAN conversation published a
+child revision correcting the misleading logging explanation: the source
+prints current-batch losses, not the running sums. All phase, node, edge,
+finding and evidence IDs were retained. The seven initial outputs and the
+child revision are preserved as [immutable snapshots](../evals/workflow/development/native-artifacts/README.md).
+Reconstructing their recorded files from commit `36dbbe5`, including installed
+skill layouts where recorded, passed all eight helper validations. Human
+semantic review remains pending; exact citations alone had not detected the
+initial semantic error.
+
+The first quality-sprint VSIX (`fab552…`) was installed successfully through
+VS Code. During subsequent source navigation, the viewer lost its selected
+item when its DOM was recreated. Commit `884c5f8` fixes the bootstrap overwriting
+saved viewer state. The regression harness now destroys and remounts the actual
+viewer, restores the selected edge and verifies the copied refinement prompt.
+The extension's 437 tests, TypeScript check and cross-host handshake passed.
+The rebuilt VSIX has 182 files, measures 914.68 KB and has SHA-256
+`d2749561f81af9b25030dd74b0b0884302f993d92fa766dc4df9ef9b4f5b0933`.
+Its live installation and source-return acceptance check remain pending.
+
+The post-fix full `sh scripts/e2e.sh --skip-npm-install` run passed **20 of 20
+gates**, with zero failed or skipped gates. Component totals and existing
+individual skips/TODOs are unchanged from the quality-sprint results above.
+The ignored log is `.mlview/sprint-20260917/retry-e2e.log`. The first restricted
+attempt was stopped after PyPI DNS blocked isolated build dependencies; the
+successful network-enabled retry retained build isolation. The VSIX hash was
+unchanged before and after the successful run.
+
+Native Stop was exercised both immediately and during source inspection for a
+meaningful finding refinement. The latter retained the published GAN r2 hash;
+no child revision was accepted. The UI's reported zero-second duration
+disagreed with the observed working interval and is recorded as such. A native
+partial-overview publication was not observed.
+
+Desktop control then failed again with `cgWindowNotFound`. Repeated attach
+attempts, including a tool reset and cooldown, failed while the app inventory
+still listed VS Code. The cause was not established; no screen-lock diagnosis
+is claimed. Raw observations and the 15-record development matrix are retained
+under the ignored `.mlview/sprint-20260917` directory. The remaining live checks
+require desktop access to recover.
 
 ## Remaining validation
 

@@ -1,8 +1,10 @@
 # Development semantic review workspace
 
-The later [native artifact snapshots](native-artifacts/README.md) preserve five
-fresh host-authored outputs. Their [run log](../../../docs/demo-logs/2026-09-17-development-native.md)
-records publication results and the desktop-control interruption; they are
+The later [native artifact snapshots](native-artifacts/README.md) preserve seven
+fresh initial host-authored outputs and one challenged child revision. The
+[initial log](../../../docs/demo-logs/2026-09-17-development-native.md) and
+[retry log](../../../docs/demo-logs/2026-09-17-development-retry.md) record
+publication results, live checks and desktop-control interruptions; these are
 separate from the four provisional smoke reviews below.
 
 This directory turns the four existing development smoke artifacts into review

@@ -38,6 +38,8 @@ intent; the existing static analyzer remains available as a legacy path.
   hooks are now opt-in, and static VS Code entrypoints are visibly labeled.
 - Added node/edge/finding refinement intents, visible scenario context and
   stable-ID preservation guidance in prompts copied to the native assistant.
+- Fixed authored diagram selection being lost when VS Code recreated the
+  webview after source navigation; added a remount/refinement regression check.
 - Added a read-only installation doctor, deterministic skill ZIPs, extracted
   helper checks, and CI distribution artifacts for both host layouts.
 - Added eight development scenarios and the protocol for a 72-run held-out

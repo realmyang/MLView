@@ -18,12 +18,18 @@
 > implementation is checkpointed at `bb56cdc`; distribution checks are in
 > `2b999f1`. Read the implementation page for the latest validation state.
 > The follow-up implementation passed all 20 local end-to-end gates and 41
-> helper/distribution/evaluation tests plus four subtests. Five fresh native
-> outputs are preserved in the [development log](demo-logs/2026-09-17-development-native.md).
+> helper/distribution/evaluation tests plus four subtests. The
+> [development retry](demo-logs/2026-09-17-development-retry.md) increased the fresh
+> native batch to seven initial artifacts and one challenged child revision.
+> Selected-node/finding prompts, VSIX installation and interrupted refinement
+> were exercised. A discovered remount bug is fixed in `884c5f8` with a regression
+> test; live acceptance of the rebuilt VSIX remains pending.
 > Publication is blocked by the Git credential's missing `workflow` scope;
-> remaining native checks are blocked by the desktop connection failing to
-> attach to VS Code. Both need external recovery before completion can be
-> claimed. No held-out pilot or human semantic scoring has started.
+> repository write access itself is confirmed. Desktop control recovered and
+> then failed again, leaving five skill cases, three no-skill baselines and
+> remaining live checks pending. See the implementation page for authentication
+> recovery commands and exact acceptance boundaries. No held-out pilot or human
+> semantic scoring has started.
 > The static-only direction and “next Sprint A” below
 > are the historical takeover snapshot, not the current roadmap.
 

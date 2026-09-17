@@ -1,5 +1,9 @@
 # Native development-host exercise — 2026-09-17
 
+The [subsequent retry](2026-09-17-development-retry.md) adds two initial
+publications, a challenged child revision and live lifecycle checks. This log
+preserves the first attempt's observations and interruption.
+
 This run exercised the installed MLView skill in fresh, isolated VS Code workspaces. Each fixture contained only its target source and a canonical skill copy. Prompts prohibited target import or execution, the legacy static analyzer, other workspaces, earlier artifacts, and subagents. Published artifacts were checked again with the workspace's installed helper and Python 3.13.
 
 ## Published artifacts
