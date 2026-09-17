@@ -1,0 +1,233 @@
+{
+  "task": "dev-notebook",
+  "artifact": "evals/workflow/development/native-artifacts/copilot/dev-notebook.mlview.json",
+  "artifactSha256": "6fe4fbd79af4d30f47462a5c9d469c9f1943adca7e37029720f8f3e4f93139d4",
+  "artifactRevision": "dev-notebook-rev-1",
+  "artifactRequest": {
+    "configuration": "Single notebook inspected; runtime execution not imported or run. Execution metadata is interpreted as observed notebook state only.",
+    "entrypoints": [
+      "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb"
+    ],
+    "question": "Explain the notebook workflow and separate source order from recorded execution order.",
+    "scope": "Selected notebook entrypoint"
+  },
+  "host": "copilot",
+  "reviewerType": "model-provisional",
+  "reviewStatus": "pending-human-review",
+  "reviewEvidence": [
+    {
+      "id": "nb-count-0",
+      "file": "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb",
+      "jsonPointer": "/cells/0/execution_count",
+      "value": 1
+    },
+    {
+      "id": "nb-count-1",
+      "file": "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb",
+      "jsonPointer": "/cells/1/execution_count",
+      "value": 3
+    },
+    {
+      "id": "nb-count-2",
+      "file": "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb",
+      "jsonPointer": "/cells/2/execution_count",
+      "value": 2
+    },
+    {
+      "id": "nb-count-3",
+      "file": "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb",
+      "jsonPointer": "/cells/3/execution_count",
+      "value": 4
+    }
+  ],
+  "claims": [
+    {
+      "id": "source-flow",
+      "verdict": "supported",
+      "summary": "The four coarse nodes preserve the stored source sequence from imports through load, preparation, and training.",
+      "artifactPointers": [
+        "node:imports",
+        "node:load-data",
+        "node:preprocess-split",
+        "node:train-model"
+      ],
+      "sourceReferences": [
+        "ev-load",
+        "ev-split",
+        "ev-train"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "recorded-order",
+      "verdict": "supported",
+      "summary": "The execution-order finding correctly reports saved counts 1,3,2,4 and qualifies them as metadata rather than proof of runtime history.",
+      "artifactPointers": [
+        "finding:exec-order-risk"
+      ],
+      "sourceReferences": [
+        "nb-count-0",
+        "nb-count-1",
+        "nb-count-2",
+        "nb-count-3"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "data-load",
+      "verdict": "supported",
+      "summary": "The relative features.npz load and X/y extraction are accurately summarized.",
+      "artifactPointers": [
+        "node:load-data"
+      ],
+      "sourceReferences": [
+        "ev-load"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "full-data-scaling",
+      "verdict": "omitted",
+      "summary": "The artifact does not state that StandardScaler.fit_transform runs on all X before the holdout split, a material leakage risk.",
+      "artifactPointers": [
+        "node:preprocess-split"
+      ],
+      "sourceReferences": [
+        "ev-split"
+      ],
+      "failureTypes": [
+        "missed-essential-behavior"
+      ],
+      "humanDecision": null
+    },
+    {
+      "id": "unused-holdout",
+      "verdict": "omitted",
+      "summary": "X_test and y_test are created but never consumed; the artifact does not surface that the holdout is unused.",
+      "artifactPointers": [
+        "node:preprocess-split",
+        "node:train-model"
+      ],
+      "sourceReferences": [
+        "ev-split",
+        "ev-train"
+      ],
+      "failureTypes": [
+        "missed-essential-behavior"
+      ],
+      "humanDecision": null
+    },
+    {
+      "id": "missing-zero-grad",
+      "verdict": "omitted",
+      "summary": "No zero_grad call exists in the loop, so standard PyTorch behavior accumulates parameter gradients across batches; this is absent.",
+      "artifactPointers": [
+        "node:train-model"
+      ],
+      "sourceReferences": [
+        "ev-train"
+      ],
+      "failureTypes": [
+        "missed-essential-behavior"
+      ],
+      "humanDecision": null
+    },
+    {
+      "id": "training-loop",
+      "verdict": "qualified",
+      "summary": "The forward, cross-entropy, backward, and Adam step sequence is present, but calling it a single gradient-descent loop is loose and omits optimizer state and missing gradient clearing.",
+      "artifactPointers": [
+        "node:train-model"
+      ],
+      "sourceReferences": [
+        "ev-train"
+      ],
+      "failureTypes": [
+        "unqualified-inference"
+      ],
+      "humanDecision": null
+    },
+    {
+      "id": "absent-evaluation",
+      "verdict": "omitted",
+      "summary": "The notebook contains no test prediction, metric, validation, display, or model persistence, and the artifact does not report these absences.",
+      "artifactPointers": [],
+      "sourceReferences": [
+        "ev-train"
+      ],
+      "failureTypes": [
+        "missed-essential-behavior"
+      ],
+      "humanDecision": null
+    },
+    {
+      "id": "data-contract",
+      "verdict": "omitted",
+      "summary": "The artifact does not explain that feature width, dtypes, label range, row count, and file availability are unresolved without features.npz.",
+      "artifactPointers": [],
+      "sourceReferences": [
+        "ev-load",
+        "ev-train"
+      ],
+      "failureTypes": [
+        "missed-essential-behavior"
+      ],
+      "humanDecision": null
+    }
+  ],
+  "usability": {
+    "dataOrigin": {
+      "status": "partial",
+      "answer": "features.npz is named, but its missing runtime contract is not explained.",
+      "artifactPointers": [
+        "node:load-data"
+      ],
+      "humanDecision": null
+    },
+    "updatedParametersAndFitState": {
+      "status": "partial",
+      "answer": "Adam stepping is shown, while scaler fit scope and missing gradient clearing are absent.",
+      "artifactPointers": [
+        "node:preprocess-split",
+        "node:train-model"
+      ],
+      "humanDecision": null
+    },
+    "losses": {
+      "status": "clear",
+      "answer": "Cross-entropy is named in the training summary.",
+      "artifactPointers": [
+        "node:train-model"
+      ],
+      "humanDecision": null
+    },
+    "evaluationBoundaries": {
+      "status": "missing",
+      "answer": "The artifact does not say the test split is unused or that no evaluation occurs.",
+      "artifactPointers": [
+        "node:preprocess-split",
+        "node:train-model"
+      ],
+      "humanDecision": null
+    },
+    "outputs": {
+      "status": "missing",
+      "answer": "No metric, notebook output, or persistence absence is reported.",
+      "artifactPointers": [],
+      "humanDecision": null
+    },
+    "uncertainty": {
+      "status": "partial",
+      "answer": "Execution-count uncertainty is good, but missing data-contract and training-semantics uncertainty remain.",
+      "artifactPointers": [
+        "finding:exec-order-risk",
+        "coverage"
+      ],
+      "humanDecision": null
+    }
+  },
+  "humanReview": null
+}

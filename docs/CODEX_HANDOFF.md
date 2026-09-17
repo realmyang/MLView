@@ -1,5 +1,32 @@
 # MLView takeover — 2026-09-16
 
+> **Current update (2026-09-18):** the semantic-quality candidate in the current
+> change is based on `766d9cc`. The base commit passed all
+> 13 remote CI jobs in push run `35282332067` and pull-request run
+> `35282336685`, before this candidate was created, so those runs do not validate
+> the candidate. The frozen candidate skill bundle has SHA-256
+> `837358d2689890ec663dfebac57092c369db02d6e75a9229953776b1b5f2e29b`.
+> Twelve original skill reviews and three matched baseline comparisons remain
+> model-provisional; every human field remains pending. Of six fresh GAN and
+> notebook follow-ups against the frozen bundle, four completed with final UI
+> evidence. Copilot GAN failed when its initial validation and both allowed
+> repair rounds produced invalid JSON; an attempted third repair was stopped,
+> preserved and left unpublished. Copilot notebook published validator-clean
+> revision `rev-leak-out-of-order-1` after two repairs, but final native UI
+> observation remains pending after desktop attachment failed.
+> Fresh post-helper checks passed 51 focused tests plus four subtests and all 10
+> `tools/verify.py --all` gates. Claude's 38-node GAN diagram and saved whole-
+> diagram PNG were visually inspected. The review packet passed content,
+> escaping and hash checks; browser visual QA of its local file URL was blocked
+> by policy and is not claimed.
+> Claude uses Fable 5.1 with Extra High reasoning; Codex uses Sol with Ultra
+> reasoning. Copilot Auto was already selected and routed both current sessions
+> to GPT-5.6 Luna; Upgrade appeared only as an unavailable choice and was never
+> selected, and no account change occurred. The 24 held-out first runs and 48 repeats have not started and
+> remain gated on human approval and freezing of the reference packet. Do not
+> convert model review into human decisions or claim candidate improvement from
+> validator, UI, or CI success.
+
 > **Later user correction (2026-09-16):** the intended product is an LLM skill
 > using the native Copilot, Codex, or Claude Code model as the analysis backend.
 > The active proposal is [LLM_DIRECTION_PLAN.md](LLM_DIRECTION_PLAN.md), with

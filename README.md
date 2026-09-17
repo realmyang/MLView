@@ -83,6 +83,11 @@ format is [WorkflowDocument 1.0](docs/WORKFLOW_CONTRACT.md), with its
 bypasses the Python static analyzer. Generated JSON is data, never a script or
 an instruction to the viewer.
 
+The [semantic-quality sprint](docs/QUALITY_SPRINT.md) records the current skill
+improvements and development follow-ups. Its [review ledgers](evals/workflow/development/native-reviews/README.md)
+cover twelve native artifacts and three no-skill baselines; their semantic
+judgments remain provisional until human review.
+
 ## Legacy static workflow
 
 The dependency-free Python analyzer, old reports, rule catalog, and static

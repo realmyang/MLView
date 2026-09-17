@@ -1,0 +1,785 @@
+{
+  "coverage": {
+    "inspectedFiles": [
+      "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb"
+    ],
+    "limitations": [
+      "Nothing was executed or imported. The source-order flow describes what the code specifies, not evidence that it runs successfully.",
+      "features.npz is referenced but is not in the workspace: array shapes, dtypes, class count and row count are unknown. Whether X has 10 columns, whether labels are int64 class indices in 0..2, and whether torch.tensor(X_train) yields the float32 that the default nn.Linear needs are unresolved.",
+      "Metadata used beyond cell-source citations: execution_count (cell 0: 1, cell 1: 3, cell 2: 2, cell 3: 4), every cell's outputs array (all empty), and kernelspec python3 / language_info 3.11.0. Evidence entries can only quote cell source, so items in the recorded-order phase anchor to the relevant cell's source lines while the counts are disclosed here and in node detail.",
+      "Execution counts record only each cell's most recent execution number. They do not prove that a cell succeeded, that all counts come from one kernel session, that cell source was unchanged after it ran, or that a clean-kernel run ever completed. Recorded-order nodes and sequence edges are therefore marked inferred: each count is read directly from metadata, but treating the counts as one execution sequence is an interpretation. What that sequence implies for data flow is marked unresolved.",
+      "Cross-cell data flow (X, y, X_train, y_train and the imported names) is marked inferred: it holds when cells run top to bottom, but name binding between cells depends on kernel state. Flow inside a single cell is marked observed.",
+      "Framework behaviour (gradient accumulation across backward calls, Adam updating the parameters it was given, StandardScaler fitting on its argument, torch.tensor dtype preservation) is taken from general PyTorch and scikit-learn semantics, not from inspected library source.",
+      "The notebook is the only project file in the workspace; there are no configs, launch scripts, tests or documents to inspect. Reported absences (no zero_grad, no evaluation, no use of X_test or y_test, no saved or logged outputs, no epoch loop, no seeds for torch) are absences across all four cells of this notebook."
+    ],
+    "status": "scoped",
+    "summary": "All four code cells of the notebook were read in full, together with each cell's execution_count and outputs metadata and the notebook-level kernelspec. Source order (cells 0, 1, 2, 3): import libraries; run magics and load features.npz into X and y; fit StandardScaler on all of X and only then split 80/20; build a single nn.Linear(10, 3) classifier with CrossEntropyLoss and Adam and make one pass over a shuffled DataLoader of the training split. Parameters changed: the Linear weight and bias, by Adam, driven by cross-entropy on training batches. Fitted state: the scaler's mean and scale, from all rows. Evaluation: none; X_test and y_test are never consumed. Outputs: none persisted, logged or printed; only the in-memory model. Recorded order (execution_count 1, 2, 3, 4 = cell 0, cell 2, cell 1, cell 3) is shown in its own phase and is not merged with the source-order flow."
+  },
+  "edges": [
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-c1-magics"
+      ],
+      "id": "e-imports-magics",
+      "kind": "control",
+      "label": "next cell in source order (cell 0, then cell 1)",
+      "source": "imports",
+      "target": "env-magics"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-c1-load"
+      ],
+      "id": "e-magics-load",
+      "kind": "control",
+      "label": "same cell, next statement",
+      "source": "env-magics",
+      "target": "load-data"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-c1-xy",
+        "ev-c2-fit-call"
+      ],
+      "id": "e-x-scaler",
+      "kind": "data",
+      "label": "X, all rows, unsplit (cross-cell name; holds when cells run top to bottom)",
+      "source": "load-data",
+      "target": "fit-scaler"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-c1-xy",
+        "ev-c2-split"
+      ],
+      "id": "e-y-split",
+      "kind": "data",
+      "label": "y (cross-cell name; holds when cells run top to bottom)",
+      "source": "load-data",
+      "target": "split"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-c2-fit-call",
+        "ev-c2-split"
+      ],
+      "id": "e-scaled-split",
+      "kind": "data",
+      "label": "X_scaled, already standardized with all-row statistics",
+      "source": "fit-scaler",
+      "target": "split"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-c2-split"
+      ],
+      "id": "e-split-heldout",
+      "kind": "data",
+      "label": "X_test, y_test (test_size=0.2)",
+      "source": "split",
+      "target": "heldout"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-c2-split-assign",
+        "ev-c3-dataset"
+      ],
+      "id": "e-split-loader",
+      "kind": "data",
+      "label": "X_train, y_train (cross-cell names; holds when cells run top to bottom)",
+      "source": "split",
+      "target": "train-loader"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-c3-optimizer"
+      ],
+      "id": "e-model-optimizer",
+      "kind": "state",
+      "label": "model.parameters()",
+      "source": "build-model",
+      "target": "optimizer"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-c3-for",
+        "ev-c3-forward"
+      ],
+      "id": "e-loader-forward",
+      "kind": "data",
+      "label": "features batch",
+      "source": "train-loader",
+      "target": "forward"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-c3-for",
+        "ev-c3-loss"
+      ],
+      "id": "e-loader-loss",
+      "kind": "data",
+      "label": "labels batch",
+      "source": "train-loader",
+      "target": "loss"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-c3-forward"
+      ],
+      "id": "e-model-forward",
+      "kind": "call",
+      "label": "model(...) call",
+      "source": "build-model",
+      "target": "forward"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-c3-loss"
+      ],
+      "id": "e-forward-loss",
+      "kind": "data",
+      "label": "outputs (logits)",
+      "source": "forward",
+      "target": "loss"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-c3-loss"
+      ],
+      "id": "e-criterion-loss",
+      "kind": "call",
+      "label": "criterion(...) call",
+      "source": "criterion",
+      "target": "loss"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-c3-backward"
+      ],
+      "id": "e-loss-backward",
+      "kind": "data",
+      "label": "loss",
+      "source": "loss",
+      "target": "backward"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-c3-loop-body"
+      ],
+      "id": "e-backward-step",
+      "kind": "state",
+      "label": ".grad on Linear weight and bias: accumulated, never zeroed",
+      "source": "backward",
+      "target": "step"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-c3-step"
+      ],
+      "id": "e-optimizer-step",
+      "kind": "call",
+      "label": "optimizer.step()",
+      "source": "optimizer",
+      "target": "step"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-c3-optimizer",
+        "ev-c3-step"
+      ],
+      "id": "e-step-model",
+      "kind": "state",
+      "label": "in-place update of the parameters Adam owns",
+      "source": "step",
+      "target": "build-model"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-c3-for"
+      ],
+      "id": "e-step-next",
+      "kind": "loop",
+      "label": "next batch, until the loader is exhausted",
+      "source": "step",
+      "target": "forward"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-c2-fit"
+      ],
+      "id": "e-rec-1-2",
+      "kind": "recorded-order",
+      "label": "count 1, then count 2",
+      "source": "rec-1",
+      "target": "rec-2"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-c1-load"
+      ],
+      "id": "e-rec-2-3",
+      "kind": "recorded-order",
+      "label": "count 2, then count 3",
+      "source": "rec-2",
+      "target": "rec-3"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-c3-dataset"
+      ],
+      "id": "e-rec-3-4",
+      "kind": "recorded-order",
+      "label": "count 3, then count 4",
+      "source": "rec-3",
+      "target": "rec-4"
+    },
+    {
+      "basis": "unresolved",
+      "evidence": [
+        "ev-c2-fit-call"
+      ],
+      "id": "e-rec-origin",
+      "kind": "data",
+      "label": "X, y: source unresolved at count 2",
+      "source": "rec-x-origin",
+      "target": "rec-2"
+    },
+    {
+      "basis": "unresolved",
+      "evidence": [
+        "ev-c3-dataset"
+      ],
+      "id": "e-rec-2-4",
+      "kind": "data",
+      "label": "X_train, y_train: only if the count-2 execution succeeded",
+      "source": "rec-2",
+      "target": "rec-4"
+    }
+  ],
+  "evidence": [
+    {
+      "cell": 0,
+      "endLine": 7,
+      "file": "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb",
+      "id": "ev-c0-imports",
+      "line": 1,
+      "quote": "import numpy as np\nimport torch\nimport torch.nn as nn\nimport torch.optim as optim\nfrom torch.utils.data import DataLoader, TensorDataset\nfrom sklearn.model_selection import train_test_split\nfrom sklearn.preprocessing import StandardScaler"
+    },
+    {
+      "cell": 0,
+      "endLine": 7,
+      "file": "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb",
+      "id": "ev-c0-sklearn",
+      "line": 6,
+      "quote": "from sklearn.model_selection import train_test_split\nfrom sklearn.preprocessing import StandardScaler"
+    },
+    {
+      "cell": 1,
+      "endLine": 2,
+      "file": "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb",
+      "id": "ev-c1-magics",
+      "line": 1,
+      "quote": "%matplotlib inline\n!pip install --quiet scikit-learn"
+    },
+    {
+      "cell": 1,
+      "endLine": 5,
+      "file": "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb",
+      "id": "ev-c1-load",
+      "line": 3,
+      "quote": "raw = np.load(\"features.npz\")\nX = raw[\"features\"]\ny = raw[\"labels\"]"
+    },
+    {
+      "cell": 1,
+      "endLine": 5,
+      "file": "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb",
+      "id": "ev-c1-xy",
+      "line": 4,
+      "quote": "X = raw[\"features\"]\ny = raw[\"labels\"]"
+    },
+    {
+      "cell": 2,
+      "endLine": 2,
+      "file": "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb",
+      "id": "ev-c2-fit",
+      "line": 1,
+      "quote": "scaler = StandardScaler()\nX_scaled = scaler.fit_transform(X)"
+    },
+    {
+      "cell": 2,
+      "endLine": 2,
+      "file": "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb",
+      "id": "ev-c2-fit-call",
+      "line": 2,
+      "quote": "X_scaled = scaler.fit_transform(X)"
+    },
+    {
+      "cell": 2,
+      "endLine": 4,
+      "file": "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb",
+      "id": "ev-c2-split",
+      "line": 3,
+      "quote": "X_train, X_test, y_train, y_test = train_test_split(\n    X_scaled, y, test_size=0.2, random_state=0)"
+    },
+    {
+      "cell": 2,
+      "endLine": 3,
+      "file": "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb",
+      "id": "ev-c2-split-assign",
+      "line": 3,
+      "quote": "X_train, X_test, y_train, y_test = train_test_split("
+    },
+    {
+      "cell": 3,
+      "endLine": 1,
+      "file": "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb",
+      "id": "ev-c3-model",
+      "line": 1,
+      "quote": "model = nn.Sequential(nn.Linear(10, 3))"
+    },
+    {
+      "cell": 3,
+      "endLine": 2,
+      "file": "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb",
+      "id": "ev-c3-criterion",
+      "line": 2,
+      "quote": "criterion = nn.CrossEntropyLoss()"
+    },
+    {
+      "cell": 3,
+      "endLine": 3,
+      "file": "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb",
+      "id": "ev-c3-optimizer",
+      "line": 3,
+      "quote": "optimizer = optim.Adam(model.parameters(), lr=0.001)"
+    },
+    {
+      "cell": 3,
+      "endLine": 4,
+      "file": "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb",
+      "id": "ev-c3-dataset",
+      "line": 4,
+      "quote": "ds = TensorDataset(torch.tensor(X_train), torch.tensor(y_train))"
+    },
+    {
+      "cell": 3,
+      "endLine": 5,
+      "file": "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb",
+      "id": "ev-c3-loader",
+      "line": 5,
+      "quote": "train_loader = DataLoader(ds, batch_size=32, shuffle=True)"
+    },
+    {
+      "cell": 3,
+      "endLine": 6,
+      "file": "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb",
+      "id": "ev-c3-for",
+      "line": 6,
+      "quote": "for features, labels in train_loader:"
+    },
+    {
+      "cell": 3,
+      "endLine": 7,
+      "file": "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb",
+      "id": "ev-c3-forward",
+      "line": 7,
+      "quote": "    outputs = model(features)"
+    },
+    {
+      "cell": 3,
+      "endLine": 8,
+      "file": "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb",
+      "id": "ev-c3-loss",
+      "line": 8,
+      "quote": "    loss = criterion(outputs, labels)"
+    },
+    {
+      "cell": 3,
+      "endLine": 9,
+      "file": "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb",
+      "id": "ev-c3-backward",
+      "line": 9,
+      "quote": "    loss.backward()"
+    },
+    {
+      "cell": 3,
+      "endLine": 10,
+      "file": "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb",
+      "id": "ev-c3-step",
+      "line": 10,
+      "quote": "    optimizer.step()"
+    },
+    {
+      "cell": 3,
+      "endLine": 10,
+      "file": "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb",
+      "id": "ev-c3-loop-body",
+      "line": 6,
+      "quote": "for features, labels in train_loader:\n    outputs = model(features)\n    loss = criterion(outputs, labels)\n    loss.backward()\n    optimizer.step()"
+    }
+  ],
+  "findings": [
+    {
+      "basis": "inferred",
+      "edgeIds": [
+        "e-backward-step"
+      ],
+      "evidence": [
+        "ev-c3-loop-body"
+      ],
+      "id": "no-zero-grad",
+      "message": "The loop body is forward, loss, backward, step (cell 3, lines 6-10). No cell calls optimizer.zero_grad() or model.zero_grad(), or resets .grad; all four cells were read. Under PyTorch's accumulate-on-backward semantics, every step after the first applies Adam to the running sum of all earlier batches' gradients instead of the current batch's gradient. Basis is inferred because the consequence rests on framework semantics; the absence itself is read directly from the source. This is a property of cell 3 alone and does not depend on cell order. Runtime-dependent parts: (1) the effect needs more than one batch, i.e. more than 32 training rows; the row count is unknown because features.npz is not in the workspace, and with a single batch the one pass has only one step and nothing accumulates; (2) whether the loop ran at all in the recorded session is unresolved (see recorded-order-dependency). Re-running cell 3 rebuilds model and optimizer on lines 1 and 3, so accumulated gradients do not carry over between executions of the cell; the accumulation is confined to the batches of one pass.",
+      "nodeIds": [
+        "train-loop",
+        "backward",
+        "step"
+      ],
+      "severity": "high",
+      "suggestion": "Call optimizer.zero_grad() at the top of each iteration, before the forward pass.",
+      "title": "Training loop never clears gradients (no optimizer.zero_grad())"
+    },
+    {
+      "basis": "observed",
+      "counterEvidence": [
+        "ev-c3-dataset"
+      ],
+      "edgeIds": [
+        "e-scaled-split",
+        "e-split-heldout"
+      ],
+      "evidence": [
+        "ev-c2-fit",
+        "ev-c2-split"
+      ],
+      "id": "leak-scaler-before-split",
+      "message": "scaler.fit_transform(X) (cell 2, line 2) runs before train_test_split(X_scaled, ...) (cell 2, lines 3-4), so the scaler's mean and scale include the 20% of rows that become X_test. Both statements sit in the same cell, so the fit-before-split order holds in source order and in any execution order in which cell 2 completes. Runtime-dependent part: which array X was bound when cell 2 ran. In source order it is the features array loaded in cell 1; in the recorded order cell 2 (count 2) precedes the load cell (count 3), so the identity of X is unresolved. Impact inside this notebook is limited: only X_train and y_train are consumed downstream and X_test / y_test are never evaluated, so no reported metric is inflated here. The held-out split is nevertheless contaminated from the moment it is created, and any evaluation later added on X_test would be optimistic. No second fit on X_train alone and no Pipeline exists in any cell.",
+      "nodeIds": [
+        "fit-scaler",
+        "split",
+        "heldout"
+      ],
+      "severity": "medium",
+      "suggestion": "Split first, then scaler.fit(X_train) and transform both splits with that fitted scaler, or wrap scaler and model in a Pipeline.",
+      "title": "StandardScaler is fit on all rows before the train/test split"
+    },
+    {
+      "basis": "inferred",
+      "edgeIds": [
+        "e-rec-origin",
+        "e-rec-2-4"
+      ],
+      "evidence": [
+        "ev-c1-xy",
+        "ev-c2-fit-call",
+        "ev-c2-split",
+        "ev-c3-dataset"
+      ],
+      "id": "recorded-order-dependency",
+      "message": "Metadata, which cell-source citations cannot quote: execution_count is 1 for cell 0, 3 for cell 1, 2 for cell 2 and 4 for cell 3, and every outputs array is empty. X and y are assigned only in cell 1 (lines 4-5), yet cell 2, which reads both (lines 2 and 4), carries the lower count. What actually happened depends on kernel state that the file does not save, so it is unresolved: (a) if the counts come from one fresh kernel, cell 2 raised NameError at fit_transform(X), X_train never existed, and cell 3 at count 4 failed at torch.tensor(X_train) (line 4), meaning no training occurred; (b) if X and y were already bound (for example counts left from different sessions, source edited after running, or a hand-written file; the list is not exhaustive), the model at count 4 was trained on a split of that earlier X, and the data re-loaded at count 3 was never scaled, split or trained on. No error output is stored, but empty outputs neither confirm nor exclude (a). In either case the saved counts do not demonstrate a successful clean-kernel run; source order is the only ordering whose data flow the source itself establishes.",
+      "nodeIds": [
+        "rec-2",
+        "rec-3",
+        "rec-4",
+        "rec-x-origin"
+      ],
+      "severity": "medium",
+      "suggestion": "Restart the kernel, run all cells top to bottom, and save only after that run completes; treat source order as canonical.",
+      "title": "Recorded execution counts place the scale/split cell before the cell that defines X and y"
+    }
+  ],
+  "nodes": [
+    {
+      "basis": "observed",
+      "detail": "Cell 0, lines 1-7. Imports only. Every later cell relies on these names (np in cell 1; StandardScaler and train_test_split in cell 2; torch, nn, optim, TensorDataset and DataLoader in cell 3), which is a cross-cell dependency on kernel state.",
+      "evidence": [
+        "ev-c0-imports"
+      ],
+      "id": "imports",
+      "kind": "setup",
+      "label": "Import NumPy, PyTorch (nn, optim, DataLoader, TensorDataset) and scikit-learn (train_test_split, StandardScaler)",
+      "phase": "src-setup"
+    },
+    {
+      "basis": "observed",
+      "detail": "Cell 1, lines 1-2. IPython-only syntax, so this cell is not plain Python. The install is written after cell 0 has already imported sklearn (cell 0, lines 6-7); that holds in source order and in the recorded order alike. Whether it matters depends on environment state that the notebook does not record: if scikit-learn is missing, cell 0 fails before this line can run; if it is present, the install changes nothing. No plotting call exists in any cell, so the matplotlib magic has no consumer.",
+      "evidence": [
+        "ev-c1-magics",
+        "ev-c0-sklearn"
+      ],
+      "id": "env-magics",
+      "kind": "setup",
+      "label": "Notebook magics: %matplotlib inline, then !pip install --quiet scikit-learn",
+      "phase": "src-setup"
+    },
+    {
+      "basis": "observed",
+      "detail": "Cell 1, lines 3-5. np.load on a relative path. The file is not in the workspace, so row count, feature width, dtypes and label encoding are unknown. This is the only place X and y are assigned in the notebook.",
+      "evidence": [
+        "ev-c1-load"
+      ],
+      "id": "load-data",
+      "kind": "data",
+      "label": "Load features.npz, then X = raw[\"features\"] and y = raw[\"labels\"]",
+      "phase": "src-data"
+    },
+    {
+      "basis": "observed",
+      "detail": "Cell 2, lines 1-2. Fitted state is the scaler's per-feature mean and scale, estimated from the whole of X before any split exists. X_scaled therefore carries statistics from rows that later become X_test. The scaler is never re-fit and never used again after line 2.",
+      "evidence": [
+        "ev-c2-fit"
+      ],
+      "id": "fit-scaler",
+      "kind": "preprocessing",
+      "label": "Fit StandardScaler on all of X and transform it (fit_transform)",
+      "phase": "src-prep"
+    },
+    {
+      "basis": "observed",
+      "detail": "Cell 2, lines 3-4. Splits the already-scaled features and y into X_train, X_test, y_train, y_test. 20% held out, split seed fixed at 0, no stratify argument. It follows the scaler fit inside the same cell, so fit-before-split holds whenever this cell completes, whatever the order of cells.",
+      "evidence": [
+        "ev-c2-split"
+      ],
+      "id": "split",
+      "kind": "split",
+      "label": "train_test_split(X_scaled, y, test_size=0.2, random_state=0)",
+      "phase": "src-prep"
+    },
+    {
+      "basis": "observed",
+      "detail": "Assigned at cell 2, line 3. Neither name appears again in any of the four cells: no model.eval(), no torch.no_grad() block, no prediction on X_test, no metric, no print. The notebook performs no evaluation; a held-out split exists but nothing measures the model against it.",
+      "evidence": [
+        "ev-c2-split-assign"
+      ],
+      "id": "heldout",
+      "kind": "data",
+      "label": "Held-out X_test / y_test: assigned, never consumed",
+      "phase": "src-prep"
+    },
+    {
+      "basis": "observed",
+      "detail": "Cell 3, line 1. One linear layer with 10 input features and 3 output logits, both hard-coded. Whether X has 10 columns and y has 3 classes cannot be checked without features.npz. No torch.manual_seed anywhere, so initial weights differ between runs.",
+      "evidence": [
+        "ev-c3-model"
+      ],
+      "id": "build-model",
+      "kind": "model",
+      "label": "Build model: nn.Sequential(nn.Linear(10, 3))",
+      "phase": "src-train"
+    },
+    {
+      "basis": "observed",
+      "detail": "Cell 3, line 2. The only objective in the notebook, with default arguments.",
+      "evidence": [
+        "ev-c3-criterion"
+      ],
+      "id": "criterion",
+      "kind": "loss",
+      "label": "criterion = nn.CrossEntropyLoss()",
+      "phase": "src-train"
+    },
+    {
+      "basis": "observed",
+      "detail": "Cell 3, line 3. The only optimizer. It is handed every parameter of the model, i.e. the Linear layer's weight and bias. The scaler's fitted state is not a torch parameter and is not touched by it.",
+      "evidence": [
+        "ev-c3-optimizer"
+      ],
+      "id": "optimizer",
+      "kind": "optimizer",
+      "label": "optimizer = Adam(model.parameters(), lr=0.001)",
+      "phase": "src-train"
+    },
+    {
+      "basis": "observed",
+      "detail": "Cell 3, lines 4-5. Only the training split is wrapped. No cast is written and torch.tensor keeps the NumPy dtype: if the scaled features are float64, the default float32 Linear layer would reject them, and CrossEntropyLoss expects int64 class-index labels. Both depend on the dtypes stored in features.npz, which are unknown. shuffle=True without a torch seed means batch order is not reproducible.",
+      "evidence": [
+        "ev-c3-dataset",
+        "ev-c3-loader"
+      ],
+      "id": "train-loader",
+      "kind": "data",
+      "label": "TensorDataset(torch.tensor(X_train), torch.tensor(y_train)), then DataLoader(batch_size=32, shuffle=True)",
+      "phase": "src-train"
+    },
+    {
+      "basis": "observed",
+      "detail": "Cell 3, lines 6-10. A single for-loop over the loader, i.e. one epoch. The body is forward, loss, backward, step. Across all four cells there is no optimizer.zero_grad() or model.zero_grad(), no loss logging or print, no validation, and no torch.save or other persisted output: the only product is the in-memory model.",
+      "evidence": [
+        "ev-c3-for"
+      ],
+      "id": "train-loop",
+      "kind": "loop",
+      "label": "Training loop: one pass over train_loader (no epoch loop)",
+      "phase": "src-train"
+    },
+    {
+      "basis": "observed",
+      "detail": "Cell 3, line 7. Logits for the current batch.",
+      "evidence": [
+        "ev-c3-forward"
+      ],
+      "id": "forward",
+      "kind": "compute",
+      "label": "outputs = model(features)",
+      "parent": "train-loop",
+      "phase": "src-train"
+    },
+    {
+      "basis": "observed",
+      "detail": "Cell 3, line 8. Cross-entropy of batch logits against batch labels. The value is never logged, accumulated or returned.",
+      "evidence": [
+        "ev-c3-loss"
+      ],
+      "id": "loss",
+      "kind": "compute",
+      "label": "loss = criterion(outputs, labels)",
+      "parent": "train-loop",
+      "phase": "src-train"
+    },
+    {
+      "basis": "observed",
+      "detail": "Cell 3, line 9. Computes gradients for the Linear weight and bias, the only parameters in the graph. Nothing zeroes .grad, so under PyTorch autograd semantics each batch's gradients are added to those already stored (inferred from framework behaviour, not from inspected library source).",
+      "evidence": [
+        "ev-c3-backward"
+      ],
+      "id": "backward",
+      "kind": "compute",
+      "label": "loss.backward()",
+      "parent": "train-loop",
+      "phase": "src-train"
+    },
+    {
+      "basis": "observed",
+      "detail": "Cell 3, line 10. Adam updates the parameters it owns (Linear weight and bias) from whatever is in .grad at that moment.",
+      "evidence": [
+        "ev-c3-step"
+      ],
+      "id": "step",
+      "kind": "update",
+      "label": "optimizer.step()",
+      "parent": "train-loop",
+      "phase": "src-train"
+    },
+    {
+      "basis": "inferred",
+      "detail": "Metadata: cells[0].execution_count = 1, outputs = []. Consistent with source order: nothing in cell 0 depends on another cell. The citation anchors the cell's source; the count itself lives in notebook metadata.",
+      "evidence": [
+        "ev-c0-imports"
+      ],
+      "id": "rec-1",
+      "kind": "recorded-execution",
+      "label": "Recorded count 1 · cell 0 (imports)",
+      "phase": "recorded"
+    },
+    {
+      "basis": "inferred",
+      "detail": "Metadata: cells[2].execution_count = 2, outputs = []. Reads X (cell 2, line 2) and y (cell 2, line 4), which only cell 1 assigns, yet cell 1 carries the later count 3. Whether this execution succeeded, and on which X, cannot be recovered from the file.",
+      "evidence": [
+        "ev-c2-fit",
+        "ev-c2-split"
+      ],
+      "id": "rec-2",
+      "kind": "recorded-execution",
+      "label": "Recorded count 2 · cell 2 (fit scaler, split): lower count than cell 1, the only cell that assigns X and y",
+      "phase": "recorded"
+    },
+    {
+      "basis": "inferred",
+      "detail": "Metadata: cells[1].execution_count = 3, outputs = []. The X and y bound here are not read by the only later recorded execution: cell 3 references X_train and y_train, never X, y, raw, scaler or X_scaled. Under the recorded order the freshly loaded data is never scaled, split or trained on.",
+      "evidence": [
+        "ev-c1-load"
+      ],
+      "id": "rec-3",
+      "kind": "recorded-execution",
+      "label": "Recorded count 3 · cell 1 (magics, load features.npz)",
+      "phase": "recorded"
+    },
+    {
+      "basis": "inferred",
+      "detail": "Metadata: cells[3].execution_count = 4, outputs = []. Needs X_train and y_train (cell 3, line 4), which only cell 2 assigns. If the count-2 execution failed, this cell fails at line 4 after building model, criterion and optimizer, and no training happens; if it succeeded, training used the split made at count 2, not the data loaded at count 3.",
+      "evidence": [
+        "ev-c3-dataset",
+        "ev-c3-loop-body"
+      ],
+      "id": "rec-4",
+      "kind": "recorded-execution",
+      "label": "Recorded count 4 · cell 3 (model, optimizer, training loop)",
+      "phase": "recorded"
+    },
+    {
+      "basis": "unresolved",
+      "detail": "Alternatives the file cannot distinguish. (a) One fresh kernel: X is undefined at count 2, cell 2 raises NameError while evaluating fit_transform(X), X_train never exists, and cell 3 later fails at torch.tensor(X_train). (b) X and y were already bound, for example because the saved counts stem from more than one kernel session, cell source was edited after it ran, or the file was written by hand (not an exhaustive list); the scaler and split then operated on that earlier X. No error output is stored in any cell, but empty outputs do not settle which case holds.",
+      "evidence": [],
+      "id": "rec-x-origin",
+      "kind": "unknown-state",
+      "label": "Were X and y bound at count 2? Kernel state is not saved in the notebook",
+      "phase": "recorded"
+    }
+  ],
+  "phases": [
+    {
+      "id": "src-setup",
+      "label": "Source order 1 · Environment and imports (cell 0; cell 1 L1-2)"
+    },
+    {
+      "id": "src-data",
+      "label": "Source order 2 · Load data (cell 1 L3-5)"
+    },
+    {
+      "id": "src-prep",
+      "label": "Source order 3 · Scale, then split (cell 2)"
+    },
+    {
+      "id": "src-train",
+      "label": "Source order 4 · Model, optimizer and training loop (cell 3)"
+    },
+    {
+      "id": "recorded",
+      "label": "Recorded execution order · execution_count metadata: cell 0, cell 2, cell 1, cell 3"
+    }
+  ],
+  "producer": {
+    "host": "claude-code",
+    "kind": "host-llm",
+    "model": "claude-fable-5-1"
+  },
+  "request": {
+    "configuration": "No config file or launch arguments exist; hyperparameters are the literals in the cells (test_size=0.2, random_state=0, nn.Linear(10, 3), Adam lr=0.001, batch_size=32, shuffle=True). Two orderings are kept apart and never merged: source order (cells 0, 1, 2, 3, which is what Restart & Run All would execute) and recorded order from execution_count metadata (cell 0, cell 2, cell 1, cell 3).",
+    "entrypoints": [
+      "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb"
+    ],
+    "question": "Explain the notebook workflow with exact cell citations. Separate source order from recorded execution order and qualify any finding whose interpretation depends on runtime state.",
+    "scope": "Single notebook analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb, read statically: cell source plus execution_count and outputs metadata. Nothing was imported or executed. Cell indices are zero-based and line numbers address each cell's own source."
+  },
+  "revision": {
+    "id": "rev-dev-notebook-20260918-1"
+  },
+  "title": "leak_out_of_order.ipynb: scale, split and train a linear classifier (source order vs recorded execution order)",
+  "verification": {
+    "files": {
+      "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb": "f3fa7e4837d70e93cb95c04f204d7c2f5701c5f53b1b6c4598abca5e22cb30f9"
+    },
+    "publishedAt": "2026-09-17T23:20:24.369149Z"
+  },
+  "workflowVersion": "1.0"
+}

@@ -1,0 +1,239 @@
+{
+  "host": "claude-code",
+  "task": "dev-config",
+  "artifact": "evals/workflow/development/native-artifacts/claude-code/dev-config.mlview.json",
+  "artifactSha256": "a5d7ae7311c6ed1d24b8ba3c3449cf5ba3793b275521eb12cad3d71e777c43ab",
+  "artifactRevision": "dev-config-distill-r1",
+  "artifactRequest": {
+    "configuration": "README-stated scenario: train.py --config configs/distill.json (working directory not recorded; README wording suggests samples/configured_training). --config is the only CLI flag, so no overrides are possible and run() reads every key with config[...] and no defaults: student=small, teacher=wide, teacher_checkpoint=external/teacher.pt, train_data=external/train.pt, validation_data=external/validation.pt, alpha=0.6, temperature=2.0, learning_rate=0.001, epochs=5, output=student.pt. Hard-coded in source rather than configured: batch_size=32, Adam optimizer, CPU map_location.",
+    "entrypoints": [
+      "samples/configured_training/train.py",
+      "samples/configured_training/configs/distill.json"
+    ],
+    "question": "Explain training selected by samples/configured_training/configs/distill.json. Resolve model registry entries, teacher freezing, both loss terms, student-only updates, validation and checkpoint output. State unknown external data and checkpoint facts.",
+    "scope": "One scenario only: samples/configured_training/train.py launched with --config pointing at configs/distill.json. Covers config loading, registry resolution, teacher checkpoint load and freezing, data loading, the per-batch distillation step, per-epoch validation, and final checkpoint output. infer.py is a separate entrypoint shown only as a downstream consumer of the saved checkpoint; it is not part of the selected run."
+  },
+  "reviewerType": "model-provisional",
+  "reviewStatus": "pending-human-review",
+  "reviewEvidence": [
+    {
+      "id": "rev-source-config",
+      "file": "samples/configured_training/configs/distill.json",
+      "line": 2,
+      "endLine": 11,
+      "quote": "\"student\": \"small\" ... \"output\": \"student.pt\""
+    }
+  ],
+  "claims": [
+    {
+      "id": "launch-and-config",
+      "verdict": "supported",
+      "summary": "The launch scenario and direct JSON configuration flow are accurately separated from hard-coded settings.",
+      "artifactPointers": [
+        "node:cli",
+        "node:config"
+      ],
+      "sourceReferences": [
+        "ev-train-main",
+        "ev-cfg-all",
+        "ev-readme-scenario"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "registry-resolution",
+      "verdict": "supported",
+      "summary": "Small and wide resolve to compatible 10-input, 3-output architectures.",
+      "artifactPointers": [
+        "node:registry",
+        "node:build-student",
+        "node:build-teacher"
+      ],
+      "sourceReferences": [
+        "ev-models-small",
+        "ev-models-wide",
+        "ev-models-registry"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "teacher-freezing",
+      "verdict": "supported",
+      "summary": "Load, freeze, eval-mode, and no-grad steps are all grounded in source.",
+      "artifactPointers": [
+        "node:load-teacher",
+        "node:freeze-teacher",
+        "node:set-modes",
+        "node:teacher-forward"
+      ],
+      "sourceReferences": [
+        "ev-train-load-teacher",
+        "ev-train-freeze",
+        "ev-engine-modes",
+        "ev-engine-teacher-forward"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "loss-separation",
+      "verdict": "supported",
+      "summary": "The artifact correctly distinguishes hard-label CE, temperature-scaled KL, and the 0.4/0.6 blend.",
+      "artifactPointers": [
+        "node:loss-supervised",
+        "node:loss-distill",
+        "node:loss-combine"
+      ],
+      "sourceReferences": [
+        "ev-engine-ce",
+        "ev-engine-kd",
+        "ev-engine-total",
+        "ev-cfg-alpha",
+        "ev-cfg-temperature"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "student-only-update",
+      "verdict": "supported",
+      "summary": "Adam is constructed from student parameters and the shown update therefore applies to student state only.",
+      "artifactPointers": [
+        "node:optimizer",
+        "node:student-update"
+      ],
+      "sourceReferences": [
+        "ev-train-optimizer",
+        "ev-engine-update"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "validation-and-output",
+      "verdict": "supported",
+      "summary": "Per-epoch validation output and the one final student state save are accurately distinguished.",
+      "artifactPointers": [
+        "node:evaluate",
+        "node:print-metric",
+        "node:save-student"
+      ],
+      "sourceReferences": [
+        "ev-engine-evaluate",
+        "ev-train-print-val",
+        "ev-train-save"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "teacher-unknowns",
+      "verdict": "qualified",
+      "summary": "The external teacher compatibility and quality are correctly unresolved; suggested preflight checks are advice rather than observed behavior.",
+      "artifactPointers": [
+        "node:ext-teacher-ckpt",
+        "finding:f-teacher-ckpt-unverified"
+      ],
+      "sourceReferences": [
+        "ev-cfg-teacher-ckpt",
+        "ev-readme-unknowns"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "data-unknowns",
+      "verdict": "qualified",
+      "summary": "The loader contract is supported, while dataset schema, overlap, and quality remain external runtime facts.",
+      "artifactPointers": [
+        "node:ext-train-data",
+        "node:ext-val-data",
+        "finding:f-external-data-unverified"
+      ],
+      "sourceReferences": [
+        "ev-train-batches",
+        "ev-cfg-train-data",
+        "ev-cfg-val-data",
+        "ev-readme-unknowns"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "inference-consumer",
+      "verdict": "supported",
+      "summary": "The separate inference consumer is kept outside the selected training run.",
+      "artifactPointers": [
+        "node:infer-consumer"
+      ],
+      "sourceReferences": [
+        "ev-infer-predict"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    }
+  ],
+  "usability": {
+    "dataOrigin": {
+      "status": "clear",
+      "answer": "External tensor sources and loading behavior are explicit.",
+      "artifactPointers": [
+        "node:ext-train-data",
+        "node:ext-val-data",
+        "node:batches-fn"
+      ],
+      "humanDecision": null
+    },
+    "updatedParametersAndFitState": {
+      "status": "clear",
+      "answer": "Teacher and student state ownership is explicit.",
+      "artifactPointers": [
+        "node:freeze-teacher",
+        "node:optimizer",
+        "node:student-update"
+      ],
+      "humanDecision": null
+    },
+    "losses": {
+      "status": "clear",
+      "answer": "Both terms and weights are explicit.",
+      "artifactPointers": [
+        "node:loss-supervised",
+        "node:loss-distill",
+        "node:loss-combine"
+      ],
+      "humanDecision": null
+    },
+    "evaluationBoundaries": {
+      "status": "clear",
+      "answer": "Training and per-epoch validation are separated.",
+      "artifactPointers": [
+        "node:epoch-loop",
+        "node:evaluate"
+      ],
+      "humanDecision": null
+    },
+    "outputs": {
+      "status": "clear",
+      "answer": "Printed metrics and final checkpoint are explicit.",
+      "artifactPointers": [
+        "node:print-metric",
+        "node:save-student"
+      ],
+      "humanDecision": null
+    },
+    "uncertainty": {
+      "status": "clear",
+      "answer": "External checkpoint and dataset uncertainty is localized in unresolved nodes and findings.",
+      "artifactPointers": [
+        "node:ext-teacher-ckpt",
+        "node:ext-train-data",
+        "node:ext-val-data"
+      ],
+      "humanDecision": null
+    }
+  },
+  "humanReview": null
+}

@@ -1,0 +1,786 @@
+{
+  "coverage": {
+    "inspectedFiles": [
+      "analyzer/tests/accuracy/corpus/vision_gan/train_dcgan.py"
+    ],
+    "limitations": [
+      "The imported models module is not present in the inspected workspace source, so Generator/Discriminator architecture, LATENT_DIM, weights_init behavior, exact internal tensor shapes, and model-specific state such as normalization buffers remain unresolved.",
+      "The target was not imported or executed; device choice, dataset contents, batch counts, runtime tensor values, filesystem availability, and training outcomes were not observed.",
+      "The entrypoint defines no held-out split or quantitative evaluation path; the only epoch-level observation output is a fixed-noise image grid, alongside checkpoints."
+    ],
+    "status": "scoped",
+    "summary": "The selected entrypoint was fully inspected statically. The diagram covers data preparation, state ownership, both per-batch objectives, detach and gradient boundaries, optimizer targets, alternating order, batch/epoch repetition, logging, monitoring, checkpointing, and final return."
+  },
+  "edges": [
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-train-start"
+      ],
+      "id": "edge-entry-data",
+      "kind": "control",
+      "label": "build_loader()",
+      "source": "entrypoint",
+      "target": "data_pipeline"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-train-start",
+        "ev-model-optimizers"
+      ],
+      "id": "edge-entry-init",
+      "kind": "control",
+      "label": "construct training state",
+      "source": "entrypoint",
+      "target": "initialize_training"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-monitor-state"
+      ],
+      "id": "edge-init-monitor",
+      "kind": "control",
+      "label": "initialize monitoring state",
+      "source": "initialize_training",
+      "target": "monitor_state"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-loader",
+        "ev-batch-loop"
+      ],
+      "id": "edge-data-batch",
+      "kind": "data",
+      "label": "yield shuffled training batch",
+      "source": "data_pipeline",
+      "target": "batch_prepare"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-batch-loop"
+      ],
+      "id": "edge-monitor-batch",
+      "kind": "control",
+      "label": "enter nested epoch/batch loops",
+      "source": "monitor_state",
+      "target": "batch_prepare"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-batch-loop",
+        "ev-d-phase"
+      ],
+      "id": "edge-batch-d-zero",
+      "kind": "control",
+      "label": "begin discriminator phase",
+      "source": "batch_prepare",
+      "target": "d_zero"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-batch-loop",
+        "ev-d-phase"
+      ],
+      "id": "edge-batch-real",
+      "kind": "data",
+      "label": "real_images and target 1",
+      "source": "batch_prepare",
+      "target": "d_real_path"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-batch-loop",
+        "ev-d-phase"
+      ],
+      "id": "edge-batch-fake-gen",
+      "kind": "data",
+      "label": "batch-sized latent draw",
+      "source": "batch_prepare",
+      "target": "fake_generation"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-d-phase"
+      ],
+      "id": "edge-fake-detach",
+      "kind": "gradient-boundary",
+      "label": "value passes; G gradient path is cut",
+      "source": "fake_generation",
+      "target": "d_fake_detached"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-d-phase"
+      ],
+      "id": "edge-real-d-loss",
+      "kind": "loss",
+      "label": "loss_real",
+      "source": "d_real_path",
+      "target": "d_loss"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-d-phase"
+      ],
+      "id": "edge-fake-d-loss",
+      "kind": "loss",
+      "label": "loss_fake",
+      "source": "d_fake_detached",
+      "target": "d_loss"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-d-phase"
+      ],
+      "id": "edge-d-loss-backward",
+      "kind": "gradient",
+      "label": "loss_d.backward()",
+      "source": "d_loss",
+      "target": "d_backward"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-d-phase"
+      ],
+      "id": "edge-d-zero-backward",
+      "kind": "gradient-state",
+      "label": "fresh D gradient buffers",
+      "source": "d_zero",
+      "target": "d_backward"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-model-optimizers",
+        "ev-d-phase"
+      ],
+      "id": "edge-d-backward-step",
+      "kind": "optimization",
+      "label": "D gradients applied by opt_d",
+      "source": "d_backward",
+      "target": "d_step"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-d-phase",
+        "ev-g-phase"
+      ],
+      "id": "edge-d-step-g-zero",
+      "kind": "control",
+      "label": "then begin generator phase",
+      "source": "d_step",
+      "target": "g_zero"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-d-phase",
+        "ev-g-phase"
+      ],
+      "id": "edge-fake-rescore",
+      "kind": "data-and-gradient",
+      "label": "reuse undetached fake_images",
+      "source": "fake_generation",
+      "target": "g_rescore"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-d-phase",
+        "ev-g-phase"
+      ],
+      "id": "edge-d-step-rescore",
+      "kind": "state",
+      "label": "forward uses D after current D update",
+      "source": "d_step",
+      "target": "g_rescore"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-g-phase"
+      ],
+      "id": "edge-rescore-g-loss",
+      "kind": "loss",
+      "label": "logits_for_g with target 1",
+      "source": "g_rescore",
+      "target": "g_loss"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-g-phase"
+      ],
+      "id": "edge-g-loss-backward",
+      "kind": "gradient",
+      "label": "loss_g.backward()",
+      "source": "g_loss",
+      "target": "g_backward"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-g-phase"
+      ],
+      "id": "edge-g-zero-backward",
+      "kind": "gradient-state",
+      "label": "fresh G gradient buffers",
+      "source": "g_zero",
+      "target": "g_backward"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-g-phase"
+      ],
+      "id": "edge-g-backward-side-effect",
+      "kind": "gradient",
+      "label": "also populates D gradients",
+      "source": "g_backward",
+      "target": "d_grad_side_effect"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-model-optimizers",
+        "ev-g-phase"
+      ],
+      "id": "edge-g-backward-step",
+      "kind": "optimization",
+      "label": "G gradients applied by opt_g",
+      "source": "g_backward",
+      "target": "g_step"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-g-phase",
+        "ev-logging"
+      ],
+      "id": "edge-g-step-metrics",
+      "kind": "control",
+      "label": "record current pair of losses",
+      "source": "g_step",
+      "target": "batch_metrics"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-batch-loop",
+        "ev-logging"
+      ],
+      "id": "edge-next-batch",
+      "kind": "iteration-cycle",
+      "label": "next batch: repeat D phase then G phase",
+      "source": "batch_metrics",
+      "target": "batch_prepare"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-d-phase",
+        "ev-g-phase"
+      ],
+      "id": "edge-clear-stale-d-grad",
+      "kind": "iteration-cycle",
+      "label": "next batch clears unstepped D gradients",
+      "source": "d_grad_side_effect",
+      "target": "d_zero"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-logging",
+        "ev-epoch-output"
+      ],
+      "id": "edge-epoch-end",
+      "kind": "control",
+      "label": "after final batch of the epoch",
+      "source": "batch_metrics",
+      "target": "epoch_outputs"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-batch-loop",
+        "ev-epoch-output"
+      ],
+      "id": "edge-next-epoch",
+      "kind": "iteration-cycle",
+      "label": "next epoch repeats the batch cycle",
+      "source": "epoch_outputs",
+      "target": "batch_prepare"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-epoch-output"
+      ],
+      "id": "edge-final-return",
+      "kind": "control",
+      "label": "after the final configured epoch",
+      "source": "epoch_outputs",
+      "target": "return_models"
+    }
+  ],
+  "evidence": [
+    {
+      "endLine": 29,
+      "file": "analyzer/tests/accuracy/corpus/vision_gan/train_dcgan.py",
+      "id": "ev-defaults",
+      "line": 22,
+      "quote": "DATA_ROOT = \"data/celeba\"\nSEED = 999\nEPOCHS = 25\nBATCH_SIZE = 128\nWORKERS = 4\nLR = 2e-4\nBETAS = (0.5, 0.999)\nSAMPLE_DIR = \"samples\""
+    },
+    {
+      "endLine": 40,
+      "file": "analyzer/tests/accuracy/corpus/vision_gan/train_dcgan.py",
+      "id": "ev-seed",
+      "line": 32,
+      "quote": "def seed_everything(seed: int = SEED) -> None:\n    random.seed(seed)\n    np.random.seed(seed)\n    torch.manual_seed(seed)\n    torch.cuda.manual_seed_all(seed)\n\n\ndef pick_device() -> torch.device:\n    return torch.device(\"cuda\" if torch.cuda.is_available() else \"cpu\")"
+    },
+    {
+      "endLine": 54,
+      "file": "analyzer/tests/accuracy/corpus/vision_gan/train_dcgan.py",
+      "id": "ev-loader",
+      "line": 43,
+      "quote": "def build_loader(batch_size: int = BATCH_SIZE, workers: int = WORKERS) -> DataLoader:\n    \"\"\"A GAN has no held-out split: every image is a training image.\"\"\"\n    pipeline = transforms.Compose([\n        transforms.Resize(64),\n        transforms.CenterCrop(64),\n        transforms.RandomHorizontalFlip(),\n        transforms.ToTensor(),\n        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),\n    ])\n    dataset = ImageFolder(DATA_ROOT, transform=pipeline)\n    return DataLoader(dataset, batch_size=batch_size, shuffle=True,\n                      num_workers=workers, pin_memory=True, drop_last=True)"
+    },
+    {
+      "endLine": 60,
+      "file": "analyzer/tests/accuracy/corpus/vision_gan/train_dcgan.py",
+      "id": "ev-train-start",
+      "line": 57,
+      "quote": "def train(epochs: int = EPOCHS) -> tuple:\n    seed_everything()\n    device = pick_device()\n    loader = build_loader()"
+    },
+    {
+      "endLine": 69,
+      "file": "analyzer/tests/accuracy/corpus/vision_gan/train_dcgan.py",
+      "id": "ev-model-optimizers",
+      "line": 62,
+      "quote": "    netG = Generator().to(device)\n    netD = Discriminator().to(device)\n    netG.apply(weights_init)\n    netD.apply(weights_init)\n\n    criterion = nn.BCEWithLogitsLoss()\n    opt_g = torch.optim.Adam(netG.parameters(), lr=LR, betas=BETAS)\n    opt_d = torch.optim.Adam(netD.parameters(), lr=LR, betas=BETAS)"
+    },
+    {
+      "endLine": 73,
+      "file": "analyzer/tests/accuracy/corpus/vision_gan/train_dcgan.py",
+      "id": "ev-monitor-state",
+      "line": 71,
+      "quote": "    fixed_noise = torch.randn(64, LATENT_DIM, 1, 1, device=device)\n    d_running = 0.0\n    g_running = 0.0"
+    },
+    {
+      "endLine": 80,
+      "file": "analyzer/tests/accuracy/corpus/vision_gan/train_dcgan.py",
+      "id": "ev-batch-loop",
+      "line": 75,
+      "quote": "    for epoch in range(epochs):\n        for step, (real_images, _labels) in enumerate(loader):\n            real_images = real_images.to(device, non_blocking=True)\n            batch = real_images.size(0)\n            real_labels = torch.ones(batch, device=device)\n            fake_labels = torch.zeros(batch, device=device)"
+    },
+    {
+      "endLine": 92,
+      "file": "analyzer/tests/accuracy/corpus/vision_gan/train_dcgan.py",
+      "id": "ev-d-phase",
+      "line": 82,
+      "quote": "            # --- discriminator: maximise log D(x) + log(1 - D(G(z)))\n            opt_d.zero_grad(set_to_none=True)\n            logits_real = netD(real_images)\n            loss_real = criterion(logits_real, real_labels)\n            noise = torch.randn(batch, LATENT_DIM, 1, 1, device=device)\n            fake_images = netG(noise)\n            logits_fake = netD(fake_images.detach())\n            loss_fake = criterion(logits_fake, fake_labels)\n            loss_d = loss_real + loss_fake\n            loss_d.backward()\n            opt_d.step()"
+    },
+    {
+      "endLine": 99,
+      "file": "analyzer/tests/accuracy/corpus/vision_gan/train_dcgan.py",
+      "id": "ev-g-phase",
+      "line": 94,
+      "quote": "            # --- generator: maximise log D(G(z))\n            opt_g.zero_grad(set_to_none=True)\n            logits_for_g = netD(fake_images)\n            loss_g = criterion(logits_for_g, real_labels)\n            loss_g.backward()\n            opt_g.step()"
+    },
+    {
+      "endLine": 105,
+      "file": "analyzer/tests/accuracy/corpus/vision_gan/train_dcgan.py",
+      "id": "ev-logging",
+      "line": 101,
+      "quote": "            d_running += loss_d.item()\n            g_running += loss_g.item()\n            if step % 100 == 0:\n                print(\"epoch %d step %d loss_d %.4f loss_g %.4f\"\n                      % (epoch, step, loss_d.item(), loss_g.item()))"
+    },
+    {
+      "endLine": 111,
+      "file": "analyzer/tests/accuracy/corpus/vision_gan/train_dcgan.py",
+      "id": "ev-epoch-output",
+      "line": 107,
+      "quote": "        sample_grid(netG, fixed_noise, epoch)\n        torch.save({\"netG\": netG.state_dict(), \"netD\": netD.state_dict()},\n                   \"dcgan_epoch%d.pt\" % epoch)\n\n    return netG, netD"
+    },
+    {
+      "endLine": 122,
+      "file": "analyzer/tests/accuracy/corpus/vision_gan/train_dcgan.py",
+      "id": "ev-sample-grid",
+      "line": 114,
+      "quote": "@torch.no_grad()\ndef sample_grid(netG, noise: torch.Tensor, epoch: int) -> str:\n    \"\"\"Write a fixed-noise grid so the run can be watched frame by frame.\"\"\"\n    netG.eval()\n    images = netG(noise)\n    path = \"%s/epoch_%03d.png\" % (SAMPLE_DIR, epoch)\n    save_image(images * 0.5 + 0.5, path, nrow=8)\n    netG.train()\n    return path"
+    },
+    {
+      "endLine": 126,
+      "file": "analyzer/tests/accuracy/corpus/vision_gan/train_dcgan.py",
+      "id": "ev-entrypoint",
+      "line": 125,
+      "quote": "if __name__ == \"__main__\":\n    train()"
+    }
+  ],
+  "findings": [
+    {
+      "basis": "inferred",
+      "counterEvidence": [
+        "ev-model-optimizers",
+        "ev-d-phase"
+      ],
+      "edgeIds": [
+        "edge-g-backward-side-effect",
+        "edge-clear-stale-d-grad"
+      ],
+      "evidence": [
+        "ev-model-optimizers",
+        "ev-d-phase",
+        "ev-g-phase"
+      ],
+      "id": "finding-unneeded-d-gradients",
+      "message": "Because D parameters remain gradient-enabled during loss_g.backward(), generator-phase backpropagation also accumulates D parameter gradients. opt_g.step() cannot apply them, and the next opt_d.zero_grad() discards them before the following discriminator update. This does not change the observed update targets, but it performs avoidable gradient work and unnecessarily updates D gradient buffers.",
+      "nodeIds": [
+        "g_backward",
+        "d_grad_side_effect",
+        "d_zero"
+      ],
+      "severity": "low",
+      "suggestion": "During the generator phase, temporarily disable requires_grad on discriminator parameters (then restore it before the next D phase) while still forwarding through D, so gradients continue to reach fake_images and G without populating D parameter gradients.",
+      "title": "Generator backward computes discriminator parameter gradients that are never stepped"
+    }
+  ],
+  "nodes": [
+    {
+      "basis": "observed",
+      "detail": "The module entrypoint calls train() without arguments, so the declared training defaults select the scenario.",
+      "evidence": [
+        "ev-defaults",
+        "ev-entrypoint"
+      ],
+      "id": "entrypoint",
+      "kind": "entrypoint",
+      "label": "Invoke train() with defaults",
+      "phase": "setup"
+    },
+    {
+      "basis": "observed",
+      "detail": "ImageFolder reads data/celeba. Each image is resized and center-cropped to 64, randomly flipped, converted to a tensor, and normalized with per-channel mean 0.5 and standard deviation 0.5. No preprocessing transform fits learned state. The shuffled loader drops the final incomplete batch; the source defines no held-out split.",
+      "evidence": [
+        "ev-loader"
+      ],
+      "id": "data_pipeline",
+      "kind": "data",
+      "label": "Load and augment all images as training data",
+      "phase": "setup"
+    },
+    {
+      "basis": "observed",
+      "detail": "The run seeds random, NumPy, CPU Torch, and CUDA Torch RNGs; chooses CUDA when available; constructs Generator and Discriminator; applies weights_init; and uses BCEWithLogitsLoss. Adam opt_g exclusively owns netG.parameters(), while Adam opt_d exclusively owns netD.parameters().",
+      "evidence": [
+        "ev-seed",
+        "ev-train-start",
+        "ev-model-optimizers"
+      ],
+      "id": "initialize_training",
+      "kind": "state",
+      "label": "Seed, select device, initialize networks and optimizers",
+      "phase": "setup"
+    },
+    {
+      "basis": "observed",
+      "detail": "A fixed batch of 64 latent samples is retained for comparable epoch grids. Scalar discriminator and generator totals start at zero and accumulate across all epochs, but they are never returned, averaged, or used in the printed values.",
+      "evidence": [
+        "ev-monitor-state"
+      ],
+      "id": "monitor_state",
+      "kind": "state",
+      "label": "Create fixed monitoring noise and running totals",
+      "phase": "setup"
+    },
+    {
+      "basis": "observed",
+      "detail": "For every loader batch in every epoch, real images move to the selected device. The actual batch length creates a ones vector for real targets and a zeros vector for fake targets. This node is revisited by the next-batch and next-epoch cycle edges.",
+      "evidence": [
+        "ev-batch-loop"
+      ],
+      "id": "batch_prepare",
+      "kind": "loop",
+      "label": "Start epoch/batch iteration and prepare labels",
+      "phase": "setup"
+    },
+    {
+      "basis": "observed",
+      "detail": "The discriminator phase resets D gradients, evaluates real and detached fake examples, sums both binary cross-entropy terms, backpropagates that objective, and steps only opt_d.",
+      "evidence": [
+        "ev-d-phase"
+      ],
+      "id": "d_update",
+      "kind": "repeated-phase",
+      "label": "Discriminator update: one step per batch",
+      "phase": "discriminator_repeat"
+    },
+    {
+      "basis": "inferred",
+      "detail": "opt_d.zero_grad(set_to_none=True) resets the discriminator optimizer's owned gradient buffers at the start of every discriminator phase. It also discards any D gradients left by the preceding batch's generator backward.",
+      "evidence": [
+        "ev-d-phase",
+        "ev-g-phase"
+      ],
+      "id": "d_zero",
+      "kind": "gradient-reset",
+      "label": "Clear discriminator gradients",
+      "parent": "d_update",
+      "phase": "discriminator_repeat"
+    },
+    {
+      "basis": "observed",
+      "detail": "netD produces logits_real from real_images. BCEWithLogitsLoss compares them with the ones vector, so minimizing loss_real rewards classifying real images as real.",
+      "evidence": [
+        "ev-d-phase",
+        "ev-model-optimizers"
+      ],
+      "id": "d_real_path",
+      "kind": "loss-term",
+      "label": "Real path: D(real_images) → BCE target 1",
+      "parent": "d_update",
+      "phase": "discriminator_repeat"
+    },
+    {
+      "basis": "inferred",
+      "detail": "Fresh latent noise is sampled for the current batch and passed once through netG. The resulting fake_images tensor and its generator autograd history are retained for both alternating phases.",
+      "evidence": [
+        "ev-d-phase"
+      ],
+      "id": "fake_generation",
+      "kind": "forward",
+      "label": "Sample z and compute fake_images = G(z)",
+      "parent": "d_update",
+      "phase": "discriminator_repeat"
+    },
+    {
+      "basis": "inferred",
+      "detail": "detach() gives the discriminator a fake-image value without a gradient connection back into netG. BCEWithLogitsLoss compares the resulting logits with zeros, so minimizing loss_fake rewards classifying generated images as fake.",
+      "evidence": [
+        "ev-d-phase",
+        "ev-model-optimizers"
+      ],
+      "id": "d_fake_detached",
+      "kind": "loss-term",
+      "label": "Fake path: D(fake_images.detach()) → BCE target 0",
+      "parent": "d_update",
+      "phase": "discriminator_repeat"
+    },
+    {
+      "basis": "inferred",
+      "detail": "The minimized discriminator objective is BCEWithLogits(D(x), 1) + BCEWithLogits(D(detach(G(z))), 0). This is the minimization form corresponding to the source comment's maximization of log D(x) + log(1 - D(G(z))).",
+      "evidence": [
+        "ev-d-phase",
+        "ev-model-optimizers"
+      ],
+      "id": "d_loss",
+      "kind": "objective",
+      "label": "Combine loss_d = loss_real + loss_fake",
+      "parent": "d_update",
+      "phase": "discriminator_repeat"
+    },
+    {
+      "basis": "inferred",
+      "detail": "loss_d.backward() produces discriminator parameter gradients from both real and fake terms. The fake branch stops at the detached fake tensor, so this objective does not produce generator parameter gradients.",
+      "evidence": [
+        "ev-d-phase"
+      ],
+      "id": "d_backward",
+      "kind": "backward",
+      "label": "Backpropagate only through discriminator paths",
+      "parent": "d_update",
+      "phase": "discriminator_repeat"
+    },
+    {
+      "basis": "observed",
+      "detail": "Optimizer ownership, not merely the presence of gradients, determines the update target: opt_d was constructed from netD.parameters(), so this step changes D and not G.",
+      "evidence": [
+        "ev-model-optimizers",
+        "ev-d-phase"
+      ],
+      "id": "d_step",
+      "kind": "optimizer-step",
+      "label": "opt_d.step() updates only netD parameters",
+      "parent": "d_update",
+      "phase": "discriminator_repeat"
+    },
+    {
+      "basis": "observed",
+      "detail": "The generator phase begins only after the current discriminator step. It resets G gradients, re-scores the same fake_images through the now-updated discriminator without detach, backpropagates an all-real target objective, and steps only opt_g.",
+      "evidence": [
+        "ev-d-phase",
+        "ev-g-phase"
+      ],
+      "id": "g_update",
+      "kind": "repeated-phase",
+      "label": "Generator update: one step after D per batch",
+      "phase": "generator_repeat"
+    },
+    {
+      "basis": "inferred",
+      "detail": "opt_g.zero_grad(set_to_none=True) resets only gradient buffers for parameters owned by the generator optimizer.",
+      "evidence": [
+        "ev-model-optimizers",
+        "ev-g-phase"
+      ],
+      "id": "g_zero",
+      "kind": "gradient-reset",
+      "label": "Clear generator gradients",
+      "parent": "g_update",
+      "phase": "generator_repeat"
+    },
+    {
+      "basis": "inferred",
+      "detail": "netD(fake_images) runs after opt_d.step() and omits detach. It therefore uses the current discriminator parameters and preserves a gradient path from the loss, through D's operations and fake_images, back to netG.",
+      "evidence": [
+        "ev-d-phase",
+        "ev-g-phase"
+      ],
+      "id": "g_rescore",
+      "kind": "forward",
+      "label": "Re-score the same fake_images through updated D",
+      "parent": "g_update",
+      "phase": "generator_repeat"
+    },
+    {
+      "basis": "inferred",
+      "detail": "The fake logits are compared with the same ones vector used for real images. Minimizing this non-saturating generator objective asks G to make D classify generated samples as real, corresponding to maximizing log D(G(z)).",
+      "evidence": [
+        "ev-g-phase",
+        "ev-model-optimizers"
+      ],
+      "id": "g_loss",
+      "kind": "objective",
+      "label": "Generator loss: BCE(D(G(z)), target 1)",
+      "parent": "g_update",
+      "phase": "generator_repeat"
+    },
+    {
+      "basis": "inferred",
+      "detail": "loss_g.backward() traverses netD because fake_images is not detached, then continues through the retained fake_images graph into netG. D participates in the gradient computation even though D is not the optimizer target of this phase.",
+      "evidence": [
+        "ev-g-phase"
+      ],
+      "id": "g_backward",
+      "kind": "backward",
+      "label": "Backpropagate through D operations into G",
+      "parent": "g_update",
+      "phase": "generator_repeat"
+    },
+    {
+      "basis": "inferred",
+      "detail": "No source statement disables discriminator parameter gradients before loss_g.backward(). Under standard autograd semantics, D gradient buffers therefore receive generator-objective gradients (on top of the preceding D gradients), but opt_g.step() cannot apply them because opt_g owns only G. The next batch's opt_d.zero_grad clears them before the next D backward.",
+      "evidence": [
+        "ev-model-optimizers",
+        "ev-d-phase",
+        "ev-g-phase"
+      ],
+      "id": "d_grad_side_effect",
+      "kind": "gradient-state",
+      "label": "D gradients accumulate during G backward but are not stepped",
+      "parent": "g_update",
+      "phase": "generator_repeat"
+    },
+    {
+      "basis": "inferred",
+      "detail": "opt_g was constructed from netG.parameters(), so this step applies the generator gradients and does not change D, even though the generator backward traversed D and may have populated D gradient buffers.",
+      "evidence": [
+        "ev-model-optimizers",
+        "ev-g-phase"
+      ],
+      "id": "g_step",
+      "kind": "optimizer-step",
+      "label": "opt_g.step() updates only netG parameters",
+      "parent": "g_update",
+      "phase": "generator_repeat"
+    },
+    {
+      "basis": "observed",
+      "detail": "Both losses are converted to Python scalars and added to running totals. Every 100th step prints the current batch loss_d and loss_g values; the printed values are not the running totals.",
+      "evidence": [
+        "ev-logging"
+      ],
+      "id": "batch_metrics",
+      "kind": "logging",
+      "label": "Accumulate scalar losses and optionally print",
+      "phase": "cycle_outputs"
+    },
+    {
+      "basis": "observed",
+      "detail": "After the batch loop, sample_grid switches G to evaluation mode under no_grad, generates and de-normalizes a fixed-noise grid, writes samples/epoch_NNN.png, and restores training mode. The epoch checkpoint writes state_dict values for both netG and netD to dcgan_epochN.pt.",
+      "evidence": [
+        "ev-epoch-output",
+        "ev-sample-grid"
+      ],
+      "id": "epoch_outputs",
+      "kind": "output",
+      "label": "Generate fixed-noise sample grid and checkpoint both networks",
+      "phase": "cycle_outputs"
+    },
+    {
+      "basis": "observed",
+      "detail": "When all epochs finish, train returns both in-memory network objects. No validation or held-out evaluation metric is computed in the selected entrypoint.",
+      "evidence": [
+        "ev-epoch-output",
+        "ev-loader"
+      ],
+      "id": "return_models",
+      "kind": "return",
+      "label": "Return trained netG and netD after the final epoch",
+      "phase": "cycle_outputs"
+    }
+  ],
+  "phases": [
+    {
+      "id": "setup",
+      "label": "Setup and batch preparation"
+    },
+    {
+      "id": "discriminator_repeat",
+      "label": "Per-batch discriminator phase (repeats)"
+    },
+    {
+      "id": "generator_repeat",
+      "label": "Per-batch generator phase (repeats)"
+    },
+    {
+      "id": "cycle_outputs",
+      "label": "Logging, epoch outputs, and iteration cycle"
+    }
+  ],
+  "producer": {
+    "host": "codex",
+    "kind": "host-llm"
+  },
+  "request": {
+    "configuration": "Direct __main__ invocation of train() with source defaults: 25 epochs, batch size 128, 4 workers, data/celeba, Adam learning rate 2e-4 and betas (0.5, 0.999). LATENT_DIM and model architectures come from an imported models module that is not present in the inspected workspace source. No runtime or command-line overrides were selected.",
+    "entrypoints": [
+      "analyzer/tests/accuracy/corpus/vision_gan/train_dcgan.py"
+    ],
+    "question": "Explain the discriminator and generator losses, gradient paths, detached tensors, optimizer targets, alternating updates, repeated phases, and iteration cycle.",
+    "scope": "Static source trace of the selected DCGAN training entrypoint, from default invocation through per-batch alternating updates and per-epoch outputs."
+  },
+  "revision": {
+    "id": "rev-dev-gan-20260918-01"
+  },
+  "title": "DCGAN alternating discriminator and generator training cycle",
+  "verification": {
+    "files": {
+      "analyzer/tests/accuracy/corpus/vision_gan/train_dcgan.py": "18e257c47f577c4764803438c27855195a0619746a8d6383e99656e71eaa7315"
+    },
+    "publishedAt": "2026-09-17T23:10:03.933614Z"
+  },
+  "workflowVersion": "1.0"
+}

@@ -97,9 +97,9 @@ summarizing the matrix is not a model run.
 
 ## Candidate implementation snapshot
 
-The implementation is the uncommitted `llm-workflow` tree based on `317930d`;
-that Git commit alone does not identify the new skill. Before runs, freeze a
-commit or preserve and identify the exact reviewed files. Current byte hashes:
+The following hashes preserve the original 2026-09-17 drafting snapshot. They
+describe the then-uncommitted tree and must not be mistaken for the semantic-
+quality candidate selected for follow-up evaluation.
 
 | Material | SHA-256 |
 |---|---|
@@ -111,3 +111,18 @@ The bundle hash concatenates sorted skill-relative UTF-8 paths, NUL, file bytes,
 NUL for `SKILL.md`, `scripts/artifact.py`, `references/WORKFLOW_CONTRACT.md` and
 `references/workflow-example.json`. Tests/caches are excluded. Record reference
 and expanded-prompt hashes after review, not from these drafts.
+
+The current semantic-quality candidate is an uncommitted change based on
+`766d9cc`. That base commit passed all 13 remote CI jobs in push run
+`35282332067` and pull-request run `35282336685`; those runs predate and do not
+validate the candidate. Its frozen four-file skill bundle SHA-256 is
+`837358d2689890ec663dfebac57092c369db02d6e75a9229953776b1b5f2e29b`.
+Six fresh GAN/notebook native follow-ups used those bytes. Four completed with
+final UI evidence, Copilot GAN failed within its two-repair budget, and Copilot
+notebook published a validator-clean artifact but still awaited final UI
+observation. They remain development evidence and cannot approve these
+reference candidates or establish that the candidate improved quality. The 24
+held-out first runs and 48 repeat runs remain pending human review and freezing
+of the scenarios, facts, denominators, unresolved cases, prompts, and run
+policy. Human fields must remain pending until a named reviewer supplies those
+decisions.

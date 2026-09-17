@@ -1,0 +1,225 @@
+{
+  "host": "codex",
+  "task": "dev-config",
+  "artifact": "evals/workflow/development/native-artifacts/codex/dev-config.mlview.json",
+  "artifactSha256": "8607f0bc268a898294b2fc0dd5ab01a7e11d0917c47947c8d66c703ef4be2ab7",
+  "artifactRevision": "rev-distill-configured-training-20260917-01",
+  "artifactRequest": {
+    "configuration": "Assume the required --config argument names samples/configured_training/configs/distill.json and launch occurs from the workspace root; no other CLI overrides exist in the selected entrypoint. Selected values are student=small, teacher=wide, teacher_checkpoint=external/teacher.pt, train_data=external/train.pt, validation_data=external/validation.pt, alpha=0.6, temperature=2.0, learning_rate=0.001, epochs=5, and output=student.pt. Relative external and output paths therefore depend on the launch working directory.",
+    "entrypoints": [
+      "samples/configured_training/train.py",
+      "samples/configured_training/configs/distill.json"
+    ],
+    "question": "Explain training selected by samples/configured_training/configs/distill.json, including registry resolution, teacher freezing, both loss terms, student-only updates, validation, checkpoint output, and unknown external facts.",
+    "scope": "One source-interpreted training scenario only: samples/configured_training/train.py with samples/configured_training/configs/distill.json. The workflow was not imported or executed."
+  },
+  "reviewerType": "model-provisional",
+  "reviewStatus": "pending-human-review",
+  "reviewEvidence": [
+    {
+      "id": "rev-source-loss",
+      "file": "samples/configured_training/engine.py",
+      "line": 11,
+      "endLine": 21,
+      "quote": "student_logits = student(features) ... loss = (1 - alpha) * supervised + alpha * distilled ... optimizer.step()"
+    }
+  ],
+  "claims": [
+    {
+      "id": "config-resolution",
+      "verdict": "supported",
+      "summary": "The selected JSON resolves small student and wide teacher models and the stated hyperparameters.",
+      "artifactPointers": [
+        "node:selected-config",
+        "node:student-model",
+        "node:teacher-model"
+      ],
+      "sourceReferences": [
+        "ev-config-models",
+        "ev-config-training",
+        "ev-model-registry"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "teacher-freezing",
+      "verdict": "supported",
+      "summary": "The teacher checkpoint is loaded on CPU, parameters are frozen, and its forward pass uses evaluation mode without gradients.",
+      "artifactPointers": [
+        "node:restore-freeze-teacher",
+        "node:teacher-forward"
+      ],
+      "sourceReferences": [
+        "ev-run-setup",
+        "ev-train-modes"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "loss-separation",
+      "verdict": "supported",
+      "summary": "Cross-entropy and temperature-scaled batch-mean KL are separated and then weighted 0.4/0.6.",
+      "artifactPointers": [
+        "node:student-supervised-loss",
+        "node:soft-target-loss",
+        "node:combined-loss"
+      ],
+      "sourceReferences": [
+        "ev-config-training",
+        "ev-losses"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "student-only-update",
+      "verdict": "supported",
+      "summary": "Adam owns student parameters only, so the shown backward and step path updates only the student.",
+      "artifactPointers": [
+        "node:student-optimizer",
+        "node:student-only-update"
+      ],
+      "sourceReferences": [
+        "ev-run-setup",
+        "ev-update"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "validation-boundary",
+      "verdict": "supported",
+      "summary": "Validation runs after each epoch without gradients and prints accuracy; it does not select a checkpoint.",
+      "artifactPointers": [
+        "node:validate-student",
+        "node:report-validation"
+      ],
+      "sourceReferences": [
+        "ev-evaluate",
+        "ev-epoch-validation-save"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "checkpoint-output",
+      "verdict": "supported",
+      "summary": "After the loop, the final student state_dict alone is written to the configured relative path.",
+      "artifactPointers": [
+        "node:save-student-state"
+      ],
+      "sourceReferences": [
+        "ev-epoch-validation-save",
+        "ev-config-training"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "external-teacher",
+      "verdict": "qualified",
+      "summary": "The artifact correctly leaves teacher checkpoint existence, compatibility, provenance, and quality unresolved.",
+      "artifactPointers": [
+        "node:external-teacher-checkpoint",
+        "finding:finding-external-teacher"
+      ],
+      "sourceReferences": [
+        "ev-config-models",
+        "ev-readme-limitations"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "external-data",
+      "verdict": "qualified",
+      "summary": "The expected keys and loader flow are source-supported, while tensor contents and runtime validation results remain unknown.",
+      "artifactPointers": [
+        "node:external-datasets",
+        "finding:finding-external-data"
+      ],
+      "sourceReferences": [
+        "ev-config-data",
+        "ev-batch-loader",
+        "ev-readme-limitations"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "inference-separation",
+      "verdict": "supported",
+      "summary": "Inference is identified as context rather than part of the selected training execution path.",
+      "artifactPointers": [
+        "coverage"
+      ],
+      "sourceReferences": [
+        "ev-readme-limitations"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    }
+  ],
+  "usability": {
+    "dataOrigin": {
+      "status": "clear",
+      "answer": "External train and validation tensor paths and their unresolved contents are explicit.",
+      "artifactPointers": [
+        "node:external-datasets",
+        "node:training-batches",
+        "node:validation-batches"
+      ],
+      "humanDecision": null
+    },
+    "updatedParametersAndFitState": {
+      "status": "clear",
+      "answer": "Only student parameters belong to Adam; teacher state is frozen.",
+      "artifactPointers": [
+        "node:student-optimizer",
+        "node:student-only-update"
+      ],
+      "humanDecision": null
+    },
+    "losses": {
+      "status": "clear",
+      "answer": "Both terms, temperature scaling, and weights are explicit.",
+      "artifactPointers": [
+        "node:student-supervised-loss",
+        "node:soft-target-loss",
+        "node:combined-loss"
+      ],
+      "humanDecision": null
+    },
+    "evaluationBoundaries": {
+      "status": "clear",
+      "answer": "Per-epoch validation is distinct from training.",
+      "artifactPointers": [
+        "node:validate-student",
+        "node:report-validation"
+      ],
+      "humanDecision": null
+    },
+    "outputs": {
+      "status": "clear",
+      "answer": "Printed validation records and final student state output are distinguished.",
+      "artifactPointers": [
+        "node:report-validation",
+        "node:save-student-state"
+      ],
+      "humanDecision": null
+    },
+    "uncertainty": {
+      "status": "clear",
+      "answer": "External files and runtime outcomes are represented as unresolved.",
+      "artifactPointers": [
+        "node:external-teacher-checkpoint",
+        "node:external-datasets",
+        "node:runtime-output-facts"
+      ],
+      "humanDecision": null
+    }
+  },
+  "humanReview": null
+}

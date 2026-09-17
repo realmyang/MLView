@@ -1,0 +1,413 @@
+{
+  "version": 1,
+  "reviewerType": "model-provisional",
+  "reviewStatus": "pending-human-review",
+  "humanReview": null,
+  "baselines": [
+    {
+      "id": "dev-config:codex:baseline",
+      "host": "codex",
+      "task": "dev-config",
+      "responseSha256": "bbd16a3145b93f2b614fe5aa7b118bf98031305ec694fe929ee6b0d3cf054022",
+      "captureKind": "native-copy",
+      "summary": "The native response gives a compact, source-linked account of configured distillation and clearly separates runtime unknowns; the registered Codex artifact adds a navigable execution graph and explicit unresolved nodes.",
+      "strengths": [
+        {
+          "summary": "Correctly resolves the small and wide registry architectures.",
+          "sourceReferences": [
+            "ev-train-save",
+            "ev-models-registry",
+            "ev-engine-kd",
+            "ev-engine-update",
+            "ev-engine-evaluate",
+            "ev-infer-predict",
+            "ev-readme-unknowns"
+          ]
+        },
+        {
+          "summary": "Correctly distinguishes cross-entropy, temperature-scaled KL, and their configured 0.4/0.6 blend.",
+          "sourceReferences": [
+            "ev-train-save",
+            "ev-models-registry",
+            "ev-engine-kd",
+            "ev-engine-update",
+            "ev-engine-evaluate",
+            "ev-infer-predict",
+            "ev-readme-unknowns"
+          ]
+        },
+        {
+          "summary": "Correctly explains why only student parameters update.",
+          "sourceReferences": [
+            "ev-train-save",
+            "ev-models-registry",
+            "ev-engine-kd",
+            "ev-engine-update",
+            "ev-engine-evaluate",
+            "ev-infer-predict",
+            "ev-readme-unknowns"
+          ]
+        },
+        {
+          "summary": "Explicitly leaves external file contents and runtime results unknown.",
+          "sourceReferences": [
+            "ev-train-save",
+            "ev-models-registry",
+            "ev-engine-kd",
+            "ev-engine-update",
+            "ev-engine-evaluate",
+            "ev-infer-predict",
+            "ev-readme-unknowns"
+          ]
+        }
+      ],
+      "gaps": [
+        {
+          "summary": "The prose does not provide the artifact's node-and-edge structure for following dependencies across phases.",
+          "sourceReferences": [
+            "ev-train-save",
+            "ev-models-registry",
+            "ev-engine-kd",
+            "ev-engine-update",
+            "ev-engine-evaluate",
+            "ev-infer-predict",
+            "ev-readme-unknowns"
+          ]
+        },
+        {
+          "summary": "The inference consumer is mentioned only indirectly, while the artifact records the training/inference boundary in coverage.",
+          "sourceReferences": [
+            "ev-train-save",
+            "ev-models-registry",
+            "ev-engine-kd",
+            "ev-engine-update",
+            "ev-engine-evaluate",
+            "ev-infer-predict",
+            "ev-readme-unknowns"
+          ]
+        }
+      ],
+      "reviewEvidence": [
+        {
+          "endLine": 28,
+          "file": "samples/configured_training/train.py",
+          "id": "ev-train-save",
+          "line": 28,
+          "quote": "    torch.save(student.state_dict(), config[\"output\"])"
+        },
+        {
+          "endLine": 17,
+          "file": "samples/configured_training/models.py",
+          "id": "ev-models-registry",
+          "line": 13,
+          "quote": "BUILDERS = {\"small\": small, \"wide\": wide}\n\n\ndef build(name):\n    return BUILDERS[name]()"
+        },
+        {
+          "endLine": 17,
+          "file": "samples/configured_training/engine.py",
+          "id": "ev-engine-kd",
+          "line": 13,
+          "quote": "        distilled = F.kl_div(\n            F.log_softmax(student_logits / temperature, dim=-1),\n            F.softmax(teacher_logits / temperature, dim=-1),\n            reduction=\"batchmean\",\n        ) * temperature ** 2"
+        },
+        {
+          "endLine": 21,
+          "file": "samples/configured_training/engine.py",
+          "id": "ev-engine-update",
+          "line": 19,
+          "quote": "        optimizer.zero_grad()\n        loss.backward()\n        optimizer.step()"
+        },
+        {
+          "endLine": 32,
+          "file": "samples/configured_training/engine.py",
+          "id": "ev-engine-evaluate",
+          "line": 24,
+          "quote": "@torch.no_grad()\ndef evaluate(student, batches):\n    student.eval()\n    correct, count = 0, 0\n    for features, labels in batches:\n        predictions = student(features).argmax(dim=-1)\n        correct += (predictions == labels).sum().item()\n        count += len(labels)\n    return correct / count if count else None"
+        },
+        {
+          "endLine": 10,
+          "file": "samples/configured_training/infer.py",
+          "id": "ev-infer-predict",
+          "line": 5,
+          "quote": "@torch.no_grad()\ndef predict(checkpoint, features):\n    student = build(\"small\")\n    student.load_state_dict(torch.load(checkpoint, map_location=\"cpu\", weights_only=True))\n    student.eval()\n    return student(features).argmax(dim=-1)"
+        },
+        {
+          "endLine": 11,
+          "file": "samples/configured_training/README.md",
+          "id": "ev-readme-unknowns",
+          "line": 7,
+          "quote": "It exercises configuration-selected construction, a frozen teacher, two loss\nterms, student-only updates, and a separate inference entrypoint. The actual\ndataset contents, checkpoint quality, and runtime metrics are unknown from\nthese files. The teacher and student architectures differ; both emit three\nclass logits."
+        }
+      ]
+    },
+    {
+      "id": "dev-config:copilot:baseline",
+      "host": "copilot",
+      "task": "dev-config",
+      "responseSha256": "9eff4112f2767ae6f6fdb04b1a0cf24d16d71e0c1826fa73262b768f443601ff",
+      "captureKind": "native-copy",
+      "summary": "The native response covers the requested training flow and most source-supported unknowns in readable prose; the registered Copilot artifact makes the phase sequence explicit but is weaker at localizing uncertainty than the other artifacts.",
+      "strengths": [
+        {
+          "summary": "Correctly enumerates the selected configuration and model registry resolution.",
+          "sourceReferences": [
+            "ev-train-save",
+            "ev-models-registry",
+            "ev-engine-kd",
+            "ev-engine-update",
+            "ev-engine-evaluate",
+            "ev-infer-predict",
+            "ev-readme-unknowns"
+          ]
+        },
+        {
+          "summary": "Correctly traces teacher freezing and no-gradient target generation.",
+          "sourceReferences": [
+            "ev-train-save",
+            "ev-models-registry",
+            "ev-engine-kd",
+            "ev-engine-update",
+            "ev-engine-evaluate",
+            "ev-infer-predict",
+            "ev-readme-unknowns"
+          ]
+        },
+        {
+          "summary": "Correctly states the two losses and student-only update path.",
+          "sourceReferences": [
+            "ev-train-save",
+            "ev-models-registry",
+            "ev-engine-kd",
+            "ev-engine-update",
+            "ev-engine-evaluate",
+            "ev-infer-predict",
+            "ev-readme-unknowns"
+          ]
+        }
+      ],
+      "gaps": [
+        {
+          "summary": "It says output-path resolution is unknown, although the relative path's resolution against the process working directory is standard runtime behavior and can be stated conditionally.",
+          "sourceReferences": [
+            "ev-train-save",
+            "ev-models-registry",
+            "ev-engine-kd",
+            "ev-engine-update",
+            "ev-engine-evaluate",
+            "ev-infer-predict",
+            "ev-readme-unknowns"
+          ]
+        },
+        {
+          "summary": "It does not discuss the separate hard-coded small-model inference consumer, which matters if the configured student changes.",
+          "sourceReferences": [
+            "ev-train-save",
+            "ev-models-registry",
+            "ev-engine-kd",
+            "ev-engine-update",
+            "ev-engine-evaluate",
+            "ev-infer-predict",
+            "ev-readme-unknowns"
+          ]
+        },
+        {
+          "summary": "Its external-fact caveat is prose-only; the artifact likewise lacks dedicated unresolved nodes, making uncertainty less visible than in the other two artifacts.",
+          "sourceReferences": [
+            "ev-train-save",
+            "ev-models-registry",
+            "ev-engine-kd",
+            "ev-engine-update",
+            "ev-engine-evaluate",
+            "ev-infer-predict",
+            "ev-readme-unknowns"
+          ]
+        }
+      ],
+      "reviewEvidence": [
+        {
+          "endLine": 28,
+          "file": "samples/configured_training/train.py",
+          "id": "ev-train-save",
+          "line": 28,
+          "quote": "    torch.save(student.state_dict(), config[\"output\"])"
+        },
+        {
+          "endLine": 17,
+          "file": "samples/configured_training/models.py",
+          "id": "ev-models-registry",
+          "line": 13,
+          "quote": "BUILDERS = {\"small\": small, \"wide\": wide}\n\n\ndef build(name):\n    return BUILDERS[name]()"
+        },
+        {
+          "endLine": 17,
+          "file": "samples/configured_training/engine.py",
+          "id": "ev-engine-kd",
+          "line": 13,
+          "quote": "        distilled = F.kl_div(\n            F.log_softmax(student_logits / temperature, dim=-1),\n            F.softmax(teacher_logits / temperature, dim=-1),\n            reduction=\"batchmean\",\n        ) * temperature ** 2"
+        },
+        {
+          "endLine": 21,
+          "file": "samples/configured_training/engine.py",
+          "id": "ev-engine-update",
+          "line": 19,
+          "quote": "        optimizer.zero_grad()\n        loss.backward()\n        optimizer.step()"
+        },
+        {
+          "endLine": 32,
+          "file": "samples/configured_training/engine.py",
+          "id": "ev-engine-evaluate",
+          "line": 24,
+          "quote": "@torch.no_grad()\ndef evaluate(student, batches):\n    student.eval()\n    correct, count = 0, 0\n    for features, labels in batches:\n        predictions = student(features).argmax(dim=-1)\n        correct += (predictions == labels).sum().item()\n        count += len(labels)\n    return correct / count if count else None"
+        },
+        {
+          "endLine": 10,
+          "file": "samples/configured_training/infer.py",
+          "id": "ev-infer-predict",
+          "line": 5,
+          "quote": "@torch.no_grad()\ndef predict(checkpoint, features):\n    student = build(\"small\")\n    student.load_state_dict(torch.load(checkpoint, map_location=\"cpu\", weights_only=True))\n    student.eval()\n    return student(features).argmax(dim=-1)"
+        },
+        {
+          "endLine": 11,
+          "file": "samples/configured_training/README.md",
+          "id": "ev-readme-unknowns",
+          "line": 7,
+          "quote": "It exercises configuration-selected construction, a frozen teacher, two loss\nterms, student-only updates, and a separate inference entrypoint. The actual\ndataset contents, checkpoint quality, and runtime metrics are unknown from\nthese files. The teacher and student architectures differ; both emit three\nclass logits."
+        }
+      ]
+    },
+    {
+      "id": "dev-config:claude-code:baseline",
+      "host": "claude-code",
+      "task": "dev-config",
+      "responseSha256": "51eccf1c82028de146ad5d10a7f44e2774ad78024ed72e641117c47327d743dd",
+      "captureKind": "accessibility-transcription",
+      "summary": "The accessibility-transcribed native response is the most detailed baseline, adding useful operational implications and careful runtime caveats; the registered Claude Code artifact preserves those distinctions as explicit nodes, findings, and uncertainty coverage.",
+      "strengths": [
+        {
+          "summary": "Correctly explains all mechanisms that keep the teacher fixed and notes that eval mode has no practical layer-state effect for this architecture.",
+          "sourceReferences": [
+            "ev-train-save",
+            "ev-models-registry",
+            "ev-engine-kd",
+            "ev-engine-update",
+            "ev-engine-evaluate",
+            "ev-infer-predict",
+            "ev-readme-unknowns"
+          ]
+        },
+        {
+          "summary": "Correctly distinguishes final-epoch saving from best-model selection and notes omitted optimizer/config state.",
+          "sourceReferences": [
+            "ev-train-save",
+            "ev-models-registry",
+            "ev-engine-kd",
+            "ev-engine-update",
+            "ev-engine-evaluate",
+            "ev-infer-predict",
+            "ev-readme-unknowns"
+          ]
+        },
+        {
+          "summary": "Correctly identifies the separate inference consumer's hard-coded small architecture.",
+          "sourceReferences": [
+            "ev-train-save",
+            "ev-models-registry",
+            "ev-engine-kd",
+            "ev-engine-update",
+            "ev-engine-evaluate",
+            "ev-infer-predict",
+            "ev-readme-unknowns"
+          ]
+        },
+        {
+          "summary": "Carefully separates implied tensor contracts from facts not knowable without the external files.",
+          "sourceReferences": [
+            "ev-train-save",
+            "ev-models-registry",
+            "ev-engine-kd",
+            "ev-engine-update",
+            "ev-engine-evaluate",
+            "ev-infer-predict",
+            "ev-readme-unknowns"
+          ]
+        }
+      ],
+      "gaps": [
+        {
+          "summary": "Parameter counts and strict state-dict key implications are useful but secondary to the requested workflow and make the response longer than necessary.",
+          "sourceReferences": [
+            "ev-train-save",
+            "ev-models-registry",
+            "ev-engine-kd",
+            "ev-engine-update",
+            "ev-engine-evaluate",
+            "ev-infer-predict",
+            "ev-readme-unknowns"
+          ]
+        },
+        {
+          "summary": "Because the capture is an accessibility transcription, formatting fidelity is weaker than the two native-copy captures even though the semantic evidence is strong.",
+          "sourceReferences": [
+            "ev-train-save",
+            "ev-models-registry",
+            "ev-engine-kd",
+            "ev-engine-update",
+            "ev-engine-evaluate",
+            "ev-infer-predict",
+            "ev-readme-unknowns"
+          ]
+        }
+      ],
+      "reviewEvidence": [
+        {
+          "endLine": 28,
+          "file": "samples/configured_training/train.py",
+          "id": "ev-train-save",
+          "line": 28,
+          "quote": "    torch.save(student.state_dict(), config[\"output\"])"
+        },
+        {
+          "endLine": 17,
+          "file": "samples/configured_training/models.py",
+          "id": "ev-models-registry",
+          "line": 13,
+          "quote": "BUILDERS = {\"small\": small, \"wide\": wide}\n\n\ndef build(name):\n    return BUILDERS[name]()"
+        },
+        {
+          "endLine": 17,
+          "file": "samples/configured_training/engine.py",
+          "id": "ev-engine-kd",
+          "line": 13,
+          "quote": "        distilled = F.kl_div(\n            F.log_softmax(student_logits / temperature, dim=-1),\n            F.softmax(teacher_logits / temperature, dim=-1),\n            reduction=\"batchmean\",\n        ) * temperature ** 2"
+        },
+        {
+          "endLine": 21,
+          "file": "samples/configured_training/engine.py",
+          "id": "ev-engine-update",
+          "line": 19,
+          "quote": "        optimizer.zero_grad()\n        loss.backward()\n        optimizer.step()"
+        },
+        {
+          "endLine": 32,
+          "file": "samples/configured_training/engine.py",
+          "id": "ev-engine-evaluate",
+          "line": 24,
+          "quote": "@torch.no_grad()\ndef evaluate(student, batches):\n    student.eval()\n    correct, count = 0, 0\n    for features, labels in batches:\n        predictions = student(features).argmax(dim=-1)\n        correct += (predictions == labels).sum().item()\n        count += len(labels)\n    return correct / count if count else None"
+        },
+        {
+          "endLine": 10,
+          "file": "samples/configured_training/infer.py",
+          "id": "ev-infer-predict",
+          "line": 5,
+          "quote": "@torch.no_grad()\ndef predict(checkpoint, features):\n    student = build(\"small\")\n    student.load_state_dict(torch.load(checkpoint, map_location=\"cpu\", weights_only=True))\n    student.eval()\n    return student(features).argmax(dim=-1)"
+        },
+        {
+          "endLine": 11,
+          "file": "samples/configured_training/README.md",
+          "id": "ev-readme-unknowns",
+          "line": 7,
+          "quote": "It exercises configuration-selected construction, a frozen teacher, two loss\nterms, student-only updates, and a separate inference entrypoint. The actual\ndataset contents, checkpoint quality, and runtime metrics are unknown from\nthese files. The teacher and student architectures differ; both emit three\nclass logits."
+        }
+      ]
+    }
+  ]
+}

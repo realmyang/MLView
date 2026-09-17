@@ -8,6 +8,12 @@ fresh initial host-authored outputs and one challenged child revision. The
 publication results, live checks and desktop-control interruptions; these are
 separate from the four provisional smoke reviews below.
 
+The [native review packet](native-reviews/README.md) now covers all twelve
+original artifacts and the three matched baselines. The
+[focused quality follow-ups](quality-followups/README.md) preserve fresh GAN and
+notebook outputs produced with revised skill guidance. Neither collection
+contains human adjudication or held-out pilot results.
+
 This directory turns the four existing development smoke artifacts into review
 candidates. The reviews are model-authored triage, not human adjudication or
 accuracy scores. Every claim and usability answer remains explicitly pending a

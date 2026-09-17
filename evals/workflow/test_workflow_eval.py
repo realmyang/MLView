@@ -177,6 +177,200 @@ def test_provisional_review_rejects_stale_artifact_pointer():
         module.validate_development_review(review)
 
 
+def _native_review(task="dev-config", host="codex"):
+    manifest = json.loads((Path(__file__).parent / "development/native-artifacts/manifest.json").read_text())
+    entry = next(item for item in manifest["artifacts"]
+                 if item["task"] == task and item["host"] == host)
+    artifact_path = f"evals/workflow/development/native-artifacts/{entry['path']}"
+    artifact = json.loads((ROOT / artifact_path).read_text())
+    smoke = json.loads((Path(__file__).parent / f"development/{task}.json").read_text())
+    smoke.update({
+        "host": host,
+        "artifact": artifact_path,
+        "artifactSha256": entry["sha256"],
+        "artifactRevision": entry["revision"],
+        "artifactRequest": artifact["request"],
+        # Keep this fixture about identity binding; native pointer IDs differ.
+        "reviewEvidence": [],
+        "claims": [{**smoke["claims"][0], "artifactPointers": [],
+                    "sourceReferences": [artifact["evidence"][0]["id"]]}],
+        "usability": {key: {**answer, "artifactPointers": []}
+                      for key, answer in smoke["usability"].items()},
+    })
+    return smoke
+
+
+def test_native_review_is_bound_to_registered_host_path_hash_and_revision():
+    review = _native_review()
+    module.validate_development_review(review)
+    mutations = [
+        ("host", "copilot", "registered task/host artifact"),
+        ("artifact", "evals/workflow/development/native-artifacts/codex/dev-gan.mlview.json",
+         "registered task/host artifact"),
+        ("artifactSha256", "0" * 64, "artifact manifest"),
+        ("artifactRevision", "wrong", "artifact manifest"),
+        ("artifactRequest", {"question": "wrong"}, "request mismatch"),
+    ]
+    for field, value, message in mutations:
+        changed = _native_review()
+        changed[field] = value
+        with pytest.raises(ValueError, match=message):
+            module.validate_development_review(changed)
+
+
+def test_native_review_rejects_bad_pointer_and_human_review_injection():
+    review = _native_review()
+    review["claims"][0]["artifactPointers"] = ["node:not-registered"]
+    with pytest.raises(ValueError, match="does not resolve"):
+        module.validate_development_review(review)
+
+
+def test_development_review_requires_unique_claim_ids_and_bounded_nonempty_anchors():
+    review = _native_review()
+    review["claims"].append(dict(review["claims"][0]))
+    with pytest.raises(ValueError, match="unique claim IDs"):
+        module.validate_development_review(review)
+
+    review = _native_review()
+    review["reviewEvidence"] = [{"id": "empty", "file": "samples/configured_training/train.py",
+                                 "line": 9999, "quote": ""}]
+    review["claims"][0]["sourceReferences"] = ["empty"]
+    with pytest.raises(ValueError, match="source range"):
+        module.validate_development_review(review)
+
+
+def test_baseline_notes_require_complete_hosts_exact_sources_and_no_human_review(tmp_path):
+    source = tmp_path / "source.py"
+    source.write_text("first\nsecond\n", encoding="utf-8")
+    baselines = []
+    for host in MANIFEST["hosts"]:
+        baselines.append({
+            "id": f"dev-config:{host}:baseline", "task": "dev-config", "host": host,
+            "responseSha256": "a" * 64, "captureKind": "native response",
+            "summary": "Provisional comparison.",
+            "strengths": [{"summary": "Names the first fact.", "sourceReferences": ["src"]}],
+            "gaps": [{"summary": "Omits the second fact.", "sourceReferences": ["src"]}],
+            "reviewEvidence": [{"id": "src", "file": "source.py", "line": 1,
+                                "endLine": 2, "quote": "first\nsecond"}],
+            "humanReview": None,
+        })
+    value = {"version": 1, "reviewerType": "model-provisional",
+             "reviewStatus": "pending-human-review", "humanReview": None,
+             "baselines": baselines}
+    assert len(module.validate_baselines(value, MANIFEST, tmp_path)) == 3
+    value["baselines"][0]["reviewEvidence"][0]["quote"] = "invented"
+    with pytest.raises(ValueError, match="source quote mismatch"):
+        module.validate_baselines(value, MANIFEST, tmp_path)
+    value["baselines"][0]["reviewEvidence"][0]["quote"] = "first\nsecond"
+    value["baselines"][0]["humanReview"] = {"reviewer": "invented"}
+    with pytest.raises(ValueError, match="cannot supply human review"):
+        module.validate_baselines(value, MANIFEST, tmp_path)
+    review = _native_review()
+    review["humanReview"] = {"reviewer": "invented"}
+    with pytest.raises(ValueError, match="cannot supply human review"):
+        module.validate_development_review(review)
+
+
+def test_baseline_capture_hashes_are_optional_and_verified_before_rendering(tmp_path, monkeypatch):
+    source = tmp_path / "source.py"
+    source.write_text("source line\n", encoding="utf-8")
+    captures = {}
+    baselines = []
+    for host in MANIFEST["hosts"]:
+        capture = tmp_path / f"{host}.txt"
+        capture.write_text(f"private <response> for {host}", encoding="utf-8")
+        captures[host] = capture.name
+        baselines.append({
+            "id": f"dev-config:{host}:baseline", "task": "dev-config", "host": host,
+            "responseSha256": _digest(capture), "captureKind": "native response",
+            "summary": "Summary.", "strengths": [], "gaps": [],
+            "reviewEvidence": [{"id": "src", "file": "source.py", "line": 1,
+                                "quote": "source line"}], "humanReview": None,
+        })
+    mapping = tmp_path / "captures.json"
+    mapping.write_text(json.dumps(captures), encoding="utf-8")
+    loaded = module._load_baseline_captures(mapping, baselines, tmp_path)
+    assert loaded["codex"] == "private <response> for codex"
+
+    reviews = tmp_path / "reviews"
+    reviews.mkdir()
+    artifact = tmp_path / "artifact.json"
+    artifact.write_text('{"evidence": []}', encoding="utf-8")
+    usability = {key: {"status": "clear", "answer": "answer", "artifactPointers": []}
+                 for key in module.USABILITY_QUESTIONS}
+    for task in module.DEVELOPMENT_TASKS:
+        for host in MANIFEST["hosts"]:
+            review = {
+                "task": task, "host": host, "artifact": "artifact.json",
+                "artifactRevision": "r1", "artifactSha256": "a" * 64,
+                "claims": [{"id": "claim", "verdict": "supported", "summary": "summary",
+                            "artifactPointers": [], "sourceReferences": []}],
+                "usability": usability,
+            }
+            (reviews / f"{task}-{host}.json").write_text(json.dumps(review), encoding="utf-8")
+    baseline_path = tmp_path / "baselines.json"
+    baseline_path.write_text(json.dumps({
+        "version": 1, "reviewerType": "model-provisional",
+        "reviewStatus": "pending-human-review", "humanReview": None,
+        "baselines": baselines,
+    }), encoding="utf-8")
+    monkeypatch.setattr(module, "validate_development_review", lambda review, root: None)
+    public_output = tmp_path / "public.html"
+    module.generate_review_packet(reviews, baseline_path, public_output, MANIFEST, tmp_path)
+    assert "private &lt;response&gt;" not in public_output.read_text(encoding="utf-8")
+    private_output = tmp_path / "private.html"
+    module.generate_review_packet(reviews, baseline_path, private_output, MANIFEST, tmp_path,
+                                  baseline_captures_path=mapping)
+    private_html = private_output.read_text(encoding="utf-8")
+    assert "Private raw captures included" in private_html
+    assert "private &lt;response&gt; for codex" in private_html
+    assert "private <response>" not in private_html
+
+    captures["codex"] = "copilot.txt"
+    mapping.write_text(json.dumps(captures), encoding="utf-8")
+    with pytest.raises(ValueError, match="SHA-256 mismatch"):
+        module._load_baseline_captures(mapping, baselines, tmp_path)
+
+
+def test_baseline_rejects_empty_out_of_bounds_anchor(tmp_path):
+    source = tmp_path / "source.py"
+    source.write_text("one\n", encoding="utf-8")
+    entries = [{
+        "id": f"dev-config:{host}:baseline", "task": "dev-config", "host": host,
+        "responseSha256": "a" * 64, "captureKind": "native response", "summary": "Summary.",
+        "strengths": [], "gaps": [], "reviewEvidence": [
+            {"id": "src", "file": "source.py", "line": 99, "quote": ""}],
+        "humanReview": None,
+    } for host in MANIFEST["hosts"]]
+    value = {"version": 1, "reviewerType": "model-provisional",
+             "reviewStatus": "pending-human-review", "humanReview": None,
+             "baselines": entries}
+    with pytest.raises(ValueError, match="source range"):
+        module.validate_baselines(value, MANIFEST, tmp_path)
+
+
+@pytest.mark.parametrize("cell", [-1, True, 1])
+def test_notebook_source_rejects_invalid_cell_indices(tmp_path, cell):
+    notebook = tmp_path / "notebook.ipynb"
+    notebook.write_text(json.dumps({"cells": [{"source": ["first\n", "second\n"]}]}),
+                        encoding="utf-8")
+    with pytest.raises(ValueError, match="notebook cell index"):
+        module._source_lines(notebook, cell)
+
+
+def test_notebook_source_rejects_invalid_cell_source_and_locations_show_metadata(tmp_path):
+    notebook = tmp_path / "notebook.ipynb"
+    notebook.write_text(json.dumps({"cells": [{"source": ["valid\n", 3]}]}), encoding="utf-8")
+    with pytest.raises(ValueError, match="notebook cell source"):
+        module._source_lines(notebook, 0)
+    assert module._evidence_location({
+        "file": "flow.ipynb", "cell": 3, "line": 6, "endLine": 10,
+    }) == "flow.ipynb — cell 3 — lines 6-10"
+    assert module._evidence_location({
+        "file": "config.json", "jsonPointer": "/model/name",
+    }) == "config.json — JSON Pointer /model/name"
+
+
 def test_provisional_reviews_validate_in_fresh_root_without_dot_mlview(tmp_path):
     review_dir = Path(__file__).parent / "development"
     assert not (tmp_path / ".mlview").exists()

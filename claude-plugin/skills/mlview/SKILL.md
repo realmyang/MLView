@@ -26,6 +26,14 @@ evaluation, and outputs across files. Represent absent runtime facts as
 alternatives or unresolved details. Keep a compact evidence record while
 working and use exact source lines.
 
+Trace state ownership as well as calls: which data fits preprocessing or learned
+state, which parameters each optimizer owns, and where gradients or other loop
+state are reset, accumulated, and updated. Distinguish computing gradients
+through a component from stepping its parameters. Follow the actual expressions
+used for metrics, logs, returned values, and saved outputs; nearby accumulators
+or names alone do not establish what is reported. A held-out split does not
+establish evaluation: follow whether and how that split is consumed.
+
 Author a WorkflowDocument 1.0 draft using `references/workflow-example.json` as
 a shape example and `references/WORKFLOW_CONTRACT.md` as the contract. Use
 semantic steps people recognize. Preserve branches, loops, shared components,
@@ -37,13 +45,25 @@ a low-severity finding. An empty `findings` array is valid; never invent a
 finding to make the diagram look complete. An empty citation list is valid only
 for unresolved claims or conceptual groups
 supported by children. State inspected files and limitations honestly.
+Use `observed` for behavior directly established by the inspected source;
+qualify conclusions that depend on framework semantics or unavailable runtime
+state as `inferred` or `unresolved`. For notebooks, distinguish source order
+from recorded execution counts; counts do not prove a successful clean-kernel
+run. Cite cell source exactly and disclose metadata used beyond those citations.
 `coverage.inspectedFiles` lists every source, config, notebook, launch script,
 test, and document materially considered, including files that supplied context
 but no final evidence citation. It is not a synonym for the evidence file list.
 
 Before publishing, critique the draft once: check alternative interpretations,
-unsupported connections, claimed absences, scenario mixing, and whether it
-answers the request. Then run, from the workspace root:
+unsupported connections, claimed absences, and scenario mixing. Check whether
+the diagram answers the relevant workflow questions: where data originates,
+what parameters or fitted state change, which objectives drive those changes,
+where evaluation occurs, what outputs are produced, and what remains unknown.
+For a missing step, distinguish absence in the inspected scenario from work
+not yet traced; do not add a node or finding merely to fill a checklist. Check
+preprocessing fit boundaries and state carried across repeated phases when
+they affect the request. Report material critique corrections, or that none
+were needed, separately from validator repairs. Then run, from the workspace root:
 
 ```sh
 python3 <skill-directory>/scripts/artifact.py validate .mlview/llm/<run-id>/draft.json --workspace .

@@ -1,0 +1,209 @@
+{
+  "host": "copilot",
+  "task": "dev-sklearn",
+  "artifact": "evals/workflow/development/native-artifacts/copilot/dev-sklearn.mlview.json",
+  "artifactSha256": "19a250761c99a03e9137d7a7b61c9859d4b98c584c236f092b80b5ee3e4e933f",
+  "artifactRevision": "rev-1",
+  "artifactRequest": {
+    "configuration": "Default entrypoint values: csv_path='data/accounts.csv'; SEED=17; N_FOLDS=5; holdout uses GroupShuffleSplit(test_size=0.2); inner CV uses StratifiedGroupKFold(n_splits=5, shuffle=True, random_state=17); TargetEncoder pipeline with CatBoostClassifier; no CLI overrides specified.",
+    "entrypoints": [
+      "analyzer/tests/accuracy/corpus/tabular_group_cv_clean/train.py"
+    ],
+    "question": "Explain how grouped cross-validation keeps transformations inside the training folds and identify the split, fitted preprocessing, estimator, and evaluation flow.",
+    "scope": "Selected entrypoint"
+  },
+  "reviewerType": "model-provisional",
+  "reviewStatus": "pending-human-review",
+  "reviewEvidence": [
+    {
+      "id": "rev-source-main",
+      "file": "analyzer/tests/accuracy/corpus/tabular_group_cv_clean/train.py",
+      "line": 110,
+      "endLine": 122,
+      "quote": "cv = cross_validate_groups(...) ... encoder, booster = fit_final(...) ... report = evaluate(...)"
+    }
+  ],
+  "claims": [
+    {
+      "id": "outer-group-split",
+      "verdict": "supported",
+      "summary": "The artifact correctly identifies the account-group outer holdout.",
+      "artifactPointers": [
+        "node:node-holdout"
+      ],
+      "sourceReferences": [
+        "ev-gs",
+        "ev-main"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "inner-group-folds",
+      "verdict": "supported",
+      "summary": "The inner splitter preserves groups while stratifying labels across five folds.",
+      "artifactPointers": [
+        "node:node-cv-folds"
+      ],
+      "sourceReferences": [
+        "ev-sgkf"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "fold-local-encoder",
+      "verdict": "supported",
+      "summary": "TargetEncoder is newly built and fitted on each inner-training slice.",
+      "artifactPointers": [
+        "node:node-encoder-fit"
+      ],
+      "sourceReferences": [
+        "ev-sgkf"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "validation-transform",
+      "verdict": "supported",
+      "summary": "Validation rows use transform rather than fit_transform.",
+      "artifactPointers": [
+        "node:node-encoder-fit"
+      ],
+      "sourceReferences": [
+        "ev-sgkf"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "fold-estimator",
+      "verdict": "supported",
+      "summary": "CatBoost fits training Pools and uses validation Pools for early stopping.",
+      "artifactPointers": [
+        "node:node-booster-fit"
+      ],
+      "sourceReferences": [
+        "ev-sgkf"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "cv-aggregation",
+      "verdict": "supported",
+      "summary": "Validation AUCs and best rounds are aggregated before final fitting.",
+      "artifactPointers": [
+        "node:node-booster-fit",
+        "node:node-final-model"
+      ],
+      "sourceReferences": [
+        "ev-sgkf",
+        "ev-fit-final"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "final-refit",
+      "verdict": "supported",
+      "summary": "A new encoder and final booster fit all outer-training rows.",
+      "artifactPointers": [
+        "node:node-final-model"
+      ],
+      "sourceReferences": [
+        "ev-fit-final",
+        "ev-main"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "holdout-evaluation",
+      "verdict": "supported",
+      "summary": "Outer-test features are transformed once and scored with ROC AUC and average precision.",
+      "artifactPointers": [
+        "node:node-eval"
+      ],
+      "sourceReferences": [
+        "ev-evaluate",
+        "ev-main"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "missing-import-qualification",
+      "verdict": "unsupported",
+      "summary": "The artifact presents the visible fit/apply structure but does not disclose that encoders.py and features.py are absent, so complete leakage safety is not established.",
+      "artifactPointers": [
+        "coverage",
+        "node:node-encoder-fit"
+      ],
+      "sourceReferences": [
+        "ev-main",
+        "ev-sgkf"
+      ],
+      "failureTypes": [
+        "missing-uncertainty",
+        "overclaim"
+      ],
+      "humanDecision": null
+    }
+  ],
+  "usability": {
+    "dataOrigin": {
+      "status": "partial",
+      "answer": "The split flow is clear, but imported feature preparation internals are not surfaced.",
+      "artifactPointers": [
+        "node:node-holdout"
+      ],
+      "humanDecision": null
+    },
+    "updatedParametersAndFitState": {
+      "status": "clear",
+      "answer": "Fold-local and final fitted components are easy to identify.",
+      "artifactPointers": [
+        "node:node-encoder-fit",
+        "node:node-booster-fit",
+        "node:node-final-model"
+      ],
+      "humanDecision": null
+    },
+    "losses": {
+      "status": "missing",
+      "answer": "No explicit loss explanation is provided.",
+      "artifactPointers": [
+        "node:node-booster-fit"
+      ],
+      "humanDecision": null
+    },
+    "evaluationBoundaries": {
+      "status": "clear",
+      "answer": "Inner validation and outer holdout are separated.",
+      "artifactPointers": [
+        "node:node-cv-folds",
+        "node:node-eval"
+      ],
+      "humanDecision": null
+    },
+    "outputs": {
+      "status": "partial",
+      "answer": "Evaluation metrics are named, but aggregation/report details are compressed.",
+      "artifactPointers": [
+        "node:node-eval"
+      ],
+      "humanDecision": null
+    },
+    "uncertainty": {
+      "status": "missing",
+      "answer": "Absent imported implementations and runtime facts are not disclosed.",
+      "artifactPointers": [
+        "coverage"
+      ],
+      "humanDecision": null
+    }
+  },
+  "humanReview": null
+}

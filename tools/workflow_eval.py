@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import html
 import json
+import os
 from collections import Counter
 from pathlib import Path
 
@@ -23,6 +25,7 @@ DEVELOPMENT_ARTIFACTS = {
     "dev-gan": "evals/workflow/development/artifacts/dev-gan.mlview.json",
     "dev-notebook": "evals/workflow/development/artifacts/notebook.mlview.json",
 }
+NATIVE_ARTIFACT_MANIFEST = ROOT / "evals/workflow/development/native-artifacts/manifest.json"
 
 
 def plan(manifest: dict) -> list[dict]:
@@ -176,8 +179,42 @@ def _source_lines(path: Path, cell: int | None = None) -> list[str]:
     if cell is None:
         return path.read_text(encoding="utf-8").splitlines()
     notebook = json.loads(path.read_text(encoding="utf-8"))
-    source = notebook["cells"][cell]["source"]
-    return "".join(source).splitlines()
+    cells = notebook.get("cells")
+    if (type(cell) is not int or cell < 0 or not isinstance(cells, list)
+            or cell >= len(cells) or not isinstance(cells[cell], dict)):
+        raise ValueError("invalid notebook cell index")
+    source = cells[cell].get("source")
+    if isinstance(source, str):
+        text = source
+    elif isinstance(source, list) and all(isinstance(line, str) for line in source):
+        text = "".join(source)
+    else:
+        raise ValueError("invalid notebook cell source")
+    return text.splitlines()
+
+
+def _evidence_location(source: dict) -> str:
+    location = str(source["file"])
+    if "jsonPointer" in source:
+        return f"{location} — JSON Pointer {source['jsonPointer']}"
+    if "cell" in source:
+        location += f" — cell {source['cell']}"
+    if "line" in source:
+        location += f" — lines {source['line']}-{source.get('endLine', source['line'])}"
+    return location
+
+
+def _validate_source_excerpt(source: dict, root: Path, label: str) -> None:
+    lines = _source_lines(_confined_path(source.get("file"), root), source.get("cell"))
+    start, end = source.get("line"), source.get("endLine", source.get("line"))
+    if (type(start) is not int or type(end) is not int or start < 1
+            or end < start or end > len(lines)):
+        raise ValueError(f"invalid {label} source range")
+    quote = source.get("quote")
+    if not isinstance(quote, str) or not quote:
+        raise ValueError(f"{label} requires a nonempty source quote")
+    if "\n".join(lines[start - 1:end]) != quote:
+        raise ValueError(f"{label} source quote mismatch: {source.get('id')}")
 
 
 def _json_pointer(value: object, pointer: str) -> object:
@@ -198,8 +235,32 @@ def validate_development_review(review: dict, root: Path = ROOT) -> None:
         raise ValueError("development review cannot supply human review")
     task = review.get("task")
     artifact_path = review.get("artifact")
-    if task not in DEVELOPMENT_ARTIFACTS or artifact_path != DEVELOPMENT_ARTIFACTS[task]:
+    if task not in DEVELOPMENT_ARTIFACTS:
         raise ValueError("development review task and artifact do not match")
+    smoke_artifact = artifact_path == DEVELOPMENT_ARTIFACTS[task]
+    native_registration = None
+    if not smoke_artifact:
+        host = review.get("host")
+        if host is None:
+            raise ValueError("development review task and artifact do not match")
+        manifest_path = root / NATIVE_ARTIFACT_MANIFEST.relative_to(ROOT)
+        if not manifest_path.is_file():
+            raise ValueError("native artifact manifest is unavailable")
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        matches = [entry for entry in manifest.get("artifacts", [])
+                   if entry.get("task") == task and entry.get("host") == host]
+        if len(matches) != 1:
+            raise ValueError("native review task and host are not uniquely registered")
+        native_registration = matches[0]
+        registered_path = str(
+            NATIVE_ARTIFACT_MANIFEST.parent.relative_to(ROOT) / native_registration["path"]
+        )
+        if artifact_path != registered_path:
+            raise ValueError("native review artifact path is not the registered task/host artifact")
+        for field, registered_field in (("artifactSha256", "sha256"),
+                                        ("artifactRevision", "revision")):
+            if review.get(field) != native_registration.get(registered_field):
+                raise ValueError(f"native review {field} differs from the artifact manifest")
     artifact_file = _verify_file(artifact_path, review.get("artifactSha256"), root)
     artifact = json.loads(artifact_file.read_text(encoding="utf-8"))
     if review.get("artifactRevision") != artifact.get("revision", {}).get("id"):
@@ -214,6 +275,10 @@ def validate_development_review(review: dict, root: Path = ROOT) -> None:
     claims = review.get("claims")
     if not isinstance(claims, list) or not claims:
         raise ValueError("development review requires claims")
+    claim_ids = [claim.get("id") for claim in claims]
+    if (any(not isinstance(claim_id, str) or not claim_id.strip() for claim_id in claim_ids)
+            or len(set(claim_ids)) != len(claim_ids)):
+        raise ValueError("development review requires nonempty unique claim IDs")
     for claim in claims:
         if claim.get("verdict") not in REVIEW_VERDICTS:
             raise ValueError("invalid provisional claim verdict")
@@ -233,10 +298,7 @@ def validate_development_review(review: dict, root: Path = ROOT) -> None:
                 if actual != item.get("value"):
                     raise ValueError(f"JSON evidence mismatch: {ref}")
                 continue
-            lines = _source_lines(_confined_path(item["file"], root), item.get("cell"))
-            start, end = item["line"], item.get("endLine", item["line"])
-            if "\n".join(lines[start - 1:end]) != item["quote"]:
-                raise ValueError(f"source quote mismatch: {ref}")
+            _validate_source_excerpt(item, root, "review evidence")
         _validate_pointers(claim.get("artifactPointers"), artifact)
     usability = review.get("usability")
     if not isinstance(usability, dict) or set(usability) != USABILITY_QUESTIONS:
@@ -269,6 +331,162 @@ def _validate_pointers(pointers: object, artifact: dict) -> None:
         kind, identifier = pointer.split(":", 1)
         if identifier not in collections.get(kind, set()):
             raise ValueError(f"artifact pointer does not resolve: {pointer}")
+
+
+def validate_baselines(value: dict, manifest: dict, root: Path = ROOT) -> list[dict]:
+    """Validate public, provisional baseline notes without requiring private captures."""
+    if (value.get("version") != 1 or value.get("reviewerType") != "model-provisional"
+            or value.get("reviewStatus") != "pending-human-review"
+            or value.get("humanReview") is not None):
+        raise ValueError("baseline notes must remain model-provisional and pending human review")
+    baselines = value.get("baselines")
+    if not isinstance(baselines, list) or len(baselines) != len(manifest["hosts"]):
+        raise ValueError("baseline notes must contain exactly one entry per host")
+    expected_hosts = set(manifest["hosts"])
+    if {item.get("host") for item in baselines} != expected_hosts:
+        raise ValueError("baseline notes hosts do not match the native matrix")
+    for item in baselines:
+        if item.get("id") != f"dev-config:{item.get('host')}:baseline" or item.get("task") != "dev-config":
+            raise ValueError("baseline note identity differs from the planned matrix")
+        digest = item.get("responseSha256")
+        if not isinstance(digest, str) or len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
+            raise ValueError("baseline note requires a lowercase response SHA-256")
+        if not all(isinstance(item.get(field), str) and item[field].strip()
+                   for field in ("captureKind", "summary")):
+            raise ValueError("baseline note requires captureKind and summary")
+        evidence = item.get("reviewEvidence")
+        if not isinstance(evidence, list) or not evidence:
+            raise ValueError("baseline note requires exact source evidence")
+        indexed = {}
+        for source in evidence:
+            source_id = source.get("id")
+            if not isinstance(source_id, str) or not source_id.strip():
+                raise ValueError("baseline evidence requires a nonempty ID")
+            if source_id in indexed:
+                raise ValueError("duplicate baseline evidence ID")
+            indexed[source_id] = source
+            _validate_source_excerpt(source, root, "baseline evidence")
+        for group in ("strengths", "gaps"):
+            entries = item.get(group)
+            if not isinstance(entries, list):
+                raise ValueError(f"baseline note requires {group}")
+            for entry in entries:
+                refs = entry.get("sourceReferences")
+                if not isinstance(entry.get("summary"), str) or not isinstance(refs, list) or not refs:
+                    raise ValueError(f"baseline {group} require summaries and source references")
+                if any(ref not in indexed for ref in refs):
+                    raise ValueError(f"baseline {group} references unknown evidence")
+        if item.get("humanReview") is not None:
+            raise ValueError("baseline entry cannot supply human review")
+    return baselines
+
+
+def _artifact_evidence(review: dict, root: Path) -> dict[str, dict]:
+    artifact = json.loads(_confined_path(review["artifact"], root).read_text(encoding="utf-8"))
+    return {item["id"]: item for item in artifact.get("evidence", [])} | {
+        item["id"]: item for item in review.get("reviewEvidence", [])
+    }
+
+
+def _load_baseline_captures(path: Path, baselines: list[dict], root: Path) -> dict[str, str]:
+    mapping = json.loads(path.read_text(encoding="utf-8"))
+    expected = {item["host"] for item in baselines}
+    if not isinstance(mapping, dict) or set(mapping) != expected:
+        raise ValueError("baseline capture mapping must contain exactly one path per host")
+    captures = {}
+    by_host = {item["host"]: item for item in baselines}
+    for host, capture_path in mapping.items():
+        capture_file = _verify_file(capture_path, by_host[host]["responseSha256"], root)
+        captures[host] = capture_file.read_text(encoding="utf-8")
+    return captures
+
+
+def generate_review_packet(review_dir: Path, baselines_path: Path, output: Path,
+                           manifest: dict, root: Path = ROOT,
+                           baseline_captures_path: Path | None = None) -> None:
+    """Render reviewer-authored ledgers; this function makes no semantic judgments."""
+    baseline_resolved = baselines_path.resolve()
+    review_paths = sorted(path for path in review_dir.glob("**/*.json")
+                          if path.resolve() != baseline_resolved)
+    reviews = [json.loads(path.read_text(encoding="utf-8")) for path in review_paths]
+    expected = {(task, host) for task in DEVELOPMENT_TASKS for host in manifest["hosts"]}
+    identities = [(review.get("task"), review.get("host")) for review in reviews]
+    if len(reviews) != 12 or set(identities) != expected or len(set(identities)) != len(identities):
+        raise ValueError("review packet requires exactly the complete 4-task by 3-host native matrix")
+    for review in reviews:
+        validate_development_review(review, root)
+    baseline_value = json.loads(baselines_path.read_text(encoding="utf-8"))
+    baselines = validate_baselines(baseline_value, manifest, root)
+    captures = (_load_baseline_captures(baseline_captures_path, baselines, root)
+                if baseline_captures_path is not None else None)
+
+    esc = lambda value: html.escape(str(value), quote=True)
+    parts = ["<!doctype html><html><head><meta charset='utf-8'>",
+             "<meta name='viewport' content='width=device-width,initial-scale=1'>",
+             "<title>MLView provisional native review packet</title><style>",
+             "body{font:15px/1.45 system-ui,sans-serif;max-width:1100px;margin:auto;padding:2rem;color:#18202a}",
+             "h1,h2{border-bottom:1px solid #ccd4dd;padding-bottom:.3rem}article{border:1px solid #ccd4dd;border-radius:8px;padding:1rem;margin:1rem 0}",
+             ".pending{background:#fff3cd;padding:.8rem;border:2px solid #9b7300}.meta{color:#465365}pre{white-space:pre-wrap;background:#f4f6f8;padding:.7rem;overflow-wrap:anywhere}",
+             "details{margin:.6rem 0}.verdict{font-weight:700}.decision{border:1px dashed #687789;padding:.6rem;margin:.6rem 0}",
+             "@media print{body{max-width:none;padding:0}article{break-inside:avoid}details{display:block}details>*{display:block}}",
+             "</style></head><body><h1>MLView provisional native review packet</h1>",
+             "<p class='pending'><strong>Human adjudication pending.</strong> Every claim and usability answer below was authored provisionally by a model. This packet validates artifact identity and exact source excerpts; it does not validate semantic correctness.</p>",
+             "<p class='filters'>Filter: <label>task <select id='task-filter'><option value=''>all</option>" +
+             "".join(f"<option>{esc(task)}</option>" for task in DEVELOPMENT_TASKS) +
+             "</select></label> <label>host <select id='host-filter'><option value=''>all</option>" +
+             "".join(f"<option>{esc(host)}</option>" for host in manifest["hosts"]) +
+             "</select></label></p>",
+             "<p>Return decisions by artifact identity and claim ID, for example: <code>dev-gan / codex / optimizer-ownership: supported — rationale…</code>. For usability, use <code>dev-gan / codex / usability.losses: clear — rationale…</code>. Include your name and review date separately; do not edit provisional fields into human decisions.</p>"]
+    by_identity = {(review["task"], review["host"]): review for review in reviews}
+    for task in DEVELOPMENT_TASKS:
+        parts.append(f"<section><h2>{esc(task)}</h2>")
+        for host in manifest["hosts"]:
+            review = by_identity[(task, host)]
+            evidence = _artifact_evidence(review, root)
+            output_parent = output.parent.resolve()
+            artifact_label = esc(review["artifact"])
+            if output_parent == root.resolve() or root.resolve() in output_parent.parents:
+                href = Path(os.path.relpath(root / review["artifact"], output_parent)).as_posix()
+                artifact_label = f"<a href='{esc(href)}'>{artifact_label}</a>"
+            parts.extend([f"<article data-task='{esc(task)}' data-host='{esc(host)}'><h3>{esc(host)}</h3>",
+                          f"<p class='meta'>Artifact: {artifact_label}<br>Revision: <code>{esc(review['artifactRevision'])}</code><br>SHA-256: <code>{esc(review['artifactSha256'])}</code></p>",
+                          "<p class='pending'>Pending human review; provisional claim labels are not adjudication.</p><h4>Claims</h4>"])
+            for claim in review["claims"]:
+                parts.append(f"<details open><summary><span class='verdict'>{esc(claim['id'])}: {esc(claim['verdict'])}</span> — {esc(claim['summary'])}</summary>")
+                parts.append(f"<p>Artifact pointers: {esc(', '.join(claim['artifactPointers']) or 'none')}</p>")
+                for ref in claim["sourceReferences"]:
+                    source = evidence[ref]
+                    location = _evidence_location(source)
+                    quote = source.get("quote", json.dumps(source.get("value"), ensure_ascii=False, indent=2))
+                    parts.append(f"<p><strong>{esc(ref)}</strong> — {esc(location)}</p><pre>{esc(quote)}</pre>")
+                parts.append("<div class='decision'>Human decision: ______ &nbsp; Rationale: ____________________</div></details>")
+            parts.append("<h4>Six usability questions</h4><dl>")
+            for key in sorted(USABILITY_QUESTIONS):
+                answer = review["usability"][key]
+                parts.append(f"<dt><strong>{esc(key)}</strong> — provisional {esc(answer['status'])}</dt><dd>{esc(answer['answer'])}<br>Artifact pointers: {esc(', '.join(answer['artifactPointers']) or 'none')}<div class='decision'>Human decision: ______ &nbsp; Rationale: ____________________</div></dd>")
+            parts.append("</dl></article>")
+        parts.append("</section>")
+    capture_note = ("Native capture hashes are recorded; raw responses are not bundled."
+                    if captures is None else
+                    "Native capture hashes were verified; raw responses are included in this private local packet.")
+    parts.append(f"<section><h2>Matched no-skill baseline comparisons (dev-config)</h2><p class='pending'>These are provisional summaries. {capture_note}</p>")
+    if captures is not None:
+        parts.append("<p class='pending'><strong>Private raw captures included.</strong> This local packet contains native-assistant response text supplied explicitly with <code>--baseline-captures</code>. Do not publish or commit it without a separate privacy review.</p>")
+    for item in sorted(baselines, key=lambda entry: entry["host"]):
+        parts.append(f"<article><h3>{esc(item['host'])}</h3><p>{esc(item['summary'])}</p><p class='meta'>Capture: {esc(item['captureKind'])}<br>Response SHA-256: <code>{esc(item['responseSha256'])}</code></p>")
+        for label in ("strengths", "gaps"):
+            parts.append(f"<h4>{esc(label.title())}</h4><ul>")
+            for note in item[label]:
+                parts.append(f"<li>{esc(note['summary'])} <small>Sources: {esc(', '.join(note['sourceReferences']))}</small></li>")
+            parts.append("</ul>")
+        for source in item["reviewEvidence"]:
+            parts.append(f"<details><summary>{esc(source['id'])} — {esc(_evidence_location(source))}</summary><pre>{esc(source['quote'])}</pre></details>")
+        if captures is not None:
+            parts.append(f"<details><summary>Private raw response — hash verified</summary><pre>{esc(captures[item['host']])}</pre></details>")
+        parts.append("<div class='decision'>Human baseline comparison: ______ &nbsp; Rationale: ____________________</div></article>")
+    parts.append("</section><script>for(const id of ['task-filter','host-filter'])document.getElementById(id).addEventListener('change',()=>{const t=document.getElementById('task-filter').value,h=document.getElementById('host-filter').value;for(const a of document.querySelectorAll('article[data-task]'))a.hidden=!!((t&&a.dataset.task!==t)||(h&&a.dataset.host!==h))})</script></body></html>")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text("".join(parts), encoding="utf-8")
 
 
 def summarize(records: list[dict], manifest: dict) -> dict:
@@ -336,6 +554,11 @@ def main() -> int:
     development_summary.add_argument("records", type=Path)
     validate = sub.add_parser("validate-development")
     validate.add_argument("reviews", nargs="+", type=Path)
+    packet = sub.add_parser("review-packet")
+    packet.add_argument("--reviews", required=True, type=Path)
+    packet.add_argument("--baselines", required=True, type=Path)
+    packet.add_argument("--baseline-captures", type=Path)
+    packet.add_argument("--output", required=True, type=Path)
     summary = sub.add_parser("summarize")
     summary.add_argument("records", type=Path)
     args = parser.parse_args()
@@ -352,6 +575,12 @@ def main() -> int:
                      "note": "Exact anchors and pending status validated; semantics remain unscored."}
         elif args.command == "summarize-development":
             value = summarize_development(json.loads(args.records.read_text(encoding="utf-8")), manifest)
+        elif args.command == "review-packet":
+            generate_review_packet(args.reviews, args.baselines, args.output, manifest,
+                                   baseline_captures_path=args.baseline_captures)
+            value = {"ok": True, "output": str(args.output), "reviews": 12,
+                     "baselines": len(manifest["hosts"]),
+                     "note": "Packet contains validated provisional material; human adjudication remains pending."}
         else:
             value = summarize(json.loads(args.records.read_text(encoding="utf-8")), manifest)
     except (OSError, ValueError, TypeError) as exc:

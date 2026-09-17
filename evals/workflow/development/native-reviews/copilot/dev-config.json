@@ -1,0 +1,207 @@
+{
+  "host": "copilot",
+  "task": "dev-config",
+  "artifact": "evals/workflow/development/native-artifacts/copilot/dev-config.mlview.json",
+  "artifactSha256": "f2ab3caf7a59497a41dc33b356c800c4a67b571fa9cd5892c514ffa7a0f05e78",
+  "artifactRevision": "rev-distill-1",
+  "artifactRequest": {
+    "configuration": "train.py --config samples/configured_training/configs/distill.json; student=small, teacher=wide, teacher_checkpoint=external/teacher.pt, train_data=external/train.pt, validation_data=external/validation.pt, alpha=0.6, temperature=2.0, learning_rate=0.001, epochs=5, output=student.pt; no other launch overrides selected",
+    "entrypoints": [
+      "samples/configured_training/train.py",
+      "samples/configured_training/configs/distill.json"
+    ],
+    "question": "Explain training selected by samples/configured_training/configs/distill.json. Resolve model registry entries, teacher freezing, both loss terms, student-only updates, validation and checkpoint output. State unknown external data and checkpoint facts.",
+    "scope": "Selected training entrypoint and distillation configuration"
+  },
+  "reviewerType": "model-provisional",
+  "reviewStatus": "pending-human-review",
+  "reviewEvidence": [
+    {
+      "id": "rev-source-train",
+      "file": "samples/configured_training/train.py",
+      "line": 15,
+      "endLine": 28,
+      "quote": "student = build(config[\"student\"]) ... torch.save(student.state_dict(), config[\"output\"])"
+    }
+  ],
+  "claims": [
+    {
+      "id": "config-resolution",
+      "verdict": "supported",
+      "summary": "The artifact accurately resolves the selected configuration and registry architectures.",
+      "artifactPointers": [
+        "node:load-config",
+        "node:build-student",
+        "node:build-teacher"
+      ],
+      "sourceReferences": [
+        "ev-config",
+        "ev-model-registry",
+        "ev-train-build"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "data-loading",
+      "verdict": "supported",
+      "summary": "Both tensor files are loaded into batch-32 DataLoaders with training shuffled and validation ordered.",
+      "artifactPointers": [
+        "node:load-batches"
+      ],
+      "sourceReferences": [
+        "ev-train-batches",
+        "ev-config"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "teacher-freezing",
+      "verdict": "supported",
+      "summary": "The teacher is loaded, frozen, put in eval mode, and evaluated without gradients.",
+      "artifactPointers": [
+        "node:load-teacher",
+        "node:freeze-teacher",
+        "node:teacher-target"
+      ],
+      "sourceReferences": [
+        "ev-train-checkpoint",
+        "ev-train-freeze",
+        "ev-engine-mode",
+        "ev-engine-teacher"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "loss-separation",
+      "verdict": "supported",
+      "summary": "Supervised cross-entropy and scaled KL are shown separately before their 0.4/0.6 combination.",
+      "artifactPointers": [
+        "node:supervised-loss",
+        "node:distilled-loss",
+        "node:combined-loss"
+      ],
+      "sourceReferences": [
+        "ev-engine-loss",
+        "ev-engine-combine",
+        "ev-config"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "student-only-update",
+      "verdict": "supported",
+      "summary": "Optimizer membership and the update sequence support a student-only update claim.",
+      "artifactPointers": [
+        "node:student-optimization",
+        "node:student-update"
+      ],
+      "sourceReferences": [
+        "ev-train-optimizer",
+        "ev-engine-update"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "validation",
+      "verdict": "supported",
+      "summary": "Student accuracy is evaluated and printed after every training epoch.",
+      "artifactPointers": [
+        "node:validate"
+      ],
+      "sourceReferences": [
+        "ev-train-validate",
+        "ev-engine-evaluate",
+        "ev-train-loop"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "checkpoint-output",
+      "verdict": "supported",
+      "summary": "Only the final student state_dict is saved after five epochs.",
+      "artifactPointers": [
+        "node:save-student"
+      ],
+      "sourceReferences": [
+        "ev-train-output",
+        "ev-config"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "external-unknowns",
+      "verdict": "qualified",
+      "summary": "The artifact states that data, checkpoint compatibility, and runtime results remain unknown; it does not convert absence into a proven failure.",
+      "artifactPointers": [
+        "coverage"
+      ],
+      "sourceReferences": [
+        "ev-readme-unknowns",
+        "ev-config"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    }
+  ],
+  "usability": {
+    "dataOrigin": {
+      "status": "clear",
+      "answer": "Configured external tensor inputs and their limits are stated.",
+      "artifactPointers": [
+        "node:load-batches"
+      ],
+      "humanDecision": null
+    },
+    "updatedParametersAndFitState": {
+      "status": "clear",
+      "answer": "Teacher freezing and student optimizer ownership are explicit.",
+      "artifactPointers": [
+        "node:freeze-teacher",
+        "node:student-optimization"
+      ],
+      "humanDecision": null
+    },
+    "losses": {
+      "status": "clear",
+      "answer": "Both losses and their combination are explicit.",
+      "artifactPointers": [
+        "node:supervised-loss",
+        "node:distilled-loss",
+        "node:combined-loss"
+      ],
+      "humanDecision": null
+    },
+    "evaluationBoundaries": {
+      "status": "clear",
+      "answer": "Validation follows each training epoch.",
+      "artifactPointers": [
+        "node:validate"
+      ],
+      "humanDecision": null
+    },
+    "outputs": {
+      "status": "clear",
+      "answer": "The final student state output is explicit.",
+      "artifactPointers": [
+        "node:save-student"
+      ],
+      "humanDecision": null
+    },
+    "uncertainty": {
+      "status": "partial",
+      "answer": "Unknown external facts are in coverage, but there are no dedicated unresolved nodes or findings.",
+      "artifactPointers": [
+        "coverage"
+      ],
+      "humanDecision": null
+    }
+  },
+  "humanReview": null
+}
