@@ -41,5 +41,33 @@ class InstallerTests(unittest.TestCase):
         source = SCRIPT.resolve().parents[1]
         with self.assertRaises(ValueError): installer.install(source, "skills/mlview")
 
+    def test_doctor_checks_required_files_and_reports_its_limits(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            installer.install(root)
+            report, ok = installer.doctor(root)
+            self.assertTrue(ok)
+            self.assertTrue(report["python"]["supported"])
+            self.assertIn("native assistant skill discovery", report["limitations"][0])
+            (root / ".agents/skills/mlview/references/workflow-example.json").unlink()
+            report, ok = installer.doctor(root)
+            self.assertFalse(ok)
+            self.assertEqual(["references/workflow-example.json"], report["locations"][0]["missing"])
+
+    def test_doctor_reports_layout_collision(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            installer.install(root)
+            installer.install(root, ".claude/skills/mlview")
+            report, ok = installer.doctor(root)
+            self.assertFalse(ok)
+            self.assertTrue(report["collision"])
+
+    def test_doctor_reports_missing_install(self):
+        with tempfile.TemporaryDirectory() as temp:
+            report, ok = installer.doctor(Path(temp))
+            self.assertFalse(ok)
+            self.assertFalse(report["collision"])
+
 
 if __name__ == "__main__": unittest.main()

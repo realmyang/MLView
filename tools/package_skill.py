@@ -4,27 +4,38 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
+from zipfile import ZIP_STORED, ZipFile, ZipInfo
 
 ROOT = Path(__file__).resolve().parents[1]
+SKIP_PARTS = {"tests", "__pycache__"}
+
+
+def canonical_files(source: Path | None = None) -> dict[str, bytes]:
+    """Return the exact portable skill payload, keyed by POSIX relative path."""
+    source = source or ROOT / "skills/mlview"
+    return {
+        path.relative_to(source).as_posix(): path.read_bytes()
+        for path in sorted(source.rglob("*"))
+        if path.is_file()
+        and not any(part in SKIP_PARTS for part in path.relative_to(source).parts)
+        and path.suffix != ".pyc"
+    }
 
 
 def package(output: Path, host: str) -> int:
-    source = ROOT / "skills/mlview"
     prefix = ".claude/skills/mlview" if host == "claude-code" else ".agents/skills/mlview"
+    payload = canonical_files()
     output.parent.mkdir(parents=True, exist_ok=True)
-    count = 0
-    with ZipFile(output, "w", ZIP_DEFLATED) as archive:
-        for path in sorted(source.rglob("*")):
-            relative = path.relative_to(source)
-            if not path.is_file() or any(part in {"tests", "__pycache__"} for part in relative.parts) or path.suffix == ".pyc":
-                continue
-            info = ZipInfo(f"{prefix}/{relative.as_posix()}")
-            info.compress_type = ZIP_DEFLATED
+    # Store rather than deflate: the small text payload stays byte-reproducible
+    # across platforms without depending on the runner's zlib implementation.
+    with ZipFile(output, "w", ZIP_STORED) as archive:
+        for relative, contents in payload.items():
+            info = ZipInfo(f"{prefix}/{relative}", date_time=(1980, 1, 1, 0, 0, 0))
+            info.compress_type = ZIP_STORED
+            info.create_system = 3
             info.external_attr = 0o100644 << 16
-            archive.writestr(info, path.read_bytes())
-            count += 1
-    return count
+            archive.writestr(info, contents)
+    return len(payload)
 
 
 def main() -> None:

@@ -150,8 +150,8 @@ jobs:
         run: python -m pip install --upgrade pip && python -m pip install -e "analyzer[dev]"
       - name: analyzer suite
         run: python -m pytest analyzer/tests -q
-      - name: authored workflow helper, installation and evaluation records
-        run: python -m pytest skills/mlview/tests tools/test_install_skill.py tools/test_sync_skill.py evals -q
+      - name: authored workflow helper, installation, distribution and evaluation records
+        run: python -m pytest skills/mlview/tests tools/test_install_skill.py tools/test_package_skill.py tools/test_sync_skill.py evals -q
       - name: the golden document satisfies the frozen contracts
         run: python contracts/validate_sample.py
       - name: --demo is byte-identical to contracts/graph.sample.json
@@ -183,8 +183,8 @@ jobs:
         run: python -m pip install --upgrade pip && python -m pip install -e "analyzer[dev]"
       - name: analyzer suite
         run: python -m pytest analyzer/tests -q
-      - name: authored workflow helper, installation and evaluation records
-        run: python -m pytest skills/mlview/tests tools/test_install_skill.py tools/test_sync_skill.py evals -q
+      - name: authored workflow helper, installation, distribution and evaluation records
+        run: python -m pytest skills/mlview/tests tools/test_install_skill.py tools/test_package_skill.py tools/test_sync_skill.py evals -q
       - name: the golden document satisfies the frozen contracts
         run: python contracts/validate_sample.py
       - name: --demo is byte-identical to contracts/graph.sample.json
@@ -396,6 +396,8 @@ jobs:
       - name: powershell scripts/e2e.ps1
         shell: powershell
         run: .\scripts\e2e.ps1
+      - name: portable skill installer and distribution checks
+        run: python -m unittest tools.test_install_skill tools.test_package_skill
       - name: upload the emitted reports
         if: always()
         uses: actions/upload-artifact@v5
@@ -461,7 +463,7 @@ jobs:
   # PACKAGED VSIX and compares its `--demo` with the frozen golden.
   packaging:
     if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
-    name: packaging (wheel + vsix)
+    name: packaging (wheel + skill zips + vsix)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -480,6 +482,11 @@ jobs:
         run: |
           python -m pip install --upgrade pip build
           python tools/wheel_check.py
+      - name: build and smoke-test the reproducible standalone skill archives
+        run: |
+          python -m unittest tools.test_install_skill tools.test_package_skill
+          python tools/package_skill.py --host shared
+          python tools/package_skill.py --host claude-code
       - name: the committed icon is what tools/make_icon.py renders
         run: python vscode-extension/tools/make_icon.py --check
       - run: npm ci
@@ -515,6 +522,8 @@ jobs:
           path: |
             vscode-extension/*.vsix
             analyzer/dist/*.whl
+            .mlview/dist/*.zip
+          include-hidden-files: true
           if-no-files-found: warn
 
   # ----------------------------------------------------------------- accuracy
