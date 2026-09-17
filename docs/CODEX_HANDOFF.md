@@ -26,7 +26,13 @@
 > test; live acceptance of the rebuilt VSIX remains pending.
 > The next publication retry succeeded: `llm-workflow` is pushed and
 > [draft PR #9](https://github.com/realmyang/MLView/pull/9) is open. The credential
-> now includes `workflow` scope. Desktop control previously recovered and then
+> now includes `workflow` scope. The
+> [next desktop retry](demo-logs/2026-09-17-publication-desktop-retry.md) found and
+> fixed a second selection race: state must be saved before posting navigation,
+> because the webview may disappear before its debounced save. An immediate
+> destruction regression fails without that fix and passes with it. Remote CI
+> also exposed four Windows path-expectation mismatches, now corrected in tests.
+> Desktop control recovered and then
 > failed again, leaving five skill cases, three no-skill baselines and remaining
 > live checks pending. See the implementation page for revision-specific CI and
 > exact acceptance boundaries. No held-out pilot or human semantic scoring has

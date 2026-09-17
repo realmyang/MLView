@@ -29,6 +29,11 @@ See GitHub's [workflow permission requirement](https://docs.github.com/en/rest/r
 [Git credential setup](https://cli.github.com/manual/gh_auth_setup-git).
 Publication is no longer blocked by authentication. CI outcomes must be tied to
 their tested revisions rather than inferred from earlier local checks.
+The first remote matrix passed twelve jobs but its
+[Windows end-to-end job](https://github.com/realmyang/MLView/actions/runs/35264141214)
+found four test expectations comparing short Windows paths with expanded paths.
+The expectations now use the same asynchronous canonical-path API as the
+validator, retaining exact assertions. Follow-up results are tracked in the PR.
 
 ## Implemented components
 
@@ -213,6 +218,28 @@ still listed VS Code. The cause was not established; no screen-lock diagnosis
 is claimed. Raw observations and the 15-record development matrix are retained
 under the ignored `.mlview/sprint-20260917` directory. The remaining live checks
 require desktop access to recover.
+
+The [publication and desktop retry](demo-logs/2026-09-17-publication-desktop-retry.md)
+briefly recovered desktop access and installed the `d274…` build. Valid edge
+activation still lost selection after opening source: the shared viewer posted
+navigation before its 250 ms debounced save could complete. The new fix saves
+state synchronously before navigation. Its regression destroys the actual
+webview inside the source-opening message, verifies the saved edge, remounts,
+and checks the refinement prompt. The test fails without the fix and passes
+with it. Viewer tests (607 passed, one existing TODO), extension tests
+(437 passed, zero skipped), both TypeScript checks, the authored/legacy
+cross-host harness and all ten parity gates passed.
+The fixture's only changed field is renderer provenance; semantic graph bytes
+are unchanged.
+
+The latest renderer SHA-256 is
+`705218d660b6b9f544ae261233f952c9ffb7d4c886ba1c2c48cb9b6eb68cbd07`.
+The rebuilt VSIX SHA-256 is
+`9de5a9d97818a8cd392e6578c21d0c1e400c3d1176d42fe6db0a2948f66e409f`
+(182 files, 914.7 KB). Its live installation and acceptance remain pending:
+desktop inventory works, but Code attachment again failed after a REPL reset.
+The broader local 20-gate result above predates this additional timing fix;
+the new targeted checks and follow-up remote CI provide separate evidence.
 
 ## Remaining validation
 
