@@ -24,12 +24,13 @@
 > Selected-node/finding prompts, VSIX installation and interrupted refinement
 > were exercised. A discovered remount bug is fixed in `884c5f8` with a regression
 > test; live acceptance of the rebuilt VSIX remains pending.
-> Publication is blocked by the Git credential's missing `workflow` scope;
-> repository write access itself is confirmed. Desktop control recovered and
-> then failed again, leaving five skill cases, three no-skill baselines and
-> remaining live checks pending. See the implementation page for authentication
-> recovery commands and exact acceptance boundaries. No held-out pilot or human
-> semantic scoring has started.
+> The next publication retry succeeded: `llm-workflow` is pushed and
+> [draft PR #9](https://github.com/realmyang/MLView/pull/9) is open. The credential
+> now includes `workflow` scope. Desktop control previously recovered and then
+> failed again, leaving five skill cases, three no-skill baselines and remaining
+> live checks pending. See the implementation page for revision-specific CI and
+> exact acceptance boundaries. No held-out pilot or human semantic scoring has
+> started.
 > The static-only direction and “next Sprint A” below
 > are the historical takeover snapshot, not the current roadmap.
 

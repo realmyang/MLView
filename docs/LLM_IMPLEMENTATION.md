@@ -1,20 +1,23 @@
 # LLM workflow implementation status
 
 The user approved [the direction plan](LLM_DIRECTION_PLAN.md) on 2026-09-16.
-Implementation is committed on the local `llm-workflow` branch. Publishing was
-attempted, but GitHub rejected the configured credential because it lacks the
-`workflow` scope needed for the CI changes. No draft PR or remote CI run exists
-for this branch yet. The repository's earlier accuracy measurements and CI run
-IDs apply to the legacy static product.
+Implementation is published on `llm-workflow` in
+[draft PR #9](https://github.com/realmyang/MLView/pull/9). The September 17
+publication retry succeeded after the GitHub credential gained the required
+`workflow` scope. [Push CI](https://github.com/realmyang/MLView/actions/runs/35263547094)
+started for `e93c838`; remote results are separate from the local validation
+record below. The repository's earlier accuracy measurements and CI run IDs
+apply to the legacy static product.
 
-The September 17 credential check confirmed repository write access
+The earlier September 17 credential check confirmed repository write access
 (`canPush: true`) but only the `repo` token scope. GitHub rejected the push
 specifically because it changes `.github/workflows/ci.yml`, which additionally
 requires `workflow` for this classic personal access token. Git's existing
-credential helper and GitHub CLI have separate authentication state; `gh` is
-currently logged out. No credential value was displayed or saved in run logs.
-The account owner can authorize the missing scope through the browser and
-configure Git to use that login:
+credential helper and GitHub CLI have separate authentication state; `gh` was
+then logged out. The subsequent retry verified a working CLI login and the
+`workflow` scope, pushed the branch and created the draft PR. No credential
+value was displayed or saved in run logs. The recovery commands documented for
+the account owner were:
 
 ```sh
 gh auth login --hostname github.com --git-protocol https --web --scopes workflow
@@ -24,8 +27,8 @@ gh auth setup-git --hostname github.com
 See GitHub's [workflow permission requirement](https://docs.github.com/en/rest/repos/contents#create-or-update-file-contents),
 [CLI login](https://cli.github.com/manual/gh_auth_login) and
 [Git credential setup](https://cli.github.com/manual/gh_auth_setup-git).
-Once authentication is corrected, the remaining publication steps are push,
-draft PR creation and observing the new revision's CI results.
+Publication is no longer blocked by authentication. CI outcomes must be tied to
+their tested revisions rather than inferred from earlier local checks.
 
 ## Implemented components
 
