@@ -49,28 +49,35 @@ export async function authoredHandshake() {
   try {
     await controller.open(vscode.Uri.file(artifact));
     const panel = vscode.__recorded.panels.at(-1);
-    const console = new VirtualConsole();
-    dom = new JSDOM(panel.webview.html, {
-      runScripts: 'outside-only', pretendToBeVisual: true,
-      url: 'https://authored.mlview.test/', virtualConsole: console
-    });
-    const { window } = dom;
-    window.structuredClone = value => JSON.parse(JSON.stringify(value));
-    window.matchMedia = media => ({ media, matches: false, addEventListener() {}, removeEventListener() {} });
     let state;
     const outgoing = [];
-    window.acquireVsCodeApi = () => ({
-      postMessage: message => { outgoing.push(message); panel.fire(message); },
-      setState: value => { state = value; }, getState: () => state
-    });
+    let activeWindow;
     panel.webview.postMessage = async message => {
-      queueMicrotask(() => window.dispatchEvent(new window.MessageEvent('message', { data: message })));
+      const target = activeWindow;
+      queueMicrotask(() => target.dispatchEvent(new target.MessageEvent('message', { data: message })));
       return true;
     };
-    // These are MLView's trusted built bundle and generated bootstrap, never target source.
-    // Strict eval scopes `var`; a real script element exposes the IIFE global.
-    window.eval(readFileSync(new URL('../dist/mlview.js', import.meta.url), 'utf8') + '\nwindow.MLView = MLView;');
-    for (const script of window.document.querySelectorAll('script:not([src])')) window.eval(script.textContent);
+    const mount = () => {
+      const next = new JSDOM(panel.webview.html, {
+        runScripts: 'outside-only', pretendToBeVisual: true,
+        url: 'https://authored.mlview.test/', virtualConsole: new VirtualConsole()
+      });
+      const { window } = next;
+      activeWindow = window;
+      window.structuredClone = value => JSON.parse(JSON.stringify(value));
+      window.matchMedia = media => ({ media, matches: false, addEventListener() {}, removeEventListener() {} });
+      window.acquireVsCodeApi = () => ({
+        postMessage: message => { outgoing.push(message); panel.fire(message); },
+        setState: value => { state = value; }, getState: () => state
+      });
+      // These are MLView's trusted built bundle and generated bootstrap, never target source.
+      // Strict eval scopes `var`; a real script element exposes the IIFE global.
+      window.eval(readFileSync(new URL('../dist/mlview.js', import.meta.url), 'utf8') + '\nwindow.MLView = MLView;');
+      for (const script of window.document.querySelectorAll('script:not([src])')) window.eval(script.textContent);
+      return next;
+    };
+    dom = mount();
+    let { window } = dom;
     await waitFor(() => window.document.querySelector('[data-node-id="loss"]'), 'authored bootstrap did not mount');
     await new Promise(resolve => setTimeout(resolve, 30)); // settle the mount's second ready/init handshake
     assert.equal(state.artifact, artifact);
@@ -101,6 +108,13 @@ export async function authoredHandshake() {
     window.document.querySelector('.mlv-workflow__refine').click();
     window.document.querySelector('[data-edge-id="step"] .mlv-edge__hit')
       .dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    await waitFor(() => state?.selection?.kind === 'edge' && state.selection.id === 'step',
+      'edge selection was not persisted before remount');
+    dom.window.close();
+    dom = mount();
+    window = dom.window;
+    await waitFor(() => window.document.querySelector('[data-edge-id="step"].is-selected'),
+      'authored remount did not restore the persisted edge selection');
     window.document.querySelector('.mlv-workflow__refine').click();
     assert.match(window.document.querySelector('.mlv-workflow__selection').textContent, /edge: step/);
     window.document.querySelector('.mlv-workflow__composer').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
