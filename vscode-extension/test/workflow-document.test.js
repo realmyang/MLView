@@ -25,7 +25,7 @@ test('workflow validator checks exact source quotes and workspace containment', 
   fs.writeFileSync(path.join(root,'pipeline.py'),'fit()\n');
   const valid=await validateWorkflow(document(),root);
   assert.equal(valid.issues.length,0);
-  assert.deepEqual(valid.value.files,[fs.realpathSync(path.join(root,'pipeline.py'))]);
+  assert.deepEqual(valid.value.files,[await fs.promises.realpath(path.join(root,'pipeline.py'))]);
   const bad=document('../outside.py');
   bad.evidence[0].quote='wrong';
   const invalid=await validateWorkflow(bad,root);
@@ -59,7 +59,7 @@ test('published historical source changes are stale, while a forged current quot
   fs.writeFileSync(source,'changed()\n');
   const historical=await validateWorkflow(value,root);
   assert.equal(historical.issues.length,0);
-  assert.deepEqual(historical.value.staleFiles,[fs.realpathSync(source)]);
+  assert.deepEqual(historical.value.staleFiles,[await fs.promises.realpath(source)]);
 
   value.verification.files['pipeline.py']=crypto.createHash('sha256').update('changed()\n').digest('hex');
   const forged=await validateWorkflow(value,root);
@@ -73,7 +73,7 @@ test('a deleted file from a published snapshot remains stale and contained', asy
   value.verification={files:{'pipeline.py':crypto.createHash('sha256').update('fit()\n').digest('hex')},publishedAt:'2026-09-16T12:00:00Z'};
   const result=await validateWorkflow(value,root);
   assert.equal(result.issues.length,0);
-  assert.deepEqual(result.value.staleFiles,[path.join(fs.realpathSync(root),'pipeline.py')]);
+  assert.deepEqual(result.value.staleFiles,[path.join(await fs.promises.realpath(root),'pipeline.py')]);
 });
 
 test('workflow validator watches inspected files beyond direct evidence', async () => {
@@ -83,7 +83,7 @@ test('workflow validator watches inspected files beyond direct evidence', async 
   const value=document(); value.coverage.inspectedFiles.push('config.yaml');
   const result=await validateWorkflow(value,root);
   assert.equal(result.issues.length,0);
-  assert.ok(result.value.files.includes(fs.realpathSync(path.join(root,'config.yaml'))));
+  assert.ok(result.value.files.includes(await fs.promises.realpath(path.join(root,'config.yaml'))));
 });
 
 test('malformed optional and nested values are rejected without throwing', () => {
