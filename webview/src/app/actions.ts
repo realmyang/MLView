@@ -83,6 +83,10 @@ export function askAssistant(app: App, nodeId: string): void {
 
 export function openLocation(app: App, loc: Loc | RelatedLoc): void {
   if (!app.caps.canOpenSource) return;
+  // VS Code may tear down a hidden webview as soon as opening source changes
+  // the active editor. Persist synchronously before handing control to the
+  // host; the ordinary debounced save can be lost with the document.
+  app.bridge.saveState(app.getState());
   const message: any = {
     v: 1,
     type: 'openLocation',

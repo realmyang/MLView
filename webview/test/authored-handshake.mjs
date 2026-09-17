@@ -52,6 +52,8 @@ export async function authoredHandshake() {
     let state;
     const outgoing = [];
     let activeWindow;
+    let closeOnOpenLocation = false;
+    let closedAtOpenLocation = false;
     panel.webview.postMessage = async message => {
       const target = activeWindow;
       queueMicrotask(() => target.dispatchEvent(new target.MessageEvent('message', { data: message })));
@@ -67,7 +69,15 @@ export async function authoredHandshake() {
       window.structuredClone = value => JSON.parse(JSON.stringify(value));
       window.matchMedia = media => ({ media, matches: false, addEventListener() {}, removeEventListener() {} });
       window.acquireVsCodeApi = () => ({
-        postMessage: message => { outgoing.push(message); panel.fire(message); },
+        postMessage: message => {
+          outgoing.push(message);
+          panel.fire(message);
+          if (closeOnOpenLocation && message.type === 'openLocation') {
+            closeOnOpenLocation = false;
+            closedAtOpenLocation = true;
+            window.close();
+          }
+        },
         setState: value => { state = value; }, getState: () => state
       });
       // These are MLView's trusted built bundle and generated bootstrap, never target source.
@@ -106,11 +116,14 @@ export async function authoredHandshake() {
     assert.match(vscode.__recorded.clipboardWrites[0], /Selected configuration: training mode/);
 
     window.document.querySelector('.mlv-workflow__refine').click();
+    closeOnOpenLocation = true;
     window.document.querySelector('[data-edge-id="step"] .mlv-edge__hit')
       .dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-    await waitFor(() => state?.selection?.kind === 'edge' && state.selection.id === 'step',
-      'edge selection was not persisted before remount');
-    dom.window.close();
+    assert.equal(closedAtOpenLocation, true, 'edge activation must exercise immediate source handoff');
+    assert.equal(state?.selection?.kind, 'edge',
+      'edge selection kind must be persisted before the source handoff can destroy the webview');
+    assert.equal(state?.selection?.id, 'step',
+      'edge selection ID must be persisted before the source handoff can destroy the webview');
     dom = mount();
     window = dom.window;
     await waitFor(() => window.document.querySelector('[data-edge-id="step"].is-selected'),
