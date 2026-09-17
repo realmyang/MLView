@@ -51,6 +51,7 @@ before you cite one:
 | [`DEMO_LOG.md`](DEMO_LOG.md) | The template you copy and fill in *while* you validate; completed logs live in `docs/demo-logs/` |
 | [`demo-logs/2026-09-17-host-retry.md`](demo-logs/2026-09-17-host-retry.md) | Completed Copilot and Claude native refinement retries, local VSIX installation, exact artifact revisions and remaining acceptance boundaries |
 | [`../evals/workflow/reference-candidates/README.md`](../evals/workflow/reference-candidates/README.md) | Eight source-linked reference drafts and a proposed common policy for human review before the held-out pilot |
+| [`../evals/workflow/development/README.md`](../evals/workflow/development/README.md) | Four provisional development reviews and the fresh native-host comparison; human decisions remain separate |
 | [`ROADMAP.md`](ROADMAP.md) | The ranked backlog from four audits, with the acceptance clause and the landing measurement for each shipped item |
 | [`RESEARCH_COVERAGE_ACCURACY.md`](RESEARCH_COVERAGE_ACCURACY.md) | The 2026-09-15 research review: where the recall goes (107 misses in seven causes), three defects in shipped rules, 37 candidate rules in three tiers with their false-positive exposure measured on the public corpus, and a three-sprint sequence. Advisory, like `ROADMAP.md` |
 | [`research/sources.md`](research/sources.md) | The numbered bibliography that review cites, each entry marked with how far it was verified |

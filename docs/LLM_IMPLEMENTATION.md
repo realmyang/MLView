@@ -1,9 +1,10 @@
 # LLM workflow implementation status
 
 The user approved [the direction plan](LLM_DIRECTION_PLAN.md) on 2026-09-16.
-Implementation is on the local `llm-workflow` branch; it has not been published
-or verified by remote CI. The repository's previous accuracy measurements and
-CI run IDs apply to the legacy static product.
+Implementation is on the `llm-workflow` branch. Consult the branch's pull request
+checks for revision-specific remote CI results; the local measurements below
+are separate evidence. The repository's earlier accuracy measurements and CI
+run IDs apply to the legacy static product.
 
 ## Implemented components
 
@@ -15,11 +16,26 @@ CI run IDs apply to the legacy static product.
 | [Viewer adapter](../webview/src/workflow.ts) | Separate authored normalization and shared interactive renderer |
 | [VS Code authored panel](../vscode-extension/src/authoredPanel.ts) | Artifact open/restore/update, workspace ownership, freshness, source navigation, refinement and exports |
 | [Installer](../tools/install_skill.py) | Self-contained workspace skill installation |
+| [Distribution checks](../tools/test_package_skill.py) | Reproducible ZIPs, canonical content parity and extracted-helper publication outside the checkout |
 | [Evaluation protocol](../evals/workflow/README.md) | Development tasks, pinned held-out pilot tasks and honest run records |
 
 The new artifact lifecycle bypasses legacy static analysis. Legacy MLGraph 1.0,
 CLI/MCP tools and reports retain their compatibility contracts. No native host
 model API or credential is accessed by the MLView extension.
+
+The September 17 follow-up adds selection-aware refinement for nodes, edges
+and findings. The composer captures its target when opened, offers Explain,
+Expand, Challenge, Trace and custom intent, and copies a host-validated prompt
+with scenario, bounded evidence lists, parent revision and stable-ID guidance.
+The viewer displays the artifact's entrypoints and configuration. Its authored
+basis labels do not invent numeric confidence scores.
+
+The portable skill now records default scenario assumptions and can publish a
+validated partial overview with explicit remaining work. An interrupted host
+turn leaves the last published revision intact. The installer has a read-only
+`--doctor` check, both ZIP layouts have repeatable bytes, and CI is configured
+to upload both ZIPs with the wheel and VSIX. These local installation checks do
+not establish discovery or usability in a native assistant.
 
 ## Acceptance boundaries
 
@@ -90,6 +106,36 @@ scenarios' counts, critique corrections and validator repairs. The first smoke
 incorrectly framed correct teacher freezing as a finding; this informed the
 skill's finding guidance. Successful validation did not detect that semantic
 mistake, which is why human adjudication remains a separate gate.
+
+## Follow-up verification — September 17
+
+The quality sprint reproduced all **20 of 20 end-to-end gates**, with zero
+failed or skipped gates, after rebuilding the selection-aware viewer and VSIX.
+The analyzer and Claude suite totals stayed at 2,654 and 475 passes; the viewer
+reported 607 passes and one existing TODO; the extension reported 437 passes.
+Existing individual skips and expected failures are unchanged from the table
+above. Both TypeScript checks and all 10 parity gates passed. The complete
+ignored log is `.mlview/sprint-20260917/e2e.log`.
+
+The helper, installation, packaging, copy-parity and evaluation suite then
+passed **41 tests plus four subtests**. This includes a fresh-root review check
+with no ignored development artifacts and SHA-bound response/UI evidence for
+recorded native runs. Four checked-in artifact snapshots are byte-identical to
+their original development outputs; they contain only the repository's own
+fixture analysis and have been checked for private paths and credentials.
+
+The VSIX contains 182 files and measures 914.67 KB. Its local SHA-256 is
+`fab55253feba1fbaff42b48322ba905219cc1c5b5ea77972b6c58af0fdbb51a6`.
+The renderer SHA-256 is
+`68175c0f8a41b5a323eda09b8e1be3f3be52d54961c780bf7765791568bdb17b`.
+These identify the locally tested build, not a marketplace release.
+
+Four [provisional development reviews](../evals/workflow/development/README.md)
+separate false defect claims, overextended evidence, omitted behavior and
+usability questions. They are model-authored review drafts with pending human
+decisions. The [pilot protocol](../evals/workflow/README.md) now requires an
+adjudicated 24-run first stage before the 48 repeats can begin. No held-out
+session has been launched by this sprint.
 
 ## Remaining validation
 

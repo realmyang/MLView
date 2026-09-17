@@ -36,13 +36,17 @@ intent; the existing static analyzer remains available as a legacy path.
   evidence, source freshness, refinement prompts, and SVG/PNG exports.
 - Added shared and Claude skill distributions; Claude's old automatic static
   hooks are now opt-in, and static VS Code entrypoints are visibly labeled.
+- Added node/edge/finding refinement intents, visible scenario context and
+  stable-ID preservation guidance in prompts copied to the native assistant.
+- Added a read-only installation doctor, deterministic skill ZIPs, extracted
+  helper checks, and CI distribution artifacts for both host layouts.
 - Added eight development scenarios and the protocol for a 72-run held-out
   pilot. The pilot and human semantic adjudication are outstanding.
 
 See [implementation and local verification](docs/LLM_IMPLEMENTATION.md) and the
-[native-host integration log](docs/demo-logs/2026-09-16-llm-workflow.md). This
-branch has not been published or run through remote CI; historical static
-accuracy numbers do not measure LLM understanding.
+[native-host integration log](docs/demo-logs/2026-09-16-llm-workflow.md). Local
+verification and revision-specific remote CI are separate evidence; historical
+static accuracy numbers do not measure LLM understanding.
 
 ---
 

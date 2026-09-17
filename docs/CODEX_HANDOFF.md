@@ -12,6 +12,11 @@
 > navigation and refinement now pass in all three hosts; the
 > [pilot references](../evals/workflow/reference-candidates/README.md) still
 > require human review before scored runs.
+> The user then authorized the next quality sprint: selection-aware refinement,
+> explicit scenarios, reproducible distribution, a small native development
+> comparison, and a staged held-out pilot after human review. The previous
+> implementation is checkpointed at `bb56cdc`; distribution checks are in
+> `2b999f1`. Read the implementation page for the latest validation state.
 > The static-only direction and “next Sprint A” below
 > are the historical takeover snapshot, not the current roadmap.
 

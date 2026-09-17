@@ -42,12 +42,24 @@ External framework/runtime/data behavior remains qualified in the drafts.
 3. Capture skill/reference/source/extension/host/model identities before runs.
    The packet records current skill and VSIX hashes because the implementation
    is not yet identified by its own Git commit.
-4. Execute and retain the 72 native-host sessions, then collect human claim
-   ledgers and report per-host/task numerators and denominators.
+4. Execute Stage 1: the 24 `repeat: 1` records covering all eight tasks in all
+   three hosts. Retain failed and blocked attempts, then complete human claim
+   ledgers for every record before making the stop/go decision.
+5. Continue to Stage 2, the 48 `repeat: 2` and `repeat: 3` records, only if the
+   frozen Stage 1 implementation meets all predefined targets: 100% valid
+   structure, 100% exact anchors, at least 95% supported claims, at least 85%
+   essential-fact recall, qualification of every known unresolved scenario,
+   and zero high-severity false accusations. A target miss stops the campaign;
+   it must not be hidden by proceeding to repeats.
+6. Human-review all Stage 2 records and report complete 72-run per-host/task
+   numerators and denominators. Stage 1 success is permission to collect more
+   evidence, not a completed or passed pilot.
 
 The local `.mlview/pilot-runs.json` was generated only because it did not already
 exist. The summarizer confirms **72 pending, zero completed, zero human-reviewed,
 `pilotComplete: false`**. Its prompts remain drafts until expanded/frozen.
+Consequently Stage 1 has **24 pending and zero passed**, Stage 2 has **48 pending
+and zero passed**, and none of the stop/go targets has a measured result.
 
 Citation integrity and native UI mechanics can be checked independently of
 human semantic review. [The host retry log](../../docs/demo-logs/2026-09-17-host-retry.md)

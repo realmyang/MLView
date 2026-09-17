@@ -1,5 +1,17 @@
 # scripts/
 
+The native LLM workflow has additional deterministic helper, installation,
+distribution and evaluation-record checks:
+
+```sh
+python -m pytest skills/mlview/tests tools/test_install_skill.py tools/test_package_skill.py tools/test_sync_skill.py evals -q
+```
+
+CI runs these separately from the end-to-end driver below. Native assistant
+sessions and human semantic review are recorded separately in
+[the workflow evaluation protocol](../evals/workflow/README.md); none of these
+tests establishes LLM semantic accuracy.
+
 Two drivers, each in a PowerShell and a POSIX-sh flavour, plus one Python gate
 they both call. The two flavours do the same thing; pick whichever shell you are
 in. Both are Windows-safe: no `shell: true`, no
