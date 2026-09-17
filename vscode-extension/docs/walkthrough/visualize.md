@@ -1,26 +1,12 @@
-# Visualize a pipeline
+# Generate and open a diagram
 
-**Run `MLView: Visualize ML Workflow (Workspace)`.**
+Invoke the MLView skill in your native assistant (for example, $mlview in
+Codex). Name the entrypoint and configuration if known, then ask it to explain
+data, models, losses, updates, evaluation, and unresolved choices.
 
-The diagram is one picture of the whole pipeline, laid out as eight stage lanes in the order
-data actually moves through them:
+The assistant reads source, authors the interpretation, and publishes a
+*.mlview.json artifact. Run MLView: Open Generated Diagram to view it. Click a
+node or edge to inspect its evidence and open the cited source.
 
-`config → data → preprocess → model → objective → train → eval → deliver`
-
-Each lane holds the *units* the analyzer recovered — classes, functions, training loops — and
-inside them the *ops*: the individual calls that do the work. Edges are typed: a solid edge is
-a value flowing, a dashed one a call, a dotted one configuration.
-
-Three things worth knowing on the first screen:
-
-- **A lane that is empty is a statement.** "not detected: preprocess" means the analyzer found
-  no preprocessing, which is a finding about your code, not a gap in the picture.
-- **A ghosted node is a guess.** Anything the analyzer could not resolve statically is drawn
-  faded and says so on hover, rather than being dropped silently.
-- **The counts describe what was analyzed.** If notebooks were skipped, or a file failed to
-  parse, the tooltip and the coverage chip say so — a clean bill of health and "I could not
-  look" never render the same.
-
-`MLView: Visualize ML Workflow (Current File)` is the same picture narrowed to one file. By
-default it still *analyzes* the surrounding package, because analysing a file alone cannot fire
-the cross-file rules and would quietly lose findings.
+The older Visualize ML Workflow commands and #mlviewAnalyze tool produce
+legacy static reports. Use the skill for the LLM interpretation workflow.

@@ -420,12 +420,14 @@ shape none of the fifteen could see: not a number that has gone stale, but a
 `pipeline:<entrypoint>` and named the six machine surfaces that had to learn it —
 `SCOPE_KINDS`, the `bad_selector` candidates, `mlview.api`,
 `webview/src/scope/selector.ts`, the MCP docstring and `--list-scopes`. The four
-surfaces a *person* reads were not on that list and did not change, so the only
+legacy surfaces a *person* reads were not on that list and did not change, so the only
 way a CLI user could discover the selector was to type a wrong one and read the
-refusal, and a model reading `/mlview`'s body would never pass the one selector
+refusal, and a model reading `/mlview-issues` would never pass the one selector
 that answers "show me just the training entrypoint" (HOSTS-UX-DOCS-PIPELINE).
 `symbol:` had been in the same position for longer. The parser's own tuple is the
-authority, so adding a kind fails every advertised list until it names the kind.
+authority, so adding a kind fails every legacy advertised list until it names
+the kind. The LLM-native `/mlview` command consumes WorkflowDocument and is
+explicitly outside this static-selector gate.
 **Check 17**: `tools/public_corpus.py`'s docstring called its clone directory
 git-ignored while `.gitignore` had no entry for it, so `fetch` put ~1.8 GB of
 real repositories into `git status` (PUB-17) — and, once they were there, the

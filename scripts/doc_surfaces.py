@@ -21,12 +21,13 @@ imported.
     B2 listed the six places that had to learn the new kind -- `SCOPE_KINDS`, the
     `bad_selector` candidates, `mlview.api`, `webview/src/scope/selector.ts`, the
     MCP `mlview_graph` docstring and `--list-scopes`. Every one of those is a
-    *machine* surface. The four a person or a model actually reads were not on
-    the list and did not change: `mlview analyze --help`, `README.md` §1b, and
-    both `claude-plugin/commands/*.md`. So the only way a CLI user could learn
+    *machine* surface. The legacy surfaces a person or a model actually read were
+    not on the list and did not change: `mlview analyze --help`, `README.md`'s
+    legacy section, `/mlview-issues`, and the legacy MCP server. So the only way
+    a CLI user could learn
     that `pipeline:` exists was to type a wrong selector and read the refusal
     (`try: all, concern, file, node, pipeline, stage, symbol, unit`), and a model
-    reading `/mlview`'s body would never pass the one selector that answers
+    reading the legacy command's body would never pass the one selector that answers
     "show me just the training entrypoint" on a multi-script repo -- the shape
     half the public corpus has. `symbol:` had been in the same position since it
     was added. The parser's own `SCOPE_KINDS` tuple is the authority, so the
@@ -79,13 +80,19 @@ SELECTORS_SRC = "analyzer/src/mlview/core/selectors.py"
 CLI_PARSER_SRC = "analyzer/src/mlview/cli_parser.py"
 #: Spellings that are legal in the kind slot but are not `SCOPE_KINDS` entries.
 EXTRA_SPELLINGS = ("symbol", "all")
-#: Every prose surface a user or a model reads to learn which selectors exist.
-SELECTOR_SURFACES = (
+#: Legacy prose surfaces that advertise the static analyzer selector grammar.
+#: The LLM-native `/mlview` command consumes a WorkflowDocument and has no
+#: reason to teach the replaced analyzer's selector vocabulary.
+LEGACY_SELECTOR_SURFACES = (
     "README.md",
-    "claude-plugin/commands/mlview.md",
     "claude-plugin/commands/mlview-issues.md",
     "claude-plugin/server/mlview_mcp.py",
 )
+#: Explicit classification prevents a future broad `commands/*.md` sweep from
+#: accidentally forcing static-analyzer language back into the native command.
+NATIVE_WORKFLOW_SURFACES = ("claude-plugin/commands/mlview.md",)
+#: Backward-compatible name for callers that enumerate the checked surfaces.
+SELECTOR_SURFACES = LEGACY_SELECTOR_SURFACES
 #: `all` is the one spelling with no colon, so it needs its own shape: quoted or
 #: backticked, never the bare English word.
 ALL_RE = re.compile(r"[`'\"]all[`'\"]")
@@ -166,7 +173,7 @@ def advertises(text: str, spelling: str) -> bool:
 
 
 def check_selector_surfaces(root: Path, problems: list) -> None:
-    """16: every selector the parser accepts is named on every list a human reads."""
+    """16: every selector is named on every legacy surface that advertises it."""
     spellings = scope_spellings(root)
     if not spellings:
         return  # no analyzer in this tree; checks 1-2 already say so

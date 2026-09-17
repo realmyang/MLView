@@ -50,6 +50,7 @@ const CSS_FILES = [
   // VIEW-07, and LAST on purpose: it carries the `@media print` block, whose
   // `!important` overrides have to win over every layer above it.
   'export.css',
+  'workflow.css',
 ];
 
 /**

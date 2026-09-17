@@ -79,10 +79,11 @@ with the machine-readable copy the tree already holds live next door -- checks
     `contracts/scope.cases.json`.
 15. **Two gate documents naming different runs** for "the last full green push".
 
-16. **A selector the CLI accepts that a user-facing list does not advertise.**
-    `pipeline:` (CONTRACTS 11.47) and `symbol:` were legal everywhere and named
-    in none of `mlview analyze --help`, `README.md` and the two
-    `claude-plugin/commands/*.md` bodies.
+16. **A selector the legacy CLI accepts that a legacy user-facing list does not
+    advertise.** `pipeline:` (CONTRACTS 11.47) and `symbol:` were legal
+    everywhere and missing from legacy CLI help, README guidance,
+    `/mlview-issues`, and the legacy MCP server. The LLM-native `/mlview`
+    command authors WorkflowDocument and is outside this static grammar gate.
 17. **A generated directory a tool calls git-ignored that `.gitignore` does not
     cover**, so running the tool puts its whole download into `git status`.
 18. **A `test` script that enumerates its test files and misses one**, so

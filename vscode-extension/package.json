@@ -1,7 +1,7 @@
 {
   "name": "mlview",
   "displayName": "MLView",
-  "description": "Visualize and audit Python ML pipelines as an interactive diagram — fully local, static analysis only.",
+  "description": "Open interactive, source-linked ML workflow diagrams authored by your active Copilot, Codex, or Claude Code model.",
   "version": "0.1.0",
   "publisher": "mlview",
   "license": "MIT",
@@ -41,6 +41,9 @@
   ],
   "main": "./out/extension.js",
   "activationEvents": [
+    "onCommand:mlview.openGeneratedDiagram",
+    "onWebviewPanel:mlview.authoredDiagram",
+    "workspaceContains:**/*.mlview.json",
     "onLanguage:python",
     "workspaceContains:**/*.py",
     "workspaceContains:**/*.ipynb",
@@ -62,14 +65,20 @@
   "contributes": {
     "commands": [
       {
+        "command": "mlview.openGeneratedDiagram",
+        "title": "Open Generated Diagram",
+        "category": "MLView",
+        "icon": "$(open-preview)"
+      },
+      {
         "command": "mlview.visualize",
-        "title": "Visualize ML Workflow (Current File)",
+        "title": "Visualize ML Workflow (Current File, Legacy Static)",
         "category": "MLView",
         "icon": "$(graph)"
       },
       {
         "command": "mlview.visualizeWorkspace",
-        "title": "Visualize ML Workflow (Workspace)",
+        "title": "Visualize ML Workflow (Workspace, Legacy Static)",
         "category": "MLView",
         "icon": "$(graph-scatter)"
       },
@@ -193,6 +202,11 @@
     "menus": {
       "editor/context": [
         {
+          "command": "mlview.openGeneratedDiagram",
+          "when": "resourceFilename =~ /\\.mlview\\.json$/",
+          "group": "mlview@0"
+        },
+        {
           "command": "mlview.revealInDiagram",
           "when": "editorLangId == python",
           "group": "mlview@1"
@@ -209,6 +223,11 @@
         }
       ],
       "editor/title": [
+        {
+          "command": "mlview.openGeneratedDiagram",
+          "when": "resourceFilename =~ /\\.mlview\\.json$/",
+          "group": "navigation@99"
+        },
         {
           "command": "mlview.visualize",
           "when": "resourceLangId == python",
@@ -357,12 +376,12 @@
         "id": "mlview.chat",
         "name": "mlview",
         "fullName": "MLView",
-        "description": "Diagram and audit the ML pipeline in this workspace",
+        "description": "Legacy local static report; use the MLView skill for model-authored workflow interpretation",
         "isSticky": true,
         "commands": [
           {
             "name": "diagram",
-            "description": "Open the interactive ML workflow diagram"
+            "description": "Open the legacy static workflow diagram"
           },
           {
             "name": "issues",
@@ -380,8 +399,8 @@
         "name": "mlview_analyzeWorkspace",
         "toolReferenceName": "mlviewAnalyze",
         "displayName": "Analyze ML Workflow",
-        "modelDescription": "Statically analyze the Python ML code in the workspace (or one file) and return the pipeline structure: stages, connections, frameworks, and a summary of detected issues with file and line numbers. Does not execute the user's code. Use before answering questions about how training or evaluation is wired together.",
-        "userDescription": "Analyze the ML workflow in this workspace",
+        "modelDescription": "Legacy fallback: statically analyze Python and return the rule-based graph. Prefer the MLView skill and its authored artifact when interpreting how training or evaluation is wired together. This tool does not execute user code.",
+        "userDescription": "Run the legacy static ML workflow analyzer",
         "canBeReferencedInPrompt": true,
         "icon": "$(graph)",
         "tags": [
@@ -413,8 +432,8 @@
         "name": "mlview_listIssues",
         "toolReferenceName": "mlviewIssues",
         "displayName": "List ML Issues",
-        "modelDescription": "Return detected machine-learning correctness and hygiene issues (rule code, severity, message, fix hint, file and line). Use when asked what is wrong with the training code, or before proposing fixes.",
-        "userDescription": "List detected ML issues",
+        "modelDescription": "Legacy static-rule fallback: return MLV findings with file and line evidence. Prefer the MLView skill for model-authored review and domain-specific findings.",
+        "userDescription": "List legacy static-rule findings",
         "canBeReferencedInPrompt": true,
         "icon": "$(warning)",
         "tags": [
@@ -454,8 +473,8 @@
         "name": "mlview_showDiagram",
         "toolReferenceName": "mlviewDiagram",
         "displayName": "Show ML Diagram",
-        "modelDescription": "Open the interactive MLView diagram panel for the user, optionally focused on a specific node.",
-        "userDescription": "Open the MLView diagram",
+        "modelDescription": "Open the legacy static MLView diagram, optionally focused on a specific static node. Use mlview.openGeneratedDiagram for a skill-authored artifact.",
+        "userDescription": "Open the legacy static MLView diagram",
         "canBeReferencedInPrompt": true,
         "icon": "$(preview)",
         "tags": [
@@ -485,67 +504,67 @@
       {
         "id": "mlview.gettingStarted",
         "title": "Get started with MLView",
-        "description": "Draw the ML pipeline in this workspace, then read what the analyzer found - in five steps.",
+        "description": "Use the MLView skill in your active assistant, then open its generated interactive diagram.",
         "when": "true",
         "steps": [
           {
             "id": "mlview.step.install",
-            "title": "Install the MLView analyzer",
-            "description": "MLView draws; `python -m mlview` analyzes. Point the extension at an interpreter that has it.\n[Select Python Interpreter](command:mlview.selectInterpreter)",
+            "title": "Install the MLView skill",
+            "description": "Install the portable skill for Copilot, Codex, or Claude Code. After it publishes an artifact, open it here.\n[Open Generated Diagram](command:mlview.openGeneratedDiagram)",
             "media": {
               "markdown": "docs/walkthrough/install.md",
-              "altText": "Install the MLView analyzer"
+              "altText": "Install the MLView skill"
             },
             "completionEvents": [
-              "onCommand:mlview.selectInterpreter"
+              "onCommand:mlview.openGeneratedDiagram"
             ]
           },
           {
             "id": "mlview.step.visualize",
-            "title": "Visualize a pipeline",
-            "description": "Open the bundled sample (or any workspace with Python in it) and draw the whole workflow.\n[Visualize ML Workflow (Workspace)](command:mlview.visualizeWorkspace)",
+            "title": "Generate and open a diagram",
+            "description": "Invoke the MLView skill in your assistant, then open the generated *.mlview.json artifact.\n[Open Generated Diagram](command:mlview.openGeneratedDiagram)",
             "media": {
               "markdown": "docs/walkthrough/visualize.md",
-              "altText": "Visualize a pipeline"
+              "altText": "Generate and open a diagram"
             },
             "completionEvents": [
-              "onCommand:mlview.visualizeWorkspace"
+              "onCommand:mlview.openGeneratedDiagram"
             ]
           },
           {
             "id": "mlview.step.problems",
-            "title": "Read a finding in Problems",
-            "description": "Every finding is a diagnostic with a rule code, a fix hint and an offline rule page.\n[Show ML Issues](command:mlview.showIssues)",
+            "title": "Review findings and evidence",
+            "description": "Open the artifact and inspect each finding's evidence, counter-evidence, and uncertainty basis.\n[Open Generated Diagram](command:mlview.openGeneratedDiagram)",
             "media": {
               "markdown": "docs/walkthrough/problems.md",
-              "altText": "Read a finding in Problems"
+              "altText": "Review findings and evidence"
             },
             "completionEvents": [
-              "onCommand:mlview.showIssues"
+              "onCommand:mlview.openGeneratedDiagram"
             ]
           },
           {
             "id": "mlview.step.reveal",
-            "title": "Jump from the editor to the diagram",
-            "description": "Alt+M takes the cursor to the node it belongs to, without leaving the keyboard.\n[Reveal in Diagram (Alt+M)](command:mlview.revealInDiagram)",
+            "title": "Follow source evidence",
+            "description": "Open the authored diagram, then use its evidence links to navigate to verified source ranges and notebook cells.\n[Open Generated Diagram](command:mlview.openGeneratedDiagram)",
             "media": {
               "markdown": "docs/walkthrough/reveal.md",
-              "altText": "Jump from the editor to the diagram"
+              "altText": "Follow source evidence"
             },
             "completionEvents": [
-              "onCommand:mlview.revealInDiagram"
+              "onCommand:mlview.openGeneratedDiagram"
             ]
           },
           {
             "id": "mlview.step.scope",
-            "title": "Narrow the diagram to one unit",
-            "description": "Alt+Shift+M scopes the diagram to the enclosing class, function or loop - and says how many findings are outside it.\n[Scope Diagram to Symbol (Alt+Shift+M)](command:mlview.scopeToSymbol)",
+            "title": "Refine with your assistant",
+            "description": "Open the artifact and use Refine to copy a follow-up prompt for the assistant that authored it.\n[Open Generated Diagram](command:mlview.openGeneratedDiagram)",
             "media": {
               "markdown": "docs/walkthrough/scope.md",
-              "altText": "Narrow the diagram to one unit"
+              "altText": "Refine with your assistant"
             },
             "completionEvents": [
-              "onCommand:mlview.scopeToSymbol"
+              "onCommand:mlview.openGeneratedDiagram"
             ]
           }
         ]

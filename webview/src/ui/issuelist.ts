@@ -343,7 +343,9 @@ function issueRow(issue: Issue, s: IssueListState, cb: IssueListCallbacks): HTML
   row.setAttribute('aria-selected', selected ? 'true' : 'false');
   row.setAttribute(
     'aria-label',
-    issue.code + ' ' + issue.severity + ' severity, ' + issue.title + ', ' + locSpoken(issue.loc) + ', confidence ' + issue.confidenceBucket,
+    issue.code + ' ' + issue.severity + ' severity, ' + issue.title +
+      (issue.loc.file ? ', ' + locSpoken(issue.loc) : '') +
+      (issue.basis ? ', basis ' + issue.basis : ', confidence ' + issue.confidenceBucket),
   );
   if (selected) row.classList.add('is-selected');
   if (issue.suppressed) row.classList.add('is-suppressed');
@@ -352,7 +354,7 @@ function issueRow(issue: Issue, s: IssueListState, cb: IssueListCallbacks): HTML
   add(text, el('div', 'mlv-issue__title', issue.title));
   const meta = add(text, el('div', 'mlv-issue__meta'));
   add(meta, el('span', '', issue.code));
-  meta.appendChild(locSpan('', issue.loc));
+  if (issue.loc.file) meta.appendChild(locSpan('', issue.loc));
   // MLV-P6: on EVERY row, styled by bucket. Drawing it only for `possible` and
   // `speculative` made `certain` and `likely` look identical — the distinction a
   // reviewer most needs — and made a missing chip ambiguous between "sure" and
@@ -389,13 +391,15 @@ function issueRow(issue: Issue, s: IssueListState, cb: IssueListCallbacks): HTML
   li.appendChild(row);
 
   // A sibling of the option, never a child of it (MLV-R2-W03).
-  const open = iconButton('mlv-btn mlv-btn--icon mlv-issue__open', 'Open ' + fileLine(issue.loc));
-  open.appendChild(uiIcon('open', 12));
-  on(open, 'click', (ev: Event) => {
-    ev.stopPropagation();
-    cb.onOpen(issue.loc);
-  });
-  li.appendChild(open);
+  if (issue.loc.file) {
+    const open = iconButton('mlv-btn mlv-btn--icon mlv-issue__open', 'Open ' + fileLine(issue.loc));
+    open.appendChild(uiIcon('open', 12));
+    on(open, 'click', (ev: Event) => {
+      ev.stopPropagation();
+      cb.onOpen(issue.loc);
+    });
+    li.appendChild(open);
+  }
 
   // MLV-P10: on EVERY row, siblings of the option like "Open" is — never
   // children of it, because `role="option"` may not contain a focusable
@@ -429,12 +433,14 @@ function issueDetail(issue: Issue, s: IssueListState, cb: IssueListCallbacks): H
   // MLV-P6: the evidence checklist and the rule card, both as disclosures.
   appendTrustSections(box, issue);
   const actions = add(box, el('div', 'mlv-issue__goto'));
-  const primary = button('mlv-btn', 'Go to ' + fileLine(issue.loc));
-  on(primary, 'click', (ev: Event) => {
-    ev.stopPropagation();
-    cb.onOpen(issue.loc);
-  });
-  actions.appendChild(primary);
+  if (issue.loc.file) {
+    const primary = button('mlv-btn', 'Go to ' + fileLine(issue.loc));
+    on(primary, 'click', (ev: Event) => {
+      ev.stopPropagation();
+      cb.onOpen(issue.loc);
+    });
+    actions.appendChild(primary);
+  }
   for (const rel of issue.relatedLocs || []) {
     const label = 'Go to ' + (rel.message || rel.role.replace(/_/g, ' ')) + ' — ' + fileLine(rel);
     const b = button('mlv-btn', label);

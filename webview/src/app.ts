@@ -42,6 +42,7 @@ import { ScopeBar } from './ui/scopebar.js';
 import { PipelineChooser } from './ui/pipelinechooser.js';
 import { DiffBar } from './ui/diffbar.js';
 import { readOverlay } from './diff/overlay.js';
+import { decorateWorkflow, normalizeWorkflow } from './workflow.js';
 import { buildAppUi } from './app/build.js';
 import { scopeToNode, setGraph, setScope } from './app/documents.js';
 import { renderChrome, renderRail } from './app/surfaces.js';
@@ -66,6 +67,7 @@ import type {
   ThemeKind,
   ViewState,
   Viewport,
+  WorkflowDocument,
 } from './types.js';
 
 export interface SelectOptions {
@@ -209,6 +211,12 @@ export class App implements MLViewApp {
     this.bridge.post({ v: 1, type: 'requestRefresh', scope: 'workspace' });
   }
 
+  /** Replace the current model-authored revision without remounting the UI. */
+  setWorkflow(document: WorkflowDocument, preserve?: Partial<ViewState>): void {
+    setGraph(this, normalizeWorkflow(document), preserve, true);
+    decorateWorkflow(this, document);
+  }
+
   /** True only where the HOST can actually make an edit behind a preview. */
   canApplyFix(): boolean {
     return this.bridge.host === 'vscode' && this.caps.canOpenSource;
@@ -350,14 +358,14 @@ export class App implements MLViewApp {
     if (!this.index) return null;
     if (sel.kind === 'node') {
       const node = this.index.nodeById.get(sel.id);
-      return node ? node.loc : null;
+      return node && node.loc.file ? node.loc : null;
     }
     if (sel.kind === 'edge') {
       const edge = this.index.edgeById.get(sel.id);
-      return edge ? edge.loc : null;
+      return edge && edge.loc.file ? edge.loc : null;
     }
     const issue = this.index.issueById.get(sel.id);
-    return issue ? issue.loc : null;
+    return issue && issue.loc.file ? issue.loc : null;
   }
 
   /** The node a non-node selection points at — an issue's primary node. */

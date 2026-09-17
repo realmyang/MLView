@@ -16,10 +16,33 @@ billing was blocked at the account level for the hardening rounds, the
 consolidation and the recall campaign, so every job came back unstarted and each
 of those entries is a measurement from one machine. The block went with the
 repository going public on 2026-09-15: the matrix has since run green over the
-tree the Unreleased entry describes — thirteen jobs, run 34986234828 and run
+legacy tree the consolidation entry describes — thirteen jobs, run 34986234828 and run
 34986239243, and thirteen again over its review fixes, run 35001150997 and run
 35001153856. Where an older entry quotes a CI run id, that run predates the
 block.
+
+---
+
+## Unreleased — native LLM workflow (2026-09-16–17)
+
+MLView now supplies a portable skill that asks the active assistant to interpret
+source and configuration, then publishes a cited semantic artifact for the
+interactive VS Code viewer. The default workflow follows the user's corrected
+intent; the existing static analyzer remains available as a legacy path.
+
+- Added WorkflowDocument 1.0, exact evidence and inspected-file fingerprints,
+  bounded validation/repair, guarded atomic publication, and revision lineage.
+- Added **Open Generated Diagram**, custom phases, groups/cycles, notebook
+  evidence, source freshness, refinement prompts, and SVG/PNG exports.
+- Added shared and Claude skill distributions; Claude's old automatic static
+  hooks are now opt-in, and static VS Code entrypoints are visibly labeled.
+- Added eight development scenarios and the protocol for a 72-run held-out
+  pilot. The pilot and human semantic adjudication are outstanding.
+
+See [implementation and local verification](docs/LLM_IMPLEMENTATION.md) and the
+[native-host integration log](docs/demo-logs/2026-09-16-llm-workflow.md). This
+branch has not been published or run through remote CI; historical static
+accuracy numbers do not measure LLM understanding.
 
 ---
 

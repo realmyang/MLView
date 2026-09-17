@@ -5,18 +5,13 @@
  * comes out of `python -m mlview analyze --json -`, and everything it draws comes out of the
  * shared viewer bundle in `media/`.
  *
- * Activation order matters (CONTRACTS.md §6): the diagram, diagnostics, reveal, CodeLens,
- * status bar and output channel register UNCONDITIONALLY; the chat participant and the
- * language-model tools register afterwards behind `typeof` guards inside try/catch, so a
- * chat-API change can never break activation.
- *
- * H10 (11.40): the controller no longer holds ONE graph. `src/folders.ts` keeps one
- * `FolderState` per open workspace folder and remembers which is active; a single-folder
- * window is the one-entry case and behaves exactly as it did.
+ * Legacy static analysis is lazy, so opening a model-authored artifact never constructs its
+ * Python client. Optional chat APIs remain guarded and cannot break activation.
  */
 
 import * as vscode from 'vscode';
 import { registerChatSurfaces } from './chatSurfaces';
+import { AuthoredDiagramController } from './authoredPanel';
 import { registerComparisonCommands, type CompareHost } from './compare';
 import { applyIssueFix, registerFixActions, type FixDeps } from './fixes';
 import { registerSuppressionActions, runSuppression, type SuppressRequest } from './codeActions';
@@ -52,6 +47,7 @@ import {
 } from './visualizeCommands';
 
 let controller: MlviewController | undefined;
+let authoredController: AuthoredDiagramController | undefined;
 
 /** What a window with no folder open is scoped to; never analysed, only read. */
 const NO_FOLDER_SCOPE: Scope = { scope: 'workspace' };
@@ -65,11 +61,13 @@ export function activate(ctx: vscode.ExtensionContext): void {
   log.info(`MLView ${version} activating (VS Code ${vscode.version})`);
 
   const env = new PythonEnvironment(ctx, log);
-  const core = new CoreClient(env, log);
   const diagnostics = new DiagnosticsPublisher(ctx, log);
-  ctx.subscriptions.push(env, core, diagnostics);
+  ctx.subscriptions.push(env, diagnostics);
 
-  controller = new MlviewController(ctx, log, env, core, diagnostics);
+  authoredController = new AuthoredDiagramController(ctx, log);
+  authoredController.register();
+  ctx.subscriptions.push(authoredController);
+  controller = new MlviewController(ctx, log, env, diagnostics);
   controller.registerUnconditional();
   controller.registerOptionalChatSurfaces();
 }
@@ -77,6 +75,8 @@ export function activate(ctx: vscode.ExtensionContext): void {
 export function deactivate(): void {
   controller?.dispose();
   controller = undefined;
+  authoredController?.dispose();
+  authoredController = undefined;
 }
 
 class MlviewController
@@ -89,10 +89,9 @@ class MlviewController
     VisualizeHost,
     vscode.Disposable
 {
-  /** H10: one graph, index, scope, stale set and remembered failure PER OPEN FOLDER. */
   private readonly book = new FolderBook();
-  /** Single-flight, supersession, the busy count and graph adoption; see analysisRunner.ts. */
-  private readonly runner: AnalysisRunner;
+  private _core: CoreClient | undefined;
+  private _runner: AnalysisRunner | undefined;
   private failed = false;
   private pendingRestore: unknown;
   private readonly statusBar: vscode.StatusBarItem;
@@ -103,7 +102,6 @@ class MlviewController
     readonly ctx: vscode.ExtensionContext,
     readonly log: Logger,
     private readonly env: PythonEnvironment,
-    readonly core: CoreClient,
     private readonly diagnostics: DiagnosticsPublisher
   ) {
     this.statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
@@ -113,9 +111,22 @@ class MlviewController
       () => readSettings().codeLens
     );
     this.disposables.push(this.statusBar, this.codeLens);
-    this.runner = new AnalysisRunner({
-      log,
-      core,
+    this.updateStatusBar();
+  }
+
+  get core(): CoreClient {
+    if (!this._core) {
+      this._core = new CoreClient(this.env, this.log);
+      this.disposables.push(this._core);
+    }
+    return this._core;
+  }
+
+  private get runner(): AnalysisRunner {
+    if (this._runner) return this._runner;
+    this._runner = new AnalysisRunner({
+      log: this.log,
+      core: this.core,
       settingsFor: (root) => readSettings(vscode.Uri.file(root)),
       isActive: (state) => this.state() === state,
       panel: () => this.livePanel(),
@@ -128,12 +139,11 @@ class MlviewController
         this.failed = failed;
       }
     });
-    this.updateStatusBar();
+    return this._runner;
   }
 
   // ---------------------------------------------------------------- folder state
 
-  /** The active folder's state, or undefined when no folder is open at all. */
   private state(): FolderState | undefined {
     return this.book.active();
   }
@@ -458,7 +468,7 @@ class MlviewController
     renderStatusBar(this.statusBar, {
       ...(state?.graph ? { graph: state.graph } : {}),
       settings: readSettings(state ? vscode.Uri.file(state.root) : undefined),
-      busy: this.runner.busy(),
+      busy: this._runner?.busy() ?? false,
       failed: this.failed,
       // PACKAGING: names the installed-vs-bundled core, once the chain has run once.
       ...(this.env.coreDescription() ? { core: this.env.coreDescription()! } : {}),

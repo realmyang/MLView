@@ -8,6 +8,7 @@
  */
 
 const path = require('node:path');
+const fs = require('node:fs');
 
 class Position {
   constructor(line, character) {
@@ -250,6 +251,8 @@ const recorded = {
   saveDialogs: [],
   quickPicks: [],
   writtenFiles: [],
+  shownDocuments: [],
+  clipboardWrites: [],
   /** CFG-ONE: every workspace.getConfiguration(...).update() call. */
   configUpdates: [],
   /** H10: every languages.registerCodeLensProvider registration. */
@@ -315,7 +318,9 @@ function makeNotebook(fsPath, cells) {
       document: {
         uri: cellUri,
         languageId: kind === NotebookCellKind.Code ? 'python' : 'markdown',
-        lineCount: cell.lines === undefined ? 20 : cell.lines
+        lineCount: typeof cell.lines === 'number' ? cell.lines : String(cell.text || '').split('\n').length,
+        getText: () => String(cell.text || ''),
+        lineAt: (line) => ({ text: String(cell.text || '').split('\n')[line] || '' })
       }
     };
   });
@@ -334,7 +339,7 @@ function makeNotebook(fsPath, cells) {
 
 function makeDocument(uri) {
   const key = docKey(uri && uri.fsPath ? uri.fsPath : uri);
-  const text = documents.get(key);
+  const text = documents.get(key) ?? (fs.existsSync(key) && fs.statSync(key).isFile() ? fs.readFileSync(key, 'utf8') : undefined);
   if (text === undefined) {
     return { uri, lineCount: 400, languageId: 'python', isDirty: false, getText: () => '' };
   }
@@ -488,11 +493,14 @@ const vscode = {
       recorded.saveDialogs.push(options);
       return saveDialogAnswers.length ? saveDialogAnswers.shift() : undefined;
     },
-    showTextDocument: async () => ({
-      setDecorations() {},
-      revealRange() {},
-      selection: undefined
-    }),
+    showTextDocument: async (document, options) => {
+      recorded.shownDocuments.push({ document, options });
+      return {
+        setDecorations() {},
+        revealRange() {},
+        selection: undefined
+      };
+    },
     setStatusBarMessage: () => ({ dispose() {} }),
     withProgress: async (_options, task) => task({ report() {} }, { isCancellationRequested: false }),
     createTerminal: () => ({ show() {}, sendText() {}, dispose() {} })
@@ -558,11 +566,30 @@ const vscode = {
     get notebookDocuments() {
       return notebookDocuments;
     },
+    get textDocuments() {
+      return [...documents.keys()].map((file) => makeDocument(Uri.file(file)));
+    },
+    openNotebookDocument: async (uri) => {
+      const found = notebookDocuments.find((doc) => doc.uri.fsPath === uri.fsPath);
+      if (!found) throw new Error(`notebook is not open: ${uri.fsPath}`);
+      return found;
+    },
     onDidSaveTextDocument: recordingEvent(recorded.saveListeners),
     onDidSaveNotebookDocument: recordingEvent(recorded.notebookSaveListeners),
     onDidChangeTextDocument: recordingEvent(recorded.changeListeners),
     onDidChangeWorkspaceFolders: recordingEvent(recorded.folderListeners),
     onDidChangeConfiguration: recordingEvent(recorded.configListeners),
+    createFileSystemWatcher: () => {
+      const change = [];
+      const create = [];
+      const remove = [];
+      return {
+        onDidChange: recordingEvent(change),
+        onDidCreate: recordingEvent(create),
+        onDidDelete: recordingEvent(remove),
+        dispose() {}
+      };
+    },
     fs: {
       stat: async () => ({ type: 1 }),
       // VIEW-07: the bytes the host wrote, kept verbatim so a test can assert the FILE and
@@ -610,7 +637,7 @@ const vscode = {
     executeCommand: async () => undefined
   },
   env: {
-    clipboard: { writeText: async () => undefined },
+    clipboard: { writeText: async (value) => void recorded.clipboardWrites.push(value) },
     openExternal: async () => true
   },
   extensions: { getExtension: () => undefined },
@@ -705,6 +732,8 @@ const vscode = {
     recorded.saveDialogs.length = 0;
     recorded.quickPicks.length = 0;
     recorded.writtenFiles.length = 0;
+    recorded.shownDocuments.length = 0;
+    recorded.clipboardWrites.length = 0;
     recorded.configUpdates.length = 0;
     recorded.codeLensProviders.length = 0;
     saveDialogAnswers.length = 0;

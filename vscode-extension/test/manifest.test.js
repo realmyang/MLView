@@ -39,6 +39,9 @@ test('engine, version and entry point are pinned as specified', () => {
 
 test('activation events and untrusted-workspace support', () => {
   assert.deepEqual(manifest.activationEvents, [
+    'onCommand:mlview.openGeneratedDiagram',
+    'onWebviewPanel:mlview.authoredDiagram',
+    'workspaceContains:**/*.mlview.json',
     'onLanguage:python',
     'workspaceContains:**/*.py',
     // NB: a notebooks-only workspace has no .py file to activate on, so mlview.includeNotebooks
@@ -83,6 +86,13 @@ test('every contributed command has a title and the MLView category', () => {
     assert.ok(command.title && command.title.length > 0);
     assert.match(command.icon, /^\$\([a-z-]+\)$/);
   }
+});
+
+test('legacy static visualization commands are visibly labeled', () => {
+  const byId = new Map(manifest.contributes.commands.map((command) => [command.command, command]));
+  assert.match(byId.get('mlview.visualize').title, /Legacy Static/);
+  assert.match(byId.get('mlview.visualizeWorkspace').title, /Legacy Static/);
+  assert.doesNotMatch(byId.get('mlview.openGeneratedDiagram').title, /Legacy/);
 });
 
 test('Alt+M is bound to reveal-in-diagram and the editor context menu carries it', () => {

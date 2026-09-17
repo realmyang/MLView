@@ -32,7 +32,7 @@ export interface ChatDeps {
 }
 
 const LOCAL_NOTE =
-  '_MLView answers from local static analysis only — no model call, no network, your code never leaves this machine._';
+  '_This @mlview participant is the legacy local static report: no model call, no network. For model-authored interpretation, invoke the MLView skill in your assistant and open its generated artifact._';
 
 function anchorFor(stream: vscode.ChatResponseStream, issue: Issue): void {
   try {

@@ -116,12 +116,14 @@ export function renderRail(app: App): void {
   // (MLV-R1-006).
   const nodeId = app.selectedNodeId();
   const selectedNode = nodeId && app.index ? app.index.nodeById.get(nodeId) || null : null;
+  const selectedEdge = sel && sel.kind === 'edge' && app.index ? app.index.edgeById.get(sel.id) || null : null;
   app.rail.update({
     index: app.index,
     canAskAssistant: app.caps.canAskAssistant,
     tab: app.railTab,
     issues: app.graph ? app.graph.issues : [],
     selectedNode,
+    selectedEdge,
     selectedIssueId: sel && sel.kind === 'issue' ? sel.id : null,
     collapsed: app.view.collapsed,
     keep: app.filters.keep,

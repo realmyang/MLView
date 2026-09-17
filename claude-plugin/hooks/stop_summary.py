@@ -5,7 +5,8 @@ The roadmap pairs this with the PostToolUse hook rather than replacing it
 ("pair it with a ``Stop`` variant for teams that prefer one summary per turn"),
 so both matchers ship and ``MLVIEW_HOOK`` decides which one speaks:
 
-    unset / on   PostToolUse only (the default)
+    unset / off  neither (the default)
+    on           PostToolUse only
     stop         this one only
     both         both
     off          neither

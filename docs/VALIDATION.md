@@ -1,5 +1,10 @@
 # VALIDATION — validating MLView by hand, and publishing it
 
+> For the new native-assistant skill and generated diagrams, use
+> [LLM_WORKFLOW.md](LLM_WORKFLOW.md) and record results against
+> [LLM_IMPLEMENTATION.md](LLM_IMPLEMENTATION.md). The procedures and historical
+> validation statements below apply to the **legacy static workflow**.
+
 This is the runbook for a person on **a different machine from the one MLView
 was built on**. Part 1 gets the code running there. Part 2 is a 30-minute
 session per host, with what to look at and what "working" means for each check.

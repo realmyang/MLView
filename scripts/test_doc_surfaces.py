@@ -10,10 +10,10 @@ brings the failure back, which is the only property that makes a regression test
 one.
 
 HOSTS-UX-DOCS-PIPELINE: `pipeline:` (CONTRACTS 11.47) and `symbol:` parsed
-everywhere and were advertised in `mlview analyze --help`, `README.md` and
-neither `claude-plugin/commands/*.md`. The MCP docstring and the three VS Code
-language-model tool descriptions carried the full grammar, so the gap was exactly
-the surfaces a *person* reads.
+everywhere and were once missing from the static analyzer's human-facing
+surfaces. `/mlview` is now intentionally LLM-native, so check 16 continues to
+hold the CLI, README legacy section, `/mlview-issues`, and legacy MCP server to
+the parser while explicitly excluding the native workflow command.
 PUB-17: `tools/public_corpus.py`'s docstring called `.public-corpus/`
 "git-ignored" while `.gitignore` had no such entry, so `fetch` put ~1.8 GB of
 clones into `git status`.
@@ -83,7 +83,7 @@ def test_a_selector_the_parser_accepts_but_no_list_advertises_is_caught():
     root = _selector_tree(SHORT_HELP, SHORT_DOC, SHORT_DOC)
     try:
         problems = _surfaces(root)
-        assert len(problems) == 4, problems  # the help string and three docs
+        assert len(problems) == 3, problems  # help, README, legacy issues command
         assert all("`widget`" in p and "check 16" in p for p in problems), problems
         assert any(doc_surfaces.CLI_PARSER_SRC in p for p in problems), problems
         assert any("claude-plugin/commands/mlview-issues.md" in p
@@ -105,8 +105,8 @@ def test_one_surface_falling_behind_is_named_alone():
     root = _selector_tree(FULL_HELP, FULL_DOC, SHORT_DOC)
     try:
         problems = _surfaces(root)
-        assert len(problems) == 2, problems
-        assert all("commands/mlview" in p for p in problems), problems
+        assert len(problems) == 1, problems
+        assert "commands/mlview-issues.md" in problems[0], problems
         assert not any("README.md" in p for p in problems), problems
     finally:
         shutil.rmtree(root, ignore_errors=True)
@@ -124,7 +124,7 @@ def test_the_spellings_come_from_the_parser_not_from_this_file():
             SELECTORS.replace('"widget")', '"widget", "sprocket")'))
         assert "sprocket" in doc_surfaces.scope_spellings(root)
         problems = _surfaces(root)
-        assert len(problems) == 5, problems
+        assert len(problems) == 4, problems
         assert all("`sprocket`" in p for p in problems), problems
     finally:
         shutil.rmtree(root, ignore_errors=True)
@@ -134,6 +134,20 @@ def test_a_tree_with_no_analyzer_is_not_held_to_a_grammar_it_has_not_got():
     root = _tree({"README.md": "# Demo\n"})
     try:
         assert _surfaces(root) == [], _surfaces(root)
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_llm_native_command_is_not_held_to_the_legacy_selector_glossary():
+    """The native command asks the host model for a WorkflowDocument; requiring
+    `unit:`/`pipeline:` here would reintroduce the implementation it replaces."""
+    root = _selector_tree(FULL_HELP, FULL_DOC, FULL_DOC)
+    try:
+        io.open(root / "claude-plugin/commands/mlview.md", "w", encoding="utf-8",
+                newline="\n").write("# MLView\n\nAnalyze with the active host model.\n")
+        assert _surfaces(root) == [], _surfaces(root)
+        assert "claude-plugin/commands/mlview.md" in doc_surfaces.NATIVE_WORKFLOW_SURFACES
+        assert "claude-plugin/commands/mlview.md" not in doc_surfaces.LEGACY_SELECTOR_SURFACES
     finally:
         shutil.rmtree(root, ignore_errors=True)
 
@@ -295,6 +309,7 @@ def test_the_real_tree_advertises_every_selector_its_parser_accepts():
     for rel in (doc_surfaces.CLI_PARSER_SRC,) + doc_surfaces.SELECTOR_SURFACES:
         text = io.open(REPO / rel, encoding="utf-8").read()
         assert "pipeline:" in text, rel
+    assert doc_surfaces.NATIVE_WORKFLOW_SURFACES[0] not in doc_surfaces.SELECTOR_SURFACES
 
 
 def test_the_real_tree_git_ignores_the_public_corpus_clones():

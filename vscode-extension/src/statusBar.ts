@@ -17,14 +17,14 @@ import type { MlviewSettings } from './settings';
 
 export function statusBarText(counts: IssueCounts, busy: boolean, failed: boolean): string {
   if (busy) {
-    return '$(sync~spin) MLView';
+    return '$(sync~spin) MLView Legacy';
   }
   if (failed) {
-    return '$(graph) MLView $(error)';
+    return '$(graph) MLView Legacy $(error)';
   }
   const total = counts.high + counts.medium + counts.low;
   if (total === 0) {
-    return '$(graph) MLView';
+    return '$(graph) MLView Legacy';
   }
   const parts: string[] = [];
   if (counts.high > 0) {
@@ -36,7 +36,7 @@ export function statusBarText(counts: IssueCounts, busy: boolean, failed: boolea
   if (counts.low > 0) {
     parts.push(`${counts.low} low`);
   }
-  return `$(graph) MLView: ${parts.join(' · ')}`;
+  return `$(graph) MLView Legacy: ${parts.join(' · ')}`;
 }
 
 /**
@@ -75,13 +75,13 @@ export function statusBarTooltip(
   const folderLine = folders ? folderTooltipLine(folders.names, folders.active) : undefined;
   const tail = (core ? `\n${core}` : '') + (folderLine ? `\n${folderLine}` : '');
   if (busy) {
-    return `MLView: analyzing…${tail}`;
+    return `MLView Legacy static analysis: analyzing…${tail}`;
   }
   if (failed) {
-    return `MLView: analysis failed — click for the issue list, or run "MLView: Show Output".${tail}`;
+    return `MLView Legacy static analysis: failed — click for the issue list, or run "MLView: Show Output".${tail}`;
   }
   const head =
-    `MLView: ${counts.high} high, ${counts.medium} medium, ${counts.low} low` +
+    `MLView Legacy static analysis: ${counts.high} high, ${counts.medium} medium, ${counts.low} low` +
     notebookTooltipFragment(notebooks);
   if (coverage.length === 0) {
     return `${head}${tail}`;

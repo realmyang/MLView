@@ -150,6 +150,10 @@ export function resolveScope(graph: MLGraph, scope: Scope): ScopeResolution {
   let anchors: MLNode[];
   if (scope.kind === 'stage') {
     anchors = nodes.filter((n) => n.stage === scope.target);
+    if (!anchors.length) {
+      const candidates = (graph.stages || []).map((stage) => stage.id);
+      if (candidates.indexOf(scope.target) < 0) throw new ScopeError('unknown_stage', scope.target, candidates);
+    }
   } else if (scope.kind === 'concern') {
     const wanted = CONCERNS[scope.target] || [];
     anchors = nodes.filter((n) => wanted.indexOf(n.stage) >= 0);

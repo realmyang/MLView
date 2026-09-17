@@ -16,7 +16,7 @@ off within a day, so every rule below is a rule about staying quiet:
   **grew** — a re-analysis that finds the same 12 findings says nothing.
 * At most :data:`MAX_ROWS` rows, under a hard :data:`BUDGET_SECONDS` wall-clock
   budget after which the process exits 0 in silence.
-* ``MLVIEW_HOOK=off`` disables both.
+* Hooks are opt-in; unset or ``MLVIEW_HOOK=off`` disables both.
 * **Never blocks** (exit is always 0; exit 2 is what blocks, and nothing here
   can produce it) and **never writes to the project**: when nothing names a data
   directory the analysis is redirected to a temporary one rather than allowed to
@@ -56,7 +56,7 @@ MIN_CONFIDENCE = 0.6
 
 _SEVERITY_ORDER = {"high": 0, "medium": 1, "low": 2}
 _OFF = {"off", "0", "false", "no", "none", "disabled"}
-_POST_ONLY = {"", "on", "1", "true", "yes", "post", "edit", "posttooluse"}
+_POST_ONLY = {"on", "1", "true", "yes", "post", "edit", "posttooluse"}
 _STOP_ONLY = {"stop", "turn", "summary"}
 _BOTH = {"both", "all"}
 
@@ -79,14 +79,14 @@ def hook_enabled(event: str, environ: Optional[Dict[str, str]] = None) -> bool:
     ==================  ====================================================
     ``MLVIEW_HOOK``     effect
     ==================  ====================================================
-    unset / ``on``      PostToolUse speaks; Stop stays silent (the default)
+    unset / ``off``     neither (the default)
+    ``on``              PostToolUse speaks; Stop stays silent
     ``stop``            one summary per turn; PostToolUse stays silent
     ``both``            both
     ``off``             neither
     ==================  ====================================================
 
-    An unrecognized value is the default rather than an error: a hook is not a
-    place to fail loudly over a typo in an environment variable.
+    An unrecognized value stays disabled: a typo must not enable analysis.
     """
     env = os.environ if environ is None else environ
     raw = (env.get("MLVIEW_HOOK") or "").strip().lower()
@@ -98,7 +98,7 @@ def hook_enabled(event: str, environ: Optional[Dict[str, str]] = None) -> bool:
         return True
     if raw in _POST_ONLY:
         return event == "PostToolUse"
-    return event == "PostToolUse"  # an unrecognized value is the default
+    return False
 
 
 def read_payload(stream: Any) -> Dict[str, Any]:

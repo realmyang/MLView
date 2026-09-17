@@ -1,0 +1,245 @@
+{
+  "taskId": "pilot-notebook",
+  "repositoryCommit": "e707c2d659abafb9b1f9fd927907619a128db8d7",
+  "status": "draft-needs-human-review",
+  "scenario": {
+    "description": "Inspect the California housing main narrative through persistence, using notebook source order and excluding the exercise solutions beginning at cell 221; do not execute cells.",
+    "entrypoints": [
+      "02_end_to_end_machine_learning_project.ipynb"
+    ],
+    "arguments": [
+      "source-order-only",
+      "cells-0-through-220",
+      "no-cell-execution"
+    ]
+  },
+  "facts": [
+    {
+      "id": "notebook-load-data",
+      "claim": "The narrative loads the California housing CSV, downloading and extracting an archive only when the local tarball is absent.",
+      "basis": "observed",
+      "essential": false,
+      "anchors": [
+        {
+          "id": "nb-a01",
+          "file": "02_end_to_end_machine_learning_project.ipynb",
+          "cell": 11,
+          "line": 6,
+          "endLine": 16,
+          "quote": "def load_housing_data():\n    tarball_path = Path(\"datasets/housing.tgz\")\n    if not tarball_path.is_file():\n        Path(\"datasets\").mkdir(parents=True, exist_ok=True)\n        url = \"https://github.com/ageron/data/raw/main/housing.tgz\"\n        urllib.request.urlretrieve(url, tarball_path)\n    with tarfile.open(tarball_path) as housing_tarball:\n            housing_tarball.extractall(path=\"datasets\")\n    return pd.read_csv(Path(\"datasets/housing/housing.csv\"))\n\nhousing = load_housing_data()"
+        }
+      ],
+      "review": "pending"
+    },
+    {
+      "id": "notebook-stratification-feature",
+      "claim": "Median income is discretized into five income categories for stratification.",
+      "basis": "observed",
+      "essential": true,
+      "anchors": [
+        {
+          "id": "nb-a02",
+          "file": "02_end_to_end_machine_learning_project.ipynb",
+          "cell": 37,
+          "line": 1,
+          "endLine": 3,
+          "quote": "housing[\"income_cat\"] = pd.cut(housing[\"median_income\"],\n                               bins=[0., 1.5, 3.0, 4.5, 6., np.inf],\n                               labels=[1, 2, 3, 4, 5])"
+        }
+      ],
+      "review": "pending"
+    },
+    {
+      "id": "notebook-heldout-split",
+      "claim": "The selected concise split creates an 80/20 train/test boundary stratified by income category with random_state 42.",
+      "basis": "observed",
+      "essential": true,
+      "anchors": [
+        {
+          "id": "nb-a03",
+          "file": "02_end_to_end_machine_learning_project.ipynb",
+          "cell": 42,
+          "line": 1,
+          "endLine": 2,
+          "quote": "strat_train_set, strat_test_set = train_test_split(\n    housing, test_size=0.2, stratify=housing[\"income_cat\"], random_state=42)"
+        }
+      ],
+      "review": "pending"
+    },
+    {
+      "id": "notebook-training-boundary",
+      "claim": "Model-development features and labels are derived from strat_train_set; the held-out strat_test_set is not used in this preparation step.",
+      "basis": "observed",
+      "essential": true,
+      "anchors": [
+        {
+          "id": "nb-a04",
+          "file": "02_end_to_end_machine_learning_project.ipynb",
+          "cell": 66,
+          "line": 1,
+          "endLine": 2,
+          "quote": "housing = strat_train_set.drop(\"median_house_value\", axis=1)\nhousing_labels = strat_train_set[\"median_house_value\"].copy()"
+        }
+      ],
+      "review": "pending"
+    },
+    {
+      "id": "notebook-preprocessing",
+      "claim": "The final preprocessing definition builds ratio, log, geographic cluster-similarity, categorical, and remaining-numeric branches, each with its stated imputing, transforming, or scaling steps.",
+      "basis": "observed",
+      "essential": true,
+      "anchors": [
+        {
+          "id": "nb-a05",
+          "file": "02_end_to_end_machine_learning_project.ipynb",
+          "cell": 159,
+          "line": 7,
+          "endLine": 29,
+          "quote": "def ratio_pipeline():\n    return make_pipeline(\n        SimpleImputer(strategy=\"median\"),\n        FunctionTransformer(column_ratio, feature_names_out=ratio_name),\n        StandardScaler())\n\nlog_pipeline = make_pipeline(\n    SimpleImputer(strategy=\"median\"),\n    FunctionTransformer(np.log, feature_names_out=\"one-to-one\"),\n    StandardScaler())\ncluster_simil = ClusterSimilarity(n_clusters=10, gamma=1., random_state=42)\ndefault_num_pipeline = make_pipeline(SimpleImputer(strategy=\"median\"),\n                                     StandardScaler())\npreprocessing = ColumnTransformer([\n        (\"bedrooms\", ratio_pipeline(), [\"total_bedrooms\", \"total_rooms\"]),\n        (\"rooms_per_house\", ratio_pipeline(), [\"total_rooms\", \"households\"]),\n        (\"people_per_house\", ratio_pipeline(), [\"population\", \"households\"]),\n        (\"log\", log_pipeline, [\"total_bedrooms\", \"total_rooms\", \"population\",\n                               \"households\", \"median_income\"]),\n        (\"geo\", cluster_simil, [\"latitude\", \"longitude\"]),\n        (\"cat\", cat_pipeline, make_column_selector(dtype_include=object)),\n    ],\n    remainder=default_num_pipeline)  # one column remaining: housing_median_age"
+        }
+      ],
+      "review": "pending"
+    },
+    {
+      "id": "notebook-pipeline-fit-boundary",
+      "claim": "A linear regression is placed after preprocessing in one pipeline and fitted using only the training features and training labels.",
+      "basis": "observed",
+      "essential": false,
+      "anchors": [
+        {
+          "id": "nb-a06",
+          "file": "02_end_to_end_machine_learning_project.ipynb",
+          "cell": 164,
+          "line": 1,
+          "endLine": 4,
+          "quote": "from sklearn.linear_model import LinearRegression\n\nlin_reg = make_pipeline(preprocessing, LinearRegression())\nlin_reg.fit(housing, housing_labels)"
+        }
+      ],
+      "review": "pending"
+    },
+    {
+      "id": "notebook-cross-validation",
+      "claim": "The random-forest candidate includes preprocessing inside its pipeline and is evaluated with 10-fold cross-validation on the training features and labels.",
+      "basis": "observed",
+      "essential": true,
+      "anchors": [
+        {
+          "id": "nb-a07",
+          "file": "02_end_to_end_machine_learning_project.ipynb",
+          "cell": 179,
+          "line": 1,
+          "endLine": 6,
+          "quote": "from sklearn.ensemble import RandomForestRegressor\n\nforest_reg = make_pipeline(preprocessing,\n                           RandomForestRegressor(random_state=42))\nforest_rmses = -cross_val_score(forest_reg, housing, housing_labels,\n                                scoring=\"neg_root_mean_squared_error\", cv=10)"
+        }
+      ],
+      "review": "pending"
+    },
+    {
+      "id": "notebook-randomized-search",
+      "claim": "The main tuning choice performs a seeded 10-draw, three-fold randomized search over geographic cluster count and random-forest max features, fitting only housing and housing_labels.",
+      "basis": "observed",
+      "essential": true,
+      "anchors": [
+        {
+          "id": "nb-a08",
+          "file": "02_end_to_end_machine_learning_project.ipynb",
+          "cell": 199,
+          "line": 4,
+          "endLine": 11,
+          "quote": "param_distribs = {'preprocessing__geo__n_clusters': randint(low=3, high=50),\n                  'random_forest__max_features': randint(low=2, high=20)}\n\nrnd_search = RandomizedSearchCV(\n    full_pipeline, param_distributions=param_distribs, n_iter=10, cv=3,\n    scoring='neg_root_mean_squared_error', random_state=42)\n\nrnd_search.fit(housing, housing_labels)"
+        }
+      ],
+      "review": "pending"
+    },
+    {
+      "id": "notebook-final-model",
+      "claim": "The final model is the randomized search's best estimator and includes preprocessing.",
+      "basis": "observed",
+      "essential": true,
+      "anchors": [
+        {
+          "id": "nb-a09",
+          "file": "02_end_to_end_machine_learning_project.ipynb",
+          "cell": 207,
+          "line": 1,
+          "endLine": 3,
+          "quote": "final_model = rnd_search.best_estimator_  # includes preprocessing\nfeature_importances = final_model[\"random_forest\"].feature_importances_\nfeature_importances.round(2)"
+        }
+      ],
+      "review": "pending"
+    },
+    {
+      "id": "notebook-final-test-once",
+      "claim": "The held-out test set is separated into X_test and y_test, passed to the selected final model, and used to compute final RMSE after tuning.",
+      "basis": "observed",
+      "essential": true,
+      "anchors": [
+        {
+          "id": "nb-a10",
+          "file": "02_end_to_end_machine_learning_project.ipynb",
+          "cell": 210,
+          "line": 1,
+          "endLine": 7,
+          "quote": "X_test = strat_test_set.drop(\"median_house_value\", axis=1)\ny_test = strat_test_set[\"median_house_value\"].copy()\n\nfinal_predictions = final_model.predict(X_test)\n\nfinal_rmse = root_mean_squared_error(y_test, final_predictions)\nprint(final_rmse)"
+        }
+      ],
+      "review": "pending"
+    },
+    {
+      "id": "notebook-confidence-interval",
+      "claim": "A 95% bootstrap confidence interval is computed from squared held-out prediction errors using RMSE as the statistic.",
+      "basis": "observed",
+      "essential": false,
+      "anchors": [
+        {
+          "id": "nb-a11",
+          "file": "02_end_to_end_machine_learning_project.ipynb",
+          "cell": 212,
+          "line": 3,
+          "endLine": 10,
+          "quote": "def rmse(squared_errors):\n    return np.sqrt(np.mean(squared_errors))\n\nconfidence = 0.95\nsquared_errors = (final_predictions - y_test) ** 2\nboot_result = stats.bootstrap([squared_errors], rmse,\n                              confidence_level=confidence, random_state=42)\nrmse_lower, rmse_upper = boot_result.confidence_interval"
+        }
+      ],
+      "review": "pending"
+    },
+    {
+      "id": "notebook-persistence-and-scope",
+      "claim": "The selected final model is persisted before the notebook's Exercise solutions heading; cells beginning with that heading are outside the proposed scenario.",
+      "basis": "observed",
+      "essential": true,
+      "anchors": [
+        {
+          "id": "nb-a12",
+          "file": "02_end_to_end_machine_learning_project.ipynb",
+          "cell": 216,
+          "line": 1,
+          "endLine": 3,
+          "quote": "import joblib\n\njoblib.dump(final_model, \"my_california_housing_model.pkl\")"
+        },
+        {
+          "id": "nb-a13",
+          "file": "02_end_to_end_machine_learning_project.ipynb",
+          "cell": 221,
+          "line": 1,
+          "endLine": 1,
+          "quote": "# Exercise solutions"
+        }
+      ],
+      "review": "pending"
+    }
+  ],
+  "unknowns": [
+    "Stored execution counts and outputs do not prove a clean, in-order kernel execution or current runtime state.",
+    "External dataset contents and availability were not inspected, downloaded, or executed.",
+    "The behavior of scikit-learn and SciPy internals beyond the notebook source is not established by this source-only draft.",
+    "A human reviewer must approve cells 0 through 220 as the frozen main narrative and confirm that all exercise cells are excluded."
+  ],
+  "nonDefects": [
+    "Earlier random, hash-based, StratifiedShuffleSplit, grid-search, and model examples are pedagogical alternatives in source order; their presence alone does not mean the final held-out test boundary is crossed.",
+    "Fitting preprocessing within estimator pipelines and cross-validation/search objects keeps those transformations inside the corresponding training fit calls in the visible notebook workflow; this draft does not allege leakage.",
+    "Stored notebook outputs and execution counts are evidence of notebook metadata, not proof that the proposed main narrative was executed cleanly in source order."
+  ],
+  "review": {
+    "reviewer": null,
+    "decision": "pending"
+  }
+}

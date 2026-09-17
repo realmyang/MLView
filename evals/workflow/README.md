@@ -1,0 +1,77 @@
+# Evaluating LLM workflow understanding
+
+[tasks.json](tasks.json) fixes eight development tasks and eight pilot tasks.
+Pilot repositories are pinned to the existing public-corpus commits. They have
+been used for static-analyzer testing; they are reserved from new skill tuning,
+not claimed to be absent from model training or all prior project research.
+Third-party source stays in the gitignored corpus; only URLs/commits are stored.
+
+The pilot is **8 tasks × 3 native VS Code hosts × 3 fresh sessions = 72 runs**.
+The schema/helper/renderer tests and developer-subagent smoke artifacts do not
+count as native-host pilot runs. No pilot results or human-reviewed reference
+facts are asserted by this manifest. Its reference status explicitly requires
+human review.
+
+The completed 2026-09-16–17 developer campaign is summarized in
+[DEVELOPMENT_RUNS.md](DEVELOPMENT_RUNS.md). It records structural validation,
+repair history, and authoring lessons without claiming native-host coverage or
+human semantic scores.
+
+[Reference candidates](reference-candidates/README.md) now provide source-linked
+draft facts and concrete scenario proposals for all eight held-out tasks,
+together with a proposed prompt/budget policy. They are AI-authored inputs to
+human review, not frozen truth or completed pilot results. The
+[readiness record](PILOT_READINESS.md) identifies the remaining gates.
+
+## Before running
+
+1. A reviewer inspects each pinned scenario and freezes essential workflow facts,
+   connections, config choices, unresolved cases, real defects and non-defects.
+   Give each fact an ID and source anchors. Do this before inspecting outputs.
+2. Freeze skill revision, prompts, budgets and reference revision. Use the same
+   question/budget for each host. If a task needs an additional config selection,
+   settle it in the reference before runs. Do not silently choose one per host.
+3. Generate an empty matrix, then record each actual session:
+
+```sh
+python tools/workflow_eval.py plan > .mlview/pilot-runs.json
+python tools/workflow_eval.py summarize .mlview/pilot-runs.json
+```
+
+Create the output directory first. This tool prepares and summarizes records;
+it never logs into a host, runs a model, or judges semantics. Keep sessions and
+run artifacts outside committed source unless reviewed for redistribution.
+
+## Record and adjudicate
+
+Record host/extension/model versions (unknown where hidden), skill revision,
+commit/config, exact prompt, artifact and SHA-256, elapsed time, repair rounds,
+failure/cancellation state, native UI log and observable usage. Complete the
+[live UI checklist](../../docs/LLM_WORKFLOW.md) separately from semantic scores.
+
+Count factual assertions in node details, edge meanings, findings, scenario
+choices and coverage summaries as claims. Map equivalent wording/grouping to
+reference facts; do not score JSON similarity or reward unresolved placeholders
+as covered behavior. Maintain a claim ledger with artifact pointers, relevant
+source, and supported/unsupported/qualified decisions.
+
+A human review record supplies `reviewer`, `referenceRevision`, `claimLedger`,
+and `{supported, total}` counts for `observedClaims`, `inferredClaims`,
+`essentialFacts`, and `anchors`, plus `highSeverityFalseAccusations`. For anchors,
+count supplied navigable references; unlocated conceptual groups are excluded.
+For essential facts, the denominator is the frozen task reference, not the
+claims the model chose to make. Keep direct and inferred claims separate.
+Record severity agreement, unknown handling, and task usability in the ledger.
+
+The initial pilot targets are 100% valid published structure and exact anchors,
+95% supported claims, 85% essential-fact recall, all known unresolved scenarios
+qualified, and no high-severity false accusation. They are **targets, not
+measurements**. A complete matrix does not itself mean these targets passed.
+Report per-host/task results and numerators/denominators; repeated runs on the
+same eight tasks are not 72 independent tasks.
+
+Compare the same tasks with the legacy static product and a native assistant
+without the skill. Keep those conditions in separate records; do not mix them
+into the 72 skill runs. A second model may help locate disputed claims but
+cannot replace source-based human adjudication. Missing or blocked runs stay
+visible and never count as passes.

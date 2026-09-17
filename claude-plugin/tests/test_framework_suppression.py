@@ -465,7 +465,7 @@ def test_the_document_written_to_disk_stays_schema_valid(project):
 # rendering the analyzer's `framework_filter` in its place, so the only
 # instruction that closes the loop - "offer to re-run with auto" - was keyed to a
 # row a current build never emits. These tests pin both directions.
-COMMAND_FILES = ("mlview.md", "mlview-issues.md")
+COMMAND_FILES = ("mlview-issues.md",)
 
 #: A backticked lowercase identifier whose tail is one a coverage kind can have.
 #: Wider than `COVERAGE_KINDS` on purpose: a prompt naming `framework_filtered`
@@ -536,7 +536,8 @@ def test_the_re_run_with_auto_offer_is_keyed_to_the_row_the_filter_produces(proj
     rendered = [row["kind"] for row in payload["coverage"]]
     assert rendered == ["framework_filter"], payload["coverage"]
 
-    text = _command_text("mlview.md")
+    with open(os.path.join(PLUGIN_ROOT, "skills", "mlview-visualize", "SKILL.md"), encoding="utf-8") as handle:
+        text = handle.read()
     offers = [p for p in text.split("\n\n") if 'framework: "auto"' in p]
     assert len(offers) == 1, "one offer, or this test is reading the wrong prose"
     for kind in rendered:

@@ -1,12 +1,11 @@
 # MLView — the Claude Code plugin
 
-Turns a Python ML codebase into an issue-annotated workflow diagram, from inside
-Claude Code. Static analysis only: nothing is imported, nothing is executed, and
-**torch and scikit-learn do not need to be installed**.
+Uses the active Claude model to inspect ML source and configuration, author a
+source-linked workflow artifact, and open it in the shared VS Code diagram.
+Local validation never imports or executes the target project. The bundled
+legacy Python analyzer remains available through explicit legacy tools.
 
-It is part of [MLView](https://github.com/realmyang/MLView): the repository root's
-[`README.md`](../README.md) is the overview — screenshots, the ninety-second quick
-start for all three hosts, the rule families and the measured accuracy. Install it
+It is part of [MLView](https://github.com/realmyang/MLView). Install it
 either from a clone, by pointing Claude Code at `claude-plugin/` (options 1 and 2
 below), or straight from GitHub through this repository's own marketplace entry
 (option 3, usable since the repository went public and **not yet walked end to end**).
@@ -17,8 +16,8 @@ claude-plugin/
   .claude-plugin/plugin.json   the manifest (this path is the only one scanned)
   LICENSE                      MIT, byte-identical to the repository root's copy
   .mcp.json                    the stdio MCP server registration
-  commands/                    /mlview · /mlview-issues
-  skills/                      mlview-visualize · mlview-triage
+  commands/                    /mlview:mlview · /mlview:mlview-issues
+  skills/                      mlview (canonical) · legacy visualize · triage
   server/mlview_mcp.py         the MCP server: bootstrap + the five tools
   server/mlview_workspace.py   framework filters, the analysis cache, rule pages
   server/mlview_storage.py     which directory: project, data, parse cache; write containment
@@ -32,15 +31,15 @@ claude-plugin/
 
 ## Prerequisites
 
-- **Python 3.10 or newer** on `PATH` as `python`. That is all the CLI fallback
-  needs. On macOS and Linux the interpreter is usually `python3`, and `.mcp.json`
-  spells `python` — see [Troubleshooting](#troubleshooting-on-windows-and-posix)
-  below for the one-field edit.
-- **`pip install mcp`** (v2; verified against `mcp==2.1.1`) for the MCP tools.
-  Without it the five `mlview_*` tools are unavailable — the server fails to
-  start — but `/mlview` and `/mlview-issues` still work, because both command
-  bodies fall back to running the CLI through `Bash`. The demo never depends on
-  MCP registration succeeding.
+- **Python 3.10 or newer** for the local WorkflowDocument validator and atomic
+  publisher bundled with the canonical skill. No model SDK, MCP package, or
+  MLView analyzer installation is required for the default authored workflow.
+- The MLView VS Code extension to open `workflow.mlview.json` with **MLView:
+  Open Generated Diagram**. Claude authors the semantics; the extension is the
+  offline artifact viewer.
+- **Optional: `pip install mcp`** (v2; verified against `mcp==2.1.1`) only for
+  the five legacy `mlview_*` static-analysis tools. The default
+  `/mlview:mlview` flow does not call them or fall back to the static CLI.
 - **No `pip install` of MLView itself.** `.mcp.json` puts
   `${CLAUDE_PLUGIN_ROOT}/vendor` on `PYTHONPATH`, and `vendor/mlview` is a synced
   copy of the analyzer. The same command also copies `docs/rules/MLV*.md` into
@@ -130,25 +129,41 @@ claude mcp add mlview -- python C:/absolute/path/to/MLView/claude-plugin/server/
 Set `PYTHONPATH` to the plugin's `vendor/` directory yourself in this mode, or
 `pip install -e analyzer` first.
 
+## Default model-authored workflow
+
+Invoke `/mlview:mlview` and optionally add a question such as “explain training
+and evaluation for this config.” The canonical `mlview` skill may also activate
+from a direct request to map or explain an ML workflow. Claude reads relevant
+workspace files, authors `workflow.mlview.json`, and validates and publishes it
+with the bundled Python helper. Open it with **MLView: Open Generated Diagram**
+in VS Code. This default does not require MCP or the legacy analyzer.
+
 ## What you get
 
 ### Commands
 
 | Command | What it does |
 |---|---|
-| `/mlview [path] [--scope <SPEC>] [--depth <0-2>]` | Analyze, summarize the pipeline shape and findings, and open the HTML report. Prefers the MCP tools; falls back to `python -m mlview analyze … --open`. With no `--scope` the fallback command line is exactly what it was before scoping existed. |
-| `/mlview-issues [path] [severity] [--scope <SPEC>] [--depth <0-2>]` | Headless: the issue table and nothing else, for agent loops and PR descriptions. |
+| `/mlview:mlview [question or focus]` | Use the active Claude model to inspect the requested workflow, publish `workflow.mlview.json`, and direct the user to the VS Code viewer. |
+| `/mlview:mlview-issues [path] [severity] [--scope <SPEC>] [--depth <0-2>]` | Legacy static path: print the deterministic issue table for agent loops and PR descriptions. |
 
-Positional arguments are **0-based** (`$0` is the path, `$1` the severity); the
-two flags are read out of `$ARGUMENTS`, because a flag and its value occupy two
-positional slots between them.
+`/mlview:mlview-issues` retains its legacy positional and flag syntax for deterministic
+static rule output.
 
 ### Skills
 
 | Skill | Triggers on | Behaviour |
 |---|---|---|
-| `mlview-visualize` | "visualize / diagram / map / review the structure of this ML code" | Calls `mlview_analyze` **before** reading files, so the review starts from recovered structure rather than a linear read. Its **"When to scope"** section decides when to narrow: a question about one concern gets a scoped call, *"review this project"* gets none. |
+| `mlview` | "visualize / diagram / map / explain this ML workflow" | The active Claude model reads relevant source and configuration, records evidence and uncertainty, and publishes a validated WorkflowDocument. |
+| `mlview-legacy-visualize` | Explicit requests for the legacy analyzer or MLGraph | Runs the deterministic static Python analyzer and labels its output as legacy. |
 | `mlview-triage` | "what's wrong with this training code", "is there leakage" | Reads the cited source, judges each finding, proposes a fix. **Never edits a file.** |
+
+## Optional legacy static analyzer
+
+The vendored analyzer, MCP tools, issue command, triage skill, and hooks are
+compatibility features for explicit deterministic Python rule output. They do
+not produce the model-authored WorkflowDocument and are not a prerequisite for
+`/mlview:mlview`.
 
 ### MCP tools
 
@@ -207,7 +222,7 @@ protected `note` key and are therefore never shed by the 4 KB budget: a `removed
 node can also mean not-analyzed, truncated, projected away, a different workspace
 root or a different analyzer version, and a **renamed** file is reported as every
 node removed plus every node added, because the §0 stable id embeds the path. Read
-the `note` before quoting the counts; `/mlview-issues --diff-base <file>` is the
+the `note` before quoting the counts; `/mlview:mlview-issues --diff-base <file>` is the
 slash-command spelling of the same thing.
 
 `depth` is `0`, `1` or `2` boundary hops, its own argument and never packed into
@@ -275,7 +290,7 @@ stdout carries protocol frames only.
 
 `hooks/hooks.json` registers two hooks. They exist because the rest of the plugin is
 **pull-based**: when Claude edits a training file during a session nothing tells it the
-edit introduced MLV203, and the user finds out on the next manual `/mlview-issues`.
+edit introduced MLV203, and the user finds out on the next manual `/mlview:mlview-issues`.
 
 | Event | Script | What it does |
 |---|---|---|
@@ -301,9 +316,10 @@ a day, so:
 - the **first** run on a project is silent by construction: there is nothing to diff
   against, and its whole value is the warm cache.
 
-`MLVIEW_HOOK` decides which of the two speaks: unset or `on` is the PostToolUse hook alone,
-`stop` is the turn summary alone, `both` is both, and **`off` disables them entirely**. An
-unrecognized value is the default rather than an error.
+The legacy static hooks are opt-in. `MLVIEW_HOOK=on` enables PostToolUse,
+`stop` enables the turn summary, and `both` enables both. Unset, `off`, and
+unrecognized values disable both, so installing the model-authored workflow
+does not start static analysis after edits.
 
 Two things it cannot do, stated rather than discovered: an issue id is content-addressed,
 so an unchanged finding whose line moved comes back with a new id — those are counted
@@ -320,7 +336,7 @@ set `MLVIEW_PYTHON` and use a bash-capable shell to get it back.
 | `MLVIEW_PROJECT_DIR` | The project root. Relative `path` arguments resolve against it. Defaults to the process working directory. |
 | `MLVIEW_DATA_DIR` | Where `graph.json` and `report.html` are written. Defaults to `<project>/.mlview`. |
 | `MLVIEW_NO_OPEN=1` | `mlview_open_diagram` writes the report but does not launch a browser (`opened: false`). Used by the tests and by `scripts/e2e`. |
-| `MLVIEW_HOOK` | H8: which hook speaks — unset/`on` (PostToolUse), `stop`, `both`, or `off`. |
+| `MLVIEW_HOOK` | Opt-in legacy hooks: `on` (PostToolUse), `stop`, or `both`; unset/`off` disables them. |
 | `MLVIEW_INCLUDE_NOTEBOOKS=1` | H8: treat an `.ipynb` edit as worth re-analyzing for. |
 | `MLVIEW_CACHE_DIR` | The per-file parse cache (CONTRACTS 11.28), which ships **on** (11.39). Three answers, and **none of them is inside the project being read**: this variable when you set it; else `<MLVIEW_DATA_DIR>/cache` when a host named its storage directory — one directory shared by the server *and* the hooks, which is why `.mcp.json` names it explicitly as `${CLAUDE_PLUGIN_DATA}/cache`; else whatever `mlview.core.cache.cache_dir_for` answers, because a `claude --plugin-dir` session names neither and this host does not get a second opinion about where a cache belongs (C8, `tests/test_storage_paths.py`). |
 | `MLVIEW_LOG_LEVEL` | `DEBUG` for verbose stderr logging. |
@@ -425,7 +441,7 @@ dropping everything.
 
 | Document | What it is for |
 |---|---|
-| [`../README.md`](../README.md) | What MLView is, and the ninety-second demo |
+| [`../README.md`](../README.md) | Repository overview and installation routes |
 | [`../docs/STATUS.md`](../docs/STATUS.md) | What is verified today, and the known gaps |
 | [`../docs/CONTRACTS.md`](../docs/CONTRACTS.md) | **Normative.** The schema, the CLI, the MCP tools, the message protocol |
 | [`../docs/VALIDATION.md`](../docs/VALIDATION.md) | Validating this host by hand on another machine, and publishing it |

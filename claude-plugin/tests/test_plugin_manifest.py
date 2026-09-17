@@ -42,7 +42,7 @@ def test_plugin_json_carries_the_contract_fields():
     assert manifest["license"] == "MIT"
     assert isinstance(manifest["author"], dict) and manifest["author"].get("name")
     assert len(manifest["description"]) > 30
-    assert "static-analysis" in manifest["keywords"]
+    assert "llm-analysis" in manifest["keywords"]
 
 
 def test_the_plugin_ships_the_licence_its_manifest_declares():
@@ -79,6 +79,7 @@ def test_the_conventional_directories_exist_and_are_populated():
     assert os.path.isfile(os.path.join(PLUGIN_ROOT, "commands", "mlview.md"))
     assert os.path.isfile(os.path.join(PLUGIN_ROOT, "commands", "mlview-issues.md"))
     assert os.path.isfile(os.path.join(PLUGIN_ROOT, "skills", "mlview-visualize", "SKILL.md"))
+    assert os.path.isfile(os.path.join(PLUGIN_ROOT, "skills", "mlview", "SKILL.md"))
     assert os.path.isfile(os.path.join(PLUGIN_ROOT, "skills", "mlview-triage", "SKILL.md"))
     assert os.path.isfile(os.path.join(PLUGIN_ROOT, "server", "mlview_mcp.py"))
 
@@ -89,6 +90,7 @@ def test_the_conventional_directories_exist_and_are_populated():
         "commands/mlview.md",
         "commands/mlview-issues.md",
         "skills/mlview-visualize/SKILL.md",
+        "skills/mlview/SKILL.md",
         "skills/mlview-triage/SKILL.md",
     ],
 )
@@ -107,13 +109,14 @@ def test_every_markdown_component_opens_with_yaml_frontmatter(relative):
         assert "description:" in frontmatter
 
 
-def test_the_command_bodies_document_the_cli_fallback():
-    # The demo must not depend on MCP registration succeeding.
-    for name in ("mlview.md", "mlview-issues.md"):
-        with open(os.path.join(PLUGIN_ROOT, "commands", name), "r", encoding="utf-8") as fh:
-            body = fh.read()
-        assert "python -m mlview" in body, name
-        assert "mlview_" in body, "%s should prefer the MCP tools when present" % name
+def test_default_command_uses_authored_workflow_and_legacy_command_keeps_cli():
+    with open(os.path.join(PLUGIN_ROOT, "commands", "mlview.md"), encoding="utf-8") as fh:
+        authored = fh.read()
+    assert "workflow.mlview.json" in authored and "active Claude model" in authored
+    assert "Do not call the legacy static\nanalyzer first" in authored
+    with open(os.path.join(PLUGIN_ROOT, "commands", "mlview-issues.md"), encoding="utf-8") as fh:
+        legacy = fh.read()
+    assert "python -m mlview" in legacy and "mlview_" in legacy
 
 
 def test_the_triage_skill_promises_not_to_edit():
@@ -274,13 +277,14 @@ def test_the_repository_root_is_not_itself_a_plugin():
     """The premise every hosted entry has to respect.
 
     `.claude-plugin/` at the root holds the MARKETPLACE, not a plugin: there is no
-    `plugin.json` beside it and no `commands/`, `skills/` or `.mcp.json` at the root.
+    `plugin.json` beside it and no `commands/` or `.mcp.json` at the root. The
+    root `skills/` directory is a portable Agent Skills source, not a plugin.
     So any source form that hands Claude Code the repository root publishes a
     directory with no manifest - and the failure only surfaces after the user
     installs, because a remote `plugin.json` is not read beforehand.
     """
     assert not os.path.isfile(os.path.join(REPO_ROOT, ".claude-plugin", "plugin.json"))
-    for name in ("commands", "skills", "agents", "hooks", ".mcp.json"):
+    for name in ("commands", "agents", "hooks", ".mcp.json"):
         assert not os.path.exists(os.path.join(REPO_ROOT, name)), (
             "%s exists at the repo root; the root-is-the-plugin check below is stale"
             % name

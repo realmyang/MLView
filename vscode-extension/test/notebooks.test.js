@@ -494,11 +494,11 @@ test('the tooltip distinguishes analyzed from not analyzed, and can say both', (
   const counts = { low: 0, medium: 0, high: 1 };
   assert.equal(
     statusBarTooltip(counts, false, false, { analyzed: 1, skipped: 0 }, []),
-    'MLView: 1 high, 0 medium, 0 low · 1 notebooks analyzed'
+    'MLView Legacy static analysis: 1 high, 0 medium, 0 low · 1 notebooks analyzed'
   );
   assert.equal(
     statusBarTooltip(counts, false, false, { analyzed: 0, skipped: 1 }, []),
-    'MLView: 1 high, 0 medium, 0 low · 1 notebooks not analyzed'
+    'MLView Legacy static analysis: 1 high, 0 medium, 0 low · 1 notebooks not analyzed'
   );
 });
 

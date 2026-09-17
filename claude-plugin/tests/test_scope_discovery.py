@@ -34,7 +34,6 @@ from plugin_support import PLUGIN_ROOT, REPO_ROOT, corpus_path, synthetic_graph
 LIMIT = 4096
 DOC_FILES = (
     os.path.join(PLUGIN_ROOT, "skills", "mlview-visualize", "SKILL.md"),
-    os.path.join(PLUGIN_ROOT, "commands", "mlview.md"),
     os.path.join(PLUGIN_ROOT, "README.md"),
 )
 

@@ -1,0 +1,215 @@
+{
+  "version": 1,
+  "hosts": [
+    "copilot",
+    "codex",
+    "claude-code"
+  ],
+  "repetitions": 3,
+  "pilotTargets": {
+    "structurallyValid": 1.0,
+    "exactAnchors": 1.0,
+    "supportedClaimPrecision": 0.95,
+    "essentialFactRecall": 0.85,
+    "highSeverityFalseAccusations": 0
+  },
+  "tasks": [
+    {
+      "id": "dev-pytorch",
+      "split": "development",
+      "title": "Vanilla PyTorch, clean and buggy twins",
+      "repository": "MLView",
+      "entrypoints": [
+        "samples/vision_pipeline/train.py",
+        "samples/vision_pipeline_clean/train.py"
+      ],
+      "prompt": "Compare training and evaluation in the two sample projects. Map each separately, inspect guards, and distinguish real problems from corrected behavior.",
+      "referenceStatus": "needs-human-review"
+    },
+    {
+      "id": "dev-sklearn",
+      "split": "development",
+      "title": "Grouped cross-validation",
+      "repository": "MLView",
+      "entrypoints": [
+        "analyzer/tests/accuracy/corpus/tabular_group_cv_clean/train.py"
+      ],
+      "prompt": "Explain how grouped cross-validation keeps transformations inside the training folds. Identify the split, fitted preprocessing, estimator, and evaluation flow; inspect implementation before alleging leakage.",
+      "referenceStatus": "needs-human-review"
+    },
+    {
+      "id": "dev-hosted-training",
+      "split": "development",
+      "title": "HuggingFace and Lightning lifecycles",
+      "repository": "MLView",
+      "entrypoints": [
+        "analyzer/tests/accuracy/corpus/nlp_hf_classification_clean/train.py",
+        "analyzer/tests/accuracy/corpus/lightning_tabular/train.py"
+      ],
+      "prompt": "Show the two alternative trainer-managed workflows separately. Trace data, model, loss, updates and evaluation through helpers and lifecycle hooks. Qualify behavior outside inspected source.",
+      "referenceStatus": "needs-human-review"
+    },
+    {
+      "id": "dev-keras-jax",
+      "split": "development",
+      "title": "Keras and JAX workflows",
+      "repository": "MLView",
+      "entrypoints": [
+        "analyzer/tests/accuracy/corpus/keras_tfdata/train.py",
+        "analyzer/tests/accuracy/corpus/infra_jax_flax/train_flax.py"
+      ],
+      "prompt": "Compare these two distinct entrypoints. Preserve functional parameter updates in JAX and compile/fit behavior in Keras without making either look like a manual PyTorch loop.",
+      "referenceStatus": "needs-human-review"
+    },
+    {
+      "id": "dev-gan",
+      "split": "development",
+      "title": "Alternating adversarial optimization",
+      "repository": "MLView",
+      "entrypoints": [
+        "analyzer/tests/accuracy/corpus/vision_gan/train_dcgan.py"
+      ],
+      "prompt": "Explain the discriminator and generator losses, gradient paths, detached tensors, optimizer targets and alternating updates. Use repeated phases and show the iteration cycle.",
+      "referenceStatus": "needs-human-review"
+    },
+    {
+      "id": "dev-config",
+      "split": "development",
+      "title": "Configuration and registry-selected distillation",
+      "repository": "MLView",
+      "entrypoints": [
+        "samples/configured_training/train.py",
+        "samples/configured_training/configs/distill.json"
+      ],
+      "prompt": "Explain training selected by configs/distill.json. Resolve model registry entries, teacher freezing, both loss terms, student-only updates, validation and checkpoint output. State unknown external data and checkpoint facts.",
+      "referenceStatus": "needs-human-review"
+    },
+    {
+      "id": "dev-notebook",
+      "split": "development",
+      "title": "Notebook order uncertainty",
+      "repository": "MLView",
+      "entrypoints": [
+        "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb"
+      ],
+      "prompt": "Explain the notebook workflow with exact cell citations. Separate source order from recorded execution order and qualify any finding whose interpretation depends on runtime state.",
+      "referenceStatus": "needs-human-review"
+    },
+    {
+      "id": "dev-multi-entry",
+      "split": "development",
+      "title": "Training and inference share a model",
+      "repository": "MLView",
+      "entrypoints": [
+        "samples/configured_training/train.py",
+        "samples/configured_training/infer.py"
+      ],
+      "prompt": "Map training and inference as distinct workflows with shared construction. Explain which checkpoint each uses and which architecture assumptions must match. Do not portray inference as optimizing parameters.",
+      "referenceStatus": "needs-human-review"
+    },
+    {
+      "id": "pilot-nanogpt",
+      "split": "heldout",
+      "title": "nanoGPT",
+      "repository": "nanoGPT",
+      "url": "https://github.com/karpathy/nanoGPT",
+      "commit": "3adf61e154c3fe3fca428ad6bc3818b27a3b8291",
+      "entrypoints": [
+        "train.py"
+      ],
+      "prompt": "Explain the training scenario selected by this entrypoint and its default configuration. Show data, model initialization choices, gradient accumulation, evaluation, and checkpointing; qualify CLI overrides.",
+      "referenceStatus": "needs-human-review"
+    },
+    {
+      "id": "pilot-transformers",
+      "split": "heldout",
+      "title": "transformers",
+      "repository": "transformers",
+      "url": "https://github.com/huggingface/transformers",
+      "commit": "a2c15b30764b7c6cb0632ac6aed6eac227edc674",
+      "entrypoints": [
+        "examples/pytorch/text-classification/run_glue.py"
+      ],
+      "prompt": "Explain a GLUE text-classification workflow using this entrypoint. Select and state one scenario, trace preprocessing, Trainer integration, metrics and output, and qualify uninspected framework behavior.",
+      "referenceStatus": "needs-human-review"
+    },
+    {
+      "id": "pilot-sklearn",
+      "split": "heldout",
+      "title": "scikit-learn",
+      "repository": "scikit-learn",
+      "url": "https://github.com/scikit-learn/scikit-learn",
+      "commit": "dd3ca57300e14d45b7a34fccd0165d143c7a364c",
+      "entrypoints": [
+        "examples/model_selection/plot_nested_cross_validation_iris.py"
+      ],
+      "prompt": "Explain the nested and non-nested cross-validation comparison, preserving tuning versus held-out evaluation boundaries.",
+      "referenceStatus": "needs-human-review"
+    },
+    {
+      "id": "pilot-flax",
+      "split": "heldout",
+      "title": "flax",
+      "repository": "flax",
+      "url": "https://github.com/google/flax",
+      "commit": "01854da11286b4109c59d7fd9205f3822fe807d6",
+      "entrypoints": [
+        "examples/mnist/train.py"
+      ],
+      "prompt": "Explain this MNIST training workflow, parameter/state updates, evaluation and configuration. Preserve the functional training semantics.",
+      "referenceStatus": "needs-human-review"
+    },
+    {
+      "id": "pilot-diffusers",
+      "split": "heldout",
+      "title": "diffusers",
+      "repository": "diffusers",
+      "url": "https://github.com/huggingface/diffusers",
+      "commit": "c419dac0152186060246c93a095bc1bfaea342b3",
+      "entrypoints": [
+        "examples/text_to_image/train_text_to_image.py"
+      ],
+      "prompt": "Explain one explicitly selected text-to-image fine-tuning scenario. Trace conditioning, noise/target construction, updated versus frozen components, evaluation and saving.",
+      "referenceStatus": "needs-human-review"
+    },
+    {
+      "id": "pilot-registry",
+      "split": "heldout",
+      "title": "mmdetection",
+      "repository": "mmdetection",
+      "url": "https://github.com/open-mmlab/mmdetection",
+      "commit": "cfd5d3a985b0249de009b67d04f37263e11cdf3d",
+      "entrypoints": [
+        "tools/train.py"
+      ],
+      "prompt": "Trace the config-driven training entrypoint through available registry/runner source. State the selected configuration or unresolved alternatives; do not invent unavailable base configs.",
+      "referenceStatus": "needs-human-review"
+    },
+    {
+      "id": "pilot-rl",
+      "split": "heldout",
+      "title": "cleanrl",
+      "repository": "cleanrl",
+      "url": "https://github.com/vwxyzjn/cleanrl",
+      "commit": "fe8d8a03c41a7ef5b523e2e354bd01c363e786bb",
+      "entrypoints": [
+        "cleanrl/ppo.py"
+      ],
+      "prompt": "Explain rollout collection, advantage estimation, minibatch optimization and logging. Preserve the interaction/optimization cycle and distinguish episode truncation from termination.",
+      "referenceStatus": "needs-human-review"
+    },
+    {
+      "id": "pilot-notebook",
+      "split": "heldout",
+      "title": "handson-ml3",
+      "repository": "handson-ml3",
+      "url": "https://github.com/ageron/handson-ml3",
+      "commit": "e707c2d659abafb9b1f9fd927907619a128db8d7",
+      "entrypoints": [
+        "02_end_to_end_machine_learning_project.ipynb"
+      ],
+      "prompt": "Explain the end-to-end housing workflow, split/preprocessing/tuning/evaluation boundaries, with notebook cell evidence and execution-order limitations.",
+      "referenceStatus": "needs-human-review"
+    }
+  ]
+}

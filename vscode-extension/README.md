@@ -1,9 +1,13 @@
 # MLView — VS Code extension
 
-Turns the Python ML code in a workspace into **one interactive, issue-annotated workflow
-diagram**, plus a Problems-panel list of what is likely broken, from **static analysis only**.
-No code is imported or executed, nothing touches the network, and neither PyTorch nor
-scikit-learn needs to be installed.
+Opens **interactive, source-linked ML workflow diagrams** authored by the model already active
+in GitHub Copilot, Codex, or Claude Code. Invoke the MLView skill in that assistant, then run
+**MLView: Open Generated Diagram** on the resulting `*.mlview.json` artifact. The extension
+validates source citations locally and never starts a second model service.
+
+The earlier Python static analyzer remains available through commands explicitly named
+**Visualize ML Workflow**, along with its Problems and CodeLens integrations. Those commands
+are the legacy path and require Python; opening a generated diagram does not.
 
 It is part of [MLView](https://github.com/realmyang/MLView): the repository root's
 [`README.md`](../README.md) is the overview — screenshots, the ninety-second quick start for all
@@ -11,11 +15,14 @@ three hosts, the rule families and the measured accuracy. **Nothing is published
 extension is not on the VS Code Marketplace or Open VSX, so installing it means cloning the
 repository and either pressing F5 (below) or building a VSIX with `npm run package`.
 
-This extension is the **host adapter**. It transports and renders; it never analyses:
+This extension is the **host adapter**. For authored artifacts it validates and renders; the
+active assistant owns interpretation and analysis:
 
 | It does | It never does |
 |---|---|
-| Spawn `python -m mlview analyze … --json -` and parse the graph | Parse Python |
+| Validate and open model-authored `*.mlview.json` artifacts | Interpret the repository |
+| Recheck source quotes and hashes before navigation | Claim source freshness proves semantic correctness |
+| On explicit legacy commands, spawn `python -m mlview analyze … --json -` | Start a model or borrow another extension's session |
 | Host the shared viewer bundle in a webview | Compute severities or duplicate a rule |
 | Publish diagnostics, CodeLens, reveal, chat and LM surfaces | Render anything of its own |
 
@@ -24,9 +31,11 @@ This extension is the **host adapter**. It transports and renders; it never anal
 ## Requirements
 
 - **VS Code 1.100.0 or newer** (`engines.vscode: ^1.100.0`).
+- For the primary workflow, install/invoke the MLView skill in Copilot, Codex, or Claude Code.
+- Python is not required to open a generated diagram.
 - **Python 3.10+** with the `mlview` core package importable by that interpreter.
-  Install it from this repo with `pip install -e <repo>/analyzer`, or let the extension offer
-  **Install MLView core** when it cannot find it.
+  This is required only for the legacy static-analysis commands. Install it from this repo with
+  `pip install -e <repo>/analyzer`, or let the extension offer **Install MLView core**.
 - The `ms-python.python` extension is *optional*: it is consulted when present, and the
   interpreter chain works without it.
 
@@ -100,6 +109,7 @@ CodeLens and *Reveal in Diagram* keep working regardless.
 
 | Command | Default binding | What it does |
 |---|---|---|
+| `MLView: Open Generated Diagram` | `.mlview.json` editor title / context menu | Validates and opens the workflow artifact produced by the active assistant |
 | `MLView: Visualize ML Workflow (Current File)` | editor title bar / context menu | Analyzes the active Python file and opens the diagram beside it |
 | `MLView: Visualize ML Workflow (Workspace)` | — | Analyzes the whole workspace |
 | `MLView: Re-analyze` | — | Re-runs the last scope and re-probes the interpreter |
@@ -276,6 +286,19 @@ point at the generated module: they carry no cell mapping of their own, and the 
 is real and opens.
 
 ---
+
+## Model-authored diagrams
+
+The command **MLView: Open Generated Diagram** opens a `*.mlview.json` artifact produced by
+the MLView skill in Copilot, Codex, or Claude Code. The extension validates the document and
+its source quotes against the workspace that owns the artifact, watches the artifact and cited
+files, and keeps the last valid revision visible when an update is malformed or stale. Source
+clicks are checked again against open unsaved buffers before navigation. SVG and PNG exports
+are saved through VS Code, and refinement prompts are copied back to the clipboard for the
+assistant session that authored the diagram.
+
+The commands named **Visualize ML Workflow**, the Problems integration, and CodeLens below
+are the legacy static-analysis path. Opening a generated diagram does not start that analyzer.
 
 ## GitHub Copilot integration — what is verified and what is not
 

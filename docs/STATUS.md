@@ -1,5 +1,11 @@
 # MLView — current state
 
+> **LLM workflow, 2026-09-16:** The active product now uses the native assistant
+> as its semantic author. See [LLM_IMPLEMENTATION.md](LLM_IMPLEMENTATION.md) for
+> implementation and fresh verification, and [LLM_WORKFLOW.md](LLM_WORKFLOW.md)
+> to use it. The detailed components, rules, counts, and measurements below
+> describe the retained **legacy static path**. They do not measure LLM quality.
+
 [![CI](https://github.com/realmyang/MLView/actions/workflows/ci.yml/badge.svg)](https://github.com/realmyang/MLView/actions/workflows/ci.yml)
 [![status: preview](https://img.shields.io/badge/status-preview-orange.svg)](STATUS.md)
 

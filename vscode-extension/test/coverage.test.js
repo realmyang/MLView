@@ -80,7 +80,7 @@ test('a graph with no coverage diagnostics produces no caveat anywhere', () => {
   assert.equal(coverageChip([]), undefined);
   assert.equal(
     statusBarTooltip({ low: 0, medium: 0, high: 0 }, false, false, NO_NOTEBOOKS, []),
-    'MLView: 0 high, 0 medium, 0 low'
+    'MLView Legacy static analysis: 0 high, 0 medium, 0 low'
   );
 });
 
@@ -134,7 +134,7 @@ test('the status-bar tooltip says the count is a floor when the run was blind', 
     NO_NOTEBOOKS,
     coverageFor(graphWith([SINGLE_FILE]))
   );
-  assert.ok(tooltip.startsWith('MLView: 0 high, 0 medium, 0 low · coverage: incomplete'), tooltip);
+  assert.ok(tooltip.startsWith('MLView Legacy static analysis: 0 high, 0 medium, 0 low · coverage: incomplete'), tooltip);
   assert.ok(tooltip.includes('floor'), tooltip);
   assert.ok(tooltip.includes('MLV401'), tooltip);
 });
@@ -142,10 +142,10 @@ test('the status-bar tooltip says the count is a floor when the run was blind', 
 test('a busy or failed status bar still says only that, coverage or not', () => {
   const coverage = coverageFor(graphWith([SINGLE_FILE]));
   assert.equal(statusBarTooltip({ low: 0, medium: 0, high: 0 }, true, false, NO_NOTEBOOKS, coverage),
-    'MLView: analyzing…');
+    'MLView Legacy static analysis: analyzing…');
   assert.ok(
     statusBarTooltip({ low: 0, medium: 0, high: 0 }, false, true, NO_NOTEBOOKS, coverage).startsWith(
-      'MLView: analysis failed'
+      'MLView Legacy static analysis: failed'
     )
   );
 });

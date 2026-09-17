@@ -7,8 +7,8 @@ tell you which one to open.
 Three of them carry different weights, and it is worth knowing which is which
 before you cite one:
 
-* **Normative** — `docs/CONTRACTS.md`. It binds. Where it and any other
-  document disagree, it wins.
+* **Normative** — `docs/WORKFLOW_CONTRACT.md` for authored workflows and
+  `docs/CONTRACTS.md` for the legacy static path. Each governs its own format.
 * **Current-state** — `docs/STATUS.md`, `README.md`, `docs/ACCURACY.md`,
   `scripts/README.md` and the per-directory READMEs. These describe the tree as
   it is, and `scripts/check_docs.py` holds them to it: every path they name
@@ -28,11 +28,16 @@ before you cite one:
 |---|---|
 | [`README.md`](../README.md) | What MLView is, ninety seconds to a diagram, install per host, the CLI, what is verified and what is not |
 | [`STATUS.md`](STATUS.md) | The current-state page: what is in the tree today, what has actually been run, and every standing gap |
+| [`LLM_DIRECTION_PLAN.md`](LLM_DIRECTION_PLAN.md) | The approved 2026-09-16 direction after the user's correction: native Copilot/Codex/Claude skill as the LLM analysis backend, shared diagram viewer, migration milestones and evaluation; design record |
+| [`LLM_WORKFLOW.md`](LLM_WORKFLOW.md) | Install the portable skill, generate/open/refine a diagram, and validate each native host |
+| [`LLM_IMPLEMENTATION.md`](LLM_IMPLEMENTATION.md) | Current LLM implementation, fresh test evidence, and unverified acceptance gates |
+| [`WORKFLOW_CONTRACT.md`](WORKFLOW_CONTRACT.md) | WorkflowDocument 1.0 authoring, citations, phases, containment, freshness and revisions |
+| [`CODEX_HANDOFF.md`](CODEX_HANDOFF.md) | The 2026-09-16 takeover snapshot: recovered Claude session context, Sol-only subagents, verified baseline, and proposed next work; repository agent guidance is in [`AGENTS.md`](../AGENTS.md) |
 | [`CHANGELOG.md`](../CHANGELOG.md) | The dated history, newest first, each entry at the figures measured at the time |
 | [`CONTRIBUTING.md`](../CONTRIBUTING.md) | Dev setup on all three platforms, which gates to run for which change, the contract and corpus mechanisms, commit and PR conventions |
 | [`CONTRIBUTING-RULES.md`](CONTRIBUTING-RULES.md) | The narrower walkthrough: adding a rule, and adding a program to the labelled corpus |
 | [`CODE_OF_CONDUCT.md`](../CODE_OF_CONDUCT.md) | Contributor Covenant 2.1, and how to report a concern |
-| [`SECURITY.md`](../SECURITY.md) | What MLView does with your code — static only, no execution, no network — and how to report a vulnerability |
+| [`SECURITY.md`](../SECURITY.md) | What MLView does with your code — native-host model processing, local validation, legacy offline behavior — and how to report a vulnerability |
 | [`LICENSE`](../LICENSE) | MIT |
 | [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md) | The third-party software redistributed inside an MLView artifact, with each licence copied verbatim |
 
@@ -44,6 +49,8 @@ before you cite one:
 | [`ACCURACY.md`](ACCURACY.md) | The labelled corpus: what a label is, precision, recall and graph fidelity in both dataflow modes, and the gaps named per rule |
 | [`VALIDATION.md`](VALIDATION.md) | The runbook for validating MLView by hand on a machine it was not built on, and the step-by-step publishing procedure |
 | [`DEMO_LOG.md`](DEMO_LOG.md) | The template you copy and fill in *while* you validate; completed logs live in `docs/demo-logs/` |
+| [`demo-logs/2026-09-17-host-retry.md`](demo-logs/2026-09-17-host-retry.md) | Completed Copilot and Claude native refinement retries, local VSIX installation, exact artifact revisions and remaining acceptance boundaries |
+| [`../evals/workflow/reference-candidates/README.md`](../evals/workflow/reference-candidates/README.md) | Eight source-linked reference drafts and a proposed common policy for human review before the held-out pilot |
 | [`ROADMAP.md`](ROADMAP.md) | The ranked backlog from four audits, with the acceptance clause and the landing measurement for each shipped item |
 | [`RESEARCH_COVERAGE_ACCURACY.md`](RESEARCH_COVERAGE_ACCURACY.md) | The 2026-09-15 research review: where the recall goes (107 misses in seven causes), three defects in shipped rules, 37 candidate rules in three tiers with their false-positive exposure measured on the public corpus, and a three-sprint sequence. Advisory, like `ROADMAP.md` |
 | [`research/sources.md`](research/sources.md) | The numbered bibliography that review cites, each entry marked with how far it was verified |
@@ -95,4 +102,4 @@ None of these is hand-edited.
 | `docs/rules/` | Tracked in git, but written by `python analyzer/tools/gen_rule_docs.py`. Edit the rule declaration, its fixtures or `analyzer/tools/gen_rule_notes.py` and regenerate; `--check` fails when the tree disagrees, and that is a gate |
 | `docs/walkthrough/` | Tracked. The five VS Code Get-Started pages, copied into the extension by `node vscode-extension/tools/sync-walkthrough.mjs`, whose `--check` is also a gate |
 | `docs/gallery/` | **Not** in git. Self-contained example reports built by `python analyzer/tools/gen_gallery.py` from the clean programs and every rule fixture, ~30 MB |
-| `docs/demo-logs/` | Empty in git apart from its `.gitkeep`. Where a filled-in copy of `DEMO_LOG.md` goes, one per validation session |
+| `docs/demo-logs/` | Dated validation records; screenshots and local run artifacts may remain ignored |

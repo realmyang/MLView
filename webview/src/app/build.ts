@@ -196,7 +196,7 @@ export function canvasHost(app: App): CanvasHost {
     keep: app.filters.keep,
     isFilteredOut: (node) => app.filters.hidesNode(node),
     activateNode: (id) => app.select({ kind: 'node', id }, { open: true, tab: 'inspector' }),
-    activateEdge: (id) => app.select({ kind: 'edge', id }, { open: true }),
+    activateEdge: (id) => app.select({ kind: 'edge', id }, { open: true, tab: 'inspector' }),
     clearFilters: () => app.clearFilters(),
     canReanalyze: () => app.caps.canReanalyze,
     requestRefresh: () => app.requestRefresh(),

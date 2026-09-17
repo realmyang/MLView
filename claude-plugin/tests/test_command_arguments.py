@@ -30,7 +30,7 @@ import pytest
 from plugin_support import PLUGIN_ROOT, REPO_ROOT, child_env, corpus_path
 
 COMMANDS_DIR = os.path.join(PLUGIN_ROOT, "commands")
-COMMAND_FILES = ("mlview.md", "mlview-issues.md")
+COMMAND_FILES = ("mlview-issues.md",)
 
 #: The invocations the top-level README prescribes, as (command, arguments).
 README_INVOCATIONS = {
@@ -76,7 +76,7 @@ def test_no_command_reads_a_third_positional_argument(name):
 
 def test_mlview_takes_the_path_from_the_first_argument():
     body = read_command("mlview.md")
-    assert "$0" in body, "the path placeholder must be $0, the first argument"
+    assert "$ARGUMENTS" in body and "question or analysis focus" in body
 
 
 def test_mlview_issues_takes_the_path_then_the_severity():
@@ -123,10 +123,9 @@ def test_substitution_puts_the_path_and_severity_in_their_own_slots():
 
 
 def test_substitution_puts_the_path_in_the_analyze_slot_for_mlview():
-    line = cli_lines(read_command("mlview.md"))[0]
-    argv = shlex.split(substitute(line, README_INVOCATIONS["mlview.md"]))
-    assert argv[3] == "analyze"
-    assert argv[4] == "samples/vision_pipeline"
+    body = read_command("mlview.md")
+    assert "workflow.mlview.json" in body
+    assert not cli_lines(body), "the authored workflow must not fall back to static analysis"
 
 
 # ------------------------------------------- a flag's VALUE is not the severity slot

@@ -325,13 +325,11 @@ def test_the_real_docs_quote_the_real_battery():
     assert problems == [], "\n".join(problems)
 
 
-def test_the_real_docs_name_one_last_green_push():
+def test_the_real_docs_do_not_name_conflicting_last_green_pushes():
     current, _ = check_docs.docs(REPO)
     problems: list = []
     doc_figures.check_one_green_push(REPO, current, problems)
     assert problems == [], "\n".join(problems)
-    text = io.open(REPO / "README.md", encoding="utf-8").read()
-    assert "last full green push" in text, "README no longer makes the claim"
 
 
 # ── check 23: §7's diff figures against the test §7 names as their pin ─────

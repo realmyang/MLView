@@ -159,25 +159,18 @@ def _command(name):
         return fh.read()
 
 
-def test_mlview_documents_the_flag_on_both_paths():
+def test_authored_mlview_inspects_notebooks_directly():
     body = _command("mlview.md")
-    assert "--include-notebooks" in body.split("---")[1], "the argument hint must list it"
-    assert "includeNotebooks: true" in body, "the MCP path must name the argument"
-    assert "--include-notebooks" in body, "the CLI fallback must name the flag"
-    assert "mlview_issues" in body, "the both-tools rule must name the second tool"
+    assert "notebooks" in body and "active Claude model" in body
+    assert "legacy static\nanalyzer first" in body
 
 
-def test_mlview_refuses_to_call_a_skipped_notebook_a_clean_result():
+def test_mlview_does_not_use_legacy_notebook_skip_counts():
     body = _command("mlview.md")
-    assert "notebooksSkipped > 0" in body
-    assert "read none of it" in body
+    assert "notebooksSkipped" not in body
 
 
-def test_mlview_states_what_a_notebook_run_cannot_know():
-    body = _command("mlview.md")
-    # The two things that are genuinely unknowable or misleading, said out loud.
-    assert "execution_count" in body and "out of order" in body
-    for code in ("MLV101", "MLV203", "MLV209"):
-        assert code in body, "the de-rated rules must be named"
-    assert "generated module" in body
-    assert "Cite the cell" in body
+def test_canonical_skill_records_notebook_cell_evidence():
+    with open(os.path.join(PLUGIN_ROOT, "skills", "mlview", "references", "WORKFLOW_CONTRACT.md"), encoding="utf-8") as fh:
+        body = fh.read()
+    assert "zero-based" in body and "cell" in body

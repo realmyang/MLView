@@ -123,3 +123,12 @@ produce **zero** findings, together and one file at a time.
 `python tools/accuracy.py` scores — see [`../docs/ACCURACY.md`](../docs/ACCURACY.md)
 for what a label is and what is still missed, and
 [`../docs/STATUS.md`](../docs/STATUS.md) for the current state of the tree.
+
+## Model-authored configured training example
+
+[configured_training.mlview.json](configured_training.mlview.json) was authored
+by the installed skill in native Codex with Sol and citation-validated. Open the
+MLView repository root as the VS Code workspace and run **MLView: Open Generated
+Diagram**. It explains the first-party source in [configured_training](configured_training/README.md).
+See [the validation log](../docs/demo-logs/2026-09-16-llm-workflow.md) for live
+observations, automated tests, and remaining checks.

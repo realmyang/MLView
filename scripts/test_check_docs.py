@@ -221,19 +221,19 @@ GATE_LIES = ("gated workspace-wide", "gate is workspace-wide", "workspace-wide g
 
 
 def test_the_framework_gate_is_not_described_as_workspace_wide():
-    """MLV-R2-109, on the real docs: the gate ships per-module, so no
-    current-state doc may call it workspace-wide in its honesty section, and the
-    bullet that describes it must cite the function that implements it."""
-    for rel in ("README.md", "docs/STATUS.md"):
-        text = io.open(REPO / rel, encoding="utf-8", newline="").read()
-        gaps = [b for _o, block in check_docs.known_gap_sections(text.splitlines())
-                for _n, b in check_docs.bullets(block)]
-        assert gaps, "%s has no Known gaps section any more" % rel
-        joined = " ".join(gaps).lower()
-        for lie in GATE_LIES:
-            assert lie not in joined, "%s still says %r" % (rel, lie)
-        assert any("wrappers_for" in b for b in gaps), (
-            "%s: the gate bullet must cite ctx.wrappers_for()" % rel)
+    """MLV-R2-109 remains pinned to the legacy implementation status. The root
+    README now introduces the LLM-native product and intentionally has no static
+    analyzer Known gaps section; docs/STATUS.md still owns this legacy claim."""
+    rel = "docs/STATUS.md"
+    text = io.open(REPO / rel, encoding="utf-8", newline="").read()
+    gaps = [b for _o, block in check_docs.known_gap_sections(text.splitlines())
+            for _n, b in check_docs.bullets(block)]
+    assert gaps, "%s has no legacy Known gaps section any more" % rel
+    joined = " ".join(gaps).lower()
+    for lie in GATE_LIES:
+        assert lie not in joined, "%s still says %r" % (rel, lie)
+    assert any("wrappers_for" in b for b in gaps), (
+        "%s: the gate bullet must cite ctx.wrappers_for()" % rel)
 
 
 # ---------------------------------------------------------------- MLV-R1-H08

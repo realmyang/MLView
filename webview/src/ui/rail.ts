@@ -15,7 +15,7 @@ import { appendSuppressActions, stateChip } from './suppress.js';
 import { appendFixSection, hasFix } from './fixes.js';
 import { alternativeCount, isAlternatives, resolvedConfig } from '../config/resolved.js';
 import type { DiffIndex } from '../diff/overlay.js';
-import type { Issue, Loc, MLNode, RailGroupBy, RailTab, RelatedLoc } from '../types.js';
+import type { Issue, Loc, MLEdge, MLNode, RailGroupBy, RailTab, RelatedLoc } from '../types.js';
 import type { GraphIndex } from '../layout/model.js';
 
 export interface RailCallbacks {
@@ -51,6 +51,7 @@ export interface RailState {
   tab: RailTab;
   issues: Issue[];
   selectedNode: MLNode | null;
+  selectedEdge: MLEdge | null;
   selectedIssueId: string | null;
   /** The canvas's collapsed groups — the Outline mirrors them (MLV-R2-W08). */
   collapsed: Set<string>;
@@ -274,6 +275,10 @@ export class Rail {
     clear(panel);
     add(panel, el('h3', 'mlv-sr', 'Inspector'));
     const node = s.selectedNode;
+    if (s.selectedEdge && s.index) {
+      this.renderEdgeInspector(panel, s.selectedEdge, s.index);
+      return;
+    }
     if (!node || !s.index) {
       add(panel, el('div', 'mlv-empty-note', 'Select a node to inspect it.'));
       return;
@@ -287,7 +292,7 @@ export class Rail {
     add(meta, el('span', 'mlv-chip', node.kind));
     add(meta, el('span', 'mlv-chip', node.level));
     if (node.framework) add(meta, el('span', 'mlv-chip', node.framework));
-    add(meta, el('span', 'mlv-chip', node.confidenceBucket));
+    add(meta, el('span', 'mlv-chip', node.basis ? 'basis · ' + node.basis : node.confidenceBucket));
     // VIEW-08: a resurrected ghost is a REMOVED node, not a missing step.
     if (node.ghost) add(meta, el('span', 'mlv-chip', 'missing step'));
     if (node.dynamic) add(meta, el('span', 'mlv-chip', 'dynamic scope'));
@@ -306,16 +311,19 @@ export class Rail {
     add(panel, el('div', 'mlv-insp__fqn', node.fqn || node.qualname));
 
     const actions = add(panel, el('div', 'mlv-insp__actions'));
-    const openBtn = button('mlv-btn mlv-btn--primary', 'Open ' + fileLine(node.loc));
-    // NB. The button says the cell; its hover says the flat line the host is
-    // actually sent, so the two never look like a contradiction.
-    const nbCell = cellRef(node.loc);
-    if (nbCell) {
-      openBtn.setAttribute('data-cell', String(nbCell.cell));
-      openBtn.title = locTitle(node.loc);
+    // Legacy nodes have one canonical location and retain their established
+    // primary action. Authored nodes carry `evidenceLocs` (including an empty
+    // array for a conceptual group) and use the complete evidence list below.
+    if (node.evidenceLocs === undefined && node.loc.file) {
+      const openBtn = button('mlv-btn mlv-btn--primary', 'Open ' + fileLine(node.loc));
+      const nbCell = cellRef(node.loc);
+      if (nbCell) {
+        openBtn.setAttribute('data-cell', String(nbCell.cell));
+        openBtn.title = locTitle(node.loc);
+      }
+      on(openBtn, 'click', () => this.cb.onOpen(node.loc));
+      actions.appendChild(openBtn);
     }
-    on(openBtn, 'click', () => this.cb.onOpen(node.loc));
-    actions.appendChild(openBtn);
     if (s.canAskAssistant) {
       const ask = button('mlv-btn', 'Ask about this node');
       on(ask, 'click', () => this.cb.onAsk(node.id));
@@ -328,6 +336,8 @@ export class Rail {
     scopeBtn.setAttribute('data-scope-node', node.id);
     on(scopeBtn, 'click', () => this.cb.onScopeToNode(node.id));
     actions.appendChild(scopeBtn);
+
+    this.renderEvidenceLocations(panel, node.evidenceLocs || (node.loc.file ? [node.loc] : []));
 
     if (node.loc.snippet) {
       const pre = add(panel, el('pre', 'mlv-banner__detail', node.loc.snippet));
@@ -399,6 +409,35 @@ export class Rail {
         if (s.selectedIssueId === issue.id) box.classList.add('is-selected');
         panel.appendChild(box);
       }
+    }
+  }
+
+  private renderEdgeInspector(panel: HTMLElement, edge: MLEdge, index: GraphIndex): void {
+    add(panel, el('h4', 'mlv-insp__title', edge.label || edge.kind || 'Connection'));
+    const source = index.nodeById.get(edge.source);
+    const target = index.nodeById.get(edge.target);
+    const meta = add(panel, el('div', 'mlv-insp__meta'));
+    add(meta, el('span', 'mlv-chip', edge.kind || 'connection'));
+    if (edge.basis) add(meta, el('span', 'mlv-chip mlv-chip--basis', 'basis · ' + edge.basis));
+    add(panel, el('div', 'mlv-insp__fqn', (source?.label || edge.source) + ' → ' + (target?.label || edge.target)));
+    this.renderEvidenceLocations(panel, edge.evidenceLocs || (edge.loc.file ? [edge.loc] : []));
+  }
+
+  private renderEvidenceLocations(panel: HTMLElement, locations: Loc[]): void {
+    if (!locations.length) return;
+    panel.appendChild(this.heading('Source evidence'));
+    const list = add(panel, el('ul', 'mlv-insp__related'));
+    for (const loc of locations) {
+      const li = add(list, el('li'));
+      const openBtn = button('mlv-link', 'Open ' + fileLine(loc));
+      openBtn.setAttribute('data-evidence-id', loc.evidenceId || '');
+      const nbCell = cellRef(loc);
+      if (nbCell) {
+        openBtn.setAttribute('data-cell', String(nbCell.cell));
+        openBtn.title = locTitle(loc);
+      }
+      on(openBtn, 'click', () => this.cb.onOpen(loc));
+      li.appendChild(openBtn);
     }
   }
 

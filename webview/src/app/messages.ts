@@ -27,6 +27,7 @@ export function onHostMessage(app: App, msg: HostToUi): void {
       renderRail(app);
     },
     graph: (graph, preserve) => setGraph(app, graph, preserve, true),
+    workflow: (document, preserve) => app.setWorkflow(document, preserve),
     analysisStarted: () => {
       app.error = null;
       app.showLoading(true);

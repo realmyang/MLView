@@ -66,6 +66,7 @@ test('activate registers every command unconditionally and never throws', () => 
       'mlview.exportPng',
       'mlview.exportSvg',
       'mlview.openConfiguration',
+      'mlview.openGeneratedDiagram',
       'mlview.refresh',
       'mlview.revealInDiagram',
       'mlview.saveComparisonBase',
@@ -113,12 +114,12 @@ test('a status bar item and a diagnostic collection are created', () => {
 
 test('the status bar summarises the issue counts', () => {
   const { api } = require('./harness.js');
-  assert.equal(api.statusBarText({ low: 0, medium: 0, high: 0 }, false, false), '$(graph) MLView');
+  assert.equal(api.statusBarText({ low: 0, medium: 0, high: 0 }, false, false), '$(graph) MLView Legacy');
   assert.equal(
     api.statusBarText({ low: 4, medium: 6, high: 5 }, false, false),
-    '$(graph) MLView: 5 high · 6 med · 4 low'
+    '$(graph) MLView Legacy: 5 high · 6 med · 4 low'
   );
-  assert.equal(api.statusBarText({ low: 1, medium: 0, high: 0 }, false, false), '$(graph) MLView: 1 low');
+  assert.equal(api.statusBarText({ low: 1, medium: 0, high: 0 }, false, false), '$(graph) MLView Legacy: 1 low');
   assert.match(api.statusBarText({ low: 0, medium: 0, high: 0 }, true, false), /sync~spin/);
   assert.match(api.statusBarText({ low: 0, medium: 0, high: 0 }, false, true), /error/);
 });

@@ -1,5 +1,13 @@
 # Contributing to MLView
 
+The active product is the [native-assistant skill and artifact
+viewer](docs/LLM_WORKFLOW.md). Read [AGENTS.md](AGENTS.md), the
+[WorkflowDocument contract](docs/WORKFLOW_CONTRACT.md), and the
+[implementation status](docs/LLM_IMPLEMENTATION.md) first. LLM interpretation
+is evaluated separately from deterministic citation and rendering tests.
+The static-analysis principles and gates below remain requirements for the
+retained legacy analyzer; its benchmark scores do not measure LLM quality.
+
 MLView reads Python ML code and draws it: an interactive pipeline diagram with
 findings on it, in three hosts (a standalone HTML report, a VS Code extension, a
 Claude Code plugin). It is a static analyzer, so almost every interesting

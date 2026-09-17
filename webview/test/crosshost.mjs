@@ -229,4 +229,6 @@ if (failures.length) {
   for (const f of failures) out('  ' + f);
   process.exit(1);
 }
-out('CROSS-HOST CHECK OK -- every assertion passed');
+const { authoredHandshake } = await import('./authored-handshake.mjs');
+await authoredHandshake();
+out('CROSS-HOST CHECK OK -- legacy scope and authored handshake passed');

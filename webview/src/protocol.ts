@@ -6,11 +6,12 @@
  * crashing. Malformed frames (no object, wrong `v`) are dropped silently.
  */
 
-import type { Capabilities, Filters, HostAction, HostToUi, MLGraph, Severity, ThemeKind, ViewState } from './types.js';
+import type { Capabilities, Filters, HostAction, HostToUi, MLGraph, Severity, ThemeKind, ViewState, WorkflowDocument } from './types.js';
 
 export interface ProtocolHandlers {
   init(theme: ThemeKind, capabilities: Capabilities | undefined): void;
   graph(graph: MLGraph, preserve: Partial<ViewState> | undefined): void;
+  workflow(document: WorkflowDocument, preserve: Partial<ViewState> | undefined): void;
   analysisStarted(): void;
   analysisProgress(done: number, total: number, file?: string): void;
   analysisFailed(message: string, detail: string | undefined, actions: HostAction[] | undefined): void;
@@ -40,6 +41,9 @@ export function dispatchHostMessage(msg: HostToUi, h: ProtocolHandlers): void {
       return;
     case 'graph':
       h.graph(msg.graph, msg.preserve as Partial<ViewState> | undefined);
+      return;
+    case 'workflow':
+      h.workflow(msg.document, msg.preserve);
       return;
     case 'analysisStarted':
       h.analysisStarted();

@@ -282,9 +282,9 @@ test('opening the diagram spawns the analyzer once and keeps the spinner up', as
 
     assert.equal(spawns.length, 1, `expected one analyzer spawn, got ${spawns.length}`);
     const bar = vscode.__recorded.statusBarItems[vscode.__recorded.statusBarItems.length - 1];
-    const idleAfterBusy = bar.texts.findIndex((t, i) => i > 0 && /sync~spin/.test(bar.texts[i - 1]) && t === '$(graph) MLView');
+    const idleAfterBusy = bar.texts.findIndex((t, i) => i > 0 && /sync~spin/.test(bar.texts[i - 1]) && t === '$(graph) MLView Legacy');
     assert.equal(idleAfterBusy, -1, `the spinner blinked off mid-analysis: ${bar.texts.join(' -> ')}`);
-    assert.match(bar.texts[bar.texts.length - 1], /MLView: \d+ high/);
+    assert.match(bar.texts[bar.texts.length - 1], /MLView Legacy: \d+ high/);
   } finally {
     shutdown();
   }
@@ -668,13 +668,13 @@ test('the status bar and the issue quick pick agree with the Problems panel', as
       .filter((sev) => counts[sev] > 0)
       .map((sev) => `${counts[sev]} ${sev === 'medium' ? 'med' : sev}`);
     const bar = vscode.__recorded.statusBarItems[vscode.__recorded.statusBarItems.length - 1];
-    assert.equal(bar.text, `$(graph) MLView: ${parts.join(' · ')}`);
+    assert.equal(bar.text, `$(graph) MLView Legacy: ${parts.join(' · ')}`);
     // PACKAGING appends the core line, so the count is asserted as the FIRST line and
     // the core line is asserted for what it must always say: which analyzer answered.
     const [headline, ...rest] = String(bar.tooltip).split('\n');
     assert.equal(
       headline,
-      `MLView: ${counts.high} high, ${counts.medium} medium, ${counts.low} low`
+      `MLView Legacy static analysis: ${counts.high} high, ${counts.medium} medium, ${counts.low} low`
     );
     assert.match(
       rest.join('\n'),

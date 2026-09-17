@@ -1,0 +1,13 @@
+{
+  "workflowVersion": "1.0",
+  "title": "Example training workflow",
+  "producer": {"kind": "host-llm", "host": "unknown"},
+  "revision": {"id": "rev-1"},
+  "request": {"question": "Explain training", "scope": "Selected training entrypoint"},
+  "phases": [{"id": "train", "label": "Training"}],
+  "nodes": [{"id": "step", "label": "Run training step", "phase": "train", "basis": "observed", "evidence": ["ev-1"]}],
+  "edges": [],
+  "findings": [],
+  "evidence": [{"id": "ev-1", "file": "train.py", "line": 1, "endLine": 1, "quote": "def train():"}],
+  "coverage": {"status": "scoped", "summary": "Selected entrypoint inspected.", "inspectedFiles": ["train.py"], "limitations": []}
+}

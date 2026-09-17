@@ -181,7 +181,9 @@ export function parseScope(spec: string | null | undefined, depth?: number | str
     target = CONCERN_ALIASES[target] || target;
     if (!CONCERNS[target]) throw new ScopeError('unknown_concern', target, CONCERN_NAMES);
   }
-  if (kind === 'stage' && STAGE_IDS.indexOf(target) < 0) throw new ScopeError('unknown_stage', target, STAGE_IDS);
+  // Stage ids are document-authored. Legacy graphs use STAGE_IDS, while a
+  // workflow-view document may declare any ordered phase id; resolveScope has
+  // the document and validates against its actual stages.
   return { kind, target, depth: parseDepth(depth, kind), spec: kind + ':' + target };
 }
 

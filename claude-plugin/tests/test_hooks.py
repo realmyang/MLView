@@ -142,8 +142,8 @@ def test_the_hooks_are_documented_where_a_reader_will_look():
 @pytest.mark.parametrize(
     "value,post,stop",
     [
-        (None, True, False),      # the default: one line per edit, no turn summary
-        ("", True, False),
+        (None, False, False),     # legacy static analysis is opt-in
+        ("", False, False),
         ("on", True, False),
         ("off", False, False),
         ("0", False, False),
@@ -151,7 +151,7 @@ def test_the_hooks_are_documented_where_a_reader_will_look():
         ("stop", False, True),
         ("both", True, True),
         ("all", True, True),
-        ("nonsense", True, False),  # an unknown value is the default, never an error
+        ("nonsense", False, False),  # unknown values stay safely disabled
     ],
 )
 def test_mlview_hook_selects_which_of_the_two_speaks(value, post, stop):
@@ -310,7 +310,7 @@ def _drive(script, payload, tmp_path, extra_env=None):
     env = child_env()
     env["CLAUDE_PROJECT_DIR"] = str(tmp_path / "project")
     env["MLVIEW_DATA_DIR"] = str(tmp_path / "data")
-    env.pop("MLVIEW_HOOK", None)
+    env["MLVIEW_HOOK"] = "on"  # behavior tests exercise an explicitly enabled hook
     env.update(extra_env or {})
     proc = subprocess.run(
         [sys.executable, script],
