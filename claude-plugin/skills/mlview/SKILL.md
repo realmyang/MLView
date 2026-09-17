@@ -15,8 +15,13 @@ The artifact helper requires Python 3.10 or newer. Check the selected
 interpreter before validation; if it is older, use an available newer Python or
 report the requirement without publishing an unverified artifact.
 
-Clarify the concrete scenario when configuration or entrypoint choice changes
-the workflow. Trace data, construction, calls, control, optimization,
+State the selected scenario before tracing it. Use the user's entrypoint/config
+when supplied; for a single clear default, state that assumption and proceed.
+When materially different choices remain, ask one focused question or keep
+the alternatives explicitly separate. Record unique `request.entrypoints` and
+use `request.configuration` to name the selected config, relevant launch
+arguments, and default/override assumptions. Do not merge mutually exclusive
+runs into one apparent execution path. Trace data, construction, calls, control, optimization,
 evaluation, and outputs across files. Represent absent runtime facts as
 alternatives or unresolved details. Keep a compact evidence record while
 working and use exact source lines.
@@ -57,6 +62,15 @@ and important limitations. Then tell the user to run **MLView: Open Generated
 Diagram** in VS Code and select `workflow.mlview.json` if the panel did not open
 automatically. Never include absolute paths in the artifact.
 
+For a broad request, a useful overview may be published before deeper analysis:
+critique and validate it first, set `coverage.status` to `partial`, and state
+the specific work still uninspected in `coverage.limitations`. Continue with a
+child revision when the user requests more detail or the active task allows it.
+Do not use a partial label to excuse unsupported claims. If a budget/host limit
+interrupts work, preserve the last published revision and identify remaining
+work when able. If no publication exists, report that plainly on resumption;
+do not describe a draft as a usable diagram or claim to keep running after Stop.
+
 For refinement requests, read the published artifact and retain phase, node,
 edge, finding, and evidence IDs for concepts that still mean the same thing.
 Assign new IDs only to new concepts, remove IDs only when their concepts leave
@@ -64,3 +78,8 @@ the requested scenario, and set the new revision's `parent` to the published
 revision ID. Expanding detail may add children and evidence without renaming the
 stable parent. Reinspect source when the request changes analysis scope; a
 display-only projection does not establish new coverage.
+When a copied prompt names a selected node, edge, or finding, resolve its ID in
+the stated revision and apply the requested change to that concept. Read its
+supporting and counter-evidence, and expand to related source only as needed.
+If the published revision has changed, reconcile the selection with the current
+document before drafting; never overwrite a newer revision using a stale parent.

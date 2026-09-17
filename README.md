@@ -49,6 +49,11 @@ in the runbook. Only install one copy of the skill in each discovery path.
 3. Ask the same assistant to refine the diagram. A valid new revision updates
    the panel; filtering and navigating the existing diagram do not call an LLM.
 
+To refine a particular node, edge, or finding, select it and use **Refine →
+Copy prompt**. Choose an intent or enter a specific question, then paste the
+prompt into the same assistant. The diagram header shows the entrypoints and
+configuration being explained.
+
 The workflow supports custom phases, nested groups, branches and cycles,
 notebook cell references, and findings with evidence and counter-evidence.
 Observed, inferred, and unresolved claims remain distinguishable. Source edits
@@ -101,7 +106,7 @@ Use a Python 3.10+ virtual environment on PATH. The local macOS default may be
 older. Component suites and the new skill checks run without an ML framework:
 
 ```sh
-python -m pytest skills/mlview/tests tools/test_install_skill.py evals -q
+python -m pytest skills/mlview/tests tools/test_install_skill.py tools/test_package_skill.py tools/test_sync_skill.py evals -q
 python tools/verify.py --all
 python scripts/check_docs.py
 cd webview && npm run check && npm test

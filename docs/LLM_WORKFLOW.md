@@ -46,6 +46,18 @@ a workspace shared with Copilot, which can discover both layouts. The portable
 workspace installation needs no MCP server. The plugin's legacy MCP services
 are separate from LLM artifact authoring.
 
+Check an installed workspace without changing it:
+
+```sh
+python3 tools/install_skill.py /path/to/target-project --doctor
+```
+
+This checks Python 3.10+, the documented skill directories, missing bundled
+files and duplicate installations. It cannot certify native skill discovery or
+the extension UI; complete those checks in the chosen assistant. CI is configured
+to package and check both standalone skill ZIPs alongside the VSIX and legacy
+wheel.
+
 ## Analyze and refine
 
 An effective first request names an entrypoint and config when known:
@@ -77,6 +89,16 @@ Refine in the same assistant, for example:
 > the student is updated. Preserve stable IDs and supersede the current revision.
 
 Each update uses a new revision ID and names the previous ID as its parent.
+
+For a focused change, select a node, edge, or finding, click **Refine**, choose
+Explain, Expand, Challenge, Trace, or a custom request, then click **Copy prompt**.
+The composer shows the selected item captured when it opens. Reopen it after
+changing the selection to target a different item. With no selection it targets
+the whole diagram. Paste the prompt into the same assistant conversation.
+The prompt includes the selected stable ID, evidence IDs, entrypoints,
+configuration and parent revision. The host rejects stale or missing selections.
+Entrypoints and configuration are also visible above the diagram.
+
 The panel watches the selected artifact. Invalid or superseded updates preserve
 the last valid diagram. Model work occurs only when you ask the assistant;
 filtering, source navigation, and reopening the artifact are local operations.
@@ -94,6 +116,12 @@ If validation fails, read the reported field/error, repair the draft, and try
 again. Do not overwrite the prior artifact with a static fallback. Cancellation,
 quota errors, or missing host access leave the previously published revision
 available. No verification stamp certifies semantic correctness.
+
+For a broad request, the assistant may publish a critiqued, validated partial
+overview and state the work still uninspected. It can later publish a fuller
+child revision. Stop model work through the native assistant's controls; MLView
+does not control that host's run or promise that a cancelled first attempt has
+published anything. A copied refinement prompt remains a request until sent.
 
 ## Live validation checklist
 

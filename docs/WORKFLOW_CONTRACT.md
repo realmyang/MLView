@@ -11,6 +11,12 @@ relationships form a forest; semantic edges may contain cycles. Every ID is
 unique within its collection, and every phase, node, edge, and evidence
 reference must resolve.
 
+`request.entrypoints` names the selected entrypoints; avoid duplicate paths.
+`request.configuration` records the selected configuration, relevant launch
+arguments and material default/override assumptions. These existing fields are
+shown in the authored viewer. Unknown choices stay explicit in coverage, and
+incompatible scenarios must not appear as one execution path.
+
 `basis` distinguishes `observed`, `inferred`, and `unresolved` claims. Nodes,
 edges, and findings normally cite evidence. Empty evidence is accepted only for
 an unresolved item or a conceptual node that has children. This exception does
@@ -41,6 +47,19 @@ revision ID. This prevents an older concurrent draft from overwriting a newer
 revision. Every changed revision requires a new revision ID; reusing an ID with
 different semantic content is rejected. Phase, node, edge, finding, and evidence
 IDs remain stable across revisions when their concepts retain the same meaning.
+
+A useful early overview may be published with `coverage.status: "partial"`
+and specific remaining work in `coverage.limitations`. It must pass the same
+structure and citation checks. Further analysis publishes a child revision;
+cancellation, quota failure or invalid drafts leave the last valid publication
+unchanged. A draft alone does not constitute a published result.
+
+Selection-aware refinement is an authored UI/host interaction, not an artifact
+schema change. The viewer sends its revision, selection kind/ID and a bounded
+intent. The host resolves the item, source evidence, entrypoints and
+configuration from its own validated document before copying a prompt. Missing
+IDs and obsolete revisions are rejected. Submission stays in the assistant
+that authored the artifact; copying the prompt never starts model work.
 
 The validator imposes bounded document, source, collection, and text sizes and
 never imports or executes target code. Its machine output is a JSON object with

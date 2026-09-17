@@ -14,7 +14,7 @@ function context() {
 }
 function log() { return {info(){},warn(){},error(){},dispose(){}}; }
 function workflow(file='source.py') {
-  return {workflowVersion:'1.0',title:'Authored',producer:{kind:'host-llm',host:'codex'},revision:{id:'r1'},request:{question:'Explain training',scope:'training'},phases:[{id:'p',label:'Train'}],nodes:[{id:'n',label:'Fit',phase:'p',basis:'observed',evidence:['e']}],edges:[],findings:[],evidence:[{id:'e',file,line:1,endLine:1,quote:'fit()'}],coverage:{status:'scoped',summary:'source',inspectedFiles:[file],limitations:[]}};
+  return {workflowVersion:'1.0',title:'Authored',producer:{kind:'host-llm',host:'codex'},revision:{id:'r1'},request:{question:'Explain training',scope:'training',entrypoints:['train.py'],configuration:'config=fast'},phases:[{id:'p',label:'Train'}],nodes:[{id:'n',label:'Fit',phase:'p',basis:'observed',evidence:['e']},{id:'out',label:'Weights',phase:'p',basis:'inferred',evidence:[]}],edges:[{id:'flow',source:'n',target:'out',label:'produces',basis:'inferred',evidence:['e']}],findings:[{id:'risk',title:'Unverified output',message:'Output needs checking',severity:'medium',nodeIds:['out'],edgeIds:['flow'],basis:'inferred',evidence:['e'],counterEvidence:[]}],evidence:[{id:'e',file,line:1,endLine:1,quote:'fit()'}],coverage:{status:'scoped',summary:'source',inspectedFiles:[file],limitations:[]}};
 }
 function publishedWorkflow() {
   const value=workflow();
@@ -141,10 +141,63 @@ test('refine action copies a bounded prompt for the displayed revision', async (
   const {artifact,controller}=setup(workflow());
   await controller.open(vscode.Uri.file(artifact));
   const panel=vscode.__recorded.panels.at(-1);panel.fire({v:1,type:'ready'});await tick();
-  panel.fire({v:1,type:'refineWorkflow',revisionId:'r1',question:'ignored',scope:'ignored'});await tick();
+  panel.fire({v:1,type:'refineWorkflow',revisionId:'r1',intent:'explain',question:'ignored',scope:'ignored'});await tick();
   assert.equal(vscode.__recorded.clipboardWrites.length,1);
   assert.match(vscode.__recorded.clipboardWrites[0],/parent is r1/);
+  assert.match(vscode.__recorded.clipboardWrites[0],/Selected entrypoints: train.py/);
+  assert.match(vscode.__recorded.clipboardWrites[0],/Selected configuration: config=fast/);
   assert.doesNotMatch(vscode.__recorded.clipboardWrites[0],/ignored/);
+  controller.dispose();
+});
+
+test('selection refinement resolves trusted node, edge, and finding context from the document', async () => {
+  const {artifact,controller}=setup(workflow());
+  await controller.open(vscode.Uri.file(artifact));
+  const panel=vscode.__recorded.panels.at(-1);panel.fire({v:1,type:'ready'});await tick();
+  for (const [selection, expected] of [
+    [{kind:'node',id:'n',label:'injected'},/node n \(Fit\); basis observed; evidence e/],
+    [{kind:'edge',id:'flow',label:'injected'},/edge flow \(Fit -> Weights, produces\); basis inferred/],
+    [{kind:'issue',id:'risk',title:'injected'},/finding risk \(Unverified output\); basis inferred/]
+  ]) {
+    panel.fire({v:1,type:'refineWorkflow',revisionId:'r1',selection,intent:'challenge'});await tick();
+    assert.match(vscode.__recorded.clipboardWrites.at(-1),expected);
+    assert.doesNotMatch(vscode.__recorded.clipboardWrites.at(-1),/injected/);
+    assert.match(vscode.__recorded.clipboardWrites.at(-1),/Preserve every unaffected stable phase, node, edge, finding, and evidence ID/);
+  }
+  controller.dispose();
+});
+
+test('selection refinement bounds document-owned ID lists in the copied prompt', async () => {
+  const document=workflow();
+  const extra=Array.from({length:30},(_,i)=>i);
+  document.nodes.push(...extra.map(i=>({id:`out-${i}`,label:`Output ${i}`,phase:'p',basis:'inferred',evidence:[]})));
+  document.edges.push(...extra.map(i=>({id:`flow-${i}`,source:'n',target:`out-${i}`,label:'produces',basis:'inferred',evidence:[]})));
+  document.evidence.push(...extra.map(i=>({id:`e-${i}`,file:'source.py',line:1,endLine:1,quote:'fit()'})));
+  document.findings[0].nodeIds=extra.map(i=>`out-${i}`);
+  document.findings[0].edgeIds=extra.map(i=>`flow-${i}`);
+  document.findings[0].evidence=extra.map(i=>`e-${i}`);
+  document.findings[0].counterEvidence=extra.map(i=>`e-${i}`);
+  const {artifact,controller}=setup(document);
+  await controller.open(vscode.Uri.file(artifact));
+  const panel=vscode.__recorded.panels.at(-1);panel.fire({v:1,type:'ready'});await tick();
+  panel.fire({v:1,type:'refineWorkflow',revisionId:'r1',selection:{kind:'issue',id:'risk'},intent:'challenge'});await tick();
+  const prompt=vscode.__recorded.clipboardWrites.at(-1);
+  assert.match(prompt,/out-0, out-1, out-2, out-3, out-4, out-5, out-6, out-7, and 22 more/);
+  assert.match(prompt,/stable finding ID risk/);
+  controller.dispose();
+});
+
+test('refinement rejects stale revisions and missing selected IDs clearly', async () => {
+  const {artifact,controller}=setup(workflow());
+  await controller.open(vscode.Uri.file(artifact));
+  const panel=vscode.__recorded.panels.at(-1);panel.fire({v:1,type:'ready'});await tick();
+  panel.fire({v:1,type:'refineWorkflow',revisionId:'old',intent:'trace'});await tick();
+  for (const kind of ['node','edge','issue']) {
+    panel.fire({v:1,type:'refineWorkflow',revisionId:'r1',selection:{kind,id:'missing'},intent:'trace'});await tick();
+    assert.match(vscode.__recorded.messages.at(-1)[1],new RegExp(`selected ${kind === 'issue' ? 'finding' : kind} missing is no longer`));
+  }
+  assert.equal(vscode.__recorded.clipboardWrites.length,0);
+  assert.match(vscode.__recorded.messages.at(-4)[1],/stale/);
   controller.dispose();
 });
 

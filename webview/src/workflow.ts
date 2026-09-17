@@ -24,7 +24,10 @@ export function normalizeWorkflow(document: WorkflowDocument): MLGraph {
       id: node.id, kind: node.kind || 'unknown', level: node.parent ? 'op' : 'unit', stage: node.phase,
       label: node.label, sublabel: node.detail || node.basis, qualname: node.label, loc: evidenceLoc(evidence, node.evidence),
       parent: node.parent || null, attrs: { basis: node.basis }, produces: [], consumes: [], ghost: node.basis === 'unresolved',
-      dynamic: false, confidence: 1, confidenceBucket: node.basis, basis: node.basis,
+      // WorkflowDocument records an evidence basis, not a calibrated numeric
+      // probability. NaN keeps shared renderer math type-safe without inventing
+      // a percentage that the authored contract cannot support.
+      dynamic: false, confidence: Number.NaN, confidenceBucket: node.basis, basis: node.basis,
       evidenceLocs: node.evidence.map((id) => evidenceLoc(evidence, [id])).filter((loc) => !!loc.file),
       issueIds: issueIds.get(node.id) || [], collapsedByDefault: false, stageEvidence: [],
     };
@@ -32,7 +35,7 @@ export function normalizeWorkflow(document: WorkflowDocument): MLGraph {
   const edges = (document.edges || []).map((edge) => ({
     id: edge.id, kind: edge.kind || 'unknown', source: edge.source, target: edge.target,
     label: edge.label + ' · ' + edge.basis,
-    loc: evidenceLoc(evidence, edge.evidence), tags: [edge.basis], confidence: 1, basis: edge.basis,
+    loc: evidenceLoc(evidence, edge.evidence), tags: [edge.basis], confidence: Number.NaN, basis: edge.basis,
     evidenceLocs: edge.evidence.map((id) => evidenceLoc(evidence, [id])).filter((loc) => !!loc.file),
     issueIds: (document.findings || []).filter((f) => (f.edgeIds || []).includes(edge.id)).map((f) => f.id),
   }));
@@ -44,7 +47,7 @@ export function normalizeWorkflow(document: WorkflowDocument): MLGraph {
       .map(({ item, role }) => ({ ...evidenceLoc(evidence, [item.id]), role }));
     return {
       id: finding.id, code: finding.id, ruleVersion: 0, severity: finding.severity,
-      confidence: 1, confidenceBucket: finding.basis, basis: finding.basis, title: finding.title,
+      confidence: Number.NaN, confidenceBucket: finding.basis, basis: finding.basis, title: finding.title,
       message: finding.message, why: finding.message, fixHint: finding.suggestion || '', loc, relatedLocs: related,
       nodeIds: finding.nodeIds || [], edgeIds: finding.edgeIds || [], stage: nodes.find((n) => finding.nodeIds.includes(n.id))?.stage || '',
       frameworks: [], tags: [finding.basis], evidence: [], suppressed: false, docs: '',
@@ -87,11 +90,42 @@ export function decorateWorkflow(app: App, document: WorkflowDocument): void {
   const refine = el('button', 'mlv-btn mlv-workflow__refine', 'Refine') as HTMLButtonElement;
   refine.type = 'button';
   refine.title = 'Continue this workflow analysis in the active assistant';
-  on(refine, 'click', () => app.bridge.post({ v: 1, type: 'refineWorkflow', revisionId: document.revision.id, question: document.request.question, scope: document.request.scope }));
+  refine.setAttribute('aria-expanded', 'false');
   heading.appendChild(refine);
+  const composer = add(panel, el('form', 'mlv-workflow__composer')) as HTMLFormElement;
+  composer.hidden = true;
+  const selected = add(composer, el('span', 'mlv-workflow__selection'));
+  const intent = add(composer, el('select', 'mlv-input mlv-workflow__intent')) as HTMLSelectElement;
+  intent.setAttribute('aria-label', 'Refinement intent');
+  for (const [value, label] of [['explain', 'Explain'], ['expand', 'Expand'], ['challenge', 'Challenge'], ['trace', 'Trace'], ['custom', 'Custom…']]) {
+    const option = intent.ownerDocument.createElement('option'); option.value = value; option.textContent = label; intent.appendChild(option);
+  }
+  const custom = add(composer, el('input', 'mlv-input mlv-workflow__custom')) as HTMLInputElement;
+  custom.type = 'text'; custom.maxLength = 500; custom.placeholder = 'What should the assistant refine?'; custom.setAttribute('aria-label', 'Custom refinement intent'); custom.hidden = true;
+  const submit = add(composer, el('button', 'mlv-btn', 'Copy prompt')) as HTMLButtonElement; submit.type = 'submit';
+  const selection = () => app.selection ? { kind: app.selection.kind, id: app.selection.id } : undefined;
+  let selectedContext: ReturnType<typeof selection>;
+  const refreshSelection = () => {
+    selectedContext = selection();
+    selected.textContent = selectedContext ? `${selectedContext.kind}: ${selectedContext.id}` : 'Whole diagram';
+  };
+  on(refine, 'click', () => {
+    composer.hidden = !composer.hidden;
+    refine.setAttribute('aria-expanded', composer.hidden ? 'false' : 'true');
+    if (!composer.hidden) { refreshSelection(); intent.focus(); }
+  });
+  on(intent, 'change', () => { custom.hidden = intent.value !== 'custom'; if (!custom.hidden) custom.focus(); });
+  on(composer, 'submit', (event) => {
+    event.preventDefault();
+    const value = intent.value === 'custom' ? custom.value.trim() : intent.value;
+    if (!value) { custom.focus(); return; }
+    app.bridge.post({ v: 1, type: 'refineWorkflow', revisionId: document.revision.id, selection: selectedContext, intent: value });
+  });
   add(panel, el('p', 'mlv-workflow__question', document.request.question));
   const meta = add(panel, el('div', 'mlv-workflow__meta'));
   add(meta, el('span', '', 'Scope: ' + document.request.scope));
+  add(meta, el('span', '', 'Entrypoints: ' + (document.request.entrypoints?.join(', ') || 'not specified')));
+  add(meta, el('span', '', 'Configuration: ' + (document.request.configuration || 'not specified')));
   add(meta, el('span', 'mlv-workflow__coverage mlv-workflow__coverage--' + document.coverage.status, document.coverage.status + ' · ' + document.coverage.summary));
   if (document.coverage.limitations.length) {
     const details = add(panel, el('details', 'mlv-workflow__limitations')) as HTMLDetailsElement;

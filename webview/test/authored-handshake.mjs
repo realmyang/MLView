@@ -24,14 +24,14 @@ export async function authoredHandshake() {
   const document = {
     workflowVersion: '1.0', title: 'Authored handshake',
     producer: { kind: 'host-llm', host: 'codex' }, revision: { id: 'r1' },
-    request: { question: 'Explain the update', scope: 'source.py' },
+    request: { question: 'Explain the update', scope: 'source.py', entrypoints: ['source.py'], configuration: 'training mode' },
     phases: [{ id: 'loop', label: 'Training' }],
     nodes: [
       { id: 'loss', label: 'Compute loss', phase: 'loop', basis: 'observed', evidence: ['e1'] },
       { id: 'update', label: 'Update weights', phase: 'loop', basis: 'observed', evidence: ['e2'] }
     ],
     edges: [{ id: 'step', source: 'loss', target: 'update', label: 'backward', basis: 'inferred', evidence: ['e2'] }],
-    findings: [], evidence: [
+    findings: [{ id: 'risk', title: 'Update risk', message: 'Check the update', severity: 'medium', nodeIds: ['update'], edgeIds: ['step'], basis: 'inferred', evidence: ['e2'] }], evidence: [
       { id: 'e1', file: 'source.py', line: 1, endLine: 1, quote: 'loss()' },
       { id: 'e2', file: 'source.py', line: 2, endLine: 2, quote: 'step()' }
     ],
@@ -83,9 +83,38 @@ export async function authoredHandshake() {
       'real source click lost canOpenSource or evidence identity: ' + JSON.stringify(outgoing));
     assert.equal(vscode.__recorded.shownDocuments[0].document.uri.fsPath, join(root, 'source.py'));
 
+    assert.match(window.document.querySelector('.mlv-workflow__meta').textContent, /Entrypoints: source.py/);
+    assert.match(window.document.querySelector('.mlv-workflow__meta').textContent, /Configuration: training mode/);
     window.document.querySelector('.mlv-workflow__refine').click();
+    assert.match(window.document.querySelector('.mlv-workflow__selection').textContent, /node: loss/);
+    window.document.querySelector('[data-node-id="update"]').click();
+    assert.match(window.document.querySelector('.mlv-workflow__selection').textContent, /node: loss/,
+      'composer must submit the same selection it displays');
+    window.document.querySelector('.mlv-workflow__composer').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
     await waitFor(() => vscode.__recorded.clipboardWrites.length === 1, 'refine frame did not reach host');
     assert.match(vscode.__recorded.clipboardWrites[0], /parent is r1/);
+    assert.match(vscode.__recorded.clipboardWrites[0], /node loss \(Compute loss\)/);
+    assert.match(vscode.__recorded.clipboardWrites[0], /Refinement intent: explain/);
+    assert.match(vscode.__recorded.clipboardWrites[0], /Selected entrypoints: source.py/);
+    assert.match(vscode.__recorded.clipboardWrites[0], /Selected configuration: training mode/);
+
+    window.document.querySelector('.mlv-workflow__refine').click();
+    window.document.querySelector('[data-edge-id="step"] .mlv-edge__hit')
+      .dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    window.document.querySelector('.mlv-workflow__refine').click();
+    assert.match(window.document.querySelector('.mlv-workflow__selection').textContent, /edge: step/);
+    window.document.querySelector('.mlv-workflow__composer').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+    await waitFor(() => vscode.__recorded.clipboardWrites.length === 2, 'edge refinement did not reach host');
+    assert.match(vscode.__recorded.clipboardWrites[1], /Selected item: edge step \(Compute loss -> Update weights, backward\)/);
+
+    window.document.querySelector('.mlv-workflow__refine').click();
+    window.document.querySelector('.mlv-issue[data-issue-id="risk"]')
+      .dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    window.document.querySelector('.mlv-workflow__refine').click();
+    assert.match(window.document.querySelector('.mlv-workflow__selection').textContent, /issue: risk/);
+    window.document.querySelector('.mlv-workflow__composer').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+    await waitFor(() => vscode.__recorded.clipboardWrites.length === 3, 'finding refinement did not reach host');
+    assert.match(vscode.__recorded.clipboardWrites[2], /Selected item: finding risk \(Update risk\)/);
 
     vscode.__answerSaveDialog(vscode.Uri.file(join(root, 'diagram.svg')));
     window.document.querySelector('.mlv-btn--exportmenu').click();

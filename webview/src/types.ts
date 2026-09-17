@@ -633,7 +633,7 @@ export type UiToHost =
   | { v: 1; type: 'ready' }
   | { v: 1; type: 'openLocation'; file: string; absFile: string; line: number; col: number; endLine: number; endCol: number; preview?: boolean; evidenceId?: string; cell?: number }
   | { v: 1; type: 'selectNode'; nodeId: string | null }
-  | { v: 1; type: 'refineWorkflow'; revisionId: string; question: string; scope: string }
+  | { v: 1; type: 'refineWorkflow'; revisionId: string; selection?: { kind: 'node' | 'edge' | 'issue'; id: string }; intent: string }
   | { v: 1; type: 'requestRefresh'; scope: 'workspace' | 'file'; path?: string }
   | { v: 1; type: 'exportHtml' }
   /**

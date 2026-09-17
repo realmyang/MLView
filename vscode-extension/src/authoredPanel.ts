@@ -235,9 +235,62 @@ class AuthoredPanel implements vscode.Disposable {
     }
     private async copyRefinementPrompt(m: Record<string, unknown>): Promise<void> {
         const doc = this.lastValid?.document;
-        if (!doc || m.revisionId !== doc.revision.id)
+        if (!doc) {
+            void vscode.window.showWarningMessage('MLView: no valid workflow revision is available to refine.');
             return;
-        const prompt = `Use the MLView skill to refine ${path.relative(this.folder.uri.fsPath, this.artifact.fsPath)} revision ${doc.revision.id}. Continue from the current question: ${doc.request.question}\nRequested scope: ${doc.request.scope}\nWrite a new revision whose parent is ${doc.revision.id}, then validate and publish the artifact.`;
+        }
+        if (m.revisionId !== doc.revision.id) {
+            void vscode.window.showWarningMessage(`MLView: refinement request is stale; the displayed revision is now ${doc.revision.id}. Select the item again.`);
+            return;
+        }
+        const intent = typeof m.intent === 'string' ? m.intent.trim() : '';
+        if (!intent || intent.length > 500) {
+            void vscode.window.showWarningMessage('MLView: provide a refinement intent between 1 and 500 characters.');
+            return;
+        }
+        const ids = (values: string[] | undefined): string => {
+            const items = values || [];
+            const visible = items.slice(0, 8);
+            return (visible.join(', ') || 'none') + (items.length > visible.length ? `, and ${items.length - visible.length} more` : '');
+        };
+        let target = 'the whole diagram';
+        let preserve = 'Preserve every existing stable node, edge, and finding ID unless the requested refinement requires changing that item.';
+        const selection = m.selection;
+        if (selection !== undefined) {
+            if (!selection || typeof selection !== 'object' || Array.isArray(selection)) {
+                void vscode.window.showWarningMessage('MLView: the selection is invalid. Select the item again.');
+                return;
+            }
+            const candidate = selection as Record<string, unknown>;
+            const kind = candidate.kind;
+            const id = candidate.id;
+            if (typeof id !== 'string' || !['node', 'edge', 'issue'].includes(String(kind))) {
+                void vscode.window.showWarningMessage('MLView: the selection is invalid. Select the item again.');
+                return;
+            }
+            if (kind === 'node') {
+                const item = doc.nodes.find(x => x.id === id);
+                if (!item) return void vscode.window.showWarningMessage(`MLView: selected node ${id} is no longer in revision ${doc.revision.id}.`);
+                target = `node ${item.id} (${item.label}); basis ${item.basis}; evidence ${ids(item.evidence)}`;
+            }
+            else if (kind === 'edge') {
+                const item = doc.edges.find(x => x.id === id);
+                if (!item) return void vscode.window.showWarningMessage(`MLView: selected edge ${id} is no longer in revision ${doc.revision.id}.`);
+                const source = doc.nodes.find(x => x.id === item.source)?.label || item.source;
+                const targetLabel = doc.nodes.find(x => x.id === item.target)?.label || item.target;
+                target = `edge ${item.id} (${source} -> ${targetLabel}, ${item.label}); basis ${item.basis}; evidence ${ids(item.evidence)}`;
+            }
+            else {
+                const item = doc.findings.find(x => x.id === id);
+                if (!item) return void vscode.window.showWarningMessage(`MLView: selected finding ${id} is no longer in revision ${doc.revision.id}.`);
+                target = `finding ${item.id} (${item.title}); basis ${item.basis}; nodes ${ids(item.nodeIds)}; edges ${ids(item.edgeIds)}; evidence ${ids(item.evidence)}; counter-evidence ${ids(item.counterEvidence)}`;
+            }
+            const contractKind = kind === 'issue' ? 'finding' : kind;
+            preserve = `Keep the selected item centered on stable ${contractKind} ID ${id}. Preserve every unaffected stable phase, node, edge, finding, and evidence ID and their relationships.`;
+        }
+        const entrypoints = ids(doc.request.entrypoints);
+        const configuration = doc.request.configuration || 'not specified';
+        const prompt = `Continue in this same assistant conversation and use the MLView skill to refine ${path.relative(this.folder.uri.fsPath, this.artifact.fsPath)} revision ${doc.revision.id}.\nOriginal question: ${doc.request.question}\nRequested scope: ${doc.request.scope}\nSelected entrypoints: ${entrypoints}\nSelected configuration: ${configuration}\nSelected item: ${target}\nRefinement intent: ${intent}\n${preserve}\nWrite a new revision whose parent is ${doc.revision.id}, then validate and publish the artifact.`;
         await vscode.env.clipboard.writeText(prompt);
         void vscode.window.showInformationMessage('MLView refinement prompt copied. Paste it into the assistant that authored this diagram.');
     }

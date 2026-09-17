@@ -6,6 +6,10 @@
 .mlv-workflow__heading, .mlv-workflow__meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .mlv-workflow__title { margin: 0; font-size: 16px; line-height: 1.35; }
 .mlv-workflow__question { margin: 6px 0; color: var(--mlv-text); }
+.mlv-workflow__composer { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; margin-block: 8px; }
+.mlv-workflow__composer[hidden] { display: none; }
+.mlv-workflow__selection { color: var(--mlv-muted); font-size: 11px; }
+.mlv-workflow__custom { min-width: min(320px, 100%); }
 .mlv-workflow__meta { font-size: 11px; color: var(--mlv-muted); }
 .mlv-workflow__coverage { font-weight: 600; }
 .mlv-workflow__coverage--partial { color: var(--mlv-warning, #9a6700); }

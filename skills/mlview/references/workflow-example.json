@@ -3,7 +3,7 @@
   "title": "Example training workflow",
   "producer": {"kind": "host-llm", "host": "unknown"},
   "revision": {"id": "rev-1"},
-  "request": {"question": "Explain training", "scope": "Selected training entrypoint"},
+  "request": {"question": "Explain training", "scope": "Selected training entrypoint", "entrypoints": ["train.py"], "configuration": "train.py defaults; no command-line overrides selected"},
   "phases": [{"id": "train", "label": "Training"}],
   "nodes": [{"id": "step", "label": "Run training step", "phase": "train", "basis": "observed", "evidence": ["ev-1"]}],
   "edges": [],

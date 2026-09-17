@@ -43,6 +43,7 @@ test('normalizes authored phases, hierarchy, cycles, evidence, and findings with
   assert.deepEqual(Array.from(graph.issues[0].relatedLocs, (loc) => loc.role), ['Supporting evidence', 'Counter-evidence']);
   assert.equal(graph.issues[0].loc.evidenceId, 'ev-step');
   assert.equal(graph.issues[0].confidenceBucket, 'inferred');
+  assert.equal(Number.isNaN(graph.issues[0].confidence), true, 'authored basis must not invent a numeric confidence');
   assert.equal(graph.nodes.find((n) => n.id === 'epoch').loc.absFile, '');
   assert.deepEqual(Array.from(graph.nodes.find((n) => n.id === 'step').evidenceLocs, (loc) => loc.evidenceId), ['ev-step', 'ev-loss']);
   assert.deepEqual(Array.from(graph.edges.find((e) => e.id === 'cycle').evidenceLocs, (loc) => loc.evidenceId), ['ev-step', 'ev-load']);
@@ -78,16 +79,23 @@ test('SVG export carries authored producer, model, revision, and title provenanc
   const svg = Buffer.from(frame.base64, 'base64').toString('utf8');
   assert.match(svg, /MLView — Training and review/);
   assert.match(svg, /authored by codex · model gpt-test · revision export-rev/);
+  assert.doesNotMatch(svg, /NaN|confidence="100|100%/);
 });
 
-test('refinement posts the authored revision, request, and scope', async () => {
+test('refinement posts the current stable selection and short intent', async () => {
   const ctx = await loadBundle();
   const bridge = recordingBridge(ctx.window, 'vscode');
-  ctx.MLView.mountWorkflow(ctx.document.getElementById('mlview-root'), workflow('revision-7'), bridge);
+  const app = ctx.MLView.mountWorkflow(ctx.document.getElementById('mlview-root'), workflow('revision-7'), bridge);
+  app.select({ kind: 'edge', id: 'cycle' }, { tab: 'inspector' });
   ctx.document.querySelector('.mlv-workflow__refine').click();
+  assert.equal(ctx.document.querySelector('.mlv-workflow__selection').textContent, 'edge: cycle');
+  ctx.document.querySelector('.mlv-workflow__intent').value = 'trace';
+  ctx.document.querySelector('.mlv-workflow__composer').dispatchEvent(new ctx.window.Event('submit', { bubbles: true, cancelable: true }));
   assert.deepEqual(JSON.parse(JSON.stringify(bridge.posted.at(-1))), {
-    v: 1, type: 'refineWorkflow', revisionId: 'revision-7', question: 'How is this model trained?', scope: 'src/',
+    v: 1, type: 'refineWorkflow', revisionId: 'revision-7', selection: { kind: 'edge', id: 'cycle' }, intent: 'trace',
   });
+  assert.match(ctx.document.querySelector('.mlv-workflow__meta').textContent, /Entrypoints: src\/train.py/);
+  assert.match(ctx.document.querySelector('.mlv-workflow__meta').textContent, /Configuration: not specified/);
 });
 
 test('source-less concepts do not fabricate file jumps and epistemic basis stays visible', async () => {
@@ -100,6 +108,17 @@ test('source-less concepts do not fabricate file jumps and epistemic basis stays
   assert.match(ctx.document.querySelector('[data-node-id="epoch"]').textContent, /inferred/);
   app.focusIssue('loss-risk');
   assert.equal(ctx.document.querySelector('[data-issue-id="loss-risk"] [data-basis="inferred"]') !== null, true);
+  const basis = ctx.document.querySelector('[data-issue-id="loss-risk"] [data-basis="inferred"]');
+  assert.equal(basis.getAttribute('aria-label'), 'Basis: inferred');
+  assert.doesNotMatch(basis.getAttribute('title'), /100%/);
+  assert.equal(ctx.document.querySelector('[data-node-id="epoch"]').classList.contains('is-lowconf'), false,
+    'absence of a calibrated percentage must not fabricate a low-confidence state');
+  app.setFilters({ severities: ['high'] });
+  assert.equal(ctx.document.querySelector('.mlv-issue[data-issue-id="loss-risk"]'), null,
+    'authored basis does not bypass ordinary severity filtering');
+  app.setFilters({ severities: ['medium'] });
+  assert.ok(ctx.document.querySelector('.mlv-issue[data-issue-id="loss-risk"]'),
+    'authored finding remains available after filters are restored');
   assert.match(ctx.document.querySelector('[data-edge-id="cycle"] [role="button"]').getAttribute('aria-label'), /inferred/);
   app.destroy();
 });
