@@ -1,0 +1,434 @@
+{
+  "coverage": {
+    "inspectedFiles": [
+      ".agents/skills/mlview/SKILL.md",
+      ".agents/skills/mlview/references/WORKFLOW_CONTRACT.md",
+      ".agents/skills/mlview/references/workflow-example.json",
+      ".agents/skills/mlview/scripts/artifact.py",
+      "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb"
+    ],
+    "limitations": [
+      "The notebook was not imported or executed. Live kernel variables, complete execution history, working directory, features.npz contents, data shape/dtype/label range, package state, and runtime success remain unknown.",
+      "A cell's saved execution_count is only its last stored counter. It can be overwritten by reruns, survive edited source, or reflect a restarted/mixed session; sorting the saved values is therefore a recorded-order view, not proof of the complete chronological history.",
+      "All four cells have empty saved outputs, so the artifact does not infer successful execution from the absence of recorded errors.",
+      "WorkflowDocument notebook evidence anchors exact cell source lines, not the top-level JSON execution_count field. Recorded-order nodes report the directly observed saved counters while their exact citations identify the corresponding code cells.",
+      "Only the selected notebook and the installed MLView authoring/validation files were read; no other workspace, earlier artifact, external data, or environment was inspected."
+    ],
+    "status": "scoped",
+    "summary": "The sole selected notebook entrypoint was fully inspected as saved. The artifact separately models its four-cell source sequence and the sequence implied by sorting the four last saved execution_count values. Installed MLView instructions, contract, example, and helper were inspected only to author and validate the artifact."
+  },
+  "edges": [
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev.cell0.imports",
+        "ev.cell1.all"
+      ],
+      "id": "edge.source.0-1",
+      "kind": "source-order",
+      "label": "next in source array: 0 -> 1",
+      "source": "source.cell0",
+      "target": "source.cell1"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev.cell1.all",
+        "ev.cell2.all"
+      ],
+      "id": "edge.source.1-2",
+      "kind": "source-order",
+      "label": "next in source array: 1 -> 2",
+      "source": "source.cell1",
+      "target": "source.cell2"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev.cell2.all",
+        "ev.cell3.all"
+      ],
+      "id": "edge.source.2-3",
+      "kind": "source-order",
+      "label": "next in source array: 2 -> 3",
+      "source": "source.cell2",
+      "target": "source.cell3"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev.cell0.imports",
+        "ev.cell2.all"
+      ],
+      "id": "edge.recorded.1-2",
+      "kind": "recorded-execution-order",
+      "label": "ascending last saved count: 1 -> 2",
+      "source": "recorded.count1.cell0",
+      "target": "recorded.count2.cell2"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev.cell2.all",
+        "ev.cell1.all"
+      ],
+      "id": "edge.recorded.2-3",
+      "kind": "recorded-execution-order",
+      "label": "ascending last saved count: 2 -> 3",
+      "source": "recorded.count2.cell2",
+      "target": "recorded.count3.cell1"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev.cell1.all",
+        "ev.cell3.all"
+      ],
+      "id": "edge.recorded.3-4",
+      "kind": "recorded-execution-order",
+      "label": "ascending last saved count: 3 -> 4",
+      "source": "recorded.count3.cell1",
+      "target": "recorded.count4.cell3"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev.cell1.load",
+        "ev.cell2.all"
+      ],
+      "id": "edge.data.cell1-cell2",
+      "kind": "data-flow",
+      "label": "X and y are assigned, then consumed",
+      "source": "source.cell1",
+      "target": "source.cell2"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev.cell2.split",
+        "ev.cell3.construct"
+      ],
+      "id": "edge.data.cell2-cell3",
+      "kind": "data-flow",
+      "label": "X_train and y_train feed TensorDataset",
+      "source": "source.cell2",
+      "target": "source.cell3"
+    }
+  ],
+  "evidence": [
+    {
+      "cell": 0,
+      "endLine": 7,
+      "file": "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb",
+      "id": "ev.cell0.imports",
+      "line": 1,
+      "quote": "import numpy as np\nimport torch\nimport torch.nn as nn\nimport torch.optim as optim\nfrom torch.utils.data import DataLoader, TensorDataset\nfrom sklearn.model_selection import train_test_split\nfrom sklearn.preprocessing import StandardScaler"
+    },
+    {
+      "cell": 1,
+      "endLine": 2,
+      "file": "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb",
+      "id": "ev.cell1.setup",
+      "line": 1,
+      "quote": "%matplotlib inline\n!pip install --quiet scikit-learn"
+    },
+    {
+      "cell": 1,
+      "endLine": 5,
+      "file": "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb",
+      "id": "ev.cell1.load",
+      "line": 3,
+      "quote": "raw = np.load(\"features.npz\")\nX = raw[\"features\"]\ny = raw[\"labels\"]"
+    },
+    {
+      "cell": 1,
+      "endLine": 5,
+      "file": "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb",
+      "id": "ev.cell1.all",
+      "line": 1,
+      "quote": "%matplotlib inline\n!pip install --quiet scikit-learn\nraw = np.load(\"features.npz\")\nX = raw[\"features\"]\ny = raw[\"labels\"]"
+    },
+    {
+      "cell": 2,
+      "endLine": 2,
+      "file": "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb",
+      "id": "ev.cell2.scale",
+      "line": 1,
+      "quote": "scaler = StandardScaler()\nX_scaled = scaler.fit_transform(X)"
+    },
+    {
+      "cell": 2,
+      "endLine": 4,
+      "file": "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb",
+      "id": "ev.cell2.split",
+      "line": 3,
+      "quote": "X_train, X_test, y_train, y_test = train_test_split(\n    X_scaled, y, test_size=0.2, random_state=0)"
+    },
+    {
+      "cell": 2,
+      "endLine": 4,
+      "file": "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb",
+      "id": "ev.cell2.all",
+      "line": 1,
+      "quote": "scaler = StandardScaler()\nX_scaled = scaler.fit_transform(X)\nX_train, X_test, y_train, y_test = train_test_split(\n    X_scaled, y, test_size=0.2, random_state=0)"
+    },
+    {
+      "cell": 3,
+      "endLine": 5,
+      "file": "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb",
+      "id": "ev.cell3.construct",
+      "line": 1,
+      "quote": "model = nn.Sequential(nn.Linear(10, 3))\ncriterion = nn.CrossEntropyLoss()\noptimizer = optim.Adam(model.parameters(), lr=0.001)\nds = TensorDataset(torch.tensor(X_train), torch.tensor(y_train))\ntrain_loader = DataLoader(ds, batch_size=32, shuffle=True)"
+    },
+    {
+      "cell": 3,
+      "endLine": 10,
+      "file": "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb",
+      "id": "ev.cell3.loop",
+      "line": 6,
+      "quote": "for features, labels in train_loader:\n    outputs = model(features)\n    loss = criterion(outputs, labels)\n    loss.backward()\n    optimizer.step()"
+    },
+    {
+      "cell": 3,
+      "endLine": 10,
+      "file": "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb",
+      "id": "ev.cell3.all",
+      "line": 1,
+      "quote": "model = nn.Sequential(nn.Linear(10, 3))\ncriterion = nn.CrossEntropyLoss()\noptimizer = optim.Adam(model.parameters(), lr=0.001)\nds = TensorDataset(torch.tensor(X_train), torch.tensor(y_train))\ntrain_loader = DataLoader(ds, batch_size=32, shuffle=True)\nfor features, labels in train_loader:\n    outputs = model(features)\n    loss = criterion(outputs, labels)\n    loss.backward()\n    optimizer.step()"
+    }
+  ],
+  "findings": [
+    {
+      "basis": "unresolved",
+      "counterEvidence": [
+        "ev.cell1.load"
+      ],
+      "edgeIds": [
+        "edge.recorded.2-3",
+        "edge.data.cell1-cell2"
+      ],
+      "evidence": [
+        "ev.cell1.load",
+        "ev.cell2.all"
+      ],
+      "id": "finding.runtime-state",
+      "message": "Cell 2's last saved count is 2, while the visible X/y assignments in cell 1 have last saved count 3. A fresh kernel following only that recorded-count order would reach cell 2 before the visible producer. The notebook does not preserve enough history to conclude that this run failed: X and y could have existed in stale state, cell 1 could have run earlier and then been rerun at count 3, counts could reflect a restarted or mixed session, or outputs could have been stripped.",
+      "nodeIds": [
+        "recorded.count2.cell2",
+        "recorded.count3.cell1",
+        "interpret.data-dependency"
+      ],
+      "severity": "medium",
+      "suggestion": "Restart the kernel and run cells in source order (or use Run All), then save outputs and counters from that clean run. Keep the data-producing cell before every consumer.",
+      "title": "The saved counters require runtime-state qualification"
+    },
+    {
+      "basis": "inferred",
+      "counterEvidence": [],
+      "evidence": [
+        "ev.cell2.scale",
+        "ev.cell2.split"
+      ],
+      "id": "finding.preprocessing-leakage",
+      "message": "StandardScaler.fit_transform(X) is called before train_test_split. If the split succeeds and X contains the examples later assigned to X_test, their distribution influences the scaler fitted for training, leaking holdout information into X_train.",
+      "nodeIds": [
+        "source.cell2"
+      ],
+      "severity": "high",
+      "suggestion": "Split the raw X and y first; fit the scaler on X_train only, then transform X_train and X_test separately with that fitted scaler.",
+      "title": "Scaling is fit before the holdout split"
+    },
+    {
+      "basis": "inferred",
+      "counterEvidence": [],
+      "evidence": [
+        "ev.cell3.loop"
+      ],
+      "id": "finding.gradient-accumulation",
+      "message": "The visible loop calls loss.backward() and optimizer.step() but not optimizer.zero_grad(). If the DataLoader yields at least two minibatches and cell 3 runs as shown, gradients from earlier minibatches remain and accumulate into later updates.",
+      "nodeIds": [
+        "source.cell3"
+      ],
+      "severity": "medium",
+      "suggestion": "Call optimizer.zero_grad(set_to_none=True) before each loss.backward() unless deliberate gradient accumulation is intended and normalized/documented.",
+      "title": "The training loop never clears gradients"
+    },
+    {
+      "basis": "inferred",
+      "counterEvidence": [],
+      "evidence": [
+        "ev.cell2.split",
+        "ev.cell3.all"
+      ],
+      "id": "finding.no-evaluation",
+      "message": "Cell 2 creates X_test and y_test, but the only remaining cell builds a TensorDataset from X_train and y_train and performs training. No source cell computes holdout predictions, loss, or metrics, so the notebook cannot report generalization performance as written.",
+      "nodeIds": [
+        "source.cell2",
+        "source.cell3",
+        "interpret.training-dependency"
+      ],
+      "severity": "medium",
+      "suggestion": "After training, switch to evaluation mode, disable gradient tracking, run the model on X_test, and report an appropriate loss and classification metrics.",
+      "title": "The holdout split is not evaluated in the inspected notebook"
+    }
+  ],
+  "nodes": [
+    {
+      "basis": "observed",
+      "detail": "First cell in source order. It imports NumPy, PyTorch model/optimizer/data utilities, train_test_split, and StandardScaler. Exact citation: cell 0, lines 1-7.",
+      "evidence": [
+        "ev.cell0.imports"
+      ],
+      "id": "source.cell0",
+      "kind": "notebook-cell",
+      "label": "Cell 0: import numerical, PyTorch, and scikit-learn APIs",
+      "phase": "source-order"
+    },
+    {
+      "basis": "observed",
+      "detail": "Second cell in source order. It enables inline plotting, requests a quiet scikit-learn installation, loads features.npz, and assigns the features and labels arrays to X and y. Exact citations: cell 1, lines 1-2 and 3-5. Whether the package installation or file load succeeds depends on the runtime environment.",
+      "evidence": [
+        "ev.cell1.setup",
+        "ev.cell1.load"
+      ],
+      "id": "source.cell1",
+      "kind": "notebook-cell",
+      "label": "Cell 1: configure the notebook and load features.npz",
+      "phase": "source-order"
+    },
+    {
+      "basis": "observed",
+      "detail": "Third cell in source order. StandardScaler.fit_transform consumes all of X before train_test_split creates an 80/20 split with random_state=0. Exact citations: cell 2, lines 1-2 and 3-4.",
+      "evidence": [
+        "ev.cell2.scale",
+        "ev.cell2.split"
+      ],
+      "id": "source.cell2",
+      "kind": "notebook-cell",
+      "label": "Cell 2: fit scaling on X, then split train and test data",
+      "phase": "source-order"
+    },
+    {
+      "basis": "observed",
+      "detail": "Fourth cell in source order. It constructs a single Linear(10, 3) layer, CrossEntropyLoss, Adam at learning rate 0.001, and a shuffled batch-32 DataLoader over X_train/y_train. A single loop computes predictions and loss, backpropagates, and steps the optimizer. Exact citations: cell 3, lines 1-5 and 6-10. Successful execution still depends on data shape, dtype, label encoding, and file contents that are not recorded here.",
+      "evidence": [
+        "ev.cell3.construct",
+        "ev.cell3.loop"
+      ],
+      "id": "source.cell3",
+      "kind": "notebook-cell",
+      "label": "Cell 3: build and train a 10-to-3 linear classifier",
+      "phase": "source-order"
+    },
+    {
+      "basis": "observed",
+      "detail": "The saved execution_count for cell 0 is 1. This is the first item when the last saved counts are sorted; it is not proof of a fresh-kernel run or a complete execution history. Exact code citation: cell 0, lines 1-7.",
+      "evidence": [
+        "ev.cell0.imports"
+      ],
+      "id": "recorded.count1.cell0",
+      "kind": "saved-execution-marker",
+      "label": "Recorded count 1: cell 0 imports",
+      "phase": "recorded-order"
+    },
+    {
+      "basis": "observed",
+      "detail": "The saved execution_count for cell 2 is 2, placing its last recorded execution before cell 1's last recorded execution. Its code reads X and y. This does not establish whether those names came from stale kernel state or an earlier execution whose count was later overwritten. Exact citation: cell 2, lines 1-4.",
+      "evidence": [
+        "ev.cell2.all"
+      ],
+      "id": "recorded.count2.cell2",
+      "kind": "saved-execution-marker",
+      "label": "Recorded count 2: cell 2 scales and splits",
+      "phase": "recorded-order"
+    },
+    {
+      "basis": "observed",
+      "detail": "The saved execution_count for cell 1 is 3. Its visible assignments to X and y therefore follow cell 2 in the ordering of last saved counts, even though cell 1 precedes cell 2 in source order. Exact citation: cell 1, lines 3-5.",
+      "evidence": [
+        "ev.cell1.load"
+      ],
+      "id": "recorded.count3.cell1",
+      "kind": "saved-execution-marker",
+      "label": "Recorded count 3: cell 1 loads X and y",
+      "phase": "recorded-order"
+    },
+    {
+      "basis": "observed",
+      "detail": "The saved execution_count for cell 3 is 4, last among the four saved counts. Its code consumes X_train and y_train and performs one DataLoader pass. Exact citation: cell 3, lines 1-10.",
+      "evidence": [
+        "ev.cell3.all"
+      ],
+      "id": "recorded.count4.cell3",
+      "kind": "saved-execution-marker",
+      "label": "Recorded count 4: cell 3 trains",
+      "phase": "recorded-order"
+    },
+    {
+      "basis": "observed",
+      "detail": "Cell 1 visibly defines X and y, and cell 2 consumes them for scaling and splitting. This dependency agrees with source order but conflicts with the ordering of the cells' last saved execution_count values. Exact citations: cell 1, lines 3-5; cell 2, lines 1-4.",
+      "evidence": [
+        "ev.cell1.load",
+        "ev.cell2.all"
+      ],
+      "id": "interpret.data-dependency",
+      "kind": "data-flow",
+      "label": "Visible data dependency runs from cell 1 to cell 2",
+      "phase": "interpretation"
+    },
+    {
+      "basis": "inferred",
+      "detail": "Cell 2 creates X_train, X_test, y_train, and y_test. Cell 3 wraps X_train and y_train in tensors and trains; no later source cell evaluates X_test or y_test. Exact citations: cell 2, lines 3-4; cell 3, lines 1-10.",
+      "evidence": [
+        "ev.cell2.split",
+        "ev.cell3.all"
+      ],
+      "id": "interpret.training-dependency",
+      "kind": "data-flow",
+      "label": "Cell 3 consumes only the training side of the split",
+      "phase": "interpretation"
+    }
+  ],
+  "phases": [
+    {
+      "id": "source-order",
+      "label": "Source order (cell array)"
+    },
+    {
+      "id": "recorded-order",
+      "label": "Recorded order (last saved execution_count)"
+    },
+    {
+      "id": "interpretation",
+      "label": "Workflow interpretation and runtime qualifications"
+    }
+  ],
+  "producer": {
+    "host": "codex",
+    "kind": "host-llm",
+    "model": "GPT-5"
+  },
+  "request": {
+    "configuration": "Selected scenario: the saved notebook as stored. Source order is zero-based cell-array order 0 -> 1 -> 2 -> 3. Recorded order is the ascending order of the cells' last saved non-null execution_count values: cell 0 (1) -> cell 2 (2) -> cell 1 (3) -> cell 3 (4). No live kernel state, command-line arguments, alternate configuration, or execution is assumed. features.npz is referenced relative to the notebook runtime working directory but was not loaded or inspected.",
+    "entrypoints": [
+      "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb"
+    ],
+    "question": "Explain the notebook workflow with exact cell citations, separate source order from recorded execution order, and qualify findings that depend on runtime state.",
+    "scope": "Static, native-model interpretation of the single supplied saved notebook; no import, execution, legacy static analyzer, external workspace, or earlier artifact was used."
+  },
+  "revision": {
+    "id": "rev-leak-out-of-order-native-1"
+  },
+  "title": "Out-of-order notebook: source order, saved execution order, and ML workflow",
+  "verification": {
+    "files": {
+      ".agents/skills/mlview/SKILL.md": "4f0c4163225ab105e61b28bc8de4b971f0f09c79b2c55a2557b4b54db0ab7887",
+      ".agents/skills/mlview/references/WORKFLOW_CONTRACT.md": "45aca10bd45539296d0ae04746080003c45494434461e2ca929ae69d66c654f4",
+      ".agents/skills/mlview/references/workflow-example.json": "3c487d2f586dc6dcb1abf5eddd5539996c129247a81b565d6f219e9e2d67cecf",
+      ".agents/skills/mlview/scripts/artifact.py": "e3b9de384d983bfd2b9fe06fd925a502f5ae5fcebf182c9c9bff6da50130be8f",
+      "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb": "f3fa7e4837d70e93cb95c04f204d7c2f5701c5f53b1b6c4598abca5e22cb30f9"
+    },
+    "publishedAt": "2026-09-17T16:15:51.788881Z"
+  },
+  "workflowVersion": "1.0"
+}

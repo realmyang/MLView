@@ -1,10 +1,11 @@
 # LLM workflow implementation status
 
 The user approved [the direction plan](LLM_DIRECTION_PLAN.md) on 2026-09-16.
-Implementation is on the `llm-workflow` branch. Consult the branch's pull request
-checks for revision-specific remote CI results; the local measurements below
-are separate evidence. The repository's earlier accuracy measurements and CI
-run IDs apply to the legacy static product.
+Implementation is committed on the local `llm-workflow` branch. Publishing was
+attempted, but GitHub rejected the configured credential because it lacks the
+`workflow` scope needed for the CI changes. No draft PR or remote CI run exists
+for this branch yet. The repository's earlier accuracy measurements and CI run
+IDs apply to the legacy static product.
 
 ## Implemented components
 
@@ -137,6 +138,24 @@ decisions. The [pilot protocol](../evals/workflow/README.md) now requires an
 adjudicated 24-run first stage before the 48 repeats can begin. No held-out
 session has been launched by this sprint.
 
+The [fresh native development exercise](demo-logs/2026-09-17-development-native.md)
+published five validated artifacts: all four Codex tasks and Claude's configured
+distillation case. Seven skill cases and three no-skill baselines remain pending;
+two of those skill sessions had started when desktop control failed. The five
+outputs are preserved as [immutable native snapshots](../evals/workflow/development/native-artifacts/README.md).
+Reconstructing each snapshot's recorded files from commit `36dbbe5`, including
+the notebook's installed skill layout, passed all five helper validations.
+Provisional source review identified a misleading GAN logging explanation;
+exact citations alone did not catch that semantic error. Human review remains
+pending and no accuracy score is reported.
+
+The new selected-item refinement UI, native Stop/partial-publication check and
+new VSIX live installation were not completed: the desktop connection repeatedly
+returned `cgWindowNotFound`, then an independent reconnect timed out. The earlier
+basic all-host UI exercise remains historical evidence, separate from this
+sprint's updated controls. Raw observations and a validated 15-record status
+matrix are retained under the ignored `.mlview/sprint-20260917` directory.
+
 ## Remaining validation
 
 - Extend the basic all-host round trip to the remaining notebook, export,
@@ -148,6 +167,14 @@ session has been launched by this sprint.
   and a proposed common run policy are ready for review; all 72 pilot records
   remain pending, with no human-reviewed runs.
 - Remote workspaces and Windows need live checks before being advertised.
+  A read-only URI audit found no proven SSH/WSL/Dev Container blocker from the
+  authored panel's `file` scheme checks alone: MLView declares a workspace
+  extension host, and VS Code transforms URIs across its remote-host boundary.
+  See the official [extension-host placement](https://code.visualstudio.com/api/advanced-topics/extension-host)
+  and [remote extension architecture](https://code.visualstudio.com/api/advanced-topics/remote-extensions).
+  Verify open, watch, unsaved evidence, navigation, export and restore in a real
+  remote window before claiming compatibility. Virtual workspaces remain
+  explicitly unsupported by the extension manifest.
 - Authored Problems, CodeLens, static fixes and suppression remain disabled.
   Cross-assistant prompt submission is outside the first release; refinement
   stays in the assistant that authored the diagram.

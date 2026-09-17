@@ -1,5 +1,10 @@
 # Development semantic review workspace
 
+The later [native artifact snapshots](native-artifacts/README.md) preserve five
+fresh host-authored outputs. Their [run log](../../../docs/demo-logs/2026-09-17-development-native.md)
+records publication results and the desktop-control interruption; they are
+separate from the four provisional smoke reviews below.
+
 This directory turns the four existing development smoke artifacts into review
 candidates. The reviews are model-authored triage, not human adjudication or
 accuracy scores. Every claim and usability answer remains explicitly pending a

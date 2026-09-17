@@ -17,6 +17,13 @@
 > comparison, and a staged held-out pilot after human review. The previous
 > implementation is checkpointed at `bb56cdc`; distribution checks are in
 > `2b999f1`. Read the implementation page for the latest validation state.
+> The follow-up implementation passed all 20 local end-to-end gates and 41
+> helper/distribution/evaluation tests plus four subtests. Five fresh native
+> outputs are preserved in the [development log](demo-logs/2026-09-17-development-native.md).
+> Publication is blocked by the Git credential's missing `workflow` scope;
+> remaining native checks are blocked by the desktop connection failing to
+> attach to VS Code. Both need external recovery before completion can be
+> claimed. No held-out pilot or human semantic scoring has started.
 > The static-only direction and “next Sprint A” below
 > are the historical takeover snapshot, not the current roadmap.
 
