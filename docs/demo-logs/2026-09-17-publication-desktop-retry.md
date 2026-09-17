@@ -144,3 +144,67 @@ in 0.073 seconds. Inventory still listed Code, but a fresh bundle-ID attachment
 returned the same error in 0.018 seconds. The partial artifact appeared on disk,
 but its final native response, repair count and live diagram acceptance were
 not observed. No native assistant session was stopped or window reloaded.
+
+## Retry after explicit trust approval — September 17–18 local time
+
+The user explicitly approved the five prepared workspace-trust changes. Desktop
+attachment recovered, and each exact folder was marked trusted through VS Code:
+Claude's notebook, Copilot's GAN and notebook, and the two remaining no-skill
+baselines. The trust list confirmed all five; no parent folder or global trust
+setting was changed. All five native runs were started in their own workspaces.
+
+Both baseline responses completed. Copilot Auto selected MAI-Code-1.1-Flash;
+its UI reported four steps, 21 seconds and 0.9 credits. Its native response copy
+is preserved unchanged in ignored evidence. Claude used Fable 5.1 Extra high;
+its full final response was observed with the assistant idle. Clipboard export
+failed, so that response is preserved as an explicitly labelled accessibility
+transcription, not a byte-identical Markdown export. No elapsed-time value is
+claimed for Claude. Both six-file source workspaces remain unchanged.
+
+Claude's notebook run published `rev-20260917-leak-out-of-order-1`, with four
+phases, 16 nodes, 21 edges, four findings and 24 evidence records. SHA-256:
+`d66dfe36ea0b78fbd5500e495b8b27013db97be6ac16e8b3754d40c07b75a660`.
+The helper passed, and the final response reported zero validator repairs after
+one pre-validation critique. A compound publication command's exit code 1 came
+from a subsequent check for an absent lock file; publication itself returned
+success. Independent provisional review found no material source contradiction
+or publication privacy issue, while retaining library-behavior and conditional
+next-batch caveats. This remains model review, not human adjudication.
+
+The partial-overview final response was also recovered: zero repairs and
+4m 31s displayed. The real panel rendered five nodes and seven edges with the
+explicit partial scope; activating its scaling-to-split edge opened notebook
+cell 3 of 4 (zero-based cell 2), without executing the notebook. However, the
+panel also showed “Graph truncated at 5 nodes” and legacy CLI advice. Authored
+partial coverage had incorrectly set the legacy node-cap flag.
+
+The adapter now leaves that flag false for authored documents, while retaining
+the partial coverage label and limitations. New regression assertions exercise
+normalization and the mounted viewer; existing legacy truncation checks remain.
+Viewer tests passed 607 with one existing TODO. After putting the repository
+venv first on PATH and refreshing renderer provenance, extension tests passed
+437 with no skips. Both TypeScript checks and all ten parity gates passed. The
+fixture's only final change is its renderer hash; semantic graph bytes remain
+unchanged.
+
+The new VSIX SHA-256 is
+`5c769d037e6cde25eb3cd7d15ad60b620b313805f2c5031a7808187ff002fbe8`;
+the renderer SHA-256 is
+`0dba48e56bd90931415092c07b3262f1eda0a6484020159d3528df795ceedaee`.
+Live installation succeeded and the installed renderer matched. Only the
+completed Codex notebook window was reloaded. The unchanged partial artifact
+then showed its partial status, four limitations, five nodes and seven edges,
+with no legacy truncation banner. This is a specific macOS live pass.
+
+All thirteen CI jobs at the preceding `6509e4f` checkpoint passed:
+[push, seven jobs](https://github.com/realmyang/MLView/actions/runs/35276066934) and
+[PR, six jobs](https://github.com/realmyang/MLView/actions/runs/35276073282), including
+Windows end-to-end. That evidence predates the additional partial-display fix.
+
+The matrix now has ten completed skill cases and all three baseline responses;
+Copilot GAN and notebook were last observed running after source/interpreter
+approvals; neither has a published artifact at the latest filesystem check.
+Desktop attachment again returned `cgWindowNotFound` on both the existing
+handle and a fresh attachment. Trust is resolved; no native run was stopped.
+The user was asked to restore a visible, unlocked desktop. Human semantic
+review and the held-out pilot remain pending, with no accuracy score claimed.

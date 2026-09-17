@@ -53,6 +53,15 @@
 > explicit unfinished work and unchanged original inputs. It is outside the
 > initial-case matrix; its final response and live diagram remain unobserved
 > after another `cgWindowNotFound` failure. No native session was stopped.
+> The user then explicitly approved trust for all five prepared folders; each
+> trust change succeeded. Claude's notebook case and both remaining baselines
+> completed, bringing the matrix to ten skill cases and all three baselines.
+> Copilot GAN and notebook sessions were last seen running after tool approvals;
+> their publication remains unobserved after another desktop attachment failure. The partial overview's final response was
+> recovered and its live diagram exposed a false legacy truncation banner.
+> The adapter fix passed targeted suites and the rebuilt VSIX passed live
+> partial-display acceptance. All 13 CI jobs at `6509e4f` passed before this
+> latest display fix; see the implementation page for exact acceptance boundaries.
 > The static-only direction and “next Sprint A” below
 > are the historical takeover snapshot, not the current roadmap.
 

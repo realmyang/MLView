@@ -4,10 +4,11 @@ The user approved [the direction plan](LLM_DIRECTION_PLAN.md) on 2026-09-16.
 Implementation is published on `llm-workflow` in
 [draft PR #9](https://github.com/realmyang/MLView/pull/9). The September 17
 publication retry succeeded after the GitHub credential gained the required
-`workflow` scope. All 13 active CI jobs passed at `d1461b4`:
-[push, seven jobs](https://github.com/realmyang/MLView/actions/runs/35267155314) and
-[PR, six jobs](https://github.com/realmyang/MLView/actions/runs/35267159574), including
-Windows PowerShell end-to-end. Remote results are separate from the local
+`workflow` scope. All 13 active CI jobs passed at `6509e4f`:
+[push, seven jobs](https://github.com/realmyang/MLView/actions/runs/35276066934) and
+[PR, six jobs](https://github.com/realmyang/MLView/actions/runs/35276073282), including
+Windows PowerShell end-to-end. That matrix predates the partial-coverage display
+fix documented below. Remote results are separate from the local
 validation record below. The repository's earlier accuracy measurements and CI run IDs
 apply to the legacy static product.
 
@@ -177,9 +178,10 @@ configured-training case and Claude's grouped-CV case, bringing the total to
 seven initial artifacts. A late Claude GAN publication during the
 [next retry](demo-logs/2026-09-17-publication-desktop-retry.md) was the eighth
 initial artifact. The subsequent unlocked-desktop retry completed Copilot's
-grouped-CV publication, bringing the total to **nine initial artifacts out of
-twelve skill cases**, and captured the completed Codex no-skill baseline.
-Three skill cases and two baselines remain pending. Copilot Auto routed the
+grouped-CV publication. After explicit workspace-trust approval, Claude
+completed the notebook case, bringing the total to **ten initial artifacts out
+of twelve skill cases**. All three no-skill baselines are captured; Copilot
+GAN and notebook cases remain pending completion. Copilot Auto routed the
 two tasks to different models, so this is exploratory development evidence,
 not a controlled model comparison.
 
@@ -187,10 +189,10 @@ The retry also exercised selected-node Challenge and selected-finding prompt
 copying in the real viewer. The original Codex GAN conversation published a
 child revision correcting the misleading logging explanation: the source
 prints current-batch losses, not the running sums. All phase, node, edge,
-finding and evidence IDs were retained. The nine initial outputs and the
+finding and evidence IDs were retained. The ten initial outputs and the
 child revision are preserved as [immutable snapshots](../evals/workflow/development/native-artifacts/README.md).
-Reconstructing their recorded files from commit `36dbbe5`, including installed
-skill layouts where recorded, passed all ten helper validations. Human
+Replaying their helpers against the preserved frozen workspaces, whose source
+matches commit `36dbbe5`, passed all eleven validations. Human
 semantic review remains pending; exact citations alone had not detected the
 initial semantic error.
 
@@ -271,12 +273,34 @@ control then returned `cgWindowNotFound` on both the existing handle and a fresh
 attachment, while inventory still listed VS Code. Its final chat response,
 repair count and live partial-diagram acceptance were not observed.
 
+The next approved retry recovered the partial run's final response: first-pass
+validation, zero repairs, and 4m 31s shown by the native UI. Opening its diagram
+and following a data-flow edge reached the expected notebook cell. Live
+inspection also found a false legacy “Graph truncated” banner: the adapter had
+mapped authored partial coverage to the legacy node-cap flag. The adapter now
+keeps those states separate; regression assertions preserve the partial label
+and reject the false banner. Genuine legacy truncation is unchanged.
+
+The rebuilt VSIX SHA-256 is
+`5c769d037e6cde25eb3cd7d15ad60b620b313805f2c5031a7808187ff002fbe8`,
+and its renderer SHA-256 is
+`0dba48e56bd90931415092c07b3262f1eda0a6484020159d3528df795ceedaee`.
+Installation succeeded, the installed renderer matched, and only the completed
+Codex notebook window was reloaded. The unchanged partial artifact then showed
+five nodes, seven edges, its partial status and four limitations, with no
+truncation banner. This closes the specific macOS partial-publication display
+check. Viewer tests passed 607 with one existing TODO; extension tests passed
+437 with zero skips; both TypeScript checks and all ten parity gates passed.
+The regenerated fixture differs only in renderer provenance. Remote CI for
+this additional display fix is separate from the `6509e4f` result above.
+
 ## Remaining validation
 
-- Three native skill cases and two no-skill baselines await explicit approval
-  to trust their isolated VS Code workspaces. Automatic approval review rejected
-  the first trust action because it enables tasks, debugging and extensions;
-  no trust change or workaround was made.
+- Copilot GAN and notebook runs started in their approved, trusted workspaces.
+  They were last observed running after source/interpreter approvals; publication
+  remains unobserved. All five trust changes succeeded
+  after explicit user approval. Desktop attachment again returned
+  `cgWindowNotFound`; no native run was stopped and no trust workaround was used.
 - Extend the basic all-host round trip to the remaining notebook, export,
   fault-injection and budget/cancellation checks in [the runbook](LLM_WORKFLOW.md);
   do not infer these untested combinations from the Codex exercise.

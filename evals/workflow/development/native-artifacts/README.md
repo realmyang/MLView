@@ -21,8 +21,9 @@ The recorded source bytes match repository commit
 The notebook artifact records the original installed skill layout under
 `.agents/skills/mlview/`; reconstructing that layout is required to revalidate
 all of its recorded file hashes. The snapshot itself remains reviewable here.
-Reconstructing each artifact's recorded files from that commit, together with
-its frozen helper, passed all ten validations in clean temporary workspaces.
+Replaying every artifact against its preserved frozen source and installed
+skill/helper workspace passed all eleven validations. This replay checks
+structure and exact source references; it does not supply semantic approval.
 
 Provisional source review found that the initial Codex GAN artifact can imply that its
 running loss sums are periodically printed. The source instead prints current
@@ -40,6 +41,16 @@ are labelled observed where the available evidence supports inferred; the
 parameter-set claims are broader than the supplied source proves. The snapshot
 is preserved unchanged, passed publication-safety review, and still awaits
 human semantic review.
+
+The Claude Code notebook snapshot correctly separates source order from stored
+execution-count order and treats the latter as hypothetical metadata rather
+than proof of runtime execution. Provisional review notes that its next-batch
+loop edge is conditional on another batch, whose existence cannot be known
+without the missing row count. The missing `zero_grad` source fact is directly
+observed, while its behavioral impact and dtype, scaler, and loss semantics use
+disclosed library knowledge; severity remains model-authored. The immutable
+snapshot passed frozen-helper, source-provenance, and publication-safety review
+and still carries no human quality score.
 
 The Copilot grouped-CV snapshot supports the visible call-site flow. Its
 `observed` labels overstate what the supplied source establishes about

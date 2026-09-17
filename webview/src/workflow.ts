@@ -65,7 +65,11 @@ export function normalizeWorkflow(document: WorkflowDocument): MLGraph {
     workspace: { root: document.title, entrypoints: document.request.entrypoints || [], filesAnalyzed: document.coverage.inspectedFiles.length, filesFailed: 0, notebooksSkipped: 0, frameworks: [] },
     stages, nodes, edges, issues,
     diagnostics: document.coverage.limitations.map((message) => ({ kind: 'workflow_limitation', message })),
-    stats: { nodes: nodes.length, edges: edges.length, issues: issues.reduce((c, i) => { c[i.severity as 'low'|'medium'|'high']++; return c; }, emptyCounts()), durationMs: 0, truncated: document.coverage.status === 'partial' },
+    // Authored partial coverage means the model intentionally inspected a
+    // bounded portion of the workflow. It is surfaced by the authored
+    // coverage panel above, and is distinct from the legacy analyzer's node
+    // cap, which alone owns stats.truncated and its truncation banner.
+    stats: { nodes: nodes.length, edges: edges.length, issues: issues.reduce((c, i) => { c[i.severity as 'low'|'medium'|'high']++; return c; }, emptyCounts()), durationMs: 0, truncated: false },
   };
 }
 

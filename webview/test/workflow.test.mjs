@@ -44,6 +44,7 @@ test('normalizes authored phases, hierarchy, cycles, evidence, and findings with
   assert.equal(graph.issues[0].loc.evidenceId, 'ev-step');
   assert.equal(graph.issues[0].confidenceBucket, 'inferred');
   assert.equal(Number.isNaN(graph.issues[0].confidence), true, 'authored basis must not invent a numeric confidence');
+  assert.equal(graph.stats.truncated, false, 'authored partial coverage is not legacy node-cap truncation');
   assert.equal(graph.nodes.find((n) => n.id === 'epoch').loc.absFile, '');
   assert.deepEqual(Array.from(graph.nodes.find((n) => n.id === 'step').evidenceLocs, (loc) => loc.evidenceId), ['ev-step', 'ev-loss']);
   assert.deepEqual(Array.from(graph.edges.find((e) => e.id === 'cycle').evidenceLocs, (loc) => loc.evidenceId), ['ev-step', 'ev-load']);
@@ -58,6 +59,7 @@ test('mountWorkflow identifies authored provenance and accepts revision updates 
   assert.match(root.querySelector('.mlv-workflow').textContent, /Training and review/);
   assert.match(root.querySelector('.mlv-workflow').textContent, /codex · gpt-test/);
   assert.match(root.querySelector('.mlv-workflow').textContent, /partial · Core training path inspected/);
+  assert.doesNotMatch(root.querySelector('.mlv-banners').textContent, /Graph truncated|graph was truncated/i);
   assert.match(root.querySelector('.mlv-workflow__verification').textContent, /Draft · source freshness not verified/);
   assert.equal(root.querySelector('[role="tab"][aria-controls$="-panel-issues"]').textContent, 'Findings');
   assert.equal(root.querySelector('[data-node-id="step"]') !== null, true);

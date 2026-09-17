@@ -91,6 +91,16 @@
       "revision": "rev-1",
       "finalUiResponseObserved": true,
       "provisionalChallenge": "The call-site flow is supported, but StratifiedGroupKFold library behavior and its conditional class-balance guarantee are labelled observed rather than library-inferred. Missing custom encoders/features modules prevent proving TargetEncoder internal fitting and preprocessing semantics. Human semantic review remains pending."
+    },
+    {
+      "host": "claude-code",
+      "task": "dev-notebook",
+      "path": "claude-code/dev-notebook.mlview.json",
+      "bytes": 32761,
+      "sha256": "d66dfe36ea0b78fbd5500e495b8b27013db97be6ac16e8b3754d40c07b75a660",
+      "revision": "rev-20260917-leak-out-of-order-1",
+      "finalUiResponseObserved": true,
+      "provisionalChallenge": "The next-batch updated-weights loop edge is conditional on another batch, whose existence is unknown because row count is unavailable. The missing-zero_grad source fact is observed, while its behavioral impact and dtype/scaler/CrossEntropyLoss semantics use disclosed library knowledge; severity remains a model judgment. Recorded execution order is correctly qualified as hypothetical metadata rather than proof of runtime execution."
     }
   ],
   "refinements": [
