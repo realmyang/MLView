@@ -1,0 +1,86 @@
+{
+  "repos": [
+    {
+      "name": "nanoGPT",
+      "url": "https://github.com/karpathy/nanoGPT",
+      "sha": "3adf61e154c3fe3fca428ad6bc3818b27a3b8291",
+      "license": "MIT",
+      "redistribute": false,
+      "sparse": []
+    },
+    {
+      "name": "transformers",
+      "url": "https://github.com/huggingface/transformers",
+      "sha": "a2c15b30764b7c6cb0632ac6aed6eac227edc674",
+      "license": "Apache-2.0",
+      "redistribute": false,
+      "sparse": [
+        "examples/pytorch"
+      ]
+    },
+    {
+      "name": "scikit-learn",
+      "url": "https://github.com/scikit-learn/scikit-learn",
+      "sha": "dd3ca57300e14d45b7a34fccd0165d143c7a364c",
+      "license": "BSD-3-Clause",
+      "redistribute": false,
+      "sparse": [
+        "examples"
+      ]
+    },
+    {
+      "name": "flax",
+      "url": "https://github.com/google/flax",
+      "sha": "01854da11286b4109c59d7fd9205f3822fe807d6",
+      "license": "Apache-2.0",
+      "redistribute": false,
+      "sparse": [
+        "examples"
+      ]
+    },
+    {
+      "name": "diffusers",
+      "url": "https://github.com/huggingface/diffusers",
+      "sha": "c419dac0152186060246c93a095bc1bfaea342b3",
+      "license": "Apache-2.0",
+      "redistribute": false,
+      "sparse": [
+        "examples"
+      ]
+    },
+    {
+      "name": "cleanrl",
+      "url": "https://github.com/vwxyzjn/cleanrl",
+      "sha": "fe8d8a03c41a7ef5b523e2e354bd01c363e786bb",
+      "license": "MIT",
+      "redistribute": false,
+      "sparse": [
+        "cleanrl"
+      ]
+    },
+    {
+      "name": "mmdetection",
+      "url": "https://github.com/open-mmlab/mmdetection",
+      "sha": "cfd5d3a985b0249de009b67d04f37263e11cdf3d",
+      "license": "Apache-2.0",
+      "redistribute": false,
+      "sparse": [
+        "tools",
+        "mmdet/apis",
+        "mmdet/engine",
+        "mmdet/models/detectors",
+        "configs/common"
+      ]
+    },
+    {
+      "name": "handson-ml3",
+      "url": "https://github.com/ageron/handson-ml3",
+      "sha": "e707c2d659abafb9b1f9fd927907619a128db8d7",
+      "license": "Apache-2.0 (code) / CC-BY-NC-SA (prose)",
+      "redistribute": false,
+      "sparse": [
+        "/*.ipynb"
+      ]
+    }
+  ]
+}

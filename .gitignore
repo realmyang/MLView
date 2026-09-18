@@ -2,49 +2,18 @@
 node_modules/
 vscode-extension/out/
 *.vsix
-# C2: `vscode-extension/core/mlview` is the analyzer the VSIX SHIPS, and it is a
-# BUILT artifact, not a source of truth. `tools/sync-core.py` writes it, `npm run
-# compile`, `npm run package` (through `vscode:prepublish`) and `scripts/build.*`
-# all run that first, and `tools/verify.py --vsix` checks the built copy against
-# `analyzer/src/mlview`.
-# One analyzer is tracked in this repository (`analyzer/src/mlview`) plus one
-# vendored copy that a marketplace install of the Claude Code plugin needs
-# verbatim (`claude-plugin/vendor/mlview`, which goes away once the wheel is on
-# PyPI). A third tracked copy only ever added ~120 files of review surface.
-vscode-extension/core/
-# PACKAGING: `python -m build --wheel analyzer` (scripts/build.sh step 6) writes both.
-analyzer/dist/
-analyzer/build/
 *.egg-info/
 __pycache__/
 *.py[cod]
 .pytest_cache/
 .mypy_cache/
 
-# PUB-01: `python tools/public_corpus.py fetch` clones ~1.8 GB of pinned public
-# repositories into tools/public_corpus.py's DEFAULT_CORPUS_DIR (override it with
-# MLVIEW_PUBLIC_CORPUS_DIR). The manifest pins every SHA, so the clones are
-# reproducible from analyzer/tests/public_corpus/repos.json and are never
-# committed. Without this line a developer who runs `fetch` gets 37 untracked
-# repositories in `git status`, and the module docstring's "git-ignored" is false.
+# Locally fetched, pinned repositories used by native-host evaluations.
 .public-corpus/
 
-# `python -m mlview init` writes `<root>/.mlview.toml` (CONTRACTS D1), and running
-# the tool on its OWN checkout - a demo, an e2e pass, the VS Code "Open MLView
-# Configuration" command - lands one here. Every key in it is commented out, so
-# it configures nothing; it is a generated artifact, not this repository's
-# config. Only the leading slash is ignored, so a `.mlview.toml` a USER commits
-# in their own project is untouched, and `git add -f .mlview.toml` still works
-# the day MLView decides to dogfood a real one.
-/.mlview.toml
-
-# generated demo artifacts (scripts/e2e regenerates them)
+# Published workflow artifacts and packaged skill ZIPs.
 .mlview/
 webview/.mlview/
-# MLV-P11: `python analyzer/tools/gen_gallery.py` renders ~90 self-contained reports
-# (~30 MB) from the rule fixtures and the clean corpus. Zero new content, so it is
-# generated on demand and never committed.
-docs/gallery/
 
 # local orchestration backups and scratch
 # C5: `.workflows/` held the multi-agent orchestration scripts of past sprints —
@@ -56,6 +25,12 @@ Thumbs.db
 
 # local virtual environment (macOS setup)
 .venv/
+
+# local credentials and environment overrides; keep shareable templates trackable
+.env
+.env.*
+!.env.example
+!.env.*.example
 
 # editor and OS scratch that no checkout should carry
 .idea/

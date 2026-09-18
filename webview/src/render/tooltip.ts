@@ -83,8 +83,8 @@ export class Tooltip {
     add(this.root, el('div', 'mlv-tooltip__title', node.label || node.qualname));
     if (node.sublabel) add(this.root, el('div', 'mlv-tooltip__row', node.sublabel));
     if (node.fqn) add(this.root, el('div', 'mlv-tooltip__row', node.fqn));
-    if (node.ghost) add(this.root, el('div', 'mlv-tooltip__row', 'This step is missing from the code.'));
-    add(this.root, locSpan('mlv-tooltip__loc', node.loc, 'div'));
+    if (node.ghost) add(this.root, el('div', 'mlv-tooltip__row', node.basis === 'unresolved' ? 'Basis · unresolved' : 'This step is missing from the code.'));
+    if (node.loc.file) add(this.root, locSpan('mlv-tooltip__loc', node.loc, 'div'));
     for (const issue of index.issuesOf(id, keep)) {
       const row = add(this.root, el('div', 'mlv-tooltip__row'));
       row.appendChild(severityGlyph(issue.severity, 12, ''));
@@ -98,7 +98,8 @@ export class Tooltip {
     clear(this.root);
     add(this.root, el('div', 'mlv-tooltip__title', route.label || route.kind));
     add(this.root, el('div', 'mlv-tooltip__row', route.kind + (route.subkind ? ' · ' + route.subkind : '')));
-    if (edge) add(this.root, locSpan('mlv-tooltip__loc', edge.loc, 'div'));
+    if (edge && edge.basis) add(this.root, el('div', 'mlv-tooltip__row', 'Basis · ' + edge.basis));
+    if (edge && edge.loc.file) add(this.root, locSpan('mlv-tooltip__loc', edge.loc, 'div'));
     if (route.count > 1) add(this.root, el('div', 'mlv-tooltip__row', route.count + ' merged connections'));
     this.placeAt(route.mid.x, route.mid.y, route.mid.y);
   }

@@ -1,0 +1,137 @@
+{
+  "workflowVersion": "1.0",
+  "title": "DCGAN alternating discriminator and generator training",
+  "producer": {"kind": "host-llm", "host": "GitHub Copilot"},
+  "revision": {"id": "dev-gan-r1"},
+  "request": {
+    "question": "Explain discriminator and generator losses, gradient paths, detached tensors, optimizer targets, alternating updates, and the iteration cycle.",
+    "scope": "Selected DCGAN training entrypoint",
+    "entrypoints": ["analyzer/tests/accuracy/corpus/vision_gan/train_dcgan.py"],
+    "configuration": "train_dcgan.py defaults: 25 epochs, batch size 128, ImageFolder data root data/celeba, no command-line overrides; device is selected by CUDA availability."
+  },
+  "phases": [
+    {"id": "setup", "label": "Data and model setup"},
+    {"id": "batch", "label": "Repeated alternating batch update"},
+    {"id": "epoch", "label": "Epoch outputs"}
+  ],
+  "nodes": [
+    {
+      "id": "seed_device_data",
+      "label": "Seed, select device, and build shuffled training loader",
+      "phase": "setup",
+      "basis": "observed",
+      "detail": "Seeds Python, NumPy, and Torch; selects CUDA when available; resizes and center-crops images to 64, randomly flips them, converts to tensors, normalizes with mean and standard deviation 0.5, and loads ImageFolder data with shuffled, drop-last batches. The source explicitly describes every image as training data and does not define a held-out split.",
+      "evidence": ["ev_seed", "ev_loader"]
+    },
+    {
+      "id": "initialize_models",
+      "label": "Initialize generator and discriminator",
+      "phase": "setup",
+      "basis": "observed",
+      "detail": "Constructs Generator and Discriminator on the selected device and applies weights_init to both.",
+      "evidence": ["ev_models"]
+    },
+    {
+      "id": "configure_objectives_optimizers",
+      "label": "Create BCE objective and two Adam optimizers",
+      "phase": "setup",
+      "basis": "observed",
+      "detail": "Both losses use BCEWithLogitsLoss. opt_d owns netD.parameters(), while opt_g owns netG.parameters(); both use LR and BETAS. The optimizer ownership is directly observed, while the exact framework implementation of backward accumulation and step parameter mutation is inferred from standard PyTorch semantics.",
+      "evidence": ["ev_objectives"]
+    },
+    {
+      "id": "sample_batch",
+      "label": "Load a real batch and create labels and noise",
+      "phase": "batch",
+      "basis": "observed",
+      "detail": "For each enumerated loader batch, moves real_images to the device, derives batch size, creates ones as real_labels and zeros as fake_labels, and samples per-batch latent noise of shape [batch, LATENT_DIM, 1, 1].",
+      "evidence": ["ev_batch_inputs"]
+    },
+    {
+      "id": "discriminator_update",
+      "label": "Compute discriminator loss and update D",
+      "phase": "batch",
+      "basis": "observed",
+      "detail": "Zeros D gradients, computes logits_real = netD(real_images) and BCE loss_real against ones, generates fake_images = netG(noise), then computes logits_fake = netD(fake_images.detach()) and BCE loss_fake against zeros. loss_d = loss_real + loss_fake; loss_d.backward() sends gradients through both D branches to D parameters but the detach stops the fake branch before it reaches G. opt_d.step() updates only netD.parameters(). The fake tensor itself is not mutated; detach creates a gradient-disconnected view for this discriminator branch.",
+      "evidence": ["ev_d_update"]
+    },
+    {
+      "id": "generator_update",
+      "label": "Compute non-saturating generator loss and update G",
+      "phase": "batch",
+      "basis": "observed",
+      "detail": "Zeros G gradients, reuses the original non-detached fake_images, evaluates netD(fake_images), and compares its logits to real_labels (ones). Thus loss_g trains G to make D classify generated images as real. loss_g.backward() propagates through D's computation into G through fake_images; opt_g.step() updates only netG.parameters. D is traversed for the gradient path, but D is not the target of opt_g.step(). The source does not explicitly disable D parameter gradient accumulation during this pass, so framework-level transient D gradients are unresolved, while optimizer ownership and parameter updates are clear.",
+      "evidence": ["ev_g_update"]
+    },
+    {
+      "id": "record_losses",
+      "label": "Accumulate and periodically print scalar losses",
+      "phase": "batch",
+      "basis": "observed",
+      "detail": "Adds loss_d.item() and loss_g.item() to running scalars and prints the current scalar values every 100 loader steps. The source does not reset these running totals inside the shown function.",
+      "evidence": ["ev_metrics"]
+    },
+    {
+      "id": "repeat_cycle",
+      "label": "Repeat the batch cycle across epochs",
+      "phase": "batch",
+      "basis": "observed",
+      "detail": "The discriminator update immediately precedes the generator update inside the loader loop, and the loader loop is nested inside the epoch loop. This is the repeated alternating phase: one D update followed by one G update per batch.",
+      "evidence": ["ev_loops", "ev_d_update", "ev_g_update"]
+    },
+    {
+      "id": "epoch_outputs",
+      "label": "Write fixed-noise samples and model checkpoints",
+      "phase": "epoch",
+      "basis": "observed",
+      "detail": "After each epoch, sample_grid evaluates netG on fixed_noise under torch.no_grad(), writes an 8-column image grid under samples/epoch_NNN.png, restores train mode, and torch.save writes both netG and netD state dictionaries to dcgan_epochN.pt.",
+      "evidence": ["ev_epoch_outputs", "ev_sampling"]
+    },
+    {
+      "id": "return_models",
+      "label": "Return trained generator and discriminator",
+      "phase": "epoch",
+      "basis": "observed",
+      "detail": "After all requested epochs, train returns netG and netD.",
+      "evidence": ["ev_return"]
+    }
+  ],
+  "edges": [
+    {"id": "e_setup_batch", "from": "seed_device_data", "to": "sample_batch", "label": "provides batches", "basis": "observed", "evidence": ["ev_loader", "ev_batch_inputs"]},
+    {"id": "e_models_d", "from": "initialize_models", "to": "discriminator_update", "label": "supplies D and G calls", "basis": "observed", "evidence": ["ev_models", "ev_d_update"]},
+    {"id": "e_objectives_d", "from": "configure_objectives_optimizers", "to": "discriminator_update", "label": "supplies criterion and opt_d", "basis": "observed", "evidence": ["ev_objectives", "ev_d_update"]},
+    {"id": "e_batch_d", "from": "sample_batch", "to": "discriminator_update", "label": "feeds real images, labels, and noise", "basis": "observed", "evidence": ["ev_batch_inputs", "ev_d_update"]},
+    {"id": "e_d_g", "from": "discriminator_update", "to": "generator_update", "label": "alternates to G after opt_d.step", "basis": "observed", "evidence": ["ev_d_update", "ev_g_update"]},
+    {"id": "e_objectives_g", "from": "configure_objectives_optimizers", "to": "generator_update", "label": "supplies criterion and opt_g", "basis": "observed", "evidence": ["ev_objectives", "ev_g_update"]},
+    {"id": "e_batch_g", "from": "sample_batch", "to": "generator_update", "label": "supplies the original fake_images and real labels", "basis": "observed", "evidence": ["ev_batch_inputs", "ev_g_update"]},
+    {"id": "e_g_metrics", "from": "generator_update", "to": "record_losses", "label": "reports loss_g", "basis": "observed", "evidence": ["ev_metrics"]},
+    {"id": "e_d_metrics", "from": "discriminator_update", "to": "record_losses", "label": "reports loss_d", "basis": "observed", "evidence": ["ev_metrics"]},
+    {"id": "e_repeat", "from": "record_losses", "to": "repeat_cycle", "label": "completes one batch iteration", "basis": "inferred", "evidence": ["ev_loops"]},
+    {"id": "e_repeat_back", "from": "repeat_cycle", "to": "sample_batch", "label": "next loader batch", "basis": "observed", "evidence": ["ev_loops"]},
+    {"id": "e_epoch", "from": "repeat_cycle", "to": "epoch_outputs", "label": "after loader exhaustion", "basis": "observed", "evidence": ["ev_epoch_outputs"]},
+    {"id": "e_epoch_back", "from": "epoch_outputs", "to": "sample_batch", "label": "next epoch", "basis": "observed", "evidence": ["ev_loops"]},
+    {"id": "e_outputs_return", "from": "epoch_outputs", "to": "return_models", "label": "after final epoch", "basis": "observed", "evidence": ["ev_return"]}
+  ],
+  "findings": [],
+  "evidence": [
+    {"id": "ev_seed", "file": "analyzer/tests/accuracy/corpus/vision_gan/train_dcgan.py", "line": 32, "endLine": 40, "quote": "def seed_everything(seed: int = SEED) -> None:\n    random.seed(seed)\n    np.random.seed(seed)\n    torch.manual_seed(seed)\n    torch.cuda.manual_seed_all(seed)\n\n\ndef pick_device() -> torch.device:\n    return torch.device(\"cuda\" if torch.cuda.is_available() else \"cpu\")"},
+    {"id": "ev_loader", "file": "analyzer/tests/accuracy/corpus/vision_gan/train_dcgan.py", "line": 43, "endLine": 54, "quote": "def build_loader(batch_size: int = BATCH_SIZE, workers: int = WORKERS) -> DataLoader:\n    \"\"\"A GAN has no held-out split: every image is a training image.\"\"\"\n    pipeline = transforms.Compose([\n        transforms.Resize(64),\n        transforms.CenterCrop(64),\n        transforms.RandomHorizontalFlip(),\n        transforms.ToTensor(),\n        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),\n    ])\n    dataset = ImageFolder(DATA_ROOT, transform=pipeline)\n    return DataLoader(dataset, batch_size=batch_size, shuffle=True,\n                      num_workers=workers, pin_memory=True, drop_last=True)"},
+    {"id": "ev_models", "file": "analyzer/tests/accuracy/corpus/vision_gan/train_dcgan.py", "line": 57, "endLine": 65, "quote": "def train(epochs: int = EPOCHS) -> tuple:\n    seed_everything()\n    device = pick_device()\n    loader = build_loader()\n\n    netG = Generator().to(device)\n    netD = Discriminator().to(device)\n    netG.apply(weights_init)\n    netD.apply(weights_init)"},
+    {"id": "ev_objectives", "file": "analyzer/tests/accuracy/corpus/vision_gan/train_dcgan.py", "line": 67, "endLine": 73, "quote": "criterion = nn.BCEWithLogitsLoss()\n    opt_g = torch.optim.Adam(netG.parameters(), lr=LR, betas=BETAS)\n    opt_d = torch.optim.Adam(netD.parameters(), lr=LR, betas=BETAS)\n\n    fixed_noise = torch.randn(64, LATENT_DIM, 1, 1, device=device)\n    d_running = 0.0\n    g_running = 0.0"},
+    {"id": "ev_loops", "file": "analyzer/tests/accuracy/corpus/vision_gan/train_dcgan.py", "line": 75, "endLine": 76, "quote": "for epoch in range(epochs):\n        for step, (real_images, _labels) in enumerate(loader):"},
+    {"id": "ev_batch_inputs", "file": "analyzer/tests/accuracy/corpus/vision_gan/train_dcgan.py", "line": 77, "endLine": 80, "quote": "real_images = real_images.to(device, non_blocking=True)\n            batch = real_images.size(0)\n            real_labels = torch.ones(batch, device=device)\n            fake_labels = torch.zeros(batch, device=device)"},
+    {"id": "ev_d_update", "file": "analyzer/tests/accuracy/corpus/vision_gan/train_dcgan.py", "line": 82, "endLine": 92, "quote": "# --- discriminator: maximise log D(x) + log(1 - D(G(z)))\n            opt_d.zero_grad(set_to_none=True)\n            logits_real = netD(real_images)\n            loss_real = criterion(logits_real, real_labels)\n            noise = torch.randn(batch, LATENT_DIM, 1, 1, device=device)\n            fake_images = netG(noise)\n            logits_fake = netD(fake_images.detach())\n            loss_fake = criterion(logits_fake, fake_labels)\n            loss_d = loss_real + loss_fake\n            loss_d.backward()\n            opt_d.step()"},
+    {"id": "ev_g_update", "file": "analyzer/tests/accuracy/corpus/vision_gan/train_dcgan.py", "line": 94, "endLine": 99, "quote": "# --- generator: maximise log D(G(z))\n            opt_g.zero_grad(set_to_none=True)\n            logits_for_g = netD(fake_images)\n            loss_g = criterion(logits_for_g, real_labels)\n            loss_g.backward()\n            opt_g.step()"},
+    {"id": "ev_metrics", "file": "analyzer/tests/accuracy/corpus/vision_gan/train_dcgan.py", "line": 101, "endLine": 105, "quote": "d_running += loss_d.item()\n            g_running += loss_g.item()\n            if step % 100 == 0:\n                print(\"epoch %d step %d loss_d %.4f loss_g %.4f\"\n                      % (epoch, step, loss_d.item(), loss_g.item()))"},
+    {"id": "ev_epoch_outputs", "file": "analyzer/tests/accuracy/corpus/vision_gan/train_dcgan.py", "line": 107, "endLine": 109, "quote": "sample_grid(netG, fixed_noise, epoch)\n        torch.save({\"netG\": netG.state_dict(), \"netD\": netD.state_dict()},\n                   \"dcgan_epoch%d.pt\" % epoch)"},
+    {"id": "ev_sampling", "file": "analyzer/tests/accuracy/corpus/vision_gan/train_dcgan.py", "line": 114, "endLine": 122, "quote": "@torch.no_grad()\ndef sample_grid(netG, noise: torch.Tensor, epoch: int) -> str:\n    \"\"\"Write a fixed-noise grid so the run can be watched frame by frame.\"\"\"\n    netG.eval()\n    images = netG(noise)\n    path = \"%s/epoch_%03d.png\" % (SAMPLE_DIR, epoch)\n    save_image(images * 0.5 + 0.5, path, nrow=8)\n    netG.train()\n    return path"},
+    {"id": "ev_return", "file": "analyzer/tests/accuracy/corpus/vision_gan/train_dcgan.py", "line": 111, "endLine": 111, "quote": "return netG, netD"}
+  ],
+  "coverage": {
+    "status": "scoped",
+    "summary": "The selected DCGAN training entrypoint was inspected for data flow, model construction, alternating losses, gradient paths, optimizer ownership, loop control, metrics, checkpoints, and samples.",
+    "inspectedFiles": ["analyzer/tests/accuracy/corpus/vision_gan/train_dcgan.py"],
+    "limitations": ["The imported models module was not inspected because the requested scope is the supplied entrypoint; Generator and Discriminator internals, parameter counts, and runtime tensor values remain outside this artifact.", "The target was not imported or executed, so runtime framework state such as the exact post-backward contents of non-optimizer D gradients during the generator pass was not measured.", "The entrypoint does not specify dataset contents or a command-line launch override."
+  }
+}
+}

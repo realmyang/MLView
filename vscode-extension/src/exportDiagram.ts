@@ -21,7 +21,28 @@
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { Logger } from './log';
-import type { ExportFileMessage, ExportKind, ExportScope } from './protocol';
+
+export type ExportKind = 'svg' | 'png';
+export type ExportScope = 'all' | 'view' | 'scope';
+export interface ExportFileMessage {
+  readonly v: 1;
+  readonly type: 'exportFile';
+  readonly kind: ExportKind;
+  readonly data: string;
+  readonly suggestedName?: string;
+  readonly scope?: ExportScope;
+}
+
+export function parseExportFileMessage(raw: unknown): ExportFileMessage | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const value = raw as Record<string, unknown>;
+  if (value.v !== 1 || value.type !== 'exportFile') return undefined;
+  if (value.kind !== 'svg' && value.kind !== 'png') return undefined;
+  if (typeof value.data !== 'string') return undefined;
+  if (value.suggestedName !== undefined && typeof value.suggestedName !== 'string') return undefined;
+  if (value.scope !== undefined && !['all', 'view', 'scope'].includes(String(value.scope))) return undefined;
+  return value as unknown as ExportFileMessage;
+}
 
 /** 32 MiB decoded. The protocol guard rejects the base64 above this before we allocate. */
 export const MAX_EXPORT_BYTES = 32 * 1024 * 1024;

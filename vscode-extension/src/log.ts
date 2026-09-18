@@ -1,6 +1,6 @@
 /**
  * The "MLView" output channel. Library code never writes to stdout — every diagnostic line
- * from the extension and every byte of the analyzer's stderr lands here.
+ * from the extension lands here.
  */
 
 import * as vscode from 'vscode';
@@ -11,11 +11,11 @@ export interface Logger {
   info(message: string): void;
   warn(message: string): void;
   error(message: string, err?: unknown): void;
-  /** Only emitted when `mlview.trace` is `verbose`. */
+  /** Only emitted when verbose tracing is enabled. */
   debug(message: string): void;
-  /** Only emitted when `mlview.trace` is `messages` or `verbose`. */
+  /** Only emitted when message or verbose tracing is enabled. */
   trace(message: string): void;
-  /** Raw passthrough, used for streamed analyzer stderr — no timestamp, no prefix. */
+  /** Raw passthrough for already-formatted host output. */
   raw(chunk: string): void;
   show(preserveFocus?: boolean): void;
   channel: vscode.OutputChannel;

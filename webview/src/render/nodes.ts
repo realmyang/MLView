@@ -168,10 +168,12 @@ export function ariaLabelFor(v: NodeVisual): string {
   // VIEW-08: a resurrected ghost is a REMOVED node, not a missing step. Saying
   // "Missing step" over it would name the wrong kind of absence.
   if (n.diffStatus === 'removed') bits.push('Removed: ' + n.label);
+  else if (n.ghost && n.basis === 'unresolved') bits.push('Unresolved: ' + n.label);
   else if (n.ghost) bits.push('Missing step: ' + n.label);
   else bits.push((isKnownKind(n.kind) ? n.kind.replace(/_/g, ' ') : 'node') + ' ' + n.label);
   bits.push(stageOf(n) + ' stage');
-  bits.push(locSpoken(n.loc));
+  if (n.loc.file) bits.push(locSpoken(n.loc));
+  if (n.basis) bits.push('basis ' + n.basis);
   // ANA-10: the resolved value, spoken. A config card that reads "batch_size"
   // to a screen reader and "batch_size = 64" on screen is two different cards.
   const config = configSpoken(n);
@@ -292,7 +294,7 @@ export function buildNodeCard(v: NodeVisual, collapsedGroup: boolean): HTMLEleme
   // NB. `notebooks/leak.ipynb > cell 3 : 4` on the card, with the flat line it
   // was translated from in the hover. `locSpan` splits the path from the cell so
   // a card too narrow for both loses the path, never the cell.
-  add(text, locSpan('mlv-node__loc', n.loc, 'div'));
+  if (n.loc.file) add(text, locSpan('mlv-node__loc', n.loc, 'div'));
 
   // The collapsed-group count chip is PREPENDED after budgeting, so it can never
   // push the "+n" overflow chip off the end (MLV-R1-011).
@@ -421,6 +423,7 @@ export function buildGroupBox(v: NodeVisual): HTMLElement {
   header.appendChild(chevBtn);
   header.appendChild(kindIcon(n.kind, 14));
   add(header, el('span', 'mlv-group__name', middleTruncate(n.label || n.qualname, 42)));
+  if (n.basis) add(header, el('span', 'mlv-chip mlv-chip--basis', n.basis));
   add(header, el('span', 'mlv-group__count', String(v.descendants)));
   if (rolledGroup) {
     const chip = add(header, el('span', 'mlv-chip mlv-chip--rollup', rollupChipText(rolledGroup)));

@@ -134,11 +134,11 @@ export function applyProjection(app: App, preserve?: Partial<ViewState>, announc
   app.view.applySelection(app.selection);
   if (announce) {
     app.announce(
-      'Analysis loaded: ' +
+      'Workflow loaded: ' +
         graph.nodes.length +
         ' nodes, ' +
         graph.issues.length +
-        ' issues, ' +
+        ' findings, ' +
         graph.stats.issues.high +
         ' high severity.',
     );

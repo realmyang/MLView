@@ -51,10 +51,9 @@ export function buildAppUi(app: App): void {
   app.view = new CanvasView(shell, canvasHost(app));
 
   app.chrome = new Chrome({
+    onRefresh: () => undefined,
     onQuery: (q) => app.search.run(q),
     onSearchKey: (ev) => app.search.handleKey(ev),
-    onRefresh: () => app.requestRefresh(),
-    onExport: () => app.bridge.post({ v: 1, type: 'exportHtml' }),
     onToggleRail: () => app.toggleRail(),
     onSeverity: (sev) => app.applyFilters(() => app.filters.toggleSeverity(sev)),
     onShowSuppressed: (next) => app.setFilters({ showSuppressed: next }),
@@ -144,6 +143,18 @@ export function buildAppUi(app: App): void {
     onClearFilters: () => app.clearFilters(),
     onSelectIssue: (id) => app.focusIssue(id),
     onSelectNode: (id) => app.select({ kind: 'node', id }, { center: true }),
+    onSelectEdge: (id) => app.select({ kind: 'edge', id }, { tab: 'inspector' }),
+    onChallenge: () => {
+      const refine = app.root.querySelector<HTMLButtonElement>('.mlv-workflow__refine');
+      const composer = app.root.querySelector<HTMLFormElement>('.mlv-workflow__composer');
+      const intent = app.root.querySelector<HTMLSelectElement>('.mlv-workflow__intent');
+      if (!refine || !composer || !intent) return;
+      // Reopen to capture this selection even if an older composer is visible.
+      if (!composer.hidden) refine.click();
+      refine.click();
+      intent.value = 'challenge';
+      intent.dispatchEvent(new Event('change', { bubbles: true }));
+    },
     onOpen: (loc) => app.openLocation(loc),
     onResize: (w) => app.setRailWidth(w),
     onToggleRail: () => app.toggleRail(),
@@ -196,10 +207,10 @@ export function canvasHost(app: App): CanvasHost {
     keep: app.filters.keep,
     isFilteredOut: (node) => app.filters.hidesNode(node),
     activateNode: (id) => app.select({ kind: 'node', id }, { open: true, tab: 'inspector' }),
-    activateEdge: (id) => app.select({ kind: 'edge', id }, { open: true }),
+    activateEdge: (id) => app.select({ kind: 'edge', id }, { open: true, tab: 'inspector' }),
     clearFilters: () => app.clearFilters(),
-    canReanalyze: () => app.caps.canReanalyze,
-    requestRefresh: () => app.requestRefresh(),
+    canReanalyze: () => false,
+    requestRefresh: () => undefined,
     announce: (text) => app.announce(text),
     afterCollapse: () => {
       syncCollapsed(app);

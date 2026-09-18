@@ -1,0 +1,106 @@
+{
+  "taskId": "pilot-nanogpt",
+  "repositoryCommit": "3adf61e154c3fe3fca428ad6bc3818b27a3b8291",
+  "status": "draft-needs-human-review",
+  "scenario": {
+    "description": "Inspect train.py with its source defaults and no config-file or CLI overrides.",
+    "entrypoints": ["train.py"],
+    "arguments": []
+  },
+  "facts": [
+    {
+      "id": "nanogpt-f01",
+      "claim": "The declared defaults target a 124M-parameter GPT-2 configuration on OpenWebText.",
+      "basis": "observed",
+      "essential": true,
+      "anchors": [{"id": "nanogpt-a01", "file": "train.py", "line": 33, "endLine": 33, "quote": "# default config values designed to train a gpt2 (124M) on OpenWebText"}],
+      "review": "pending"
+    },
+    {
+      "id": "nanogpt-f02",
+      "claim": "The selected no-override scenario initializes from scratch.",
+      "basis": "observed",
+      "essential": true,
+      "anchors": [{"id": "nanogpt-a02", "file": "train.py", "line": 41, "endLine": 41, "quote": "init_from = 'scratch' # 'scratch' or 'resume' or 'gpt2*'"}],
+      "review": "pending"
+    },
+    {
+      "id": "nanogpt-f03",
+      "claim": "The default model has 12 layers, 12 attention heads, and embedding width 768.",
+      "basis": "observed",
+      "essential": true,
+      "anchors": [{"id": "nanogpt-a03", "file": "train.py", "line": 52, "endLine": 54, "quote": "n_layer = 12\nn_head = 12\nn_embd = 768"}],
+      "review": "pending"
+    },
+    {
+      "id": "nanogpt-f04",
+      "claim": "Training batches are sampled independently from train.bin or val.bin and targets are the same token windows shifted by one position.",
+      "basis": "observed",
+      "essential": true,
+      "anchors": [{"id": "nanogpt-a04", "file": "train.py", "line": 119, "endLine": 125, "quote": "    if split == 'train':\n        data = np.memmap(os.path.join(data_dir, 'train.bin'), dtype=np.uint16, mode='r')\n    else:\n        data = np.memmap(os.path.join(data_dir, 'val.bin'), dtype=np.uint16, mode='r')\n    ix = torch.randint(len(data) - block_size, (batch_size,))\n    x = torch.stack([torch.from_numpy((data[i:i+block_size]).astype(np.int64)) for i in ix])\n    y = torch.stack([torch.from_numpy((data[i+1:i+1+block_size]).astype(np.int64)) for i in ix])"}],
+      "review": "pending"
+    },
+    {
+      "id": "nanogpt-f05",
+      "claim": "The default accumulation count is 40 micro-steps and the per-device micro-batch size is 12.",
+      "basis": "observed",
+      "essential": true,
+      "anchors": [{"id": "nanogpt-a05", "file": "train.py", "line": 48, "endLine": 49, "quote": "gradient_accumulation_steps = 5 * 8 # used to simulate larger batch sizes\nbatch_size = 12 # if gradient_accumulation_steps > 1, this is the micro-batch size"}],
+      "review": "pending"
+    },
+    {
+      "id": "nanogpt-f06",
+      "claim": "In DDP, accumulation steps are divided by world size so the global tokens-per-iteration calculation retains the world-size factor.",
+      "basis": "observed",
+      "essential": false,
+      "anchors": [{"id": "nanogpt-a06", "file": "train.py", "line": 94, "endLine": 101, "quote": "    assert gradient_accumulation_steps % ddp_world_size == 0\n    gradient_accumulation_steps //= ddp_world_size\nelse:\n    # if not ddp, we are running on a single gpu, and one process\n    master_process = True\n    seed_offset = 0\n    ddp_world_size = 1\ntokens_per_iter = gradient_accumulation_steps * ddp_world_size * batch_size * block_size"}],
+      "review": "pending"
+    },
+    {
+      "id": "nanogpt-f07",
+      "claim": "Loss estimation switches to evaluation mode, averages 200 sampled batches for each of the train and validation splits, then restores training mode.",
+      "basis": "observed",
+      "essential": true,
+      "anchors": [{"id": "nanogpt-a07", "file": "train.py", "line": 218, "endLine": 228, "quote": "    model.eval()\n    for split in ['train', 'val']:\n        losses = torch.zeros(eval_iters)\n        for k in range(eval_iters):\n            X, Y = get_batch(split)\n            with ctx:\n                logits, loss = model(X, Y)\n            losses[k] = loss.item()\n        out[split] = losses.mean()\n    model.train()\n    return out"}],
+      "review": "pending"
+    },
+    {
+      "id": "nanogpt-f08",
+      "claim": "The learning-rate policy linearly warms up, then cosine-decays, and floors at min_lr after the decay horizon.",
+      "basis": "observed",
+      "essential": false,
+      "anchors": [{"id": "nanogpt-a08", "file": "train.py", "line": 231, "endLine": 242, "quote": "def get_lr(it):\n    # 1) linear warmup for warmup_iters steps\n    if it < warmup_iters:\n        return learning_rate * (it + 1) / (warmup_iters + 1)\n    # 2) if it > lr_decay_iters, return min learning rate\n    if it > lr_decay_iters:\n        return min_lr\n    # 3) in between, use cosine decay down to min learning rate\n    decay_ratio = (it - warmup_iters) / (lr_decay_iters - warmup_iters)\n    assert 0 <= decay_ratio <= 1\n    coeff = 0.5 * (1.0 + math.cos(math.pi * decay_ratio)) # coeff ranges 0..1\n    return min_lr + coeff * (learning_rate - min_lr)"}],
+      "review": "pending"
+    },
+    {
+      "id": "nanogpt-f09",
+      "claim": "Each optimizer update accumulates scaled loss over the configured micro-steps, clips gradients when enabled, steps the optimizer/scaler, and clears gradients.",
+      "basis": "observed",
+      "essential": true,
+      "anchors": [{"id": "nanogpt-a09", "file": "train.py", "line": 292, "endLine": 314, "quote": "    for micro_step in range(gradient_accumulation_steps):\n        if ddp:\n            # in DDP training we only need to sync gradients at the last micro step.\n            # the official way to do this is with model.no_sync() context manager, but\n            # I really dislike that this bloats the code and forces us to repeat code\n            # looking at the source of that context manager, it just toggles this variable\n            model.require_backward_grad_sync = (micro_step == gradient_accumulation_steps - 1)\n        with ctx:\n            logits, loss = model(X, Y)\n            loss = loss / gradient_accumulation_steps # scale the loss to account for gradient accumulation\n        # immediately async prefetch next batch while model is doing the forward pass on the GPU\n        X, Y = get_batch('train')\n        # backward pass, with gradient scaling if training in fp16\n        scaler.scale(loss).backward()\n    # clip the gradient\n    if grad_clip != 0.0:\n        scaler.unscale_(optimizer)\n        torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)\n    # step the optimizer and scaler if training in fp16\n    scaler.step(optimizer)\n    scaler.update()\n    # flush the gradients as soon as we can, no need for this memory anymore\n    optimizer.zero_grad(set_to_none=True)"}],
+      "review": "pending"
+    },
+    {
+      "id": "nanogpt-f10",
+      "claim": "At evaluation intervals, the master process saves model and optimizer state, model arguments, iteration, best validation loss, and config to out/ckpt.pt after iteration zero; the default always_save_checkpoint makes every such later interval eligible.",
+      "basis": "observed",
+      "essential": true,
+      "anchors": [
+        {"id": "nanogpt-a10a", "file": "train.py", "line": 40, "endLine": 40, "quote": "always_save_checkpoint = True # if True, always save a checkpoint after each eval"},
+        {"id": "nanogpt-a10b", "file": "train.py", "line": 274, "endLine": 286, "quote": "        if losses['val'] < best_val_loss or always_save_checkpoint:\n            best_val_loss = losses['val']\n            if iter_num > 0:\n                checkpoint = {\n                    'model': raw_model.state_dict(),\n                    'optimizer': optimizer.state_dict(),\n                    'model_args': model_args,\n                    'iter_num': iter_num,\n                    'best_val_loss': best_val_loss,\n                    'config': config,\n                }\n                print(f\"saving checkpoint to {out_dir}\")\n                torch.save(checkpoint, os.path.join(out_dir, 'ckpt.pt'))"}
+      ],
+      "review": "pending"
+    }
+  ],
+  "unknowns": [
+    "The contents and provenance of local data/openwebtext files are not established by train.py.",
+    "Runtime hardware, DDP environment variables, dtype branch, and whether torch.compile succeeds are unknown without execution.",
+    "configurator.py can change every declared default when config-file or CLI overrides are allowed; this candidate excludes those overrides."
+  ],
+  "nonDefects": [
+    "Dividing each micro-step loss by gradient_accumulation_steps is intentional accumulation scaling.",
+    "Suppressing DDP gradient synchronization until the final micro-step is an explicit optimization.",
+    "Not saving a checkpoint at iteration zero is guarded intentionally by iter_num > 0."
+  ],
+  "review": {"reviewer": null, "decision": "pending"}
+}

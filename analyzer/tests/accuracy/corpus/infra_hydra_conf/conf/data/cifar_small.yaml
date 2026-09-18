@@ -1,6 +1,0 @@
-name: cifar_small
-csv: data/cifar_small.csv
-batch_size: 128
-num_workers: 4
-val_fraction: 0.2
-shuffle: true

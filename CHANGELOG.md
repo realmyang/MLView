@@ -1,6 +1,32 @@
 # Changelog
 
-Every dated entry below was moved here from `docs/STATUS.md`, which is now a
+## Unreleased — trust and usability
+
+- Clarify authored uncertainty and severity, show every evidence quote, and add
+  direct claim challenges plus accessible textual relationship views.
+- Coalesce edit-driven validation; guard stale results, navigation and disposal
+  across overlapping source and artifact changes.
+- Add targeted interpretation guides and protected incremental draft edits.
+- Identify full skill bundles, diagnose installation drift, prepare separate
+  matched baselines and measure synthetic renderer scale through 2,000 nodes.
+- Fix native Windows draft paths and CI timing, keep source links beside the
+  diagram, and support arrow/Home/End navigation across the side tabs.
+- Align evidence requirements across the Python and VS Code validators;
+  correct synthetic benchmark references and authored search/Outline wording.
+- Preserve WorkflowDocument 1.0 and historical evaluation records. Human
+  semantic review and broader native-host/platform validation remain outstanding.
+
+## Unreleased — native workflow only
+
+- Remove the Python static analyzer, CLI, rules, caches, static reports, MCP
+  services, pre-commit hook, GitHub action, and static extension commands.
+- Ship the active-assistant MLView skill and WorkflowDocument viewer only.
+- Move retained ML example sources into evaluation fixtures without changing
+  recorded native outputs, evidence quotes or their hashes.
+- Replace analyzer release gates with native helper/viewer/distribution checks.
+
+
+The older dated entries were moved here from `docs/STATUS.md`, which is now a
 short current-state page. This file is the history: newest first, each entry
 condensed to what changed and the numbers that were measured at the time. The
 long-form reasoning for anything normative lives in `docs/CONTRACTS.md`; the
@@ -16,10 +42,57 @@ billing was blocked at the account level for the hardening rounds, the
 consolidation and the recall campaign, so every job came back unstarted and each
 of those entries is a measurement from one machine. The block went with the
 repository going public on 2026-09-15: the matrix has since run green over the
-tree the Unreleased entry describes — thirteen jobs, run 34986234828 and run
+legacy tree the consolidation entry describes — thirteen jobs, run 34986234828 and run
 34986239243, and thirteen again over its review fixes, run 35001150997 and run
 35001153856. Where an older entry quotes a CI run id, that run predates the
 block.
+
+---
+
+## Unreleased — review and public readiness (2026-09-18)
+
+- Hardened artifact paths, timestamps, malformed-input handling and publication
+  errors, with matching Python and TypeScript checks.
+- Reduced repeated parent traversal, source reads, hashing and graph counting.
+- Added symlink-safe skill distribution and a shared MIT license payload;
+  pinned the VSIX packager and adopted SPDX wheel metadata.
+- Fixed evaluation prompt/pointer validation and Windows review paths, and
+  made failed wheel builds fail their gate.
+- Updated contribution forms and documentation, preserved upstream evaluation
+  license notices, and enabled GitHub secret scanning and push protection.
+
+See the [review and validation record](docs/PUBLIC_READINESS_REVIEW.md).
+Human semantic review and the held-out pilot remain pending.
+
+---
+
+## Unreleased — native LLM workflow (2026-09-16–17)
+
+MLView now supplies a portable skill that asks the active assistant to interpret
+source and configuration, then publishes a cited semantic artifact for the
+interactive VS Code viewer. The default workflow follows the user's corrected
+intent; the existing static analyzer remains available as a legacy path.
+
+- Added WorkflowDocument 1.0, exact evidence and inspected-file fingerprints,
+  bounded validation/repair, guarded atomic publication, and revision lineage.
+- Added **Open Generated Diagram**, custom phases, groups/cycles, notebook
+  evidence, source freshness, refinement prompts, and SVG/PNG exports.
+- Added shared and Claude skill distributions; Claude's old automatic static
+  hooks are now opt-in, and static VS Code entrypoints are visibly labeled.
+- Added node/edge/finding refinement intents, visible scenario context and
+  stable-ID preservation guidance in prompts copied to the native assistant.
+- Fixed authored diagram selection being lost when VS Code recreated the
+  webview after source navigation. State is saved before navigation and retained
+  during bootstrap; regression coverage includes immediate webview destruction.
+- Added a read-only installation doctor, deterministic skill ZIPs, extracted
+  helper checks, and CI distribution artifacts for both host layouts.
+- Added eight development scenarios and the protocol for a 72-run held-out
+  pilot. The pilot and human semantic adjudication are outstanding.
+
+See [implementation and local verification](docs/LLM_IMPLEMENTATION.md) and the
+[native-host integration log](docs/demo-logs/2026-09-16-llm-workflow.md). Local
+verification and revision-specific remote CI are separate evidence; historical
+static accuracy numbers do not measure LLM understanding.
 
 ---
 

@@ -1,3 +1,7 @@
+> Historical record: the static analyzer was removed on 2026-09-18.
+> Commands, paths, and compatibility promises below describe earlier revisions.
+> See [current status](STATUS.md) for the supported product.
+
 # MLView — Flow animation and scoped views
 
 **Status:** design frozen 2026-09-07. Written by the lead from four proposals and two independent judge passes.

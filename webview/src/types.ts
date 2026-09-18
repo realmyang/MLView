@@ -37,6 +37,8 @@ export interface Loc {
   cell?: number;
   /** NB. 1-based line inside `cell`. Meaningless without `cell`. */
   cellLine?: number;
+  /** Authored-workflow evidence record that supplied this location. */
+  evidenceId?: string;
 }
 
 export interface RelatedLoc extends Loc {
@@ -95,6 +97,10 @@ export interface MLNode {
   issueIds: string[];
   collapsedByDefault: boolean;
   stageEvidence: Evidence[];
+  /** Renderer-local authored-workflow epistemic basis. */
+  basis?: WorkflowBasis;
+  /** Renderer-local authored evidence anchors, in document order. */
+  evidenceLocs?: Loc[];
   /**
    * PERF-04 (CONTRACTS 11.46 B1). How many nodes `--max-nodes` folded INTO this
    * one, counted transitively; absent when none were. The children are not in
@@ -144,6 +150,10 @@ export interface MLEdge {
   tags: string[];
   confidence: number;
   issueIds: string[];
+  /** Renderer-local authored-workflow epistemic basis. */
+  basis?: WorkflowBasis;
+  /** Renderer-local authored evidence anchors, in document order. */
+  evidenceLocs?: Loc[];
   /**
    * PERF-04. How many document edges this one stands for after the rollup
    * re-pointed edges at surviving ancestors and deduped the parallels. Absent
@@ -220,6 +230,8 @@ export interface Issue {
   evidence: Evidence[];
   suppressed: boolean;
   docs: string;
+  /** Renderer-local authored-workflow epistemic basis. */
+  basis?: WorkflowBasis;
   /**
    * CI-ADOPT. How this finding relates to the diff the run was attributed
    * against: `new` (inside an added hunk), `touched` (changed file, outside the
@@ -463,6 +475,28 @@ export interface MLGraph {
   view?: View;
 }
 
+/* ── model-authored workflow document ───────────────────────────────── */
+
+export type WorkflowBasis = 'observed' | 'inferred' | 'unresolved';
+export interface WorkflowEvidence { id: string; file: string; line: number; endLine: number; quote: string; cell?: number }
+export interface WorkflowNode { id: string; label: string; phase: string; parent?: string; kind?: string; detail?: string; basis: WorkflowBasis; evidence: string[] }
+export interface WorkflowEdge { id: string; source: string; target: string; label: string; kind?: string; basis: WorkflowBasis; evidence: string[] }
+export interface WorkflowFinding { id: string; title: string; message: string; severity: Severity; nodeIds: string[]; edgeIds?: string[]; basis: WorkflowBasis; evidence: string[]; counterEvidence?: string[]; suggestion?: string }
+export interface WorkflowDocument {
+  workflowVersion: '1.0';
+  title: string;
+  producer: { kind: 'host-llm'; host: 'copilot' | 'codex' | 'claude-code' | 'unknown'; model?: string };
+  revision: { id: string; parent?: string };
+  request: { question: string; scope: string; entrypoints?: string[]; configuration?: string };
+  phases: { id: string; label: string }[];
+  nodes: WorkflowNode[];
+  edges: WorkflowEdge[];
+  findings: WorkflowFinding[];
+  evidence: WorkflowEvidence[];
+  coverage: { status: 'scoped' | 'partial'; summary: string; inspectedFiles: string[]; limitations: string[] };
+  verification?: { files: Record<string, string>; publishedAt: string };
+}
+
 /* ── view state ────────────────────────────────────────────────────────── */
 
 export interface Viewport {
@@ -545,6 +579,7 @@ export interface Capabilities {
   canReanalyze: boolean;
   canExport: boolean;
   canAskAssistant: boolean;
+  canRefine?: boolean;
 }
 
 export interface HostAction {
@@ -591,12 +626,14 @@ export type HostToUi =
    * checkout, so without this the banner would read "base X → head X". Optional
    * everywhere: absent, the banner falls back to the root's last segment.
    */
-  | { v: 1; type: 'diffOverlay'; overlay: unknown; baseLabel?: string };
+  | { v: 1; type: 'diffOverlay'; overlay: unknown; baseLabel?: string }
+  | { v: 1; type: 'workflow'; document: WorkflowDocument; preserve?: Partial<ViewState> };
 
 export type UiToHost =
   | { v: 1; type: 'ready' }
-  | { v: 1; type: 'openLocation'; file: string; absFile: string; line: number; col: number; endLine: number; endCol: number; preview?: boolean }
+  | { v: 1; type: 'openLocation'; file: string; absFile: string; line: number; col: number; endLine: number; endCol: number; preview?: boolean; evidenceId?: string; cell?: number }
   | { v: 1; type: 'selectNode'; nodeId: string | null }
+  | { v: 1; type: 'refineWorkflow'; revisionId: string; selection?: { kind: 'node' | 'edge' | 'issue'; id: string }; intent: string }
   | { v: 1; type: 'requestRefresh'; scope: 'workspace' | 'file'; path?: string }
   | { v: 1; type: 'exportHtml' }
   /**
@@ -712,7 +749,6 @@ export interface ScopeSummary {
 }
 
 export interface MLViewApp {
-  update(graph: MLGraph, preserve?: Partial<ViewState>): void;
   /**
    * Re-project and relayout LOCALLY. Never posts `requestRefresh`, never
    * touches the analyzer. An unresolvable spec is a no-op plus a toast; it
@@ -726,4 +762,8 @@ export interface MLViewApp {
   setTheme(kind: ThemeKind): void;
   getState(): ViewState;
   destroy(): void;
+}
+
+export interface WorkflowViewApp extends MLViewApp {
+  setWorkflow(document: WorkflowDocument, preserve?: Partial<ViewState>): void;
 }

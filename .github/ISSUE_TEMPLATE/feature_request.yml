@@ -1,72 +1,24 @@
 name: Feature request
-description: A rule, a view, a host integration or a flag that should exist.
-title: "feature: "
-labels: ["enhancement"]
+description: Improve the skill, diagram or native host workflow.
+title: 'feature: '
+labels: ['enhancement']
 body:
-  - type: markdown
-    attributes:
-      value: |
-        The ranked backlog lives in
-        [docs/ROADMAP.md](https://github.com/realmyang/MLView/blob/main/docs/ROADMAP.md),
-        and every item that shipped carries a `**Landed ...**` note with the
-        measurement it landed with. Worth a search before you write: the thing
-        you want may be an item with an acceptance clause already written for
-        it, in which case say so here and it moves up.
-  - type: dropdown
-    id: kind
-    attributes:
-      label: What kind of thing
-      options:
-        - A new rule (a defect MLView should detect)
-        - Better recall for an existing rule (it misses a shape it should catch)
-        - Something in the diagram or the report
-        - VS Code extension
-        - Claude Code plugin / MCP
-        - CLI flag, output format or CI integration
-        - Something else
-    validations:
-      required: true
   - type: textarea
     id: problem
     attributes:
-      label: The problem, in terms of ML code
-      description: >
-        What goes wrong in a real pipeline that MLView cannot currently tell
-        you about, or tells you badly? A concrete mistake somebody actually
-        made is the strongest possible case.
+      label: The problem
+      description: What is hard to understand or do in a real ML workflow?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the interpretation, diagram interaction or workflow you need.
     validations:
       required: true
   - type: textarea
     id: example
     attributes:
-      label: Example code
-      description: >
-        For a rule request, the two fixtures the rule would need: the defective
-        code it must fire on, and the **nearest correct code it must stay
-        silent on**. The second one is the harder and more important half —
-        every rule in this repository ships with both, because precision is the
-        claim MLView cannot afford to lose.
-      render: python
-    validations:
-      required: false
-  - type: textarea
-    id: proposal
-    attributes:
-      label: What you would like MLView to do
-      description: >
-        The message you would want to read, the shape you would want drawn, or
-        the flag you would want to type. Approximate is fine.
-    validations:
-      required: true
-  - type: textarea
-    id: statically
-    attributes:
-      label: Can it be decided without running the code?
-      description: >
-        MLView never imports, executes or evaluates the code it reads — that is
-        a contract, not a current limitation. If your idea needs a runtime
-        value, a tensor shape or an installed framework, say so: it may still
-        be possible from what is written in the source, and thinking about it
-        here saves a round trip.
-    validations:
-      required: false
+      label: Safe example and success criteria
+      description: Include a small source example or scenario and how you would assess the result. Name runtime facts that source inspection cannot establish.

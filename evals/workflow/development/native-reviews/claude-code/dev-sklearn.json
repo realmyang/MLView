@@ -1,0 +1,248 @@
+{
+  "host": "claude-code",
+  "task": "dev-sklearn",
+  "artifact": "evals/workflow/development/native-artifacts/claude-code/dev-sklearn.mlview.json",
+  "artifactSha256": "ec84f1eca09cfdc15c1f86523280e25a255165825e4cfd65f4df26aa4e070a7f",
+  "artifactRevision": "dev-sklearn-r1",
+  "artifactRequest": {
+    "configuration": "No CLI arguments, config files, or environment lookups exist in the entrypoint. Assumed launch: `python train.py` -> main() with default csv_path='data/accounts.csv'. Module constants SEED=17, N_FOLDS=5. Holdout: GroupShuffleSplit(n_splits=1, test_size=0.2). CV booster: build_booster() defaults (iterations=2000, learning_rate=0.03, depth=6, loss_function='Logloss', eval_metric='AUC') with early_stopping_rounds=200. Final booster: iterations=max(median CV best iteration, 50), no eval_set. No overrides assumed.",
+    "entrypoints": [
+      "analyzer/tests/accuracy/corpus/tabular_group_cv_clean/train.py"
+    ],
+    "question": "Explain how grouped cross-validation keeps transformations inside the training folds. Identify the split, fitted preprocessing, estimator, and evaluation flow; inspect implementation before alleging leakage.",
+    "scope": "Single scenario: train.py run as a script (the __main__ guard calls main() with defaults). Traced from CSV load through group holdout, 5-fold StratifiedGroupKFold with per-fold target encoding and CatBoost early stopping, final refit, and holdout evaluation. Static reading only; the target was not imported or executed. The imported sibling modules `encoders` and `features` are absent from the workspace and are shown as unresolved."
+  },
+  "reviewerType": "model-provisional",
+  "reviewStatus": "pending-human-review",
+  "reviewEvidence": [
+    {
+      "id": "rev-source-eval",
+      "file": "analyzer/tests/accuracy/corpus/tabular_group_cv_clean/train.py",
+      "line": 93,
+      "endLine": 107,
+      "quote": "encoded_train = encoder.fit_transform(train_x, train_y) ... encoded_test = encoder.transform(test_x)"
+    }
+  ],
+  "claims": [
+    {
+      "id": "outer-group-split",
+      "verdict": "supported",
+      "summary": "The outer split and development/holdout partitions are traced with the group argument.",
+      "artifactPointers": [
+        "node:holdout-split",
+        "node:dev-partition",
+        "node:test-partition"
+      ],
+      "sourceReferences": [
+        "ev-holdout-splitter",
+        "ev-holdout-slices",
+        "ev-main-holdout"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "inner-group-folds",
+      "verdict": "supported",
+      "summary": "The five shuffled stratified group folds consume only development rows and groups.",
+      "artifactPointers": [
+        "node:cv-loop",
+        "node:cv-splitter",
+        "node:fold-slice"
+      ],
+      "sourceReferences": [
+        "ev-cv-splitter",
+        "ev-cv-loop",
+        "ev-fold-slices"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "fold-local-encoder",
+      "verdict": "supported",
+      "summary": "A new Pipeline is built per fold and fit_transform receives only inner-training rows and labels.",
+      "artifactPointers": [
+        "node:fold-encoder-new",
+        "node:fold-encoder-fit"
+      ],
+      "sourceReferences": [
+        "ev-fold-encoder-new",
+        "ev-fold-encoder-fit"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "validation-transform",
+      "verdict": "supported",
+      "summary": "Inner-validation features enter transform without validation labels.",
+      "artifactPointers": [
+        "node:fold-encoder-apply"
+      ],
+      "sourceReferences": [
+        "ev-fold-encoder-apply"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "fold-estimator",
+      "verdict": "supported",
+      "summary": "Separate Pools preserve train/validation roles and validation controls early stopping.",
+      "artifactPointers": [
+        "node:fold-pools",
+        "node:fold-booster-fit"
+      ],
+      "sourceReferences": [
+        "ev-fold-pools",
+        "ev-fold-booster"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "cv-aggregation",
+      "verdict": "supported",
+      "summary": "Per-fold AUC and best iterations yield mean AUC and median rounds.",
+      "artifactPointers": [
+        "node:fold-score",
+        "node:cv-aggregate"
+      ],
+      "sourceReferences": [
+        "ev-fold-score",
+        "ev-cv-return"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "final-refit",
+      "verdict": "supported",
+      "summary": "Final encoder and booster fit development data only; holdout does not steer training.",
+      "artifactPointers": [
+        "node:final-encoder-fit",
+        "node:final-booster-fit"
+      ],
+      "sourceReferences": [
+        "ev-final-encoder",
+        "ev-final-booster",
+        "ev-main-final"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "holdout-evaluation",
+      "verdict": "supported",
+      "summary": "The holdout is transformed, predicted, and scored after final fitting.",
+      "artifactPointers": [
+        "node:test-encode",
+        "node:test-predict",
+        "node:test-metrics",
+        "node:report"
+      ],
+      "sourceReferences": [
+        "ev-eval-encode",
+        "ev-eval-predict",
+        "ev-eval-metrics",
+        "ev-main-return"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "imported-preprocessing",
+      "verdict": "qualified",
+      "summary": "No leakage is visible at call sites, but TargetEncoder and feature engineering internals are correctly unresolved.",
+      "artifactPointers": [
+        "node:features-impl",
+        "node:target-encoder-impl",
+        "coverage"
+      ],
+      "sourceReferences": [
+        "ev-import-encoders",
+        "ev-import-features",
+        "ev-load"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "selection-informed-cv",
+      "verdict": "qualified",
+      "summary": "The artifact appropriately notes that fold AUC uses the validation set that also chooses the stopping round, while preserving the independent holdout boundary.",
+      "artifactPointers": [
+        "node:fold-booster-fit",
+        "node:fold-score",
+        "coverage"
+      ],
+      "sourceReferences": [
+        "ev-fold-booster",
+        "ev-fold-score"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    }
+  ],
+  "usability": {
+    "dataOrigin": {
+      "status": "partial",
+      "answer": "CSV flow is clear; feature engineering and column separation internals are unavailable.",
+      "artifactPointers": [
+        "node:load-engineer",
+        "node:split-frame",
+        "node:features-impl"
+      ],
+      "humanDecision": null
+    },
+    "updatedParametersAndFitState": {
+      "status": "clear",
+      "answer": "Fold-local fits and final refit are fully separated.",
+      "artifactPointers": [
+        "node:fold-encoder-fit",
+        "node:fold-booster-fit",
+        "node:final-encoder-fit",
+        "node:final-booster-fit"
+      ],
+      "humanDecision": null
+    },
+    "losses": {
+      "status": "partial",
+      "answer": "CatBoost Logloss is configured, but the library implementation is outside inspected source.",
+      "artifactPointers": [
+        "node:fold-booster-fit"
+      ],
+      "humanDecision": null
+    },
+    "evaluationBoundaries": {
+      "status": "clear",
+      "answer": "Fold validation and final holdout scoring are explicit.",
+      "artifactPointers": [
+        "node:fold-score",
+        "node:test-metrics"
+      ],
+      "humanDecision": null
+    },
+    "outputs": {
+      "status": "clear",
+      "answer": "CV AUC, holdout metrics, and held-out account count are represented.",
+      "artifactPointers": [
+        "node:cv-aggregate",
+        "node:report"
+      ],
+      "humanDecision": null
+    },
+    "uncertainty": {
+      "status": "clear",
+      "answer": "Missing imports, library behavior, runtime data, and selection-informed CV are disclosed.",
+      "artifactPointers": [
+        "node:features-impl",
+        "node:target-encoder-impl",
+        "coverage"
+      ],
+      "humanDecision": null
+    }
+  },
+  "humanReview": null
+}

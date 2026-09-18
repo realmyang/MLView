@@ -111,7 +111,7 @@ export class ScopePicker {
     clear(this.body);
     const graph = this.state.graph;
     if (!graph) {
-      add(this.body, el('div', 'mlv-empty-note', 'No analysis loaded yet.'));
+      add(this.body, el('div', 'mlv-empty-note', 'No workflow loaded yet.'));
       return;
     }
 

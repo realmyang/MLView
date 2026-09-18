@@ -83,7 +83,11 @@ export function askAssistant(app: App, nodeId: string): void {
 
 export function openLocation(app: App, loc: Loc | RelatedLoc): void {
   if (!app.caps.canOpenSource) return;
-  app.bridge.post({
+  // VS Code may tear down a hidden webview as soon as opening source changes
+  // the active editor. Persist synchronously before handing control to the
+  // host; the ordinary debounced save can be lost with the document.
+  app.bridge.saveState(app.getState());
+  const message: any = {
     v: 1,
     type: 'openLocation',
     file: loc.file,
@@ -93,7 +97,12 @@ export function openLocation(app: App, loc: Loc | RelatedLoc): void {
     endLine: loc.endLine,
     endCol: loc.endCol,
     preview: true,
-  });
+  };
+  // Preserve the frozen legacy frame byte-for-byte. Authored evidence adds
+  // identifiers only when it actually has them.
+  if (loc.evidenceId) message.evidenceId = loc.evidenceId;
+  if (loc.evidenceId && loc.cell !== undefined) message.cell = loc.cell;
+  app.bridge.post(message);
 }
 
 export function onAction(app: App, id: string): void {

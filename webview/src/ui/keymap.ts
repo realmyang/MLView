@@ -50,7 +50,7 @@ export interface KeyBinding {
 }
 
 export const KEYMAP: KeyBinding[] = [
-  { keys: ['Ctrl/Cmd+K', '/'], action: 'focusSearch', description: 'Search nodes, issues and rule codes' },
+  { keys: ['Ctrl/Cmd+K', '/'], action: 'focusSearch', description: 'Search workflow steps, findings, and IDs' },
   { keys: ['n', 'p'], action: 'cycleIssue', description: 'Next / previous issue by severity' },
   { keys: ['Enter'], action: 'open', description: 'Open the selection in the editor' },
   { keys: ['Space'], action: 'collapse', description: 'Collapse or expand the selected group' },

@@ -1,117 +1,48 @@
 name: Bug report
-description: Something crashed, drew the wrong thing, or did not do what it says it does.
-title: "bug: "
-labels: ["bug"]
+description: A skill, authored finding, artifact, diagram or integration problem.
+title: 'bug: '
+labels: ['bug']
 body:
   - type: markdown
     attributes:
       value: |
-        **A rule firing on correct code is not this template** — use
-        *False positive* instead, it asks for the right things.
-
-        A rule *missing* a real defect is a recall gap. Those are tracked and
-        measured per rule in
-        [docs/ACCURACY.md](https://github.com/realmyang/MLView/blob/main/docs/ACCURACY.md);
-        file it here and say which defect was missed, and it becomes an
-        `expected` label in the corpus.
-
-        MLView never executes the code it reads, so nothing here needs to be
-        runnable — a file that parses is enough to reproduce almost anything.
+        Report security defects privately through the Security tab.
+        Share only sanitized artifacts and source excerpts. Unknown model
+        details are fine; do not guess them.
   - type: dropdown
-    id: component
+    id: area
     attributes:
-      label: Which part
+      label: Affected area
       options:
-        - Analyzer / CLI (python -m mlview)
-        - Standalone HTML report (the diagram, the issue rail, the answer card)
-        - VS Code extension (panel, Problems, code actions, export)
-        - Claude Code plugin (slash commands, MCP tools, hooks)
-        - Build, tests or the gates (scripts/, tools/)
-        - "Not sure"
-    validations:
-      required: true
-  - type: input
-    id: version
-    attributes:
-      label: MLView version
-      description: >
-        `python -m mlview --version` for the analyzer. For the extension, the
-        version on its Extensions entry; for the plugin, the `version` in
-        `claude-plugin/.claude-plugin/plugin.json`. If you are on a clone, the
-        commit SHA is better than all of them.
-      placeholder: "mlview 0.1.0 (schema 1.0), clone at 2df691d"
-    validations:
-      required: true
-  - type: input
-    id: env
-    attributes:
-      label: OS, Python and Node versions
-      description: >
-        Node only matters for the viewer and the extension. VS Code and Claude
-        Code CLI versions if the bug is in one of those hosts.
-      placeholder: "Windows 11 / Python 3.10.11 / Node 22.9 / VS Code 1.136"
+        - Interpretation or model-authored finding
+        - Skill installation or discovery
+        - Artifact validation or publication
+        - Diagram, refinement or source navigation
+        - Packaging or development checks
     validations:
       required: true
   - type: textarea
-    id: command
+    id: versions
     attributes:
-      label: The exact command, or the exact steps
-      description: >
-        Command line if there was one, verbatim, including flags. For a host,
-        the command palette entry or the slash command you ran and what you had
-        selected or open at the time.
-      render: shell
-      placeholder: |
-        python -m mlview analyze ./src --html report.html
+      label: Environment
+      description: MLView revision, assistant host/version, exposed model name, VS Code and OS. Python version for helper failures.
     validations:
       required: true
   - type: textarea
-    id: snippet
+    id: reproduce
     attributes:
-      label: A minimal Python snippet that reproduces it
-      description: >
-        The smallest file (or two files, if it is a cross-file behaviour) that
-        still shows the problem. It does not need to train anything, import
-        anything that is installed, or run at all — it only needs to parse.
-      render: python
+      label: Reproduction
+      description: Request, entrypoint/configuration and minimal safe source or artifact excerpt. Include evidence that supports or contradicts a disputed interpretation.
     validations:
       required: true
   - type: textarea
     id: expected
     attributes:
-      label: What you expected, and what happened instead
-      description: >
-        For a wrong diagram, saying which node or edge is wrong and what it
-        should have been is worth more than a screenshot of the whole graph —
-        though a screenshot alongside it is very welcome.
+      label: Expected and actual behavior
     validations:
       required: true
   - type: textarea
-    id: output
+    id: logs
     attributes:
-      label: Output, traceback or logs
-      description: >
-        The full traceback if it crashed. For the extension, the **MLView**
-        output channel (View → Output → MLView). For the plugin, the MCP
-        server's stderr — it names a missing `mcp` SDK or a too-old interpreter
-        in one line. Paste the `diagnostics[]` block of
-        `python -m mlview analyze <path> --format json` if the complaint is
-        that MLView saw less than you expected: every blind spot it knows about
-        is reported there rather than silently dropped.
-      render: shell
-    validations:
-      required: false
-  - type: checkboxes
-    id: checks
-    attributes:
-      label: Before submitting
-      options:
-        - label: >
-            I checked the known gaps in
-            [docs/STATUS.md](https://github.com/realmyang/MLView/blob/main/docs/STATUS.md)
-            and this is not one of them (or it is, and I have new detail).
-          required: false
-        - label: >
-            I ran it once more with `--no-cache` (the parse cache is on by
-            default) and it still happens.
-          required: false
+      label: Relevant sanitized output
+      description: Include validation errors or screenshots if useful; remove secrets, private paths and unrelated source.

@@ -41,7 +41,7 @@ import { ScopeSession } from './scope/session.js';
 import { ScopeBar } from './ui/scopebar.js';
 import { PipelineChooser } from './ui/pipelinechooser.js';
 import { DiffBar } from './ui/diffbar.js';
-import { readOverlay } from './diff/overlay.js';
+import { decorateWorkflow, normalizeWorkflow } from './workflow.js';
 import { buildAppUi } from './app/build.js';
 import { scopeToNode, setGraph, setScope } from './app/documents.js';
 import { renderChrome, renderRail } from './app/surfaces.js';
@@ -66,6 +66,7 @@ import type {
   ThemeKind,
   ViewState,
   Viewport,
+  WorkflowDocument,
 } from './types.js';
 
 export interface SelectOptions {
@@ -172,18 +173,12 @@ export class App implements MLViewApp {
 
   saveSoon = debounce(() => this.bridge.saveState(this.getState()), 250);
 
-  constructor(root: HTMLElement, graph: MLGraph | null, bridge: HostBridge) {
+  constructor(root: HTMLElement, bridge: HostBridge) {
     this.root = root;
     this.bridge = bridge;
     this.caps = bridge.capabilities;
     this.themes = new ThemeController(root, bridge.theme || 'light', bridge.themePreference);
     buildAppUi(this);
-    // VIEW-08. The standalone report's overlay travels the way the rule-doc
-    // sidecar does — a second `<script type="application/json">` beside
-    // `#mlview-graph` — so it is read BEFORE the first document is adopted and
-    // the first paint already carries the ledges. A page without one is
-    // unaffected: `readOverlay` returns null and nothing else changes.
-    this.scopes.setDiff(readOverlay());
     const restored = safeLoad(bridge);
     if (restored) applyState(this, restored, false);
     this.disposers.push(bridge.onMessage((msg) => this.onMessage(msg)));
@@ -194,8 +189,7 @@ export class App implements MLViewApp {
     const attrSpec = root.getAttribute('data-mlview-scope');
     const attrDepth = root.getAttribute('data-mlview-depth');
     if (attrSpec) this.pendingScope = { spec: attrSpec, depth: attrDepth ? Number(attrDepth) : undefined };
-    if (graph) setGraph(this, graph, restored ? { viewport: restored.viewport } : undefined);
-    else this.showLoading(true);
+    this.showLoading(true);
     bridge.post({ v: 1, type: 'ready' });
   }
 
@@ -205,8 +199,10 @@ export class App implements MLViewApp {
     return this.index ? this.index.lanes.map((l) => l.id) : [];
   }
 
-  requestRefresh(): void {
-    this.bridge.post({ v: 1, type: 'requestRefresh', scope: 'workspace' });
+  /** Replace the current model-authored revision without remounting the UI. */
+  setWorkflow(document: WorkflowDocument, preserve?: Partial<ViewState>): void {
+    setGraph(this, normalizeWorkflow(document), preserve, true);
+    decorateWorkflow(this, document);
   }
 
   /** True only where the HOST can actually make an edit behind a preview. */
@@ -350,14 +346,14 @@ export class App implements MLViewApp {
     if (!this.index) return null;
     if (sel.kind === 'node') {
       const node = this.index.nodeById.get(sel.id);
-      return node ? node.loc : null;
+      return node && node.loc.file ? node.loc : null;
     }
     if (sel.kind === 'edge') {
       const edge = this.index.edgeById.get(sel.id);
-      return edge ? edge.loc : null;
+      return edge && edge.loc.file ? edge.loc : null;
     }
     const issue = this.index.issueById.get(sel.id);
-    return issue ? issue.loc : null;
+    return issue && issue.loc.file ? issue.loc : null;
   }
 
   /** The node a non-node selection points at — an issue's primary node. */
@@ -459,10 +455,6 @@ export class App implements MLViewApp {
   }
 
   /* ── public API ────────────────────────────────────────────────────── */
-
-  update(graph: MLGraph, preserve?: Partial<ViewState>): void {
-    setGraph(this, graph, preserve);
-  }
 
   /**
    * Re-project and relayout LOCALLY. Never posts `requestRefresh`, never touches

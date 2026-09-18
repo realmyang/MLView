@@ -138,7 +138,9 @@ export function renderExport(request: ExportRequest): ExportSvgResult {
     'MLView — ' + baseName(graph.workspace.root) + (scope ? ' — ' + scope : '') + ' — ' + regionLabel(request.regionKind);
   const desc =
     graph.nodes.length + ' nodes, ' + graph.edges.length + ' edges · schema ' + graph.schemaVersion +
-    ' · mlview ' + graph.generator.version +
+    (graph.schemaVersion === 'workflow-view/1'
+      ? ' · authored by ' + graph.generator.name + ' · model ' + graph.generator.version + ' · revision ' + graph.generator.rendererSha
+      : ' · mlview ' + graph.generator.version) +
     (request.generatedAt ? ' · exported ' + request.generatedAt : '');
   return buildExportSvg({
     plan: request.plan,

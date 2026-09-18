@@ -1,0 +1,213 @@
+{
+  "host": "codex",
+  "task": "dev-sklearn",
+  "artifact": "evals/workflow/development/native-artifacts/codex/dev-sklearn.mlview.json",
+  "artifactSha256": "a80aae6a88e5d1a603e423cee8c986c635f7efe560457912225406cd549e755a",
+  "artifactRevision": "rev-group-cv-clean-1",
+  "artifactRequest": {
+    "configuration": "Selected main(csv_path='data/accounts.csv') defaults: SEED=17 and N_FOLDS=5; one GroupShuffleSplit holdout with test_size=0.2; shuffled StratifiedGroupKFold with five folds; CatBoost defaults from build_booster, fold early_stopping_rounds=200, and a final iteration count of max(median best fold iteration, 50). No command-line override is selected.",
+    "entrypoints": [
+      "analyzer/tests/accuracy/corpus/tabular_group_cv_clean/train.py"
+    ],
+    "question": "Explain how grouped cross-validation keeps transformations inside the training folds. Identify the split, fitted preprocessing, estimator, and evaluation flow; inspect implementation before alleging leakage.",
+    "scope": "Source-only interpretation of the selected tabular grouped-CV entrypoint; no target import, execution, or legacy static analysis."
+  },
+  "reviewerType": "model-provisional",
+  "reviewStatus": "pending-human-review",
+  "reviewEvidence": [
+    {
+      "id": "rev-source-fold",
+      "file": "analyzer/tests/accuracy/corpus/tabular_group_cv_clean/train.py",
+      "line": 64,
+      "endLine": 90,
+      "quote": "for fold_train, fold_valid in folds.split(...) ... encoder.fit_transform(inner_train_x, inner_train_y) ... encoder.transform(inner_valid_x)"
+    }
+  ],
+  "claims": [
+    {
+      "id": "outer-group-split",
+      "verdict": "supported",
+      "summary": "The outer holdout uses GroupShuffleSplit with group labels and keeps test rows outside fitting.",
+      "artifactPointers": [
+        "node:outer-group-split"
+      ],
+      "sourceReferences": [
+        "ev-holdout",
+        "ev-main-flow"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "inner-group-folds",
+      "verdict": "supported",
+      "summary": "Five StratifiedGroupKFold splits are generated from the outer-training partition and its groups.",
+      "artifactPointers": [
+        "node:inner-group-folds"
+      ],
+      "sourceReferences": [
+        "ev-fold-split",
+        "ev-main-flow"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "fold-local-encoder",
+      "verdict": "supported",
+      "summary": "A fresh encoder is instantiated inside each fold and fitted only on inner-training X and y.",
+      "artifactPointers": [
+        "node:fit-fold-encoder"
+      ],
+      "sourceReferences": [
+        "ev-encoder-construction",
+        "ev-fold-encoding"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "validation-transform",
+      "verdict": "supported",
+      "summary": "Inner-validation features are transformed without validation labels entering the encoder call.",
+      "artifactPointers": [
+        "node:transform-fold-validation"
+      ],
+      "sourceReferences": [
+        "ev-fold-encoding"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "fold-estimator",
+      "verdict": "supported",
+      "summary": "A fresh CatBoost estimator fits the training Pool while the validation Pool controls early stopping.",
+      "artifactPointers": [
+        "node:build-fold-pools",
+        "node:fit-fold-booster"
+      ],
+      "sourceReferences": [
+        "ev-booster-construction",
+        "ev-fold-fit"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "cv-aggregation",
+      "verdict": "supported",
+      "summary": "Fold validation AUC and best iteration are aggregated into mean AUC and median rounds.",
+      "artifactPointers": [
+        "node:score-and-aggregate-folds"
+      ],
+      "sourceReferences": [
+        "ev-fold-score"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "final-refit",
+      "verdict": "supported",
+      "summary": "A new encoder and booster are refit on all outer-training rows using the CV-derived round count.",
+      "artifactPointers": [
+        "node:fit-final-encoder",
+        "node:fit-final-booster"
+      ],
+      "sourceReferences": [
+        "ev-final-fit"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "holdout-evaluation",
+      "verdict": "supported",
+      "summary": "The fitted encoder transforms outer-test features, then held-out labels are used for ROC AUC and average precision.",
+      "artifactPointers": [
+        "node:transform-outer-test",
+        "node:score-outer-test"
+      ],
+      "sourceReferences": [
+        "ev-test-evaluation",
+        "ev-main-flow"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "imported-preprocessing",
+      "verdict": "qualified",
+      "summary": "Visible call sites support fold containment, but missing feature and encoder implementations prevent a complete leakage audit.",
+      "artifactPointers": [
+        "finding:finding-imported-preprocessing-unverified",
+        "coverage"
+      ],
+      "sourceReferences": [
+        "ev-imports",
+        "ev-load",
+        "ev-fold-encoding"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    }
+  ],
+  "usability": {
+    "dataOrigin": {
+      "status": "partial",
+      "answer": "CSV loading and partition flow are clear, but feature engineering and split_frame internals are unavailable.",
+      "artifactPointers": [
+        "node:prepare-table"
+      ],
+      "humanDecision": null
+    },
+    "updatedParametersAndFitState": {
+      "status": "clear",
+      "answer": "Per-fold encoder and booster fitting, then final refit, are explicit.",
+      "artifactPointers": [
+        "node:fit-fold-encoder",
+        "node:fit-fold-booster",
+        "node:fit-final-encoder",
+        "node:fit-final-booster"
+      ],
+      "humanDecision": null
+    },
+    "losses": {
+      "status": "missing",
+      "answer": "This workflow exposes estimator fitting and metrics but no explicit loss computation beyond CatBoost's configured Logloss.",
+      "artifactPointers": [
+        "node:fit-fold-booster"
+      ],
+      "humanDecision": null
+    },
+    "evaluationBoundaries": {
+      "status": "clear",
+      "answer": "Inner validation and outer held-out evaluation are distinct.",
+      "artifactPointers": [
+        "node:score-and-aggregate-folds",
+        "node:score-outer-test"
+      ],
+      "humanDecision": null
+    },
+    "outputs": {
+      "status": "clear",
+      "answer": "Fold aggregation and held-out metrics are represented.",
+      "artifactPointers": [
+        "node:score-and-aggregate-folds",
+        "node:score-outer-test"
+      ],
+      "humanDecision": null
+    },
+    "uncertainty": {
+      "status": "clear",
+      "answer": "Missing imported preprocessing implementations are explicitly qualified.",
+      "artifactPointers": [
+        "finding:finding-imported-preprocessing-unverified",
+        "coverage"
+      ],
+      "humanDecision": null
+    }
+  },
+  "humanReview": null
+}

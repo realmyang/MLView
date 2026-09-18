@@ -33,6 +33,13 @@ export function normalizeBucket(bucket: string): string {
  * "certain" or "the renderer forgot".
  */
 export function confidenceChip(issue: Issue): HTMLElement {
+  if (issue.basis) {
+    const chip = el('span', 'mlv-chip mlv-chip--basis mlv-chip--basis-' + issue.basis, issue.basis);
+    chip.setAttribute('data-basis', issue.basis);
+    chip.title = 'Basis: ' + issue.basis;
+    chip.setAttribute('aria-label', chip.title);
+    return chip;
+  }
   const bucket = normalizeBucket(issue.confidenceBucket);
   const chip = el('span', 'mlv-chip mlv-chip--conf mlv-chip--conf-' + bucket, issue.confidenceBucket || bucket);
   chip.setAttribute('data-confidence', bucket);

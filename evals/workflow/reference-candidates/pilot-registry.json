@@ -1,0 +1,250 @@
+{
+  "taskId": "pilot-registry",
+  "repositoryCommit": "cfd5d3a985b0249de009b67d04f37263e11cdf3d",
+  "status": "draft-needs-human-review",
+  "scenario": {
+    "description": "Candidate invocation with configs/faster_rcnn/faster-rcnn_r50_fpn_1x_coco.py and no optional overrides, resolved through its four pinned base configs.",
+    "entrypoints": [
+      "tools/train.py",
+      "configs/faster_rcnn/faster-rcnn_r50_fpn_1x_coco.py"
+    ],
+    "arguments": [
+      "configs/faster_rcnn/faster-rcnn_r50_fpn_1x_coco.py"
+    ]
+  },
+  "facts": [
+    {
+      "id": "registry-config-required",
+      "claim": "The training entrypoint requires a positional config path; it supplies no default config.",
+      "basis": "observed",
+      "essential": true,
+      "anchors": [
+        {
+          "id": "registry-config-required-a",
+          "file": "tools/train.py",
+          "line": 13,
+          "endLine": 16,
+          "quote": "def parse_args():\n    parser = argparse.ArgumentParser(description='Train a detector')\n    parser.add_argument('config', help='train config file path')\n    parser.add_argument('--work-dir', help='the dir to save logs and models')"
+        }
+      ],
+      "review": "pending"
+    },
+    {
+      "id": "registry-scenario-config",
+      "claim": "The selected config inherits the Faster R-CNN R50 FPN model, COCO detection dataset, 1x schedule, and default runtime bases.",
+      "basis": "observed",
+      "essential": true,
+      "anchors": [
+        {
+          "id": "registry-scenario-config-a",
+          "file": "configs/faster_rcnn/faster-rcnn_r50_fpn_1x_coco.py",
+          "line": 1,
+          "endLine": 5,
+          "quote": "_base_ = [\n    '../_base_/models/faster-rcnn_r50_fpn.py',\n    '../_base_/datasets/coco_detection.py',\n    '../_base_/schedules/schedule_1x.py', '../_base_/default_runtime.py'\n]"
+        }
+      ],
+      "review": "pending"
+    },
+    {
+      "id": "registry-config-load",
+      "claim": "The entrypoint loads the selected file through external mmengine Config.fromfile and records the launcher in the resulting config.",
+      "basis": "observed",
+      "essential": true,
+      "anchors": [
+        {
+          "id": "registry-config-load-a",
+          "file": "tools/train.py",
+          "line": 67,
+          "endLine": 71,
+          "quote": "    # load config\n    cfg = Config.fromfile(args.config)\n    cfg.launcher = args.launcher\n    if args.cfg_options is not None:\n        cfg.merge_from_dict(args.cfg_options)"
+        }
+      ],
+      "review": "pending"
+    },
+    {
+      "id": "registry-no-overrides",
+      "claim": "With the selected no-override invocation, cfg-options merging is not requested.",
+      "basis": "inferred",
+      "essential": false,
+      "anchors": [
+        {
+          "id": "registry-no-overrides-a",
+          "file": "tools/train.py",
+          "line": 69,
+          "endLine": 71,
+          "quote": "    cfg.launcher = args.launcher\n    if args.cfg_options is not None:\n        cfg.merge_from_dict(args.cfg_options)"
+        }
+      ],
+      "review": "pending"
+    },
+    {
+      "id": "registry-workdir",
+      "claim": "Without a CLI or config work_dir, the entrypoint derives ./work_dirs/faster-rcnn_r50_fpn_1x_coco from the config filename.",
+      "basis": "inferred",
+      "essential": false,
+      "anchors": [
+        {
+          "id": "registry-workdir-a",
+          "file": "tools/train.py",
+          "line": 73,
+          "endLine": 80,
+          "quote": "    # work_dir is determined in this priority: CLI > segment in file > filename\n    if args.work_dir is not None:\n        # update configs according to CLI args if args.work_dir is not None\n        cfg.work_dir = args.work_dir\n    elif cfg.get('work_dir', None) is None:\n        # use config filename as default work_dir if cfg.work_dir is None\n        cfg.work_dir = osp.join('./work_dirs',\n                                osp.splitext(osp.basename(args.config))[0])"
+        }
+      ],
+      "review": "pending"
+    },
+    {
+      "id": "registry-model",
+      "claim": "The resolved model is FasterRCNN with a pretrained ResNet-50 backbone and FPN neck; its RoI box head has 80 classes.",
+      "basis": "observed",
+      "essential": true,
+      "anchors": [
+        {
+          "id": "registry-model-a",
+          "file": "configs/_base_/models/faster-rcnn_r50_fpn.py",
+          "line": 1,
+          "endLine": 24,
+          "quote": "# model settings\nmodel = dict(\n    type='FasterRCNN',\n    data_preprocessor=dict(\n        type='DetDataPreprocessor',\n        mean=[123.675, 116.28, 103.53],\n        std=[58.395, 57.12, 57.375],\n        bgr_to_rgb=True,\n        pad_size_divisor=32),\n    backbone=dict(\n        type='ResNet',\n        depth=50,\n        num_stages=4,\n        out_indices=(0, 1, 2, 3),\n        frozen_stages=1,\n        norm_cfg=dict(type='BN', requires_grad=True),\n        norm_eval=True,\n        style='pytorch',\n        init_cfg=dict(type='Pretrained', checkpoint='torchvision://resnet50')),\n    neck=dict(\n        type='FPN',\n        in_channels=[256, 512, 1024, 2048],\n        out_channels=256,\n        num_outs=5),"
+        },
+        {
+          "id": "registry-model-b",
+          "file": "configs/_base_/models/faster-rcnn_r50_fpn.py",
+          "line": 48,
+          "endLine": 53,
+          "quote": "        bbox_head=dict(\n            type='Shared2FCBBoxHead',\n            in_channels=256,\n            fc_out_channels=1024,\n            roi_feat_size=7,\n            num_classes=80,"
+        }
+      ],
+      "review": "pending"
+    },
+    {
+      "id": "registry-data-eval",
+      "claim": "The resolved workflow trains on COCO train2017 with shuffled batches of two and evaluates bounding boxes on val2017 with unshuffled batches of one.",
+      "basis": "observed",
+      "essential": true,
+      "anchors": [
+        {
+          "id": "registry-data-eval-a",
+          "file": "configs/_base_/datasets/coco_detection.py",
+          "line": 37,
+          "endLine": 64,
+          "quote": "train_dataloader = dict(\n    batch_size=2,\n    num_workers=2,\n    persistent_workers=True,\n    sampler=dict(type='DefaultSampler', shuffle=True),\n    batch_sampler=dict(type='AspectRatioBatchSampler'),\n    dataset=dict(\n        type=dataset_type,\n        data_root=data_root,\n        ann_file='annotations/instances_train2017.json',\n        data_prefix=dict(img='train2017/'),\n        filter_cfg=dict(filter_empty_gt=True, min_size=32),\n        pipeline=train_pipeline,\n        backend_args=backend_args))\nval_dataloader = dict(\n    batch_size=1,\n    num_workers=2,\n    persistent_workers=True,\n    drop_last=False,\n    sampler=dict(type='DefaultSampler', shuffle=False),\n    dataset=dict(\n        type=dataset_type,\n        data_root=data_root,\n        ann_file='annotations/instances_val2017.json',\n        data_prefix=dict(img='val2017/'),\n        test_mode=True,\n        pipeline=test_pipeline,\n        backend_args=backend_args))"
+        },
+        {
+          "id": "registry-data-eval-b",
+          "file": "configs/_base_/datasets/coco_detection.py",
+          "line": 67,
+          "endLine": 73,
+          "quote": "val_evaluator = dict(\n    type='CocoMetric',\n    ann_file=data_root + 'annotations/instances_val2017.json',\n    metric='bbox',\n    format_only=False,\n    backend_args=backend_args)\ntest_evaluator = val_evaluator"
+        }
+      ],
+      "review": "pending"
+    },
+    {
+      "id": "registry-schedule-runtime",
+      "claim": "The resolved schedule runs 12 epochs with validation every epoch, SGD at learning rate 0.02, and learning-rate milestones at epochs 8 and 11; runtime checkpointing occurs every epoch.",
+      "basis": "observed",
+      "essential": true,
+      "anchors": [
+        {
+          "id": "registry-schedule-runtime-a",
+          "file": "configs/_base_/schedules/schedule_1x.py",
+          "line": 1,
+          "endLine": 22,
+          "quote": "# training schedule for 1x\ntrain_cfg = dict(type='EpochBasedTrainLoop', max_epochs=12, val_interval=1)\nval_cfg = dict(type='ValLoop')\ntest_cfg = dict(type='TestLoop')\n\n# learning rate\nparam_scheduler = [\n    dict(\n        type='LinearLR', start_factor=0.001, by_epoch=False, begin=0, end=500),\n    dict(\n        type='MultiStepLR',\n        begin=0,\n        end=12,\n        by_epoch=True,\n        milestones=[8, 11],\n        gamma=0.1)\n]\n\n# optimizer\noptim_wrapper = dict(\n    type='OptimWrapper',\n    optimizer=dict(type='SGD', lr=0.02, momentum=0.9, weight_decay=0.0001))"
+        },
+        {
+          "id": "registry-schedule-runtime-b",
+          "file": "configs/_base_/default_runtime.py",
+          "line": 3,
+          "endLine": 9,
+          "quote": "default_hooks = dict(\n    timer=dict(type='IterTimerHook'),\n    logger=dict(type='LoggerHook', interval=50),\n    param_scheduler=dict(type='ParamSchedulerHook'),\n    checkpoint=dict(type='CheckpointHook', interval=1),\n    sampler_seed=dict(type='DistSamplerSeedHook'),\n    visualization=dict(type='DetVisualizationHook'))"
+        }
+      ],
+      "review": "pending"
+    },
+    {
+      "id": "registry-runner-choice",
+      "claim": "The entrypoint uses Runner.from_cfg when runner_type is absent and RUNNERS.build when runner_type is present.",
+      "basis": "observed",
+      "essential": true,
+      "anchors": [
+        {
+          "id": "registry-runner-choice-a",
+          "file": "tools/train.py",
+          "line": 107,
+          "endLine": 114,
+          "quote": "    # build the runner from config\n    if 'runner_type' not in cfg:\n        # build the default runner\n        runner = Runner.from_cfg(cfg)\n    else:\n        # build customized runner from the registry\n        # if 'runner_type' is set in the cfg\n        runner = RUNNERS.build(cfg)"
+        }
+      ],
+      "review": "pending"
+    },
+    {
+      "id": "registry-default-runner",
+      "claim": "None of the selected config or four bases defines runner_type, so the entrypoint selects Runner.from_cfg.",
+      "basis": "observed",
+      "essential": true,
+      "anchors": [
+        {
+          "id": "registry-default-runner-a",
+          "file": "configs/faster_rcnn/faster-rcnn_r50_fpn_1x_coco.py",
+          "line": 1,
+          "endLine": 5,
+          "quote": "_base_ = [\n    '../_base_/models/faster-rcnn_r50_fpn.py',\n    '../_base_/datasets/coco_detection.py',\n    '../_base_/schedules/schedule_1x.py', '../_base_/default_runtime.py'\n]"
+        },
+        {
+          "id": "registry-default-runner-b",
+          "file": "tools/train.py",
+          "line": 107,
+          "endLine": 114,
+          "quote": "    # build the runner from config\n    if 'runner_type' not in cfg:\n        # build the default runner\n        runner = Runner.from_cfg(cfg)\n    else:\n        # build customized runner from the registry\n        # if 'runner_type' is set in the cfg\n        runner = RUNNERS.build(cfg)"
+        }
+      ],
+      "review": "pending"
+    },
+    {
+      "id": "registry-train",
+      "claim": "After runner construction, the entrypoint invokes runner.train().",
+      "basis": "observed",
+      "essential": true,
+      "anchors": [
+        {
+          "id": "registry-train-a",
+          "file": "tools/train.py",
+          "line": 116,
+          "endLine": 117,
+          "quote": "    # start training\n    runner.train()"
+        }
+      ],
+      "review": "pending"
+    },
+    {
+      "id": "registry-external",
+      "claim": "Config parsing, base inheritance, runner construction, registry lookup, and training lifecycle semantics are provided by external mmengine call sites and are not established by tools/train.py alone.",
+      "basis": "unresolved",
+      "essential": true,
+      "anchors": [
+        {
+          "id": "registry-external-a",
+          "file": "tools/train.py",
+          "line": 6,
+          "endLine": 8,
+          "quote": "from mmengine.config import Config, DictAction\nfrom mmengine.registry import RUNNERS\nfrom mmengine.runner import Runner"
+        }
+      ],
+      "review": "pending"
+    }
+  ],
+  "unknowns": [
+    "External mmengine Config inheritance, registry construction, Runner construction, and lifecycle behavior were not inspected beyond the pinned configuration and entrypoint call sites.",
+    "COCO data, pretrained torchvision ResNet-50 weights, and runtime environment availability remain external.",
+    "No target imports, config execution, or training were performed."
+  ],
+  "nonDefects": [
+    "Config-driven behavior and the alternative registered-runner branch are intentional entrypoint design, not evidence of hidden training logic.",
+    "Omitted AMP, auto-scale-LR, resume, and cfg-options reflect the selected scenario."
+  ],
+  "review": {
+    "reviewer": null,
+    "decision": "pending"
+  }
+}

@@ -1,0 +1,111 @@
+{
+  "taskId": "pilot-sklearn",
+  "repositoryCommit": "dd3ca57300e14d45b7a34fccd0165d143c7a364c",
+  "status": "draft-needs-human-review",
+  "scenario": {
+    "description": "Inspect the example as written: compare non-nested parameter selection with nested outer-fold evaluation across repeated Iris trials.",
+    "entrypoints": ["examples/model_selection/plot_nested_cross_validation_iris.py"],
+    "arguments": []
+  },
+  "facts": [
+    {
+      "id": "sklearn-f01",
+      "claim": "The example's stated purpose is to compare non-nested and nested cross-validation on Iris.",
+      "basis": "observed",
+      "essential": true,
+      "anchors": [{"id": "sklearn-a01", "file": "examples/model_selection/plot_nested_cross_validation_iris.py", "line": 6, "endLine": 11, "quote": "This example compares non-nested and nested cross-validation strategies on a\nclassifier of the iris data set. Nested cross-validation (CV) is often used to\ntrain a model in which hyperparameters also need to be optimized. Nested CV\nestimates the generalization error of the underlying model and its\n(hyper)parameter search. Choosing the parameters that maximize non-nested CV\nbiases the model to the dataset, yielding an overly-optimistic score."}],
+      "review": "pending"
+    },
+    {
+      "id": "sklearn-f02",
+      "claim": "The source explains that inner GridSearchCV selects hyperparameters while outer cross_val_score estimates generalization over held-out folds.",
+      "basis": "observed",
+      "essential": true,
+      "anchors": [{"id": "sklearn-a02", "file": "examples/model_selection/plot_nested_cross_validation_iris.py", "line": 19, "endLine": 26, "quote": "To avoid this problem, nested CV effectively uses a series of\ntrain/validation/test set splits. In the inner loop (here executed by\n:class:`GridSearchCV <sklearn.model_selection.GridSearchCV>`), the score is\napproximately maximized by fitting a model to each training set, and then\ndirectly maximized in selecting (hyper)parameters over the validation set. In\nthe outer loop (here in :func:`cross_val_score\n<sklearn.model_selection.cross_val_score>`), generalization error is estimated\nby averaging test set scores over several dataset splits."}],
+      "review": "pending"
+    },
+    {
+      "id": "sklearn-f03",
+      "claim": "The comparison repeats for 30 trials.",
+      "basis": "observed",
+      "essential": false,
+      "anchors": [{"id": "sklearn-a03", "file": "examples/model_selection/plot_nested_cross_validation_iris.py", "line": 57, "endLine": 58, "quote": "# Number of random trials\nNUM_TRIALS = 30"}],
+      "review": "pending"
+    },
+    {
+      "id": "sklearn-f04",
+      "claim": "Features and labels come from sklearn's Iris dataset loader.",
+      "basis": "observed",
+      "essential": true,
+      "anchors": [{"id": "sklearn-a04", "file": "examples/model_selection/plot_nested_cross_validation_iris.py", "line": 60, "endLine": 63, "quote": "# Load the dataset\niris = load_iris()\nX_iris = iris.data\ny_iris = iris.target"}],
+      "review": "pending"
+    },
+    {
+      "id": "sklearn-f05",
+      "claim": "Grid search considers C values 1, 10, and 100 and gamma values 0.01 and 0.1.",
+      "basis": "observed",
+      "essential": true,
+      "anchors": [{"id": "sklearn-a05", "file": "examples/model_selection/plot_nested_cross_validation_iris.py", "line": 65, "endLine": 66, "quote": "# Set up possible values of parameters to optimize over\np_grid = {\"C\": [1, 10, 100], \"gamma\": [0.01, 0.1]}"}],
+      "review": "pending"
+    },
+    {
+      "id": "sklearn-f06",
+      "claim": "The estimator is an SVC with an RBF kernel.",
+      "basis": "observed",
+      "essential": true,
+      "anchors": [{"id": "sklearn-a06", "file": "examples/model_selection/plot_nested_cross_validation_iris.py", "line": 68, "endLine": 69, "quote": "# We will use a Support Vector Classifier with \"rbf\" kernel\nsvm = SVC(kernel=\"rbf\")"}],
+      "review": "pending"
+    },
+    {
+      "id": "sklearn-f07",
+      "claim": "Each trial constructs separate shuffled four-fold inner and outer KFold objects, both seeded by the trial index.",
+      "basis": "observed",
+      "essential": true,
+      "anchors": [{"id": "sklearn-a07", "file": "examples/model_selection/plot_nested_cross_validation_iris.py", "line": 75, "endLine": 81, "quote": "# Loop for each trial\nfor i in range(NUM_TRIALS):\n    # Choose cross-validation techniques for the inner and outer loops,\n    # independently of the dataset.\n    # E.g \"GroupKFold\", \"LeaveOneOut\", \"LeaveOneGroupOut\", etc.\n    inner_cv = KFold(n_splits=4, shuffle=True, random_state=i)\n    outer_cv = KFold(n_splits=4, shuffle=True, random_state=i)"}],
+      "review": "pending"
+    },
+    {
+      "id": "sklearn-f08",
+      "claim": "The non-nested score is GridSearchCV.best_score_ after fitting the search over the full Iris inputs with outer_cv as its CV splitter.",
+      "basis": "observed",
+      "essential": true,
+      "anchors": [{"id": "sklearn-a08", "file": "examples/model_selection/plot_nested_cross_validation_iris.py", "line": 83, "endLine": 86, "quote": "    # Non_nested parameter search and scoring\n    clf = GridSearchCV(estimator=svm, param_grid=p_grid, cv=outer_cv)\n    clf.fit(X_iris, y_iris)\n    non_nested_scores[i] = clf.best_score_"}],
+      "review": "pending"
+    },
+    {
+      "id": "sklearn-f09",
+      "claim": "The nested score wraps the inner GridSearchCV in cross_val_score using outer_cv, then averages the outer scores.",
+      "basis": "observed",
+      "essential": true,
+      "anchors": [{"id": "sklearn-a09", "file": "examples/model_selection/plot_nested_cross_validation_iris.py", "line": 88, "endLine": 91, "quote": "    # Nested CV with parameter optimization\n    clf = GridSearchCV(estimator=svm, param_grid=p_grid, cv=inner_cv)\n    nested_score = cross_val_score(clf, X=X_iris, y=y_iris, cv=outer_cv)\n    nested_scores[i] = nested_score.mean()"}],
+      "review": "pending"
+    },
+    {
+      "id": "sklearn-f10",
+      "claim": "The reported comparison is non-nested score minus nested score, summarized by mean and standard deviation.",
+      "basis": "observed",
+      "essential": true,
+      "anchors": [{"id": "sklearn-a10", "file": "examples/model_selection/plot_nested_cross_validation_iris.py", "line": 93, "endLine": 99, "quote": "score_difference = non_nested_scores - nested_scores\n\nprint(\n    \"Average difference of {:6f} with std. dev. of {:6f}.\".format(\n        score_difference.mean(), score_difference.std()\n    )\n)"}],
+      "review": "pending"
+    },
+    {
+      "id": "sklearn-f11",
+      "claim": "The visualization shows both score sequences and a bar chart of their per-trial difference.",
+      "basis": "observed",
+      "essential": false,
+      "anchors": [{"id": "sklearn-a11", "file": "examples/model_selection/plot_nested_cross_validation_iris.py", "line": 101, "endLine": 105, "quote": "# Plot scores on each trial for nested and non-nested CV\nplt.figure()\nplt.subplot(211)\n(non_nested_scores_line,) = plt.plot(non_nested_scores, color=\"r\")\n(nested_line,) = plt.plot(nested_scores, color=\"b\")"}],
+      "review": "pending"
+    }
+  ],
+  "unknowns": [
+    "No target code was executed, so numerical score differences and plot contents are not candidate facts.",
+    "The implementation details of GridSearchCV, KFold, cross_val_score, and SVC are outside this inspected example.",
+    "A human reviewer must decide whether to label non-nested selection bias as a demonstrated methodological pitfall rather than a defect in this educational example."
+  ],
+  "nonDefects": [
+    "The non-nested reuse of CV for selection and scoring is intentional because the example demonstrates its optimistic bias.",
+    "Using the same trial index to seed separate inner and outer splitter objects is explicit example behavior and is not, by itself, evidence of leakage.",
+    "The script compares evaluation strategies; it does not produce a final deployed estimator."
+  ],
+  "review": {"reviewer": null, "decision": "pending"}
+}

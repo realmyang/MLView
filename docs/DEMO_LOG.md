@@ -1,5 +1,15 @@
 # DEMO LOG — template
 
+For an LLM workflow run, also record the native host/version, selected model
+(unknown if unexposed), installed skill revision, request/config, artifact path
+and revision, exact node/edge/notebook jumps, refinement, source staleness,
+repair rounds, elapsed time and usage if exposed. Follow
+[LLM_WORKFLOW.md](LLM_WORKFLOW.md). The static rule counts below are not LLM
+quality scores; use [the evaluation protocol](../evals/workflow/README.md).
+
+Completed LLM records: [initial integration](demo-logs/2026-09-16-llm-workflow.md)
+and [native-host retry](demo-logs/2026-09-17-host-retry.md).
+
 Copy this file, fill it in **while you validate**, and keep it with the run:
 
 ```sh
@@ -13,8 +23,7 @@ New-Item -ItemType Directory -Force docs/demo-logs/screenshots | Out-Null
 Copy-Item docs/DEMO_LOG.md "docs/demo-logs/$(Get-Date -Format yyyy-MM-dd)-<your-machine>.md"
 ```
 
-The `mkdir` comes first: a fresh clone carries `docs/demo-logs/.gitkeep` and
-nothing else, and `screenshots/` is not there at all.
+The `mkdir` comes first because the screenshot directory is not tracked.
 
 The checks below are the ones in [`docs/VALIDATION.md`](VALIDATION.md) Part 2.
 One row each: `pass`, `fail`, `skip` (with why) or `n/a`. A **fail** row must say
