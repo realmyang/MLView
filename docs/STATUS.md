@@ -25,4 +25,10 @@ and [current validation](VALIDATION.md).
 
 Historical live host exercises predate this removal. Windows and remote VS Code
 interaction need live validation before compatibility is claimed. The rewritten
-CI matrix must run on this revision; old green runs are not evidence for it.
+CI matrix passed all eight jobs for `5319777` in both the
+[push run](https://github.com/realmyang/MLView/actions/runs/35329824132) and
+[PR run](https://github.com/realmyang/MLView/actions/runs/35329828241).
+
+The [improvement research](IMPROVEMENT_RESEARCH_2026-09-18.md) proposes the next
+campaigns. It identifies remaining authored-UI wording and semantic-quality
+gaps; its proposals have not been implemented or treated as passed evaluations.

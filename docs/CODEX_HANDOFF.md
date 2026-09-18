@@ -16,9 +16,15 @@ Current operational guidance is in [AGENTS.md](../AGENTS.md),
 Validation for this change is recorded in [VALIDATION.md](VALIDATION.md):
 15 local end-to-end gates passed, with 102 Python tests plus 16 subtests,
 21 viewer tests and 30 extension tests. Two unavailable Claude CLI checks were
-explicitly skipped; current CI and live hosts were not rerun.
-Changes remain local on the existing feature branch; no publication is implied.
+explicitly skipped. The user then requested commit and push: `5319777` is
+published on `llm-workflow`, and both push and PR CI passed all eight jobs.
+Live hosts were not rerun after the removal.
 Human semantic review and the native held-out pilot remain outstanding.
+
+The subsequent [improvement research](IMPROVEMENT_RESEARCH_2026-09-18.md) records
+source-grounded and externally researched proposals across quality, coverage,
+functionality, UX, performance and distribution. They are proposals, not an
+implementation authorization or a replacement for human reference approval.
 
 ---
 

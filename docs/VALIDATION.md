@@ -30,9 +30,11 @@ On macOS with Python 3.13.15, Node 26.4.0 and npm 11.17.0:
 - Recorded development/native/follow-up artifacts and the shipped sample are
   unchanged. Relocated example files retain their original SHA-256 values.
 
-The rewritten CI matrix is configured for Python 3.10–3.13, Node 20.18.1/22,
-and Linux/Windows/macOS. It has not run on this uncommitted change. Earlier
-analyzer suite counts and CI runs refer to older revisions.
+The rewritten CI matrix passed all eight jobs for `5319777`: Python 3.10–3.13,
+Node 20.18.1/22 and Linux/Windows/macOS package checks, in both the
+[push run](https://github.com/realmyang/MLView/actions/runs/35329824132) and
+[pull-request run](https://github.com/realmyang/MLView/actions/runs/35329828241).
+Earlier analyzer suite counts and CI runs refer to older revisions.
 
 No automatic test claims live assistant discovery, native model execution or
 semantic correctness. Historical host logs remain in [DEMO_LOG.md](DEMO_LOG.md),
