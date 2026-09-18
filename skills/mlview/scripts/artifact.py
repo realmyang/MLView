@@ -400,11 +400,14 @@ def _load(path: Path) -> Any:
 
 def _draft_path(value: str, root: Path, problems: Problems) -> Path | None:
     """Resolve an existing draft that is safe to replace inside the workspace."""
-    if not value or "\\" in value:
+    if not value:
         problems.add("draft_path", "draft", "must be a slash-separated path inside the workspace")
         return None
     path = Path(value)
     if not path.is_absolute():
+        if "\\" in value:
+            problems.add("draft_path", "draft", "must be a slash-separated path inside the workspace")
+            return None
         path = root.joinpath(*PurePosixPath(value).parts)
     try:
         resolved = path.resolve(strict=True)
