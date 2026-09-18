@@ -1,8 +1,9 @@
-# Current handoff — 2026-09-18 static analyzer removal
+# Current handoff — 2026-09-18 trust and usability campaign
 
-The user's latest explicit direction is to remove the old static analyzer.
-This supersedes preservation requirements in the historical handoff below.
-The active product is the native LLM skill plus WorkflowDocument viewer.
+The user authorized execution of the improvement recommendations after the
+static analyzer removal and research were pushed. The active product remains
+the native LLM skill plus WorkflowDocument viewer. Do not restore the retired
+analyzer; historical preservation requirements below no longer apply.
 
 Removed the analyzer source and Python distribution, legacy contracts/goldens,
 MCP/vendor/hooks, static extension commands/tools, static rule catalog and static
@@ -13,7 +14,7 @@ artifacts were not rewritten. Replay uses a hash-pinned historical path map.
 
 Current operational guidance is in [AGENTS.md](../AGENTS.md),
 [CONTRIBUTING.md](../CONTRIBUTING.md) and [STATUS.md](STATUS.md).
-Validation for this change is recorded in [VALIDATION.md](VALIDATION.md):
+Validation of the earlier removal is recorded in [VALIDATION.md](VALIDATION.md):
 15 local end-to-end gates passed, with 102 Python tests plus 16 subtests,
 21 viewer tests and 30 extension tests. Two unavailable Claude CLI checks were
 explicitly skipped. The user then requested commit and push: `5319777` is
@@ -21,10 +22,22 @@ published on `llm-workflow`, and both push and PR CI passed all eight jobs.
 Live hosts were not rerun after the removal.
 Human semantic review and the native held-out pilot remain outstanding.
 
-The subsequent [improvement research](IMPROVEMENT_RESEARCH_2026-09-18.md) records
-source-grounded and externally researched proposals across quality, coverage,
-functionality, UX, performance and distribution. They are proposals, not an
-implementation authorization or a replacement for human reference approval.
+Research was published in `d40d96e`. The user's subsequent “Execute your
+recommendations” authorized the [trust/usability campaign](TRUST_USABILITY_CAMPAIGN.md).
+It implements authored semantics, complete evidence inspection and textual
+relationships, coalesced validation with race guards, interpretation references,
+protected incremental draft edits, full-bundle diagnostics, candidate snapshots
+and performance/evaluation preparation. The current changes are local on
+`llm-workflow`; earlier remote CI does not validate them.
+
+See [current validation](VALIDATION.md) for tests actually run. The independent
+Sol skill exercise is auxiliary, not a native-host or human-reviewed score.
+Desktop control stalled during live-check preparation; no browser/VS Code UI
+or screen-reader pass is claimed for this campaign. A named human must still
+review the [reference packet](../evals/workflow/reference-candidates/README.md)
+before the 24/48 scored pilot. The separate no-skill plan adds 24 Stage 1
+sessions; none has run. The [candidate protocol](../evals/workflow/CANDIDATE_PROTOCOL.md)
+replaces reliance on historical four-file hashes for future evaluations.
 
 ---
 

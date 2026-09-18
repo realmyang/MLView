@@ -8,6 +8,8 @@ Start with the [project overview](../README.md) and
 | [WorkflowDocument contract](WORKFLOW_CONTRACT.md) | Artifact semantics, evidence and validation boundaries |
 | [Current status](STATUS.md) | What ships and what still needs validation |
 | [Improvement research](IMPROVEMENT_RESEARCH_2026-09-18.md) | Prioritized proposals grounded in source, evaluation records and primary research |
+| [Trust and usability campaign](TRUST_USABILITY_CAMPAIGN.md) | Implemented first campaign, validation and remaining human/live checks |
+| [Performance baseline](PERFORMANCE.md) | Reproducible synthetic scale harness and measured limits |
 | [Validation](VALIDATION.md) | Current local check results and their limits |
 | [Contributing](../CONTRIBUTING.md) | Development setup and release gates |
 | [Evaluation protocol](../evals/workflow/README.md) | Native-host semantic and human review |

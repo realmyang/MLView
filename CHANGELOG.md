@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased — trust and usability
+
+- Clarify authored uncertainty and severity, show every evidence quote, and add
+  direct claim challenges plus accessible textual relationship views.
+- Coalesce edit-driven validation; guard stale results, navigation and disposal
+  across overlapping source and artifact changes.
+- Add targeted interpretation guides and protected incremental draft edits.
+- Identify full skill bundles, diagnose installation drift, prepare separate
+  matched baselines and measure synthetic renderer scale through 2,000 nodes.
+- Preserve WorkflowDocument 1.0 and historical evaluation records. Human
+  semantic review and broader native-host/UI validation remain outstanding.
+
 ## Unreleased — native workflow only
 
 - Remove the Python static analyzer, CLI, rules, caches, static reports, MCP

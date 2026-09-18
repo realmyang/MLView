@@ -11,6 +11,7 @@ import { severityGlyph } from '../markers.js';
 import { appendTrustSections, confidenceChip } from './evidence.js';
 import { renderIssuePanel } from './issuelist.js';
 import { renderOutlineTree } from './outline.js';
+import type { RelationMode } from './outline.js';
 import { appendSuppressActions, stateChip } from './suppress.js';
 import { appendFixSection, hasFix } from './fixes.js';
 import { alternativeCount, isAlternatives, resolvedConfig } from '../config/resolved.js';
@@ -23,6 +24,8 @@ export interface RailCallbacks {
   onClearFilters(): void;
   onSelectIssue(id: string): void;
   onSelectNode(id: string): void;
+  onSelectEdge(id: string): void;
+  onChallenge(): void;
   onOpen(loc: Loc | RelatedLoc): void;
   onResize(width: number): void;
   onToggleRail(): void;
@@ -53,6 +56,7 @@ export interface RailState {
   selectedNode: MLNode | null;
   selectedEdge: MLEdge | null;
   selectedIssueId: string | null;
+  selectedIssue: Issue | null;
   /** The canvas's collapsed groups — the Outline mirrors them (MLV-R2-W08). */
   collapsed: Set<string>;
   keep(issue: Issue): boolean;
@@ -86,6 +90,8 @@ export class Rail {
    */
   private expanded = new Set<string>();
   private lastState: RailState | null = null;
+  private relationMode: RelationMode = 'outgoing';
+  private relationNodeId: string | null = null;
 
   constructor(cb: RailCallbacks) {
     this.cb = cb;
@@ -188,17 +194,21 @@ export class Rail {
     if (!active || typeof active.closest !== 'function' || !this.root.contains(active)) {
       return () => undefined;
     }
-    const owner = active.closest('[data-issue-id][role="option"], [data-outline-id], [data-outline-lane]');
+    const owner = active.closest('[data-issue-id][role="option"], [data-outline-id], [data-outline-lane], [data-relation-id]');
     if (!owner) return () => undefined;
     const attr = owner.hasAttribute('data-issue-id')
       ? 'data-issue-id'
       : owner.hasAttribute('data-outline-id')
         ? 'data-outline-id'
-        : 'data-outline-lane';
+        : owner.hasAttribute('data-outline-lane')
+          ? 'data-outline-lane'
+          : 'data-relation-id';
     const value = owner.getAttribute(attr) || '';
     return () => {
       const next = this.root.querySelector('[' + attr + '="' + value + '"]') as HTMLElement | null;
       if (!next) return;
+      const panel = next.closest('[role="tabpanel"]') as HTMLElement | null;
+      if (panel?.hidden) return;
       // Moving the tab stop with the focus keeps the roving tabindex honest.
       const composite = next.closest('[role="tree"], [role="listbox"]');
       if (composite) {
@@ -279,6 +289,13 @@ export class Rail {
       this.renderEdgeInspector(panel, s.selectedEdge, s.index);
       return;
     }
+    if (s.selectedIssue && s.index) {
+      add(panel, el('h4', 'mlv-insp__title', s.selectedIssue.title));
+      panel.appendChild(this.inspectorIssue(s.selectedIssue, s));
+      this.appendChallenge(panel);
+      this.renderWorkflowLimitations(panel, s.index);
+      return;
+    }
     if (!node || !s.index) {
       add(panel, el('div', 'mlv-empty-note', 'Select a node to inspect it.'));
       return;
@@ -294,7 +311,7 @@ export class Rail {
     if (node.framework) add(meta, el('span', 'mlv-chip', node.framework));
     add(meta, el('span', 'mlv-chip', node.basis ? 'basis · ' + node.basis : node.confidenceBucket));
     // VIEW-08: a resurrected ghost is a REMOVED node, not a missing step.
-    if (node.ghost) add(meta, el('span', 'mlv-chip', 'missing step'));
+    if (node.ghost) add(meta, el('span', 'mlv-chip', 'removed from current revision'));
     if (node.dynamic) add(meta, el('span', 'mlv-chip', 'dynamic scope'));
     if (node.diffStatus && node.diffStatus !== 'unchanged') {
       const chip = stateChip(
@@ -336,13 +353,10 @@ export class Rail {
     scopeBtn.setAttribute('data-scope-node', node.id);
     on(scopeBtn, 'click', () => this.cb.onScopeToNode(node.id));
     actions.appendChild(scopeBtn);
+    this.appendChallenge(actions);
 
     this.renderEvidenceLocations(panel, node.evidenceLocs || (node.loc.file ? [node.loc] : []));
-
-    if (node.loc.snippet) {
-      const pre = add(panel, el('pre', 'mlv-banner__detail', node.loc.snippet));
-      pre.style.marginTop = 'var(--mlv-s4)';
-    }
+    this.renderWorkflowLimitations(panel, s.index);
 
     // ANA-10. The resolved value, and — where the analyzer could not choose —
     // ALL N alternatives, named. The card has room for three; this is where the
@@ -420,13 +434,42 @@ export class Rail {
     add(meta, el('span', 'mlv-chip', edge.kind || 'connection'));
     if (edge.basis) add(meta, el('span', 'mlv-chip mlv-chip--basis', 'basis · ' + edge.basis));
     add(panel, el('div', 'mlv-insp__fqn', (source?.label || edge.source) + ' → ' + (target?.label || edge.target)));
+    const actions = add(panel, el('div', 'mlv-insp__actions'));
+    this.appendChallenge(actions);
     this.renderEvidenceLocations(panel, edge.evidenceLocs || (edge.loc.file ? [edge.loc] : []));
+    this.renderWorkflowLimitations(panel, index);
+  }
+
+  private renderWorkflowLimitations(panel: HTMLElement, index: GraphIndex): void {
+    if (index.graph.schemaVersion !== 'workflow-view/1') return;
+    const limitations = (index.graph.diagnostics || []).filter((item) => item.kind === 'workflow_limitation');
+    if (!limitations.length) return;
+    panel.appendChild(this.heading('Coverage limitations'));
+    const list = add(panel, el('ul', 'mlv-insp__related mlv-insp__limitations'));
+    for (const limitation of limitations) add(list, el('li', '', limitation.message));
   }
 
   private renderEvidenceLocations(panel: HTMLElement, locations: Loc[]): void {
-    if (!locations.length) return;
+    if (!locations.length) {
+      add(panel, el('div', 'mlv-empty-note mlv-insp__no-evidence', 'No source evidence was authored for this item. Its basis and coverage limitations describe what remains uncertain.'));
+      return;
+    }
     panel.appendChild(this.heading('Source evidence'));
-    const list = add(panel, el('ul', 'mlv-insp__related'));
+    const nav = add(panel, el('div', 'mlv-insp__evidence-nav'));
+    const previous = button('mlv-btn', 'Previous evidence');
+    const next = button('mlv-btn', 'Next evidence');
+    let active = 0;
+    const update = () => {
+      previous.disabled = active === 0;
+      next.disabled = active === locations.length - 1;
+      previous.title = previous.disabled ? 'This is the first evidence item' : 'Open the previous evidence item';
+      next.title = next.disabled ? 'This is the last evidence item' : 'Open the next evidence item';
+    };
+    on(previous, 'click', () => { if (active > 0) this.cb.onOpen(locations[--active]); update(); });
+    on(next, 'click', () => { if (active < locations.length - 1) this.cb.onOpen(locations[++active]); update(); });
+    nav.append(previous, next);
+    update();
+    const list = add(panel, el('ul', 'mlv-insp__related mlv-insp__source-evidence'));
     for (const loc of locations) {
       const li = add(list, el('li'));
       const openBtn = button('mlv-link', 'Open ' + fileLine(loc));
@@ -436,9 +479,20 @@ export class Rail {
         openBtn.setAttribute('data-cell', String(nbCell.cell));
         openBtn.title = locTitle(loc);
       }
-      on(openBtn, 'click', () => this.cb.onOpen(loc));
+      on(openBtn, 'click', () => {
+        active = locations.indexOf(loc);
+        update();
+        this.cb.onOpen(loc);
+      });
       li.appendChild(openBtn);
+      if (loc.snippet) add(li, el('pre', 'mlv-banner__detail', loc.snippet));
     }
+  }
+
+  private appendChallenge(parent: HTMLElement): void {
+    const challenge = button('mlv-btn mlv-insp__challenge', 'Challenge this claim');
+    on(challenge, 'click', () => this.cb.onChallenge());
+    parent.appendChild(challenge);
   }
 
   /**
@@ -516,8 +570,10 @@ export class Rail {
       ).setAttribute('data-diff-issue', diffStatus);
     }
     add(box, el('p', 'mlv-insp__line', issue.message));
-    add(box, el('p', 'mlv-insp__line', issue.why));
-    add(box, el('div', 'mlv-insp__fix', issue.fixHint));
+    if (issue.fixHint) {
+      box.appendChild(this.heading('Suggested check'));
+      add(box, el('div', 'mlv-insp__fix', issue.fixHint));
+    }
     // H5. The Inspector is where a reader who has just read the evidence decides
     // what to do, so the computed edit — its title, its safety and the snippet —
     // goes here in full, above the two suppression actions.
@@ -533,13 +589,16 @@ export class Rail {
       });
     }
     if ((issue.relatedLocs || []).length) {
+      box.appendChild(this.heading('Evidence review'));
       const list = add(box, el('ul', 'mlv-insp__related'));
       for (const rel of issue.relatedLocs) {
         const li = add(list, el('li'));
         const link = el('button', 'mlv-link', (rel.message || rel.role) + ' — ' + fileLine(rel));
         link.type = 'button';
+        link.setAttribute('data-evidence-id', rel.evidenceId || '');
         on(link, 'click', () => this.cb.onOpen(rel));
         li.appendChild(link);
+        if (rel.snippet) add(li, el('pre', 'mlv-banner__detail', rel.snippet));
       }
     }
     return box;
@@ -561,16 +620,23 @@ export class Rail {
       add(panel, el('div', 'mlv-empty-note', 'No workflow loaded yet.'));
       return;
     }
+    if (s.selectedNode) this.relationNodeId = s.selectedNode.id;
+    const relationNodeId = this.relationNodeId && index.nodeById.has(this.relationNodeId)
+      ? this.relationNodeId
+      : null;
     renderOutlineTree(
       panel,
       {
         index,
         keep: s.keep,
-        selectedNodeId: s.selectedNode ? s.selectedNode.id : null,
+        selectedNodeId: s.selectedNode ? s.selectedNode.id : relationNodeId,
         collapsed: s.collapsed,
+        relationMode: this.relationMode,
       },
       {
         onSelectNode: (id) => this.cb.onSelectNode(id),
+        onSelectEdge: (id) => this.cb.onSelectEdge(id),
+        onRelationMode: (mode) => { this.relationMode = mode; },
         onSelectLane: (laneId) => this.cb.onSelectLane(laneId),
         onToggleCollapse: (id) => this.cb.onToggleCollapse(id),
       },

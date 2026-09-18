@@ -51,8 +51,9 @@ Check an installed workspace without changing it:
 python3 tools/install_skill.py /path/to/target-project --doctor
 ```
 
-This checks Python 3.10+, the documented skill directories, missing bundled
-files and duplicate installations. It cannot certify native skill discovery or
+This checks Python 3.10+, the documented skill directories, missing, edited and
+unexpected bundled files, exact bundle hashes and duplicate installations.
+It reports remediation without overwriting local edits. It cannot certify native skill discovery or
 the extension UI; complete those checks in the chosen assistant. CI is configured
 to package and check both standalone skill ZIPs alongside the VSIX.
 
@@ -80,6 +81,19 @@ counter-evidence remain separate. Notebook anchors name a zero-based cell and
 one-based lines inside that cell. Reading a notebook does not establish its
 execution order. Unresolved steps and conceptual groups can lack navigation
 targets; MLView does not invent locations for them.
+
+The Inspector displays every authored source quote and keeps finding support
+and counter-evidence distinct. Previous/Next evidence opens adjacent anchors;
+source-less items explain why navigation is unavailable. **Challenge this claim**
+opens the refinement composer for the current item; you still decide whether to
+send the copied request.
+
+Use **Outline → Text relationships** to enumerate connections without relying
+on the canvas. All shows relationships in the current scope; Incoming and
+Outgoing use the selected node, and Unresolved shows relationships involving
+an unresolved edge or endpoint. These are direct connections, not a claim of
+complete transitive change impact. Clear the scope to return to the whole
+authored workflow.
 
 Refine in the same assistant, for example:
 
@@ -109,6 +123,10 @@ changes before asking for a new analysis. Stale evidence blocks misleading
 source jumps; the existing diagram may still explain the older revision.
 Freshness covers recorded dependencies, not every file the model could have
 read through opaque host tools.
+
+During edit bursts, the viewer marks freshness as pending immediately and
+coalesces validation work. Navigation rechecks the selected evidence, and an
+obsolete validation result cannot replace a newer revision or clear its warning.
 
 If validation fails, read the reported field/error, repair the draft, and try
 again. Do not overwrite the prior artifact with a static fallback. Cancellation,

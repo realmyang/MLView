@@ -7,7 +7,24 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { api, vscode } = require('./harness');
 
+const fixtures = [];
+test.afterEach(() => {
+  for (const fixture of fixtures.splice(0)) {
+    try { fixture.controller?.dispose(); }
+    finally { fs.rmSync(fixture.root, {recursive:true, force:true}); }
+  }
+});
+
 const tick = () => new Promise((resolve) => setImmediate(resolve));
+function manualTimers() {
+  let next=0;
+  const callbacks=new Map();
+  return {
+    api:{set(callback){const id=++next;callbacks.set(id,callback);return id;},clear(id){callbacks.delete(id);}},
+    fire(){const pending=[...callbacks.values()];callbacks.clear();for(const callback of pending)callback();},
+    get size(){return callbacks.size;}
+  };
+}
 function context() {
   const extensionPath=path.join(__dirname,'..');
   return {extensionPath,extensionUri:vscode.Uri.file(extensionPath),subscriptions:[]};
@@ -21,15 +38,18 @@ function publishedWorkflow() {
   value.verification={files:{'source.py':crypto.createHash('sha256').update('fit()\n').digest('hex')},publishedAt:'2026-09-16T12:00:00Z'};
   return value;
 }
-function setup(raw) {
+function setup(raw, validator) {
   vscode.__reset();
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'mlview-panel-'));
+  const fixture={root};
+  fixtures.push(fixture);
   fs.writeFileSync(path.join(root,'source.py'),'fit()\n');
   vscode.__setDocument(path.join(root,'source.py'),'fit()\n');
   const artifact=path.join(root,'run.mlview.json');
   fs.writeFileSync(artifact,typeof raw==='string'?raw:JSON.stringify(raw));
   vscode.__setWorkspaceFolders([root]);
-  const controller=new api.AuthoredDiagramController(context(),log());
+  const controller=new api.AuthoredDiagramController(context(),log(),validator);
+  fixture.controller=controller;
   controller.register();
   return {root,artifact,controller};
 }
@@ -118,6 +138,74 @@ test('out-of-order reload completion can only adopt the newest generation', asyn
   assert.deepEqual(adopted,['new']);
 });
 
+test('validation scheduler debounces typing bursts into one run', async () => {
+  const timers=manualTimers();
+  let runs=0;
+  const scheduler=new api.ValidationScheduler(async()=>{runs++;},120,timers.api);
+  scheduler.debounce();scheduler.debounce();scheduler.debounce();
+  assert.equal(timers.size,1);
+  timers.fire();await tick();
+  assert.equal(runs,1);
+  scheduler.dispose();
+});
+
+test('validation scheduler permits one active run and coalesces overlapping events', async () => {
+  const timers=manualTimers();
+  let runs=0,active=0,maxActive=0,release;
+  const firstGate=new Promise(resolve=>{release=resolve;});
+  const scheduler=new api.ValidationScheduler(async()=>{
+    runs++;active++;maxActive=Math.max(maxActive,active);
+    if(runs===1)await firstGate;
+    active--;
+  },120,timers.api);
+  const completed=scheduler.immediate();await tick();
+  scheduler.debounce();scheduler.debounce();timers.fire();await tick();
+  assert.equal(runs,1);
+  release();await completed;
+  assert.equal(runs,2);
+  assert.equal(maxActive,1);
+  scheduler.dispose();
+});
+
+test('validation scheduler cancels pending and queued work on disposal', async () => {
+  const timers=manualTimers();
+  let runs=0,release;
+  const gate=new Promise(resolve=>{release=resolve;});
+  const scheduler=new api.ValidationScheduler(async()=>{runs++;await gate;},120,timers.api);
+  const completed=scheduler.immediate();await tick();
+  scheduler.debounce();timers.fire();
+  scheduler.dispose();release();await completed;await tick();
+  assert.equal(runs,1);
+  scheduler.debounce();timers.fire();await tick();
+  assert.equal(runs,1);
+});
+
+test('immediate completion waits for a newer debounce timer and its work', async () => {
+  const timers=manualTimers();
+  let runs=0,release;
+  const gate=new Promise(resolve=>{release=resolve;});
+  const scheduler=new api.ValidationScheduler(async()=>{runs++;if(runs===1)await gate;},120,timers.api);
+  let completed=false;
+  const completion=scheduler.immediate().then(()=>{completed=true;});
+  await tick();
+  scheduler.debounce();
+  release();await tick();
+  assert.equal(completed,false,'a pending debounce is part of reload completion');
+  assert.equal(runs,1);
+  timers.fire();await completion;
+  assert.equal(runs,2);
+  scheduler.dispose();
+});
+
+test('validation scheduler reports work rejection without stranding waiters', async () => {
+  const errors=[];
+  const scheduler=new api.ValidationScheduler(async()=>{throw new Error('validator exploded');},0,undefined,error=>errors.push(error));
+  await scheduler.immediate();
+  assert.equal(errors.length,1);
+  assert.match(String(errors[0]),/validator exploded/);
+  scheduler.dispose();
+});
+
 test('source save rejects stale evidence, then a child revision clears the error', async () => {
   const {artifact,controller}=setup(workflow());
   await controller.open(vscode.Uri.file(artifact));
@@ -125,7 +213,7 @@ test('source save rejects stale evidence, then a child revision clears the error
   fs.writeFileSync(path.join(path.dirname(artifact),'source.py'),'changed()\n');
   vscode.__setDocument(path.join(path.dirname(artifact),'source.py'),'changed()\n');
   for(const listener of vscode.__recorded.saveListeners)listener(await vscode.workspace.openTextDocument(vscode.Uri.file(path.join(path.dirname(artifact),'source.py'))));
-  await new Promise((resolve)=>setTimeout(resolve,25));
+  await new Promise((resolve)=>setTimeout(resolve,180));
   assert.match(panel.posted.at(-1).message,/retaining the last valid revision/);
   fs.writeFileSync(path.join(path.dirname(artifact),'source.py'),'fit()\n');
   vscode.__setDocument(path.join(path.dirname(artifact),'source.py'),'fit()\n');
@@ -135,6 +223,106 @@ test('source save rejects stale evidence, then a child revision clears the error
   assert.equal(panel.posted.at(-2).type,'workflowError');
   assert.equal(panel.posted.at(-2).message,'');
   controller.dispose();
+});
+
+test('notebook save events invalidate dependent artifacts', async () => {
+  const {root,artifact,controller}=setup(workflow());
+  await controller.open(vscode.Uri.file(artifact));
+  const panel=vscode.__recorded.panels.at(-1);panel.fire({v:1,type:'ready'});await tick();
+  const dependent={uri:vscode.Uri.file(path.join(root,'source.py'))};
+  for(const listener of vscode.__recorded.notebookSaveListeners)listener(dependent);
+  assert.match(panel.posted.at(-1).message,/checking diagram freshness/);
+  await new Promise(resolve=>setTimeout(resolve,180));
+  controller.dispose();
+});
+
+test('artifact and source event bursts show pending freshness once and recover after a failed revision', async () => {
+  const {root,artifact,controller}=setup(workflow());
+  await controller.open(vscode.Uri.file(artifact));
+  const panel=vscode.__recorded.panels.at(-1);panel.fire({v:1,type:'ready'});await tick();
+  const source=await vscode.workspace.openTextDocument(vscode.Uri.file(path.join(root,'source.py')));
+  for(const listener of vscode.__recorded.changeListeners)listener({document:source});
+  for(const listener of vscode.__recorded.saveListeners)listener(source);
+  for(const listener of vscode.__recorded.changeListeners)listener({document:source});
+  assert.equal(panel.posted.filter(x=>x.type==='workflowError'&&/checking diagram freshness/.test(x.message)).length,1);
+  fs.writeFileSync(artifact,'{"workflowVersion":');
+  for(const listener of vscode.__recorded.saveListeners)listener(await vscode.workspace.openTextDocument(vscode.Uri.file(artifact)));
+  await new Promise(resolve=>setTimeout(resolve,180));
+  assert.match(panel.posted.at(-1).message,/JSON parse error/);
+  const next=workflow();next.revision={id:'r2',parent:'r1'};
+  fs.writeFileSync(artifact,JSON.stringify(next));
+  vscode.__setDocument(artifact,JSON.stringify(next));
+  for(const listener of vscode.__recorded.saveListeners)listener(await vscode.workspace.openTextDocument(vscode.Uri.file(artifact)));
+  await new Promise(resolve=>setTimeout(resolve,180));
+  assert.equal(panel.posted.filter(x=>x.type==='workflow').at(-1).document.revision.id,'r2');
+  assert.equal(panel.posted.at(-2).message,'');
+  controller.dispose();
+});
+
+test('a source event invalidates an active result until the coalesced newest rerun completes', async () => {
+  const gates=[];
+  const starts=[];
+  let calls=0;
+  const validator=async(...args)=>{
+    calls++;
+    if(calls>1) {
+      let release,started;
+      const waiting=new Promise(resolve=>{release=resolve;});
+      const announced=new Promise(resolve=>{started=resolve;});
+      gates.push(release);starts.push(announced);started();await waiting;
+    }
+    return api.validateWorkflow(...args);
+  };
+  const {root,artifact,controller}=setup(workflow(),validator);
+  await controller.open(vscode.Uri.file(artifact));
+  const panel=vscode.__recorded.panels.at(-1);panel.fire({v:1,type:'ready'});await tick();
+  const source=await vscode.workspace.openTextDocument(vscode.Uri.file(path.join(root,'source.py')));
+  for(const listener of vscode.__recorded.changeListeners)listener({document:source});
+  await new Promise(resolve=>setTimeout(resolve,140));await starts[0];
+  for(const listener of vscode.__recorded.saveListeners)listener(source);
+  await new Promise(resolve=>setTimeout(resolve,140));
+  gates[0]();
+  while(starts.length<2)await tick();
+  await starts[1];
+  assert.equal(panel.posted.filter(x=>x.type==='workflow').length,1);
+  assert.match(panel.posted.at(-1).message,/checking diagram freshness/);
+  gates[1]();await new Promise(resolve=>setTimeout(resolve,20));
+  assert.equal(panel.posted.filter(x=>x.type==='workflow').length,2);
+  controller.dispose();
+});
+
+test('navigation validation cannot open a source after panel disposal', async () => {
+  let release,started;
+  const gate=new Promise(resolve=>{release=resolve;});
+  const began=new Promise(resolve=>{started=resolve;});
+  let calls=0;
+  const validator=async(...args)=>{calls++;if(calls===2){started();await gate;}return api.validateWorkflow(...args);};
+  const {artifact,controller}=setup(workflow(),validator);
+  await controller.open(vscode.Uri.file(artifact));
+  const panel=vscode.__recorded.panels.at(-1);panel.fire({v:1,type:'ready'});await tick();
+  panel.fire({v:1,type:'openLocation',evidenceId:'e'});await began;
+  panel.dispose();release();await new Promise(resolve=>setTimeout(resolve,20));
+  assert.equal(vscode.__recorded.shownDocuments.length,0);
+  controller.dispose();
+});
+
+test('awaited document open cannot navigate after panel disposal', async () => {
+  const {artifact,controller}=setup(workflow());
+  await controller.open(vscode.Uri.file(artifact));
+  const panel=vscode.__recorded.panels.at(-1);panel.fire({v:1,type:'ready'});await tick();
+  const original=vscode.workspace.openTextDocument;
+  let release,started;
+  const gate=new Promise(resolve=>{release=resolve;});
+  const began=new Promise(resolve=>{started=resolve;});
+  vscode.workspace.openTextDocument=async uri=>{started();await gate;return original(uri);};
+  try {
+    panel.fire({v:1,type:'openLocation',evidenceId:'e'});await began;
+    panel.dispose();release();await new Promise(resolve=>setTimeout(resolve,20));
+    assert.equal(vscode.__recorded.shownDocuments.length,0);
+  } finally {
+    vscode.workspace.openTextDocument=original;
+    controller.dispose();
+  }
 });
 
 test('refine action copies a bounded prompt for the displayed revision', async () => {

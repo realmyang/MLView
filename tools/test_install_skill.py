@@ -109,7 +109,27 @@ class InstallerTests(unittest.TestCase):
             location = report["locations"][0]
             self.assertTrue(location["present"])
             self.assertTrue(location["unsafeSymlinks"])
-            self.assertEqual([path.as_posix() for path in installer.REQUIRED_FILES], location["missing"])
+            self.assertEqual(sorted(file["path"] for file in report["canonicalIdentity"]["files"]), location["missing"])
+
+    def test_doctor_detects_edits_extra_files_and_bundle_identity(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            relative = installer.install(root)
+            report, ok = installer.doctor(root)
+            location = report["locations"][0]
+            self.assertTrue(ok)
+            self.assertEqual(report["canonicalIdentity"], location["identity"])
+            (root / relative / "SKILL.md").write_text("local changes", encoding="utf-8")
+            (root / relative / "unowned.txt").write_text("keep", encoding="utf-8")
+            report, ok = installer.doctor(root)
+            self.assertFalse(ok)
+            location = report["locations"][0]
+            self.assertEqual(["SKILL.md"], location["changed"])
+            self.assertEqual(["unowned.txt"], location["unexpected"])
+            self.assertFalse(location["matchesCanonical"])
+            self.assertNotEqual(report["canonicalIdentity"]["sha256"], location["identity"]["sha256"])
+            self.assertIn("preserve local edits", report["remediation"][0])
+            self.assertEqual("keep", (root / relative / "unowned.txt").read_text(encoding="utf-8"))
 
     def test_doctor_reports_missing_install(self):
         with tempfile.TemporaryDirectory() as temp:

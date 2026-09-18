@@ -226,11 +226,12 @@ function groupControl(s: IssueListState, cb: IssueListCallbacks): HTMLElement {
   add(box, el('span', 'mlv-rail__groupby-label', 'Group by'));
   for (const mode of RAIL_GROUP_MODES) {
     const active = s.groupBy === mode;
-    const b = el('button', 'mlv-chip mlv-chip--btn mlv-rail__groupby-btn', RAIL_GROUP_LABEL[mode]) as HTMLButtonElement;
+    const label = mode === 'rule' && s.index?.graph.schemaVersion === 'workflow-view/1' ? 'Finding ID' : RAIL_GROUP_LABEL[mode];
+    const b = el('button', 'mlv-chip mlv-chip--btn mlv-rail__groupby-btn', label) as HTMLButtonElement;
     b.type = 'button';
     b.setAttribute('data-group-mode', mode);
     b.setAttribute('aria-pressed', active ? 'true' : 'false');
-    b.title = 'Group findings by ' + RAIL_GROUP_LABEL[mode].toLowerCase();
+    b.title = 'Group findings by ' + label.toLowerCase();
     on(b, 'click', () => cb.onGroupBy(mode));
     box.appendChild(b);
   }
@@ -300,7 +301,7 @@ function groupBlock(group: IssueGroup, sev: string, s: IssueListState, cb: Issue
   // silenced in one gesture — the case the 111-row list actually needs. Only
   // under `rule` grouping: a file group's key is a path, and "disable this
   // rule" over eleven different codes would be a lie about what it does.
-  if (s.groupBy === 'rule') {
+  if (s.groupBy === 'rule' && s.index?.graph.schemaVersion !== 'workflow-view/1') {
     const bar = add(box, el('div', 'mlv-railgroup__bar'));
     bar.appendChild(head);
     const n = group.issues.length;

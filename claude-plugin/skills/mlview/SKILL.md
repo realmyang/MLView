@@ -34,6 +34,20 @@ used for metrics, logs, returned values, and saved outputs; nearby accumulators
 or names alone do not establish what is reported. A held-out split does not
 establish evaluation: follow whether and how that split is consumed.
 
+After the first trace, reread the narrow source slices that determine the
+requested outputs and state changes. Start at each displayed, returned, logged,
+or persisted expression and trace its operands backward. Separately start at
+each update call and trace optimizer ownership and gradient-producing paths;
+never infer one from the other. Scope negative claims to the files, scenario,
+and lifecycle interval actually inspected. Resolve configuration precedence
+before describing the selected run. For notebooks, inspect cell source and the
+raw cell metadata that bears on ordering or state, while treating both recorded
+counts and outputs as historical metadata rather than proof of a clean run.
+Read [references/training-state.md](references/training-state.md) for gradient
+or optimizer-heavy workflows, and
+[references/notebooks-and-configuration.md](references/notebooks-and-configuration.md)
+for notebook, lifecycle, absence, or layered-configuration questions.
+
 Author a WorkflowDocument 1.0 draft using `references/workflow-example.json` as
 a shape example and `references/WORKFLOW_CONTRACT.md` as the contract. Use
 semantic steps people recognize. Preserve branches, loops, shared components,
@@ -69,6 +83,22 @@ were needed, separately from validator repairs. Then run, from the workspace roo
 python3 <skill-directory>/scripts/artifact.py validate .mlview/llm/<run-id>/draft.json --workspace .
 python3 <skill-directory>/scripts/artifact.py publish .mlview/llm/<run-id>/draft.json --workspace . --output workflow.mlview.json
 ```
+
+Use [references/coverage-obligations.md](references/coverage-obligations.md) as
+a working aid for the selected request. It is a reasoning checklist, not an
+artifact field: record its results through ordinary nodes, edges, findings,
+evidence, and honest coverage text. For a large valid draft, an optional bounded
+edit can replace or append one ID-bearing phase, node, edge, finding, or evidence
+record while preserving the prior draft on failure:
+
+```sh
+python3 <skill-directory>/scripts/artifact.py upsert .mlview/llm/<run-id>/draft.json --workspace . --collection nodes --record .mlview/llm/<run-id>/node.json
+```
+
+The existing draft and edited checkpoint must both validate. Add dependencies
+first (for example evidence before a node, and nodes before an edge). The helper
+uses ordinary JSON serialization, removes a stale publication stamp after a
+successful edit, and does not create interpretations or repair content.
 
 `<skill-directory>` is the directory containing this file; resolve it using the
 host's skill location. Repair actionable validation errors, with at most two

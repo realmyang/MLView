@@ -18,6 +18,25 @@ Across revisions, keep IDs for concepts whose meaning is unchanged. Coverage's
 `inspectedFiles` records every materially considered source, configuration,
 notebook, script, test, or document, even when it has no final evidence anchor.
 
+A finding has this minimal shape:
+
+```json
+{
+  "id": "finding-id",
+  "title": "Concise concern",
+  "message": "What may be wrong or unresolved and why it matters.",
+  "severity": "medium",
+  "nodeIds": ["affected-node-id"],
+  "basis": "inferred",
+  "evidence": ["evidence-id"]
+}
+```
+
+`severity` is exactly `low`, `medium`, or `high`. `nodeIds` is required and may
+be empty for a workflow-level finding. Optional fields are `edgeIds`,
+`counterEvidence`, and `suggestion`. Findings with no evidence must use an
+`unresolved` basis.
+
 `verification.files` maps the union of cited and materially inspected relative
 paths to SHA-256 of raw file bytes. The helper recomputes it during locked,
 atomic publication and rejects supplied stale fingerprints. An existing lock is

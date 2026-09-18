@@ -20,6 +20,9 @@ SKILL_FILES = {
     "LICENSE",
     "SKILL.md",
     "references/WORKFLOW_CONTRACT.md",
+    "references/coverage-obligations.md",
+    "references/notebooks-and-configuration.md",
+    "references/training-state.md",
     "references/workflow-example.json",
     "scripts/artifact.py",
 }

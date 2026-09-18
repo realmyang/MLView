@@ -38,6 +38,19 @@ def test_missing_and_blocked_runs_never_pass():
     assert not summary["pilotComplete"]
 
 
+def test_stage_one_baselines_match_tasks_but_cannot_enter_skill_scores():
+    baselines = module.baseline_plan(MANIFEST)
+    first = [record for record in module.plan(MANIFEST) if record["repeat"] == 1]
+    assert len(baselines) == 24
+    assert {(r["task"], r["host"], r["repositoryCommit"], r["prompt"]) for r in baselines} == {
+        (r["task"], r["host"], r["repositoryCommit"], r["prompt"]) for r in first}
+    assert not {r["id"] for r in baselines} & {r["id"] for r in module.plan(MANIFEST)}
+    assert all(r["condition"] == "baseline" and r["humanReview"] is None
+               and r["status"] == "pending" and "artifact" not in r for r in baselines)
+    with pytest.raises(ValueError, match="unknown"):
+        module.summarize(baselines, MANIFEST)
+
+
 def test_duplicate_or_mismatched_run_rejected():
     record = module.plan(MANIFEST)[0]
     with pytest.raises(ValueError, match="duplicate"):

@@ -3,6 +3,13 @@
 **2026-09-18: reference drafts and an implemented candidate are ready; scored
 runs await human review and reference approval.**
 
+The [trust and usability campaign](../../docs/TRUST_USABILITY_CAMPAIGN.md) changes
+the skill and viewer again. Use the [candidate protocol](CANDIDATE_PROTOCOL.md)
+to capture every current distributed file. The four-file hashes and candidate
+commit below identify historical follow-ups, not the current candidate. No
+new held-out session or human reference decision has been supplied by this
+campaign; the 24/48 pilot counts below remain pending.
+
 The [review packet](reference-candidates/README.md) provides concrete scenario
 proposals, 93 candidate facts, 106 exact source anchors and a proposed common
 prompt/budget policy. All eight ledgers are explicitly AI-authored drafts with
@@ -58,8 +65,9 @@ External framework/runtime/data behavior remains qualified in the drafts.
    settings and repair rules. The packet gives a concrete proposal; these
    choices have not silently been treated as approved.
 3. Capture skill/reference/source/extension/host/model identities before runs.
-   The implementation commit and skill bytes are frozen above; reference and
-   expanded-prompt identities still await human review and freezing.
+   Select a new candidate snapshot for any current run; the historical snapshot
+   above cannot identify changed skill bytes. Reference and expanded-prompt
+   identities still await human review and freezing.
 4. Execute Stage 1: the 24 `repeat: 1` records covering all eight tasks in all
    three hosts. Retain failed and blocked attempts, then complete human claim
    ledgers for every record before making the stop/go decision.

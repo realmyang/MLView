@@ -117,6 +117,7 @@ export function renderRail(app: App): void {
   const nodeId = app.selectedNodeId();
   const selectedNode = nodeId && app.index ? app.index.nodeById.get(nodeId) || null : null;
   const selectedEdge = sel && sel.kind === 'edge' && app.index ? app.index.edgeById.get(sel.id) || null : null;
+  const selectedIssue = sel && sel.kind === 'issue' && app.index ? app.index.issueById.get(sel.id) || null : null;
   app.rail.update({
     index: app.index,
     canAskAssistant: app.caps.canAskAssistant,
@@ -125,6 +126,7 @@ export function renderRail(app: App): void {
     selectedNode,
     selectedEdge,
     selectedIssueId: sel && sel.kind === 'issue' ? sel.id : null,
+    selectedIssue,
     collapsed: app.view.collapsed,
     keep: app.filters.keep,
     keepBase: app.filters.keepBase,

@@ -1,5 +1,9 @@
 # Evaluating LLM workflow understanding
 
+Use the [candidate protocol](CANDIDATE_PROTOCOL.md) to capture current bundle
+identities and prepare separate matched no-skill sessions. These preparations
+do not replace the human reference gate or execute the pilot.
+
 [tasks.json](tasks.json) fixes eight development tasks and eight pilot tasks.
 Pilot repositories are pinned to the existing public-corpus commits. They have
 been used for static-analyzer testing; they are reserved from new skill tuning,

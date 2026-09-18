@@ -9,6 +9,7 @@ export const AUTHORED_VIEW_TYPE = 'mlview.authoredDiagram';
 export const OPEN_AUTHORED_COMMAND = 'mlview.openGeneratedDiagram';
 const MAX_ARTIFACT_BYTES = 2 * 1024 * 1024;
 const MAX_SOURCE_BYTES = 8 * 1024 * 1024;
+const RELOAD_DEBOUNCE_MS = 120;
 interface SavedState {
     artifact?: string;
 }
@@ -17,10 +18,89 @@ export class ReloadGeneration {
     begin(): number { return ++this.value; }
     isCurrent(value: number): boolean { return value === this.value; }
 }
+type TimerHandle = ReturnType<typeof setTimeout>;
+type TimerApi = {
+    set(callback: () => void, delay: number): TimerHandle;
+    clear(handle: TimerHandle): void;
+};
+const systemTimers: TimerApi = {
+    set: (callback, delay) => setTimeout(callback, delay),
+    clear: handle => clearTimeout(handle)
+};
+export class ValidationScheduler implements vscode.Disposable {
+    private active = false;
+    private queued = false;
+    private disposed = false;
+    private timer: TimerHandle | undefined;
+    private waiters: (() => void)[] = [];
+    constructor(private readonly work: () => Promise<void>, private readonly delay = RELOAD_DEBOUNCE_MS, private readonly timers: TimerApi = systemTimers, private readonly onError: (error: unknown) => void = () => undefined) { }
+    immediate(): Promise<void> {
+        if (this.disposed)
+            return Promise.resolve();
+        this.cancelTimer();
+        this.queued = true;
+        const done = new Promise<void>(resolve => this.waiters.push(resolve));
+        void this.drain();
+        return done;
+    }
+    debounce(): void {
+        if (this.disposed)
+            return;
+        this.cancelTimer();
+        this.timer = this.timers.set(() => {
+            this.timer = undefined;
+            this.queued = true;
+            void this.drain();
+        }, this.delay);
+    }
+    private cancelTimer(): void {
+        if (this.timer !== undefined) {
+            this.timers.clear(this.timer);
+            this.timer = undefined;
+        }
+    }
+    private async drain(): Promise<void> {
+        if (this.active || this.disposed)
+            return;
+        this.active = true;
+        try {
+            while (this.queued && !this.disposed) {
+                this.queued = false;
+                try {
+                    await this.work();
+                }
+                catch (error) {
+                    this.onError(error);
+                }
+            }
+        }
+        finally {
+            this.active = false;
+            if ((!this.queued && this.timer === undefined) || this.disposed) {
+                const waiters = this.waiters;
+                this.waiters = [];
+                waiters.forEach(resolve => resolve());
+            }
+            else if (this.queued) {
+                void this.drain();
+            }
+        }
+    }
+    dispose(): void {
+        if (this.disposed)
+            return;
+        this.disposed = true;
+        this.cancelTimer();
+        this.queued = false;
+        const waiters = this.waiters;
+        this.waiters = [];
+        waiters.forEach(resolve => resolve());
+    }
+}
 export class AuthoredDiagramController implements vscode.Disposable {
     private readonly panels = new Map<string, AuthoredPanel>();
     private readonly disposables: vscode.Disposable[] = [];
-    constructor(private readonly ctx: vscode.ExtensionContext, private readonly log: Logger) { }
+    constructor(private readonly ctx: vscode.ExtensionContext, private readonly log: Logger, private readonly validator: typeof validateWorkflow = validateWorkflow) { }
     register(): vscode.Disposable[] {
         const watcher = vscode.workspace.createFileSystemWatcher('**/*');
         const registered = [
@@ -28,6 +108,7 @@ export class AuthoredDiagramController implements vscode.Disposable {
             vscode.window.registerWebviewPanelSerializer(AUTHORED_VIEW_TYPE, { deserializeWebviewPanel: async (panel, state: unknown) => this.restore(panel, state) }),
             vscode.workspace.onDidSaveTextDocument(doc => this.changed(doc.uri)),
             vscode.workspace.onDidChangeTextDocument(event => this.changed(event.document.uri)),
+            vscode.workspace.onDidSaveNotebookDocument(doc => this.changed(doc.uri)),
             watcher,
             watcher.onDidChange(uri => this.changed(uri)),
             watcher.onDidCreate(uri => this.changed(uri)),
@@ -65,7 +146,7 @@ export class AuthoredDiagramController implements vscode.Disposable {
             return;
         }
         const panel = vscode.window.createWebviewPanel(AUTHORED_VIEW_TYPE, 'MLView Generated Diagram', { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true }, { enableScripts: true, localResourceRoots: [vscode.Uri.joinPath(this.ctx.extensionUri, 'media')] });
-        const authored = new AuthoredPanel(panel, selected, folder, this.ctx, this.log, () => this.panels.delete(key));
+        const authored = new AuthoredPanel(panel, selected, folder, this.ctx, this.log, () => this.panels.delete(key), this.validator);
         this.panels.set(key, authored);
         await authored.reload();
     }
@@ -82,14 +163,14 @@ export class AuthoredDiagramController implements vscode.Disposable {
             panel.dispose();
             return;
         }
-        const authored = new AuthoredPanel(panel, uri, folder, this.ctx, this.log, () => this.panels.delete(artifact));
+        const authored = new AuthoredPanel(panel, uri, folder, this.ctx, this.log, () => this.panels.delete(artifact), this.validator);
         this.panels.set(artifact, authored);
         await authored.reload();
     }
     private changed(uri: vscode.Uri): void {
         for (const panel of this.panels.values())
             if (panel.dependsOn(uri.fsPath))
-                void panel.reload();
+                panel.sourceChanged();
     }
     dispose(): void {
         for (const p of this.panels.values())
@@ -106,11 +187,33 @@ class AuthoredPanel implements vscode.Disposable {
     private dependencies = new Set<string>();
     private readonly disposables: vscode.Disposable[] = [];
     private readonly reloads = new ReloadGeneration();
+    private readonly scheduler: ValidationScheduler;
     private pendingError: string | undefined;
     private lastFingerprint: string | undefined;
-    constructor(private readonly panel: vscode.WebviewPanel, private readonly artifact: vscode.Uri, private readonly folder: vscode.WorkspaceFolder, private readonly ctx: vscode.ExtensionContext, private readonly log: Logger, private readonly onDispose: () => void) { this.render(); panel.onDidDispose(() => this.dispose(), null, this.disposables); panel.webview.onDidReceiveMessage((m: unknown) => void this.message(m), null, this.disposables); this.disposables.push(vscode.window.onDidChangeActiveColorTheme(theme => this.post({ v: 1, type: 'theme', kind: themeKindOf(theme.kind) }))); }
+    private validationTail: Promise<void> = Promise.resolve();
+    private freshnessVersion = 0;
+    constructor(private readonly panel: vscode.WebviewPanel, private readonly artifact: vscode.Uri, private readonly folder: vscode.WorkspaceFolder, private readonly ctx: vscode.ExtensionContext, private readonly log: Logger, private readonly onDispose: () => void, private readonly validator: typeof validateWorkflow) {
+        this.scheduler = new ValidationScheduler(() => this.runReload(), RELOAD_DEBOUNCE_MS, systemTimers, error => this.log.warn(`authored reload failed: ${error instanceof Error ? error.message : String(error)}`));
+        this.render();
+        panel.onDidDispose(() => this.dispose(), null, this.disposables);
+        panel.webview.onDidReceiveMessage((m: unknown) => { void this.message(m).catch(error => this.log.warn(`authored message failed: ${error instanceof Error ? error.message : String(error)}`)); }, null, this.disposables);
+        this.disposables.push(vscode.window.onDidChangeActiveColorTheme(theme => this.post({ v: 1, type: 'theme', kind: themeKindOf(theme.kind) })));
+    }
     reveal(): void { this.panel.reveal(vscode.ViewColumn.Beside, true); }
     dependsOn(file: string): boolean { return file === this.artifact.fsPath || this.dependencies.has(file); }
+    sourceChanged(): void {
+        if (this.disposed)
+            return;
+        this.reloads.begin();
+        this.freshnessVersion++;
+        const message = 'Changes detected; checking diagram freshness. The last valid revision remains visible while validation catches up.';
+        if (this.pendingError !== message) {
+            this.pendingError = message;
+            if (this.ready)
+                this.post({ v: 1, type: 'workflowError', message, retained: !!this.lastValid });
+        }
+        this.scheduler.debounce();
+    }
     private async textFor(file: string): Promise<string> {
         const limit = path.resolve(file) === path.resolve(this.artifact.fsPath) ? MAX_ARTIFACT_BYTES : MAX_SOURCE_BYTES;
         const open = vscode.workspace.textDocuments.find(d => d.uri.scheme === 'file' && path.resolve(d.uri.fsPath) === path.resolve(file));
@@ -128,7 +231,26 @@ class AuthoredPanel implements vscode.Disposable {
         return fs.readFile(file, 'utf8');
     }
     private async notebookCellFor(file: string, cell: number): Promise<string | undefined> { const notebook = vscode.workspace.notebookDocuments.find(n => n.uri.scheme === 'file' && path.resolve(n.uri.fsPath) === path.resolve(file)); return notebook?.cellAt(cell)?.document.getText(); }
+    private async validate(raw: unknown): Promise<Awaited<ReturnType<typeof validateWorkflow>> | undefined> {
+        const previous = this.validationTail;
+        let release!: () => void;
+        this.validationTail = new Promise<void>(resolve => { release = resolve; });
+        await previous;
+        if (this.disposed) {
+            release();
+            return undefined;
+        }
+        try {
+            return await this.validator(raw, this.folder.uri.fsPath, p => this.textFor(p), (p, c) => this.notebookCellFor(p, c));
+        }
+        finally {
+            release();
+        }
+    }
     async reload(): Promise<void> {
+        await this.scheduler.immediate();
+    }
+    private async runReload(): Promise<void> {
         if (this.disposed)
             return;
         const generation = this.reloads.begin();
@@ -145,7 +267,10 @@ class AuthoredPanel implements vscode.Disposable {
         }
         let result: Awaited<ReturnType<typeof validateWorkflow>>;
         try {
-            result = await validateWorkflow(parsed, this.folder.uri.fsPath, p => this.textFor(p), (p, c) => this.notebookCellFor(p, c));
+            const validated = await this.validate(parsed);
+            if (!validated)
+                return;
+            result = validated;
         }
         catch (err) {
             if (this.reloads.isCurrent(generation))
@@ -304,37 +429,52 @@ class AuthoredPanel implements vscode.Disposable {
         const evidence = this.lastValid?.document.evidence.find(x => x.id === id);
         if (!evidence)
             return;
-        const fresh = await validateWorkflow(this.lastValid!.document, this.folder.uri.fsPath, p => this.textFor(p), (p, c) => this.notebookCellFor(p, c));
+        const revision = this.lastValid!.document.revision.id;
+        const freshness = this.freshnessVersion;
+        const fresh = await this.validate(this.lastValid!.document);
+        if (this.disposed || this.lastValid?.document.revision.id !== revision || this.freshnessVersion !== freshness)
+            return;
         const candidate = path.resolve(this.folder.uri.fsPath, evidence.file);
         let cited = candidate;
         try {
             cited = await fs.realpath(candidate);
         }
         catch { }
-        if (!fresh.value || fresh.value.staleFiles.some(x => path.resolve(x) === cited)) {
+        if (!fresh?.value || fresh.value.staleFiles.some(x => path.resolve(x) === cited)) {
             void vscode.window.showWarningMessage(`MLView: evidence ${evidence.id} is stale or invalid; source navigation was stopped.`);
             return;
         }
-        await this.navigate(evidence);
+        await this.navigate(evidence, revision, freshness);
     }
-    private async navigate(e: WorkflowEvidence): Promise<void> {
+    private navigationCurrent(revision: string, freshness: number): boolean {
+        return !this.disposed && this.lastValid?.document.revision.id === revision && this.freshnessVersion === freshness;
+    }
+    private async navigate(e: WorkflowEvidence, revision: string, freshness: number): Promise<void> {
         const uri = vscode.Uri.file(path.join(this.folder.uri.fsPath, e.file));
         const start = toEditorLine(e.line), end = toEditorLine(e.endLine);
         if (e.cell !== undefined) {
             const notebook = await vscode.workspace.openNotebookDocument(uri);
+            if (!this.navigationCurrent(revision, freshness))
+                return;
             const cell = notebook.cellAt(e.cell);
             if (!cell) {
                 void vscode.window.showWarningMessage(`MLView: notebook cell ${e.cell} no longer exists.`);
                 return;
             }
             const editor = await vscode.window.showTextDocument(cell.document, { preview: true });
+            if (!this.navigationCurrent(revision, freshness))
+                return;
             const range = new vscode.Range(start, 0, end, Math.max(0, cell.document.lineAt(end).text.length));
             editor.selection = new vscode.Selection(range.start, range.start);
             editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
             return;
         }
         const doc = await vscode.workspace.openTextDocument(uri);
+        if (!this.navigationCurrent(revision, freshness))
+            return;
         const editor = await vscode.window.showTextDocument(doc, { preview: true });
+        if (!this.navigationCurrent(revision, freshness))
+            return;
         const range = new vscode.Range(start, 0, end, doc.lineAt(end).text.length);
         editor.selection = new vscode.Selection(range.start, range.start);
         editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
@@ -348,6 +488,7 @@ class AuthoredPanel implements vscode.Disposable {
         if (this.disposed)
             return;
         this.disposed = true;
+        this.scheduler.dispose();
         for (const d of this.disposables)
             d.dispose();
         this.onDispose();

@@ -55,6 +55,12 @@ edit their hashes or source quotations to make a test pass. Development source
 fixtures have a hash-pinned historical path map for replay after relocation.
 Human approval and live host exercises must be reported separately from tests.
 
+Capture and verify the full candidate bundle with
+`python tools/workflow_candidate.py`; the [candidate protocol](evals/workflow/CANDIDATE_PROTOCOL.md)
+explains snapshots and separately planned no-skill sessions. The
+[performance harness](docs/PERFORMANCE.md) measures synthetic renderer scale;
+its jsdom timings are not VS Code paint or model-quality measurements.
+
 ## Pull requests
 
 Use a feature branch based on the current target branch. Describe the user

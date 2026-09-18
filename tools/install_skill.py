@@ -8,6 +8,11 @@ import shutil
 import sys
 from pathlib import Path
 
+try:
+    from tools.package_skill import bundle_identity, canonical_files
+except ModuleNotFoundError:  # Direct invocation from outside the checkout.
+    from package_skill import bundle_identity, canonical_files
+
 SKILL_LOCATIONS = (Path(".agents/skills/mlview"), Path(".claude/skills/mlview"))
 REQUIRED_FILES = (Path("SKILL.md"), Path("LICENSE"), Path("scripts/artifact.py"), Path("references/WORKFLOW_CONTRACT.md"), Path("references/workflow-example.json"))
 
@@ -68,6 +73,8 @@ def doctor(workspace: Path) -> tuple[dict[str, object], bool]:
     locations: list[dict[str, object]] = []
     installed = 0
     healthy = True
+    expected = canonical_files(Path(__file__).resolve().parents[1] / "skills/mlview")
+    expected_identity = bundle_identity(expected)
     for relative in SKILL_LOCATIONS:
         target = root / relative
         present = target.is_dir() and not target.is_symlink()
@@ -85,20 +92,31 @@ def doctor(workspace: Path) -> tuple[dict[str, object], bool]:
                 unsafe_ancestor = True
         unsafe_tree = present and not unsafe_ancestor and any(path.is_symlink() for path in target.rglob("*"))
         unsafe = unsafe_ancestor or unsafe_tree
-        missing = [
-            path.as_posix()
-            for path in REQUIRED_FILES
-            if present and (unsafe_ancestor or not (target / path).is_file() or (target / path).is_symlink())
-        ]
+        # Do not read through unsafe ancestors or any linked subtree.
+        actual = canonical_files(target) if present and not unsafe else {}
+        missing = sorted(name for name in expected if present and
+                         (unsafe_ancestor or not (target / name).is_file() or (target / name).is_symlink()))
+        changed = sorted(name for name in set(expected) & set(actual) if expected[name] != actual[name])
+        unexpected = sorted(set(actual) - set(expected))
+        identity = bundle_identity(actual) if present and not unsafe else None
         installed += int(present)
-        healthy = healthy and not missing and not unsafe
-        locations.append({"path": relative.as_posix(), "present": present, "missing": missing, "unsafeSymlinks": unsafe})
+        healthy = healthy and not missing and not changed and not unexpected and not unsafe
+        locations.append({"path": relative.as_posix(), "present": present, "missing": missing,
+                          "changed": changed, "unexpected": unexpected,
+                          "identity": identity, "matchesCanonical": present and not unsafe and actual == expected,
+                          "unsafeSymlinks": unsafe})
     collision = installed > 1
     result: dict[str, object] = {
         "ok": sys.version_info >= (3, 10) and healthy and installed == 1,
         "python": {"version": ".".join(str(part) for part in sys.version_info[:3]), "supported": sys.version_info >= (3, 10), "minimum": "3.10"},
         "locations": locations,
+        "canonicalIdentity": expected_identity,
         "collision": collision,
+        "remediation": (
+            ["Choose one host layout; remove the duplicate only after preserving any local edits."] if collision else
+            ["Install the skill into the workspace for the intended host."] if installed == 0 else
+            ["Compare missing/changed/unexpected files with the canonical bundle; preserve local edits before reinstalling."] if not healthy else []
+        ),
         "limitations": ["Filesystem checks cannot certify native assistant skill discovery.", "Filesystem checks cannot certify the MLView extension UI."],
     }
     return result, bool(result["ok"])

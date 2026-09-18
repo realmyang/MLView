@@ -26,6 +26,9 @@ import type { GraphIndex, IssuePredicate } from '../layout/model.js';
 export interface OutlineCallbacks {
   /** A node row was activated: select it and centre the canvas on it. */
   onSelectNode(id: string): void;
+  /** A textual relationship row was activated. */
+  onSelectEdge(id: string): void;
+  onRelationMode(mode: RelationMode): void;
   /** A lane row was activated: jump to that stage. */
   onSelectLane(laneId: string): void;
   /** Left/Right on a group row: collapse or expand it in the canvas too. */
@@ -37,6 +40,7 @@ export interface OutlineState {
   keep: IssuePredicate;
   selectedNodeId: string | null;
   collapsed: Set<string>;
+  relationMode: RelationMode;
 }
 
 const TREEITEM = '[role="treeitem"]';
@@ -64,9 +68,84 @@ export function renderOutlineTree(panel: HTMLElement, s: OutlineState, cb: Outli
     if (kids.length) item.appendChild(branch(kids, s, cb));
   }
 
+  renderRelationships(panel, s, cb);
+
   wireTree(tree, cb);
   setRoving(tree, preferredFocus(tree, s.selectedNodeId));
   return tree;
+}
+
+export type RelationMode = 'all' | 'incoming' | 'outgoing' | 'unresolved';
+
+/**
+ * Complete non-canvas path through graph topology. For a selected node the
+ * three views answer the common impact questions directly; without a selected
+ * node, All relationships enumerates every document edge in source order.
+ */
+function renderRelationships(panel: HTMLElement, s: OutlineState, cb: OutlineCallbacks): void {
+  const section = add(panel, el('section', 'mlv-relations'));
+  add(section, el('h4', 'mlv-rail__heading', 'Text relationships'));
+  const selected = s.selectedNodeId && s.index.nodeById.has(s.selectedNodeId) ? s.selectedNodeId : null;
+  if (selected) add(section, el('p', 'mlv-relations__context', 'For ' + (s.index.nodeById.get(selected)?.label || selected)));
+  const controls = add(section, el('div', 'mlv-relations__views'));
+  controls.setAttribute('role', 'group');
+  controls.setAttribute('aria-label', 'Relationship direction');
+  const listHost = add(section, el('div'));
+
+  const show = (mode: RelationMode, focusList = false) => {
+    for (const control of Array.from(controls.querySelectorAll('button'))) {
+      control.setAttribute('aria-pressed', control.getAttribute('data-relation-view') === mode ? 'true' : 'false');
+    }
+    while (listHost.firstChild) listHost.removeChild(listHost.firstChild);
+    const edges = mode === 'unresolved'
+      ? s.index.graph.edges.filter((edge) =>
+          edge.basis === 'unresolved' ||
+          s.index.nodeById.get(edge.source)?.basis === 'unresolved' ||
+          s.index.nodeById.get(edge.target)?.basis === 'unresolved')
+      : !selected || mode === 'all'
+        ? s.index.graph.edges
+        : mode === 'incoming'
+          ? s.index.inEdges.get(selected) || []
+          : s.index.outEdges.get(selected) || [];
+    const list = add(listHost, el('ul', 'mlv-relations__list'));
+    list.setAttribute('aria-label', mode[0].toUpperCase() + mode.slice(1) + ' relationships');
+    if (!edges.length) {
+      add(list, el('li', 'mlv-empty-note', 'No ' + mode + ' relationships in this view.'));
+      return;
+    }
+    for (const edge of edges) {
+      const source = s.index.nodeById.get(edge.source);
+      const target = s.index.nodeById.get(edge.target);
+      const item = add(list, el('li', 'mlv-relations__item'));
+      const row = add(item, el('button', 'mlv-relations__row')) as HTMLButtonElement;
+      row.type = 'button';
+      row.setAttribute('data-relation-id', edge.id);
+      const direction = selected
+        ? edge.target === selected ? 'Incoming' : edge.source === selected ? 'Outgoing' : 'Related'
+        : 'Directed';
+      row.setAttribute('aria-label', `${direction}: ${source?.label || edge.source} to ${target?.label || edge.target}; ${edge.label || edge.kind}; basis ${edge.basis || 'not specified'}`);
+      add(row, el('span', 'mlv-relations__path', (source?.label || edge.source) + ' → ' + (target?.label || edge.target)));
+      add(row, el('span', 'mlv-relations__detail', (edge.label || edge.kind || 'connection') + ' · ' + (edge.basis ? 'basis ' + edge.basis : 'basis not specified')));
+      on(row, 'click', () => cb.onSelectEdge(edge.id));
+    }
+    if (focusList) (list.querySelector('button') as HTMLButtonElement | null)?.focus();
+  };
+
+  const modes: { id: RelationMode; label: string }[] = [
+    { id: 'all', label: 'All' },
+    { id: 'incoming', label: 'Incoming' },
+    { id: 'outgoing', label: 'Outgoing' },
+    { id: 'unresolved', label: 'Unresolved' },
+  ];
+  for (const mode of modes) {
+    const control = add(controls, el('button', 'mlv-btn', mode.label)) as HTMLButtonElement;
+    control.type = 'button';
+    control.setAttribute('data-relation-view', mode.id);
+    control.disabled = !selected && mode.id !== 'all' && mode.id !== 'unresolved';
+    on(control, 'click', () => { cb.onRelationMode(mode.id); show(mode.id, true); });
+  }
+  const initial = !selected && (s.relationMode === 'incoming' || s.relationMode === 'outgoing') ? 'all' : s.relationMode;
+  show(initial);
 }
 
 /** One `role="group"` level of the drawn hierarchy. */

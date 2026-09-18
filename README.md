@@ -53,6 +53,11 @@ Copy prompt**. Choose an intent or enter a specific question, then paste the
 prompt into the same assistant. The diagram header shows the entrypoints and
 configuration being explained.
 
+The Inspector brings together claim basis, source quotes, counter-evidence and
+coverage limitations. **Challenge this claim** prepares a focused refinement
+request. The Outline's textual relationships provide All, Incoming, Outgoing
+and Unresolved views alongside the diagram.
+
 The workflow supports custom phases, nested groups, branches and cycles,
 notebook cell references, and findings with evidence and counter-evidence.
 Observed, inferred, and unresolved claims remain distinguishable. Source edits
@@ -84,6 +89,11 @@ The [semantic-quality sprint](docs/QUALITY_SPRINT.md) records the current skill
 improvements and development follow-ups. Its [review ledgers](evals/workflow/development/native-reviews/README.md)
 cover twelve native artifacts and three no-skill baselines; their semantic
 judgments remain provisional until human review.
+
+The [trust and usability campaign](docs/TRUST_USABILITY_CAMPAIGN.md) adds evidence
+review, validation scheduling, interpretation aids and reproducible performance
+and candidate checks. It preserves WorkflowDocument 1.0; it does not establish
+semantic accuracy or complete the human-reviewed pilot.
 
 ## Development
 

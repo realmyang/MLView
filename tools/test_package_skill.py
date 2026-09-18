@@ -17,6 +17,16 @@ SPEC.loader.exec_module(packager)
 
 
 class PackageSkillTests(unittest.TestCase):
+    def test_bundle_identity_covers_paths_bytes_and_all_payload_files(self):
+        payload = {"z.txt": b"two", "a.txt": b"one", "LICENSE": b"license"}
+        identity = packager.bundle_identity(payload)
+        expected = hashlib.sha256(b"LICENSE\0license\0a.txt\0one\0z.txt\0two\0").hexdigest()
+        self.assertEqual(expected, identity["sha256"])
+        self.assertEqual(identity, packager.bundle_identity(dict(reversed(list(payload.items())))))
+        self.assertEqual(3, len(identity["files"]))
+        self.assertNotEqual(identity["sha256"], packager.bundle_identity({**payload, "a.txt": b"ONE"})["sha256"])
+        self.assertNotEqual(identity["sha256"], packager.bundle_identity({"renamed.txt": b"one", "z.txt": b"two"})["sha256"])
+
     def test_canonical_skill_license_matches_repository_license(self):
         self.assertEqual(
             (SCRIPT.parents[1] / "LICENSE").read_bytes(),

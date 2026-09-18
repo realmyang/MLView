@@ -10,6 +10,9 @@ standard-library-only; tests require `pip install -r requirements-dev.txt`.
 | `python tools/verify.py --all` | Matching skill/viewer copies and a schema-valid example, matching component versions, no retired analyzer surfaces |
 | `python scripts/check_docs.py` | Active documentation links and local shell line endings |
 | `python scripts/vsix_check.py [file.vsix]` | Required assets, native commands, current bundles, size ceiling and no Python analyzer payload |
+| `python tools/workflow_candidate.py --output .mlview/candidate.json` | Full portable skill and built-component byte identities; no human approval |
+| `python tools/workflow_candidate.py --check .mlview/candidate.json` | Detects drift from a captured candidate snapshot |
+| `node --expose-gc webview/tools/benchmark-workflow.mjs` | Synthetic scale timings and representation/disposal checks; not browser paint |
 
 Both shell drivers delegate to `scripts/check.py`. PowerShell equivalents are
 `scripts/build.ps1` and `scripts/e2e.ps1`. `--skip-npm-install` reuses existing

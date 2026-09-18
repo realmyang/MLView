@@ -27,7 +27,10 @@ export function normalizeWorkflow(document: WorkflowDocument): MLGraph {
     return {
       id: node.id, kind: node.kind || 'unknown', level: node.parent ? 'op' : 'unit', stage: node.phase,
       label: node.label, sublabel: node.detail || node.basis, qualname: node.label, loc: evidenceLoc(evidence, node.evidence),
-      parent: node.parent || null, attrs: { basis: node.basis }, produces: [], consumes: [], ghost: node.basis === 'unresolved',
+      // `unresolved` is an authored epistemic basis: the step may exist while
+      // its behavior or connection remains uncertain. Ghost cards belong to a
+      // legacy absence/diff treatment and would falsely imply a missing step.
+      parent: node.parent || null, attrs: { basis: node.basis }, produces: [], consumes: [], ghost: false,
       // WorkflowDocument records an evidence basis, not a calibrated numeric
       // probability. NaN keeps shared renderer math type-safe without inventing
       // a percentage that the authored contract cannot support.
@@ -45,7 +48,7 @@ export function normalizeWorkflow(document: WorkflowDocument): MLGraph {
   }));
   const issues: Issue[] = (document.findings || []).map((finding) => {
     const loc = evidenceLoc(evidence, finding.evidence);
-    const related = (finding.evidence || []).slice(1).map((id) => ({ item: evidence.get(id), role: 'Supporting evidence' }))
+    const related = (finding.evidence || []).map((id) => ({ item: evidence.get(id), role: 'Supporting evidence' }))
       .concat((finding.counterEvidence || []).map((id) => ({ item: evidence.get(id), role: 'Counter-evidence' })))
       .filter((x): x is { item: WorkflowEvidence; role: string } => !!x.item)
       .map(({ item, role }) => ({ ...evidenceLoc(evidence, [item.id]), role }));

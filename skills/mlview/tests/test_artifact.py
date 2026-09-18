@@ -94,6 +94,15 @@ class ArtifactTests(unittest.TestCase):
         draft = self.root / "draft.json"; draft.write_text(json.dumps(doc), encoding="utf-8")
         return subprocess.run([sys.executable, str(HELPER), command, str(draft), "--workspace", str(self.root), "--output", output], text=True, capture_output=True)
 
+    def run_upsert(self, doc, collection, record, draft_name="draft.json"):
+        draft = self.root / draft_name; draft.write_text(json.dumps(doc), encoding="utf-8")
+        record_path = self.root / "record.json"; record_path.write_text(json.dumps(record), encoding="utf-8")
+        result = subprocess.run([
+            sys.executable, str(HELPER), "upsert", draft_name, "--workspace", str(self.root),
+            "--collection", collection, "--record", str(record_path),
+        ], text=True, capture_output=True)
+        return result, draft
+
     def test_publish_revision_guard_and_no_absolute_output(self):
         first = self.run_cli("publish", document())
         self.assertEqual(0, first.returncode, first.stdout)
@@ -207,6 +216,125 @@ class ArtifactTests(unittest.TestCase):
         self.assertEqual(1, sum(code == 0 for _, _, code in results), results)
         loser_codes = {json.loads(stdout)["errors"][0]["code"] for stdout, _, code in results if code != 0}
         self.assertTrue(loser_codes <= {"publish_locked", "revision_conflict"}, loser_codes)
+
+    def test_upsert_replaces_one_record_and_clears_publication_stamp(self):
+        doc = document()
+        digest = artifact.validate(doc, self.root)[1]["train.py"]
+        doc["verification"] = {"files": {"train.py": digest}, "publishedAt": "2026-09-18T12:00:00Z"}
+        replacement = {"id": "n", "label": "Train carefully", "phase": "p", "basis": "observed", "evidence": ["ev"]}
+        result, draft = self.run_upsert(doc, "nodes", replacement)
+        self.assertEqual(0, result.returncode, result.stdout)
+        response = json.loads(result.stdout)
+        self.assertEqual("replaced", response["action"])
+        edited = json.loads(draft.read_text(encoding="utf-8"))
+        self.assertEqual([replacement], edited["nodes"])
+        self.assertNotIn("verification", edited)
+        self.assertEqual([], artifact.validate(edited, self.root)[0])
+
+    def test_upsert_can_revise_a_checkpoint_with_stale_publication_fingerprints(self):
+        doc = document()
+        doc["verification"] = {"files": {"train.py": "0" * 64}, "publishedAt": "2026-09-18T12:00:00Z"}
+        replacement = {"id": "n", "label": "Rechecked training", "phase": "p", "basis": "observed", "evidence": ["ev"]}
+        result, draft = self.run_upsert(doc, "nodes", replacement)
+        self.assertEqual(0, result.returncode, result.stdout)
+        edited = json.loads(draft.read_text(encoding="utf-8"))
+        self.assertNotIn("verification", edited)
+        self.assertEqual("Rechecked training", edited["nodes"][0]["label"])
+
+    def test_duplicate_json_members_and_existing_edit_lock_are_rejected(self):
+        draft = self.root / "draft.json"
+        draft.write_text(json.dumps(document()), encoding="utf-8")
+        record = self.root / "record.json"
+        record.write_text('{"id":"n","id":"other"}', encoding="utf-8")
+        result = subprocess.run([
+            sys.executable, str(HELPER), "upsert", "draft.json", "--workspace", str(self.root),
+            "--collection", "nodes", "--record", "record.json",
+        ], text=True, capture_output=True)
+        self.assertEqual("invalid_json", json.loads(result.stdout)["errors"][0]["code"])
+
+        record.write_text(json.dumps({"id": "n", "label": "N", "phase": "p", "basis": "observed", "evidence": ["ev"]}), encoding="utf-8")
+        lock = self.root / "draft.json.lock"
+        lock.write_text("", encoding="utf-8")
+        result = subprocess.run([
+            sys.executable, str(HELPER), "upsert", "draft.json", "--workspace", str(self.root),
+            "--collection", "nodes", "--record", "record.json",
+        ], text=True, capture_output=True)
+        self.assertEqual("draft_locked", json.loads(result.stdout)["errors"][0]["code"])
+        self.assertEqual(document(), json.loads(draft.read_text(encoding="utf-8")))
+        self.assertTrue(lock.exists())
+
+    def test_upsert_detects_a_noncooperating_draft_change(self):
+        draft = self.root / "draft.json"; draft.write_text(json.dumps(document()), encoding="utf-8")
+        replacement = {"id": "n", "label": "Replacement", "phase": "p", "basis": "observed", "evidence": ["ev"]}
+        changed = document(); changed["title"] = "External edit"
+        real_validate = artifact.validate
+        calls = 0
+        def changing_validate(doc, root):
+            nonlocal calls
+            calls += 1
+            result = real_validate(doc, root)
+            if calls == 2:
+                draft.write_text(json.dumps(changed), encoding="utf-8")
+            return result
+        stdout = StringIO()
+        with mock.patch.object(artifact, "validate", side_effect=changing_validate), redirect_stdout(stdout):
+            code = artifact._upsert_draft(draft, "nodes", replacement, self.root)
+        self.assertEqual(1, code)
+        self.assertEqual("draft_conflict", json.loads(stdout.getvalue())["errors"][0]["code"])
+        self.assertEqual("External edit", json.loads(draft.read_text(encoding="utf-8"))["title"])
+        self.assertFalse(any(self.root.glob(".mlview-draft-*.tmp")))
+
+    def test_upsert_rejects_nonobject_checkpoint_and_published_target(self):
+        record = {"id": "n", "label": "N", "phase": "p", "basis": "observed", "evidence": ["ev"]}
+        result, draft = self.run_upsert([], "nodes", record)
+        self.assertEqual(1, result.returncode)
+        self.assertEqual("checkpoint_invalid", json.loads(result.stdout)["errors"][0]["code"])
+        self.assertEqual([], json.loads(draft.read_text(encoding="utf-8")))
+
+        published = self.root / "workflow.mlview.json"
+        published.write_text(json.dumps(document()), encoding="utf-8")
+        record_path = self.root / "record.json"
+        record_path.write_text(json.dumps(record), encoding="utf-8")
+        before = published.read_bytes()
+        result = subprocess.run([
+            sys.executable, str(HELPER), "upsert", published.name, "--workspace", str(self.root),
+            "--collection", "nodes", "--record", record_path.name,
+        ], text=True, capture_output=True)
+        self.assertEqual("published_target", json.loads(result.stdout)["errors"][0]["code"])
+        self.assertEqual(before, published.read_bytes())
+
+    def test_oversized_conflict_read_preserves_the_checkpoint(self):
+        draft = self.root / "draft.json"
+        original = json.dumps(document()).encode("utf-8")
+        draft.write_bytes(original)
+        replacement = {"id": "n", "label": "Replacement", "phase": "p", "basis": "observed", "evidence": ["ev"]}
+        with mock.patch.object(artifact, "_read_bounded", side_effect=[original, ValueError("grew too large")]), redirect_stdout(StringIO()) as stdout:
+            code = artifact._upsert_draft(draft, "nodes", replacement, self.root)
+        self.assertEqual(1, code)
+        self.assertEqual("draft_conflict", json.loads(stdout.getvalue())["errors"][0]["code"])
+        self.assertEqual(original, draft.read_bytes())
+        self.assertFalse(any(self.root.glob(".mlview-draft-*.tmp")))
+
+    def test_invalid_upsert_preserves_draft_bytes(self):
+        invalid_edge = {"id": "bad", "source": "n", "target": "missing", "label": "next", "basis": "observed", "evidence": ["ev"]}
+        result, draft = self.run_upsert(document(), "edges", invalid_edge)
+        before = json.dumps(document()).encode()
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("reference", {error["code"] for error in json.loads(result.stdout)["errors"]})
+        self.assertEqual(before, draft.read_bytes())
+        self.assertFalse(any(self.root.glob(".mlview-draft-*.tmp")))
+
+    def test_upsert_refuses_invalid_checkpoint_and_symlink_target(self):
+        invalid = document(); invalid["nodes"][0]["phase"] = "missing"
+        result, draft = self.run_upsert(invalid, "nodes", {"id": "n", "label": "N", "phase": "p", "basis": "observed", "evidence": ["ev"]})
+        self.assertEqual("checkpoint_invalid", json.loads(result.stdout)["errors"][0]["code"])
+        link = self.root / "linked.json"; link.symlink_to(draft)
+        record_path = self.root / "record.json"
+        linked = subprocess.run([
+            sys.executable, str(HELPER), "upsert", "linked.json", "--workspace", str(self.root),
+            "--collection", "nodes", "--record", str(record_path),
+        ], text=True, capture_output=True)
+        self.assertEqual("draft_path", json.loads(linked.stdout)["errors"][0]["code"])
 
 
 if __name__ == "__main__": unittest.main()

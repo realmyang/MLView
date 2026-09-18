@@ -65,6 +65,20 @@ def development_plan(manifest: dict) -> list[dict]:
     return records
 
 
+def baseline_plan(manifest: dict) -> list[dict]:
+    """Additional Stage 1 no-skill sessions, kept separate from the 72 skill runs."""
+    return [
+        {"id": f"{task['id']}:{host}:baseline:1", "task": task["id"], "host": host,
+         "repeat": 1, "condition": "baseline", "status": "pending",
+         "prompt": task["prompt"], "promptStatus": "scenario-expansion-and-freeze-pending",
+         "repositoryCommit": task["commit"], "hostVersion": None, "model": None,
+         "settings": None, "elapsedSeconds": None, "responseCaptureSha256": None,
+         "captureHashIndependentlyVerified": False, "humanReview": None}
+        for task in manifest["tasks"] if task["split"] == "heldout"
+        for host in manifest["hosts"]
+    ]
+
+
 def _confined_path(value: object, root: Path = ROOT, require_file: bool = True) -> Path:
     if not isinstance(value, str) or not value.strip():
         raise ValueError("path must be a nonempty workspace-relative string")
@@ -573,6 +587,7 @@ def main() -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("plan")
     sub.add_parser("development-plan")
+    sub.add_parser("baseline-plan", help="prepare additional no-skill Stage 1 records; does not run or freeze them")
     development_summary = sub.add_parser("summarize-development")
     development_summary.add_argument("records", type=Path)
     validate = sub.add_parser("validate-development")
@@ -591,6 +606,8 @@ def main() -> int:
             value = plan(manifest)
         elif args.command == "development-plan":
             value = development_plan(manifest)
+        elif args.command == "baseline-plan":
+            value = baseline_plan(manifest)
         elif args.command == "validate-development":
             for path in args.reviews:
                 validate_development_review(json.loads(path.read_text(encoding="utf-8")))

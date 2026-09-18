@@ -18,6 +18,7 @@ MAX_SOURCE = 8 * 1024 * 1024
 ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 HOSTS = {"copilot", "codex", "claude-code", "unknown"}
 BASES = {"observed", "inferred", "unresolved"}
+EDITABLE_COLLECTIONS = {"phases", "nodes", "edges", "findings", "evidence"}
 RFC3339_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$")
 
 
@@ -374,9 +375,96 @@ def validate(doc: Any, workspace: Path) -> tuple[list[dict[str, str]], dict[str,
     return p.items, hashes
 
 
+def _read_bounded(path: Path) -> bytes:
+    with path.open("rb") as stream:
+        raw = stream.read(MAX_DOCUMENT + 1)
+    if len(raw) > MAX_DOCUMENT:
+        raise ValueError(f"document exceeds {MAX_DOCUMENT} bytes")
+    return raw
+
+def _parse(raw: bytes) -> Any:
+    def unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f"duplicate JSON member: {key}")
+            result[key] = value
+        return result
+
+    return json.loads(raw.decode("utf-8"), object_pairs_hook=unique_object)
+
+
 def _load(path: Path) -> Any:
-    if path.stat().st_size > MAX_DOCUMENT: raise ValueError(f"document exceeds {MAX_DOCUMENT} bytes")
-    return json.loads(path.read_text(encoding="utf-8"))
+    return _parse(_read_bounded(path))
+
+
+def _draft_path(value: str, root: Path, problems: Problems) -> Path | None:
+    """Resolve an existing draft that is safe to replace inside the workspace."""
+    if not value or "\\" in value:
+        problems.add("draft_path", "draft", "must be a slash-separated path inside the workspace")
+        return None
+    path = Path(value)
+    if not path.is_absolute():
+        path = root.joinpath(*PurePosixPath(value).parts)
+    try:
+        resolved = path.resolve(strict=True)
+        resolved.relative_to(root)
+    except (OSError, ValueError):
+        problems.add("draft_path", "draft", "must identify an existing file inside the workspace")
+        return None
+    if not resolved.is_file() or path.is_symlink():
+        problems.add("draft_path", "draft", "must identify a regular non-symlink file inside the workspace")
+        return None
+    return resolved
+
+
+def _upsert_draft(draft: Path, collection: str, record: Any, root: Path) -> int:
+    try:
+        snapshot = _read_bounded(draft)
+        doc = _parse(snapshot)
+    except (OSError, UnicodeError, ValueError, RecursionError, json.JSONDecodeError):
+        print(json.dumps({"ok": False, "errors": [{"code": "invalid_json", "path": "$", "message": "draft is missing, too large, non-UTF-8, or invalid JSON"}]})); return 1
+    if not isinstance(doc, dict):
+        print(json.dumps({"ok": False, "errors": [{"code": "checkpoint_invalid", "path": "$", "message": "existing draft must be a WorkflowDocument object"}]})); return 1
+    # Publication metadata describes the old semantic bytes. It is intentionally
+    # discarded by an edit, so a stale fingerprint must not make the editable
+    # checkpoint unusable. Source quotes and every structural/reference rule
+    # still validate against the current workspace before and after the edit.
+    checkpoint = dict(doc)
+    checkpoint.pop("verification", None)
+    before_errors, _ = validate(checkpoint, root)
+    if before_errors:
+        print(json.dumps({"ok": False, "errors": [{"code": "checkpoint_invalid", "path": "$", "message": "existing draft must validate before an incremental edit"}] + before_errors}, sort_keys=True)); return 1
+    if not isinstance(record, dict) or not _id(record.get("id")):
+        print(json.dumps({"ok": False, "errors": [{"code": "record", "path": "record.id", "message": "record must be an object with a valid ID"}]})); return 1
+    edited = dict(doc)
+    records = list(doc[collection])
+    matches = [index for index, item in enumerate(records) if isinstance(item, dict) and item.get("id") == record["id"]]
+    if len(matches) > 1:
+        print(json.dumps({"ok": False, "errors": [{"code": "checkpoint_invalid", "path": collection, "message": "existing draft contains duplicate record IDs"}]})); return 1
+    action = "replaced" if matches else "inserted"
+    if matches: records[matches[0]] = record
+    else: records.append(record)
+    edited[collection] = records
+    edited.pop("verification", None)
+    after_errors, _ = validate(edited, root)
+    if after_errors:
+        print(json.dumps({"ok": False, "errors": after_errors}, sort_keys=True)); return 1
+    serialized = (json.dumps(edited, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    if len(serialized) > MAX_DOCUMENT:
+        print(json.dumps({"ok": False, "errors": [{"code": "document_too_large", "path": "$", "message": f"edited draft exceeds {MAX_DOCUMENT} bytes"}]})); return 1
+    fd, temp_name = tempfile.mkstemp(prefix=".mlview-draft-", suffix=".tmp", dir=draft.parent)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(serialized); stream.flush(); os.fsync(stream.fileno())
+        try: unchanged = _read_bounded(draft) == snapshot
+        except (OSError, ValueError): unchanged = False
+        if not unchanged:
+            print(json.dumps({"ok": False, "errors": [{"code": "draft_conflict", "path": "draft", "message": "draft changed during the edit"}]})); return 1
+        os.replace(temp_name, draft)
+    finally:
+        if os.path.exists(temp_name): os.unlink(temp_name)
+    print(json.dumps({"ok": True, "errors": [], "draft": draft.relative_to(root).as_posix(), "collection": collection, "id": record["id"], "action": action}, sort_keys=True)); return 0
 
 
 def _semantic_bytes(doc: dict[str, Any]) -> bytes:
@@ -423,11 +511,42 @@ def main(argv: list[str] | None = None) -> int:
     if sys.version_info < (3, 10):
         print(json.dumps({"ok": False, "errors": [{"code": "python_version", "path": "$", "message": "Python 3.10 or newer is required"}]})); return 1
     parser = argparse.ArgumentParser()
-    parser.add_argument("command", choices=("validate", "publish")); parser.add_argument("draft")
+    parser.add_argument("command", choices=("validate", "publish", "upsert")); parser.add_argument("draft")
     parser.add_argument("--workspace", default="."); parser.add_argument("--output", default="workflow.mlview.json")
     parser.add_argument("--include-document", action="store_true", help="include the draft in successful validate output")
+    parser.add_argument("--collection", choices=sorted(EDITABLE_COLLECTIONS))
+    parser.add_argument("--record", help="JSON file containing one ID-bearing record for upsert")
     args = parser.parse_args(argv)
     root = Path(args.workspace).resolve()
+    if args.command == "upsert":
+        p = Problems(); draft_path = _draft_path(args.draft, root, p)
+        if draft_path is None or args.collection is None or args.record is None:
+            if draft_path is not None:
+                p.add("arguments", "$", "upsert requires --collection and --record")
+            print(json.dumps({"ok": False, "errors": p.items}, sort_keys=True)); return 1
+        if draft_path.name.endswith(".mlview.json"):
+            print(json.dumps({"ok": False, "errors": [{"code": "published_target", "path": "draft", "message": "refusing to edit a published *.mlview.json artifact; copy it to a *.draft.json checkpoint first"}]})); return 1
+        record_path = _draft_path(args.record, root, p)
+        if record_path is None:
+            print(json.dumps({"ok": False, "errors": p.items}, sort_keys=True)); return 1
+        try: record = _load(record_path)
+        except (OSError, UnicodeError, ValueError, RecursionError, json.JSONDecodeError):
+            print(json.dumps({"ok": False, "errors": [{"code": "invalid_json", "path": "record", "message": "record is missing, too large, non-UTF-8, or invalid JSON"}]})); return 1
+        lock = draft_path.with_name(draft_path.name + ".lock")
+        try: lock_fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        except FileExistsError:
+            print(json.dumps({"ok": False, "errors": [{"code": "draft_locked", "path": "draft", "message": "another editor is active or a stale lock must be removed manually"}]})); return 1
+        except OSError:
+            print(json.dumps({"ok": False, "errors": [{"code": "draft_io", "path": "draft", "message": "could not create the draft lock"}]})); return 1
+        try:
+            try:
+                os.close(lock_fd)
+                return _upsert_draft(draft_path, args.collection, record, root)
+            except OSError:
+                print(json.dumps({"ok": False, "errors": [{"code": "draft_io", "path": "draft", "message": "could not preserve the edited draft"}]})); return 1
+        finally:
+            try: lock.unlink()
+            except FileNotFoundError: pass
     try: doc = _load(Path(args.draft))
     except (OSError, UnicodeError, ValueError, RecursionError, json.JSONDecodeError):
         print(json.dumps({"ok": False, "errors": [{"code": "invalid_json", "path": "$", "message": "draft is missing, too large, non-UTF-8, or invalid JSON"}]})); return 1

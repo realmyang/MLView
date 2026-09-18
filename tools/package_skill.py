@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 from pathlib import Path
 from zipfile import ZIP_STORED, ZipFile, ZipInfo
 
@@ -25,6 +26,16 @@ def canonical_files(source: Path | None = None) -> dict[str, bytes]:
         if path.is_file():
             payload[relative.as_posix()] = path.read_bytes()
     return payload
+
+
+def bundle_identity(payload: dict[str, bytes]) -> dict:
+    """Identify every distributed file, using the evaluation path/NUL/bytes/NUL format."""
+    digest = hashlib.sha256()
+    files = []
+    for relative, contents in sorted(payload.items()):
+        digest.update(relative.encode("utf-8") + b"\0" + contents + b"\0")
+        files.append({"path": relative, "sha256": hashlib.sha256(contents).hexdigest(), "bytes": len(contents)})
+    return {"algorithm": "sha256-sorted-path-nul-bytes-nul", "sha256": digest.hexdigest(), "files": files}
 
 
 def package(output: Path, host: str) -> int:

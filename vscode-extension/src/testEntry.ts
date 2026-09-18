@@ -10,6 +10,7 @@ export { validateWorkflow, validateWorkflowStructure } from './workflowDocument'
 export {
   AuthoredDiagramController,
   ReloadGeneration,
+  ValidationScheduler,
   AUTHORED_VIEW_TYPE,
   OPEN_AUTHORED_COMMAND
 } from './authoredPanel';

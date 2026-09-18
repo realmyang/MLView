@@ -29,6 +29,9 @@ CI matrix passed all eight jobs for `5319777` in both the
 [push run](https://github.com/realmyang/MLView/actions/runs/35329824132) and
 [PR run](https://github.com/realmyang/MLView/actions/runs/35329828241).
 
-The [improvement research](IMPROVEMENT_RESEARCH_2026-09-18.md) proposes the next
-campaigns. It identifies remaining authored-UI wording and semantic-quality
-gaps; its proposals have not been implemented or treated as passed evaluations.
+The [trust and usability campaign](TRUST_USABILITY_CAMPAIGN.md) implements the
+first campaign from the [improvement research](IMPROVEMENT_RESEARCH_2026-09-18.md):
+authored wording, evidence inspection, textual relationships, coalesced
+validation, source-reading aids, incremental draft edits, bundle diagnostics
+and reproducible performance/candidate checks. See its measured results and
+remaining gates. No human semantic review or held-out pilot pass is implied.

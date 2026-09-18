@@ -7,6 +7,19 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { validateWorkflow, validateWorkflowStructure } = require('./harness').api;
 
+const fixtures = [];
+test.afterEach(() => {
+  for (const root of fixtures.splice(0)) {
+    fs.rmSync(root, {recursive:true, force:true});
+  }
+});
+
+function fixture(prefix) {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),prefix));
+  fixtures.push(root);
+  return root;
+}
+
 function document(file='pipeline.py') {
   return {workflowVersion:'1.0',title:'Training',producer:{kind:'host-llm',host:'codex'},revision:{id:'r1'},request:{question:'How?',scope:'training'},phases:[{id:'train',label:'Train'}],nodes:[{id:'n1',label:'Fit',phase:'train',basis:'observed',evidence:['e1']}],edges:[],findings:[],evidence:[{id:'e1',file,line:1,endLine:1,quote:'fit()'}],coverage:{status:'scoped',summary:'entrypoint',inspectedFiles:[file],limitations:[]}};
 }
@@ -32,7 +45,7 @@ test('workflow parent validation handles a maximum-depth chain and cycle iterati
 });
 
 test('workflow validator checks exact source quotes and workspace containment', async () => {
-  const root=fs.mkdtempSync(path.join(os.tmpdir(),'mlview-workflow-'));
+  const root=fixture('mlview-workflow-');
   fs.writeFileSync(path.join(root,'pipeline.py'),'fit()\n');
   const valid=await validateWorkflow(document(),root);
   assert.equal(valid.issues.length,0);
@@ -45,7 +58,7 @@ test('workflow validator checks exact source quotes and workspace containment', 
 });
 
 test('workflow validator resolves zero-based notebook cells', async () => {
-  const root=fs.mkdtempSync(path.join(os.tmpdir(),'mlview-notebook-'));
+  const root=fixture('mlview-notebook-');
   fs.writeFileSync(path.join(root,'flow.ipynb'),JSON.stringify({cells:[{source:['x = 1\n','fit(x)\n']}]}));
   const value=document('flow.ipynb'); value.evidence[0]={id:'e1',file:'flow.ipynb',cell:0,line:2,endLine:2,quote:'fit(x)'};
   const result=await validateWorkflow(value,root);
@@ -53,7 +66,7 @@ test('workflow validator resolves zero-based notebook cells', async () => {
 });
 
 test('workflow validator uses the open unsaved notebook cell for freshness', async () => {
-  const root=fs.mkdtempSync(path.join(os.tmpdir(),'mlview-notebook-open-'));
+  const root=fixture('mlview-notebook-open-');
   fs.writeFileSync(path.join(root,'flow.ipynb'),JSON.stringify({cells:[{source:['old()\n']}]}));
   const value=document('flow.ipynb'); value.evidence[0]={id:'e1',file:'flow.ipynb',cell:0,line:1,endLine:1,quote:'old()'};
   const result=await validateWorkflow(value,root,undefined,async()=> 'new()\n');
@@ -62,7 +75,7 @@ test('workflow validator uses the open unsaved notebook cell for freshness', asy
 });
 
 test('published historical source changes are stale, while a forged current quote is invalid', async () => {
-  const root=fs.mkdtempSync(path.join(os.tmpdir(),'mlview-historical-'));
+  const root=fixture('mlview-historical-');
   const source=path.join(root,'pipeline.py');
   fs.writeFileSync(source,'fit()\n');
   const value=document();
@@ -79,7 +92,7 @@ test('published historical source changes are stale, while a forged current quot
 });
 
 test('a deleted file from a published snapshot remains stale and contained', async () => {
-  const root=fs.mkdtempSync(path.join(os.tmpdir(),'mlview-deleted-'));
+  const root=fixture('mlview-deleted-');
   const value=document();
   value.verification={files:{'pipeline.py':crypto.createHash('sha256').update('fit()\n').digest('hex')},publishedAt:'2026-09-16T12:00:00Z'};
   const result=await validateWorkflow(value,root);
@@ -88,7 +101,7 @@ test('a deleted file from a published snapshot remains stale and contained', asy
 });
 
 test('workflow validator watches inspected files beyond direct evidence', async () => {
-  const root=fs.mkdtempSync(path.join(os.tmpdir(),'mlview-inspected-'));
+  const root=fixture('mlview-inspected-');
   fs.writeFileSync(path.join(root,'pipeline.py'),'fit()\n');
   fs.writeFileSync(path.join(root,'config.yaml'),'epochs: 3\n');
   const value=document(); value.coverage.inspectedFiles.push('config.yaml');
@@ -98,7 +111,7 @@ test('workflow validator watches inspected files beyond direct evidence', async 
 });
 
 test('workflow validator reads a multiply-cited source once', async () => {
-  const root=fs.mkdtempSync(path.join(os.tmpdir(),'mlview-workflow-cache-'));
+  const root=fixture('mlview-workflow-cache-');
   const source=path.join(root,'pipeline.py');
   fs.writeFileSync(source,'fit()\n');
   const value=document();
