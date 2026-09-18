@@ -63,11 +63,42 @@ test('mountWorkflow identifies authored provenance and accepts revision updates 
   assert.doesNotMatch(root.querySelector('.mlv-banners').textContent, /Graph truncated|graph was truncated/i);
   assert.match(root.querySelector('.mlv-workflow__verification').textContent, /Draft · source freshness not verified/);
   assert.equal(root.querySelector('[role="tab"][aria-controls$="-panel-issues"]').textContent, 'Findings');
+  const search = root.querySelector('.mlv-search input[type="search"]');
+  assert.equal(search.placeholder, 'Search workflow steps, findings, or IDs…');
+  assert.equal(root.querySelector(`label[for="${search.id}"]`).textContent, 'Search workflow steps, findings, or IDs');
   assert.equal(root.querySelector('[data-node-id="step"]') !== null, true);
   app.setWorkflow(workflow('r2'));
   assert.equal(root.getAttribute('data-workflow-revision'), 'r2');
   bridge.send({ v: 1, type: 'workflow', document: workflow('r3') });
   assert.equal(root.getAttribute('data-workflow-revision'), 'r3');
+  app.destroy();
+});
+
+test('rail tabs support wrapped arrow navigation plus Home and End without consuming Tab', async () => {
+  const ctx = await loadBundle();
+  const root = ctx.document.getElementById('mlview-root');
+  const app = ctx.MLView.mountWorkflow(root, workflow(), recordingBridge(ctx.window, 'vscode'));
+  const tabs = [...root.querySelectorAll('[role="tab"]')];
+  assert.deepEqual(tabs.map((tab) => tab.textContent), ['Findings', 'Inspector', 'Outline']);
+
+  tabs[0].focus();
+  tabs[0].dispatchEvent(new ctx.window.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+  assert.equal(ctx.document.activeElement, tabs[1]);
+  assert.equal(tabs[1].getAttribute('aria-selected'), 'true');
+
+  tabs[1].dispatchEvent(new ctx.window.KeyboardEvent('keydown', { key: 'End', bubbles: true, cancelable: true }));
+  assert.equal(ctx.document.activeElement, tabs[2]);
+  tabs[2].dispatchEvent(new ctx.window.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+  assert.equal(ctx.document.activeElement, tabs[0], 'ArrowRight wraps to the first tab');
+  tabs[0].dispatchEvent(new ctx.window.KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true }));
+  assert.equal(ctx.document.activeElement, tabs[2], 'ArrowLeft wraps to the last tab');
+  tabs[2].dispatchEvent(new ctx.window.KeyboardEvent('keydown', { key: 'Home', bubbles: true, cancelable: true }));
+  assert.equal(ctx.document.activeElement, tabs[0]);
+
+  const tabEvent = new ctx.window.KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+  tabs[0].dispatchEvent(tabEvent);
+  assert.equal(tabEvent.defaultPrevented, false);
+  assert.equal(ctx.document.activeElement, tabs[0], 'the browser remains responsible for Tab movement');
   app.destroy();
 });
 
@@ -207,6 +238,10 @@ test('outline enumerates textual relationships by direction and preserves basis'
   app.setRailTab('outline');
   let panel = root.querySelector('.mlv-rail__panel:not([hidden])');
   assert.match(panel.querySelector('.mlv-relations__context').textContent, /Update weights/);
+  assert.equal(panel.querySelector('[data-outline-id="dataset"] .mlv-outline__stage').textContent, 'observed');
+  assert.equal(panel.querySelector('[data-outline-id="epoch"] .mlv-outline__stage').textContent, 'inferred');
+  assert.equal(panel.querySelector('[data-outline-id="gate"] .mlv-outline__stage').textContent, 'unresolved');
+  assert.doesNotMatch(panel.querySelector('[data-outline-id="dataset"]').textContent, /unknown/i);
   assert.deepEqual(Array.from(panel.querySelectorAll('[data-relation-id]'), (row) => row.getAttribute('data-relation-id')), ['cycle', 'review']);
   assert.match(panel.querySelector('[data-relation-id="cycle"]').getAttribute('aria-label'), /Outgoing: Update weights to Epoch; next epoch · inferred; basis inferred/);
 

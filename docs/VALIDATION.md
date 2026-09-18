@@ -8,10 +8,70 @@ Run `sh scripts/e2e.sh` with Python 3.10+ and Node 20.18.1+ on PATH. On Windows
 use `powershell -File scripts/e2e.ps1`. The [script guide](../scripts/README.md)
 explains each gate and explicit skip options.
 
+## Live usability and CI follow-up — 2026-09-18
+
+The user authorized committing/pushing the campaign and completing live viewer
+checks. `84ea3a1` published the campaign. Remote CI exposed a Windows absolute
+path rejection, fixed in `7182224`; its push run passed. Its PR run exposed a
+fixed-delay test race, now replaced with a bounded wait for the settled state.
+These earlier run outcomes do not validate the later changes described below.
+
+The final local command was
+`PATH="$PWD/.venv/bin:$PATH" PYTHONDONTWRITEBYTECODE=1 sh scripts/e2e.sh --skip-npm-install`:
+**all 15 exercised gates passed**. Python: **122 passed, 24 subtests passed,
+2 skipped** (unavailable Claude CLI). Viewer: **32 passed**. Extension:
+**43 passed**. Both skill archives passed; the actual VSIX had **11 files,
+141,149 bytes**, with no retired analyzer/runtime payload. Documentation checks
+and `git diff --check` passed. The current eight-file portable skill SHA-256 is
+`b251ac3774a453473ccf501643f56eb2ca826640d713903666add9c9e93c5b7f`.
+
+Live checks used an isolated VS Code 1.138.0 Extension Development Host on
+macOS, with the actual extension, built viewer and synthetic source/artifacts.
+The workspace stayed in Restricted Mode. Native VS Code API commands opened
+the diagram; Chromium debugging controlled its real rendered UI and keyboard
+events. The fixture was synthetic; no native assistant or target ML code was
+executed.
+
+- The Outline enumerated all three nodes and both directed relationships;
+  authored basis labels and search wording were checked in the rendered UI.
+- Arrow-key/End navigation selected and focused the correct side tabs; Tab
+  moved into the panel. This fixed the missing tablist keyboard behavior.
+- The edge inspector displayed both quotes. Source navigation reached line 2;
+  Previous evidence returned to line 1 with the expected boundary states.
+  The source-column fix kept the diagram visible instead of opening a duplicate
+  source tab over it. Notebook column selection has regression coverage, but
+  this live exercise used Python source.
+- Challenge opened a composer for the selected `output` edge. Support and
+  counter-evidence remained distinguishable. A finding without associated nodes
+  was inspectable with its coverage limitation.
+- A structurally invalid revision retained the valid diagram. The native
+  validator now matches the helper's evidence requirement, including the
+  conceptual-parent exception. Unsaved source changes blocked a stale update
+  and evidence navigation; restoring the source cleared the warning and adopted
+  the child revision.
+- Dark/high-contrast screenshots were inspected. Light theme switching was
+  confirmed. Closing the narrow-screen side drawer and fitting the view put all
+  three node rectangles inside the canvas. Accessible names were inspected in
+  Chromium's accessibility tree; this is **not a spoken screen-reader pass**.
+
+Focused Chrome cold/warm profiling and native VS Code scale measurements
+completed through **2,000 represented nodes** with corrected, canonically
+validated synthetic fixtures. The earlier generator had invalid host/evidence
+values; it is now corrected and guarded by all-size reference/basis tests.
+See [PERFORMANCE.md](PERFORMANCE.md) for source hashes, timing definitions,
+the routing bottleneck and measurement limits. No performance optimization or
+semantic accuracy gain is claimed from these observations.
+
+Windows/Linux/remote live interaction, spoken assistive-technology testing,
+and matched native-model experiments remain separate work. The
+[human reference review](../evals/workflow/reference-candidates/REVIEW_GUIDE.md)
+and held-out pilot remain pending; neither green tests nor these UI checks
+provide semantic adjudication.
+
 ## Trust/usability campaign results — 2026-09-18
 
-The [campaign](TRUST_USABILITY_CAMPAIGN.md) is local on `llm-workflow` based on
-`d40d96e`. On macOS with Python 3.13.15 and Node 26.4.0:
+The initial [campaign](TRUST_USABILITY_CAMPAIGN.md), later committed as `84ea3a1`,
+was based on `d40d96e`. On macOS with Python 3.13.15 and Node 26.4.0:
 
 - `PATH="$PWD/.venv/bin:$PATH" PYTHONDONTWRITEBYTECODE=1 sh scripts/e2e.sh --skip-npm-install`:
   **15 exercised gates passed**, with a fresh build and generated-copy checks.
@@ -37,12 +97,12 @@ The [campaign](TRUST_USABILITY_CAMPAIGN.md) is local on `llm-workflow` based on
 - Historical native artifacts, provisional ledgers, held-out source/reference
   pins, task manifest, public schema and shipped sample are unchanged.
 
-Desktop control stalled while preparing the live viewer/browser exercise.
+The initial desktop-control attempt stalled while preparing the live exercise.
 No native VS Code interaction, browser paint timing, screen-reader pass or
 human semantic score is claimed for these changes. The task-created isolated
 VS Code process and loopback server were stopped. The existing pilot summary
-still reports **72 pending, zero completed, zero human-reviewed**. Earlier CI
-below belongs to older commits; current local changes have no remote CI run.
+still reports **72 pending, zero completed, zero human-reviewed**. These initial
+results are superseded by the follow-up above where explicitly stated.
 
 ## Static-removal baseline — 2026-09-18
 

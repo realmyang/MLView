@@ -449,6 +449,18 @@ class AuthoredPanel implements vscode.Disposable {
     private navigationCurrent(revision: string, freshness: number): boolean {
         return !this.disposed && this.lastValid?.document.revision.id === revision && this.freshnessVersion === freshness;
     }
+    private navigationColumn(document: vscode.TextDocument, notebook?: vscode.NotebookDocument): vscode.ViewColumn {
+        const sameUri = (left: vscode.Uri, right: vscode.Uri): boolean => left.toString() === right.toString();
+        const visibleDocument = vscode.window.visibleTextEditors.find(editor => sameUri(editor.document.uri, document.uri) && editor.viewColumn !== undefined);
+        if (visibleDocument?.viewColumn !== undefined)
+            return visibleDocument.viewColumn;
+        const visibleNotebook = notebook && vscode.window.visibleNotebookEditors.find(editor => sameUri(editor.notebook.uri, notebook.uri) && editor.viewColumn !== undefined);
+        if (visibleNotebook?.viewColumn !== undefined)
+            return visibleNotebook.viewColumn;
+        const sourceEditor = [vscode.window.activeTextEditor, ...vscode.window.visibleTextEditors]
+            .find(editor => editor?.viewColumn !== undefined && editor.viewColumn !== this.panel.viewColumn);
+        return sourceEditor?.viewColumn ?? vscode.ViewColumn.Beside;
+    }
     private async navigate(e: WorkflowEvidence, revision: string, freshness: number): Promise<void> {
         const uri = vscode.Uri.file(path.join(this.folder.uri.fsPath, e.file));
         const start = toEditorLine(e.line), end = toEditorLine(e.endLine);
@@ -461,7 +473,7 @@ class AuthoredPanel implements vscode.Disposable {
                 void vscode.window.showWarningMessage(`MLView: notebook cell ${e.cell} no longer exists.`);
                 return;
             }
-            const editor = await vscode.window.showTextDocument(cell.document, { preview: true });
+            const editor = await vscode.window.showTextDocument(cell.document, { preview: true, viewColumn: this.navigationColumn(cell.document, notebook) });
             if (!this.navigationCurrent(revision, freshness))
                 return;
             const range = new vscode.Range(start, 0, end, Math.max(0, cell.document.lineAt(end).text.length));
@@ -472,7 +484,7 @@ class AuthoredPanel implements vscode.Disposable {
         const doc = await vscode.workspace.openTextDocument(uri);
         if (!this.navigationCurrent(revision, freshness))
             return;
-        const editor = await vscode.window.showTextDocument(doc, { preview: true });
+        const editor = await vscode.window.showTextDocument(doc, { preview: true, viewColumn: this.navigationColumn(doc) });
         if (!this.navigationCurrent(revision, freshness))
             return;
         const range = new vscode.Range(start, 0, end, doc.lineAt(end).text.length);

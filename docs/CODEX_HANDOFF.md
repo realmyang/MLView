@@ -27,17 +27,26 @@ recommendations” authorized the [trust/usability campaign](TRUST_USABILITY_CAM
 It implements authored semantics, complete evidence inspection and textual
 relationships, coalesced validation with race guards, interpretation references,
 protected incremental draft edits, full-bundle diagnostics, candidate snapshots
-and performance/evaluation preparation. The current changes are local on
-`llm-workflow`; earlier remote CI does not validate them.
+and performance/evaluation preparation. The campaign was committed and pushed
+as `84ea3a1` on `llm-workflow`. Follow-up `7182224` fixed the Windows absolute-path
+issue caught by CI. Read current validation for later live-check fixes and CI.
 
 See [current validation](VALIDATION.md) for tests actually run. The independent
 Sol skill exercise is auxiliary, not a native-host or human-reviewed score.
-Desktop control stalled during live-check preparation; no browser/VS Code UI
-or screen-reader pass is claimed for this campaign. A named human must still
+The initial desktop-control attempt stalled. The user subsequently authorized
+live VS Code usability tests and browser/native renderer profiling. Those checks
+use synthetic fixtures and do not run a native assistant or target ML code.
+They found tab navigation, source-column selection, benchmark-fixture and
+validator-parity defects; the follow-up fixes and measurements are recorded in
+current validation. They do not establish a spoken screen-reader pass.
+A named human must still
 review the [reference packet](../evals/workflow/reference-candidates/README.md)
 before the 24/48 scored pilot. The separate no-skill plan adds 24 Stage 1
 sessions; none has run. The [candidate protocol](../evals/workflow/CANDIDATE_PROTOCOL.md)
 replaces reliance on historical four-file hashes for future evaluations.
+The [human review guide](../evals/workflow/reference-candidates/REVIEW_GUIDE.md)
+explains what the user or a nominated reviewer supplies and what the agent can
+prepare. No review decisions have been fabricated or recorded as approved.
 
 ---
 

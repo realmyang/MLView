@@ -153,4 +153,12 @@ export function decorateWorkflow(app: App, document: WorkflowDocument): void {
   }
   const issueTab = app.root.querySelector<HTMLElement>('[role="tab"][aria-controls$="-panel-issues"]');
   if (issueTab) issueTab.textContent = 'Findings';
+  const search = app.root.querySelector<HTMLInputElement>('.mlv-search input[type="search"]');
+  if (search) {
+    search.placeholder = 'Search workflow steps, findings, or IDs…';
+    const label = search.id
+      ? app.root.querySelector<HTMLLabelElement>('label[for="' + search.id + '"]')
+      : null;
+    if (label) label.textContent = 'Search workflow steps, findings, or IDs';
+  }
 }

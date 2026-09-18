@@ -36,12 +36,38 @@ test('workflow validator enforces references and a parent forest', () => {
 test('workflow parent validation handles a maximum-depth chain and cycle iteratively', () => {
   const valid=document();
   valid.nodes=Array.from({length:2000},(_,i)=>({id:`n${i}`,label:`Node ${i}`,phase:'train',...(i?{parent:`n${i-1}`}:{}),basis:'inferred',evidence:[]}));
+  valid.nodes.at(-1).basis='unresolved';
   assert.doesNotThrow(()=>validateWorkflowStructure(valid));
   assert.ok(validateWorkflowStructure(valid).document);
   valid.nodes[0].parent='n1999';
   const cyclic=validateWorkflowStructure(valid);
   assert.equal(cyclic.document,undefined);
   assert.match(cyclic.issues.map(x=>x.message).join('\n'),/forest/);
+});
+
+test('claims without evidence require unresolved basis except conceptual parent nodes', () => {
+  const value=document();
+  value.nodes=[
+    {id:'parent',label:'Conceptual group',phase:'train',basis:'inferred',evidence:[]},
+    {id:'child',label:'Leaf',phase:'train',parent:'parent',basis:'observed',evidence:[]},
+    {id:'unknown',label:'Unknown leaf',phase:'train',basis:'unresolved',evidence:[]}
+  ];
+  value.edges=[
+    {id:'unsupported-edge',source:'child',target:'unknown',label:'flows',basis:'inferred',evidence:[]},
+    {id:'unknown-edge',source:'unknown',target:'child',label:'may flow',basis:'unresolved',evidence:[]}
+  ];
+  value.findings=[
+    {id:'unsupported-finding',title:'Claim',message:'Unsupported',severity:'low',nodeIds:['child'],basis:'observed',evidence:[]},
+    {id:'unknown-finding',title:'Unknown',message:'Unresolved',severity:'low',nodeIds:['unknown'],basis:'unresolved',evidence:[]}
+  ];
+  value.evidence=[];
+  const result=validateWorkflowStructure(value);
+  assert.equal(result.document,undefined);
+  assert.deepEqual(result.issues.filter(issue=>issue.message.startsWith('empty evidence')).map(issue=>issue.path),[
+    '$.nodes[1].evidence',
+    '$.edges[0].evidence',
+    '$.findings[0].evidence'
+  ]);
 });
 
 test('workflow validator checks exact source quotes and workspace containment', async () => {

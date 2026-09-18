@@ -6,6 +6,9 @@ from pinned source without importing or executing target code, inspecting
 held-out model outputs, or tuning the skill. They are review inputs, not
 human-authored ground truth or native-host pilot artifacts.
 
+Start with [what the pilot owner needs to review](REVIEW_GUIDE.md) for a concrete
+checklist, a ten-fact starting task and a plain-text decision template.
+
 ## Candidates
 
 | Ledger | Proposed scenario | Facts | Anchors |

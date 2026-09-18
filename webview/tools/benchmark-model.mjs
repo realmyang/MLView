@@ -37,7 +37,7 @@ export function benchmarkWorkflow(nodeCount, revision = 'synthetic-r1') {
       target: nodes[i].id,
       label: i % 11 === 0 ? `synthetic transfer ${i} with a long edge label` : `transfer ${i}`,
       kind: i % 5 === 0 ? 'control' : 'data',
-      basis: 'observed',
+      basis: i >= groupCount ? 'observed' : 'unresolved',
       evidence: i >= groupCount ? [`evidence-${i}`] : [],
     });
     if (i > 10 && i % 19 === 0) {
@@ -47,8 +47,8 @@ export function benchmarkWorkflow(nodeCount, revision = 'synthetic-r1') {
         target: nodes[i - 9].id,
         label: `synthetic cycle ${i}`,
         kind: 'control',
-        basis: 'inferred',
-        evidence: [`evidence-${i}`],
+        basis: i >= groupCount ? 'inferred' : 'unresolved',
+        evidence: i >= groupCount ? [`evidence-${i}`] : [],
       });
     }
   }
@@ -73,7 +73,7 @@ export function benchmarkWorkflow(nodeCount, revision = 'synthetic-r1') {
   return {
     workflowVersion: '1.0',
     title: `Synthetic renderer benchmark (${nodeCount} nodes)`,
-    producer: { kind: 'host-llm', host: 'synthetic-benchmark' },
+    producer: { kind: 'host-llm', host: 'unknown' },
     revision: { id: revision },
     request: { question: 'Exercise renderer scale without semantic interpretation.', scope: 'synthetic benchmark', entrypoints: ['synthetic/entry.py'], configuration: `nodes=${nodeCount}` },
     phases,

@@ -177,7 +177,7 @@ function branch(ids: string[], s: OutlineState, cb: OutlineCallbacks): HTMLEleme
       add(row, el('span', 'mlv-outline__chevron mlv-outline__chevron--none'));
     }
     add(row, el('span', 'mlv-outline__label', node.label || node.qualname));
-    add(row, el('span', 'mlv-outline__stage', node.kind));
+    add(row, el('span', 'mlv-outline__stage', node.basis || node.kind));
     const glyph = severityFor(s, id);
     if (glyph) row.appendChild(glyph);
     on(row, 'click', () => cb.onSelectNode(id));

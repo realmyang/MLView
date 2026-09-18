@@ -28,6 +28,12 @@ Each size ran in a fresh process with exposed GC. Times are milliseconds and
 are descriptive observations, not pass/fail budgets. Rebuilds after that hash
 need a new run before comparing source changes.
 
+This historical run used an early synthetic generator that the renderer could
+normalize but the native artifact validator correctly rejected: its producer
+host was outside the contract enum and some evidence references or bases were
+invalid. The measurements remain useful only as historical renderer-shape
+observations. They do not show that those fixtures were valid native artifacts.
+
 | Nodes | Edges | Mount | Select | Scope to 5 | Reset all | SVG export | Revision update | Dispose | DOM elements | Heap after update |
 |---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | 100 | 104 | 138 | 22 | 14 | 82 | 32 | 81 | 4 | 3,404 | 104 MiB |
@@ -72,3 +78,78 @@ layout and paint work but does not guarantee paint completed. When available,
 the heap value is the browser's live JavaScript heap sampled immediately after
 the revision update; it is neither total nor peak memory. Record the OS and
 foreground-tab state alongside the JSON because the page cannot determine them.
+
+## Focused Chrome baseline
+
+The authoritative browser run on 2026-09-18 used Chrome 153.0.8010.53 on
+macOS 26.6.2, arm64. It used the corrected generator at
+`webview/tools/benchmark-model.mjs` SHA-256
+`3ee5015a2ae136ea570bef1889e01bc189e669c17a22d252baaafa20ef7a710e`
+and the built viewer SHA-256
+`08346b352692bed3fb6850d9a7548a4daf3bc38eabf3acd881595607121aa536`.
+All four generated documents passed the canonical artifact validator against
+their synthetic source workspace before measurement. Chrome ran with a fresh,
+isolated profile in a 1,440 × 900 CSS pixel page viewport and the fixed
+1,200 × 650 diagram viewport at device-pixel ratio 1. The page reported
+`visibilityState: visible` and `document.hasFocus(): true` before and after both
+runs.
+
+The cold run cleared the browser cache and captured a DevTools trace and CPU
+sampling profile, so profiler overhead is part of its elapsed times. The warm
+run repeated the complete sequence in the same page without profiling. Times
+below are milliseconds.
+
+| Run | Nodes | Mount | Select | Scope to 5 | Reset all | SVG export | Revision update | Dispose |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| Cold/profiled | 100 | 101.9 | 24.7 | 15.6 | 42.6 | 23.1 | 26.7 | 14.6 |
+| Warm | 100 | 33.7 | 16.3 | 16.7 | 33.3 | 24.9 | 33.3 | 16.4 |
+| Cold/profiled | 500 | 509.9 | 14.4 | 16.3 | 183.5 | 53.3 | 180.2 | 16.9 |
+| Warm | 500 | 199.9 | 23.1 | 17.9 | 166.8 | 41.1 | 175.2 | 15.6 |
+| Cold/profiled | 1,000 | 650.3 | 23.0 | 23.6 | 576.2 | 98.7 | 672.2 | 8.7 |
+| Warm | 1,000 | 600.9 | 14.8 | 16.6 | 524.5 | 86.4 | 567.0 | 10.5 |
+| Cold/profiled | 2,000 | 2,220.0 | 36.3 | 31.7 | 2,174.9 | 190.9 | 2,338.3 | 17.3 |
+| Warm | 2,000 | 2,006.8 | 23.8 | 35.2 | 2,082.4 | 195.9 | 2,248.0 | 16.9 |
+
+The cold trace attributes 10,015.7 ms to script-related events, 847.0 ms to
+style/layout-related events and 142.7 ms to paint events on the main thread.
+These categories can overlap through nested trace events, so their totals must
+not be added or interpreted as percentages of wall time. The main style/layout
+events were `UpdateLayoutTree` (437.1 ms), `Layout` (317.2 ms) and `PrePaint`
+(87.9 ms).
+
+The 10,560.1 ms CPU sample identifies obstacle-aware edge routing as the main
+hot spot. `blocks` accounts for 6,002.8 ms of sampled self time, followed by
+`getBoundingClientRect` at 684.2 ms, `segHitsBox` at 375.1 ms and `pathCrosses`
+at 369.8 ms. SVG base64 encoding accounts for 194.5 ms and cross-lane routing
+for 173.1 ms. This agrees with mount, reset and revision update growing much
+faster than narrow scope, selection or disposal: the current router repeatedly
+scans box and ancestry geometry while rebuilding the full view.
+
+These are two descriptive runs on one Chrome/macOS configuration, not budgets,
+cross-engine claims or proof of paint completion. The warm live-heap samples
+also include allocations retained from the cold run and are not leak evidence.
+No optimization has been implemented or validated from this profile yet.
+
+## Native VS Code observation
+
+The same corrected, canonically validated fixtures and viewer bundle were also
+exercised in the actual VS Code host: Code 1.138.0, Electron 42.10.0 and
+Chromium 148.0.7778.280 on macOS. The webview reported a 576 × 928 CSS pixel
+viewport in a split-editor layout and remained visible and focused for every
+sample. Every authored node ID was represented.
+
+| Nodes | End-to-end update latency | DOM elements | Live JS heap after update |
+|---:|---:|---:|---:|
+| 100 | 486 ms | 3,788 | 5,086,520 bytes |
+| 500 | 832 ms | 16,034 | 15,944,290 bytes |
+| 1,000 | 1,572 ms | 31,470 | 29,682,817 bytes |
+| 2,000 | 4,608 ms | 62,983 | 45,047,185 bytes |
+
+This is end-to-end observed latency from writing the watched artifact through
+native validation, extension messaging, rendering, two animation-frame
+callbacks and an external 100 ms polling loop. It is not a pure renderer
+measurement and does not guarantee paint completion. The polling cadence also
+limits timing precision. Its different Chromium version, host capabilities and
+much narrower viewport mean these values and DOM counts cannot be compared
+directly with the standalone Chrome table. The heap samples are live JavaScript
+heap snapshots, not total or peak process memory.

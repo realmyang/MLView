@@ -296,6 +296,8 @@ function docKey(fsPath) {
  * reason `src/notebooks.ts` exists at all.
  */
 let notebookDocuments = [];
+let visibleTextEditors = [];
+let visibleNotebookEditors = [];
 
 const NotebookCellKind = { Markup: 1, Code: 2 };
 
@@ -373,6 +375,7 @@ function makeWebviewPanel(viewType, title, showOptions, options) {
     viewType,
     title,
     options,
+    viewColumn: typeof showOptions === 'object' ? showOptions.viewColumn : showOptions,
     posted: [],
     revealed: 0,
     disposed: false,
@@ -432,6 +435,12 @@ const vscode = {
   ConfigurationTarget: { Global: 1, Workspace: 2, WorkspaceFolder: 3 },
   window: {
     activeTextEditor: undefined,
+    get visibleTextEditors() {
+      return visibleTextEditors;
+    },
+    get visibleNotebookEditors() {
+      return visibleNotebookEditors;
+    },
     activeColorTheme: { kind: 2 },
     createOutputChannel(name) {
       const channel = { name, lines: [], appendLine: (l) => channel.lines.push(l), show() {}, dispose() {} };
@@ -495,11 +504,14 @@ const vscode = {
     },
     showTextDocument: async (document, options) => {
       recorded.shownDocuments.push({ document, options });
-      return {
+      const editor = {
+        document,
+        viewColumn: options && options.viewColumn,
         setDecorations() {},
         revealRange() {},
         selection: undefined
       };
+      return editor;
     },
     setStatusBarMessage: () => ({ dispose() {} }),
     withProgress: async (_options, task) => task({ report() {} }, { isCancellationRequested: false }),
@@ -671,6 +683,21 @@ const vscode = {
     notebookDocuments = (specs || []).map((spec) => makeNotebook(spec.path, spec.cells || []));
     return notebookDocuments;
   },
+  __setVisibleTextEditors(specs) {
+    visibleTextEditors = (specs || []).map((spec) => ({
+      document: makeDocument(Uri.file(spec.path)),
+      viewColumn: spec.viewColumn
+    }));
+    vscode.window.activeTextEditor = visibleTextEditors.find(editor => editor.viewColumn === specs?.find(spec => spec.active)?.viewColumn);
+    return visibleTextEditors;
+  },
+  __setVisibleNotebookEditors(specs) {
+    visibleNotebookEditors = (specs || []).map((spec) => ({
+      notebook: notebookDocuments.find(notebook => notebook.uri.fsPath === spec.path),
+      viewColumn: spec.viewColumn
+    }));
+    return visibleNotebookEditors;
+  },
   /** Give `openTextDocument` real text for one absolute path. */
   __setDocument(fsPath, text) {
     documents.set(docKey(fsPath), text);
@@ -748,6 +775,9 @@ const vscode = {
     recorded.participants.length = 0;
     recorded.serializers.clear();
     notebookDocuments = [];
+    visibleTextEditors = [];
+    visibleNotebookEditors = [];
+    vscode.window.activeTextEditor = undefined;
     for (const key of [
       'saveListeners',
       'notebookSaveListeners',

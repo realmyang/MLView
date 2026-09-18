@@ -35,3 +35,12 @@ authored wording, evidence inspection, textual relationships, coalesced
 validation, source-reading aids, incremental draft edits, bundle diagnostics
 and reproducible performance/candidate checks. See its measured results and
 remaining gates. No human semantic review or held-out pilot pass is implied.
+
+The follow-up completed macOS VS Code viewer/keyboard checks and focused browser
+and native performance profiling through 2,000 nodes. Source links now retain
+the visible diagram, side tabs support keyboard navigation, and both validators
+enforce the same evidence requirements. Large full-view updates remain slow;
+the [profile](PERFORMANCE.md) identifies repeated routing obstacle checks as
+the next optimization target. These synthetic viewer exercises do not run or
+score a native assistant. The [human review guide](../evals/workflow/reference-candidates/REVIEW_GUIDE.md)
+explains the pending owner/reviewer decisions.

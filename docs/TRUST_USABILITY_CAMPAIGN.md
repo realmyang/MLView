@@ -42,10 +42,12 @@ Work starts from `d40d96e` on `llm-workflow`. WorkflowDocument remains 1.0.
 The shared viewer and generated Claude skill are rebuilt from their canonical
 sources. Package gates retain the explicit native-only payload boundary.
 Historical artifacts, review ledgers, source pins and held-out tasks are unchanged.
-The final eight-file portable skill bundle SHA-256 is
+The initial eight-file portable skill bundle SHA-256 was
 `8ec6c8158db3002aa3fee4069bcfbd91f0030af87c6000d8eab5d7b37a4b91b9`.
-Its captured candidate snapshot passed a drift check; this is a local tested
-candidate, not a frozen or approved pilot condition.
+Its captured candidate snapshot passed a drift check. The Windows path fix
+changed the current identity to
+`b251ac3774a453473ccf501643f56eb2ca826640d713903666add9c9e93c5b7f`.
+Neither identity denotes a frozen or approved pilot condition.
 
 ## Verification and observations
 
@@ -75,10 +77,13 @@ validated the temporary published artifact before cleanup.
 The full-size jsdom baseline demonstrates successful representation/export at
 2,000 nodes but slow full-view updates. It is not a VS Code responsiveness pass;
 the [performance report](PERFORMANCE.md) gives exact hashes, sizes and limits.
-The optional browser page has a visible viewport, frame-inclusive measurements,
-metadata and integrity assertions. Desktop control stalled during preparation
-of a live viewer/browser check, so no successful live UI, browser timing or
-screen-reader result is claimed for this campaign.
+The initial desktop-control attempt stalled. The authorized follow-up completed
+focused browser measurements and actual VS Code UI and scale checks. It fixed
+keyboard tab navigation, authored search/Outline wording, source-column reuse,
+Windows draft paths, a timing-sensitive CI test, benchmark fixture integrity,
+and native/helper evidence-validation parity. See [VALIDATION.md](VALIDATION.md)
+and [PERFORMANCE.md](PERFORMANCE.md). Accessibility-tree checks do not establish
+a spoken screen-reader result.
 
 ## Remaining gates and later work
 
@@ -88,9 +93,9 @@ matched baseline sessions have not run. Candidate settings/prompts and capture
 privacy policy must be frozen with those decisions. The tooling deliberately
 does not manufacture human approval.
 
-Browser/VS Code performance profiling, live keyboard/screen-reader checks,
-remote platform exercises and native-host matched interpretation experiments
-remain outstanding. VSIX-contributed Copilot skills, transitive ML question
+The profile now identifies routing as the first optimization target. Spoken
+screen-reader checks, remote platform exercises and native-host matched
+interpretation experiments remain outstanding. VSIX-contributed Copilot skills, transitive ML question
 views, scenario comparison, redacted sharing and richer schemas remain later
 work under the research report's decision gates. No unsupported compatibility
 or semantic-coverage claim has been added.

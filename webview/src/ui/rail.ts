@@ -117,7 +117,8 @@ export class Rail {
       { id: 'inspector', label: 'Inspector' },
       { id: 'outline', label: 'Outline' },
     ];
-    for (const d of defs) {
+    for (let tabIndex = 0; tabIndex < defs.length; tabIndex++) {
+      const d = defs[tabIndex];
       const b = el('button', 'mlv-rail__tab', d.label) as HTMLButtonElement;
       b.type = 'button';
       b.id = uid + '-tab-' + d.id;
@@ -125,6 +126,18 @@ export class Rail {
       b.setAttribute('aria-controls', uid + '-panel-' + d.id);
       b.setAttribute('aria-selected', 'false');
       on(b, 'click', () => cb.onTab(d.id));
+      on(b, 'keydown', (ev: KeyboardEvent) => {
+        let nextIndex: number;
+        if (ev.key === 'ArrowRight') nextIndex = (tabIndex + 1) % defs.length;
+        else if (ev.key === 'ArrowLeft') nextIndex = (tabIndex + defs.length - 1) % defs.length;
+        else if (ev.key === 'Home') nextIndex = 0;
+        else if (ev.key === 'End') nextIndex = defs.length - 1;
+        else return;
+        ev.preventDefault();
+        const next = defs[nextIndex].id;
+        cb.onTab(next);
+        this.tabs.get(next)?.focus();
+      });
       strip.appendChild(b);
       this.tabs.set(d.id, b);
 

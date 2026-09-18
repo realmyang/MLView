@@ -13,6 +13,7 @@ Start with the [project overview](../README.md) and
 | [Validation](VALIDATION.md) | Current local check results and their limits |
 | [Contributing](../CONTRIBUTING.md) | Development setup and release gates |
 | [Evaluation protocol](../evals/workflow/README.md) | Native-host semantic and human review |
+| [Human review guide](../evals/workflow/reference-candidates/REVIEW_GUIDE.md) | Decisions needed from the pilot owner, with a plain-text template |
 | [Security policy](../SECURITY.md) | Trust boundaries and private reporting |
 | [Codex handoff](CODEX_HANDOFF.md) | Current takeover state and dated work history |
 

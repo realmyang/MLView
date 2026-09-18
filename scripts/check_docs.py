@@ -21,6 +21,7 @@ ACTIVE = (
     "evals/workflow/fixtures/README.md", "skills/mlview/SKILL.md",
     "docs/TRUST_USABILITY_CAMPAIGN.md", "docs/PERFORMANCE.md",
     "evals/workflow/CANDIDATE_PROTOCOL.md",
+    "evals/workflow/reference-candidates/REVIEW_GUIDE.md",
 )
 LINK = re.compile(r"!?\[[^\]]*\]\(<?([^\s)>]+)>?(?:\s+[^)]*)?\)")
 

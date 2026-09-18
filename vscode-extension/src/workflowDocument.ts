@@ -376,6 +376,23 @@ export function validateWorkflowStructure(raw: unknown): {
     nodes.forEach((n, i) => checkRefs(n.evidence, evidenceIds, `$.nodes[${i}].evidence`));
     edges.forEach((e, i) => checkRefs(e.evidence, evidenceIds, `$.edges[${i}].evidence`));
     findings.forEach((f, i) => { checkRefs(f.nodeIds, nodeIds, `$.findings[${i}].nodeIds`); checkRefs(f.edgeIds, edgeIds, `$.findings[${i}].edgeIds`); checkRefs(f.evidence, evidenceIds, `$.findings[${i}].evidence`); checkRefs(f.counterEvidence, evidenceIds, `$.findings[${i}].counterEvidence`); });
+    const conceptualParents = new Set<string>();
+    for (const node of nodes) {
+        if (typeof node.id === 'string' && ID.test(node.id) && typeof node.parent === 'string' && nodeIds.has(node.parent) && node.parent !== node.id)
+            conceptualParents.add(node.parent);
+    }
+    nodes.forEach((node, i) => {
+        if (Array.isArray(node.evidence) && node.evidence.length === 0 && node.basis !== 'unresolved' && !conceptualParents.has(String(node.id)))
+            issues.push({ path: `$.nodes[${i}].evidence`, message: 'empty evidence requires unresolved basis or a conceptual parent with children' });
+    });
+    edges.forEach((edge, i) => {
+        if (Array.isArray(edge.evidence) && edge.evidence.length === 0 && edge.basis !== 'unresolved')
+            issues.push({ path: `$.edges[${i}].evidence`, message: 'empty evidence requires unresolved basis' });
+    });
+    findings.forEach((finding, i) => {
+        if (Array.isArray(finding.evidence) && finding.evidence.length === 0 && finding.basis !== 'unresolved')
+            issues.push({ path: `$.findings[${i}].evidence`, message: 'empty evidence requires unresolved basis' });
+    });
     // Resolve each parent chain once. Repeated Array.find calls made a valid
     // maximum-size nested workflow quadratic-to-cubic work for untrusted input.
     const nodeById = new Map(nodes.map(n => [String(n.id), n]));

@@ -16,6 +16,13 @@ test.afterEach(() => {
 });
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
+async function waitFor(predicate, message, timeoutMs=2000) {
+  const deadline=Date.now()+timeoutMs;
+  while(!predicate()) {
+    if(Date.now()>=deadline)assert.fail(message);
+    await new Promise(resolve=>setTimeout(resolve,10));
+  }
+}
 function manualTimers() {
   let next=0;
   const callbacks=new Map();
@@ -31,7 +38,7 @@ function context() {
 }
 function log() { return {info(){},warn(){},error(){},dispose(){}}; }
 function workflow(file='source.py') {
-  return {workflowVersion:'1.0',title:'Authored',producer:{kind:'host-llm',host:'codex'},revision:{id:'r1'},request:{question:'Explain training',scope:'training',entrypoints:['train.py'],configuration:'config=fast'},phases:[{id:'p',label:'Train'}],nodes:[{id:'n',label:'Fit',phase:'p',basis:'observed',evidence:['e']},{id:'out',label:'Weights',phase:'p',basis:'inferred',evidence:[]}],edges:[{id:'flow',source:'n',target:'out',label:'produces',basis:'inferred',evidence:['e']}],findings:[{id:'risk',title:'Unverified output',message:'Output needs checking',severity:'medium',nodeIds:['out'],edgeIds:['flow'],basis:'inferred',evidence:['e'],counterEvidence:[]}],evidence:[{id:'e',file,line:1,endLine:1,quote:'fit()'}],coverage:{status:'scoped',summary:'source',inspectedFiles:[file],limitations:[]}};
+  return {workflowVersion:'1.0',title:'Authored',producer:{kind:'host-llm',host:'codex'},revision:{id:'r1'},request:{question:'Explain training',scope:'training',entrypoints:['train.py'],configuration:'config=fast'},phases:[{id:'p',label:'Train'}],nodes:[{id:'n',label:'Fit',phase:'p',basis:'observed',evidence:['e']},{id:'out',label:'Weights',phase:'p',basis:'unresolved',evidence:[]}],edges:[{id:'flow',source:'n',target:'out',label:'produces',basis:'inferred',evidence:['e']}],findings:[{id:'risk',title:'Unverified output',message:'Output needs checking',severity:'medium',nodeIds:['out'],edgeIds:['flow'],basis:'inferred',evidence:['e'],counterEvidence:[]}],evidence:[{id:'e',file,line:1,endLine:1,quote:'fit()'}],coverage:{status:'scoped',summary:'source',inspectedFiles:[file],limitations:[]}};
 }
 function publishedWorkflow() {
   const value=workflow();
@@ -70,6 +77,31 @@ test('authored panel opens, handshakes, and posts a validated workflow without l
   assert.equal(panel.posted[1].document.revision.id,'r1');
   panel.fire({v:1,type:'openLocation',evidenceId:'e'});await new Promise((resolve)=>setTimeout(resolve,20));
   assert.equal(vscode.__recorded.shownDocuments.at(-1).document.uri.fsPath,path.join(path.dirname(artifact),'source.py'));
+  controller.dispose();
+});
+
+test('source navigation reuses the already-visible source editor column', async () => {
+  const {root,artifact,controller}=setup(workflow());
+  vscode.__setVisibleTextEditors([{path:path.join(root,'source.py'),viewColumn:vscode.ViewColumn.One,active:true}]);
+  await controller.open(vscode.Uri.file(artifact));
+  const panel=vscode.__recorded.panels.at(-1);panel.fire({v:1,type:'ready'});await tick();
+  panel.fire({v:1,type:'openLocation',evidenceId:'e'});await new Promise(resolve=>setTimeout(resolve,20));
+  assert.equal(vscode.__recorded.shownDocuments.at(-1).options.viewColumn,vscode.ViewColumn.One);
+  controller.dispose();
+});
+
+test('notebook evidence navigation reuses the visible notebook column', async () => {
+  const document=workflow('notes.ipynb');
+  document.evidence=[{id:'e',file:'notes.ipynb',cell:0,line:1,endLine:1,quote:'fit()'}];
+  const {root,artifact,controller}=setup(document);
+  const notebookPath=path.join(root,'notes.ipynb');
+  fs.writeFileSync(notebookPath,JSON.stringify({cells:[{cell_type:'code',source:['fit()']}],metadata:{},nbformat:4,nbformat_minor:5}));
+  vscode.__setNotebooks([{path:notebookPath,cells:[{text:'fit()'}]}]);
+  vscode.__setVisibleNotebookEditors([{path:notebookPath,viewColumn:vscode.ViewColumn.One}]);
+  await controller.open(vscode.Uri.file(artifact));
+  const panel=vscode.__recorded.panels.at(-1);panel.fire({v:1,type:'ready'});await tick();
+  panel.fire({v:1,type:'openLocation',evidenceId:'e'});await new Promise(resolve=>setTimeout(resolve,20));
+  assert.equal(vscode.__recorded.shownDocuments.at(-1).options.viewColumn,vscode.ViewColumn.One);
   controller.dispose();
 });
 
@@ -213,7 +245,7 @@ test('source save rejects stale evidence, then a child revision clears the error
   fs.writeFileSync(path.join(path.dirname(artifact),'source.py'),'changed()\n');
   vscode.__setDocument(path.join(path.dirname(artifact),'source.py'),'changed()\n');
   for(const listener of vscode.__recorded.saveListeners)listener(await vscode.workspace.openTextDocument(vscode.Uri.file(path.join(path.dirname(artifact),'source.py'))));
-  await new Promise((resolve)=>setTimeout(resolve,180));
+  await waitFor(()=>/retaining the last valid revision/.test(panel.posted.at(-1)?.message || ''),'stale-source validation did not settle');
   assert.match(panel.posted.at(-1).message,/retaining the last valid revision/);
   fs.writeFileSync(path.join(path.dirname(artifact),'source.py'),'fit()\n');
   vscode.__setDocument(path.join(path.dirname(artifact),'source.py'),'fit()\n');
@@ -358,8 +390,8 @@ test('selection refinement resolves trusted node, edge, and finding context from
 test('selection refinement bounds document-owned ID lists in the copied prompt', async () => {
   const document=workflow();
   const extra=Array.from({length:30},(_,i)=>i);
-  document.nodes.push(...extra.map(i=>({id:`out-${i}`,label:`Output ${i}`,phase:'p',basis:'inferred',evidence:[]})));
-  document.edges.push(...extra.map(i=>({id:`flow-${i}`,source:'n',target:`out-${i}`,label:'produces',basis:'inferred',evidence:[]})));
+  document.nodes.push(...extra.map(i=>({id:`out-${i}`,label:`Output ${i}`,phase:'p',basis:'unresolved',evidence:[]})));
+  document.edges.push(...extra.map(i=>({id:`flow-${i}`,source:'n',target:`out-${i}`,label:'produces',basis:'unresolved',evidence:[]})));
   document.evidence.push(...extra.map(i=>({id:`e-${i}`,file:'source.py',line:1,endLine:1,quote:'fit()'})));
   document.findings[0].nodeIds=extra.map(i=>`out-${i}`);
   document.findings[0].edgeIds=extra.map(i=>`flow-${i}`);

@@ -9,8 +9,12 @@
 - Add targeted interpretation guides and protected incremental draft edits.
 - Identify full skill bundles, diagnose installation drift, prepare separate
   matched baselines and measure synthetic renderer scale through 2,000 nodes.
+- Fix native Windows draft paths and CI timing, keep source links beside the
+  diagram, and support arrow/Home/End navigation across the side tabs.
+- Align evidence requirements across the Python and VS Code validators;
+  correct synthetic benchmark references and authored search/Outline wording.
 - Preserve WorkflowDocument 1.0 and historical evaluation records. Human
-  semantic review and broader native-host/UI validation remain outstanding.
+  semantic review and broader native-host/platform validation remain outstanding.
 
 ## Unreleased — native workflow only
 
