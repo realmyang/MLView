@@ -17,8 +17,7 @@ checkout in the target project. They have not been published to a marketplace.
 Build the viewer and VSIX using the [root instructions](../README.md). Install
 the resulting VSIX through **Extensions: Install from VSIX**. For development,
 open the extension directory in another VS Code window and use its **Run MLView
-Extension** launch configuration. The artifact viewer needs no Python analyzer
-installation. Publishing through the skill's helper requires Python 3.10+.
+Extension** launch configuration. The artifact viewer needs no Python installation. Publishing through the skill's helper requires Python 3.10+.
 
 Install the portable skill into the project you want to understand:
 
@@ -43,8 +42,8 @@ python3 tools/install_skill.py /path/to/target-project --destination .claude/ski
 
 Choose the installation for your host; do not install both same-name copies in
 a workspace shared with Copilot, which can discover both layouts. The portable
-workspace installation needs no MCP server. The plugin's legacy MCP services
-are separate from LLM artifact authoring.
+workspace installation and Claude plugin both contain the same native skill;
+neither starts an MCP server.
 
 Check an installed workspace without changing it:
 
@@ -55,8 +54,7 @@ python3 tools/install_skill.py /path/to/target-project --doctor
 This checks Python 3.10+, the documented skill directories, missing bundled
 files and duplicate installations. It cannot certify native skill discovery or
 the extension UI; complete those checks in the chosen assistant. CI is configured
-to package and check both standalone skill ZIPs alongside the VSIX and legacy
-wheel.
+to package and check both standalone skill ZIPs alongside the VSIX.
 
 ## Analyze and refine
 

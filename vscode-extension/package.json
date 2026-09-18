@@ -20,46 +20,26 @@
     "url": "https://github.com/realmyang/MLView/issues"
   },
   "homepage": "https://github.com/realmyang/MLView#readme",
-  "extensionKind": [
-    "workspace"
-  ],
+  "extensionKind": ["workspace"],
   "engines": {
     "vscode": "^1.100.0",
-    "node": ">=20"
+    "node": ">=20.18.1"
   },
-  "categories": [
-    "Visualization",
-    "Linters",
-    "Machine Learning"
-  ],
-  "keywords": [
-    "machine-learning",
-    "pytorch",
-    "scikit-learn",
-    "visualization",
-    "static-analysis"
-  ],
+  "categories": ["Visualization", "Machine Learning"],
+  "keywords": ["machine-learning", "visualization", "llm", "workflow"],
   "main": "./out/extension.js",
   "activationEvents": [
     "onCommand:mlview.openGeneratedDiagram",
     "onWebviewPanel:mlview.authoredDiagram",
-    "workspaceContains:**/*.mlview.json",
-    "onLanguage:python",
-    "workspaceContains:**/*.py",
-    "workspaceContains:**/*.ipynb",
-    "onWebviewPanel:mlview.diagram"
+    "workspaceContains:**/*.mlview.json"
   ],
   "capabilities": {
     "untrustedWorkspaces": {
-      "supported": "limited",
-      "restrictedConfigurations": [
-        "mlview.pythonPath"
-      ],
-      "description": "Analysis spawns a Python interpreter, so it is disabled in Restricted Mode. Trust the workspace to enable MLView."
+      "supported": true
     },
     "virtualWorkspaces": {
       "supported": false,
-      "description": "MLView runs a local Python interpreter over files on disk."
+      "description": "MLView opens local generated artifacts and their source evidence."
     }
   },
   "contributes": {
@@ -69,134 +49,6 @@
         "title": "Open Generated Diagram",
         "category": "MLView",
         "icon": "$(open-preview)"
-      },
-      {
-        "command": "mlview.visualize",
-        "title": "Visualize ML Workflow (Current File, Legacy Static)",
-        "category": "MLView",
-        "icon": "$(graph)"
-      },
-      {
-        "command": "mlview.visualizeWorkspace",
-        "title": "Visualize ML Workflow (Workspace, Legacy Static)",
-        "category": "MLView",
-        "icon": "$(graph-scatter)"
-      },
-      {
-        "command": "mlview.refresh",
-        "title": "Re-analyze",
-        "category": "MLView",
-        "icon": "$(refresh)"
-      },
-      {
-        "command": "mlview.showIssues",
-        "title": "Show ML Issues",
-        "category": "MLView",
-        "icon": "$(warning)"
-      },
-      {
-        "command": "mlview.revealInDiagram",
-        "title": "Reveal in Diagram",
-        "category": "MLView",
-        "icon": "$(target)"
-      },
-      {
-        "command": "mlview.scopeToSymbol",
-        "title": "Scope Diagram to Symbol",
-        "category": "MLView",
-        "icon": "$(list-tree)"
-      },
-      {
-        "command": "mlview.clearScope",
-        "title": "Clear Diagram Scope",
-        "category": "MLView",
-        "icon": "$(clear-all)"
-      },
-      {
-        "command": "mlview.exportHtml",
-        "title": "Export HTML Report",
-        "category": "MLView",
-        "icon": "$(export)"
-      },
-      {
-        "command": "mlview.exportSvg",
-        "title": "Export Diagram as SVG",
-        "category": "MLView",
-        "icon": "$(file-media)"
-      },
-      {
-        "command": "mlview.exportPng",
-        "title": "Export Diagram as PNG",
-        "category": "MLView",
-        "icon": "$(device-camera)"
-      },
-      {
-        "command": "mlview.activeFolder",
-        "title": "Select Active Folder",
-        "category": "MLView",
-        "icon": "$(folder-opened)"
-      },
-      {
-        "command": "mlview.openConfiguration",
-        "title": "Open MLView Configuration",
-        "category": "MLView",
-        "icon": "$(settings-gear)"
-      },
-      {
-        "command": "mlview.createBaseline",
-        "title": "Create Baseline From Current Findings",
-        "category": "MLView",
-        "icon": "$(check-all)"
-      },
-      {
-        "command": "mlview.saveComparisonBase",
-        "title": "Save Current Graph As Comparison Base",
-        "category": "MLView",
-        "icon": "$(save)"
-      },
-      {
-        "command": "mlview.compareWithBase",
-        "title": "Compare With Saved Base",
-        "category": "MLView",
-        "icon": "$(git-compare)"
-      },
-      {
-        "command": "mlview.compareWithCleanSample",
-        "title": "Compare With Clean Sample",
-        "category": "MLView",
-        "icon": "$(beaker)"
-      },
-      {
-        "command": "mlview.selectInterpreter",
-        "title": "Select Python Interpreter",
-        "category": "MLView",
-        "icon": "$(gear)"
-      },
-      {
-        "command": "mlview.showOutput",
-        "title": "Show Output",
-        "category": "MLView",
-        "icon": "$(output)"
-      },
-      {
-        "command": "mlview.showRuleDoc",
-        "title": "Open Rule Documentation",
-        "category": "MLView",
-        "icon": "$(book)"
-      }
-    ],
-    "keybindings": [
-      {
-        "command": "mlview.revealInDiagram",
-        "key": "alt+m",
-        "mac": "alt+m",
-        "when": "editorTextFocus && editorLangId == python"
-      },
-      {
-        "command": "mlview.scopeToSymbol",
-        "key": "alt+shift+m",
-        "mac": "alt+shift+m",
-        "when": "editorTextFocus && editorLangId == python"
       }
     ],
     "menus": {
@@ -205,21 +57,6 @@
           "command": "mlview.openGeneratedDiagram",
           "when": "resourceFilename =~ /\\.mlview\\.json$/",
           "group": "mlview@0"
-        },
-        {
-          "command": "mlview.revealInDiagram",
-          "when": "editorLangId == python",
-          "group": "mlview@1"
-        },
-        {
-          "command": "mlview.visualize",
-          "when": "editorLangId == python",
-          "group": "mlview@2"
-        },
-        {
-          "command": "mlview.scopeToSymbol",
-          "when": "editorLangId == python",
-          "group": "mlview@3"
         }
       ],
       "editor/title": [
@@ -227,367 +64,37 @@
           "command": "mlview.openGeneratedDiagram",
           "when": "resourceFilename =~ /\\.mlview\\.json$/",
           "group": "navigation@99"
-        },
-        {
-          "command": "mlview.visualize",
-          "when": "resourceLangId == python",
-          "group": "navigation@100"
-        }
-      ],
-      "commandPalette": [
-        {
-          "command": "mlview.showRuleDoc",
-          "when": "true"
         }
       ]
-    },
-    "configuration": {
-      "title": "MLView",
-      "properties": {
-        "mlview.pythonPath": {
-          "type": "string",
-          "default": "",
-          "scope": "machine-overridable",
-          "markdownDescription": "Absolute path to the Python interpreter used to run the MLView analyzer. Leave empty to use the Python extension's active interpreter, `python.defaultInterpreterPath`, or a `PATH` probe, in that order."
-        },
-        "mlview.analyzeOnSave": {
-          "scope": "resource",
-          "type": "boolean",
-          "default": true,
-          "description": "Re-analyze (debounced by 400 ms) when a Python file in the workspace is saved."
-        },
-        "mlview.currentFileAnalysisScope": {
-          "scope": "resource",
-          "type": "string",
-          "enum": [
-            "file",
-            "package",
-            "workspace"
-          ],
-          "enumDescriptions": [
-            "Analyze only the file itself. Fastest, and the least accurate: the cross-file rules (MLV301, MLV302, MLV401, MLV501) cannot fire, and the analyzer reports that as a single_file_analysis diagnostic.",
-            "Analyze the package directory that contains the file, then scope the diagram to the file. Recovers the cross-file rules at a fraction of workspace cost.",
-            "Analyze the whole workspace, then scope the diagram to the file."
-          ],
-          "default": "package",
-          "markdownDescription": "What `MLView: Visualize (Current File)` actually analyzes. `package` (default) analyzes the outermost directory of the package chain containing the file (the file's own directory when it is not in a package) and then scopes the diagram to the file, so the cross-file rules still fire. `file` analyzes the file alone and is reported as incomplete."
-        },
-        "mlview.exclude": {
-          "scope": "resource",
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "default": [],
-          "markdownDescription": "Extra glob patterns excluded from discovery. Added to the analyzer defaults (.venv, site-packages, node_modules, build, .git).\n\n**Precedence:** this setting is an ADDITIVE filter. `[paths].exclude` in the configuration file `#mlview.configPath#` names WINS; these globs drop further paths on top of it and cannot re-include a path the file excluded."
-        },
-        "mlview.configPath": {
-          "type": "string",
-          "default": "",
-          "scope": "resource",
-          "markdownDescription": "Path to the `.mlview.toml` (or a `pyproject.toml` carrying a `[tool.mlview]` table) MLView passes to `--config`. Absolute, or relative to the workspace folder. Leave empty to discover `<folder>/.mlview.toml`, then `<folder>/pyproject.toml` when it has the table.\n\n**Precedence:** the file WINS for `[rules].disable` and `[paths].exclude`. `#mlview.disabledRules#` and `#mlview.exclude#` are ADDITIVE filters on top of it - they can hide more rules and drop more paths, but neither can re-enable a rule the file disabled or re-include a path it excluded."
-        },
-        "mlview.baselinePath": {
-          "type": "string",
-          "default": "",
-          "scope": "resource",
-          "markdownDescription": "Path to a baseline written by **MLView: Create Baseline From Current Findings** (`mlview baseline write`). Findings recorded in it are still shown, but stop counting - so a repository with pre-existing findings can adopt MLView without `--fail-on high` failing forever. Absolute, or relative to the workspace folder. Empty means no baseline, and one is never auto-discovered: a file that quietly empties the Problems panel has to be named here on purpose.\n\n**Precedence:** the same as `#mlview.configPath#` - a `[baseline]` table in the configuration file wins, and this setting only names the file when the TOML does not."
-        },
-        "mlview.includeNotebooks": {
-          "scope": "resource",
-          "type": "boolean",
-          "default": false,
-          "description": "Analyze .ipynb notebooks as well as .py files (passes --include-notebooks). Off by default: cell execution order cannot be recovered from the file, so order-sensitive findings inside a notebook are de-rated and reported as such."
-        },
-        "mlview.maxFiles": {
-          "scope": "resource",
-          "type": "integer",
-          "default": 500,
-          "minimum": 1,
-          "description": "Maximum number of Python files to discover."
-        },
-        "mlview.maxNodes": {
-          "scope": "resource",
-          "type": "integer",
-          "default": 400,
-          "minimum": 1,
-          "description": "Maximum number of graph nodes. Exceeding it truncates the graph and shows a banner."
-        },
-        "mlview.minSeverity": {
-          "type": "string",
-          "enum": [
-            "low",
-            "medium",
-            "high"
-          ],
-          "default": "low",
-          "description": "Lowest issue severity shown in the Problems panel and in the chat / language-model digests."
-        },
-        "mlview.minConfidence": {
-          "type": "number",
-          "default": 0.6,
-          "minimum": 0,
-          "maximum": 1,
-          "description": "Lowest issue confidence published as a diagnostic. Lower-confidence findings stay on the canvas only."
-        },
-        "mlview.diagnosticsEnabled": {
-          "type": "boolean",
-          "default": true,
-          "description": "Publish MLView findings to the Problems panel. This is the surface GitHub Copilot reads via #problems."
-        },
-        "mlview.diagnosticSeverity": {
-          "type": "string",
-          "enum": [
-            "warning",
-            "error"
-          ],
-          "default": "warning",
-          "markdownDescription": "How high-severity findings map into the Problems panel. `warning` (default) publishes them as warnings; `error` escalates them to errors. Medium is always a warning and low is always information."
-        },
-        "mlview.disabledRules": {
-          "scope": "resource",
-          "type": "array",
-          "items": {
-            "type": "string",
-            "pattern": "^MLV[0-9]{3}$"
-          },
-          "default": [],
-          "markdownDescription": "Rule codes to hide everywhere: the Problems panel, the issue quick pick, the diagram and the chat / language-model digests. Example: MLV601.\n\n**Precedence:** this setting is an ADDITIVE filter. `[rules].disable` in the configuration file `#mlview.configPath#` names WINS; these codes hide further rules on top of it and cannot re-enable a rule the file disabled."
-        },
-        "mlview.codeLens": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show a \"MLView: show in diagram\" CodeLens above analyzed units."
-        },
-        "mlview.trace": {
-          "type": "string",
-          "enum": [
-            "off",
-            "messages",
-            "verbose"
-          ],
-          "default": "off",
-          "description": "Verbosity of the MLView output channel."
-        }
-      }
-    },
-    "chatParticipants": [
-      {
-        "id": "mlview.chat",
-        "name": "mlview",
-        "fullName": "MLView",
-        "description": "Legacy local static report; use the MLView skill for model-authored workflow interpretation",
-        "isSticky": true,
-        "commands": [
-          {
-            "name": "diagram",
-            "description": "Open the legacy static workflow diagram"
-          },
-          {
-            "name": "issues",
-            "description": "List detected ML issues by severity"
-          },
-          {
-            "name": "explain",
-            "description": "Explain a stage or a rule code (e.g. MLV201)"
-          }
-        ]
-      }
-    ],
-    "languageModelTools": [
-      {
-        "name": "mlview_analyzeWorkspace",
-        "toolReferenceName": "mlviewAnalyze",
-        "displayName": "Analyze ML Workflow",
-        "modelDescription": "Legacy fallback: statically analyze Python and return the rule-based graph. Prefer the MLView skill and its authored artifact when interpreting how training or evaluation is wired together. This tool does not execute user code.",
-        "userDescription": "Run the legacy static ML workflow analyzer",
-        "canBeReferencedInPrompt": true,
-        "icon": "$(graph)",
-        "tags": [
-          "mlview",
-          "machine-learning",
-          "static-analysis"
-        ],
-        "inputSchema": {
-          "type": "object",
-          "properties": {
-            "path": {
-              "type": "string",
-              "description": "Optional workspace-relative file or folder; defaults to the whole workspace."
-            },
-            "scope": {
-              "type": "string",
-              "description": "Optional CONTRACTS.md 11.1 diagram selector. Omit it for the whole graph, or pass one of -- \"all\" the whole graph, spelled explicitly. \"stage:<id>\" one lane: config, data, preprocess, model, objective, train, eval or deliver. \"unit:<name>\" one class, function or loop -- a qualname (\"train.train\"), a bare name (\"SmallCNN\") or a node id. Resolves to every match, and says when it is ambiguous. \"file:<path.py>\" everything the analyzer found in one file (workspace-relative, forward slashes, or a basename). \"concern:<name>\" config | data | optimization | evaluation -- the four presets that partition the eight stages (aliases: setup, preprocessing, dataset, training, inference). \"node:<nodeId>\" one node and its neighbourhood. \"pipeline:<entrypoint.py>\" everything one workspace entrypoint reaches over data and call edges plus containment; a node reachable from two entrypoints is shared and comes back as context, never as this pipeline's own. \"symbol:<name>\" an alias for \"unit:<name>\". A scope outside this grammar (including a stage id outside the eight canonical stages, a concern that is not one of the four, or a node id this graph does not contain) comes back as an error naming the accepted values -- never as a silently substituted default. Every scoped result says it is a filtered view: its counts describe the scope, not the project."
-            },
-            "depth": {
-              "type": "integer",
-              "minimum": 0,
-              "maximum": 2,
-              "description": "0, 1 or 2 boundary hops around the scope. Omit it for the per-kind default: 1 for unit/node (a point, so its interface is the answer), 0 for stage/file/concern (already a region). Ignored without a scope."
-            }
-          }
-        }
-      },
-      {
-        "name": "mlview_listIssues",
-        "toolReferenceName": "mlviewIssues",
-        "displayName": "List ML Issues",
-        "modelDescription": "Legacy static-rule fallback: return MLV findings with file and line evidence. Prefer the MLView skill for model-authored review and domain-specific findings.",
-        "userDescription": "List legacy static-rule findings",
-        "canBeReferencedInPrompt": true,
-        "icon": "$(warning)",
-        "tags": [
-          "mlview",
-          "machine-learning",
-          "diagnostics"
-        ],
-        "inputSchema": {
-          "type": "object",
-          "properties": {
-            "minSeverity": {
-              "type": "string",
-              "enum": [
-                "low",
-                "medium",
-                "high"
-              ]
-            },
-            "code": {
-              "type": "string",
-              "description": "Filter to one rule code, e.g. MLV201"
-            },
-            "scope": {
-              "type": "string",
-              "description": "Optional CONTRACTS.md 11.1 diagram selector. Omit it for the whole graph, or pass one of -- \"all\" the whole graph, spelled explicitly. \"stage:<id>\" one lane: config, data, preprocess, model, objective, train, eval or deliver. \"unit:<name>\" one class, function or loop -- a qualname (\"train.train\"), a bare name (\"SmallCNN\") or a node id. Resolves to every match, and says when it is ambiguous. \"file:<path.py>\" everything the analyzer found in one file (workspace-relative, forward slashes, or a basename). \"concern:<name>\" config | data | optimization | evaluation -- the four presets that partition the eight stages (aliases: setup, preprocessing, dataset, training, inference). \"node:<nodeId>\" one node and its neighbourhood. \"pipeline:<entrypoint.py>\" everything one workspace entrypoint reaches over data and call edges plus containment; a node reachable from two entrypoints is shared and comes back as context, never as this pipeline's own. \"symbol:<name>\" an alias for \"unit:<name>\". A scope outside this grammar (including a stage id outside the eight canonical stages, a concern that is not one of the four, or a node id this graph does not contain) comes back as an error naming the accepted values -- never as a silently substituted default. Every scoped result says it is a filtered view: its counts describe the scope, not the project."
-            },
-            "depth": {
-              "type": "integer",
-              "minimum": 0,
-              "maximum": 2,
-              "description": "0, 1 or 2 boundary hops around the scope. Omit it for the per-kind default: 1 for unit/node (a point, so its interface is the answer), 0 for stage/file/concern (already a region). Ignored without a scope."
-            }
-          }
-        }
-      },
-      {
-        "name": "mlview_showDiagram",
-        "toolReferenceName": "mlviewDiagram",
-        "displayName": "Show ML Diagram",
-        "modelDescription": "Open the legacy static MLView diagram, optionally focused on a specific static node. Use mlview.openGeneratedDiagram for a skill-authored artifact.",
-        "userDescription": "Open the legacy static MLView diagram",
-        "canBeReferencedInPrompt": true,
-        "icon": "$(preview)",
-        "tags": [
-          "mlview"
-        ],
-        "inputSchema": {
-          "type": "object",
-          "properties": {
-            "focusNodeId": {
-              "type": "string"
-            },
-            "scope": {
-              "type": "string",
-              "description": "Optional CONTRACTS.md 11.1 diagram selector. Omit it for the whole graph, or pass one of -- \"all\" the whole graph, spelled explicitly. \"stage:<id>\" one lane: config, data, preprocess, model, objective, train, eval or deliver. \"unit:<name>\" one class, function or loop -- a qualname (\"train.train\"), a bare name (\"SmallCNN\") or a node id. Resolves to every match, and says when it is ambiguous. \"file:<path.py>\" everything the analyzer found in one file (workspace-relative, forward slashes, or a basename). \"concern:<name>\" config | data | optimization | evaluation -- the four presets that partition the eight stages (aliases: setup, preprocessing, dataset, training, inference). \"node:<nodeId>\" one node and its neighbourhood. \"pipeline:<entrypoint.py>\" everything one workspace entrypoint reaches over data and call edges plus containment; a node reachable from two entrypoints is shared and comes back as context, never as this pipeline's own. \"symbol:<name>\" an alias for \"unit:<name>\". A scope outside this grammar (including a stage id outside the eight canonical stages, a concern that is not one of the four, or a node id this graph does not contain) comes back as an error naming the accepted values -- never as a silently substituted default. Every scoped result says it is a filtered view: its counts describe the scope, not the project."
-            },
-            "depth": {
-              "type": "integer",
-              "minimum": 0,
-              "maximum": 2,
-              "description": "0, 1 or 2 boundary hops around the scope. Omit it for the per-kind default: 1 for unit/node (a point, so its interface is the answer), 0 for stage/file/concern (already a region). Ignored without a scope."
-            }
-          }
-        }
-      }
-    ],
-    "walkthroughs": [
-      {
-        "id": "mlview.gettingStarted",
-        "title": "Get started with MLView",
-        "description": "Use the MLView skill in your active assistant, then open its generated interactive diagram.",
-        "when": "true",
-        "steps": [
-          {
-            "id": "mlview.step.install",
-            "title": "Install the MLView skill",
-            "description": "Install the portable skill for Copilot, Codex, or Claude Code. After it publishes an artifact, open it here.\n[Open Generated Diagram](command:mlview.openGeneratedDiagram)",
-            "media": {
-              "markdown": "docs/walkthrough/install.md",
-              "altText": "Install the MLView skill"
-            },
-            "completionEvents": [
-              "onCommand:mlview.openGeneratedDiagram"
-            ]
-          },
-          {
-            "id": "mlview.step.visualize",
-            "title": "Generate and open a diagram",
-            "description": "Invoke the MLView skill in your assistant, then open the generated *.mlview.json artifact.\n[Open Generated Diagram](command:mlview.openGeneratedDiagram)",
-            "media": {
-              "markdown": "docs/walkthrough/visualize.md",
-              "altText": "Generate and open a diagram"
-            },
-            "completionEvents": [
-              "onCommand:mlview.openGeneratedDiagram"
-            ]
-          },
-          {
-            "id": "mlview.step.problems",
-            "title": "Review findings and evidence",
-            "description": "Open the artifact and inspect each finding's evidence, counter-evidence, and uncertainty basis.\n[Open Generated Diagram](command:mlview.openGeneratedDiagram)",
-            "media": {
-              "markdown": "docs/walkthrough/problems.md",
-              "altText": "Review findings and evidence"
-            },
-            "completionEvents": [
-              "onCommand:mlview.openGeneratedDiagram"
-            ]
-          },
-          {
-            "id": "mlview.step.reveal",
-            "title": "Follow source evidence",
-            "description": "Open the authored diagram, then use its evidence links to navigate to verified source ranges and notebook cells.\n[Open Generated Diagram](command:mlview.openGeneratedDiagram)",
-            "media": {
-              "markdown": "docs/walkthrough/reveal.md",
-              "altText": "Follow source evidence"
-            },
-            "completionEvents": [
-              "onCommand:mlview.openGeneratedDiagram"
-            ]
-          },
-          {
-            "id": "mlview.step.scope",
-            "title": "Refine with your assistant",
-            "description": "Open the artifact and use Refine to copy a follow-up prompt for the assistant that authored it.\n[Open Generated Diagram](command:mlview.openGeneratedDiagram)",
-            "media": {
-              "markdown": "docs/walkthrough/scope.md",
-              "altText": "Refine with your assistant"
-            },
-            "completionEvents": [
-              "onCommand:mlview.openGeneratedDiagram"
-            ]
-          }
-        ]
-      }
-    ]
+    }
   },
   "scripts": {
-    "compile": "node tools/sync-core.mjs && node tools/sync-rule-docs.mjs && node tools/sync-walkthrough.mjs && node esbuild.mjs",
-    "watch": "node tools/sync-core.mjs && node esbuild.mjs --watch",
+    "compile": "node tools/sync-notices.mjs && node esbuild.mjs",
+    "watch": "node tools/sync-notices.mjs && node esbuild.mjs --watch",
     "check": "tsc --noEmit",
-    "sync:core": "node tools/sync-core.mjs",
-    "sync:rule-docs": "node tools/sync-rule-docs.mjs",
-    "pretest": "node tools/sync-core.mjs && node tools/sync-rule-docs.mjs && node tools/sync-walkthrough.mjs && node esbuild.mjs",
+    "pretest": "node tools/sync-notices.mjs --check && node esbuild.mjs",
     "test": "node tools/run-tests.mjs",
     "vscode:prepublish": "npm run compile",
-    "package": "npx --yes @vscode/vsce package --no-dependencies",
-    "check:panel": "node --test test/panelhtml.test.js",
-    "sync:walkthrough": "node tools/sync-walkthrough.mjs"
+    "package": "vsce package --no-dependencies"
   },
   "devDependencies": {
     "@types/node": "20.11.30",
     "@types/vscode": "1.100.0",
+    "@vscode/vsce": "3.9.2",
     "esbuild": "0.28.2",
     "typescript": "5.9.3"
+  },
+  "overrides": {
+    "@azure/abort-controller": "2.1.2",
+    "@azure/core-auth": "1.10.1",
+    "@azure/core-client": "1.10.1",
+    "@azure/core-rest-pipeline": "1.22.1",
+    "@azure/core-tracing": "1.3.0",
+    "@azure/core-util": "1.13.1",
+    "@azure/identity": "4.12.0",
+    "@azure/logger": "1.3.0",
+    "@typespec/ts-http-runtime": "0.3.1",
+    "cheerio": "1.0.0",
+    "uuid": "11.1.1"
   }
 }

@@ -67,7 +67,7 @@ export function renderIssuePanel(panel: HTMLElement, s: IssueListState, cb: Issu
   // hidden: the tab strip already names the panel on screen.
   add(panel, el('h3', 'mlv-sr', 'Findings'));
   if (!s.index) {
-    add(panel, el('div', 'mlv-empty-note', 'No analysis loaded yet.'));
+    add(panel, el('div', 'mlv-empty-note', 'No workflow loaded yet.'));
     return;
   }
   const visible = s.issues.filter(s.keep);
@@ -404,7 +404,9 @@ function issueRow(issue: Issue, s: IssueListState, cb: IssueListCallbacks): HTML
   // MLV-P10: on EVERY row, siblings of the option like "Open" is — never
   // children of it, because `role="option"` may not contain a focusable
   // descendant (MLV-R2-W03).
-  appendSuppressActions(li, issue.code, cb, { compact: true });
+  if (s.index?.graph.schemaVersion !== 'workflow-view/1') {
+    appendSuppressActions(li, issue.code, cb, { compact: true });
+  }
 
   // The selected row expands in place with the message, the why line, the fix
   // hint and a Go to button per location — the most valuable content in the
@@ -429,9 +431,10 @@ function issueDetail(issue: Issue, s: IssueListState, cb: IssueListCallbacks): H
   if (issue.fixHint) add(box, el('div', 'mlv-insp__fix', issue.fixHint));
   // H5: the prose hint stays — it is what all 36 rules carry — and the computed
   // edit goes UNDER it, so the reader sees the advice before the diff of it.
-  if (hasFix(issue)) appendFixSection(box, issue, cb, { canApply: s.canApplyFix });
-  // MLV-P6: the evidence checklist and the rule card, both as disclosures.
-  appendTrustSections(box, issue);
+  if (s.index?.graph.schemaVersion !== 'workflow-view/1') {
+    if (hasFix(issue)) appendFixSection(box, issue, cb, { canApply: s.canApplyFix });
+    appendTrustSections(box, issue);
+  }
   const actions = add(box, el('div', 'mlv-issue__goto'));
   if (issue.loc.file) {
     const primary = button('mlv-btn', 'Go to ' + fileLine(issue.loc));

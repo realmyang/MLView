@@ -70,6 +70,11 @@ class ArtifactTests(unittest.TestCase):
         ]
         self.assertIn("parent_cycle", {e["code"] for e in self.validate(doc)})
 
+    def test_revision_cannot_parent_itself(self):
+        doc = document()
+        doc["revision"]["parent"] = doc["revision"]["id"]
+        self.assertIn("revision", {error["code"] for error in self.validate(doc)})
+
     def test_symlink_escape_is_rejected(self):
         outside = Path(self.temp.name).parent / (self.root.name + "-outside.txt")
         outside.write_text("secret\n", encoding="utf-8")
@@ -78,6 +83,12 @@ class ArtifactTests(unittest.TestCase):
             errors = self.validate(document("link.py", "secret"))
             self.assertIn("path_outside_workspace", {e["code"] for e in errors})
         finally: outside.unlink()
+
+    def test_paths_reject_ambiguous_segments(self):
+        for path in ("./train.py", "folder//train.py"):
+            with self.subTest(path=path):
+                errors = self.validate(document(path, "def train():"))
+                self.assertIn("path_outside_workspace", {error["code"] for error in errors})
 
     def run_cli(self, command, doc, output="workflow.mlview.json"):
         draft = self.root / "draft.json"; draft.write_text(json.dumps(doc), encoding="utf-8")
@@ -100,11 +111,26 @@ class ArtifactTests(unittest.TestCase):
         self.assertNotEqual(0, result.returncode)
         self.assertIn("stale_source", {e["code"] for e in json.loads(result.stdout)["errors"]})
 
+    def test_published_at_requires_rfc3339_syntax(self):
+        doc = document()
+        digest = artifact.validate(doc, self.root)[1]["train.py"]
+        for timestamp in ("2026-09-18 12:00:00+00:00", "2026-09-18T12:00:00+01:02:03", "2026-09-18T12:00:00+01:60", "2026-09-18T12:00:00+24:00"):
+            with self.subTest(timestamp=timestamp):
+                doc["verification"] = {"files": {"train.py": digest}, "publishedAt": timestamp}
+                self.assertIn("format", {error["code"] for error in self.validate(doc)})
+
+    def test_output_path_must_use_portable_relative_syntax(self):
+        for output in (".", r"nested\workflow.json"):
+            with self.subTest(output=output):
+                result = self.run_cli("publish", document(), output=output)
+                self.assertNotEqual(0, result.returncode)
+                self.assertEqual("output_path", json.loads(result.stdout)["errors"][0]["code"])
+
     def test_same_revision_id_cannot_change_content(self):
         self.assertEqual(0, self.run_cli("publish", document()).returncode)
         changed = document(); changed["revision"]["parent"] = "r1"; changed["title"] = "Changed"
         result = self.run_cli("publish", changed)
-        self.assertEqual("revision_id_reused", json.loads(result.stdout)["errors"][0]["code"])
+        self.assertEqual("revision", json.loads(result.stdout)["errors"][0]["code"])
 
     def test_source_edit_during_publish_is_rejected(self):
         draft = self.root / "draft.json"; draft.write_text(json.dumps(document()), encoding="utf-8")
@@ -125,7 +151,7 @@ class ArtifactTests(unittest.TestCase):
         self.assertFalse((self.root / "workflow.mlview.json").exists())
 
     def test_malformed_reference_types_are_json_errors_not_crashes(self):
-        for field, value in (("phase", {}), ("parent", []), ("basis", []), ("evidence", [{}])):
+        for field, value in (("id", {}), ("phase", {}), ("parent", []), ("basis", []), ("evidence", [{}])):
             with self.subTest(field=field):
                 doc = document(); doc["nodes"][0][field] = value
                 self.assertTrue(self.validate(doc))
@@ -143,6 +169,32 @@ class ArtifactTests(unittest.TestCase):
         result = self.run_cli("publish", document())
         self.assertEqual("publish_locked", json.loads(result.stdout)["errors"][0]["code"])
         self.assertTrue(lock.exists())
+
+    def test_deeply_nested_json_returns_sanitized_error(self):
+        draft = self.root / "nested.json"
+        draft.write_text("[" * 10000 + "]" * 10000, encoding="utf-8")
+        result = subprocess.run([sys.executable, str(HELPER), "validate", str(draft), "--workspace", str(self.root)], text=True, capture_output=True)
+        self.assertEqual(1, result.returncode)
+        self.assertEqual("invalid_json", json.loads(result.stdout)["errors"][0]["code"])
+        self.assertEqual("", result.stderr)
+
+    def test_output_io_errors_are_sanitized(self):
+        blocker = self.root / "blocker"
+        blocker.write_text("file", encoding="utf-8")
+        result = self.run_cli("publish", document(), output="blocker/workflow.json")
+        self.assertEqual(1, result.returncode)
+        self.assertEqual("publication_io", json.loads(result.stdout)["errors"][0]["code"])
+        self.assertNotIn(str(self.root), result.stdout + result.stderr)
+
+    def test_publication_io_failure_removes_owned_lock(self):
+        draft = self.root / "draft.json"; draft.write_text(json.dumps(document()), encoding="utf-8")
+        stdout = StringIO()
+        with mock.patch.object(artifact, "_publish_locked", side_effect=OSError("private path")), redirect_stdout(stdout):
+            code = artifact.main(["publish", str(draft), "--workspace", str(self.root)])
+        self.assertEqual(1, code)
+        self.assertEqual("publication_io", json.loads(stdout.getvalue())["errors"][0]["code"])
+        self.assertNotIn("private path", stdout.getvalue())
+        self.assertFalse((self.root / "workflow.mlview.json.lock").exists())
 
     def test_competing_publishers_do_not_both_win(self):
         drafts = []

@@ -7,6 +7,7 @@ import hashlib
 import html
 import json
 import os
+import re
 from collections import Counter
 from pathlib import Path
 
@@ -47,12 +48,13 @@ def development_plan(manifest: dict) -> list[dict]:
     """Prepare pending native-host development runs and a small matched baseline."""
     tasks = {task["id"]: task for task in manifest["tasks"]}
     records = []
-    for task_id in DEVELOPMENT_TASKS:
+    cases = [(task_id, "skill") for task_id in DEVELOPMENT_TASKS] + [("dev-config", "baseline")]
+    for task_id, condition in cases:
         task = tasks[task_id]
         for host in manifest["hosts"]:
             records.append({
-                "id": f"{task_id}:{host}:skill", "task": task_id, "host": host,
-                "condition": "skill", "status": "pending-native-run",
+                "id": f"{task_id}:{host}:{condition}", "task": task_id, "host": host,
+                "condition": condition, "status": "pending-native-run",
                 "prompt": task["prompt"], "workspace": None, "hostVersion": None,
                 "model": None, "skillRevision": None, "artifact": None,
                 "artifactSha256": None, "responseLog": None, "responseLogSha256": None,
@@ -60,18 +62,6 @@ def development_plan(manifest: dict) -> list[dict]:
                 "repairRounds": None, "failureReason": None,
                 "provisionalReview": None, "humanReview": None,
             })
-    task = tasks["dev-config"]
-    for host in manifest["hosts"]:
-        records.append({
-            "id": f"dev-config:{host}:baseline", "task": "dev-config", "host": host,
-            "condition": "baseline", "status": "pending-native-run",
-            "prompt": task["prompt"], "workspace": None, "hostVersion": None,
-            "model": None, "skillRevision": None, "artifact": None,
-            "artifactSha256": None, "responseLog": None, "responseLogSha256": None,
-            "liveUiLog": None, "liveUiLogSha256": None, "elapsedSeconds": None,
-            "repairRounds": None, "failureReason": None,
-            "provisionalReview": None, "humanReview": None,
-        })
     return records
 
 
@@ -88,6 +78,25 @@ def _confined_path(value: object, root: Path = ROOT, require_file: bool = True) 
     if require_file and not path.is_file():
         raise ValueError(f"file does not exist: {value}")
     return path
+
+
+def historical_source(value: object, root: Path = ROOT) -> Path:
+    """Resolve a recorded source citation after the fixture-only relocation.
+
+    This mapping is confined to evaluation replay. Published artifacts and the
+    product validator still require their actual workspace-relative paths.
+    Exact hashes ensure moved fixtures cannot silently alter historical evidence.
+    """
+    direct = _confined_path(value, root, require_file=False)
+    mapping_file = root / "evals/workflow/fixtures/historical-paths.json"
+    if mapping_file.is_file():
+        mapping = json.loads(mapping_file.read_text(encoding="utf-8"))["paths"]
+        if value in mapping:
+            entry = mapping[value]
+            return _verify_file(entry["path"], entry["sha256"], root)
+    if direct.is_file():
+        return direct
+    raise ValueError(f"historical source does not exist: {value}")
 
 
 def _sha256(path: Path) -> str:
@@ -205,7 +214,7 @@ def _evidence_location(source: dict) -> str:
 
 
 def _validate_source_excerpt(source: dict, root: Path, label: str) -> None:
-    lines = _source_lines(_confined_path(source.get("file"), root), source.get("cell"))
+    lines = _source_lines(historical_source(source.get("file"), root), source.get("cell"))
     start, end = source.get("line"), source.get("endLine", source.get("line"))
     if (type(start) is not int or type(end) is not int or start < 1
             or end < start or end > len(lines)):
@@ -218,10 +227,24 @@ def _validate_source_excerpt(source: dict, root: Path, label: str) -> None:
 
 
 def _json_pointer(value: object, pointer: str) -> object:
+    if not isinstance(pointer, str) or (pointer and not pointer.startswith("/")):
+        raise ValueError("JSON Pointer must be empty or start with /")
     current = value
-    for raw in pointer.lstrip("/").split("/") if pointer else []:
+    for raw in pointer[1:].split("/") if pointer else []:
+        if re.search(r"~(?![01])", raw):
+            raise ValueError("invalid JSON Pointer escape")
         key = raw.replace("~1", "/").replace("~0", "~")
-        current = current[int(key)] if isinstance(current, list) else current[key]
+        try:
+            if isinstance(current, list):
+                if not re.fullmatch(r"0|[1-9][0-9]*", key):
+                    raise ValueError("invalid JSON Pointer array index")
+                current = current[int(key)]
+            elif isinstance(current, dict):
+                current = current[key]
+            else:
+                raise ValueError("JSON Pointer does not resolve")
+        except (KeyError, IndexError) as exc:
+            raise ValueError("JSON Pointer does not resolve") from exc
     return current
 
 
@@ -252,9 +275,9 @@ def validate_development_review(review: dict, root: Path = ROOT) -> None:
         if len(matches) != 1:
             raise ValueError("native review task and host are not uniquely registered")
         native_registration = matches[0]
-        registered_path = str(
+        registered_path = (
             NATIVE_ARTIFACT_MANIFEST.parent.relative_to(ROOT) / native_registration["path"]
-        )
+        ).as_posix()
         if artifact_path != registered_path:
             raise ValueError("native review artifact path is not the registered task/host artifact")
         for field, registered_field in (("artifactSha256", "sha256"),
@@ -292,7 +315,7 @@ def validate_development_review(review: dict, root: Path = ROOT) -> None:
             if item is None:
                 raise ValueError(f"unknown evidence ID: {ref}")
             if "jsonPointer" in item:
-                source_path = _confined_path(item["file"], root)
+                source_path = historical_source(item["file"], root)
                 actual = _json_pointer(json.loads(source_path.read_text(encoding="utf-8")),
                                        item["jsonPointer"])
                 if actual != item.get("value"):
@@ -502,7 +525,7 @@ def summarize(records: list[dict], manifest: dict) -> dict:
             raise ValueError("unknown or duplicate run ID")
         seen.add(key)
         wanted = expected[key]
-        if any(record.get(k) != wanted[k] for k in ("host", "task", "repeat", "repositoryCommit", "condition")):
+        if any(record.get(k) != wanted[k] for k in ("host", "task", "repeat", "repositoryCommit", "condition", "prompt")):
             raise ValueError("run identity differs from the pinned matrix")
         status = record.get("status")
         if status not in {"pending", "completed", "failed", "blocked"}:

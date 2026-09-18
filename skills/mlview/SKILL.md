@@ -7,9 +7,9 @@ description: Analyze an ML or deep-learning workflow with the active host model 
 
 Use the active assistant model as the interpretation backend. Inspect the
 workspace's source, configuration, notebooks, launch scripts, tests, and useful
-documentation with native read and search tools. Do not begin by calling the
-legacy static analyzer, import the target project, execute analyzed code, or
-claim that reading a test or notebook means it ran.
+documentation with native read and search tools. Do not import the target
+project, execute analyzed code, or claim that reading a test or notebook means
+it ran.
 
 The artifact helper requires Python 3.10 or newer. Check the selected
 interpreter before validation; if it is older, use an available newer Python or

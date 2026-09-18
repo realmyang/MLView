@@ -20,6 +20,17 @@ test('workflow validator enforces references and a parent forest', () => {
   assert.match(result.issues.map(x=>x.path).join('\n'), /evidence/);
 });
 
+test('workflow parent validation handles a maximum-depth chain and cycle iteratively', () => {
+  const valid=document();
+  valid.nodes=Array.from({length:2000},(_,i)=>({id:`n${i}`,label:`Node ${i}`,phase:'train',...(i?{parent:`n${i-1}`}:{}),basis:'inferred',evidence:[]}));
+  assert.doesNotThrow(()=>validateWorkflowStructure(valid));
+  assert.ok(validateWorkflowStructure(valid).document);
+  valid.nodes[0].parent='n1999';
+  const cyclic=validateWorkflowStructure(valid);
+  assert.equal(cyclic.document,undefined);
+  assert.match(cyclic.issues.map(x=>x.message).join('\n'),/forest/);
+});
+
 test('workflow validator checks exact source quotes and workspace containment', async () => {
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'mlview-workflow-'));
   fs.writeFileSync(path.join(root,'pipeline.py'),'fit()\n');
@@ -86,6 +97,20 @@ test('workflow validator watches inspected files beyond direct evidence', async 
   assert.ok(result.value.files.includes(await fs.promises.realpath(path.join(root,'config.yaml'))));
 });
 
+test('workflow validator reads a multiply-cited source once', async () => {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'mlview-workflow-cache-'));
+  const source=path.join(root,'pipeline.py');
+  fs.writeFileSync(source,'fit()\n');
+  const value=document();
+  value.evidence.push({id:'e2',file:'pipeline.py',line:1,endLine:1,quote:'fit()'});
+  value.nodes[0].evidence.push('e2');
+  value.verification={files:{'pipeline.py':crypto.createHash('sha256').update('fit()\n').digest('hex')},publishedAt:'2026-09-16T12:00:00Z'};
+  let reads=0;
+  const result=await validateWorkflow(value,root,async (file)=>{reads++;return fs.promises.readFile(file,'utf8');});
+  assert.equal(result.issues.length,0);
+  assert.equal(reads,1);
+});
+
 test('malformed optional and nested values are rejected without throwing', () => {
   const mutations=[
     (d)=>{d.verification=[];},
@@ -99,6 +124,9 @@ test('malformed optional and nested values are rejected without throwing', () =>
     (d)=>{d.coverage.limitations=[''];},
     (d)=>{d.evidence[0].file='../escape.py';},
     (d)=>{d.request.entrypoints=['bad\\path.py'];},
+    (d)=>{d.request.entrypoints=['./pipeline.py'];},
+    (d)=>{d.coverage.inspectedFiles=['src//pipeline.py'];},
+    (d)=>{d.verification={files:{'pipeline.py':'0'.repeat(64)},publishedAt:'2024-02-31T12:00:00Z'};},
     (d)=>{d.nodes[0].mystery='x';}
   ];
   for(const mutate of mutations){

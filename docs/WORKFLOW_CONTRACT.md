@@ -1,7 +1,7 @@
 # WorkflowDocument 1.0 contract
 
 WorkflowDocument is the authoring format written by the active Copilot, Codex,
-or Claude Code model. It is separate from legacy MLGraph 1.0. The normative
+or Claude Code model. It is the supported authoring format. The normative
 machine-readable shape is [`contracts/workflow.schema.json`](../contracts/workflow.schema.json).
 
 The root contains `workflowVersion: "1.0"`, a title, host-LLM producer identity,

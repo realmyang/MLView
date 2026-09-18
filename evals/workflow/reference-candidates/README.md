@@ -30,6 +30,13 @@ path/notebook/exact-excerpt checks passed for all 106 anchors. This establishes
 source integrity, not claim correctness or completeness. The ignored check
 record is `.mlview/reference-candidate-validation.json`.
 
+These ledgers contain attributed excerpts of third-party source. The pinned
+repository and license for each ledger are listed in
+[`THIRD_PARTY_NOTICES.md`](../../../THIRD_PARTY_NOTICES.md), and exact pinned
+license texts and source notices are stored in [`licenses/`](licenses/README.md).
+Preserve that directory when copying or publishing the review packet; the ledgers are not
+part of MLView's binary or standalone-skill distributions.
+
 MMDetection's five selected config files were initially missing from its local
 partial checkout. They were retrieved from the exact pinned GitHub revision;
 all five blob hashes match that revision's tree. External MMEngine behavior,

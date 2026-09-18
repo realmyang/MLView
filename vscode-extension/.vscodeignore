@@ -9,22 +9,3 @@ esbuild.mjs
 **/*.ts
 .gitignore
 tools/**
-
-# PACKAGING (docs/CONTRACTS.md §11.25): `core/` is the analyzer the VSIX
-# SHIPS, written only by `tools/sync-core.py` and gated by `tools/verify.py --vsix`.
-# It must stay in the package - without it a marketplace install on a machine with a
-# bare Python has no analyzer at all - so it is negated explicitly rather than left to
-# the absence of a pattern, and only its bytecode residue is excluded.
-#
-# C2: `core/` is now GITIGNORED and built by `npm run compile` /
-# `vscode:prepublish`. That makes this negation load-bearing in a second way:
-# vsce falls back to `.gitignore` only when this file is absent, so the rule that
-# keeps the bundled analyzer in the package lives here and nowhere else. The
-# `packaging` CI job proves the result by running the analyzer out of the packaged
-# VSIX (`vscode-extension/tools/vsix_smoke.py`), and `tools/sync-core.mjs` is what
-# builds the directory in the first place, so it is never merely stale - it is
-# absent, and `scripts/vsix_check.py` fails loudly on that.
-!core/**
-core/**/__pycache__/**
-**/*.pyc
-**/*.pyo

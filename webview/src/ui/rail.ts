@@ -521,20 +521,17 @@ export class Rail {
     // H5. The Inspector is where a reader who has just read the evidence decides
     // what to do, so the computed edit — its title, its safety and the snippet —
     // goes here in full, above the two suppression actions.
-    if (hasFix(issue)) {
-      appendFixSection(box, issue, { onApplyFix: (id) => this.cb.onApplyFix(id) }, { canApply: s.canApplyFix });
+    if (s.index?.graph.schemaVersion !== 'workflow-view/1') {
+      if (hasFix(issue)) {
+        appendFixSection(box, issue, { onApplyFix: (id) => this.cb.onApplyFix(id) }, { canApply: s.canApplyFix });
+      }
+      appendTrustSections(box, issue);
+      const actions = add(box, el('div', 'mlv-insp__suppress'));
+      appendSuppressActions(actions, issue.code, {
+        onCopyIgnore: (code) => this.cb.onCopyIgnore(code),
+        onDisableRule: (code) => this.cb.onDisableRule(code),
+      });
     }
-    // MLV-P6: the same two disclosures the rail row carries, so "why should I
-    // believe this" is answerable from whichever surface the user is on.
-    appendTrustSections(box, issue);
-    // MLV-P10: and the same two actions, spelled out rather than icon-only —
-    // the Inspector has the room, and this is where a reader who has just read
-    // the evidence decides the finding is a false positive.
-    const actions = add(box, el('div', 'mlv-insp__suppress'));
-    appendSuppressActions(actions, issue.code, {
-      onCopyIgnore: (code) => this.cb.onCopyIgnore(code),
-      onDisableRule: (code) => this.cb.onDisableRule(code),
-    });
     if ((issue.relatedLocs || []).length) {
       const list = add(box, el('ul', 'mlv-insp__related'));
       for (const rel of issue.relatedLocs) {
@@ -561,7 +558,7 @@ export class Rail {
     add(panel, el('h3', 'mlv-sr', 'Outline'));
     const index = s.index;
     if (!index) {
-      add(panel, el('div', 'mlv-empty-note', 'No analysis loaded yet.'));
+      add(panel, el('div', 'mlv-empty-note', 'No workflow loaded yet.'));
       return;
     }
     renderOutlineTree(

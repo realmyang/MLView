@@ -749,7 +749,6 @@ export interface ScopeSummary {
 }
 
 export interface MLViewApp {
-  update(graph: MLGraph, preserve?: Partial<ViewState>): void;
   /**
    * Re-project and relayout LOCALLY. Never posts `requestRefresh`, never
    * touches the analyzer. An unresolvable spec is a no-op plus a toast; it

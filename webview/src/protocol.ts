@@ -6,30 +6,20 @@
  * crashing. Malformed frames (no object, wrong `v`) are dropped silently.
  */
 
-import type { Capabilities, Filters, HostAction, HostToUi, MLGraph, Severity, ThemeKind, ViewState, WorkflowDocument } from './types.js';
+import type { Capabilities, Filters, HostToUi, Severity, ThemeKind, ViewState, WorkflowDocument } from './types.js';
 
 export interface ProtocolHandlers {
   init(theme: ThemeKind, capabilities: Capabilities | undefined): void;
-  graph(graph: MLGraph, preserve: Partial<ViewState> | undefined): void;
   workflow(document: WorkflowDocument, preserve: Partial<ViewState> | undefined): void;
-  analysisStarted(): void;
-  analysisProgress(done: number, total: number, file?: string): void;
-  analysisFailed(message: string, detail: string | undefined, actions: HostAction[] | undefined): void;
   theme(kind: ThemeKind): void;
   revealNode(nodeId: string, center: boolean): void;
   revealIssue(issueId: string): void;
   setFilter(severities: Severity[] | undefined, codes: string[] | undefined, query: string | undefined): void;
-  stale(changedFiles: string[]): void;
   restoreState(state: ViewState): void;
   /** `spec: null` clears the scope. NEVER triggers a re-analysis (11.7). */
   setScope(spec: string | null, depth: number | undefined): void;
   /** VIEW-07: draw the diagram and answer with one `exportFile`. */
   requestExport(kind: 'svg' | 'png', scope: 'view' | 'all' | 'scope' | undefined): void;
-  /**
-   * VIEW-08: an optional sibling document. `null` clears it (11.38).
-   * `baseLabel` is the host's name for what the comparison is against.
-   */
-  diffOverlay(overlay: unknown, baseLabel: string | undefined): void;
   onUnknown(type: string): void;
 }
 
@@ -39,20 +29,8 @@ export function dispatchHostMessage(msg: HostToUi, h: ProtocolHandlers): void {
     case 'init':
       h.init(msg.theme, msg.capabilities);
       return;
-    case 'graph':
-      h.graph(msg.graph, msg.preserve as Partial<ViewState> | undefined);
-      return;
     case 'workflow':
       h.workflow(msg.document, msg.preserve);
-      return;
-    case 'analysisStarted':
-      h.analysisStarted();
-      return;
-    case 'analysisProgress':
-      h.analysisProgress(msg.done, msg.total, msg.file);
-      return;
-    case 'analysisFailed':
-      h.analysisFailed(msg.message, msg.detail, msg.actions);
       return;
     case 'theme':
       h.theme(msg.kind);
@@ -66,9 +44,6 @@ export function dispatchHostMessage(msg: HostToUi, h: ProtocolHandlers): void {
     case 'setFilter':
       h.setFilter(msg.severities, msg.codes, msg.query);
       return;
-    case 'stale':
-      h.stale(msg.changedFiles || []);
-      return;
     case 'restoreState':
       h.restoreState(msg.state);
       return;
@@ -77,12 +52,6 @@ export function dispatchHostMessage(msg: HostToUi, h: ProtocolHandlers): void {
       return;
     case 'requestExport':
       h.requestExport(msg.kind === 'png' ? 'png' : 'svg', msg.scope);
-      return;
-    case 'diffOverlay':
-      // Validation belongs to `diff/overlay.ts`, not here: this switch decides
-      // WHICH handler runs, and a malformed overlay must reach the one place
-      // that knows how to degrade it (11.38 B, invariant 1.1/6).
-      h.diffOverlay(msg.overlay, typeof msg.baseLabel === 'string' ? msg.baseLabel : undefined);
       return;
     case 'cursorHint':
       // followCursor is designed but out of scope for the prototype (A6).

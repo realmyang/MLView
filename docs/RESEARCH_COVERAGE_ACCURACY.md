@@ -1,3 +1,7 @@
+> Historical record: the static analyzer was removed on 2026-09-18.
+> Commands, paths, and compatibility promises below describe earlier revisions.
+> See [current status](STATUS.md) for the supported product.
+
 # Expanding coverage and improving accuracy
 
 **A research review of MLView's rule catalog and analysis accuracy.**
@@ -221,9 +225,9 @@ Every command below was run on this machine on 2026-09-15 and its output is
 what this document cites. All commands are prefixed by:
 
 ```sh
-export PATH="/Users/minghaoyang/Documents/MLView/.venv/bin:$PATH" \
-       PYTHONUTF8=1 PYTHONDONTWRITEBYTECODE=1
-cd /Users/minghaoyang/Documents/MLView
+cd /path/to/MLView
+. .venv/bin/activate
+export PYTHONUTF8=1 PYTHONDONTWRITEBYTECODE=1
 ```
 
 **M1 — the accuracy baseline, with every miss listed.**

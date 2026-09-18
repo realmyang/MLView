@@ -13,13 +13,18 @@ SKIP_PARTS = {"tests", "__pycache__"}
 def canonical_files(source: Path | None = None) -> dict[str, bytes]:
     """Return the exact portable skill payload, keyed by POSIX relative path."""
     source = source or ROOT / "skills/mlview"
-    return {
-        path.relative_to(source).as_posix(): path.read_bytes()
-        for path in sorted(source.rglob("*"))
-        if path.is_file()
-        and not any(part in SKIP_PARTS for part in path.relative_to(source).parts)
-        and path.suffix != ".pyc"
-    }
+    payload: dict[str, bytes] = {}
+    for path in sorted(source.rglob("*")):
+        relative = path.relative_to(source)
+        if any(part in SKIP_PARTS for part in relative.parts) or path.suffix == ".pyc":
+            continue
+        # Following a repository symlink here could silently package arbitrary
+        # bytes from outside the reviewed skill tree.
+        if path.is_symlink():
+            raise ValueError(f"canonical skill must not contain symlinks: {relative.as_posix()}")
+        if path.is_file():
+            payload[relative.as_posix()] = path.read_bytes()
+    return payload
 
 
 def package(output: Path, host: str) -> int:

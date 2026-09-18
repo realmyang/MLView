@@ -1,3 +1,7 @@
+> Historical record: the static analyzer was removed on 2026-09-18.
+> Commands, paths, and compatibility promises below describe earlier revisions.
+> See [current status](STATUS.md) for the supported product.
+
 # MLView: plan for an LLM analysis backend
 
 **Date:** 2026-09-16. **Status:** approved by the user's subsequent instruction

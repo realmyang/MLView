@@ -16,8 +16,12 @@ export function normalizeWorkflow(document: WorkflowDocument): MLGraph {
   if (!document || document.workflowVersion !== '1.0') throw new Error('MLView.mountWorkflow: workflowVersion must be 1.0');
   const evidence = new Map((document.evidence || []).map((item) => [item.id, item]));
   const issueIds = new Map<string, string[]>();
+  const edgeIssueIds = new Map<string, string[]>();
   for (const finding of document.findings || []) for (const id of finding.nodeIds || []) {
     const list = issueIds.get(id) || []; list.push(finding.id); issueIds.set(id, list);
+  }
+  for (const finding of document.findings || []) for (const id of finding.edgeIds || []) {
+    const list = edgeIssueIds.get(id) || []; list.push(finding.id); edgeIssueIds.set(id, list);
   }
   const nodes = (document.nodes || []).map((node) => {
     return {
@@ -37,7 +41,7 @@ export function normalizeWorkflow(document: WorkflowDocument): MLGraph {
     label: edge.label + ' · ' + edge.basis,
     loc: evidenceLoc(evidence, edge.evidence), tags: [edge.basis], confidence: Number.NaN, basis: edge.basis,
     evidenceLocs: edge.evidence.map((id) => evidenceLoc(evidence, [id])).filter((loc) => !!loc.file),
-    issueIds: (document.findings || []).filter((f) => (f.edgeIds || []).includes(edge.id)).map((f) => f.id),
+    issueIds: edgeIssueIds.get(edge.id) || [],
   }));
   const issues: Issue[] = (document.findings || []).map((finding) => {
     const loc = evidenceLoc(evidence, finding.evidence);
@@ -53,10 +57,17 @@ export function normalizeWorkflow(document: WorkflowDocument): MLGraph {
       frameworks: [], tags: [finding.basis], evidence: [], suppressed: false, docs: '',
     };
   });
+  const nodesByStage = new Map<string, number>();
+  const issuesByStage = new Map<string, ReturnType<typeof emptyCounts>>();
+  for (const node of nodes) nodesByStage.set(node.stage, (nodesByStage.get(node.stage) || 0) + 1);
+  for (const issue of issues) {
+    const counts = issuesByStage.get(issue.stage) || emptyCounts();
+    counts[issue.severity as 'low' | 'medium' | 'high']++;
+    issuesByStage.set(issue.stage, counts);
+  }
   const stages = (document.phases || []).map((phase, order) => {
-    const phaseIssues = issues.filter((issue) => issue.stage === phase.id);
-    const counts = emptyCounts(); for (const issue of phaseIssues) counts[issue.severity as 'low' | 'medium' | 'high']++;
-    return { id: phase.id, label: phase.label, order, present: true, nodeCount: nodes.filter((n) => n.stage === phase.id).length,
+    const counts = issuesByStage.get(phase.id) || emptyCounts();
+    return { id: phase.id, label: phase.label, order, present: true, nodeCount: nodesByStage.get(phase.id) || 0,
       issueCounts: counts, maxSeverity: (['high','medium','low'] as const).find((s) => counts[s]) || null };
   });
   return {

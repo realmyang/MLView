@@ -1,13 +1,4 @@
-# Line endings are NEVER converted, in either direction.
-#
-# MLView is a cross-platform tool developed on Windows and macOS and tested on
-# both plus Linux, and several gates compare bytes rather than lines:
-# `python -m mlview analyze --demo --json - | cmp - contracts/graph.sample.json`,
-# `tools/sync-core.py --check` (three byte-identical copies of the analyzer) and
-# `analyzer/tools/gen_scope_fixtures.py --check` (a byte-diff of the generated
-# scope fixtures). A checkout that rewrote LF to CRLF would fail every one of
-# them on Windows only, so the working tree always gets exactly what is in the
-# object store.
+# Preserve exact source/evidence hashes and generated asset bytes on every OS.
 * -text
 
 # Force a TEXT diff for source files.
@@ -52,16 +43,13 @@
 *.whl  binary
 *.zip  binary
 
-# Generated artifacts that are tracked because a host SHIPS them. Collapsing
-# them in review keeps a bundle rebuild from burying a source change; they are
-# still diffable with `git diff --text` and are gated by `tools/verify.py
-# --hashes` (one renderer bundle everywhere), not by eye.
+# Built viewer copies ship with the extension and must stay byte-identical.
 webview/dist/mlview.js               linguist-generated=true
 webview/dist/mlview.css              linguist-generated=true
 webview/dist/mlview.dev.css          linguist-generated=true
 vscode-extension/media/mlview.js     linguist-generated=true
 vscode-extension/media/mlview.css    linguist-generated=true
-analyzer/src/mlview/emit/assets/*    linguist-generated=true
-claude-plugin/vendor/**              linguist-generated=true
-contracts/scope.expected.json        linguist-generated=true
-webview/dev/index.html               linguist-generated=true
+claude-plugin/skills/mlview/**       linguist-generated=true
+
+# Preserve upstream license text byte-for-byte, including its original whitespace.
+evals/workflow/reference-candidates/licenses/*-LICENSE whitespace=-blank-at-eol,-blank-at-eof

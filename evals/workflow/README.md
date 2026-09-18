@@ -100,8 +100,25 @@ same eight tasks are not 72 independent tasks.
 No Stage 1 or Stage 2 run has been completed or human-reviewed. None of the
 targets above has passed; they remain stop/go criteria rather than measurements.
 
-Compare the same tasks with the legacy static product and a native assistant
-without the skill. Keep those conditions in separate records; do not mix them
+Compare the same tasks with a native assistant without the skill. The static
+product is retired and is not an active evaluation condition. Keep those conditions in separate records; do not mix them
 into the 72 skill runs. A second model may help locate disputed claims but
 cannot replace source-based human adjudication. Missing or blocked runs stay
 visible and never count as passes.
+
+## Source fixture locations
+
+Current development entrypoints are listed in `tasks.json`. Source examples
+formerly under the removed analyzer now live in `fixtures/`. Recorded native
+outputs keep their original citation paths and hashes; the evaluation-only
+`fixtures/historical-paths.json` mapping resolves moved files and verifies their
+original bytes. This mapping is not used by the product validator or viewer.
+Open historical artifacts against their recorded source revision for live
+navigation; the current `samples/configured_training.mlview.json` example uses
+paths that remain valid in this checkout.
+
+The eight held-out repository pins are in `repositories.json`. Fetch only the
+source needed for an evaluation with `python tools/fetch_workflow_repos.py`
+from the repository root, optionally `--repo nanoGPT`. This is an explicit
+network operation and never runs analysis or executes fetched code. Existing
+dirty or differently pinned checkouts are refused rather than reset.

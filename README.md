@@ -16,15 +16,14 @@ viewer executes the analyzed program. Citation validation does not prove the
 model's interpretation correct.
 
 This is an **experimental implementation**. See [implementation and validation
-status](docs/LLM_IMPLEMENTATION.md) for what has actually been tested. The old
-static analyzer remains available as an explicitly separate legacy path; its
-accuracy figures do not measure the LLM workflow.
+status](docs/STATUS.md) for what has actually been tested. Workflow interpretation
+and findings come from the active assistant model.
 
 ## Get a diagram
 
 The detailed install and refinement instructions are in
 [LLM_WORKFLOW.md](docs/LLM_WORKFLOW.md). From this checkout, with Python 3.10+
-and Node 20+:
+and Node 20.18.1+:
 
 ```sh
 cd webview && npm ci && npm run build && cd ..
@@ -79,31 +78,12 @@ flowchart LR
 
 The portable skill is in [skills/mlview](skills/mlview/SKILL.md). The authoring
 format is [WorkflowDocument 1.0](docs/WORKFLOW_CONTRACT.md), with its
-[JSON Schema](contracts/workflow.schema.json). The new artifact lifecycle
-bypasses the Python static analyzer. Generated JSON is data, never a script or
-an instruction to the viewer.
+[JSON Schema](contracts/workflow.schema.json). Generated JSON is data, never a script or an instruction to the viewer.
 
 The [semantic-quality sprint](docs/QUALITY_SPRINT.md) records the current skill
 improvements and development follow-ups. Its [review ledgers](evals/workflow/development/native-reviews/README.md)
 cover twelve native artifacts and three no-skill baselines; their semantic
 judgments remain provisional until human review.
-
-## Legacy static workflow
-
-The dependency-free Python analyzer, old reports, rule catalog, and static
-host commands remain available for compatibility:
-
-```sh
-python3 -m pip install -e analyzer
-python3 -m mlview analyze samples/vision_pipeline --html report.html
-python3 -m mlview issues samples/vision_pipeline --min-severity high
-```
-
-Legacy scope selectors are `unit:`, `symbol:`, `stage:`, `file:`, `concern:`,
-`pipeline:`, `node:`, and `all`, with `--depth` 0–2. Legacy Copilot tools such as
-`#mlviewAnalyze` still invoke static analysis. They are not the native MLView
-skill. See the [analyzer reference](analyzer/README.md), [legacy accuracy
-measurements](docs/ACCURACY.md), and [legacy validation runbook](docs/VALIDATION.md).
 
 ## Development
 
@@ -111,12 +91,13 @@ Use a Python 3.10+ virtual environment on PATH. The local macOS default may be
 older. Component suites and the new skill checks run without an ML framework:
 
 ```sh
-python -m pytest skills/mlview/tests tools/test_install_skill.py tools/test_package_skill.py tools/test_sync_skill.py evals -q
-python tools/verify.py --all
-python scripts/check_docs.py
-cd webview && npm run check && npm test
-cd ../vscode-extension && npm run check && npm test
+python -m pip install -r requirements-dev.txt
+sh scripts/e2e.sh
 ```
+
+The full check builds and tests the skill and viewer, validates evaluation
+records, and inspects packaged skill ZIPs and the VSIX. On Windows use
+`powershell -File scripts/e2e.ps1`.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md), [the approved direction](docs/LLM_DIRECTION_PLAN.md),
 [security boundaries](SECURITY.md), and [the documentation index](docs/README.md).

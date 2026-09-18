@@ -18,7 +18,7 @@
         "url": "https://github.com/realmyang/MLView.git",
         "path": "claude-plugin"
       },
-      "description": "The same MLView plugin installed from GitHub: model-authored workflow diagrams by default, with the legacy static analyzer still bundled for explicit use."
+      "description": "The same MLView plugin installed from GitHub: a native Claude skill for model-authored, source-linked workflow diagrams."
     }
   ]
 }

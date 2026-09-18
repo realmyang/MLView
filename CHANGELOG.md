@@ -1,6 +1,16 @@
 # Changelog
 
-Every dated entry below was moved here from `docs/STATUS.md`, which is now a
+## Unreleased — native workflow only
+
+- Remove the Python static analyzer, CLI, rules, caches, static reports, MCP
+  services, pre-commit hook, GitHub action, and static extension commands.
+- Ship the active-assistant MLView skill and WorkflowDocument viewer only.
+- Move retained ML example sources into evaluation fixtures without changing
+  recorded native outputs, evidence quotes or their hashes.
+- Replace analyzer release gates with native helper/viewer/distribution checks.
+
+
+The older dated entries were moved here from `docs/STATUS.md`, which is now a
 short current-state page. This file is the history: newest first, each entry
 condensed to what changed and the numbers that were measured at the time. The
 long-form reasoning for anything normative lives in `docs/CONTRACTS.md`; the
@@ -20,6 +30,23 @@ legacy tree the consolidation entry describes — thirteen jobs, run 34986234828
 34986239243, and thirteen again over its review fixes, run 35001150997 and run
 35001153856. Where an older entry quotes a CI run id, that run predates the
 block.
+
+---
+
+## Unreleased — review and public readiness (2026-09-18)
+
+- Hardened artifact paths, timestamps, malformed-input handling and publication
+  errors, with matching Python and TypeScript checks.
+- Reduced repeated parent traversal, source reads, hashing and graph counting.
+- Added symlink-safe skill distribution and a shared MIT license payload;
+  pinned the VSIX packager and adopted SPDX wheel metadata.
+- Fixed evaluation prompt/pointer validation and Windows review paths, and
+  made failed wheel builds fail their gate.
+- Updated contribution forms and documentation, preserved upstream evaluation
+  license notices, and enabled GitHub secret scanning and push protection.
+
+See the [review and validation record](docs/PUBLIC_READINESS_REVIEW.md).
+Human semantic review and the held-out pilot remain pending.
 
 ---
 

@@ -1,12 +1,9 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
-import { createNonce } from './panelHtml';
-import { saveExportedFile } from './exportDiagram';
+import { createNonce, themeKindOf, toEditorLine } from './authoredSupport';
+import { parseExportFileMessage, saveExportedFile } from './exportDiagram';
 import type { Logger } from './log';
-import { toEditorLine } from './location';
-import { themeKindOf } from './panel';
-import { parseUiToHost } from './protocol';
 import { validateWorkflow, type ValidatedWorkflow, type WorkflowEvidence } from './workflowDocument';
 export const AUTHORED_VIEW_TYPE = 'mlview.authoredDiagram';
 export const OPEN_AUTHORED_COMMAND = 'mlview.openGeneratedDiagram';
@@ -146,7 +143,15 @@ class AuthoredPanel implements vscode.Disposable {
                 this.invalid(`JSON parse error: ${String(err)}`);
             return;
         }
-        const result = await validateWorkflow(parsed, this.folder.uri.fsPath, p => this.textFor(p), (p, c) => this.notebookCellFor(p, c));
+        let result: Awaited<ReturnType<typeof validateWorkflow>>;
+        try {
+            result = await validateWorkflow(parsed, this.folder.uri.fsPath, p => this.textFor(p), (p, c) => this.notebookCellFor(p, c));
+        }
+        catch (err) {
+            if (this.reloads.isCurrent(generation))
+                this.invalid(`validation failed: ${err instanceof Error ? err.message : String(err)}`);
+            return;
+        }
         if (this.disposed || !this.reloads.isCurrent(generation))
             return;
         if (!result.value) {
@@ -204,7 +209,7 @@ class AuthoredPanel implements vscode.Disposable {
                 capabilities: {
                     canOpenSource: true,
                     canReanalyze: false,
-                    // The shared viewer's canExport flag controls its legacy host-side HTML
+                    // The shared viewer's canExport flag controls its host-side HTML
                     // report action. Authored panels save SVG/PNG through the independent
                     // export menu and exportFile protocol, so keep that unsupported action hidden.
                     canExport: false,
@@ -228,9 +233,9 @@ class AuthoredPanel implements vscode.Disposable {
             return;
         }
         if (m.type === 'exportFile') {
-            const parsed = parseUiToHost(raw);
-            if (parsed.ok && parsed.msg.type === 'exportFile')
-                await saveExportedFile(parsed.msg, { log: this.log, workspaceRoot: () => this.folder.uri.fsPath });
+            const parsed = parseExportFileMessage(raw);
+            if (parsed)
+                await saveExportedFile(parsed, { log: this.log, workspaceRoot: () => this.folder.uri.fsPath });
         }
     }
     private async copyRefinementPrompt(m: Record<string, unknown>): Promise<void> {

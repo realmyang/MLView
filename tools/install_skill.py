@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 SKILL_LOCATIONS = (Path(".agents/skills/mlview"), Path(".claude/skills/mlview"))
-REQUIRED_FILES = (Path("SKILL.md"), Path("scripts/artifact.py"), Path("references/WORKFLOW_CONTRACT.md"), Path("references/workflow-example.json"))
+REQUIRED_FILES = (Path("SKILL.md"), Path("LICENSE"), Path("scripts/artifact.py"), Path("references/WORKFLOW_CONTRACT.md"), Path("references/workflow-example.json"))
 
 
 def _inside(path: Path, root: Path) -> bool:
@@ -20,12 +20,26 @@ def _inside(path: Path, root: Path) -> bool:
         return False
 
 
+def _portable_files(source: Path) -> set[Path]:
+    files: set[Path] = set()
+    for path in source.rglob("*"):
+        relative = path.relative_to(source)
+        if "tests" in relative.parts or "__pycache__" in relative.parts or path.suffix == ".pyc":
+            continue
+        if path.is_symlink():
+            raise ValueError(f"source skill must not contain symlinks: {relative.as_posix()}")
+        if path.is_file():
+            files.add(relative)
+    return files
+
+
 def install(workspace: Path, destination: str = ".agents/skills/mlview") -> Path:
     root = workspace.resolve(strict=True)
     relative = Path(destination)
-    if relative.is_absolute() or ".." in relative.parts:
-        raise ValueError("destination must stay within the workspace")
+    if not destination or "\\" in destination or relative.is_absolute() or any(part in {"", ".", ".."} for part in destination.split("/")):
+        raise ValueError("destination must be a slash-separated relative path within the workspace")
     source = Path(__file__).resolve().parents[1] / "skills" / "mlview"
+    source_files = _portable_files(source)
     target = root / relative
     resolved_parent = target.parent.resolve(strict=False)
     if not _inside(resolved_parent, root):
@@ -39,11 +53,6 @@ def install(workspace: Path, destination: str = ".agents/skills/mlview") -> Path
     if _inside(resolved_target, source) or _inside(source, resolved_target):
         raise ValueError("destination must not contain or be contained by the source skill")
     if target.exists():
-        source_files = {
-            path.relative_to(source)
-            for path in source.rglob("*")
-            if path.is_file() and "tests" not in path.relative_to(source).parts and "__pycache__" not in path.parts and path.suffix != ".pyc"
-        }
         for path in target.rglob("*"):
             if path.is_symlink():
                 raise ValueError("destination tree must not contain symlinks")
@@ -62,10 +71,28 @@ def doctor(workspace: Path) -> tuple[dict[str, object], bool]:
     for relative in SKILL_LOCATIONS:
         target = root / relative
         present = target.is_dir() and not target.is_symlink()
-        missing = [path.as_posix() for path in REQUIRED_FILES if present and not (target / path).is_file()]
+        lexical = root
+        unsafe_ancestor = False
+        for part in relative.parts:
+            lexical /= part
+            if lexical.is_symlink():
+                unsafe_ancestor = True
+                break
+        if present and not unsafe_ancestor:
+            try:
+                unsafe_ancestor = not _inside(target.resolve(strict=True), root)
+            except OSError:
+                unsafe_ancestor = True
+        unsafe_tree = present and not unsafe_ancestor and any(path.is_symlink() for path in target.rglob("*"))
+        unsafe = unsafe_ancestor or unsafe_tree
+        missing = [
+            path.as_posix()
+            for path in REQUIRED_FILES
+            if present and (unsafe_ancestor or not (target / path).is_file() or (target / path).is_symlink())
+        ]
         installed += int(present)
-        healthy = healthy and not missing
-        locations.append({"path": relative.as_posix(), "present": present, "missing": missing})
+        healthy = healthy and not missing and not unsafe
+        locations.append({"path": relative.as_posix(), "present": present, "missing": missing, "unsafeSymlinks": unsafe})
     collision = installed > 1
     result: dict[str, object] = {
         "ok": sys.version_info >= (3, 10) and healthy and installed == 1,

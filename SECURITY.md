@@ -35,27 +35,13 @@ contents before sharing them. Local model/session histories are not distributed
 with the skill or extension. The viewer itself works from local assets without
 remote resources.
 
-## Legacy static analyzer
-
-The legacy Python analyzer parses source with `ast`; it never imports or
-executes the target program and makes no network calls. Its dependency-free
-core and self-contained HTML reports retain their existing offline behavior.
-The legacy Git attribution feature invokes `git diff` with an argument array;
-it never interpolates analyzed code into a shell. Development corpus fetching
-is a separate networked tool. Legacy MCP integration requires the `mcp` SDK.
-These guarantees apply to that path, not to native assistant processing.
-
-The legacy parse cache remains outside the target project and uses authenticated
-JSON sidecars. Its CLI can write explicitly requested reports and configuration.
-See [the legacy contracts](docs/CONTRACTS.md) and
-[the new artifact contract](docs/WORKFLOW_CONTRACT.md) for the respective boundaries.
-
 ## Reporting a vulnerability
 
 Please report privately through the repository's **Security → Report a
-vulnerability** action if available. Otherwise open an issue at
-<https://github.com/realmyang/MLView/issues> stating only that you have a
-security report and how to contact you; do not post secrets or an exploit.
+vulnerability** action if available. If that private route is unavailable,
+open a non-sensitive issue at <https://github.com/realmyang/MLView/issues>
+asking for private vulnerability reporting to be enabled. Do not include the
+vulnerability, secrets, personal contact details, or an exploit in that issue.
 
 Include the revision, host and OS versions, a harmless minimal reproducer, and
 the expected boundary. Execution of artifact text, workspace escapes, unsafe

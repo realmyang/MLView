@@ -1,7 +1,7 @@
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { toEditorLine } from './location';
+import { toEditorLine } from './authoredSupport';
 export type EvidenceBasis = 'observed' | 'inferred' | 'unresolved';
 export interface WorkflowEvidence {
     id: string;
@@ -91,11 +91,26 @@ const BASIS = new Set(['observed', 'inferred', 'unresolved']);
 const HOSTS = new Set(['copilot', 'codex', 'claude-code', 'unknown']);
 const SEVERITIES = new Set(['low', 'medium', 'high']);
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
-const RFC3339 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
+const RFC3339 = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-](\d{2}):(\d{2}))$/;
 const own = (o: object, k: string): boolean => Object.prototype.hasOwnProperty.call(o, k);
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const strings = (v: unknown): v is string[] => Array.isArray(v) && v.every(x => typeof x === 'string' && x.length > 0);
-const relativePath = (value: string): boolean => value.length > 0 && value.length <= 500 && !path.posix.isAbsolute(value) && !value.includes('\\') && !value.split('/').includes('..') && !value.includes('\0');
+const relativePath = (value: string): boolean => value.length > 0 && value.length <= 500 && !path.posix.isAbsolute(value) && !value.includes('\\') && !value.split('/').some(part => part === '' || part === '.' || part === '..') && !value.includes('\0');
+const strictRfc3339 = (value: string): boolean => {
+    const match = RFC3339.exec(value);
+    if (!match)
+        return false;
+    const [, year, month, day, hour, minute, second, offsetHour = '00', offsetMinute = '00'] = match;
+    const parts = [year, month, day, hour, minute, second, offsetHour, offsetMinute].map(Number);
+    if (parts.slice(3, 6).some((part, i) => part > [23, 59, 59][i]!) || parts[6]! > 23 || parts[7]! > 59)
+        return false;
+    if (parts[0] === 0)
+        return false;
+    const date = new Date(0);
+    date.setUTCHours(0, 0, 0, 0);
+    date.setUTCFullYear(parts[0]!, parts[1]! - 1, parts[2]!);
+    return date.getUTCFullYear() === parts[0] && date.getUTCMonth() === parts[1]! - 1 && date.getUTCDate() === parts[2];
+};
 function maxText(o: Record<string, unknown>, key: string, maximum: number, at: string, out: ValidationIssue[]): void {
     if (typeof o[key] === 'string' && (o[key] as string).length > maximum)
         out.push({ path: `${at}.${key}`, message: `must be at most ${maximum} characters` });
@@ -317,7 +332,7 @@ export function validateWorkflowStructure(raw: unknown): {
                     issues.push({ path: `$.verification.files.${key}`, message: 'must use a workspace-relative path' });
         }
         const published = text(raw.verification, 'publishedAt', '$.verification', issues);
-        if (published && (!RFC3339.test(published) || !Number.isFinite(Date.parse(published))))
+        if (published && !strictRfc3339(published))
             issues.push({ path: '$.verification.publishedAt', message: 'must be an ISO date-time' });
     }
     const phaseIds = unique(phases as {
@@ -361,18 +376,34 @@ export function validateWorkflowStructure(raw: unknown): {
     nodes.forEach((n, i) => checkRefs(n.evidence, evidenceIds, `$.nodes[${i}].evidence`));
     edges.forEach((e, i) => checkRefs(e.evidence, evidenceIds, `$.edges[${i}].evidence`));
     findings.forEach((f, i) => { checkRefs(f.nodeIds, nodeIds, `$.findings[${i}].nodeIds`); checkRefs(f.edgeIds, edgeIds, `$.findings[${i}].edgeIds`); checkRefs(f.evidence, evidenceIds, `$.findings[${i}].evidence`); checkRefs(f.counterEvidence, evidenceIds, `$.findings[${i}].counterEvidence`); });
-    for (const n of nodes) {
-        const seen = new Set<string>();
-        let cur = n;
-        while (cur.parent) {
-            if (seen.has(String(cur.id))) {
-                issues.push({ path: '$.nodes', message: 'parent relationships must form a forest' });
+    // Resolve each parent chain once. Repeated Array.find calls made a valid
+    // maximum-size nested workflow quadratic-to-cubic work for untrusted input.
+    const nodeById = new Map(nodes.map(n => [String(n.id), n]));
+    const resolvedParents = new Set<string>();
+    let cyclicParents = false;
+    for (const node of nodes) {
+        let current: Record<string, unknown> | undefined = node;
+        const chain: string[] = [];
+        const inChain = new Set<string>();
+        while (current) {
+            const id = String(current.id);
+            if (resolvedParents.has(id))
+                break;
+            if (inChain.has(id)) {
+                cyclicParents = true;
                 break;
             }
-            seen.add(String(cur.id));
-            cur = nodes.find(x => x.id === cur.parent) ?? {};
+            inChain.add(id);
+            chain.push(id);
+            current = typeof current.parent === 'string' ? nodeById.get(current.parent) : undefined;
         }
+        for (const id of chain)
+            resolvedParents.add(id);
+        if (cyclicParents)
+            break;
     }
+    if (cyclicParents)
+        issues.push({ path: '$.nodes', message: 'parent relationships must form a forest' });
     return issues.length ? { issues } : { document: raw as unknown as WorkflowDocument, issues };
 }
 export async function validateWorkflow(raw: unknown, root: string, readText: ReadText = async (p) => fs.readFile(p, 'utf8'), readNotebookCell?: ReadNotebookCell): Promise<{
@@ -386,6 +417,21 @@ export async function validateWorkflow(raw: unknown, root: string, readText: Rea
     const issues = [...structural.issues];
     const realRoot = await fs.realpath(root);
     const stale = new Set<string>(), files = new Set<string>();
+    // Evidence commonly cites several ranges in one source file. Cache the
+    // workspace-aware reader so validation reads and hashes that file once.
+    type CachedSource = { raw: string; hash: string; lines: string[]; notebook?: { cells?: { source?: string[] | string }[] } };
+    const sourceCache = new Map<string, Promise<CachedSource>>();
+    const sourceFor = (file: string): Promise<CachedSource> => {
+        let source = sourceCache.get(file);
+        if (!source) {
+            source = readText(file).then(raw => {
+                const normalized = raw.replace(/\r\n?/g, '\n');
+                return { raw, hash: crypto.createHash('sha256').update(raw).digest('hex'), lines: normalized.split('\n') };
+            });
+            sourceCache.set(file, source);
+        }
+        return source;
+    };
     const contained = (value: string): boolean => value === realRoot || value.startsWith(realRoot + path.sep);
     for (let i = 0; i < doc.evidence.length; i++) {
         const e = doc.evidence[i]!;
@@ -418,9 +464,9 @@ export async function validateWorkflow(raw: unknown, root: string, readText: Rea
             continue;
         }
         files.add(real);
-        let rawSource: string;
+        let cached: CachedSource;
         try {
-            rawSource = await readText(real);
+            cached = await sourceFor(real);
         }
         catch {
             if (expected) {
@@ -430,11 +476,10 @@ export async function validateWorkflow(raw: unknown, root: string, readText: Rea
             issues.push({ path: `${at}.file`, message: 'cannot be read' });
             continue;
         }
-        const hashMatches = expected === undefined || crypto.createHash('sha256').update(rawSource).digest('hex') === expected;
+        const hashMatches = expected === undefined || cached.hash === expected;
         if (!hashMatches)
             stale.add(real);
-        const source = rawSource.replace(/\r\n?/g, '\n');
-        let lines = source.split('\n');
+        let lines = cached.lines;
         let usedOpenCell = false;
         if (e.cell !== undefined) {
             try {
@@ -444,12 +489,8 @@ export async function validateWorkflow(raw: unknown, root: string, readText: Rea
                     lines = openCell.replace(/\r\n?/g, '\n').split('\n');
                 }
                 else {
-                    const notebook = JSON.parse(source) as {
-                        cells?: {
-                            source?: string[] | string;
-                        }[];
-                    };
-                    const cell = notebook.cells?.[e.cell];
+                    cached.notebook ??= JSON.parse(cached.raw) as CachedSource['notebook'];
+                    const cell = cached.notebook?.cells?.[e.cell];
                     if (!cell)
                         throw new Error();
                     const body = Array.isArray(cell.source) ? cell.source.join('') : String(cell.source ?? '');
@@ -506,8 +547,8 @@ export async function validateWorkflow(raw: unknown, root: string, readText: Rea
         }
         files.add(real);
         try {
-            const current = await readText(real);
-            if (crypto.createHash('sha256').update(current).digest('hex') !== expected)
+            const current = await sourceFor(real);
+            if (current.hash !== expected)
                 stale.add(real);
         }
         catch {

@@ -1,3 +1,7 @@
+> Historical record: the static analyzer was removed on 2026-09-18.
+> Commands, paths, and compatibility promises below describe earlier revisions.
+> See [current status](STATUS.md) for the supported product.
+
 # MLView — Design System & Interaction Specification
 
 **Status:** frozen for the prototype build. Version 1.0, 2026-09-06; §1, §9 and §11 gained the flow and scope rows when the two features were designed (2026-09-07).

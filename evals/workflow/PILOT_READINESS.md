@@ -9,19 +9,21 @@ prompt/budget policy. All eight ledgers are explicitly AI-authored drafts with
 human review pending. No target code was imported or executed, and no
 held-out native-host output was generated or inspected to prepare them.
 
-The current candidate is an uncommitted change based on `766d9cc`. That base
-commit passed all 13 remote CI jobs in push run `35282332067` and pull-request
-run `35282336685`; those runs predate and do not validate the candidate. The
-candidate's frozen four-file skill bundle has SHA-256
+The semantic-quality candidate was published as `12747c4`. All 13 remote CI
+jobs passed in push run `35287750580` and pull-request run `35287753581` at that
+commit. The later [public-readiness review](../../docs/PUBLIC_READINESS_REVIEW.md)
+changes the helper and distribution; its local checks and any later remote CI
+must be tracked separately. The frozen four-file candidate bundle has SHA-256
 `837358d2689890ec663dfebac57092c369db02d6e75a9229953776b1b5f2e29b`.
 CI success and fresh development follow-ups do not approve reference facts or
 count as held-out runs. The public draft ledgers are review inputs, not a
 complete candidate fact set or evidence that the candidate improved quality.
 
-Of the six fresh native development follow-ups, four completed with final UI
-evidence, Copilot GAN failed within its two-repair budget, and Copilot notebook
-published a validator-clean artifact after two repairs but still awaited final
-UI observation. These outcomes remain development evidence and do not change
+Of the six fresh native development follow-ups, five have final native response
+evidence and Copilot GAN failed within its two-repair budget. Copilot notebook's
+response was recovered during cleanup after publishing a validator-clean
+artifact with two repairs; its fresh diagram was not inspected. These outcomes
+remain development evidence and do not change
 the 24/48 held-out counts below.
 
 ## Pinned source availability

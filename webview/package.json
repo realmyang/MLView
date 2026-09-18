@@ -2,18 +2,14 @@
   "name": "mlview-webview",
   "version": "0.1.0",
   "private": true,
-  "description": "MLView diagram renderer bundle — consumed unchanged by the VS Code webview and the standalone HTML report.",
+  "description": "Interactive renderer for model-authored MLView WorkflowDocuments.",
   "license": "MIT",
   "type": "module",
   "main": "dist/mlview.js",
   "scripts": {
     "build": "node build.mjs",
     "check": "tsc --noEmit",
-    "test": "node tools/run-tests.mjs",
-    "render-sample": "node test/render_sample.mjs",
-    "refresh-sample": "node dev/refresh-sample.mjs",
-    "render-report": "node test/render_report.mjs",
-    "export-svg": "node test/export_svg.mjs"
+    "test": "node tools/run-tests.mjs"
   },
   "dependencies": {
     "@dagrejs/dagre": "3.1.1"

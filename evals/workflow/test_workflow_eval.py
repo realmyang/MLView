@@ -19,7 +19,7 @@ def test_locked_matrix_and_pinned_sources():
     tasks = MANIFEST["tasks"]
     assert len({t["id"] for t in tasks}) == 16
     assert sum(t["split"] == "development" for t in tasks) == 8
-    pinned = {r["name"]: r for r in json.loads((ROOT / "analyzer/tests/public_corpus/repos.json").read_text())["repos"]}
+    pinned = {r["name"]: r for r in json.loads((ROOT / "evals/workflow/repositories.json").read_text())["repos"]}
     for task in tasks:
         if task["split"] == "heldout":
             assert task["commit"] == pinned[task["repository"]]["sha"]
@@ -43,6 +43,13 @@ def test_duplicate_or_mismatched_run_rejected():
     with pytest.raises(ValueError, match="duplicate"):
         module.summarize([record, record], MANIFEST)
     record["host"] = "wrong"
+    with pytest.raises(ValueError, match="identity"):
+        module.summarize([record], MANIFEST)
+
+
+def test_changed_pilot_prompt_cannot_count_as_a_pinned_run():
+    record = module.plan(MANIFEST)[0]
+    record["prompt"] += " Skip the difficult parts."
     with pytest.raises(ValueError, match="identity"):
         module.summarize([record], MANIFEST)
 
@@ -108,6 +115,71 @@ def test_development_review_rejects_human_decision_and_bad_anchor():
 
 def _digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _write_historical_map(root, old_path, new_path, digest):
+    mapping = root / "evals/workflow/fixtures/historical-paths.json"
+    mapping.parent.mkdir(parents=True, exist_ok=True)
+    mapping.write_text(json.dumps({
+        "sourceCommit": "0" * 40,
+        "paths": {old_path: {"path": new_path, "sha256": digest}},
+    }))
+
+
+def test_historical_source_rejects_fixture_hash_mismatch(tmp_path):
+    fixture = tmp_path / "evals/workflow/fixtures/example.py"
+    fixture.parent.mkdir(parents=True)
+    fixture.write_text("print('changed')\n")
+    old_path = "analyzer/tests/accuracy/corpus/example.py"
+    _write_historical_map(
+        tmp_path, old_path, "evals/workflow/fixtures/example.py", "0" * 64
+    )
+
+    with pytest.raises(ValueError, match="SHA-256 mismatch"):
+        module.historical_source(old_path, tmp_path)
+
+
+def test_recreated_legacy_path_cannot_bypass_mapped_fixture_hash(tmp_path):
+    old_path = "analyzer/tests/accuracy/corpus/example.py"
+    recreated = tmp_path / old_path
+    recreated.parent.mkdir(parents=True)
+    recreated.write_text("print('recreated legacy path')\n")
+    fixture = tmp_path / "evals/workflow/fixtures/example.py"
+    fixture.parent.mkdir(parents=True)
+    fixture.write_text("print('changed mapped fixture')\n")
+    _write_historical_map(
+        tmp_path, old_path, "evals/workflow/fixtures/example.py", "0" * 64
+    )
+
+    with pytest.raises(ValueError, match="SHA-256 mismatch"):
+        module.historical_source(old_path, tmp_path)
+
+
+def test_historical_source_rejects_unknown_old_path(tmp_path):
+    mapping = tmp_path / "evals/workflow/fixtures/historical-paths.json"
+    mapping.parent.mkdir(parents=True)
+    mapping.write_text(json.dumps({"sourceCommit": "0" * 40, "paths": {}}))
+
+    with pytest.raises(ValueError, match="historical source does not exist"):
+        module.historical_source("analyzer/tests/accuracy/corpus/unknown.py", tmp_path)
+
+
+def test_historical_source_rejects_mapped_symlink_escape(tmp_path):
+    outside = tmp_path.parent / (tmp_path.name + "-outside.py")
+    outside.write_text("print('outside')\n")
+    link = tmp_path / "evals/workflow/fixtures/escape.py"
+    link.parent.mkdir(parents=True)
+    try:
+        link.symlink_to(outside)
+    except OSError as exc:
+        pytest.skip(f"symlinks unavailable: {exc}")
+    old_path = "analyzer/tests/accuracy/corpus/escape.py"
+    _write_historical_map(
+        tmp_path, old_path, "evals/workflow/fixtures/escape.py", _digest(outside)
+    )
+
+    with pytest.raises(ValueError, match="outside workspace"):
+        module.historical_source(old_path, tmp_path)
 
 
 def test_completed_development_record_requires_real_confined_evidence(tmp_path):
@@ -216,6 +288,27 @@ def test_native_review_is_bound_to_registered_host_path_hash_and_revision():
         changed[field] = value
         with pytest.raises(ValueError, match=message):
             module.validate_development_review(changed)
+
+
+def test_all_committed_native_reviews_validate_on_this_platform():
+    reviews = sorted((Path(__file__).parent / "development/native-reviews").glob("*/*.json"))
+    assert len(reviews) == 12
+    for path in reviews:
+        module.validate_development_review(json.loads(path.read_text(encoding="utf-8")))
+
+
+@pytest.mark.parametrize("pointer", ["cells/0", "/cells/-1", "/cells/01", "/cells/+0",
+                                     "/cells/1", "/missing", "/cells/0/x", "/bad~2"])
+def test_json_evidence_rejects_invalid_or_unresolved_pointers(pointer):
+    with pytest.raises(ValueError, match="JSON Pointer"):
+        module._json_pointer({"cells": [4]}, pointer)
+
+
+def test_json_evidence_preserves_empty_keys_and_decodes_escaped_tokens():
+    value = {"": {"cells": [4]}, "a/b": {"~key": True}}
+    assert module._json_pointer(value, "") is value
+    assert module._json_pointer(value, "//cells/0") == 4
+    assert module._json_pointer(value, "/a~1b/~0key") is True
 
 
 def test_native_review_rejects_bad_pointer_and_human_review_injection():
@@ -386,7 +479,7 @@ def test_provisional_reviews_validate_in_fresh_root_without_dot_mlview(tmp_path)
         for source_path in source_paths:
             target = tmp_path / source_path
             target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(ROOT / source_path, target)
+            shutil.copyfile(module.historical_source(source_path), target)
         module.validate_development_review(review, tmp_path)
 
 

@@ -32,7 +32,7 @@
       "title": "Grouped cross-validation",
       "repository": "MLView",
       "entrypoints": [
-        "analyzer/tests/accuracy/corpus/tabular_group_cv_clean/train.py"
+        "evals/workflow/fixtures/tabular_group_cv_clean/train.py"
       ],
       "prompt": "Explain how grouped cross-validation keeps transformations inside the training folds. Identify the split, fitted preprocessing, estimator, and evaluation flow; inspect implementation before alleging leakage.",
       "referenceStatus": "needs-human-review"
@@ -43,8 +43,8 @@
       "title": "HuggingFace and Lightning lifecycles",
       "repository": "MLView",
       "entrypoints": [
-        "analyzer/tests/accuracy/corpus/nlp_hf_classification_clean/train.py",
-        "analyzer/tests/accuracy/corpus/lightning_tabular/train.py"
+        "evals/workflow/fixtures/nlp_hf_classification_clean/train.py",
+        "evals/workflow/fixtures/lightning_tabular/train.py"
       ],
       "prompt": "Show the two alternative trainer-managed workflows separately. Trace data, model, loss, updates and evaluation through helpers and lifecycle hooks. Qualify behavior outside inspected source.",
       "referenceStatus": "needs-human-review"
@@ -55,8 +55,8 @@
       "title": "Keras and JAX workflows",
       "repository": "MLView",
       "entrypoints": [
-        "analyzer/tests/accuracy/corpus/keras_tfdata/train.py",
-        "analyzer/tests/accuracy/corpus/infra_jax_flax/train_flax.py"
+        "evals/workflow/fixtures/keras_tfdata/train.py",
+        "evals/workflow/fixtures/infra_jax_flax/train_flax.py"
       ],
       "prompt": "Compare these two distinct entrypoints. Preserve functional parameter updates in JAX and compile/fit behavior in Keras without making either look like a manual PyTorch loop.",
       "referenceStatus": "needs-human-review"
@@ -67,7 +67,7 @@
       "title": "Alternating adversarial optimization",
       "repository": "MLView",
       "entrypoints": [
-        "analyzer/tests/accuracy/corpus/vision_gan/train_dcgan.py"
+        "evals/workflow/fixtures/vision_gan/train_dcgan.py"
       ],
       "prompt": "Explain the discriminator and generator losses, gradient paths, detached tensors, optimizer targets and alternating updates. Use repeated phases and show the iteration cycle.",
       "referenceStatus": "needs-human-review"
@@ -90,7 +90,7 @@
       "title": "Notebook order uncertainty",
       "repository": "MLView",
       "entrypoints": [
-        "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb"
+        "evals/workflow/fixtures/notebooks/leak_out_of_order.ipynb"
       ],
       "prompt": "Explain the notebook workflow with exact cell citations. Separate source order from recorded execution order and qualify any finding whose interpretation depends on runtime state.",
       "referenceStatus": "needs-human-review"

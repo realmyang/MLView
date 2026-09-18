@@ -185,3 +185,41 @@ test('rejects a document that lacks the authored contract discriminant', async (
   const { MLView } = await loadBundle();
   assert.throws(() => MLView.normalizeWorkflow({ workflowVersion: '0.9' }), /workflowVersion must be 1.0/);
 });
+
+test('ships only the authored workflow public surface', async () => {
+  const { MLView } = await loadBundle();
+  assert.equal(typeof MLView.mountWorkflow, 'function');
+  assert.equal(typeof MLView.bridges.vscode, 'function');
+  assert.equal('mount' in MLView, false);
+  assert.equal('standalone' in MLView.bridges, false);
+  assert.equal('__internal' in MLView, false);
+});
+
+test('legacy graph messages and static finding actions are absent from the authored renderer', async () => {
+  const ctx = await loadBundle();
+  const bridge = recordingBridge(ctx.window, 'vscode');
+  const app = ctx.MLView.mountWorkflow(ctx.document.getElementById('mlview-root'), workflow(), bridge);
+  bridge.send({ v: 1, type: 'graph', graph: { schemaVersion: '1.0', nodes: [], edges: [], issues: [] } });
+  assert.equal(app.graph.schemaVersion, 'workflow-view/1');
+  assert.equal(ctx.document.querySelector('[data-copy-ignore]'), null);
+  assert.equal(ctx.document.querySelector('[data-disable-rule]'), null);
+  assert.equal(ctx.document.querySelector('[data-apply-fix]'), null);
+  assert.equal(ctx.document.querySelector('[data-rule-doc]'), null);
+  assert.ok(bridge.posted.some((message) => message.type === 'log' && /unknown message type: graph/.test(message.message)));
+  app.destroy();
+});
+
+test('authored scope and selection survive a revision update', async () => {
+  const ctx = await loadBundle();
+  const bridge = recordingBridge(ctx.window, 'vscode');
+  const app = ctx.MLView.mountWorkflow(ctx.document.getElementById('mlview-root'), workflow(), bridge);
+  app.setScope('stage:loop');
+  app.focusNode('step');
+  const before = app.getState();
+  app.setWorkflow(workflow('r-next'), { scope: before.scope, selection: before.selection, viewport: before.viewport });
+  assert.equal(app.getScope().spec, 'stage:loop');
+  assert.deepEqual(JSON.parse(JSON.stringify(app.getState().selection)), { kind: 'node', id: 'step' });
+  assert.ok(ctx.document.querySelector('[data-node-id="step"]'));
+  assert.equal(ctx.document.querySelector('[data-node-id="dataset"]'), null);
+  app.destroy();
+});

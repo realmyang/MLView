@@ -51,10 +51,9 @@ export function buildAppUi(app: App): void {
   app.view = new CanvasView(shell, canvasHost(app));
 
   app.chrome = new Chrome({
+    onRefresh: () => undefined,
     onQuery: (q) => app.search.run(q),
     onSearchKey: (ev) => app.search.handleKey(ev),
-    onRefresh: () => app.requestRefresh(),
-    onExport: () => app.bridge.post({ v: 1, type: 'exportHtml' }),
     onToggleRail: () => app.toggleRail(),
     onSeverity: (sev) => app.applyFilters(() => app.filters.toggleSeverity(sev)),
     onShowSuppressed: (next) => app.setFilters({ showSuppressed: next }),
@@ -198,8 +197,8 @@ export function canvasHost(app: App): CanvasHost {
     activateNode: (id) => app.select({ kind: 'node', id }, { open: true, tab: 'inspector' }),
     activateEdge: (id) => app.select({ kind: 'edge', id }, { open: true, tab: 'inspector' }),
     clearFilters: () => app.clearFilters(),
-    canReanalyze: () => app.caps.canReanalyze,
-    requestRefresh: () => app.requestRefresh(),
+    canReanalyze: () => false,
+    requestRefresh: () => undefined,
     announce: (text) => app.announce(text),
     afterCollapse: () => {
       syncCollapsed(app);

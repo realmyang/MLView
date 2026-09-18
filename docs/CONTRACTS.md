@@ -1,3 +1,7 @@
+> Historical record: the static analyzer was removed on 2026-09-18.
+> Commands, paths, and compatibility promises below describe earlier revisions.
+> See [current status](STATUS.md) for the supported product.
+
 # MLView Contracts v1.1
 
 **Status:** normative. This document binds every component of MLView, and an agent must be able to implement its component from it alone.

@@ -1,3 +1,7 @@
+> Historical record: the static analyzer was removed on 2026-09-18.
+> Commands, paths, and compatibility promises below describe earlier revisions.
+> See [current status](STATUS.md) for the supported product.
+
 # Adding a rule, and adding a corpus program
 
 The narrow version of [`CONTRIBUTING.md`](../CONTRIBUTING.md), for the two

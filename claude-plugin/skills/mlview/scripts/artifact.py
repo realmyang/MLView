@@ -18,6 +18,7 @@ MAX_SOURCE = 8 * 1024 * 1024
 ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 HOSTS = {"copilot", "codex", "claude-code", "unknown"}
 BASES = {"observed", "inferred", "unresolved"}
+RFC3339_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$")
 
 
 class Problems:
@@ -33,7 +34,7 @@ def _relative(value: Any, root: Path, problems: Problems, path: str) -> tuple[st
         problems.add("invalid_path", path, "must be a non-empty slash-separated relative path")
         return None
     pure = PurePosixPath(value)
-    if pure.is_absolute() or ".." in pure.parts or "." in pure.parts:
+    if pure.is_absolute() or any(part in {"", ".", ".."} for part in value.split("/")):
         problems.add("path_outside_workspace", path, "must stay within the workspace")
         return None
     candidate = root.joinpath(*pure.parts)
@@ -128,6 +129,8 @@ def _validate_inspected(doc: dict[str, Any], root: Path, hashes: dict[str, str],
         if not located:
             continue
         rel, path = located
+        if rel in hashes:
+            continue
         content = _read_source(path, problems, f"coverage.inspectedFiles[{index}]")
         if content is not None:
             hashes[rel] = hashlib.sha256(content[0]).hexdigest()
@@ -181,6 +184,7 @@ def _basic_shape(doc: Any, p: Problems) -> None:
     if revision is None or not _id(revision.get("id")):
         p.add("revision", "revision.id", "must be a valid ID")
     elif "parent" in revision and not _id(revision["parent"]): p.add("revision", "revision.parent", "must be a valid ID")
+    elif revision.get("parent") == revision["id"]: p.add("revision", "revision.parent", "must differ from revision.id")
     request = doc.get("request")
     request = _object(request, "request", {"question", "scope"}, {"question", "scope", "entrypoints", "configuration"}, p)
     if request is None or not all(isinstance(request.get(k), str) and request[k] for k in ("question", "scope")):
@@ -218,6 +222,10 @@ def _basic_shape(doc: Any, p: Problems) -> None:
             if not isinstance(published, str): p.add("type", "verification.publishedAt", "must be a string")
             else:
                 try:
+                    if not RFC3339_RE.fullmatch(published): raise ValueError
+                    if not published.endswith("Z"):
+                        offset_hour, offset_minute = published[-5:-3], published[-2:]
+                        if int(offset_hour) > 23 or int(offset_minute) > 59: raise ValueError
                     parsed = datetime.fromisoformat(published.replace("Z", "+00:00"))
                     if parsed.tzinfo is None: raise ValueError
                 except ValueError: p.add("format", "verification.publishedAt", "must be an RFC 3339 date-time with timezone")
@@ -242,7 +250,7 @@ def _basic_shape(doc: Any, p: Problems) -> None:
     for at, values in path_lists:
         if isinstance(values, list):
             for i, value in enumerate(values):
-                if not isinstance(value, str) or PurePosixPath(value).is_absolute() or ".." in PurePosixPath(value).parts or "\\" in value:
+                if not isinstance(value, str) or PurePosixPath(value).is_absolute() or any(part in {"", ".", ".."} for part in value.split("/")) or "\\" in value:
                     p.add("invalid_path", f"{at}[{i}]", "must be a slash-separated relative path")
 
 
@@ -296,13 +304,18 @@ def _references(doc: dict[str, Any], p: Problems) -> None:
             if not isinstance(parent, str) or parent not in ids["nodes"] or parent == node.get("id"): p.add("parent", f"nodes[{i}].parent", "must reference a different node")
             elif _id(node.get("id")): children.add(parent); parent_of[node["id"]] = parent
         _claim(node, f"nodes[{i}]", ids["evidence"], p)
+    checked: set[str] = set()
     for node_id in parent_of:
+        if node_id in checked: continue
         seen: set[str] = set(); current = node_id
         while current in parent_of:
             if current in seen: p.add("parent_cycle", "nodes", "node parent relationships must form a forest"); break
+            if current in checked: break
             seen.add(current); current = parent_of[current]
+        checked.update(seen)
     for i, node in enumerate(collections["nodes"] if isinstance(collections["nodes"], list) else []):
-        if isinstance(node, dict) and not node.get("evidence") and node.get("basis") != "unresolved" and node.get("id") not in children:
+        node_id = node.get("id") if isinstance(node, dict) else None
+        if isinstance(node, dict) and not node.get("evidence") and node.get("basis") != "unresolved" and (not _id(node_id) or node_id not in children):
             p.add("evidence_required", f"nodes[{i}].evidence", "empty evidence requires unresolved basis or a conceptual parent with children")
     for i, edge in enumerate(collections["edges"] if isinstance(collections["edges"], list) else []):
         edge = _object(edge, f"edges[{i}]", {"id", "source", "target", "label", "basis", "evidence"}, {"id", "source", "target", "label", "kind", "basis", "evidence"}, p)
@@ -416,7 +429,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     root = Path(args.workspace).resolve()
     try: doc = _load(Path(args.draft))
-    except (OSError, UnicodeError, ValueError, json.JSONDecodeError):
+    except (OSError, UnicodeError, ValueError, RecursionError, json.JSONDecodeError):
         print(json.dumps({"ok": False, "errors": [{"code": "invalid_json", "path": "$", "message": "draft is missing, too large, non-UTF-8, or invalid JSON"}]})); return 1
     errors, hashes = validate(doc, root)
     if errors: print(json.dumps({"ok": False, "errors": errors}, sort_keys=True)); return 1
@@ -425,21 +438,29 @@ def main(argv: list[str] | None = None) -> int:
         if args.include_document: result["document"] = doc
         print(json.dumps(result, sort_keys=True)); return 0
     output_arg = PurePosixPath(args.output)
-    if output_arg.is_absolute() or ".." in output_arg.parts:
+    if not args.output or "\\" in args.output or output_arg.is_absolute() or any(part in {"", ".", ".."} for part in args.output.split("/")):
         print(json.dumps({"ok": False, "errors": [{"code": "output_path", "path": "--output", "message": "must stay within the workspace"}]})); return 1
     output = root.joinpath(*output_arg.parts)
     try: output.resolve(strict=False).parent.relative_to(root)
     except ValueError:
         print(json.dumps({"ok": False, "errors": [{"code": "output_path", "path": "--output", "message": "must stay within the workspace"}]})); return 1
-    output.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        output.parent.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        print(json.dumps({"ok": False, "errors": [{"code": "publication_io", "path": "--output", "message": "could not prepare the artifact output directory"}]})); return 1
     lock = output.with_name(output.name + ".lock")
     try:
         lock_fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
     except FileExistsError:
         print(json.dumps({"ok": False, "errors": [{"code": "publish_locked", "path": output_arg.as_posix() + ".lock", "message": "another publisher is active or a stale lock must be removed manually"}]})); return 1
+    except OSError:
+        print(json.dumps({"ok": False, "errors": [{"code": "publication_io", "path": "--output", "message": "could not create the publication lock"}]})); return 1
     try:
-        os.close(lock_fd)
-        return _publish_locked(doc, hashes, root, output, output_arg.as_posix())
+        try:
+            os.close(lock_fd)
+            return _publish_locked(doc, hashes, root, output, output_arg.as_posix())
+        except OSError:
+            print(json.dumps({"ok": False, "errors": [{"code": "publication_io", "path": "--output", "message": "could not write the published artifact"}]})); return 1
     finally:
         try: lock.unlink()
         except FileNotFoundError: pass

@@ -1,37 +1,11 @@
-# Issue chooser configuration.
-#
-# Blank issues stay enabled on purpose: a question, a "have I understood this
-# right?", or a report that fits none of the three forms is welcome as a plain
-# issue, and GitHub Discussions is not turned on for this repository. If it is
-# turned on later, add a contact link pointing at
-# https://github.com/realmyang/MLView/discussions and say there that questions
-# belong there rather than in issues.
 blank_issues_enabled: true
 contact_links:
-  - name: Question, or "is this finding right?"
-    url: https://github.com/realmyang/MLView/issues/new
-    about: >
-      Open a plain issue. Questions are welcome; there is no separate forum.
-      If the question is about one finding, paste it and the code it points at
-      and it will get an answer either way.
-  - name: What a rule looks for, and what it cannot see
-    url: https://github.com/realmyang/MLView/blob/main/docs/rules/README.md
-    about: >
-      One offline page per rule, generated from the rule and its two fixtures.
-      Several pages carry a "What it cannot analyze" section, which is often
-      the answer.
-  - name: Known gaps and what is verified
+  - name: Native skill workflow and known limitations
+    url: https://github.com/realmyang/MLView/blob/main/docs/LLM_WORKFLOW.md
+    about: Installation, refinement and validation boundaries for native assistants.
+  - name: Current status
     url: https://github.com/realmyang/MLView/blob/main/docs/STATUS.md
-    about: >
-      What is in the tree, what has actually been run, and the standing
-      limitations — each naming the file or symbol it is about.
-  - name: Accuracy — precision, recall, and what is still missed
-    url: https://github.com/realmyang/MLView/blob/main/docs/ACCURACY.md
-    about: >
-      The labelled corpus and the numbers it produces, per rule. If MLView
-      missed a defect, the gap is very likely measured here already.
+    about: What ships and what still needs validation.
   - name: Security report
     url: https://github.com/realmyang/MLView/security/policy
-    about: >
-      Do not open a public issue for a vulnerability. The policy explains the
-      private route and what MLView does (and never does) with your code.
+    about: Report vulnerabilities privately using the security policy.

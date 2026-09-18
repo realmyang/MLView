@@ -1,12 +1,16 @@
+> Historical record: the static analyzer was removed on 2026-09-18.
+> Commands, paths, and compatibility promises below describe earlier revisions.
+> See [current status](STATUS.md) for the supported product.
+
 # LLM workflow implementation status
 
 The user approved [the direction plan](LLM_DIRECTION_PLAN.md) on 2026-09-16.
 Implementation is published on `llm-workflow` in
 [draft PR #9](https://github.com/realmyang/MLView/pull/9). The September 17
 publication retry succeeded after the GitHub credential gained the required
-`workflow` scope. All 13 active CI jobs passed at `766d9cc`:
-[push, seven jobs](https://github.com/realmyang/MLView/actions/runs/35282332067) and
-[PR, six jobs](https://github.com/realmyang/MLView/actions/runs/35282336685), including
+`workflow` scope. All 13 active CI jobs passed at `12747c4`:
+[push, seven jobs](https://github.com/realmyang/MLView/actions/runs/35287750580) and
+[PR, six jobs](https://github.com/realmyang/MLView/actions/runs/35287753581), including
 Windows PowerShell end-to-end. This matrix includes the partial-coverage display
 fix documented below. Remote results are separate from the local
 validation record below. The repository's earlier accuracy measurements and CI run IDs
@@ -15,8 +19,10 @@ apply to the legacy static product.
 The [September 18 semantic-quality sprint](QUALITY_SPRINT.md) adds stricter
 skill guidance, source-linked provisional reviews of all twelve native
 development artifacts, and fresh GAN/notebook follow-ups. Its local checks and
-native results are recorded separately from the CI matrix above. Human review
-and the held-out pilot remain pending.
+native results are recorded separately from the CI matrix above. The later
+[public-readiness review](PUBLIC_READINESS_REVIEW.md) records additional fixes
+and their local validation; the published CI runs do not cover these later edits.
+Human review and the held-out pilot remain pending.
 
 The earlier September 17 credential check confirmed repository write access
 (`canPush: true`) but only the `repo` token scope. GitHub rejected the push

@@ -1,31 +1,57 @@
+# Current handoff — 2026-09-18 static analyzer removal
+
+The user's latest explicit direction is to remove the old static analyzer.
+This supersedes preservation requirements in the historical handoff below.
+The active product is the native LLM skill plus WorkflowDocument viewer.
+
+Removed the analyzer source and Python distribution, legacy contracts/goldens,
+MCP/vendor/hooks, static extension commands/tools, static rule catalog and static
+build/CI paths. Kept the local artifact validator, authored panel and renderer,
+skill installers/packages, evaluation records, licenses and prior hardening.
+Evaluation source examples moved to `evals/workflow/fixtures/`; recorded native
+artifacts were not rewritten. Replay uses a hash-pinned historical path map.
+
+Current operational guidance is in [AGENTS.md](../AGENTS.md),
+[CONTRIBUTING.md](../CONTRIBUTING.md) and [STATUS.md](STATUS.md).
+Validation for this change is recorded in [VALIDATION.md](VALIDATION.md):
+15 local end-to-end gates passed, with 102 Python tests plus 16 subtests,
+21 viewer tests and 30 extension tests. Two unavailable Claude CLI checks were
+explicitly skipped; current CI and live hosts were not rerun.
+Changes remain local on the existing feature branch; no publication is implied.
+Human semantic review and the native held-out pilot remain outstanding.
+
+---
+
+The following material records earlier campaigns. Its static analyzer commands
+and preservation instructions no longer apply to the current product.
+
 # MLView takeover — 2026-09-16
 
-> **Current update (2026-09-18):** the semantic-quality candidate in the current
-> change is based on `766d9cc`. The base commit passed all
-> 13 remote CI jobs in push run `35282332067` and pull-request run
-> `35282336685`, before this candidate was created, so those runs do not validate
-> the candidate. The frozen candidate skill bundle has SHA-256
-> `837358d2689890ec663dfebac57092c369db02d6e75a9229953776b1b5f2e29b`.
-> Twelve original skill reviews and three matched baseline comparisons remain
-> model-provisional; every human field remains pending. Of six fresh GAN and
-> notebook follow-ups against the frozen bundle, four completed with final UI
-> evidence. Copilot GAN failed when its initial validation and both allowed
-> repair rounds produced invalid JSON; an attempted third repair was stopped,
-> preserved and left unpublished. Copilot notebook published validator-clean
-> revision `rev-leak-out-of-order-1` after two repairs, but final native UI
-> observation remains pending after desktop attachment failed.
-> Fresh post-helper checks passed 51 focused tests plus four subtests and all 10
-> `tools/verify.py --all` gates. Claude's 38-node GAN diagram and saved whole-
-> diagram PNG were visually inspected. The review packet passed content,
-> escaping and hash checks; browser visual QA of its local file URL was blocked
-> by policy and is not claimed.
-> Claude uses Fable 5.1 with Extra High reasoning; Codex uses Sol with Ultra
-> reasoning. Copilot Auto was already selected and routed both current sessions
-> to GPT-5.6 Luna; Upgrade appeared only as an unavailable choice and was never
-> selected, and no account change occurred. The 24 held-out first runs and 48 repeats have not started and
-> remain gated on human approval and freezing of the reference packet. Do not
-> convert model review into human decisions or claim candidate improvement from
-> validator, UI, or CI success.
+> **Current update (2026-09-18):** the user requested a thorough review, fixes,
+> appropriate optimization and public open-source readiness. The resulting
+> [review record](PUBLIC_READINESS_REVIEW.md) describes validation hardening,
+> graph/source-read optimizations, licensed skill distribution, packaging gates
+> and contributor documentation. Work remains on `llm-workflow`; the review
+> started from a clean tree at `12747c4`. That published commit passed all 13
+> remote CI jobs in push run `35287750580` and PR run `35287753581`; these runs
+> do not validate the later review fixes. Read the review record for their
+> local checks and remaining owner-controlled repository settings.
+>
+> The [semantic-quality batch](QUALITY_SPRINT.md) retains its frozen four-file
+> bundle hash `837358d2689890ec663dfebac57092c369db02d6e75a9229953776b1b5f2e29b`.
+> Twelve original skill reviews and three baseline comparisons remain
+> model-provisional. Five of six fresh follow-ups have valid artifacts and final
+> native response evidence; Copilot GAN failed within its two-repair budget.
+> Copilot notebook's final response was recovered during cleanup and repeats
+> the incorrect claim that execution counts are absent. Its fresh live diagram
+> remains unverified. Preserve the frozen artifacts and manifests. Current
+> helper and license changes alter the distributable bundle, so freeze a new
+> bundle before another native campaign.
+>
+> The 24 held-out first runs and 48 repeats have not started. Human review and
+> reference approval remain prerequisites; structural, UI and CI success must
+> not be reported as semantic accuracy. The review does not launch new native
+> model sessions, merge the PR or claim marketplace publication.
 
 > **Later user correction (2026-09-16):** the intended product is an LLM skill
 > using the native Copilot, Codex, or Claude Code model as the analysis backend.

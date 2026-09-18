@@ -15,7 +15,16 @@ IGNORED = {"tests", "__pycache__"}
 
 
 def files(root: Path) -> dict[Path, Path]:
-    return {path.relative_to(root): path for path in root.rglob("*") if path.is_file() and not IGNORED.intersection(path.relative_to(root).parts) and path.suffix != ".pyc"}
+    result: dict[Path, Path] = {}
+    for path in root.rglob("*"):
+        relative = path.relative_to(root)
+        if IGNORED.intersection(relative.parts) or path.suffix == ".pyc":
+            continue
+        if path.is_symlink():
+            raise ValueError(f"skill tree must not contain symlinks: {relative.as_posix()}")
+        if path.is_file():
+            result[relative] = path
+    return result
 
 
 def check() -> list[str]:

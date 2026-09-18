@@ -1,9 +1,14 @@
+> Dated evaluation record: the static analyzer was removed after this sprint.
+> See [current status](STATUS.md) and [validation](VALIDATION.md) for the current tree.
+
 # Implemented semantic-quality candidate
 
-This document records the MLView semantic-quality candidate prepared in this
-change on top of base commit `766d9cc`. The base commit passed all 13 remote CI
-jobs in push run `35282332067` and pull-
-request run `35282336685`; those runs predate and do not validate this candidate.
+This document records the MLView semantic-quality candidate published as
+`12747c4`, based on `766d9cc`. All 13 remote CI jobs passed at `12747c4` in
+[push run `35287750580`](https://github.com/realmyang/MLView/actions/runs/35287750580)
+and [PR run `35287753581`](https://github.com/realmyang/MLView/actions/runs/35287753581).
+The subsequent [public-readiness review](PUBLIC_READINESS_REVIEW.md) changes
+helper and packaging code; this CI evidence does not validate those later edits.
 The evidence set contains twelve native development artifacts and their model-
 provisional review ledgers, plus three matched no-skill baseline comparisons.
 No claim or usability rating has been human adjudicated, and this document does
@@ -26,11 +31,13 @@ notebook tasks in Copilot, Codex, and Claude Code. Their current outcomes are:
 | Claude Code GAN | Completed as `dev-gan-r1`; first validation passed with zero repairs. Five pre-validation critique corrections tightened claim and citation boundaries. |
 | Claude Code notebook | Completed as `rev-dev-notebook-20260918-1`; first validation passed with zero repairs. Five pre-validation critique corrections tightened iteration, recorded-order and inference boundaries. |
 | Copilot GAN | Failed: the initial validation and both allowed repair rounds produced invalid JSON. A third repair began but was stopped to enforce the two-repair limit; the deviating draft is preserved and unpublished. |
-| Copilot notebook | Validator-clean revision `rev-leak-out-of-order-1` published after two repairs as `workflow.mlview.json`; final native UI observation remains pending after desktop attachment failed. |
+| Copilot notebook | Validator-clean revision `rev-leak-out-of-order-1` published after two repairs as `workflow.mlview.json`; its final native response was recovered during cleanup, reporting 2m50s. A fresh live diagram was not inspected. |
 
-These are development checks only. Four have confirmed final UI evidence, one
-failed within its repair budget, and one has a published artifact with final UI
-evidence pending.
+These are development checks only. Five have confirmed final native responses
+and one failed within its repair budget. The recovered Copilot response repeats
+the incorrect claim that notebook execution counts are absent. The frozen
+follow-up manifest retains its earlier observation snapshot; recovery does not
+replace an artifact or turn its semantic claims into verified facts.
 
 The [preserved follow-ups](../evals/workflow/development/quality-followups/README.md)
 include five byte-identical valid artifacts, the failed draft, provenance and a
@@ -48,7 +55,7 @@ locations. Preserve this batch as the comparison point and freeze any changed
 bundle separately. Neither a new prompt nor a repaired draft should replace a
 failed result in this batch.
 
-Local checks of the current candidate passed 51 focused tests plus four
+Local checks of the frozen candidate passed 51 focused tests plus four
 subtests and all 10 `tools/verify.py --all` gates. The shared distribution ZIP has
 SHA-256 `7a3ab6a9fe01e72237c5496c83e0c298cecb21c1802738799829e5078601a7d8`;
 the Claude distribution ZIP has SHA-256

@@ -17,6 +17,25 @@ SPEC.loader.exec_module(packager)
 
 
 class PackageSkillTests(unittest.TestCase):
+    def test_canonical_skill_license_matches_repository_license(self):
+        self.assertEqual(
+            (SCRIPT.parents[1] / "LICENSE").read_bytes(),
+            (SCRIPT.parents[1] / "skills/mlview/LICENSE").read_bytes(),
+        )
+
+    def test_canonical_payload_rejects_symlinks(self):
+        with tempfile.TemporaryDirectory() as temp:
+            source = Path(temp) / "skill"
+            source.mkdir()
+            outside = Path(temp) / "secret"
+            outside.write_text("do not package", encoding="utf-8")
+            try:
+                (source / "linked").symlink_to(outside)
+            except OSError as exc:
+                self.skipTest(f"symlink creation unavailable: {exc}")
+            with self.assertRaisesRegex(ValueError, "must not contain symlinks"):
+                packager.canonical_files(source)
+
     def test_archives_are_reproducible_and_exact_canonical_copies(self):
         expected = packager.canonical_files()
         prefixes = {"shared": ".agents/skills/mlview", "claude-code": ".claude/skills/mlview"}
@@ -30,6 +49,7 @@ class PackageSkillTests(unittest.TestCase):
                 with ZipFile(first) as archive:
                     actual = {name.removeprefix(prefix + "/"): archive.read(name) for name in archive.namelist()}
                     self.assertEqual(expected, actual)
+                    self.assertEqual((SCRIPT.parents[1] / "LICENSE").read_bytes(), actual["LICENSE"])
                     self.assertTrue(all(info.date_time == (1980, 1, 1, 0, 0, 0) for info in archive.infolist()))
 
     def test_extracted_skill_validates_and_publishes_without_checkout_imports(self):

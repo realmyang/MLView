@@ -1,9 +1,0 @@
-# Overlaid on top of the TrainConfig dataclass defaults, under any CLI option.
-[train]
-data_root = "data/processed"
-epochs = 30
-batch_size = 128
-lr = 0.0005
-width = 256
-dropout = 0.2
-out_dir = "checkpoints/router"
