@@ -17,7 +17,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("mode", choices=("build", "e2e"))
     parser.add_argument("--skip-npm-install", action="store_true", help="reuse installed locked npm dependencies")
-    parser.add_argument("--skip-build", action="store_true", help="e2e only: use existing build outputs")
+    parser.add_argument("--skip-build", action="store_true",
+                        help="e2e only: skip npm ci, the viewer build and the syncs "
+                             "(npm test and VSIX packaging still rebuild the extension bundle)")
     args = parser.parse_args()
     if args.mode == "build" and args.skip_build:
         parser.error("--skip-build applies only to e2e")
@@ -50,7 +52,8 @@ def main() -> int:
             python("Sync skill", "tools/sync-skill.py")
             run("Compile extension", npm, "run", "compile", cwd=ROOT / "vscode-extension")
         else:
-            print("SKIP: build explicitly skipped; checking existing outputs", flush=True)
+            print("SKIP: --skip-build: npm ci, the viewer build and the syncs did not run "
+                  "(npm test and VSIX packaging still rebuild the extension bundle)", flush=True)
         for component in ("webview", "vscode-extension"):
             run(f"Type-check {component}", npm, "run", "check", cwd=ROOT / component)
         python("Distribution consistency", "tools/verify.py", "--all")
