@@ -36,8 +36,8 @@ prompts carry artifact text only inside a JSON data block and name one of five
 intents; Explain never publishes. The helper no longer fingerprints MLView's own
 artifacts, drafts or installed skill. A shared corpus in
 `contracts/conformance` checks the schema, helper and extension together. With
-the fixes from the campaign's first review, on commit `85c6c63`, the full local
-gate passed on one macOS machine ([details](VALIDATION.md)). CI has not yet run
+the fixes from the campaign's first and second reviews, on commit `106f172`, the
+full local gate passed on one macOS machine ([details](VALIDATION.md)). CI has not yet run
 on it. The manual live VS Code
 checks (high-contrast light, a BOM file open while publishing, a symlinked
 root, Windows drive letters) have not been run, and none of this is semantic
