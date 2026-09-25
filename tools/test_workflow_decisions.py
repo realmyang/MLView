@@ -642,6 +642,19 @@ def test_second_review_disagreement_and_resolution(tmp_path: Path, verified) -> 
     assert "evals/workflow/decisions/pilot-demo.second.md" in freeze_json["decisionFiles"]
 
 
+def test_a_second_review_must_carry_its_own_title(tmp_path: Path) -> None:
+    world = make_world(tmp_path)
+    write(world, "pilot-demo.md", accept_all(world, "pilot-demo"))
+    for wrong in (wd.task_template(world, "pilot-demo"), wd.task_template(world, "pilot-book", second=True)):
+        write(world, "pilot-demo.second.md", wrong)
+        code, out = run(world, "check", "pilot-demo")
+        assert code == 1
+        second = [line for line in out.splitlines() if line.startswith("evals/workflow/decisions/pilot-demo.second.md")]
+        assert any('ERROR header: a second review must start with "# Second review: pilot-demo".' in line
+                   for line in second), out
+        assert "Disagreements:" not in out
+
+
 def test_high_severity_note_is_satisfied_by_a_second_review(shared_world: wd.World) -> None:
     defect = ["## Defect demo-d01", "Wording: A high synthetic defect.", "Severity: high", "Anchors: lib/model.py:5",
               "Counter-evidence: none (synthetic)", "Reason: synthetic", ""]

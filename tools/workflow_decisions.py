@@ -1723,11 +1723,19 @@ def check_path(world: World, path: Path, *, with_second: bool = True) -> list[Fi
         second_check = None
         checks: list[FileCheck] = []
         second_path = path.with_name(path.name[:-3] + ".second.md") if path.name.endswith(".md") else None
+        usable = None
         if with_second and second_path is not None and second_path.is_file():
             second_raw = second_path.read_bytes()
             second_check = check_reference(world, second_raw, world.display(second_path),
                                            expected_name=_expected_name(world, second_path, True))
-        result = check_reference(world, raw, display, second=second_check, expected_name=_expected_name(world, path, False))
+            primary_record, _problems = er.parse_record(raw, display)
+            ident = primary_record.ident if primary_record is not None else None
+            if second_check.record is not None and (second_check.role != "second" or second_check.task_id != ident):
+                second_check.report.error(second_check.record.header.line, "header",
+                                          f'a second review must start with "# Second review: {ident}".')
+            elif second_check.record is not None:
+                usable = second_check
+        result = check_reference(world, raw, display, second=usable, expected_name=_expected_name(world, path, False))
         checks.append(FileCheck(display, result.report.ordered(), reference_summary(world, result), result.errors,
                                 result.todos, result))
         if second_check is not None:
