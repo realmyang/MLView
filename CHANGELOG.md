@@ -27,8 +27,10 @@ Open panel and freshness:
 - Freshness uses the saved bytes on disk, as the helper does, so UTF-8 BOM and
   CRLF files no longer look stale while open. Unsaved editor changes are
   reported separately and block only a jump whose cited lines moved. Open files
-  are matched by real path, so symlinked roots and Windows drive-letter case
-  work (EXT-7 = CONTRACT-5, EXT-2, SKILL-9, EXT-9, EXT-13 functional part).
+  are matched by real path, so symlinked roots are handled (an automated test
+  on macOS); Windows drive-letter case matching is implemented and unit-tested
+  but has not run on Windows (EXT-7 = CONTRACT-5, EXT-2, SKILL-9, EXT-9, EXT-13
+  functional part).
 - Both high-contrast themes use the high-contrast palette (EXT-4, RENDER-5), and
   a restored panel opens only a `*.mlview.json` inside the workspace (EXT-16).
 
@@ -45,8 +47,10 @@ Refinement:
 Viewer:
 - A panel renders once on open and once per new revision; refreshes keep the
   viewport, and a reopened panel restores it (VIEWUI-2 = EXT-3, VIEWUI-3).
-- Export and Copy scope report success only after VS Code saved or copied;
-  oversized PNG exports fall back to SVG (CRIT-5, RENDER-3, VIEWUI-10 = EXT-5).
+- Export and Copy scope report success only after VS Code saved or copied. A
+  PNG too large for the canvas is scaled down to fit; if it still cannot be
+  drawn, the viewer asks you to save the SVG instead (copying a PNG falls back
+  to copying the SVG) (CRIT-5, RENDER-3, VIEWUI-10 = EXT-5).
 - A document without findings says the assistant recorded none instead of a
   clean result; workflow-level findings survive stage filters and scopes
   (VIEWUI-1, CRIT-3).
@@ -85,7 +89,7 @@ Skill and helper:
   SKILL-20, CRIT-6).
 
 Contract, checks and distribution:
-- `contracts/conformance` holds 49 self-contained cases run through the
+- `contracts/conformance` holds 56 self-contained cases run through the
   schema, the helper and the extension, plus a helper-publish, viewer-load
   round trip; the extension now matches the helper on notebook cells, exact
   quotes, code-point lengths and empty parents (CONTRACT-8 = SKILL-17,
@@ -103,6 +107,27 @@ Contract, checks and distribution:
   describe the new panel, freshness and refinement behaviour, and more of them
   are link-checked (DOCS-3 to DOCS-6, DOCS-9, DOCS-11, DOCS-13 to DOCS-16,
   DOCS-18, DOCS-19).
+
+Fixes from the first review of this campaign (finding IDs from the round-1
+review): re-running Open no longer turns an edited draft's historical banner
+into a rejection (LINEAGE1-1); a deeply nested artifact is a parse error
+instead of a stuck "checking" status (LINEAGE1-2); a direct child of the shown
+revision is always adopted (LINEAGE1-3); each disk event gets fresh read
+retries (LINEAGE1-4); banner and prompt text from the artifact is single-line,
+bounded and escapes every invisible or reordering character (SECURITY1-1,
+SECURITY1-2); restored and opened paths are normalised before the workspace
+check, and refine selections must have a string kind (SECURITY1-3,
+SECURITY1-4); links and aliases of MLView files are never fingerprinted
+(SECURITY1-5); the helper refuses to edit a published artifact in any case
+spelling, reports a missing `--workspace`, more than 2000 tracked files, deep
+nesting, an oversize artifact and a missing revision ID with actionable codes,
+and checks dates the same way on every Python (HELPER1-1 to HELPER1-6,
+SECURITY1-6, SPECDOCS1-5); a scoped viewport and an open composer survive a
+webview recreation, a refusal does not outlive its revision, the scope picker
+names notebook cells and searches phases, focus mode survives re-renders, and
+cards say "step" and "finding" (WEBVIEW1-1 to WEBVIEW1-7, LINEAGE1-5); new
+corpus cases pin changed inspected files, entrypoint drive letters, BOM
+notebooks and Latin-1 sources (SPECDOCS1-1 to SPECDOCS1-3).
 
 Not in this version: the manual live VS Code checks (HC Light, BOM files open
 while publishing, symlinked roots, Windows drive letters), human semantic
