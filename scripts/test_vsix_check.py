@@ -25,7 +25,37 @@ def package(tmp_path, missing=None, extra=None, commands=None, contributions=Non
 
 
 def test_native_package_passes(tmp_path):
-    assert not module.check(tmp_path, package(tmp_path))[0]
+    result = module.check(tmp_path, package(tmp_path), payload_only=True)
+    assert not result.problems
+    assert result.skipped == [f"SKIP: bundle freshness not compared (--payload-only): {label}"
+                              for _, _, _, label in module.FRESHNESS]
+
+
+def write_sources(root, **overrides):
+    for _, relative, _, label in module.FRESHNESS:
+        source = root / relative
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_bytes(overrides.get(label, b"asset"))
+
+
+def test_current_sources_pass_with_every_comparison_made(tmp_path):
+    write_sources(tmp_path)
+    result = module.check(tmp_path, package(tmp_path))
+    assert result.problems == [] and result.skipped == []
+
+
+def test_missing_working_tree_source_is_a_problem_not_a_silent_skip(tmp_path):
+    write_sources(tmp_path)
+    (tmp_path / "vscode-extension/out/extension.js").unlink()
+    assert module.check(tmp_path, package(tmp_path)).problems == [
+        "cannot compare out/extension.js: vscode-extension/out/extension.js is missing "
+        "(build first, or pass --payload-only)"]
+
+
+def test_payload_only_never_reports_stale_bundles(tmp_path):
+    write_sources(tmp_path, **{"out/extension.js": b"newer bundle"})
+    assert module.check(tmp_path, package(tmp_path)).problems == ["stale packaged payload: out/extension.js"]
+    assert module.check(tmp_path, package(tmp_path), payload_only=True).problems == []
 
 
 def test_missing_renderer_fails(tmp_path):
@@ -46,10 +76,13 @@ def test_retired_show_output_command_fails(tmp_path):
 
 
 def test_stale_renderer_fails(tmp_path):
-    source = tmp_path / "vscode-extension/media/mlview.js"
-    source.parent.mkdir(parents=True)
-    source.write_text("new renderer")
-    assert any("stale packaged" in p for p in module.check(tmp_path, package(tmp_path))[0])
+    write_sources(tmp_path, **{"media/mlview.js": b"new renderer"})
+    assert module.check(tmp_path, package(tmp_path))[0] == ["stale packaged payload: media/mlview.js"]
+
+
+def test_stale_notice_fails(tmp_path):
+    write_sources(tmp_path, LICENSE=b"new license")
+    assert module.check(tmp_path, package(tmp_path))[0] == ["stale packaged notice: LICENSE"]
 
 
 def test_stale_packaged_chat_participant_fails(tmp_path):
