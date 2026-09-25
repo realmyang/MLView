@@ -1,7 +1,6 @@
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { toEditorLine } from './authoredSupport';
 export type EvidenceBasis = 'observed' | 'inferred' | 'unresolved';
 export interface WorkflowEvidence {
     id: string;
@@ -80,22 +79,120 @@ export interface ValidationIssue {
     path: string;
     message: string;
 }
+/** Why a tracked file no longer matches its reference fingerprint. */
+export type StaleReason = 'changed' | 'missing' | 'unreadable' | 'too-large';
+export interface StaleFile {
+    rel: string;
+    real?: string;
+    reason: StaleReason;
+}
 export interface ValidatedWorkflow {
     document: WorkflowDocument;
+    /** Realpaths read during validation. */
     files: string[];
+    /** Realpaths (or the lexical path when missing) of stale tracked files. */
     staleFiles: string[];
+    /** The same set as staleFiles, with the workspace-relative path and the reason, sorted by rel. */
+    stale: StaleFile[];
+    /** Current SHA-256 of the raw bytes of every tracked file (<= MAX_SOURCE_BYTES) that was read. */
+    fingerprints: Record<string, string>;
 }
-export type ReadText = (absolutePath: string) => Promise<string>;
-export type ReadNotebookCell = (absolutePath: string, cell: number) => Promise<string | undefined>;
+export interface ValidateOptions {
+    /** rel -> sha256 observed when the panel adopted this unverified revision. */
+    baseline?: Readonly<Record<string, string>>;
+    /** Reads raw bytes; the default stats the path (regular file, <= limit) and reads it from disk. */
+    readBytes?: (absolutePath: string, limit: number) => Promise<Uint8Array>;
+}
+export const MAX_SOURCE_BYTES = 8 * 1024 * 1024;
+export const MAX_DOCUMENT_BYTES = 2 * 1024 * 1024;
+export const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+const OWNED_PREFIXES = ['.mlview/', '.agents/skills/mlview/', '.claude/skills/mlview/', '.github/skills/mlview/'];
+const OWNED_SUFFIXES = ['.mlview.json', '.draft.json'];
+/** MLView's own files: artifacts, drafts and the installed skill (ASCII case-insensitive; mirrors the helper). */
+export function isOwnedPath(rel: string): boolean {
+    const f = rel.replace(/[A-Z]/g, c => String.fromCharCode(c.charCodeAt(0) + 32));
+    return OWNED_PREFIXES.some(p => f.startsWith(p)) || OWNED_SUFFIXES.some(s => f.endsWith(s));
+}
+/** tracked(doc): the cited evidence files plus every inspected file that is not MLView-owned, first-seen order. */
+export function trackedFiles(doc: Pick<WorkflowDocument, 'evidence' | 'coverage'>): string[] {
+    const out = new Set<string>();
+    for (const e of doc.evidence)
+        out.add(e.file);
+    for (const rel of doc.coverage.inspectedFiles)
+        if (!isOwnedPath(rel))
+            out.add(rel);
+    return [...out];
+}
+const stripBom = (value: string): string => value.charCodeAt(0) === 0xfeff ? value.slice(1) : value;
+/** CRLF, then CR, normalised to LF, then split on LF. */
+export function splitLines(text: string): string[] {
+    return text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+}
+/**
+ * The one quote comparison: the cited lines joined with LF, and on line 1 a single leading
+ * U+FEFF is ignored on both sides. Normalising CR inside the quote itself is a known divergence
+ * from the helper (CONTRACT-9) that the conformance stream removes.
+ */
+export function quoteMatches(quote: string, lines: readonly string[], line: number, endLine: number): boolean {
+    if (line < 1 || endLine < line || endLine > lines.length)
+        return false;
+    const expected = lines.slice(line - 1, endLine).join('\n');
+    const actual = quote.replace(/\r\n?/g, '\n');
+    return line === 1 ? stripBom(actual) === stripBom(expected) : actual === expected;
+}
+/** Strict UTF-8 decode with at most one leading U+FEFF removed; undefined when the bytes are not UTF-8. */
+export function decodeSourceText(bytes: Uint8Array): string | undefined {
+    try {
+        return stripBom(new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes));
+    }
+    catch {
+        return undefined;
+    }
+}
+type ReadFailure = 'missing' | 'not-regular' | 'too-large' | 'unreadable';
+export class SourceReadError extends Error {
+    constructor(readonly reason: ReadFailure) {
+        super(reason);
+    }
+}
+function readFailure(error: unknown): ReadFailure {
+    if (error instanceof SourceReadError)
+        return error.reason;
+    return (error as NodeJS.ErrnoException | undefined)?.code === 'ENOENT' ? 'missing' : 'unreadable';
+}
+/** Default reader: a regular file no larger than `limit`, read as raw bytes. */
+export async function readSourceBytes(absolutePath: string, limit: number): Promise<Uint8Array> {
+    let stat: Awaited<ReturnType<typeof fs.stat>>;
+    try {
+        stat = await fs.stat(absolutePath);
+    }
+    catch (error) {
+        throw new SourceReadError(readFailure(error));
+    }
+    if (!stat.isFile())
+        throw new SourceReadError('not-regular');
+    if (stat.size > limit)
+        throw new SourceReadError('too-large');
+    let bytes: Buffer;
+    try {
+        bytes = await fs.readFile(absolutePath);
+    }
+    catch (error) {
+        throw new SourceReadError(readFailure(error));
+    }
+    if (bytes.length > limit)
+        throw new SourceReadError('too-large');
+    return new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+}
 const BASIS = new Set(['observed', 'inferred', 'unresolved']);
 const HOSTS = new Set(['copilot', 'codex', 'claude-code', 'unknown']);
 const SEVERITIES = new Set(['low', 'medium', 'high']);
-const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+const ID = ID_PATTERN;
 const RFC3339 = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-](\d{2}):(\d{2}))$/;
 const own = (o: object, k: string): boolean => Object.prototype.hasOwnProperty.call(o, k);
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const strings = (v: unknown): v is string[] => Array.isArray(v) && v.every(x => typeof x === 'string' && x.length > 0);
-const relativePath = (value: string): boolean => value.length > 0 && value.length <= 500 && !path.posix.isAbsolute(value) && !value.includes('\\') && !value.split('/').some(part => part === '' || part === '.' || part === '..') && !value.includes('\0');
+const relativePath = (value: string): boolean => value.length > 0 && value.length <= 500 && !path.posix.isAbsolute(value) && !value.includes('\\') && !value.split('/').some(part => part === '' || part === '.' || part === '..') && !value.includes('\0') && !/^[A-Za-z]:/.test(value);
 const strictRfc3339 = (value: string): boolean => {
     const match = RFC3339.exec(value);
     if (!match)
@@ -285,6 +382,8 @@ export function validateWorkflowStructure(raw: unknown): {
         ['id', 'file'].forEach(k => text(x, k, a, issues));
         if (typeof x.file === 'string' && !relativePath(x.file))
             issues.push({ path: `${a}.file`, message: 'must be a slash-separated workspace-relative path' });
+        if (typeof x.file === 'string' && isOwnedPath(x.file))
+            issues.push({ path: `${a}.file`, message: 'evidence must cite project files, not an MLView artifact, draft or installed MLView skill file' });
         if (typeof x.quote !== 'string')
             issues.push({ path: `${a}.quote`, message: 'must be a string' });
         if (typeof x.quote === 'string' && x.quote.length > 16000)
@@ -423,7 +522,16 @@ export function validateWorkflowStructure(raw: unknown): {
         issues.push({ path: '$.nodes', message: 'parent relationships must form a forest' });
     return issues.length ? { issues } : { document: raw as unknown as WorkflowDocument, issues };
 }
-export async function validateWorkflow(raw: unknown, root: string, readText: ReadText = async (p) => fs.readFile(p, 'utf8'), readNotebookCell?: ReadNotebookCell): Promise<{
+/**
+ * Validate a document against the workspace on disk.
+ *
+ * Every source is read as raw bytes from disk (never from an editor buffer), hashed like the
+ * helper, and decoded strictly as UTF-8 only for quote checks. A tracked file whose reference
+ * fingerprint (the published `verification.files` entry, or the panel's adoption `baseline` for
+ * an unverified revision) no longer matches is *stale* rather than invalid. Fingerprints for
+ * paths outside tracked(doc) are ignored.
+ */
+export async function validateWorkflow(raw: unknown, root: string, options: ValidateOptions = {}): Promise<{
     value?: ValidatedWorkflow;
     issues: ValidationIssue[];
 }> {
@@ -432,23 +540,42 @@ export async function validateWorkflow(raw: unknown, root: string, readText: Rea
         return { issues: structural.issues };
     const doc = structural.document;
     const issues = [...structural.issues];
+    const readBytes = options.readBytes ?? readSourceBytes;
     const realRoot = await fs.realpath(root);
-    const stale = new Set<string>(), files = new Set<string>();
-    // Evidence commonly cites several ranges in one source file. Cache the
-    // workspace-aware reader so validation reads and hashes that file once.
-    type CachedSource = { raw: string; hash: string; lines: string[]; notebook?: { cells?: { source?: string[] | string }[] } };
-    const sourceCache = new Map<string, Promise<CachedSource>>();
-    const sourceFor = (file: string): Promise<CachedSource> => {
-        let source = sourceCache.get(file);
-        if (!source) {
-            source = readText(file).then(raw => {
-                const normalized = raw.replace(/\r\n?/g, '\n');
-                return { raw, hash: crypto.createHash('sha256').update(raw).digest('hex'), lines: normalized.split('\n') };
-            });
-            sourceCache.set(file, source);
-        }
-        return source;
+    const files = new Set<string>();
+    const staleByRel = new Map<string, StaleFile>();
+    const fingerprints: Record<string, string> = {};
+    const verified = !!doc.verification;
+    const published = doc.verification?.files ?? {};
+    const baseline = options.baseline;
+    const reference = (rel: string): string | undefined => {
+        if (verified)
+            return own(published, rel) ? published[rel] : undefined;
+        return baseline && own(baseline, rel) ? baseline[rel] : undefined;
     };
+    const markStale = (rel: string, reason: StaleReason, real?: string): void => {
+        if (!staleByRel.has(rel))
+            staleByRel.set(rel, real ? { rel, real, reason } : { rel, reason });
+    };
+    // Evidence commonly cites several ranges in one file: read, hash and decode each file once.
+    type Loaded = { ok: true; hash: string; bytes: Uint8Array; text?: string | null; lines?: string[]; notebook?: { value: unknown } } | { ok: false; reason: ReadFailure };
+    const cache = new Map<string, Promise<Loaded>>();
+    const load = (real: string): Promise<Loaded> => {
+        let entry = cache.get(real);
+        if (!entry) {
+            entry = readBytes(real, MAX_SOURCE_BYTES).then((bytes): Loaded => bytes.length > MAX_SOURCE_BYTES
+                ? { ok: false, reason: 'too-large' }
+                : { ok: true, bytes, hash: crypto.createHash('sha256').update(bytes).digest('hex') }, (error): Loaded => ({ ok: false, reason: readFailure(error) }));
+            cache.set(real, entry);
+        }
+        return entry;
+    };
+    const textOf = (loaded: Extract<Loaded, { ok: true }>): string | null => {
+        if (loaded.text === undefined)
+            loaded.text = decodeSourceText(loaded.bytes) ?? null;
+        return loaded.text;
+    };
+    const staleReason = (failure: ReadFailure): StaleReason => failure === 'missing' ? 'missing' : failure === 'too-large' ? 'too-large' : 'unreadable';
     const contained = (value: string): boolean => value === realRoot || value.startsWith(realRoot + path.sep);
     for (let i = 0; i < doc.evidence.length; i++) {
         const e = doc.evidence[i]!;
@@ -462,15 +589,16 @@ export async function validateWorkflow(raw: unknown, root: string, readText: Rea
             issues.push({ path: `${at}.file`, message: 'escapes the owning workspace' });
             continue;
         }
-        const expected = doc.verification?.files[e.file];
+        if (staleByRel.has(e.file))
+            continue;
+        const expected = reference(e.file);
         let real: string;
         try {
             real = await fs.realpath(candidate);
         }
         catch {
-            if (expected) {
-                files.add(candidate);
-                stale.add(candidate);
+            if (expected !== undefined) {
+                markStale(e.file, 'missing');
                 continue;
             }
             issues.push({ path: `${at}.file`, message: 'does not exist' });
@@ -481,126 +609,130 @@ export async function validateWorkflow(raw: unknown, root: string, readText: Rea
             continue;
         }
         files.add(real);
-        let cached: CachedSource;
-        try {
-            cached = await sourceFor(real);
-        }
-        catch {
-            if (expected) {
-                stale.add(real);
+        const loaded = await load(real);
+        if (!loaded.ok) {
+            if (expected !== undefined) {
+                markStale(e.file, staleReason(loaded.reason), real);
                 continue;
             }
-            issues.push({ path: `${at}.file`, message: 'cannot be read' });
+            const message = loaded.reason === 'too-large' ? `exceeds the ${MAX_SOURCE_BYTES}-byte limit` : loaded.reason === 'not-regular' ? 'must identify a regular file' : loaded.reason === 'missing' ? 'does not exist' : 'cannot be read';
+            issues.push({ path: `${at}.file`, message });
             continue;
         }
-        const hashMatches = expected === undefined || cached.hash === expected;
-        if (!hashMatches)
-            stale.add(real);
-        let lines = cached.lines;
-        let usedOpenCell = false;
+        fingerprints[e.file] = loaded.hash;
+        if (expected !== undefined && loaded.hash !== expected) {
+            markStale(e.file, 'changed', real);
+            continue;
+        }
+        const text = textOf(loaded);
+        if (text === null) {
+            if (expected !== undefined) {
+                markStale(e.file, 'unreadable', real);
+                continue;
+            }
+            issues.push({ path: `${at}.file`, message: 'cannot be decoded as UTF-8' });
+            continue;
+        }
+        let lines: string[];
         if (e.cell !== undefined) {
+            let cellText: string | undefined;
             try {
-                const openCell = await readNotebookCell?.(real, e.cell);
-                if (openCell !== undefined) {
-                    usedOpenCell = true;
-                    lines = openCell.replace(/\r\n?/g, '\n').split('\n');
-                }
-                else {
-                    cached.notebook ??= JSON.parse(cached.raw) as CachedSource['notebook'];
-                    const cell = cached.notebook?.cells?.[e.cell];
-                    if (!cell)
-                        throw new Error();
-                    const body = Array.isArray(cell.source) ? cell.source.join('') : String(cell.source ?? '');
-                    lines = body.replace(/\r\n?/g, '\n').split('\n');
-                }
+                loaded.notebook ??= { value: JSON.parse(text) as unknown };
+                const cells = (loaded.notebook.value as { cells?: { source?: unknown }[] } | null)?.cells;
+                const cell = Array.isArray(cells) ? cells[e.cell] : undefined;
+                if (cell && typeof cell === 'object')
+                    cellText = Array.isArray(cell.source) ? cell.source.join('') : String(cell.source ?? '');
             }
             catch {
-                if (!hashMatches || (usedOpenCell && expected !== undefined)) {
-                    stale.add(real);
-                    continue;
-                }
+                cellText = undefined;
+            }
+            if (cellText === undefined) {
                 issues.push({ path: `${at}.cell`, message: 'does not resolve to a notebook cell' });
                 continue;
             }
+            lines = splitLines(cellText);
+        }
+        else {
+            loaded.lines ??= splitLines(text);
+            lines = loaded.lines;
         }
         if (e.endLine > lines.length) {
-            if (!hashMatches || (usedOpenCell && expected !== undefined)) {
-                stale.add(real);
-                continue;
-            }
             issues.push({ path: `${at}.endLine`, message: 'is outside the cited source' });
             continue;
         }
-        const quote = lines.slice(toEditorLine(e.line), e.endLine).join('\n');
-        if (quote !== e.quote.replace(/\r\n?/g, '\n')) {
-            if (!hashMatches || (usedOpenCell && expected !== undefined))
-                stale.add(real);
-            else
-                issues.push({ path: `${at}.quote`, message: 'does not exactly match the current LF-normalized lines' });
-        }
+        if (!quoteMatches(e.quote, lines, e.line, e.endLine))
+            issues.push({ path: `${at}.quote`, message: 'does not exactly match the current LF-normalized lines' });
     }
-    for (const [rel, expected] of Object.entries(doc.verification?.files ?? {})) {
+    const cited = new Set(doc.evidence.map(e => e.file));
+    const seen = new Set<string>();
+    for (let i = 0; i < doc.coverage.inspectedFiles.length; i++) {
+        const rel = doc.coverage.inspectedFiles[i]!;
+        // MLView-owned entries are listed only: never read, fingerprinted or watched.
+        if (isOwnedPath(rel) || cited.has(rel) || seen.has(rel))
+            continue;
+        seen.add(rel);
+        const at = `$.coverage.inspectedFiles[${i}]`;
         if (path.isAbsolute(rel)) {
-            issues.push({ path: '$.verification.files', message: `${rel} must be workspace-relative` });
+            issues.push({ path: at, message: `${rel} must be workspace-relative` });
             continue;
         }
         const abs = path.resolve(realRoot, rel);
         if (!contained(abs)) {
-            issues.push({ path: '$.verification.files', message: `${rel} escapes the owning workspace` });
+            issues.push({ path: at, message: `${rel} escapes the owning workspace` });
             continue;
         }
+        const expected = reference(rel);
+        // A published revision checks freshness only for files it fingerprinted.
+        if (expected === undefined && verified)
+            continue;
         let real: string;
         try {
             real = await fs.realpath(abs);
         }
         catch {
-            files.add(abs);
-            stale.add(abs);
-            continue;
-        }
-        if (!contained(real)) {
-            issues.push({ path: '$.verification.files', message: `${rel} escapes the owning workspace` });
-            continue;
-        }
-        files.add(real);
-        try {
-            const current = await sourceFor(real);
-            if (current.hash !== expected)
-                stale.add(real);
-        }
-        catch {
-            stale.add(real);
-        }
-    }
-    for (const rel of doc.coverage.inspectedFiles) {
-        if (path.isAbsolute(rel)) {
-            issues.push({ path: '$.coverage.inspectedFiles', message: `${rel} must be workspace-relative` });
-            continue;
-        }
-        const abs = path.resolve(realRoot, rel);
-        if (!contained(abs)) {
-            issues.push({ path: '$.coverage.inspectedFiles', message: `${rel} escapes the owning workspace` });
-            continue;
-        }
-        const expected = doc.verification?.files[rel];
-        let real: string;
-        try {
-            real = await fs.realpath(abs);
-        }
-        catch {
-            if (expected) {
-                files.add(abs);
-                stale.add(abs);
+            if (expected !== undefined) {
+                markStale(rel, 'missing');
                 continue;
             }
-            issues.push({ path: '$.coverage.inspectedFiles', message: `${rel} does not exist` });
+            issues.push({ path: at, message: `${rel} does not exist` });
             continue;
         }
         if (!contained(real)) {
-            issues.push({ path: '$.coverage.inspectedFiles', message: `${rel} escapes the owning workspace` });
+            issues.push({ path: at, message: `${rel} escapes the owning workspace` });
             continue;
         }
         files.add(real);
+        const loaded = await load(real);
+        if (!loaded.ok) {
+            if (expected !== undefined) {
+                markStale(rel, staleReason(loaded.reason), real);
+                continue;
+            }
+            // Larger inspected files are listed without a freshness fingerprint.
+            if (loaded.reason === 'too-large')
+                continue;
+            const message = loaded.reason === 'not-regular' ? `${rel} must identify a regular file` : loaded.reason === 'missing' ? `${rel} does not exist` : `${rel} cannot be read`;
+            issues.push({ path: at, message });
+            continue;
+        }
+        fingerprints[rel] = loaded.hash;
+        if (expected !== undefined && loaded.hash !== expected)
+            markStale(rel, 'changed', real);
     }
-    return issues.length ? { issues } : { value: { document: doc, files: [...files], staleFiles: [...stale] }, issues };
+    if (issues.length)
+        return { issues };
+    const stale = [...staleByRel.values()].sort((a, b) => a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0);
+    const sortedFingerprints: Record<string, string> = {};
+    for (const rel of Object.keys(fingerprints).sort())
+        sortedFingerprints[rel] = fingerprints[rel]!;
+    return {
+        value: {
+            document: doc,
+            files: [...files],
+            staleFiles: stale.map(s => s.real ?? path.resolve(realRoot, s.rel)),
+            stale,
+            fingerprints: sortedFingerprints
+        },
+        issues
+    };
 }

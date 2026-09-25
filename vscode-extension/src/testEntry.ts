@@ -4,13 +4,28 @@ export {
   defaultExportName,
   parseExportFileMessage,
   saveExportedFile,
-  MAX_EXPORT_BYTES
+  MAX_EXPORT_BYTES,
+  MAX_EXPORT_BASE64_LENGTH
 } from './exportDiagram';
-export { validateWorkflow, validateWorkflowStructure } from './workflowDocument';
+export {
+  validateWorkflow,
+  validateWorkflowStructure,
+  isOwnedPath,
+  trackedFiles,
+  quoteMatches,
+  splitLines,
+  decodeSourceText,
+  MAX_SOURCE_BYTES,
+  MAX_DOCUMENT_BYTES
+} from './workflowDocument';
+export { RevisionLineage, canonicalJson, lenientRevision, semanticJson, BoundedMap, BoundedSet } from './revisionLineage';
+export { normCase, identity, DependencySet } from './fileIdentity';
+export { buildRefinementPrompt, toPosixRelative, escapeJsonText, REFINE_INTENTS } from './refinePrompt';
 export {
   AuthoredDiagramController,
   ReloadGeneration,
   ValidationScheduler,
+  readArtifactFile,
   AUTHORED_VIEW_TYPE,
   OPEN_AUTHORED_COMMAND
 } from './authoredPanel';

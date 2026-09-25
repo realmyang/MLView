@@ -2,17 +2,60 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { createNonce, themeKindOf, toEditorLine } from './authoredSupport';
-import { parseExportFileMessage, saveExportedFile } from './exportDiagram';
+import { MAX_EXPORT_BYTES, parseExportFileMessage, saveExportedFile } from './exportDiagram';
+import { DependencySet, identity } from './fileIdentity';
 import type { Logger } from './log';
-import { validateWorkflow, type ValidatedWorkflow, type WorkflowEvidence } from './workflowDocument';
+import { buildRefinementPrompt, REFINE_INTENTS, toPosixRelative, type RefineIntent, type RefineSelection } from './refinePrompt';
+import { canonicalJson, lenientRevision, RevisionLineage, semanticJson, type Candidate, type Verdict } from './revisionLineage';
+import { ID_PATTERN, MAX_DOCUMENT_BYTES, quoteMatches, trackedFiles, validateWorkflow, validateWorkflowStructure, type ValidatedWorkflow, type ValidationIssue, type WorkflowEvidence } from './workflowDocument';
 export const AUTHORED_VIEW_TYPE = 'mlview.authoredDiagram';
 export const OPEN_AUTHORED_COMMAND = 'mlview.openGeneratedDiagram';
-const MAX_ARTIFACT_BYTES = 2 * 1024 * 1024;
-const MAX_SOURCE_BYTES = 8 * 1024 * 1024;
 const RELOAD_DEBOUNCE_MS = 120;
+const DIRTY_THROTTLE_MS = 150;
+const RETRY_DELAYS_MS = [250, 1000, 4000];
+const TRANSIENT_CODES = new Set(['EBUSY', 'EAGAIN', 'EPERM', 'EACCES', 'EMFILE', 'ENFILE']);
+const REQUEST_ID = /^[A-Za-z0-9_-]{1,64}$/;
 interface SavedState {
     artifact?: string;
 }
+/** Outcome of reading the artifact bytes from disk (never from an editor buffer). */
+export type ArtifactRead = { kind: 'bytes'; bytes: Uint8Array } | { kind: 'missing' } | { kind: 'unreadable'; detail: string; transient?: boolean };
+export interface AuthoredPanelIo {
+    readArtifact(fsPath: string): Promise<ArtifactRead>;
+}
+function readError(error: unknown): ArtifactRead {
+    const code = (error as NodeJS.ErrnoException | undefined)?.code;
+    if (code === 'ENOENT')
+        return { kind: 'missing' };
+    // Never put String(error) in a message: it contains the absolute path.
+    return { kind: 'unreadable', detail: typeof code === 'string' ? code : 'read error', transient: typeof code === 'string' && TRANSIENT_CODES.has(code) };
+}
+export async function readArtifactFile(fsPath: string): Promise<ArtifactRead> {
+    let stat: Awaited<ReturnType<typeof fs.stat>>;
+    try {
+        stat = await fs.stat(fsPath);
+    }
+    catch (error) {
+        return readError(error);
+    }
+    if (!stat.isFile())
+        return { kind: 'unreadable', detail: 'it is not a regular file' };
+    if (stat.size > MAX_DOCUMENT_BYTES)
+        return { kind: 'unreadable', detail: `it exceeds the ${MAX_DOCUMENT_BYTES}-byte limit` };
+    let bytes: Buffer;
+    try {
+        bytes = await fs.readFile(fsPath);
+    }
+    catch (error) {
+        return readError(error);
+    }
+    if (bytes.length > MAX_DOCUMENT_BYTES)
+        return { kind: 'unreadable', detail: `it exceeds the ${MAX_DOCUMENT_BYTES}-byte limit` };
+    return { kind: 'bytes', bytes: new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength) };
+}
+const defaultIo: AuthoredPanelIo = { readArtifact: readArtifactFile };
+const asciiLower = (value: string): string => value.replace(/[A-Z]/g, c => String.fromCharCode(c.charCodeAt(0) + 32));
+const isArtifactPath = (value: string): boolean => asciiLower(value).endsWith('.mlview.json');
 export class ReloadGeneration {
     private value = 0;
     begin(): number { return ++this.value; }
@@ -100,19 +143,22 @@ export class ValidationScheduler implements vscode.Disposable {
 export class AuthoredDiagramController implements vscode.Disposable {
     private readonly panels = new Map<string, AuthoredPanel>();
     private readonly disposables: vscode.Disposable[] = [];
-    constructor(private readonly ctx: vscode.ExtensionContext, private readonly log: Logger, private readonly validator: typeof validateWorkflow = validateWorkflow) { }
+    constructor(private readonly ctx: vscode.ExtensionContext, private readonly log: Logger, private readonly validator: typeof validateWorkflow = validateWorkflow, private readonly io: AuthoredPanelIo = defaultIo) { }
     register(): vscode.Disposable[] {
         const watcher = vscode.workspace.createFileSystemWatcher('**/*');
         const registered = [
             vscode.commands.registerCommand(OPEN_AUTHORED_COMMAND, (uri?: vscode.Uri) => this.open(uri)),
             vscode.window.registerWebviewPanelSerializer(AUTHORED_VIEW_TYPE, { deserializeWebviewPanel: async (panel, state: unknown) => this.restore(panel, state) }),
-            vscode.workspace.onDidSaveTextDocument(doc => this.changed(doc.uri)),
-            vscode.workspace.onDidChangeTextDocument(event => this.changed(event.document.uri)),
-            vscode.workspace.onDidSaveNotebookDocument(doc => this.changed(doc.uri)),
+            // Saves and watcher events change the files on disk: revalidate.
+            vscode.workspace.onDidSaveTextDocument(doc => this.diskChanged(doc.uri)),
+            vscode.workspace.onDidSaveNotebookDocument(doc => this.diskChanged(doc.uri)),
             watcher,
-            watcher.onDidChange(uri => this.changed(uri)),
-            watcher.onDidCreate(uri => this.changed(uri)),
-            watcher.onDidDelete(uri => this.changed(uri))
+            watcher.onDidChange(uri => this.diskChanged(uri)),
+            watcher.onDidCreate(uri => this.diskChanged(uri)),
+            watcher.onDidDelete(uri => this.diskChanged(uri)),
+            // Buffer edits never change what is validated; they only update the unsaved-changes status.
+            vscode.workspace.onDidChangeTextDocument(event => this.bufferChanged(event.document.uri)),
+            vscode.workspace.onDidChangeNotebookDocument(event => this.bufferChanged(event.notebook.uri))
         ];
         this.disposables.push(...registered);
         return registered;
@@ -133,6 +179,10 @@ export class AuthoredDiagramController implements vscode.Disposable {
             void vscode.window.showErrorMessage('MLView: generated diagrams currently require a local file workspace.');
             return;
         }
+        if (!isArtifactPath(selected.fsPath)) {
+            void vscode.window.showErrorMessage('MLView: select a *.mlview.json generated diagram.');
+            return;
+        }
         const folder = vscode.workspace.getWorkspaceFolder(selected);
         if (!folder) {
             void vscode.window.showErrorMessage('MLView: the generated diagram must belong to an open workspace folder.');
@@ -141,18 +191,19 @@ export class AuthoredDiagramController implements vscode.Disposable {
         const key = selected.fsPath;
         const existing = this.panels.get(key);
         if (existing) {
-            existing.reveal();
-            await existing.reload();
+            // Re-running the command shows the file as it is, even a revision the panel had refused.
+            await existing.reopen();
             return;
         }
         const panel = vscode.window.createWebviewPanel(AUTHORED_VIEW_TYPE, 'MLView Generated Diagram', { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true }, { enableScripts: true, localResourceRoots: [vscode.Uri.joinPath(this.ctx.extensionUri, 'media')] });
-        const authored = new AuthoredPanel(panel, selected, folder, this.ctx, this.log, () => this.panels.delete(key), this.validator);
+        const authored = new AuthoredPanel(panel, selected, folder, this.ctx, this.log, () => this.panels.delete(key), this.validator, this.io);
         this.panels.set(key, authored);
         await authored.reload();
     }
     private async restore(panel: vscode.WebviewPanel, state: unknown): Promise<void> {
         const artifact = state && typeof state === 'object' && typeof (state as SavedState).artifact === 'string' ? (state as SavedState).artifact : undefined;
-        if (!artifact) {
+        // The saved state comes from the webview: accept only an absolute *.mlview.json inside a workspace folder.
+        if (!artifact || !path.isAbsolute(artifact) || !isArtifactPath(artifact)) {
             panel.dispose();
             return;
         }
@@ -163,14 +214,19 @@ export class AuthoredDiagramController implements vscode.Disposable {
             panel.dispose();
             return;
         }
-        const authored = new AuthoredPanel(panel, uri, folder, this.ctx, this.log, () => this.panels.delete(artifact), this.validator);
+        const authored = new AuthoredPanel(panel, uri, folder, this.ctx, this.log, () => this.panels.delete(artifact), this.validator, this.io);
         this.panels.set(artifact, authored);
         await authored.reload();
     }
-    private changed(uri: vscode.Uri): void {
+    private diskChanged(uri: vscode.Uri): void {
         for (const panel of this.panels.values())
             if (panel.dependsOn(uri.fsPath))
                 panel.sourceChanged();
+    }
+    private bufferChanged(uri: vscode.Uri): void {
+        for (const panel of this.panels.values())
+            if (panel.dependsOn(uri.fsPath))
+                panel.bufferChanged();
     }
     dispose(): void {
         for (const p of this.panels.values())
@@ -180,19 +236,37 @@ export class AuthoredDiagramController implements vscode.Disposable {
             d.dispose();
     }
 }
+type ValidationResult = Awaited<ReturnType<typeof validateWorkflow>>;
+type BannerItem = { code: string; text: string };
+type ParsedCandidate = Exclude<Candidate, { kind: 'json' }> | (Omit<Extract<Candidate, { kind: 'json' }>, 'result'> & { result: ValidationResult; structural?: ReturnType<typeof validateWorkflowStructure>['document'] });
+const listFiles = (rels: readonly string[]): string => rels.slice(0, 3).join(', ') + (rels.length > 3 ? `, and ${rels.length - 3} more` : '');
 class AuthoredPanel implements vscode.Disposable {
     private disposed = false;
     private ready = false;
+    /** The displayed revision's latest validation. */
     private lastValid: ValidatedWorkflow | undefined;
-    private dependencies = new Set<string>();
+    private readonly lineage = new RevisionLineage();
+    private dependencies = new DependencySet();
     private readonly disposables: vscode.Disposable[] = [];
     private readonly reloads = new ReloadGeneration();
     private readonly scheduler: ValidationScheduler;
-    private pendingError: string | undefined;
-    private lastFingerprint: string | undefined;
+    private readonly artifactRel: string;
     private validationTail: Promise<void> = Promise.resolve();
     private freshnessVersion = 0;
-    constructor(private readonly panel: vscode.WebviewPanel, private readonly artifact: vscode.Uri, private readonly folder: vscode.WorkspaceFolder, private readonly ctx: vscode.ExtensionContext, private readonly log: Logger, private readonly onDispose: () => void, private readonly validator: typeof validateWorkflow) {
+    private pendingCheck = false;
+    private rejection: BannerItem | undefined;
+    private lineageNote: BannerItem | undefined;
+    private dirty: string[] = [];
+    private dirtyVersion = 0;
+    private dirtyTimer: TimerHandle | undefined;
+    private retryTimer: TimerHandle | undefined;
+    private retryCount = 0;
+    private lastPostedBanner = '';
+    private lastPostedFull: string | undefined;
+    private lastStaleToast: string | undefined;
+    constructor(private readonly panel: vscode.WebviewPanel, private readonly artifact: vscode.Uri, private readonly folder: vscode.WorkspaceFolder, private readonly ctx: vscode.ExtensionContext, private readonly log: Logger, private readonly onDispose: () => void, private readonly validator: typeof validateWorkflow, private readonly io: AuthoredPanelIo) {
+        this.artifactRel = toPosixRelative(folder.uri.fsPath, artifact.fsPath);
+        this.dependencies.addPath(artifact.fsPath);
         this.scheduler = new ValidationScheduler(() => this.runReload(), RELOAD_DEBOUNCE_MS, systemTimers, error => this.log.warn(`authored reload failed: ${error instanceof Error ? error.message : String(error)}`));
         this.render();
         panel.onDidDispose(() => this.dispose(), null, this.disposables);
@@ -200,38 +274,34 @@ class AuthoredPanel implements vscode.Disposable {
         this.disposables.push(vscode.window.onDidChangeActiveColorTheme(theme => this.post({ v: 1, type: 'theme', kind: themeKindOf(theme.kind) })));
     }
     reveal(): void { this.panel.reveal(vscode.ViewColumn.Beside, true); }
-    dependsOn(file: string): boolean { return file === this.artifact.fsPath || this.dependencies.has(file); }
+    /** MLView: Open Generated Diagram for an already-open artifact. */
+    async reopen(): Promise<void> {
+        this.lineage.reset();
+        this.reveal();
+        await this.reload();
+    }
+    dependsOn(file: string): boolean { return this.dependencies.has(file); }
+    /** A dependency changed on disk: show the checking status and revalidate after the debounce. */
     sourceChanged(): void {
         if (this.disposed)
             return;
         this.reloads.begin();
         this.freshnessVersion++;
-        const message = 'Changes detected; checking diagram freshness. The last valid revision remains visible while validation catches up.';
-        if (this.pendingError !== message) {
-            this.pendingError = message;
-            if (this.ready)
-                this.post({ v: 1, type: 'workflowError', message, retained: !!this.lastValid });
-        }
+        this.cancelRetry();
+        this.pendingCheck = true;
+        this.postBanner();
         this.scheduler.debounce();
     }
-    private async textFor(file: string): Promise<string> {
-        const limit = path.resolve(file) === path.resolve(this.artifact.fsPath) ? MAX_ARTIFACT_BYTES : MAX_SOURCE_BYTES;
-        const open = vscode.workspace.textDocuments.find(d => d.uri.scheme === 'file' && path.resolve(d.uri.fsPath) === path.resolve(file));
-        if (open) {
-            const value = open.getText();
-            if (Buffer.byteLength(value) > limit)
-                throw new Error(`file exceeds ${limit} byte limit`);
-            return value;
-        }
-        const stat = await fs.stat(file);
-        if (!stat.isFile())
-            throw new Error('path is not a regular file');
-        if (stat.size > limit)
-            throw new Error(`file exceeds ${limit} byte limit`);
-        return fs.readFile(file, 'utf8');
+    /** An editor buffer changed: recompute only the unsaved-changes status, at most once per 150 ms. */
+    bufferChanged(): void {
+        if (this.disposed || this.dirtyTimer !== undefined)
+            return;
+        this.dirtyTimer = setTimeout(() => {
+            this.dirtyTimer = undefined;
+            void this.computeDirty().then(() => this.postBanner());
+        }, DIRTY_THROTTLE_MS);
     }
-    private async notebookCellFor(file: string, cell: number): Promise<string | undefined> { const notebook = vscode.workspace.notebookDocuments.find(n => n.uri.scheme === 'file' && path.resolve(n.uri.fsPath) === path.resolve(file)); return notebook?.cellAt(cell)?.document.getText(); }
-    private async validate(raw: unknown): Promise<Awaited<ReturnType<typeof validateWorkflow>> | undefined> {
+    private async validate(raw: unknown, baseline?: Record<string, string>): Promise<ValidationResult | undefined> {
         const previous = this.validationTail;
         let release!: () => void;
         this.validationTail = new Promise<void>(resolve => { release = resolve; });
@@ -241,7 +311,7 @@ class AuthoredPanel implements vscode.Disposable {
             return undefined;
         }
         try {
-            return await this.validator(raw, this.folder.uri.fsPath, p => this.textFor(p), (p, c) => this.notebookCellFor(p, c));
+            return await this.validator(raw, this.folder.uri.fsPath, baseline ? { baseline } : {});
         }
         finally {
             release();
@@ -250,74 +320,226 @@ class AuthoredPanel implements vscode.Disposable {
     async reload(): Promise<void> {
         await this.scheduler.immediate();
     }
+    /** Read the artifact from disk, parse it and validate it (contract 1a candidate read). */
+    private async readCandidate(): Promise<ParsedCandidate | undefined> {
+        const read = await this.io.readArtifact(this.artifact.fsPath);
+        if (read.kind === 'missing')
+            return { kind: 'missing' };
+        if (read.kind === 'unreadable')
+            return read.transient ? { kind: 'unreadable', detail: read.detail, transient: true } : { kind: 'unreadable', detail: read.detail };
+        let text: string;
+        try {
+            text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(read.bytes);
+        }
+        catch {
+            return { kind: 'parse', detail: 'the file is not valid UTF-8' };
+        }
+        let value: unknown;
+        try {
+            // A leading byte-order mark is kept and fails, exactly as it does for the helper.
+            value = JSON.parse(text);
+        }
+        catch (error) {
+            return { kind: 'parse', detail: error instanceof Error ? error.message : 'invalid JSON' };
+        }
+        const ident = lenientRevision(value);
+        const sem = semanticJson(value);
+        const full = canonicalJson(value);
+        const displayed = this.lineage.displayed;
+        const baseline = ident && displayed && ident.id === displayed.id && sem === displayed.sem && !displayed.verified ? displayed.baseline : undefined;
+        let result: ValidationResult;
+        try {
+            const validated = await this.validate(value, baseline);
+            if (!validated)
+                return undefined;
+            result = validated;
+        }
+        catch (error) {
+            const code = (error as NodeJS.ErrnoException | undefined)?.code;
+            result = { issues: [{ path: '$', message: `validation failed (${typeof code === 'string' ? code : 'error'})` }] };
+        }
+        return { kind: 'json', ident, sem, full, result, structural: result.value ? result.value.document : validateWorkflowStructure(value).document };
+    }
     private async runReload(): Promise<void> {
         if (this.disposed)
             return;
         const generation = this.reloads.begin();
-        let source: string;
-        let parsed: unknown;
-        try {
-            source = await this.textFor(this.artifact.fsPath);
-            parsed = JSON.parse(source);
-        }
-        catch (err) {
-            if (this.reloads.isCurrent(generation))
-                this.invalid(`JSON parse error: ${String(err)}`);
+        const candidate = await this.readCandidate();
+        // A discarded run changes no lineage state; the newer run re-reads the file.
+        if (!candidate || this.disposed || !this.reloads.isCurrent(generation))
             return;
-        }
-        let result: Awaited<ReturnType<typeof validateWorkflow>>;
-        try {
-            const validated = await this.validate(parsed);
-            if (!validated)
-                return;
-            result = validated;
-        }
-        catch (err) {
-            if (this.reloads.isCurrent(generation))
-                this.invalid(`validation failed: ${err instanceof Error ? err.message : String(err)}`);
-            return;
-        }
-        if (this.disposed || !this.reloads.isCurrent(generation))
-            return;
-        if (!result.value) {
-            this.invalid(result.issues.slice(0, 8).map(x => `${x.path}: ${x.message}`).join('\n'));
-            return;
-        }
-        const fingerprint = source;
-        const prior = this.lastValid?.document.revision;
-        if (prior && result.value.staleFiles.length) {
-            this.invalid(`revision ${result.value.document.revision.id} has ${result.value.staleFiles.length} stale verified file(s)`);
-            return;
-        }
-        if (prior && result.value.document.revision.id === prior.id && fingerprint !== this.lastFingerprint) {
-            this.invalid(`revision ${prior.id} changed content without a new revision id`);
-            return;
-        }
-        if (prior && result.value.document.revision.id !== prior.id && result.value.document.revision.parent !== prior.id) {
-            this.invalid(`revision ${result.value.document.revision.id} does not supersede displayed revision ${prior.id}`);
-            return;
-        }
-        this.lastValid = result.value;
-        this.lastFingerprint = fingerprint;
-        this.pendingError = result.value.staleFiles.length ? `This historical diagram is visible, but ${result.value.staleFiles.length} source file(s) differ from its published hashes. Source navigation is blocked until the assistant publishes a fresh revision.` : undefined;
-        this.dependencies = new Set(result.value.files);
-        for (const rel of [...result.value.document.coverage.inspectedFiles, ...result.value.document.evidence.map(e => e.file)])
-            this.dependencies.add(path.resolve(this.folder.uri.fsPath, rel));
-        this.panel.title = `MLView: ${result.value.document.title}`;
-        if (this.ready) {
-            this.post({ v: 1, type: 'workflowError', message: '', retained: false });
-            this.post({ v: 1, type: 'workflow', document: result.value.document });
-            if (this.pendingError)
-                this.post({ v: 1, type: 'workflowError', message: this.pendingError, retained: true });
-        }
-        if (result.value.staleFiles.length)
-            void vscode.window.showWarningMessage(`MLView: ${result.value.staleFiles.length} cited file(s) differ from the published revision.`);
+        await this.apply(candidate);
     }
-    private invalid(reason: string): void {
-        this.pendingError = `Generated diagram update rejected; ${this.lastValid ? 'retaining the last valid revision.' : 'nothing valid can be displayed yet.'}\n${reason}`;
-        this.log.warn(`authored artifact ${this.artifact.fsPath} rejected: ${reason}`);
-        if (this.ready)
-            this.post({ v: 1, type: 'workflowError', message: this.pendingError, retained: !!this.lastValid });
+    private async apply(candidate: ParsedCandidate): Promise<void> {
+        const observation = this.lineage.observe(candidate);
+        const verdict = observation.verdict;
+        this.pendingCheck = false;
+        const displayed = this.lineage.displayed;
+        this.lineageNote = observation.lineageNote && displayed
+            ? { code: 'lineage', text: `Showing revision ${displayed.id}, which does not directly follow revision ${observation.lineageNote.from} last read from the artifact file (for example after a quick second publish or a restore).` }
+            : undefined;
+        const value = candidate.kind === 'json' ? candidate.result.value : undefined;
+        let candidateTracked: string[] = [];
+        let candidateFiles: string[] = [];
+        if (verdict === 'adopt' || verdict === 'refresh') {
+            this.rejection = undefined;
+            this.lastValid = value;
+        }
+        else {
+            this.rejection = this.rejectionFor(candidate, verdict);
+            this.log.warn(`authored artifact ${this.artifactRel} rejected (${this.rejection.code})`);
+            // A structurally valid candidate can be repaired by editing its sources: watch them too.
+            if (candidate.kind === 'json' && candidate.structural) {
+                candidateTracked = trackedFiles(candidate.structural);
+                candidateFiles = value?.files ?? [];
+            }
+        }
+        await this.rebuildDependencies(candidateTracked, candidateFiles);
+        await this.computeDirty();
+        if (this.disposed)
+            return;
+        if (verdict === 'adopt' && this.lastValid && candidate.kind === 'json') {
+            const document = this.lastValid.document;
+            this.panel.title = `MLView: ${document.title}`;
+            if (this.ready) {
+                this.postBanner(true, true);
+                this.post({ v: 1, type: 'workflow', document });
+                this.lastPostedFull = candidate.full;
+            }
+            const stale = this.lastValid.stale.map(s => s.rel);
+            const toastKey = `${document.revision.id}\n${stale.join('\n')}`;
+            if (stale.length && toastKey !== this.lastStaleToast) {
+                this.lastStaleToast = toastKey;
+                void vscode.window.showWarningMessage(`MLView: ${stale.length} source file(s) changed after the displayed revision was published.`);
+            }
+        }
+        else if (verdict === 'refresh' && this.lastValid && candidate.kind === 'json' && this.ready && candidate.full !== this.lastPostedFull) {
+            // Same semantic content; re-post only when the verification block changed.
+            this.post({ v: 1, type: 'workflow', document: this.lastValid.document });
+            this.lastPostedFull = candidate.full;
+        }
+        this.postBanner();
+        if (candidate.kind === 'unreadable' && candidate.transient)
+            this.scheduleRetry();
+        else
+            this.retryCount = 0;
+    }
+    private scheduleRetry(): void {
+        if (this.disposed || this.retryTimer !== undefined || this.retryCount >= RETRY_DELAYS_MS.length)
+            return;
+        const delay = RETRY_DELAYS_MS[this.retryCount++]!;
+        this.retryTimer = setTimeout(() => {
+            this.retryTimer = undefined;
+            void this.reload();
+        }, delay);
+    }
+    private cancelRetry(): void {
+        if (this.retryTimer !== undefined) {
+            clearTimeout(this.retryTimer);
+            this.retryTimer = undefined;
+        }
+    }
+    private rejectionPrefix(): string {
+        return this.lineage.displayed
+            ? 'Generated diagram update rejected; retaining the last valid revision.'
+            : 'Generated diagram update rejected; nothing valid can be displayed yet.';
+    }
+    private rejectionFor(candidate: Candidate, verdict: Verdict): BannerItem {
+        const P = this.rejectionPrefix();
+        if (candidate.kind === 'missing')
+            return { code: 'missing', text: `${P}\nThe artifact file does not exist. Restore it, or ask the assistant for a new analysis.` };
+        if (candidate.kind === 'unreadable')
+            return { code: 'unreadable', text: `${P}\nThe artifact could not be read: ${candidate.detail}.` };
+        if (candidate.kind === 'parse')
+            return { code: 'parse', text: `${P}\nJSON parse error: ${candidate.detail}` };
+        const D = this.lineage.displayed?.id ?? '';
+        if (verdict === 'obsolete')
+            return { code: 'obsolete', text: `${P}\nThe artifact file holds revision ${candidate.ident?.id ?? ''}, which the displayed revision ${D} already superseded (for example, it was restored from version control). Run MLView: Open Generated Diagram to show the file's revision instead.` };
+        if (verdict === 'same-id-changed')
+            return { code: 'same-id-changed', text: `${P}\nRevision ${D} changed content without a new revision id. Run MLView: Open Generated Diagram to show the file as it is.` };
+        const issues: ValidationIssue[] = candidate.result.issues;
+        const heading = candidate.ident ? `\nRevision ${candidate.ident.id} cannot be displayed:` : '\nThe artifact cannot be displayed:';
+        const lines = issues.slice(0, 8).map(issue => `\n${issue.path}: ${issue.message}`).join('');
+        const more = issues.length > 8 ? `\n…and ${issues.length - 8} more` : '';
+        return { code: 'invalid', text: `${P}${heading}${lines}${more}` };
+    }
+    private banner(): { message: string; codes: string[] } {
+        const items: BannerItem[] = [];
+        const displayed = this.lineage.displayed;
+        if (this.pendingCheck) {
+            items.push({
+                code: 'checking',
+                text: displayed
+                    ? 'Changes detected; checking diagram freshness. The last valid revision remains visible while validation catches up.'
+                    : 'Changes detected; checking the artifact again.'
+            });
+        }
+        else {
+            if (this.rejection)
+                items.push(this.rejection);
+            if (this.lineageNote)
+                items.push(this.lineageNote);
+            const stale = this.lastValid?.stale.map(s => s.rel) ?? [];
+            if (displayed && stale.length)
+                items.push({ code: 'stale', text: `This historical diagram is visible, but ${stale.length} source file(s) changed after revision ${displayed.id} was published: ${listFiles(stale)}. Jumps into those files are blocked; other evidence still opens. Ask the assistant to publish a fresh revision to update the diagram.` });
+            if (this.dirty.length)
+                items.push({ code: 'dirty', text: `Unsaved editor changes in ${listFiles(this.dirty)} are not checked; freshness uses the saved files. A jump is blocked when the unsaved text no longer contains the cited lines.` });
+        }
+        return { message: items.map(x => x.text).join('\n'), codes: items.map(x => x.code) };
+    }
+    /** Post the status banner when it changed (or always, with `force`); `clear` posts an empty banner. */
+    private postBanner(force = false, clear = false): void {
+        if (!this.ready || this.disposed)
+            return;
+        const { message, codes } = clear ? { message: '', codes: [] as string[] } : this.banner();
+        if (!force && message === this.lastPostedBanner)
+            return;
+        this.lastPostedBanner = message;
+        this.post({ v: 1, type: 'workflowError', message, retained: this.lineage.displayed !== null, codes });
+    }
+    private async rebuildDependencies(candidateTracked: readonly string[], candidateFiles: readonly string[]): Promise<void> {
+        const root = this.folder.uri.fsPath;
+        const deps = new DependencySet();
+        deps.addPath(this.artifact.fsPath);
+        if (this.lastValid) {
+            for (const rel of trackedFiles(this.lastValid.document))
+                deps.add(rel, root);
+            for (const real of this.lastValid.files)
+                deps.addPath(real);
+        }
+        await Promise.all(candidateTracked.map(async rel => {
+            let real: string | undefined;
+            try {
+                real = await fs.realpath(path.resolve(root, rel));
+            }
+            catch { }
+            deps.add(rel, root, real);
+        }));
+        for (const real of candidateFiles)
+            deps.addPath(real);
+        this.dependencies = deps;
+    }
+    /** dirty = tracked(D) ∪ {artifact} files that have an open, dirty editor with the same identity. */
+    private async computeDirty(): Promise<void> {
+        const version = ++this.dirtyVersion;
+        const dirtyDocuments = [
+            ...vscode.workspace.textDocuments.filter(d => d.uri.scheme === 'file' && d.isDirty).map(d => d.uri.fsPath),
+            ...vscode.workspace.notebookDocuments.filter(n => n.uri.scheme === 'file' && n.isDirty).map(n => n.uri.fsPath)
+        ];
+        let result: string[] = [];
+        if (dirtyDocuments.length) {
+            const open = new Set(await Promise.all(dirtyDocuments.map(p => identity(p))));
+            const root = this.folder.uri.fsPath;
+            const rels = [...(this.lastValid ? trackedFiles(this.lastValid.document) : []), this.artifactRel];
+            const ids = await Promise.all(rels.map(rel => identity(path.resolve(root, rel))));
+            result = rels.filter((_, i) => open.has(ids[i]!));
+        }
+        if (version === this.dirtyVersion)
+            this.dirty = result;
+    }
+    private actionResult(requestId: string | undefined, action: 'exportFile' | 'copy' | 'refineWorkflow', outcome: 'done' | 'cancelled' | 'failed', extra: { message?: string; name?: string } = {}): void {
+        if (requestId)
+            this.post({ v: 1, type: 'actionResult', requestId, action, outcome, ...extra });
     }
     private async message(raw: unknown): Promise<void> {
         if (!raw || typeof raw !== 'object')
@@ -325,6 +547,7 @@ class AuthoredPanel implements vscode.Disposable {
         const m = raw as Record<string, unknown>;
         if (m.v !== 1 || typeof m.type !== 'string')
             return;
+        const requestId = typeof m.requestId === 'string' && REQUEST_ID.test(m.requestId) ? m.requestId : undefined;
         if (m.type === 'ready') {
             this.ready = true;
             this.post({
@@ -343,10 +566,14 @@ class AuthoredPanel implements vscode.Disposable {
                 },
                 artifact: this.artifact.fsPath
             });
-            if (this.pendingError)
-                this.post({ v: 1, type: 'workflowError', message: this.pendingError, retained: !!this.lastValid });
-            if (this.lastValid)
+            if (this.lastValid) {
                 this.post({ v: 1, type: 'workflow', document: this.lastValid.document });
+                this.lastPostedFull = this.lineage.displayed?.full;
+            }
+            const { message, codes } = this.banner();
+            this.lastPostedBanner = message;
+            if (message)
+                this.post({ v: 1, type: 'workflowError', message, retained: this.lineage.displayed !== null, codes });
             return;
         }
         if (m.type === 'openLocation') {
@@ -354,97 +581,169 @@ class AuthoredPanel implements vscode.Disposable {
             return;
         }
         if (m.type === 'refineWorkflow') {
-            await this.copyRefinementPrompt(m);
+            await this.copyRefinementPrompt(m, requestId);
+            return;
+        }
+        if (m.type === 'copy') {
+            await this.copyText(m, requestId);
             return;
         }
         if (m.type === 'exportFile') {
             const parsed = parseExportFileMessage(raw);
-            if (parsed)
-                await saveExportedFile(parsed, { log: this.log, workspaceRoot: () => this.folder.uri.fsPath });
+            if (!parsed) {
+                this.log.warn('ignored a malformed exportFile message');
+                this.actionResult(requestId, 'exportFile', 'failed', { message: 'the export request was malformed' });
+                return;
+            }
+            const result = await saveExportedFile(parsed, { log: this.log, workspaceRoot: () => this.folder.uri.fsPath });
+            if (result.outcome === 'done')
+                this.actionResult(requestId, 'exportFile', 'done', { name: result.name });
+            else if (result.outcome === 'failed')
+                this.actionResult(requestId, 'exportFile', 'failed', { message: result.message });
+            else
+                this.actionResult(requestId, 'exportFile', 'cancelled');
         }
     }
-    private async copyRefinementPrompt(m: Record<string, unknown>): Promise<void> {
+    private async copyText(m: Record<string, unknown>, requestId: string | undefined): Promise<void> {
+        const text = m.text;
+        if (typeof text !== 'string' || text.length === 0) {
+            this.actionResult(requestId, 'copy', 'failed', { message: 'nothing to copy' });
+            return;
+        }
+        if (text.length > MAX_EXPORT_BYTES || Buffer.byteLength(text) > MAX_EXPORT_BYTES) {
+            this.actionResult(requestId, 'copy', 'failed', { message: 'the text is too large to copy' });
+            return;
+        }
+        try {
+            await vscode.env.clipboard.writeText(text);
+        }
+        catch {
+            this.actionResult(requestId, 'copy', 'failed', { message: 'the clipboard refused the text' });
+            return;
+        }
+        this.actionResult(requestId, 'copy', 'done');
+    }
+    private refuseRefinement(requestId: string | undefined, warning: string): void {
+        void vscode.window.showWarningMessage(warning);
+        this.actionResult(requestId, 'refineWorkflow', 'failed', { message: warning.replace(/^MLView: /, '') });
+    }
+    private async copyRefinementPrompt(m: Record<string, unknown>, requestId: string | undefined): Promise<void> {
+        await this.computeDirty();
+        this.postBanner();
         const doc = this.lastValid?.document;
-        if (!doc) {
-            void vscode.window.showWarningMessage('MLView: no valid workflow revision is available to refine.');
-            return;
+        if (!doc)
+            return this.refuseRefinement(requestId, 'MLView: no valid workflow revision is available to refine.');
+        if (typeof m.revisionId !== 'string' || !ID_PATTERN.test(m.revisionId) || m.revisionId !== doc.revision.id)
+            return this.refuseRefinement(requestId, `MLView: refinement request is stale; the displayed revision is now ${doc.revision.id}. Select the item again.`);
+        const intent = typeof m.intent === 'string' && (REFINE_INTENTS as readonly string[]).includes(m.intent) ? m.intent as RefineIntent : undefined;
+        if (!intent)
+            return this.refuseRefinement(requestId, 'MLView: unknown refinement intent.');
+        let customText: string | undefined;
+        if (intent === 'custom') {
+            customText = typeof m.customText === 'string' ? m.customText.trim() : '';
+            if (customText.length < 1 || customText.length > 500)
+                return this.refuseRefinement(requestId, 'MLView: provide a refinement request between 1 and 500 characters.');
         }
-        if (m.revisionId !== doc.revision.id) {
-            void vscode.window.showWarningMessage(`MLView: refinement request is stale; the displayed revision is now ${doc.revision.id}. Select the item again.`);
-            return;
+        let selection: RefineSelection | undefined;
+        if (m.selection !== undefined && m.selection !== null) {
+            const candidate = m.selection as Record<string, unknown>;
+            if (typeof m.selection !== 'object' || Array.isArray(m.selection) || !['node', 'edge', 'issue'].includes(String(candidate.kind)) || typeof candidate.id !== 'string' || !ID_PATTERN.test(candidate.id))
+                return this.refuseRefinement(requestId, 'MLView: the selection is invalid. Select the item again.');
+            selection = { kind: candidate.kind as RefineSelection['kind'], id: candidate.id };
+            const present = selection.kind === 'node' ? doc.nodes.some(x => x.id === selection!.id) : selection.kind === 'edge' ? doc.edges.some(x => x.id === selection!.id) : doc.findings.some(x => x.id === selection!.id);
+            if (!present) {
+                const word = selection.kind === 'issue' ? 'finding' : selection.kind;
+                return this.refuseRefinement(requestId, `MLView: selected ${word} ${selection.id} is no longer in revision ${doc.revision.id}.`);
+            }
         }
-        const intent = typeof m.intent === 'string' ? m.intent.trim() : '';
-        if (!intent || intent.length > 500) {
-            void vscode.window.showWarningMessage('MLView: provide a refinement intent between 1 and 500 characters.');
-            return;
+        const head = this.lineage.diskHead;
+        if (!head || head.kind === 'missing')
+            return this.refuseRefinement(requestId, 'MLView: the artifact file is missing, so there is nothing to refine. Restore it (for example from version control) or ask the assistant for a new analysis.');
+        if (head.kind !== 'revision') {
+            const detail = head.kind === 'bad-revision' ? 'it has no valid revision.id' : head.detail || 'it has no valid revision.id';
+            return this.refuseRefinement(requestId, `MLView: the artifact file cannot be read right now (${detail}); the MLView helper refuses to publish over it. Repair or restore ${this.artifactRel} first.`);
         }
-        const ids = (values: string[] | undefined): string => {
-            const items = values || [];
-            const visible = items.slice(0, 8);
-            return (visible.join(', ') || 'none') + (items.length > visible.length ? `, and ${items.length - visible.length} more` : '');
-        };
-        let target = 'the whole diagram';
-        let preserve = 'Preserve every existing stable node, edge, and finding ID unless the requested refinement requires changing that item.';
-        const selection = m.selection;
-        if (selection !== undefined) {
-            if (!selection || typeof selection !== 'object' || Array.isArray(selection)) {
-                void vscode.window.showWarningMessage('MLView: the selection is invalid. Select the item again.');
-                return;
-            }
-            const candidate = selection as Record<string, unknown>;
-            const kind = candidate.kind;
-            const id = candidate.id;
-            if (typeof id !== 'string' || !['node', 'edge', 'issue'].includes(String(kind))) {
-                void vscode.window.showWarningMessage('MLView: the selection is invalid. Select the item again.');
-                return;
-            }
-            if (kind === 'node') {
-                const item = doc.nodes.find(x => x.id === id);
-                if (!item) return void vscode.window.showWarningMessage(`MLView: selected node ${id} is no longer in revision ${doc.revision.id}.`);
-                target = `node ${item.id} (${item.label}); basis ${item.basis}; evidence ${ids(item.evidence)}`;
-            }
-            else if (kind === 'edge') {
-                const item = doc.edges.find(x => x.id === id);
-                if (!item) return void vscode.window.showWarningMessage(`MLView: selected edge ${id} is no longer in revision ${doc.revision.id}.`);
-                const source = doc.nodes.find(x => x.id === item.source)?.label || item.source;
-                const targetLabel = doc.nodes.find(x => x.id === item.target)?.label || item.target;
-                target = `edge ${item.id} (${source} -> ${targetLabel}, ${item.label}); basis ${item.basis}; evidence ${ids(item.evidence)}`;
-            }
-            else {
-                const item = doc.findings.find(x => x.id === id);
-                if (!item) return void vscode.window.showWarningMessage(`MLView: selected finding ${id} is no longer in revision ${doc.revision.id}.`);
-                target = `finding ${item.id} (${item.title}); basis ${item.basis}; nodes ${ids(item.nodeIds)}; edges ${ids(item.edgeIds)}; evidence ${ids(item.evidence)}; counter-evidence ${ids(item.counterEvidence)}`;
-            }
-            const contractKind = kind === 'issue' ? 'finding' : kind;
-            preserve = `Keep the selected item centered on stable ${contractKind} ID ${id}. Preserve every unaffected stable phase, node, edge, finding, and evidence ID and their relationships.`;
+        const prompt = buildRefinementPrompt({
+            artifactRel: this.artifactRel,
+            displayed: doc,
+            diskHead: head,
+            intent,
+            ...(customText !== undefined ? { customText } : {}),
+            ...(selection ? { selection } : {}),
+            stale: this.lastValid!.stale.map(s => s.rel),
+            dirty: [...this.dirty],
+            trusted: vscode.workspace.isTrusted !== false
+        });
+        try {
+            await vscode.env.clipboard.writeText(prompt);
         }
-        const entrypoints = ids(doc.request.entrypoints);
-        const configuration = doc.request.configuration || 'not specified';
-        const prompt = `Continue in this same assistant conversation and use the MLView skill to refine ${path.relative(this.folder.uri.fsPath, this.artifact.fsPath)} revision ${doc.revision.id}.\nOriginal question: ${doc.request.question}\nRequested scope: ${doc.request.scope}\nSelected entrypoints: ${entrypoints}\nSelected configuration: ${configuration}\nSelected item: ${target}\nRefinement intent: ${intent}\n${preserve}\nWrite a new revision whose parent is ${doc.revision.id}, then validate and publish the artifact.`;
-        await vscode.env.clipboard.writeText(prompt);
-        void vscode.window.showInformationMessage('MLView refinement prompt copied. Paste it into the assistant that authored this diagram.');
+        catch {
+            return this.refuseRefinement(requestId, 'MLView: the clipboard refused the refinement prompt.');
+        }
+        const note = head.id !== doc.revision.id ? ` The diagram shows revision ${doc.revision.id}; the artifact file holds revision ${head.id}, so the prompt continues from ${head.id}.` : '';
+        void vscode.window.showInformationMessage(`MLView refinement prompt copied. Paste it into the assistant that authored this diagram.${note}`);
+        this.actionResult(requestId, 'refineWorkflow', 'done');
     }
     private async openEvidence(m: Record<string, unknown>): Promise<void> {
         const id = typeof m.evidenceId === 'string' ? m.evidenceId : undefined;
-        const evidence = this.lastValid?.document.evidence.find(x => x.id === id);
-        if (!evidence)
+        const shown = this.lastValid;
+        const evidence = shown?.document.evidence.find(x => x.id === id);
+        if (!shown || !evidence)
             return;
-        const revision = this.lastValid!.document.revision.id;
+        const revision = shown.document.revision.id;
         const freshness = this.freshnessVersion;
-        const fresh = await this.validate(this.lastValid!.document);
-        if (this.disposed || this.lastValid?.document.revision.id !== revision || this.freshnessVersion !== freshness)
-            return;
-        const candidate = path.resolve(this.folder.uri.fsPath, evidence.file);
-        let cited = candidate;
+        const displayed = this.lineage.displayed;
+        let fresh: ValidationResult | undefined;
         try {
-            cited = await fs.realpath(candidate);
+            fresh = await this.validate(shown.document, displayed && !displayed.verified ? displayed.baseline : undefined);
         }
-        catch { }
-        if (!fresh?.value || fresh.value.staleFiles.some(x => path.resolve(x) === cited)) {
-            void vscode.window.showWarningMessage(`MLView: evidence ${evidence.id} is stale or invalid; source navigation was stopped.`);
+        catch {
+            fresh = { issues: [{ path: '$', message: 'validation failed' }] };
+        }
+        if (!fresh || !this.navigationCurrent(revision, freshness))
+            return;
+        if (!fresh.value) {
+            const first = fresh.issues[0];
+            void vscode.window.showWarningMessage(`MLView: evidence ${evidence.id} could not be checked (${first ? `${first.path}: ${first.message}` : 'unknown problem'}); source navigation was stopped.`);
             return;
         }
-        await this.navigate(evidence, revision, freshness);
+        if (fresh.value.stale.some(s => s.rel === evidence.file)) {
+            void vscode.window.showWarningMessage(`MLView: evidence ${evidence.id} cites ${evidence.file}, which changed after revision ${revision} was published; navigation to it is blocked.`);
+            return;
+        }
+        const open = await this.findOpenDocument(evidence);
+        if (!this.navigationCurrent(revision, freshness))
+            return;
+        if (!this.unsavedTextStillCites(evidence, open)) {
+            void vscode.window.showWarningMessage(`MLView: unsaved changes in ${evidence.file} no longer contain the lines cited by evidence ${evidence.id}; save or revert the file, then try again.`);
+            return;
+        }
+        await this.navigate(evidence, revision, freshness, open);
+    }
+    /** The open editor document for the evidence file, matched by file identity (realpath, win32 case-folded). */
+    private async findOpenDocument(e: WorkflowEvidence): Promise<{ text?: vscode.TextDocument; notebook?: vscode.NotebookDocument }> {
+        const target = await identity(path.resolve(this.folder.uri.fsPath, e.file));
+        if (e.cell !== undefined) {
+            for (const notebook of vscode.workspace.notebookDocuments)
+                if (notebook.uri.scheme === 'file' && await identity(notebook.uri.fsPath) === target)
+                    return { notebook };
+            return {};
+        }
+        for (const text of vscode.workspace.textDocuments)
+            if (text.uri.scheme === 'file' && await identity(text.uri.fsPath) === target)
+                return { text };
+        return {};
+    }
+    private unsavedTextStillCites(e: WorkflowEvidence, open: { text?: vscode.TextDocument; notebook?: vscode.NotebookDocument }): boolean {
+        if (open.text?.isDirty)
+            return quoteMatches(e.quote, open.text.getText().split(/\r\n|\r|\n/), e.line, e.endLine);
+        if (open.notebook?.isDirty && e.cell !== undefined) {
+            // cellAt clamps its index in VS Code, so check the count first.
+            if (e.cell >= open.notebook.cellCount)
+                return false;
+            return quoteMatches(e.quote, open.notebook.cellAt(e.cell).document.getText().split(/\r\n|\r|\n/), e.line, e.endLine);
+        }
+        return true;
     }
     private navigationCurrent(revision: string, freshness: number): boolean {
         return !this.disposed && this.lastValid?.document.revision.id === revision && this.freshnessVersion === freshness;
@@ -461,22 +760,24 @@ class AuthoredPanel implements vscode.Disposable {
             .find(editor => editor?.viewColumn !== undefined && editor.viewColumn !== this.panel.viewColumn);
         return sourceEditor?.viewColumn ?? vscode.ViewColumn.Beside;
     }
-    private async navigate(e: WorkflowEvidence, revision: string, freshness: number): Promise<void> {
-        const uri = vscode.Uri.file(path.join(this.folder.uri.fsPath, e.file));
+    private async navigate(e: WorkflowEvidence, revision: string, freshness: number, open: { text?: vscode.TextDocument; notebook?: vscode.NotebookDocument }): Promise<void> {
+        const uri = open.notebook?.uri ?? open.text?.uri ?? vscode.Uri.file(path.join(this.folder.uri.fsPath, e.file));
         const start = toEditorLine(e.line), end = toEditorLine(e.endLine);
         if (e.cell !== undefined) {
             const notebook = await vscode.workspace.openNotebookDocument(uri);
             if (!this.navigationCurrent(revision, freshness))
                 return;
-            const cell = notebook.cellAt(e.cell);
-            if (!cell) {
+            // VS Code clamps cellAt's index, so a removed cell must be detected by count.
+            if (e.cell >= notebook.cellCount) {
                 void vscode.window.showWarningMessage(`MLView: notebook cell ${e.cell} no longer exists.`);
                 return;
             }
+            const cell = notebook.cellAt(e.cell);
             const editor = await vscode.window.showTextDocument(cell.document, { preview: true, viewColumn: this.navigationColumn(cell.document, notebook) });
             if (!this.navigationCurrent(revision, freshness))
                 return;
-            const range = new vscode.Range(start, 0, end, Math.max(0, cell.document.lineAt(end).text.length));
+            const last = Math.max(0, Math.min(end, cell.document.lineCount - 1));
+            const range = new vscode.Range(start, 0, last, Math.max(0, cell.document.lineAt(last).text.length));
             editor.selection = new vscode.Selection(range.start, range.start);
             editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
             return;
@@ -487,7 +788,8 @@ class AuthoredPanel implements vscode.Disposable {
         const editor = await vscode.window.showTextDocument(doc, { preview: true, viewColumn: this.navigationColumn(doc) });
         if (!this.navigationCurrent(revision, freshness))
             return;
-        const range = new vscode.Range(start, 0, end, doc.lineAt(end).text.length);
+        const last = Math.max(0, Math.min(end, doc.lineCount - 1));
+        const range = new vscode.Range(start, 0, last, doc.lineAt(last).text.length);
         editor.selection = new vscode.Selection(range.start, range.start);
         editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
     }
@@ -495,12 +797,23 @@ class AuthoredPanel implements vscode.Disposable {
         if (!this.disposed)
             void this.panel.webview.postMessage(message);
     }
-    private render(): void { const nonce = createNonce(); const script = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(this.ctx.extensionUri, 'media', 'mlview.js')); const style = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(this.ctx.extensionUri, 'media', 'mlview.css')); this.panel.webview.html = `<!doctype html><html><head><meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${this.panel.webview.cspSource} data:; style-src ${this.panel.webview.cspSource}; script-src 'nonce-${nonce}' ${this.panel.webview.cspSource};"><link rel="stylesheet" href="${style}"></head><body><div id="mlview-root"></div><script nonce="${nonce}" src="${script}"></script><script nonce="${nonce}">(function(){var root=document.getElementById('mlview-root');var bridge=window.MLView.bridges.vscode();var save=bridge.saveState.bind(bridge);var artifact=null;bridge.saveState=function(state){save(Object.assign({},state,{artifact:artifact}));};var app=null;bridge.onMessage(function(m){if(!m)return;if(m.type==='init'&&m.artifact){artifact=m.artifact;bridge.saveState(bridge.loadState()||{});}if(m.type==='workflow'){if(app&&app.setWorkflow){app.setWorkflow(m.document,m.preserve);return;}app=window.MLView.mountWorkflow(root,m.document,bridge);}if(m.type==='workflowError'){var e=document.getElementById('mlview-authored-error');if(!m.message){if(e)e.remove();return;}if(!e){e=document.createElement('pre');e.id='mlview-authored-error';root.prepend(e);}e.textContent=m.message;}});bridge.post({v:1,type:'ready'});}());</script></body></html>`; }
+    /**
+     * The inline bootstrap owns the host handshake: it alone posts `ready`, stashes the `init`
+     * theme and capabilities on the bridge before the viewer mounts, mounts on the first
+     * `workflow`, and shows `workflowError` banners. After the mount the viewer's own listener
+     * applies every later frame.
+     */
+    private render(): void { const nonce = createNonce(); const script = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(this.ctx.extensionUri, 'media', 'mlview.js')); const style = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(this.ctx.extensionUri, 'media', 'mlview.css')); this.panel.webview.html = `<!doctype html><html><head><meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${this.panel.webview.cspSource} data:; style-src ${this.panel.webview.cspSource}; script-src 'nonce-${nonce}' ${this.panel.webview.cspSource};"><link rel="stylesheet" href="${style}"></head><body><div id="mlview-root"></div><script nonce="${nonce}" src="${script}"></script><script nonce="${nonce}">(function(){var root=document.getElementById('mlview-root');var bridge=window.MLView.bridges.vscode();var save=bridge.saveState.bind(bridge);var artifact=null;bridge.saveState=function(state){save(Object.assign({},state,{artifact:artifact}));};var app=null;bridge.onMessage(function(m){if(!m||m.v!==1)return;if(m.type==='init'){if(typeof m.artifact==='string'){artifact=m.artifact;bridge.saveState(bridge.loadState()||{});}if(!app){if(m.theme)bridge.theme=m.theme;if(m.capabilities)bridge.capabilities=m.capabilities;}return;}if(m.type==='theme'){if(!app&&m.kind)bridge.theme=m.kind;return;}if(m.type==='workflow'){if(!app&&m.document)app=window.MLView.mountWorkflow(root,m.document,bridge);return;}if(m.type==='workflowError'){var e=document.getElementById('mlview-authored-error');if(!m.message){if(e)e.remove();return;}if(!e){e=document.createElement('pre');e.id='mlview-authored-error';e.setAttribute('role','status');root.prepend(e);}e.textContent=m.message;}});bridge.post({v:1,type:'ready'});}());</script></body></html>`; }
     dispose(): void {
         if (this.disposed)
             return;
         this.disposed = true;
         this.scheduler.dispose();
+        this.cancelRetry();
+        if (this.dirtyTimer !== undefined) {
+            clearTimeout(this.dirtyTimer);
+            this.dirtyTimer = undefined;
+        }
         for (const d of this.disposables)
             d.dispose();
         this.onDispose();

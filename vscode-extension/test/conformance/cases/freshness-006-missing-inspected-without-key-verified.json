@@ -1,0 +1,37 @@
+{
+  "id": "freshness-006-missing-inspected-without-key-verified",
+  "findings": ["CONTRACT-9"],
+  "description": "A published (verified) document lists an inspected-only file that is missing and has no fingerprint. The helper validates authoring and rejects the missing path; the viewer checks published freshness only for fingerprinted files and leaves it untouched.",
+  "files": {
+    "train.py": {"text": "def train():\n    pass\n"}
+  },
+  "artifact": "workflow.mlview.json",
+  "document": {
+    "workflowVersion": "1.0",
+    "title": "Training entrypoint",
+    "producer": {"kind": "host-llm", "host": "codex"},
+    "revision": {"id": "r1"},
+    "request": {"question": "What does train.py run?", "scope": "train.py"},
+    "phases": [{"id": "train", "label": "Train"}],
+    "nodes": [{"id": "step", "label": "Run training step", "phase": "train", "basis": "observed", "evidence": ["ev-1"]}],
+    "edges": [],
+    "findings": [],
+    "evidence": [{"id": "ev-1", "file": "train.py", "line": 1, "endLine": 1, "quote": "def train():"}],
+    "coverage": {"status": "scoped", "summary": "Read the training entrypoint.", "inspectedFiles": ["train.py", "notes.md"], "limitations": []},
+    "verification": {
+      "files": {"train.py": {"$sha256": {"text": "def train():\n    pass\n"}}},
+      "publishedAt": "2026-09-25T00:00:00Z"
+    }
+  },
+  "expect": {
+    "schema": "valid",
+    "helper": {"ok": false, "codes": ["path_outside_workspace"], "warnings": [], "fingerprints": null, "stale": []},
+    "extension": {"ok": true, "stale": [], "issuePaths": []}
+  },
+  "divergence": {
+    "layers": ["helper", "extension"],
+    "findings": ["CONTRACT-9"],
+    "note": "A missing or non-regular inspected-only file without a fingerprint inside a verified document: the helper validates authoring, the viewer checks published freshness.",
+    "status": "accepted"
+  }
+}

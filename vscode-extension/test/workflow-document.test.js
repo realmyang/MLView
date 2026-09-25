@@ -91,13 +91,17 @@ test('workflow validator resolves zero-based notebook cells', async () => {
   assert.equal(result.issues.length,0);
 });
 
-test('workflow validator uses the open unsaved notebook cell for freshness', async () => {
+test('workflow validator decides notebook evidence from the cell on disk, never an open buffer', async () => {
   const root=fixture('mlview-notebook-open-');
   fs.writeFileSync(path.join(root,'flow.ipynb'),JSON.stringify({cells:[{source:['old()\n']}]}));
   const value=document('flow.ipynb'); value.evidence[0]={id:'e1',file:'flow.ipynb',cell:0,line:1,endLine:1,quote:'old()'};
+  // A fourth argument (the retired open-cell reader) is ignored.
   const result=await validateWorkflow(value,root,undefined,async()=> 'new()\n');
-  assert.equal(result.value,undefined);
-  assert.match(result.issues.map(x=>x.message).join('\n'),/does not exactly match/);
+  assert.equal(result.issues.length,0);
+  assert.ok(result.value);
+  value.evidence[0].cell=3;
+  const missing=await validateWorkflow(value,root);
+  assert.deepEqual(missing.issues.map(x=>x.path),['$.evidence[0].cell']);
 });
 
 test('published historical source changes are stale, while a forged current quote is invalid', async () => {
@@ -145,9 +149,166 @@ test('workflow validator reads a multiply-cited source once', async () => {
   value.nodes[0].evidence.push('e2');
   value.verification={files:{'pipeline.py':crypto.createHash('sha256').update('fit()\n').digest('hex')},publishedAt:'2026-09-16T12:00:00Z'};
   let reads=0;
-  const result=await validateWorkflow(value,root,async (file)=>{reads++;return fs.promises.readFile(file,'utf8');});
+  const result=await validateWorkflow(value,root,{readBytes:async (file,limit)=>{reads++;assert.equal(limit,8*1024*1024);return fs.promises.readFile(file);}});
   assert.equal(result.issues.length,0);
   assert.equal(reads,1);
+});
+
+const sha=(bytes)=>crypto.createHash('sha256').update(bytes).digest('hex');
+const published=(value,files)=>{value.verification={files:Object.fromEntries(Object.entries(files).map(([rel,bytes])=>[rel,sha(bytes)])),publishedAt:'2026-09-25T00:00:00Z'};return value;};
+
+test('sources are hashed as raw bytes: CRLF, BOM and Latin-1 files match the helper digest', async () => {
+  const root=fixture('mlview-raw-hash-');
+  const crlf=Buffer.from('fit()\r\nstep()\r\n');
+  const bom=Buffer.concat([Buffer.from([0xef,0xbb,0xbf]),Buffer.from('import torch\n')]);
+  const latin1=Buffer.from([0x6e,0x61,0x6d,0x65,0x3d,0x63,0x61,0x66,0xe9,0x0a]);
+  fs.writeFileSync(path.join(root,'pipeline.py'),crlf);
+  fs.writeFileSync(path.join(root,'bom.py'),bom);
+  fs.writeFileSync(path.join(root,'config.cfg'),latin1);
+  const value=document();
+  value.evidence.push({id:'e2',file:'bom.py',line:1,endLine:1,quote:'import torch'});
+  value.nodes[0].evidence.push('e2');
+  value.coverage.inspectedFiles.push('bom.py','config.cfg');
+  published(value,{'pipeline.py':crlf,'bom.py':bom,'config.cfg':latin1});
+  const result=await validateWorkflow(value,root);
+  assert.deepEqual(result.issues,[]);
+  assert.deepEqual(result.value.stale,[]);
+  assert.deepEqual(result.value.fingerprints,{'bom.py':sha(bom),'config.cfg':sha(latin1),'pipeline.py':sha(crlf)});
+  // Unverified, the Latin-1 inspected file is fingerprinted without being decoded.
+  delete value.verification;
+  const draft=await validateWorkflow(value,root);
+  assert.deepEqual(draft.issues,[]);
+  assert.equal(draft.value.fingerprints['config.cfg'],sha(latin1));
+});
+
+test('a line-1 quote may include or omit the byte-order mark', async () => {
+  const root=fixture('mlview-bom-');
+  fs.writeFileSync(path.join(root,'bom.py'),Buffer.concat([Buffer.from([0xef,0xbb,0xbf]),Buffer.from('import torch\nfit()\n')]));
+  for (const quote of ['import torch',String.fromCharCode(0xfeff)+'import torch']) {
+    const value=document('bom.py');value.evidence[0].quote=quote;
+    assert.deepEqual((await validateWorkflow(value,root)).issues,[],JSON.stringify(quote));
+  }
+  const second=document('bom.py');second.evidence[0]={id:'e1',file:'bom.py',line:2,endLine:2,quote:'fit()'};
+  assert.deepEqual((await validateWorkflow(second,root)).issues,[]);
+  const bad=document('bom.py');bad.evidence[0].quote='import  torch';
+  assert.deepEqual((await validateWorkflow(bad,root)).issues.map(x=>x.path),['$.evidence[0].quote']);
+});
+
+test('a cited file that is not UTF-8 is an issue without a fingerprint and stale with one', async () => {
+  const root=fixture('mlview-not-utf8-');
+  const bytes=Buffer.from([0x66,0x69,0x74,0x28,0x29,0xff,0x0a]);
+  fs.writeFileSync(path.join(root,'pipeline.py'),bytes);
+  const draft=await validateWorkflow(document(),root);
+  assert.deepEqual(draft.issues,[{path:'$.evidence[0].file',message:'cannot be decoded as UTF-8'}]);
+  const verified=await validateWorkflow(published(document(),{'pipeline.py':bytes}),root);
+  assert.deepEqual(verified.issues,[]);
+  assert.deepEqual(verified.value.stale.map(x=>[x.rel,x.reason]),[['pipeline.py','unreadable']]);
+});
+
+test('isOwnedPath matches MLView artifacts, drafts and installed skills, ASCII case-insensitively', () => {
+  const { isOwnedPath }=require('./harness').api;
+  for (const rel of ['workflow.mlview.json','sub/Run.MLVIEW.JSON','.mlview/llm/run/draft.json','.MLView/notes.txt','a/b.draft.json','.agents/skills/mlview/SKILL.md','.Claude/Skills/MLView/references/x.md','.github/skills/mlview/scripts/artifact.py'])
+    assert.equal(isOwnedPath(rel),true,rel);
+  for (const rel of ['skills/mlview/SKILL.md','train.py','x.mlview.json.bak','.agents/skills/mlviewer/SKILL.md','a/.mlview/x','.mlv'+String.fromCharCode(0x130)+'ew/x','draft.json'])
+    assert.equal(isOwnedPath(rel),false,rel);
+});
+
+test('trackedFiles lists cited files and non-owned inspected files once', () => {
+  const { trackedFiles }=require('./harness').api;
+  const value=document();
+  value.coverage.inspectedFiles.push('config.yaml','workflow.mlview.json','.agents/skills/mlview/SKILL.md','config.yaml');
+  assert.deepEqual(trackedFiles(value),['pipeline.py','config.yaml']);
+});
+
+test('evidence on MLView-owned files is a structural issue', () => {
+  for (const file of ['workflow.mlview.json','.mlview/llm/run/draft.json','.agents/skills/mlview/SKILL.md']) {
+    const value=document(file);
+    const result=validateWorkflowStructure(value);
+    assert.equal(result.document,undefined);
+    assert.deepEqual(result.issues,[{path:'$.evidence[0].file',message:'evidence must cite project files, not an MLView artifact, draft or installed MLView skill file'}]);
+  }
+});
+
+test('drive-qualified paths are rejected everywhere a workspace path is accepted', () => {
+  const cases=[
+    [(d)=>{d.evidence[0].file='C:/repo/pipeline.py';d.coverage.inspectedFiles=['pipeline.py'];},'$.evidence[0].file'],
+    [(d)=>{d.request.entrypoints=['c:train.py'];},'$.request.entrypoints[0]'],
+    [(d)=>{d.coverage.inspectedFiles.push('D:/data.csv');},'$.coverage.inspectedFiles[1]'],
+    [(d)=>{d.verification={files:{'Z:/x.py':'0'.repeat(64)},publishedAt:'2026-09-25T00:00:00Z'};},'$.verification.files.Z:/x.py']
+  ];
+  for (const [mutate,at] of cases) {
+    const value=document();mutate(value);
+    const result=validateWorkflowStructure(value);
+    assert.equal(result.document,undefined,at);
+    assert.ok(result.issues.some(x=>x.path===at),`${at}: ${JSON.stringify(result.issues)}`);
+  }
+});
+
+test('owned inspected entries are never touched and fingerprints outside tracked files are ignored', async () => {
+  const root=fixture('mlview-owned-');
+  fs.writeFileSync(path.join(root,'pipeline.py'),'fit()\n');
+  fs.writeFileSync(path.join(root,'notes.md'),'changed\n');
+  const value=document();
+  value.coverage.inspectedFiles.push('workflow.mlview.json','.agents/skills/mlview/SKILL.md');
+  published(value,{'pipeline.py':Buffer.from('fit()\n'),'workflow.mlview.json':Buffer.from('older artifact'),'.agents/skills/mlview/SKILL.md':Buffer.from('original\n'),'notes.md':Buffer.from('original\n')});
+  const result=await validateWorkflow(value,root);
+  assert.deepEqual(result.issues,[]);
+  assert.deepEqual(result.value.stale,[]);
+  assert.deepEqual(result.value.staleFiles,[]);
+  assert.deepEqual(result.value.files,[path.join(await fs.promises.realpath(root),'pipeline.py')]);
+  assert.deepEqual(Object.keys(result.value.fingerprints),['pipeline.py']);
+});
+
+test('inspected-only files: verified documents check keyed files, drafts require regular files', async () => {
+  const root=fixture('mlview-inspected-rules-');
+  fs.writeFileSync(path.join(root,'pipeline.py'),'fit()\n');
+  fs.mkdirSync(path.join(root,'data'));
+  fs.writeFileSync(path.join(root,'data','sample.csv'),'a,b\n');
+  const directory=document();directory.coverage.inspectedFiles.push('data');
+  assert.deepEqual((await validateWorkflow(directory,root)).issues,[{path:'$.coverage.inspectedFiles[1]',message:'data must identify a regular file'}]);
+  const missing=document();missing.coverage.inspectedFiles.push('gone.yaml');
+  assert.deepEqual((await validateWorkflow(missing,root)).issues,[{path:'$.coverage.inspectedFiles[1]',message:'gone.yaml does not exist'}]);
+  // A published revision checks only the files it fingerprinted.
+  published(missing,{'pipeline.py':Buffer.from('fit()\n')});
+  const verified=await validateWorkflow(missing,root);
+  assert.deepEqual(verified.issues,[]);
+  assert.deepEqual(verified.value.stale,[]);
+  published(missing,{'pipeline.py':Buffer.from('fit()\n'),'gone.yaml':Buffer.from('epochs: 3\n')});
+  const keyed=await validateWorkflow(missing,root);
+  assert.deepEqual(keyed.issues,[]);
+  assert.deepEqual(keyed.value.stale,[{rel:'gone.yaml',reason:'missing'}]);
+  assert.deepEqual(keyed.value.staleFiles,[path.join(await fs.promises.realpath(root),'gone.yaml')]);
+});
+
+test('inspected files over 8 MiB are listed without a fingerprint, and stale if they had one', async () => {
+  const root=fixture('mlview-oversize-');
+  fs.writeFileSync(path.join(root,'pipeline.py'),'fit()\n');
+  fs.writeFileSync(path.join(root,'weights.bin'),Buffer.alloc(8*1024*1024+1,0x61));
+  const value=document();value.coverage.inspectedFiles.push('weights.bin');
+  const draft=await validateWorkflow(value,root);
+  assert.deepEqual(draft.issues,[]);
+  assert.deepEqual(Object.keys(draft.value.fingerprints),['pipeline.py']);
+  published(value,{'pipeline.py':Buffer.from('fit()\n'),'weights.bin':Buffer.from('small at publish\n')});
+  const verified=await validateWorkflow(value,root);
+  assert.deepEqual(verified.value.stale.map(x=>[x.rel,x.reason]),[['weights.bin','too-large']]);
+});
+
+test('an unverified revision revalidated with its baseline turns a source edit into staleness', async () => {
+  const root=fixture('mlview-baseline-');
+  fs.writeFileSync(path.join(root,'pipeline.py'),'fit()\n');
+  const first=await validateWorkflow(document(),root);
+  assert.deepEqual(first.value.fingerprints,{'pipeline.py':sha(Buffer.from('fit()\n'))});
+  fs.writeFileSync(path.join(root,'pipeline.py'),'changed()\n');
+  const withoutBaseline=await validateWorkflow(document(),root);
+  assert.deepEqual(withoutBaseline.issues.map(x=>x.path),['$.evidence[0].quote']);
+  const withBaseline=await validateWorkflow(document(),root,{baseline:first.value.fingerprints});
+  assert.deepEqual(withBaseline.issues,[]);
+  assert.deepEqual(withBaseline.value.stale.map(x=>[x.rel,x.reason]),[['pipeline.py','changed']]);
+  // A baseline never applies to a published revision: its own fingerprints decide.
+  const verified=published(document(),{'pipeline.py':Buffer.from('fit()\n')});
+  const checked=await validateWorkflow(verified,root,{baseline:{'pipeline.py':sha(Buffer.from('changed()\n'))}});
+  assert.deepEqual(checked.issues,[]);
+  assert.deepEqual(checked.value.stale.map(x=>[x.rel,x.reason]),[['pipeline.py','changed']]);
 });
 
 test('malformed optional and nested values are rejected without throwing', () => {

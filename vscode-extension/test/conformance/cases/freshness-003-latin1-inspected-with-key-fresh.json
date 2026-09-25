@@ -1,0 +1,45 @@
+{
+  "id": "freshness-003-latin1-inspected-with-key-fresh",
+  "findings": ["CONTRACT-6", "EXT-7"],
+  "description": "An inspected-only Latin-1 configuration file is fingerprinted from its raw bytes without decoding; its published fingerprint matches, so it is fresh in both layers.",
+  "files": {
+    "train.py": {"text": "def train():\n    pass\n"},
+    "config.cfg": {"base64": "bmFtZT1jYWbpCg=="}
+  },
+  "artifact": "workflow.mlview.json",
+  "document": {
+    "workflowVersion": "1.0",
+    "title": "Training entrypoint",
+    "producer": {"kind": "host-llm", "host": "claude-code"},
+    "revision": {"id": "r1"},
+    "request": {"question": "What does train.py run?", "scope": "train.py and config.cfg"},
+    "phases": [{"id": "train", "label": "Train"}],
+    "nodes": [{"id": "step", "label": "Run training step", "phase": "train", "basis": "observed", "evidence": ["ev-1"]}],
+    "edges": [],
+    "findings": [],
+    "evidence": [{"id": "ev-1", "file": "train.py", "line": 1, "endLine": 1, "quote": "def train():"}],
+    "coverage": {"status": "scoped", "summary": "Read the entrypoint and its configuration.", "inspectedFiles": ["train.py", "config.cfg"], "limitations": []},
+    "verification": {
+      "files": {
+        "config.cfg": {"$sha256": {"base64": "bmFtZT1jYWbpCg=="}},
+        "train.py": {"$sha256": {"text": "def train():\n    pass\n"}}
+      },
+      "publishedAt": "2026-09-25T00:00:00Z"
+    }
+  },
+  "expect": {
+    "schema": "valid",
+    "helper": {
+      "ok": true,
+      "codes": [],
+      "warnings": [],
+      "fingerprints": {
+        "config.cfg": {"$sha256": {"base64": "bmFtZT1jYWbpCg=="}},
+        "train.py": {"$sha256": {"text": "def train():\n    pass\n"}}
+      },
+      "stale": []
+    },
+    "extension": {"ok": true, "stale": [], "issuePaths": []}
+  },
+  "divergence": null
+}

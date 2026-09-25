@@ -1,21 +1,21 @@
 /**
- * VIEW-07 — the host side of exporting the diagram as a picture
- * (docs/contracts/11.33-diagram-export.md).
+ * The host side of saving the diagram as a picture.
  *
- * The extension host cannot draw the diagram: only the viewer holds the `LayoutFrame`, the
- * routed edges and the resolved theme tokens. So the split is:
+ * The extension host cannot draw the diagram: only the webview holds the laid-out scene and the
+ * resolved theme. The webview's export menu therefore renders the SVG or PNG itself and posts one
+ * `exportFile { kind, data, suggestedName?, scope?, requestId? }` message. This file is the single
+ * host path for it:
  *
- *   host  -> ui : `requestExport { kind, scope }`   (the two commands below)
- *   ui    -> host: `exportFile { kind, data, ... }`  (`saveExportedFile` below)
+ *   webview `exportFile` -> `parseExportFileMessage` -> `decodeExportPayload` -> save dialog -> write
  *
- * The webview sandbox has no download of its own — an `<a download>` in a VS Code webview
- * is inert — which is why the bytes travel through the message protocol and the SAVE
- * DIALOG AND THE WRITE LIVE HERE, in the one place that is allowed to touch the disk.
+ * The webview sandbox has no download of its own (an `<a download>` in a VS Code webview is
+ * inert), which is why the bytes travel through the message protocol and the save dialog and the
+ * write live here.
  *
- * Nothing in this file trusts the payload: the base64 is validated by the protocol guard
- * before it arrives, decoded under a size ceiling here, and then checked against the file
- * signature for the kind that was asked for, so a `png` request cannot be answered with
- * something that is not a PNG and end up on disk under a `.png` name.
+ * Nothing in this file trusts the payload: `parseExportFileMessage` checks the message shape and
+ * caps the base64 length, `decodeExportPayload` validates the base64 and decodes it under a size
+ * ceiling, and then checks the file signature for the kind that was asked for, so a `png` request
+ * cannot be answered with something that is not a PNG and end up on disk under a `.png` name.
  */
 
 import * as path from 'node:path';
@@ -31,21 +31,25 @@ export interface ExportFileMessage {
   readonly data: string;
   readonly suggestedName?: string;
   readonly scope?: ExportScope;
+  readonly requestId?: string;
 }
+
+/** 32 MiB decoded. */
+export const MAX_EXPORT_BYTES = 32 * 1024 * 1024;
+/** The longest base64 text that can decode to at most MAX_EXPORT_BYTES. */
+export const MAX_EXPORT_BASE64_LENGTH = 4 * Math.ceil(MAX_EXPORT_BYTES / 3);
 
 export function parseExportFileMessage(raw: unknown): ExportFileMessage | undefined {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
   const value = raw as Record<string, unknown>;
   if (value.v !== 1 || value.type !== 'exportFile') return undefined;
   if (value.kind !== 'svg' && value.kind !== 'png') return undefined;
-  if (typeof value.data !== 'string') return undefined;
+  if (typeof value.data !== 'string' || value.data.length > MAX_EXPORT_BASE64_LENGTH) return undefined;
   if (value.suggestedName !== undefined && typeof value.suggestedName !== 'string') return undefined;
   if (value.scope !== undefined && !['all', 'view', 'scope'].includes(String(value.scope))) return undefined;
+  if (value.requestId !== undefined && typeof value.requestId !== 'string') return undefined;
   return value as unknown as ExportFileMessage;
 }
-
-/** 32 MiB decoded. The protocol guard rejects the base64 above this before we allocate. */
-export const MAX_EXPORT_BYTES = 32 * 1024 * 1024;
 
 /** The eight-byte PNG signature (RFC 2083 §3.1). */
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
@@ -69,11 +73,10 @@ export type DecodeResult =
 /**
  * Decode the payload and prove it is the picture that was asked for.
  *
- * `wrong-format` is the interesting one: the guard in protocol.ts only proves the string is
- * base64: it says nothing about what the bytes ARE. A `.svg` file the user opens in a
- * browser is executable content, so the host refuses to write anything under an `.svg` name
- * that does not start with an XML/SVG opening tag, and anything under a `.png` name that
- * does not carry the PNG signature.
+ * `wrong-format` is the interesting one: a valid base64 string says nothing about what the bytes
+ * ARE. A `.svg` file the user opens in a browser is executable content, so the host refuses to
+ * write anything under an `.svg` name that does not start with an XML/SVG opening tag, and
+ * anything under a `.png` name that does not carry the PNG signature.
  */
 export function decodeExportPayload(kind: ExportKind, data: string): DecodeResult {
   if (data.length === 0) {
@@ -106,7 +109,8 @@ function looksLike(kind: ExportKind, buffer: Buffer): boolean {
     return PNG_SIGNATURE.every((byte, i) => buffer[i] === byte);
   }
   // SVG: the first non-space characters must open an XML document or the <svg> root itself.
-  const head = buffer.subarray(0, 512).toString('utf8').replace(/^﻿/, '').trimStart();
+  const text = buffer.subarray(0, 512).toString('utf8');
+  const head = (text.charCodeAt(0) === 0xfeff ? text.slice(1) : text).trimStart();
   return head.startsWith('<?xml') || head.startsWith('<!DOCTYPE svg') || head.startsWith('<svg');
 }
 
@@ -141,17 +145,22 @@ export interface ExportSaveDeps {
   workspaceRoot(): string | undefined;
 }
 
+/** How one export request ended; reported to the webview as an `actionResult`. */
+export type ExportOutcome =
+  | { outcome: 'done'; name: string }
+  | { outcome: 'cancelled' }
+  | { outcome: 'failed'; message: string };
+
 /**
  * Handle one `exportFile` message: decode, ask where to put it, write it, say so.
  *
- * Returns the path written, or undefined when the user cancelled or the payload was
- * refused — so a test can tell "the user said no" from "the bytes were rejected" by
- * pairing the return value with what reached the log.
+ * The VS Code notifications stay host-side; the returned outcome carries no absolute path, so it
+ * can be posted back to the webview.
  */
 export async function saveExportedFile(
   msg: ExportFileMessage,
   deps: ExportSaveDeps
-): Promise<string | undefined> {
+): Promise<ExportOutcome> {
   const decoded = decodeExportPayload(msg.kind, msg.data);
   if (!decoded.ok) {
     deps.log.warn(`refused a ${msg.kind} export payload: ${decoded.reason}`);
@@ -159,7 +168,7 @@ export async function saveExportedFile(
       `MLView could not save the ${KIND_LABEL[msg.kind]}: the viewer sent a payload this ` +
         `host will not write (${decoded.reason}).`
     );
-    return undefined;
+    return { outcome: 'failed', message: `the payload was refused (${decoded.reason})` };
   }
 
   const root = deps.workspaceRoot();
@@ -173,7 +182,7 @@ export async function saveExportedFile(
   });
   if (!target) {
     deps.log.info(`${msg.kind} export cancelled at the save dialog`);
-    return undefined;
+    return { outcome: 'cancelled' };
   }
 
   try {
@@ -183,7 +192,7 @@ export async function saveExportedFile(
     void vscode.window.showErrorMessage(
       `MLView could not write ${target.fsPath}. See the MLView output channel.`
     );
-    return undefined;
+    return { outcome: 'failed', message: 'the file could not be written' };
   }
 
   deps.log.info(
@@ -203,79 +212,5 @@ export async function saveExportedFile(
         await vscode.env.clipboard.writeText(target.fsPath);
       }
     });
-  return target.fsPath;
-}
-
-/** The panel surface the two export commands drive; kept narrow so tests can stand one in. */
-export interface ExportPanelLike {
-  postRequestExport(kind: ExportKind, scope: ExportScope): void;
-  /** The §11.1 selector the diagram is drawing, when it is scoped. */
-  readonly activeScope: { spec: string; depth?: number } | undefined;
-}
-
-export interface ExportCommandDeps {
-  readonly log: Logger;
-  /** The live panel, or undefined when the diagram is not open. */
-  panel(): ExportPanelLike | undefined;
-}
-
-/** The quick-pick items, exported so a test can assert the offer without opening a dialog. */
-export function exportScopeChoices(
-  activeScopeSpec?: string
-): { label: string; description: string; scope: ExportScope }[] {
-  const choices: { label: string; description: string; scope: ExportScope }[] = [
-    { label: 'Whole diagram', description: 'every node, at natural size', scope: 'all' },
-    { label: 'Current view', description: 'exactly what is on screen now', scope: 'view' }
-  ];
-  if (activeScopeSpec) {
-    choices.push({
-      label: 'Current scope',
-      description: activeScopeSpec,
-      scope: 'scope'
-    });
-  }
-  return choices;
-}
-
-/**
- * `MLView: Export Diagram as SVG` / `... as PNG`.
- *
- * The command does NOT wait for the picture: it asks, and the viewer answers with an
- * `exportFile` message that `saveExportedFile` handles. That is what keeps a slow render of
- * a 400-node diagram from blocking the command, and what makes the viewer's own export menu
- * and these commands the same code path on the host side.
- */
-export async function requestDiagramExport(
-  kind: ExportKind,
-  deps: ExportCommandDeps,
-  preset?: ExportScope
-): Promise<void> {
-  const panel = deps.panel();
-  if (!panel) {
-    void vscode.window.showWarningMessage(
-      `MLView: open the diagram (MLView: Visualize ML Workflow) before exporting ${KIND_LABEL[kind]}.`
-    );
-    return;
-  }
-  const activeSpec = panel.activeScope?.spec;
-  let scope = preset;
-  if (!scope) {
-    const choices = exportScopeChoices(activeSpec);
-    const picked = await vscode.window.showQuickPick(choices, {
-      title: `Export MLView diagram as ${KIND_LABEL[kind]}`,
-      placeHolder: 'What should the picture contain?'
-    });
-    if (!picked) {
-      return;
-    }
-    scope = picked.scope;
-  }
-  // A `scope` export with nothing scoped would be an empty picture; fall back to everything
-  // rather than asking the viewer for something it must refuse.
-  if (scope === 'scope' && !activeSpec) {
-    deps.log.warn('export scope "scope" requested with no active scope; exporting everything');
-    scope = 'all';
-  }
-  deps.log.info(`asked the viewer for a ${kind} export of the ${SCOPE_LABEL[scope]}`);
-  panel.postRequestExport(kind, scope);
+  return { outcome: 'done', name: path.basename(target.fsPath) };
 }

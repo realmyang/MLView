@@ -31,6 +31,12 @@ class Range {
 
 class Selection extends Range {}
 
+/**
+ * EXT-8: real `Uri.fsPath` lower-cases a Windows drive letter while Node's realpath keeps the
+ * canonical upper-case one. Off by default; `__setLowercaseDriveLetters(true)` opts in.
+ */
+let lowercaseDriveLetters = false;
+
 class Uri {
   constructor(fsPath, scheme = 'file') {
     this.fsPath = fsPath;
@@ -38,7 +44,9 @@ class Uri {
     this.path = fsPath.replace(/\\/g, '/');
   }
   static file(p) {
-    return new Uri(p);
+    let value = String(p);
+    if (lowercaseDriveLetters && /^[A-Za-z]:/.test(value)) value = value[0].toLowerCase() + value.slice(1);
+    return new Uri(value);
   }
   static parse(value) {
     return new Uri(value, value.split(':')[0] || 'file');
@@ -251,8 +259,13 @@ const recorded = {
   saveDialogs: [],
   quickPicks: [],
   writtenFiles: [],
+  /** Every showTextDocument call: {document, options, editor}; the editor records selection and revealRange. */
   shownDocuments: [],
   clipboardWrites: [],
+  /** EXT-8: every live createFileSystemWatcher: {glob, change, create, delete} listener lists. */
+  watchers: [],
+  /** EXT-8: workspace.onDidChangeNotebookDocument listeners. */
+  notebookChangeListeners: [],
   /** CFG-ONE: every workspace.getConfiguration(...).update() call. */
   configUpdates: [],
   /** H10: every languages.registerCodeLensProvider registration. */
@@ -272,6 +285,8 @@ let fsWriteError;
 const documents = new Map();
 /** H5: the subset of those with unsaved edits, set by `__setDirty`. */
 const dirtyDocuments = new Set();
+/** EXT-8: open notebooks with unsaved edits, keyed like documents, set by `__setNotebookDirty`. */
+const dirtyNotebooks = new Set();
 
 /**
  * One key for one file, whatever spelling reaches us.
@@ -330,8 +345,15 @@ function makeNotebook(fsPath, cells) {
     uri,
     notebookType: 'jupyter-notebook',
     cellCount: built.length,
+    get isDirty() {
+      return dirtyNotebooks.has(docKey(fsPath));
+    },
     getCells: () => built,
-    cellAt: (index) => built[index]
+    // EXT-9: VS Code clamps the index into [0, cellCount - 1] and throws on an empty notebook.
+    cellAt: (index) => {
+      if (built.length === 0) throw new TypeError('Cannot read properties of undefined (reading \'apiCell\')');
+      return built[Math.min(Math.max(0, index), built.length - 1)];
+    }
   };
   for (const cell of built) {
     cell.notebook = notebook;
@@ -503,14 +525,18 @@ const vscode = {
       return saveDialogAnswers.length ? saveDialogAnswers.shift() : undefined;
     },
     showTextDocument: async (document, options) => {
-      recorded.shownDocuments.push({ document, options });
       const editor = {
         document,
         viewColumn: options && options.viewColumn,
         setDecorations() {},
-        revealRange() {},
+        /** EXT-8: every revealRange(range, revealType) call, in order. */
+        revealed: [],
+        revealRange(range, revealType) {
+          editor.revealed.push({ range, revealType });
+        },
         selection: undefined
       };
+      recorded.shownDocuments.push({ document, options, editor });
       return editor;
     },
     setStatusBarMessage: () => ({ dispose() {} }),
@@ -544,11 +570,19 @@ const vscode = {
         }
       };
     },
+    // EXT-10: like VS Code, the innermost folder that contains the path on a separator boundary.
     getWorkspaceFolder: (uri) => {
       const target = String(uri && uri.path).toLowerCase();
-      return (workspaceFolders || []).find((folder) =>
-        target.startsWith(folder.uri.path.toLowerCase())
-      );
+      let best;
+      let bestLength = -1;
+      for (const folder of workspaceFolders || []) {
+        const root = folder.uri.path.toLowerCase().replace(/\/+$/, '');
+        if ((target === root || target.startsWith(root + '/')) && root.length > bestLength) {
+          best = folder;
+          bestLength = root.length;
+        }
+      }
+      return best;
     },
     openTextDocument: async (uri) => makeDocument(uri),
     applyEdit: async (edit, metadata) => {
@@ -589,17 +623,20 @@ const vscode = {
     onDidSaveTextDocument: recordingEvent(recorded.saveListeners),
     onDidSaveNotebookDocument: recordingEvent(recorded.notebookSaveListeners),
     onDidChangeTextDocument: recordingEvent(recorded.changeListeners),
+    onDidChangeNotebookDocument: recordingEvent(recorded.notebookChangeListeners),
     onDidChangeWorkspaceFolders: recordingEvent(recorded.folderListeners),
     onDidChangeConfiguration: recordingEvent(recorded.configListeners),
-    createFileSystemWatcher: () => {
-      const change = [];
-      const create = [];
-      const remove = [];
+    createFileSystemWatcher: (glob) => {
+      const watcher = { glob, change: [], create: [], delete: [] };
+      recorded.watchers.push(watcher);
       return {
-        onDidChange: recordingEvent(change),
-        onDidCreate: recordingEvent(create),
-        onDidDelete: recordingEvent(remove),
-        dispose() {}
+        onDidChange: recordingEvent(watcher.change),
+        onDidCreate: recordingEvent(watcher.create),
+        onDidDelete: recordingEvent(watcher.delete),
+        dispose() {
+          const at = recorded.watchers.indexOf(watcher);
+          if (at >= 0) recorded.watchers.splice(at, 1);
+        }
       };
     },
     fs: {
@@ -714,6 +751,27 @@ const vscode = {
       dirtyDocuments.delete(key);
     }
   },
+  /** EXT-8: mark an open notebook (by its path) as having unsaved changes. */
+  __setNotebookDirty(fsPath, dirty = true) {
+    const key = docKey(fsPath);
+    if (dirty) {
+      dirtyNotebooks.add(key);
+    } else {
+      dirtyNotebooks.delete(key);
+    }
+  },
+  /** EXT-8: fire a file-system watcher event (`change`, `create` or `delete`) for one path. */
+  __fireWatcher(kind, fsPath) {
+    if (!['change', 'create', 'delete'].includes(kind)) throw new Error(`unknown watcher event: ${kind}`);
+    const uri = Uri.file(fsPath);
+    for (const watcher of [...recorded.watchers]) {
+      for (const listener of [...watcher[kind]]) listener(uri);
+    }
+  },
+  /** EXT-8: make Uri.file lower-case a Windows drive letter, as vscode-uri's fsPath does. */
+  __setLowercaseDriveLetters(enabled = true) {
+    lowercaseDriveLetters = !!enabled;
+  },
   __setConfig(section, key, value, resource) {
     const scope = resource ? `${String(resource).replace(/\\/g, '/').toLowerCase()}|` : '';
     configValues.set(`${scope}${section}.${key}`, value);
@@ -771,6 +829,10 @@ const vscode = {
     messageAnswers.length = 0;
     documents.clear();
     dirtyDocuments.clear();
+    dirtyNotebooks.clear();
+    recorded.watchers.length = 0;
+    recorded.notebookChangeListeners.length = 0;
+    lowercaseDriveLetters = false;
     recorded.tools.clear();
     recorded.participants.length = 0;
     recorded.serializers.clear();

@@ -7,7 +7,7 @@
       "request": "launch",
       "args": [
         "--extensionDevelopmentPath=${workspaceFolder}",
-        "${workspaceFolder}/../samples/vision_pipeline"
+        "${workspaceFolder}/.."
       ],
       "outFiles": [
         "${workspaceFolder}/out/**/*.js"
@@ -20,19 +20,7 @@
       "request": "launch",
       "args": [
         "--extensionDevelopmentPath=${workspaceFolder}",
-        "${workspaceFolder}/../samples/vision_pipeline"
-      ],
-      "outFiles": [
-        "${workspaceFolder}/out/**/*.js"
-      ]
-    },
-    {
-      "name": "Run MLView Authored Workflow (no build)",
-      "type": "extensionHost",
-      "request": "launch",
-      "args": [
-        "--extensionDevelopmentPath=${workspaceFolder}",
-        "${workspaceFolder}/../.mlview/live-workspace"
+        "${workspaceFolder}/.."
       ],
       "outFiles": [
         "${workspaceFolder}/out/**/*.js"

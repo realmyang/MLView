@@ -1,0 +1,38 @@
+{
+  "id": "freshness-001-crlf-source-raw-hash",
+  "findings": ["EXT-7", "CONTRACT-5"],
+  "description": "A cited source with CRLF line endings is fingerprinted from its raw bytes; its quote is compared after CRLF normalisation, so a published revision stays fresh.",
+  "files": {
+    "train.py": {"text": "def train():\r\n    pass\r\n"}
+  },
+  "artifact": "workflow.mlview.json",
+  "document": {
+    "workflowVersion": "1.0",
+    "title": "Training entrypoint",
+    "producer": {"kind": "host-llm", "host": "claude-code"},
+    "revision": {"id": "r1"},
+    "request": {"question": "What does train.py run?", "scope": "train.py"},
+    "phases": [{"id": "train", "label": "Train"}],
+    "nodes": [{"id": "step", "label": "Run training step", "phase": "train", "basis": "observed", "evidence": ["ev-1"]}],
+    "edges": [],
+    "findings": [],
+    "evidence": [{"id": "ev-1", "file": "train.py", "line": 1, "endLine": 2, "quote": "def train():\n    pass"}],
+    "coverage": {"status": "scoped", "summary": "Read the training entrypoint.", "inspectedFiles": ["train.py"], "limitations": []},
+    "verification": {
+      "files": {"train.py": {"$sha256": {"text": "def train():\r\n    pass\r\n"}}},
+      "publishedAt": "2026-09-25T00:00:00Z"
+    }
+  },
+  "expect": {
+    "schema": "valid",
+    "helper": {
+      "ok": true,
+      "codes": [],
+      "warnings": [],
+      "fingerprints": {"train.py": {"$sha256": {"text": "def train():\r\n    pass\r\n"}}},
+      "stale": []
+    },
+    "extension": {"ok": true, "stale": [], "issuePaths": []}
+  },
+  "divergence": null
+}

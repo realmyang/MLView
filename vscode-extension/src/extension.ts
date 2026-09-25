@@ -8,7 +8,7 @@ export function activate(ctx: vscode.ExtensionContext): void {
   const log = createLogger(() => 'off');
   ctx.subscriptions.push({ dispose: () => log.dispose() });
   const version = String(
-    (ctx.extension?.packageJSON as { version?: string } | undefined)?.version ?? '0.1.0'
+    (ctx.extension?.packageJSON as { version?: string } | undefined)?.version ?? 'unknown'
   );
   log.info(`MLView ${version} activating (VS Code ${vscode.version})`);
   authoredController = new AuthoredDiagramController(ctx, log);
