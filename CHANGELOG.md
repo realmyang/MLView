@@ -6,6 +6,109 @@ static analyzer; their figures are historical and are not rewritten. Current
 truth lives in [docs/STATUS.md](docs/STATUS.md) and
 [docs/VALIDATION.md](docs/VALIDATION.md).
 
+## 0.3.0 — pilot readiness (Campaign 2)
+
+Tooling the owner and an operator need to review the reference packet, freeze a
+campaign and run, seal, review and summarize the held-out pilot. Nothing here
+reviews a reference, runs a model or decides the pilot: every committed
+decision file is a pending template, `pilotApproved` is the constant `false`,
+and summaries say "computed against the predefined targets; not an approval".
+0.3.0 follows 0.2.0, which ships when PR #9 merges. Finding IDs refer to the
+2026-09-25 takeover review; N and J items are the Campaign 2 specification's
+own observations.
+
+Evaluation pipeline:
+- Owner decisions are plain Markdown files in `evals/workflow/decisions/`:
+  eight pending task templates, `run-policy.md` and
+  `development-adjudication.md`. `python tools/workflow_eval.py check` prints
+  every problem as `path:line: LEVEL section: message` and ends with "ready to
+  freeze" or not; `template` (exclusive, `--second`, `--show`, `--init-all`)
+  and `context` (a gitignored sheet with each quote verified against the
+  pinned bytes) support the review. Unknowns and non-defects get stable IDs,
+  and the Flax placeholder argument must be replaced before a freeze (EVAL-2,
+  N2, N3).
+- `freeze --campaign C [--write]` checks every precondition (ready files,
+  resolved second-review disagreements, verified corpus, exact quotes, covered
+  paths, no reference leakage or machine paths in prompts) and writes the
+  frozen references, reference set, run policy, 16 prompts and `freeze.json`
+  exclusively; `referenceRevision` is the reference set's hash. `check-frozen`
+  re-derives the current campaign byte for byte and guards the held-out
+  manifest fields. The host invocation is frozen per host, outside the hashed
+  prompt (EVAL-6, N5).
+- Candidate snapshot v2: `python tools/workflow_candidate.py --campaign C
+  --build-vsix` builds the VSIX itself on a clean tree, checks its payload,
+  media and version and the skill payload against `git ls-files`, and pins the
+  schema, manifests, viewer bundle, extension manifest and `freeze.json`
+  (no longer the ignored `out/extension.js`). `--output` writes a development
+  snapshot, which summaries refuse (CRIT-9).
+- Pilot runs: `plan`, `run-prepare` (a fresh workspace per run under
+  `$MLVIEW_PILOT_DIR`, outside every Git work tree and instruction file, with
+  only the pinned sparse paths and the installed skill), `run-finish` (a
+  sealed `record.json` with every evidence hash; `--amend` keeps the previous
+  seal), `review-template` and `check` for `session.md` and `review.md`
+  (N6, N8, J2, J3).
+- `summarize --stage 1|all` reads every frozen input and the helper at the
+  candidate commit, refuses integrity failures, counts protocol violations as
+  invalid runs, and computes T1-T6 with intention-to-treat denominators, the
+  three qualified-claim policies, per-host targets, paired baselines and the
+  documented go/stop/incomplete/invalid decision; `--record` writes the stage
+  summary exclusively. The unverified legacy `summarize`, `baseline-plan` and
+  test-only placeholders are removed (EVAL-1, EVAL-7). `pilotTargets` gains
+  `knownUnresolvedQualified` (N1).
+- Smoke reviews are bound only to host-less ledgers (EVAL-5); replayed
+  citations use the helper's line and notebook semantics and require an
+  integer `endLine` (EVAL-15); `development-plan --output` is exclusive and
+  `review-packet` needs `--force` to replace its HTML (EVAL-4).
+- `tools/evidence_lock.json` pins every byte under the evaluation evidence
+  roots, `tools/evidence_lock.py --add` appends new dated records, and
+  manifest tests re-hash the recorded native artifacts (EVAL-17). Required
+  source paths are computed from entrypoints, anchors and frozen sources, never
+  parsed from arguments (J1).
+
+Corpus:
+- The mmdetection sparse list adds the five root-anchored config files the
+  registry task needs (EVAL-3). `fetch_workflow_repos.py --verify [--json]`
+  checks each checkout in place (HEAD, clean state, sparse list, blob-exact
+  covered files) without changing it; `--update-sparse` applies a changed list
+  to a clean pinned checkout. The analyzer-era `.mlview-pinned-sha` marker is
+  tolerated when it holds the pin (EVAL-16), and new checkouts turn off
+  `core.autocrlf` (J5).
+
+Distribution and CI:
+- One portable-file filter keeps `.DS_Store`, editor and OS files out of the
+  skill identity, ZIPs, plugin copy and installs (EVAL-8). The installer
+  records `.mlview-install.json`, upgrades unmodified files, refuses local
+  edits unless `--force`, and doctor explains symlinked locations (SKILL-15).
+- `vsix_check.py` reports a missing working-tree source instead of skipping
+  and gains `--payload-only` (EVAL-10). CI adds Python 3.14 and Node 24 and 26,
+  runs the native sh and PowerShell drivers, and has a conditional
+  `claude plugin validate --strict` job; with `MLVIEW_REQUIRE_CLAUDE_CLI=1` a
+  missing Claude CLI fails instead of skipping (EVAL-11). The PowerShell
+  drivers choose a Python 3.10+ interpreter like the sh drivers (EVAL-13).
+  `requirements-dev.txt` pins `pytest==9.1.1` and `jsonschema==4.26.0`
+  (EVAL-12), and `check.py --skip-build` says what still rebuilds (EVAL-14
+  remainder).
+
+Helper:
+- A cited notebook containing `NaN` or `Infinity` is refused with
+  `notebook_cell`, as the viewer cannot read it; the conformance corpus grows
+  from 65 to 70 cases (NaN and duplicate keys in notebooks, and three
+  `publishedAt` profile pins: lowercase `z`, a leap second, a nine-digit
+  fraction).
+- Every helper error and warning code (58 and 2) is catalogued in
+  `docs/WORKFLOW_CONTRACT.md` and, compactly, in the skill's bundled contract;
+  a test fails when a code is added without documentation.
+
+Not in this version: the owner's reference review and freeze, the development
+adjudication, any native session and the pilot itself (the owner's
+decisions); second-review tooling for run reviews and the development
+adjudication; SKILL-16 (identity framing; `files` is documented as part of the
+identity); N9 (notebook nesting beyond Python's recursion limit); DOCS-7/10/17;
+a CI job that fetches the corpus; blinded or randomised review order;
+hash-pinned development dependencies; automatic transcript capture.
+`development/native-reviews/README.md` is a frozen record and still shows
+`review-packet --output` without `--force`, which a regeneration now needs.
+
 ## 0.2.0 — reliability and trust (Campaign 1)
 
 Every manifest now says 0.2.0, the first version number distinct from the

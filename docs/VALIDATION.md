@@ -8,6 +8,103 @@ Run `sh scripts/e2e.sh` with Python 3.10+ and Node 20.18.1+ on PATH. On Windows
 use `powershell -File scripts/e2e.ps1`. The [script guide](../scripts/README.md)
 explains each gate and explicit skip options.
 
+## Campaign 2 local checks — 2026-09-25
+
+Campaign 2 ("pilot readiness", version 0.3.0; see the
+[changelog](../CHANGELOG.md)) was checked on commit `8a824f9` of the
+`campaign2-pilot-readiness` branch, which is based on `llm-workflow` at
+`25b7a39` because PR #9 has not merged (`git merge-base --is-ancestor 25b7a39
+origin/main` was false after a fetch).
+**These are local automated checks on one macOS machine** (Darwin 25.6.0,
+Node 26.4.0, npm 11.17.0, git 2.54.0, Python 3.13.15 in a virtualenv). The
+venv's `pip freeze` has `pytest==9.1.1` and `jsonschema==4.26.0`, the exact
+pins of `requirements-dev.txt`, with their dependencies (`iniconfig==2.3.0`,
+`packaging==26.3`, `pluggy==1.6.0`, `Pygments==2.21.0`, `attrs==26.1.0`,
+`jsonschema-specifications==2025.9.1`, `referencing==0.37.0`,
+`rpds-py==2026.6.3`) plus packages the gates do not use. CI has not run on
+this branch, so the new matrix (Python 3.10–3.14; Node 20.18.1, 22, 24 and 26;
+the native sh and PowerShell drivers; 12 jobs) is unverified, as are the
+PowerShell drivers, which could not run here. Nothing here is a native
+assistant session, a human review, a reference freeze, a pilot run, live-host
+validation or semantic accuracy.
+
+- `MLVIEW_PYTHON="$PWD/.venv/bin/python" PATH="$PWD/.venv/bin:$PATH" PYTHONDONTWRITEBYTECODE=1 sh scripts/e2e.sh --skip-npm-install`:
+  **all 15 exercised gates passed**; the same command without
+  `--skip-npm-install` ran `npm ci` in both packages and **passed all 17**.
+  The tree was clean after each run.
+- Python helper, distribution and evaluation tests: **654 passed, 533
+  subtests passed, 2 skipped**. Both skips need the unavailable Claude CLI; they
+  are not plugin validation passes. The corpus-gated tests ran against the local
+  `.public-corpus` (all 106 candidate quotes and anchor blobs, the covered-set
+  equality for the 8 repositories, the specification's verbatim `check`
+  output). `evals/workflow/test_pilot_end_to_end.py` (10 tests) drives
+  template, synthetic decisions, check, freeze, check-frozen, a clone, the
+  candidate capture with a stub packager, plan, run-prepare, publication by the
+  real helper, run-finish, review-template, a synthetic review and summarize
+  `go` on one synthetic task with three hosts, with the real `verify_repo`,
+  candidate check and frozen formats, then mutations that give `stop`,
+  `incomplete`, `invalid` and integrity errors. Every decision and verdict in
+  it is labelled synthetic.
+- Viewer: **79 passed**. Extension: **250 passed**, including the conformance
+  runner over all **70 corpus cases** (65 plus the NaN and duplicate-key
+  notebook cases and three `publishedAt` pins), the parity invariant and the
+  helper-publish, viewer-load round trip.
+- The actual VSIX had **11 files, 155,593 bytes**, with only
+  `mlview.openGeneratedDiagram` contributed.
+- Portable skill bundle identity (eight files):
+  `fd0f9cf06c8b922b854ea71e1755a68e7e7035344b2266503b55f4691da15578` (it was
+  `5ef9e6ca…` for 0.2.0; the helper and the bundled contract changed). Built
+  viewer: `mlview.js` SHA-256
+  `f4eb582052434a649c377eb48c3cf9026b04db445ae2f50522013cdfa5b04443`,
+  `mlview.css` unchanged at
+  `e43c14dec5968faf86c28993dbbe8c39c35b334e9f6589c817d1ed286daa6185`.
+- After the 0.3.0 bump (`a36002c`) a second rebuild (viewer build, asset and
+  skill sync, extension compile) left `git diff --exit-code` over
+  `webview/dist`, `vscode-extension/media`, the extension's notices and
+  `claude-plugin/skills/mlview` clean.
+- Immutable evidence: `git diff --name-status 25b7a39..HEAD` over
+  `evals/workflow/development`, `evals/workflow/fixtures`, the candidate
+  ledgers, their licenses, `samples/configured_training*`, `docs/archive` and
+  `docs/demo-logs` printed nothing; the only change to
+  `evals/workflow/reference-candidates/README.md` is one added, dated note
+  (5 lines). `python tools/evidence_lock.py`: 95 files match the lock.
+- `python tools/fetch_workflow_repos.py --verify` on the local corpus
+  (read-only): **7 of 8 pass**. mmdetection fails only its sparse-list
+  comparison (the five new config patterns are missing from the checkout's
+  list; HEAD at the pin, clean apart from the tolerated marker, 174 covered
+  files, 0 missing, 0 extra, 0 blob mismatches). `--update-sparse` was **not**
+  run on the real corpus; running it once, then `--verify`, is the owner's or
+  an agent's next step before a freeze.
+- `claude plugin validate --strict` did not run: there is no Claude CLI on this
+  machine. The conditional CI job is configured but has not run; if it needs
+  credentials it will be withdrawn with the reason recorded here.
+- Tooling exercise on scratch copies only (a clone at `a36002c` and a copy of
+  the 8 pinned checkouts outside the repository): synthetic decisions (reviewer
+  "Test Reviewer (synthetic)", all accepted, the Flax scenario replaced) for the
+  8 tasks and a synthetic run policy passed `check`; after `--update-sparse` on
+  the scratch copy of mmdetection all 8 checkouts verified; the freeze dry run
+  and `--write` produced 93 facts, 74 essential and 16 prompts with 0 leak
+  findings, and `check-frozen` re-derived them byte for byte. The capture
+  with the real `npm run package` built `mlview-0.3.0.vsix` and a candidate
+  that `--check --vsix` accepted. `run-prepare pilot-nanogpt:codex:1` against
+  the real nanoGPT checkout (read-only; 26 pinned files) and a synthetic
+  artifact published by the installed helper were sealed by `run-finish`,
+  reviewed synthetically and summarized as `incomplete` (23 of 24 planned runs
+  pending). The remaining documented commands (context, `--supersede-reason`,
+  `--stage all`, `plan --output`, `--record` refusals, `--amend`,
+  `development-plan --output`, `review-packet --force`, the development
+  snapshot, `vsix_check.py --payload-only`, the fetcher modes on the scratch
+  copy, `evidence_lock.py --add`, and the installer's upgrade, local-edit
+  refusal, `--force` and symlink doctor) behaved as documented. The real corpus
+  and this checkout were unchanged afterwards. **This was a tooling exercise;
+  not a pilot run, native session or human review.**
+
+No native session, human review, reference freeze or pilot run occurred in
+Campaign 2. The commit that adds this record changes only CHANGELOG.md,
+STATUS.md and this file. Still outstanding: CI on this branch, the owner's
+reference review, the corpus `--update-sparse`, the freeze, the pilot
+candidate capture, Stage 1 and the manual live-host checklist.
+
 ## Campaign 1 CI and live check — 2026-09-25
 
 The first CI runs of the campaign (`8aa3e62`) failed in test code only: a

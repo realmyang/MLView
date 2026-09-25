@@ -28,6 +28,19 @@ interaction need live validation before compatibility is claimed. Latest CI
 results: see [VALIDATION.md](VALIDATION.md) and the repository's
 [Actions page](https://github.com/realmyang/MLView/actions).
 
+Version 0.3.0 adds Campaign 2, "pilot readiness" (see the
+[changelog](../CHANGELOG.md)): owner decision files with a `check` command,
+the campaign freeze and `check-frozen`, the v2 pilot candidate that builds its
+own VSIX, sealed run records, and a `summarize` that verifies every sealed run
+against the frozen campaign and computes the Stage 1 stop/go decision. The
+owner's reference review has not happened and **no reference is frozen**: every
+file in `evals/workflow/decisions/` is a pending template. The pilot has **not
+run**: Stage 1 has 24 skill runs pending and 0 passed, and Stage 2 has 48
+pending. The local gate passed on one macOS machine ([details](VALIDATION.md));
+CI has not yet run on the Campaign 2 branch. PR #9 (0.2.0) is still open, so
+Campaign 2 is based on `llm-workflow` and the CLAUDE.md Git paragraph is
+unchanged.
+
 Version 0.2.0 adds Campaign 1, "reliability and trust" (see the
 [changelog](../CHANGELOG.md)). An open panel follows the artifact file on disk
 and shows a revision whose sources changed as a historical diagram instead of
