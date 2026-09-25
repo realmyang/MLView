@@ -56,10 +56,14 @@ visible; they do not stop someone with push access from rewriting history,
 and commit authorship, `Transcribed by:`, branch protection and the pushed
 candidate tag are the safeguards
 ([known limits](../evals/workflow/pilot/README.md#known-limits)). With these
-fixes, the local gate passed on one macOS machine ([details](VALIDATION.md)).
-CI has not yet run on the Campaign 2 branch. 0.2.0 shipped to `main` on
-2026-09-25, when PR #9 was squash-merged as `d99904f`; the Campaign 2 branch
-is based on that commit.
+fixes, the local gate passed on one macOS machine, and all 12 CI jobs
+(Python 3.10–3.14, Node 20.18.1 to 26, macOS and Windows) passed on the
+branch ([details](VALIDATION.md)). One narrow case stays open and documented:
+with a Stage 1 summary recorded by earlier tools, a re-save of one baseline
+review can hold Stage 2 after a tool change in how another baseline's false
+accusations count; restoring the named review's bytes clears it. 0.2.0
+shipped to `main` on 2026-09-25, when PR #9 was squash-merged as `d99904f`;
+the Campaign 2 branch is based on that commit.
 
 Version 0.2.0 adds Campaign 1, "reliability and trust" (see the
 [changelog](../CHANGELOG.md)). An open panel follows the artifact file on disk

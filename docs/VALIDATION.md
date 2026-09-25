@@ -8,6 +8,38 @@ Run `sh scripts/e2e.sh` with Python 3.10+ and Node 20.18.1+ on PATH. On Windows
 use `powershell -File scripts/e2e.ps1`. The [script guide](../scripts/README.md)
 explains each gate and explicit skip options.
 
+## Campaign 2 final local checks and CI — 2026-09-25
+
+Campaign 2 at `d6e0e52` on the `campaign2-pilot-readiness` branch (the
+follow-up check fixes below plus documentation of the open RC2-1 case). These
+are automated checks; no reference review, freeze, candidate capture on the
+real corpus, native session, live VS Code check or pilot run happened.
+
+- Local, on the same macOS machine as below (Node 26.4.0, Python 3.13.15 in a
+  virtualenv with `pytest==9.1.1` and `jsonschema==4.26.0`; `pytest-xdist`,
+  which a review agent had installed, was removed first):
+  - `sh scripts/e2e.sh --skip-npm-install`: **all 15 exercised gates
+    passed**; Python helper, distribution and evaluation tests **848 passed,
+    537 subtests passed**, none skipped; viewer **79 passed**; extension
+    **250 passed**; the actual VSIX has 11 files, 155,593 bytes.
+  - `sh scripts/e2e.sh` (a fresh `npm ci` in both packages): **all 17
+    exercised gates passed**, with the same counts.
+- CI on the branch:
+  - [Run 36156303450](https://github.com/realmyang/MLView/actions/runs/36156303450)
+    at `867cdf2`, the first on the branch: Python 3.14 failed one helper test
+    (a notebook nested 20000 levels deep parses on 3.14; fixed in `41f80ba`
+    by an explicit depth limit), and the Windows job was cancelled at its
+    15-minute limit after its Python suite had passed (695 passed, 11
+    skipped, 14 minutes; `e7d92c1` gives Windows 45 minutes). The other 10
+    jobs passed.
+  - [Run 36176271911](https://github.com/realmyang/MLView/actions/runs/36176271911)
+    at `cee902b`: **all 12 jobs passed** (Python 3.10–3.14; Node 20.18.1,
+    22, 24 and 26 on Linux; Node 22 on macOS and Windows; `claude plugin
+    validate --strict`). Windows took 25 minutes.
+  - [Run 36192694342](https://github.com/realmyang/MLView/actions/runs/36192694342)
+    at `d6e0e52`: **all 12 jobs passed**; Windows took 21 minutes.
+- Open and documented rather than fixed: RC2-1 (pilot README "Known limits").
+
 ## Campaign 2 follow-up check fixes — 2026-09-25
 
 The fixes for the three findings of the check of `e6d8b98` (NEW-1 to NEW-3,
