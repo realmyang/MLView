@@ -84,9 +84,10 @@ the flag); on Windows `powershell -File scripts/e2e.ps1`. Focused:
 `npm run check && npm test` in webview/ or vscode-extension/;
 `python tools/verify.py --all` (generated copies, versions, retired paths);
 `python scripts/check_docs.py` (links in current docs). The evidence lock
-(tools/evidence_lock.json, tools/test_evidence_lock.py) pins immutable
-evidence bytes; register a new dated record with
-`python tools/evidence_lock.py --add <path>`. CI runs Node 20.18.1,
+(tools/evidence_lock.json, tools/test_evidence_lock.py) pins the bytes of the
+evaluation evidence roots listed in tools/evidence_lock.py (not docs/archive,
+docs/demo-logs or historical-banner docs); register a new dated record there
+with `python tools/evidence_lock.py --add <path>`. CI runs Node 20.18.1,
 22, 24 and 26 and Python 3.10–3.14; avoid APIs newer than Node 20 (for example
 `String.prototype.isWellFormed`, `Array.prototype.toSorted`,
 `Promise.withResolvers`).
@@ -100,6 +101,9 @@ since PR #9 (0.2.0) was squash-merged on 2026-09-25, so the old
 `llm-workflow` commits are not ancestors of `main`. Harness worktrees can
 start from `origin/main` rather than your working branch: check
 `git merge-base --is-ancestor <intended commit> HEAD` before starting.
+Pilot campaign commits (freeze, candidate, summaries under
+evals/workflow/pilot/) must reach `main` by a merge commit or fast-forward,
+never a squash or rebase merge (evals/workflow/pilot/README.md).
 Commit and push only when asked; never force-push or rewrite shared history.
 Preserve unrelated working changes. Keep raw transcripts, credentials and
 machine-specific paths out of committed files. Frozen decision records stay
