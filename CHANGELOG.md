@@ -99,6 +99,59 @@ Helper:
   `docs/WORKFLOW_CONTRACT.md` and, compactly, in the skill's bundled contract;
   a test fails when a code is added without documentation.
 
+Round 1 review fixes (finding IDs refer to the Campaign 2 round 1 review):
+- `check-frozen` counts a final summary only when it is a summary
+  `summarize --record` wrote for the campaign's `candidate.json` and
+  `freeze.json`; any other file named like a summary is reported and never
+  switches the re-derivation off. The hash-only check still binds `freeze.json`
+  to the candidate and the ledgers to their frozen bytes, checks the copied
+  `supersedes`, `developmentAdjudication` and `tasksManifest.sha256` fields
+  (against the commit that added `freeze.json` when the Git history is
+  complete), and names each changed decision file (INTEGRITY2, INTEGRITY9,
+  OWNERUX1-4). A campaign whose candidate or summary was ever committed needs
+  an owner invalidation to be superseded, and the capture refuses a campaign
+  that already holds a summary or invalidation (INTEGRITY7).
+- `summarize` and `run-prepare` bind every frozen reference and the run policy
+  to the decision files and ledgers at the candidate commit (INTEGRITY3); a
+  Stage 1 summary unlocks Stage 2 only when it has the recorded format and a
+  re-computation from the sealed evidence gives the same `go` and run hashes
+  (INTEGRITY4); the development-adjudication gate uses the full checker
+  (INTEGRITY6).
+- `run-finish` compares the workspace with the pinned bytes recomputed from the
+  corpus, records paths where `workspace-before.json` differs, reports Claude
+  Code's `.claude/settings.local.json` as a host file instead of invalidating
+  the run, counts MLView files in a baseline, and writes `finish-state.json` so
+  a deleted `record.json` is never sealed again with other session facts
+  (INTEGRITY1, INTEGRITY5, STATS1-4, STATS1-5). `summarize` checks the sealed
+  workspace lists and the amendment chain against the hashed evidence
+  (STATS1-2). Every `run-prepare` attempt is appended to
+  `$MLVIEW_PILOT_DIR/preparations.jsonl`; a failed attempt is retried only with
+  `--retry "<reason>"`, which keeps its evidence (INTEGRITY8).
+- Baselines are held to the policy's model and reasoning, not the skill
+  invocation (STATS1-1); unreviewed baselines show no paired difference and
+  block `--record` (STATS1-3); the early-stop bound skips unreviewable runs
+  (STATS1-6); split claims refuse leading zeros and repeats (STATS1-7);
+  `disputedDenominatorItems` lists disputes on essential and runs-must-state
+  flags (STATS1-9); Markdown percentages are floored (STATS1-10). Machine
+  paths such as `D:/` are refused in session values, amendment reasons and
+  summaries (INTEGRITY11). Summaries and review templates cite README sections
+  by heading instead of stale line numbers (SPECDOCS1-1).
+- Owner files: second reviews get their own ID space and their additions must
+  be resolved, and a second review by the primary reviewer is an error
+  (OWNERUX1-1, INTEGRITY10); an unindented wrapped line or a mistyped heading
+  gets a message that does not lead to deleting a decision (OWNERUX1-2,
+  OWNERUX1-10); owner notes and CRLF line endings keep a pending file valid in
+  CI (OWNERUX1-3); the no-skill prompt refuses publishing words (OWNERUX1-5);
+  templates cite document sections (OWNERUX1-6, SPECDOCS1-2); messages show the
+  typeable ` -- ` separator and explain a single `-` (OWNERUX1-7); a sparse
+  mismatch names `--update-sparse --repo <name>` (OWNERUX1-8); a replaced
+  `Anchors:` list notes each dropped proposed anchor (OWNERUX1-9). The pending
+  decision files were regenerated from the templates.
+- `--update-sparse` refuses when the pinned tree could not be listed or
+  classified (DISTCI1-2), a relative pilot directory is made absolute before
+  packaging (DISTCI1-1), and the protocol, README and guide wording now match
+  the tools (SPECDOCS1-3, SPECDOCS1-4, SPECDOCS1-5).
+
 Not in this version: the owner's reference review and freeze, the development
 adjudication, any native session and the pilot itself (the owner's
 decisions); second-review tooling for run reviews and the development

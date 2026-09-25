@@ -91,12 +91,16 @@ text, the owner's scenario and the owner's template text. `{scenario}` renders
 as `Description:`, `Entrypoints:` and `Arguments:` lines, and
 `{artifact_path}` is `pilot.mlview.json`, which is safe because every run has
 its own workspace. The freeze refuses a no-skill template that mentions
-MLView, the skill, WorkflowDocument or publication, and any prompt that
-contains an absolute path or a reference claim of 30 or more characters.
+MLView, the skill, WorkflowDocument, publishing or publication, and any prompt
+that contains an absolute machine path (`/Users/`, `/home/`, `/private/` or a
+drive letter) or a reference claim of 30 or more characters. Other absolute
+paths, such as an upstream scenario argument like `/tmp/mrpc/`, are allowed.
 
 The host's invocation (Codex's `$mlview` prefix, Copilot's skill picker or
 the Claude Code invocation) is frozen per host in the run policy and sent
-before the prompt text; it is not part of the hashed prompt. `run-prepare`
+before the prompt text in skill runs; it is not part of the hashed prompt. A
+baseline sends the no-skill prompt as a plain message, without the
+invocation, and is held only to the policy's model and reasoning. `run-prepare`
 copies the exact frozen bytes to the run's `PROMPT.txt`, and the sealed record
 stores that file, its SHA-256 and the frozen path. `summarize` requires the
 `PROMPT.txt` hash to equal the freeze entry and the bytes at the candidate
@@ -115,8 +119,9 @@ and never part of the stop/go gate. Baselines use the frozen no-skill prompt
 with the same task and scenario, model settings, source pin and analysis
 budget. Their workspaces have no skill installed, the operator confirms that
 no MLView plugin or skill is available to the host, and `session.md` records
-`MLView available to host: no`. Isolate references and other outputs from
-each fresh session. Decide whether further baseline repetitions are warranted
+`MLView available to host: no`. An MLView file in a baseline workspace makes
+the baseline invalid. Isolate references and other outputs from each fresh
+session. Decide whether further baseline repetitions are warranted
 before seeing their results.
 
 Compare semantic claims, essential-fact recall, task usefulness and elapsed

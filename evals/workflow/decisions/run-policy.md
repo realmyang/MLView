@@ -1,6 +1,6 @@
 # Pilot run policy
 
-> Guide: REVIEW_GUIDE.md, "Run policy". Check: python tools/workflow_eval.py check run-policy
+> Guide: REVIEW_GUIDE.md, "Then: agree on the run policy". Check: python tools/workflow_eval.py check run-policy
 
 Reviewer:
 Date:
@@ -37,7 +37,7 @@ Repair rounds:
 Infrastructure retries:
 
 ## Scoring
-> Qualified claims in supported-claim precision: not-supported | supported | excluded (CANDIDATE_PROTOCOL.md:56-59).
+> Qualified claims in supported-claim precision: not-supported | supported | excluded (CANDIDATE_PROTOCOL.md, "Pair the first stage with no-skill responses").
 > Per-host targets: yes = precision and recall must also meet their targets within each host; no = pooled only.
 Qualified claims:
 Per-host targets:
@@ -66,7 +66,7 @@ Inspect source without importing or executing target code. Read only this worksp
 Decision: pending
 
 ## No-skill prompt
-> Must not mention MLView, the skill, WorkflowDocument or publication (CANDIDATE_PROTOCOL.md:43-44).
+> Must not mention MLView, the skill, WorkflowDocument or publication (CANDIDATE_PROTOCOL.md, "Frozen prompts").
 ```text
 {task_prompt}
 

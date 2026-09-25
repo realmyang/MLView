@@ -18,7 +18,10 @@ The grammar of every human-authored file (Campaign 2 specification, section 1.3)
   schema, that is the header keys, the section kinds and each section's keys.
 * Lines before the first ``##`` are header fields. ``## <Kind>`` or ``## <Kind> <id>`` starts a
   section. A section whose schema entry has a ``pattern`` (the development adjudication's
-  ``## dev-gan / codex``) uses its normalised heading as its kind.
+  ``## dev-gan / codex``) uses its normalised heading as its kind. Any other line that starts with
+  ``#`` is a mistyped heading and an error: when it names a known section (``### Fact x`` or
+  ``##Fact x``) that section still starts there, otherwise the following lines are skipped until the
+  next valid heading, so they are never attributed to the previous section.
 * Every other line is ``Key: value``. Fixed keys are matched case-insensitively and stored under
   their canonical spelling. In a section with free keys (item IDs, artifact pointers, dated
   lines) the key ends at the first ``:`` that is followed by a space or the end of the line, so a
@@ -29,7 +32,8 @@ The grammar of every human-authored file (Campaign 2 specification, section 1.3)
 * A section whose schema allows it holds one fenced block (```` ```text ```` ... ```` ``` ````),
   captured line by line with trailing spaces removed and lines joined by ``\\n``.
 * Unknown sections, unknown keys, repeated keys or sections, fences where none is allowed and any
-  other line are errors that name the line and the section.
+  other line are errors that name the line and the section. A line without a key right after a
+  stored value (usually a wrapped sentence) gets the hint to indent it by two spaces.
 """
 from __future__ import annotations
 
@@ -84,9 +88,17 @@ RUN_ID_RE = re.compile(r"(?P<task>[a-z0-9][a-z0-9-]*):(?P<host>[a-z0-9][a-z0-9-]
 RUN_DIR_RE = re.compile(r"[a-z0-9][a-z0-9-]*\.[a-z0-9][a-z0-9-]*\.(?:baseline\.)?[1-9][0-9]*", re.ASCII)
 ANCHOR_RE = re.compile(r"(?P<file>[^;:#]+?)(?:#cell(?P<cell>\d+))?:(?P<line>\d+)(?:-(?P<end>\d+))?")
 DRIVE_RE = re.compile(r"^[A-Za-z]:")
+# Absolute machine paths that must never enter committed outputs (section 8.8 invariant 6): the
+# common home and temporary roots and a drive letter followed by either slash (C:\ or C:/).
+MACHINE_PATH_RE = re.compile(r"/Users/|/home/|/private/|(?<![A-Za-z0-9])[A-Za-z]:[\\/]")
 _LINE_BREAK = re.compile(r"\r\n|\r|\n")
 _FREE_KEY_END = re.compile(r":(?=\s|$)")
+# An unknown key that looks like a mistyped key (a few plain words) rather than a wrapped sentence.
+_KEY_LIKE = re.compile(r"[A-Za-z][A-Za-z0-9-]*(?: [A-Za-z0-9][A-Za-z0-9-]*){0,5}")
+_CONTINUE_HINT = 'To continue the previous line, indent it by two spaces; put ">" in front of notes only.'
 _REASON_SEPARATOR = re.compile("\\s(?:\u2014|\u2013|--)(?:\\s|$)")
+SEPARATOR_HINT = 'write the reason after " -- " (two hyphens) or " \u2014 "; a single "-" is not a separator.'
+_GLUED_SEPARATOR = re.compile("\u2014|--")
 _SPARSE_FORBIDDEN = ("!", "?", "[", "\\", "**")
 _GIT_ISOLATION = ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_COMMON_DIR",
                   "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_NAMESPACE", "GIT_PREFIX")
@@ -350,6 +362,7 @@ def parse_record(raw: bytes, display_path: str, *,
     current_fence = False
     seen: dict[tuple[str, str | None], Section] = {}
     last: Field | _Sink | None = None
+    last_line = 0  # the last line stored into (or continued in) a Field
     fence: tuple[int, list[str], Section | None, str] | None = None
 
     for number, raw_line in enumerate(_LINE_BREAK.split(text), 1):
@@ -399,8 +412,25 @@ def parse_record(raw: bytes, display_path: str, *,
                     target = current
             fence, last = (number, [], target, label), None
             continue
+        heading = None
         if line == "##" or line.startswith("## "):
             heading = " ".join(line[2:].split())
+        elif line.startswith("#"):
+            # A mistyped heading ("### Fact x", "##Fact x", "# Fact x"): an error either way. When it
+            # names a known section, that section starts here so its fields stay with it.
+            attempt = " ".join(line.lstrip("#").split())
+            known, _ident, _error = _match_heading(schema, attempt) if attempt else (None, None, None)
+            last = None
+            if known is None:
+                where = attempt or "#"
+                report(number, where, f'"{stripped[:40]}" is not a section heading. Write section headings as '
+                                      '"## <Kind> <id>" (two # and a space); put ">" in front of notes.')
+                current = None
+                continue
+            report(number, attempt, f'"{stripped[:40]}" is not a section heading; write "## {attempt}" (two # and a '
+                                    "space).")
+            heading = attempt
+        if heading is not None:
             spec, ident, error = _match_heading(schema, heading)
             last = None
             if spec is None:
@@ -425,7 +455,10 @@ def parse_record(raw: bytes, display_path: str, *,
         if last is not None and (line.startswith("  ") or line.startswith("\t")):
             if isinstance(last, Field):
                 last.value = f"{last.value} {stripped}".strip()
+                last_line = number
             continue
+        # A line right after a stored value that is not "Key: value" is usually a wrapped sentence.
+        wrapped = isinstance(last, Field) and last_line == number - 1
         if current_keys is None:
             end = _FREE_KEY_END.search(stripped)
             split_at = end.start() if end else stripped.find(":")
@@ -433,7 +466,8 @@ def parse_record(raw: bytes, display_path: str, *,
             split_at = stripped.find(":")
         key = stripped[:split_at].strip() if split_at > 0 else ""
         if not key:
-            report(number, label, f'"{stripped[:40]}" is not "Key: value". Put ">" in front of notes.')
+            hint = _CONTINUE_HINT if wrapped else 'Put ">" in front of notes.'
+            report(number, label, f'"{stripped[:40]}" is not "Key: value". {hint}')
             last = _SINK
             continue
         value = stripped[split_at + 1:].strip()
@@ -441,7 +475,8 @@ def parse_record(raw: bytes, display_path: str, *,
             canonical = current_keys.get(" ".join(key.split()).casefold())
             if canonical is None:
                 allowed = ", ".join(sorted(current_keys.values(), key=str.casefold))
-                report(number, label, f'unknown field "{key}". Allowed here: {allowed}.')
+                hint = f" {_CONTINUE_HINT}" if wrapped and not _KEY_LIKE.fullmatch(key) else ""
+                report(number, label, f'unknown field "{key}". Allowed here: {allowed}.{hint}')
                 last = _SINK
                 continue
             key = canonical
@@ -453,7 +488,7 @@ def parse_record(raw: bytes, display_path: str, *,
         item = Field(key, value, number)
         current.fields[key] = item
         current.lines.append(item)
-        last = item
+        last, last_line = item, number
 
     if fence is not None:
         start, _captured, _target, fence_label = fence
@@ -528,8 +563,17 @@ def parse_verdict(value: str, vocab: set[str]) -> tuple[str, list[str], str | No
         raise ValueError(f"the verdict is empty; write one of: {choices}.")
     verdict = allowed.get(words[0].casefold())
     if verdict is None:
-        raise ValueError(f'"{words[0]}" is not one of: {choices}.')
+        glued = _GLUED_SEPARATOR.search(words[0])
+        hint = (' Put a space on both sides of the " -- " (or " \u2014 ") that starts the reason.' if glued else "")
+        raise ValueError(f'"{words[0]}" is not one of: {choices}.{hint}')
+    if "-" in words[1:]:
+        raise ValueError(SEPARATOR_HINT[0].upper() + SEPARATOR_HINT[1:])
     return verdict, words[1:], reason
+
+
+def lone_hyphen(words: list[str]) -> bool:
+    """True when a single "-" stands where the reason separator was meant."""
+    return "-" in words
 
 
 # --------------------------------------------------------------------------------------------

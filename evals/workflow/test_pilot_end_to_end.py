@@ -364,7 +364,8 @@ def fill_session(path: Path, *, status: str = "completed", failure: str = "") ->
     values = {"Status": status, "Failure": failure, "Started": STARTED, "Ended": ENDED, "Active minutes": "15",
               "Approval wait minutes": "0.5", "Repair rounds": "" if baseline else "1",
               "Host version": "synthetic-host 1.0 (synthetic)", "Extension version": "0.3.0", "Model": MODEL,
-              "Reasoning": REASONING, "Resolved model": "unknown", "Invocation": INVOCATION,
+              "Reasoning": REASONING, "Resolved model": "unknown",
+              "Invocation": "none (plain prompt; no skill) (synthetic)" if baseline else INVOCATION,
               "Helper Python": "" if baseline else "3.12.4", "Usage": "unknown"}
     out = []
     for line in path.read_text(encoding="utf-8").split("\n"):
@@ -403,6 +404,15 @@ def fill_review(path: Path, overrides: dict | None = None) -> None:
             line = f"{key}: {overrides.get((section, key), default)}"
         out.append(line)
     write_lf(path, "\n".join(out))
+
+
+def forget(world: World, run_id: str) -> None:
+    """Fixture setup only: remove a run's evidence and its preparations.jsonl lines, as if it never ran."""
+    shutil.rmtree(world.evidence(run_id))
+    ledger = world.pilot_dir / wp.LEDGER_FILE
+    lines = [line for line in ledger.read_text(encoding="utf-8").splitlines(keepends=True)
+             if json.loads(line)["run"] != run_id]
+    ledger.write_text("".join(lines), encoding="utf-8")
 
 
 def do_run(world: World, run_id: str, *, status: str = "completed", failure: str = "", review: bool = True) -> None:
@@ -674,9 +684,9 @@ def test_missing_reviews_and_runs_leave_stage_1_incomplete(world: World) -> None
     (world.evidence(f"{TASK}:codex:1") / "review.md").unlink()
     decision = summarize(world)["decision"]
     assert decision["value"] == "incomplete" and any("unreviewed" in reason for reason in decision["reasons"])
-    shutil.rmtree(world.evidence(f"{TASK}:copilot:1"))
+    forget(world, f"{TASK}:copilot:1")
     do_run(world, f"{TASK}:copilot:1", status="failed", failure=f"no-publication {EM} synthetic failure")
-    shutil.rmtree(world.evidence(f"{TASK}:claude-code:1"))
+    (world.evidence(f"{TASK}:claude-code:1") / "record.json").unlink()  # sealed evidence kept; the run is pending
     decision = summarize(world)["decision"]
     assert decision["value"] == "incomplete"
     assert any("pending" in reason for reason in decision["reasons"]), decision
@@ -711,10 +721,11 @@ def test_a_changed_candidate_record_breaks_the_chain(world: World) -> None:
 
 def test_a_corpus_checkout_that_fails_verification_blocks_freeze_and_run_prepare(world: World) -> None:
     (world.corpus / "demo" / "train.py").write_bytes(DEMO_FILES["train.py"].encode("utf-8") + b"# edited\n")
+    forget(world, f"{TASK}:codex:1")
     code, _out, err = pilot(world.clone, "run-prepare", f"{TASK}:codex:1", *world.args())
     assert code == 1 and "failed verification" in err and "differ from the pinned blobs" in err, err
     owner_world = wd.World(world.clone, world.corpus)
     problem = wd._verify_corpus(owner_world, owner_world.heldout_task(TASK))
-    assert problem is not None and problem.startswith("verify_repo reported a problem (demo: the checkout has "
+    assert problem is not None and problem.startswith("the checkout failed verification (demo: the checkout has "
                                                       "local changes"), problem
     assert "demo: 1 file(s) differ from the pinned blobs (train.py)" in problem

@@ -52,6 +52,35 @@ def is_pristine(raw: bytes, template: str, name: str) -> bool:
             and [(s.kind, s.ident, s.fence) for s in record.sections] == [(s.kind, s.ident, s.fence) for s in fresh.sections])
 
 
+def pristine_difference(raw: bytes, template: str) -> str | None:
+    """None when ``raw`` is the template apart from line endings, a byte order mark and added note
+    lines (lines starting with ">"), which the owner may add before deciding anything; otherwise the
+    first difference."""
+    text = raw.decode("utf-8")
+    if text.startswith("\ufeff"):
+        text = text[1:]
+    lines = re.split(r"\r\n|\r|\n", text)
+    expected = template.split("\n")
+    index = 0
+    for number, line in enumerate(lines, 1):
+        if index < len(expected) and line == expected[index]:
+            index += 1
+            continue
+        if line.startswith(">"):
+            continue
+        wanted = repr(expected[index]) if index < len(expected) else "the end of the file"
+        return f"line {number} is {line!r} where the template has {wanted}"
+    if index < len(expected):
+        return f"the file ends before the template line {expected[index]!r}"
+    return None
+
+
+def pristine_message(path: Path, name: str, difference: str) -> str:
+    return (f"{path.name} still has every value pending but differs from `python tools/workflow_eval.py template "
+            f"--show {name}`: {difference}. Only note lines starting with \">\" may be added before the first "
+            f"decision; restore the other lines from template --show.")
+
+
 def test_the_folder_holds_every_owner_file() -> None:
     names = {path.name for path in DECISIONS.iterdir()}
     required = {f"{task}.md" for task in heldout_ids()} | {"run-policy.md", "development-adjudication.md", "README.md"}
@@ -77,7 +106,8 @@ def test_pristine_files_equal_a_fresh_template() -> None:
     for name, (path, template) in targets.items():
         raw = path.read_bytes()
         if is_pristine(raw, template, path.name):
-            assert raw == template.encode("utf-8"), f"{path.name} is pristine but differs from template --show {name}"
+            difference = pristine_difference(raw, template)
+            assert difference is None, pristine_message(path, name, difference)
 
 
 def test_the_generator_writes_only_pending_values(tmp_path: Path) -> None:
@@ -97,7 +127,22 @@ def test_the_generator_writes_only_pending_values(tmp_path: Path) -> None:
             assert record.header.value(key) == "", (path.name, key)
         committed = DECISIONS / path.name
         if is_pristine(committed.read_bytes(), path.read_text(encoding="utf-8"), path.name):
-            assert committed.read_bytes() == path.read_bytes(), path.name
+            difference = pristine_difference(committed.read_bytes(), path.read_text(encoding="utf-8"))
+            assert difference is None, pristine_message(committed, path.stem, difference)
+
+
+def test_owner_notes_and_line_endings_keep_a_pristine_file_valid() -> None:
+    current = world()
+    template = wd.task_template(current, heldout_ids()[0])
+    lines = template.split("\n")
+    noted = "\n".join(lines[:12] + ["> My note: check this before deciding (synthetic)."] + lines[12:])
+    assert pristine_difference(noted.encode("utf-8"), template) is None
+    assert pristine_difference(template.replace("\n", "\r\n").encode("utf-8"), template) is None
+    assert pristine_difference(("\ufeff" + template).encode("utf-8"), template) is None
+    drifted = template.replace("Decision: pending", "Decision:  pending", 1)
+    difference = pristine_difference(drifted.encode("utf-8"), template)
+    assert difference is not None and "where the template has 'Decision: pending'" in difference
+    assert "Only note lines starting with" in pristine_message(DECISIONS / "x.md", "x", difference)
 
 
 def test_committed_frozen_campaigns_re_derive_exactly() -> None:
@@ -117,11 +162,13 @@ def test_no_generated_id_collides_with_a_candidate_id() -> None:
     patterns = []
     for task in heldout_ids():
         short = re.escape(wd.short_name(task))
-        patterns += [rf"{short}-u\d{{2}}", rf"{short}-n\d{{2}}", rf"{short}-(?:h|hu|d)\d{{2}}",
-                     rf"{short}-(?:h|hu|d)\d{{2}}-a\d+"]
+        patterns += [rf"{short}-u\d{{2}}", rf"{short}-n\d{{2}}", rf"{short}-(?:s-)?(?:h|hu|d)\d{{2}}",
+                     rf"{short}-(?:s-)?(?:h|hu|d)\d{{2}}-a\d+"]
         patterns += [rf"{re.escape(fact)}-h\d+" for fact in fact_ids[task]]
         assert wd.short_name(task) not in candidate_ids
         assert set(wd.added_patterns(task).values()) == {rf"{short}-h\d{{2}}", rf"{short}-hu\d{{2}}", rf"{short}-d\d{{2}}"}
+        assert set(wd.added_patterns(task, "second").values()) == {rf"{short}-s-h\d{{2}}", rf"{short}-s-hu\d{{2}}",
+                                                                  rf"{short}-s-d\d{{2}}"}
     collisions = [(ident, pattern) for ident in candidate_ids for pattern in patterns if re.fullmatch(pattern, ident)]
     assert collisions == []
     generated = [ident for task in heldout_ids() for ident in

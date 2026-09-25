@@ -36,7 +36,8 @@ against the frozen campaign and computes the Stage 1 stop/go decision. The
 owner's reference review has not happened and **no reference is frozen**: every
 file in `evals/workflow/decisions/` is a pending template. The pilot has **not
 run**: Stage 1 has 24 skill runs pending and 0 passed, and Stage 2 has 48
-pending. The local gate passed on one macOS machine ([details](VALIDATION.md));
+pending. The fixes for the campaign's first review (37 findings) are in. With
+them, the local gate passed on one macOS machine ([details](VALIDATION.md)).
 CI has not yet run on the Campaign 2 branch. PR #9 (0.2.0) is still open, so
 Campaign 2 is based on `llm-workflow` and the CLAUDE.md Git paragraph is
 unchanged.

@@ -35,9 +35,12 @@ The freeze also updates `evals/workflow/tasks.json`: each held-out task's
 `referenceStatus` becomes `frozen`, and a top-level `pilotFreeze` names the
 campaign, its `freeze.json` and its `referenceRevision`. Commit
 `evals/workflow/decisions`, the campaign directory and `tasks.json` together.
-A later campaign may supersede this one only while this one has no committed
-`candidate.json`, or after the owner has written its `invalidation.md`; the
-freeze then records the reason given with `--supersede-reason`.
+A later campaign may supersede this one only while this one was never
+captured (no `candidate.json` or stage summary now or anywhere in the Git
+history; deleting a committed candidate does not count), or after the owner
+has written its `invalidation.md`; the freeze then records the reason given
+with `--supersede-reason`. It refuses in a shallow clone, whose history could
+hide a deleted candidate.
 
 ## Checks
 
@@ -48,7 +51,23 @@ even with updated hashes. It also requires the held-out part of `tasks.json` to
 equal the frozen projection; development-task edits stay allowed. Source file
 hashes are re-read only when the pinned corpus is present. Superseded
 campaigns, and a campaign whose final summary is recorded, get a hash-integrity
-check only, so later tool changes cannot fail history.
+check only, so later tool changes cannot fail history. A final summary counts
+only when `stage1-summary.{json,md}` (with a `stop` or `invalid` decision) or
+`stage2-summary.{json,md}` are summaries `summarize --record` wrote for this
+campaign's `candidate.json` and `freeze.json`; any other file named like a
+summary is a problem and never switches the re-derivation off. The hash-only
+check still requires `freeze.json` to be the one `candidate.json` identifies
+and the candidate ledgers to keep their frozen bytes. For every campaign it
+also checks the fields the re-derivation copies: `supersedes` must name
+another frozen campaign (and every earlier campaign must be superseded) and
+`developmentAdjudication` must have its fixed shape. With the full Git
+history, `freeze.json` must equal the version first committed, and
+`tasksManifest.sha256` and the development adjudication hash must match the
+files committed with it (so commit the campaign, the decisions and
+`tasks.json` together, as the freeze says). What it cannot trace without
+history it prints as `not verified`. A captured campaign that lost its committed
+`candidate.json`, or a superseded captured campaign without a usable
+`invalidation.md`, fails the check.
 
 ## Private run evidence
 
@@ -60,8 +79,15 @@ replaced by `.`, for example `pilot-nanogpt.codex.1`:
 |---|---|
 | `PROMPT.txt`, `workspace-before.json` and a pending `session.md` | `run-prepare` |
 | `session.md` (status, times, settings, deviations), `transcript.txt`, `ui-log.md` | the operator |
-| `artifact.mlview.json`, `workspace-after.json`, `workspace-changes/`, `doctor.json` | `run-finish` |
-| `record.json`, format `mlview-pilot-run/1`, sealed with every evidence hash | `run-finish`; `--amend "<reason>"` keeps the previous seal |
+| `artifact.mlview.json` (or `partial-artifact.mlview.json`), `workspace-after.json`, `workspace-changes.json` (changed project files, host files and paths where `workspace-before.json` differs from the pinned files), `workspace-changes/`, `doctor.json`, `finish-state.json` | `run-finish` |
+| `record.json`, format `mlview-pilot-run/1`, sealed with every evidence hash | `run-finish`; `--amend "<reason>"` keeps the previous seal as `record.previous-<n>.json` |
 | `review.md` | `review-template`, then the named reviewer |
+
+`$MLVIEW_PILOT_DIR/preparations.jsonl` gets one line per `run-prepare`
+attempt and is never rewritten. A retry (`run-prepare <run> --retry
+"<reason>"`, only after a sealed failed, timed-out or blocked attempt) keeps
+the earlier attempt as `evidence/<run>.attempt-<n>/`; `summarize` requires the
+evidence, the attempts in `preparations.jsonl` and each session's
+`Prior attempts` to agree.
 
 A hash identifies bytes; it does not supply human approval.

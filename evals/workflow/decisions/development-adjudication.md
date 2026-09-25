@@ -2,8 +2,8 @@
 
 > Human verdicts on the 12 provisional native reviews and 3 baseline notes; the ledgers are never edited.
 > Claims: supported | qualified | unsupported | omitted. Usability: clear | partial | missing.
-> Baselines: confirmed | corrected | rejected. Add " — <reason>" whenever you differ from the provisional
-> label, and for every baseline verdict except confirmed. Source context: the review packet (review-packet).
+> Baselines: confirmed | corrected | rejected. Add " -- <reason>" (or " — <reason>") whenever you differ from the
+> provisional label, and for every baseline verdict except confirmed. Source context: the review packet (review-packet).
 > Check: python tools/workflow_eval.py check development-adjudication
 
 Reviewer:

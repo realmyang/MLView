@@ -30,7 +30,7 @@ checked the source.
 |---|---|---|
 | Scenario | `Decision: accept`, or `Decision: replace` with `Description:`, `Entrypoints:`, `Arguments:` and `Reason:` | Are the entrypoints, arguments, defaults and excluded cases appropriate? A proposal with a `<...>` placeholder cannot be accepted: Flax still needs a concrete workdir. The notebook draft covers cells 0–220. |
 | Fact | `Decision: accept`, `qualify` or `reject`. `qualify` also needs `Wording:` (your corrected claim) and `Reason:`; `reject` needs `Reason:` | Read the cited lines **and their context**, including conditions or configuration overrides. `accept` takes the claim, basis and essential flag exactly as proposed. |
-| Basis, essential flag or anchors | Only to change a proposal: a `Basis:`, `Essential:` or `Anchors:` line, plus `Reason:` | Is the fact observed directly in source, an inference needing assumptions, or unresolved? Source code alone does not prove an actual runtime outcome. Would omitting the fact materially weaken an answer to the task? The essential facts you keep, plus the facts you add, define the task's recall denominator. |
+| Basis, essential flag or anchors | Only to change a proposal: a `Basis:`, `Essential:` or `Anchors:` line, plus `Reason:`. `Anchors:` replaces the proposed list, so repeat every proposed anchor you keep; the check notes each proposed anchor that is dropped | Is the fact observed directly in source, an inference needing assumptions, or unresolved? Source code alone does not prove an actual runtime outcome. Would omitting the fact materially weaken an answer to the task? The essential facts you keep, plus the facts you add, define the task's recall denominator. |
 | Unknown | `Decision:` as for facts, then `Runs must state: yes` or `no` unless rejected | Is the listed limitation accurate? `yes` means every run must state this uncertainty. |
 | Non-defect | `Decision:` as for facts | Is intentional behavior being mistaken for a defect? Run reviewers judge false accusations against the non-defects you keep. |
 | Anything missing | A new section `## Added fact nanogpt-h01`, `## Added unknown nanogpt-hu01` or `## Defect nanogpt-d01` | The file lists the lines each one needs. A defect needs evidence, counter-evidence and a severity. |
@@ -39,7 +39,10 @@ Anchors are `path:LINE` or `path:LINE-END`. Notebook anchors are
 `path#cellN:LINE-END`, with a zero-based cell and one-based lines inside that
 cell. Separate several anchors, entrypoints or arguments with `;`, and write
 `none` for an empty list. A line indented by two or more spaces continues the
-previous value. Put your own notes on `>` lines.
+previous value; an unindented line is an error, so indent a wrapped `Reason:`
+or `Wording:` instead of turning it into a note. Put your own notes on `>`
+lines; notes may be added before you decide anything. Section headings are
+`## <Kind> <id>`, with exactly two `#` and a space.
 
 For example, `nanogpt-f02` proposes that the no-override scenario initializes
 from scratch. Its anchor is `train.py:41`, where `init_from` is assigned
@@ -84,12 +87,17 @@ A second reviewer is useful for high-severity judgments and disputed claims.
 `python tools/workflow_eval.py template pilot-nanogpt --second` creates
 `pilot-nanogpt.second.md` and never overwrites an existing file. The second
 reviewer decides any subset of items (`pending` means not reviewed) and writes
-`Review: complete` when their decisions are final. The check of your file then
-lists every item where the two of you differ in decision, basis, essential
-flag, runs-must-state or severity (wording is not compared). Each stays a TODO
-until you add `<item id>: <how it was resolved>` under `## Disagreements`. Your
-file holds the final decision, and the frozen reference keeps both positions
-and the resolution. Only a person can be a second reviewer; another model's
+`Review: complete` when their decisions are final. Their own additions use a
+separate ID space (`nanogpt-s-h01`, `nanogpt-s-hu01`, `nanogpt-s-d01`), so the
+two reviewers' additions never share an ID. The check of your file then lists
+every item where the two of you differ in decision, basis, essential flag,
+runs-must-state or severity (wording is not compared), and every item the
+second reviewer added. Each stays a TODO until you add
+`<item id>: <how it was resolved>` under `## Disagreements`; to adopt an
+addition, also add it to your file under your own ID. Your file holds the
+final decision, and the frozen reference keeps both positions and the
+resolution. The second reviewer must be a different person (the check refuses
+the same name), and only a person can be a second reviewer; another model's
 opinion is not human acceptance.
 
 ## Then: agree on the run policy
@@ -115,13 +123,16 @@ lines; no value has a default. You decide:
 `python tools/workflow_eval.py check run-policy --show-prompts` checks the file
 and prints all 16 prompts (eight tasks, with and without the skill) exactly as
 the hosts will receive them after each host's invocation. The no-skill prompt
-may not mention MLView, the skill, WorkflowDocument or publication.
+may not mention MLView, the skill, WorkflowDocument, publishing or
+publication.
 
 Optionally, `evals/workflow/decisions/development-adjudication.md` records your
 verdicts on the 12 provisional native development reviews and the three
-baseline notes; check it with
-`python tools/workflow_eval.py check development-adjudication`. The ledgers
-themselves are never edited.
+baseline notes; a reason follows ` -- ` (two hyphens) or ` — `, and a single
+`-` is not a separator. Check it with
+`python tools/workflow_eval.py check development-adjudication`, which ends
+with `complete` when every verdict is final. The ledgers themselves are never
+edited.
 
 ## Freeze
 
@@ -136,12 +147,19 @@ The first command is a dry run: it prints each task's counts and every unmet
 precondition with its next action. `--write` creates
 `evals/workflow/pilot/pilot-01/` ([contents](../pilot/README.md)) and marks the
 eight held-out tasks `frozen` in `tasks.json`. The freeze needs every pinned
-checkout verified (`python tools/fetch_workflow_repos.py --verify`). It refuses
+checkout verified (`python tools/fetch_workflow_repos.py --verify`). A checkout
+fetched before a manifest change to its sparse patterns (such as mmdetection's
+config files) is repaired once with
+`python tools/fetch_workflow_repos.py --update-sparse --repo <name>`, which
+refuses to drop any materialised file; the freeze names that command when it
+applies. It refuses
 anything pending, re-verifies every kept quote against the pinned source, copies
 no source text into the repository, and adds no judgment or approval. Commit
 `evals/workflow/decisions`, `evals/workflow/pilot/pilot-01` and
 `evals/workflow/tasks.json` together. After the freeze, changing the reference
-means a new campaign.
+means a new campaign: `check <task>` then says `frozen in pilot-01` for an
+unchanged file and notes an edited one, and `check-frozen` names each changed
+decision file.
 
 ## After runs: review the outputs separately
 

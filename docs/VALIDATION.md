@@ -8,6 +8,48 @@ Run `sh scripts/e2e.sh` with Python 3.10+ and Node 20.18.1+ on PATH. On Windows
 use `powershell -File scripts/e2e.ps1`. The [script guide](../scripts/README.md)
 explains each gate and explicit skip options.
 
+## Campaign 2 round 1 fixes — 2026-09-25
+
+The fixes for the 37 verified findings of the campaign's first review (see
+the "Round 1 review fixes" paragraph of the [changelog](../CHANGELOG.md))
+were checked before their commit on the `campaign2-pilot-readiness` branch,
+on top of `5f12856`, on the same macOS machine and virtualenv as below.
+**These are local automated checks only**. CI has not run on this branch.
+No Python 3.10 interpreter was available here. As a stand-in, the system
+Python 3.9 parser read every Python file directly in `tools/`,
+`evals/workflow/`, `scripts/` and `skills/mlview/scripts/`; it found one
+f-string that only Python 3.12+ accepts, which was rewritten.
+
+- `MLVIEW_PYTHON="$PWD/.venv/bin/python" PATH="$PWD/.venv/bin:$PATH" PYTHONDONTWRITEBYTECODE=1 sh scripts/e2e.sh --skip-npm-install`:
+  **all 15 exercised gates passed**.
+  - Python helper, distribution and evaluation tests: **696 passed, 533
+    subtests passed, 2 skipped** (the same two Claude CLI skips as below).
+  - Viewer: **79 passed**. Extension: **250 passed**.
+  - The actual VSIX: 11 files, 155,593 bytes. The built viewer's hashes
+    are unchanged.
+- After a rebuild (viewer build, asset and skill sync, extension compile),
+  `git diff --exit-code` was clean over `webview/dist`,
+  `vscode-extension/media`, the extension's notices and
+  `claude-plugin/skills/mlview`.
+- `python tools/evidence_lock.py`: 95 files match the lock.
+  `git diff --name-status 25b7a39` over `evals/workflow/development`,
+  `evals/workflow/fixtures`, the candidate ledgers and their licenses,
+  `samples/configured_training*`, `docs/archive` and `docs/demo-logs`
+  printed nothing.
+- The reviewers' reproduction scripts, kept outside the repository, were
+  run against the fixed tools: 12 of the 16 no longer reproduce. The other 4
+  pass as expected:
+  - two assert behaviour that was already correct (a consistent rewrite is
+    caught, and a deleted record cannot flip a status);
+  - one supersedes after deleting `candidate.json` in a world without Git
+    (a new test covers the Git case);
+  - one uses a hand-written candidate over a correctly bound freeze, which
+    the specification leaves to commit authorship.
+
+Every decision, review and verdict in the new tests is synthetic. No native
+session, human review, reference freeze, corpus `--update-sparse` or pilot
+run occurred.
+
 ## Campaign 2 local checks — 2026-09-25
 
 Campaign 2 ("pilot readiness", version 0.3.0; see the

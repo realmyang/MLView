@@ -15,6 +15,7 @@ import copy
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -90,6 +91,17 @@ def commit_files(repo: Path, files: dict[str, bytes], message: str = "synthetic"
     return git(repo, "rev-parse", "HEAD")
 
 
+def decision_bytes(task: str) -> bytes:
+    return f"# Reference decisions: {task}\n> Synthetic decision file for tests; no human reviewed it.\n".encode()
+
+
+def ledger_bytes(task: str) -> bytes:
+    return f'{{"taskId": "{task}", "note": "synthetic ledger for tests"}}\n'.encode()
+
+
+POLICY_SOURCE = b"# Pilot run policy\n> Synthetic run policy for tests; no human agreed to it.\n"
+
+
 def reference(task: str, repo: str, commit: str, entry: str, *, extras: bool) -> dict:
     short = task.replace("pilot-", "")
     anchor = {"file": entry, "line": 1, "endLine": 1}
@@ -100,8 +112,8 @@ def reference(task: str, repo: str, commit: str, entry: str, *, extras: bool) ->
     return {
         "format": "mlview-frozen-reference/1", "campaign": CAMPAIGN, "task": task, "repository": repo,
         "repositoryCommit": commit,
-        "candidate": {"path": f"evals/workflow/reference-candidates/{task}.json", "sha256": "0" * 64},
-        "reviews": [{"role": "primary", "path": f"evals/workflow/decisions/{task}.md", "sha256": "0" * 64,
+        "candidate": {"path": f"evals/workflow/reference-candidates/{task}.json", "sha256": sha(ledger_bytes(task))},
+        "reviews": [{"role": "primary", "path": f"evals/workflow/decisions/{task}.md", "sha256": sha(decision_bytes(task)),
                      "reviewer": REVIEWER, "date": "2026-09-30", "transcribedBy": None}],
         "scenario": {"decision": "accept", "description": "Synthetic scenario.", "entrypoints": [entry], "arguments": [],
                      "reason": None},
@@ -124,7 +136,7 @@ def reference(task: str, repo: str, commit: str, entry: str, *, extras: bool) ->
 def make_policy(**changes) -> dict:
     policy = {
         "format": "mlview-run-policy/1", "campaign": CAMPAIGN,
-        "source": {"path": "evals/workflow/decisions/run-policy.md", "sha256": "0" * 64, "reviewer": REVIEWER,
+        "source": {"path": "evals/workflow/decisions/run-policy.md", "sha256": sha(POLICY_SOURCE), "reviewer": REVIEWER,
                    "date": "2026-09-30"},
         "hosts": copy.deepcopy(SETTINGS),
         "environment": {"helperPython": "a synthetic Python 3.12 first on PATH"},
@@ -177,6 +189,11 @@ def build_world(base: Path, *, policy: dict | None = None, candidate: dict | Non
                                "license": "MIT", "redistribute": False, "sparse": spec["sparse"]}
                               for name, spec in CORPUS.items()]}
     files[wp.REPOSITORIES_REL] = (json.dumps(repositories, indent=2) + "\n").encode()
+    decision_files = {f"evals/workflow/decisions/{task}.md": decision_bytes(task) for task, _repo, _entry in TASKS}
+    decision_files["evals/workflow/decisions/run-policy.md"] = POLICY_SOURCE
+    ledgers = {f"evals/workflow/reference-candidates/{task}.json": ledger_bytes(task) for task, _repo, _entry in TASKS}
+    files.update(decision_files)
+    files.update(ledgers)
     campaign_rel = f"{wp.PILOT_REL}/{CAMPAIGN}"
     frozen: dict[str, bytes] = {}
     for task, repo, entry in TASKS:
@@ -206,8 +223,10 @@ def build_world(base: Path, *, policy: dict | None = None, candidate: dict | Non
     for rel, data in frozen.items():
         files[f"{campaign_rel}/{rel}"] = data
     freeze = {"format": "mlview-freeze/1", "campaign": CAMPAIGN, "frozenAt": FROZEN_AT, "referenceRevision": revision,
-              "supersedes": None, "files": {rel: sha(data) for rel, data in frozen.items()}, "decisionFiles": {},
-              "candidateLedgers": {}, "tasksManifest": {"sha256": sha(files[wp.TASKS_REL]), "heldOut": {}},
+              "supersedes": None, "files": {rel: sha(data) for rel, data in frozen.items()},
+              "decisionFiles": {rel: sha(data) for rel, data in decision_files.items()},
+              "candidateLedgers": {rel: sha(data) for rel, data in ledgers.items()},
+              "tasksManifest": {"sha256": sha(files[wp.TASKS_REL]), "heldOut": {}},
               "repositories": {"sha256": sha(files[wp.REPOSITORIES_REL]),
                                "sparse": {name: spec["sparse"] for name, spec in CORPUS.items()}},
               "developmentAdjudication": None, "tooling": {}, "note": "Synthetic freeze for tests; it adds no approval."}
@@ -287,7 +306,8 @@ def session_text(run_id: str, **changes: str) -> str:
               "Approval wait minutes": "0.5", "Repair rounds": "" if baseline else "1",
               "Host version": "synthetic-host 1.0 (synthetic)", "Extension version": "0.3.0",
               "Model": SETTINGS[host]["model"], "Reasoning": SETTINGS[host]["reasoning"], "Resolved model": "unknown",
-              "Invocation": SETTINGS[host]["invocation"], "Helper Python": "" if baseline else "3.12.4",
+              "Invocation": "none (plain prompt; no skill) (synthetic)" if baseline else SETTINGS[host]["invocation"],
+              "Helper Python": "" if baseline else "3.12.4",
               "Usage": "unknown", "Transcript": "transcript.txt", "UI log": "" if baseline else "ui-log.md",
               "Prior attempts": "0", "MLView available to host": "no" if baseline else "yes"}
     deviations = changes.pop("deviations", "")
@@ -396,8 +416,17 @@ def summarize(world: World, stage: str = "1") -> dict:
     return wp.summarize(world.root, CAMPAIGN, stage, str(world.pilot))
 
 
-def redo(world: World, run_id: str, **kwargs) -> None:
+def forget(world: World, run_id: str) -> None:
+    """Fixture setup only: remove a run's evidence and its preparations.jsonl lines, as if it never ran."""
     shutil.rmtree(world.evidence(run_id))
+    ledger = world.pilot / wp.LEDGER_FILE
+    lines = [line for line in ledger.read_text(encoding="utf-8").splitlines(keepends=True)
+             if json.loads(line)["run"] != run_id]
+    ledger.write_text("".join(lines), encoding="utf-8")
+
+
+def redo(world: World, run_id: str, **kwargs) -> None:
+    forget(world, run_id)
     do_run(world, run_id, **kwargs)
 
 
@@ -490,7 +519,7 @@ def test_run_prepare_builds_an_isolated_workspace(fresh: World) -> None:
     assert wp.check_file(evidence / "session.md")[0].message.startswith("Status is still pending")
     # exclusive: a run is prepared once
     code, _out, err = run_main(fresh, "run-prepare", "pilot-demo-b:claude-code:1", *pilot_args(fresh))
-    assert code == 1 and "already exists" in err
+    assert code == 1 and "was already prepared (1 attempt(s)" in err and "--retry" in err
 
 
 def test_run_prepare_baseline_has_no_skill(fresh: World) -> None:
@@ -550,16 +579,35 @@ def test_development_adjudication_gate(tmp_path: Path, monkeypatch) -> None:
     patches(monkeypatch, world)
     code, _out, err = run_main(world, "run-prepare", "pilot-demo-a:codex:1", *pilot_args(world))
     assert code == 1 and "requires the development adjudication" in err and "is not committed" in err
-    synthetic = ("# Development adjudication\nReviewer: Test Reviewer (synthetic)\nDate: 2026-09-30\nTranscribed by:\n"
-                 "## dev-demo / codex\nLedger: native-reviews/codex/dev-demo.json " + "0" * 64 + "\n"
-                 "claim-1: pending\n## Baselines\ncodex: confirmed\n## Task\nReview: complete\n")
-    commit_files(world.root, {wp.ADJUDICATION_REL: synthetic.encode()}, "synthetic adjudication in progress")
+    commit_files(world.root, {wp.ADJUDICATION_REL: b"# Development adjudication\n(synthetic placeholder)\n"},
+                 "synthetic adjudication in progress")
+    seen: list[bytes] = []
+
+    class Result:  # the synthetic world has no development evidence, so the full checker is stubbed here
+        def __init__(self, errors: int, todos: int) -> None:
+            self.errors, self.todos, self.complete = errors, todos, not errors and not todos
+
+    monkeypatch.setattr(wp, "_adjudication_check", lambda root, raw: seen.append(raw) or Result(0, 3))
     code, _out, err = run_main(world, "run-prepare", "pilot-demo-a:codex:1", *pilot_args(world))
-    assert code == 1 and "still has pending items" in err
-    commit_files(world.root, {wp.ADJUDICATION_REL: synthetic.replace("claim-1: pending", "claim-1: supported").encode()},
-                 "synthetic adjudication complete")
+    assert code == 1 and "has 0 error(s) and 3 to do" in err and seen == [b"# Development adjudication\n(synthetic placeholder)\n"]
+    monkeypatch.setattr(wp, "_adjudication_check", lambda root, raw: Result(0, 0))
     code, _out, err = run_main(world, "run-prepare", "pilot-demo-a:codex:1", *pilot_args(world))
     assert code == 0, err
+
+
+@pytest.mark.parametrize("variant", ["empty", "header-only", "typo"])
+def test_the_adjudication_gate_uses_the_full_checker(monkeypatch, variant: str) -> None:
+    import workflow_decisions as wd
+
+    template = wd.adjudication_template(wd.World(ROOT, None))
+    header = template.replace("Reviewer:\n", f"Reviewer: {REVIEWER}\n", 1).replace("Date:\n", "Date: 2026-09-30\n", 1)
+    text = {"empty": "", "header-only": header.replace("Review: pending", "Review: complete"),
+            "typo": header.replace(": pending", ": aprove", 1)}[variant]
+    monkeypatch.setattr(wp, "_show_at_head", lambda root, rel: text.encode("utf-8"))
+    reason = wp.adjudication_status(ROOT)
+    assert reason is not None and "development-adjudication.md" in reason, reason
+    if variant != "empty":
+        assert ("to do" in reason) and (variant != "typo" or "0 error(s)" not in reason), reason
 
 
 # --------------------------------------------------------------------------------------------
@@ -615,16 +663,29 @@ def test_session_checker_messages(tmp_path: Path) -> None:
     messages = [f"{p.level} {p.section}: {p.message}" for p in wp.check_file(evidence / "session.md")]
     assert messages == [
         'ERROR header: "Failure: oops" does not start with a failure kind. Write one of: no-publication, repair-budget, '
-        f'host-error, cancelled, setup, protocol, then " {EM} <detail>".',
+        f'host-error, cancelled, setup, protocol, then " -- <detail>" (or " {EM} <detail>").',
         'ERROR header: Started "2026-10-10 09:00" is not an RFC 3339 time; write it like 2026-10-10T09:02:11Z.',
         'ERROR header: Active minutes "ten" is not a number of minutes (decimals allowed, like 16.5).',
         'ERROR header: Repair rounds "x" is not a whole number.',
         'ERROR header: Transcript: "../t.txt" must be a file name inside the evidence directory, other than the files the '
         "tool writes.",
         "ERROR header: MLView available to host must be yes or no.",
-        f'ERROR Deviations: "Host restarted at 10:05 {EM} invalidates: sometimes" must end with " {EM} invalidates: yes" or '
-        f'" {EM} invalidates: no".',
+        f'ERROR Deviations: "Host restarted at 10:05 {EM} invalidates: sometimes" must end with " -- invalidates: yes" or '
+        f'" -- invalidates: no" (" {EM} " also works).',
     ]
+    for failure, hint in (("host-error - the host crashed", 'a single "-" is not a separator'),
+                          ("host-error the host crashed", 'write the detail after " -- <detail>"')):
+        (evidence / "session.md").write_text(session_text("pilot-demo-a:codex:baseline:1", Status="failed",
+                                                          Failure=failure), encoding="utf-8")
+        assert any(hint in p.message for p in wp.check_file(evidence / "session.md")), failure
+    (evidence / "session.md").write_text(session_text("pilot-demo-a:codex:baseline:1", Status="failed",
+                                                      Failure="host-error -- the host crashed (synthetic)"), encoding="utf-8")
+    assert not [p for p in wp.check_file(evidence / "session.md") if "Failure" in p.message]
+    (evidence / "session.md").write_text(session_text("pilot-demo-a:codex:1", **{
+        "Resolved model": "synthetic model from D:/models/x (synthetic)",
+        "deviations": f"copied the log from /home/someone/log {EM} invalidates: no"}), encoding="utf-8")
+    leaks = [p.message for p in wp.check_file(evidence / "session.md") if "machine path" in p.message]
+    assert len(leaks) == 2 and "Resolved model contains a machine path (D:/)" in leaks[1] + leaks[0]
     (evidence / "session.md").write_text(session_text("pilot-demo-a:codex:1", **{"MLView available to host": "no",
                                                                                    "Ended": "2026-10-10T08:00:00Z"}),
                                          encoding="utf-8")
@@ -888,7 +949,6 @@ def _install_into_baseline(workspace: Path, _evidence: Path) -> None:
     ("pilot-demo-a:codex:1", {"session": {"Invocation": "Synthetic CODEX invocation "}}, None),
     ("pilot-demo-a:codex:1", {"session": {"Active minutes": "25"}}, "active minutes 25 exceed the budget of 20"),
     ("pilot-demo-a:codex:1", {"session": {"Repair rounds": "3"}}, "repair rounds 3 exceed the limit of 2"),
-    ("pilot-demo-a:codex:1", {"session": {"Prior attempts": "1"}}, "prior attempts 1 exceed the infrastructure retries (0)"),
     ("pilot-demo-a:codex:1", {"session": {"Helper Python": "3.9.6"}}, "helper Python 3.9.6 is older than 3.10"),
     ("pilot-demo-a:codex:1", {"session": {"Started": "2026-09-30T00:00:00Z"}}, "started before the freeze"),
     ("pilot-demo-a:codex:1", {"session": {"deviations": f"Prompt sent twice {EM} invalidates: yes"}},
@@ -1024,7 +1084,7 @@ def _review_messages(world: World, run_id: str) -> list[str]:
 
 def test_review_template_lists_every_element(world: World) -> None:
     text = (world.evidence("pilot-demo-b:codex:1") / "review.md").read_text(encoding="utf-8")
-    shutil.rmtree(world.evidence("pilot-demo-b:codex:1"))
+    forget(world, "pilot-demo-b:codex:1")
     do_run(world, "pilot-demo-b:codex:1", review=False)
     code, _out, _err = run_main(world, "review-template", "pilot-demo-b:codex:1", *pilot_args(world))
     pristine = (world.evidence("pilot-demo-b:codex:1") / "review.md").read_text(encoding="utf-8")
@@ -1051,7 +1111,7 @@ def test_review_template_lists_every_element(world: World) -> None:
     ({"overrides": {("Essential facts", "demo-a-f01"): "covered node:nowhere"}},
      'ERROR Essential facts: demo-a-f01: pointer "node:nowhere" does not resolve in the artifact.'),
     ({"overrides": {("Claims", "node:load"): "unsupported"}},
-     f'ERROR Claims: node:load is unsupported; add " {EM} <reason>".'),
+     f'ERROR Claims: node:load is unsupported; add " -- <reason>" (or " {EM} <reason>").'),
     ({"overrides": {("Claims", "node:load"): "aprove"}},
      'ERROR Claims: "node:load: aprove" is not a verdict. Write one of: no-claim, qualified, supported, unsupported.'),
     ({"overrides": {("Known unresolved", "demo-a-u01"): "not-stated coverage"}},
@@ -1061,7 +1121,7 @@ def test_review_template_lists_every_element(world: World) -> None:
 def test_review_problems_make_the_decision_incomplete(world: World, kwargs: dict, expected: str) -> None:
     run_id = "pilot-demo-a:codex:1"
     path = world.evidence(run_id) / "review.md"
-    shutil.rmtree(world.evidence(run_id))
+    forget(world, run_id)
     do_run(world, run_id, review_kwargs=kwargs)
     assert expected in _review_messages(world, run_id), _review_messages(world, run_id)
     summary = summarize(world)
@@ -1252,7 +1312,7 @@ def test_no_tool_output_contains_a_decision_or_approval(world: World, tmp_path: 
     template = wp.session_template("pilot-demo-a:codex:1", "skill").decode("utf-8")
     assert "Status: pending" in template and "Reviewer" not in template
     base = "pilot-demo-a:codex:baseline:1"
-    shutil.rmtree(world.evidence(base))
+    forget(world, base)
     do_run(world, base, review=False)
     run_main(world, "review-template", base, *pilot_args(world))
     text = (world.evidence(base) / "review.md").read_text(encoding="utf-8")
@@ -1271,4 +1331,294 @@ def test_caveats_match_the_specification_for_the_committed_manifest() -> None:
                         "They are not a sample of repositories or sessions, and the results describe these scenarios only.")
     assert texts[1].endswith("because 8 task clusters cannot support them.")
     assert texts[3] == ("Stage 2 repeats measure within-scenario variation; 72 runs are not 72 independent tasks "
-                        "(README.md:101-102).")
+                        '(evals/workflow/README.md, "Review and adjudicate").')
+
+
+def test_cited_readme_sections_exist() -> None:
+    """Tool strings cite README sections by heading (line numbers go stale when a README is edited)."""
+    cited = re.findall(r'(evals/workflow/README\.md|CANDIDATE_PROTOCOL\.md|REVIEW_GUIDE\.md), "([^"]+)"',
+                       "\n".join((TOOLS / name).read_text(encoding="utf-8")
+                                  for name in ("workflow_pilot.py", "workflow_decisions.py")))
+    assert {doc for doc, _heading in cited} == {"evals/workflow/README.md", "CANDIDATE_PROTOCOL.md", "REVIEW_GUIDE.md"}
+    files = {"evals/workflow/README.md": ROOT / "evals/workflow/README.md",
+             "CANDIDATE_PROTOCOL.md": ROOT / "evals/workflow/CANDIDATE_PROTOCOL.md",
+             "REVIEW_GUIDE.md": ROOT / "evals/workflow/reference-candidates/REVIEW_GUIDE.md"}
+    for doc, heading in sorted(set(cited)):
+        headings = [line.lstrip("#").strip() for line in files[doc].read_text(encoding="utf-8").splitlines()
+                    if line.startswith("#")]
+        assert heading in headings, (doc, heading)
+    assert "(README.md:" not in "\n".join(wp.caveats(8, 3, 3)) + wp.GO_TEXT
+
+
+# --------------------------------------------------------------------------------------------
+# Round 1 review regressions (every value synthetic)
+
+
+def test_a_deleted_record_cannot_be_resealed_with_other_facts(world: World) -> None:
+    run_id = "pilot-demo-a:codex:1"
+    evidence = world.evidence(run_id)
+    timed_out = {"Status": "timed-out", "Failure": "repair-budget -- ran out (synthetic)", "Active minutes": "35"}
+    redo(world, run_id, session=timed_out)
+    sealed = (evidence / "session.md").read_bytes()
+    assert (evidence / "partial-artifact.mlview.json").is_file() and (evidence / "finish-state.json").is_file()
+    os.remove(evidence / "record.json")
+    (evidence / "session.md").write_text(session_text(run_id), encoding="utf-8")
+    shutil.copy(evidence / "partial-artifact.mlview.json", evidence / "artifact.mlview.json")
+    code, _out, err = run_main(world, "run-finish", run_id, *pilot_args(world))
+    assert code == 1 and "session.md changed after run-finish removed the workspace" in err, err
+    (evidence / "session.md").write_bytes(sealed)
+    code, _out, err = run_main(world, "run-finish", run_id, *pilot_args(world))
+    assert code == 1 and "artifact.mlview.json was not written by run-finish" in err, err
+    os.remove(evidence / "artifact.mlview.json")
+    code, _out, err = run_main(world, "run-finish", run_id, *pilot_args(world))
+    assert code == 0, err
+    assert json.loads((evidence / "record.json").read_text(encoding="utf-8"))["session"]["status"] == "timed-out"
+
+
+def test_a_record_deleted_after_an_amendment_is_never_resealed(world: World) -> None:
+    run_id = "pilot-demo-a:codex:1"
+    evidence = world.evidence(run_id)
+    (evidence / "session.md").write_text(session_text(run_id, **{"Active minutes": "16"}), encoding="utf-8")
+    assert run_main(world, "run-finish", run_id, *pilot_args(world), "--amend", "typo (synthetic)")[0] == 0
+    os.remove(evidence / "record.json")
+    code, _out, err = run_main(world, "run-finish", run_id, *pilot_args(world))
+    assert code == 1 and "record.previous-*.json exist: the sealed record was deleted" in err, err
+    code, _out, err = run_main(world, "run-finish", run_id, *pilot_args(world), "--amend", "from D:/pilot (synthetic)")
+    assert code == 1 and "the amendment reason contains a machine path" in err, err
+
+
+def test_sealed_workspace_lists_must_match_the_hashed_evidence(world: World) -> None:
+    run_id = "pilot-demo-a:claude-code:1"
+    evidence = world.evidence(run_id)
+    original = (evidence / "record.json").read_bytes()
+    edit_json(evidence / "record.json", lambda v: v["workspace"]["changedProjectFiles"].append(
+        {"path": "train.py", "change": "modified", "file": None, "sha256": None}))
+    problems = integrity_problems(world)
+    assert any("record.json workspace lists differ from workspace-changes.json" in p for p in problems), problems
+    (evidence / "record.json").write_bytes(original)
+    (evidence / "record.previous-3.json").write_bytes(original)
+    assert any("record.previous-3.json is not referenced by record.json amendments" in p for p in integrity_problems(world))
+    os.remove(evidence / "record.previous-3.json")
+    assert summarize(world)["decision"]["value"] == "go"
+
+
+def test_workspace_changes_are_measured_against_the_pinned_files(world: World) -> None:
+    run_id = "pilot-demo-a:codex:1"
+
+    def edit_both(workspace: Path, evidence: Path) -> None:
+        (workspace / "train.py").write_text("tampered = True  # synthetic\n", encoding="utf-8")
+        before = json.loads((evidence / "workspace-before.json").read_text(encoding="utf-8"))
+        before["train.py"] = sha(b"tampered = True  # synthetic\n")
+        (evidence / "workspace-before.json").write_bytes(er.canonical_json(before))
+
+    redo(world, run_id, before_finish=edit_both)
+    run = run_of(summarize(world), run_id)
+    assert run["status"] == "invalid"
+    assert "workspace-before.json differs from the pinned files for 1 path(s) (train.py)" in run["invalidReasons"]
+    assert "1 project file(s) changed in the workspace (train.py)" in run["invalidReasons"]
+
+
+def test_a_host_settings_file_is_reported_not_invalidating(world: World) -> None:
+    def settings(workspace: Path, _evidence: Path) -> None:
+        (workspace / ".claude").mkdir(exist_ok=True)
+        (workspace / ".claude/settings.local.json").write_text('{"permissions": {"allow": []}}\n', encoding="utf-8")
+
+    redo(world, "pilot-demo-b:claude-code:1", before_finish=settings)
+    redo(world, "pilot-demo-b:codex:1", before_finish=settings)
+    summary = summarize(world)
+    claude = run_of(summary, "pilot-demo-b:claude-code:1")
+    assert claude["status"] == "completed" and any(".claude/settings.local.json" in w for w in claude["warnings"])
+    record = json.loads((world.evidence("pilot-demo-b:claude-code:1") / "record.json").read_text(encoding="utf-8"))
+    assert [entry["path"] for entry in record["workspace"]["hostFiles"]] == [".claude/settings.local.json"]
+    assert record["workspace"]["changedProjectFiles"] == [] and record["workspace"]["hostFiles"][0]["file"]
+    codex = run_of(summary, "pilot-demo-b:codex:1")
+    assert codex["status"] == "invalid" and "1 project file(s) changed in the workspace (.claude/settings.local.json)" \
+        in codex["invalidReasons"]
+
+
+def test_mlview_files_in_a_baseline_workspace_invalidate_it(world: World) -> None:
+    run_id = "pilot-demo-a:codex:baseline:1"
+    redo(world, run_id, before_finish=lambda ws, _ev: (ws / "answer.mlview.json").write_text("{}\n", encoding="utf-8"))
+    summary = summarize(world)
+    assert summary["decision"]["value"] == "go"  # baselines never gate
+    run = next(p["baseline"] for p in summary["baselines"]["paired"] if p["task"] == "pilot-demo-a" and p["host"] == "codex")
+    assert run["status"] == "invalid"
+    record = json.loads((world.evidence(run_id) / "record.json").read_text(encoding="utf-8"))
+    assert [entry["path"] for entry in record["workspace"]["changedProjectFiles"]] == ["answer.mlview.json"]
+
+
+def test_a_baseline_is_not_held_to_the_skill_invocation(world: World, fresh: World) -> None:
+    summary = summarize(world)
+    baseline = next(p["baseline"] for p in summary["baselines"]["paired"] if p["task"] == "pilot-demo-a")
+    assert baseline["status"] == "completed"
+    record = json.loads((world.evidence("pilot-demo-a:codex:baseline:1") / "record.json").read_text(encoding="utf-8"))
+    assert record["session"]["invocation"] == "none (plain prompt; no skill) (synthetic)"
+    code, out, err = run_main(fresh, "run-prepare", "pilot-demo-a:codex:baseline:1", *pilot_args(fresh))
+    assert code == 0, err
+    assert "no skill invocation" in out and "do not use the skill invocation" in out and "synthetic codex invocation" not in out
+
+
+def test_unreviewed_baselines_block_recording_and_show_no_difference(world: World) -> None:
+    base = "pilot-demo-a:codex:baseline:1"
+    os.remove(world.evidence(base) / "review.md")
+    summary = summarize(world)
+    assert summary["decision"]["value"] == "go"
+    baselines = summary["baselines"]
+    assert baselines["unreviewed"] == [base] and baselines["complete"] is False
+    paired = next(p for p in baselines["paired"] if p["task"] == "pilot-demo-a" and p["host"] == "codex")
+    assert paired["baseline"]["status"] == "unreviewed" and paired["recallDifference"] is None
+    assert f"Unreviewed: {base}." in wp.render_markdown(summary)
+    code, _out, err = run_main(world, "summarize", *pilot_args(world), "--stage", "1", "--record")
+    assert code == 1 and f"the planned baselines are not complete (unreviewed: {base})" in err, err
+    (world.evidence(base) / "review.md").write_text("# Run review: somewhere else\n", encoding="utf-8")
+    summary = summarize(world)
+    assert summary["baselines"]["reviewProblems"] == [base]
+    assert next(r for r in summary["baselines"]["runs"] if r["id"] == base)["reviewProblems"] >= 1
+
+
+def test_a_forged_stage1_go_does_not_unlock_stage_2(world: World) -> None:
+    campaign_dir = world.root / wp.PILOT_REL / CAMPAIGN
+    (campaign_dir / "stage1-summary.json").write_text('{"decision": {"value": "go"}}\n', encoding="utf-8")
+    commit_files(world.root, {}, "synthetic hand-written summary")
+    code, _out, err = run_main(world, "run-prepare", "pilot-demo-a:codex:2", *pilot_args(world))
+    assert code == 1 and 'is not a "mlview-pilot-summary/1" Stage 1 summary' in err, err
+    git(world.root, "rm", "--quiet", f"{wp.PILOT_REL}/{CAMPAIGN}/stage1-summary.json")
+    git(world.root, "commit", "--quiet", "-m", "synthetic removal")
+    redo(world, "pilot-demo-a:codex:1", publish_artifact=False,
+         session={"Status": "failed", "Failure": "no-publication -- nothing published (synthetic)"})
+    real = summarize(world)
+    assert real["decision"]["value"] == "stop"
+    forged = json.loads(er.canonical_json(real))
+    forged["decision"]["value"] = "go"
+    (campaign_dir / "stage1-summary.json").write_bytes(er.canonical_json(forged))
+    (campaign_dir / "stage1-summary.md").write_text(wp.render_markdown(forged), encoding="utf-8")
+    commit_files(world.root, {}, "synthetic forged go")
+    code, _out, err = run_main(world, "run-prepare", "pilot-demo-a:codex:2", *pilot_args(world))
+    assert code == 1 and "a re-computation of Stage 1 from the sealed evidence gives stop, not go" in err, err
+
+
+def test_stage_2_runs_are_invalid_when_stage_1_no_longer_matches(world: World) -> None:
+    code, _out, err = run_main(world, "summarize", *pilot_args(world), "--stage", "1", "--record")
+    assert code == 0, err
+    commit_files(world.root, {}, "synthetic stage 1 summary")
+    do_run(world, "pilot-demo-a:codex:2", session={"Started": "2026-10-25T09:00:00Z", "Ended": "2026-10-25T09:10:00Z"})
+    assert run_of(summarize(world, "all"), "pilot-demo-a:codex:2")["status"] == "completed"
+    _set_review(world, "pilot-demo-b:codex:1", "Date: 2026-10-21", "Date: 2026-10-22")
+    reasons = run_of(summarize(world, "all"), "pilot-demo-a:codex:2")["invalidReasons"]
+    assert reasons and "does not match the sealed Stage 1 records and reviews" in reasons[0], reasons
+
+
+def test_a_failed_run_is_retried_only_through_the_ledger(world: World) -> None:
+    run_id = "pilot-demo-b:codex:1"
+    code, _out, err = run_main(world, "run-prepare", run_id, *pilot_args(world), "--retry", "again (synthetic)")
+    assert code == 1 and "a completed run is never retried" in err, err
+    redo(world, run_id, publish_artifact=False,
+         session={"Status": "failed", "Failure": "host-error -- the host crashed (synthetic)"})
+    code, out, err = run_main(world, "run-prepare", run_id, *pilot_args(world), "--retry", "the host crashed (synthetic)")
+    assert code == 0, err
+    earlier = world.pilot / "evidence" / "pilot-demo-b.codex.1.attempt-1"
+    evidence = world.evidence(run_id)
+    workspace = world.pilot / "workspaces" / "pilot-demo-b.codex.1.attempt-2"
+    assert (earlier / "record.json").is_file() and workspace.is_dir() and not world.workspace(run_id).exists()
+    assert "Prior attempts: 1" in (evidence / "session.md").read_text(encoding="utf-8")
+    publish(workspace, "codex", "pilot-demo-b")
+    prompt = (evidence / "PROMPT.txt").read_text(encoding="utf-8")
+    (evidence / "transcript.txt").write_text(prompt + "\nThe loop runs.\n", encoding="utf-8")
+    (evidence / "ui-log.md").write_text("Synthetic UI checklist.\n", encoding="utf-8")
+    (evidence / "session.md").write_text(session_text(run_id), encoding="utf-8")
+    code, _out, err = run_main(world, "run-finish", run_id, *pilot_args(world))
+    assert code == 1 and "records 1 earlier attempt(s); write Prior attempts: 1" in err, err
+    (evidence / "session.md").write_text(session_text(run_id, **{"Prior attempts": "1"}), encoding="utf-8")
+    code, _out, err = run_main(world, "run-finish", run_id, *pilot_args(world))
+    assert code == 0, err
+    assert run_main(world, "review-template", run_id, *pilot_args(world))[0] == 0
+    fill_review(evidence / "review.md")
+    run = run_of(summarize(world), run_id)
+    assert run["status"] == "invalid" and "prior attempts 1 exceed the infrastructure retries (0)" in run["invalidReasons"]
+    ledger = [json.loads(line) for line in (world.pilot / wp.LEDGER_FILE).read_text(encoding="utf-8").splitlines()]
+    assert [(e["attempt"], e["reason"]) for e in ledger if e["run"] == run_id] == [(1, None), (2, "the host crashed (synthetic)")]
+    shutil.rmtree(earlier)
+    assert any("the kept earlier attempts none differ from the 1 earlier attempt(s)" in p for p in integrity_problems(world))
+
+
+def test_erased_evidence_is_never_prepared_again(world: World) -> None:
+    run_id = "pilot-demo-a:codex:1"
+    shutil.rmtree(world.evidence(run_id))
+    code, _out, err = run_main(world, "run-prepare", run_id, *pilot_args(world))
+    assert code == 1 and "was already prepared" in err
+    assert any("records 1 preparation(s) but evidence/pilot-demo-a.codex.1 is missing" in p for p in integrity_problems(world))
+
+
+def test_early_stop_does_not_count_an_unreviewable_run_as_open(world: World) -> None:
+    def broken(workspace: Path, _evidence: Path) -> None:
+        (workspace / "pilot.mlview.json").write_text('{"a": NaN}', encoding="utf-8")
+
+    redo(world, "pilot-demo-a:codex:1", publish_artifact=False, before_finish=broken, review=False)
+    os.remove(world.evidence("pilot-demo-b:codex:1") / "record.json")
+    indicators = summarize(world)["decision"]["earlyStopIndicators"]
+    assert "T4: at most 6/8 can still be reached" in indicators and "T5: at most 3/4 can still be reached" in indicators
+
+
+def test_split_claims_reject_leading_zeros_and_repeats(world: World) -> None:
+    run_id = "pilot-demo-a:codex:1"
+    forget(world, run_id)
+    do_run(world, run_id, review=False)
+    run_main(world, "review-template", run_id, *pilot_args(world))
+    path = world.evidence(run_id) / "review.md"
+    fill_review(path)
+    path.write_text(path.read_text(encoding="utf-8").replace("node:load: supported\n",
+                                                               "node:load: supported\nnode:load#02: supported\n"),
+                    encoding="utf-8")
+    assert any("write #2, #3, ... without leading zeros" in m for m in _review_messages(world, run_id))
+    base = "pilot-demo-a:codex:baseline:1"
+    forget(world, base)
+    do_run(world, base, review_kwargs={"baseline_claims": ("response:1-2: supported", "response:01-2: supported",
+                                                           "response:1-2#2: supported", "response:1-2#02: supported")})
+    messages = _review_messages(world, base)
+    assert sum("without leading zeros" in m for m in messages) == 2, messages
+
+
+def test_disputed_denominator_items_include_flags_the_resolution_dropped() -> None:
+    reference = {"essentialFactIds": ["x-f01"], "knownUnresolved": [{"id": "x-u01", "runsMustState": False}],
+                 "disputes": [
+                     {"item": "x-f01", "primary": {"decision": "accept", "essential": True},
+                      "second": {"decision": "reject"}, "resolution": "kept (synthetic)"},
+                     {"item": "x-f02", "primary": {"decision": "accept", "essential": False},
+                      "second": {"decision": "accept", "essential": True}, "resolution": "not essential (synthetic)"},
+                     {"item": "x-u01", "primary": {"decision": "accept", "runsMustState": False},
+                      "second": {"decision": "accept", "runsMustState": True}, "resolution": "optional (synthetic)"},
+                     {"item": "x-n01", "primary": {"decision": "accept"}, "second": {"decision": "reject"},
+                      "resolution": "kept (synthetic)"}]}
+    campaign = type("Campaign", (), {"references": {"pilot-x": reference}})()
+    found = wp._disputed_items(campaign, ["pilot-x"])
+    assert [(d["item"], d["kind"], d["inDenominator"]) for d in found] == [
+        ("x-f01", "essential", True), ("x-f02", "essential", False), ("x-u01", "runsMustState", False)]
+    assert all("resolution" not in d for d in found)
+
+
+def test_percentages_never_round_up_to_a_threshold() -> None:
+    assert wp._pct(816, 859) == "94.9%" and wp._pct(1, 3) == "33.3%" and wp._pct(2, 3) == "66.6%"
+    assert wp._fmt_ratio({"numerator": 816, "denominator": 859}) == "816/859 (94.9%)"
+
+
+def test_frozen_references_must_come_from_committed_decisions(world: World) -> None:
+    campaign = wp.load_campaign(world.root, CAMPAIGN)
+    freeze = copy.deepcopy(campaign.freeze)
+    del freeze["decisionFiles"]["evals/workflow/decisions/pilot-demo-a.md"]
+    freeze["candidateLedgers"] = {}
+    references = copy.deepcopy(campaign.references)
+    references["pilot-demo-b"]["reviews"][0]["sha256"] = "0" * 64
+    problems = wp._decision_binding(world.root, campaign.commit, freeze, campaign.heldout, references, campaign.policy)
+    assert "freeze.json: decisionFiles has no evals/workflow/decisions/pilot-demo-a.md" in problems
+    assert "freeze.json: candidateLedgers has no evals/workflow/reference-candidates/pilot-demo-a.json" in problems
+    assert any("reference/pilot-demo-b.json: review 'evals/workflow/decisions/pilot-demo-b.md' is not a frozen" in p
+               for p in problems)
+    assert wp._decision_binding(world.root, campaign.commit, campaign.freeze, campaign.heldout, campaign.references,
+                                campaign.policy) == []
+
+
+def test_a_forward_slash_drive_path_is_never_recorded(world: World) -> None:
+    summary = summarize(world)
+    summary["caveats"].append("evidence copied from D:/mlview-pilot by hand (synthetic)")
+    with pytest.raises(wp.PilotError, match="machine path"):
+        wp.record_summary(world.root, summary)

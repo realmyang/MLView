@@ -294,6 +294,42 @@ def test_check_frozen_must_pass_and_an_existing_candidate_is_never_replaced(tmp_
 
 
 @needs_git
+@pytest.mark.parametrize("name", ["stage1-summary.json", "stage2-summary.md", "invalidation.md"])
+def test_a_campaign_with_a_summary_or_invalidation_is_never_captured(tmp_path: Path, name: str) -> None:
+    root = make_world(tmp_path, **{f"evals/workflow/pilot/{CAMPAIGN}/{name}": b"synthetic leftover\n"})
+    with pytest.raises(candidate.CaptureError, match=f"already holds {name}; summaries and invalidations follow a "
+                                                     "capture"):
+        capture(root, tmp_path / "pilot", package=never_package)
+    assert not (root / f"evals/workflow/pilot/{CAMPAIGN}/candidate.json").exists()
+
+
+@needs_git
+def test_a_relative_pilot_directory_is_made_absolute_before_packaging(tmp_path: Path, monkeypatch) -> None:
+    root = make_world(tmp_path)
+    outputs: list[Path] = []
+
+    def recording(root: Path, output: Path) -> None:
+        outputs.append(output)
+        stub_package(root, output)
+
+    monkeypatch.chdir(tmp_path)
+    target, record = capture(root, Path("relative-pilot"), package=recording)
+    assert outputs == [Path.cwd() / "relative-pilot" / "mlview-0.3.0.vsix"] and outputs[0].is_absolute()
+    assert (tmp_path / "relative-pilot" / "mlview-0.3.0.vsix").is_file() and target.is_file()
+    assert record["vsix"]["file"] == "mlview-0.3.0.vsix"
+    calls: list[list[str]] = []
+
+    class Done:
+        returncode = 0
+
+    monkeypatch.setattr(candidate.shutil, "which", lambda name: "/usr/bin/npm")
+    monkeypatch.setattr(candidate.subprocess, "run", lambda args, **kwargs: calls.append(args) or Done())
+    candidate.package_vsix(root, Path("relative.vsix"))
+    assert Path(calls[0][-1]).is_absolute() and calls[0][-2] == "--out"
+    assert Path(calls[0][-1]).name == "relative.vsix"
+
+
+@needs_git
 def test_pilot_directory_is_required_and_must_be_outside_every_work_tree(tmp_path: Path) -> None:
     root = make_world(tmp_path)
     with pytest.raises(candidate.CaptureError, match="MLVIEW_PILOT_DIR is not set; export MLVIEW_PILOT_DIR"):

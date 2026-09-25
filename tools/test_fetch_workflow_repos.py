@@ -298,7 +298,8 @@ def test_real_fetch_from_file_url_is_sparse_blob_exact_and_verified(local_repo, 
     report = fetcher.verify_repo(local_repo, corpus)
     assert report == {
         "name": "synthetic", "head": local_repo["sha"], "clean": True, "legacyMarker": False, "sparseMatches": True,
-        "covered": 3, "missing": [], "extraMaterialized": [], "blobMismatches": [], "ok": True, "problems": [],
+        "covered": 3, "missing": [], "extraMaterialized": [], "blobMismatches": [], "treeChecked": True,
+        "unclassified": [], "ok": True, "problems": [],
     }
     fetcher.fetch_one(local_repo, corpus)
     assert capsys.readouterr().out.splitlines()[-1] == f"have synthetic @ {local_repo['sha'][:12]}"
@@ -431,6 +432,38 @@ def test_update_sparse_refuses_to_drop_materialised_files(local_repo, tmp_path: 
     assert report["ok"] is False and report["extraMaterialized"] == ["configs/common/a.py", "docs/tools/notes.md"]
     with pytest.raises(fetcher.FetchError, match=r"would drop 2 materialised file\(s\) \(configs/common/a.py, "
                                                  r"docs/tools/notes.md\); refusing to change the checkout"):
+        fetcher.update_sparse_one(narrower, corpus)
+    assert git(checkout, "sparse-checkout", "list").split() == ["tools", "configs/common"]
+    assert (checkout / "configs/common/a.py").is_file()
+
+
+@needs_git
+def test_update_sparse_refuses_when_the_tree_was_not_fully_inspected(local_repo, monkeypatch, tmp_path: Path) -> None:
+    corpus = tmp_path / "corpus"
+    checkout = fetcher.fetch_one(local_repo, corpus)
+    narrower = dict(local_repo, sparse=["/tools"])
+    real_tree = fetcher._tree
+
+    def unlisted(checkout_path, sha):
+        raise fetcher.FetchError("git ls-tree failed")
+
+    monkeypatch.setattr(fetcher, "_tree", unlisted)
+    report = fetcher.verify_repo(narrower, corpus)
+    assert report["treeChecked"] is False and report["extraMaterialized"] == []
+    with pytest.raises(fetcher.FetchError, match="cannot list the pinned tree"):
+        fetcher.update_sparse_one(narrower, corpus)
+    monkeypatch.setattr(fetcher, "_tree", real_tree)
+    real_covers = fetcher.eval_records.sparse_covers
+
+    def undecided(patterns, path):
+        if path.startswith("configs/"):
+            raise ValueError("synthetic undecidable pattern")
+        return real_covers(patterns, path)
+
+    monkeypatch.setattr(fetcher.eval_records, "sparse_covers", undecided)
+    report = fetcher.verify_repo(narrower, corpus)
+    assert report["treeChecked"] is True and "configs/common/a.py" in report["unclassified"]
+    with pytest.raises(fetcher.FetchError, match="cannot decide sparse coverage"):
         fetcher.update_sparse_one(narrower, corpus)
     assert git(checkout, "sparse-checkout", "list").split() == ["tools", "configs/common"]
     assert (checkout / "configs/common/a.py").is_file()

@@ -1,10 +1,10 @@
 # Reference decisions: pilot-flax
 
 > Guide: evals/workflow/reference-candidates/REVIEW_GUIDE.md. Check: python tools/workflow_eval.py check pilot-flax
-> Lines starting with ">" are written by the tool and ignored. Replace each "pending".
+> Lines starting with ">" are written by the tool and ignored. Replace each "pending". Indent a wrapped line by two spaces to continue the value above it.
 > Fact and Non-defect: Decision: accept | qualify | reject. Unknown: the same, plus "Runs must state: yes | no" unless rejected.
 > qualify = accept with your wording: add "Wording:" and "Reason:". reject: add "Reason:".
-> To change a proposed Basis, Essential flag or Anchors, add that line and a "Reason:".
+> To change a proposed Basis, Essential flag or Anchors, add that line and a "Reason:". Anchors: replaces the proposed list; repeat each proposed anchor you keep.
 
 Candidate: pilot-flax.json 161f674e64f6b8a6e94a33eb25d8ea47b8736147de2497a82908430cb911cfac
 Reviewer:

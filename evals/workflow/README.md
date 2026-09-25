@@ -89,32 +89,47 @@ python tools/workflow_eval.py run-finish pilot-nanogpt:codex:1 --campaign pilot-
 ```
 
 `plan` prints the planned run IDs and conditions from the frozen manifest;
-`--stage` takes `1`, `2` or `all`, and `--output PATH` writes a new file
-instead. `run-prepare` refuses unless the frozen chain, the pinned checkout
-and the installed skill identity verify. It then creates a fresh workspace
-(`$MLVIEW_PILOT_DIR/workspaces/pilot-nanogpt.codex.1`, not a Git repository)
-containing only the manifest's pinned paths, installs the skill for skill
-runs, copies the frozen prompt to the evidence directory's `PROMPT.txt`, and
-prints the operator checklist.
+`--stage` takes `1`, `2` or `all`, and `--output PATH` also writes the plan to
+a new file (never overwritten). `run-prepare` refuses unless the frozen chain,
+the pinned checkout and the installed skill identity verify. It then creates a
+fresh workspace (`$MLVIEW_PILOT_DIR/workspaces/pilot-nanogpt.codex.1`, not a
+Git repository) containing only the manifest's pinned paths, installs the
+skill for skill runs, copies the frozen prompt to the evidence directory's
+`PROMPT.txt`, appends the attempt to `$MLVIEW_PILOT_DIR/preparations.jsonl`
+and prints the operator checklist. Every attempt is prepared once: deleting
+an evidence directory never allows preparing the run again.
 
 The operator opens that workspace in a new VS Code window and runs one fresh
-native session with the policy's settings and invocation, then fills
+native session with the policy's settings and invocation (a baseline sends
+the prompt as a plain message, without the skill invocation), then fills
 `session.md` in `$MLVIEW_PILOT_DIR/evidence/pilot-nanogpt.codex.1/`: status
 (`completed`, `failed`, `timed-out` or `blocked`) and failure kind, start and
 end times, active and approval-wait minutes, repair rounds, host and extension
 versions, model and reasoning settings (unknown where hidden), invocation,
 helper Python, exposed usage, transcript, native UI log, prior attempts and
-deviations. Complete the [live UI checklist](../../docs/LLM_WORKFLOW.md) in
-the UI log, separately from semantic scores.
+deviations. A failure detail and a deviation's `invalidates:` flag follow
+` -- ` (two hyphens) or ` — `; a single `-` is not a separator. Write no
+machine paths in `session.md`. Complete the
+[live UI checklist](../../docs/LLM_WORKFLOW.md) in the UI log, separately
+from semantic scores.
 
-`run-finish` copies the published `pilot.mlview.json`, records any changed
-project file and the skill doctor report, hashes every evidence file into a
-sealed `record.json`, and removes the workspace. A sealed record changes only
-through `run-finish ... --amend "<reason>"`, which keeps the previous seal.
-Retain every failure, timeout and block; never replace an attempt with a
-retry the policy does not allow. Transcripts, UI logs, run reviews and
-workspaces stay out of the repository; committed summaries contain counts,
-statuses and hashes only.
+`run-finish` copies the published `pilot.mlview.json`, compares the workspace
+with the pinned bytes recomputed from the corpus (not with
+`workspace-before.json`), records any changed project file and the skill
+doctor report, writes `finish-state.json`, hashes every evidence file into a
+sealed `record.json`, and removes the workspace. A file a host writes for its
+own settings (Claude Code's `.claude/settings.local.json`) is copied and
+reported as a warning, not as a changed project file; in a baseline every
+added file counts, including MLView files. A sealed record changes only
+through `run-finish ... --amend "<reason>"`, which keeps the previous seal; a
+deleted `record.json` is never sealed again with other session facts.
+Retain every failure, timeout and block. After a sealed failed, timed-out or
+blocked attempt, `run-prepare RUN --campaign C --retry "<reason>"` keeps the
+earlier evidence as `evidence/<run>.attempt-<n>/`, prepares a fresh
+`workspaces/<run>.attempt-<n+1>/` and writes `Prior attempts: <n>` into the
+new `session.md`; attempts beyond the policy's infrastructure retries make
+the run invalid. Transcripts, UI logs, run reviews and workspaces stay out of
+the repository; committed summaries contain counts, statuses and hashes only.
 
 ## Stage 1 stop/go
 
@@ -152,9 +167,12 @@ An integrity failure, such as a missing or changed evidence file, a wrong
 prompt, candidate or reference hash, or an unplanned or duplicate run, exits 1
 with no decision. A protocol violation makes the run `invalid`, which counts
 as a failure: settings that differ from the policy, over budget, too many
-repairs, a helper Python older than 3.10, a changed project file, a wrong
-producer host, skill identity drift, a baseline with MLView available, or a
-deviation marked as invalidating. `--json` prints the machine-readable
+repairs, a helper Python older than 3.10, a changed project file (or a
+`workspace-before.json` that differs from the pinned files), a wrong producer
+host, skill identity drift, a baseline with MLView available or an MLView
+file in a baseline workspace, a retry after a completed attempt, or a
+deviation marked as invalidating. A baseline is held to the policy's model and
+reasoning, not to the skill invocation. `--json` prints the machine-readable
 summary. The decision is always labeled "computed against predefined
 targets; not an approval":
 
@@ -170,8 +188,14 @@ targets; not an approval":
   Tools never create it.
 
 `--record` also creates `stage1-summary.json` and `stage1-summary.md` in the
-campaign directory, only for `go`, `stop` or `invalid`; commit them.
-`run-prepare` refuses repeat runs until a committed Stage 1 summary says `go`.
+campaign directory, only for `go`, `stop` or `invalid`, and only once every
+planned baseline is sealed and reviewed (baselines never change the decision;
+a completed baseline without a finished review shows as `unreviewed`, with no
+paired difference); commit them. `run-prepare` refuses repeat runs until a
+committed Stage 1 summary says `go`, and it and `summarize --stage all`
+re-compute Stage 1 from the sealed evidence: a summary that is not a recorded
+Stage 1 summary of this candidate, or whose decision or run hashes differ
+from the re-computation, does not unlock Stage 2.
 
 If any target misses, stop before Stage 2 and report the numerators,
 denominators and failure taxonomy. Do not repair the skill against held-out
@@ -189,8 +213,9 @@ Each completed run gets one human review file, `review.md` in its evidence
 directory. `review-template` writes one line per artifact node, edge,
 finding, coverage summary and configuration, so no element can be skipped.
 The reviewer gives each a verdict, `supported`, `qualified`, `unsupported` or
-`no-claim`, with a reason for anything other than supported or no-claim, and
-adds `<pointer>#2` lines when one element makes several claims. The claim type
+`no-claim`, with a reason after ` -- ` (or ` — `) for anything other than
+supported or no-claim, and adds `<pointer>#2`, `#3`, ... lines (no leading
+zeros) when one element makes several claims. The claim type
 comes from the artifact's basis, not from the reviewer. Count factual
 assertions in node details, edge meanings, findings, scenario choices and
 coverage summaries as claims. Map equivalent wording/grouping to reference

@@ -497,7 +497,9 @@ def package_vsix(root: Path, output: Path) -> None:
     npm = shutil.which("npm")
     if npm is None:
         raise CaptureError("npm is not on PATH; install Node 20.18.1+ and run npm ci in webview and vscode-extension")
-    result = subprocess.run([npm, "--prefix", "vscode-extension", "run", "package", "--", "--out", str(output)],
+    # npm runs the package script in vscode-extension/, so a relative --out would land there.
+    out = Path(output).expanduser().absolute()
+    result = subprocess.run([npm, "--prefix", "vscode-extension", "run", "package", "--", "--out", str(out)],
                             cwd=root, check=False)
     if result.returncode:
         raise CaptureError(f"npm run package failed (exit status {result.returncode})")
@@ -601,7 +603,7 @@ def capture_pilot(campaign: str, pilot_dir: Path | None, root: Path = ROOT, *,
     if pilot_dir is None:
         raise CaptureError("MLVIEW_PILOT_DIR is not set; export MLVIEW_PILOT_DIR=~/mlview-pilot (outside every Git "
                            "work tree) or pass --pilot-dir")
-    pilot_dir = Path(pilot_dir).expanduser()
+    pilot_dir = Path(pilot_dir).expanduser().absolute()
     reasons = er.outside_repositories(pilot_dir, root)
     if reasons:
         raise CaptureError("MLVIEW_PILOT_DIR cannot hold pilot evidence: " + "; ".join(reasons)
@@ -612,6 +614,13 @@ def capture_pilot(campaign: str, pilot_dir: Path | None, root: Path = ROOT, *,
     if os.path.lexists(target):
         raise CaptureError(f"{candidate_path(campaign)} already exists; a campaign has one candidate and candidate "
                            "files are never overwritten")
+    campaign_dir = root / PILOT_REL / campaign
+    leftovers = sorted(path.name for path in campaign_dir.glob("stage*summary*"))
+    if os.path.lexists(campaign_dir / "invalidation.md"):
+        leftovers.append("invalidation.md")
+    if leftovers:
+        raise CaptureError(f"{PILOT_REL}/{campaign} already holds {', '.join(leftovers)}; summaries and invalidations "
+                           "follow a capture, so this campaign cannot be captured. Freeze a new campaign instead")
     (check_frozen or run_check_frozen)(root)
     package_json = _read_json(root, EXTENSION_PACKAGE)
     version = package_json.get("version") if isinstance(package_json, dict) else None

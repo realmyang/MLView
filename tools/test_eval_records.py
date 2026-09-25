@@ -308,6 +308,38 @@ def test_any_other_line_is_an_error_and_its_continuation_is_swallowed() -> None:
     assert record.section("Fact", "demo-f01").value("Decision") == "accept"
 
 
+def test_an_unindented_wrapped_line_gets_the_continuation_hint() -> None:
+    text = ("# Reference decisions: pilot-demo\n## Fact demo-f01\nDecision: reject\n"
+            "Reason: the loop divides by the number of steps, which is\nintentional scaling in this synthetic file\n"
+            "Reason2: x\n\nwrapped after a blank line\n")
+    record, problems = parse(text, "d.md")
+    assert messages(problems)[0] == (
+        'd.md:5: ERROR Fact demo-f01: "intentional scaling in this synthetic fi" is not "Key: value". To continue the '
+        'previous line, indent it by two spaces; put ">" in front of notes only.')
+    assert messages(problems)[-1].endswith('is not "Key: value". Put ">" in front of notes.')
+    wrapped = ("# Reference decisions: pilot-demo\n## Fact demo-f01\nReason: the loop keeps going because of this\n"
+               "reason: continues here, oddly\n")
+    assert parse(wrapped, "d.md")[0].section("Fact", "demo-f01").value("Reason") == "the loop keeps going because of this"
+
+
+@pytest.mark.parametrize("heading", ["### Fact demo-f02", "##Fact demo-f02", "#  Fact demo-f02"])
+def test_a_mistyped_heading_is_named_and_does_not_blame_the_previous_section(heading: str) -> None:
+    text = (f"# Reference decisions: pilot-demo\n## Fact demo-f01\nDecision: accept\n{heading}\nDecision: reject\n"
+            "Reason: synthetic\n")
+    record, problems = parse(text, "d.md")
+    assert messages(problems) == [f'd.md:4: ERROR Fact demo-f02: "{heading}" is not a section heading; write '
+                                  '"## Fact demo-f02" (two # and a space).']
+    assert record.section("Fact", "demo-f01").value("Decision") == "accept"
+    assert record.section("Fact", "demo-f02").value("Decision") == "reject"
+
+
+def test_an_unknown_mistyped_heading_skips_its_lines() -> None:
+    text = "# Reference decisions: pilot-demo\n## Fact demo-f01\nDecision: accept\n### My notes\nDecision: reject\n"
+    record, problems = parse(text, "d.md")
+    assert len(problems) == 1 and "is not a section heading. Write section headings as" in problems[0].message
+    assert record.section("Fact", "demo-f01").value("Decision") == "accept"
+
+
 def test_keys_section_kinds_and_titles_are_case_insensitive() -> None:
     text = "# reference DECISIONS: pilot-demo\nREVIEWER: Test Reviewer (synthetic)\n## fact demo-f01\ndecision: ACCEPT\n"
     record, problems = parse(text)

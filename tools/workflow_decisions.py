@@ -72,10 +72,18 @@ ADJUDICATION_GATE = ("required", "not-required")
 PLACEHOLDERS = ("task_prompt", "scenario", "artifact_path")
 LEAK_MINIMUM = 30
 
-MACHINE_PATH_RE = re.compile(r"/Users/|/home/|/private/|(?<![A-Za-z0-9])[A-Za-z]:[\\/]")
+MACHINE_PATH_RE = er.MACHINE_PATH_RE
 PROPOSAL_PLACEHOLDER_RE = re.compile(r"<[^<>]+>")
 PROMPT_PLACEHOLDER_RE = re.compile(r"\{([^{}\s]*)\}")
-NO_SKILL_FORBIDDEN_RE = re.compile(r"mlview|workflowdocument|\.mlview\.json|\bskill\b", re.IGNORECASE)
+# The no-skill prompt must not mention MLView, the skill, WorkflowDocument or publication
+# (CANDIDATE_PROTOCOL.md, "Frozen prompts").
+NO_SKILL_FORBIDDEN_RE = re.compile(r"mlview|workflowdocument|\.mlview\.json|\bskill\b|\bpublish(?:es|ed|ing)?\b|"
+                                   r"\bpublication\b", re.IGNORECASE)
+FROZEN_PROMPTS_REF = 'CANDIDATE_PROTOCOL.md, "Frozen prompts"'
+QUALIFIED_CLAIMS_REF = 'CANDIDATE_PROTOCOL.md, "Pair the first stage with no-skill responses"'
+POLICY_GUIDE_REF = 'REVIEW_GUIDE.md, "Then: agree on the run policy"'
+REASON_HINT = '" -- <reason>" (or " — <reason>")'
+FREEZE_README = "evals/workflow/pilot/README.md"
 DATE_RE = re.compile(r"(\d{4})-(\d{2})-(\d{2})", re.ASCII)
 INTEGER_RE = re.compile(r"[0-9]+", re.ASCII)
 
@@ -245,10 +253,16 @@ def nondefect_ids(task_id: str, ledger: dict) -> list[str]:
     return [f"{short_name(task_id)}-n{index:02d}" for index in range(1, len(ledger.get("nonDefects") or []) + 1)]
 
 
-def added_patterns(task_id: str) -> dict[str, str]:
-    """The exact ID pattern of each owner-added section kind of a task."""
-    short = re.escape(short_name(task_id))
-    return {"Added fact": rf"{short}-h\d{{2}}", "Added unknown": rf"{short}-hu\d{{2}}", "Defect": rf"{short}-d\d{{2}}"}
+def added_prefix(task_id: str, role: str = "primary") -> str:
+    """The ID prefix of owner-added items: ``<short>`` in the primary file and ``<short>-s`` in a
+    second review, so the two reviewers' own additions never share an ID."""
+    return short_name(task_id) + ("-s" if role == "second" else "")
+
+
+def added_patterns(task_id: str, role: str = "primary") -> dict[str, str]:
+    """The exact ID pattern of each owner-added section kind of a task (``role``: primary or second)."""
+    prefix = re.escape(short_name(task_id)) + ("-s" if role == "second" else "")
+    return {"Added fact": rf"{prefix}-h\d{{2}}", "Added unknown": rf"{prefix}-hu\d{{2}}", "Defect": rf"{prefix}-d\d{{2}}"}
 
 
 # --------------------------------------------------------------------------------------------
@@ -257,22 +271,26 @@ def added_patterns(task_id: str) -> dict[str, str]:
 
 def task_template(world: World, task_id: str, *, second: bool = False) -> str:
     ledger, raw = world.ledger(task_id)
-    short = short_name(task_id)
+    short = added_prefix(task_id, "second" if second else "primary")
     scenario = ledger["scenario"]
+    change = ('> To change a proposed Basis, Essential flag or Anchors, add that line and a "Reason:". '
+              "Anchors: replaces the proposed list; repeat each proposed anchor you keep.")
     if second:
         lines = [f"# Second review: {task_id}", "",
                  f"> Guide: {GUIDE_REL}. Check: {CHECK_COMMAND} {task_id}",
                  '> Second review: decide any subset of items; "pending" means not reviewed. Only a person may be a second reviewer.',
+                 '> Lines starting with ">" are ignored. Indent a wrapped line by two spaces to continue the value above it.',
                  '> Fact and Non-defect: Decision: accept | qualify | reject. Unknown: the same, plus "Runs must state: yes | no" unless rejected.',
                  '> qualify = accept with your wording: add "Wording:" and "Reason:". reject: add "Reason:".',
-                 '> To change a proposed Basis, Essential flag or Anchors, add that line and a "Reason:".']
+                 change]
     else:
         lines = [f"# Reference decisions: {task_id}", "",
                  f"> Guide: {GUIDE_REL}. Check: {CHECK_COMMAND} {task_id}",
-                 '> Lines starting with ">" are written by the tool and ignored. Replace each "pending".',
+                 '> Lines starting with ">" are written by the tool and ignored. Replace each "pending". Indent a wrapped '
+                 "line by two spaces to continue the value above it.",
                  '> Fact and Non-defect: Decision: accept | qualify | reject. Unknown: the same, plus "Runs must state: yes | no" unless rejected.',
                  '> qualify = accept with your wording: add "Wording:" and "Reason:". reject: add "Reason:".',
-                 '> To change a proposed Basis, Essential flag or Anchors, add that line and a "Reason:".']
+                 change]
     lines += ["", f"Candidate: {task_id}.json {er.sha256_bytes(raw)}", "Reviewer:", "Date:", "Transcribed by:", "",
               "## Scenario",
               f"> Proposed: {one_line(scenario['description'])}",
@@ -335,7 +353,7 @@ def policy_template(world: World) -> str:
     targets = world.manifest.get("pilotTargets") or {}
     parts = [_target_text(key, targets.get(key)) for key in er.PILOT_TARGET_KEYS]
     lines = ["# Pilot run policy", "",
-             f'> Guide: REVIEW_GUIDE.md, "Run policy". Check: {CHECK_COMMAND} {POLICY_TARGET}', "",
+             f"> Guide: {POLICY_GUIDE_REF}. Check: {CHECK_COMMAND} {POLICY_TARGET}", "",
              "Reviewer:", "Date:", "Transcribed by:", ""]
     for host in world.hosts:
         lines += [f"## Host {host}", f"> {_HOST_NOTES.get(host, 'Development runs: not recorded for this host.')}",
@@ -349,7 +367,7 @@ def policy_template(world: World) -> str:
               "> 0 infrastructure retries (a retry is allowed only if the prompt was never sent).",
               "Active minutes:", "Repair rounds:", "Infrastructure retries:", "",
               "## Scoring",
-              "> Qualified claims in supported-claim precision: not-supported | supported | excluded (CANDIDATE_PROTOCOL.md:56-59).",
+              f"> Qualified claims in supported-claim precision: not-supported | supported | excluded ({QUALIFIED_CLAIMS_REF}).",
               "> Per-host targets: yes = precision and recall must also meet their targets within each host; no = pooled only.",
               "Qualified claims:", "Per-host targets:", "",
               "## Conditions",
@@ -364,7 +382,7 @@ def policy_template(world: World) -> str:
               "> Placeholders: {task_prompt} {scenario} {artifact_path}. The host's Invocation is sent before this text.",
               "```text", *SKILL_PROMPT_PROPOSAL.split("\n"), "```", "Decision: pending", "",
               "## No-skill prompt",
-              "> Must not mention MLView, the skill, WorkflowDocument or publication (CANDIDATE_PROTOCOL.md:43-44).",
+              f"> Must not mention MLView, the skill, WorkflowDocument or publication ({FROZEN_PROMPTS_REF}).",
               "```text", *NO_SKILL_PROMPT_PROPOSAL.split("\n"), "```", "Decision: pending", "",
               "## Privacy",
               "> Raw transcripts, UI logs, run reviews and workspaces never enter the repository; committed summaries contain",
@@ -398,8 +416,9 @@ def adjudication_template(world: World) -> str:
     lines = ["# Development adjudication", "",
              "> Human verdicts on the 12 provisional native reviews and 3 baseline notes; the ledgers are never edited.",
              "> Claims: supported | qualified | unsupported | omitted. Usability: clear | partial | missing.",
-             '> Baselines: confirmed | corrected | rejected. Add " — <reason>" whenever you differ from the provisional',
-             "> label, and for every baseline verdict except confirmed. Source context: the review packet (review-packet).",
+             f"> Baselines: confirmed | corrected | rejected. Add {REASON_HINT} whenever you differ from the",
+             "> provisional label, and for every baseline verdict except confirmed. Source context: the review packet "
+             "(review-packet).",
              f"> Check: {CHECK_COMMAND} {ADJUDICATION_TARGET}", "",
              "Reviewer:", "Date:", "Transcribed by:", ""]
     for task, host, rel in adjudication_ledgers(world):
@@ -428,7 +447,7 @@ README_TEXT = """# Owner decisions
 
 These files hold the pilot owner's reference decisions, second reviews, run policy and development adjudication. Every value starts as `pending`; only the named human reviewer replaces it.
 Read the [review guide](../reference-candidates/REVIEW_GUIDE.md) first; `python tools/workflow_eval.py template --show <task>` prints a pristine copy of any file.
-Check a file with `python tools/workflow_eval.py check <task>` (or `run-policy`, `development-adjudication`); the check never writes and ends with "ready to freeze" when a file is complete.
+Check a file with `python tools/workflow_eval.py check <task>` (or `run-policy`, `development-adjudication`); the check never writes. A complete task or run-policy file ends with "ready to freeze", a complete development adjudication with "complete".
 `python tools/workflow_eval.py freeze --campaign <name>` copies completed decisions into `evals/workflow/pilot/<name>/`; it records the reviewers' decisions and adds no approval.
 """
 
@@ -594,12 +613,14 @@ class RefCheck:
     defects: list[dict] = field(default_factory=list)
     positions: dict[str, dict] = field(default_factory=dict)
     disputes: list[dict] = field(default_factory=list)
+    added_items: list[dict] = field(default_factory=list)  # {id, kind, wording} of every Added/Defect section
     added_facts: int = 0
     decided: int = 0
     items: int = 0
     corpus_checked: bool = False
     corpus_note: str = ""
     second: "RefCheck | None" = None
+    frozen_in: str | None = None  # the campaign whose freeze.json lists this file with its current bytes
 
     @property
     def errors(self) -> int:
@@ -625,8 +646,8 @@ class _RefChecker:
         self.world, self.record, self.report, self.result, self.task = world, record, report, result, task
         self.second = second
         self.task_id: str = task["id"]
-        self.short = short_name(self.task_id)
         self.primary = result.role == "primary"
+        self.short = added_prefix(self.task_id, "primary" if self.primary else "second")
         self.ledger, self.ledger_raw = world.ledger(self.task_id)
         self.facts = {fact["id"]: fact for fact in self.ledger["facts"]}
         self.unknown_text = dict(zip(unknown_ids(self.task_id, self.ledger), self.ledger["unknowns"]))
@@ -932,6 +953,11 @@ class _RefChecker:
                 if set(parsed) != {_location(anchor) for anchor in candidate["anchors"]}:
                     changed["anchors"] = _field_line(section, "Anchors")
                 anchors = _merge_anchors(ident, candidate["anchors"], parsed)
+                for anchor in candidate["anchors"]:
+                    if _location(anchor) not in parsed:
+                        self.report.note(_field_line(section, "Anchors"), label,
+                                         f"{_locator(anchor)} (proposed) is no longer an anchor: Anchors: replaces "
+                                         "the proposed list, so repeat every proposed anchor you keep.")
         if not anchors and basis != "unresolved":
             self.report.error(_field_line(section, "Anchors"), label,
                               "a fact needs at least one anchor unless Basis is unresolved.")
@@ -1021,9 +1047,14 @@ class _RefChecker:
                                            "candidateText": text, "reason": reason})
         self.position(ident, {"decision": decision})
 
-    def added_id(self, section: er.Section, message: str) -> None:
-        if not re.fullmatch(added_patterns(self.task_id)[section.kind], section.ident or ""):
-            self.report.error(section.line, self.label(section), message)
+    def added_id(self, section: er.Section, what: str, suffix: str) -> None:
+        role = "primary" if self.primary else "second"
+        if not re.fullmatch(added_patterns(self.task_id, role)[section.kind], section.ident or ""):
+            prefix = added_prefix(self.task_id, role)
+            self.report.error(section.line, self.label(section),
+                              f"{what} IDs look like {prefix}-{suffix}01, {prefix}-{suffix}02, ...")
+        self.result.added_items.append({"id": section.ident, "kind": section.kind,
+                                        "wording": _value(section, "Wording")})
 
     def require(self, section: er.Section, keys: Sequence[str]) -> None:
         for key in keys:
@@ -1032,7 +1063,7 @@ class _RefChecker:
 
     def added_fact(self, section: er.Section) -> None:
         label, ident = self.label(section), section.ident
-        self.added_id(section, f"added fact IDs look like {self.short}-h01, {self.short}-h02, ...")
+        self.added_id(section, "added fact", "h")
         self.require(section, ("Wording", "Basis", "Essential", "Reason"))
         basis = self.basis(section)
         essential = self.yes_no(section, "Essential")
@@ -1053,7 +1084,7 @@ class _RefChecker:
 
     def added_unknown(self, section: er.Section) -> None:
         ident = section.ident
-        self.added_id(section, f"added unknown IDs look like {self.short}-hu01, {self.short}-hu02, ...")
+        self.added_id(section, "added unknown", "hu")
         self.require(section, ("Wording", "Reason"))
         must = self.yes_no(section, "Runs must state")
         if not self.has(section, "Runs must state"):
@@ -1065,7 +1096,7 @@ class _RefChecker:
 
     def defect(self, section: er.Section) -> None:
         label, ident = self.label(section), section.ident
-        self.added_id(section, f"defect IDs look like {self.short}-d01, {self.short}-d02, ...")
+        self.added_id(section, "defect", "d")
         self.require(section, ("Wording", "Severity", "Anchors", "Counter-evidence", "Reason"))
         severity_field = section.field("Severity")
         severity = severity_field.value.strip().casefold() if severity_field is not None else ""
@@ -1077,7 +1108,7 @@ class _RefChecker:
         if self.has(section, "Anchors"):
             parsed = self.anchor_list(section) or []
             anchors = [_new_anchor(f"{ident}-a{index}", location) for index, location in enumerate(parsed, 1)]
-        if severity == "high" and self.primary and (self.second is None or ident not in self.second.positions):
+        if severity == "high" and self.primary and self.second is None:
             self.report.note(section.line, label,
                              "a second reviewer is recommended for high-severity defects (REVIEW_GUIDE).")
         self.result.defects.append({"id": ident, "text": _value(section, "Wording"), "severity": severity or None,
@@ -1092,12 +1123,15 @@ class _RefChecker:
         resolutions: dict[str, er.Field] = {}
         known_items = set(self.result.positions) | {"scenario"}
         differing: list[tuple[str, dict, dict]] = []
+        added: list[dict] = []  # the second reviewer's own additions, which the primary file never decided
         if second is not None:
             for ident, mine in self.result.positions.items():
                 theirs = second.positions.get(ident)
                 if theirs is not None and theirs != mine:
                     differing.append((ident, mine, theirs))
-        disagreeing = {ident for ident, _mine, _theirs in differing}
+            added = [item for item in second.added_items
+                     if isinstance(item.get("id"), str) and item["id"] and item["id"] not in self.result.positions]
+        disagreeing = {ident for ident, _mine, _theirs in differing} | {item["id"] for item in added}
         if section is not None:
             for line in section.lines:
                 key = line.key.strip()
@@ -1124,10 +1158,32 @@ class _RefChecker:
                 continue
             self.result.disputes.append({"item": ident, "primary": mine, "second": theirs,
                                          "resolution": resolution.value.strip()})
+        kinds = {"Added fact": "fact", "Added unknown": "unknown", "Defect": "defect"}
+        for item in added:
+            ident = item["id"]
+            theirs = second.positions.get(ident) or {"decision": "added"}
+            resolution = resolutions.get(ident)
+            if resolution is None or not resolution.value.strip():
+                details = [f"{label}: {_yes_no(theirs[key]) if isinstance(theirs[key], bool) else theirs[key]}"
+                           for key, label in _POSITION_LABELS if key in theirs]
+                wording = _short_text(item.get("wording") or "", 80)
+                self.report.todo(resolution.line if resolution else where, "Disagreements",
+                                 f'{ident}: the second reviewer{name} added the {kinds.get(item["kind"], "item")} '
+                                 f'"{wording}"' + (f" ({', '.join(details)})" if details else "")
+                                 + f'. Add it under your own ID if you agree, and write "{ident}: <how it was '
+                                   'resolved>".')
+                continue
+            self.result.disputes.append({"item": ident, "primary": None, "second": theirs,
+                                         "resolution": resolution.value.strip()})
 
 
 _POSITION_LABELS = (("basis", "basis"), ("essential", "essential"), ("runsMustState", "runs must state"),
                     ("severity", "severity"))
+
+
+def _short_text(text: str, limit: int) -> str:
+    value = one_line(text)
+    return value if len(value) <= limit else value[:limit - 1].rstrip() + "\u2026"
 
 
 def _describe(mine: dict, other: dict) -> str:
@@ -1209,7 +1265,9 @@ def check_reference(world: World, raw: bytes, display: str, *, second: RefCheck 
 
 
 def reference_summary(world: World, result: RefCheck) -> list[str]:
-    lines = [f"{result.name}: {result.errors} error(s), {result.todos} to do; {state_text(result.errors, result.todos)}."]
+    ready = f"frozen in {result.frozen_in}" if result.frozen_in else "ready to freeze"
+    lines = [f"{result.name}: {result.errors} error(s), {result.todos} to do; "
+             f"{state_text(result.errors, result.todos, ready)}."]
     if result.record is None or result.task_id is None:
         return lines
     counts = result.counts
@@ -1252,6 +1310,7 @@ class PolicyCheck:
     values: dict = field(default_factory=dict)
     skill_template: str | None = None
     baseline_template: str | None = None
+    frozen_in: str | None = None
 
     @property
     def errors(self) -> int:
@@ -1405,8 +1464,7 @@ def _prompt_rules(report: Report, section: er.Section, template: str, skill: boo
             report.error(line, section.label, "the no-skill prompt must not contain {artifact_path}; a baseline "
                                               "publishes nothing.")
         for match in sorted({m.group(0) for m in NO_SKILL_FORBIDDEN_RE.finditer(template)}, key=str.casefold):
-            report.error(line, section.label, f'the no-skill prompt must not mention "{match}" '
-                                              "(CANDIDATE_PROTOCOL.md:43-44).")
+            report.error(line, section.label, f'the no-skill prompt must not mention "{match}" ({FROZEN_PROMPTS_REF}).')
     machine = _machine_path(template)
     if machine:
         report.error(line, section.label, f"the prompt contains an absolute machine path ({machine}); prompts must "
@@ -1414,7 +1472,9 @@ def _prompt_rules(report: Report, section: er.Section, template: str, skill: boo
 
 
 def policy_summary(result: PolicyCheck) -> list[str]:
-    lines = [f"{POLICY_TARGET}: {result.errors} error(s), {result.todos} to do; {state_text(result.errors, result.todos)}."]
+    ready = f"frozen in {result.frozen_in}" if result.frozen_in else "ready to freeze"
+    lines = [f"{POLICY_TARGET}: {result.errors} error(s), {result.todos} to do; "
+             f"{state_text(result.errors, result.todos, ready)}."]
     values = result.values
     if result.record is not None:
         hosts = values.get("hosts", {})
@@ -1579,15 +1639,15 @@ def _adjudicated(report: Report, line: er.Field, label: str, key: str, vocab: se
         report.error(line.line, label, f"{key}: {exc}")
         return None
     if pointers:
-        report.error(line.line, label, f'{key}: write the verdict and an optional " — <reason>"; '
+        report.error(line.line, label, f'{key}: write the verdict and an optional {REASON_HINT}; '
                                        f'"{" ".join(pointers)}" is not expected.')
         return None
     if reason_always and verdict != prior and not reason:
-        report.error(line.line, label, f'"{key}: {verdict}" needs a reason; add " — <reason>".')
+        report.error(line.line, label, f'"{key}: {verdict}" needs a reason; add {REASON_HINT}.')
         return None
     if not reason_always and verdict != prior and not reason:
         report.error(line.line, label,
-                     f'"{key}: {verdict}" differs from the provisional "{prior}"; add " — <reason>".')
+                     f'"{key}: {verdict}" differs from the provisional "{prior}"; add {REASON_HINT}.')
         return None
     return verdict
 
@@ -1698,6 +1758,39 @@ def _expected_name(world: World, path: Path, second: bool) -> str | None:
     return path.name[:-len(suffix)] if path.name.endswith(suffix) else None
 
 
+def _fold_name(name: str) -> str:
+    return " ".join(name.split()).casefold()
+
+
+def current_freeze(world: World) -> tuple[str, dict] | None:
+    """(campaign, freeze.json) of the campaign that tasks.json's pilotFreeze names, or None."""
+    pointer = world.manifest.get("pilotFreeze")
+    campaign = pointer.get("campaign") if isinstance(pointer, dict) else None
+    if not isinstance(campaign, str) or not er.NAME_RE.fullmatch(campaign):
+        return None
+    try:
+        value = json.loads((world.root / PILOT_REL / campaign / "freeze.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return (campaign, value) if isinstance(value, dict) else None
+
+
+def _frozen_state(world: World, path: Path, digest: str, report: Report) -> str | None:
+    """The campaign that froze ``path`` with exactly these bytes; a NOTE when it froze other bytes."""
+    frozen = current_freeze(world)
+    files = frozen[1].get("decisionFiles") if frozen is not None else None
+    if not isinstance(files, dict):
+        return None
+    recorded = files.get(world.display(path))
+    if not isinstance(recorded, str):
+        return None
+    if recorded == digest:
+        return frozen[0]
+    report.note(1, "header", f"this file was frozen in {frozen[0]} (sha256 {recorded[:12]}...) and has changed since; "
+                             f"a changed decision needs a new campaign ({FREEZE_README}).")
+    return None
+
+
 def title_kind(raw: bytes) -> str | None:
     record, _problems = er.parse_record(raw, "-")
     return record.kind if record is not None else None
@@ -1736,19 +1829,33 @@ def check_path(world: World, path: Path, *, with_second: bool = True) -> list[Fi
             elif second_check.record is not None:
                 usable = second_check
         result = check_reference(world, raw, display, second=usable, expected_name=_expected_name(world, path, False))
+        if usable is not None and result.reviewer and usable.reviewer \
+                and _fold_name(result.reviewer) == _fold_name(usable.reviewer):
+            usable.report.error(_field_line(usable.record.header, "Reviewer"), "header",
+                                "a second review must be written by a different person than the primary reviewer "
+                                f'(both files name "{usable.reviewer}").')
+        if result.record is not None:
+            result.frozen_in = _frozen_state(world, path, result.record.sha256, result.report)
         checks.append(FileCheck(display, result.report.ordered(), reference_summary(world, result), result.errors,
                                 result.todos, result))
         if second_check is not None:
+            if second_check.record is not None:
+                second_check.frozen_in = _frozen_state(world, second_path, second_check.record.sha256,
+                                                       second_check.report)
             checks.append(FileCheck(second_check.display, second_check.report.ordered(),
                                     reference_summary(world, second_check), second_check.errors, second_check.todos,
                                     second_check))
         return checks
     if kind == "Second review":
         result = check_reference(world, raw, display, expected_name=_expected_name(world, path, True))
+        if result.record is not None:
+            result.frozen_in = _frozen_state(world, path, result.record.sha256, result.report)
         return [FileCheck(display, result.report.ordered(), reference_summary(world, result), result.errors,
                           result.todos, result)]
     if kind == "Pilot run policy":
         result = check_policy(world, raw, display)
+        if result.record is not None:
+            result.frozen_in = _frozen_state(world, path, result.record.sha256, result.report)
         return [FileCheck(display, result.report.ordered(), policy_summary(result), result.errors, result.todos, result)]
     if kind == "Development adjudication":
         result = check_adjudication(world, raw, display)
@@ -2009,14 +2116,22 @@ def _verify_corpus(world: World, task: dict) -> str | None:
     if not isinstance(report, dict) or report.get("ok") is not True:
         sentences = report.get("problems") if isinstance(report, dict) else None
         if isinstance(sentences, list) and sentences and all(isinstance(item, str) for item in sentences):
-            return "verify_repo reported a problem (" + "; ".join(sentences) + ")"
+            return "the checkout failed verification (" + "; ".join(sentences) + ")"
         details = []
         if isinstance(report, dict):
             for key in ("head", "clean", "sparseMatches", "missing", "extraMaterialized", "blobMismatches"):
                 if key in report and report[key] not in (True, [], None) and key != "head":
                     details.append(f"{key}: {report[key]}")
-        return "verify_repo reported a problem" + (f" ({'; '.join(details)})" if details else "")
+        return "the checkout failed verification" + (f" ({'; '.join(details)})" if details else "")
     return None
+
+
+def corpus_remedy(problem: str, repository: object) -> str:
+    """The next command for a failed corpus verification."""
+    if "--update-sparse" in problem:
+        return (f"python tools/fetch_workflow_repos.py --update-sparse --repo {repository}, then "
+                "python tools/fetch_workflow_repos.py --verify")
+    return "python tools/fetch_workflow_repos.py --verify"
 
 
 def derive_campaign(world: World, campaign: str, *, frozen_at: str, tooling: dict | None = None,
@@ -2096,7 +2211,7 @@ def derive_campaign(world: World, campaign: str, *, frozen_at: str, tooling: dic
         for task in world.heldout:
             problem = _verify_corpus(world, task)
             if problem:
-                result.fail(f"{task.get('repository')}: {problem}", "python tools/fetch_workflow_repos.py --verify")
+                result.fail(f"{task.get('repository')}: {problem}", corpus_remedy(problem, task.get("repository")))
     if result.problems or policy is None or not policy.ready:
         return result
     # Prompts, leak and machine-path checks.
@@ -2301,6 +2416,76 @@ def _adjudication_binding(world: World) -> dict | None:
     return {"path": rel, "sha256": er.sha256_bytes(raw), "complete": complete}
 
 
+SUMMARY_FILES = {"1": ("stage1-summary.json", "stage1-summary.md"), "2": ("stage2-summary.json", "stage2-summary.md")}
+PILOT_SUMMARY_FORMAT = "mlview-pilot-summary/1"
+PILOT_CANDIDATE_KIND = "pilot-candidate"
+_SHA256_RE = re.compile(r"[0-9a-f]{64}")
+
+
+class History:
+    """Read-only Git history of the repository at ``world.root``.
+
+    ``root`` is None when the history cannot answer (no Git work tree at exactly that root, or a
+    shallow clone, whose missing commits could hide a deleted file); ``reason`` then says why."""
+
+    def __init__(self, world: World) -> None:
+        self.root: Path | None = None
+        self.reason: str | None = None
+        root = world.root.resolve()
+        try:
+            top = er._git(root, "rev-parse", "--show-toplevel").decode("utf-8").strip()
+        except ValueError:
+            self.reason = "the repository root is not a Git work tree"
+            return
+        if not top or Path(top).resolve() != root:
+            self.reason = "the repository root is not the top of a Git work tree"
+            return
+        try:
+            shallow = er._git(root, "rev-parse", "--is-shallow-repository").decode("utf-8").strip() == "true"
+        except ValueError:
+            shallow = False
+        if shallow:
+            self.reason = "this is a shallow clone (git fetch --unshallow gives the full history)"
+            return
+        self.root = root
+
+    @property
+    def full(self) -> bool:
+        return self.root is not None
+
+    def commits(self, rel: str, *, added: bool = False) -> list[str]:
+        """Commits touching (or, with ``added``, adding) ``rel``, newest first; [] without commits."""
+        if self.root is None:
+            return []
+        args = ["log", "--format=%H", "--no-renames"] + (["--diff-filter=A"] if added else []) + ["--", rel]
+        try:
+            return er._git(self.root, *args).decode("ascii").split()
+        except ValueError:
+            return []
+
+    def show(self, commit: str, rel: str) -> bytes | None:
+        if self.root is None:
+            return None
+        try:
+            return er.git_show(self.root, commit, rel)
+        except ValueError:
+            return None
+
+
+def _has_candidate(world: World, history: History, campaign: str) -> str | None:
+    """Why ``campaign`` counts as captured (a candidate.json or stage summary now or ever committed), or None."""
+    directory = world.root / PILOT_REL / campaign
+    names = ["candidate.json"] + [name for pair in SUMMARY_FILES.values() for name in pair]
+    for name in names:
+        if os.path.lexists(directory / name):
+            return f"it has {name}"
+    for name in names:
+        added = history.commits(f"{PILOT_REL}/{campaign}/{name}", added=True)
+        if added:
+            return f"{name} was committed in {added[-1][:12]}; deleting it does not undo the capture"
+    return None
+
+
 def _supersede_check(world: World, campaign: str, reason: str | None, result: Campaign) -> dict | None:
     """The supersedes record, or None; problems go to ``result``."""
     manifest = world.manifest
@@ -2325,11 +2510,16 @@ def _supersede_check(world: World, campaign: str, reason: str | None, result: Ca
         result.fail(f"campaign {campaign} is the one already frozen", "choose a new campaign name")
         return None
     old_dir = world.root / PILOT_REL / str(old)
-    if (old_dir / "candidate.json").exists():
+    history = History(world)
+    if history.reason and "shallow" in history.reason:
+        result.fail(f"cannot tell whether {old} was ever captured: {history.reason}", "git fetch --unshallow")
+        return None
+    captured = _has_candidate(world, history, str(old))
+    if captured:
         invalidation = old_dir / "invalidation.md"
         problem = _invalidation_problem(invalidation, str(old))
         if problem:
-            result.fail(f"{old} has a candidate.json, so it can be superseded only after an owner-authored "
+            result.fail(f"{old} was captured ({captured}), so it can be superseded only after an owner-authored "
                         f"invalidation.md ({problem})", f"the owner writes {world.display(invalidation)}")
             return None
     return {"campaign": old, "reason": reason}
@@ -2449,18 +2639,219 @@ def _write_campaign(world: World, target: Path, derived: Campaign, tasks_before:
 # check-frozen
 
 
-def _final_summary_recorded(directory: Path) -> bool:
-    if (directory / "stage2-summary.json").is_file():
-        return True
-    path = directory / "stage1-summary.json"
+def _candidate_problems(label: str, directory: Path, campaign: str, freeze_raw: bytes) -> tuple[bytes | None, list[str]]:
+    """(candidate.json bytes or None, problems): the candidate must be this campaign's version 2
+    pilot-candidate and must identify exactly these freeze.json bytes."""
+    path = directory / "candidate.json"
     if not path.is_file():
-        return False
+        return None, []
+    raw = path.read_bytes()
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+        value = json.loads(raw.decode("utf-8"))
+    except (UnicodeError, ValueError):
+        return raw, [f"{label}/candidate.json is not JSON"]
+    if not isinstance(value, dict) or value.get("version") != 2 or value.get("kind") != PILOT_CANDIDATE_KIND \
+            or value.get("campaign") != campaign:
+        return raw, [f"{label}/candidate.json is not a version 2 {PILOT_CANDIDATE_KIND} record of {campaign}"]
+    freeze_rel = f"{PILOT_REL}/{campaign}/freeze.json"
+    components = value.get("components") if isinstance(value.get("components"), list) else []
+    entry = next((item for item in components if isinstance(item, dict) and item.get("path") == freeze_rel), None)
+    if entry is None:
+        return raw, [f"{label}/candidate.json does not identify {freeze_rel}"]
+    if entry.get("sha256") != er.sha256_bytes(freeze_raw):
+        return raw, [f"{label}/freeze.json differs from the freeze.json that candidate.json identifies "
+                     "(frozen files are immutable)"]
+    return raw, []
+
+
+def _summary_state(world: World, directory: Path, freeze_value: dict, freeze_raw: bytes,
+                   problems: list[str]) -> bool:
+    """True when a genuine final summary is recorded: a Stage 1 stop or invalid, or an all-stage
+    summary. Every stage summary file must be a summary the pilot recorded for this campaign's
+    candidate and freeze; anything else is a problem and never switches off the re-derivation."""
+    label = world.display(directory)
+    campaign = directory.name
+    present = sorted(path.name for path in directory.glob("stage*summary*"))
+    known = {name for pair in SUMMARY_FILES.values() for name in pair}
+    for name in present:
+        if name not in known:
+            problems.append(f"{label}/{name} is not a file summarize --record writes")
+    present = [name for name in present if name in known]
+    if not present:
         return False
-    decision = value.get("decision") if isinstance(value, dict) else None
-    return isinstance(decision, dict) and decision.get("value") in ("stop", "invalid")
+    candidate_raw, candidate_problems = _candidate_problems(label, directory, campaign, freeze_raw)
+    if candidate_raw is None:
+        problems.append(f"{label}: {', '.join(present)} exist(s) without candidate.json; a summary is recorded only "
+                        "for a captured candidate")
+        return False
+    problems.extend(candidate_problems)
+    if candidate_problems:
+        return False
+    candidate_sha, freeze_sha = er.sha256_bytes(candidate_raw), er.sha256_bytes(freeze_raw)
+    verdicts: dict[str, str] = {}
+    for number, (json_name, md_name) in SUMMARY_FILES.items():
+        have = [name for name in (json_name, md_name) if name in present]
+        if not have:
+            continue
+        if len(have) == 1:
+            other = md_name if have[0] == json_name else json_name
+            problems.append(f"{label}/{have[0]} has no {other}; summarize --record writes both")
+            continue
+        try:
+            value = json.loads((directory / json_name).read_text(encoding="utf-8"))
+            markdown = (directory / md_name).read_text(encoding="utf-8").splitlines()
+        except (OSError, UnicodeError, ValueError) as exc:
+            problems.append(f"{label}/{json_name} cannot be read ({exc})")
+            continue
+        stage = "1" if number == "1" else "all"
+        allowed = ("go", "stop", "invalid") if number == "1" else ("targets-met", "targets-missed", "invalid")
+        wrong = []
+        if not isinstance(value, dict) or value.get("format") != PILOT_SUMMARY_FORMAT:
+            wrong.append(f'format is not "{PILOT_SUMMARY_FORMAT}"')
+        else:
+            decision = value.get("decision") if isinstance(value.get("decision"), dict) else {}
+            verdict = decision.get("value")
+            inputs = value.get("inputs") if isinstance(value.get("inputs"), dict) else {}
+            if value.get("campaign") != campaign:
+                wrong.append(f"campaign is not {campaign}")
+            if value.get("stage") != stage:
+                wrong.append(f'stage is not "{stage}"')
+            if verdict not in allowed:
+                wrong.append(f"the decision is not one of {', '.join(allowed)}")
+            if value.get("candidateSha256") != candidate_sha or inputs.get("candidate") != candidate_sha:
+                wrong.append("candidateSha256 differs from sha256(candidate.json)")
+            if inputs.get("freeze") != freeze_sha:
+                wrong.append("inputs.freeze differs from sha256(freeze.json)")
+            if value.get("referenceRevision") != freeze_value.get("referenceRevision"):
+                wrong.append("referenceRevision differs from freeze.json")
+            generated = value.get("generatedAt")
+            title = "Stage 1 summary" if number == "1" else "all-stage summary"
+            expected = [f"# MLView pilot {campaign} \u2014 {title} ({str(generated)[:10]})",
+                        f"**Decision: {str(verdict).upper()}** \u2014 {decision.get('label')}."]
+            if not isinstance(generated, str) or not er.is_rfc3339(generated) or markdown[:2] != expected:
+                wrong.append(f"{md_name} does not open with the title and decision of {json_name}")
+            if not wrong:
+                verdicts[number] = verdict
+        if wrong:
+            problems.append(f"{label}/{json_name} is not a recorded summary of this candidate ({'; '.join(wrong)})")
+    if "2" in verdicts and verdicts.get("1") != "go":
+        problems.append(f"{label}/stage2-summary.json is recorded without a Stage 1 go summary")
+        return False
+    return "2" in verdicts or verdicts.get("1") in ("stop", "invalid")
+
+
+def _ledger_problems(world: World, campaign: str, freeze_value: dict, problems: list[str]) -> None:
+    """The candidate ledgers a campaign froze are immutable: their bytes must still match."""
+    ledgers = freeze_value.get("candidateLedgers")
+    if not isinstance(ledgers, dict):
+        problems.append(f"{campaign}/freeze.json has no candidateLedgers map")
+        return
+    for rel, digest in sorted(ledgers.items()):
+        if not isinstance(rel, str) or not rel.startswith(CANDIDATES_REL + "/"):
+            problems.append(f"{campaign}/freeze.json candidateLedgers names {rel!r}, not a candidate ledger")
+            continue
+        try:
+            data = er.confined_file(world.root, rel).read_bytes()
+        except (OSError, ValueError) as exc:
+            problems.append(f"{rel} (frozen in {campaign}) cannot be read: {exc}")
+            continue
+        if er.sha256_bytes(data) != digest:
+            problems.append(f"{rel} differs from the ledger frozen in {campaign} (candidate ledgers are immutable)")
+
+
+def _recorded_fields(world: World, history: History, campaign: str, freeze_value: dict, freeze_raw: bytes,
+                     campaigns: set[str], problems: list[str], notes: list[str]) -> None:
+    """Check the freeze.json fields the re-derivation copies instead of recomputing."""
+    supersedes = freeze_value.get("supersedes")
+    if supersedes is not None:
+        if not isinstance(supersedes, dict) or set(supersedes) != {"campaign", "reason"} \
+                or not isinstance(supersedes.get("reason"), str) or not supersedes["reason"].strip():
+            problems.append(f"{campaign}/freeze.json supersedes must be null or {{campaign, reason}} with a reason")
+        elif supersedes.get("campaign") == campaign or supersedes.get("campaign") not in campaigns:
+            problems.append(f"{campaign}/freeze.json supersedes {supersedes.get('campaign')!r}, which is not another "
+                            f"frozen campaign in {PILOT_REL}")
+    adjudication = freeze_value.get("developmentAdjudication")
+    adjudication_rel = f"{DECISIONS_REL}/{ADJUDICATION_TARGET}.md"
+    if adjudication is not None:
+        if not isinstance(adjudication, dict) or set(adjudication) != {"path", "sha256", "complete"} \
+                or adjudication.get("path") != adjudication_rel or not isinstance(adjudication.get("complete"), bool) \
+                or not isinstance(adjudication.get("sha256"), str) or not _SHA256_RE.fullmatch(adjudication["sha256"]):
+            problems.append(f"{campaign}/freeze.json developmentAdjudication must be null or "
+                            f"{{path: {adjudication_rel}, sha256, complete}}")
+            adjudication = None
+    tasks_sha = (freeze_value.get("tasksManifest") or {}).get("sha256") \
+        if isinstance(freeze_value.get("tasksManifest"), dict) else None
+    if not isinstance(tasks_sha, str) or not _SHA256_RE.fullmatch(tasks_sha):
+        problems.append(f"{campaign}/freeze.json tasksManifest.sha256 is not a sha256")
+        tasks_sha = None
+    unverified: list[str] = []
+    freeze_rel = f"{PILOT_REL}/{campaign}/freeze.json"
+    added = history.commits(freeze_rel, added=True)
+    commit = added[-1] if history.full and added else None  # the commit that first added freeze.json
+    if commit is not None:
+        committed = history.show(commit, freeze_rel)
+        if committed is not None and committed != freeze_raw:
+            problems.append(f"{freeze_rel} differs from the version committed in {commit[:12]} "
+                            "(frozen files are immutable)")
+    why = history.reason or "freeze.json is not committed yet"
+    if tasks_sha is not None:
+        current = world.manifest_bytes()
+        if not (_names_campaign(current, campaign) and er.sha256_bytes(current) == tasks_sha):
+            at_freeze = history.show(commit, TASKS_REL) if commit is not None else None
+            if at_freeze is not None and _names_campaign(at_freeze, campaign):
+                if er.sha256_bytes(at_freeze) != tasks_sha:
+                    problems.append(f"{campaign}/freeze.json tasksManifest.sha256 differs from the {TASKS_REL} "
+                                    f"committed with it in {commit[:12]}")
+            else:
+                detail = why if commit is None else f"{TASKS_REL} was committed separately from freeze.json"
+                unverified.append(f"tasksManifest.sha256 ({detail})")
+    if adjudication is not None:
+        path = world.root / adjudication_rel
+        current = path.read_bytes() if path.is_file() else None
+        if current is not None and er.sha256_bytes(current) == adjudication["sha256"]:
+            try:
+                complete = check_adjudication(world, current, adjudication_rel).complete
+            except UsageError:
+                complete = None
+            if complete is not None and complete != adjudication["complete"]:
+                problems.append(f"{campaign}/freeze.json developmentAdjudication.complete is {adjudication['complete']}"
+                                f" but {adjudication_rel} with that sha256 checks as "
+                                f"{'complete' if complete else 'not complete'}")
+        elif commit is not None:
+            at_freeze = history.show(commit, adjudication_rel)
+            if at_freeze is None or er.sha256_bytes(at_freeze) != adjudication["sha256"]:
+                problems.append(f"{campaign}/freeze.json developmentAdjudication.sha256 differs from the "
+                                f"{adjudication_rel} committed with freeze.json in {commit[:12]}")
+        else:
+            unverified.append(f"developmentAdjudication.sha256 ({why})")
+    if unverified:
+        notes.append(f"check-frozen: {campaign}: not verified: {'; '.join(unverified)}.")
+
+
+def _names_campaign(data: bytes, campaign: str) -> bool:
+    try:
+        value = json.loads(data.decode("utf-8"))
+    except (UnicodeError, ValueError):
+        return False
+    pointer = value.get("pilotFreeze") if isinstance(value, dict) else None
+    return isinstance(pointer, dict) and pointer.get("campaign") == campaign
+
+
+def _capture_problems(world: World, history: History, campaign: str, superseded: bool, problems: list[str]) -> None:
+    """A captured campaign keeps its candidate.json; a superseded captured campaign needs its invalidation.md."""
+    directory = world.root / PILOT_REL / campaign
+    rel = f"{PILOT_REL}/{campaign}/candidate.json"
+    if not (directory / "candidate.json").is_file():
+        added = history.commits(rel, added=True)
+        if added:
+            problems.append(f"{rel} was committed in {added[-1][:12]} and is missing now (a candidate is never removed)")
+    if superseded:
+        captured = _has_candidate(world, history, campaign)
+        if captured:
+            problem = _invalidation_problem(directory / "invalidation.md", campaign)
+            if problem:
+                problems.append(f"{campaign} was superseded although it was captured ({captured}) and its "
+                                f"invalidation.md is not usable ({problem})")
 
 
 def _integrity(world: World, directory: Path, problems: list[str]) -> dict | None:
@@ -2502,6 +2893,7 @@ def _integrity(world: World, directory: Path, problems: list[str]) -> dict | Non
 def check_frozen(world: World, out) -> int:
     pilot_dir = world.root / PILOT_REL
     campaigns = sorted(path.parent for path in pilot_dir.glob("*/freeze.json")) if pilot_dir.is_dir() else []
+    names = {directory.name for directory in campaigns}
     manifest = world.manifest
     freeze_pointer = manifest.get("pilotFreeze")
     problems: list[str] = []
@@ -2515,11 +2907,39 @@ def check_frozen(world: World, out) -> int:
         if not problems:
             print(f"check-frozen: no frozen campaign ({TASKS_REL} has no pilotFreeze); nothing to check.", file=out)
             return 0
+    history = History(world)
+    values: dict[str, tuple[dict, bytes]] = {}
+    for directory in campaigns:
+        try:
+            raw = (directory / "freeze.json").read_bytes()
+            value = json.loads(raw.decode("utf-8"))
+        except (OSError, UnicodeError, ValueError):
+            continue  # _integrity reports it
+        if isinstance(value, dict):
+            values[directory.name] = (value, raw)
+    superseded_by: dict[str, str] = {}
+    for name, (value, _raw) in values.items():
+        target = value.get("supersedes").get("campaign") if isinstance(value.get("supersedes"), dict) else None
+        if isinstance(target, str):
+            if target in superseded_by:
+                problems.append(f"{target} is superseded by both {superseded_by[target]} and {name}")
+            superseded_by[target] = name
+    if current in superseded_by:
+        problems.append(f"{current} is the current campaign but {superseded_by[current]} supersedes it")
     for directory in campaigns:
         if directory.name == current:
             continue
         before = len(problems)
-        _integrity(world, directory, problems)
+        if directory.name not in superseded_by:
+            problems.append(f"{world.display(directory)} is neither the current campaign nor superseded by one "
+                            "(freeze.json supersedes)")
+        freeze_value = _integrity(world, directory, problems)
+        if freeze_value is not None and directory.name in values:
+            raw = values[directory.name][1]
+            _recorded_fields(world, history, directory.name, freeze_value, raw, names, problems, notes)
+            _summary_state(world, directory, freeze_value, raw, problems)
+            _ledger_problems(world, directory.name, freeze_value, problems)
+            _capture_problems(world, history, directory.name, True, problems)
         if len(problems) == before:
             notes.append(f"check-frozen: {directory.name} (superseded): hashes intact.")
     if current is not None:
@@ -2531,6 +2951,7 @@ def check_frozen(world: World, out) -> int:
         else:
             existing = _integrity(world, directory, problems)
         if existing is not None:
+            raw = (directory / "freeze.json").read_bytes()
             if existing.get("referenceRevision") != freeze_pointer.get("referenceRevision"):
                 problems.append(f"{TASKS_REL} pilotFreeze.referenceRevision differs from {current}/freeze.json")
             held_out = _heldout_projection(manifest)
@@ -2538,44 +2959,76 @@ def check_frozen(world: World, out) -> int:
                 problems.append(f"{TASKS_REL} held-out fields changed after the freeze of {current} "
                                 "(hosts, repetitions, pilotTargets or a held-out task's id, repository, url, commit, "
                                 "entrypoints or prompt); a changed reference needs a new campaign")
-            if _final_summary_recorded(directory):
+            _recorded_fields(world, history, current, existing, raw, names, problems, notes)
+            _capture_problems(world, history, current, False, problems)
+            final = _summary_state(world, directory, existing, raw, problems)
+            if final:
+                _ledger_problems(world, current, existing, problems)
                 if len(problems) == before:
                     notes.append(f"check-frozen: {current} (final summary recorded): hashes intact.")
-            elif len(problems) == before:
-                derived = derive_campaign(world, current, frozen_at=existing.get("frozenAt"),
-                                          tooling=existing.get("tooling"), supersedes=existing.get("supersedes"),
-                                          existing=existing, verify_corpus=False)
-                if derived.problems:
-                    for what, action in derived.problems:
-                        problems.append(f"{current} cannot be re-derived: {what}. Next: {action}")
-                else:
-                    on_disk = {path.relative_to(directory).as_posix() for path in directory.rglob("*") if path.is_file()}
-                    for rel, data in sorted(derived.files.items()):
-                        try:
-                            actual = er.confined_file(directory, rel).read_bytes()
-                        except ValueError as exc:
-                            problems.append(f"{world.display(directory)}/{rel}: {exc}")
-                            continue
-                        if actual != data:
-                            problems.append(f"{world.display(directory)}/{rel} differs from the re-derivation (an "
-                                            "edited frozen file, decision file, ledger or manifest)")
-                    for rel in sorted(on_disk - set(derived.files)):
-                        if rel.startswith(("reference/", "prompts/")) or rel in ("reference-set.json", "policy.json"):
-                            problems.append(f"{world.display(directory)}/{rel} is not produced by the freeze")
-                    if len(problems) == before:
-                        absent = [task.get("repository") for task in world.heldout if world.repo_dir(task) is None]
-                        notes.append(f"check-frozen: {current} re-derived byte for byte ({len(world.heldout)} "
-                                     f"references, reference-set.json, policy.json, {2 * len(world.heldout)} prompts, "
-                                     "freeze.json); held-out tasks.json fields unchanged.")
-                        if len(absent) == len(world.heldout):
-                            notes.append("source hashes not re-read: corpus absent")
-                        elif absent:
-                            notes.append(f"source hashes not re-read for {', '.join(absent)}: corpus absent")
+            else:  # an invalid or missing summary never switches the re-derivation off
+                _rederive(world, directory, current, existing, problems, notes, before)
     for line in notes:
         print(line, file=out)
     for problem in problems:
         print(f"check-frozen: {problem}", file=out)
     return 1 if problems else 0
+
+
+def _changed_inputs(world: World, existing: dict) -> list[str]:
+    """The decision files, candidate ledgers and repositories.json whose bytes differ from the freeze."""
+    changed = []
+    for key in ("decisionFiles", "candidateLedgers"):
+        recorded = existing.get(key) if isinstance(existing.get(key), dict) else {}
+        for rel, digest in sorted(recorded.items()):
+            try:
+                data = er.confined_file(world.root, rel).read_bytes()
+            except (OSError, ValueError):
+                changed.append(f"{rel} (missing)")
+                continue
+            if er.sha256_bytes(data) != digest:
+                changed.append(rel)
+    repositories = existing.get("repositories") if isinstance(existing.get("repositories"), dict) else {}
+    if repositories.get("sha256") != er.sha256_bytes(world.repositories_bytes()):
+        changed.append(REPOSITORIES_REL)
+    return changed
+
+
+def _rederive(world: World, directory: Path, current: str, existing: dict, problems: list[str], notes: list[str],
+              before: int) -> None:
+    changed = _changed_inputs(world, existing)
+    for rel in changed:
+        problems.append(f"{rel} changed after the freeze of {current}; a changed decision needs a new campaign "
+                        f"({FREEZE_README})")
+    derived = derive_campaign(world, current, frozen_at=existing.get("frozenAt"),
+                              tooling=existing.get("tooling"), supersedes=existing.get("supersedes"),
+                              existing=existing, verify_corpus=False)
+    if derived.problems:
+        for what, action in derived.problems:
+            problems.append(f"{current} cannot be re-derived: {what}. Next: {action}")
+        return
+    on_disk = {path.relative_to(directory).as_posix() for path in directory.rglob("*") if path.is_file()}
+    for rel, data in sorted(derived.files.items()):
+        try:
+            actual = er.confined_file(directory, rel).read_bytes()
+        except ValueError as exc:
+            problems.append(f"{world.display(directory)}/{rel}: {exc}")
+            continue
+        if actual != data:
+            problems.append(f"{world.display(directory)}/{rel} differs from the re-derivation (an "
+                            "edited frozen file, decision file, ledger or manifest)")
+    for rel in sorted(on_disk - set(derived.files)):
+        if rel.startswith(("reference/", "prompts/")) or rel in ("reference-set.json", "policy.json"):
+            problems.append(f"{world.display(directory)}/{rel} is not produced by the freeze")
+    if len(problems) == before:
+        absent = [task.get("repository") for task in world.heldout if world.repo_dir(task) is None]
+        notes.append(f"check-frozen: {current} re-derived byte for byte ({len(world.heldout)} "
+                     f"references, reference-set.json, policy.json, {2 * len(world.heldout)} prompts, "
+                     "freeze.json); held-out tasks.json fields unchanged.")
+        if len(absent) == len(world.heldout):
+            notes.append("source hashes not re-read: corpus absent")
+        elif absent:
+            notes.append(f"source hashes not re-read for {', '.join(absent)}: corpus absent")
 
 
 # --------------------------------------------------------------------------------------------

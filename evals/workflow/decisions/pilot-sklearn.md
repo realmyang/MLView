@@ -1,10 +1,10 @@
 # Reference decisions: pilot-sklearn
 
 > Guide: evals/workflow/reference-candidates/REVIEW_GUIDE.md. Check: python tools/workflow_eval.py check pilot-sklearn
-> Lines starting with ">" are written by the tool and ignored. Replace each "pending".
+> Lines starting with ">" are written by the tool and ignored. Replace each "pending". Indent a wrapped line by two spaces to continue the value above it.
 > Fact and Non-defect: Decision: accept | qualify | reject. Unknown: the same, plus "Runs must state: yes | no" unless rejected.
 > qualify = accept with your wording: add "Wording:" and "Reason:". reject: add "Reason:".
-> To change a proposed Basis, Essential flag or Anchors, add that line and a "Reason:".
+> To change a proposed Basis, Essential flag or Anchors, add that line and a "Reason:". Anchors: replaces the proposed list; repeat each proposed anchor you keep.
 
 Candidate: pilot-sklearn.json 42c00471070b91c8d5c4208d64e6fce942742d921e7e6a384aa733ed3083f676
 Reviewer:

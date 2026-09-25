@@ -62,8 +62,10 @@ BUNDLE_ALGORITHM = "sha256-sorted-path-nul-bytes-nul"
 
 NOT_APPROVAL = "computed against the predefined targets; not an approval"
 PILOT_DIR_REMEDY = "export MLVIEW_PILOT_DIR=~/mlview-pilot"
+README_STOP_GO = 'evals/workflow/README.md, "Stage 1 stop/go"'
+README_REVIEW = 'evals/workflow/README.md, "Review and adjudicate"'
 GO_TEXT = ("Stage 1 met every predefined target. This permits collecting the 48 repeats; it is not a pilot "
-           "pass (README.md:73-74).")
+           f"pass ({README_STOP_GO}).")
 INVALID_RUN_NOTE = "the owner may record an invalidation"
 SUMMARY_NOTE = ("Computed from sealed run records and named human reviews against the predefined targets; "
                 "not an approval. Tool checks are not semantic accuracy, human review or live-host validation.")
@@ -81,7 +83,7 @@ def caveats(tasks: int, hosts: int, repetitions: int) -> list[str]:
         f"are given, because {tasks} task clusters cannot support them.",
         "A host means host + model + settings, not an isolated model (reference-candidates/README.md:94-98).",
         f"Stage 2 repeats measure within-scenario variation; {total} runs are not {total} independent tasks "
-        "(README.md:101-102).",
+        f"({README_REVIEW}).",
         "Each run has a single human reviewer, and verdicts are human judgements, not tool judgements. Disputed "
         "essential facts are listed.",
         "Workspaces contain only the manifest's sparse paths. For example, the upstream root AGENTS.md/CLAUDE.md of "
@@ -127,11 +129,21 @@ RECORD_FILE = "record.json"
 REVIEW_FILE = "review.md"
 CHANGES_FILE = "workspace-changes.json"
 MACHINE_FILES = frozenset({PROMPT_FILE, SESSION_FILE, BEFORE_FILE, AFTER_FILE, DOCTOR_FILE, ARTIFACT_FILE,
-                           PARTIAL_FILE, RECORD_FILE, REVIEW_FILE, CHANGES_FILE})
+                           PARTIAL_FILE, RECORD_FILE, REVIEW_FILE, CHANGES_FILE, "finish-state.json"})
 PREVIOUS_RECORD = "record.previous-{n}.json"
+PREVIOUS_RECORD_RE = re.compile(r"record\.previous-(?P<n>[1-9][0-9]*)\.json")
+FINISH_STATE = "finish-state.json"
+FINISH_FORMAT = "mlview-pilot-finish/1"
+LEDGER_FILE = "preparations.jsonl"  # in the pilot directory: one line per run-prepare, never rewritten
+LEDGER_FORMAT = "mlview-pilot-preparation/1"
+ATTEMPT_RE = re.compile(r"(?P<base>.+)\.attempt-(?P<n>[1-9][0-9]*)")
 SKILL_DESTINATIONS = {"claude-code": ".claude/skills/mlview"}
+# Host bookkeeping files a host may write into a workspace: reported as warnings, never as changed project files.
+HOST_FILES = {"claude-code": frozenset({".claude/settings.local.json"})}
 DEFAULT_SKILL_DESTINATION = ".agents/skills/mlview"
-MACHINE_PATH_RE = re.compile(r"/Users/|/home/|/private/|(?<![A-Za-z])[A-Za-z]:\\")
+MACHINE_PATH_RE = er.MACHINE_PATH_RE
+REASON_HINT = '" -- <reason>" (or " — <reason>")'
+DETAIL_HINT = '" -- <detail>" (or " — <detail>")'
 HEX64_RE = re.compile(r"[0-9a-f]{64}", re.ASCII)
 DATE_RE = re.compile(r"(\d{4})-(\d{2})-(\d{2})", re.ASCII)
 TIME_RE = re.compile(r"(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(\.\d+)?(Z|[+-]\d{2}:\d{2})", re.ASCII)
@@ -140,6 +152,7 @@ WHOLE_RE = re.compile(r"\d+", re.ASCII)
 PYTHON_RE = re.compile(r"(\d+)\.(\d+)", re.ASCII)
 SPLIT_RE = re.compile(r"(?P<base>.+?)#(?P<n>[0-9]+)")
 RESPONSE_RE = re.compile(r"response:(?P<line>[0-9]+)(?:-(?P<end>[0-9]+))?(?:#(?P<n>[0-9]+))?", re.ASCII)
+LEADING_ZERO_RE = re.compile(r"(?<![0-9])0[0-9]", re.ASCII)
 DEVIATION_RE = re.compile(r"(?P<text>.+?)\s+(?:—|–|--)\s+invalidates:\s*(?P<flag>\S+)\s*", re.IGNORECASE)
 
 
@@ -255,6 +268,14 @@ def _verify_detail(result: dict) -> str:
             shown = ", ".join(map(str, value[:5])) + (" ..." if len(value) > 5 else "") if isinstance(value, list) else value
             parts.append(f"{key}: {shown}")
     return "; ".join(parts) or "not ok"
+
+
+def _corpus_remedy(detail: str, name: str) -> str:
+    """The next command for a failed corpus verification (--update-sparse repairs only sparse problems)."""
+    if "--update-sparse" in detail:
+        return (f"python tools/fetch_workflow_repos.py --update-sparse --repo {name}, then "
+                "python tools/fetch_workflow_repos.py --verify")
+    return "python tools/fetch_workflow_repos.py --verify"
 
 
 def _skill_destination(host: str) -> str:
@@ -599,6 +620,7 @@ def load_campaign(root: Path, name: str) -> Campaign:
             if isinstance(reference.get("essentialFactIds"), list) and entry.get("essential") != len(reference["essentialFactIds"]):
                 problems.append(f"reference-set.json: the {task['id']} essential count differs from {rel}")
         references[task["id"]] = reference
+    problems.extend(_decision_binding(root, commit, freeze, heldout, references, policy))
     try:
         helper = er.load_helper(helper_bytes)
     except (ValueError, SyntaxError) as exc:
@@ -630,6 +652,57 @@ def load_campaign(root: Path, name: str) -> Campaign:
     if problems:
         raise IntegrityError(problems)
     return campaign
+
+
+DECISIONS_REL = "evals/workflow/decisions"
+CANDIDATES_REL = er.CANDIDATES_REL
+
+
+def _decision_binding(root: Path, commit: str, freeze: dict, heldout: list[dict], references: dict[str, dict],
+                      policy: object) -> list[str]:
+    """The frozen files must come from committed decision files and ledgers: freeze.json lists every
+    held-out decision file and the run policy with their bytes at the candidate commit, and each
+    reference names those reviews and its ledger, and policy.json its source, by the same hashes."""
+    decisions, ledgers = freeze.get("decisionFiles"), freeze.get("candidateLedgers")
+    if not isinstance(decisions, dict) or not isinstance(ledgers, dict):
+        return ["freeze.json: decisionFiles and candidateLedgers must map repository paths to SHA-256"]
+    problems = []
+    policy_rel = f"{DECISIONS_REL}/run-policy.md"
+    for rel in [f"{DECISIONS_REL}/{task['id']}.md" for task in heldout] + [policy_rel]:
+        if rel not in decisions:
+            problems.append(f"freeze.json: decisionFiles has no {rel}")
+    for task in heldout:
+        if f"{CANDIDATES_REL}/{task['id']}.json" not in ledgers:
+            problems.append(f"freeze.json: candidateLedgers has no {CANDIDATES_REL}/{task['id']}.json")
+    for rel, digest in sorted(decisions.items()) + sorted(ledgers.items()):
+        if not isinstance(rel, str) or er._path_problem(rel) or not isinstance(digest, str):
+            problems.append(f"freeze.json: {rel!r} is not a repository path with a hash")
+            continue
+        try:
+            data = er.git_show(root, commit, rel)
+        except ValueError:
+            problems.append(f"{rel} (frozen) does not exist at the candidate commit {commit[:12]}")
+            continue
+        if er.sha256_bytes(data) != digest:
+            problems.append(f"{rel} at {commit[:12]} differs from its freeze.json hash")
+    for task_id, reference in references.items():
+        if not isinstance(reference, dict):
+            continue
+        reviews = reference.get("reviews")
+        if not isinstance(reviews, list) or not reviews:
+            problems.append(f"reference/{task_id}.json: reviews must name the decision files")
+        for review in reviews if isinstance(reviews, list) else []:
+            path = review.get("path") if isinstance(review, dict) else None
+            if path not in decisions or review.get("sha256") != decisions[path]:
+                problems.append(f"reference/{task_id}.json: review {path!r} is not a frozen decision file with that hash")
+        source = reference.get("candidate")
+        path = source.get("path") if isinstance(source, dict) else None
+        if path not in ledgers or source.get("sha256") != ledgers[path]:
+            problems.append(f"reference/{task_id}.json: candidate {path!r} is not a frozen ledger with that hash")
+    source = policy.get("source") if isinstance(policy, dict) else None
+    if not isinstance(source, dict) or source.get("path") != policy_rel or source.get("sha256") != decisions.get(policy_rel):
+        problems.append(f"policy.json: source must name {policy_rel} with its frozen hash")
+    return problems
 
 
 def _reference_problems(reference: object, task: dict, name: str, rel: str) -> list[str]:
@@ -828,24 +901,26 @@ def _frozen_plan_inputs(root: Path, name: str) -> tuple[dict, bool]:
 # session.md (operator-authored; section 4.3)
 
 
-def session_template(run_id: str, condition: str) -> bytes:
+def session_template(run_id: str, condition: str, prior_attempts: int = 0) -> bytes:
     baseline = condition == "baseline"
     lines = [
         f"# Session: {run_id}",
         "> Fill after the session. Times are RFC 3339 UTC (2026-10-10T09:02:11Z). Minutes may be decimal.",
         "> Status: completed (skill: pilot.mlview.json published; baseline: answer captured) | failed | timed-out | blocked",
-        '> Failure: no-publication | repair-budget | host-error | cancelled | setup | protocol, then " — <detail>"',
+        f"> Failure: no-publication | repair-budget | host-error | cancelled | setup | protocol, then {DETAIL_HINT}",
+        "> Write no machine paths (home folders, drive letters) in any value; describe places in words.",
     ]
     if baseline:
-        lines.append("> Baseline: no MLView skill, plugin or artifact. transcript.txt is required and scored; Repair rounds, "
-                     "Helper Python and UI log do not apply.")
+        lines.append("> Baseline: no MLView skill, plugin or artifact, and no skill invocation (the prompt is sent as a plain "
+                     "message). transcript.txt is required and scored; Invocation, Repair rounds, Helper Python and UI log "
+                     "do not apply.")
     lines += [
         "Status: pending", "Failure:", "Started:", "Ended:", "Active minutes:", "Approval wait minutes:",
         "Repair rounds:", "Host version:", "Extension version:", "Model:", "Reasoning:", "Resolved model:",
         "Invocation:", "Helper Python:", "Usage:", "Transcript: transcript.txt",
-        "UI log:" if baseline else "UI log: ui-log.md", "Prior attempts: 0",
+        "UI log:" if baseline else "UI log: ui-log.md", f"Prior attempts: {prior_attempts}",
         f"MLView available to host: {'no' if baseline else 'yes'}",
-        '> Deviations: one line each, "<what happened> — invalidates: yes | no"',
+        '> Deviations: one line each, "<what happened> -- invalidates: yes | no" (" — " also works)',
         "## Deviations", "",
     ]
     return "\n".join(lines).encode("utf-8")
@@ -902,12 +977,15 @@ def check_session(record: er.Record, display: str, evidence_dir: Path | None, *,
     if status in ("failed", "timed-out", "blocked"):
         if not failure_text:
             add(er.ERROR, line_of("Failure"), f'Status is {status}, so "Failure:" is needed: one of '
-                                              f'{", ".join(FAILURE_KINDS)}, then " — <detail>".')
+                                              f'{", ".join(FAILURE_KINDS)}, then {DETAIL_HINT}.')
         else:
-            kind, _pointers, detail = _split_reason(failure_text)
+            kind, extra, detail = _split_reason(failure_text)
             if kind.casefold() not in FAILURE_KINDS:
                 add(er.ERROR, line_of("Failure"), f'"Failure: {failure_text}" does not start with a failure kind. Write one of: '
-                                                  f'{", ".join(FAILURE_KINDS)}, then " — <detail>".')
+                                                  f'{", ".join(FAILURE_KINDS)}, then {DETAIL_HINT}.')
+            elif extra:
+                hint = er.SEPARATOR_HINT if er.lone_hyphen(extra) else f"write the detail after {DETAIL_HINT}"
+                add(er.ERROR, line_of("Failure"), f'"Failure: {_one_line(failure_text, 60)}": {hint}')
             else:
                 failure = {"kind": kind.casefold(), "detail": detail}
     elif completed and failure_text:
@@ -966,9 +1044,9 @@ def check_session(record: er.Record, display: str, evidence_dir: Path | None, *,
     }
     if completed:
         required = ["Started", "Ended", "Active minutes", "Approval wait minutes", "Host version", "Extension version",
-                    "Model", "Reasoning", "Invocation", "Prior attempts", "MLView available to host"]
+                    "Model", "Reasoning", "Prior attempts", "MLView available to host"]
         if not baseline:
-            required += ["Repair rounds", "Helper Python"]
+            required += ["Invocation", "Repair rounds", "Helper Python"]
         for key in required:
             if not value(key):
                 add(er.ERROR, line_of(key), f'Status is completed but "{key}:" is empty.')
@@ -1010,10 +1088,20 @@ def check_session(record: er.Record, display: str, evidence_dir: Path | None, *,
         match = DEVIATION_RE.fullmatch(text)
         flag = match.group("flag").casefold() if match else ""
         if not match or flag not in ("yes", "no"):
-            add(er.ERROR, item.line, f'"{_one_line(text, 60)}" must end with " — invalidates: yes" or " — invalidates: no".',
-                "Deviations")
+            add(er.ERROR, item.line, f'"{_one_line(text, 60)}" must end with " -- invalidates: yes" or " -- invalidates: no" '
+                                     '(" — " also works).', "Deviations")
+            continue
+        found = MACHINE_PATH_RE.search(text)
+        if found:
+            add(er.ERROR, item.line, f"the deviation contains a machine path ({found.group(0)}); sealed records and summaries "
+                                     "must not name machine paths. Describe the place in words.", "Deviations")
             continue
         block["deviations"].append({"text": _one_line(match.group("text"), 500), "invalidates": flag == "yes"})
+    for item in header.lines:
+        found = MACHINE_PATH_RE.search(item.value or "")
+        if found:
+            add(er.ERROR, item.line, f"{item.key} contains a machine path ({found.group(0)}); sealed records and summaries "
+                                     "must not name machine paths. Describe it without the path.")
     problems.sort(key=lambda p: p.line)
     ok = status is not None and not any(p.level == er.ERROR for p in problems)
     return SessionResult(problems, block if ok else None, transcript, ui_log)
@@ -1046,42 +1134,134 @@ def _stage1_go(summary: dict | None, campaign: Campaign) -> str | None:
     """None when a committed Stage 1 summary permits Stage 2, else the reason it does not."""
     if summary is None:
         return "there is no committed stage1-summary.json"
+    if summary.get("format") != SUMMARY_FORMAT or summary.get("stage") != "1" or summary.get("campaign") != campaign.name:
+        return f'the committed stage1-summary.json is not a "{SUMMARY_FORMAT}" Stage 1 summary of {campaign.name}'
     decision = summary.get("decision") if isinstance(summary.get("decision"), dict) else {}
     if decision.get("value") != "go":
         return f"the committed Stage 1 decision is {decision.get('value')!r}, not go"
-    if summary.get("candidateSha256") != campaign.candidate_sha256:
+    inputs = summary.get("inputs") if isinstance(summary.get("inputs"), dict) else {}
+    if summary.get("candidateSha256") != campaign.candidate_sha256 or inputs.get("candidate") != campaign.candidate_sha256:
         return "the committed Stage 1 summary belongs to another candidate"
+    if inputs.get("freeze") != campaign.freeze_sha256 or inputs.get("referenceSet") != campaign.reference_set_sha256 \
+            or summary.get("referenceRevision") != campaign.reference_revision:
+        return "the committed Stage 1 summary was computed from other frozen inputs"
     if _parse_time(summary.get("generatedAt")) is None:
         return "the committed Stage 1 summary has no valid generatedAt"
     return None
 
 
-def adjudication_status(root: Path) -> str | None:
-    """None when the committed development adjudication is complete, else why it is not. Only the
-    committed file counts; the full rules are checked by python tools/workflow_eval.py check."""
-    data = _show_at_head(root, ADJUDICATION_REL)
-    if data is None:
-        return f"{ADJUDICATION_REL} is not committed"
-    record, problems = er.parse_record(data, ADJUDICATION_REL)
-    if record is None or record.kind != "Development adjudication" or any(p.level == er.ERROR for p in problems):
-        return f"{ADJUDICATION_REL} has errors"
-    if not (record.header.value("Reviewer") or "").strip():
-        return f"{ADJUDICATION_REL} names no reviewer"
-    task = record.section("Task")
-    if task is None or (task.value("Review") or "").strip().casefold() != "complete":
-        return f'{ADJUDICATION_REL} does not say "Review: complete"'
-    for section in record.sections:
-        if section.kind == "Task":
-            continue
-        for item in section.lines:
-            if item.key.casefold() == "ledger":
-                continue
-            if not item.value.strip() or item.value.strip().split()[0].casefold() == "pending":
-                return f"{ADJUDICATION_REL} still has pending items ({section.label}: {item.key})"
+def _stage1_inputs(summary: dict, planned: dict[str, dict]) -> list[tuple]:
+    """(id, record, review, amendments) of every Stage 1 run in a summary's inputs."""
+    runs = (summary.get("inputs") or {}).get("runs") if isinstance(summary.get("inputs"), dict) else None
+    found = []
+    for item in runs if isinstance(runs, list) else []:
+        if isinstance(item, dict) and item.get("id") in planned and planned[item["id"]]["stage"] == 1:
+            found.append((item["id"], item.get("record"), item.get("review"), tuple(item.get("amendments") or [])))
+    return sorted(found)
+
+
+def _stage1_matches(root: Path, campaign: Campaign, pilot_value: str | None, committed: dict) -> str | None:
+    """None when Stage 1, re-computed from the sealed evidence, is go with exactly the committed
+    inputs and the committed summary was generated after every Stage 1 record was sealed or amended."""
+    try:
+        recomputed = summarize(root, campaign.name, "1", pilot_value)
+    except IntegrityError as exc:
+        return f"the Stage 1 evidence has {len(exc.problems)} integrity problem(s)"
+    except PilotError as exc:
+        return f"Stage 1 cannot be re-computed ({exc})"
+    value = recomputed["decision"]["value"]
+    if value != "go":
+        return f"a re-computation of Stage 1 from the sealed evidence gives {value}, not go"
+    planned = {run["id"]: run for run in campaign.plan()}
+    if _stage1_inputs(recomputed, planned) != _stage1_inputs(committed, planned):
+        return ("the committed Stage 1 summary does not match the sealed Stage 1 records and reviews "
+                "(a record, review or amendment differs)")
+    generated = _parse_time(committed.get("generatedAt"))
+    evidence_root = _pilot_dir(pilot_value) / "evidence"
+    for run_id, *_rest in _stage1_inputs(recomputed, planned):
+        try:
+            record = _json_loads(er.confined_file(evidence_root / er.run_dir_name(run_id), RECORD_FILE).read_bytes(),
+                                 RECORD_FILE)
+        except ValueError:
+            return f"the record of {run_id} cannot be read"
+        times = [record.get("sealedAt")] + [item.get("at") for item in record.get("amendments") or []
+                                            if isinstance(item, dict)]
+        if any((_parse_time(item) or generated) > generated for item in times):
+            return (f"the committed Stage 1 summary was generated before {run_id} was sealed or amended; "
+                    "summarize Stage 1 again")
     return None
 
 
-def run_prepare(root: Path, run_id: str, name: str, pilot_value: str | None, out: Callable[[str], None] = print) -> int:
+def _adjudication_check(root: Path, raw: bytes):
+    """The full development-adjudication checker of tools/workflow_decisions.py (imported lazily)."""
+    import workflow_decisions  # noqa: PLC0415 - a module-level import would be circular
+
+    return workflow_decisions.check_adjudication(workflow_decisions.World(root, None), raw, ADJUDICATION_REL)
+
+
+def adjudication_status(root: Path) -> str | None:
+    """None when the committed development adjudication is complete, else why it is not. Only the
+    committed file counts, and it is held to the same rules as python tools/workflow_eval.py check."""
+    data = _show_at_head(root, ADJUDICATION_REL)
+    if data is None:
+        return f"{ADJUDICATION_REL} is not committed"
+    try:
+        result = _adjudication_check(Path(root), data)
+    except Exception as exc:  # noqa: BLE001 - any failure of the checker refuses Stage 1
+        return f"{ADJUDICATION_REL} cannot be checked ({exc})"
+    if result.errors or result.todos:
+        return f"the committed {ADJUDICATION_REL} has {result.errors} error(s) and {result.todos} to do"
+    if not result.complete:
+        return f'the committed {ADJUDICATION_REL} does not say "Review: complete"'
+    return None
+
+
+def _workspace_name(directory: str, attempt: int) -> str:
+    """Attempt 1 uses the run's directory name; a retry gets a fresh ``<run>.attempt-<n>`` workspace."""
+    return directory if attempt == 1 else f"{directory}.attempt-{attempt}"
+
+
+def _read_ledger(pilot_dir: Path) -> tuple[list[dict], list[str]]:
+    """The entries of $MLVIEW_PILOT_DIR/preparations.jsonl and the problems of malformed lines."""
+    path = pilot_dir / LEDGER_FILE
+    if not os.path.lexists(path):
+        return [], []
+    if path.is_symlink() or not path.is_file():
+        return [], [f"{LEDGER_FILE} is not a regular file"]
+    entries, problems = [], []
+    for number, line in enumerate(path.read_bytes().split(b"\n"), 1):
+        if not line.strip():
+            continue
+        try:
+            value = _json_loads(line, f"{LEDGER_FILE} line {number}")
+        except ValueError as exc:
+            problems.append(str(exc))
+            continue
+        if (not isinstance(value, dict) or value.get("format") != LEDGER_FORMAT or not isinstance(value.get("run"), str)
+                or not _is_int(value.get("attempt")) or value["attempt"] < 1):
+            problems.append(f"{LEDGER_FILE} line {number}: not a preparation entry")
+            continue
+        entries.append(value)
+    return entries, problems
+
+
+def _attempts(entries: list[dict], run_id: str) -> list[dict]:
+    return [entry for entry in entries if entry["run"] == run_id]
+
+
+def _append_ledger(pilot_dir: Path, entry: dict) -> None:
+    path = pilot_dir / LEDGER_FILE
+    if path.is_symlink():
+        raise PilotError(f"{LEDGER_FILE} is a symbolic link; refusing to write it")
+    line = json.dumps(entry, sort_keys=True, ensure_ascii=False, separators=(",", ":")) + "\n"
+    with open(path, "a", encoding="utf-8", newline="\n") as stream:
+        stream.write(line)
+        stream.flush()
+        os.fsync(stream.fileno())
+
+
+def run_prepare(root: Path, run_id: str, name: str, pilot_value: str | None, out: Callable[[str], None] = print,
+                retry: str | None = None) -> int:
     root = Path(root)
     try:
         directory = er.run_dir_name(run_id)
@@ -1097,8 +1277,44 @@ def run_prepare(root: Path, run_id: str, name: str, pilot_value: str | None, out
     run = planned.get(run_id)
     if run is None:
         raise PilotError(f"{run_id} is not a planned run of {name} (see python tools/workflow_eval.py plan --campaign {name})")
+    entries, ledger_problems = _read_ledger(pilot_dir)
+    if ledger_problems:
+        raise PilotError(f"{LEDGER_FILE} in the pilot directory is damaged ({ledger_problems[0]}); it is append-only and "
+                         "must never be edited")
+    previous = _attempts(entries, run_id)
+    attempt = len(previous) + 1
+    workspaces, evidence_root = pilot_dir / "workspaces", pilot_dir / "evidence"
+    evidence = evidence_root / directory
+    earlier = evidence_root / f"{directory}.attempt-{len(previous)}"
+    retry_command = f'python tools/workflow_eval.py run-prepare {run_id} --campaign {name} --retry "<reason>"'
+    if retry is None and previous:
+        raise PilotError(f"{run_id} was already prepared ({len(previous)} attempt(s), the last at "
+                         f"{previous[-1].get('preparedAt')}); every attempt is prepared once and its evidence is kept. "
+                         f"After a failed, timed-out or blocked attempt is sealed, retry it with: {retry_command}")
+    if retry is not None:
+        if not retry.strip():
+            raise PilotError("--retry needs a reason")
+        if MACHINE_PATH_RE.search(retry):
+            raise PilotError("the retry reason contains a machine path; describe it without the path")
+        if not previous:
+            raise PilotError(f"{run_id} has not been prepared yet; run run-prepare without --retry")
+        try:
+            sealed = _json_loads(er.confined_file(evidence, RECORD_FILE).read_bytes(), RECORD_FILE)
+        except ValueError:
+            raise PilotError(f"attempt {len(previous)} of {run_id} is not sealed; seal it first (write its Status and "
+                             f"Failure in session.md, then run-finish)") from None
+        status = (sealed.get("session") or {}).get("status") if isinstance(sealed, dict) else None
+        if status == "completed":
+            raise PilotError(f"attempt {len(previous)} of {run_id} completed; a completed run is never retried")
+        if os.path.lexists(workspaces / _workspace_name(directory, len(previous))):
+            raise PilotError(f"the workspace of attempt {len(previous)} still exists; remove it before a retry")
+        if os.path.lexists(earlier):
+            raise PilotError(f"{earlier} already exists; earlier attempts are never overwritten")
     if run["stage"] == 2:
-        reason = _stage1_go(_committed_stage1(root, campaign), campaign)
+        committed = _committed_stage1(root, campaign)
+        reason = _stage1_go(committed, campaign)
+        if reason is None and (pilot_dir / "evidence").is_dir():
+            reason = _stage1_matches(root, campaign, pilot_value, committed)
         if reason is not None:
             raise PilotError(f"Stage 2 repeats need a committed Stage 1 summary whose decision is go for this candidate; {reason}")
     if run["stage"] == 1 and campaign.adjudication_required:
@@ -1114,20 +1330,27 @@ def run_prepare(root: Path, run_id: str, name: str, pilot_value: str | None, out
         raise PilotError(f"the corpus repository {repo['name']} is missing; fetch it with python tools/fetch_workflow_repos.py")
     report = _verify_repo(repo, corpus)
     if not report.get("ok"):
-        raise PilotError(f"the corpus repository {repo['name']} failed verification ({_verify_detail(report)}); "
-                         "run python tools/fetch_workflow_repos.py --verify")
+        detail = _verify_detail(report)
+        raise PilotError(f"the corpus repository {repo['name']} failed verification ({detail}); run "
+                         + _corpus_remedy(detail, repo["name"]))
     head_skill = package_skill.bundle_identity(package_skill.canonical_files(root / SKILL_REL))
     if head_skill != campaign.candidate["skill"]:
         raise PilotError(f"the skill in this checkout differs from the candidate's; check out the candidate commit "
                          f"({campaign.commit[:12]}) before preparing runs")
-    workspaces, evidence_root = pilot_dir / "workspaces", pilot_dir / "evidence"
-    workspace, evidence = workspaces / directory, evidence_root / directory
-    for path in (workspace, evidence):
-        if os.path.lexists(path):
-            raise PilotError(f"{path} already exists; every run is prepared once, in a fresh workspace")
+    workspace = workspaces / _workspace_name(directory, attempt)
+    if os.path.lexists(workspace) or (retry is None and os.path.lexists(evidence)):
+        raise PilotError(f"{workspace if os.path.lexists(workspace) else evidence} already exists; every run is prepared "
+                         "once, in a fresh workspace")
     workspaces.mkdir(parents=True, exist_ok=True)
     evidence_root.mkdir(parents=True, exist_ok=True)
-    os.mkdir(evidence)
+    if retry is not None:
+        os.rename(evidence, earlier)  # the earlier attempt's evidence is kept, never deleted
+    try:
+        os.mkdir(evidence)
+    except OSError:
+        if retry is not None:
+            os.rename(earlier, evidence)
+        raise
     os.mkdir(workspace)
     try:
         tree = er.pinned_tree(repo_path, task["commit"])
@@ -1148,24 +1371,30 @@ def run_prepare(root: Path, run_id: str, name: str, pilot_value: str | None, out
         prompt = campaign.files[campaign.prompt_rel(run["task"], run["condition"])]
         er.write_exclusive(evidence / PROMPT_FILE, prompt)
         er.write_exclusive(evidence / BEFORE_FILE, er.canonical_json(_workspace_hashes(workspace)))
-        er.write_exclusive(evidence / SESSION_FILE, session_template(run_id, run["condition"]))
+        er.write_exclusive(evidence / SESSION_FILE, session_template(run_id, run["condition"], attempt - 1))
+        _append_ledger(pilot_dir, {"format": LEDGER_FORMAT, "run": run_id, "attempt": attempt, "preparedAt": _now(),
+                                   "workspace": workspace.name, "reason": _one_line(retry, 500) if retry else None})
     except BaseException as exc:
         shutil.rmtree(workspace, ignore_errors=True)
         shutil.rmtree(evidence, ignore_errors=True)
+        if retry is not None and not os.path.lexists(evidence):
+            os.rename(earlier, evidence)
         if isinstance(exc, (ValueError, OSError)):
             raise PilotError(f"could not prepare {run_id}: {exc}") from None
         raise
     settings = campaign.host_policy(run["host"])
     lines = [
-        f"Prepared {run_id} (campaign {name}, stage {run['stage']}, {run['condition']}).",
+        f"Prepared {run_id} (campaign {name}, stage {run['stage']}, {run['condition']}"
+        + (f", attempt {attempt}; attempt {attempt - 1} is kept in {earlier.name}" if retry is not None else "") + ").",
         f"  workspace: {workspace}  ({copied} pinned files" + (f"; skill at {installed}" if installed else "") + ")",
         f"  evidence:  {evidence}",
         f"  prompt:    {evidence / PROMPT_FILE} (sha256 {er.sha256_bytes(prompt)[:12]}...)",
         "Operator checklist (these paths are printed only; they are never recorded):",
         "  1. Open the workspace in a new VS Code window (File > New Window, then Open Folder).",
         f"  2. Start a fresh {run['host']} session; never continue an earlier conversation.",
-        f'  3. Use the policy settings: model "{settings["model"]}", reasoning "{settings["reasoning"]}", '
-        f'invocation "{settings["invocation"]}".',
+        f'  3. Use the policy settings: model "{settings["model"]}", reasoning "{settings["reasoning"]}"'
+        + (f', invocation "{settings["invocation"]}".' if run["condition"] == "skill" else
+           "; no skill invocation (a baseline sends PROMPT.txt as a plain message)."),
         "  4. In the host's terminal, check that python3 --version reports 3.10 or newer "
         f"(policy: {_one_line((campaign.policy.get('environment') or {}).get('helperPython', 'see run-policy'), 120)}).",
     ]
@@ -1174,10 +1403,14 @@ def run_prepare(root: Path, run_id: str, name: str, pilot_value: str | None, out
                  "if this VS Code profile does not have it.")
     if run["condition"] == "baseline":
         lines.append("  6. Baseline: confirm that no MLView skill, plugin or artifact is available to the host "
-                     "(no .agents/skills/mlview, .claude/skills/mlview or MLView plugin).")
+                     "(no .agents/skills/mlview, .claude/skills/mlview or MLView plugin). Send PROMPT.txt exactly, as a "
+                     "plain message in a new chat; do not use the skill invocation ($mlview, the skill picker or /mlview).")
     else:
         lines.append(f"  6. Send the invocation, then PROMPT.txt exactly. The artifact must be published to "
                      f"{campaign.artifact_path} at the workspace root.")
+    if run["host"] in HOST_FILES:
+        lines.append(f"     {run['host']}: do not choose \"Yes, and don't ask again\"; it writes "
+                     f"{', '.join(sorted(HOST_FILES[run['host']]))} into the workspace, which is reported with the run.")
     lines += [
         f"  7. Afterwards save transcript.txt{'' if run['condition'] == 'baseline' else ' and ui-log.md'} in the evidence "
         "directory, fill session.md, then run:",
@@ -1233,6 +1466,65 @@ def _base_record(campaign: Campaign, run: dict, session: SessionResult, session_
     }
 
 
+def _expected_workspace(root: Path, campaign: Campaign, run: dict) -> dict[str, str]:
+    """``{path: sha256}`` of the pinned project files run-prepare copied into the workspace (every path
+    the sparse patterns cover), recomputed from the corpus instead of read from workspace-before.json."""
+    task = campaign.task(run["task"])
+    repo = campaign.repositories[task["repository"]]
+    repo_path = _corpus_root(root) / repo["name"]
+    try:
+        tree = er.pinned_tree(repo_path, task["commit"])
+        patterns = repo.get("sparse") or []
+        return {rel: er.sha256_bytes(er.pinned_bytes(repo_path, task["commit"], rel, tree=tree))
+                for rel in sorted(tree) if er.sparse_covers(patterns, rel)}
+    except (ValueError, OSError) as exc:
+        raise PilotError(f"cannot recompute the pinned workspace files from the corpus ({exc}); run-finish compares the "
+                         "workspace with the pinned bytes, so the corpus must stay as run-prepare found it") from None
+
+
+def _counted(run: dict, helper: ModuleType) -> Callable[[str], bool]:
+    """Which workspace paths count as project files: every path in a baseline, and every path except
+    the MLView-owned ones (artifact, drafts, installed skill) in a skill run."""
+    if run["condition"] == "skill":
+        return lambda rel: not helper.is_owned_path(rel)
+    return lambda rel: True
+
+
+def _diff_paths(before: dict, after: dict, counted: Callable[[str], bool]) -> dict[str, str]:
+    """``{path: added|removed|modified}`` for the counted paths whose hashes differ."""
+    found = {}
+    for rel in sorted(set(before) | set(after)):
+        if counted(rel) and before.get(rel) != after.get(rel):
+            found[rel] = "added" if rel not in before else "removed" if rel not in after else "modified"
+    return found
+
+
+def _finish_problems(evidence: Path, finish: object, status: str, session_sha: str) -> list[str]:
+    """Why the files an interrupted run-finish left behind cannot be sealed as they are."""
+    if not isinstance(finish, dict) or finish.get("format") != FINISH_FORMAT or not isinstance(finish.get("files"), dict):
+        return [f"{FINISH_STATE} is not a run-finish state file"]
+    problems = []
+    if finish.get("status") != status or finish.get("session") != session_sha:
+        problems.append(f"session.md changed after run-finish removed the workspace (the status was then "
+                        f"{finish.get('status')}); restore session.md, seal the run, then change it with --amend")
+    listed = finish["files"]
+    for rel, digest in sorted(listed.items()):
+        try:
+            data = er.confined_file(evidence, rel).read_bytes()
+        except ValueError as exc:
+            problems.append(f"{rel}: {exc}")
+            continue
+        if er.sha256_bytes(data) != digest:
+            problems.append(f"{rel} changed after run-finish wrote it")
+    extra = [name for name in (ARTIFACT_FILE, PARTIAL_FILE) if os.path.lexists(evidence / name) and name not in listed]
+    if (evidence / CHANGES_DIR).is_dir():
+        extra += sorted(f"{CHANGES_DIR}/{path.relative_to(evidence / CHANGES_DIR).as_posix()}"
+                        for path in (evidence / CHANGES_DIR).rglob("*") if not path.is_dir()
+                        and f"{CHANGES_DIR}/{path.relative_to(evidence / CHANGES_DIR).as_posix()}" not in listed)
+    problems.extend(f"{rel} was not written by run-finish" for rel in extra)
+    return problems
+
+
 def run_finish(root: Path, run_id: str, name: str, pilot_value: str | None, amend: str | None,
                out: Callable[[str], None] = print) -> int:
     root = Path(root)
@@ -1252,6 +1544,8 @@ def run_finish(root: Path, run_id: str, name: str, pilot_value: str | None, amen
     if amend is not None:
         if not amend.strip():
             raise PilotError("--amend needs a reason")
+        if MACHINE_PATH_RE.search(amend):
+            raise PilotError("the amendment reason contains a machine path; describe it without the path")
         if not record_path.is_file():
             raise PilotError(f"{run_id} is not sealed yet; run run-finish without --amend")
         session, session_raw = _session_or_fail(evidence, run_id, campaign.helper, out)
@@ -1259,20 +1553,29 @@ def run_finish(root: Path, run_id: str, name: str, pilot_value: str | None, amen
     if os.path.lexists(record_path):
         raise PilotError(f"{run_id} is already sealed; to change the session facts run: python tools/workflow_eval.py "
                          f'run-finish {run_id} --campaign {name} --amend "<reason>"')
+    if any(PREVIOUS_RECORD_RE.fullmatch(path.name) for path in evidence.iterdir()):
+        raise PilotError("record.json is missing but record.previous-*.json exist: the sealed record was deleted. Restore "
+                         "record.json and change the session with --amend")
+    entries, ledger_problems = _read_ledger(pilot_dir)
+    attempts = _attempts(entries, run_id)
+    if ledger_problems or not attempts:
+        raise PilotError(f"{LEDGER_FILE} in the pilot directory has no preparation of {run_id}"
+                         + (f" ({ledger_problems[0]})" if ledger_problems else "")
+                         + "; runs are prepared with run-prepare, which records every attempt")
     session, session_raw = _session_or_fail(evidence, run_id, campaign.helper, out)
+    if session.block["priorAttempts"] != len(attempts) - 1:
+        raise PilotError(f"session.md says Prior attempts: {session.block['priorAttempts']}, but {LEDGER_FILE} records "
+                         f"{len(attempts) - 1} earlier attempt(s); write Prior attempts: {len(attempts) - 1}")
     status = session.block["status"]
-    workspace = pilot_dir / "workspaces" / directory
+    session_sha = er.sha256_bytes(session_raw)
+    workspace = pilot_dir / "workspaces" / _workspace_name(directory, len(attempts))
     skill = run["condition"] == "skill"
-    resumed = False
+    counted = _counted(run, campaign.helper)
+    host_allowed = HOST_FILES.get(run["host"], frozenset())
     if workspace.is_symlink():
         raise PilotError(f"{workspace} is a symbolic link; refusing to read or remove it")
-    if not workspace.is_dir():
-        if not (evidence / AFTER_FILE).is_file():
-            raise PilotError(f"{workspace} does not exist; the workspace was removed before the run was sealed")
-        resumed = True  # an earlier run-finish removed the workspace but did not seal
-    artifact_entry = partial_entry = None
-    changes: list[dict] = []
-    if not resumed:
+    if workspace.is_dir():
+        written: dict[str, str] = {}
         if skill:
             source = workspace / campaign.artifact_path
             present = source.is_file() and not source.is_symlink()
@@ -1283,12 +1586,16 @@ def run_finish(root: Path, run_id: str, name: str, pilot_value: str | None, amen
                 data = source.read_bytes()
                 target = ARTIFACT_FILE if status == "completed" else PARTIAL_FILE
                 _write_or_same(evidence / target, data)
+                written[target] = er.sha256_bytes(data)
+        expected = _expected_workspace(root, campaign, run)
         before = _json_loads(er.confined_file(evidence, BEFORE_FILE).read_bytes(), BEFORE_FILE)
+        if not isinstance(before, dict):
+            raise PilotError(f"{BEFORE_FILE} is not a JSON object")
+        mismatches = sorted(_diff_paths(expected, before, counted))
         after = _workspace_hashes(workspace)
-        for rel in sorted(set(before) | set(after)):
-            if campaign.helper.is_owned_path(rel) or before.get(rel) == after.get(rel):
-                continue
-            change = "added" if rel not in before else "removed" if rel not in after else "modified"
+        changes: list[dict] = []
+        host_files: list[dict] = []
+        for rel, change in _diff_paths(expected, after, counted).items():
             entry: dict[str, Any] = {"path": rel, "change": change, "file": None, "sha256": None}
             if change != "removed":
                 path = workspace / rel
@@ -1297,26 +1604,43 @@ def run_finish(root: Path, run_id: str, name: str, pilot_value: str | None, amen
                     copy = f"{CHANGES_DIR}/{rel}"
                     _write_or_same(evidence / copy, data)
                     entry.update(file=copy, sha256=er.sha256_bytes(data))
+                    written[copy] = entry["sha256"]
                 else:
                     entry["sha256"] = after[rel]
-            changes.append(entry)
+            (host_files if rel in host_allowed and change != "removed" else changes).append(entry)
         doctor, _ok = install_skill.doctor(workspace)
-        _write_or_same(evidence / AFTER_FILE, er.canonical_json(after))
-        _write_or_same(evidence / DOCTOR_FILE, er.canonical_json(doctor))
+        for rel, data in ((AFTER_FILE, er.canonical_json(after)), (DOCTOR_FILE, er.canonical_json(doctor))):
+            _write_or_same(evidence / rel, data)
+            written[rel] = er.sha256_bytes(data)
         # Verify every copy against the workspace before removing it.
         if skill and (evidence / ARTIFACT_FILE).is_file() and status == "completed":
             if (evidence / ARTIFACT_FILE).read_bytes() != (workspace / campaign.artifact_path).read_bytes():
                 raise PilotError("the artifact copy differs from the workspace artifact")
-        for entry in changes:
+        for entry in changes + host_files:
             if entry["file"] and (evidence / entry["file"]).read_bytes() != (workspace / entry["path"]).read_bytes():
                 raise PilotError(f"the copy of {entry['path']} differs from the workspace")
-        _write_or_same(evidence / CHANGES_FILE, er.canonical_json(changes))
+        summary = {"changedProjectFiles": changes, "hostFiles": host_files, "beforeMismatches": mismatches}
+        changes_data = er.canonical_json(summary)
+        _write_or_same(evidence / CHANGES_FILE, changes_data)
+        written[CHANGES_FILE] = er.sha256_bytes(changes_data)
+        finish = {"format": FINISH_FORMAT, "run": run_id, "status": status, "session": session_sha,
+                  "files": dict(sorted(written.items()))}
+        _write_or_same(evidence / FINISH_STATE, er.canonical_json(finish))
     else:
-        changes = _json_loads(er.confined_file(evidence, CHANGES_FILE).read_bytes(), CHANGES_FILE)
-    if skill and status == "completed":
-        artifact_entry = _file_entry(evidence, ARTIFACT_FILE)
-    if skill and status != "completed" and (evidence / PARTIAL_FILE).is_file():
-        partial_entry = _file_entry(evidence, PARTIAL_FILE)
+        # An earlier run-finish removed the workspace but did not seal: only its recorded state is sealed.
+        if not os.path.lexists(evidence / FINISH_STATE):
+            raise PilotError(f"{workspace} does not exist and run-finish never recorded it ({FINISH_STATE} is missing); "
+                             "the workspace was removed before the run was sealed")
+        finish = _json_loads(er.confined_file(evidence, FINISH_STATE).read_bytes(), FINISH_STATE)
+        problems = _finish_problems(evidence, finish, status, session_sha)
+        if problems:
+            raise PilotError("cannot seal the files an earlier run-finish left: " + "; ".join(problems))
+        summary = _json_loads(er.confined_file(evidence, CHANGES_FILE).read_bytes(), CHANGES_FILE)
+        changes, host_files = summary["changedProjectFiles"], summary["hostFiles"]
+        mismatches = summary["beforeMismatches"]
+    artifact_entry = _file_entry(evidence, ARTIFACT_FILE) if skill and status == "completed" else None
+    partial_entry = (_file_entry(evidence, PARTIAL_FILE)
+                     if skill and status != "completed" and (evidence / PARTIAL_FILE).is_file() else None)
     removed = True
     if workspace.is_dir() and not workspace.is_symlink():
         try:
@@ -1328,11 +1652,12 @@ def run_finish(root: Path, run_id: str, name: str, pilot_value: str | None, amen
     record.update({
         "prompt": {"file": PROMPT_FILE, "sha256": _file_entry(evidence, PROMPT_FILE)["sha256"],
                    "frozen": campaign.prompt_rel(run["task"], run["condition"])},
-        "workspace": {"name": directory, "removed": removed,
+        "workspace": {"name": workspace.name, "removed": removed,
                       "before": {k: v for k, v in _file_entry(evidence, BEFORE_FILE).items() if k != "bytes"},
                       "after": {k: v for k, v in _file_entry(evidence, AFTER_FILE).items() if k != "bytes"},
                       "changes": {k: v for k, v in _file_entry(evidence, CHANGES_FILE).items() if k != "bytes"},
-                      "changedProjectFiles": changes, "isolation": _isolation_findings(pilot_dir, root)},
+                      "changedProjectFiles": changes, "hostFiles": host_files, "beforeMismatches": mismatches,
+                      "isolation": _isolation_findings(pilot_dir, root)},
         "evidence": {
             "artifact": artifact_entry,
             "transcript": _file_entry(evidence, session.transcript) if session.transcript else None,
@@ -1345,7 +1670,10 @@ def run_finish(root: Path, run_id: str, name: str, pilot_value: str | None, amen
     data = er.canonical_json(record)
     er.write_exclusive(record_path, data)
     out(f"Sealed {run_id}: {RECORD_FILE} sha256 {er.sha256_bytes(data)[:12]}...; status {status}; "
-        f"{len(changes)} changed project file(s); workspace {'removed' if removed else 'NOT removed'}.")
+        f"{len(changes)} changed project file(s)"
+        + (f", {len(host_files)} host file(s)" if host_files else "")
+        + (f", {len(mismatches)} path(s) differ between {BEFORE_FILE} and the pinned files" if mismatches else "")
+        + f"; workspace {'removed' if removed else 'NOT removed'}.")
     if status == "completed":
         out(f"Next: python tools/workflow_eval.py review-template {run_id} --campaign {name}")
     return 0
@@ -1456,11 +1784,13 @@ def review_template_text(run: dict, record: dict, reference: dict, artifact: dic
     non_defects = [f"> {item['id']}: {_one_line(_frozen_text(item, 'text', 'wording', 'claim'))}" for item in reference["nonDefects"]]
     if baseline:
         lines += ['> Add one line per claim in the answer: "response:LINE-END: <verdict>" (lines of the transcript, for example',
-                  '> response:12-14: supported). Verdicts: supported | qualified | unsupported | no-claim. Add " — <reason>"',
-                  '> to anything except supported/no-claim. At least one line. Several claims on the same lines: "response:12-14#2: ...".',
+                  '> response:12-14: supported). Verdicts: supported | qualified | unsupported | no-claim. Add " -- <reason>"',
+                  '> (or " — <reason>") to anything except supported/no-claim. At least one line. Several claims on the same '
+                  'lines: "response:12-14#2: ...".',
                   "> Frozen non-defects (for judging false accusations):"] + non_defects
     else:
-        lines += ['> Verdicts: supported | qualified | unsupported | no-claim. Add " — <reason>" to anything except supported/no-claim.',
+        lines += ['> Verdicts: supported | qualified | unsupported | no-claim. Add " -- <reason>" (or " — <reason>") to '
+                  'anything except supported/no-claim.',
                   '> Several claims in one element: add "<pointer>#2: <verdict>" lines. Frozen non-defects (for judging findings):']
         lines += non_defects
         for pointer, element in artifact_elements(artifact).items():
@@ -1502,7 +1832,7 @@ def review_template_text(run: dict, record: dict, reference: dict, artifact: dic
                   "", "## Usability", "> task: useful | partly | not-useful (reported, not gated)", "task: pending"]
     else:
         lines += ["", "## Usability",
-                  "> clear | partial | missing; task: useful | partly | not-useful (reported, not gated; README.md:96)"]
+                  f"> clear | partial | missing; task: useful | partly | not-useful (reported, not gated; {README_REVIEW})"]
         lines += [f"{key}: pending" for key in USABILITY_KEYS] + ["task: pending"]
         if reference["defects"]:
             lines += ["", "## Reference defects", "> found <pointer ...> | missed (reported, not gated)"]
@@ -1589,15 +1919,17 @@ def check_review(record: er.Record, display: str, ctx: ReviewContext) -> tuple[l
             return None
         try:
             verdict, cited, reason = er.parse_verdict(text, vocab)
-        except ValueError:
+        except ValueError as exc:
+            detail = str(exc)
+            hint = f" {detail}" if "separator" in detail or "Put a space" in detail else ""
             add(er.ERROR, item.line, where, f'"{item.key}: {_one_line(text, 60)}" is not a verdict. Write one of: '
-                                            f'{", ".join(sorted(vocab))}.')
+                                            f'{", ".join(sorted(vocab))}.{hint}')
             return None
         if verdict in reason_for and not reason:
-            add(er.ERROR, item.line, where, f'{item.key} is {verdict}; add " — <reason>".')
+            add(er.ERROR, item.line, where, f'{item.key} is {verdict}; add {REASON_HINT}.')
         needs = pointers == "required" and verdict not in ("missing", "not-stated", "missed")
         if pointers == "none" and cited:
-            add(er.ERROR, item.line, where, f'{item.key}: claim lines take no pointers; put notes after " — ".')
+            add(er.ERROR, item.line, where, f'{item.key}: claim lines take no pointers; put notes after " -- ".')
         elif needs and not cited:
             add(er.ERROR, item.line, where, f"{item.key} is {verdict}; name at least one pointer that shows it.")
         elif not needs and pointers == "required" and cited:
@@ -1643,13 +1975,25 @@ def check_review(record: er.Record, display: str, ctx: ReviewContext) -> tuple[l
     if claims is None:
         add(er.ERROR, 1, "Claims", 'the "## Claims" section is missing; restore it from the review template.')
     elif baseline:
+        ranges: dict[tuple[int, int, int], str] = {}
         for item in claims.lines:
             match = RESPONSE_RE.fullmatch(item.key)
             if not match:
                 add(er.ERROR, item.line, "Claims", f'"{item.key}" is not a transcript range; write "response:LINE-END: <verdict>".')
                 continue
+            if LEADING_ZERO_RE.search(item.key):
+                add(er.ERROR, item.line, "Claims", f'"{item.key}": write line numbers and #2, #3, ... without leading zeros.')
+                continue
             if match.group("n") and int(match.group("n")) < 2:
                 add(er.ERROR, item.line, "Claims", f'"{item.key}": split lines start at #2.')
+                continue
+            start = int(match.group("line"))
+            normal = (start, int(match.group("end") or start), int(match.group("n") or 1))
+            if normal in ranges:
+                add(er.ERROR, item.line, "Claims", f'"{item.key}" repeats "{ranges[normal]}"; give each claim its own line '
+                                                   "number or split number.")
+                continue
+            ranges[normal] = item.key
             problem = targets(item.key.split("#", 1)[0])
             if problem:
                 add(er.ERROR, item.line, "Claims", f'"{item.key}" {problem}.')
@@ -1662,6 +2006,7 @@ def check_review(record: er.Record, display: str, ctx: ReviewContext) -> tuple[l
     else:
         elements = artifact_elements(ctx.artifact or {})
         seen: set[str] = set()
+        split_seen: set[str] = set()
         for item in claims.lines:
             key = item.key
             split = SPLIT_RE.fullmatch(key)
@@ -1670,9 +2015,17 @@ def check_review(record: er.Record, display: str, ctx: ReviewContext) -> tuple[l
                 add(er.ERROR, item.line, "Claims", f'"{key}" does not name an element of the artifact (node:<id>, edge:<id>, '
                                                    "finding:<id>, coverage or configuration).")
                 continue
+            if split and split.group("n").startswith("0"):
+                add(er.ERROR, item.line, "Claims", f'"{key}": write #2, #3, ... without leading zeros.')
+                continue
             if split and int(split.group("n")) < 2:
                 add(er.ERROR, item.line, "Claims", f'"{key}": split lines start at #2.')
                 continue
+            if split and key in split_seen:
+                add(er.ERROR, item.line, "Claims", f'"{key}" appears twice; give each split claim its own number.')
+                continue
+            if split:
+                split_seen.add(key)
             if not split:
                 seen.add(key)
             verdict = verdict_of(item, "Claims", CLAIM_VERDICTS, pointers="none", reason_for=("qualified", "unsupported"))
@@ -1883,6 +2236,7 @@ class RunState:
     artifact_doc: dict | None = None
     prompt_in_transcript: str = "unverified"
     validated: bool = False
+    earlier_completed: list[int] = field(default_factory=list)  # attempts before this one that completed
 
     @property
     def outcome(self) -> str:
@@ -1953,23 +2307,34 @@ def _verify_record(state: RunState, campaign: Campaign) -> list[str]:
             elif result.block != expected:
                 problems.append("record.json session fields differ from session.md")
     workspace = record.get("workspace")
-    if not isinstance(workspace, dict) or workspace.get("name") != er.run_dir_name(run["id"]):
+    prior = (session or {}).get("priorAttempts") if isinstance(session, dict) else None
+    workspace_name = _workspace_name(er.run_dir_name(run["id"]), prior + 1 if _is_int(prior) and prior >= 0 else 1)
+    if not isinstance(workspace, dict) or workspace.get("name") != workspace_name:
         problems.append("record.json workspace: must name the run's workspace")
     else:
-        for key in ("before", "after", "changes"):
-            _check_entry(evidence, workspace.get(key), f"workspace.{key}", problems, with_bytes=False)
-        changes = workspace.get("changedProjectFiles")
-        if not isinstance(changes, list):
-            problems.append("record.json workspace.changedProjectFiles: must be a list")
-        else:
-            for index, entry in enumerate(changes):
-                if not isinstance(entry, dict) or not isinstance(entry.get("path"), str):
-                    problems.append(f"workspace.changedProjectFiles[{index}]: malformed")
+        files = {key: _check_entry(evidence, workspace.get(key), f"workspace.{key}", problems, with_bytes=False)
+                 for key in ("before", "after", "changes")}
+        lists = {}
+        for key in ("changedProjectFiles", "hostFiles", "beforeMismatches"):
+            value = workspace.get(key)
+            if not isinstance(value, list):
+                problems.append(f"record.json workspace.{key}: must be a list")
+                continue
+            lists[key] = value
+        for key in ("changedProjectFiles", "hostFiles"):
+            for index, entry in enumerate(lists.get(key, [])):
+                if not isinstance(entry, dict) or not isinstance(entry.get("path"), str) \
+                        or entry.get("change") not in ("added", "removed", "modified"):
+                    problems.append(f"workspace.{key}[{index}]: malformed")
                 elif entry.get("file") is not None:
                     _check_entry(evidence, {"file": entry["file"], "sha256": entry.get("sha256")},
-                                 f"workspace.changedProjectFiles[{index}]", problems, with_bytes=False)
+                                 f"workspace.{key}[{index}]", problems, with_bytes=False)
+        if not all(isinstance(item, str) for item in lists.get("beforeMismatches", [])):
+            problems.append("record.json workspace.beforeMismatches: must list paths")
         if not isinstance(workspace.get("isolation"), list):
             problems.append("record.json workspace.isolation: must be a list")
+        if len(lists) == 3 and all(value is not None for value in files.values()) and not problems:
+            problems.extend(_workspace_consistency(run, campaign, lists, files))
     sealed_evidence = record.get("evidence")
     if not isinstance(sealed_evidence, dict):
         problems.append("record.json evidence: must be an object")
@@ -1999,8 +2364,21 @@ def _verify_record(state: RunState, campaign: Campaign) -> list[str]:
                     or not HEX64_RE.fullmatch(amendment["previous"])):
                 problems.append(f"amendments[{index - 1}]: must be {{at, reason, previous}}")
                 continue
-            _check_entry(evidence, {"file": PREVIOUS_RECORD.format(n=index), "sha256": amendment["previous"]},
-                         f"amendments[{index - 1}]", problems, with_bytes=False)
+            data = _check_entry(evidence, {"file": PREVIOUS_RECORD.format(n=index), "sha256": amendment["previous"]},
+                                f"amendments[{index - 1}]", problems, with_bytes=False)
+            try:
+                previous = _json_loads(data, PREVIOUS_RECORD.format(n=index)) if data is not None else None
+            except ValueError:
+                previous = None
+            if data is not None and (not isinstance(previous, dict) or previous.get("sealedAt") != record.get("sealedAt")
+                                     or not isinstance(previous.get("amendments"), list)
+                                     or len(previous["amendments"]) != index - 1):
+                problems.append(f"amendments[{index - 1}]: {PREVIOUS_RECORD.format(n=index)} is not the record before "
+                                f"amendment {index} (same sealedAt, {index - 1} earlier amendment(s))")
+        expected_previous = {PREVIOUS_RECORD.format(n=index) for index in range(1, len(amendments) + 1)}
+        for path in sorted(evidence.iterdir()):
+            if path.name.startswith("record.previous-") and path.name not in expected_previous:
+                problems.append(f"{path.name} is not referenced by record.json amendments (a sealed record was replaced)")
     if _parse_time(record.get("sealedAt")) is None:
         problems.append("record.json sealedAt: must be an RFC 3339 time")
     if not isinstance(record.get("tooling"), dict):
@@ -2008,7 +2386,41 @@ def _verify_record(state: RunState, campaign: Campaign) -> list[str]:
     return problems
 
 
-def _protocol(state: RunState, campaign: Campaign, stage1: dict | None) -> None:
+def _workspace_consistency(run: dict, campaign: Campaign, lists: dict[str, list], files: dict[str, bytes]) -> list[str]:
+    """The sealed workspace lists must equal workspace-changes.json and agree with the hashed
+    workspace-before.json and workspace-after.json (the rule run-finish applies)."""
+    problems = []
+    try:
+        summary = _json_loads(files["changes"], CHANGES_FILE)
+        before = _json_loads(files["before"], BEFORE_FILE)
+        after = _json_loads(files["after"], AFTER_FILE)
+    except ValueError as exc:
+        return [str(exc)]
+    if summary != lists:
+        problems.append(f"record.json workspace lists differ from {CHANGES_FILE}")
+    if not isinstance(before, dict) or not isinstance(after, dict):
+        return problems + [f"{BEFORE_FILE} and {AFTER_FILE} must be JSON objects"]
+    counted = _counted(run, campaign.helper)
+    diff = _diff_paths(before, after, counted)
+    entries = {entry["path"]: entry for key in ("changedProjectFiles", "hostFiles") for entry in lists[key]}
+    mismatches = set(lists["beforeMismatches"])
+    unexplained = sorted(set(diff) - set(entries) - mismatches)
+    if unexplained:
+        problems.append(f"{len(unexplained)} changed workspace path(s) are not in the record ({', '.join(unexplained[:3])})")
+    unfounded = sorted(set(entries) - set(diff) - mismatches)
+    if unfounded:
+        problems.append(f"{len(unfounded)} recorded change(s) do not appear in the workspace hashes ({', '.join(unfounded[:3])})")
+    for rel, entry in entries.items():
+        if (rel in after) if entry["change"] == "removed" else (entry.get("sha256") != after.get(rel)):
+            problems.append(f"the recorded change of {rel} differs from {AFTER_FILE}")
+    allowed = HOST_FILES.get(run["host"], frozenset())
+    for entry in lists["hostFiles"]:
+        if entry["path"] not in allowed:
+            problems.append(f"{entry['path']} is not a host file of {run['host']}")
+    return problems
+
+
+def _protocol(state: RunState, campaign: Campaign, stage1: dict | None, stage1_problem: str | None = None) -> None:
     """Section 4.5 D: violations make the run invalid, always with a reason."""
     run, record = state.run, state.record
     session = record["session"]
@@ -2025,7 +2437,7 @@ def _protocol(state: RunState, campaign: Campaign, stage1: dict | None) -> None:
         if ended is not None and ended < started:
             reasons.append("ended before it started")
     if run["stage"] == 2:
-        why = _stage1_go(stage1, campaign)
+        why = stage1_problem or _stage1_go(stage1, campaign)
         if why is not None:
             reasons.append(f"Stage 2 run without a committed Stage 1 go summary ({why})")
         elif started is not None and started <= _parse_time(stage1["generatedAt"]):
@@ -2037,11 +2449,14 @@ def _protocol(state: RunState, campaign: Campaign, stage1: dict | None) -> None:
     repairs = session.get("repairRounds")
     if run["condition"] == "skill" and status == "completed" and _is_int(repairs) and repairs > campaign.repair_limit:
         reasons.append(f"repair rounds {repairs} exceed the limit of {campaign.repair_limit}")
+    for number in state.earlier_completed:
+        reasons.append(f"attempt {number} of this run completed, so the run was retried after a completed session")
     prior = session.get("priorAttempts")
     if _is_int(prior) and prior > campaign.retries:
         reasons.append(f"prior attempts {prior} exceed the infrastructure retries ({campaign.retries})")
     settings = campaign.host_policy(run["host"])
-    for key in ("model", "reasoning", "invocation"):
+    # A baseline sends the prompt as a plain message, so only the skill runs are held to the invocation.
+    for key in ("model", "reasoning") + (("invocation",) if run["condition"] == "skill" else ()):
         value = session.get(key)
         if value is not None and _fold(value) != _fold(settings[key]):
             reasons.append(f'{key} "{_one_line(value, 80)}" differs from the policy "{_one_line(settings[key], 80)}"')
@@ -2071,6 +2486,15 @@ def _protocol(state: RunState, campaign: Campaign, stage1: dict | None) -> None:
     if changes:
         shown = ", ".join(entry["path"] for entry in changes[:3]) + (" ..." if len(changes) > 3 else "")
         reasons.append(f"{len(changes)} project file(s) changed in the workspace ({shown})")
+    owned = [entry["path"] for entry in changes if run["condition"] == "baseline" and helper.is_owned_path(entry["path"])]
+    if owned:
+        reasons.append(f"MLView-owned file(s) in a baseline workspace ({', '.join(owned[:3])})")
+    mismatches = record["workspace"].get("beforeMismatches") or []
+    if mismatches:
+        reasons.append(f"{BEFORE_FILE} differs from the pinned files for {len(mismatches)} path(s) "
+                       f"({', '.join(mismatches[:3])})")
+    for entry in record["workspace"].get("hostFiles") or []:
+        warnings.append(f"the host wrote {entry['path']} into the workspace (a host setting; reported, not invalidating)")
     for finding in record["workspace"].get("isolation") or []:
         reasons.append(f"workspace isolation: {finding}")
     for deviation in session.get("deviations") or []:
@@ -2117,7 +2541,7 @@ def _artifact(state: RunState, campaign: Campaign, corpus: Path, verified: dict[
             verified[repo["name"]] = report
             if not report.get("ok"):
                 notes.append(f"{repo['name']}: the corpus checkout failed verification, so its artifacts were not validated "
-                             "(python tools/fetch_workflow_repos.py --verify)")
+                             f"({_corpus_remedy(_verify_detail(report), repo['name'])})")
     if not verified[repo["name"]].get("ok"):
         return False
     errors, _fingerprints = helper.validate(doc, repo_path)
@@ -2336,7 +2760,8 @@ def _early_stop(runs: list[dict], targets: list[dict]) -> list[str]:
     for key in ("essentialFactRecall", "knownUnresolvedQualified"):
         target = by_key[key]
         total_key = "ESS" if key == "essentialFactRecall" else "UNK"
-        open_total = sum(r[total_key] for r in runs if not r["reviewed"] and r["status"] in ("pending", "completed"))
+        open_total = sum(r[total_key] for r in runs if not r["reviewed"] and (
+            r["status"] == "pending" or (r["status"] == "completed" and r["reviewStatus"] != "not-applicable")))
         if target["denominator"] and not _met(target["numerator"] + open_total, target["denominator"], target["threshold"], ">="):
             indicators.append(f"{target['id']}: at most {target['numerator'] + open_total}/{target['denominator']} can still be reached")
     fa = by_key["highSeverityFalseAccusations"]
@@ -2346,7 +2771,9 @@ def _early_stop(runs: list[dict], targets: list[dict]) -> list[str]:
 
 
 def _pct(numerator: int, denominator: int) -> str:
-    return f"{100 * numerator / denominator:.1f}%"
+    """The percentage floored to a tenth, so a value below a threshold never displays as the threshold."""
+    tenths = (1000 * numerator) // denominator
+    return f"{tenths // 10}.{tenths % 10}%"
 
 
 def _run_entry(state: RunState, campaign: Campaign) -> dict:
@@ -2367,6 +2794,7 @@ def _run_entry(state: RunState, campaign: Campaign) -> dict:
         "deviations": session.get("deviations") or [],
         "reviewer": state.review.reviewer if (state.review and metrics["reviewed"]) else None,
         "reviewed": metrics["reviewed"], "reviewStatus": state.review_status,
+        "reviewProblemCount": len(state.review_problems),
         "promptInTranscript": state.prompt_in_transcript, "warnings": list(state.warnings),
         "amendments": [{"at": a["at"], "reason": a["reason"]} for a in record.get("amendments") or []],
     }
@@ -2397,7 +2825,7 @@ def _reported_totals(runs: list[dict]) -> dict:
             usability.setdefault(question, {})
             usability[question][answer] = usability[question].get(answer, 0) + 1
     return {"severity": severity, "usability": dict(sorted(usability.items())), "referenceDefects": defects,
-            "note": "Reported, not gated (README.md:96)."}
+            "note": f"Reported, not gated ({README_REVIEW})."}
 
 
 def _read_invalidation(root: Path, name: str) -> tuple[dict | None, list[str]]:
@@ -2422,6 +2850,51 @@ def _read_invalidation(root: Path, name: str) -> tuple[dict | None, list[str]]:
             "sha256": er.sha256_bytes(raw)}, []
 
 
+def _attempt_problems(pilot_dir: Path, planned: dict[str, dict], states: dict[str, RunState],
+                      earlier_dirs: dict[str, dict[int, Path]]) -> list[str]:
+    """Every prepared attempt (preparations.jsonl) must have its evidence, and all evidence an entry."""
+    entries, problems = _read_ledger(pilot_dir)
+    by_run: dict[str, list[int]] = {}
+    for entry in entries:
+        if entry["run"] not in planned:
+            problems.append(f"{LEDGER_FILE}: {entry['run']} is not a planned run")
+            continue
+        by_run.setdefault(entry["run"], []).append(entry["attempt"])
+    for run_id, state in states.items():
+        attempts = by_run.get(run_id, [])
+        earlier = earlier_dirs.get(run_id, {})
+        directory = er.run_dir_name(run_id)
+        if not attempts:
+            if state.evidence is not None or earlier:
+                problems.append(f"{run_id}: evidence exists but {LEDGER_FILE} records no preparation of it")
+            continue
+        count = len(attempts)
+        if sorted(attempts) != list(range(1, count + 1)):
+            problems.append(f"{run_id}: {LEDGER_FILE} numbers its attempts {sorted(attempts)}, not 1 to {count}")
+        if state.evidence is None:
+            problems.append(f"{run_id}: {LEDGER_FILE} records {count} preparation(s) but evidence/{directory} is missing "
+                            "(run evidence is never deleted)")
+        if sorted(earlier) != list(range(1, count)):
+            problems.append(f"{run_id}: the kept earlier attempts {sorted(earlier) or 'none'} differ from the {count - 1} "
+                            f"earlier attempt(s) in {LEDGER_FILE}")
+        session = (state.record or {}).get("session") if isinstance(state.record, dict) else None
+        if isinstance(session, dict) and session.get("priorAttempts") != count - 1:
+            problems.append(f"{run_id}: the session says {session.get('priorAttempts')} prior attempt(s), {LEDGER_FILE} "
+                            f"records {count - 1}")
+        for number, path in sorted(earlier.items()):
+            try:
+                old = _json_loads(er.confined_file(path, RECORD_FILE).read_bytes(), RECORD_FILE)
+            except ValueError:
+                problems.append(f"{run_id}: attempt {number} ({path.name}) was retried without being sealed")
+                continue
+            status = (old.get("session") or {}).get("status") if isinstance(old, dict) else None
+            if not isinstance(old, dict) or old.get("id") != run_id or status not in STATUSES:
+                problems.append(f"{run_id}: {path.name}/record.json is not a sealed record of this run")
+            elif status == "completed":
+                state.earlier_completed.append(number)
+    return problems
+
+
 def summarize(root: Path, name: str, stage: str, pilot_value: str | None) -> dict:
     """Verify every sealed run of a campaign and compute the stage summary (sections 4.5-4.7).
 
@@ -2437,6 +2910,7 @@ def summarize(root: Path, name: str, stage: str, pilot_value: str | None) -> dic
     problems: list[str] = []
     evidence_root = pilot_dir / "evidence"
     seen_records: dict[str, str] = {}
+    earlier_dirs: dict[str, dict[int, Path]] = {}
     if evidence_root.is_dir():
         for entry in sorted(os.listdir(evidence_root)):
             path = evidence_root / entry
@@ -2445,13 +2919,17 @@ def summarize(root: Path, name: str, stage: str, pilot_value: str | None) -> dic
             if path.is_symlink() or not path.is_dir():
                 problems.append(f"evidence/{entry}: not a run directory")
                 continue
+            attempt = ATTEMPT_RE.fullmatch(entry)
             try:
-                run_id = er.run_id_from_dir(entry)
+                run_id = er.run_id_from_dir(attempt.group("base") if attempt else entry)
             except ValueError:
                 problems.append(f"evidence/{entry}: not a pilot run directory name")
                 continue
             if run_id not in planned:
                 problems.append(f"evidence/{entry}: {run_id} is not a planned run of {name}")
+                continue
+            if attempt:
+                earlier_dirs.setdefault(run_id, {})[int(attempt.group("n"))] = path
                 continue
             state = states[run_id]
             state.evidence = path
@@ -2471,11 +2949,15 @@ def summarize(root: Path, name: str, stage: str, pilot_value: str | None) -> dic
             elif isinstance(record_id, str):
                 seen_records[record_id] = entry
             problems.extend(f"{run_id}: {item}" for item in _verify_record(state, campaign))
+    problems.extend(_attempt_problems(pilot_dir, planned, states, earlier_dirs))
     invalidation, invalidation_problems = _read_invalidation(root, name)
     problems.extend(invalidation_problems)
     if problems:
         raise IntegrityError(problems)
     stage1 = _committed_stage1(root, campaign)
+    stage1_problem = None
+    if stage == "all" and any(s.record is not None and s.run["stage"] == 2 for s in states.values()):
+        stage1_problem = _stage1_go(stage1, campaign) or _stage1_matches(root, campaign, pilot_value, stage1)
     corpus = _corpus_root(root)
     verified: dict[str, dict] = {}
     notes: list[str] = []
@@ -2485,7 +2967,7 @@ def summarize(root: Path, name: str, stage: str, pilot_value: str | None) -> dic
         if state.record is None or not in_scope:
             continue
         state.status = state.record["session"]["status"]
-        _protocol(state, campaign, stage1)
+        _protocol(state, campaign, stage1, stage1_problem)
         if state.run["condition"] == "skill" and state.status == "completed":
             if not _artifact(state, campaign, corpus, verified, notes):
                 complete = False
@@ -2576,9 +3058,14 @@ def summarize(root: Path, name: str, stage: str, pilot_value: str | None) -> dic
         for dispute in reference["disputes"]:
             if isinstance(dispute, dict) and dispute.get("item") in essential:
                 disputed.append({"task": task, "item": dispute["item"]})
+    denominator_disputes = _disputed_items(campaign, task_ids)
     notes_text = caveats(len(task_ids), len(hosts), campaign.tasks["repetitions"])
     if disputed:
         notes_text.append("Disputed essential facts: " + ", ".join(f"{d['item']}" for d in disputed) + ".")
+    outside = [d["item"] for d in denominator_disputes if not d["inDenominator"]]
+    if outside:
+        notes_text.append("Disputed items outside the final denominators (a reviewer held them essential or "
+                          "runs-must-state): " + ", ".join(outside) + ".")
     if any(r["status"] == "invalid" for r in stage_runs):
         notes_text.append(f"Runs counted invalid count as failures; {INVALID_RUN_NOTE}.")
     inputs = {"candidate": campaign.candidate_sha256, "freeze": campaign.freeze_sha256,
@@ -2601,8 +3088,14 @@ def summarize(root: Path, name: str, stage: str, pilot_value: str | None) -> dic
         "perHost": per_host, "perTask": per_task,
         "macro": macro, "sensitivity": sensitivity, "failures": failures, "baselines": baselines,
         "decision": {"value": value, "reasons": reasons, "earlyStopIndicators": early, "label": NOT_APPROVAL},
-        "disputedEssentialFacts": disputed, "caveats": notes_text, "note": SUMMARY_NOTE, "pilotApproved": False,
+        "disputedEssentialFacts": disputed, "disputedDenominatorItems": denominator_disputes,
+        "caveats": notes_text, "note": SUMMARY_NOTE, "pilotApproved": False,
     }
+
+
+def _unreviewed(entry: dict) -> bool:
+    """A completed run whose review is missing, incomplete or has problems (so its zeros mean nothing yet)."""
+    return entry["status"] == "completed" and entry["reviewStatus"] in ("missing", "incomplete", "problems")
 
 
 def _baselines(baseline_runs: list[dict], entries: dict[str, dict], campaign: Campaign) -> dict:
@@ -2618,16 +3111,24 @@ def _baselines(baseline_runs: list[dict], entries: dict[str, dict], campaign: Ca
         def side(entry: dict) -> dict:
             prec = _precision_counts([entry["baselineClaims"]] if entry["condition"] == "baseline"
                                      else [entry["claims"][b] for b in ("observed", "inferred")], campaign.qualified_policy)
-            return {"status": entry["status"], "reviewed": entry["reviewed"], "ess": entry["ess"], "ESS": entry["ESS"],
-                    "unk": entry["unk"], "UNK": entry["UNK"], "precision": _ratio(*prec) if entry["reviewed"] else None}
+            return {"status": "unreviewed" if _unreviewed(entry) else entry["status"], "reviewed": entry["reviewed"],
+                    "ess": entry["ess"], "ESS": entry["ESS"], "unk": entry["unk"], "UNK": entry["UNK"],
+                    "precision": _ratio(*prec) if entry["reviewed"] else None}
 
         skill_side, base_side = side(skill), side(run)
         difference = None
-        if run["ESS"]:
+        if run["ESS"] and not _unreviewed(skill) and not _unreviewed(run):
             difference = (skill["ess"] - run["ess"]) / run["ESS"]
         paired.append({"task": run["task"], "host": run["host"], "skill": skill_side, "baseline": base_side,
                        "recallDifference": difference})
+    pending = [r["id"] for r in baseline_runs if r["status"] == "pending"]
+    unreviewed = [r["id"] for r in baseline_runs if _unreviewed(r) and r["reviewStatus"] != "problems"]
+    problems = [r["id"] for r in baseline_runs if r["reviewStatus"] == "problems"]
     return {"planned": len(baseline_runs), "completed": len(completed), "reviewed": len(reviewed),
+            "pending": pending, "unreviewed": unreviewed, "reviewProblems": problems,
+            "complete": not (pending or unreviewed or problems),
+            "runs": [{"id": r["id"], "status": r["status"], "reviewStatus": r["reviewStatus"],
+                      "reviewProblems": r["reviewProblemCount"]} for r in baseline_runs],
             "precision": _ratio(*precision),
             "recall": _ratio(sum(r["ess"] for r in baseline_runs), sum(r["ESS"] for r in baseline_runs)),
             "unknowns": _ratio(sum(r["unk"] for r in baseline_runs), sum(r["UNK"] for r in baseline_runs)),
@@ -2635,7 +3136,36 @@ def _baselines(baseline_runs: list[dict], entries: dict[str, dict], campaign: Ca
             "activeMinutes": {"total": sum(minutes), "runs": len(minutes),
                               "mean": (sum(minutes) / len(minutes)) if minutes else None},
             "paired": paired,
-            "note": "Baselines are never part of the gate; the paired table compares skill repeat 1 with the no-skill session."}
+            "note": "Baselines are never part of the gate; the paired table compares skill repeat 1 with the no-skill "
+                    "session, and a completed run that is not yet reviewed shows as unreviewed, with no difference."}
+
+
+def _disputed_items(campaign: Campaign, task_ids: list[str]) -> list[dict]:
+    """Disputes on what enters a denominator: a fact either reviewer (or the final reference) holds
+    essential, and an unknown whose runs-must-state flag either side set. Resolutions are not copied."""
+    found = []
+    for task in task_ids:
+        reference = campaign.references[task]
+        essential = set(reference["essentialFactIds"])
+        must = {item["id"] for item in reference["knownUnresolved"] if item.get("runsMustState") is True}
+        for dispute in reference["disputes"]:
+            if not isinstance(dispute, dict) or not isinstance(dispute.get("item"), str):
+                continue
+            item = dispute["item"]
+            sides = [dispute.get("primary"), dispute.get("second")]
+
+            def flag(key: str) -> bool:
+                return any(isinstance(side, dict) and side.get(key) is not None for side in sides)
+
+            if item in essential or any(isinstance(side, dict) and side.get("essential") is True for side in sides):
+                kind, denominator = "essential", essential
+            elif item in must or flag("runsMustState"):
+                kind, denominator = "runsMustState", must
+            else:
+                continue
+            found.append({"task": task, "item": item, "kind": kind, "primary": sides[0], "second": sides[1],
+                          "inDenominator": item in denominator})
+    return found
 
 
 # --------------------------------------------------------------------------------------------
@@ -2726,7 +3256,11 @@ def render_markdown(summary: dict) -> str:
                   f"{_fmt_ratio(baselines['precision'])}; recall (all planned) {_fmt_ratio(baselines['recall'])}; unknowns "
                   f"stated {_fmt_ratio(baselines['unknowns'])}; false accusations listed high {baselines['falseAccusations']['high']}, "
                   f"medium {baselines['falseAccusations']['medium']}, low {baselines['falseAccusations']['low']}; active minutes "
-                  f"{baselines['activeMinutes']['total']:g} over {baselines['activeMinutes']['runs']} run(s).",
+                  f"{baselines['activeMinutes']['total']:g} over {baselines['activeMinutes']['runs']} run(s)."
+                  + (f" Pending: {', '.join(baselines['pending'])}." if baselines.get("pending") else "")
+                  + (f" Unreviewed: {', '.join(baselines['unreviewed'])}." if baselines.get("unreviewed") else "")
+                  + (f" Review problems: {', '.join(baselines['reviewProblems'])}." if baselines.get("reviewProblems")
+                     else ""),
                   "", "| Task | Host | Skill recall | No-skill recall | Difference |", "|---|---|---|---|---|"]
         for row in baselines["paired"]:
             difference = "n/a" if row["recallDifference"] is None else f"{100 * row['recallDifference']:+.1f} pts"
@@ -2752,6 +3286,13 @@ def record_summary(root: Path, summary: dict) -> tuple[Path, Path]:
     allowed = ("go", "stop", "invalid") if summary["stage"] == "1" else ("targets-met", "targets-missed", "invalid")
     if value not in allowed:
         raise PilotError(f"the decision is {value}; only {', '.join(allowed)} can be recorded")
+    baselines = summary.get("baselines")
+    if value != "invalid" and isinstance(baselines, dict) and not baselines.get("complete", True):
+        waiting = [f"{label} {', '.join(baselines[key])}" for key, label in
+                   (("pending", "pending:"), ("unreviewed", "unreviewed:"), ("reviewProblems", "review problems:"))
+                   if baselines.get(key)]
+        raise PilotError("the planned baselines are not complete (" + "; ".join(waiting) + "); seal and review them "
+                         "before recording. Baselines never change the decision, but a recorded summary is final")
     json_bytes = er.canonical_json(summary)
     md_bytes = render_markdown(json.loads(json_bytes)).encode("utf-8")
     for data in (json_bytes, md_bytes):
@@ -2791,6 +3332,10 @@ def build_parser() -> argparse.ArgumentParser:
         item.add_argument("--pilot-dir", help=pilot_help)
         if command == "run-finish":
             item.add_argument("--amend", metavar="REASON", help="re-read session.md and re-seal, keeping the previous record")
+        if command == "run-prepare":
+            item.add_argument("--retry", metavar="REASON",
+                              help="prepare a new attempt after a sealed failed, timed-out or blocked one; the earlier "
+                                   "attempt's evidence is kept as <run>.attempt-<n>")
     summary = sub.add_parser("summarize", help="verify sealed runs and compute the stage summary against the targets")
     summary.add_argument("--campaign", required=True)
     summary.add_argument("--stage", choices=("1", "all"), required=True)
@@ -2818,7 +3363,7 @@ def main(argv: list[str] | None = None, *, root: Path | None = None) -> int:
             sys.stdout.write(data.decode("utf-8"))
             return 0
         if args.command == "run-prepare":
-            return run_prepare(root, args.run, args.campaign, args.pilot_dir)
+            return run_prepare(root, args.run, args.campaign, args.pilot_dir, retry=args.retry)
         if args.command == "run-finish":
             return run_finish(root, args.run, args.campaign, args.pilot_dir, args.amend)
         if args.command == "review-template":
@@ -2838,7 +3383,7 @@ def main(argv: list[str] | None = None, *, root: Path | None = None) -> int:
         print(f"workflow_eval.py {args.command}: {len(exc.problems)} integrity problem(s); no decision was computed.",
               file=sys.stderr)
         return 1
-    except PilotError as exc:
+    except (PilotError, ValueError, OSError) as exc:
         print(f"workflow_eval.py {args.command}: {exc}", file=sys.stderr)
         return 1
 

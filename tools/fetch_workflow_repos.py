@@ -195,8 +195,8 @@ def _verify_checkout(repo: dict[str, Any], checkout: Path) -> dict[str, Any]:
     read becomes a problem in the report, so one broken checkout never hides the others."""
     report: dict[str, Any] = {
         "name": repo["name"], "head": None, "clean": False, "legacyMarker": False, "sparseMatches": False,
-        "covered": 0, "missing": [], "extraMaterialized": [], "blobMismatches": [], "ok": False,
-        "problems": [],
+        "covered": 0, "missing": [], "extraMaterialized": [], "blobMismatches": [], "treeChecked": False,
+        "unclassified": [], "ok": False, "problems": [],
     }
     try:
         _inspect_checkout(repo, checkout, report)
@@ -259,12 +259,14 @@ def _compare_tree(repo: dict[str, Any], checkout: Path, report: dict[str, Any]) 
     except FetchError as exc:
         problems.append(f"{name}: cannot list the pinned tree ({exc})")
         return
+    report["treeChecked"] = True
     safe_dirs: set[str] = set()
     for path in sorted(tree):
         try:
             covered = eval_records.sparse_covers(patterns, path)
         except ValueError as exc:
             problems.append(f"{name}: cannot decide sparse coverage of {path!r} ({exc})")
+            report["unclassified"].append(path)
             continue
         try:
             data = _worktree_blob(checkout, path, safe_dirs)
@@ -295,7 +297,9 @@ def verify_repo(repo: dict[str, Any], corpus_root: Path) -> dict[str, Any]:
     """Verify ``corpus_root/<name>`` against its manifest entry without changing anything.
 
     Returns ``{name, head, clean, legacyMarker, sparseMatches, covered, missing[],
-    extraMaterialized[], blobMismatches[], ok, problems[]}``. ``ok`` requires HEAD = the pin, a
+    extraMaterialized[], blobMismatches[], treeChecked, unclassified[], ok, problems[]}``;
+    ``treeChecked`` is false when the pinned tree could not be listed, and ``unclassified`` names
+    the paths whose sparse coverage could not be decided. ``ok`` requires HEAD = the pin, a
     clean status (the analyzer marker .mlview-pinned-sha is tolerated only when its bytes are the
     pin, optionally with one newline), ``git sparse-checkout list`` = the manifest (an empty list
     means sparse checkout disabled), and every covered path materialised and blob-exact. Extra
@@ -372,8 +376,13 @@ def update_sparse_one(repo: dict[str, Any], destination_root: Path) -> dict[str,
     if report["ok"]:
         print(f"{name}: sparse patterns already match the manifest; nothing to change")
         return report
-    if report["head"] != repo["sha"] or not report["clean"] or report["blobMismatches"]:
-        raise FetchError("; ".join(problem for problem in report["problems"] if "--update-sparse" not in problem))
+    # Only the problems --update-sparse repairs may remain: anything else (a failed read, an
+    # unlisted tree, a path of undecided coverage) could hide a materialised file it would drop.
+    blocking = [problem for problem in report["problems"] if "--update-sparse" not in problem]
+    if blocking or report["head"] != repo["sha"] or not report["clean"] or report["blobMismatches"] \
+            or not report["treeChecked"] or report["unclassified"]:
+        raise FetchError("; ".join(blocking) or f"{name}: the checkout could not be fully inspected; "
+                                                "refusing to change it")
     dropped = report["extraMaterialized"]
     if dropped:
         raise FetchError(f"{name}: the manifest's sparse patterns would drop {len(dropped)} materialised "
