@@ -201,3 +201,128 @@ test('artifact read failures are reported without absolute paths', async () => {
   assert.equal(h.lastBanner(panel).message, 'Generated diagram update rejected; retaining the last valid revision.\nThe artifact could not be read: it is not a regular file.');
   assert.equal(panel.posted.some(m => JSON.stringify(m).includes(root) && m.type !== 'init'), false);
 });
+
+// ---- Review round 1 regressions ----
+
+/** An unverified r1 citing fit() in source.py (e) and other() in other.py (e2). */
+function twoFileDraft() {
+  const doc = rev('r1');
+  doc.evidence.push({ id: 'e2', file: 'other.py', line: 1, endLine: 1, quote: 'other()' });
+  doc.nodes[0].evidence = ['e', 'e2'];
+  doc.coverage.inspectedFiles = ['source.py', 'other.py'];
+  return doc;
+}
+async function jumpOpens(panel, evidenceId) {
+  const before = vscode.__recorded.shownDocuments.length;
+  const warnings = vscode.__recorded.messages.length;
+  panel.fire({ v: 1, type: 'openLocation', evidenceId });
+  await h.waitFor(() => vscode.__recorded.shownDocuments.length > before || vscode.__recorded.messages.length > warnings, `jump to ${evidenceId} had no effect`);
+  return vscode.__recorded.shownDocuments.length > before;
+}
+
+for (const trigger of ['re-Open', 'artifact delete and same-bytes recreate']) {
+  test(`LINEAGE1-1: ${trigger} keeps an edited unverified revision stale, not rejected`, async () => {
+    const { panel, root, artifact, controller } = await open({ raw: twoFileDraft(), files: { 'source.py': 'fit()\n', 'other.py': 'other()\n' } });
+    fs.writeFileSync(path.join(root, 'source.py'), 'train()\n');
+    await h.diskEvent(panel, 'change', path.join(root, 'source.py'));
+    assert.deepEqual(h.lastBanner(panel).codes, ['stale']);
+    if (trigger === 're-Open') {
+      await controller.open(vscode.Uri.file(artifact));
+    }
+    else {
+      const bytes = fs.readFileSync(artifact);
+      fs.rmSync(artifact);
+      await h.diskEvent(panel, 'delete', artifact);
+      assert.deepEqual(h.lastBanner(panel).codes, ['missing', 'stale']);
+      fs.writeFileSync(artifact, bytes);
+      await h.diskEvent(panel, 'create', artifact);
+    }
+    assert.deepEqual(h.lastBanner(panel).codes, ['stale']);
+    assert.equal(await jumpOpens(panel, 'e2'), true, 'a jump into the unchanged other.py opens');
+    assert.equal(await jumpOpens(panel, 'e'), false, 'a jump into the edited source.py stays blocked');
+    assert.match(vscode.__recorded.messages.at(-1)[1], /^MLView: evidence e cites source\.py, which changed after revision r1 was published; navigation to it is blocked\.$/);
+    // The next dependency event must not turn the historical diagram into a rejection.
+    fs.writeFileSync(path.join(root, 'other.py'), 'other()\n');
+    await h.diskEvent(panel, 'change', path.join(root, 'other.py'));
+    assert.deepEqual(h.lastBanner(panel).codes, ['stale']);
+  });
+}
+
+test('LINEAGE1-1: a deleted cited file keeps its baseline entry across re-Open', async () => {
+  const { panel, root, artifact, controller } = await open({ raw: twoFileDraft(), files: { 'source.py': 'fit()\n', 'other.py': 'other()\n' } });
+  fs.rmSync(path.join(root, 'source.py'));
+  await h.diskEvent(panel, 'delete', path.join(root, 'source.py'));
+  assert.deepEqual(h.lastBanner(panel).codes, ['stale']);
+  await controller.open(vscode.Uri.file(artifact));
+  assert.deepEqual(h.lastBanner(panel).codes, ['stale']);
+  assert.equal(await jumpOpens(panel, 'e2'), true);
+});
+
+const deeplyNested = (depth) => '{"revision":{"id":"r2","parent":"r1"},"x":' + '['.repeat(depth) + ']'.repeat(depth) + '}';
+
+test('LINEAGE1-2: a deeply nested artifact is a parse error, never a stuck checking status', async () => {
+  const { panel, artifact } = await open({});
+  fs.writeFileSync(artifact, deeplyNested(20000));
+  await h.diskEvent(panel, 'change', artifact);
+  assert.deepEqual(h.lastBanner(panel).codes, ['parse']);
+  assert.equal(h.lastBanner(panel).message, 'Generated diagram update rejected; retaining the last valid revision.\nJSON parse error: the JSON is nested too deeply');
+  panel.fire({ v: 1, type: 'refineWorkflow', revisionId: 'r1', intent: 'expand', requestId: 'deep-1' });
+  await h.waitFor(() => h.results(panel).length === 1, 'refusal result missing');
+  assert.equal(h.results(panel)[0].outcome, 'failed');
+  assert.match(h.results(panel)[0].message, /^the artifact file cannot be read right now \(the JSON is nested too deeply\)/);
+  assert.equal(vscode.__recorded.clipboardWrites.length, 0);
+});
+
+test('LINEAGE1-2: first open of a deeply nested artifact reports it', async () => {
+  const { panel } = await open({ raw: deeplyNested(20000) });
+  assert.deepEqual(panel.postedTypes(), ['init', 'workflowError']);
+  assert.deepEqual(h.lastBanner(panel).codes, ['parse']);
+  assert.equal(h.lastBanner(panel).retained, false);
+});
+
+test('LINEAGE1-2: an unexpected reload failure clears the checking status', async () => {
+  let calls = 0;
+  const io = { readArtifact: async (fsPath) => { if (++calls === 2) throw new Error('boom'); return api.readArtifactFile(fsPath); } };
+  const { panel, artifact, log } = await open({ io });
+  await h.diskEvent(panel, 'change', artifact);
+  assert.deepEqual(h.lastBanner(panel).codes, ['unreadable']);
+  assert.equal(h.lastBanner(panel).message, 'Generated diagram update rejected; retaining the last valid revision.\nThe artifact could not be read: the viewer could not process it.');
+  assert.ok(log.lines.some(line => line === 'authored reload failed: boom'));
+  await h.diskEvent(panel, 'change', artifact);
+  assert.deepEqual(h.lastBanner(panel).codes, []);
+});
+
+test('LINEAGE1-3: a helper child of a restored root is adopted, not refused as obsolete', async () => {
+  const { panel, artifact } = await open({ raw: rev('r3', 'r2') });
+  h.writeJson(artifact, rev('r1', undefined, doc => { doc.title = 'restored root'; }));
+  await h.diskEvent(panel, 'change', artifact);
+  assert.equal(h.shownRevision(panel), 'r1');
+  assert.deepEqual(h.lastBanner(panel).codes, ['lineage']);
+  h.writeJson(artifact, rev('r2', 'r1', doc => { doc.title = 'continued from r1'; }));
+  await h.diskEvent(panel, 'change', artifact);
+  assert.equal(h.shownRevision(panel), 'r2');
+  assert.deepEqual(h.lastBanner(panel).codes, []);
+});
+
+test('LINEAGE1-4: a disk event restores the transient-retry budget', async () => {
+  let busy = false;
+  let reads = 0;
+  const io = { readArtifact: async (fsPath) => { reads++; return busy ? { kind: 'unreadable', detail: 'EBUSY', transient: true } : api.readArtifactFile(fsPath); } };
+  const { panel, artifact } = await open({ io });
+  h.writeJson(artifact, rev('r2', 'r1'));
+  busy = true;
+  vscode.__fireWatcher('change', artifact);
+  // The first read and the 250 ms retry both fail; the next retry would wait 1 s.
+  await h.waitFor(() => reads === 3, 'first retry did not run', 3000);
+  assert.deepEqual(h.lastBanner(panel).codes, ['unreadable']);
+  // Another publish arrives while the lock is held; it gets a fresh budget starting at 250 ms
+  // (a spent budget would wait 4 s, or never retry once exhausted).
+  const before = reads;
+  vscode.__fireWatcher('change', artifact);
+  await h.waitFor(() => reads === before + 1, 'disk event did not reload', 3000);
+  busy = false;
+  const start = Date.now();
+  await h.waitFor(() => h.shownRevision(panel) === 'r2', 'retry after the disk event did not recover', 1500);
+  assert.ok(Date.now() - start < 1500);
+  assert.deepEqual(h.lastBanner(panel).codes, []);
+});

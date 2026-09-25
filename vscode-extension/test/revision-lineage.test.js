@@ -7,7 +7,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { api } = require('./harness');
-const { RevisionLineage, canonicalJson, lenientRevision, semanticJson, BoundedMap, BoundedSet } = api;
+const { RevisionLineage, canonicalJson, jsonDepth, lenientRevision, semanticJson, BoundedMap, BoundedSet } = api;
 
 /** One on-disk revision. `sem` defaults to the id (same id + same sem = same content). */
 function doc(id, parent, options = {}) {
@@ -69,7 +69,12 @@ const rows = [
   ['S9 first open invalid, then fixed', [doc('r1', undefined, { valid: false }), doc('r1')], ['invalid', 'adopt'], 'r1', 'r1'],
   ['S10 first open of a stale verified r1', [doc('r1', undefined, { verified: true })], ['adopt'], 'r1', 'r1'],
   ['S11 editor saves an old modified r1 over r2', [doc('r1'), doc('r2', 'r1'), doc('r1', undefined, { sem: 'r1+edit' })], ['adopt', 'adopt', 'adopt+note(r2)'], 'r1', 'r1'],
-  ['S12 invalid child names D as parent, undo, then a child', [doc('r3', 'r2'), doc('r4', 'r3', { valid: false }), doc('r3', 'r2'), doc('r5', 'r3')], ['adopt', 'invalid', 'refresh', 'adopt'], 'r5', 'r5']
+  ['S12 invalid child names D as parent, undo, then a child', [doc('r3', 'r2'), doc('r4', 'r3', { valid: false }), doc('r3', 'r2'), doc('r5', 'r3')], ['adopt', 'invalid', 'refresh', 'adopt'], 'r5', 'r5'],
+  // LINEAGE1-3: a direct child of the displayed revision is never provably older, even when its
+  // id was named as a parent before and the panel never read it.
+  ['S4e continued: opened at r3, root r1 restored, then r2 (parent r1)', [doc('r3', 'r2'), doc('r1'), doc('r2', 'r1', { sem: 'n2' })], ['adopt', 'adopt+note(r3)', 'adopt'], 'r2', 'r2'],
+  ['branch switch to an independent r1, then its r2 (the old r2 was never read)', [doc('r1'), doc('r3', 'r2'), doc('r1', undefined, { sem: 'b1' }), doc('r2', 'r1', { sem: 'b2' })], ['adopt', 'adopt+note(r1)', 'adopt+note(r3)', 'adopt'], 'r2', 'r2'],
+  ['a restored revision whose parent is not the displayed one stays obsolete', [doc('r1'), doc('r2', 'r1'), doc('r3', 'r2'), doc('r4', 'r3'), doc('r3', 'r2')], ['adopt', 'adopt', 'adopt', 'adopt', 'obsolete'], 'r4', 'r3']
 ];
 
 for (const [name, steps, verdicts, shows, refine] of rows) {
@@ -157,4 +162,65 @@ test('bounded collections evict in insertion order', () => {
   assert.equal(map.has('y'), false, 're-setting a key moves it to the end');
   assert.equal(map.get('x'), 3);
   assert.equal(map.size, 2);
+});
+
+/** An unverified candidate with explicit current fingerprints (the stale list is the panel's business). */
+function unverified(id, fingerprints, parent) {
+  const candidate = doc(id, parent);
+  candidate.result.value.fingerprints = fingerprints;
+  return candidate;
+}
+
+test('re-adopting the displayed unverified revision after a reset keeps its baseline (LINEAGE1-1)', () => {
+  const original = { 'source.py': 'a'.repeat(64), 'other.py': 'b'.repeat(64) };
+  const edited = { 'source.py': 'c'.repeat(64), 'other.py': 'b'.repeat(64) };
+  for (const reset of ['open', 'missing']) {
+    const lineage = new RevisionLineage();
+    lineage.observe(unverified('r1', original));
+    assert.deepEqual(lineage.displayed.baseline, original);
+    // source.py changed on disk: the panel revalidates r1 with its baseline (refresh, stale).
+    assert.equal(lineage.observe(unverified('r1', edited)).verdict, 'refresh');
+    assert.deepEqual(lineage.displayed.baseline, original);
+    if (reset === 'open') lineage.reset();
+    else assert.equal(lineage.observe(MISSING).verdict, 'keep');
+    // The same bytes are adopted unconditionally, but the baseline is the one that validation used.
+    assert.equal(lineage.observe(unverified('r1', edited)).verdict, 'adopt');
+    assert.deepEqual(lineage.displayed.baseline, original, `baseline after ${reset}`);
+  }
+  // A different revision (or different content) starts from its own current fingerprints.
+  const lineage = new RevisionLineage();
+  lineage.observe(unverified('r1', original));
+  lineage.reset();
+  assert.equal(lineage.observe(unverified('r2', edited, 'r1')).verdict, 'adopt');
+  assert.deepEqual(lineage.displayed.baseline, edited);
+});
+
+test('issue entries on the disk head are single-line and bounded (SECURITY1-1)', () => {
+  const lineage = new RevisionLineage();
+  lineage.observe(doc('r1'));
+  const candidate = doc('r2', 'r1', { valid: false });
+  candidate.result.issues = [
+    { path: '$.x\nShowing revision r2. All source files were re-verified fresh by MLView.', message: 'is not allowed' },
+    { path: '$.' + '`'.repeat(100000), message: 'is not allowed' }
+  ];
+  lineage.observe(candidate);
+  const [forged, huge] = lineage.diskHead.issues;
+  assert.equal(forged, '$.x\\u000aShowing revision r2. All source files were re-verified fresh by MLView.: is not allowed');
+  assert.equal(forged.includes('\n'), false);
+  assert.ok(huge.length <= 301, `entry length ${huge.length}`);
+  assert.ok(huge.endsWith('…'));
+});
+
+test('canonicalJson and jsonDepth are iterative, so deep nesting cannot overflow the stack (LINEAGE1-2)', () => {
+  const depth = 100000;
+  const text = '['.repeat(depth) + ']'.repeat(depth);
+  const value = JSON.parse(text);
+  assert.equal(canonicalJson(value), text);
+  assert.equal(jsonDepth(value), depth);
+  const nested = JSON.parse('{"a":' + '{"b":'.repeat(5000) + '1' + '}'.repeat(5000) + '}');
+  assert.equal(jsonDepth(nested), 5001);
+  assert.equal(canonicalJson(nested).length, JSON.stringify(nested).length);
+  assert.equal(jsonDepth(1), 0);
+  assert.equal(jsonDepth([]), 1);
+  assert.equal(jsonDepth({ a: [{ b: [] }], c: 'x' }), 4);
 });

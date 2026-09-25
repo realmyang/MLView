@@ -90,3 +90,18 @@ test('the escape set covers the backtick, C1 controls, bidi controls, separators
   const text = prompt({ artifactRel: 'sub/a' + String.fromCharCode(0x2028) + 'b.mlview.json' });
   assert.match(text, /^Artifact: "sub\/a\\u2028b\.mlview\.json"$/m);
 });
+
+test('SECURITY1-2: U+061C, tag and other invisible format characters never appear raw', () => {
+  const invisible = [0x00ad, 0x061c, 0x180e, 0x200b, 0x200c, 0x200d, 0x2060, 0x2064, 0x206a, 0x206f, 0xfff9, 0xfffb, 0xe0000, 0xe0041, 0xe007f];
+  const sneaky = invisible.map(c => String.fromCodePoint(c)).join('');
+  const document = workflow();
+  document.request.question = 'q' + sneaky;
+  const text = prompt({ displayed: document, artifactRel: 'dir/a' + sneaky + '.mlview.json', intent: 'custom', customText: 'do' + sneaky });
+  for (const code of invisible)
+    assert.equal(text.includes(String.fromCodePoint(code)), false, `U+${code.toString(16)} is raw`);
+  assert.match(text, /^Artifact: "dir\/a\\u00ad\\u061c\\u180e\\u200b\\u200c\\u200d\\u2060\\u2064\\u206a\\u206f\\ufff9\\ufffb\\udb40\\udc00\\udb40\\udc41\\udb40\\udc7f\.mlview\.json"$/m);
+  assert.equal(JSON.parse(text.split('\n').find(line => line.startsWith('Artifact: ')).slice('Artifact: '.length)), 'dir/a' + sneaky + '.mlview.json');
+  assert.equal(promptData(text).request.question, 'q' + sneaky);
+  // Visible astral text (an emoji) is left alone.
+  assert.equal(escapeJsonText('"😀"'), '"😀"');
+});

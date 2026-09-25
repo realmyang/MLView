@@ -8,6 +8,7 @@
  *
  * This module is pure: the panel reads the artifact, validates it, and hands the result here.
  */
+import { displayIssue } from './displayText';
 import { ID_PATTERN, type ValidatedWorkflow, type ValidationIssue } from './workflowDocument';
 
 export type Verdict = 'adopt' | 'refresh' | 'invalid' | 'obsolete' | 'same-id-changed' | 'keep';
@@ -41,16 +42,66 @@ export interface Observation {
   lineageNote?: { from: string };
 }
 
-/** Canonical JSON: arrays keep order, object keys sorted (UTF-16 order), primitives via JSON.stringify. */
+/**
+ * Canonical JSON: arrays keep order, object keys sorted (UTF-16 order), primitives via
+ * JSON.stringify. Iterative, like validateWorkflowStructure, so a deeply nested artifact (which
+ * JSON.parse accepts) cannot overflow the stack.
+ */
 export function canonicalJson(value: unknown): string {
-  if (Array.isArray(value))
-    return '[' + value.map(item => canonicalJson(item)).join(',') + ']';
-  if (value && typeof value === 'object') {
-    const record = value as Record<string, unknown>;
-    return '{' + Object.keys(record).sort().map(key => JSON.stringify(key) + ':' + canonicalJson(record[key])).join(',') + '}';
+  const out: string[] = [];
+  // Each entry is literal text to emit, or a value still to serialise; popped in document order.
+  const pending: ({ text: string } | { value: unknown })[] = [{ value }];
+  while (pending.length) {
+    const next = pending.pop()!;
+    if ('text' in next) {
+      out.push(next.text);
+      continue;
+    }
+    const current = next.value;
+    if (Array.isArray(current)) {
+      pending.push({ text: ']' });
+      for (let i = current.length - 1; i >= 0; i--) {
+        pending.push({ value: current[i] });
+        if (i > 0)
+          pending.push({ text: ',' });
+      }
+      pending.push({ text: '[' });
+    }
+    else if (current && typeof current === 'object') {
+      const record = current as Record<string, unknown>;
+      const keys = Object.keys(record).sort();
+      pending.push({ text: '}' });
+      for (let i = keys.length - 1; i >= 0; i--) {
+        pending.push({ value: record[keys[i]!] });
+        pending.push({ text: (i > 0 ? ',' : '') + JSON.stringify(keys[i]) + ':' });
+      }
+      pending.push({ text: '{' });
+    }
+    else {
+      const primitive = JSON.stringify(current);
+      out.push(primitive === undefined ? 'null' : primitive);
+    }
   }
-  const primitive = JSON.stringify(value);
-  return primitive === undefined ? 'null' : primitive;
+  return out.join('');
+}
+
+/** Deepest JSON nesting the helper and the viewer accept in an artifact or draft (a WorkflowDocument needs about 5). */
+export const MAX_JSON_DEPTH = 64;
+
+/** Nesting depth of a parsed JSON value (a scalar is 0, `[]` is 1), computed iteratively. */
+export function jsonDepth(value: unknown): number {
+  let deepest = 0;
+  const pending: [unknown, number][] = [[value, 0]];
+  while (pending.length) {
+    const [current, depth] = pending.pop()!;
+    if (!current || typeof current !== 'object')
+      continue;
+    deepest = Math.max(deepest, depth + 1);
+    for (const child of Array.isArray(current) ? current : Object.values(current as Record<string, unknown>))
+      if (child && typeof child === 'object')
+        pending.push([child, depth + 1]);
+  }
+  return deepest;
 }
 
 /** The revision identity of a parsed artifact, read leniently (the helper takes it unvalidated). */
@@ -143,7 +194,8 @@ export class RevisionLineage {
     const value = c.result.value;
     if (!value) {
       head.verdict = 'invalid';
-      head.issues = c.result.issues.slice(0, 8).map(issue => `${issue.path}: ${issue.message}`);
+      // Bounded, single-line entries: issue paths can carry arbitrary artifact key text.
+      head.issues = c.result.issues.slice(0, 8).map(displayIssue);
       return { verdict: 'invalid' };
     }
     const D = this.displayed;
@@ -153,6 +205,10 @@ export class RevisionLineage {
       verdict = 'adopt';
     else if (C.revision.id === D.id)
       verdict = c.sem === D.sem ? 'refresh' : 'same-id-changed';
+    // A direct child of the displayed revision can never be older than it, even when its id was
+    // named as a parent before (a restore or branch switch followed by a helper publish).
+    else if ((C.revision.parent ?? null) === D.id)
+      verdict = 'adopt';
     else if (this.superseded.has(C.revision.id) && (prevSem === undefined || prevSem === c.sem))
       verdict = 'obsolete';
     else
@@ -163,9 +219,13 @@ export class RevisionLineage {
         this.superseded.add(D.id);
       if (prevHead?.kind === 'revision' && C.revision.id !== prevHead.id && (C.revision.parent ?? null) !== prevHead.id)
         lineageNote = { from: prevHead.id };
+      // Re-adopting the displayed unverified revision (after Open or an ENOENT reset) keeps its
+      // baseline: the panel validated this candidate against it, and the current fingerprints
+      // include the changed bytes of every stale file, which would turn "stale" into a rejection.
+      const keep = D && !D.verified && D.baseline && D.id === C.revision.id && D.sem === c.sem ? D.baseline : undefined;
       this.displayed = C.verification
         ? { id: C.revision.id, sem: c.sem, full: c.full, verified: true }
-        : { id: C.revision.id, sem: c.sem, full: c.full, verified: false, baseline: { ...value.fingerprints } };
+        : { id: C.revision.id, sem: c.sem, full: c.full, verified: false, baseline: keep ?? { ...value.fingerprints } };
       this.unconditional = false;
     }
     else if (verdict === 'refresh' && D) {

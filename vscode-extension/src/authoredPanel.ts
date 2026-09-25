@@ -6,7 +6,8 @@ import { MAX_EXPORT_BYTES, parseExportFileMessage, saveExportedFile } from './ex
 import { DependencySet, identity } from './fileIdentity';
 import type { Logger } from './log';
 import { buildRefinementPrompt, REFINE_INTENTS, toPosixRelative, type RefineIntent, type RefineSelection } from './refinePrompt';
-import { canonicalJson, lenientRevision, RevisionLineage, semanticJson, type Candidate, type Verdict } from './revisionLineage';
+import { displayIssue, displayText } from './displayText';
+import { canonicalJson, jsonDepth, lenientRevision, MAX_JSON_DEPTH, RevisionLineage, semanticJson, type Candidate, type Verdict } from './revisionLineage';
 import { ID_PATTERN, MAX_DOCUMENT_BYTES, quoteMatches, trackedFiles, validateWorkflow, validateWorkflowStructure, type ValidatedWorkflow, type ValidationIssue, type WorkflowEvidence } from './workflowDocument';
 export const AUTHORED_VIEW_TYPE = 'mlview.authoredDiagram';
 export const OPEN_AUTHORED_COMMAND = 'mlview.openGeneratedDiagram';
@@ -56,6 +57,22 @@ export async function readArtifactFile(fsPath: string): Promise<ArtifactRead> {
 const defaultIo: AuthoredPanelIo = { readArtifact: readArtifactFile };
 const asciiLower = (value: string): string => value.replace(/[A-Z]/g, c => String.fromCharCode(c.charCodeAt(0) + 32));
 const isArtifactPath = (value: string): boolean => asciiLower(value).endsWith('.mlview.json');
+/**
+ * The artifact at `fsPath` after lexical normalisation, with the workspace folder that contains
+ * it; undefined when it lies outside every folder. VS Code's Uri.file and getWorkspaceFolder keep
+ * `..` segments, so `<folder>/../outside/x.mlview.json` would otherwise match the folder.
+ */
+function workspaceArtifact(fsPath: string): { uri: vscode.Uri; folder: vscode.WorkspaceFolder; key: string } | undefined {
+    const resolved = path.resolve(fsPath);
+    const uri = vscode.Uri.file(resolved);
+    const folder = vscode.workspace.getWorkspaceFolder(uri);
+    if (!folder)
+        return undefined;
+    const rel = path.relative(folder.uri.fsPath, resolved);
+    if (!rel || rel === '..' || rel.startsWith('..' + path.sep) || path.isAbsolute(rel))
+        return undefined;
+    return { uri, folder, key: resolved };
+}
 export class ReloadGeneration {
     private value = 0;
     begin(): number { return ++this.value; }
@@ -183,12 +200,12 @@ export class AuthoredDiagramController implements vscode.Disposable {
             void vscode.window.showErrorMessage('MLView: select a *.mlview.json generated diagram.');
             return;
         }
-        const folder = vscode.workspace.getWorkspaceFolder(selected);
-        if (!folder) {
+        const target = workspaceArtifact(selected.fsPath);
+        if (!target) {
             void vscode.window.showErrorMessage('MLView: the generated diagram must belong to an open workspace folder.');
             return;
         }
-        const key = selected.fsPath;
+        const { folder, key } = target;
         const existing = this.panels.get(key);
         if (existing) {
             // Re-running the command shows the file as it is, even a revision the panel had refused.
@@ -196,7 +213,7 @@ export class AuthoredDiagramController implements vscode.Disposable {
             return;
         }
         const panel = vscode.window.createWebviewPanel(AUTHORED_VIEW_TYPE, 'MLView Generated Diagram', { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true }, { enableScripts: true, localResourceRoots: [vscode.Uri.joinPath(this.ctx.extensionUri, 'media')] });
-        const authored = new AuthoredPanel(panel, selected, folder, this.ctx, this.log, () => this.panels.delete(key), this.validator, this.io);
+        const authored = new AuthoredPanel(panel, target.uri, folder, this.ctx, this.log, () => this.panels.delete(key), this.validator, this.io);
         this.panels.set(key, authored);
         await authored.reload();
     }
@@ -207,15 +224,15 @@ export class AuthoredDiagramController implements vscode.Disposable {
             panel.dispose();
             return;
         }
-        panel.webview.options = { enableScripts: true, localResourceRoots: [vscode.Uri.joinPath(this.ctx.extensionUri, 'media')] };
-        const uri = vscode.Uri.file(artifact);
-        const folder = vscode.workspace.getWorkspaceFolder(uri);
-        if (!folder) {
+        const target = workspaceArtifact(artifact);
+        if (!target) {
             panel.dispose();
             return;
         }
-        const authored = new AuthoredPanel(panel, uri, folder, this.ctx, this.log, () => this.panels.delete(artifact), this.validator, this.io);
-        this.panels.set(artifact, authored);
+        panel.webview.options = { enableScripts: true, localResourceRoots: [vscode.Uri.joinPath(this.ctx.extensionUri, 'media')] };
+        const { uri, folder, key } = target;
+        const authored = new AuthoredPanel(panel, uri, folder, this.ctx, this.log, () => this.panels.delete(key), this.validator, this.io);
+        this.panels.set(key, authored);
         await authored.reload();
     }
     private diskChanged(uri: vscode.Uri): void {
@@ -239,7 +256,7 @@ export class AuthoredDiagramController implements vscode.Disposable {
 type ValidationResult = Awaited<ReturnType<typeof validateWorkflow>>;
 type BannerItem = { code: string; text: string };
 type ParsedCandidate = Exclude<Candidate, { kind: 'json' }> | (Omit<Extract<Candidate, { kind: 'json' }>, 'result'> & { result: ValidationResult; structural?: ReturnType<typeof validateWorkflowStructure>['document'] });
-const listFiles = (rels: readonly string[]): string => rels.slice(0, 3).join(', ') + (rels.length > 3 ? `, and ${rels.length - 3} more` : '');
+const listFiles = (rels: readonly string[]): string => rels.slice(0, 3).map(rel => displayText(rel, 200)).join(', ') + (rels.length > 3 ? `, and ${rels.length - 3} more` : '');
 class AuthoredPanel implements vscode.Disposable {
     private disposed = false;
     private ready = false;
@@ -277,6 +294,8 @@ class AuthoredPanel implements vscode.Disposable {
     /** MLView: Open Generated Diagram for an already-open artifact. */
     async reopen(): Promise<void> {
         this.lineage.reset();
+        this.cancelRetry();
+        this.retryCount = 0;
         this.reveal();
         await this.reload();
     }
@@ -287,7 +306,9 @@ class AuthoredPanel implements vscode.Disposable {
             return;
         this.reloads.begin();
         this.freshnessVersion++;
+        // Every disk-triggered reload starts a fresh budget of transient-read retries.
         this.cancelRetry();
+        this.retryCount = 0;
         this.pendingCheck = true;
         this.postBanner();
         this.scheduler.debounce();
@@ -311,7 +332,8 @@ class AuthoredPanel implements vscode.Disposable {
             return undefined;
         }
         try {
-            return await this.validator(raw, this.folder.uri.fsPath, baseline ? { baseline } : {});
+            // The artifact is an MLView file under any name: a link or alias of it is never fingerprinted.
+            return await this.validator(raw, this.folder.uri.fsPath, baseline ? { baseline, ownedFiles: [this.artifact.fsPath] } : { ownedFiles: [this.artifact.fsPath] });
         }
         finally {
             release();
@@ -340,11 +362,23 @@ class AuthoredPanel implements vscode.Disposable {
             value = JSON.parse(text);
         }
         catch (error) {
-            return { kind: 'parse', detail: error instanceof Error ? error.message : 'invalid JSON' };
+            // V8's message quotes part of the file, which may hold newlines or invisible text.
+            return { kind: 'parse', detail: displayText(error instanceof Error ? error.message : 'invalid JSON') };
         }
+        // The helper refuses JSON nested this deeply (no WorkflowDocument needs it), so no revision
+        // in such a file can be a parent.
+        if (jsonDepth(value) > MAX_JSON_DEPTH)
+            return { kind: 'parse', detail: 'the JSON is nested too deeply' };
         const ident = lenientRevision(value);
-        const sem = semanticJson(value);
-        const full = canonicalJson(value);
+        let sem: string;
+        let full: string;
+        try {
+            sem = semanticJson(value);
+            full = canonicalJson(value);
+        }
+        catch {
+            return { kind: 'parse', detail: 'the JSON is nested too deeply' };
+        }
         const displayed = this.lineage.displayed;
         const baseline = ident && displayed && ident.id === displayed.id && sem === displayed.sem && !displayed.verified ? displayed.baseline : undefined;
         let result: ValidationResult;
@@ -364,7 +398,15 @@ class AuthoredPanel implements vscode.Disposable {
         if (this.disposed)
             return;
         const generation = this.reloads.begin();
-        const candidate = await this.readCandidate();
+        let candidate: ParsedCandidate | undefined;
+        try {
+            candidate = await this.readCandidate();
+        }
+        catch (error) {
+            // Never leave the checking status (or a blank panel) behind: report the file as unreadable.
+            this.log.warn(`authored reload failed: ${error instanceof Error ? error.message : String(error)}`);
+            candidate = { kind: 'unreadable', detail: 'the viewer could not process it' };
+        }
         // A discarded run changes no lineage state; the newer run re-reads the file.
         if (!candidate || this.disposed || !this.reloads.isCurrent(generation))
             return;
@@ -459,7 +501,8 @@ class AuthoredPanel implements vscode.Disposable {
             return { code: 'same-id-changed', text: `${P}\nRevision ${D} changed content without a new revision id. Run MLView: Open Generated Diagram to show the file as it is.` };
         const issues: ValidationIssue[] = candidate.result.issues;
         const heading = candidate.ident ? `\nRevision ${candidate.ident.id} cannot be displayed:` : '\nThe artifact cannot be displayed:';
-        const lines = issues.slice(0, 8).map(issue => `\n${issue.path}: ${issue.message}`).join('');
+        // Issue paths can carry arbitrary artifact key text: one bounded, escaped line each.
+        const lines = issues.slice(0, 8).map(issue => `\n${displayIssue(issue)}`).join('');
         const more = issues.length > 8 ? `\n…and ${issues.length - 8} more` : '';
         return { code: 'invalid', text: `${P}${heading}${lines}${more}` };
     }
@@ -647,7 +690,7 @@ class AuthoredPanel implements vscode.Disposable {
         let selection: RefineSelection | undefined;
         if (m.selection !== undefined && m.selection !== null) {
             const candidate = m.selection as Record<string, unknown>;
-            if (typeof m.selection !== 'object' || Array.isArray(m.selection) || !['node', 'edge', 'issue'].includes(String(candidate.kind)) || typeof candidate.id !== 'string' || !ID_PATTERN.test(candidate.id))
+            if (typeof m.selection !== 'object' || Array.isArray(m.selection) || typeof candidate.kind !== 'string' || !['node', 'edge', 'issue'].includes(candidate.kind) || typeof candidate.id !== 'string' || !ID_PATTERN.test(candidate.id))
                 return this.refuseRefinement(requestId, 'MLView: the selection is invalid. Select the item again.');
             selection = { kind: candidate.kind as RefineSelection['kind'], id: candidate.id };
             const present = selection.kind === 'node' ? doc.nodes.some(x => x.id === selection!.id) : selection.kind === 'edge' ? doc.edges.some(x => x.id === selection!.id) : doc.findings.some(x => x.id === selection!.id);
@@ -661,7 +704,7 @@ class AuthoredPanel implements vscode.Disposable {
             return this.refuseRefinement(requestId, 'MLView: the artifact file is missing, so there is nothing to refine. Restore it (for example from version control) or ask the assistant for a new analysis.');
         if (head.kind !== 'revision') {
             const detail = head.kind === 'bad-revision' ? 'it has no valid revision.id' : head.detail || 'it has no valid revision.id';
-            return this.refuseRefinement(requestId, `MLView: the artifact file cannot be read right now (${detail}); the MLView helper refuses to publish over it. Repair or restore ${this.artifactRel} first.`);
+            return this.refuseRefinement(requestId, `MLView: the artifact file cannot be read right now (${detail}); the MLView helper refuses to publish over it. Repair or restore ${displayText(this.artifactRel, 200)} first.`);
         }
         const prompt = buildRefinementPrompt({
             artifactRel: this.artifactRel,
@@ -704,18 +747,18 @@ class AuthoredPanel implements vscode.Disposable {
             return;
         if (!fresh.value) {
             const first = fresh.issues[0];
-            void vscode.window.showWarningMessage(`MLView: evidence ${evidence.id} could not be checked (${first ? `${first.path}: ${first.message}` : 'unknown problem'}); source navigation was stopped.`);
+            void vscode.window.showWarningMessage(`MLView: evidence ${evidence.id} could not be checked (${first ? displayIssue(first) : 'unknown problem'}); source navigation was stopped.`);
             return;
         }
         if (fresh.value.stale.some(s => s.rel === evidence.file)) {
-            void vscode.window.showWarningMessage(`MLView: evidence ${evidence.id} cites ${evidence.file}, which changed after revision ${revision} was published; navigation to it is blocked.`);
+            void vscode.window.showWarningMessage(`MLView: evidence ${evidence.id} cites ${displayText(evidence.file, 200)}, which changed after revision ${revision} was published; navigation to it is blocked.`);
             return;
         }
         const open = await this.findOpenDocument(evidence);
         if (!this.navigationCurrent(revision, freshness))
             return;
         if (!this.unsavedTextStillCites(evidence, open)) {
-            void vscode.window.showWarningMessage(`MLView: unsaved changes in ${evidence.file} no longer contain the lines cited by evidence ${evidence.id}; save or revert the file, then try again.`);
+            void vscode.window.showWarningMessage(`MLView: unsaved changes in ${displayText(evidence.file, 200)} no longer contain the lines cited by evidence ${evidence.id}; save or revert the file, then try again.`);
             return;
         }
         await this.navigate(evidence, revision, freshness, open);

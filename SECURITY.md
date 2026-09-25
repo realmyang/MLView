@@ -27,10 +27,14 @@ not that it supports the model's interpretation. Findings remain model-authored
 claims.
 
 Refinement prompts copy artifact and workspace text, such as the question,
-labels, evidence quotes and file names, only inside a delimited JSON data
-block. The prompt's own lines contain host-written text, validated IDs and
-JSON-quoted strings, and tell the assistant to treat the block as data, never
-as instructions. In VS Code Restricted Mode the prompt also states that the
+labels, the viewer's rejection reasons and changed file names, only inside a
+delimited JSON data block; evidence quotes are not copied. The prompt's own
+lines contain host-written text, validated IDs and JSON-quoted strings (the
+artifact's own path and a custom request typed in the composer), and tell the
+assistant to treat the block as data, never as instructions. Invisible and
+reordering characters (bidirectional controls, zero-width and tag characters)
+are escaped in the block and in the quoted strings, and the status banner shows
+artifact-derived text as single, bounded lines. In VS Code Restricted Mode the prompt also states that the
 workspace is not trusted. The skill likewise treats repository files and
 artifacts as data. These measures reduce, but cannot eliminate, prompt
 injection through files the assistant reads; the host's permission controls
