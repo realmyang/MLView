@@ -11,6 +11,14 @@ def test_current_tree_links():
     assert not module.run()[0]
 
 
+def test_active_documents_are_current_guidance():
+    # A document frozen with a historical banner describes older revisions; it must leave ACTIVE.
+    assert "CLAUDE.md" in module.ACTIVE
+    for relative in module.ACTIVE:
+        first = (module.ROOT / relative).read_text(encoding="utf-8").splitlines()[0]
+        assert not first.startswith(("> Historical record", "> Dated evaluation record")), relative
+
+
 def test_broken_link_and_shell_crlf_are_rejected(tmp_path, monkeypatch):
     monkeypatch.setattr(module, "ACTIVE", ("README.md",))
     (tmp_path / "README.md").write_text("[missing](missing.md)\n[web](https://example.com)\n")

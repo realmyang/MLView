@@ -1,3 +1,5 @@
+> Historical record: Codex-era takeover handoff (through 2026-09-24). AGENTS.md, which it cites, was removed on 2026-09-25; its Sol-only subagent rule applied to the Codex period only. Current guidance: [CLAUDE.md](../CLAUDE.md) and [STATUS.md](STATUS.md).
+
 # Current handoff — 2026-09-18 trust and usability campaign
 
 The user authorized execution of the improvement recommendations after the

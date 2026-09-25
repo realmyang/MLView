@@ -3,8 +3,8 @@
 # The conventions already in the tree, written down so an editor applies them
 # without anybody being asked to. They are not enforced by a formatter: MLView
 # ships no autoformatter, and a reformat-the-world commit would bury a real
-# change. What IS gated is the line ending — `scripts/check_docs.py` check 7
-# fails the build on a POSIX shell script written with CRLF, because
+# change. What IS gated is the line ending — `scripts/check_docs.py` fails
+# the documentation gate on a `scripts/*.sh` script written with CRLF, because
 # `#!/usr/bin/env sh<CR>` asks the kernel for a program named `sh<CR>` and a
 # stray CR rides on the end of every variable the script assigns. Git is told
 # the same thing by `.gitattributes` (`* -text`: no normalisation, so whatever
@@ -20,7 +20,7 @@ trim_trailing_whitespace = true
 indent_style = space
 indent_size = 4
 
-# The analyzer, the tools and the gates. 4 spaces, PEP 8.
+# The skill helper, the tools and the check scripts. 4 spaces, PEP 8.
 [*.py]
 indent_size = 4
 
@@ -28,7 +28,7 @@ indent_size = 4
 [*.{ts,tsx,js,mjs,cjs,json,jsonc}]
 indent_size = 2
 
-# Workflows, the pre-commit hook manifest, issue forms.
+# CI workflows and issue forms.
 [*.{yml,yaml}]
 indent_size = 2
 
@@ -51,6 +51,6 @@ trim_trailing_whitespace = false
 
 # Generated, vendored or third-party. Nobody hand-edits these; leave whatever
 # their generator wrote.
-[{vscode-extension/core/**,claude-plugin/vendor/**,webview/dist/**,vscode-extension/out/**,docs/archive/**,.public-corpus/**}]
+[{webview/dist/**,vscode-extension/media/**,vscode-extension/out/**,docs/archive/**,.public-corpus/**}]
 trim_trailing_whitespace = false
 insert_final_newline = false

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import filecmp
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -85,6 +86,32 @@ def test_marketplace_entries_resolve_to_the_skill_plugin() -> None:
         "path": "claude-plugin",
     }
     assert _load(MANIFEST)["version"] == marketplace["metadata"]["version"]
+
+
+INSTALL_DOCS = (REPO_ROOT / "README.md", PLUGIN_ROOT / "README.md")
+INSTALL_COMMAND = re.compile(r"/plugin install\s+([^\s@`]+)@([^\s`]+)")
+
+
+def _documented_installs() -> list[tuple[str, str, str]]:
+    found = []
+    for doc in INSTALL_DOCS:
+        for number, line in enumerate(doc.read_text(encoding="utf-8").splitlines(), 1):
+            if "/plugin install" not in line:
+                continue
+            match = INSTALL_COMMAND.search(line)
+            assert match, f"{doc.relative_to(REPO_ROOT)}:{number}: expected /plugin install <plugin>@<marketplace>"
+            found.append((f"{doc.relative_to(REPO_ROOT)}:{number}", match[1], match[2]))
+    return found
+
+
+def test_documented_install_commands_name_the_marketplace_and_its_plugins() -> None:
+    marketplace = _load(MARKETPLACE)
+    plugins = {entry["name"] for entry in marketplace["plugins"]}
+    installs = _documented_installs()
+    assert installs, "the plugin README documents no /plugin install command"
+    for where, plugin, market in installs:
+        assert market == marketplace["name"], f"{where}: marketplace {market!r} is not {marketplace['name']!r}"
+        assert plugin in plugins, f"{where}: plugin {plugin!r} is not listed in marketplace.json"
 
 
 def test_bundled_helper_validates_the_shipped_example(tmp_path: Path) -> None:

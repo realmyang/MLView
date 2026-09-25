@@ -1,3 +1,5 @@
+> Historical record: static-analyzer demo template; use the live validation checklist in [LLM_WORKFLOW.md](LLM_WORKFLOW.md#live-validation-checklist).
+
 # DEMO LOG — template
 
 For an LLM workflow run, also record the native host/version, selected model

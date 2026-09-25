@@ -10,10 +10,11 @@ explains each gate and explicit skip options.
 
 ## Live usability and CI follow-up — 2026-09-18
 
-The user authorized committing/pushing the campaign and completing live viewer
-checks. `84ea3a1` published the campaign. Remote CI exposed a Windows absolute
-path rejection, fixed in `7182224`; its push run passed. Its PR run exposed a
-fixed-delay test race, now replaced with a bounded wait for the settled state.
+The maintainer authorized committing/pushing the campaign and completing live
+viewer checks. `84ea3a1` published the campaign. Remote CI exposed a Windows
+absolute path rejection, fixed in `7182224`; its push run passed. Its PR run
+exposed a fixed-delay test race, now replaced with a bounded wait for the
+settled state.
 These earlier run outcomes do not validate the later changes described below.
 
 The final local command was
@@ -91,18 +92,19 @@ was based on `d40d96e`. On macOS with Python 3.13.15 and Node 26.4.0:
 - Four separate-process jsdom benchmarks completed at 100/500/1,000/2,000 nodes
   with node representation, scope/reset, SVG export and disposal assertions.
   See [exact bundle identity, timings and limits](PERFORMANCE.md).
-- An auxiliary independent Sol skill exercise published and revalidated an
-  artifact after one schema repair. Its scope and limitations are recorded in
-  the [campaign report](TRUST_USABILITY_CAMPAIGN.md).
+- An independent skill exercise by an auxiliary Codex agent (gpt-5.6-sol)
+  published and revalidated an artifact after one schema repair. Its scope and
+  limitations are recorded in the [campaign report](TRUST_USABILITY_CAMPAIGN.md).
 - Historical native artifacts, provisional ledgers, held-out source/reference
   pins, task manifest, public schema and shipped sample are unchanged.
 
-The initial desktop-control attempt stalled while preparing the live exercise.
+The first attempt to automate the live VS Code exercise stalled during setup.
 No native VS Code interaction, browser paint timing, screen-reader pass or
-human semantic score is claimed for these changes. The task-created isolated
-VS Code process and loopback server were stopped. The existing pilot summary
-still reports **72 pending, zero completed, zero human-reviewed**. These initial
-results are superseded by the follow-up above where explicitly stated.
+human semantic score is claimed for these changes. The isolated VS Code process
+and loopback server started for that attempt were stopped. The existing pilot
+summary still reports **72 pending, zero completed, zero human-reviewed**.
+These initial results are superseded by the follow-up above where explicitly
+stated.
 
 ## Static-removal baseline — 2026-09-18
 
@@ -133,5 +135,5 @@ Node 20.18.1/22 and Linux/Windows/macOS package checks, in both the
 Earlier analyzer suite counts and CI runs refer to older revisions.
 
 No automatic test claims live assistant discovery, native model execution or
-semantic correctness. Historical host logs remain in [DEMO_LOG.md](DEMO_LOG.md),
+semantic correctness. Dated host logs are in [docs/demo-logs/](demo-logs/),
 and semantic human review remains pending.
