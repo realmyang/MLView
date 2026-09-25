@@ -613,7 +613,8 @@ const vscode = {
       return notebookDocuments;
     },
     get textDocuments() {
-      return [...documents.keys()].map((file) => makeDocument(Uri.file(file)));
+      // Keys use '/' (docKey); a real Uri.file(...).fsPath is native, so normalise for Windows.
+      return [...documents.keys()].map((file) => makeDocument(Uri.file(path.normalize(file))));
     },
     openNotebookDocument: async (uri) => {
       const found = notebookDocuments.find((doc) => doc.uri.fsPath === uri.fsPath);
