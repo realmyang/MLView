@@ -102,13 +102,16 @@ const INTENTS: [RefineIntent, string][] = [['explain', 'Explain'], ['expand', 'E
 
 type ComposerSelection = { kind: 'node' | 'edge' | 'issue'; id: string } | undefined;
 
-/** What an open or closed composer holds, captured before a rebuild (VIEWUI-4). */
+/**
+ * What an open or closed composer holds, captured before a rebuild (VIEWUI-4).
+ * The host's last answer is not kept: every rebuild follows a `workflow` frame,
+ * and a refusal describes the state before it (LINEAGE2-1).
+ */
 interface ComposerSnapshot {
   revision: string | null;
   open: boolean;
   intent: string;
   custom: string;
-  status: string;
   focus: 'refine' | 'intent' | 'custom' | 'submit' | null;
   selection: ComposerSelection;
 }
@@ -145,7 +148,6 @@ function captureComposer(panel: HTMLElement): ComposerSnapshot | null {
   const intent = panel.querySelector<HTMLSelectElement>('.mlv-workflow__intent');
   const custom = panel.querySelector<HTMLInputElement>('.mlv-workflow__custom');
   const refine = panel.querySelector<HTMLButtonElement>('.mlv-workflow__refine');
-  const status = panel.querySelector<HTMLElement>('.mlv-workflow__status');
   if (!composer || !intent || !custom) return null;
   const active = panel.ownerDocument.activeElement;
   let focus: ComposerSnapshot['focus'] = null;
@@ -158,10 +160,32 @@ function captureComposer(panel: HTMLElement): ComposerSnapshot | null {
     open: !composer.hidden,
     intent: intent.value,
     custom: custom.value,
-    status: status ? status.textContent || '' : '',
     focus,
     selection: (kind === 'node' || kind === 'edge' || kind === 'issue') && id ? { kind, id } : undefined,
   };
+}
+
+/**
+ * Banner codes under which a refusal about the artifact file may still hold:
+ * the reload has not settled (`checking`), or the file is still missing,
+ * unreadable, malformed or without a valid revision id (`invalid` also covers
+ * that last case).
+ */
+const FILE_STATE_CODES = new Set(['checking', 'missing', 'unreadable', 'parse', 'invalid']);
+
+/**
+ * A new host banner (LINEAGE2-1). Once it shows none of the file-state codes,
+ * the artifact file is readable again, so the composer's last refusal (for
+ * example "the artifact file is missing") no longer holds and is cleared. A
+ * repaired file that holds the displayed revision again brings no `workflow`
+ * frame, so the banner is the only signal.
+ */
+export function onWorkflowStatus(app: App, codes: readonly string[] | undefined): void {
+  if (!codes || codes.some((code) => FILE_STATE_CODES.has(code))) return;
+  const status = app.root.querySelector<HTMLElement>('.mlv-workflow__status');
+  if (!status || !status.textContent) return;
+  status.textContent = '';
+  app.saveSoon();
 }
 
 /**
@@ -205,7 +229,7 @@ export function decorateWorkflow(app: App, document: WorkflowDocument, restored?
   // with its state for this same revision (a new revision id was never saved).
   const captured = captureComposer(panel);
   const prior: ComposerSnapshot | null = captured
-    ?? (restored ? { revision: document.revision.id, open: restored.open, intent: restored.intent, custom: restored.custom, status: '', focus: null, selection: undefined } : null);
+    ?? (restored ? { revision: document.revision.id, open: restored.open, intent: restored.intent, custom: restored.custom, focus: null, selection: undefined } : null);
   const fromRestore = !captured && !!restored;
   clear(panel);
   panel.setAttribute('data-revision', document.revision.id);
@@ -280,9 +304,10 @@ export function decorateWorkflow(app: App, document: WorkflowDocument, restored?
     if (INTENTS.some(([value]) => value === prior.intent)) intent.value = prior.intent;
     custom.value = prior.custom;
     custom.hidden = intent.value !== 'custom';
-    // The host's last answer describes the revision it was given; a new
-    // revision starts with no stale refusal on screen.
-    status.textContent = prior.revision === document.revision.id ? prior.status : '';
+    // The status starts empty: the host's last answer described the state
+    // before this `workflow` frame, even for the same revision id (a refusal
+    // about a missing or unreadable file no longer holds once the file is
+    // read again; LINEAGE1-5, LINEAGE2-1).
     if (prior.open) {
       composer.hidden = false;
       refine.setAttribute('aria-expanded', 'true');

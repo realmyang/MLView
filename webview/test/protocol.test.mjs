@@ -319,8 +319,6 @@ test('a refinement refusal is not shown again for a new revision (LINEAGE1-5, WE
   const refusal = 'the artifact file cannot be read right now (JSON parse error); the MLView helper refuses to publish over it. Repair or restore run.mlview.json first.';
   reply(ctx, lastOf(ctx.bridge, 'refineWorkflow'), 'failed', { message: refusal });
   assert.equal(q('.mlv-workflow__status').textContent, refusal);
-  ctx.bridge.send({ v: 1, type: 'workflow', document: workflow('r1') });
-  assert.equal(q('.mlv-workflow__status').textContent, refusal, 'the same revision keeps the last answer');
   q('.mlv-workflow__intent').value = 'custom';
   q('.mlv-workflow__intent').dispatchEvent(new ctx.window.Event('change', { bubbles: true }));
   q('.mlv-workflow__custom').value = 'keep me';
@@ -328,6 +326,67 @@ test('a refinement refusal is not shown again for a new revision (LINEAGE1-5, WE
   assert.equal(q('.mlv-workflow__status').textContent, '', 'a new revision starts without the old refusal');
   assert.equal(q('.mlv-workflow__composer').hidden, false);
   assert.equal(q('.mlv-workflow__custom').value, 'keep me');
+  ctx.app.destroy();
+});
+
+// ---- Review round 2 ----
+
+const MISSING = 'the artifact file is missing, so there is nothing to refine. Restore it (for example from version control) or ask the assistant for a new analysis.';
+const UNREADABLE = "the artifact file cannot be read right now (Expected property name or '}' in JSON at position 1 (line 1 column 2)); the MLView helper refuses to publish over it. Repair or restore run.mlview.json first.";
+const banner = (ctx, codes) => ctx.bridge.send({ v: 1, type: 'workflowError', message: codes.length ? 'banner ' + codes.join(' ') : '', retained: true, codes });
+async function refused(message) {
+  const ctx = await mount();
+  const q = (selector) => ctx.document.querySelector(selector);
+  q('.mlv-workflow__refine').click();
+  q('.mlv-workflow__composer').dispatchEvent(new ctx.window.Event('submit', { bubbles: true, cancelable: true }));
+  reply(ctx, lastOf(ctx.bridge, 'refineWorkflow'), 'failed', { message });
+  assert.equal(q('.mlv-workflow__status').textContent, message);
+  return { ctx, q };
+}
+
+test('a missing-file refusal is cleared once the restored file is read again (LINEAGE2-1)', async () => {
+  // The host frames of repro1: the file is restored with r1's bytes and re-adopted after the reset.
+  const { ctx, q } = await refused(MISSING);
+  banner(ctx, ['missing']);
+  assert.equal(q('.mlv-workflow__status').textContent, MISSING, 'still missing: the refusal holds');
+  banner(ctx, ['checking']);
+  assert.equal(q('.mlv-workflow__status').textContent, MISSING, 'not settled yet');
+  banner(ctx, []);
+  assert.equal(q('.mlv-workflow__status').textContent, '');
+  ctx.bridge.send({ v: 1, type: 'workflow', document: workflow('r1') });
+  assert.equal(q('.mlv-workflow__status').textContent, '');
+  assert.equal(q('.mlv-workflow__composer').hidden, false, 'the composer stays open');
+  ctx.app.destroy();
+});
+
+test('an unreadable-file refusal is cleared when the file is repaired without a new workflow frame (LINEAGE2-1)', async () => {
+  // repro1b (walkthrough S3a): undo to r1's bytes is a REFRESH, so only banners arrive.
+  const { ctx, q } = await refused(UNREADABLE);
+  for (const codes of [['parse'], ['parse', 'dirty'], ['invalid'], ['unreadable'], ['checking']]) {
+    banner(ctx, codes);
+    assert.equal(q('.mlv-workflow__status').textContent, UNREADABLE, codes.join(','));
+  }
+  banner(ctx, ['stale', 'dirty']);
+  assert.equal(q('.mlv-workflow__status').textContent, '', 'a banner without file-state codes clears it');
+  ctx.bridge.send({ v: 1, type: 'workflowError', message: 'x', retained: true });
+  assert.equal(q('.mlv-workflow__status').textContent, '');
+  ctx.app.destroy();
+});
+
+test('any applied workflow frame, even for the same revision, starts without the last refusal (LINEAGE2-1)', async () => {
+  const { ctx, q } = await refused(MISSING);
+  q('.mlv-workflow__intent').value = 'custom';
+  q('.mlv-workflow__intent').dispatchEvent(new ctx.window.Event('change', { bubbles: true }));
+  q('.mlv-workflow__custom').value = 'keep me';
+  ctx.bridge.send({ v: 1, type: 'workflow', document: workflow('r1') });
+  assert.equal(q('.mlv-workflow__status').textContent, '');
+  assert.equal(q('.mlv-workflow__composer').hidden, false);
+  assert.equal(q('.mlv-workflow__custom').value, 'keep me', 'the typed request survives');
+  // A banner with no code list (an older host) leaves the status alone.
+  q('.mlv-workflow__composer').dispatchEvent(new ctx.window.Event('submit', { bubbles: true, cancelable: true }));
+  reply(ctx, lastOf(ctx.bridge, 'refineWorkflow'), 'failed', { message: MISSING });
+  ctx.bridge.send({ v: 1, type: 'workflowError', message: '', retained: true });
+  assert.equal(q('.mlv-workflow__status').textContent, MISSING);
   ctx.app.destroy();
 });
 

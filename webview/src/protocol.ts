@@ -11,6 +11,12 @@ import type { ActionResult, Capabilities, Filters, HostToUi, Severity, ThemeKind
 export interface ProtocolHandlers {
   init(theme: ThemeKind, capabilities: Capabilities | undefined): void;
   workflow(document: WorkflowDocument): void;
+  /**
+   * The codes of a new host status banner (§1a). The host bootstrap draws the banner itself; the
+   * App only uses the codes to drop a refusal they show is out of date (LINEAGE2-1). `undefined`
+   * when the frame carried no code list.
+   */
+  workflowStatus(codes: string[] | undefined): void;
   /** The answer to a request that carried a `requestId` (§1e). */
   actionResult(result: ActionResult): void;
   theme(kind: ThemeKind): void;
@@ -35,8 +41,9 @@ export function dispatchHostMessage(msg: HostToUi, h: ProtocolHandlers): void {
       h.workflow(msg.document);
       return;
     case 'workflowError':
-      // Known, and deliberately a no-op here: the host bootstrap owns the
-      // banner element, which lives outside the App's shell.
+      // The host bootstrap owns the banner element, which lives outside the
+      // App's shell; the App only reads the codes.
+      h.workflowStatus(Array.isArray(msg.codes) ? msg.codes.filter((code): code is string => typeof code === 'string') : undefined);
       return;
     case 'actionResult':
       h.actionResult(msg);

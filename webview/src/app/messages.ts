@@ -12,6 +12,7 @@ import { dispatchHostMessage } from '../protocol.js';
 import { regionFromHostWord } from '../export/actions.js';
 import { renderChrome, renderRail } from './surfaces.js';
 import { runExport } from './exporting.js';
+import { onWorkflowStatus } from '../workflow.js';
 import { applyState } from './state.js';
 import type { App } from '../app.js';
 import type { HostToUi } from '../types.js';
@@ -32,6 +33,7 @@ export function onHostMessage(app: App, msg: HostToUi): void {
       if (document === app.workflowDocument) return;
       app.setWorkflow(document);
     },
+    workflowStatus: (codes) => onWorkflowStatus(app, codes),
     actionResult: (result) => app.onActionResult(result),
     theme: (kind) => app.setTheme(kind),
     revealNode: (nodeId, center) => app.focusNode(nodeId, { center, pulse: true }),

@@ -684,8 +684,9 @@ export type HostToUi =
   /** A new or refreshed authored revision. The host never sends `preserve`. */
   | { v: 1; type: 'workflow'; document: WorkflowDocument }
   /**
-   * The host's status banner. The host bootstrap draws it; the App treats the
-   * frame as known and does nothing with it. `''` clears the banner.
+   * The host's status banner. The host bootstrap draws it; the App reads only
+   * `codes`, to clear a refinement refusal about the artifact file once the
+   * file is readable again (LINEAGE2-1). `''` clears the banner.
    */
   | { v: 1; type: 'workflowError'; message: string; retained?: boolean; codes?: string[] }
   | ActionResult;
