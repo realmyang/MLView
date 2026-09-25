@@ -1,9 +1,9 @@
 {
-  "id": "encoding-001-lone-surrogate-title",
+  "id": "encoding-004-lone-surrogate-key",
   "findings": [
     "CONTRACT-4"
   ],
-  "description": "A title containing an unpaired surrogate escape is rejected by the helper (text_encoding) instead of crashing publish.",
+  "description": "An object key containing an unpaired surrogate escape (here a verification.files key) is rejected by the helper (text_encoding) and by the extension.",
   "files": {
     "train.py": {
       "text": "def train():\n"
@@ -12,7 +12,7 @@
   "artifact": "workflow.mlview.json",
   "document": {
     "workflowVersion": "1.0",
-    "title": "Loss \ud83d spike",
+    "title": "Training",
     "producer": {
       "kind": "host-llm",
       "host": "codex"
@@ -59,6 +59,21 @@
         "train.py"
       ],
       "limitations": []
+    },
+    "verification": {
+      "files": {
+        "train.py": {
+          "$sha256": {
+            "text": "def train():\n"
+          }
+        },
+        "notes/\udc00.md": {
+          "$sha256": {
+            "text": "notes\n"
+          }
+        }
+      },
+      "publishedAt": "2026-09-25T00:00:00Z"
     }
   },
   "expect": {
@@ -72,17 +87,13 @@
       "fingerprints": null,
       "stale": []
     },
-    "extension": "unverified"
+    "extension": {
+      "ok": false,
+      "stale": [],
+      "issuePaths": [
+        "$.verification.files.notes/\udc00.md"
+      ]
+    }
   },
-  "divergence": {
-    "layers": [
-      "helper",
-      "extension"
-    ],
-    "findings": [
-      "CONTRACT-4"
-    ],
-    "note": "The e7d175f extension accepts unpaired surrogates; stream E adds the extension-side rejection (CONTRACT-4 follow-up) and then closes this divergence.",
-    "status": "open"
-  }
+  "divergence": null
 }

@@ -129,17 +129,22 @@ export function splitLines(text: string): string[] {
     return text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
 }
 /**
- * The one quote comparison: the cited lines joined with LF, and on line 1 a single leading
- * U+FEFF is ignored on both sides. Normalising CR inside the quote itself is a known divergence
- * from the helper (CONTRACT-9) that the conformance stream removes.
+ * The one quote comparison, identical to the helper's: the quote must equal the cited lines joined
+ * with LF exactly (a CR inside the quote never matches), except that on line 1 a single leading
+ * U+FEFF is ignored on both sides.
  */
 export function quoteMatches(quote: string, lines: readonly string[], line: number, endLine: number): boolean {
     if (line < 1 || endLine < line || endLine > lines.length)
         return false;
     const expected = lines.slice(line - 1, endLine).join('\n');
-    const actual = quote.replace(/\r\n?/g, '\n');
-    return line === 1 ? stripBom(actual) === stripBom(expected) : actual === expected;
+    return line === 1 ? stripBom(quote) === stripBom(expected) : quote === expected;
 }
+/**
+ * True when `value` has more than `maximum` Unicode code points, the unit the helper (Python len)
+ * and JSON Schema maxLength count. The UTF-16 length is an upper bound, so short strings skip the count.
+ */
+const longerThan = (value: string, maximum: number): boolean => value.length > maximum && [...value].length > maximum;
+const UNPAIRED_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
 /** Strict UTF-8 decode with at most one leading U+FEFF removed; undefined when the bytes are not UTF-8. */
 export function decodeSourceText(bytes: Uint8Array): string | undefined {
     try {
@@ -192,7 +197,7 @@ const RFC3339 = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|
 const own = (o: object, k: string): boolean => Object.prototype.hasOwnProperty.call(o, k);
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const strings = (v: unknown): v is string[] => Array.isArray(v) && v.every(x => typeof x === 'string' && x.length > 0);
-const relativePath = (value: string): boolean => value.length > 0 && value.length <= 500 && !path.posix.isAbsolute(value) && !value.includes('\\') && !value.split('/').some(part => part === '' || part === '.' || part === '..') && !value.includes('\0') && !/^[A-Za-z]:/.test(value);
+const relativePath = (value: string): boolean => value.length > 0 && !longerThan(value, 500) && !path.posix.isAbsolute(value) && !value.includes('\\') && !value.split('/').some(part => part === '' || part === '.' || part === '..') && !value.includes('\0') && !/^[A-Za-z]:/.test(value);
 const strictRfc3339 = (value: string): boolean => {
     const match = RFC3339.exec(value);
     if (!match)
@@ -209,7 +214,7 @@ const strictRfc3339 = (value: string): boolean => {
     return date.getUTCFullYear() === parts[0] && date.getUTCMonth() === parts[1]! - 1 && date.getUTCDate() === parts[2];
 };
 function maxText(o: Record<string, unknown>, key: string, maximum: number, at: string, out: ValidationIssue[]): void {
-    if (typeof o[key] === 'string' && (o[key] as string).length > maximum)
+    if (typeof o[key] === 'string' && longerThan(o[key] as string, maximum))
         out.push({ path: `${at}.${key}`, message: `must be at most ${maximum} characters` });
 }
 const text = (o: Record<string, unknown>, k: string, at: string, out: ValidationIssue[]): string => {
@@ -265,7 +270,7 @@ export function validateWorkflowStructure(raw: unknown): {
     if (raw.workflowVersion !== '1.0')
         issues.push({ path: '$.workflowVersion', message: 'must equal "1.0"' });
     text(raw, 'title', '$', issues);
-    if (typeof raw.title === 'string' && raw.title.length > 200)
+    if (typeof raw.title === 'string' && longerThan(raw.title, 200))
         issues.push({ path: '$.title', message: 'must be at most 200 characters' });
     const producer = object(raw.producer) ? raw.producer : {};
     exactKeys(producer, ['kind', 'host', 'model'], ['kind', 'host'], '$.producer', issues);
@@ -386,7 +391,7 @@ export function validateWorkflowStructure(raw: unknown): {
             issues.push({ path: `${a}.file`, message: 'evidence must cite project files, not an MLView artifact, draft or installed MLView skill file' });
         if (typeof x.quote !== 'string')
             issues.push({ path: `${a}.quote`, message: 'must be a string' });
-        if (typeof x.quote === 'string' && x.quote.length > 16000)
+        if (typeof x.quote === 'string' && longerThan(x.quote, 16000))
             issues.push({ path: `${a}.quote`, message: 'must be at most 16000 characters' });
         for (const k of ['line', 'endLine'])
             if (!Number.isInteger(x[k]) || Number(x[k]) < 1)
@@ -414,7 +419,7 @@ export function validateWorkflowStructure(raw: unknown): {
     if (Array.isArray(coverage.limitations)) {
         if (coverage.limitations.length > 500)
             issues.push({ path: '$.coverage.limitations', message: 'must contain at most 500 items' });
-        coverage.limitations.forEach((v, i) => { if (typeof v !== 'string' || !v || v.length > 2000)
+        coverage.limitations.forEach((v, i) => { if (typeof v !== 'string' || !v || longerThan(v, 2000))
             issues.push({ path: `$.coverage.limitations[${i}]`, message: 'must contain non-empty strings of at most 2000 characters' }); });
     }
     if (own(raw, 'verification') && !object(raw.verification))
@@ -449,8 +454,9 @@ export function validateWorkflowStructure(raw: unknown): {
     nodes.forEach((n, i) => {
         if (!phaseIds.has(String(n.phase)))
             issues.push({ path: `$.nodes[${i}].phase`, message: 'references an unknown phase' });
-        if (n.parent && !nodeIds.has(String(n.parent)))
-            issues.push({ path: `$.nodes[${i}].parent`, message: 'references an unknown node' });
+        // Present means checked: an empty string is no more a root marker than null is.
+        if (typeof n.parent === 'string' && !nodeIds.has(n.parent))
+            issues.push({ path: `$.nodes[${i}].parent`, message: n.parent === '' ? 'must be the ID of a different node; omit parent for root nodes' : 'references an unknown node' });
     });
     edges.forEach((e, i) => {
         for (const k of ['source', 'target'])
@@ -520,7 +526,56 @@ export function validateWorkflowStructure(raw: unknown): {
     }
     if (cyclicParents)
         issues.push({ path: '$.nodes', message: 'parent relationships must form a forest' });
+    unpairedSurrogates(raw, issues);
     return issues.length ? { issues } : { document: raw as unknown as WorkflowDocument, issues };
+}
+/**
+ * Every string and object key must be valid Unicode: JSON.parse accepts escapes such as "\ud83d"
+ * that no UTF-8 writer can encode, and the helper rejects them (text_encoding). Iterative, so a
+ * deeply nested (and otherwise rejected) value cannot overflow the stack.
+ */
+function unpairedSurrogates(raw: unknown, issues: ValidationIssue[]): void {
+    // [value, path, key]: a set key is checked when its entry is popped, keeping document order.
+    const pending: [unknown, string, string | undefined][] = [[raw, '$', undefined]];
+    while (pending.length) {
+        const [value, at, key] = pending.pop()!;
+        if (key !== undefined && UNPAIRED_SURROGATE.test(key))
+            issues.push({ path: at, message: 'contains an unpaired surrogate' });
+        if (typeof value === 'string') {
+            if (UNPAIRED_SURROGATE.test(value))
+                issues.push({ path: at, message: 'contains an unpaired surrogate' });
+        }
+        else if (Array.isArray(value)) {
+            for (let i = value.length - 1; i >= 0; i--)
+                pending.push([value[i], `${at}[${i}]`, undefined]);
+        }
+        else if (value && typeof value === 'object') {
+            const keys = Object.keys(value);
+            for (let i = keys.length - 1; i >= 0; i--)
+                pending.push([(value as Record<string, unknown>)[keys[i]!], `${at}.${keys[i]}`, keys[i]]);
+        }
+    }
+}
+/** JSON.parse, with undefined (never a JSON value) for text that does not parse. */
+function parseJson(text: string): unknown {
+    try {
+        return JSON.parse(text) as unknown;
+    }
+    catch {
+        return undefined;
+    }
+}
+/** The source of cell `index`: a string or a list of strings (joined), as the helper accepts; else undefined. */
+function notebookCellSource(notebook: unknown, index: number): string | undefined {
+    if (!object(notebook) || !Array.isArray(notebook.cells) || index >= notebook.cells.length)
+        return undefined;
+    const cell: unknown = notebook.cells[index];
+    if (!object(cell) || !own(cell, 'source'))
+        return undefined;
+    const source = cell.source;
+    if (typeof source === 'string')
+        return source;
+    return Array.isArray(source) && source.every(part => typeof part === 'string') ? source.join('') : undefined;
 }
 /**
  * Validate a document against the workspace on disk.
@@ -634,23 +689,24 @@ export async function validateWorkflow(raw: unknown, root: string, options: Vali
             continue;
         }
         let lines: string[];
-        if (e.cell !== undefined) {
-            let cellText: string | undefined;
-            try {
-                loaded.notebook ??= { value: JSON.parse(text) as unknown };
-                const cells = (loaded.notebook.value as { cells?: { source?: unknown }[] } | null)?.cells;
-                const cell = Array.isArray(cells) ? cells[e.cell] : undefined;
-                if (cell && typeof cell === 'object')
-                    cellText = Array.isArray(cell.source) ? cell.source.join('') : String(cell.source ?? '');
+        // Like the helper, the resolved file's suffix decides: a cell is required for .ipynb
+        // evidence and refused for every other file.
+        if (path.extname(real).toLowerCase() === '.ipynb') {
+            if (e.cell === undefined) {
+                issues.push({ path: `${at}.cell`, message: 'notebook evidence requires a zero-based cell index' });
+                continue;
             }
-            catch {
-                cellText = undefined;
-            }
+            loaded.notebook ??= { value: parseJson(text) };
+            const cellText = notebookCellSource(loaded.notebook.value, e.cell);
             if (cellText === undefined) {
                 issues.push({ path: `${at}.cell`, message: 'does not resolve to a notebook cell' });
                 continue;
             }
             lines = splitLines(cellText);
+        }
+        else if (e.cell !== undefined) {
+            issues.push({ path: `${at}.cell`, message: 'cell is only valid for .ipynb evidence' });
+            continue;
         }
         else {
             loaded.lines ??= splitLines(text);

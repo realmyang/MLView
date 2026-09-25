@@ -1,0 +1,85 @@
+{
+  "id": "notebook-003-cell-on-non-notebook",
+  "findings": [
+    "CONTRACT-9"
+  ],
+  "description": "A cell index is only valid for .ipynb evidence, even when the cited JSON file happens to contain notebook-like cells.",
+  "files": {
+    "data.json": {
+      "text": "{\"cells\": [{\"source\": \"fit(x)\"}]}\n"
+    }
+  },
+  "artifact": "workflow.mlview.json",
+  "document": {
+    "workflowVersion": "1.0",
+    "title": "Training",
+    "producer": {
+      "kind": "host-llm",
+      "host": "codex"
+    },
+    "revision": {
+      "id": "r1"
+    },
+    "request": {
+      "question": "Explain training",
+      "scope": "train.py"
+    },
+    "phases": [
+      {
+        "id": "p",
+        "label": "Train"
+      }
+    ],
+    "nodes": [
+      {
+        "id": "n",
+        "label": "Train",
+        "phase": "p",
+        "basis": "observed",
+        "evidence": [
+          "ev"
+        ]
+      }
+    ],
+    "edges": [],
+    "findings": [],
+    "evidence": [
+      {
+        "id": "ev",
+        "file": "data.json",
+        "cell": 0,
+        "line": 1,
+        "endLine": 1,
+        "quote": "fit(x)"
+      }
+    ],
+    "coverage": {
+      "status": "scoped",
+      "summary": "Inspected entrypoint",
+      "inspectedFiles": [
+        "data.json"
+      ],
+      "limitations": []
+    }
+  },
+  "expect": {
+    "schema": "valid",
+    "helper": {
+      "ok": false,
+      "codes": [
+        "unexpected_cell"
+      ],
+      "warnings": [],
+      "fingerprints": null,
+      "stale": []
+    },
+    "extension": {
+      "ok": false,
+      "stale": [],
+      "issuePaths": [
+        "$.evidence[0].cell"
+      ]
+    }
+  },
+  "divergence": null
+}

@@ -1,0 +1,84 @@
+{
+  "id": "notebook-002-ipynb-evidence-without-cell",
+  "findings": [
+    "CONTRACT-9"
+  ],
+  "description": "Evidence on an .ipynb file without a cell index is rejected even though its quote matches the notebook's raw JSON line.",
+  "files": {
+    "flow.ipynb": {
+      "text": "{\n \"cells\": [\n  {\n   \"cell_type\": \"code\",\n   \"metadata\": {},\n   \"source\": [\n    \"x = 1\\n\",\n    \"fit(x)\\n\"\n   ]\n  }\n ],\n \"metadata\": {},\n \"nbformat\": 4,\n \"nbformat_minor\": 5\n}\n"
+    }
+  },
+  "artifact": "workflow.mlview.json",
+  "document": {
+    "workflowVersion": "1.0",
+    "title": "Training",
+    "producer": {
+      "kind": "host-llm",
+      "host": "codex"
+    },
+    "revision": {
+      "id": "r1"
+    },
+    "request": {
+      "question": "Explain training",
+      "scope": "train.py"
+    },
+    "phases": [
+      {
+        "id": "p",
+        "label": "Train"
+      }
+    ],
+    "nodes": [
+      {
+        "id": "n",
+        "label": "Train",
+        "phase": "p",
+        "basis": "observed",
+        "evidence": [
+          "ev"
+        ]
+      }
+    ],
+    "edges": [],
+    "findings": [],
+    "evidence": [
+      {
+        "id": "ev",
+        "file": "flow.ipynb",
+        "line": 1,
+        "endLine": 1,
+        "quote": "{"
+      }
+    ],
+    "coverage": {
+      "status": "scoped",
+      "summary": "Inspected entrypoint",
+      "inspectedFiles": [
+        "flow.ipynb"
+      ],
+      "limitations": []
+    }
+  },
+  "expect": {
+    "schema": "valid",
+    "helper": {
+      "ok": false,
+      "codes": [
+        "notebook_cell"
+      ],
+      "warnings": [],
+      "fingerprints": null,
+      "stale": []
+    },
+    "extension": {
+      "ok": false,
+      "stale": [],
+      "issuePaths": [
+        "$.evidence[0].cell"
+      ]
+    }
+  },
+  "divergence": null
+}

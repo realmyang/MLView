@@ -1,0 +1,35 @@
+{
+  "id": "shape-010-artifact-with-bom-raw",
+  "findings": [
+    "CONTRACT-8",
+    "EXT-7"
+  ],
+  "description": "An artifact file that starts with a UTF-8 byte-order mark is not JSON for any layer: the helper and the viewer both keep the BOM and fail to parse.",
+  "files": {
+    "train.py": {
+      "text": "def train():\n"
+    }
+  },
+  "artifact": "workflow.mlview.json",
+  "raw": "\ufeff{\n  \"workflowVersion\": \"1.0\",\n  \"title\": \"Training\",\n  \"producer\": {\n    \"kind\": \"host-llm\",\n    \"host\": \"codex\"\n  },\n  \"revision\": {\n    \"id\": \"r1\"\n  },\n  \"request\": {\n    \"question\": \"Explain training\",\n    \"scope\": \"train.py\"\n  },\n  \"phases\": [\n    {\n      \"id\": \"p\",\n      \"label\": \"Train\"\n    }\n  ],\n  \"nodes\": [\n    {\n      \"id\": \"n\",\n      \"label\": \"Train\",\n      \"phase\": \"p\",\n      \"basis\": \"observed\",\n      \"evidence\": [\n        \"ev\"\n      ]\n    }\n  ],\n  \"edges\": [],\n  \"findings\": [],\n  \"evidence\": [\n    {\n      \"id\": \"ev\",\n      \"file\": \"train.py\",\n      \"line\": 1,\n      \"endLine\": 1,\n      \"quote\": \"def train():\"\n    }\n  ],\n  \"coverage\": {\n    \"status\": \"scoped\",\n    \"summary\": \"Inspected entrypoint\",\n    \"inspectedFiles\": [\n      \"train.py\"\n    ],\n    \"limitations\": []\n  }\n}\n",
+  "expect": {
+    "schema": "invalid",
+    "helper": {
+      "ok": false,
+      "codes": [
+        "invalid_json"
+      ],
+      "warnings": [],
+      "fingerprints": null,
+      "stale": []
+    },
+    "extension": {
+      "ok": false,
+      "stale": [],
+      "issuePaths": [
+        "$"
+      ]
+    }
+  },
+  "divergence": null
+}
