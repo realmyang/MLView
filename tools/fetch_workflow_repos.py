@@ -191,27 +191,33 @@ def _sparse_difference(patterns: list[str], enabled: bool, cone: bool, actual: l
 
 
 def _verify_checkout(repo: dict[str, Any], checkout: Path) -> dict[str, Any]:
-    """The read-only verification behind verify_repo, for a checkout at any path."""
-    name, pin = repo["name"], repo["sha"]
-    patterns = list(repo.get("sparse", []))
+    """The read-only verification behind verify_repo, for a checkout at any path. A failing git
+    read becomes a problem in the report, so one broken checkout never hides the others."""
     report: dict[str, Any] = {
-        "name": name, "head": None, "clean": False, "legacyMarker": False, "sparseMatches": False,
+        "name": repo["name"], "head": None, "clean": False, "legacyMarker": False, "sparseMatches": False,
         "covered": 0, "missing": [], "extraMaterialized": [], "blobMismatches": [], "ok": False,
         "problems": [],
     }
+    try:
+        _inspect_checkout(repo, checkout, report)
+    except FetchError as exc:
+        report["problems"].append(f"{repo['name']}: cannot inspect the checkout ({exc})")
+    report["ok"] = not report["problems"]
+    return report
+
+
+def _inspect_checkout(repo: dict[str, Any], checkout: Path, report: dict[str, Any]) -> None:
+    name, pin = repo["name"], repo["sha"]
+    patterns = list(repo.get("sparse", []))
     problems: list[str] = report["problems"]
     if not os.path.lexists(checkout):
         problems.append(f"{name}: not fetched ({checkout} does not exist); "
                         f"run python tools/fetch_workflow_repos.py --repo {name}")
-        return report
+        return
     if checkout.is_symlink() or not (checkout / ".git").is_dir():
         problems.append(f"{name}: {checkout} exists but is not a Git checkout; refusing to use it")
-        return report
-    try:
-        head = _git(["rev-parse", "--verify", "HEAD"], checkout, offline=True).strip()
-    except FetchError as exc:
-        problems.append(f"{name}: cannot read HEAD ({exc})")
-        return report
+        return
+    head = _git(["rev-parse", "--verify", "HEAD"], checkout, offline=True).strip()
     report["head"] = head
     if head != pin:
         problems.append(f"{name}: the checkout is at {head}, expected {pin}; refusing to change the checkout")
@@ -243,8 +249,6 @@ def _verify_checkout(repo: dict[str, Any], checkout: Path) -> dict[str, Any]:
 
     if head == pin:
         _compare_tree(repo, checkout, report)
-    report["ok"] = not problems
-    return report
 
 
 def _compare_tree(repo: dict[str, Any], checkout: Path, report: dict[str, Any]) -> None:

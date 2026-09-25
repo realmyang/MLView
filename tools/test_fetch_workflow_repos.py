@@ -203,6 +203,20 @@ def test_sparse_difference_names_missing_and_extra_patterns(monkeypatch, tmp_pat
     ]
 
 
+def test_a_failing_git_read_is_reported_not_raised(monkeypatch, tmp_path: Path) -> None:
+    repo = fetcher.load_manifest()[0]
+    (tmp_path / repo["name"] / ".git").mkdir(parents=True)
+
+    def broken(args, cwd, *, offline=False):
+        raise fetcher.FetchError("git rev-parse failed in the checkout: fatal: not a git repository")
+
+    monkeypatch.setattr(fetcher, "_git", broken)
+    report = fetcher.verify_repo(repo, tmp_path)
+    assert report["ok"] is False and report["head"] is None
+    assert report["problems"] == [f"{repo['name']}: cannot inspect the checkout (git rev-parse failed in the "
+                                  "checkout: fatal: not a git repository)"]
+
+
 def test_missing_checkout_and_non_checkout_are_reported(tmp_path: Path) -> None:
     repo = fetcher.load_manifest()[0]
     report = fetcher.verify_repo(repo, tmp_path)
