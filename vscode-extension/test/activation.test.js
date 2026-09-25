@@ -12,7 +12,7 @@ function context() {
     subscriptions: [],
     extensionPath,
     extensionUri: vscode.Uri.file(extensionPath),
-    extension: { packageJSON: { version: '0.2.0' } }
+    extension: { packageJSON: { version: '0.3.0' } }
   };
 }
 

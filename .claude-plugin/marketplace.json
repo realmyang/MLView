@@ -3,7 +3,7 @@
   "owner": { "name": "MLView" },
   "metadata": {
     "description": "MLView's marketplace: the plugin from this checkout, and the same plugin fetched from GitHub.",
-    "version": "0.2.0"
+    "version": "0.3.0"
   },
   "plugins": [
     {
