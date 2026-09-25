@@ -6,6 +6,110 @@ static analyzer; their figures are historical and are not rewritten. Current
 truth lives in [docs/STATUS.md](docs/STATUS.md) and
 [docs/VALIDATION.md](docs/VALIDATION.md).
 
+## 0.2.0 — reliability and trust (Campaign 1)
+
+Every manifest now says 0.2.0, the first version number distinct from the
+analyzer-era 0.1.0 that `main` still ships. It is released when PR #9 merges
+(the owner's decision) and also carries the two "Unreleased" native entries
+below, which never shipped under a version number. Finding IDs refer to the
+2026-09-25 takeover review.
+
+Open panel and freshness:
+- An open panel follows the artifact file: it shows the newest valid revision
+  on disk and no longer refuses every later revision after rejecting one;
+  Refine continues from the revision actually in the file (CONTRACT-2 = EXT-1 =
+  CRIT-2, EXT-11, EXT-12, NEW-1).
+- A revision whose sources changed is shown as a historical diagram with a
+  banner naming the changed files; only jumps into those files are blocked. A
+  revision the panel saw superseded (for example restored from git) is refused
+  until **MLView: Open Generated Diagram** is re-run. Banners name each case and
+  carry no absolute paths (EXT-18, CRIT-7).
+- Freshness uses the saved bytes on disk, as the helper does, so UTF-8 BOM and
+  CRLF files no longer look stale while open. Unsaved editor changes are
+  reported separately and block only a jump whose cited lines moved. Open files
+  are matched by real path, so symlinked roots and Windows drive-letter case
+  work (EXT-7 = CONTRACT-5, EXT-2, SKILL-9, EXT-9, EXT-13 functional part).
+- Both high-contrast themes use the high-contrast palette (EXT-4, RENDER-5), and
+  a restored panel opens only a `*.mlview.json` inside the workspace (EXT-16).
+
+Refinement:
+- The copied prompt has a host-written header and puts all artifact text in one
+  escaped JSON data block, so artifact text cannot forge prompt lines. It names
+  the artifact path portably and states VS Code Restricted Mode in an untrusted
+  workspace (EXT-6, EXT-17, CRIT-8).
+- Five explicit intents (Explain, Expand, Challenge, Trace, Custom), with the
+  same meanings in the skill; Explain never publishes (EXT-6, CRIT-8).
+- The Refine composer keeps its intent, text and selection across refreshes and
+  closes only after the prompt was copied (VIEWUI-4).
+
+Viewer:
+- A panel renders once on open and once per new revision; refreshes keep the
+  viewport, and a reopened panel restores it (VIEWUI-2 = EXT-3, VIEWUI-3).
+- Export and Copy scope report success only after VS Code saved or copied;
+  oversized PNG exports fall back to SVG (CRIT-5, RENDER-3, VIEWUI-10 = EXT-5).
+- A document without findings says the assistant recorded none instead of a
+  clean result; workflow-level findings survive stage filters and scopes
+  (VIEWUI-1, CRIT-3).
+- Analyzer-era surfaces (pipeline chooser, Concerns, "Issues" wording, rule
+  grouping, limitation chips) are gone from authored diagrams. Scope-to-node
+  and search work by node ID, cited file and quote; notebook evidence names its
+  cell (VIEWUI-5 to VIEWUI-8, VIEWUI-11 to VIEWUI-15).
+- A rebuild during hover no longer leaves the diagram dimmed; reduced motion
+  keeps hover-intent delays (RENDER-1, RENDER-19). Finding connectors go only to
+  nodes the author named; distinct IDs get distinct element ids; exports use
+  the full title and escape invalid characters (RENDER-4, RENDER-6, RENDER-7,
+  RENDER-8 = CONTRACT-14, RENDER-11).
+- Edge routing runs its cheap geometric test first: identical layout, faster
+  large diagrams in the jsdom benchmark (RENDER-2).
+
+Skill and helper:
+- MLView's own artifacts, drafts and installed skill are never fingerprinted,
+  so a refinement is no longer stale the moment it is published; citing them is
+  an error, and `--output` must end in `.mlview.json` (SKILL-2, CRIT-1).
+- Drafts omit `verification`; a stale fingerprint names the file and the fix
+  (SKILL-3). Binary and non-UTF-8 inspected files can be listed, and files over
+  8 MiB are listed without a fingerprint (CONTRACT-6).
+- The helper refuses what the viewer cannot open: a `null` node parent or
+  verification block, unpaired surrogates, drive-letter paths, NUL in
+  entrypoints and artifacts over 2 MiB (CONTRACT-1, CONTRACT-3, CONTRACT-4,
+  CONTRACT-10, SKILL-21).
+- Errors say what to fix: relative drafts resolve against `--workspace`,
+  distinct draft errors with JSON line and column, the published revision in
+  `revision_conflict`, the cited lines in `quote_mismatch`, reachable
+  `revision_id_reused`, and a JSON `internal_error` instead of a traceback
+  (CONTRACT-15 = SKILL-14, SKILL-4, CONTRACT-7, SKILL-11). Published files keep
+  their permissions; notebooks are parsed once (SKILL-12, SKILL-18).
+- SKILL.md treats repository and artifact text as data, documents the intents,
+  what `--workspace` must be, recovery from helper errors and what to report;
+  the bundled contract lists every field (CRIT-8, EXT-6, SKILL-5, SKILL-6,
+  SKILL-20, CRIT-6).
+
+Contract, checks and distribution:
+- `contracts/conformance` holds 49 self-contained cases run through the
+  schema, the helper and the extension, plus a helper-publish, viewer-load
+  round trip; the extension now matches the helper on notebook cells, exact
+  quotes, code-point lengths and empty parents (CONTRACT-8 = SKILL-17,
+  CONTRACT-9, CONTRACT-10, CONTRACT-11, CONTRACT-4).
+- New regression suites cover revision lineage, the refine wedge with the real
+  helper (required by the e2e gate), the host protocol and bootstrap, export
+  payloads, recorded artifacts, bundle hygiene and a routed-geometry golden
+  (EXT-8, VIEWUI-17, RENDER-12).
+- `tools/verify.py` also checks the marketplace and viewer version literals
+  (CRIT-4). The Claude plugin's GitHub install command names the real
+  marketplace (DOCS-1 = SKILL-8). Dead export and `showOutput` code is gone
+  and the development launch configurations open the repository root
+  (EXT-14, EXT-15, DOCS-15).
+- CLAUDE.md is the tracked agent guide and AGENTS.md is removed; current docs
+  describe the new panel, freshness and refinement behaviour, and more of them
+  are link-checked (DOCS-3 to DOCS-6, DOCS-9, DOCS-11, DOCS-13 to DOCS-16,
+  DOCS-18, DOCS-19).
+
+Not in this version: the manual live VS Code checks (HC Light, BOM files open
+while publishing, symlinked roots, Windows drive letters), human semantic
+review and the held-out pilot. Deferred: EXT-13's per-click revalidation cost,
+EXT-10, the routing grid index, edge connectors and edge search hits,
+RENDER-9/16/20, and DOCS-7/10/17 (need owner approval).
+
 ## Unreleased — trust and usability
 
 - Clarify authored uncertainty and severity, show every evidence quote, and add

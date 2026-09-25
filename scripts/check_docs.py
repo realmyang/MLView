@@ -17,6 +17,7 @@ ACTIVE = (
     "CODE_OF_CONDUCT.md", "THIRD_PARTY_NOTICES.md", ".github/PULL_REQUEST_TEMPLATE.md",
     "docs/README.md", "docs/STATUS.md", "docs/VALIDATION.md",
     "docs/LLM_WORKFLOW.md", "docs/WORKFLOW_CONTRACT.md", "contracts/README.md",
+    "contracts/conformance/README.md",
     "scripts/README.md", "webview/README.md", "vscode-extension/README.md",
     "claude-plugin/README.md", "samples/README.md", "evals/workflow/README.md",
     "evals/workflow/fixtures/README.md", "skills/mlview/SKILL.md",

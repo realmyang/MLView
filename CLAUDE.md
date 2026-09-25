@@ -51,10 +51,13 @@ Hard rules:
   live-host validation. Human reference review and the held-out pilot are
   the owner's decisions; never fabricate approvals.
 
-Contract changes touch five places with no shared conformance corpus:
-contracts/workflow.schema.json, artifact.py, vscode-extension/src/
-workflowDocument.ts (+ authoredPanel.ts revision rules), webview/src/
-workflow.ts, and the contract docs (docs/ and skills/mlview/references/).
+Contract changes touch five places: contracts/workflow.schema.json,
+artifact.py, vscode-extension/src/workflowDocument.ts (+ authoredPanel.ts
+revision rules), webview/src/workflow.ts, and the contract docs (docs/ and
+skills/mlview/references/). Contract changes are checked by
+`contracts/conformance` (schema, helper and extension runners:
+tools/test_workflow_conformance.py and vscode-extension/test/
+conformance.test.js); add or update a case there with every rule change.
 
 Generated copies (CI runs `git diff --exit-code` on them; commit rebuilt
 outputs): edit skills/mlview/ then `python tools/sync-skill.py` (never hand-
