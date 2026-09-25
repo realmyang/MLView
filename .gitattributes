@@ -46,7 +46,6 @@
 # Built viewer copies ship with the extension and must stay byte-identical.
 webview/dist/mlview.js               linguist-generated=true
 webview/dist/mlview.css              linguist-generated=true
-webview/dist/mlview.dev.css          linguist-generated=true
 vscode-extension/media/mlview.js     linguist-generated=true
 vscode-extension/media/mlview.css    linguist-generated=true
 claude-plugin/skills/mlview/**       linguist-generated=true

@@ -92,14 +92,14 @@ or standalone skill ZIPs.
 
 | Reference ledger | Pinned upstream source | Upstream license file |
 |---|---|---|
-| nanoGPT | [`karpathy/nanoGPT@3adf61e`](https://github.com/karpathy/nanoGPT/tree/3adf61e154c3fe3fca428ad6bc3818b27a3b8291) | [Pinned MIT text](evals/workflow/reference-candidates/licenses/nanogpt-LICENSE) |
-| Transformers | [`huggingface/transformers@a2c15b3`](https://github.com/huggingface/transformers/tree/a2c15b30764b7c6cb0632ac6aed6eac227edc674) | [Pinned Apache-2.0 text](evals/workflow/reference-candidates/licenses/transformers-LICENSE) |
-| scikit-learn | [`scikit-learn/scikit-learn@dd3ca57`](https://github.com/scikit-learn/scikit-learn/tree/dd3ca57300e14d45b7a34fccd0165d143c7a364c) | [Pinned BSD-3-Clause text](evals/workflow/reference-candidates/licenses/scikit-learn-COPYING) |
-| Flax | [`google/flax@01854da`](https://github.com/google/flax/tree/01854da11286b4109c59d7fd9205f3822fe807d6) | [Pinned Apache-2.0 text](evals/workflow/reference-candidates/licenses/flax-LICENSE) |
-| Diffusers | [`huggingface/diffusers@c419dac`](https://github.com/huggingface/diffusers/tree/c419dac0152186060246c93a095bc1bfaea342b3) | [Pinned Apache-2.0 text](evals/workflow/reference-candidates/licenses/diffusers-LICENSE) |
-| MMDetection | [`open-mmlab/mmdetection@cfd5d3a`](https://github.com/open-mmlab/mmdetection/tree/cfd5d3a985b0249de009b67d04f37263e11cdf3d) | [Pinned Apache-2.0 text](evals/workflow/reference-candidates/licenses/mmdetection-LICENSE) |
-| CleanRL | [`vwxyzjn/cleanrl@fe8d8a0`](https://github.com/vwxyzjn/cleanrl/tree/fe8d8a03c41a7ef5b523e2e354bd01c363e786bb) | [Pinned project license and incorporated notices](evals/workflow/reference-candidates/licenses/cleanrl-LICENSE) |
-| Hands-On ML notebook | [`ageron/handson-ml3@e707c2d`](https://github.com/ageron/handson-ml3/tree/e707c2d659abafb9b1f9fd927907619a128db8d7) | [Pinned Apache-2.0 text](evals/workflow/reference-candidates/licenses/handson-ml3-LICENSE) |
+| nanoGPT | [`karpathy/nanoGPT@3adf61e`](https://github.com/karpathy/nanoGPT/tree/3adf61e154c3fe3fca428ad6bc3818b27a3b8291) | [Pinned MIT text](https://github.com/realmyang/MLView/blob/main/evals/workflow/reference-candidates/licenses/nanogpt-LICENSE) |
+| Transformers | [`huggingface/transformers@a2c15b3`](https://github.com/huggingface/transformers/tree/a2c15b30764b7c6cb0632ac6aed6eac227edc674) | [Pinned Apache-2.0 text](https://github.com/realmyang/MLView/blob/main/evals/workflow/reference-candidates/licenses/transformers-LICENSE) |
+| scikit-learn | [`scikit-learn/scikit-learn@dd3ca57`](https://github.com/scikit-learn/scikit-learn/tree/dd3ca57300e14d45b7a34fccd0165d143c7a364c) | [Pinned BSD-3-Clause text](https://github.com/realmyang/MLView/blob/main/evals/workflow/reference-candidates/licenses/scikit-learn-COPYING) |
+| Flax | [`google/flax@01854da`](https://github.com/google/flax/tree/01854da11286b4109c59d7fd9205f3822fe807d6) | [Pinned Apache-2.0 text](https://github.com/realmyang/MLView/blob/main/evals/workflow/reference-candidates/licenses/flax-LICENSE) |
+| Diffusers | [`huggingface/diffusers@c419dac`](https://github.com/huggingface/diffusers/tree/c419dac0152186060246c93a095bc1bfaea342b3) | [Pinned Apache-2.0 text](https://github.com/realmyang/MLView/blob/main/evals/workflow/reference-candidates/licenses/diffusers-LICENSE) |
+| MMDetection | [`open-mmlab/mmdetection@cfd5d3a`](https://github.com/open-mmlab/mmdetection/tree/cfd5d3a985b0249de009b67d04f37263e11cdf3d) | [Pinned Apache-2.0 text](https://github.com/realmyang/MLView/blob/main/evals/workflow/reference-candidates/licenses/mmdetection-LICENSE) |
+| CleanRL | [`vwxyzjn/cleanrl@fe8d8a0`](https://github.com/vwxyzjn/cleanrl/tree/fe8d8a03c41a7ef5b523e2e354bd01c363e786bb) | [Pinned project license and incorporated notices](https://github.com/realmyang/MLView/blob/main/evals/workflow/reference-candidates/licenses/cleanrl-LICENSE) |
+| Hands-On ML notebook | [`ageron/handson-ml3@e707c2d`](https://github.com/ageron/handson-ml3/tree/e707c2d659abafb9b1f9fd927907619a128db8d7) | [Pinned Apache-2.0 text](https://github.com/realmyang/MLView/blob/main/evals/workflow/reference-candidates/licenses/handson-ml3-LICENSE) |
 
 The excerpts retain their upstream license terms rather than becoming MLView
 MIT-licensed code. Preserve the license directory, source copyright notices and
