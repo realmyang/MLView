@@ -32,6 +32,7 @@ def test_active_documents_are_current_guidance():
 
 def test_pilot_protocol_documents_are_checked():
     for relative in ("evals/workflow/DEVELOPMENT_RUNS.md", "evals/workflow/pilot/README.md",
+                     "evals/workflow/decisions/README.md",
                      "evals/workflow/reference-candidates/REVIEW_GUIDE.md",
                      "evals/workflow/PILOT_READINESS.md", "evals/workflow/CANDIDATE_PROTOCOL.md"):
         assert relative in module.ACTIVE, relative
