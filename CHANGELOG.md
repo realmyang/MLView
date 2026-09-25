@@ -152,6 +152,42 @@ Round 1 review fixes (finding IDs refer to the Campaign 2 round 1 review):
   packaging (DISTCI1-1), and the protocol, README and guide wording now match
   the tools (SPECDOCS1-3, SPECDOCS1-4, SPECDOCS1-5).
 
+Round 2 review fixes (finding IDs refer to the Campaign 2 round 2 review):
+- A retry is allowed only if the prompt was never sent, as the run policy
+  defines it. `session.md` gains `Prompt sent: yes | no`; `run-finish` refuses
+  `no` for a timeout, a `no-publication` or `repair-budget` failure, a
+  completed session or a transcript that contains the prompt. `run-prepare
+  --retry` verifies the sealed record and refuses an attempt that timed out,
+  failed after the prompt, does not say `Prompt sent: no`, or completed at any
+  point of its amendment chain; `summarize` marks a run invalid when an earlier
+  attempt sent the prompt. Every earlier attempt is verified like a current
+  record and reported: `runs[].attempts`, `failures.earlierAttempts` and
+  `inputs.runs[].earlierAttempts`, which a committed Stage 1 summary binds
+  (INTEGRITY2-2, INTEGRITY2-3, SPECDOCS2-1).
+- A recorded summary is final: `summarize --record` refuses a summary file
+  that was ever committed, `run-prepare` and `summarize --stage all` refuse a
+  Stage 1 summary that differs from its first commit or was committed more
+  than once, and `check-frozen` fails when a committed stage summary is
+  missing, changed or re-added (INTEGRITY2-1). `run-prepare` re-computes
+  Stage 1 even in a pilot directory without its evidence (SPECDOCS2-4).
+- `check-frozen` binds `freeze.json` to `candidate.json` for every captured
+  campaign, with or without a summary (SPECDOCS2-2), prints a `not verified`
+  line naming the history checks it cannot run in a shallow clone or without
+  Git, and the CI job that runs the evaluation tests fetches the full history
+  (INTEGRITY2-4, SPECDOCS2-3). It names a decision file added after the
+  freeze, which `check` notes (OWNERUX2-5).
+- Owner files: a `#` line is a comment in the wrong form, reported under its
+  section without dropping the lines around it, unless it looks like a heading
+  (OWNERUX2-1); a second-review addition is adopted with
+  `<their id>: adopted as <your id> -- <why>`, recorded as `adoptedAs`, so
+  summaries count it inside the denominators (OWNERUX2-2); the high-severity
+  defect note stays until a second-review addition is adopted as that defect
+  (OWNERUX2-3); a wrapped line after a blank or note line, or a wrapped
+  resolution containing `: `, is told to indent (OWNERUX2-6); the CI guard for
+  pending files ignores what the grammar ignores (OWNERUX2-4).
+- The Sensitivity section's macro and leave-one-task-out percentages are
+  floored like the other Markdown percentages (SPECDOCS2-5).
+
 Not in this version: the owner's reference review and freeze, the development
 adjudication, any native session and the pilot itself (the owner's
 decisions); second-review tooling for run reviews and the development

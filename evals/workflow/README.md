@@ -103,11 +103,11 @@ The operator opens that workspace in a new VS Code window and runs one fresh
 native session with the policy's settings and invocation (a baseline sends
 the prompt as a plain message, without the skill invocation), then fills
 `session.md` in `$MLVIEW_PILOT_DIR/evidence/pilot-nanogpt.codex.1/`: status
-(`completed`, `failed`, `timed-out` or `blocked`) and failure kind, start and
-end times, active and approval-wait minutes, repair rounds, host and extension
-versions, model and reasoning settings (unknown where hidden), invocation,
-helper Python, exposed usage, transcript, native UI log, prior attempts and
-deviations. A failure detail and a deviation's `invalidates:` flag follow
+(`completed`, `failed`, `timed-out` or `blocked`) and failure kind, whether the
+prompt was sent (`Prompt sent: yes` or `no`), start and end times, active and
+approval-wait minutes, repair rounds, host and extension versions, model and
+reasoning settings (unknown where hidden), invocation, helper Python, exposed
+usage, transcript, native UI log, prior attempts and deviations. A failure detail and a deviation's `invalidates:` flag follow
 ` -- ` (two hyphens) or ` — `; a single `-` is not a separator. Write no
 machine paths in `session.md`. Complete the
 [live UI checklist](../../docs/LLM_WORKFLOW.md) in the UI log, separately
@@ -123,13 +123,22 @@ reported as a warning, not as a changed project file; in a baseline every
 added file counts, including MLView files. A sealed record changes only
 through `run-finish ... --amend "<reason>"`, which keeps the previous seal; a
 deleted `record.json` is never sealed again with other session facts.
-Retain every failure, timeout and block. After a sealed failed, timed-out or
-blocked attempt, `run-prepare RUN --campaign C --retry "<reason>"` keeps the
-earlier evidence as `evidence/<run>.attempt-<n>/`, prepares a fresh
+Retain every failure, timeout and block, and never replace an attempt with a
+retry the policy does not allow. A retry is allowed only if the prompt was
+never sent: after a sealed `failed` or `blocked` attempt whose session says
+`Prompt sent: no` (the tool refuses that answer for a timeout, a
+`no-publication` or `repair-budget` failure, or a transcript that contains the
+prompt), `run-prepare RUN --campaign C --retry "<reason>"` keeps the earlier
+evidence as `evidence/<run>.attempt-<n>/`, prepares a fresh
 `workspaces/<run>.attempt-<n+1>/` and writes `Prior attempts: <n>` into the
-new `session.md`; attempts beyond the policy's infrastructure retries make
-the run invalid. Transcripts, UI logs, run reviews and workspaces stay out of
-the repository; committed summaries contain counts, statuses and hashes only.
+new `session.md`. It refuses an attempt that timed out, failed after the
+prompt, says `Prompt sent: yes` or leaves it empty, or completed at any point
+of its amendment chain, and it verifies the sealed record first. Attempts
+beyond the policy's infrastructure retries make the run invalid, and every
+earlier attempt stays in the summary (its status and failure in the run entry
+and the failures list, its hashes in the inputs). Transcripts, UI logs, run
+reviews and workspaces stay out of the repository; committed summaries contain
+counts, statuses and hashes only.
 
 ## Stage 1 stop/go
 
@@ -170,8 +179,8 @@ as a failure: settings that differ from the policy, over budget, too many
 repairs, a helper Python older than 3.10, a changed project file (or a
 `workspace-before.json` that differs from the pinned files), a wrong producer
 host, skill identity drift, a baseline with MLView available or an MLView
-file in a baseline workspace, a retry after a completed attempt, or a
-deviation marked as invalidating. A baseline is held to the policy's model and
+file in a baseline workspace, a retry after a completed attempt or after an
+attempt that sent the prompt, or a deviation marked as invalidating. A baseline is held to the policy's model and
 reasoning, not to the skill invocation. `--json` prints the machine-readable
 summary. The decision is always labeled "computed against predefined
 targets; not an approval":
@@ -191,11 +200,14 @@ targets; not an approval":
 campaign directory, only for `go`, `stop` or `invalid`, and only once every
 planned baseline is sealed and reviewed (baselines never change the decision;
 a completed baseline without a finished review shows as `unreviewed`, with no
-paired difference); commit them. `run-prepare` refuses repeat runs until a
-committed Stage 1 summary says `go`, and it and `summarize --stage all`
-re-compute Stage 1 from the sealed evidence: a summary that is not a recorded
-Stage 1 summary of this candidate, or whose decision or run hashes differ
-from the re-computation, does not unlock Stage 2.
+paired difference); commit them. A recorded summary is final: `--record`
+refuses a summary file that was ever committed, even after it was deleted.
+`run-prepare` refuses repeat runs until a committed Stage 1 summary says `go`,
+and it and `summarize --stage all` re-compute Stage 1 from the sealed evidence
+(a pilot directory without that evidence gives `incomplete`): a summary that
+is not a recorded Stage 1 summary of this candidate, whose decision or run
+hashes differ from the re-computation, that differs from the version first
+committed, or that was committed more than once, does not unlock Stage 2.
 
 If any target misses, stop before Stage 2 and report the numerators,
 denominators and failure taxonomy. Do not repair the skill against held-out

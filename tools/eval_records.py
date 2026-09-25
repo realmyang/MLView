@@ -19,9 +19,12 @@ The grammar of every human-authored file (Campaign 2 specification, section 1.3)
 * Lines before the first ``##`` are header fields. ``## <Kind>`` or ``## <Kind> <id>`` starts a
   section. A section whose schema entry has a ``pattern`` (the development adjudication's
   ``## dev-gan / codex``) uses its normalised heading as its kind. Any other line that starts with
-  ``#`` is a mistyped heading and an error: when it names a known section (``### Fact x`` or
-  ``##Fact x``) that section still starts there, otherwise the following lines are skipped until the
-  next valid heading, so they are never attributed to the previous section.
+  ``#`` is an error. When it names a known section (``### Fact x`` or ``##Fact x``) that section
+  still starts there. When it looks like a heading of an unknown section (two or more ``#``, or one
+  ``#`` before a few words starting with a section kind, such as ``# Facts x``) the following lines
+  are skipped until the next valid heading, so they are never attributed to the previous section.
+  Any other ``#`` line (``# reviewed on the train``) is a comment written in the wrong form: it is
+  reported under the enclosing section, which keeps its fields.
 * Every other line is ``Key: value``. Fixed keys are matched case-insensitively and stored under
   their canonical spelling. In a section with free keys (item IDs, artifact pointers, dated
   lines) the key ends at the first ``:`` that is followed by a space or the end of the line, so a
@@ -32,8 +35,9 @@ The grammar of every human-authored file (Campaign 2 specification, section 1.3)
 * A section whose schema allows it holds one fenced block (```` ```text ```` ... ```` ``` ````),
   captured line by line with trailing spaces removed and lines joined by ``\\n``.
 * Unknown sections, unknown keys, repeated keys or sections, fences where none is allowed and any
-  other line are errors that name the line and the section. A line without a key right after a
-  stored value (usually a wrapped sentence) gets the hint to indent it by two spaces.
+  other line are errors that name the line and the section. A line without a key after a stored
+  value (usually a wrapped sentence, even when a blank or ``>`` line comes between) gets the hint to
+  indent it by two spaces.
 """
 from __future__ import annotations
 
@@ -243,7 +247,7 @@ SCHEMAS: dict[str, RecordSchema] = {schema.title.casefold(): schema for schema i
         _TASK,
     )),
     RecordSchema("Session", True, (
-        "Status", "Failure", "Started", "Ended", "Active minutes", "Approval wait minutes", "Repair rounds",
+        "Status", "Failure", "Prompt sent", "Started", "Ended", "Active minutes", "Approval wait minutes", "Repair rounds",
         "Host version", "Extension version", "Model", "Reasoning", "Resolved model", "Invocation",
         "Helper Python", "Usage", "Transcript", "UI log", "Prior attempts", "MLView available to host",
     ), (SectionSpec("Deviations"),)),
@@ -286,6 +290,19 @@ class _Sink:
 
 
 _SINK = _Sink()
+
+
+def _heading_like(schema: RecordSchema, line: str, text: str) -> bool:
+    """Whether a ``#`` line that names no known section was meant as a heading rather than as a
+    comment: two or more ``#`` (``### My notes``), or one ``#`` before a few words that start with a
+    section kind (``# Facts demo-f02``, ``# Task now``). Any other ``#`` line is a comment."""
+    if line.startswith("##"):
+        return True
+    words = text.casefold().split()
+    if not 1 <= len(words) <= 4:
+        return False
+    kinds = {spec.kind.split()[0].casefold() for spec in schema.sections if spec.pattern is None}
+    return words[0] in kinds or (words[0].endswith("s") and words[0][:-1] in kinds)
 
 
 def _match_heading(schema: RecordSchema, heading: str) -> tuple[SectionSpec | None, str | None, str | None]:
@@ -362,7 +379,6 @@ def parse_record(raw: bytes, display_path: str, *,
     current_fence = False
     seen: dict[tuple[str, str | None], Section] = {}
     last: Field | _Sink | None = None
-    last_line = 0  # the last line stored into (or continued in) a Field
     fence: tuple[int, list[str], Section | None, str] | None = None
 
     for number, raw_line in enumerate(_LINE_BREAK.split(text), 1):
@@ -420,6 +436,13 @@ def parse_record(raw: bytes, display_path: str, *,
             # names a known section, that section starts here so its fields stay with it.
             attempt = " ".join(line.lstrip("#").split())
             known, _ident, _error = _match_heading(schema, attempt) if attempt else (None, None, None)
+            if known is None and not _heading_like(schema, line, attempt):
+                # A "#" comment ("# reviewed on the train", "#1 priority"): an error, but the section
+                # and the fields around it are kept, and the problem names the enclosing section.
+                report(number, label, f'"{stripped[:40]}" is not "Key: value". Put ">" in front of notes; "#" '
+                                      "does not start a comment.")
+                last = _SINK
+                continue
             last = None
             if known is None:
                 where = attempt or "#"
@@ -455,10 +478,10 @@ def parse_record(raw: bytes, display_path: str, *,
         if last is not None and (line.startswith("  ") or line.startswith("\t")):
             if isinstance(last, Field):
                 last.value = f"{last.value} {stripped}".strip()
-                last_line = number
             continue
-        # A line right after a stored value that is not "Key: value" is usually a wrapped sentence.
-        wrapped = isinstance(last, Field) and last_line == number - 1
+        # A line after a stored value (blank and ">" lines between do not count) that is not
+        # "Key: value" is usually a wrapped sentence; an indented line would still continue it.
+        wrapped = isinstance(last, Field)
         if current_keys is None:
             end = _FREE_KEY_END.search(stripped)
             split_at = end.start() if end else stripped.find(":")
@@ -488,7 +511,7 @@ def parse_record(raw: bytes, display_path: str, *,
         item = Field(key, value, number)
         current.fields[key] = item
         current.lines.append(item)
-        last, last_line = item, number
+        last = item
 
     if fence is not None:
         start, _captured, _target, fence_label = fence

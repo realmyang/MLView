@@ -39,9 +39,11 @@ Anchors are `path:LINE` or `path:LINE-END`. Notebook anchors are
 `path#cellN:LINE-END`, with a zero-based cell and one-based lines inside that
 cell. Separate several anchors, entrypoints or arguments with `;`, and write
 `none` for an empty list. A line indented by two or more spaces continues the
-previous value; an unindented line is an error, so indent a wrapped `Reason:`
-or `Wording:` instead of turning it into a note. Put your own notes on `>`
-lines; notes may be added before you decide anything. Section headings are
+previous value, also after a blank line; an unindented line is an error, so
+indent a wrapped `Reason:` or `Wording:` instead of turning it into a note.
+Put your own notes on `>` lines; notes may be added before you decide
+anything. A line starting with `#` is not a comment: it is reported as an
+error, and your decisions around it are kept. Section headings are
 `## <Kind> <id>`, with exactly two `#` and a space.
 
 For example, `nanogpt-f02` proposes that the no-override scenario initializes
@@ -93,10 +95,17 @@ two reviewers' additions never share an ID. The check of your file then lists
 every item where the two of you differ in decision, basis, essential flag,
 runs-must-state or severity (wording is not compared), and every item the
 second reviewer added. Each stays a TODO until you add
-`<item id>: <how it was resolved>` under `## Disagreements`; to adopt an
-addition, also add it to your file under your own ID. Your file holds the
-final decision, and the frozen reference keeps both positions and the
-resolution. The second reviewer must be a different person (the check refuses
+`<item id>: <how it was resolved>` under `## Disagreements`. To adopt an
+addition, add it to your file under your own ID and write
+`<their id>: adopted as <your id> -- <why>`: the check requires your ID to be
+an added item of the same kind, and the frozen reference records the link
+(`adoptedAs`), so summaries count the adopted item inside the denominators.
+Your file holds the final decision, and the frozen reference keeps both
+positions and the resolution. The second reviewer's file has no place for
+your own additions, so your added facts and defects are second-reviewed only
+through theirs: they add the same item under their own ID
+(`nanogpt-s-d01`) and you resolve it as adopted. Until then, the check keeps a
+note on each of your high-severity defects. The second reviewer must be a different person (the check refuses
 the same name), and only a person can be a second reviewer; another model's
 opinion is not human acceptance.
 
@@ -158,7 +167,8 @@ no source text into the repository, and adds no judgment or approval. Commit
 `evals/workflow/decisions`, `evals/workflow/pilot/pilot-01` and
 `evals/workflow/tasks.json` together. After the freeze, changing the reference
 means a new campaign: `check <task>` then says `frozen in pilot-01` for an
-unchanged file and notes an edited one, and `check-frozen` names each changed
+unchanged file and notes an edited one or one added after the freeze (such
+as a late second review), and `check-frozen` names each changed or added
 decision file.
 
 ## After runs: review the outputs separately

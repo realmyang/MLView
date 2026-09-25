@@ -340,6 +340,53 @@ def test_an_unknown_mistyped_heading_skips_its_lines() -> None:
     assert record.section("Fact", "demo-f01").value("Decision") == "accept"
 
 
+def test_a_hash_comment_keeps_its_section_and_the_fields_around_it() -> None:
+    """A Python-style "# comment" is an error under the enclosing section, never skip mode (OWNERUX2-1)."""
+    text = ("# Reference decisions: pilot-demo\n# reviewed on the train, synthetic\nCandidate: pilot-demo.json abc\n"
+            "Reviewer: Test Reviewer (synthetic)\nDate: 2026-10-01\n## Fact demo-f01\n#1 priority for me\n"
+            "Decision: qualify\n# TODO double-check the value\nWording: The synthetic claim (synthetic).\n"
+            "Reason: synthetic\n")
+    record, problems = parse(text, "d.md")
+    hint = 'is not "Key: value". Put ">" in front of notes; "#" does not start a comment.'
+    assert messages(problems) == [
+        f'd.md:2: ERROR header: "# reviewed on the train, synthetic" {hint}',
+        f'd.md:7: ERROR Fact demo-f01: "#1 priority for me" {hint}',
+        f'd.md:9: ERROR Fact demo-f01: "# TODO double-check the value" {hint}']
+    assert record.header.value("Candidate") == "pilot-demo.json abc"
+    assert record.header.value("Reviewer") == "Test Reviewer (synthetic)" and record.header.value("Date") == "2026-10-01"
+    fact = record.section("Fact", "demo-f01")
+    assert (fact.value("Decision"), fact.value("Wording"), fact.value("Reason")) == (
+        "qualify", "The synthetic claim (synthetic).", "synthetic")
+    # An indented line after a comment is not attributed to the value above the comment.
+    swallowed, _problems = parse("# Reference decisions: pilot-demo\n## Fact demo-f01\nReason: kept\n# note\n  more\n",
+                                 "d.md")
+    assert swallowed.section("Fact", "demo-f01").value("Reason") == "kept"
+
+
+@pytest.mark.parametrize("line", ["# Facts demo-f02", "# Task now", "#### My notes", "##Notes"])
+def test_a_heading_like_hash_line_still_skips_its_lines(line: str) -> None:
+    text = f"# Reference decisions: pilot-demo\n## Fact demo-f01\nDecision: accept\n{line}\nDecision: reject\n"
+    record, problems = parse(text, "d.md")
+    assert len(problems) == 1 and "is not a section heading. Write section headings as" in problems[0].message
+    assert record.section("Fact", "demo-f01").value("Decision") == "accept"
+
+
+def test_a_wrapped_line_after_a_blank_or_note_line_gets_the_continuation_hint() -> None:
+    """A wrapped value separated by a blank or ">" line is still told to indent (OWNERUX2-6)."""
+    for between in ("\n", "> a note (synthetic)\n"):
+        text = ("# Reference decisions: pilot-demo\n## Fact demo-f01\nDecision: reject\n"
+                f"Reason: the claim omits the condition that\n{between}config files can override it\n")
+        _record, problems = parse(text, "d.md")
+        assert messages(problems) == [
+            'd.md:6: ERROR Fact demo-f01: "config files can override it" is not "Key: value". To continue the previous '
+            'line, indent it by two spaces; put ">" in front of notes only.']
+        indented = text.replace("\nconfig files", "\n  config files")
+        record, problems = parse(indented, "d.md")
+        assert problems == []
+        assert record.section("Fact", "demo-f01").value("Reason") == ("the claim omits the condition that config files "
+                                                                      "can override it")
+
+
 def test_keys_section_kinds_and_titles_are_case_insensitive() -> None:
     text = "# reference DECISIONS: pilot-demo\nREVIEWER: Test Reviewer (synthetic)\n## fact demo-f01\ndecision: ACCEPT\n"
     record, problems = parse(text)

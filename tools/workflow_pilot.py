@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
 import shutil
@@ -94,6 +95,10 @@ def caveats(tasks: int, hosts: int, repetitions: int) -> list[str]:
 
 STATUSES = ("completed", "failed", "timed-out", "blocked")
 FAILURE_KINDS = ("no-publication", "repair-budget", "host-error", "cancelled", "setup", "protocol")
+# A timed-out session, or one that failed for one of these reasons, ran after the prompt was sent.
+SENT_FAILURES = ("no-publication", "repair-budget")
+RETRY_RULE = ("a retry is allowed only if the prompt was never sent (the policy's infrastructure retries); a failure "
+              "after the prompt was sent is kept and counted")
 QUALIFIED_POLICIES = ("not-supported", "supported", "excluded")
 CLAIM_VERDICTS = {"supported", "qualified", "unsupported", "no-claim"}
 COUNTED_VERDICTS = ("supported", "qualified", "unsupported")
@@ -908,6 +913,8 @@ def session_template(run_id: str, condition: str, prior_attempts: int = 0) -> by
         "> Fill after the session. Times are RFC 3339 UTC (2026-10-10T09:02:11Z). Minutes may be decimal.",
         "> Status: completed (skill: pilot.mlview.json published; baseline: answer captured) | failed | timed-out | blocked",
         f"> Failure: no-publication | repair-budget | host-error | cancelled | setup | protocol, then {DETAIL_HINT}",
+        "> Prompt sent: yes | no. Write no only if the prompt never reached the host; only then may a failed or "
+        "blocked attempt be retried.",
         "> Write no machine paths (home folders, drive letters) in any value; describe places in words.",
     ]
     if baseline:
@@ -915,7 +922,7 @@ def session_template(run_id: str, condition: str, prior_attempts: int = 0) -> by
                      "message). transcript.txt is required and scored; Invocation, Repair rounds, Helper Python and UI log "
                      "do not apply.")
     lines += [
-        "Status: pending", "Failure:", "Started:", "Ended:", "Active minutes:", "Approval wait minutes:",
+        "Status: pending", "Failure:", "Prompt sent:", "Started:", "Ended:", "Active minutes:", "Approval wait minutes:",
         "Repair rounds:", "Host version:", "Extension version:", "Model:", "Reasoning:", "Resolved model:",
         "Invocation:", "Helper Python:", "Usage:", "Transcript: transcript.txt",
         "UI log:" if baseline else "UI log: ui-log.md", f"Prior attempts: {prior_attempts}",
@@ -990,6 +997,15 @@ def check_session(record: er.Record, display: str, evidence_dir: Path | None, *,
                 failure = {"kind": kind.casefold(), "detail": detail}
     elif completed and failure_text:
         add(er.ERROR, line_of("Failure"), 'Status is completed, so "Failure:" must be empty.')
+    sent_text = value("Prompt sent").casefold()
+    prompt_sent = {"yes": True, "no": False}.get(sent_text)
+    if sent_text and prompt_sent is None:
+        add(er.ERROR, line_of("Prompt sent"), "Prompt sent must be yes or no.")
+    elif prompt_sent is False:
+        sent_because = (f"Status is {status}" if status in ("completed", "timed-out") else
+                        f"Failure is {failure['kind']}" if failure and failure["kind"] in SENT_FAILURES else None)
+        if sent_because:
+            add(er.ERROR, line_of("Prompt sent"), f'{sent_because}, so the prompt was sent; write "Prompt sent: yes".')
 
     def time_field(key: str) -> str | None:
         text = value(key)
@@ -1040,7 +1056,7 @@ def check_session(record: er.Record, display: str, evidence_dir: Path | None, *,
         "reasoning": text_field("Reasoning"), "resolvedModel": text_field("Resolved model", True),
         "invocation": text_field("Invocation"), "helperPython": text_field("Helper Python"),
         "usage": text_field("Usage", True), "priorAttempts": prior, "mlviewAvailable": available,
-        "deviations": [],
+        "promptSent": prompt_sent, "deviations": [],
     }
     if completed:
         required = ["Started", "Ended", "Active minutes", "Approval wait minutes", "Host version", "Extension version",
@@ -1082,6 +1098,15 @@ def check_session(record: er.Record, display: str, evidence_dir: Path | None, *,
                 transcript = name
             else:
                 ui_log = name
+    if prompt_sent is False and transcript is not None and evidence_dir is not None:
+        try:
+            said = er.confined_file(evidence_dir, transcript).read_bytes().decode("utf-8", "replace")
+            prompt = er.confined_file(evidence_dir, PROMPT_FILE).read_bytes().decode("utf-8", "replace")
+        except ValueError:
+            said = prompt = ""
+        if prompt.strip() and " ".join(prompt.split()) in " ".join(said.split()):
+            add(er.ERROR, line_of("Prompt sent"), f'the transcript contains {PROMPT_FILE}, so the prompt was sent; write '
+                                                  '"Prompt sent: yes".')
     deviations = record.section("Deviations")
     for item in deviations.lines if deviations is not None else []:
         text = f"{item.key}: {item.value}" if item.value else item.key
@@ -1151,12 +1176,16 @@ def _stage1_go(summary: dict | None, campaign: Campaign) -> str | None:
 
 
 def _stage1_inputs(summary: dict, planned: dict[str, dict]) -> list[tuple]:
-    """(id, record, review, amendments) of every Stage 1 run in a summary's inputs."""
+    """(id, record, review, amendments, earlier attempts) of every Stage 1 run in a summary's inputs."""
     runs = (summary.get("inputs") or {}).get("runs") if isinstance(summary.get("inputs"), dict) else None
     found = []
     for item in runs if isinstance(runs, list) else []:
         if isinstance(item, dict) and item.get("id") in planned and planned[item["id"]]["stage"] == 1:
-            found.append((item["id"], item.get("record"), item.get("review"), tuple(item.get("amendments") or [])))
+            earlier = tuple((attempt.get("attempt"), attempt.get("record"), attempt.get("review"),
+                             tuple(attempt.get("amendments") or []))
+                            for attempt in item.get("earlierAttempts") or [] if isinstance(attempt, dict))
+            found.append((item["id"], item.get("record"), item.get("review"), tuple(item.get("amendments") or []),
+                          earlier))
     return sorted(found)
 
 
@@ -1214,6 +1243,75 @@ def adjudication_status(root: Path) -> str | None:
     if not result.complete:
         return f'the committed {ADJUDICATION_REL} does not say "Review: complete"'
     return None
+
+
+NOT_STATED = 'its session does not say "Prompt sent: no"'
+
+
+def _seal_status(seal: object) -> object:
+    session = seal.get("session") if isinstance(seal, dict) else None
+    return session.get("status") if isinstance(session, dict) else None
+
+
+def _attempt_chain(evidence: Path, record: dict) -> list[dict]:
+    """Every seal of one attempt, oldest first: record.previous-1.json ... and then record.json."""
+    chain: list[dict] = []
+    amendments = record.get("amendments") if isinstance(record.get("amendments"), list) else []
+    for index in range(1, len(amendments) + 1):
+        try:
+            value = _json_loads(er.confined_file(evidence, PREVIOUS_RECORD.format(n=index)).read_bytes(),
+                                PREVIOUS_RECORD.format(n=index))
+        except ValueError:
+            value = {}
+        chain.append(value if isinstance(value, dict) else {})
+    return chain + [record]
+
+
+def _prompt_sent(chain: list[dict]) -> str | None:
+    """Why an attempt counts as having sent the prompt, so a retry may not replace it (any seal that
+    timed out, failed after the prompt, or says "Prompt sent: yes"), or None when the last seal says
+    "Prompt sent: no" and no seal contradicts it."""
+    for seal in chain:
+        session = seal.get("session") if isinstance(seal.get("session"), dict) else {}
+        failure = session.get("failure") if isinstance(session.get("failure"), dict) else {}
+        if session.get("status") == "timed-out":
+            return "it timed out"
+        if failure.get("kind") in SENT_FAILURES:
+            return f"it failed with {failure['kind']}"
+        if session.get("promptSent") is True:
+            return 'its session says "Prompt sent: yes"'
+    last = chain[-1].get("session") if isinstance(chain[-1].get("session"), dict) else {}
+    return None if last.get("promptSent") is False else NOT_STATED
+
+
+def _stage1_history(root: Path, campaign: Campaign) -> str | None:
+    """A recorded Stage 1 summary is final: the committed stage1-summary.json must be the bytes that
+    first added it, and it must have been added only once (not removed and recorded again)."""
+    rel = f"{PILOT_REL}/{campaign.name}/stage1-summary.json"
+    added = _added_commits(root, rel)
+    if added is None:
+        return "the Git history of stage1-summary.json cannot be read (a shallow clone? git fetch --unshallow)"
+    if len(added) > 1:
+        return (f"stage1-summary.json was added in {len(added)} commits: a recorded summary was removed and recorded "
+                "again (a recorded summary is final)")
+    if added:
+        try:
+            first = er.git_show(root, added[0], rel)
+        except ValueError:
+            first = None
+        if first is None or _show_at_head(root, rel) != first:
+            return (f"the committed stage1-summary.json differs from the version first committed in {added[0][:12]} "
+                    "(a recorded summary is final)")
+    return None
+
+
+def _added_commits(root: Path, rel: str) -> list[str] | None:
+    """The commits that added ``rel``, newest first, or None when the history cannot say (a shallow
+    clone, whose missing commits could hide an earlier version, or no readable Git history)."""
+    if _git_text(root, "rev-parse", "--is-shallow-repository") == "true":
+        return None
+    text = _git_text(root, "log", "--format=%H", "--no-renames", "--diff-filter=A", "--", rel)
+    return None if text is None else text.split()
 
 
 def _workspace_name(directory: str, attempt: int) -> str:
@@ -1290,7 +1388,8 @@ def run_prepare(root: Path, run_id: str, name: str, pilot_value: str | None, out
     if retry is None and previous:
         raise PilotError(f"{run_id} was already prepared ({len(previous)} attempt(s), the last at "
                          f"{previous[-1].get('preparedAt')}); every attempt is prepared once and its evidence is kept. "
-                         f"After a failed, timed-out or blocked attempt is sealed, retry it with: {retry_command}")
+                         f'Only a sealed failed or blocked attempt whose session says "Prompt sent: no" may be '
+                         f"retried, with: {retry_command}")
     if retry is not None:
         if not retry.strip():
             raise PilotError("--retry needs a reason")
@@ -1301,19 +1400,31 @@ def run_prepare(root: Path, run_id: str, name: str, pilot_value: str | None, out
         try:
             sealed = _json_loads(er.confined_file(evidence, RECORD_FILE).read_bytes(), RECORD_FILE)
         except ValueError:
-            raise PilotError(f"attempt {len(previous)} of {run_id} is not sealed; seal it first (write its Status and "
-                             f"Failure in session.md, then run-finish)") from None
-        status = (sealed.get("session") or {}).get("status") if isinstance(sealed, dict) else None
-        if status == "completed":
-            raise PilotError(f"attempt {len(previous)} of {run_id} completed; a completed run is never retried")
+            raise PilotError(f"attempt {len(previous)} of {run_id} is not sealed; seal it first (write its Status, "
+                             f"Failure and Prompt sent in session.md, then run-finish)") from None
+        sealed_problems = _verify_record(RunState(run, evidence=evidence, record=sealed), campaign)
+        if sealed_problems:
+            raise PilotError(f"attempt {len(previous)} of {run_id} does not verify against its sealed evidence "
+                             f"({sealed_problems[0]}); a retry needs an intact sealed record")
+        chain = _attempt_chain(evidence, sealed)
+        if any(_seal_status(seal) == "completed" for seal in chain):
+            raise PilotError(f"attempt {len(previous)} of {run_id} completed"
+                             + ("" if _seal_status(chain[-1]) == "completed" else " before it was amended")
+                             + "; a completed run is never retried")
+        why = _prompt_sent(chain)
+        if why is not None:
+            hint = ("" if why != NOT_STATED else ' If the prompt never reached the host, write "Prompt sent: no" in '
+                    f'session.md and run: python tools/workflow_eval.py run-finish {run_id} --campaign {name} --amend '
+                    '"<reason>".')
+            raise PilotError(f"attempt {len(previous)} of {run_id} cannot be retried: {why}; {RETRY_RULE}.{hint}")
         if os.path.lexists(workspaces / _workspace_name(directory, len(previous))):
             raise PilotError(f"the workspace of attempt {len(previous)} still exists; remove it before a retry")
         if os.path.lexists(earlier):
             raise PilotError(f"{earlier} already exists; earlier attempts are never overwritten")
     if run["stage"] == 2:
         committed = _committed_stage1(root, campaign)
-        reason = _stage1_go(committed, campaign)
-        if reason is None and (pilot_dir / "evidence").is_dir():
+        reason = _stage1_go(committed, campaign) or _stage1_history(root, campaign)
+        if reason is None:  # also in a pilot directory without Stage 1 evidence, which gives incomplete
             reason = _stage1_matches(root, campaign, pilot_value, committed)
         if reason is not None:
             raise PilotError(f"Stage 2 repeats need a committed Stage 1 summary whose decision is go for this candidate; {reason}")
@@ -2237,6 +2348,8 @@ class RunState:
     prompt_in_transcript: str = "unverified"
     validated: bool = False
     earlier_completed: list[int] = field(default_factory=list)  # attempts before this one that completed
+    earlier_sent: list[tuple[int, str]] = field(default_factory=list)  # (attempt, why) of attempts that sent the prompt
+    earlier: list[dict] = field(default_factory=list)  # every kept earlier attempt, for runs[], failures and inputs
 
     @property
     def outcome(self) -> str:
@@ -2451,6 +2564,8 @@ def _protocol(state: RunState, campaign: Campaign, stage1: dict | None, stage1_p
         reasons.append(f"repair rounds {repairs} exceed the limit of {campaign.repair_limit}")
     for number in state.earlier_completed:
         reasons.append(f"attempt {number} of this run completed, so the run was retried after a completed session")
+    for number, why in state.earlier_sent:
+        reasons.append(f"attempt {number} of this run sent the prompt ({why}); {RETRY_RULE}")
     prior = session.get("priorAttempts")
     if _is_int(prior) and prior > campaign.retries:
         reasons.append(f"prior attempts {prior} exceed the infrastructure retries ({campaign.retries})")
@@ -2797,6 +2912,9 @@ def _run_entry(state: RunState, campaign: Campaign) -> dict:
         "reviewProblemCount": len(state.review_problems),
         "promptInTranscript": state.prompt_in_transcript, "warnings": list(state.warnings),
         "amendments": [{"at": a["at"], "reason": a["reason"]} for a in record.get("amendments") or []],
+        "priorAttempts": len(state.earlier),
+        "attempts": [{key: item[key] for key in ("attempt", "status", "failure", "promptSent", "statuses")}
+                     for item in state.earlier],
     }
 
 
@@ -2851,8 +2969,9 @@ def _read_invalidation(root: Path, name: str) -> tuple[dict | None, list[str]]:
 
 
 def _attempt_problems(pilot_dir: Path, planned: dict[str, dict], states: dict[str, RunState],
-                      earlier_dirs: dict[str, dict[int, Path]]) -> list[str]:
-    """Every prepared attempt (preparations.jsonl) must have its evidence, and all evidence an entry."""
+                      earlier_dirs: dict[str, dict[int, Path]], campaign: Campaign) -> list[str]:
+    """Every prepared attempt (preparations.jsonl) must have its evidence, and all evidence an entry.
+    Each kept earlier attempt is verified like a current record and described in ``state.earlier``."""
     entries, problems = _read_ledger(pilot_dir)
     by_run: dict[str, list[int]] = {}
     for entry in entries:
@@ -2883,15 +3002,42 @@ def _attempt_problems(pilot_dir: Path, planned: dict[str, dict], states: dict[st
                             f"records {count - 1}")
         for number, path in sorted(earlier.items()):
             try:
-                old = _json_loads(er.confined_file(path, RECORD_FILE).read_bytes(), RECORD_FILE)
+                raw = er.confined_file(path, RECORD_FILE).read_bytes()
+                old = _json_loads(raw, RECORD_FILE)
             except ValueError:
                 problems.append(f"{run_id}: attempt {number} ({path.name}) was retried without being sealed")
                 continue
-            status = (old.get("session") or {}).get("status") if isinstance(old, dict) else None
-            if not isinstance(old, dict) or old.get("id") != run_id or status not in STATUSES:
+            if not isinstance(old, dict) or old.get("id") != run_id or _seal_status(old) not in STATUSES:
                 problems.append(f"{run_id}: {path.name}/record.json is not a sealed record of this run")
-            elif status == "completed":
+                continue
+            # An earlier attempt is held to the same integrity rules as a current record.
+            verified = _verify_record(RunState(planned[run_id], evidence=path, record=old), campaign)
+            problems.extend(f"{run_id}: {path.name}: {item}" for item in verified)
+            old_session = old.get("session") if isinstance(old.get("session"), dict) else {}
+            if old_session.get("priorAttempts") != number - 1:
+                problems.append(f"{run_id}: {path.name} says {old_session.get('priorAttempts')} prior attempt(s), not "
+                                f"{number - 1}")
+            if verified:
+                continue
+            chain = _attempt_chain(path, old)
+            if any(_seal_status(seal) == "completed" for seal in chain):
                 state.earlier_completed.append(number)
+            else:
+                why = _prompt_sent(chain)
+                if why is not None:
+                    state.earlier_sent.append((number, why))
+            review = None
+            if os.path.lexists(path / REVIEW_FILE):
+                try:
+                    review = er.sha256_bytes(er.confined_file(path, REVIEW_FILE).read_bytes())
+                except ValueError as exc:
+                    problems.append(f"{run_id}: {path.name}: {exc}")
+                    continue
+            state.earlier.append({
+                "attempt": number, "status": old_session.get("status"), "failure": old_session.get("failure"),
+                "promptSent": old_session.get("promptSent"), "statuses": [_seal_status(seal) for seal in chain],
+                "record": er.sha256_bytes(raw), "review": review,
+                "amendments": [a["previous"] for a in old.get("amendments") or []]})
     return problems
 
 
@@ -2949,7 +3095,7 @@ def summarize(root: Path, name: str, stage: str, pilot_value: str | None) -> dic
             elif isinstance(record_id, str):
                 seen_records[record_id] = entry
             problems.extend(f"{run_id}: {item}" for item in _verify_record(state, campaign))
-    problems.extend(_attempt_problems(pilot_dir, planned, states, earlier_dirs))
+    problems.extend(_attempt_problems(pilot_dir, planned, states, earlier_dirs, campaign))
     invalidation, invalidation_problems = _read_invalidation(root, name)
     problems.extend(invalidation_problems)
     if problems:
@@ -2957,7 +3103,8 @@ def summarize(root: Path, name: str, stage: str, pilot_value: str | None) -> dic
     stage1 = _committed_stage1(root, campaign)
     stage1_problem = None
     if stage == "all" and any(s.record is not None and s.run["stage"] == 2 for s in states.values()):
-        stage1_problem = _stage1_go(stage1, campaign) or _stage1_matches(root, campaign, pilot_value, stage1)
+        stage1_problem = (_stage1_go(stage1, campaign) or _stage1_history(root, campaign)
+                          or _stage1_matches(root, campaign, pilot_value, stage1))
     corpus = _corpus_root(root)
     verified: dict[str, dict] = {}
     notes: list[str] = []
@@ -3047,21 +3194,20 @@ def summarize(root: Path, name: str, stage: str, pilot_value: str | None) -> dic
         if run["status"] != "pending":
             failure_runs.append({"id": run["id"], "status": run["status"], "failure": kind,
                                  "detail": (run["failure"] or {}).get("detail"), "invalidReasons": run["invalidReasons"]})
+    replaced = [{"id": run["id"], "attempt": item["attempt"], "status": item["status"],
+                 "failure": (item["failure"] or {}).get("kind"), "detail": (item["failure"] or {}).get("detail"),
+                 "promptSent": item["promptSent"]}
+                for run in stage_runs for item in run["attempts"]]
     failures = {"counts": [{"status": k[0], "failure": k[1], "host": k[2], "task": k[3], "runs": n}
                            for k, n in sorted(failure_rows.items())],
-                "runs": failure_runs}
+                "runs": failure_runs, "earlierAttempts": replaced}
     baselines = _baselines(baseline_runs, entries, campaign) if campaign.baselines_planned else None
-    disputed = []
-    for task in task_ids:
-        reference = campaign.references[task]
-        essential = set(reference["essentialFactIds"])
-        for dispute in reference["disputes"]:
-            if isinstance(dispute, dict) and dispute.get("item") in essential:
-                disputed.append({"task": task, "item": dispute["item"]})
+    disputed = _disputed_essential(campaign, task_ids)
     denominator_disputes = _disputed_items(campaign, task_ids)
     notes_text = caveats(len(task_ids), len(hosts), campaign.tasks["repetitions"])
     if disputed:
-        notes_text.append("Disputed essential facts: " + ", ".join(f"{d['item']}" for d in disputed) + ".")
+        notes_text.append("Disputed essential facts: " + ", ".join(
+            d["item"] + (f" (adopted as {d['adoptedAs']})" if d.get("adoptedAs") else "") for d in disputed) + ".")
     outside = [d["item"] for d in denominator_disputes if not d["inDenominator"]]
     if outside:
         notes_text.append("Disputed items outside the final denominators (a reviewer held them essential or "
@@ -3072,8 +3218,10 @@ def summarize(root: Path, name: str, stage: str, pilot_value: str | None) -> dic
               "referenceSet": campaign.reference_set_sha256,
               "invalidation": invalidation["sha256"] if invalidation else None,
               "runs": [{"id": s.run["id"], "record": s.record_sha256, "review": s.review_sha256,
-                        "amendments": [a["previous"] for a in (s.record or {}).get("amendments") or []]}
-                       for s in states.values() if s.record is not None]}
+                        "amendments": [a["previous"] for a in (s.record or {}).get("amendments") or []],
+                        "earlierAttempts": [{key: item[key] for key in ("attempt", "record", "review", "amendments")}
+                                            for item in s.earlier]}
+                       for s in states.values() if s.record is not None or s.earlier]}
     tooling = {"tools/workflow_pilot.py": er.sha256_file(Path(__file__).resolve()),
                "tools/eval_records.py": er.sha256_file(TOOLS / "eval_records.py"),
                "tools/workflow_candidate.py": er.sha256_file(TOOLS / "workflow_candidate.py"),
@@ -3140,6 +3288,22 @@ def _baselines(baseline_runs: list[dict], entries: dict[str, dict], campaign: Ca
                     "session, and a completed run that is not yet reviewed shows as unreviewed, with no difference."}
 
 
+def _disputed_essential(campaign: Campaign, task_ids: list[str]) -> list[dict]:
+    """Disputed items that are essential facts of the final reference, including a second-review
+    addition the primary reviewer adopted under an essential ID of their own."""
+    disputed = []
+    for task in task_ids:
+        reference = campaign.references[task]
+        essential = set(reference["essentialFactIds"])
+        for dispute in reference["disputes"]:
+            if not isinstance(dispute, dict):
+                continue
+            adopted = dispute.get("adoptedAs") if isinstance(dispute.get("adoptedAs"), str) else None
+            if dispute.get("item") in essential or adopted in essential:
+                disputed.append({"task": task, "item": dispute["item"]} | ({"adoptedAs": adopted} if adopted else {}))
+    return disputed
+
+
 def _disputed_items(campaign: Campaign, task_ids: list[str]) -> list[dict]:
     """Disputes on what enters a denominator: a fact either reviewer (or the final reference) holds
     essential, and an unknown whose runs-must-state flag either side set. Resolutions are not copied."""
@@ -3152,19 +3316,22 @@ def _disputed_items(campaign: Campaign, task_ids: list[str]) -> list[dict]:
             if not isinstance(dispute, dict) or not isinstance(dispute.get("item"), str):
                 continue
             item = dispute["item"]
+            adopted = dispute.get("adoptedAs") if isinstance(dispute.get("adoptedAs"), str) else None
+            counted = adopted or item  # an adopted addition enters the denominators under the primary's ID
             sides = [dispute.get("primary"), dispute.get("second")]
 
             def flag(key: str) -> bool:
                 return any(isinstance(side, dict) and side.get(key) is not None for side in sides)
 
-            if item in essential or any(isinstance(side, dict) and side.get("essential") is True for side in sides):
+            if counted in essential or any(isinstance(side, dict) and side.get("essential") is True for side in sides):
                 kind, denominator = "essential", essential
-            elif item in must or flag("runsMustState"):
+            elif counted in must or flag("runsMustState"):
                 kind, denominator = "runsMustState", must
             else:
                 continue
             found.append({"task": task, "item": item, "kind": kind, "primary": sides[0], "second": sides[1],
-                          "inDenominator": item in denominator})
+                          "inDenominator": counted in denominator}
+                         | ({"adoptedAs": adopted} if adopted else {}))
     return found
 
 
@@ -3180,7 +3347,11 @@ def _fmt_ratio(item: dict | None) -> str:
 
 
 def _fmt_value(value: object) -> str:
-    return "n/a" if value is None else f"{100 * value:.1f}%"
+    """A rate as a percentage floored to a tenth, like _pct (the epsilon absorbs float noise in means)."""
+    if value is None:
+        return "n/a"
+    tenths = math.floor(value * 1000 + 1e-9)
+    return f"{tenths // 10}.{tenths % 10}%"
 
 
 def _needed(target: dict) -> str:
@@ -3230,6 +3401,14 @@ def render_markdown(summary: dict) -> str:
             for item in failures) + ".")
     else:
         lines.append("Failures: none.")
+    replaced = summary["failures"].get("earlierAttempts") or []
+    if replaced:
+        lines.append("Earlier attempts, kept and replaced by a retry: " + "; ".join(
+            f"{item['id']} attempt {item['attempt']} — {item['status']}"
+            + (f" ({item['failure']}" + (f": {item['detail']}" if item.get("detail") else "") + ")" if item.get("failure")
+               else "")
+            + ("; prompt never sent" if item.get("promptSent") is False else "")
+            for item in replaced) + ".")
     for title, groups in (("Per host", summary["perHost"]), ("Per task", summary["perTask"])):
         lines += ["", f"## {title}", "", "| | Runs | Valid | Anchors | Precision | Recall | Unknowns | High FA |",
                   "|---|---|---|---|---|---|---|---|"]
@@ -3275,7 +3454,11 @@ def render_markdown(summary: dict) -> str:
               f"- referenceRevision {summary['referenceRevision']}", f"- freeze.json {inputs['freeze']}"]
     for run in inputs["runs"]:
         lines.append(f"- {run['id']}: record {run['record']}" + (f", review {run['review']}" if run["review"] else "")
-                     + (f", {len(run['amendments'])} amendment(s)" if run["amendments"] else ""))
+                     + (f", {len(run['amendments'])} amendment(s)" if run["amendments"] else "")
+                     + "".join(f"; attempt {item['attempt']} record {item['record']}"
+                               + (f", review {item['review']}" if item["review"] else "")
+                               + (f", {len(item['amendments'])} amendment(s)" if item["amendments"] else "")
+                               for item in run.get("earlierAttempts") or []))
     lines += ["", summary["note"], ""]
     return "\n".join(lines)
 
@@ -3306,6 +3489,15 @@ def record_summary(root: Path, summary: dict) -> tuple[Path, Path]:
     for path in (json_path, md_path):
         if os.path.lexists(path):
             raise PilotError(f"{path.name} already exists; recorded summaries are never overwritten")
+        added = _added_commits(root, f"{PILOT_REL}/{summary['campaign']}/{path.name}")
+        if added is None:
+            raise PilotError(f"cannot tell from the Git history whether {path.name} was recorded before (a shallow "
+                             "clone or no readable history; git fetch --unshallow)")
+        if added:
+            raise PilotError(f"{path.name} was committed in {added[-1][:12]} and removed since; a recorded summary is "
+                             f"final and is never recorded again (restore it with git checkout {added[-1][:12]} -- "
+                             f"{PILOT_REL}/{summary['campaign']}/{path.name}; a changed decision needs the owner's "
+                             "invalidation.md and a new campaign)")
     er.write_exclusive(json_path, json_bytes)
     er.write_exclusive(md_path, md_bytes)
     return json_path, md_path
@@ -3334,8 +3526,9 @@ def build_parser() -> argparse.ArgumentParser:
             item.add_argument("--amend", metavar="REASON", help="re-read session.md and re-seal, keeping the previous record")
         if command == "run-prepare":
             item.add_argument("--retry", metavar="REASON",
-                              help="prepare a new attempt after a sealed failed, timed-out or blocked one; the earlier "
-                                   "attempt's evidence is kept as <run>.attempt-<n>")
+                              help='prepare a new attempt after a sealed failed or blocked one whose session says '
+                                   '"Prompt sent: no" (a failure after the prompt was sent is never replaced); the '
+                                   "earlier attempt's evidence is kept as <run>.attempt-<n>")
     summary = sub.add_parser("summarize", help="verify sealed runs and compute the stage summary against the targets")
     summary.add_argument("--campaign", required=True)
     summary.add_argument("--stage", choices=("1", "all"), required=True)

@@ -86,6 +86,9 @@ REASON_HINT = '" -- <reason>" (or " — <reason>")'
 FREEZE_README = "evals/workflow/pilot/README.md"
 DATE_RE = re.compile(r"(\d{4})-(\d{2})-(\d{2})", re.ASCII)
 INTEGER_RE = re.compile(r"[0-9]+", re.ASCII)
+# "<second-review addition>: adopted as <primary ID> -- <why>" (the ID ends at a space or punctuation).
+_ADOPTED_RE = re.compile(r"adopted\s+as\s+(?P<id>[^\s,;:()]+)", re.IGNORECASE)
+_ITEM_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 
 _DEFAULT = object()
 _PENDING = "pending"
@@ -621,6 +624,7 @@ class RefCheck:
     corpus_note: str = ""
     second: "RefCheck | None" = None
     frozen_in: str | None = None  # the campaign whose freeze.json lists this file with its current bytes
+    added_after: str | None = None  # the campaign frozen without this file, which its freeze would now read
 
     @property
     def errors(self) -> int:
@@ -647,6 +651,8 @@ class _RefChecker:
         self.second = second
         self.task_id: str = task["id"]
         self.primary = result.role == "primary"
+        self.high_defects: list[tuple[int, str, str]] = []  # (line, label, id) of the primary's high-severity defects
+        self.adopted: dict[str, str] = {}  # primary ID -> the second reviewer's addition it adopted
         self.short = added_prefix(self.task_id, "primary" if self.primary else "second")
         self.ledger, self.ledger_raw = world.ledger(self.task_id)
         self.facts = {fact["id"]: fact for fact in self.ledger["facts"]}
@@ -838,6 +844,7 @@ class _RefChecker:
                 handler(section)
         if self.primary:
             self.disagreements()
+            self.high_severity_notes()
         result.review = _task_section(report, record,
                                       closing="your decisions above are final" if not self.primary
                                       else "every decision above is final")
@@ -1108,9 +1115,8 @@ class _RefChecker:
         if self.has(section, "Anchors"):
             parsed = self.anchor_list(section) or []
             anchors = [_new_anchor(f"{ident}-a{index}", location) for index, location in enumerate(parsed, 1)]
-        if severity == "high" and self.primary and self.second is None:
-            self.report.note(section.line, label,
-                             "a second reviewer is recommended for high-severity defects (REVIEW_GUIDE).")
+        if severity == "high" and self.primary:
+            self.high_defects.append((section.line, label, ident))
         self.result.defects.append({"id": ident, "text": _value(section, "Wording"), "severity": severity or None,
                                     "anchors": anchors, "counterEvidence": _value(section, "Counter-evidence"),
                                     "reason": self.reason(section)})
@@ -1133,6 +1139,7 @@ class _RefChecker:
                      if isinstance(item.get("id"), str) and item["id"] and item["id"] not in self.result.positions]
         disagreeing = {ident for ident, _mine, _theirs in differing} | {item["id"] for item in added}
         if section is not None:
+            after_resolution = False
             for line in section.lines:
                 key = line.key.strip()
                 match = next((ident for ident in disagreeing if ident.casefold() == key.casefold()), None)
@@ -1142,11 +1149,17 @@ class _RefChecker:
                                    "delete this line.")
                     elif key.casefold() in {item.casefold() for item in known_items}:
                         message = f'"{key}" does not disagree with the second review; delete this line.'
+                    elif after_resolution and not _ITEM_ID_RE.fullmatch(key):
+                        # Usually the wrapped second line of the resolution above ("the DDP branch: ...").
+                        message = (f'"{key}" is not an item ID. To continue the previous line, indent it by two '
+                                   'spaces; put ">" in front of notes only.')
                     else:
                         message = f'"{key}" is not an item that disagrees with the second review; delete this line.'
                     self.report.error(line.line, "Disagreements", message)
+                    after_resolution = False
                     continue
                 resolutions[match] = line
+                after_resolution = True
         where = section.line if section is not None else 1
         name = f" ({second.reviewer})" if second is not None and second.reviewer else ""
         for ident, mine, theirs in differing:
@@ -1159,6 +1172,8 @@ class _RefChecker:
             self.result.disputes.append({"item": ident, "primary": mine, "second": theirs,
                                          "resolution": resolution.value.strip()})
         kinds = {"Added fact": "fact", "Added unknown": "unknown", "Defect": "defect"}
+        suffixes = {"Added fact": "h", "Added unknown": "hu", "Defect": "d"}
+        own = {item["id"].casefold(): item for item in self.result.added_items if isinstance(item.get("id"), str)}
         for item in added:
             ident = item["id"]
             theirs = second.positions.get(ident) or {"decision": "added"}
@@ -1170,11 +1185,41 @@ class _RefChecker:
                 self.report.todo(resolution.line if resolution else where, "Disagreements",
                                  f'{ident}: the second reviewer{name} added the {kinds.get(item["kind"], "item")} '
                                  f'"{wording}"' + (f" ({', '.join(details)})" if details else "")
-                                 + f'. Add it under your own ID if you agree, and write "{ident}: <how it was '
-                                   'resolved>".')
+                                 + f'. To adopt it, add it under your own ID and write "{ident}: adopted as <your ID> '
+                                   f'-- <why>"; otherwise write "{ident}: <why it is not adopted>".')
                 continue
-            self.result.disputes.append({"item": ident, "primary": None, "second": theirs,
-                                         "resolution": resolution.value.strip()})
+            text = resolution.value.strip()
+            entry: dict = {"item": ident, "primary": None, "second": theirs, "resolution": text}
+            if text.casefold().startswith("adopted"):
+                found = _ADOPTED_RE.match(text)
+                kind = item.get("kind")
+                example = f"{self.short}-{suffixes.get(kind, 'h')}01"
+                adopted_id = found.group("id").rstrip(".") if found else ""
+                target = own.get(adopted_id.casefold()) if adopted_id else None
+                if target is None or target.get("kind") != kind:
+                    named = f'"adopted as {adopted_id}"' if adopted_id else '"adopted"'
+                    self.report.error(resolution.line, "Disagreements",
+                                      f"{ident}: {named} must name the section you added for it in this file, "
+                                      f'"## {kind} {example}"; write "{ident}: adopted as <your ID> -- <why>".')
+                    continue
+                entry["primary"] = self.result.positions.get(target["id"])
+                entry["adoptedAs"] = target["id"]
+                self.adopted[target["id"]] = ident
+            self.result.disputes.append(entry)
+
+    def high_severity_notes(self) -> None:
+        """A NOTE for each of the primary reviewer's high-severity defects that no second reviewer covered.
+        A second review covers one only through its own addition, resolved here as adopted."""
+        second_prefix = added_prefix(self.task_id, "second")
+        for line, label, ident in self.high_defects:
+            if self.second is None:
+                self.report.note(line, label, "a second reviewer is recommended for high-severity defects (REVIEW_GUIDE).")
+            elif ident not in self.adopted:
+                self.report.note(line, label, "the second review does not cover your own additions. For a second "
+                                              f"opinion on this high-severity defect, the second reviewer adds it as "
+                                              f'"## Defect {second_prefix}-d01" and you resolve it as '
+                                              f'"{second_prefix}-d01: adopted as {ident} -- <why>"; otherwise it is '
+                                              "not second-reviewed (REVIEW_GUIDE).")
 
 
 _POSITION_LABELS = (("basis", "basis"), ("essential", "essential"), ("runsMustState", "runs must state"),
@@ -1265,7 +1310,8 @@ def check_reference(world: World, raw: bytes, display: str, *, second: RefCheck 
 
 
 def reference_summary(world: World, result: RefCheck) -> list[str]:
-    ready = f"frozen in {result.frozen_in}" if result.frozen_in else "ready to freeze"
+    ready = (f"frozen in {result.frozen_in}" if result.frozen_in else
+             f"added after the freeze of {result.added_after}" if result.added_after else "ready to freeze")
     lines = [f"{result.name}: {result.errors} error(s), {result.todos} to do; "
              f"{state_text(result.errors, result.todos, ready)}."]
     if result.record is None or result.task_id is None:
@@ -1775,6 +1821,32 @@ def current_freeze(world: World) -> tuple[str, dict] | None:
     return (campaign, value) if isinstance(value, dict) else None
 
 
+def read_decision_files(world: World) -> list[str]:
+    """The decision files a freeze of the current tasks.json would record in decisionFiles: each
+    held-out task's file and existing second review, and the run policy (when they exist)."""
+    rels = []
+    for task in world.heldout:
+        for name in (f"{task['id']}.md", f"{task['id']}.second.md"):
+            if (world.root / DECISIONS_REL / name).is_file():
+                rels.append(f"{DECISIONS_REL}/{name}")
+    if (world.root / DECISIONS_REL / f"{POLICY_TARGET}.md").is_file():
+        rels.append(f"{DECISIONS_REL}/{POLICY_TARGET}.md")
+    return rels
+
+
+def _added_after_freeze(world: World, path: Path, report: Report) -> str | None:
+    """The current campaign when ``path`` is a decision file its freeze would read now but did not
+    record (for example a second review written after the freeze), with a NOTE; otherwise None."""
+    frozen = current_freeze(world)
+    files = frozen[1].get("decisionFiles") if frozen is not None else None
+    display = world.display(path)
+    if not isinstance(files, dict) or display in files or display not in read_decision_files(world):
+        return None
+    report.note(1, "header", f"this file was added after the freeze of {frozen[0]}, which did not include it; a "
+                             f"changed decision needs a new campaign ({FREEZE_README}).")
+    return frozen[0]
+
+
 def _frozen_state(world: World, path: Path, digest: str, report: Report) -> str | None:
     """The campaign that froze ``path`` with exactly these bytes; a NOTE when it froze other bytes."""
     frozen = current_freeze(world)
@@ -1836,12 +1908,14 @@ def check_path(world: World, path: Path, *, with_second: bool = True) -> list[Fi
                                 f'(both files name "{usable.reviewer}").')
         if result.record is not None:
             result.frozen_in = _frozen_state(world, path, result.record.sha256, result.report)
+            result.added_after = _added_after_freeze(world, path, result.report)
         checks.append(FileCheck(display, result.report.ordered(), reference_summary(world, result), result.errors,
                                 result.todos, result))
         if second_check is not None:
             if second_check.record is not None:
                 second_check.frozen_in = _frozen_state(world, second_path, second_check.record.sha256,
                                                        second_check.report)
+                second_check.added_after = _added_after_freeze(world, second_path, second_check.report)
             checks.append(FileCheck(second_check.display, second_check.report.ordered(),
                                     reference_summary(world, second_check), second_check.errors, second_check.todos,
                                     second_check))
@@ -1850,6 +1924,7 @@ def check_path(world: World, path: Path, *, with_second: bool = True) -> list[Fi
         result = check_reference(world, raw, display, expected_name=_expected_name(world, path, True))
         if result.record is not None:
             result.frozen_in = _frozen_state(world, path, result.record.sha256, result.report)
+            result.added_after = _added_after_freeze(world, path, result.report)
         return [FileCheck(display, result.report.ordered(), reference_summary(world, result), result.errors,
                           result.todos, result)]
     if kind == "Pilot run policy":
@@ -2665,10 +2740,11 @@ def _candidate_problems(label: str, directory: Path, campaign: str, freeze_raw: 
 
 
 def _summary_state(world: World, directory: Path, freeze_value: dict, freeze_raw: bytes,
-                   problems: list[str]) -> bool:
+                   problems: list[str], candidate: tuple[bytes | None, list[str]]) -> bool:
     """True when a genuine final summary is recorded: a Stage 1 stop or invalid, or an all-stage
     summary. Every stage summary file must be a summary the pilot recorded for this campaign's
-    candidate and freeze; anything else is a problem and never switches off the re-derivation."""
+    candidate and freeze; anything else is a problem and never switches off the re-derivation.
+    ``candidate`` is the result of _candidate_problems, whose problems the caller reports."""
     label = world.display(directory)
     campaign = directory.name
     present = sorted(path.name for path in directory.glob("stage*summary*"))
@@ -2679,12 +2755,11 @@ def _summary_state(world: World, directory: Path, freeze_value: dict, freeze_raw
     present = [name for name in present if name in known]
     if not present:
         return False
-    candidate_raw, candidate_problems = _candidate_problems(label, directory, campaign, freeze_raw)
+    candidate_raw, candidate_problems = candidate
     if candidate_raw is None:
         problems.append(f"{label}: {', '.join(present)} exist(s) without candidate.json; a summary is recorded only "
                         "for a captured candidate")
         return False
-    problems.extend(candidate_problems)
     if candidate_problems:
         return False
     candidate_sha, freeze_sha = er.sha256_bytes(candidate_raw), er.sha256_bytes(freeze_raw)
@@ -2793,6 +2868,8 @@ def _recorded_fields(world: World, history: History, campaign: str, freeze_value
         if committed is not None and committed != freeze_raw:
             problems.append(f"{freeze_rel} differs from the version committed in {commit[:12]} "
                             "(frozen files are immutable)")
+    elif history.full:  # without the full history, _history_note covers this check
+        unverified.append("freeze.json against its first commit (freeze.json is not committed yet)")
     why = history.reason or "freeze.json is not committed yet"
     if tasks_sha is not None:
         current = world.manifest_bytes()
@@ -2852,6 +2929,35 @@ def _capture_problems(world: World, history: History, campaign: str, superseded:
             if problem:
                 problems.append(f"{campaign} was superseded although it was captured ({captured}) and its "
                                 f"invalidation.md is not usable ({problem})")
+
+
+def _summary_history(world: World, history: History, campaign: str, problems: list[str]) -> None:
+    """A recorded summary is final: each stage*-summary.{json,md} ever committed must still exist with
+    the bytes of the commit that first added it, and must have been added only once."""
+    directory = world.root / PILOT_REL / campaign
+    for name in [name for pair in SUMMARY_FILES.values() for name in pair]:
+        rel = f"{PILOT_REL}/{campaign}/{name}"
+        added = history.commits(rel, added=True)
+        if not added:
+            continue
+        first = added[-1]
+        path = directory / name
+        if not path.is_file():
+            problems.append(f"{rel} was committed in {first[:12]} and is missing now (a recorded summary is final)")
+        elif path.read_bytes() != history.show(first, rel):
+            problems.append(f"{rel} differs from the version first committed in {first[:12]} (a recorded summary is "
+                            "final)")
+        if len(added) > 1:
+            problems.append(f"{rel} was added in {len(added)} commits: a recorded summary was removed and recorded "
+                            "again (a recorded summary is final)")
+
+
+def _history_note(history: History, campaign: str, notes: list[str]) -> None:
+    """Say which checks did not run because the Git history is not available (a shallow clone or no Git)."""
+    if not history.full:
+        notes.append(f"check-frozen: {campaign}: not verified without the full Git history ({history.reason}): "
+                     "freeze.json against its first commit, and whether a committed candidate.json or stage summary "
+                     "was removed or changed.")
 
 
 def _integrity(world: World, directory: Path, problems: list[str]) -> dict | None:
@@ -2937,11 +3043,15 @@ def check_frozen(world: World, out) -> int:
         if freeze_value is not None and directory.name in values:
             raw = values[directory.name][1]
             _recorded_fields(world, history, directory.name, freeze_value, raw, names, problems, notes)
-            _summary_state(world, directory, freeze_value, raw, problems)
+            candidate = _candidate_problems(world.display(directory), directory, directory.name, raw)
+            problems.extend(candidate[1])  # with or without a summary, freeze.json is the one the candidate names
+            _summary_state(world, directory, freeze_value, raw, problems, candidate)
             _ledger_problems(world, directory.name, freeze_value, problems)
             _capture_problems(world, history, directory.name, True, problems)
+            _summary_history(world, history, directory.name, problems)
         if len(problems) == before:
             notes.append(f"check-frozen: {directory.name} (superseded): hashes intact.")
+        _history_note(history, directory.name, notes)
     if current is not None:
         directory = pilot_dir / current
         before = len(problems)
@@ -2961,13 +3071,17 @@ def check_frozen(world: World, out) -> int:
                                 "entrypoints or prompt); a changed reference needs a new campaign")
             _recorded_fields(world, history, current, existing, raw, names, problems, notes)
             _capture_problems(world, history, current, False, problems)
-            final = _summary_state(world, directory, existing, raw, problems)
+            _summary_history(world, history, current, problems)
+            candidate = _candidate_problems(world.display(directory), directory, current, raw)
+            problems.extend(candidate[1])
+            final = _summary_state(world, directory, existing, raw, problems, candidate)
             if final:
                 _ledger_problems(world, current, existing, problems)
                 if len(problems) == before:
                     notes.append(f"check-frozen: {current} (final summary recorded): hashes intact.")
             else:  # an invalid or missing summary never switches the re-derivation off
                 _rederive(world, directory, current, existing, problems, notes, before)
+        _history_note(history, current, notes)
     for line in notes:
         print(line, file=out)
     for problem in problems:
@@ -2975,8 +3089,9 @@ def check_frozen(world: World, out) -> int:
     return 1 if problems else 0
 
 
-def _changed_inputs(world: World, existing: dict) -> list[str]:
-    """The decision files, candidate ledgers and repositories.json whose bytes differ from the freeze."""
+def _changed_inputs(world: World, existing: dict) -> list[tuple[str, str]]:
+    """(path, how) of each decision file, candidate ledger or repositories.json that differs from the
+    freeze: "changed", "missing", or "added" for a decision file the freeze would read now but did not record."""
     changed = []
     for key in ("decisionFiles", "candidateLedgers"):
         recorded = existing.get(key) if isinstance(existing.get(key), dict) else {}
@@ -2984,21 +3099,23 @@ def _changed_inputs(world: World, existing: dict) -> list[str]:
             try:
                 data = er.confined_file(world.root, rel).read_bytes()
             except (OSError, ValueError):
-                changed.append(f"{rel} (missing)")
+                changed.append((rel, "missing"))
                 continue
             if er.sha256_bytes(data) != digest:
-                changed.append(rel)
+                changed.append((rel, "changed"))
+    recorded = existing.get("decisionFiles") if isinstance(existing.get("decisionFiles"), dict) else {}
+    changed.extend((rel, "added") for rel in read_decision_files(world) if rel not in recorded)
     repositories = existing.get("repositories") if isinstance(existing.get("repositories"), dict) else {}
     if repositories.get("sha256") != er.sha256_bytes(world.repositories_bytes()):
-        changed.append(REPOSITORIES_REL)
+        changed.append((REPOSITORIES_REL, "changed"))
     return changed
 
 
 def _rederive(world: World, directory: Path, current: str, existing: dict, problems: list[str], notes: list[str],
               before: int) -> None:
-    changed = _changed_inputs(world, existing)
-    for rel in changed:
-        problems.append(f"{rel} changed after the freeze of {current}; a changed decision needs a new campaign "
+    for rel, how in _changed_inputs(world, existing):
+        what = {"missing": f"{rel} (missing) changed", "added": f"{rel} was added"}.get(how, f"{rel} changed")
+        problems.append(f"{what} after the freeze of {current}; a changed decision needs a new campaign "
                         f"({FREEZE_README})")
     derived = derive_campaign(world, current, frozen_at=existing.get("frozenAt"),
                               tooling=existing.get("tooling"), supersedes=existing.get("supersedes"),

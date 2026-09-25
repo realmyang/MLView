@@ -55,19 +55,26 @@ check only, so later tool changes cannot fail history. A final summary counts
 only when `stage1-summary.{json,md}` (with a `stop` or `invalid` decision) or
 `stage2-summary.{json,md}` are summaries `summarize --record` wrote for this
 campaign's `candidate.json` and `freeze.json`; any other file named like a
-summary is a problem and never switches the re-derivation off. The hash-only
-check still requires `freeze.json` to be the one `candidate.json` identifies
-and the candidate ledgers to keep their frozen bytes. For every campaign it
+summary is a problem and never switches the re-derivation off. For every
+campaign with a `candidate.json`, with or without a summary, `freeze.json` must
+be the one `candidate.json` identifies; the hash-only check also requires the
+candidate ledgers to keep their frozen bytes. For every campaign it
 also checks the fields the re-derivation copies: `supersedes` must name
 another frozen campaign (and every earlier campaign must be superseded) and
 `developmentAdjudication` must have its fixed shape. With the full Git
 history, `freeze.json` must equal the version first committed, and
 `tasksManifest.sha256` and the development adjudication hash must match the
 files committed with it (so commit the campaign, the decisions and
-`tasks.json` together, as the freeze says). What it cannot trace without
-history it prints as `not verified`. A captured campaign that lost its committed
-`candidate.json`, or a superseded captured campaign without a usable
-`invalidation.md`, fails the check.
+`tasks.json` together, as the freeze says). A captured campaign that lost its
+committed `candidate.json`, a stage summary that was committed and is now
+missing, differs from its first committed version or was committed more than
+once (a recorded summary is final), and a superseded captured campaign without
+a usable `invalidation.md` fail the check. Without the full history (a shallow
+clone, such as a default CI checkout, or no Git) these history checks cannot
+run, and check-frozen prints a `not verified` line for each campaign that
+names them; the CI job that runs the evaluation tests fetches the full
+history. A decision file the current freeze did not include, such as a second
+review written after it, is named as added after the freeze.
 
 ## Private run evidence
 
@@ -85,9 +92,12 @@ replaced by `.`, for example `pilot-nanogpt.codex.1`:
 
 `$MLVIEW_PILOT_DIR/preparations.jsonl` gets one line per `run-prepare`
 attempt and is never rewritten. A retry (`run-prepare <run> --retry
-"<reason>"`, only after a sealed failed, timed-out or blocked attempt) keeps
-the earlier attempt as `evidence/<run>.attempt-<n>/`; `summarize` requires the
-evidence, the attempts in `preparations.jsonl` and each session's
-`Prior attempts` to agree.
+"<reason>"`) is allowed only if the prompt was never sent: only after a sealed
+`failed` or `blocked` attempt whose `session.md` says `Prompt sent: no`, never
+after a timeout, a failure after the prompt or a completed session. It keeps
+the earlier attempt as `evidence/<run>.attempt-<n>/`; `summarize` verifies
+each earlier attempt like a current record, requires the evidence, the
+attempts in `preparations.jsonl` and each session's `Prior attempts` to agree,
+and lists every earlier attempt in the summary.
 
 A hash identifies bytes; it does not supply human approval.

@@ -666,8 +666,25 @@ def test_high_severity_note_is_satisfied_by_a_second_review(shared_world: wd.Wor
     assert second_check.errors == 0, [p.message for p in second_check.report.problems]
     with_second = wd.check_reference(shared_world, primary.encode("utf-8"), "pilot-demo.md", second=second_check)
     alone = wd.check_reference(shared_world, primary.encode("utf-8"), "pilot-demo.md")
-    assert [p.level for p in alone.report.problems].count("NOTE") == 1
-    assert [p.level for p in with_second.report.problems].count("NOTE") == 0
+    assert [p.message for p in alone.report.problems if p.level == "NOTE"] == [
+        "a second reviewer is recommended for high-severity defects (REVIEW_GUIDE)."]
+    # A second review cannot hold a position on the primary's own demo-d01, so it keeps a NOTE (OWNERUX2-3) ...
+    notes = [p.message for p in with_second.report.problems if p.level == "NOTE"]
+    assert notes == ['the second review does not cover your own additions. For a second opinion on this high-severity '
+                     'defect, the second reviewer adds it as "## Defect demo-s-d01" and you resolve it as "demo-s-d01: '
+                     'adopted as demo-d01 -- <why>"; otherwise it is not second-reviewed (REVIEW_GUIDE).'], notes
+    # ... resolving an unrelated addition as not adopted keeps it, and only adopting the matching addition clears it.
+    rejected = primary.replace("## Disagreements\n", "## Disagreements\ndemo-s-d01: not a defect (synthetic)\n")
+    checked = wd.check_reference(shared_world, rejected.encode("utf-8"), "pilot-demo.md", second=second_check)
+    assert [p.level for p in checked.report.problems].count("NOTE") == 1
+    assert not [p for p in checked.report.problems if p.section == "Disagreements"]
+    adopted = primary.replace("## Disagreements\n", "## Disagreements\ndemo-s-d01: adopted as demo-d01 -- the same "
+                                                    "defect (synthetic)\n")
+    checked = wd.check_reference(shared_world, adopted.encode("utf-8"), "pilot-demo.md", second=second_check)
+    assert [p.level for p in checked.report.problems].count("NOTE") == 0 and checked.errors == 0
+    assert not [p for p in checked.report.problems if p.section == "Disagreements"]
+    assert checked.disputes[0]["adoptedAs"] == "demo-d01"
+    assert checked.disputes[0]["primary"] == {"decision": "added", "severity": "high"}
 
 
 def test_the_second_reviewers_own_additions_must_be_resolved(tmp_path: Path, verified) -> None:
@@ -681,8 +698,8 @@ def test_the_second_reviewers_own_additions_must_be_resolved(tmp_path: Path, ver
     code, out = run(world, "check", "pilot-demo")
     assert code == 1
     assert f'TODO  Disagreements: demo-s-h01: the second reviewer ({SECOND}) added the fact "The synthetic loop also ' \
-           'clips gradients at one." (basis: observed, essential: yes). Add it under your own ID if you agree, and write ' \
-           '"demo-s-h01: <how it was resolved>".' in out, out
+           'clips gradients at one." (basis: observed, essential: yes). To adopt it, add it under your own ID and write ' \
+           '"demo-s-h01: adopted as <your ID> -- <why>"; otherwise write "demo-s-h01: <why it is not adopted>".' in out, out
     resolved = primary.replace("## Disagreements\n", "## Disagreements\ndemo-s-h01: not supported by the source "
                                                      "(synthetic)\n")
     write(world, "pilot-demo.md", complete(resolved))
@@ -692,6 +709,66 @@ def test_the_second_reviewers_own_additions_must_be_resolved(tmp_path: Path, ver
     assert result.disputes == [{"item": "demo-s-h01", "primary": None,
                                 "second": {"decision": "added", "basis": "observed", "essential": True},
                                 "resolution": "not supported by the source (synthetic)"}], result.disputes
+
+
+def test_an_adopted_addition_is_linked_to_the_primary_id(tmp_path: Path, verified) -> None:
+    """ "adopted as <your ID>" records the adopting item, so summaries count it inside the denominators (OWNERUX2-2)."""
+    world = make_world(tmp_path)
+    added = ["## Added fact demo-s-h01", "Wording: The synthetic loop also clips gradients at one.",
+             "Basis: observed", "Essential: yes", "Anchors: train.py:10", "", "## Added unknown demo-s-hu01",
+             "Wording: The synthetic seed is not fixed.", "Runs must state: yes", ""]
+    second = insert_before(fill_header(wd.task_template(world, "pilot-demo", second=True), SECOND), "## Task", added)
+    write(world, "pilot-demo.second.md", complete(second))
+    own = ["## Added fact demo-h01", "Wording: The synthetic loop clips gradients at one.", "Basis: observed",
+           "Essential: yes", "Anchors: train.py:10", "Reason: adopted from the second review (synthetic)", "",
+           "## Added unknown demo-hu01", "Wording: The synthetic seed is not fixed.", "Runs must state: yes",
+           "Reason: adopted from the second review (synthetic)", ""]
+    primary = insert_before(accept_all(world, "pilot-demo"), "## Disagreements", own)
+    wrong = primary.replace("## Disagreements\n", "## Disagreements\ndemo-s-h01: adopted as demo-hu01 -- (synthetic)\n"
+                                                  "demo-s-hu01: adopted -- same unknown (synthetic)\n")
+    write(world, "pilot-demo.md", complete(wrong))
+    code, out = run(world, "check", "pilot-demo")
+    assert code == 1
+    assert 'ERROR Disagreements: demo-s-h01: "adopted as demo-hu01" must name the section you added for it in this ' \
+           'file, "## Added fact demo-h01"; write "demo-s-h01: adopted as <your ID> -- <why>".' in out, out
+    assert 'ERROR Disagreements: demo-s-hu01: "adopted" must name the section you added for it in this file, ' \
+           '"## Added unknown demo-hu01"' in out, out
+    resolved = primary.replace("## Disagreements\n", "## Disagreements\ndemo-s-h01: adopted as demo-h01 (synthetic)\n"
+                                                     "demo-s-hu01: Adopted as demo-hu01. -- the same unknown (synthetic)\n")
+    write(world, "pilot-demo.md", complete(resolved))
+    code, out = run(world, "check", "pilot-demo")
+    assert "pilot-demo: 0 error(s), 0 to do; ready to freeze." in out, out
+    result = wd.check_path(world, world.root / wd.DECISIONS_REL / "pilot-demo.md")[0].result
+    assert result.disputes == [
+        {"item": "demo-s-h01", "primary": {"decision": "added", "basis": "observed", "essential": True},
+         "second": {"decision": "added", "basis": "observed", "essential": True}, "adoptedAs": "demo-h01",
+         "resolution": "adopted as demo-h01 (synthetic)"},
+        {"item": "demo-s-hu01", "primary": {"decision": "added", "runsMustState": True},
+         "second": {"decision": "added", "runsMustState": True}, "adoptedAs": "demo-hu01",
+         "resolution": "Adopted as demo-hu01. -- the same unknown (synthetic)"}], result.disputes
+
+
+def test_a_wrapped_resolution_is_told_to_indent(tmp_path: Path, verified) -> None:
+    """A resolution's wrapped second line that contains ": " is not advised to be deleted (OWNERUX2-6)."""
+    world = make_world(tmp_path)
+    second = decide(fill_header(wd.task_template(world, "pilot-demo", second=True), SECOND), "Fact demo-f01", "reject",
+                    "Reason: synthetic")
+    write(world, "pilot-demo.second.md", complete(second))
+    primary = accept_all(world, "pilot-demo")
+    wrapped = primary.replace("## Disagreements\n", "## Disagreements\ndemo-f01: kept accept; we discussed that the "
+                                                    "second reviewer read\nthe DDP branch: lines 94-95 only apply under "
+                                                    "DDP (synthetic)\n")
+    write(world, "pilot-demo.md", complete(wrapped))
+    code, out = run(world, "check", "pilot-demo")
+    assert code == 1
+    assert 'ERROR Disagreements: "the DDP branch" is not an item ID. To continue the previous line, indent it by two ' \
+           'spaces; put ">" in front of notes only.' in out, out
+    write(world, "pilot-demo.md", complete(wrapped.replace("\nthe DDP branch:", "\n  the DDP branch:")))
+    code, out = run(world, "check", "pilot-demo")
+    assert "pilot-demo: 0 error(s), 0 to do; ready to freeze." in out, out
+    result = wd.check_path(world, world.root / wd.DECISIONS_REL / "pilot-demo.md")[0].result
+    assert result.disputes[0]["resolution"] == ("kept accept; we discussed that the second reviewer read the DDP branch: "
+                                                "lines 94-95 only apply under DDP (synthetic)")
 
 
 def test_a_second_review_by_the_primary_reviewer_is_an_error(tmp_path: Path, verified) -> None:
@@ -1314,7 +1391,7 @@ def test_supersede_rules(tmp_path: Path, verified) -> None:
     out = refused(world)
     assert "  - evals/workflow/tasks.json is not in the pre-freeze state: campaign pilot-98 is frozen. Next: a new " \
            'campaign may supersede pilot-98 only with --supersede-reason "<why>"' in out
-    (frozen_dir(world, "pilot-98") / "candidate.json").write_text("{}\n", encoding="utf-8")
+    synthetic_candidate(world, "pilot-98")
     out = refused(world, "--supersede-reason", "synthetic reason")
     assert "pilot-98 was captured (it has candidate.json), so it can be superseded only after an owner-authored " \
            "invalidation.md (it does not exist)" in out
@@ -1359,14 +1436,19 @@ def frozen_world(tmp_path: Path) -> wd.World:
     return world
 
 
+HISTORY_NOTE = ("check-frozen: pilot-99: not verified without the full Git history (the repository root is not a Git "
+                "work tree): freeze.json against its first commit, and whether a committed candidate.json or stage "
+                "summary was removed or changed.")
+
+
 def test_check_frozen_passes_with_and_without_the_corpus(tmp_path: Path, verified) -> None:
     world = frozen_world(tmp_path)
     code, out = run(world, "check-frozen")
     assert (code, out.splitlines()) == (0, [
         "check-frozen: pilot-99 re-derived byte for byte (2 references, reference-set.json, policy.json, 4 prompts, "
-        "freeze.json); held-out tasks.json fields unchanged."])
+        "freeze.json); held-out tasks.json fields unchanged.", HISTORY_NOTE])
     code, out = run(world, "check-frozen", corpus=None)
-    assert code == 0 and out.splitlines()[-1] == "source hashes not re-read: corpus absent"
+    assert code == 0 and out.splitlines()[-2:] == ["source hashes not re-read: corpus absent", HISTORY_NOTE]
 
 
 def test_check_frozen_catches_an_edited_decision_file(tmp_path: Path, verified) -> None:
@@ -1588,7 +1670,7 @@ def test_a_deleted_candidate_still_needs_an_invalidation_to_supersede(tmp_path: 
     assert run(world, "freeze", "--campaign", "pilot-98", "--write", "--frozen-at", FROZEN_AT)[0] == 0
     git_world(world)
     old = frozen_dir(world, "pilot-98")
-    (old / "candidate.json").write_text("{}\n", encoding="utf-8")
+    synthetic_candidate(world, "pilot-98")
     git(world.root, "add", "-A")
     git(world.root, "commit", "--quiet", "-m", "synthetic capture")
     code, out = run(world, "check-frozen")
@@ -1660,6 +1742,123 @@ def test_a_tasks_json_committed_apart_from_the_freeze_is_noted(tmp_path: Path, v
     code, out = run(world, "check-frozen")
     assert code == 0 and "check-frozen: pilot-99: not verified: tasksManifest.sha256 (evals/workflow/tasks.json was " \
                          "committed separately from freeze.json)" in out, out
+
+
+def commit_all(world: wd.World, message: str) -> None:
+    git(world.root, "add", "-A")
+    git(world.root, "commit", "--quiet", "-m", message)
+
+
+@pytest.mark.parametrize("number, first, then", [("1", "stop", "go"), ("2", "targets-missed", "targets-met")])
+def test_a_committed_summary_cannot_be_removed_or_replaced(tmp_path: Path, verified, number: str, first: str,
+                                                           then: str) -> None:
+    """A recorded summary is final: deleting a committed one, or recording another after it, fails (INTEGRITY2-1)."""
+    world = frozen_world(tmp_path)
+    git_world(world)
+    synthetic_candidate(world)
+    if number == "2":
+        synthetic_summary(world, "go")
+    synthetic_summary(world, first, number=number)
+    commit_all(world, "synthetic capture and summary")
+    code, out = run(world, "check-frozen")
+    assert code == 0 and "(final summary recorded): hashes intact." in out, out
+    names = [f"stage{number}-summary.json", f"stage{number}-summary.md"]
+    git(world.root, "rm", "--quiet", *[str(frozen_dir(world) / name) for name in names])
+    git(world.root, "commit", "--quiet", "-m", "synthetic removal of the summary")
+    code, out = run(world, "check-frozen")
+    for name in names:
+        assert code == 1 and f"check-frozen: evals/workflow/pilot/pilot-99/{name} was committed in " in out, out
+        assert f"pilot-99/{name} was committed in" in out and "is missing now (a recorded summary is final)" in out
+    synthetic_summary(world, then, number=number)
+    commit_all(world, "synthetic replacement summary")
+    code, out = run(world, "check-frozen")
+    assert code == 1
+    for name in names:
+        assert f"evals/workflow/pilot/pilot-99/{name} differs from the version first committed in" in out, out
+        assert f"evals/workflow/pilot/pilot-99/{name} was added in 2 commits: a recorded summary was removed and " \
+               "recorded again (a recorded summary is final)" in out, out
+
+
+def shallow_clone(world: wd.World, target: Path) -> wd.World:
+    subprocess.run(["git", "clone", "--quiet", "--depth", "1", world.root.resolve().as_uri(), str(target)], check=True,
+                   capture_output=True, env=git_env())
+    assert git(target, "rev-parse", "--is-shallow-repository").strip() == "true"
+    return wd.World(target, world.corpus)
+
+
+def test_a_shallow_clone_says_which_history_checks_did_not_run(tmp_path: Path, verified) -> None:
+    """Without the full history the lost-candidate, lost-summary and first-commit checks are named (INTEGRITY2-4)."""
+    world = frozen_world(tmp_path / "a")
+    git_world(world)
+    synthetic_candidate(world)
+    commit_all(world, "synthetic capture")
+    git(world.root, "rm", "--quiet", str(frozen_dir(world) / "candidate.json"))
+    git(world.root, "commit", "--quiet", "-m", "synthetic deletion")
+    code, out = run(world, "check-frozen")
+    assert code == 1 and "is missing now (a candidate is never removed)" in out, out
+    assert "not verified" not in out
+    shallow = shallow_clone(world, tmp_path / "shallow")
+    code, out = run(shallow, "check-frozen")
+    assert code == 0, out
+    assert "check-frozen: pilot-99: not verified without the full Git history (this is a shallow clone (git fetch " \
+           "--unshallow gives the full history)): freeze.json against its first commit, and whether a committed " \
+           "candidate.json or stage summary was removed or changed." in out, out
+
+
+def test_a_superseded_captured_campaign_is_bound_to_its_candidate_without_a_summary(tmp_path: Path, verified) -> None:
+    """The hash-only check binds freeze.json to candidate.json even before any summary (SPECDOCS2-2)."""
+    world = make_world(tmp_path)
+    complete_world(world)
+    assert run(world, "freeze", "--campaign", "pilot-98", "--write", "--frozen-at", FROZEN_AT)[0] == 0
+    synthetic_candidate(world, "pilot-98")
+    (frozen_dir(world, "pilot-98") / "invalidation.md").write_text(
+        f"# Invalidation: pilot-98\nReviewer: {REVIEWER}\nDate: {DATE}\nScope: campaign\nReason: synthetic\n",
+        encoding="utf-8")
+    code, out = run(world, "freeze", "--campaign", "pilot-99", "--write", "--frozen-at", FROZEN_AT,
+                    "--supersede-reason", "synthetic reason")
+    assert code == 0, out
+    assert run(world, "check-frozen")[0] == 0
+    directory = frozen_dir(world, "pilot-98")
+    ref_path = directory / "reference/pilot-demo.json"
+    ref = json.loads(ref_path.read_text(encoding="utf-8"))
+    ref["essentialFactIds"] = ref["essentialFactIds"][:1]
+    ref_path.write_bytes(er.canonical_json(ref))
+    set_path = directory / "reference-set.json"
+    reference_set = json.loads(set_path.read_text(encoding="utf-8"))
+    for entry in reference_set["tasks"]:
+        if entry["task"] == "pilot-demo":
+            entry["sha256"] = er.sha256_file(ref_path)
+    set_path.write_bytes(er.canonical_json(reference_set))
+    freeze_path = directory / "freeze.json"
+    freeze_value = json.loads(freeze_path.read_text(encoding="utf-8"))
+    freeze_value["files"]["reference/pilot-demo.json"] = er.sha256_file(ref_path)
+    freeze_value["files"]["reference-set.json"] = er.sha256_file(set_path)
+    freeze_value["referenceRevision"] = "sha256:" + er.sha256_file(set_path)
+    freeze_path.write_bytes(er.canonical_json(freeze_value))
+    code, out = run(world, "check-frozen")
+    assert code == 1 and "check-frozen: evals/workflow/pilot/pilot-98/freeze.json differs from the freeze.json that " \
+                         "candidate.json identifies (frozen files are immutable)" in out, out
+    assert "pilot-98 (superseded): hashes intact." not in out
+
+
+def test_a_second_review_added_after_the_freeze_is_named(tmp_path: Path, verified) -> None:
+    """check notes a decision file the freeze did not include, and check-frozen names it (OWNERUX2-5)."""
+    world = frozen_world(tmp_path)
+    second = fill_header(wd.task_template(world, "pilot-demo", second=True), SECOND)
+    second = decide(second, "Fact demo-f01", "accept")
+    path = write(world, "pilot-demo.second.md", complete(second))
+    code, out = run(world, "check", "pilot-demo")
+    assert "pilot-demo: 0 error(s), 0 to do; frozen in pilot-99." in out, out
+    assert "evals/workflow/decisions/pilot-demo.second.md:1: NOTE  header: this file was added after the freeze of " \
+           "pilot-99, which did not include it; a changed decision needs a new campaign " \
+           "(evals/workflow/pilot/README.md)." in out, out
+    assert "pilot-demo (second review): 0 error(s), 0 to do; added after the freeze of pilot-99." in out, out
+    assert "ready to freeze" not in out
+    code, out = run(world, "check-frozen")
+    assert code == 1 and "check-frozen: evals/workflow/decisions/pilot-demo.second.md was added after the freeze of " \
+                         "pilot-99; a changed decision needs a new campaign (evals/workflow/pilot/README.md)" in out, out
+    path.unlink()
+    assert run(world, "check-frozen")[0] == 0
 
 
 def test_check_frozen_without_a_freeze(tmp_path: Path) -> None:

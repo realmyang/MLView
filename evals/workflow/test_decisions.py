@@ -53,32 +53,36 @@ def is_pristine(raw: bytes, template: str, name: str) -> bool:
 
 
 def pristine_difference(raw: bytes, template: str) -> str | None:
-    """None when ``raw`` is the template apart from line endings, a byte order mark and added note
-    lines (lines starting with ">"), which the owner may add before deciding anything; otherwise the
-    first difference."""
+    """None when ``raw`` is the template apart from what the grammar ignores (section 1.3): line
+    endings, a byte order mark, trailing spaces, a missing final newline, and added or removed blank
+    lines and added note lines (first non-space character ">"), which the owner may add before
+    deciding anything; otherwise the first difference."""
     text = raw.decode("utf-8")
     if text.startswith("\ufeff"):
         text = text[1:]
-    lines = re.split(r"\r\n|\r|\n", text)
-    expected = template.split("\n")
+    lines = [line.rstrip() for line in re.split(r"\r\n|\r|\n", text)]
+    expected = [line.rstrip() for line in template.split("\n")]
     index = 0
     for number, line in enumerate(lines, 1):
+        while index < len(expected) and not expected[index] and line != expected[index]:
+            index += 1  # a blank template line the owner removed
         if index < len(expected) and line == expected[index]:
             index += 1
             continue
-        if line.startswith(">"):
+        if not line or line.lstrip().startswith(">"):
             continue
         wanted = repr(expected[index]) if index < len(expected) else "the end of the file"
         return f"line {number} is {line!r} where the template has {wanted}"
-    if index < len(expected):
-        return f"the file ends before the template line {expected[index]!r}"
+    missing = [line for line in expected[index:] if line]
+    if missing:
+        return f"the file ends before the template line {missing[0]!r}"
     return None
 
 
 def pristine_message(path: Path, name: str, difference: str) -> str:
     return (f"{path.name} still has every value pending but differs from `python tools/workflow_eval.py template "
-            f"--show {name}`: {difference}. Only note lines starting with \">\" may be added before the first "
-            f"decision; restore the other lines from template --show.")
+            f"--show {name}`: {difference}. Only blank lines and note lines starting with \">\" may be added before the "
+            f"first decision; restore the other lines from template --show.")
 
 
 def test_the_folder_holds_every_owner_file() -> None:
@@ -142,7 +146,18 @@ def test_owner_notes_and_line_endings_keep_a_pristine_file_valid() -> None:
     drifted = template.replace("Decision: pending", "Decision:  pending", 1)
     difference = pristine_difference(drifted.encode("utf-8"), template)
     assert difference is not None and "where the template has 'Decision: pending'" in difference
-    assert "Only note lines starting with" in pristine_message(DECISIONS / "x.md", "x", difference)
+    assert "Only blank lines and note lines starting with" in pristine_message(DECISIONS / "x.md", "x", difference)
+    # What the grammar ignores never fails CI while check shows no error (OWNERUX2-4).
+    note_then_blank = "\n".join(lines[:12] + ["> My note (synthetic).", ""] + lines[12:])
+    indented = "\n".join(lines[:12] + ["  > My indented note (synthetic)."] + lines[12:])
+    trailing = template.replace("\nReviewer:\n", "\nReviewer: \n", 1)
+    for variant in (note_then_blank, indented, trailing, template.rstrip("\n"), template.rstrip("\n") + "\n> end (synthetic)",
+                    template.replace("\n\n## ", "\n## ", 1)):
+        assert pristine_difference(variant.encode("utf-8"), template) is None, variant[:80]
+    deleted = template.replace("Decision: pending\n", "", 1)
+    assert pristine_difference(deleted.encode("utf-8"), template) is not None
+    truncated = template[:template.index("## Task")]
+    assert "the file ends before the template line '## Task'" == pristine_difference(truncated.encode("utf-8"), template)
 
 
 def test_committed_frozen_campaigns_re_derive_exactly() -> None:
