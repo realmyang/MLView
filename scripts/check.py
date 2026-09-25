@@ -27,6 +27,9 @@ def main() -> int:
     if not npm:
         parser.error("Node 20.18.1+ and npm must be on PATH")
     env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1", PYTHONUTF8="1")
+    # The extension's refine-wedge test runs the real helper; require it here instead of skipping.
+    env["MLVIEW_PYTHON"] = sys.executable
+    env["MLVIEW_REQUIRE_PYTHON"] = "1"
     gates = []
 
     def run(label: str, *command: str, cwd: Path = ROOT) -> None:

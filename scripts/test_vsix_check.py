@@ -40,6 +40,11 @@ def test_legacy_command_fails(tmp_path):
     assert any("commands" in p for p in module.check(tmp_path, package(tmp_path, commands=["mlview.visualize"]))[0])
 
 
+def test_retired_show_output_command_fails(tmp_path):
+    vsix = package(tmp_path, commands=["mlview.openGeneratedDiagram", "mlview.showOutput"])
+    assert any("commands" in p for p in module.check(tmp_path, vsix)[0])
+
+
 def test_stale_renderer_fails(tmp_path):
     source = tmp_path / "vscode-extension/media/mlview.js"
     source.parent.mkdir(parents=True)

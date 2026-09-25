@@ -13,7 +13,7 @@ REQUIRED = {
     "extension/package.json", "extension/out/extension.js", "extension/media/mlview.js",
     "extension/media/mlview.css", "extension/LICENSE.txt", "extension/THIRD_PARTY_NOTICES.md",
 }
-ALLOWED_COMMANDS = {"mlview.openGeneratedDiagram", "mlview.showOutput"}
+ALLOWED_COMMANDS = {"mlview.openGeneratedDiagram"}
 
 
 def find_vsix(root: Path = ROOT) -> Path | None:
