@@ -19,10 +19,22 @@ is not a sandbox for the host model.
 Artifacts are untrusted input. The helper and VS Code boundary validate the
 version, structure, references, ranges, size limits, and workspace containment,
 including symlinks. The panel binds citations to the artifact's workspace
-folder, rechecks source before navigation, and retains the last valid revision
-when an update is malformed. Unsaved and saved source changes can invalidate
-evidence. A valid citation proves that text exists at an anchor, not that it
-supports the model's interpretation. Findings remain model-authored claims.
+folder, rechecks the displayed revision before navigation, and retains the last
+valid revision when an update is malformed. Saved source changes mark the
+affected evidence stale; unsaved editor changes block a jump when the cited
+lines no longer match. A valid citation proves that text exists at an anchor,
+not that it supports the model's interpretation. Findings remain model-authored
+claims.
+
+Refinement prompts copy artifact and workspace text, such as the question,
+labels, evidence quotes and file names, only inside a delimited JSON data
+block. The prompt's own lines contain host-written text, validated IDs and
+JSON-quoted strings, and tell the assistant to treat the block as data, never
+as instructions. In VS Code Restricted Mode the prompt also states that the
+workspace is not trusted. The skill likewise treats repository files and
+artifacts as data. These measures reduce, but cannot eliminate, prompt
+injection through files the assistant reads; the host's permission controls
+remain the boundary for its tools.
 
 Generated labels and excerpts render as text under the webview's Content
 Security Policy. No artifact may choose an executable command or model

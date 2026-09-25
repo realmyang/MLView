@@ -60,8 +60,9 @@ and Unresolved views alongside the diagram.
 
 The workflow supports custom phases, nested groups, branches and cycles,
 notebook cell references, and findings with evidence and counter-evidence.
-Observed, inferred, and unresolved claims remain distinguishable. Source edits
-invalidate citations; malformed updates retain the last valid diagram.
+Observed, inferred, and unresolved claims remain distinguishable. Saved source
+edits mark the affected citations stale and block jumps into those files;
+malformed updates retain the last valid diagram.
 
 ## How it works
 
@@ -85,8 +86,8 @@ The portable skill is in [skills/mlview](skills/mlview/SKILL.md). The authoring
 format is [WorkflowDocument 1.0](docs/WORKFLOW_CONTRACT.md), with its
 [JSON Schema](contracts/workflow.schema.json). Generated JSON is data, never a script or an instruction to the viewer.
 
-The [semantic-quality sprint](docs/QUALITY_SPRINT.md) records the current skill
-improvements and development follow-ups. Its [review ledgers](evals/workflow/development/native-reviews/README.md)
+The dated 2026-09-18 [quality sprint](docs/QUALITY_SPRINT.md) records the skill
+improvements and development follow-ups of that date. Its [review ledgers](evals/workflow/development/native-reviews/README.md)
 cover twelve native artifacts and three no-skill baselines; their semantic
 judgments remain provisional until human review.
 
@@ -109,6 +110,6 @@ The full check builds and tests the skill and viewer, validates evaluation
 records, and inspects packaged skill ZIPs and the VSIX. On Windows use
 `powershell -File scripts/e2e.ps1`.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md), [the approved direction](docs/LLM_DIRECTION_PLAN.md),
+See [CONTRIBUTING.md](CONTRIBUTING.md), [current status](docs/STATUS.md),
 [security boundaries](SECURITY.md), and [the documentation index](docs/README.md).
 The CI badge reports the default branch, not this unmerged implementation.
