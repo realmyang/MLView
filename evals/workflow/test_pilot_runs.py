@@ -1257,8 +1257,8 @@ def test_no_tool_output_contains_a_decision_or_approval(world: World, tmp_path: 
     run_main(world, "review-template", base, *pilot_args(world))
     text = (world.evidence(base) / "review.md").read_text(encoding="utf-8")
     values = [line.split(": ", 1)[1] for line in text.splitlines() if ": " in line and not line.startswith((">", "#"))]
-    assert set(values) - {"pending"} == {base, json.loads((world.evidence(base) / "record.json").read_text())["evidence"]["transcript"]["sha256"],
-                                          json.loads((world.evidence(base) / "record.json").read_text())["referenceRevision"]}
+    assert set(values) - {"pending"} == {base, json.loads((world.evidence(base) / "record.json").read_text(encoding="utf-8"))["evidence"]["transcript"]["sha256"],
+                                          json.loads((world.evidence(base) / "record.json").read_text(encoding="utf-8"))["referenceRevision"]}
     assert "Reviewer:\n" in text and "Review: pending" in text
     assert "complete" not in text.replace('"Review: complete" when', "")
     summary = summarize(world)
