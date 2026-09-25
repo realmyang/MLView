@@ -11,46 +11,49 @@ explains each gate and explicit skip options.
 ## Campaign 1 local checks — 2026-09-25
 
 Campaign 1 ("reliability and trust", version 0.2.0; see the
-[changelog](../CHANGELOG.md)) was checked on commit `f4932c7` of the
-`c1-integration` branch. **These are local automated checks on one macOS
-machine** (Darwin 25.6.0, Node 26.4.0, npm 11.17.0, Python 3.13.15). CI has not
-run on this commit, so its result is pending. Node 20.18.1 and 22, Windows,
-Linux and Python 3.10–3.12 were not exercised. Nothing here is live-host
-(Extension Development Host) validation, a native assistant run, human review
-or semantic accuracy.
+[changelog](../CHANGELOG.md)), including the fixes from the campaign's first
+review, was checked on commit `85c6c63` of the `c1-integration` branch.
+**These are local automated checks on one macOS machine** (Darwin 25.6.0,
+Node 26.4.0, npm 11.17.0, Python 3.13.15). CI has not run on this commit, so
+its result is pending. Node 20.18.1 and 22, Windows, Linux and Python 3.10–3.12
+were not exercised. Nothing here is live-host (Extension Development Host)
+validation, a native assistant run, human review or semantic accuracy.
 
 - `MLVIEW_PYTHON="$PWD/.venv/bin/python" PATH="$PWD/.venv/bin:$PATH" PYTHONDONTWRITEBYTECODE=1 sh scripts/e2e.sh --skip-npm-install`:
   **all 15 exercised gates passed**. The gate sets `MLVIEW_REQUIRE_PYTHON=1`,
   so the refine-wedge regression ran the real helper instead of skipping.
-- Python helper, distribution and evaluation tests: **178 passed, 311 subtests
+- Python helper, distribution and evaluation tests: **187 passed, 378 subtests
   passed, 2 skipped**. Both skips need the unavailable Claude CLI; they are not
   plugin validation passes. The conformance runner
-  (`tools/test_workflow_conformance.py`, 12 tests, 232 subtests) and the
+  (`tools/test_workflow_conformance.py`, 12 tests, 279 subtests) and the
   recorded-artifact guard (1 test, 23 subtests) are included.
-- Viewer: **69 passed**, including the rewritten host, bootstrap and bundle
+- Viewer: **76 passed**, including the rewritten host, bootstrap and bundle
   handshake, bundle hygiene and the routed-geometry golden.
-- Extension: **197 passed**, including revision lineage (31), panel lineage
-  (12), the refine wedge with the real helper (6), host protocol (8),
-  bootstrap (2), export payloads (4), recorded artifacts (3) and the
-  conformance runner (53: every corpus case, the parity checks and the
+- Extension: **229 passed**, including revision lineage (37), panel lineage
+  (20), host-shown text (7), the refine wedge with the real helper (6), host
+  protocol (8), bootstrap (2), export payloads (4), recorded artifacts (3) and
+  the conformance runner (60: every corpus case, the parity checks and the
   helper-publish, viewer-load round trip).
 - Both eight-file skill ZIPs were packaged. The actual VSIX had **11 files,
-  153,398 bytes**, with no analyzer or Python runtime payload and only
+  155,141 bytes**, with no analyzer or Python runtime payload and only
   `mlview.openGeneratedDiagram` contributed.
 - Portable skill bundle identity (`sha256-sorted-path-nul-bytes-nul` over the
-  eight files): `e54a31355b89c41c6e042fc1c23655405d66877c48ba7702275df8a6d89863d0`.
+  eight files): `120dcad2d2bb848f69d55fa83dc19d162a6167ff2e082d9a6af6504ed1615660`.
   Built viewer: `mlview.js` SHA-256
-  `3d602e3334c06d90d3886b0be784ca6644bff039e64b7c1944c3bf72db0c85ad`,
+  `9644127860b231f07daf2722d49438f50efeef840aee325948671e3a9beb2094`,
   `mlview.css` SHA-256
   `e43c14dec5968faf86c28993dbbe8c39c35b334e9f6589c817d1ed286daa6185`.
-- After the gate rebuilt everything, `git diff --exit-code` over `webview/dist`,
+- After a separate rebuild (viewer build, asset and skill sync, extension
+  compile), `git diff --exit-code` over `webview/dist`,
   `vscode-extension/media`, the extension's notices and
   `claude-plugin/skills/mlview` was clean.
-- The 2026-09-25 review's critic reproductions were re-run on scratch copies
-  against this build. A changed installed-skill file no longer makes a diagram
-  stale: no banner, and navigation opens `train.py`. A `"parent": null` node is
-  rejected by both the helper and the extension. A workflow-level finding stays
-  listed under both phase filters and under `stage:train`.
+- Earlier, on commit `f4932c7` (before the first-review fixes), the
+  2026-09-25 review's critic reproductions were re-run on scratch copies. A
+  changed installed-skill file no longer made a diagram stale: no banner, and
+  navigation opened `train.py`. A `"parent": null` node was rejected by both
+  the helper and the extension. A workflow-level finding stayed listed under
+  both phase filters and under `stage:train`. These reproductions were not
+  repeated on `85c6c63`.
 
 The commit that adds this record changes only this file and STATUS.md. Still
 outstanding: CI on this commit, the manual live-host checklist (Refine with
