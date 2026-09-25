@@ -377,7 +377,7 @@ def test_update_sparse_keeps_hand_materialised_files_offline_and_reverifies(loca
     (checkout / "configs/_base_").mkdir()
     (checkout / "configs/_base_/default_runtime.py").write_bytes(UPSTREAM_FILES["configs/_base_/default_runtime.py"])
     git(checkout, "update-index", "--no-skip-worktree", "configs/_base_/default_runtime.py")
-    (checkout / ".mlview-pinned-sha").write_text(local_repo["sha"] + "\n", encoding="ascii")
+    (checkout / ".mlview-pinned-sha").write_bytes(local_repo["sha"].encode("ascii") + b"\n")
     before = materialised(checkout)
     new = dict(local_repo, sparse=["tools", "configs/common", "/configs/_base_/default_runtime.py"])
     report = fetcher.verify_repo(new, corpus)
