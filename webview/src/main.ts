@@ -10,7 +10,7 @@ import type { HostBridge } from './types.js';
 import type { WorkflowDocument, WorkflowViewApp } from './types.js';
 import { normalizeWorkflow } from './workflow.js';
 
-export const version = '0.1.0';
+export const version = '0.2.0';
 
 export function mountWorkflow(root: HTMLElement, document: WorkflowDocument, bridge: HostBridge): WorkflowViewApp {
   if (!root) throw new Error('MLView.mountWorkflow: a root element is required');

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -16,15 +17,37 @@ RETIRED = (
 )
 
 
+MANIFESTS = (
+    "webview/package.json", "vscode-extension/package.json",
+    "claude-plugin/.claude-plugin/plugin.json",
+)
+MARKETPLACE = ".claude-plugin/marketplace.json"
+VIEWER_ENTRY = "webview/src/main.ts"
+VIEWER_VERSION = re.compile(r"^export const version = '([^'\n]*)';$", re.MULTILINE)
+
+
+def product_versions(root: Path = ROOT) -> dict[str, str | None]:
+    """Every literal that names the product version, keyed by where it lives (CRIT-4)."""
+    found: dict[str, str | None] = {}
+    for path in MANIFESTS:
+        found[path] = json.loads((root / path).read_text(encoding="utf-8")).get("version")
+    marketplace = json.loads((root / MARKETPLACE).read_text(encoding="utf-8"))
+    metadata = marketplace.get("metadata")
+    found[f"{MARKETPLACE} metadata.version"] = metadata.get("version") if isinstance(metadata, dict) else None
+    literals = VIEWER_VERSION.findall((root / VIEWER_ENTRY).read_text(encoding="utf-8"))
+    found[f"{VIEWER_ENTRY} version literal"] = literals[0] if len(literals) == 1 else None
+    return found
+
+
 def check_metadata(root: Path = ROOT) -> list[str]:
     problems = []
-    manifests = [root / path for path in (
-        "webview/package.json", "vscode-extension/package.json",
-        "claude-plugin/.claude-plugin/plugin.json",
-    )]
-    versions = {json.loads(path.read_text(encoding="utf-8"))["version"] for path in manifests}
-    if len(versions) != 1:
-        problems.append("component versions differ")
+    versions = product_versions(root)
+    missing = [where for where, value in versions.items() if not isinstance(value, str) or not value]
+    for where in missing:
+        problems.append(f"product version missing or ambiguous: {where}")
+    if len({value for value in versions.values() if isinstance(value, str) and value}) > 1:
+        detail = ", ".join(f"{where}={value}" for where, value in versions.items() if where not in missing)
+        problems.append(f"component versions differ: {detail}")
     from jsonschema import Draft202012Validator
     schema = json.loads((root / "contracts/workflow.schema.json").read_text(encoding="utf-8"))
     example = json.loads((root / "skills/mlview/references/workflow-example.json").read_text(encoding="utf-8"))
