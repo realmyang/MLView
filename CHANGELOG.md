@@ -89,7 +89,7 @@ Skill and helper:
   SKILL-20, CRIT-6).
 
 Contract, checks and distribution:
-- `contracts/conformance` holds 56 self-contained cases run through the
+- `contracts/conformance` holds 65 self-contained cases run through the
   schema, the helper and the extension, plus a helper-publish, viewer-load
   round trip; the extension now matches the helper on notebook cells, exact
   quotes, code-point lengths and empty parents (CONTRACT-8 = SKILL-17,
@@ -114,7 +114,8 @@ into a rejection (LINEAGE1-1); a deeply nested artifact is a parse error
 instead of a stuck "checking" status (LINEAGE1-2); a direct child of the shown
 revision is always adopted (LINEAGE1-3); each disk event gets fresh read
 retries (LINEAGE1-4); banner and prompt text from the artifact is single-line,
-bounded and escapes every invisible or reordering character (SECURITY1-1,
+bounded, and escapes C0 and C1 controls, bidirectional controls, line and
+paragraph separators and Unicode default-ignorable characters (SECURITY1-1,
 SECURITY1-2); restored and opened paths are normalised before the workspace
 check, and refine selections must have a string kind (SECURITY1-3,
 SECURITY1-4); links and aliases of MLView files are never fingerprinted
@@ -128,6 +129,23 @@ names notebook cells and searches phases, focus mode survives re-renders, and
 cards say "step" and "finding" (WEBVIEW1-1 to WEBVIEW1-7, LINEAGE1-5); new
 corpus cases pin changed inspected files, entrypoint drive letters, BOM
 notebooks and Latin-1 sources (SPECDOCS1-1 to SPECDOCS1-3).
+
+Fixes from the second review of this campaign (finding IDs from the round-2
+review): a Refine refusal about a missing or unreadable artifact file is
+cleared once the file is read again, even when the revision is unchanged
+(LINEAGE2-1); a hand-edited value the viewer's checks used to crash on (an
+object with a `toString` member) is reported as an issue, so Refine continues
+from that revision instead of calling the file unreadable (LINEAGE2-2); an
+artifact opened through a differently cased path on macOS opens in the
+workspace folder's spelling (LINEAGE2-3); both layers treat the long s
+(U+017F) and the Kelvin sign (U+212A) as `s` and `k` when deciding what is an
+MLView file, as case-insensitive volumes do (SECURITY2-1); the escape set now
+covers every Unicode default-ignorable character, including variation
+selectors and Hangul fillers (SECURITY2-2, SPECDOCS2-1); the helper rejects
+`NaN` and `Infinity`, which are not JSON, in drafts and in an existing
+artifact (SPECDOCS2-3); the corpus pins the 64-level nesting bound, and both
+runners read JSON the way the product does (SPECDOCS2-4); docs no longer say
+evidence quotes are copied into the prompt (SPECDOCS2-2).
 
 Not in this version: the manual live VS Code checks (HC Light, BOM files open
 while publishing, symlinked roots, Windows drive letters), human semantic

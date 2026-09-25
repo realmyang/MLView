@@ -6,7 +6,9 @@ into a temporary workspace and reports what two layers say about it:
 
 * the helper: ``artifact.validate(doc, root, warnings=w)`` from
   skills/mlview/scripts/artifact.py, reduced to ``{ok, codes, warnings,
-  fingerprints, stale}`` exactly as the case format defines them;
+  fingerprints, stale}`` exactly as the case format defines them. A ``raw``
+  case is parsed with ``artifact._parse``, which applies the CLI's rules
+  (unique members, no NaN or Infinity, at most 64 levels of nesting);
 * the strict schema layer: contracts/workflow.schema.json under Draft 2020-12
   with full-match ``pattern`` semantics (ECMA-262 for the schema's anchored
   patterns) and a stdlib RFC 3339 ``date-time`` check that mirrors the helper.
@@ -182,13 +184,18 @@ def schema_patterns(value: Any) -> list[str]:
 
 
 def schema_document(case: dict[str, Any]) -> tuple[bool, Any]:
-    """What a plain JSON consumer sees: (parsed, value). A `raw` BOM or syntax error does not parse."""
+    """What a plain JSON consumer sees: (parsed, value). A `raw` BOM, syntax error, NaN or Infinity
+    does not parse (JSON.parse rejects all of them; Python's json module accepts the constants)."""
     if "raw" not in case:
         return True, substitute(case["document"])
     try:
-        return True, json.loads(case["raw"])
+        return True, json.loads(case["raw"], parse_constant=_not_json)
     except ValueError:
         return False, None
+
+
+def _not_json(name: str) -> Any:
+    raise ValueError(f"{name} is not valid JSON")
 
 
 def schema_result(case: dict[str, Any], validator: Any) -> str:

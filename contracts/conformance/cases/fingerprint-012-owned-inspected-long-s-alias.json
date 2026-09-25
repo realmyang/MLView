@@ -1,0 +1,92 @@
+{
+  "id": "fingerprint-012-owned-inspected-long-s-alias",
+  "findings": [
+    "SECURITY2-1"
+  ],
+  "description": "An inspected .claude/\u017fkills/mlview/SKILL.md (U+017F long s) that exists is listed only (warning excluded_inspected) and gets no fingerprint in either layer, so both fingerprint maps hold train.py only. Before SECURITY2-1 the helper fingerprinted it and the extension, after realpath on a case-insensitive volume, did not.",
+  "files": {
+    "train.py": {
+      "text": "def train():\n"
+    },
+    ".claude/\u017fkills/mlview/SKILL.md": {
+      "text": "# MLView\n"
+    }
+  },
+  "artifact": "workflow.mlview.json",
+  "document": {
+    "workflowVersion": "1.0",
+    "title": "Training",
+    "producer": {
+      "kind": "host-llm",
+      "host": "codex"
+    },
+    "revision": {
+      "id": "r1"
+    },
+    "request": {
+      "question": "Explain training",
+      "scope": "train.py"
+    },
+    "phases": [
+      {
+        "id": "p",
+        "label": "Train"
+      }
+    ],
+    "nodes": [
+      {
+        "id": "n",
+        "label": "Train",
+        "phase": "p",
+        "basis": "observed",
+        "evidence": [
+          "ev"
+        ]
+      }
+    ],
+    "edges": [],
+    "findings": [],
+    "evidence": [
+      {
+        "id": "ev",
+        "file": "train.py",
+        "line": 1,
+        "endLine": 1,
+        "quote": "def train():"
+      }
+    ],
+    "coverage": {
+      "status": "scoped",
+      "summary": "Inspected entrypoint",
+      "inspectedFiles": [
+        "train.py",
+        ".claude/\u017fkills/mlview/SKILL.md"
+      ],
+      "limitations": []
+    }
+  },
+  "expect": {
+    "schema": "valid",
+    "helper": {
+      "ok": true,
+      "codes": [],
+      "warnings": [
+        "excluded_inspected"
+      ],
+      "fingerprints": {
+        "train.py": {
+          "$sha256": {
+            "text": "def train():\n"
+          }
+        }
+      },
+      "stale": []
+    },
+    "extension": {
+      "ok": true,
+      "stale": [],
+      "issuePaths": []
+    }
+  },
+  "divergence": null
+}

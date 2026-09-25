@@ -1,0 +1,34 @@
+{
+  "id": "shape-014-nan-constant-raw",
+  "findings": [
+    "SPECDOCS2-3"
+  ],
+  "description": "NaN (like Infinity and -Infinity) is not JSON. JSON.parse rejects it; Python's json module accepts it by default, and the helper now rejects it too (invalid_json), in drafts and in an existing artifact.",
+  "files": {
+    "train.py": {
+      "text": "def train():\n"
+    }
+  },
+  "artifact": "workflow.mlview.json",
+  "raw": "{\n  \"workflowVersion\": \"1.0\",\n  \"title\": \"Training\",\n  \"producer\": {\n    \"kind\": \"host-llm\",\n    \"host\": \"codex\"\n  },\n  \"revision\": {\n    \"id\": \"r1\"\n  },\n  \"request\": {\n    \"question\": \"Explain training\",\n    \"scope\": \"train.py\"\n  },\n  \"phases\": [\n    {\n      \"id\": \"p\",\n      \"label\": \"Train\"\n    }\n  ],\n  \"nodes\": [\n    {\n      \"id\": \"n\",\n      \"label\": \"Train\",\n      \"phase\": \"p\",\n      \"basis\": \"observed\",\n      \"evidence\": [\n        \"ev\"\n      ]\n    }\n  ],\n  \"edges\": [],\n  \"findings\": [],\n  \"evidence\": [\n    {\n      \"id\": \"ev\",\n      \"file\": \"train.py\",\n      \"line\": NaN,\n      \"endLine\": 1,\n      \"quote\": \"def train():\"\n    }\n  ],\n  \"coverage\": {\n    \"status\": \"scoped\",\n    \"summary\": \"Inspected entrypoint\",\n    \"inspectedFiles\": [\n      \"train.py\"\n    ],\n    \"limitations\": []\n  }\n}\n",
+  "expect": {
+    "schema": "invalid",
+    "helper": {
+      "ok": false,
+      "codes": [
+        "invalid_json"
+      ],
+      "warnings": [],
+      "fingerprints": null,
+      "stale": []
+    },
+    "extension": {
+      "ok": false,
+      "stale": [],
+      "issuePaths": [
+        "$"
+      ]
+    }
+  },
+  "divergence": null
+}

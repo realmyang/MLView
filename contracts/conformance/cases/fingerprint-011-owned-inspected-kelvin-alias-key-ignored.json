@@ -1,0 +1,107 @@
+{
+  "id": "fingerprint-011-owned-inspected-kelvin-alias-key-ignored",
+  "findings": [
+    "SECURITY2-1"
+  ],
+  "description": "An inspected .agents/s\u212aills/mlview/SKILL.md (U+212A Kelvin sign) is MLView-owned: listed only (warning excluded_inspected), never fingerprinted, and a supplied digest for it is ignored even though the file changed. Before SECURITY2-1 both layers tracked it and reported it stale.",
+  "files": {
+    "train.py": {
+      "text": "def train():\n"
+    },
+    ".agents/s\u212aills/mlview/SKILL.md": {
+      "text": "changed after publish\n"
+    }
+  },
+  "artifact": "workflow.mlview.json",
+  "document": {
+    "workflowVersion": "1.0",
+    "title": "Training",
+    "producer": {
+      "kind": "host-llm",
+      "host": "codex"
+    },
+    "revision": {
+      "id": "r1"
+    },
+    "request": {
+      "question": "Explain training",
+      "scope": "train.py"
+    },
+    "phases": [
+      {
+        "id": "p",
+        "label": "Train"
+      }
+    ],
+    "nodes": [
+      {
+        "id": "n",
+        "label": "Train",
+        "phase": "p",
+        "basis": "observed",
+        "evidence": [
+          "ev"
+        ]
+      }
+    ],
+    "edges": [],
+    "findings": [],
+    "evidence": [
+      {
+        "id": "ev",
+        "file": "train.py",
+        "line": 1,
+        "endLine": 1,
+        "quote": "def train():"
+      }
+    ],
+    "coverage": {
+      "status": "scoped",
+      "summary": "Inspected entrypoint",
+      "inspectedFiles": [
+        "train.py",
+        ".agents/s\u212aills/mlview/SKILL.md"
+      ],
+      "limitations": []
+    },
+    "verification": {
+      "files": {
+        "train.py": {
+          "$sha256": {
+            "text": "def train():\n"
+          }
+        },
+        ".agents/s\u212aills/mlview/SKILL.md": {
+          "$sha256": {
+            "text": "original\n"
+          }
+        }
+      },
+      "publishedAt": "2026-09-25T00:00:00Z"
+    }
+  },
+  "expect": {
+    "schema": "valid",
+    "helper": {
+      "ok": true,
+      "codes": [],
+      "warnings": [
+        "excluded_inspected"
+      ],
+      "fingerprints": {
+        "train.py": {
+          "$sha256": {
+            "text": "def train():\n"
+          }
+        }
+      },
+      "stale": []
+    },
+    "extension": {
+      "ok": true,
+      "stale": [],
+      "issuePaths": []
+    }
+  },
+  "divergence": null
+}

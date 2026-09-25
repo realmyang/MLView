@@ -6,8 +6,8 @@
  * `text`, `base64` or `generate` into a fresh realpath'd temporary workspace, `$sha256`
  * placeholders become digests, and the artifact is written next to them (`raw` verbatim, else the
  * document as indented JSON). The artifact is then read the way the panel reads a candidate
- * (readArtifactFile, strict UTF-8 that keeps a BOM, JSON.parse) and checked with validateWorkflow
- * against `expect.extension`.
+ * (readArtifactFile, strict UTF-8 that keeps a BOM, JSON.parse, at most MAX_JSON_DEPTH levels)
+ * and checked with validateWorkflow against `expect.extension`.
  *
  * With Python 3.10+ (MLVIEW_PYTHON, else python3, else python; required when
  * MLVIEW_REQUIRE_PYTHON=1) it also asks contracts/conformance/helper_bridge.py for the helper and
@@ -100,6 +100,8 @@ async function loadArtifact(root, rel) {
   } catch {
     return { ok: false, stale: [], issuePaths: ['$'] };
   }
+  // The panel refuses JSON nested more deeply than the helper accepts, as a parse error (SPECDOCS2-4).
+  if (api.jsonDepth(value) > api.MAX_JSON_DEPTH) return { ok: false, stale: [], issuePaths: ['$'] };
   const result = await api.validateWorkflow(value, root);
   return {
     ok: !!result.value,
@@ -196,6 +198,43 @@ test('round trip: every artifact the helper publishes loads fresh in the extensi
     assert.deepEqual(loaded.fingerprints, loaded.value.verification.files, `${spec.id}: fingerprints === verification.files`);
   }
   assert.ok(ran >= 10, `expected at least 10 round-trip cases, ran ${ran}`);
+});
+
+test('SECURITY2-1: where the volume resolves U+017F to s, the long-s spelling of the installed skill is owned in both layers', async (t) => {
+  const python = pythonOrSkip(t);
+  if (!python) return;
+  const alias = '.claude/\u017fkills/mlview/SKILL.md';
+  const root = materialise(t, { files: { 'train.py': { text: 'def train():\n' }, '.claude/skills/mlview/SKILL.md': { text: '# MLView\n' } } }, { artifact: false });
+  if (!fs.existsSync(at(root, alias))) {
+    t.skip('this file system does not resolve U+017F to s (case-insensitive volumes such as APFS do)');
+    return;
+  }
+  const publish = (doc) => {
+    fs.mkdirSync(path.join(root, '.mlview', 'llm', 'run'), { recursive: true });
+    fs.writeFileSync(path.join(root, '.mlview', 'llm', 'run', 'draft.json'), JSON.stringify(doc, null, 2));
+    const run = spawnSync(python, [HELPER, 'publish', '.mlview/llm/run/draft.json', '--workspace', root, '--output', 'workflow.mlview.json'], { cwd: root, encoding: 'utf8', shell: false });
+    assert.equal(run.stderr, '');
+    return JSON.parse(run.stdout);
+  };
+  const caseDocument = (id) => resolvePlaceholders(cases.find(({ spec }) => spec.id === id).spec.document);
+  // Cited: the file resolves to the real skill file, and both layers refuse it (P1).
+  const cited = caseDocument('evidence-004-owned-evidence-long-s-alias');
+  const refused = publish(cited);
+  assert.equal(refused.ok, false);
+  assert.deepEqual(refused.errors.map(error => error.code), ['excluded_evidence']);
+  assert.equal(fs.existsSync(path.join(root, 'workflow.mlview.json')), false);
+  const viewer = await api.validateWorkflow(cited, root);
+  assert.equal(viewer.value, undefined);
+  assert.deepEqual(viewer.issues.map(issue => issue.path), ['$.evidence[1].file']);
+  // Listed: both layers accept it and neither fingerprints the skill file (P2).
+  const published = publish(caseDocument('fingerprint-012-owned-inspected-long-s-alias'));
+  assert.equal(published.ok, true, JSON.stringify(published));
+  assert.deepEqual(published.warnings.map(warning => warning.code), ['excluded_inspected']);
+  const loaded = await loadArtifact(root, 'workflow.mlview.json');
+  assert.deepEqual(loaded.issues, []);
+  assert.deepEqual(loaded.stale, []);
+  assert.deepEqual(Object.keys(loaded.value.verification.files), ['train.py']);
+  assert.deepEqual(loaded.fingerprints, loaded.value.verification.files);
 });
 
 test('recorded-artifact suite: the bundled skill example is valid and fresh in the extension', async (t) => {

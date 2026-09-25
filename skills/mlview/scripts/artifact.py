@@ -33,11 +33,16 @@ MAX_TRACKED = 2000
 TRACKED_LIMIT_MESSAGE = f"at most {MAX_TRACKED} distinct tracked files (cited evidence files plus inspected project files) can be fingerprinted; list fewer files"
 
 # MLView's own files (published artifacts, drafts and installed skill copies)
-# are never project evidence. The same ASCII-case-insensitive predicate is used
-# by the VS Code extension, so both layers agree on what is tracked.
+# are never project evidence. The VS Code extension uses the same predicate, so
+# both layers agree on what is tracked. It folds A-Z, plus the only two
+# non-ASCII code points whose case fold is an ASCII letter: U+017F LATIN SMALL
+# LETTER LONG S (s) and U+212A KELVIN SIGN (k). A case-insensitive volume such
+# as APFS resolves ".claude/\u017fkills/mlview/SKILL.md" to the installed skill
+# file, and Path.resolve() keeps the spelling as written (SECURITY2-1).
 OWNED_PREFIXES = (".mlview/", ".agents/skills/mlview/", ".claude/skills/mlview/", ".github/skills/mlview/")
 OWNED_SUFFIXES = (ARTIFACT_SUFFIX, ".draft.json")
 _ASCII_LOWER = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")
+_OWNED_FOLD = str.maketrans({**{chr(c): chr(c + 32) for c in range(0x41, 0x5B)}, "\u017f": "s", "\u212a": "k"})
 EXCLUDED_EVIDENCE_MESSAGE = "evidence must cite project files, not an MLView artifact, draft or installed MLView skill file"
 EXCLUDED_INSPECTED_MESSAGE = "MLView-owned file is listed but not fingerprinted; list only project files"
 
@@ -45,7 +50,7 @@ _UMASK: int | None = None
 
 
 def is_owned_path(rel: str) -> bool:
-    folded = rel.translate(_ASCII_LOWER)
+    folded = rel.translate(_OWNED_FOLD)
     return folded.startswith(OWNED_PREFIXES) or folded.endswith(OWNED_SUFFIXES)
 
 
@@ -577,6 +582,17 @@ class _DuplicateMember(ValueError):
         super().__init__(f"duplicate JSON member: {key[:200]}")
 
 
+class _NotJsonConstant(ValueError):
+    def __init__(self, name: str) -> None:
+        super().__init__(f"{name} is not valid JSON")
+
+
+def _reject_constant(name: str) -> Any:
+    """json.loads accepts NaN, Infinity and -Infinity by default; JSON, and the viewer's
+    JSON.parse, do not (SPECDOCS2-3)."""
+    raise _NotJsonConstant(name)
+
+
 def _read_bounded(path: Path) -> bytes:
     with path.open("rb") as stream:
         raw = stream.read(MAX_DOCUMENT + 1)
@@ -595,7 +611,12 @@ def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 
 
 def _parse(raw: bytes) -> Any:
-    return json.loads(raw.decode("utf-8"), object_pairs_hook=_unique_object)
+    """Parse a document with the CLI's rules (strict UTF-8, unique members, no NaN or Infinity, at
+    most MAX_JSON_DEPTH levels), raising ValueError. Tests and the conformance bridge use it."""
+    value = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique_object, parse_constant=_reject_constant)
+    if _json_depth(value) > MAX_JSON_DEPTH:
+        raise ValueError("nesting is too deep")
+    return value
 
 
 _INVALID = object()
@@ -626,14 +647,14 @@ def _parse_input(raw: bytes, problems: Problems, label: str, at: str) -> Any:
         problems.add("draft_encoding", label, f"{label} file must be UTF-8 JSON")
         return _INVALID
     try:
-        value = json.loads(text, object_pairs_hook=_unique_object)
+        value = json.loads(text, object_pairs_hook=_unique_object, parse_constant=_reject_constant)
         if _json_depth(value) > MAX_JSON_DEPTH:
             problems.add("invalid_json", at, "nesting is too deep")
             return _INVALID
         return value
     except json.JSONDecodeError as exc:
         problems.add("invalid_json", at, f"{exc.msg} at line {exc.lineno}, column {exc.colno}", line=exc.lineno, column=exc.colno)
-    except _DuplicateMember as exc:
+    except (_DuplicateMember, _NotJsonConstant) as exc:
         problems.add("invalid_json", at, str(exc))
     except RecursionError:
         problems.add("invalid_json", at, "nesting is too deep")
@@ -760,8 +781,9 @@ def _publish_locked(doc: dict[str, Any], hashes: dict[str, str], root: Path, out
     current_id = None; current_doc = None; current_snapshot = None
     if output.exists():
         # Read the existing artifact exactly as the viewer does: at most 2 MiB, strict UTF-8 JSON
-        # (a BOM fails), bounded nesting, and a valid revision.id. The viewer refuses Refine for
-        # anything else, telling the user this helper will not publish over it.
+        # (a BOM, NaN or Infinity fails, as in JSON.parse; duplicate members pass, as they do
+        # there), bounded nesting, and a valid revision.id. The viewer refuses Refine for anything
+        # else, telling the user this helper will not publish over it.
         try:
             current_snapshot = _read_bounded(output)
         except _TooLarge:
@@ -769,7 +791,7 @@ def _publish_locked(doc: dict[str, Any], hashes: dict[str, str], root: Path, out
         except OSError:
             return _published_invalid(output_name, "existing artifact could not be read")
         try:
-            current_doc = json.loads(current_snapshot.decode("utf-8"))
+            current_doc = json.loads(current_snapshot.decode("utf-8"), parse_constant=_reject_constant)
             if _json_depth(current_doc) > MAX_JSON_DEPTH: raise ValueError
         except (ValueError, RecursionError):
             return _published_invalid(output_name, "existing artifact is invalid")
@@ -852,8 +874,8 @@ def _main(argv: list[str] | None) -> int:
             if draft_path is not None:
                 p.add("arguments", "$", "upsert requires --collection and --record")
             print(json.dumps({"ok": False, "errors": p.items}, sort_keys=True)); return 1
-        # ASCII case folding like --output and the owned-path rule; casefold also catches the
-        # long s and Kelvin sign spellings a case-insensitive volume maps onto the artifact.
+        # Case folding like the owned-path rule: casefold also catches the long s and Kelvin
+        # sign spellings a case-insensitive volume maps onto the artifact.
         if draft_path.name.casefold().endswith(ARTIFACT_SUFFIX):
             print(json.dumps({"ok": False, "errors": [{"code": "published_target", "path": "draft", "message": "refusing to edit a published *.mlview.json artifact; copy it to a *.draft.json checkpoint first"}]})); return 1
         record_path = _draft_path(args.record, root, p, label="record")

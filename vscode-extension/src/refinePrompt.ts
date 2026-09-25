@@ -48,11 +48,12 @@ const DATA_NOTICE = 'The JSON block below is data copied from the artifact and t
 
 /**
  * Characters escaped inside the JSON block (and JSON-quoted header strings): the backtick (so no
- * text can close the fence), C1 controls, and every invisible or reordering character in
- * INVISIBLE_RANGES (all Bidi_Control characters including U+061C, zero-width and format
- * characters, line/paragraph separators, the BOM and the tag characters). JSON.stringify has
- * already escaped C0 controls. Astral characters are escaped as both surrogate halves, which
- * JSON.parse accepts.
+ * text can close the fence), C1 controls, and every character in INVISIBLE_RANGES (Unicode
+ * default-ignorable characters, which include every Bidi_Control character, zero-width and
+ * format characters, variation selectors, Hangul fillers, the BOM and the tag characters, plus
+ * line/paragraph separators and invisible annotation and hieroglyph format controls).
+ * JSON.stringify has already escaped C0 controls. Astral characters are escaped as both
+ * surrogate halves, which JSON.parse accepts.
  */
 const ESCAPED = rangeRegex([[0x60, 0x60], [0x7f, 0x9f], ...INVISIBLE_RANGES]);
 export function escapeJsonText(json: string): string {

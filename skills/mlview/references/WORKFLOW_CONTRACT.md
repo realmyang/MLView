@@ -42,7 +42,8 @@ even when it has no final evidence anchor.
 MLView's own files are never project evidence: any `*.mlview.json` or
 `*.draft.json`, anything under `.mlview/`, and the installed skill under
 `.agents/skills/mlview/`, `.claude/skills/mlview/` or `.github/skills/mlview/`
-(ASCII case-insensitive). Citing one is an error (`excluded_evidence`); listing
+(case-insensitive over A-Z, plus the long s U+017F as `s` and the Kelvin sign
+U+212A as `k`). Citing one is an error (`excluded_evidence`); listing
 one in `inspectedFiles` is reported as the warning `excluded_inspected` and it
 gets no fingerprint.
 
@@ -94,7 +95,8 @@ command-line usage errors (a missing argument or an unknown option), which the
 argument parser reports as plain text on stderr with exit status 2 and no JSON.
 Each error has `code`, `path`, and `message`; `stale_source` adds `file`, and
 `invalid_json` adds `line` and `column` for JSON syntax errors only (not for a
-duplicate member or nesting deeper than 64 levels). A successful `validate` or
+duplicate member, `NaN` or `Infinity`, which are not JSON, or nesting deeper
+than 64 levels). A successful `validate` or
 `publish` adds `warnings` only when there are any; warnings never block
 publication. `validate` adds `revision`, `files`, and, with
 `--include-document`, `document`; `publish` adds `output` and `revision`;

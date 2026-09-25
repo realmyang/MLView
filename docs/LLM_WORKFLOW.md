@@ -126,9 +126,11 @@ work.
 The prompt names the intent, the selected stable ID and the revision to build
 on: the revision currently in the artifact file, which the helper requires and
 which can differ from the displayed one (see below). Text taken from the
-artifact and the workspace, such as the question, labels, evidence quotes and
-file names, appears only inside one JSON data block that the assistant is told
-to treat as data, never as instructions. In VS Code Restricted Mode the prompt
+artifact and the workspace, such as the question, scope, configuration, labels,
+evidence IDs, the viewer's rejection reasons and changed file names, appears
+only inside one JSON data block that the assistant is told to treat as data,
+never as instructions. Evidence quotes are not copied; the assistant re-reads
+the cited files. In VS Code Restricted Mode the prompt
 also states that the workspace is not trusted. The host refuses to copy a
 prompt for a stale or missing selection, and while the artifact file is
 missing or cannot be read, because the helper would refuse to publish over it.

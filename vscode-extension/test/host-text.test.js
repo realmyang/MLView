@@ -33,6 +33,22 @@ test('displayText escapes controls and invisible characters and bounds the lengt
   assert.equal(displayText('ab' + '\n'.repeat(100), 10), 'ab\\u000a…');
 });
 
+test('SECURITY2-2: displayText escapes variation selectors, fillers and every other default-ignorable character', () => {
+  const { displayText } = api;
+  // An explicit list (not a live \p{} sweep), so the test cannot drift between Node versions.
+  const expected = [
+    [0x034f, '\\u034f'], [0x115f, '\\u115f'], [0x1160, '\\u1160'], [0x17b4, '\\u17b4'], [0x17b5, '\\u17b5'],
+    [0x180b, '\\u180b'], [0x180f, '\\u180f'], [0x3164, '\\u3164'], [0xfe00, '\\ufe00'], [0xfe0f, '\\ufe0f'],
+    [0xffa0, '\\uffa0'], [0xfff0, '\\ufff0'], [0x13430, '\\ud80d\\udc30'], [0x1343f, '\\ud80d\\udc3f'],
+    [0x1bca0, '\\ud82f\\udca0'], [0x1d173, '\\ud834\\udd73'], [0x1d17a, '\\ud834\\udd7a'],
+    [0xe0100, '\\udb40\\udd00'], [0xe01ef, '\\udb40\\uddef'], [0xe0fff, '\\udb43\\udfff']
+  ];
+  for (const [code, escape] of expected)
+    assert.equal(displayText('a' + String.fromCodePoint(code) + 'b'), 'a' + escape + 'b', `U+${code.toString(16)}`);
+  // Visible text around them is untouched.
+  assert.equal(displayText('caf\u00e9 \u4e2d\u6587 \u2800'), 'caf\u00e9 \u4e2d\u6587 \u2800');
+});
+
 test('SECURITY1-1: an unknown key with a newline cannot forge banner lines', async () => {
   const { panel, artifact } = await open({});
   const r2 = h.workflow('source.py', { id: 'r2', parent: 'r1' });
@@ -123,6 +139,47 @@ test('SECURITY1-3: restore and open refuse a ".." path that leaves the workspace
   accepted.fire({ v: 1, type: 'ready' });
   await h.tick();
   assert.equal(accepted.posted[0].artifact, fixture.artifact);
+});
+
+test('LINEAGE2-3: folderSpelling re-spells a case-variant folder prefix on macOS and Windows only', () => {
+  const { folderSpelling } = api;
+  assert.equal(folderSpelling('/tmp/proj/run.mlview.json', '/tmp/Proj', 'darwin'), '/tmp/Proj/run.mlview.json');
+  assert.equal(folderSpelling('/tmp/proj/Sub/run.mlview.json', '/tmp/Proj', 'darwin'), '/tmp/Proj/Sub/run.mlview.json', 'only the prefix changes');
+  assert.equal(folderSpelling('/tmp/proj/run.mlview.json', '/tmp/Proj', 'linux'), '/tmp/proj/run.mlview.json', 'Linux paths are case-sensitive');
+  assert.equal(folderSpelling('/tmp/projects/run.mlview.json', '/tmp/Proj', 'darwin'), '/tmp/projects/run.mlview.json', 'a separator boundary is required');
+  assert.equal(folderSpelling('/tmp/Proj/run.mlview.json', '/tmp/Proj', 'darwin'), '/tmp/Proj/run.mlview.json');
+  assert.equal(folderSpelling('c:\\work\\run.mlview.json', 'C:\\Work', 'win32'), 'C:\\Work\\run.mlview.json');
+  assert.equal(folderSpelling('c:\\run.mlview.json', 'C:\\', 'win32'), 'C:\\run.mlview.json');
+});
+
+test('LINEAGE2-3: a case-variant artifact path opens in the folder spelling on a case-insensitive volume', async (t) => {
+  const base = h.tempRoot('mlview-case-');
+  fixtures.push({ root: base });
+  const root = path.join(base, 'Proj');
+  fs.mkdirSync(root);
+  if (!fs.existsSync(path.join(base, 'proj'))) {
+    t.skip('this file system is case-sensitive');
+    return;
+  }
+  const variant = path.join(base, 'proj', 'run.mlview.json');
+  const artifact = path.join(root, 'run.mlview.json');
+  const fixture = await open({ root, openPath: variant });
+  const { panel } = fixture;
+  assert.ok(panel, 'a panel was created');
+  assert.equal(vscode.__recorded.messages.some(m => /must belong to an open workspace folder/.test(m[1])), false);
+  assert.equal(panel.posted[0].artifact, artifact, 'the panel keeps the folder spelling');
+  assert.equal(h.shownRevision(panel), 'r1');
+  panel.fire({ v: 1, type: 'refineWorkflow', revisionId: 'r1', intent: 'expand' });
+  await h.waitFor(() => vscode.__recorded.clipboardWrites.length === 1, 'prompt not copied');
+  assert.match(vscode.__recorded.clipboardWrites[0], /^Artifact: "run\.mlview\.json"$/m);
+  // A watcher event reported under the folder's spelling reaches the panel.
+  h.writeJson(artifact, h.workflow('source.py', { id: 'r2', parent: 'r1' }));
+  await h.diskEvent(panel, 'change', artifact);
+  assert.equal(h.shownRevision(panel), 'r2');
+  // Opening the other spelling again reuses the same panel.
+  const panels = vscode.__recorded.panels.length;
+  await fixture.controller.open(vscode.Uri.file(variant));
+  assert.equal(vscode.__recorded.panels.length, panels);
 });
 
 test('SECURITY1-4: a non-string selection kind is refused', async () => {

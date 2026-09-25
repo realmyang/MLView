@@ -7,14 +7,20 @@
 import type { ValidationIssue } from './workflowDocument';
 
 /**
- * Code points that are invisible or reorder the text around them: the soft hyphen, the Arabic
- * letter mark and every other Bidi_Control, zero-width and word-joiner characters, line and
- * paragraph separators, deprecated format controls, the byte-order mark, interlinear annotation
- * controls and the tag characters (which many models read as ASCII).
+ * Code points that are invisible or reorder the text around them: every Unicode
+ * Default_Ignorable_Code_Point (the soft hyphen, the combining grapheme joiner, the Arabic letter
+ * mark and the other Bidi_Control characters, Hangul fillers, Khmer inherent vowels, Mongolian
+ * variation selectors, zero-width and word-joiner characters, deprecated format controls,
+ * variation selectors VS1-VS256, the byte-order mark, the halfwidth Hangul filler, shorthand and
+ * musical format controls, the tag characters, which many models read as ASCII, and the reserved
+ * default-ignorable blocks), plus line and paragraph separators, interlinear annotation controls
+ * and Egyptian hieroglyph format controls (SECURITY1-2, SECURITY2-2).
  */
 export const INVISIBLE_RANGES: readonly (readonly [number, number])[] = [
-  [0x00ad, 0x00ad], [0x061c, 0x061c], [0x180e, 0x180e], [0x200b, 0x200f], [0x2028, 0x202e],
-  [0x2060, 0x206f], [0xfeff, 0xfeff], [0xfff9, 0xfffb], [0xe0000, 0xe007f]
+  [0x00ad, 0x00ad], [0x034f, 0x034f], [0x061c, 0x061c], [0x115f, 0x1160], [0x17b4, 0x17b5],
+  [0x180b, 0x180f], [0x200b, 0x200f], [0x2028, 0x202e], [0x2060, 0x206f], [0x3164, 0x3164],
+  [0xfe00, 0xfe0f], [0xfeff, 0xfeff], [0xffa0, 0xffa0], [0xfff0, 0xfffb], [0x13430, 0x1343f],
+  [0x1bca0, 0x1bca3], [0x1d173, 0x1d17a], [0xe0000, 0xe0fff]
 ];
 const hex4 = (unit: number): string => '\\u' + unit.toString(16).padStart(4, '0');
 /** `\uXXXX` for a BMP code point; both surrogate halves for an astral one (valid inside JSON strings). */

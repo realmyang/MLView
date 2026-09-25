@@ -63,16 +63,19 @@ Expectations:
   `invalid`.
 - `expect.helper`: `{ok, codes, warnings, fingerprints, stale}` from
   `artifact.validate(doc, root, warnings=w)`. `codes` and `warnings` are the
-  exact sets of error and warning codes. A `raw` that the helper's parser
-  rejects gives `codes: ["invalid_json"]`. `fingerprints` is the exact hash
-  map, or `null` for "not checked". `stale` is the set of `file` fields on
-  `stale_source` errors.
+  exact sets of error and warning codes. A `raw` is parsed the way the CLI
+  parses a draft (strict UTF-8, unique members, no `NaN` or `Infinity`, at
+  most 64 levels of nesting), and one the parser rejects gives
+  `codes: ["invalid_json"]`. `fingerprints` is the exact hash map, or `null`
+  for "not checked". `stale` is the set of `file` fields on `stale_source`
+  errors.
 - `expect.extension`: `{ok, stale, issuePaths}`. The artifact is read the way
   the panel reads a candidate revision: `readArtifactFile`, strict UTF-8 that
-  keeps a leading BOM, `JSON.parse`, then `validateWorkflow(value, root)`.
-  `ok` means a validated value was returned, `stale` is the sorted
-  `stale[].rel`, and `issuePaths` is the exact set of issue paths. A `raw`
-  that does not parse gives `{ok: false, stale: [], issuePaths: ["$"]}`.
+  keeps a leading BOM, `JSON.parse`, the same 64-level nesting bound, then
+  `validateWorkflow(value, root)`. `ok` means a validated value was returned,
+  `stale` is the sorted `stale[].rel`, and `issuePaths` is the exact set of
+  issue paths. A `raw` that does not parse, or is nested more deeply, gives
+  `{ok: false, stale: [], issuePaths: ["$"]}`.
 
 No expectation may be `"unverified"` and no divergence may be `"open"`. Both
 runners fail on either. Case files are ASCII JSON (indent 2, non-ASCII as `\u`

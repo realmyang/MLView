@@ -22,6 +22,9 @@ and a schema-checked example under `skills/mlview/references/`.
   never writes them.
 - **Member names are unique.** The helper rejects duplicate members;
   `JSON.parse` and most schema validators silently keep the last one.
+- **`NaN` and `Infinity` are not JSON.** `JSON.parse` rejects them, but
+  Python's `json` module accepts them by default; the helper rejects them in
+  drafts and in an existing artifact.
 - **Lengths count Unicode code points**, as JSON Schema `maxLength` does. The
   helper and the extension count code points too.
 - **The schema cannot express workspace rules.** The helper and the extension

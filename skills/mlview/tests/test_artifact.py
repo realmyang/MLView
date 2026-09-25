@@ -585,6 +585,12 @@ class ArtifactTests(unittest.TestCase):
             with self.subTest(rel=rel): self.assertTrue(artifact.is_owned_path(rel))
         for rel in project:
             with self.subTest(rel=rel): self.assertFalse(artifact.is_owned_path(rel))
+        # SECURITY2-1: U+017F (long s) and U+212A (Kelvin sign) fold to s and k, as APFS resolves them.
+        for rel in (".claude/\u017fkills/mlview/SKILL.md", ".agents/s\u212aills/mlview/SKILL.md", ".github/\u017fKILLS/mlview/x",
+                    "other.mlview.j\u017fon", "notes.draft.j\u017fon", ".mlview/\u212a.md"):
+            with self.subTest(rel=rel): self.assertTrue(artifact.is_owned_path(rel))
+        for rel in (".mlv\u0130ew/x", ".claude/\u0161kills/mlview/SKILL.md", "\u212aeras.mlview.jsonl"):
+            with self.subTest(rel=rel): self.assertFalse(artifact.is_owned_path(rel))
 
     def test_refinement_listing_the_artifact_is_not_fingerprinted(self):
         self.assertEqual(0, self.run_cli("publish", document()).returncode)
@@ -883,6 +889,29 @@ class ArtifactTests(unittest.TestCase):
                 self.assertEqual(before, published.read_bytes())
         published.write_text("[" * 100 + "]" * 100, encoding="utf-8")
         self.assertEqual("existing artifact is invalid", json.loads(self.run_cli("publish", document()).stdout)["errors"][0]["message"])
+
+    def test_nan_and_infinity_are_not_json_in_an_artifact_or_a_draft(self):
+        # SPECDOCS2-3: json.loads accepts NaN, Infinity and -Infinity; the viewer's JSON.parse does
+        # not, and refuses Refine saying this helper will not publish over such a file.
+        self.assertEqual(0, self.run_cli("publish", document()).returncode)
+        published = self.root / "workflow.mlview.json"
+        valid = published.read_text(encoding="utf-8")
+        second = document(); second["revision"] = {"id": "r2", "parent": "r1"}
+        for constant in ("NaN", "Infinity", "-Infinity"):
+            with self.subTest(artifact=constant):
+                published.write_text(valid.replace("{", '{"x": ' + constant + ",", 1), encoding="utf-8")
+                before = published.read_bytes()
+                result = self.run_cli("publish", second)
+                self.assertEqual(1, result.returncode)
+                self.assertEqual([{"code": "published_invalid", "path": "workflow.mlview.json", "message": "existing artifact is invalid"}], json.loads(result.stdout)["errors"])
+                self.assertEqual(before, published.read_bytes())
+            with self.subTest(draft=constant):
+                draft = self.root / "draft.json"
+                draft.write_text(json.dumps(document()).replace('"line": 1', '"line": ' + constant, 1), encoding="utf-8")
+                code, response = self.run_raw("validate", str(draft), "--workspace", str(self.root))
+                self.assertEqual((1, [{"code": "invalid_json", "path": "$", "message": f"{constant} is not valid JSON"}]), (code, response["errors"]))
+        with self.assertRaises(ValueError):
+            artifact._parse(b'{"x": NaN}')
 
     def test_aliases_of_mlview_files_are_never_fingerprinted(self):
         # SECURITY1-5: a symlink or hard link to the artifact is an MLView file under another name.

@@ -117,9 +117,19 @@ const TRACKED_LIMIT_MESSAGE = `at most ${MAX_TRACKED_FILES} distinct tracked fil
 const OWNED_EVIDENCE_MESSAGE = 'evidence must cite project files, not an MLView artifact, draft or installed MLView skill file';
 const OWNED_PREFIXES = ['.mlview/', '.agents/skills/mlview/', '.claude/skills/mlview/', '.github/skills/mlview/'];
 const OWNED_SUFFIXES = ['.mlview.json', '.draft.json'];
-/** MLView's own files: artifacts, drafts and the installed skill (ASCII case-insensitive; mirrors the helper). */
+/**
+ * A-Z folded to a-z, plus the only two non-ASCII code points whose case fold is an ASCII letter:
+ * U+017F LATIN SMALL LETTER LONG S (s) and U+212A KELVIN SIGN (k). A case-insensitive volume such
+ * as APFS resolves ".claude/\u017fkills/mlview/SKILL.md" to the installed skill file, so the owned
+ * rule must see that spelling as ".claude/skills/..." (SECURITY2-1). Identical to the helper.
+ */
+const ownedFold = (rel: string): string => rel.replace(/[A-Z\u017f\u212a]/g, c => c === '\u017f' ? 's' : c === '\u212a' ? 'k' : String.fromCharCode(c.charCodeAt(0) + 32));
+/**
+ * MLView's own files: artifacts, drafts and the installed skill, case-insensitive over A-Z plus
+ * the long s and Kelvin sign spellings (mirrors the helper).
+ */
 export function isOwnedPath(rel: string): boolean {
-    const f = rel.replace(/[A-Z]/g, c => String.fromCharCode(c.charCodeAt(0) + 32));
+    const f = ownedFold(rel);
     return OWNED_PREFIXES.some(p => f.startsWith(p)) || OWNED_SUFFIXES.some(s => f.endsWith(s));
 }
 /** tracked(doc): the cited evidence files plus every inspected file that is not MLView-owned, first-seen order. */
@@ -204,6 +214,11 @@ const SEVERITIES = new Set(['low', 'medium', 'high']);
 const ID = ID_PATTERN;
 const RFC3339 = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-](\d{2}):(\d{2}))$/;
 const own = (o: object, k: string): boolean => Object.prototype.hasOwnProperty.call(o, k);
+/**
+ * Set membership without coercion. String() on a JSON object whose "toString" member is not a
+ * function throws, so untrusted values are never converted (LINEAGE2-2).
+ */
+const isMember = (set: ReadonlySet<string>, value: unknown): boolean => typeof value === 'string' && set.has(value);
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const strings = (v: unknown): v is string[] => Array.isArray(v) && v.every(x => typeof x === 'string' && x.length > 0);
 const relativePath = (value: string): boolean => value.length > 0 && !longerThan(value, 500) && !path.posix.isAbsolute(value) && !value.includes('\\') && !value.split('/').some(part => part === '' || part === '.' || part === '..') && !value.includes('\0') && !/^[A-Za-z]:/.test(value);
@@ -244,8 +259,9 @@ function unique(items: {
 }[], at: string, out: ValidationIssue[]): Set<string> {
     const ids = new Set<string>();
     for (let i = 0; i < items.length; i++) {
-        const id = items[i]?.id;
-        if (!id)
+        const id: unknown = items[i]?.id;
+        // A non-string id already has its own issue; never coerce it (LINEAGE2-2).
+        if (typeof id !== 'string' || !id)
             continue;
         if (!ID.test(id))
             out.push({ path: `${at}[${i}].id`, message: 'has an invalid ID format' });
@@ -285,7 +301,7 @@ export function validateWorkflowStructure(raw: unknown): {
     exactKeys(producer, ['kind', 'host', 'model'], ['kind', 'host'], '$.producer', issues);
     if (producer.kind !== 'host-llm')
         issues.push({ path: '$.producer.kind', message: 'must equal "host-llm"' });
-    if (!HOSTS.has(String(producer.host)))
+    if (typeof producer.host !== 'string' || !HOSTS.has(producer.host))
         issues.push({ path: '$.producer.host', message: 'is unsupported' });
     if (own(producer, 'model') && typeof producer.model !== 'string')
         issues.push({ path: '$.producer.model', message: 'must be a string' });
@@ -345,7 +361,7 @@ export function validateWorkflowStructure(raw: unknown): {
         maxText(x, 'label', 300, a, issues);
         maxText(x, 'kind', 100, a, issues);
         maxText(x, 'detail', 8000, a, issues);
-        if (!BASIS.has(String(x.basis)))
+        if (!isMember(BASIS, x.basis))
             issues.push({ path: `${a}.basis`, message: 'is invalid' });
         if (!strings(x.evidence) && !(Array.isArray(x.evidence) && x.evidence.length === 0))
             issues.push({ path: `${a}.evidence`, message: 'must be string IDs' });
@@ -362,7 +378,7 @@ export function validateWorkflowStructure(raw: unknown): {
         ['id', 'source', 'target', 'label'].forEach(k => text(x, k, a, issues));
         maxText(x, 'label', 300, a, issues);
         maxText(x, 'kind', 100, a, issues);
-        if (!BASIS.has(String(x.basis)))
+        if (!isMember(BASIS, x.basis))
             issues.push({ path: `${a}.basis`, message: 'is invalid' });
         if (!Array.isArray(x.evidence) || !x.evidence.every(y => typeof y === 'string'))
             issues.push({ path: `${a}.evidence`, message: 'must be string IDs' });
@@ -379,9 +395,9 @@ export function validateWorkflowStructure(raw: unknown): {
         maxText(x, 'title', 300, a, issues);
         maxText(x, 'message', 8000, a, issues);
         maxText(x, 'suggestion', 4000, a, issues);
-        if (!SEVERITIES.has(String(x.severity)))
+        if (!isMember(SEVERITIES, x.severity))
             issues.push({ path: `${a}.severity`, message: 'is invalid' });
-        if (!BASIS.has(String(x.basis)))
+        if (!isMember(BASIS, x.basis))
             issues.push({ path: `${a}.basis`, message: 'is invalid' });
         for (const k of ['nodeIds', 'evidence', 'edgeIds', 'counterEvidence'])
             if (own(x, k) && !strings(x[k]) && !(Array.isArray(x[k]) && x[k].length === 0))
@@ -403,11 +419,11 @@ export function validateWorkflowStructure(raw: unknown): {
         if (typeof x.quote === 'string' && longerThan(x.quote, 16000))
             issues.push({ path: `${a}.quote`, message: 'must be at most 16000 characters' });
         for (const k of ['line', 'endLine'])
-            if (!Number.isInteger(x[k]) || Number(x[k]) < 1)
+            if (!Number.isInteger(x[k]) || (x[k] as number) < 1)
                 issues.push({ path: `${a}.${k}`, message: 'must be a positive integer' });
-        if (Number(x.endLine) < Number(x.line))
+        if (Number.isInteger(x.line) && Number.isInteger(x.endLine) && (x.endLine as number) < (x.line as number))
             issues.push({ path: `${a}.endLine`, message: 'must be at least line' });
-        if (own(x, 'cell') && (!Number.isInteger(x.cell) || Number(x.cell) < 0))
+        if (own(x, 'cell') && (!Number.isInteger(x.cell) || (x.cell as number) < 0))
             issues.push({ path: `${a}.cell`, message: 'must be a zero-based integer' });
     });
     const coverage = object(raw.coverage) ? raw.coverage : {};
@@ -471,7 +487,7 @@ export function validateWorkflowStructure(raw: unknown): {
         id: string;
     }[], '$.findings', issues);
     nodes.forEach((n, i) => {
-        if (!phaseIds.has(String(n.phase)))
+        if (!isMember(phaseIds, n.phase))
             issues.push({ path: `$.nodes[${i}].phase`, message: 'references an unknown phase' });
         // Present means checked: an empty string is no more a root marker than null is.
         if (typeof n.parent === 'string' && !nodeIds.has(n.parent))
@@ -479,7 +495,7 @@ export function validateWorkflowStructure(raw: unknown): {
     });
     edges.forEach((e, i) => {
         for (const k of ['source', 'target'])
-            if (!nodeIds.has(String(e[k])))
+            if (!isMember(nodeIds, e[k]))
                 issues.push({ path: `$.edges[${i}].${k}`, message: 'references an unknown node' });
     });
     const checkRefs = (xs: unknown, valid: Set<string>, at: string) => {
@@ -506,7 +522,7 @@ export function validateWorkflowStructure(raw: unknown): {
             conceptualParents.add(node.parent);
     }
     nodes.forEach((node, i) => {
-        if (Array.isArray(node.evidence) && node.evidence.length === 0 && node.basis !== 'unresolved' && !conceptualParents.has(String(node.id)))
+        if (Array.isArray(node.evidence) && node.evidence.length === 0 && node.basis !== 'unresolved' && !isMember(conceptualParents, node.id))
             issues.push({ path: `$.nodes[${i}].evidence`, message: 'empty evidence requires unresolved basis or a conceptual parent with children' });
     });
     edges.forEach((edge, i) => {
@@ -519,15 +535,20 @@ export function validateWorkflowStructure(raw: unknown): {
     });
     // Resolve each parent chain once. Repeated Array.find calls made a valid
     // maximum-size nested workflow quadratic-to-cubic work for untrusted input.
-    const nodeById = new Map(nodes.map(n => [String(n.id), n]));
+    // Keyed by string ids only: a parent reference is always a string, and a non-string id already
+    // has its own issue.
+    const nodeById = new Map<string, Record<string, unknown>>();
+    for (const n of nodes)
+        if (typeof n.id === 'string')
+            nodeById.set(n.id, n);
     const resolvedParents = new Set<string>();
     let cyclicParents = false;
     for (const node of nodes) {
         let current: Record<string, unknown> | undefined = node;
         const chain: string[] = [];
         const inChain = new Set<string>();
-        while (current) {
-            const id = String(current.id);
+        while (current && typeof current.id === 'string') {
+            const id = current.id;
             if (resolvedParents.has(id))
                 break;
             if (inChain.has(id)) {

@@ -205,11 +205,14 @@ test('a cited file that is not UTF-8 is an issue without a fingerprint and stale
   assert.deepEqual(verified.value.stale.map(x=>[x.rel,x.reason]),[['pipeline.py','unreadable']]);
 });
 
-test('isOwnedPath matches MLView artifacts, drafts and installed skills, ASCII case-insensitively', () => {
+test('isOwnedPath matches MLView artifacts, drafts and installed skills, case-insensitively', () => {
   const { isOwnedPath }=require('./harness').api;
   for (const rel of ['workflow.mlview.json','sub/Run.MLVIEW.JSON','.mlview/llm/run/draft.json','.MLView/notes.txt','a/b.draft.json','.agents/skills/mlview/SKILL.md','.Claude/Skills/MLView/references/x.md','.github/skills/mlview/scripts/artifact.py'])
     assert.equal(isOwnedPath(rel),true,rel);
-  for (const rel of ['skills/mlview/SKILL.md','train.py','x.mlview.json.bak','.agents/skills/mlviewer/SKILL.md','a/.mlview/x','.mlv'+String.fromCharCode(0x130)+'ew/x','draft.json'])
+  // SECURITY2-1: U+017F (long s) and U+212A (Kelvin sign) fold to s and k, as APFS resolves them.
+  for (const rel of ['.claude/\u017fkills/mlview/SKILL.md','.agents/s\u212aills/mlview/SKILL.md','.github/\u017fKILLS/mlview/x','other.mlview.j\u017fon','notes.draft.j\u017fon','.mlview/\u212a.md'])
+    assert.equal(isOwnedPath(rel),true,rel);
+  for (const rel of ['skills/mlview/SKILL.md','train.py','x.mlview.json.bak','.agents/skills/mlviewer/SKILL.md','a/.mlview/x','.mlv'+String.fromCharCode(0x130)+'ew/x','draft.json','.claude/\u0161kills/mlview/SKILL.md','\u212aeras.mlview.jsonl'])
     assert.equal(isOwnedPath(rel),false,rel);
 });
 
@@ -383,5 +386,31 @@ test('links and aliases of MLView files are never cited or fingerprinted (SECURI
   if (links.includes('notes.json')) {
     const cited=document('notes.json');
     assert.deepEqual((await validateWorkflow(cited,root)).issues,[{path:'$.evidence[0].file',message:'evidence must cite project files, not an MLView artifact, draft or installed MLView skill file'}]);
+  }
+});
+
+test('a JSON object with a non-function toString member is an issue, never a throw (LINEAGE2-2)', () => {
+  const hostile = () => JSON.parse('{"toString":1}');
+  const cases = [
+    [v => { v.producer.host = hostile(); }, '$.producer.host'],
+    [v => { v.producer.host = [hostile()]; }, '$.producer.host'],
+    [v => { v.phases[0].id = hostile(); }, '$.phases[0].id'],
+    [v => { v.nodes[0].id = hostile(); }, '$.nodes[0].id'],
+    [v => { v.nodes[0].basis = hostile(); }, '$.nodes[0].basis'],
+    [v => { v.nodes[0].phase = hostile(); }, '$.nodes[0].phase'],
+    [v => { v.edges = [{ id: 'e', source: hostile(), target: 'n1', label: 'x', basis: hostile(), evidence: ['e1'] }]; }, '$.edges[0].source'],
+    [v => { v.evidence[0].line = hostile(); }, '$.evidence[0].line'],
+    [v => { v.evidence[0].endLine = hostile(); }, '$.evidence[0].endLine'],
+    [v => { v.evidence[0].cell = hostile(); }, '$.evidence[0].cell'],
+    [v => { v.findings = [{ id: hostile(), title: 't', message: 'm', severity: hostile(), nodeIds: ['n1'], basis: 'observed', evidence: ['e1'] }]; }, '$.findings[0].severity'],
+    [v => { v.nodes.push({ id: hostile(), label: 'Child', phase: 'train', parent: 'n1', basis: 'unresolved', evidence: [] }); }, '$.nodes[1].id']
+  ];
+  for (const [mutate, expected] of cases) {
+    const value = document();
+    mutate(value);
+    let result;
+    assert.doesNotThrow(() => { result = validateWorkflowStructure(value); }, expected);
+    assert.equal(result.document, undefined, expected);
+    assert.ok(result.issues.some(issue => issue.path === expected), `${expected}: ${JSON.stringify(result.issues)}`);
   }
 });

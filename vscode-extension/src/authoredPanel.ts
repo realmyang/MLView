@@ -64,14 +64,30 @@ const isArtifactPath = (value: string): boolean => asciiLower(value).endsWith('.
  */
 function workspaceArtifact(fsPath: string): { uri: vscode.Uri; folder: vscode.WorkspaceFolder; key: string } | undefined {
     const resolved = path.resolve(fsPath);
-    const uri = vscode.Uri.file(resolved);
-    const folder = vscode.workspace.getWorkspaceFolder(uri);
+    const folder = vscode.workspace.getWorkspaceFolder(vscode.Uri.file(resolved));
     if (!folder)
         return undefined;
-    const rel = path.relative(folder.uri.fsPath, resolved);
+    // VS Code matches workspace folders ignoring case on macOS and Windows, so the matched prefix
+    // can be spelled differently from the folder. Spell it the folder's way, so containment, the
+    // panel key, the artifact's relative path and the watched path all agree with the folder
+    // (LINEAGE2-3). Only the prefix changes: the rest keeps its spelling, which is right on a
+    // case-sensitive volume.
+    const artifact = folderSpelling(resolved, path.resolve(folder.uri.fsPath));
+    const rel = path.relative(folder.uri.fsPath, artifact);
     if (!rel || rel === '..' || rel.startsWith('..' + path.sep) || path.isAbsolute(rel))
         return undefined;
-    return { uri, folder, key: resolved };
+    return { uri: vscode.Uri.file(artifact), folder, key: artifact };
+}
+/** `resolved` with a case-variant prefix equal to `root` re-spelled as `root` (macOS and Windows only). */
+export function folderSpelling(resolved: string, root: string, platform: NodeJS.Platform = process.platform): string {
+    if (platform !== 'darwin' && platform !== 'win32')
+        return resolved;
+    const sep = platform === 'win32' ? '\\' : '/';
+    const head = resolved.slice(0, root.length);
+    if (head === root || head.toLowerCase() !== root.toLowerCase())
+        return resolved;
+    const boundary = resolved.length === root.length || root.endsWith(sep) || resolved[root.length] === sep;
+    return boundary ? root + resolved.slice(root.length) : resolved;
 }
 export class ReloadGeneration {
     private value = 0;
@@ -255,7 +271,8 @@ export class AuthoredDiagramController implements vscode.Disposable {
 }
 type ValidationResult = Awaited<ReturnType<typeof validateWorkflow>>;
 type BannerItem = { code: string; text: string };
-type ParsedCandidate = Exclude<Candidate, { kind: 'json' }> | (Omit<Extract<Candidate, { kind: 'json' }>, 'result'> & { result: ValidationResult; structural?: ReturnType<typeof validateWorkflowStructure>['document'] });
+type ParsedStructure = ReturnType<typeof validateWorkflowStructure>['document'];
+type ParsedCandidate = Exclude<Candidate, { kind: 'json' }> | (Omit<Extract<Candidate, { kind: 'json' }>, 'result'> & { result: ValidationResult; structural?: ParsedStructure });
 const listFiles = (rels: readonly string[]): string => rels.slice(0, 3).map(rel => displayText(rel, 200)).join(', ') + (rels.length > 3 ? `, and ${rels.length - 3} more` : '');
 class AuthoredPanel implements vscode.Disposable {
     private disposed = false;
@@ -392,7 +409,21 @@ class AuthoredPanel implements vscode.Disposable {
             const code = (error as NodeJS.ErrnoException | undefined)?.code;
             result = { issues: [{ path: '$', message: `validation failed (${typeof code === 'string' ? code : 'error'})` }] };
         }
-        return { kind: 'json', ident, sem, full, result, structural: result.value ? result.value.document : validateWorkflowStructure(value).document };
+        // The structural check only decides which extra files to watch. A throw here must not turn a
+        // readable revision (whose valid revision.id the helper accepts as a parent) into
+        // "unreadable" (LINEAGE2-2).
+        let structural: ParsedStructure;
+        if (result.value)
+            structural = result.value.document;
+        else {
+            try {
+                structural = validateWorkflowStructure(value).document;
+            }
+            catch {
+                structural = undefined;
+            }
+        }
+        return { kind: 'json', ident, sem, full, result, structural };
     }
     private async runReload(): Promise<void> {
         if (this.disposed)

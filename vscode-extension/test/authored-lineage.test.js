@@ -58,6 +58,28 @@ test('S1b: a viewer-only rejection does not wedge the lineage; its child is adop
   controller.dispose();
 });
 
+test('LINEAGE2-2: a revision holding an object with a non-function toString is invalid, not unreadable', async () => {
+  const { panel, artifact, log } = await open({});
+  h.writeJson(artifact, rev('r2', 'r1', doc => { doc.producer.host = JSON.parse('{"toString":1}'); }));
+  await h.diskEvent(panel, 'change', artifact);
+  const banner = h.lastBanner(panel);
+  assert.deepEqual(banner.codes, ['invalid']);
+  assert.equal(banner.message, 'Generated diagram update rejected; retaining the last valid revision.\nRevision r2 cannot be displayed:\n$.producer.host: is unsupported');
+  assert.equal(log.lines.some(line => /reload failed/.test(line)), false, log.lines.join('\n'));
+  assert.equal(h.shownRevision(panel), 'r1');
+  // The helper accepts r2 as a parent (its revision.id is valid), so Refine continues from it.
+  panel.fire({ v: 1, type: 'refineWorkflow', revisionId: 'r1', intent: 'expand', requestId: 'tostring-1' });
+  await h.waitFor(() => vscode.__recorded.clipboardWrites.length === 1, 'refine prompt was not copied');
+  const prompt = vscode.__recorded.clipboardWrites[0];
+  assert.match(prompt, /^The artifact file now holds revision r2, which the viewer could not display/m);
+  assert.deepEqual(h.promptData(prompt).viewerRejection, ['$.producer.host: is unsupported']);
+  assert.deepEqual(h.results(panel).at(-1), { v: 1, type: 'actionResult', requestId: 'tostring-1', action: 'refineWorkflow', outcome: 'done' });
+  h.writeJson(artifact, rev('r3', 'r2'));
+  await h.diskEvent(panel, 'change', artifact);
+  assert.equal(h.shownRevision(panel), 'r3');
+  assert.deepEqual(h.lastBanner(panel).codes, []);
+});
+
 test('a newer revision whose sources changed is adopted as historical, never rejected', async () => {
   const { panel, artifact, root } = await open({ raw: h.verify(rev('r1'), { 'source.py': 'fit()\n' }) });
   const r2 = h.verify(rev('r2', 'r1'), { 'source.py': 'fit()\n' });
