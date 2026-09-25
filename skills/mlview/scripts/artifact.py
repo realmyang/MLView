@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import re
+import stat
 import sys
 import tempfile
 from datetime import datetime, timezone
@@ -20,29 +21,66 @@ HOSTS = {"copilot", "codex", "claude-code", "unknown"}
 BASES = {"observed", "inferred", "unresolved"}
 EDITABLE_COLLECTIONS = {"phases", "nodes", "edges", "findings", "evidence"}
 RFC3339_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$")
+DIGEST_RE = re.compile(r"[0-9a-f]{64}")
+DRIVE_RE = re.compile(r"^[A-Za-z]:")
+DRIVE_MESSAGE = "must be a slash-separated relative path without a drive letter"
+ARTIFACT_SUFFIX = ".mlview.json"
+
+# MLView's own files (published artifacts, drafts and installed skill copies)
+# are never project evidence. The same ASCII-case-insensitive predicate is used
+# by the VS Code extension, so both layers agree on what is tracked.
+OWNED_PREFIXES = (".mlview/", ".agents/skills/mlview/", ".claude/skills/mlview/", ".github/skills/mlview/")
+OWNED_SUFFIXES = (ARTIFACT_SUFFIX, ".draft.json")
+_ASCII_LOWER = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")
+EXCLUDED_EVIDENCE_MESSAGE = "evidence must cite project files, not an MLView artifact, draft or installed MLView skill file"
+EXCLUDED_INSPECTED_MESSAGE = "MLView-owned file is listed but not fingerprinted; list only project files"
+
+_UMASK: int | None = None
+
+
+def is_owned_path(rel: str) -> bool:
+    folded = rel.translate(_ASCII_LOWER)
+    return folded.startswith(OWNED_PREFIXES) or folded.endswith(OWNED_SUFFIXES)
 
 
 class Problems:
     def __init__(self) -> None:
-        self.items: list[dict[str, str]] = []
+        self.items: list[dict[str, Any]] = []
 
-    def add(self, code: str, path: str, message: str) -> None:
-        self.items.append({"code": code, "path": path, "message": message})
+    def add(self, code: str, path: str, message: str, **extra: Any) -> None:
+        self.items.append({"code": code, "path": path, "message": message, **extra})
+
+
+def _warn(warnings: list[dict[str, str]], code: str, path: str, message: str) -> None:
+    warnings.append({"code": code, "path": path, "message": message})
+
+
+def _strip_bom(text: str) -> str:
+    return text[1:] if text.startswith("\ufeff") else text
+
+
+def _path_syntax(value: Any) -> tuple[str, str] | None:
+    """Return the lexical problem of a workspace-relative path, or None."""
+    if not isinstance(value, str) or not value or "\\" in value or "\0" in value:
+        return "invalid_path", "must be a non-empty slash-separated relative path"
+    if DRIVE_RE.match(value):
+        return "invalid_path", DRIVE_MESSAGE
+    if PurePosixPath(value).is_absolute() or any(part in {"", ".", ".."} for part in value.split("/")):
+        return "path_outside_workspace", "must stay within the workspace"
+    return None
 
 
 def _relative(value: Any, root: Path, problems: Problems, path: str) -> tuple[str, Path] | None:
-    if not isinstance(value, str) or not value or "\\" in value:
-        problems.add("invalid_path", path, "must be a non-empty slash-separated relative path")
+    syntax = _path_syntax(value)
+    if syntax is not None:
+        problems.add(syntax[0], path, syntax[1])
         return None
     pure = PurePosixPath(value)
-    if pure.is_absolute() or any(part in {"", ".", ".."} for part in value.split("/")):
-        problems.add("path_outside_workspace", path, "must stay within the workspace")
-        return None
     candidate = root.joinpath(*pure.parts)
     try:
         resolved = candidate.resolve(strict=True)
         resolved.relative_to(root)
-    except (OSError, ValueError):
+    except (OSError, ValueError, RuntimeError):
         problems.add("path_outside_workspace", path, "file is missing or resolves outside the workspace")
         return None
     if not resolved.is_file():
@@ -52,6 +90,7 @@ def _relative(value: Any, root: Path, problems: Problems, path: str) -> tuple[st
 
 
 def _read_source(path: Path, problems: Problems, at: str) -> tuple[bytes, str] | None:
+    """Read a cited source: raw bytes for the fingerprint, decoded text without a leading BOM."""
     try:
         if path.stat().st_size > MAX_SOURCE:
             problems.add("source_too_large", at, f"cited source exceeds {MAX_SOURCE} bytes")
@@ -65,7 +104,7 @@ def _read_source(path: Path, problems: Problems, at: str) -> tuple[bytes, str] |
         problems.add("source_too_large", at, f"cited source exceeds {MAX_SOURCE} bytes")
         return None
     try:
-        return raw, raw.decode("utf-8")
+        return raw, _strip_bom(raw.decode("utf-8"))
     except UnicodeDecodeError:
         problems.add("source_encoding", at, "cited source must be UTF-8")
         return None
@@ -75,14 +114,26 @@ def _lines(text: str) -> list[str]:
     return text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
 
 
+def _parse_notebook(text: str) -> Any:
+    try:
+        return json.loads(text)
+    except (ValueError, RecursionError):
+        return None
+
+
 def _validate_evidence(doc: dict[str, Any], root: Path, problems: Problems) -> dict[str, str]:
     hashes: dict[str, str] = {}
     cache: dict[str, tuple[bytes, str]] = {}
+    notebooks: dict[str, Any] = {}
     for index, ev in enumerate(doc.get("evidence", [])):
         at = f"evidence[{index}]"
         if not isinstance(ev, dict):
             continue
-        located = _relative(ev.get("file"), root, problems, f"{at}.file")
+        cited = ev.get("file")
+        if isinstance(cited, str) and is_owned_path(cited):
+            problems.add("excluded_evidence", f"{at}.file", EXCLUDED_EVIDENCE_MESSAGE)
+            continue
+        located = _relative(cited, root, problems, f"{at}.file")
         if not located:
             continue
         rel, source_path = located
@@ -99,8 +150,12 @@ def _validate_evidence(doc: dict[str, Any], root: Path, problems: Problems) -> d
             if not isinstance(cell, int) or isinstance(cell, bool) or cell < 0:
                 problems.add("notebook_cell", f"{at}.cell", "notebook evidence requires a zero-based cell index")
                 continue
+            if rel not in notebooks:
+                notebooks[rel] = _parse_notebook(text)
             try:
-                notebook = json.loads(text)
+                notebook = notebooks[rel]
+                if notebook is None:
+                    raise ValueError
                 cells = notebook["cells"]
                 source = cells[cell]["source"]
                 text = "".join(source) if isinstance(source, list) else source
@@ -118,23 +173,51 @@ def _validate_evidence(doc: dict[str, Any], root: Path, problems: Problems) -> d
             problems.add("range", at, "line range is invalid for the cited source")
             continue
         expected = "\n".join(lines[line - 1:end])
-        if ev.get("quote") != expected:
-            problems.add("quote_mismatch", f"{at}.quote", "quote does not exactly match the cited lines")
+        quote = ev.get("quote")
+        # A leading byte-order mark is not part of line 1: accept a line-1
+        # quote with or without it, and compare every other quote exactly.
+        matches = _strip_bom(quote) == _strip_bom(expected) if line == 1 and isinstance(quote, str) else quote == expected
+        if not matches:
+            shown = json.dumps(expected[:200], ensure_ascii=False)
+            problems.add("quote_mismatch", f"{at}.quote", f"quote does not exactly match the cited lines; the cited lines are: {shown}")
     return dict(sorted(hashes.items()))
 
 
-def _validate_inspected(doc: dict[str, Any], root: Path, hashes: dict[str, str], problems: Problems) -> dict[str, str]:
-    files = doc.get("coverage", {}).get("inspectedFiles", []) if isinstance(doc.get("coverage"), dict) else []
+def _validate_inspected(doc: dict[str, Any], root: Path, hashes: dict[str, str], problems: Problems, warnings: list[dict[str, str]]) -> dict[str, str]:
+    coverage = doc.get("coverage")
+    files = coverage.get("inspectedFiles", []) if isinstance(coverage, dict) else []
+    evidence = doc.get("evidence")
+    cited = {ev["file"] for ev in evidence if isinstance(ev, dict) and isinstance(ev.get("file"), str)} if isinstance(evidence, list) else set()
+    seen: set[str] = set()
     for index, value in enumerate(files if isinstance(files, list) else []):
-        located = _relative(value, root, problems, f"coverage.inspectedFiles[{index}]")
+        at = f"coverage.inspectedFiles[{index}]"
+        if isinstance(value, str) and is_owned_path(value):
+            # Listed for honesty only: never existence-checked, read or fingerprinted.
+            syntax = _path_syntax(value)
+            if syntax is not None: problems.add(syntax[0], at, syntax[1])
+            else: _warn(warnings, "excluded_inspected", at, EXCLUDED_INSPECTED_MESSAGE)
+            continue
+        located = _relative(value, root, problems, at)
         if not located:
             continue
         rel, path = located
-        if rel in hashes:
+        if rel in cited or rel in seen:
             continue
-        content = _read_source(path, problems, f"coverage.inspectedFiles[{index}]")
-        if content is not None:
-            hashes[rel] = hashlib.sha256(content[0]).hexdigest()
+        seen.add(rel)
+        # Inspected-only context may be binary or non-UTF-8: fingerprint raw bytes.
+        try:
+            if path.stat().st_size > MAX_SOURCE:
+                raw = None
+            else:
+                with path.open("rb") as stream:
+                    raw = stream.read(MAX_SOURCE + 1)
+        except OSError:
+            problems.add("source_read", at, "could not read inspected file")
+            continue
+        if raw is None or len(raw) > MAX_SOURCE:
+            _warn(warnings, "not_fingerprinted", at, f"file is larger than {MAX_SOURCE} bytes; listed without a freshness fingerprint")
+            continue
+        hashes[rel] = hashlib.sha256(raw).hexdigest()
     return dict(sorted(hashes.items()))
 
 
@@ -178,7 +261,7 @@ def _basic_shape(doc: Any, p: Problems) -> None:
     producer = doc.get("producer")
     producer = _object(producer, "producer", {"kind", "host"}, {"kind", "host", "model"}, p)
     if producer is None or producer.get("kind") != "host-llm" or not isinstance(producer.get("host"), str) or producer.get("host") not in HOSTS:
-        p.add("producer", "producer", "must identify a supported host-llm producer")
+        p.add("producer", "producer", 'must identify a supported host-llm producer: kind "host-llm" and host one of copilot, codex, claude-code, unknown')
     elif "model" in producer: _optional_text(producer, "model", "producer", 200, p)
     revision = doc.get("revision")
     revision = _object(revision, "revision", {"id"}, {"id", "parent"}, p)
@@ -215,9 +298,8 @@ def _basic_shape(doc: Any, p: Problems) -> None:
         for key, maximum in (("inspectedFiles", 500), ("limitations", 2000)):
             for i, value in enumerate(coverage[key]):
                 if isinstance(value, str) and len(value) > maximum: p.add("limit", f"coverage.{key}[{i}]", f"must contain at most {maximum} characters")
-    verification = doc.get("verification")
-    if verification is not None:
-        verification = _object(verification, "verification", {"files", "publishedAt"}, {"files", "publishedAt"}, p)
+    if "verification" in doc:
+        verification = _object(doc["verification"], "verification", {"files", "publishedAt"}, {"files", "publishedAt"}, p)
         if verification is not None:
             published = verification.get("publishedAt")
             if not isinstance(published, str): p.add("type", "verification.publishedAt", "must be a string")
@@ -235,8 +317,9 @@ def _basic_shape(doc: Any, p: Problems) -> None:
             else:
                 if len(files) > 2000: p.add("limit", "verification.files", "must contain at most 2000 entries")
                 for key, digest in files.items():
-                    if not isinstance(key, str) or not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest): p.add("fingerprint", "verification.files", "must map relative paths to lowercase SHA-256")
+                    if not isinstance(key, str) or not isinstance(digest, str) or not DIGEST_RE.fullmatch(digest): p.add("fingerprint", "verification.files", "must map relative paths to lowercase SHA-256")
                     elif len(key) > 500: p.add("limit", "verification.files", "path keys must contain at most 500 characters")
+                    elif _path_syntax(key) is not None: p.add("invalid_path", "verification.files", "path keys must be slash-separated workspace-relative paths without a drive letter")
     limits = {"phases": 100, "nodes": 2000, "edges": 4000, "findings": 1000, "evidence": 5000}
     for name, limit in limits.items():
         value = doc.get(name)
@@ -246,13 +329,17 @@ def _basic_shape(doc: Any, p: Problems) -> None:
     if isinstance(doc.get("nodes"), list) and not doc["nodes"]: p.add("required", "nodes", "must not be empty")
     for path, value in _walk_strings(doc):
         if len(value) > 16000: p.add("text_too_large", path, "string exceeds 16000 characters")
+        if not _encodable(value): p.add("text_encoding", path, "contains an unpaired surrogate; use valid Unicode text")
+    for path, key in _walk_keys(doc):
+        if not _encodable(key): p.add("text_encoding", path, "contains an unpaired surrogate; use valid Unicode text")
     path_lists = []
     if isinstance(request, dict): path_lists.append(("request.entrypoints", request.get("entrypoints", [])))
     for at, values in path_lists:
         if isinstance(values, list):
             for i, value in enumerate(values):
-                if not isinstance(value, str) or PurePosixPath(value).is_absolute() or any(part in {"", ".", ".."} for part in value.split("/")) or "\\" in value:
-                    p.add("invalid_path", f"{at}[{i}]", "must be a slash-separated relative path")
+                if _path_syntax(value) is not None:
+                    drive = isinstance(value, str) and bool(DRIVE_RE.match(value))
+                    p.add("invalid_path", f"{at}[{i}]", DRIVE_MESSAGE if drive else "must be a slash-separated relative path")
 
 
 def _walk_strings(value: Any, path: str = "$"):
@@ -262,6 +349,23 @@ def _walk_strings(value: Any, path: str = "$"):
         for key, child in value.items(): yield from _walk_strings(child, f"{path}.{key}")
     elif isinstance(value, list):
         for index, child in enumerate(value): yield from _walk_strings(child, f"{path}[{index}]")
+
+
+def _walk_keys(value: Any, path: str = "$"):
+    if isinstance(value, dict):
+        for key, child in value.items():
+            yield f"{path}.{key}", key
+            yield from _walk_keys(child, f"{path}.{key}")
+    elif isinstance(value, list):
+        for index, child in enumerate(value): yield from _walk_keys(child, f"{path}[{index}]")
+
+
+def _encodable(value: str) -> bool:
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
 
 
 def _id(value: Any) -> bool:
@@ -300,9 +404,9 @@ def _references(doc: dict[str, Any], p: Problems) -> None:
         if not isinstance(node.get("phase"), str) or node.get("phase") not in ids["phases"]: p.add("reference", f"nodes[{i}].phase", "unknown phase ID")
         _optional_text(node, "kind", f"nodes[{i}]", 100, p)
         _optional_text(node, "detail", f"nodes[{i}]", 8000, p, allow_empty=True)
-        parent = node.get("parent")
-        if parent is not None:
-            if not isinstance(parent, str) or parent not in ids["nodes"] or parent == node.get("id"): p.add("parent", f"nodes[{i}].parent", "must reference a different node")
+        if "parent" in node:
+            parent = node["parent"]
+            if not _id(parent) or parent not in ids["nodes"] or parent == node.get("id"): p.add("parent", f"nodes[{i}].parent", "must be the ID of a different node; omit parent for root nodes")
             elif _id(node.get("id")): children.add(parent); parent_of[node["id"]] = parent
         _claim(node, f"nodes[{i}]", ids["evidence"], p)
     checked: set[str] = set()
@@ -357,76 +461,163 @@ def _claim(item: dict[str, Any], at: str, evidence_ids: set[str], p: Problems) -
     if isinstance(refs, list) and len(refs) > 100: p.add("limit", f"{at}.evidence", "must contain at most 100 references")
 
 
-def validate(doc: Any, workspace: Path) -> tuple[list[dict[str, str]], dict[str, str]]:
+def validate(doc: Any, workspace: Path, *, warnings: list[dict[str, str]] | None = None) -> tuple[list[dict[str, Any]], dict[str, str]]:
+    """Return (errors, fingerprints); non-blocking warnings are appended to ``warnings`` when given."""
     workspace = workspace.resolve()
+    notes: list[dict[str, str]] = warnings if warnings is not None else []
     p = Problems(); _basic_shape(doc, p)
     if not isinstance(doc, dict): return p.items, {}
     _references(doc, p)
     hashes = _validate_evidence(doc, workspace, p) if isinstance(doc.get("evidence"), list) else {}
-    hashes = _validate_inspected(doc, workspace, hashes, p)
+    hashes = _validate_inspected(doc, workspace, hashes, p, notes)
     verification = doc.get("verification")
-    if verification is not None:
-        supplied = verification.get("files") if isinstance(verification, dict) else None
+    if isinstance(verification, dict):
+        supplied = verification.get("files")
         if not isinstance(supplied, dict): p.add("verification", "verification.files", "must be an object")
         else:
+            # `verification` is publication output. A supplied block is checked
+            # only for tracked files that were fingerprinted; keys for MLView's
+            # own files, untracked paths and unfingerprinted files are ignored.
             for rel, digest in supplied.items():
-                if rel not in hashes: p.add("fingerprint_scope", "verification.files", "fingerprint must belong to a cited file")
-                elif digest != hashes[rel]: p.add("stale_source", "verification.files", "source changed since the draft fingerprint")
+                current = hashes.get(rel)
+                if current is not None and isinstance(digest, str) and DIGEST_RE.fullmatch(digest) and digest != current:
+                    p.add("stale_source", "verification.files", f"{rel} changed after this fingerprint was taken; re-read it, update claims that depend on it, then delete the draft's verification block", file=rel)
     return p.items, hashes
+
+
+class _TooLarge(ValueError):
+    pass
+
+
+class _DuplicateMember(ValueError):
+    def __init__(self, key: str) -> None:
+        super().__init__(f"duplicate JSON member: {key[:200]}")
 
 
 def _read_bounded(path: Path) -> bytes:
     with path.open("rb") as stream:
         raw = stream.read(MAX_DOCUMENT + 1)
     if len(raw) > MAX_DOCUMENT:
-        raise ValueError(f"document exceeds {MAX_DOCUMENT} bytes")
+        raise _TooLarge(f"document exceeds {MAX_DOCUMENT} bytes")
     return raw
 
+
+def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise _DuplicateMember(key)
+        result[key] = value
+    return result
+
+
 def _parse(raw: bytes) -> Any:
-    def unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-        result: dict[str, Any] = {}
-        for key, value in pairs:
-            if key in result:
-                raise ValueError(f"duplicate JSON member: {key}")
-            result[key] = value
-        return result
-
-    return json.loads(raw.decode("utf-8"), object_pairs_hook=unique_object)
+    return json.loads(raw.decode("utf-8"), object_pairs_hook=_unique_object)
 
 
-def _load(path: Path) -> Any:
-    return _parse(_read_bounded(path))
+_INVALID = object()
 
 
-def _draft_path(value: str, root: Path, problems: Problems) -> Path | None:
+def _read_input(path: Path, problems: Problems, label: str) -> bytes | None:
+    """Read a draft or record file, reporting a distinct error code per failure."""
+    try:
+        return _read_bounded(path)
+    except _TooLarge:
+        problems.add("draft_too_large", label, f"{label} file exceeds {MAX_DOCUMENT} bytes")
+    except (FileNotFoundError, NotADirectoryError):
+        problems.add("draft_not_found", label, f"{label} file does not exist")
+    except IsADirectoryError:
+        problems.add("draft_path", label, f"{label} must identify a regular file")
+    except OSError:
+        problems.add("draft_io", label, f"could not read the {label} file")
+    return None
+
+
+def _parse_input(raw: bytes, problems: Problems, label: str, at: str) -> Any:
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        problems.add("draft_encoding", label, f"{label} file must be UTF-8 JSON")
+        return _INVALID
+    try:
+        return json.loads(text, object_pairs_hook=_unique_object)
+    except json.JSONDecodeError as exc:
+        problems.add("invalid_json", at, f"{exc.msg} at line {exc.lineno}, column {exc.colno}", line=exc.lineno, column=exc.colno)
+    except _DuplicateMember as exc:
+        problems.add("invalid_json", at, str(exc))
+    except RecursionError:
+        problems.add("invalid_json", at, "nesting is too deep")
+    except ValueError:
+        problems.add("invalid_json", at, "the document is not valid JSON")
+    return _INVALID
+
+
+def _input_path(value: str, root: Path, problems: Problems) -> Path | None:
+    """Locate a validate/publish draft: absolute as given, relative to --workspace otherwise."""
+    path = Path(value) if value else None
+    if path is not None and path.is_absolute():
+        return path
+    if not value or "\\" in value or DRIVE_RE.match(value):
+        problems.add("draft_path", "draft", "must be an absolute path or a slash-separated path relative to --workspace")
+        return None
+    return root.joinpath(*PurePosixPath(value).parts)
+
+
+def _draft_path(value: str, root: Path, problems: Problems, label: str = "draft") -> Path | None:
     """Resolve an existing draft that is safe to replace inside the workspace."""
     if not value:
-        problems.add("draft_path", "draft", "must be a slash-separated path inside the workspace")
+        problems.add("draft_path", label, "must be a slash-separated path inside the workspace")
         return None
     path = Path(value)
     if not path.is_absolute():
-        if "\\" in value:
-            problems.add("draft_path", "draft", "must be a slash-separated path inside the workspace")
+        if "\\" in value or DRIVE_RE.match(value):
+            problems.add("draft_path", label, "must be a slash-separated path inside the workspace")
             return None
         path = root.joinpath(*PurePosixPath(value).parts)
     try:
         resolved = path.resolve(strict=True)
+    except (FileNotFoundError, NotADirectoryError):
+        problems.add("draft_not_found", label, f"{label} file does not exist")
+        return None
+    except (OSError, ValueError, RuntimeError):
+        problems.add("draft_path", label, "must identify an existing file inside the workspace")
+        return None
+    try:
         resolved.relative_to(root)
-    except (OSError, ValueError):
-        problems.add("draft_path", "draft", "must identify an existing file inside the workspace")
+    except ValueError:
+        problems.add("draft_path", label, "must identify an existing file inside the workspace")
         return None
     if not resolved.is_file() or path.is_symlink():
-        problems.add("draft_path", "draft", "must identify a regular non-symlink file inside the workspace")
+        problems.add("draft_path", label, "must identify a regular non-symlink file inside the workspace")
         return None
     return resolved
 
 
-def _upsert_draft(draft: Path, collection: str, record: Any, root: Path) -> int:
+def _umask() -> int:
+    global _UMASK
+    if _UMASK is None:
+        _UMASK = os.umask(0)
+        os.umask(_UMASK)
+    return _UMASK
+
+
+def _match_mode(temp_name: str, target: Path) -> None:
+    """Give a replacement file the target's mode (or the umask default) instead of mkstemp's 0600."""
+    if os.name == "nt":
+        return
     try:
-        snapshot = _read_bounded(draft)
-        doc = _parse(snapshot)
-    except (OSError, UnicodeError, ValueError, RecursionError, json.JSONDecodeError):
-        print(json.dumps({"ok": False, "errors": [{"code": "invalid_json", "path": "$", "message": "draft is missing, too large, non-UTF-8, or invalid JSON"}]})); return 1
+        mode = stat.S_IMODE(target.stat().st_mode)
+    except OSError:
+        mode = 0o666 & ~_umask()
+    os.chmod(temp_name, mode)
+
+
+def _upsert_draft(draft: Path, collection: str, record: Any, root: Path) -> int:
+    p = Problems()
+    snapshot = _read_input(draft, p, "draft")
+    doc = _parse_input(snapshot, p, "draft", "$") if snapshot is not None else _INVALID
+    if p.items:
+        print(json.dumps({"ok": False, "errors": p.items}, sort_keys=True)); return 1
     if not isinstance(doc, dict):
         print(json.dumps({"ok": False, "errors": [{"code": "checkpoint_invalid", "path": "$", "message": "existing draft must be a WorkflowDocument object"}]})); return 1
     # Publication metadata describes the old semantic bytes. It is intentionally
@@ -464,36 +655,41 @@ def _upsert_draft(draft: Path, collection: str, record: Any, root: Path) -> int:
         except (OSError, ValueError): unchanged = False
         if not unchanged:
             print(json.dumps({"ok": False, "errors": [{"code": "draft_conflict", "path": "draft", "message": "draft changed during the edit"}]})); return 1
+        _match_mode(temp_name, draft)
         os.replace(temp_name, draft)
     finally:
         if os.path.exists(temp_name): os.unlink(temp_name)
     print(json.dumps({"ok": True, "errors": [], "draft": draft.relative_to(root).as_posix(), "collection": collection, "id": record["id"], "action": action}, sort_keys=True)); return 0
 
 
-def _semantic_bytes(doc: dict[str, Any]) -> bytes:
-    comparable = dict(doc)
-    comparable.pop("verification", None)
-    return json.dumps(comparable, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
-
-
-def _publish_locked(doc: dict[str, Any], hashes: dict[str, str], root: Path, output: Path, output_name: str) -> int:
+def _publish_locked(doc: dict[str, Any], hashes: dict[str, str], root: Path, output: Path, output_name: str, *, warnings: list[dict[str, str]] | None = None) -> int:
     current_id = None; current_doc = None; current_snapshot = None
     if output.exists():
         try:
             current_snapshot = output.read_bytes()
             current_doc = json.loads(current_snapshot.decode("utf-8"))
             current_id = current_doc["revision"]["id"]
-        except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError):
+        except (OSError, ValueError, KeyError, TypeError, RecursionError):
             print(json.dumps({"ok": False, "errors": [{"code": "published_invalid", "path": output_name, "message": "existing artifact is invalid"}]})); return 1
     if doc["revision"].get("parent") != current_id:
-        print(json.dumps({"ok": False, "errors": [{"code": "revision_conflict", "path": "revision.parent", "message": "does not match the published revision"}]})); return 1
-    if current_doc is not None and doc["revision"]["id"] == current_id and _semantic_bytes(doc) != _semantic_bytes(current_doc):
-        print(json.dumps({"ok": False, "errors": [{"code": "revision_id_reused", "path": "revision.id", "message": "same revision ID cannot identify changed content"}]})); return 1
+        if current_doc is None: message = f"no artifact is published at {output_name}; omit revision.parent"
+        elif _id(current_id): message = f"does not match the published revision {current_id}"
+        else: message = "does not match the published revision; the published artifact has no valid revision.id"
+        print(json.dumps({"ok": False, "errors": [{"code": "revision_conflict", "path": "revision.parent", "message": message}]})); return 1
+    # The artifact keeps no longer history, but its current revision names its
+    # own parent: that ID was already published and must not be reused.
+    current_parent = current_doc["revision"].get("parent") if current_doc is not None else None
+    if current_parent is not None and doc["revision"]["id"] == current_parent:
+        revision_id = doc["revision"]["id"]
+        print(json.dumps({"ok": False, "errors": [{"code": "revision_id_reused", "path": "revision.id", "message": f"revision ID {revision_id} was already used by this artifact (the published revision's parent); choose a new ID"}]})); return 1
     doc["verification"] = {"files": hashes, "publishedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")}
+    serialized = (json.dumps(doc, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    if len(serialized) > MAX_DOCUMENT:
+        print(json.dumps({"ok": False, "errors": [{"code": "document_too_large", "path": "$", "message": f"published artifact would be {len(serialized)} bytes; the limit is {MAX_DOCUMENT}"}]})); return 1
     fd, temp_name = tempfile.mkstemp(prefix=".mlview-", suffix=".tmp", dir=output.parent)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as stream:
-            json.dump(doc, stream, ensure_ascii=False, indent=2, sort_keys=True); stream.write("\n"); stream.flush(); os.fsync(stream.fileno())
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(serialized); stream.flush(); os.fsync(stream.fileno())
         final_errors, final_hashes = validate(doc, root)
         if final_errors or final_hashes != hashes:
             print(json.dumps({"ok": False, "errors": [{"code": "source_changed", "path": "verification.files", "message": "source or configuration changed during publication"}]})); return 1
@@ -504,13 +700,28 @@ def _publish_locked(doc: dict[str, Any], hashes: dict[str, str], root: Path, out
                 print(json.dumps({"ok": False, "errors": [{"code": "revision_conflict", "path": "revision.parent", "message": "published revision changed during publication"}]})); return 1
         elif output.exists():
             print(json.dumps({"ok": False, "errors": [{"code": "revision_conflict", "path": "revision.parent", "message": "published revision appeared during publication"}]})); return 1
+        _match_mode(temp_name, output)
         os.replace(temp_name, output)
     finally:
         if os.path.exists(temp_name): os.unlink(temp_name)
-    print(json.dumps({"ok": True, "errors": [], "output": output_name, "revision": doc["revision"]["id"]}, sort_keys=True)); return 0
+    result: dict[str, Any] = {"ok": True, "errors": [], "output": output_name, "revision": doc["revision"]["id"]}
+    if warnings: result["warnings"] = warnings
+    print(json.dumps(result, sort_keys=True)); return 0
 
 
-def main(argv: list[str] | None = None) -> int:
+def _output_problem(value: str) -> str | None:
+    pure = PurePosixPath(value)
+    if not value or "\\" in value or "\0" in value or pure.is_absolute() or any(part in {"", ".", ".."} for part in value.split("/")):
+        return "must stay within the workspace"
+    if DRIVE_RE.match(value):
+        return DRIVE_MESSAGE
+    if not value.translate(_ASCII_LOWER).endswith(ARTIFACT_SUFFIX):
+        return "must be a workspace-relative path ending in .mlview.json"
+    return None
+
+
+def _main(argv: list[str] | None) -> int:
+    global _UMASK
     if sys.version_info < (3, 10):
         print(json.dumps({"ok": False, "errors": [{"code": "python_version", "path": "$", "message": "Python 3.10 or newer is required"}]})); return 1
     parser = argparse.ArgumentParser()
@@ -520,6 +731,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--collection", choices=sorted(EDITABLE_COLLECTIONS))
     parser.add_argument("--record", help="JSON file containing one ID-bearing record for upsert")
     args = parser.parse_args(argv)
+    # Read the process umask once; replacement files are given the mode a
+    # plain write would have produced.
+    _UMASK = os.umask(0); os.umask(_UMASK)
     root = Path(args.workspace).resolve()
     if args.command == "upsert":
         p = Problems(); draft_path = _draft_path(args.draft, root, p)
@@ -529,12 +743,11 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps({"ok": False, "errors": p.items}, sort_keys=True)); return 1
         if draft_path.name.endswith(".mlview.json"):
             print(json.dumps({"ok": False, "errors": [{"code": "published_target", "path": "draft", "message": "refusing to edit a published *.mlview.json artifact; copy it to a *.draft.json checkpoint first"}]})); return 1
-        record_path = _draft_path(args.record, root, p)
-        if record_path is None:
+        record_path = _draft_path(args.record, root, p, label="record")
+        raw_record = _read_input(record_path, p, "record") if record_path is not None else None
+        record = _parse_input(raw_record, p, "record", "record") if raw_record is not None else _INVALID
+        if p.items:
             print(json.dumps({"ok": False, "errors": p.items}, sort_keys=True)); return 1
-        try: record = _load(record_path)
-        except (OSError, UnicodeError, ValueError, RecursionError, json.JSONDecodeError):
-            print(json.dumps({"ok": False, "errors": [{"code": "invalid_json", "path": "record", "message": "record is missing, too large, non-UTF-8, or invalid JSON"}]})); return 1
         lock = draft_path.with_name(draft_path.name + ".lock")
         try: lock_fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
         except FileExistsError:
@@ -550,21 +763,27 @@ def main(argv: list[str] | None = None) -> int:
         finally:
             try: lock.unlink()
             except FileNotFoundError: pass
-    try: doc = _load(Path(args.draft))
-    except (OSError, UnicodeError, ValueError, RecursionError, json.JSONDecodeError):
-        print(json.dumps({"ok": False, "errors": [{"code": "invalid_json", "path": "$", "message": "draft is missing, too large, non-UTF-8, or invalid JSON"}]})); return 1
-    errors, hashes = validate(doc, root)
+    p = Problems()
+    draft = _input_path(args.draft, root, p)
+    raw_draft = _read_input(draft, p, "draft") if draft is not None else None
+    doc = _parse_input(raw_draft, p, "draft", "$") if raw_draft is not None else _INVALID
+    if p.items:
+        print(json.dumps({"ok": False, "errors": p.items}, sort_keys=True)); return 1
+    warnings: list[dict[str, str]] = []
+    errors, hashes = validate(doc, root, warnings=warnings)
     if errors: print(json.dumps({"ok": False, "errors": errors}, sort_keys=True)); return 1
     if args.command == "validate":
         result: dict[str, Any] = {"ok": True, "errors": [], "revision": doc["revision"]["id"], "files": hashes}
+        if warnings: result["warnings"] = warnings
         if args.include_document: result["document"] = doc
         print(json.dumps(result, sort_keys=True)); return 0
+    problem = _output_problem(args.output)
+    if problem is not None:
+        print(json.dumps({"ok": False, "errors": [{"code": "output_path", "path": "--output", "message": problem}]})); return 1
     output_arg = PurePosixPath(args.output)
-    if not args.output or "\\" in args.output or output_arg.is_absolute() or any(part in {"", ".", ".."} for part in args.output.split("/")):
-        print(json.dumps({"ok": False, "errors": [{"code": "output_path", "path": "--output", "message": "must stay within the workspace"}]})); return 1
     output = root.joinpath(*output_arg.parts)
     try: output.resolve(strict=False).parent.relative_to(root)
-    except ValueError:
+    except (OSError, ValueError, RuntimeError):
         print(json.dumps({"ok": False, "errors": [{"code": "output_path", "path": "--output", "message": "must stay within the workspace"}]})); return 1
     try:
         output.parent.mkdir(parents=True, exist_ok=True)
@@ -580,12 +799,20 @@ def main(argv: list[str] | None = None) -> int:
     try:
         try:
             os.close(lock_fd)
-            return _publish_locked(doc, hashes, root, output, output_arg.as_posix())
+            return _publish_locked(doc, hashes, root, output, output_arg.as_posix(), warnings=warnings)
         except OSError:
             print(json.dumps({"ok": False, "errors": [{"code": "publication_io", "path": "--output", "message": "could not write the published artifact"}]})); return 1
     finally:
         try: lock.unlink()
         except FileNotFoundError: pass
+
+
+def main(argv: list[str] | None = None) -> int:
+    try:
+        return _main(argv)
+    except Exception as exc:  # last resort: keep the one-JSON-object, no-absolute-path contract
+        print(json.dumps({"ok": False, "errors": [{"code": "internal_error", "path": "$", "message": f"the helper failed unexpectedly ({type(exc).__name__})"}]}))
+        return 1
 
 
 if __name__ == "__main__": raise SystemExit(main())
