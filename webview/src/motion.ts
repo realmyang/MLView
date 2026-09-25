@@ -1,10 +1,10 @@
 /**
  * The OS motion preference, read once and then watched.
  *
- * Two things need it and they need it for different reasons, which is why it
- * lives in its own module rather than inside either consumer:
+ * The hover-intent timers deliberately do NOT read it (RENDER-19): they are
+ * intent delays, not animation, and dropping them under `reduce` made every
+ * card a pointer sweep crossed toggle the whole-canvas dim. What does need it:
  *
- *  - the hover-intent timers collapse to 0 ms under `reduce` (canvasview.ts);
  *  - the flow layer must NEVER BUILD `.mlv-edge__flow` under `reduce`
  *    (CONTRACTS 11.13 rule 3). The blanket clamp in `styles/base.css` freezes an
  *    animation instead of removing it, which would park a 12 px charge stub at
