@@ -278,7 +278,11 @@ differently from the recording tools, even a re-save or a note that keeps
 every verdict holds Stage 2: the message gives the sha256 the summary
 recorded for each named `review.md`, and restoring those exact bytes clears
 it. A review the recording tools did not read (a baseline they judged
-invalid) reports no verdicts in the summary and is not compared. With
+invalid) reports no verdicts in the summary and is not compared itself, but
+the baselines' false accusations are compared only as a total, so a re-save
+of another baseline review can still hold Stage 2 when the running tools
+count that unread baseline's accusations (see the pilot README's known
+limits; restoring the named review's exact bytes clears it). With
 per-host targets, a stop reason names
 each host that misses a target, and the early-stop indicators include each
 host's bound.

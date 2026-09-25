@@ -416,6 +416,13 @@ all for a Stage 1 summary recorded by other (Git-bound) tools:
 - A changed false accusation in a baseline review now holds Stage 2 too: the
   summary carries only the baselines' total, which is compared whenever a
   baseline review changed and is named with each changed baseline (NEW-3).
+- Known limit (RC2-1, left open): because that total covers every baseline,
+  a later tool change in how one baseline's accusations count (including a
+  baseline the recording tools judged invalid, the NEW-1 case), together with
+  a re-save of a different baseline review, holds Stage 2 and names the
+  re-saved review. Restoring that review's exact bytes clears it. Comparing a
+  normalized hash of each Stage 1 review instead of re-derived verdicts would
+  remove this class of case; that is left for a later change.
 
 Not in this version: the owner's reference review and freeze, the development
 adjudication, any native session and the pilot itself (the owner's

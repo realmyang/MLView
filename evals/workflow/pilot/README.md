@@ -208,3 +208,12 @@ files outside Git edited and re-sealed consistently are not caught. Commit
 authorship and the `Transcribed by:` line in decision files, branch
 protection on main, and the pushed candidate tag are the safeguards; review
 who committed what before trusting a result.
+
+With a Stage 1 summary recorded by earlier tools, a changed Stage 1 review
+is compared by what the current tools read from it, and the baselines' false
+accusations only as one total. So a tool change that judges or counts one
+baseline's accusations differently, plus an honest re-save or `>` note of
+another baseline review, can hold Stage 2 and name the re-saved review.
+Nothing is lost: restore the exact bytes of each named `review.md` (the
+message gives the sha256 the summary recorded; keep a copy of every Stage 1
+review) and Stage 2 proceeds.
