@@ -27,7 +27,10 @@ drive-qualified paths such as `C:/src/train.py`, `..` traversal, files outside
 the workspace through symlinks, non-UTF-8 source, and out-of-range citations
 are invalid. Lines are one-based and inclusive. For `.ipynb`, `cell` is the
 zero-based notebook cell index and line coordinates address that cell's
-`source`; the raw notebook bytes are fingerprinted. Notebook execution order is
+`source`; the raw notebook bytes are fingerprinted. Cited notebooks must be
+valid JSON; NaN and Infinity are refused (`notebook_cell`), because the viewer
+cannot read them. A repeated member keeps its last value, as in `JSON.parse`.
+Notebook execution order is
 not implied. `coverage.inspectedFiles` entries follow the same path rules, and
 project entries must name existing regular files.
 
@@ -58,8 +61,13 @@ parent equals the published revision ID. The new ID must differ from that
 revision's ID and its parent's ID. MLView keeps no longer history, so never
 reuse earlier IDs.
 
-The `verification` record also carries an RFC 3339 `publishedAt` timestamp.
-Fingerprints cover configuration and documentation that influenced the
+The `verification` record also carries a `publishedAt` timestamp. It is an RFC
+3339 date-time in a profile, stricter than RFC 3339 section 5.6, that the
+schema layer, the helper and the extension share: uppercase `T` and `Z` only;
+any number of fraction digits; seconds 00-59, with no leap second; a mandatory
+offset, `Z` or `+hh:mm`/`-hh:mm` with the offset hour at most 23 and minute at
+most 59; and a year of at least 1. Anything else is `format` at
+`verification.publishedAt`. Fingerprints cover configuration and documentation that influenced the
 interpretation without supplying a displayed quote. They establish freshness,
 not semantic truth.
 
