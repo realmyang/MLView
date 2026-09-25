@@ -86,6 +86,11 @@ export function snapshotState(app: App): ViewState {
   if (app.scopes.changedOnly) state.diffOnly = true;
   // MLV-P12, and the same rule again: absent means "not asked yet".
   if (app.pipelineChosen) state.pipelineChosen = true;
+  // VIEWUI-3: which authored revision the viewport belongs to, so a remount
+  // restores it only for that revision. Absent for any other graph.
+  if (app.graph && app.graph.schemaVersion === 'workflow-view/1' && app.workflowRevision) {
+    state.workflowRevision = app.workflowRevision;
+  }
   return state;
 }
 

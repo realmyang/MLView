@@ -319,8 +319,9 @@ export class Rail {
     const meta = add(panel, el('div', 'mlv-insp__meta'));
     const stageChip = add(meta, el('span', 'mlv-chip mlv-chip--stage', node.stage));
     stageChip.setAttribute('data-stage', node.stage);
-    add(meta, el('span', 'mlv-chip', node.kind));
-    add(meta, el('span', 'mlv-chip', node.level));
+    // VIEWUI-14: an absent kind reads as `unknown` and the level is the
+    // adapter's `unit`/`op`, neither of which the author wrote.
+    if (node.kind && node.kind !== 'unknown') add(meta, el('span', 'mlv-chip', node.kind));
     if (node.framework) add(meta, el('span', 'mlv-chip', node.framework));
     add(meta, el('span', 'mlv-chip', node.basis ? 'basis · ' + node.basis : node.confidenceBucket));
     // VIEW-08: a resurrected ghost is a REMOVED node, not a missing step.
@@ -430,7 +431,7 @@ export class Rail {
 
     const issues = s.index.issuesOf(node.id, s.keep);
     if (issues.length) {
-      panel.appendChild(this.heading('Issues'));
+      panel.appendChild(this.heading('Findings'));
       for (const issue of issues) {
         const box = this.inspectorIssue(issue, s);
         if (s.selectedIssueId === issue.id) box.classList.add('is-selected');
@@ -490,6 +491,9 @@ export class Rail {
       const nbCell = cellRef(loc);
       if (nbCell) {
         openBtn.setAttribute('data-cell', String(nbCell.cell));
+        openBtn.title = locTitle(loc);
+      } else if (loc.cell !== undefined && locTitle(loc)) {
+        // VIEWUI-8: an authored notebook citation names its zero-based cell.
         openBtn.title = locTitle(loc);
       }
       on(openBtn, 'click', () => {

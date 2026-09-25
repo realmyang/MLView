@@ -8,7 +8,10 @@
  * drawn, so the gate can assert one `<g data-node-id>` per planned node and one
  * `<path data-edge-id>` per planned route and know the two renderers agree.
  *
- * Four hard rules, all gated by `test/export.test.mjs`:
+ * Four hard rules. `test/renderer-regression.test.mjs` checks part of rules 1
+ * and 2 on a full and a scoped export (no `<foreignObject>`, no absolute URL
+ * other than the SVG namespace) and `test/authored-ui.test.mjs` parses an export
+ * as XML; nothing checks the rest automatically:
  *
  *   1. **No external reference.** No `url(...)`, so no `<marker>`, no
  *      `clip-path`, no gradient and no filter; no `<image>`, no `xlink:href`,

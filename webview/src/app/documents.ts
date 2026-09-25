@@ -124,6 +124,9 @@ export function applyProjection(app: App, preserve?: Partial<ViewState>, announc
   if (preserve && preserve.selection !== undefined) app.selection = preserve.selection;
   if (app.selection && app.selection.kind === 'node' && !known.has(app.selection.id)) app.selection = null;
   if (app.selection && app.selection.kind === 'edge' && !index.edgeById.has(app.selection.id)) app.selection = null;
+  // VIEWUI-15: a finding the new revision removed is not a selection either,
+  // or the Inspector goes blank and the composer posts a stale id.
+  if (app.selection && app.selection.kind === 'issue' && !index.issueById.has(app.selection.id)) app.selection = null;
 
   app.view.relayout();
   const vp = preserve && preserve.viewport ? preserve.viewport : null;
@@ -202,11 +205,16 @@ export function stepDepth(app: App, delta: number): void {
   afterScopeChange(app);
 }
 
-/** The Inspector's "Scope to this unit / step". */
+/**
+ * The Inspector's "Scope to this unit / step". An authored node is scoped by
+ * its stable id, never by its label: labels are free text and may repeat
+ * (VIEWUI-7). `resolveUnit` matches the id first.
+ */
 export function scopeToNode(app: App, nodeId: string): void {
   const node = app.fullIndex ? app.fullIndex.nodeById.get(nodeId) : null;
   if (!node) return;
-  app.setScope('unit:' + node.qualname);
+  const authored = !!app.scopes.full && app.scopes.full.schemaVersion === 'workflow-view/1';
+  app.setScope('unit:' + (authored ? node.id : node.qualname));
 }
 
 /**
@@ -259,6 +267,10 @@ function maybeOpenPipelineChooser(app: App): void {
   if (app.pipelineChosen || app.chooser.open) return;
   const graph = app.scopes.full;
   if (!graph || app.scopes.spec || app.pendingScope) return;
+  // VIEWUI-5. Authored entrypoints are chosen by the user, not ranked by a
+  // heuristic, and pipelines are not part of the WorkflowDocument contract, so
+  // an authored document never gets the chooser or its analyzer caveats.
+  if (graph.schemaVersion === 'workflow-view/1') return;
   const rows = pipelineRows(graph);
   // VIEW-R5. Two or more rows is not enough to earn a modal over the first
   // paint: `workspace.entrypoints` is a ranked heuristic, so on the 54-node

@@ -64,7 +64,7 @@ export class ScopePicker {
     this.searchInput = add(search, el('input', 'mlv-input')) as HTMLInputElement;
     this.searchInput.id = uid + '-q';
     this.searchInput.type = 'search';
-    this.searchInput.placeholder = 'Search classes, functions, files…';
+    this.searchInput.placeholder = 'Search steps, phases, files…';
     this.searchInput.autocomplete = 'off';
     on(this.searchInput, 'input', () => {
       this.query = this.searchInput.value;
@@ -122,14 +122,21 @@ export class ScopePicker {
     // training scripts "which experiment?" is the question you have before
     // "which concern?", and the chooser that opens on such a report offers
     // exactly these rows — one list, in one order, in both places.
-    const pipelines = pipelineRows(graph);
+    // VIEWUI-5 / VIEWUI-6: an authored document has neither analyzer
+    // pipelines nor the analyzer's fixed concern stages, so neither section is
+    // offered (they would claim that MLView looked for something and found
+    // nothing).
+    const authored = graph.schemaVersion === 'workflow-view/1';
+    const pipelines = authored ? [] : pipelineRows(graph);
     if (pipelines.length) {
       this.body.appendChild(this.heading('Pipelines'));
       for (const row of pipelines) this.body.appendChild(this.pipelineRow(row));
     }
 
-    this.body.appendChild(this.heading('Concerns'));
-    for (const row of concernRows(graph)) this.body.appendChild(this.groupRow(row));
+    if (!authored) {
+      this.body.appendChild(this.heading('Concerns'));
+      for (const row of concernRows(graph)) this.body.appendChild(this.groupRow(row));
+    }
 
     this.body.appendChild(this.heading('Depth'));
     const depths = add(this.body, el('div', 'mlv-scopepicker__depths'));
@@ -250,7 +257,9 @@ export class ScopePicker {
 
   private unitRow(unit: ScopeUnit): HTMLElement {
     const drawn = this.drawn(unit.spec, unit.nodeCount);
-    const detail = unit.file + ':' + unit.line + ' · ' + drawn + (drawn === 1 ? ' node' : ' nodes');
+    // A step with no evidence has no location; never print a fake `:1`.
+    const where = unit.file ? unit.file + ':' + unit.line + ' · ' : '';
+    const detail = where + drawn + (drawn === 1 ? ' node' : ' nodes');
     const row = this.row(unit.label, detail, unit.spec, this.state.spec === unit.spec);
     if (unit.maxSeverity) row.setAttribute('data-sev', unit.maxSeverity);
     return row;

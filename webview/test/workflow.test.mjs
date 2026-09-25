@@ -2,6 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadBundle, recordingBridge } from './helpers.mjs';
 
+/** A posted request without its generated `requestId`, which is checked separately. */
+function withoutRequestId(message) {
+  const { requestId, ...rest } = JSON.parse(JSON.stringify(message));
+  assert.match(requestId, /^[A-Za-z0-9_-]{1,64}$/, 'every result-bearing request carries a valid requestId');
+  return rest;
+}
+
 function workflow(revision = 'r1') {
   return {
     workflowVersion: '1.0', title: 'Training and review',
@@ -64,8 +71,8 @@ test('mountWorkflow identifies authored provenance and accepts revision updates 
   assert.match(root.querySelector('.mlv-workflow__verification').textContent, /Draft · source freshness not verified/);
   assert.equal(root.querySelector('[role="tab"][aria-controls$="-panel-issues"]').textContent, 'Findings');
   const search = root.querySelector('.mlv-search input[type="search"]');
-  assert.equal(search.placeholder, 'Search workflow steps, findings, or IDs…');
-  assert.equal(root.querySelector(`label[for="${search.id}"]`).textContent, 'Search workflow steps, findings, or IDs');
+  assert.equal(search.placeholder, 'Search steps, findings, IDs, or cited text…');
+  assert.equal(root.querySelector(`label[for="${search.id}"]`).textContent, 'Search steps, findings, IDs, or cited text');
   assert.equal(root.querySelector('[data-node-id="step"]') !== null, true);
   app.setWorkflow(workflow('r2'));
   assert.equal(root.getAttribute('data-workflow-revision'), 'r2');
@@ -125,7 +132,7 @@ test('refinement posts the current stable selection and short intent', async () 
   assert.equal(ctx.document.querySelector('.mlv-workflow__selection').textContent, 'edge: cycle');
   ctx.document.querySelector('.mlv-workflow__intent').value = 'trace';
   ctx.document.querySelector('.mlv-workflow__composer').dispatchEvent(new ctx.window.Event('submit', { bubbles: true, cancelable: true }));
-  assert.deepEqual(JSON.parse(JSON.stringify(bridge.posted.at(-1))), {
+  assert.deepEqual(withoutRequestId(bridge.posted.at(-1)), {
     v: 1, type: 'refineWorkflow', revisionId: 'revision-7', selection: { kind: 'edge', id: 'cycle' }, intent: 'trace',
   });
   assert.match(ctx.document.querySelector('.mlv-workflow__meta').textContent, /Entrypoints: src\/train.py/);
@@ -325,7 +332,7 @@ test('finding-only selection has a complete inspector and direct challenge actio
     'challenge prepares the prompt for review before copying');
   assert.equal(root.querySelector('.mlv-workflow__selection').textContent, 'issue: workspace-risk');
   root.querySelector('.mlv-workflow__composer').dispatchEvent(new ctx.window.Event('submit', { bubbles: true, cancelable: true }));
-  assert.deepEqual(JSON.parse(JSON.stringify(bridge.posted.at(-1))), {
+  assert.deepEqual(withoutRequestId(bridge.posted.at(-1)), {
     v: 1, type: 'refineWorkflow', revisionId: 'finding-only-revision',
     selection: { kind: 'issue', id: 'workspace-risk' }, intent: 'challenge',
   });
@@ -352,10 +359,17 @@ test('authored help and grouping avoid retired rule terminology', async () => {
   const root = ctx.document.getElementById('mlview-root');
   const app = ctx.MLView.mountWorkflow(root, workflow(), recordingBridge(ctx.window, 'vscode'));
   app.toggleShortcuts(true);
-  assert.match(root.querySelector('.mlv-sheet').textContent, /Search workflow steps, findings, and IDs/);
-  assert.doesNotMatch(root.querySelector('.mlv-sheet').textContent, /rule codes/i);
+  const sheet = root.querySelector('.mlv-sheet').textContent;
+  assert.match(sheet, /Search steps, findings, IDs, or cited text/);
+  assert.match(sheet, /Next \/ previous finding \(document order\)/);
+  assert.match(sheet, /Findings \/ Inspector \/ Outline/);
+  assert.doesNotMatch(sheet, /rule codes|issue by severity/i);
+  // VIEWUI-12: finding IDs are unique, so grouping by them is not offered and
+  // a requested or restored `rule` grouping falls back to none.
   app.setRailGroupBy('rule');
-  assert.equal(root.querySelector('[data-group-mode="rule"]').textContent, 'Finding ID');
+  assert.equal(root.querySelector('[data-group-mode="rule"]'), null);
+  assert.ok(root.querySelector('[data-group-mode="file"]'));
+  assert.equal(app.getState().railGroupBy, undefined);
   assert.equal(root.querySelector('[data-disable-rule]'), null);
   app.destroy();
 });

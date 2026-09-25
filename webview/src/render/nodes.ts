@@ -45,8 +45,14 @@ export interface NodeVisual {
   filteredOut: boolean;
 }
 
+/**
+ * The DOM id of a card or group box. Injective (RENDER-7): every character
+ * outside `[A-Za-z0-9-]`, `_` included, becomes `_<hex>_`, so `load.data`,
+ * `load:data` and `load_data` get three different ids and
+ * `aria-activedescendant` always names the selected card.
+ */
 export function nodeDomId(id: string): string {
-  return 'mlv-n-' + id.replace(/[^A-Za-z0-9_-]/g, '_');
+  return 'mlv-n-' + id.replace(/[^A-Za-z0-9-]/g, (c) => '_' + c.charCodeAt(0).toString(16) + '_');
 }
 
 function stageOf(node: MLNode): string {

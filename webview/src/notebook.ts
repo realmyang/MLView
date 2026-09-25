@@ -53,6 +53,12 @@ export interface LocLike {
   notebookCell?: number;
   /** Accepted alias for `cellLine` — see NOTE ON SPELLING below. */
   notebookCellLine?: number;
+  /**
+   * Set only on an AUTHORED location (WorkflowDocument evidence). There `cell`
+   * is the contract's ZERO-BASED cell index and `line` is already relative to
+   * that cell, so the analyzer's flat-line translation does not apply.
+   */
+  evidenceId?: string;
 }
 
 /**
@@ -127,6 +133,21 @@ export function cellRef(loc: LocLike | null | undefined): CellRef | null {
   return { cell, line };
 }
 
+/**
+ * The cell of an AUTHORED notebook citation, or `null` (VIEWUI-8).
+ *
+ * WorkflowDocument evidence carries `cell` as a zero-based index and `line` as
+ * a line within that cell. That is not the analyzer's mapping above, so it has
+ * its own label: `nb.ipynb › cell <index + 1> : <line>`, with the zero-based
+ * index spelled out in the title.
+ */
+export function authoredCell(loc: LocLike | null | undefined): CellRef | null {
+  if (!loc || typeof loc.evidenceId !== 'string') return null;
+  const cell = loc.cell;
+  if (typeof cell !== 'number' || !isFinite(cell) || cell < 0 || Math.trunc(cell) !== cell) return null;
+  return { cell, line: loc.line };
+}
+
 /** True for a path this renderer would call a notebook. Presentation only. */
 export function isNotebookPath(file: string): boolean {
   return typeof file === 'string' && /\.ipynb$/i.test(file);
@@ -157,6 +178,8 @@ export function locLabel(loc: LocLike): string {
  * true, less visibly, of `:27` on a long `.py` path.)
  */
 export function locParts(loc: LocLike): { head: string; tail: string } {
+  const authored = authoredCell(loc);
+  if (authored) return { head: loc.file, tail: ' › cell ' + (authored.cell + 1) + ' : ' + authored.line };
   const ref = cellRef(loc);
   return ref ? { head: loc.file, tail: ' > cell ' + ref.cell + ' : ' + ref.line } : { head: loc.file, tail: ':' + loc.line };
 }
@@ -166,6 +189,8 @@ export function locParts(loc: LocLike): { head: string; tail: string } {
  * `:`. `name.ipynb cell 3 line 4`, or `train.py line 27`.
  */
 export function locSpoken(loc: LocLike): string {
+  const authored = authoredCell(loc);
+  if (authored) return loc.file + ' cell ' + (authored.cell + 1) + ' line ' + authored.line;
   const ref = cellRef(loc);
   if (!ref) return loc.file + ' line ' + loc.line;
   return loc.file + ' cell ' + ref.cell + ' line ' + ref.line;
@@ -177,6 +202,8 @@ export function locSpoken(loc: LocLike): string {
  * caller can assign it unconditionally without inventing a tooltip for `.py`.
  */
 export function locTitle(loc: LocLike): string {
+  const authored = authoredCell(loc);
+  if (authored) return 'cell index ' + authored.cell + ' (zero-based), line ' + authored.line + ' of that cell';
   const ref = cellRef(loc);
   if (!ref) return '';
   return locSpoken(loc) + ' — line ' + loc.line + ' of the concatenated code cells';

@@ -69,7 +69,11 @@ export function searchGraphDetailed(index: GraphIndex, query: string, limit = 40
   const nodes = index.graph.nodes || [];
   for (let i = 0; i < nodes.length; i++) {
     const node = nodes[i];
-    const score = fieldScore([node.label, node.qualname, node.fqn, node.sublabel, node.loc.file, node.var, node.kind], q);
+    // VIEWUI-11: the stable id and every cited file and quote are searchable,
+    // so the handles the refinement workflow uses can be found.
+    const fields = [node.id, node.label, node.qualname, node.fqn, node.sublabel, node.loc.file, node.var, node.kind];
+    for (const loc of node.evidenceLocs || []) fields.push(loc.file, loc.snippet);
+    const score = fieldScore(fields, q);
     if (score < 0) continue;
     nodeHits.push({
       score,
@@ -78,7 +82,8 @@ export function searchGraphDetailed(index: GraphIndex, query: string, limit = 40
         kind: 'node',
         id: node.id,
         label: node.label || node.qualname,
-        meta: locLabel(node.loc),
+        // A step with no evidence has no location: no fake `:1`.
+        meta: node.loc.file ? locLabel(node.loc) : '',
         stage: node.stage,
       },
     });
@@ -96,7 +101,7 @@ export function searchGraphDetailed(index: GraphIndex, query: string, limit = 40
         kind: 'issue',
         id: issue.id,
         label: issue.code + ' · ' + issue.title,
-        meta: locLabel(issue.loc),
+        meta: issue.loc.file ? locLabel(issue.loc) : '',
         stage: issue.stage,
         severity: issue.severity,
       },

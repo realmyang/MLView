@@ -99,6 +99,12 @@ export interface MLNode {
   stageEvidence: Evidence[];
   /** Renderer-local authored-workflow epistemic basis. */
   basis?: WorkflowBasis;
+  /**
+   * Renderer-local: true for every node the WorkflowDocument adapter builds.
+   * Authored text is data, so legacy parsers that read meaning into labels or
+   * details (config resolution) skip these nodes (RENDER-6).
+   */
+  authored?: boolean;
   /** Renderer-local authored evidence anchors, in document order. */
   evidenceLocs?: Loc[];
   /**
@@ -473,6 +479,12 @@ export interface MLGraph {
   answers?: Answers;
   /** Appended as the LAST key by a projection; absent in a whole-workspace document. */
   view?: View;
+  /**
+   * Renderer-local, set only by the WorkflowDocument adapter: the authored
+   * coverage status and how many limitations the author listed, so the
+   * zero-findings state can name them instead of claiming a check (VIEWUI-1).
+   */
+  authoredCoverage?: { status: string; limitations: number };
 }
 
 /* ── model-authored workflow document ───────────────────────────────── */
@@ -570,6 +582,13 @@ export interface ViewState {
    * chosen: that is a scope, and `scope` above already persists it.
    */
   pipelineChosen?: boolean;
+  /**
+   * The authored revision id the viewport belongs to. Written only for a
+   * `workflow-view/1` graph and absent otherwise, like every optional field
+   * here. A remounted viewer restores `viewport` instead of fitting only when
+   * this equals the revision it is handed (VIEWUI-3).
+   */
+  workflowRevision?: string;
 }
 
 /* ── host protocol (CONTRACTS section 4) ───────────────────────────────── */
@@ -587,8 +606,30 @@ export interface HostAction {
   label: string;
 }
 
+/** The five refinement intents the composer offers (Campaign 1 §1e/§1f). */
+export type RefineIntent = 'explain' | 'expand' | 'challenge' | 'trace' | 'custom';
+
+/** The requests that carry a `requestId` and are answered by one `actionResult`. */
+export type ResultAction = 'exportFile' | 'copy' | 'refineWorkflow';
+
+/**
+ * The host's single answer to an `exportFile`, `copy` or `refineWorkflow`
+ * request that carried a valid `requestId` (§1e). `message` is host-authored
+ * and never contains an absolute path; `name` is the saved basename and is sent
+ * only for a completed export.
+ */
+export interface ActionResult {
+  v: 1;
+  type: 'actionResult';
+  requestId: string;
+  action: ResultAction;
+  outcome: 'done' | 'cancelled' | 'failed';
+  message?: string;
+  name?: string;
+}
+
 export type HostToUi =
-  | { v: 1; type: 'init'; schemaVersion: string; theme: ThemeKind; host: HostKind; capabilities: Capabilities }
+  | { v: 1; type: 'init'; theme: ThemeKind; capabilities: Capabilities; artifact?: string; schemaVersion?: string; host?: HostKind }
   | { v: 1; type: 'graph'; requestId: string; graph: MLGraph; preserve?: { viewport?: Viewport; selection?: Sel | null; collapsed?: string[] } }
   | { v: 1; type: 'analysisStarted'; requestId: string; scope: 'workspace' | 'file'; path?: string }
   | { v: 1; type: 'analysisProgress'; requestId: string; done: number; total: number; file?: string }
@@ -627,13 +668,33 @@ export type HostToUi =
    * everywhere: absent, the banner falls back to the root's last segment.
    */
   | { v: 1; type: 'diffOverlay'; overlay: unknown; baseLabel?: string }
-  | { v: 1; type: 'workflow'; document: WorkflowDocument; preserve?: Partial<ViewState> };
+  /** A new or refreshed authored revision. The host never sends `preserve`. */
+  | { v: 1; type: 'workflow'; document: WorkflowDocument }
+  /**
+   * The host's status banner. The host bootstrap draws it; the App treats the
+   * frame as known and does nothing with it. `''` clears the banner.
+   */
+  | { v: 1; type: 'workflowError'; message: string; retained?: boolean; codes?: string[] }
+  | ActionResult;
 
 export type UiToHost =
   | { v: 1; type: 'ready' }
   | { v: 1; type: 'openLocation'; file: string; absFile: string; line: number; col: number; endLine: number; endCol: number; preview?: boolean; evidenceId?: string; cell?: number }
   | { v: 1; type: 'selectNode'; nodeId: string | null }
-  | { v: 1; type: 'refineWorkflow'; revisionId: string; selection?: { kind: 'node' | 'edge' | 'issue'; id: string }; intent: string }
+  /**
+   * `customText` is sent only, and then required, when `intent` is `custom`.
+   * `requestId` matches /^[A-Za-z0-9_-]{1,64}$/ and is answered by one
+   * `actionResult`.
+   */
+  | {
+      v: 1;
+      type: 'refineWorkflow';
+      requestId?: string;
+      revisionId: string;
+      intent: RefineIntent;
+      customText?: string;
+      selection?: { kind: 'node' | 'edge' | 'issue'; id: string };
+    }
   | { v: 1; type: 'requestRefresh'; scope: 'workspace' | 'file'; path?: string }
   | { v: 1; type: 'exportHtml' }
   /**
@@ -673,8 +734,9 @@ export type UiToHost =
       data: string;
       suggestedName: string;
       scope: 'view' | 'all' | 'scope';
+      requestId?: string;
     }
-  | { v: 1; type: 'copy'; text: string }
+  | { v: 1; type: 'copy'; text: string; requestId?: string }
   | { v: 1; type: 'saveState'; state: ViewState }
   | { v: 1; type: 'action'; id: string }
   | { v: 1; type: 'askAssistant'; nodeId: string; prompt: string }

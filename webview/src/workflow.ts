@@ -2,14 +2,21 @@
 import { add, clear, el, on } from './dom.js';
 import { emptyCounts } from './markers.js';
 import type { App } from './app.js';
-import type { Issue, Loc, MLGraph, WorkflowDocument, WorkflowEvidence } from './types.js';
+import type { ActionResult, Issue, Loc, MLGraph, RefineIntent, WorkflowDocument, WorkflowEvidence } from './types.js';
 
-function evidenceLoc(evidence: Map<string, WorkflowEvidence>, ids: string[], root = ''): Loc {
+/**
+ * An authored evidence item as a renderer `Loc`. Evidence paths are always
+ * workspace-relative (the contract rejects absolute and drive-qualified
+ * paths) and the host resolves them, so `absFile` is always empty.
+ */
+function evidenceLoc(evidence: Map<string, WorkflowEvidence>, ids: string[]): Loc {
   const item = ids.map((id) => evidence.get(id)).find(Boolean);
   if (!item) return { file: '', absFile: '', line: 1, col: 0, endLine: 1, endCol: 0 };
-  const abs = /^(?:[A-Za-z]:[\\/]|\/)/.test(item.file) ? item.file : root ? root.replace(/[\\/]$/, '') + '/' + item.file : '';
-  return { file: item.file, absFile: abs, line: item.line, col: 0, endLine: item.endLine, endCol: 0, snippet: item.quote, cell: item.cell, evidenceId: item.id };
+  return { file: item.file, absFile: '', line: item.line, col: 0, endLine: item.endLine, endCol: 0, snippet: item.quote, cell: item.cell, evidenceId: item.id };
 }
+
+/** `generator.version` when the producer named no model. */
+export const UNSPECIFIED_MODEL = 'unspecified model';
 
 /** Validate the discriminant and produce a complete internal graph view. */
 export function normalizeWorkflow(document: WorkflowDocument): MLGraph {
@@ -34,7 +41,7 @@ export function normalizeWorkflow(document: WorkflowDocument): MLGraph {
       // WorkflowDocument records an evidence basis, not a calibrated numeric
       // probability. NaN keeps shared renderer math type-safe without inventing
       // a percentage that the authored contract cannot support.
-      dynamic: false, confidence: Number.NaN, confidenceBucket: node.basis, basis: node.basis,
+      dynamic: false, confidence: Number.NaN, confidenceBucket: node.basis, basis: node.basis, authored: true,
       evidenceLocs: node.evidence.map((id) => evidenceLoc(evidence, [id])).filter((loc) => !!loc.file),
       issueIds: issueIds.get(node.id) || [], collapsedByDefault: false, stageEvidence: [],
     };
@@ -55,7 +62,9 @@ export function normalizeWorkflow(document: WorkflowDocument): MLGraph {
     return {
       id: finding.id, code: finding.id, ruleVersion: 0, severity: finding.severity,
       confidence: Number.NaN, confidenceBucket: finding.basis, basis: finding.basis, title: finding.title,
-      message: finding.message, why: finding.message, fixHint: finding.suggestion || '', loc, relatedLocs: related,
+      // `why` stays empty: the expanded row already prints `message`, and a
+      // second copy of the same sentence is noise (VIEWUI-14).
+      message: finding.message, why: '', fixHint: finding.suggestion || '', loc, relatedLocs: related,
       nodeIds: finding.nodeIds || [], edgeIds: finding.edgeIds || [], stage: nodes.find((n) => finding.nodeIds.includes(n.id))?.stage || '',
       frameworks: [], tags: [finding.basis], evidence: [], suppressed: false, docs: '',
     };
@@ -75,7 +84,7 @@ export function normalizeWorkflow(document: WorkflowDocument): MLGraph {
   });
   return {
     schemaVersion: 'workflow-view/1',
-    generator: { name: document.producer.host, version: document.producer.model || 'unspecified model', rendererSha: document.revision.id, generatedAt: document.verification?.publishedAt || '' },
+    generator: { name: document.producer.host, version: document.producer.model || UNSPECIFIED_MODEL, rendererSha: document.revision.id, generatedAt: document.verification?.publishedAt || '' },
     workspace: { root: document.title, entrypoints: document.request.entrypoints || [], filesAnalyzed: document.coverage.inspectedFiles.length, filesFailed: 0, notebooksSkipped: 0, frameworks: [] },
     stages, nodes, edges, issues,
     diagnostics: document.coverage.limitations.map((message) => ({ kind: 'workflow_limitation', message })),
@@ -84,7 +93,72 @@ export function normalizeWorkflow(document: WorkflowDocument): MLGraph {
     // coverage panel above, and is distinct from the legacy analyzer's node
     // cap, which alone owns stats.truncated and its truncation banner.
     stats: { nodes: nodes.length, edges: edges.length, issues: issues.reduce((c, i) => { c[i.severity as 'low'|'medium'|'high']++; return c; }, emptyCounts()), durationMs: 0, truncated: false },
+    authoredCoverage: { status: document.coverage.status, limitations: document.coverage.limitations.length },
   };
+}
+
+/** The five intents, in menu order; `custom` opens the free-text field. */
+const INTENTS: [RefineIntent, string][] = [['explain', 'Explain'], ['expand', 'Expand'], ['challenge', 'Challenge'], ['trace', 'Trace'], ['custom', 'Custom…']];
+
+type ComposerSelection = { kind: 'node' | 'edge' | 'issue'; id: string } | undefined;
+
+/** What an open or closed composer holds, captured before a rebuild (VIEWUI-4). */
+interface ComposerSnapshot {
+  revision: string | null;
+  open: boolean;
+  intent: string;
+  custom: string;
+  status: string;
+  focus: 'refine' | 'intent' | 'custom' | 'submit' | null;
+  selection: ComposerSelection;
+}
+
+function captureComposer(panel: HTMLElement): ComposerSnapshot | null {
+  const composer = panel.querySelector<HTMLFormElement>('.mlv-workflow__composer');
+  const intent = panel.querySelector<HTMLSelectElement>('.mlv-workflow__intent');
+  const custom = panel.querySelector<HTMLInputElement>('.mlv-workflow__custom');
+  const refine = panel.querySelector<HTMLButtonElement>('.mlv-workflow__refine');
+  const status = panel.querySelector<HTMLElement>('.mlv-workflow__status');
+  if (!composer || !intent || !custom) return null;
+  const active = panel.ownerDocument.activeElement;
+  let focus: ComposerSnapshot['focus'] = null;
+  if (active && active === refine) focus = 'refine';
+  else if (active && composer.contains(active)) focus = active === intent ? 'intent' : active === custom ? 'custom' : 'submit';
+  const kind = composer.getAttribute('data-selection-kind');
+  const id = composer.getAttribute('data-selection-id');
+  return {
+    revision: panel.getAttribute('data-revision'),
+    open: !composer.hidden,
+    intent: intent.value,
+    custom: custom.value,
+    status: status ? status.textContent || '' : '',
+    focus,
+    selection: (kind === 'node' || kind === 'edge' || kind === 'issue') && id ? { kind, id } : undefined,
+  };
+}
+
+/**
+ * The host's answer to a copied refinement prompt (§1e). The composer is
+ * looked up again here because a same-revision refresh may have rebuilt it
+ * while the host was working.
+ */
+function onRefineResult(app: App, result: ActionResult): void {
+  const composer = app.root.querySelector<HTMLFormElement>('.mlv-workflow__composer');
+  const refine = app.root.querySelector<HTMLButtonElement>('.mlv-workflow__refine');
+  const custom = app.root.querySelector<HTMLInputElement>('.mlv-workflow__custom');
+  const status = app.root.querySelector<HTMLElement>('.mlv-workflow__status');
+  if (!composer || !refine || !custom || !status) return;
+  if (result.outcome === 'done') {
+    composer.hidden = true;
+    refine.setAttribute('aria-expanded', 'false');
+    custom.value = '';
+    status.textContent = '';
+    refine.focus();
+    return;
+  }
+  composer.hidden = false;
+  refine.setAttribute('aria-expanded', 'true');
+  status.textContent = result.message || 'The refinement prompt was not copied.';
 }
 
 /** Add authored provenance and coverage above the existing diagram surface. */
@@ -93,7 +167,11 @@ export function decorateWorkflow(app: App, document: WorkflowDocument): void {
   app.root.setAttribute('data-workflow-revision', document.revision.id);
   let panel = app.root.querySelector<HTMLElement>('.mlv-workflow');
   if (!panel) { panel = el('section', 'mlv-workflow'); app.root.insertBefore(panel, app.root.querySelector('.mlv-body')); }
+  // VIEWUI-4: a re-posted or refreshed revision must not wipe an open composer
+  // or the request the reader is typing, so its state survives the rebuild.
+  const prior = captureComposer(panel);
   clear(panel);
+  panel.setAttribute('data-revision', document.revision.id);
   const heading = add(panel, el('div', 'mlv-workflow__heading'));
   add(heading, el('h2', 'mlv-workflow__title', document.title));
   add(heading, el('span', 'mlv-chip', document.producer.host + (document.producer.model ? ' · ' + document.producer.model : '')));
@@ -115,18 +193,29 @@ export function decorateWorkflow(app: App, document: WorkflowDocument): void {
   const selected = add(composer, el('span', 'mlv-workflow__selection'));
   const intent = add(composer, el('select', 'mlv-input mlv-workflow__intent')) as HTMLSelectElement;
   intent.setAttribute('aria-label', 'Refinement intent');
-  for (const [value, label] of [['explain', 'Explain'], ['expand', 'Expand'], ['challenge', 'Challenge'], ['trace', 'Trace'], ['custom', 'Custom…']]) {
+  for (const [value, label] of INTENTS) {
     const option = intent.ownerDocument.createElement('option'); option.value = value; option.textContent = label; intent.appendChild(option);
   }
   const custom = add(composer, el('input', 'mlv-input mlv-workflow__custom')) as HTMLInputElement;
   custom.type = 'text'; custom.maxLength = 500; custom.placeholder = 'What should the assistant refine?'; custom.setAttribute('aria-label', 'Custom refinement intent'); custom.hidden = true;
   const submit = add(composer, el('button', 'mlv-btn', 'Copy prompt')) as HTMLButtonElement; submit.type = 'submit';
-  const selection = () => app.selection ? { kind: app.selection.kind, id: app.selection.id } : undefined;
-  let selectedContext: ReturnType<typeof selection>;
-  const refreshSelection = () => {
-    selectedContext = selection();
-    selected.textContent = selectedContext ? `${selectedContext.kind}: ${selectedContext.id}` : 'Whole diagram';
+  // Why the host did not copy the prompt, when it did not (§1e).
+  const status = add(composer, el('span', 'mlv-workflow__status'));
+  status.setAttribute('role', 'status');
+  const selection = (): ComposerSelection => app.selection ? { kind: app.selection.kind, id: app.selection.id } : undefined;
+  let selectedContext: ComposerSelection;
+  const showSelection = (value: ComposerSelection) => {
+    selectedContext = value;
+    selected.textContent = value ? value.kind + ': ' + value.id : 'Whole diagram';
+    if (value) {
+      composer.setAttribute('data-selection-kind', value.kind);
+      composer.setAttribute('data-selection-id', value.id);
+    } else {
+      composer.removeAttribute('data-selection-kind');
+      composer.removeAttribute('data-selection-id');
+    }
   };
+  const refreshSelection = () => showSelection(selection());
   on(refine, 'click', () => {
     composer.hidden = !composer.hidden;
     refine.setAttribute('aria-expanded', composer.hidden ? 'false' : 'true');
@@ -135,10 +224,37 @@ export function decorateWorkflow(app: App, document: WorkflowDocument): void {
   on(intent, 'change', () => { custom.hidden = intent.value !== 'custom'; if (!custom.hidden) custom.focus(); });
   on(composer, 'submit', (event) => {
     event.preventDefault();
-    const value = intent.value === 'custom' ? custom.value.trim() : intent.value;
-    if (!value) { custom.focus(); return; }
-    app.bridge.post({ v: 1, type: 'refineWorkflow', revisionId: document.revision.id, selection: selectedContext, intent: value });
+    const chosen = intent.value as RefineIntent;
+    const text = custom.value.trim();
+    if (chosen === 'custom' && !text) { custom.focus(); return; }
+    status.textContent = '';
+    // §1e: an explicit intent, plus `customText` only for `custom`. The host
+    // answers with one `actionResult`; the composer closes only on `done`.
+    const message: { v: 1; type: 'refineWorkflow'; revisionId: string; intent: RefineIntent; customText?: string; selection?: ComposerSelection } =
+      { v: 1, type: 'refineWorkflow', revisionId: document.revision.id, intent: chosen };
+    if (chosen === 'custom') message.customText = text;
+    if (selectedContext) message.selection = selectedContext;
+    app.postRequest(message, (result) => onRefineResult(app, result));
   });
+  if (prior) {
+    if (INTENTS.some(([value]) => value === prior.intent)) intent.value = prior.intent;
+    custom.value = prior.custom;
+    custom.hidden = intent.value !== 'custom';
+    status.textContent = prior.status;
+    if (prior.open) {
+      composer.hidden = false;
+      refine.setAttribute('aria-expanded', 'true');
+      // Same revision: the reader's captured selection still resolves. A new
+      // revision re-captures from `app.selection`, which the projection has
+      // already cleared if the revision removed it (VIEWUI-15).
+      if (prior.revision === document.revision.id) showSelection(prior.selection);
+      else refreshSelection();
+    }
+    if (prior.focus === 'refine') refine.focus();
+    else if (prior.focus === 'intent' && !composer.hidden) intent.focus();
+    else if (prior.focus === 'custom' && !composer.hidden && !custom.hidden) custom.focus();
+    else if (prior.focus === 'submit' && !composer.hidden) submit.focus();
+  }
   add(panel, el('p', 'mlv-workflow__question', document.request.question));
   const meta = add(panel, el('div', 'mlv-workflow__meta'));
   add(meta, el('span', '', 'Scope: ' + document.request.scope));
@@ -155,10 +271,10 @@ export function decorateWorkflow(app: App, document: WorkflowDocument): void {
   if (issueTab) issueTab.textContent = 'Findings';
   const search = app.root.querySelector<HTMLInputElement>('.mlv-search input[type="search"]');
   if (search) {
-    search.placeholder = 'Search workflow steps, findings, or IDs…';
+    search.placeholder = 'Search steps, findings, IDs, or cited text…';
     const label = search.id
       ? app.root.querySelector<HTMLLabelElement>('label[for="' + search.id + '"]')
       : null;
-    if (label) label.textContent = 'Search workflow steps, findings, or IDs';
+    if (label) label.textContent = 'Search steps, findings, IDs, or cited text';
   }
 }

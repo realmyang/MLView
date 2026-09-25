@@ -106,7 +106,8 @@ export function scopeCatalog(graph: MLGraph, limit = 40): ScopeUnit[] {
   for (const node of graph.nodes || []) {
     if (!isScopableUnit(node, children)) continue;
     rows.push({
-      spec: 'unit:' + node.qualname,
+      // VIEWUI-7: authored nodes by id, so two steps with one label stay apart.
+      spec: 'unit:' + (node.authored ? node.id : node.qualname),
       nodeId: node.id,
       label: node.label || node.qualname,
       qualname: node.qualname,

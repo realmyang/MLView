@@ -13,6 +13,7 @@ import { MAX_CHIPS, chipTitle, collectChips } from './chromechips.js';
 import type { ChipSpec } from './chromechips.js';
 import { suppressedSummary } from './suppress.js';
 import { isSetAside } from '../types.js';
+import { UNSPECIFIED_MODEL } from '../workflow.js';
 import type { Capabilities, Filters, MLGraph, Severity, Stage } from '../types.js';
 
 export interface ChromeCallbacks {
@@ -536,7 +537,14 @@ export class Chrome {
     if (g.workspace.frameworks && g.workspace.frameworks.length) {
       add(this.status, el('span', '', g.workspace.frameworks.join(', ')));
     }
-    add(this.status, el('span', '', 'schema ' + g.schemaVersion + ' · mlview ' + g.generator.version));
+    // VIEWUI-13: an authored document's provenance is its revision, host and
+    // model; `generator.version` holds the MODEL there, never an MLView version.
+    if (g.schemaVersion === 'workflow-view/1') {
+      const model = g.generator.version && g.generator.version !== UNSPECIFIED_MODEL ? ' · ' + g.generator.version : '';
+      add(this.status, el('span', '', 'revision ' + g.generator.rendererSha + ' · ' + g.generator.name + model));
+    } else {
+      add(this.status, el('span', '', 'schema ' + g.schemaVersion + ' · mlview ' + g.generator.version));
+    }
     const notes = (g.diagnostics || []).length;
     if (notes) add(this.status, el('span', '', notes + (notes === 1 ? ' note' : ' notes')));
   }

@@ -51,6 +51,7 @@ import { onHostMessage } from './app/messages.js';
 import { applyState, safeLoad, snapshotState } from './app/state.js';
 import type { SearchHit } from './search.js';
 import type {
+  ActionResult,
   Capabilities,
   ScopeSummary,
   Filters,
@@ -64,10 +65,16 @@ import type {
   RelatedLoc,
   Sel,
   ThemeKind,
+  UiToHost,
   ViewState,
   Viewport,
   WorkflowDocument,
 } from './types.js';
+
+/** At most this many requests wait for an `actionResult`; the oldest is dropped. */
+const MAX_PENDING_REQUESTS = 32;
+
+type RequestFrame = UiToHost & { requestId?: string };
 
 export interface SelectOptions {
   open?: boolean;
@@ -151,6 +158,21 @@ export class App implements MLViewApp {
   error: { message: string; detail?: string; actions?: { id: string; label: string }[] } | null = null;
   railOpen = true;
   railWidth = 360;
+  /** The authored document last applied, as the very object that arrived. */
+  workflowDocument: WorkflowDocument | null = null;
+  /** Its revision id, which decides whether a new frame may keep the viewport. */
+  workflowRevision: string | null = null;
+  /**
+   * A restored viewport and the revision it was saved for (VIEWUI-3). Used by
+   * the first `setWorkflow` only, and only when the revisions match.
+   */
+  private restoredView: { revision: string; viewport: Viewport } | null = null;
+  /**
+   * Requests waiting for the host's `actionResult`, oldest first (§1e). No
+   * timeout: a save dialog may stay open for as long as the user likes.
+   */
+  private pending = new Map<string, (result: ActionResult) => void>();
+  private requestSerial = 0;
   private disposers: (() => void)[] = [];
   private destroyed = false;
 
@@ -181,6 +203,9 @@ export class App implements MLViewApp {
     buildAppUi(this);
     const restored = safeLoad(bridge);
     if (restored) applyState(this, restored, false);
+    if (restored && typeof restored.workflowRevision === 'string' && restored.viewport) {
+      this.restoredView = { revision: restored.workflowRevision, viewport: { ...restored.viewport } };
+    }
     this.disposers.push(bridge.onMessage((msg) => this.onMessage(msg)));
     // The initial scope travels as an attribute on the root element the report
     // already emits, so `mount(root, graph, bridge)` keeps its exact frozen
@@ -190,7 +215,9 @@ export class App implements MLViewApp {
     const attrDepth = root.getAttribute('data-mlview-depth');
     if (attrSpec) this.pendingScope = { spec: attrSpec, depth: attrDepth ? Number(attrDepth) : undefined };
     this.showLoading(true);
-    bridge.post({ v: 1, type: 'ready' });
+    // No `ready` here: the host bootstrap posts the one `ready` of a page load
+    // and mounts this App on the first `workflow` (§1e). A second `ready`
+    // would make the host replay the whole handshake and render it again.
   }
 
   /* ── chrome + rail ─────────────────────────────────────────────────── */
@@ -199,10 +226,58 @@ export class App implements MLViewApp {
     return this.index ? this.index.lanes.map((l) => l.id) : [];
   }
 
-  /** Replace the current model-authored revision without remounting the UI. */
+  /**
+   * Replace the current model-authored revision without remounting the UI.
+   *
+   * The same revision id keeps the reader's viewport (a refresh or a re-post
+   * is not a new picture); a new revision id fits, unless the caller passes a
+   * viewport. On the first document of a remounted viewer, a viewport saved
+   * for this same revision is restored instead of fitting (VIEWUI-3).
+   */
   setWorkflow(document: WorkflowDocument, preserve?: Partial<ViewState>): void {
-    setGraph(this, normalizeWorkflow(document), preserve, true);
+    let next = preserve;
+    if (!preserve || !preserve.viewport) {
+      let viewport: Viewport | null = null;
+      if (this.graph && this.workflowRevision === document.revision.id) viewport = { ...this.viewportState };
+      else if (!this.graph && this.restoredView && this.restoredView.revision === document.revision.id) {
+        viewport = { ...this.restoredView.viewport };
+      }
+      if (viewport) next = { ...(preserve || {}), viewport };
+    }
+    this.restoredView = null;
+    this.workflowDocument = document;
+    this.workflowRevision = document.revision.id;
+    setGraph(this, normalizeWorkflow(document), next, true);
     decorateWorkflow(this, document);
+  }
+
+  /**
+   * Post a request that the host answers with one `actionResult` (§1e). The
+   * id is a counter plus four random base36 characters; at most
+   * `MAX_PENDING_REQUESTS` wait, and the oldest is forgotten first.
+   */
+  postRequest(message: RequestFrame, onResult: (result: ActionResult) => void): string {
+    this.requestSerial += 1;
+    let tail = '';
+    for (let i = 0; i < 4; i++) tail += Math.floor(Math.random() * 36).toString(36);
+    const requestId = 'r' + this.requestSerial.toString(36) + '-' + tail;
+    this.pending.set(requestId, onResult);
+    while (this.pending.size > MAX_PENDING_REQUESTS) {
+      const oldest = this.pending.keys().next().value;
+      if (oldest === undefined) break;
+      this.pending.delete(oldest);
+    }
+    this.bridge.post({ ...message, requestId } as UiToHost);
+    return requestId;
+  }
+
+  /** The host's answer to a request. An unknown or forgotten id is ignored. */
+  onActionResult(result: ActionResult): void {
+    if (!result || typeof result.requestId !== 'string') return;
+    const handler = this.pending.get(result.requestId);
+    if (!handler) return;
+    this.pending.delete(result.requestId);
+    handler(result);
   }
 
   /** True only where the HOST can actually make an edit behind a preview. */
@@ -374,7 +449,7 @@ export class App implements MLViewApp {
       if (label) this.announce('Selected ' + label);
     } else if (sel.kind === 'issue') {
       const issue = this.index.issueById.get(sel.id);
-      if (issue) this.announce('Issue ' + issue.code + ', ' + issue.severity + ' severity: ' + issue.title);
+      if (issue) this.announce('Finding ' + issue.code + ', ' + issue.severity + ' severity: ' + issue.title);
     }
   }
 
@@ -518,6 +593,7 @@ export class App implements MLViewApp {
     if (this.destroyed) return;
     this.destroyed = true;
     this.saveSoon.cancel();
+    this.pending.clear();
     for (const dispose of this.disposers) {
       try {
         dispose();
