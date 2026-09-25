@@ -136,21 +136,29 @@ function blocks(env: RouteEnv, box: LayoutBox, s: string, t: string): boolean {
   return true;
 }
 
-/** Axis-aligned segment against a box interior (1 px inset, so faces are free). */
-function segHitsBox(a: Point, b: Point, box: LayoutBox): boolean {
-  const m = 1;
-  const x0 = Math.min(a.x, b.x);
-  const x1 = Math.max(a.x, b.x);
-  const y0 = Math.min(a.y, b.y);
-  const y1 = Math.max(a.y, b.y);
-  return x1 > box.x + m && x0 < box.x + box.w - m && y1 > box.y + m && y0 < box.y + box.h - m;
+/** The bounding box of one axis-aligned segment. */
+interface SegBounds { x0: number; x1: number; y0: number; y1: number }
+
+function segBounds(a: Point, b: Point): SegBounds {
+  return { x0: Math.min(a.x, b.x), x1: Math.max(a.x, b.x), y0: Math.min(a.y, b.y), y1: Math.max(a.y, b.y) };
 }
 
+/** Axis-aligned segment against a box interior (1 px inset, so faces are free). */
+function segHitsBox(seg: SegBounds, box: LayoutBox): boolean {
+  const m = 1;
+  return seg.x1 > box.x + m && seg.x0 < box.x + box.w - m && seg.y1 > box.y + m && seg.y0 < box.y + box.h - m;
+}
+
+// RENDER-2. Both predicates are pure and ANDed, so the cheap geometric test
+// runs first and the Map/Set lookups in `blocks` run only for a box the
+// segment actually hits. The geometry golden (test/geometry-golden.test.mjs)
+// pins that the output is unchanged.
 function pathCrosses(env: RouteEnv, points: Point[], s: string, t: string): boolean {
   for (let i = 1; i < points.length; i++) {
+    const seg = segBounds(points[i - 1], points[i]);
     for (const box of env.all) {
-      if (!blocks(env, box, s, t)) continue;
-      if (segHitsBox(points[i - 1], points[i], box)) return true;
+      if (!segHitsBox(seg, box)) continue;
+      if (blocks(env, box, s, t)) return true;
     }
   }
   return false;
@@ -168,8 +176,8 @@ function freeCorridors(env: RouteEnv, laneId: string, y0: number, y1: number, s:
   const hi = Math.max(y0, y1);
   const spans: { a: number; b: number }[] = [];
   for (const box of env.laneBoxes.get(laneId) || []) {
-    if (!blocks(env, box, s, t)) continue;
     if (box.y + box.h <= lo || box.y >= hi) continue;
+    if (!blocks(env, box, s, t)) continue;
     spans.push({ a: box.x - ROUTE_CLEARANCE, b: box.x + box.w + ROUTE_CLEARANCE });
   }
   spans.sort((p1, p2) => p1.a - p2.a);
