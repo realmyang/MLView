@@ -11,6 +11,7 @@
     "exactAnchors": 1.0,
     "supportedClaimPrecision": 0.95,
     "essentialFactRecall": 0.85,
+    "knownUnresolvedQualified": 1.0,
     "highSeverityFalseAccusations": 0
   },
   "tasks": [

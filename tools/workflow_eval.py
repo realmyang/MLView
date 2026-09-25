@@ -5,14 +5,38 @@ from __future__ import annotations
 import argparse
 import hashlib
 import html
+import importlib.util
 import json
 import os
 import re
+import sys
 from collections import Counter
 from pathlib import Path
+from types import ModuleType
 
 ROOT = Path(__file__).resolve().parents[1]
+TOOLS = Path(__file__).resolve().parent
 MANIFEST = ROOT / "evals/workflow/tasks.json"
+# Commands owned by other tools. main() imports the tool lazily and calls its main(argv) with the
+# full argument list, command name first; a build without the tool says so (exit status 2).
+ROUTED_COMMANDS = {
+    "template": ("workflow_decisions", "write a pending decisions template (exclusive create)"),
+    "check": ("workflow_decisions", "check owner decision, run-policy, adjudication, session and run-review files; never writes"),
+    "context": ("workflow_decisions", "write a local, gitignored source-context sheet for reviewing one task"),
+    "freeze": ("workflow_decisions", "freeze a campaign from completed human decisions (dry run unless --write)"),
+    "check-frozen": ("workflow_decisions", "re-derive the committed frozen campaign files and require byte equality"),
+    "plan": ("workflow_pilot", "print the planned pilot runs and conditions"),
+    "run-prepare": ("workflow_pilot", "prepare one pilot run's fresh workspace and evidence directory"),
+    "run-finish": ("workflow_pilot", "seal one pilot run's evidence into record.json"),
+    "review-template": ("workflow_pilot", "create the pending human review file of one pilot run"),
+    "summarize": ("workflow_pilot", "verify sealed pilot runs and compute a stage summary against the predefined targets"),
+}
+# Until tools/workflow_pilot.py is present, these two keep their implementations in this file.
+LEGACY_FALLBACK = {
+    "plan": "print the pending held-out skill-run records (legacy until tools/workflow_pilot.py is present)",
+    "summarize": "summarize human-entered run records (legacy until tools/workflow_pilot.py is present)",
+}
+UNAVAILABLE = "not available in this build"
 PAIRS = ("observedClaims", "inferredClaims", "essentialFacts", "anchors")
 DEVELOPMENT_TASKS = ("dev-config", "dev-sklearn", "dev-gan", "dev-notebook")
 REVIEW_VERDICTS = {"supported", "qualified", "unsupported", "omitted"}
@@ -582,24 +606,71 @@ def summarize(records: list[dict], manifest: dict) -> dict:
             "note": "Counts are human-entered, not semantic judgments by this tool. Missing runs never count as passes."}
 
 
-def main() -> int:
+def load_tool(name: str) -> ModuleType | None:
+    """Import tools/<name>.py on first use; None when this build does not ship it."""
+    path = TOOLS / f"{name}.py"
+    if not path.is_file():
+        return None
+    loaded = sys.modules.get(name)
+    loaded_file = getattr(loaded, "__file__", None)
+    if loaded is not None and loaded_file and Path(loaded_file).resolve() == path.resolve():
+        return loaded
+    if str(TOOLS) not in sys.path:
+        sys.path.insert(0, str(TOOLS))  # the tool imports its sibling eval_records
+    spec = importlib.util.spec_from_file_location(name, path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    try:
+        spec.loader.exec_module(module)
+    except BaseException:
+        sys.modules.pop(name, None)
+        raise
+    return module
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """The command list for --help. Routed commands are parsed by their own tool."""
     parser = argparse.ArgumentParser(description=__doc__)
-    sub = parser.add_subparsers(dest="command", required=True)
-    sub.add_parser("plan")
-    sub.add_parser("development-plan")
+    sub = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
+    for command, (tool, text) in ROUTED_COMMANDS.items():
+        if (TOOLS / f"{tool}.py").is_file():
+            sub.add_parser(command, help=f"{text} (tools/{tool}.py)", add_help=False)
+        elif command in LEGACY_FALLBACK:
+            legacy = sub.add_parser(command, help=LEGACY_FALLBACK[command])
+            if command == "summarize":
+                legacy.add_argument("records", type=Path)
+        else:
+            sub.add_parser(command, help=f"{text} [{UNAVAILABLE}: tools/{tool}.py is missing]", add_help=False)
+    sub.add_parser("development-plan", help="print the pending native development-run records")
     sub.add_parser("baseline-plan", help="prepare additional no-skill Stage 1 records; does not run or freeze them")
-    development_summary = sub.add_parser("summarize-development")
+    development_summary = sub.add_parser("summarize-development",
+                                         help="summarize native development-run records; makes no human-review judgement")
     development_summary.add_argument("records", type=Path)
-    validate = sub.add_parser("validate-development")
+    validate = sub.add_parser("validate-development",
+                              help="validate provisional native development reviews (exact anchors, pending status)")
     validate.add_argument("reviews", nargs="+", type=Path)
-    packet = sub.add_parser("review-packet")
+    packet = sub.add_parser("review-packet", help="write the development review packet for human adjudication")
     packet.add_argument("--reviews", required=True, type=Path)
     packet.add_argument("--baselines", required=True, type=Path)
     packet.add_argument("--baseline-captures", type=Path)
     packet.add_argument("--output", required=True, type=Path)
-    summary = sub.add_parser("summarize")
-    summary.add_argument("records", type=Path)
-    args = parser.parse_args()
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    if arguments and arguments[0] in ROUTED_COMMANDS:
+        command = arguments[0]
+        tool = ROUTED_COMMANDS[command][0]
+        module = load_tool(tool)
+        if module is not None:
+            return int(module.main(arguments) or 0)
+        if command not in LEGACY_FALLBACK:
+            print(f"workflow_eval.py {command}: {UNAVAILABLE} (tools/{tool}.py is missing)", file=sys.stderr)
+            return 2
+    parser = build_parser()
+    args = parser.parse_args(arguments)
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
     try:
         if args.command == "plan":
@@ -621,8 +692,10 @@ def main() -> int:
             value = {"ok": True, "output": str(args.output), "reviews": 12,
                      "baselines": len(manifest["hosts"]),
                      "note": "Packet contains validated provisional material; human adjudication remains pending."}
-        else:
+        elif args.command == "summarize":
             value = summarize(json.loads(args.records.read_text(encoding="utf-8")), manifest)
+        else:
+            parser.error(f"{args.command}: {UNAVAILABLE}")
     except (OSError, ValueError, TypeError) as exc:
         parser.error(str(exc))
     print(json.dumps(value, indent=2))
