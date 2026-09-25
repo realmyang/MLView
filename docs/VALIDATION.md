@@ -8,6 +8,56 @@ Run `sh scripts/e2e.sh` with Python 3.10+ and Node 20.18.1+ on PATH. On Windows
 use `powershell -File scripts/e2e.ps1`. The [script guide](../scripts/README.md)
 explains each gate and explicit skip options.
 
+## Campaign 1 local checks — 2026-09-25
+
+Campaign 1 ("reliability and trust", version 0.2.0; see the
+[changelog](../CHANGELOG.md)) was checked on commit `f4932c7` of the
+`c1-integration` branch. **These are local automated checks on one macOS
+machine** (Darwin 25.6.0, Node 26.4.0, npm 11.17.0, Python 3.13.15). CI has not
+run on this commit, so its result is pending. Node 20.18.1 and 22, Windows,
+Linux and Python 3.10–3.12 were not exercised. Nothing here is live-host
+(Extension Development Host) validation, a native assistant run, human review
+or semantic accuracy.
+
+- `MLVIEW_PYTHON="$PWD/.venv/bin/python" PATH="$PWD/.venv/bin:$PATH" PYTHONDONTWRITEBYTECODE=1 sh scripts/e2e.sh --skip-npm-install`:
+  **all 15 exercised gates passed**. The gate sets `MLVIEW_REQUIRE_PYTHON=1`,
+  so the refine-wedge regression ran the real helper instead of skipping.
+- Python helper, distribution and evaluation tests: **178 passed, 311 subtests
+  passed, 2 skipped**. Both skips need the unavailable Claude CLI; they are not
+  plugin validation passes. The conformance runner
+  (`tools/test_workflow_conformance.py`, 12 tests, 232 subtests) and the
+  recorded-artifact guard (1 test, 23 subtests) are included.
+- Viewer: **69 passed**, including the rewritten host, bootstrap and bundle
+  handshake, bundle hygiene and the routed-geometry golden.
+- Extension: **197 passed**, including revision lineage (31), panel lineage
+  (12), the refine wedge with the real helper (6), host protocol (8),
+  bootstrap (2), export payloads (4), recorded artifacts (3) and the
+  conformance runner (53: every corpus case, the parity checks and the
+  helper-publish, viewer-load round trip).
+- Both eight-file skill ZIPs were packaged. The actual VSIX had **11 files,
+  153,398 bytes**, with no analyzer or Python runtime payload and only
+  `mlview.openGeneratedDiagram` contributed.
+- Portable skill bundle identity (`sha256-sorted-path-nul-bytes-nul` over the
+  eight files): `e54a31355b89c41c6e042fc1c23655405d66877c48ba7702275df8a6d89863d0`.
+  Built viewer: `mlview.js` SHA-256
+  `3d602e3334c06d90d3886b0be784ca6644bff039e64b7c1944c3bf72db0c85ad`,
+  `mlview.css` SHA-256
+  `e43c14dec5968faf86c28993dbbe8c39c35b334e9f6589c817d1ed286daa6185`.
+- After the gate rebuilt everything, `git diff --exit-code` over `webview/dist`,
+  `vscode-extension/media`, the extension's notices and
+  `claude-plugin/skills/mlview` was clean.
+- The 2026-09-25 review's critic reproductions were re-run on scratch copies
+  against this build. A changed installed-skill file no longer makes a diagram
+  stale: no banner, and navigation opens `train.py`. A `"parent": null` node is
+  rejected by both the helper and the extension. A workflow-level finding stays
+  listed under both phase filters and under `stage:train`.
+
+The commit that adds this record changes only this file and STATUS.md. Still
+outstanding: CI on this commit, the manual live-host checklist (Refine with
+each intent, HC Dark and HC Light, a BOM source open while publishing, a
+symlinked root, a mixed-case Windows drive letter), Windows/Linux live
+interaction, the human reference review and the held-out pilot.
+
 ## Live usability and CI follow-up — 2026-09-18
 
 The maintainer authorized committing/pushing the campaign and completing live
@@ -23,7 +73,7 @@ The final local command was
 2 skipped** (unavailable Claude CLI). Viewer: **32 passed**. Extension:
 **43 passed**. Both skill archives passed; the actual VSIX had **11 files,
 141,149 bytes**, with no retired analyzer/runtime payload. Documentation checks
-and `git diff --check` passed. The current eight-file portable skill SHA-256 is
+and `git diff --check` passed. At that point the eight-file portable skill SHA-256 was
 `b251ac3774a453473ccf501643f56eb2ca826640d713903666add9c9e93c5b7f`.
 
 Live checks used an isolated VS Code 1.138.0 Extension Development Host on

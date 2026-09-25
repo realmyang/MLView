@@ -28,6 +28,20 @@ interaction need live validation before compatibility is claimed. Latest CI
 results: see [VALIDATION.md](VALIDATION.md) and the repository's
 [Actions page](https://github.com/realmyang/MLView/actions).
 
+Version 0.2.0 adds Campaign 1, "reliability and trust" (see the
+[changelog](../CHANGELOG.md)). An open panel follows the artifact file on disk
+and shows a revision whose sources changed as a historical diagram instead of
+refusing it. Freshness uses the saved file bytes, as the helper does. Refinement
+prompts carry artifact text only inside a JSON data block and name one of five
+intents; Explain never publishes. The helper no longer fingerprints MLView's own
+artifacts, drafts or installed skill. A shared corpus in
+`contracts/conformance` checks the schema, helper and extension together. On
+commit `f4932c7` the full local gate passed on one macOS machine
+([details](VALIDATION.md)). CI has not yet run on it. The manual live VS Code
+checks (high-contrast light, a BOM file open while publishing, a symlinked
+root, Windows drive letters) have not been run, and none of this is semantic
+validation.
+
 The [trust and usability campaign](TRUST_USABILITY_CAMPAIGN.md) implements the
 first campaign from the [improvement research](IMPROVEMENT_RESEARCH_2026-09-18.md):
 authored wording, evidence inspection, textual relationships, coalesced
