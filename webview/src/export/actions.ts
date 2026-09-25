@@ -25,7 +25,7 @@ import { MIME, base64ToBytes, rasterize, utf8ToBase64 } from './raster.js';
 import type { Palette } from './palette.js';
 import type { ScenePlan } from '../render/plan.js';
 import type { Rect } from '../render/canvas.js';
-import type { MLGraph, ThemeKind, UiToHost } from '../types.js';
+import type { ActionResult, MLGraph, ThemeKind, UiToHost } from '../types.js';
 
 /** How much world margin a cropped region keeps around its content. */
 const REGION_PAD = 24;
@@ -35,6 +35,11 @@ export const PNG_SCALE = 2;
 
 export interface ExportHost {
   post(msg: UiToHost): void;
+  /**
+   * Post a request the host answers with one `actionResult` (§1e). The
+   * handler runs when that answer arrives; nothing is claimed before it.
+   */
+  request(msg: UiToHost, onResult: (result: ActionResult) => void): void;
   toast(text: string): void;
   announce(text: string): void;
   /** `window.print()`, injected so a gate can observe the call. */
@@ -135,7 +140,7 @@ export function renderExport(request: ExportRequest): ExportSvgResult {
   const graph = request.graph;
   const scope = request.scopeLabel;
   const title =
-    'MLView — ' + baseName(graph.workspace.root) + (scope ? ' — ' + scope : '') + ' — ' + regionLabel(request.regionKind);
+    'MLView — ' + subjectOf(graph) + (scope ? ' — ' + scope : '') + ' — ' + regionLabel(request.regionKind);
   const desc =
     graph.nodes.length + ' nodes, ' + graph.edges.length + ' edges · schema ' + graph.schemaVersion +
     (graph.schemaVersion === 'workflow-view/1'
@@ -155,10 +160,21 @@ export function renderExport(request: ExportRequest): ExportSvgResult {
 
 /** `mlview-vision_pipeline-evaluation-diagram.svg`, and nothing a shell hates. */
 export function exportFileName(request: ExportRequest, ext: string): string {
-  const bits = ['mlview', baseName(request.graph.workspace.root)];
+  const bits = ['mlview', subjectOf(request.graph)];
   if (request.scopeLabel) bits.push(request.scopeLabel);
   bits.push(request.regionKind);
   return bits.map(slug).filter((s) => !!s).join('-') + '.' + ext;
+}
+
+/**
+ * What the picture is of. An authored document carries its TITLE where the
+ * analyzer kept a workspace path, and a title such as `Train/eval loop` is not
+ * a path: it is used whole (RENDER-8). An analyzer root is still reduced to its
+ * last segment.
+ */
+function subjectOf(graph: MLGraph): string {
+  if (graph.schemaVersion === 'workflow-view/1') return String(graph.workspace.root || '') || 'workflow';
+  return baseName(graph.workspace.root);
 }
 
 function baseName(root: string): string {
@@ -196,16 +212,40 @@ function exportFileMessage(kind: 'svg' | 'png', name: string, base64: string, re
   };
 }
 
+/**
+ * What the viewer says once the host has answered an export (CRIT-5). Success
+ * is announced only: the host's own notification is the visible message, and
+ * nothing claims a file before the host reports one.
+ */
+function exportAnswer(host: ExportHost, done: (name: string) => string, suggested: string) {
+  return (answer: ActionResult) => {
+    if (answer.outcome === 'done') {
+      host.announce(done(answer.name || suggested));
+      return;
+    }
+    if (answer.outcome === 'cancelled') {
+      host.announce('Export cancelled.');
+      return;
+    }
+    const said = 'Export failed: ' + (answer.message || 'the host did not say why');
+    host.toast(said);
+    host.announce(said);
+  };
+}
+
 export function saveSvg(host: ExportHost, result: ExportSvgResult, name: string): void {
   const base64 = utf8ToBase64(result.svg);
   if (!base64) {
     host.toast('This browser could not encode the SVG.');
     return;
   }
-  host.post(exportFileMessage('svg', name, base64, result.regionKind));
-  const said = 'Exported ' + result.nodeIds.length + ' cards and ' + result.edgeIds.length + ' connections as ' + name + '.';
-  host.toast(said);
-  host.announce(said);
+  const cards = result.nodeIds.length;
+  const connections = result.edgeIds.length;
+  host.announce('Saving SVG…');
+  host.request(
+    exportFileMessage('svg', name, base64, result.regionKind),
+    exportAnswer(host, (saved) => 'Exported ' + cards + ' cards and ' + connections + ' connections as ' + saved + '.', name),
+  );
 }
 
 export async function savePng(host: ExportHost, result: ExportSvgResult, name: string): Promise<boolean> {
@@ -215,10 +255,13 @@ export async function savePng(host: ExportHost, result: ExportSvgResult, name: s
     host.announce('PNG export is not available in this host.');
     return false;
   }
-  host.post(exportFileMessage('png', name, raster.base64, result.regionKind));
-  const said = 'Exported ' + raster.width + '×' + raster.height + ' PNG as ' + name + '.';
-  host.toast(said);
-  host.announce(said);
+  // The size actually drawn, which `rasterize` may have scaled down (RENDER-3).
+  const size = raster.width + '×' + raster.height;
+  host.announce('Saving PNG…');
+  host.request(
+    exportFileMessage('png', name, raster.base64, result.regionKind),
+    exportAnswer(host, (saved) => 'Exported ' + size + ' PNG as ' + saved + '.', name),
+  );
   return true;
 }
 
@@ -230,9 +273,19 @@ export async function copySvgText(host: ExportHost, result: ExportSvgResult): Pr
     host.announce(said);
     return true;
   }
-  // The host's own clipboard path, which already owns the copy toast (11.17.1).
-  host.post({ v: 1, type: 'copy', text: result.svg });
-  host.announce('SVG handed to the host to copy.');
+  // The host's clipboard, which answers with an `actionResult` (VIEWUI-10):
+  // success is claimed only once the host has written the text.
+  const cards = result.nodeIds.length;
+  const connections = result.edgeIds.length;
+  host.request({ v: 1, type: 'copy', text: result.svg }, (answer) => {
+    if (answer.outcome === 'done') {
+      const said = 'SVG copied — ' + cards + ' cards, ' + connections + ' connections.';
+      host.toast(said);
+      host.announce(said);
+    } else {
+      host.announce('The SVG could not be copied.');
+    }
+  });
   return false;
 }
 

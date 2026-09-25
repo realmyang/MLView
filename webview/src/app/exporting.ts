@@ -54,6 +54,9 @@ function exportRequest(app: App): ExportRequest | null {
 export function runExport(app: App, action: ExportActionId): void {
   const host = {
     post: (msg: any) => app.bridge.post(msg),
+    request: (msg: any, onResult: (result: any) => void) => {
+      app.postRequest(msg, onResult);
+    },
     toast: (text: string) => app.view.toast(text),
     announce: (text: string) => app.announce(text),
     print: () => {

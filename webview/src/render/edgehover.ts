@@ -13,12 +13,11 @@
  *     the DOM agrees with the geometry for as long as the pointer tracks it.
  *  2. INTENT. The same 400 ms open / 120 ms close delays the hover card uses.
  *     Nothing is ever built before the pointer settles, which is what keeps a
- *     sweep across the diagram free (`interaction.test.mjs`, F1-A11).
+ *     sweep across the diagram free (F1-A11).
  */
 
 import { on } from '../dom.js';
 import { nearestRoute } from './edgepick.js';
-import { prefersReducedMotion } from '../motion.js';
 import type { RoutedEdge } from '../layout/routing.js';
 import type { ViewportController } from './canvas.js';
 
@@ -41,6 +40,8 @@ export interface EdgeHoverHost {
   open(route: RoutedEdge): void;
   /** The pointer settled on nothing: hide and stop, honouring the latches. */
   close(): void;
+  /** Hide the hover card outright (the scene it described is gone). */
+  hide(): void;
   /**
    * `.is-hover` just moved. Fired IMMEDIATELY, not after the intent delay: the
    * VIEW-04 bundle a cable belongs to has to open the moment the pointer owns
@@ -91,6 +92,8 @@ export class EdgeHover {
       clearTimeout(this.timer);
       this.timer = null;
     }
+    // RENDER-1: a card describing a cable of the old scene must not stay up.
+    this.host.hide();
   }
 
   destroy(): void {
@@ -148,7 +151,9 @@ export class EdgeHover {
       if (route) this.host.open(route);
       else this.host.close();
     };
-    const delay = prefersReducedMotion() ? 0 : route ? this.host.openDelayMs : this.host.closeDelayMs;
+    // RENDER-19: the intent delays hold under reduced motion too; they are
+    // not animation, and dropping them re-opens a card per cable swept past.
+    const delay = route ? this.host.openDelayMs : this.host.closeDelayMs;
     if (delay <= 0) {
       run();
       return;

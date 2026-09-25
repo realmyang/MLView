@@ -81,9 +81,12 @@ export function buildAppUi(app: App): void {
     },
     onClear: () => app.setScope(null),
     onDepth: (delta) => stepDepth(app, delta),
+    // VIEWUI-10: the host writes the clipboard and answers; the toast waits
+    // for that answer instead of claiming a copy nobody made.
     onCopy: (spec) => {
-      app.bridge.post({ v: 1, type: 'copy', text: spec });
-      app.view.toast('Scope copied: ' + spec);
+      app.postRequest({ v: 1, type: 'copy', text: spec }, (answer) => {
+        app.view.toast(answer.outcome === 'done' ? 'Scope copied: ' + spec : 'Could not copy the scope.');
+      });
     },
   });
   app.chrome.scopeSlot.appendChild(app.scopeBar.breadcrumb.root);

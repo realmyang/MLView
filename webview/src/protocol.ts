@@ -6,11 +6,13 @@
  * crashing. Malformed frames (no object, wrong `v`) are dropped silently.
  */
 
-import type { Capabilities, Filters, HostToUi, Severity, ThemeKind, ViewState, WorkflowDocument } from './types.js';
+import type { ActionResult, Capabilities, Filters, HostToUi, Severity, ThemeKind, ViewState, WorkflowDocument } from './types.js';
 
 export interface ProtocolHandlers {
   init(theme: ThemeKind, capabilities: Capabilities | undefined): void;
-  workflow(document: WorkflowDocument, preserve: Partial<ViewState> | undefined): void;
+  workflow(document: WorkflowDocument): void;
+  /** The answer to a request that carried a `requestId` (§1e). */
+  actionResult(result: ActionResult): void;
   theme(kind: ThemeKind): void;
   revealNode(nodeId: string, center: boolean): void;
   revealIssue(issueId: string): void;
@@ -30,7 +32,14 @@ export function dispatchHostMessage(msg: HostToUi, h: ProtocolHandlers): void {
       h.init(msg.theme, msg.capabilities);
       return;
     case 'workflow':
-      h.workflow(msg.document, msg.preserve);
+      h.workflow(msg.document);
+      return;
+    case 'workflowError':
+      // Known, and deliberately a no-op here: the host bootstrap owns the
+      // banner element, which lives outside the App's shell.
+      return;
+    case 'actionResult':
+      h.actionResult(msg);
       return;
     case 'theme':
       h.theme(msg.kind);

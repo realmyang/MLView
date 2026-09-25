@@ -20,6 +20,28 @@
 const SVG_MIME = 'image/svg+xml';
 const PNG_MIME = 'image/png';
 
+/**
+ * The largest canvas this renderer asks for (RENDER-3). Browsers refuse larger
+ * bitmaps (Chromium: 32,767 px per side, about 268M px in area) and then return
+ * `data:,` instead of throwing, so the scale is clamped before allocating.
+ */
+export const MAX_CANVAS_SIDE = 16384;
+export const MAX_CANVAS_AREA = 16384 * 16384;
+
+/**
+ * The scale to draw at: `scale`, reduced until `max(w, h) * s <= 16384` and
+ * `w * h * s² <= 16384²`. `null` when even scale 1 does not fit, so the caller
+ * offers the SVG instead of claiming a PNG it cannot produce.
+ */
+export function rasterScale(width: number, height: number, scale: number): number | null {
+  let s = scale;
+  const side = Math.max(width, height);
+  if (side > 0 && side * s > MAX_CANVAS_SIDE) s = MAX_CANVAS_SIDE / side;
+  const area = width * height;
+  if (area > 0 && area * s * s > MAX_CANVAS_AREA) s = Math.sqrt(MAX_CANVAS_AREA / area);
+  return s >= 1 ? s : null;
+}
+
 export interface RasterResult {
   /** Raw base64, with no `data:` prefix — the shape `exportFile` carries. */
   base64: string;
@@ -38,12 +60,18 @@ export function svgDataUri(svg: string): string {
  * this function itself rejects only through the image's own error event, which
  * is what a malformed SVG produces.
  */
-export function rasterize(svg: string, width: number, height: number, scale = 2): Promise<RasterResult | null> {
+export function rasterize(svg: string, width: number, height: number, requestedScale = 2): Promise<RasterResult | null> {
   return new Promise((resolve) => {
     if (typeof document === 'undefined' || typeof Image === 'undefined') {
       resolve(null);
       return;
     }
+    const clamped = rasterScale(width, height, requestedScale);
+    if (clamped === null) {
+      resolve(null);
+      return;
+    }
+    const scale = clamped;
     let canvas: HTMLCanvasElement;
     let ctx: CanvasRenderingContext2D | null;
     try {
@@ -72,7 +100,10 @@ export function rasterize(svg: string, width: number, height: number, scale = 2)
         ctx!.drawImage(image, 0, 0, width, height);
         const url = canvas.toDataURL(PNG_MIME);
         const comma = url.indexOf(',');
-        done(comma < 0 ? null : { base64: url.slice(comma + 1), width: canvas.width, height: canvas.height, scale });
+        const base64 = comma < 0 ? '' : url.slice(comma + 1);
+        // `data:,` (or any empty payload) is how a browser says it could not
+        // allocate the bitmap; that is a failure, never an empty PNG.
+        done(url === 'data:,' || !base64 ? null : { base64, width: canvas.width, height: canvas.height, scale });
       } catch (_e) {
         // A tainted canvas throws here. It should be unreachable — the SVG
         // carries no external reference — so the honest answer is "no PNG".

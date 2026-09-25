@@ -179,12 +179,32 @@ export function num(v: number): string {
   return String(round2(v));
 }
 
-/** XML escaping. Attribute and text content go through the same five entities. */
+/**
+ * XML escaping. Attribute and text content go through the same five entities.
+ * Characters XML 1.0 forbids become a space (C0 controls other than tab and
+ * newline) or U+FFFD (U+FFFE, U+FFFF and unpaired surrogates, RENDER-11), so
+ * authored text can never make the saved SVG unparseable.
+ */
 export function esc(value: string): string {
   let out = '';
   const s = String(value === undefined || value === null ? '' : value);
   for (let i = 0; i < s.length; i++) {
     const ch = s.charAt(i);
+    const code = s.charCodeAt(i);
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = i + 1 < s.length ? s.charCodeAt(i + 1) : 0;
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        out += ch + s.charAt(i + 1);
+        i++;
+      } else {
+        out += '\ufffd';
+      }
+      continue;
+    }
+    if ((code >= 0xdc00 && code <= 0xdfff) || code === 0xfffe || code === 0xffff) {
+      out += '\ufffd';
+      continue;
+    }
     if (ch === '&') out += '&amp;';
     else if (ch === '<') out += '&lt;';
     else if (ch === '>') out += '&gt;';

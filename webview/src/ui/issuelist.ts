@@ -12,7 +12,7 @@ import { locSpoken } from '../notebook.js';
 import { uiIcon } from '../icons.js';
 import { severityGlyph, SEVERITY_ORDER, normalizeSeverity } from '../markers.js';
 import { appendTrustSections, confidenceChip } from './evidence.js';
-import { defaultExpanded, groupIssues, needsHeader, occurrenceText, RAIL_GROUP_LABEL, RAIL_GROUP_MODES } from './railgroup.js';
+import { defaultExpanded, groupIssues, groupModesFor, needsHeader, occurrenceText, RAIL_GROUP_LABEL } from './railgroup.js';
 import { appendSuppressActions, stateChip, suppressedSummary } from './suppress.js';
 import { appendFixSection, fixMarker, hasFix } from './fixes.js';
 import { blindSpots, coverageHeadline } from './chromenotes.js';
@@ -91,6 +91,7 @@ export function renderIssuePanel(panel: HTMLElement, s: IssueListState, cb: Issu
       panel.appendChild(allSuppressedState(setAside.length));
     } else if (s.issues.length) panel.appendChild(filteredEmptyState(cb));
     else if ((s.index.graph.nodes || []).length === 0) panel.appendChild(nothingAnalyzedState(s));
+    else if (s.index.graph.schemaVersion === 'workflow-view/1') panel.appendChild(noFindingsRecordedState(s));
     else panel.appendChild(cleanState(s));
     // "No issues found" over a document where three findings were silenced is
     // not a clean bill of health, so the section is drawn here too (MLV-P10).
@@ -224,9 +225,9 @@ function groupControl(s: IssueListState, cb: IssueListCallbacks): HTMLElement {
   box.setAttribute('aria-label', 'Group findings');
   box.setAttribute('data-group-by', s.groupBy);
   add(box, el('span', 'mlv-rail__groupby-label', 'Group by'));
-  for (const mode of RAIL_GROUP_MODES) {
+  for (const mode of groupModesFor(s.index?.graph.schemaVersion)) {
     const active = s.groupBy === mode;
-    const label = mode === 'rule' && s.index?.graph.schemaVersion === 'workflow-view/1' ? 'Finding ID' : RAIL_GROUP_LABEL[mode];
+    const label = RAIL_GROUP_LABEL[mode];
     const b = el('button', 'mlv-chip mlv-chip--btn mlv-rail__groupby-btn', label) as HTMLButtonElement;
     b.type = 'button';
     b.setAttribute('data-group-mode', mode);
@@ -243,7 +244,7 @@ function groupControl(s: IssueListState, cb: IssueListCallbacks): HTMLElement {
 function flatList(issues: Issue[], sev: string, s: IssueListState, cb: IssueListCallbacks, label?: string): HTMLElement {
   const list = el('ul', 'mlv-issues');
   list.setAttribute('role', 'listbox');
-  list.setAttribute('aria-label', label || sev + ' severity issues');
+  list.setAttribute('aria-label', label || sev + ' severity findings');
   for (const issue of issues) list.appendChild(issueRow(issue, s, cb));
   wireListbox(list, cb);
   return list;
@@ -261,7 +262,7 @@ function renderGroups(section: HTMLElement, issues: Issue[], sev: string, s: Iss
     }
     section.appendChild(groupBlock(group, sev, s, cb));
   }
-  if (singles.length) section.appendChild(flatList(singles, sev, s, cb, sev + ' severity issues, ungrouped'));
+  if (singles.length) section.appendChild(flatList(singles, sev, s, cb, sev + ' severity findings, ungrouped'));
 }
 
 function groupBlock(group: IssueGroup, sev: string, s: IssueListState, cb: IssueListCallbacks): HTMLElement {
@@ -289,7 +290,7 @@ function groupBlock(group: IssueGroup, sev: string, s: IssueListState, cb: Issue
   count.setAttribute('data-group-occurrences', String(group.issues.length));
   if (group.worstBucket) {
     const chip = add(meta, el('span', 'mlv-chip mlv-chip--conf mlv-chip--conf-' + group.worstBucket, group.worstBucket));
-    chip.title = 'Lowest confidence in this group: ' + group.worstBucket;
+    chip.title = (s.index?.graph.schemaVersion === 'workflow-view/1' ? 'Weakest basis in this group: ' : 'Lowest confidence in this group: ') + group.worstBucket;
   }
   head.setAttribute(
     'aria-label',
@@ -542,6 +543,32 @@ function cleanState(s: IssueListState): HTMLElement {
 }
 
 /**
+ * VIEWUI-1. Zero findings in an authored revision means only that the
+ * assistant wrote none, which is common for "explain this pipeline"
+ * questions. MLView checked nothing, so this state never says "checked",
+ * "nothing to flag" or "no issues found": it names the coverage instead.
+ */
+function noFindingsRecordedState(s: IssueListState): HTMLElement {
+  const box = el('div', 'mlv-empty-note mlv-nofindings');
+  box.setAttribute('role', 'status');
+  add(box, el('div', 'mlv-clean__title', 'No findings recorded in this revision'));
+  const coverage = s.index ? s.index.graph.authoredCoverage : undefined;
+  const status = coverage ? coverage.status : 'unknown';
+  const limits = coverage ? coverage.limitations : 0;
+  add(
+    box,
+    el(
+      'div',
+      'mlv-clean__detail',
+      'The assistant recorded no findings. Coverage: ' + status +
+        (limits ? '; ' + limits + (limits === 1 ? ' limitation' : ' limitations') + ' listed above' : '') +
+        '. This is not a check result.',
+    ),
+  );
+  return box;
+}
+
+/**
  * Nothing was analysed at all. The canvas already says "No ML pipeline found";
  * a rail that answers "No issues found" beside it reads as a clean bill of
  * health for a run that never looked at anything (MLV-R2-W05).
@@ -626,7 +653,7 @@ function allSuppressedState(count: number): HTMLElement {
 /** The filters excluded everything: say so, and offer the way back. */
 function filteredEmptyState(cb: IssueListCallbacks): HTMLElement {
   const box = el('div', 'mlv-empty-note');
-  add(box, el('div', '', 'No issues match these filters.'));
+  add(box, el('div', '', 'No findings match these filters.'));
   const clearBtn = button('mlv-btn', 'Clear filters');
   on(clearBtn, 'click', () => cb.onClearFilters());
   box.appendChild(clearBtn);

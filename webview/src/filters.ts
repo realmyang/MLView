@@ -101,7 +101,9 @@ export class FilterModel {
     const f = this.current;
     if (f.severities.indexOf(normalizeSeverity(issue.severity)) < 0) return false;
     if (this.codes.length && this.codes.indexOf(issue.code) < 0) return false;
-    if (f.stages.length && f.stages.indexOf(issue.stage) < 0) return false;
+    // CRIT-3: a workflow-level finding (no nodes, so no stage) belongs to
+    // every phase; a phase filter must not hide it.
+    if (f.stages.length && issue.stage !== '' && f.stages.indexOf(issue.stage) < 0) return false;
     // CI-ADOPT: only an EXPLICIT `existing` is dropped. An unattributed run has
     // no `change` at all and must show everything rather than nothing.
     if (f.changedOnly && issue.change === 'existing') return false;

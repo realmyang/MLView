@@ -110,6 +110,9 @@ export function renderDiffBar(app: App): void {
 }
 
 export function renderRail(app: App): void {
+  // VIEWUI-12: a `rule` grouping (restored, or asked for) is not offered for an
+  // authored document, so it falls back to none.
+  if (app.railGroupBy === 'rule' && app.graph && app.graph.schemaVersion === 'workflow-view/1') app.railGroupBy = 'none';
   const sel = app.selection;
   // An issue selection resolves to its primary node, so the Inspector is never
   // empty just because the user clicked the issue row instead of the card

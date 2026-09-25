@@ -24,7 +24,15 @@ export function onHostMessage(app: App, msg: HostToUi): void {
       renderChrome(app);
       renderRail(app);
     },
-    workflow: (document, preserve) => app.setWorkflow(document, preserve),
+    // One owner per frame (§1e): the host bootstrap mounts on the first
+    // `workflow` and ignores the rest; this listener applies every later one.
+    // A frame carrying the very document object already applied is dropped, so
+    // no path can render the same frame twice.
+    workflow: (document) => {
+      if (document === app.workflowDocument) return;
+      app.setWorkflow(document);
+    },
+    actionResult: (result) => app.onActionResult(result),
     theme: (kind) => app.setTheme(kind),
     revealNode: (nodeId, center) => app.focusNode(nodeId, { center, pulse: true }),
     revealIssue: (issueId) => app.focusIssue(issueId),

@@ -52,12 +52,10 @@ export const UNRESOLVED_CALLEE = 'unresolved_callee';
  * consequence: a clean workspace analysed with `--framework torch` drew the
  * rail's unqualified *"70 nodes across 7 stages checked — nothing to flag."*
  * with no banner and no chip, while the document's only diagnostic said five
- * rules the detected frameworks would have run did not. That is the sentence
- * `test/hardening_cleanstate.test.mjs` exists to forbid, reached through a kind
- * the viewer had never heard of.
- *
- * `test/hardening_coverage_kinds.test.mjs` is the third gate, and it reads the
- * analyzer's declaration rather than transcribing it.
+ * rules the detected frameworks would have run did not. That is exactly the
+ * clean-bill-of-health sentence the viewer must never draw over a blind spot,
+ * reached through a kind the viewer had never heard of. (The tests that held
+ * this list to the analyzer's declaration were removed with the analyzer.)
  */
 export const FRAMEWORK_FILTER = 'framework_filter';
 

@@ -88,6 +88,10 @@ export function collectChips(s: ChromeState): ChipSpec[] {
     );
   }
   for (const d of g.diagnostics || []) {
+    // VIEWUI-13: authored coverage limitations are already listed in the
+    // workflow panel (and per item in the Inspector); a chip per sentence
+    // would repeat them a third time in the top chrome.
+    if (d.kind === 'workflow_limitation') continue;
     if (d.kind === 'notebook_skipped') {
       out.push(chipSpec((d.count || 0) + ' notebooks not analyzed'));
     } else if (d.kind === NOTEBOOK_ANALYZED) {

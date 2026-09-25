@@ -15,7 +15,6 @@
  */
 
 import { clear } from '../dom.js';
-import { prefersReducedMotion } from '../motion.js';
 import { applyTrace } from '../render/trace.js';
 import { drawIssueConnectors } from '../render/connectors.js';
 import { HOVER_CLOSE_MS, HOVER_OPEN_MS } from './host.js';
@@ -53,6 +52,8 @@ export class Emphasis {
   private ctx: EmphasisContext;
   private hoverId: string | null = null;
   private hoverTimer: ReturnType<typeof setTimeout> | null = null;
+  /** The target the pending `hoverTimer` will apply. */
+  private pendingHover: string | null = null;
   private focusLocked = false;
   /** The node whose lineage stream is latched by focus mode (row 7). */
   private focusNodeId: string | null = null;
@@ -79,9 +80,29 @@ export class Emphasis {
    * The scene DOM was replaced, so no hover survives it. Without this the latch
    * cascade in `flow.stop()` would resume a stream over a scene that no longer
    * holds that node (CONTRACTS 11.14 C1).
+   *
+   * RENDER-1: the hover's VISIBLE state goes too. `is-tracing` sits on the
+   * persistent canvas element, so leaving it there dims every card of the new
+   * scene (with `pointer-events: none`) and nothing could clear it; the tooltip
+   * of a node from the old scene is hidden; a pending hover timer is dropped;
+   * and focus mode unlocks when its node is no longer in the document.
    */
   resetHover(): void {
+    if (this.hoverTimer !== null) {
+      clearTimeout(this.hoverTimer);
+      this.hoverTimer = null;
+    }
+    this.pendingHover = null;
     this.hoverId = null;
+    this.trace(null, 'is-tracing');
+    this.ctx.tooltip.hide();
+    const index = this.ctx.index();
+    if (this.focusLocked && this.focusNodeId && (!index || !index.nodeById.has(this.focusNodeId))) {
+      this.focusLocked = false;
+      this.focusNodeId = null;
+      this.ctx.canvas.classList.remove('is-focusing');
+      this.trace(null, 'is-focusing');
+    }
   }
 
   applySelection(sel: Sel | null): void {
@@ -146,17 +167,25 @@ export class Emphasis {
    */
   hoverIntent(id: string | null): void {
     if (this.hoverTimer !== null) {
+      // Already on the way to this target: keep the timer that is running.
+      if (this.pendingHover === id) return;
       clearTimeout(this.hoverTimer);
       this.hoverTimer = null;
+      this.pendingHover = null;
     }
     if (this.hoverId === id) return;
-    const delay = prefersReducedMotion() ? 0 : id ? HOVER_OPEN_MS : HOVER_CLOSE_MS;
+    // RENDER-19: the intent delays are not animation, so reduced motion keeps
+    // them. Without them every card a pointer sweep crosses toggles the
+    // whole-canvas dim; only the CSS transitions are removed (base.css).
+    const delay = id ? HOVER_OPEN_MS : HOVER_CLOSE_MS;
     if (delay <= 0) {
       this.setHover(id);
       return;
     }
+    this.pendingHover = id;
     this.hoverTimer = setTimeout(() => {
       this.hoverTimer = null;
+      this.pendingHover = null;
       this.setHover(id);
     }, delay);
   }
@@ -221,5 +250,6 @@ export class Emphasis {
     if (this.hoverTimer === null) return;
     clearTimeout(this.hoverTimer);
     this.hoverTimer = null;
+    this.pendingHover = null;
   }
 }

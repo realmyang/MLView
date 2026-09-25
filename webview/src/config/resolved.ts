@@ -174,6 +174,9 @@ function fromSublabel(node: MLNode): ResolvedConfig | null {
  * that predates ANA-10.
  */
 export function resolvedConfig(node: MLNode): ResolvedConfig | null {
+  // RENDER-6: an authored node's label and detail are prose written by the
+  // model. The renderer never reads a resolved value out of them.
+  if (node.authored) return null;
   return fromAttrs(node) || fromSublabel(node);
 }
 

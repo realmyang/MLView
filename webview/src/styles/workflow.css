@@ -8,13 +8,32 @@
 .mlv-workflow__question { margin: 6px 0; color: var(--mlv-text); }
 .mlv-workflow__composer { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; margin-block: 8px; }
 .mlv-workflow__composer[hidden] { display: none; }
-.mlv-workflow__selection { color: var(--mlv-muted); font-size: 11px; }
+.mlv-workflow__selection { color: var(--mlv-text-2); font-size: 11px; }
 .mlv-workflow__custom { min-width: min(320px, 100%); }
-.mlv-workflow__meta { font-size: 11px; color: var(--mlv-muted); }
+.mlv-workflow__meta { font-size: 11px; color: var(--mlv-text-2); }
 .mlv-workflow__coverage { font-weight: 600; }
-.mlv-workflow__coverage--partial { color: var(--mlv-warning, #9a6700); }
-.mlv-workflow__limitations { margin-top: 6px; font-size: 11px; color: var(--mlv-muted); }
+.mlv-workflow__coverage--partial { color: var(--mlv-sev-medium); }
+.mlv-workflow__limitations { margin-top: 6px; font-size: 11px; color: var(--mlv-text-2); }
+.mlv-workflow__status { color: var(--mlv-text); font-size: 11px; }
 .mlv-workflow__limitations ul { margin: 4px 0 0; padding-left: 20px; }
+
+/*
+ * The host's status banner (Campaign 1 §1e). The host bootstrap prepends it to
+ * #mlview-root, before the App has stamped `.mlv-root` and its theme, so every
+ * token carries a VS Code fallback.
+ */
+#mlview-authored-error {
+  white-space: pre-wrap;
+  margin: 0;
+  padding: 6px 12px;
+  flex: none;
+  font-family: var(--mlv-font, var(--vscode-font-family, system-ui, sans-serif));
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--mlv-text, var(--vscode-foreground, inherit));
+  background: var(--mlv-surface-2, var(--vscode-editorWidget-background, transparent));
+  border-bottom: 1px solid var(--mlv-sev-medium, var(--vscode-editorWarning-foreground, currentColor));
+}
 
 /* Rule configuration and static-analyzer answers have no meaning for authored findings. */
 .mlv-root--workflow .mlv-rail__groupby,

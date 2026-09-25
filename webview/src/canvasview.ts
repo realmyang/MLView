@@ -182,6 +182,7 @@ export class CanvasView {
         if (!this.emphasis.hoverNodeId) this.tooltip.hide();
         this.flow.stop();
       },
+      hide: () => this.tooltip.hide(),
       // VIEW-04: opening the bundle is not an intent, it is the hover itself.
       changed: () => this.syncBundles(),
       openDelayMs: HOVER_OPEN_MS,
