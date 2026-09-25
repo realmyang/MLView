@@ -1,0 +1,95 @@
+{
+  "id": "fingerprint-002-binary-pdf-inspected",
+  "findings": [
+    "CONTRACT-6"
+  ],
+  "description": "An inspected-only binary file (NUL and 0xFF bytes) is fingerprinted from its raw bytes.",
+  "files": {
+    "train.py": {
+      "text": "def train():\n"
+    },
+    "paper.pdf": {
+      "base64": "JVBERi0xLjQKAP/+IGJpbmFyeQolJUVPRgo="
+    }
+  },
+  "artifact": "workflow.mlview.json",
+  "document": {
+    "workflowVersion": "1.0",
+    "title": "Training",
+    "producer": {
+      "kind": "host-llm",
+      "host": "codex"
+    },
+    "revision": {
+      "id": "r1"
+    },
+    "request": {
+      "question": "Explain training",
+      "scope": "train.py"
+    },
+    "phases": [
+      {
+        "id": "p",
+        "label": "Train"
+      }
+    ],
+    "nodes": [
+      {
+        "id": "n",
+        "label": "Train",
+        "phase": "p",
+        "basis": "observed",
+        "evidence": [
+          "ev"
+        ]
+      }
+    ],
+    "edges": [],
+    "findings": [],
+    "evidence": [
+      {
+        "id": "ev",
+        "file": "train.py",
+        "line": 1,
+        "endLine": 1,
+        "quote": "def train():"
+      }
+    ],
+    "coverage": {
+      "status": "scoped",
+      "summary": "Inspected entrypoint",
+      "inspectedFiles": [
+        "train.py",
+        "paper.pdf"
+      ],
+      "limitations": []
+    }
+  },
+  "expect": {
+    "schema": "valid",
+    "helper": {
+      "ok": true,
+      "codes": [],
+      "warnings": [],
+      "fingerprints": {
+        "train.py": {
+          "$sha256": {
+            "text": "def train():\n"
+          }
+        },
+        "paper.pdf": {
+          "$sha256": {
+            "base64": "JVBERi0xLjQKAP/+IGJpbmFyeQolJUVPRgo="
+          }
+        }
+      },
+      "stale": []
+    },
+    "extension": {
+      "ok": true,
+      "stale": [],
+      "issuePaths": []
+    }
+  },
+  "divergence": null
+}

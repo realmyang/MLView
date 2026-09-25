@@ -1,0 +1,95 @@
+{
+  "id": "fingerprint-001-latin1-inspected",
+  "findings": [
+    "CONTRACT-6"
+  ],
+  "description": "An inspected-only Latin-1 file is fingerprinted from its raw bytes without decoding.",
+  "files": {
+    "train.py": {
+      "text": "def train():\n"
+    },
+    "latin1.cfg": {
+      "base64": "bmFtZSA9IGNhZukK"
+    }
+  },
+  "artifact": "workflow.mlview.json",
+  "document": {
+    "workflowVersion": "1.0",
+    "title": "Training",
+    "producer": {
+      "kind": "host-llm",
+      "host": "codex"
+    },
+    "revision": {
+      "id": "r1"
+    },
+    "request": {
+      "question": "Explain training",
+      "scope": "train.py"
+    },
+    "phases": [
+      {
+        "id": "p",
+        "label": "Train"
+      }
+    ],
+    "nodes": [
+      {
+        "id": "n",
+        "label": "Train",
+        "phase": "p",
+        "basis": "observed",
+        "evidence": [
+          "ev"
+        ]
+      }
+    ],
+    "edges": [],
+    "findings": [],
+    "evidence": [
+      {
+        "id": "ev",
+        "file": "train.py",
+        "line": 1,
+        "endLine": 1,
+        "quote": "def train():"
+      }
+    ],
+    "coverage": {
+      "status": "scoped",
+      "summary": "Inspected entrypoint",
+      "inspectedFiles": [
+        "train.py",
+        "latin1.cfg"
+      ],
+      "limitations": []
+    }
+  },
+  "expect": {
+    "schema": "valid",
+    "helper": {
+      "ok": true,
+      "codes": [],
+      "warnings": [],
+      "fingerprints": {
+        "train.py": {
+          "$sha256": {
+            "text": "def train():\n"
+          }
+        },
+        "latin1.cfg": {
+          "$sha256": {
+            "base64": "bmFtZSA9IGNhZukK"
+          }
+        }
+      },
+      "stale": []
+    },
+    "extension": {
+      "ok": true,
+      "stale": [],
+      "issuePaths": []
+    }
+  },
+  "divergence": null
+}

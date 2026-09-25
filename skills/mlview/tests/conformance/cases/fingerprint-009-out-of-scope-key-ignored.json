@@ -1,0 +1,105 @@
+{
+  "id": "fingerprint-009-out-of-scope-key-ignored",
+  "findings": [
+    "SKILL-3",
+    "CONTRACT-9"
+  ],
+  "description": "A verification key for a file that is neither cited nor inspected (a narrowed refinement) is ignored even though that file changed.",
+  "files": {
+    "train.py": {
+      "text": "def train():\n"
+    },
+    "notes/old.yaml": {
+      "text": "lr: 0.1\n"
+    }
+  },
+  "artifact": "workflow.mlview.json",
+  "document": {
+    "workflowVersion": "1.0",
+    "title": "Training",
+    "producer": {
+      "kind": "host-llm",
+      "host": "codex"
+    },
+    "revision": {
+      "id": "r1"
+    },
+    "request": {
+      "question": "Explain training",
+      "scope": "train.py"
+    },
+    "phases": [
+      {
+        "id": "p",
+        "label": "Train"
+      }
+    ],
+    "nodes": [
+      {
+        "id": "n",
+        "label": "Train",
+        "phase": "p",
+        "basis": "observed",
+        "evidence": [
+          "ev"
+        ]
+      }
+    ],
+    "edges": [],
+    "findings": [],
+    "evidence": [
+      {
+        "id": "ev",
+        "file": "train.py",
+        "line": 1,
+        "endLine": 1,
+        "quote": "def train():"
+      }
+    ],
+    "coverage": {
+      "status": "scoped",
+      "summary": "Inspected entrypoint",
+      "inspectedFiles": [
+        "train.py"
+      ],
+      "limitations": []
+    },
+    "verification": {
+      "files": {
+        "train.py": {
+          "$sha256": {
+            "text": "def train():\n"
+          }
+        },
+        "notes/old.yaml": {
+          "$sha256": {
+            "text": "lr: 0.01\n"
+          }
+        }
+      },
+      "publishedAt": "2026-09-25T00:00:00Z"
+    }
+  },
+  "expect": {
+    "schema": "valid",
+    "helper": {
+      "ok": true,
+      "codes": [],
+      "warnings": [],
+      "fingerprints": {
+        "train.py": {
+          "$sha256": {
+            "text": "def train():\n"
+          }
+        }
+      },
+      "stale": []
+    },
+    "extension": {
+      "ok": true,
+      "stale": [],
+      "issuePaths": []
+    }
+  },
+  "divergence": null
+}

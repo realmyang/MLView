@@ -1,0 +1,95 @@
+{
+  "id": "fingerprint-003-oversize-inspected",
+  "findings": [
+    "CONTRACT-6"
+  ],
+  "description": "An inspected-only file over 8 MiB is listed without a fingerprint (warning not_fingerprinted).",
+  "files": {
+    "train.py": {
+      "text": "def train():\n"
+    },
+    "big.bin": {
+      "generate": {
+        "bytes": 8388609,
+        "fill": "a"
+      }
+    }
+  },
+  "artifact": "workflow.mlview.json",
+  "document": {
+    "workflowVersion": "1.0",
+    "title": "Training",
+    "producer": {
+      "kind": "host-llm",
+      "host": "codex"
+    },
+    "revision": {
+      "id": "r1"
+    },
+    "request": {
+      "question": "Explain training",
+      "scope": "train.py"
+    },
+    "phases": [
+      {
+        "id": "p",
+        "label": "Train"
+      }
+    ],
+    "nodes": [
+      {
+        "id": "n",
+        "label": "Train",
+        "phase": "p",
+        "basis": "observed",
+        "evidence": [
+          "ev"
+        ]
+      }
+    ],
+    "edges": [],
+    "findings": [],
+    "evidence": [
+      {
+        "id": "ev",
+        "file": "train.py",
+        "line": 1,
+        "endLine": 1,
+        "quote": "def train():"
+      }
+    ],
+    "coverage": {
+      "status": "scoped",
+      "summary": "Inspected entrypoint",
+      "inspectedFiles": [
+        "train.py",
+        "big.bin"
+      ],
+      "limitations": []
+    }
+  },
+  "expect": {
+    "schema": "valid",
+    "helper": {
+      "ok": true,
+      "codes": [],
+      "warnings": [
+        "not_fingerprinted"
+      ],
+      "fingerprints": {
+        "train.py": {
+          "$sha256": {
+            "text": "def train():\n"
+          }
+        }
+      },
+      "stale": []
+    },
+    "extension": {
+      "ok": true,
+      "stale": [],
+      "issuePaths": []
+    }
+  },
+  "divergence": null
+}

@@ -1,0 +1,94 @@
+{
+  "id": "evidence-001-bom-line1-quote-both-forms",
+  "findings": [
+    "SKILL-9"
+  ],
+  "description": "A UTF-8 BOM is not part of line 1: a line-1 quote may omit or include it; the fingerprint covers the raw bytes including the BOM.",
+  "files": {
+    "bom.py": {
+      "base64": "77u/aW1wb3J0IHRvcmNoCg=="
+    }
+  },
+  "artifact": "workflow.mlview.json",
+  "document": {
+    "workflowVersion": "1.0",
+    "title": "Training",
+    "producer": {
+      "kind": "host-llm",
+      "host": "codex"
+    },
+    "revision": {
+      "id": "r1"
+    },
+    "request": {
+      "question": "Explain training",
+      "scope": "bom.py"
+    },
+    "phases": [
+      {
+        "id": "p",
+        "label": "Train"
+      }
+    ],
+    "nodes": [
+      {
+        "id": "n",
+        "label": "Train",
+        "phase": "p",
+        "basis": "observed",
+        "evidence": [
+          "ev",
+          "ev-bom"
+        ]
+      }
+    ],
+    "edges": [],
+    "findings": [],
+    "evidence": [
+      {
+        "id": "ev",
+        "file": "bom.py",
+        "line": 1,
+        "endLine": 1,
+        "quote": "import torch"
+      },
+      {
+        "id": "ev-bom",
+        "file": "bom.py",
+        "line": 1,
+        "endLine": 1,
+        "quote": "\ufeffimport torch"
+      }
+    ],
+    "coverage": {
+      "status": "scoped",
+      "summary": "Inspected entrypoint",
+      "inspectedFiles": [
+        "bom.py"
+      ],
+      "limitations": []
+    }
+  },
+  "expect": {
+    "schema": "valid",
+    "helper": {
+      "ok": true,
+      "codes": [],
+      "warnings": [],
+      "fingerprints": {
+        "bom.py": {
+          "$sha256": {
+            "base64": "77u/aW1wb3J0IHRvcmNoCg=="
+          }
+        }
+      },
+      "stale": []
+    },
+    "extension": {
+      "ok": true,
+      "stale": [],
+      "issuePaths": []
+    }
+  },
+  "divergence": null
+}
