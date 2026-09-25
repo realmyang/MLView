@@ -273,10 +273,28 @@ def added_patterns(task_id: str, role: str = "primary") -> dict[str, str]:
 # Templates (only pending values and empty names are ever written)
 
 
+def proposal_lines(task_id: str, ledger: dict) -> dict[tuple[str, str | None], list[str]]:
+    """The tool-written ``>`` lines that show each candidate section's proposal, keyed by (kind, ID).
+    The template writes them; check compares them with the ledger, which is what the freeze reads."""
+    scenario = ledger["scenario"]
+    found: dict[tuple[str, str | None], list[str]] = {("Scenario", None): [
+        f"> Proposed: {one_line(scenario['description'])}",
+        f"> Entrypoints: {'; '.join(scenario['entrypoints'])}",
+        f"> Arguments: {'; '.join(scenario['arguments']) or 'none'}"]}
+    for fact in ledger["facts"]:
+        found[("Fact", fact["id"])] = [f"> Claim: {one_line(fact['claim'])}",
+                                       f"> Basis: {fact['basis']}. Essential: {_yes_no(fact['essential'])}. "
+                                       f"Anchors: {'; '.join(_locator(anchor) for anchor in fact['anchors'])}"]
+    for ident, text in zip(unknown_ids(task_id, ledger), ledger["unknowns"]):
+        found[("Unknown", ident)] = [f"> {one_line(text)}"]
+    for ident, text in zip(nondefect_ids(task_id, ledger), ledger["nonDefects"]):
+        found[("Non-defect", ident)] = [f"> {one_line(text)}"]
+    return found
+
+
 def task_template(world: World, task_id: str, *, second: bool = False) -> str:
     ledger, raw = world.ledger(task_id)
     short = added_prefix(task_id, "second" if second else "primary")
-    scenario = ledger["scenario"]
     change = ('> To change a proposed Basis, Essential flag or Anchors, add that line and a "Reason:". '
               "Anchors: replaces the proposed list; repeat each proposed anchor you keep.")
     if second:
@@ -295,22 +313,17 @@ def task_template(world: World, task_id: str, *, second: bool = False) -> str:
                  '> Fact and Non-defect: Decision: accept | qualify | reject. Unknown: the same, plus "Runs must state: yes | no" unless rejected.',
                  '> qualify = accept with your wording: add "Wording:" and "Reason:". reject: add "Reason:".',
                  change]
+    proposals = proposal_lines(task_id, ledger)
     lines += ["", f"Candidate: {task_id}.json {er.sha256_bytes(raw)}", "Reviewer:", "Date:", "Transcribed by:", "",
-              "## Scenario",
-              f"> Proposed: {one_line(scenario['description'])}",
-              f"> Entrypoints: {'; '.join(scenario['entrypoints'])}",
-              f"> Arguments: {'; '.join(scenario['arguments']) or 'none'}",
+              "## Scenario", *proposals[("Scenario", None)],
               "> accept, or replace and also write Description, Entrypoints, Arguments and Reason",
               "Decision: pending", ""]
     for fact in ledger["facts"]:
-        lines += [f"## Fact {fact['id']}", f"> Claim: {one_line(fact['claim'])}",
-                  f"> Basis: {fact['basis']}. Essential: {_yes_no(fact['essential'])}. "
-                  f"Anchors: {'; '.join(_locator(anchor) for anchor in fact['anchors'])}",
-                  "Decision: pending", ""]
-    for ident, text in zip(unknown_ids(task_id, ledger), ledger["unknowns"]):
-        lines += [f"## Unknown {ident}", f"> {one_line(text)}", "Decision: pending", "Runs must state:", ""]
-    for ident, text in zip(nondefect_ids(task_id, ledger), ledger["nonDefects"]):
-        lines += [f"## Non-defect {ident}", f"> {one_line(text)}", "Decision: pending", ""]
+        lines += [f"## Fact {fact['id']}", *proposals[("Fact", fact["id"])], "Decision: pending", ""]
+    for ident in unknown_ids(task_id, ledger):
+        lines += [f"## Unknown {ident}", *proposals[("Unknown", ident)], "Decision: pending", "Runs must state:", ""]
+    for ident in nondefect_ids(task_id, ledger):
+        lines += [f"## Non-defect {ident}", *proposals[("Non-defect", ident)], "Decision: pending", ""]
     lines += [f'> Omitted fact: add "## Added fact {short}-h01" with Wording, Basis, Essential, Anchors and Reason.',
               f'> Omitted unknown: add "## Added unknown {short}-hu01" with Wording, Runs must state and Reason.',
               f'> Real defect: add "## Defect {short}-d01" with Wording, Severity, Anchors, Counter-evidence and Reason.',
@@ -648,13 +661,15 @@ class RefCheck:
 
 class _RefChecker:
     def __init__(self, world: World, record: er.Record, report: Report, result: RefCheck, task: dict,
-                 second: RefCheck | None) -> None:
+                 second: RefCheck | None, raw: bytes | None = None) -> None:
         self.world, self.record, self.report, self.result, self.task = world, record, report, result, task
+        self.raw = raw
         self.second = second
         self.task_id: str = task["id"]
         self.primary = result.role == "primary"
         self.high_defects: list[tuple[int, str, str]] = []  # (line, label, id) of the primary's high-severity defects
         self.adopted: dict[str, str] = {}  # primary ID -> the second reviewer's addition it adopted
+        self.resolved: set[str] = set()  # casefolded second-review additions with a resolution
         self.short = added_prefix(self.task_id, "primary" if self.primary else "second")
         self.ledger, self.ledger_raw = world.ledger(self.task_id)
         self.facts = {fact["id"]: fact for fact in self.ledger["facts"]}
@@ -844,12 +859,38 @@ class _RefChecker:
             handler = handlers.get(section.kind)
             if handler is not None:
                 handler(section)
+        self.shown_proposals()
         if self.primary:
             self.disagreements()
             self.high_severity_notes()
         result.review = _task_section(report, record,
                                       closing="your decisions above are final" if not self.primary
                                       else "every decision above is final")
+
+    def shown_proposals(self) -> None:
+        """A NOTE for each candidate section whose tool-written proposal lines (the ">" lines the
+        template wrote) are missing or edited: the freeze takes the proposal from the candidate
+        ledger, never from the file, so the owner must see what "accept" takes."""
+        if self.raw is None:
+            return
+        text = self.raw.decode("utf-8", "replace")
+        lines = [" ".join(line.split()) for line in er._LINE_BREAK.split(text[1:] if text.startswith("\ufeff") else text)]
+        proposals = proposal_lines(self.task_id, self.ledger)
+        starts = sorted(section.line for section in self.record.sections)
+        for section in self.record.sections:
+            expected = proposals.get((section.kind, section.ident))
+            if not expected:
+                continue
+            end = next((start for start in starts if start > section.line), len(lines) + 1)
+            shown = {line for line in lines[section.line:end - 1] if line.startswith(">")}
+            missing = [line for line in expected if " ".join(line.split()) not in shown]
+            if missing:
+                quoted = "; ".join(f'"{line[2:]}"' for line in missing)
+                self.report.note(section.line, self.label(section),
+                                 f'the ">" proposal lines under this heading are missing or differ from the candidate '
+                                 f"ledger {self.task_id}.json, and accept takes the ledger's proposal: {quoted}. If "
+                                 f"someone edited them, restore the lines the tool wrote ({TEMPLATE_COMMAND} --show "
+                                 f"{self.task_id}{'' if self.primary else ' --second'}).")
 
     def position(self, ident: str, value: dict) -> None:
         self.result.positions[ident] = value
@@ -1207,17 +1248,24 @@ class _RefChecker:
             entry: dict = {"item": ident, "primary": None, "second": theirs, "resolution": text}
             first_word = text.split()[0].casefold().strip(".,;:!-—") if text.split() else ""
             if not text.casefold().startswith("adopted"):
-                named = next((own[token.casefold()]["id"] for token in _ITEM_ID_RE.findall(text)
-                              if token.casefold() in own), None)
-                if named is not None or first_word.startswith("adopt") or \
-                        (len(first_word) >= 5 and _edit_distance(first_word, "adopted") <= 2):
-                    what = (f"names your added item {named}" if named is not None
-                            else f'starts with "{text.split()[0]}", which is not "adopted"')
+                # Only an added item of the same kind can be the adoption target; a sentence-final
+                # "." (or "_", "-") is not part of the ID.
+                named = next((own[token.rstrip("._-").casefold()]["id"] for token in _ITEM_ID_RE.findall(text)
+                              if own.get(token.rstrip("._-").casefold(), {}).get("kind") == item.get("kind")), None)
+                if named is not None:
                     self.report.error(resolution.line, "Disagreements",
-                                      f'{ident}: the resolution {what}, so it is read as not adopted. Write "{ident}: '
-                                      f'adopted as <your ID> -- <why>" to adopt it' + (
-                                          f", or remove {named} from this line if it is not adopted." if named
-                                          else f', or "{ident}: <why it is not adopted>" otherwise.'))
+                                      f'{ident}: the resolution names your added item {named}, so it is read as not '
+                                      f'adopted. Write "{ident}: adopted as {named} -- <why>" to adopt it, or remove '
+                                      f"{named} from this line if it is not adopted.")
+                    continue
+                if first_word.startswith("adopt") or \
+                        (len(first_word) >= 5 and _edit_distance(first_word, "adopted") <= 2):
+                    word = text.split()[0]
+                    self.report.error(resolution.line, "Disagreements",
+                                      f'{ident}: the resolution starts with "{word}", which reads like "adopted" but is '
+                                      f'not the adoption form. To adopt it, write "{ident}: adopted as <your ID> -- '
+                                      f'<why>"; otherwise start the resolution with a word other than "{word}", for '
+                                      f'example "{ident}: not adopted -- <why>".')
                     continue
             if text.casefold().startswith("adopted"):
                 found = _ADOPTED_RE.match(text)
@@ -1242,6 +1290,7 @@ class _RefChecker:
                 entry["primary"] = self.result.positions.get(target["id"])
                 entry["adoptedAs"] = target["id"]
                 self.adopted[target["id"]] = ident
+            self.resolved.add(ident.casefold())
             self.result.disputes.append(entry)
 
     def high_severity_notes(self) -> None:
@@ -1251,24 +1300,25 @@ class _RefChecker:
         found = [(int(match.group(1)), str(item["id"])) for item in (self.second.added_items if self.second else [])
                  for match in [re.fullmatch(re.escape(second_prefix) + r"-d(\d+)", str(item.get("id") or ""),
                                             re.IGNORECASE)] if match]
-        adopted = {ident.casefold() for ident in self.adopted.values()}
-        # A second-review defect not yet adopted is suggested first; then the next unused number.
-        unadopted = [ident for _number, ident in sorted(found) if ident.casefold() not in adopted]
+        # The note always names an unused ID (the next number after every existing one). A second-review
+        # defect that has no resolution yet is mentioned as a possible match; one already resolved,
+        # adopted or not, never is.
+        open_defects = [ident for _number, ident in sorted(found) if ident.casefold() not in self.resolved]
         number = max((n for n, _ident in found), default=0)
         for line, label, ident in self.high_defects:
             if self.second is None:
                 self.report.note(line, label, "a second reviewer is recommended for high-severity defects (REVIEW_GUIDE).")
             elif ident not in self.adopted:
-                if unadopted:
-                    suggested = unadopted.pop(0)
-                else:
-                    number += 1
-                    suggested = f"{second_prefix}-d{number:02d}"
+                number += 1
+                suggested = f"{second_prefix}-d{number:02d}"
+                which = open_defects[0] if len(open_defects) == 1 else f"one of {', '.join(open_defects)}"
+                match = (f' If {which} is the same defect, resolve it as "<ID>: adopted as {ident} -- <why>" '
+                         "instead.") if open_defects else ""
                 self.report.note(line, label, "the second review does not cover your own additions. For a second "
                                               f"opinion on this high-severity defect, the second reviewer adds it as "
                                               f'"## Defect {suggested}" and you resolve it as '
                                               f'"{suggested}: adopted as {ident} -- <why>"; otherwise it is '
-                                              "not second-reviewed (REVIEW_GUIDE).")
+                                              f"not second-reviewed (REVIEW_GUIDE).{match}")
 
 
 def _edit_distance(left: str, right: str) -> int:
@@ -1366,7 +1416,7 @@ def check_reference(world: World, raw: bytes, display: str, *, second: RefCheck 
         report.error(record.header.line, "header", f"the title names {record.ident} but the file is for "
                                                    f"{expected_name}; restore the title the tool wrote.")
     result.second = second
-    _RefChecker(world, record, report, result, task, second).run()
+    _RefChecker(world, record, report, result, task, second, raw).run()
     return result
 
 
@@ -1911,6 +1961,41 @@ def _added_after_freeze(world: World, path: Path, report: Report) -> str | None:
     return frozen[0]
 
 
+def restore_advice(world: World, rel: str, digest: str, campaign: str, history: "History | None" = None) -> str:
+    """How to bring back the bytes ``rel`` was frozen with (sha256 ``digest``), taken from where Git
+    holds exactly those bytes: the index (``git checkout -- <rel>``) or a commit (``git checkout
+    <commit> -- <rel>``). When Git holds them nowhere (the freeze is not committed yet, or the file
+    was committed apart from it), no git command is offered, so following the advice never replaces
+    the file with other bytes such as the pending template committed before the freeze."""
+    history = history if history is not None else History(world)
+    if history.root is not None or history.incomplete:
+        try:
+            staged = er._git(world.root, "cat-file", "blob", f":{rel}")
+        except ValueError:
+            staged = None
+        if staged is not None and er.sha256_bytes(staged) == digest:
+            return f"git checkout -- {rel}"
+    if history.full:
+        versions = history.versions(rel)
+        for oid, commit in (versions.versions.items() if versions is not None else ()):
+            data = history.blob(oid)
+            if data is not None and er.sha256_bytes(data) == digest:
+                return f"git checkout {commit[:12]} -- {rel}"
+        freeze = history.versions(f"{PILOT_REL}/{campaign}/freeze.json")
+        if versions is not None and freeze is not None:
+            if not freeze.committed:
+                return (f"no git command: Git does not hold these bytes because the freeze of {campaign} is not committed "
+                        f"yet. Undo the edit in your editor; if you cannot, delete {PILOT_REL}/{campaign}/, restore the "
+                        f"pre-freeze {TASKS_REL} (git checkout HEAD -- {TASKS_REL}) and freeze again")
+            return (f"no git command: Git does not hold these bytes ({rel} was not committed with the freeze of "
+                    f"{campaign}). Undo the edit in your editor")
+    if history.incomplete:
+        return (f"no git command here: the index does not hold these bytes and this clone lacks the full history "
+                f"({history.reason}). Fetch it so check-frozen can name the commit that holds them, or undo the edit in "
+                "your editor")
+    return f"no git command: {history.reason or 'Git cannot read the history of ' + rel}. Undo the edit in your editor"
+
+
 def _frozen_state(world: World, path: Path, digest: str, report: Report) -> str | None:
     """The campaign that froze ``path`` with exactly these bytes; a NOTE when it froze other bytes."""
     frozen = current_freeze(world)
@@ -1922,10 +2007,11 @@ def _frozen_state(world: World, path: Path, digest: str, report: Report) -> str 
         return None
     if recorded == digest:
         return frozen[0]
+    advice = restore_advice(world, world.display(path), recorded, frozen[0])
     report.note(1, "header", f"this file was frozen in {frozen[0]} (sha256 {recorded[:12]}...) and has changed since. "
-                             f"If you did not mean to change a decision, restore the committed file (git checkout -- "
-                             f"{world.display(path)}): frozen decision files are compared byte for byte, including "
-                             f'">" lines and line endings. A changed decision needs a new campaign ({FREEZE_README}).')
+                             f"If you did not mean to change a decision, restore the frozen bytes ({advice}): frozen "
+                             'decision files are compared byte for byte, including ">" lines and line endings. A '
+                             f"changed decision needs a new campaign ({FREEZE_README}).")
     return None
 
 
@@ -1953,26 +2039,45 @@ class FileCheck:
 
 
 def _late_review_notes(world: World, checks: list[FileCheck]) -> list[FileCheck]:
-    """For the check command only: a primary file frozen with unchanged bytes whose second review was
-    added after the freeze is still the frozen version. The to-dos and the "Review is complete" error
-    that the late review causes become NOTEs for a new campaign, so the owner is never told to edit a
-    frozen file (freeze and check-frozen keep the strict result)."""
+    """For the check command only: a primary file frozen with unchanged bytes is still the frozen
+    version when its second review was added after the freeze, changed after it, or removed. The
+    to-dos and errors that this causes in the primary (its Disagreements lines and the "Review is
+    complete" error) become NOTEs for a new campaign, and a header NOTE names the second-review file
+    to remove or restore, so the owner is never told to edit a frozen file (freeze and check-frozen
+    keep the strict result)."""
     primary = checks[0].result if checks else None
     second = checks[1].result if len(checks) > 1 else None
-    if not isinstance(primary, RefCheck) or not isinstance(second, RefCheck) or not primary.frozen_in \
-            or second.added_after != primary.frozen_in:
+    if not isinstance(primary, RefCheck) or not primary.frozen_in or primary.task_id is None:
         return checks
     campaign = primary.frozen_in
-    late = world.display(world.decisions_dir / f"{primary.task_id}.second.md")
-    prefix = f"for a new campaign ({late} was added after the freeze of {campaign}): "
+    rel = world.display(world.decisions_dir / f"{primary.task_id}.second.md")
+    frozen = current_freeze(world)
+    files = frozen[1].get("decisionFiles") if frozen is not None and frozen[0] == campaign else None
+    recorded = files.get(rel) if isinstance(files, dict) else None
+    if isinstance(second, RefCheck) and second.added_after == campaign:
+        prefix = f"for a new campaign ({rel} was added after the freeze of {campaign}): "
+        keep = f"remove {rel} (or keep it out of the repository)"
+        strict = False  # the primary had no second review, so none of its Disagreements lines are affected
+    elif isinstance(second, RefCheck) and second.changed_after == campaign and isinstance(recorded, str):
+        prefix = f"for a new campaign ({rel} changed after the freeze of {campaign}): "
+        keep = f"restore the frozen {rel} ({restore_advice(world, rel, recorded, campaign)})"
+        strict = True
+    elif second is None and isinstance(recorded, str) and not (world.root / rel).is_file():
+        prefix = f"for a new campaign ({rel}, frozen in {campaign}, is missing): "
+        keep = f"restore {rel} ({restore_advice(world, rel, recorded, campaign)})"
+        strict = True
+    else:
+        return checks
     problems = []
     for problem in checks[0].problems:
-        caused = (problem.level == er.TODO and problem.section == "Disagreements") or (
-            problem.level == er.ERROR and problem.section == "Task" and "item(s) above are still to do" in problem.message)
+        disagreement = problem.section == "Disagreements" and (problem.level == er.TODO
+                                                               or (strict and problem.level == er.ERROR))
+        caused = disagreement or (problem.level == er.ERROR and problem.section == "Task"
+                                  and "item(s) above are still to do" in problem.message)
         problems.append(problem._replace(level=er.NOTE, message=prefix + problem.message) if caused else problem)
     problems.append(er.Problem(checks[0].display, 1, er.NOTE, "header",
-                               f"this file is still the version frozen in {campaign}. To keep {campaign}, remove {late} "
-                               f"(or keep it out of the repository); resolving it needs a new campaign ({FREEZE_README})."))
+                               f"this file is still the version frozen in {campaign}. To keep {campaign}, {keep}; "
+                               f"resolving the second review's changes needs a new campaign ({FREEZE_README})."))
     problems.sort(key=lambda problem: (problem.line, LEVEL_ORDER.get(problem.level, 9)))
     errors = sum(problem.level == er.ERROR for problem in problems)
     todos = sum(problem.level == er.TODO for problem in problems)
@@ -2696,6 +2801,16 @@ class History:
             return False
         return True
 
+    def blob_id(self, rel: str) -> str | None:
+        """The Git object ID of the working-tree bytes of ``rel`` (``git hash-object --no-filters``, in
+        the repository's own object format; nothing is written), or None."""
+        if self.root is None:
+            return None
+        try:
+            return er._git(self.root, "hash-object", "--no-filters", "--", rel).decode("ascii").strip() or None
+        except (ValueError, UnicodeError):
+            return None
+
     def blob(self, oid: str) -> bytes | None:
         if self.root is None or not er.OBJECT_RE.fullmatch(oid):
             return None
@@ -2786,6 +2901,29 @@ def _supersede_check(world: World, campaign: str, reason: str | None, result: Ca
     captured = _has_candidate(world, history, str(old))
     if _history_refusal(history, f"whether {old} was ever captured", result):
         return None
+    # A committed campaign is immutable: every campaign the history holds must still exist and be
+    # reached from the campaign superseded now, or the new freeze could never pass check-frozen.
+    committed = history.campaigns()
+    if _history_refusal(history, "whether a campaign was committed before", result):
+        return None
+    chain = _supersedes_chain(world, str(old))
+    missing = sorted(name for name in committed or {} if not (world.root / PILOT_REL / name / "freeze.json").is_file())
+    stray = sorted(name for name in committed or {} if name not in missing and name not in chain)
+    if missing or stray:
+        parts = []
+        if missing:
+            parts.append(f"{_join_names(missing)} {'was' if len(missing) == 1 else 'were'} committed and "
+                         f"{'is' if len(missing) == 1 else 'are'} missing now")
+        if stray:
+            parts.append(f"{_join_names(stray)} {'is' if len(stray) == 1 else 'are'} not reached from {old} through "
+                         "freeze.json supersedes")
+        detail = "; ".join(parts)
+        result.fail(f"the Git history holds committed campaign(s) under {PILOT_REL} that the campaign {old} named in "
+                    f"{TASKS_REL} does not account for ({detail}); a committed campaign is immutable and is never erased",
+                    f"restore {PILOT_REL}/<campaign> and the {TASKS_REL} that names the latest campaign from the Git "
+                    "history, then supersede that one with --supersede-reason (after its owner-authored invalidation.md "
+                    f"if it was captured; {FREEZE_README})")
+        return None
     if captured:
         invalidation = old_dir / "invalidation.md"
         problem = _invalidation_problem(invalidation, str(old))
@@ -2794,6 +2932,21 @@ def _supersede_check(world: World, campaign: str, reason: str | None, result: Ca
                         f"invalidation.md ({problem})", f"the owner writes {world.display(invalidation)}")
             return None
     return {"campaign": old, "reason": reason}
+
+
+def _supersedes_chain(world: World, start: str) -> list[str]:
+    """``start`` and every campaign it reaches through the on-disk freeze.json ``supersedes`` pointers."""
+    chain: list[str] = []
+    name: object = start
+    while isinstance(name, str) and name not in chain:
+        chain.append(name)
+        try:
+            value = json.loads((world.root / PILOT_REL / name / "freeze.json").read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, ValueError):
+            break
+        pointer = value.get("supersedes") if isinstance(value, dict) else None
+        name = pointer.get("campaign") if isinstance(pointer, dict) else None
+    return chain
 
 
 def _invalidation_problem(path: Path, campaign: str) -> str | None:
@@ -2871,8 +3024,9 @@ def freeze(world: World, campaign: str, *, write: bool, frozen_at: str | None, s
     if not write:
         print("Re-run with --write. Frozen files are created exclusively and never overwritten.", file=out)
     else:
-        print(f"Next: commit {DECISIONS_REL}, {PILOT_REL}/{campaign} and {TASKS_REL} together. The freeze records the "
-              "reviewers' decisions; it does not add an approval.", file=out)
+        print(f"Next: commit {DECISIONS_REL}, {PILOT_REL}/{campaign} and {TASKS_REL} together, before editing any of "
+              "them again (until then Git does not hold the frozen bytes). The freeze records the reviewers' decisions; "
+              "it does not add an approval.", file=out)
     return 0
 
 
@@ -2936,17 +3090,38 @@ def _candidate_problems(label: str, directory: Path, campaign: str, freeze_raw: 
 
 
 def _rendering_check(value: dict, directory: Path, json_name: str, md_name: str, label: str, problems: list[str],
-                     notes: list[str] | None) -> None:
+                     notes: list[str] | None, history: "History | None" = None) -> None:
     """The recorded Markdown must be the one summarize renders from the recorded JSON (section 4.7).
-    Checked only when the summary names the running tools/workflow_pilot.py as its renderer, so a
-    later tool change never fails a recorded summary (section 1.10); otherwise a note says so."""
+    Checked when the summary names the running tools/workflow_pilot.py as its renderer. A summary that
+    names another one is noted, so a later tool change never fails a recorded summary (section 1.10),
+    but only when that hash is the tools/workflow_pilot.py committed with the summary: the tooling
+    field is part of the file being verified and never switches the check off on its own word."""
     import workflow_pilot  # noqa: PLC0415 - workflow_pilot imports this module lazily too
 
     tooling = value.get("tooling") if isinstance(value.get("tooling"), dict) else {}
-    if tooling.get("tools/workflow_pilot.py") != er.sha256_file(Path(workflow_pilot.__file__).resolve()):
-        if notes is not None:
+    recorded = tooling.get("tools/workflow_pilot.py")
+    if recorded != er.sha256_file(Path(workflow_pilot.__file__).resolve()):
+        versions = history.versions(f"{PILOT_REL}/{directory.name}/{json_name}") if history is not None else None
+        first = versions.first[1] if versions is not None and versions.first is not None else None
+        if first is None:
+            if notes is not None:
+                notes.append(f"check-frozen: {directory.name}: not verified: {md_name} rendered from {json_name} (it "
+                             "names another tools/workflow_pilot.py, and no commit that recorded it can be read).")
+            return
+        committed = history.show(first, "tools/workflow_pilot.py")
+        if committed is None and history.root != ROOT.resolve():
+            if notes is not None:  # a test world: the tools are not part of the repository checked here
+                notes.append(f"check-frozen: {directory.name}: not verified: {md_name} rendered from {json_name} (it "
+                             "names another tools/workflow_pilot.py, and this repository does not hold the tools).")
+            return
+        if committed is None or er.sha256_bytes(committed) != recorded:
+            problems.append(f"{label}/{json_name} names a tools/workflow_pilot.py (sha256 {str(recorded)[:12]}...) that "
+                            f"is neither the running one nor the one committed with it in {first[:12]} (a recorded "
+                            "summary is written only by summarize --record, with the committed tools)")
+        elif notes is not None:
             notes.append(f"check-frozen: {directory.name}: not verified: {md_name} rendered from {json_name} (it was "
-                         "recorded with another tools/workflow_pilot.py).")
+                         f"recorded with the tools/workflow_pilot.py committed with it in {first[:12]}, not the running "
+                         "one).")
         return
     try:
         rendered = workflow_pilot.render_markdown(value).encode("utf-8")
@@ -2959,7 +3134,7 @@ def _rendering_check(value: dict, directory: Path, json_name: str, md_name: str,
 
 def _summary_state(world: World, directory: Path, freeze_value: dict, freeze_raw: bytes,
                    problems: list[str], candidate: tuple[bytes | None, list[str]],
-                   notes: list[str] | None = None) -> bool:
+                   notes: list[str] | None = None, history: "History | None" = None) -> bool:
     """True when a genuine final summary is recorded: a Stage 1 stop or invalid, or an all-stage
     summary. Every stage summary file must be a summary the pilot recorded for this campaign's
     candidate and freeze; anything else is a problem and never switches off the re-derivation.
@@ -3026,7 +3201,7 @@ def _summary_state(world: World, directory: Path, freeze_value: dict, freeze_raw
                 wrong.append(f"{md_name} does not open with the title and decision of {json_name}")
             if not wrong:
                 verdicts[number] = verdict
-                _rendering_check(value, directory, json_name, md_name, label, problems, notes)
+                _rendering_check(value, directory, json_name, md_name, label, problems, notes, history)
         if wrong:
             problems.append(f"{label}/{json_name} is not a recorded summary of this candidate ({'; '.join(wrong)})")
     if "2" in verdicts and verdicts.get("1") != "go":
@@ -3086,6 +3261,9 @@ def _recorded_fields(world: World, history: History, campaign: str, freeze_value
     why = history.reason or "freeze.json is not committed yet"
     if versions is not None and versions.first is not None:
         blob, commit = versions.first
+        for _oid, where, mode in versions.irregular:
+            problems.append(f"{freeze_rel} was committed as a {_MODE_NAMES.get(mode, f'non-file entry (mode {mode})')} "
+                            f"in {where[:12]}, not as a file (frozen files are immutable)")
         committed = history.blob(blob)
         if committed is None:
             unverified.append(f"freeze.json against its first commit (git cannot read it from {commit[:12]})")
@@ -3150,6 +3328,7 @@ def _names_campaign(data: bytes, campaign: str) -> bool:
     return isinstance(pointer, dict) and pointer.get("campaign") == campaign
 
 
+_MODE_NAMES = {"160000": "gitlink (a submodule commit)", "120000": "symbolic link"}
 CANDIDATE_RULE = "a campaign has one candidate; it is never removed or replaced"
 SUMMARY_RULE = "a recorded summary is final"
 
@@ -3172,26 +3351,28 @@ def _final_problems(world: World, history: History, rel: str, rule: str, relaxed
             return [f"{rel} is committed, but the Git history lists no commit that recorded it ({rule})"]
         return []
     blob, first = versions.first
+    found = [f"{rel} was committed as a {_MODE_NAMES.get(mode, 'non-file entry (mode ' + mode + ')')} in "
+             f"{commit[:12]}, not as a file ({rule})" for _oid, commit, mode in versions.irregular]
     if not path.is_file():
-        return [f"{rel} was committed in {first[:12]} and is missing now ({rule})"]
-    current = path.read_bytes()
-    contents = {oid: history.blob(oid) for oid in versions.versions}
-    if any(data is None for data in contents.values()):
+        return found + [f"{rel} was committed in {first[:12]} and is missing now ({rule})"]
+    # Decided from object IDs alone, so an entry whose contents Git cannot read (a gitlink names a
+    # commit) never turns the rule into a note: the working-tree bytes are hashed, not compared.
+    current = history.blob_id(rel)
+    if current is None:
         history.unreadable.append(rel)
-        return []
-    found = []
-    if len(contents) > 1:
-        message = (f"{rel} was committed with {len(contents)} different contents "
+        return found
+    if len(versions.versions) > 1:
+        message = (f"{rel} was committed with {len(versions.versions)} different contents "
                    f"({', '.join(commit[:12] for commit in versions.versions.values())}), for example through a merge "
                    f"of two branches that both recorded it ({rule}; if two recordings were merged, the owner records "
                    f"invalidation.md and a new campaign supersedes this one, {FREEZE_README})")
-        if relaxed is not None and current in contents.values():
+        if relaxed is not None and not found and current in versions.versions:
             relaxed.append(f"check-frozen: {campaign} (invalidated): {message}.")
         else:
             found.append(message)
-            if current != contents[blob]:
+            if current != blob:
                 found.append(f"{rel} differs from the version first committed in {first[:12]} ({rule})")
-    elif current != contents[blob]:
+    elif current != blob:
         found.append(f"{rel} differs from the version first committed in {first[:12]} ({rule})")
     return found
 
@@ -3345,7 +3526,7 @@ def check_frozen(world: World, out) -> int:
             _recorded_fields(world, history, directory.name, freeze_value, raw, names, problems, notes)
             candidate = _candidate_problems(world.display(directory), directory, directory.name, raw)
             problems.extend(candidate[1])  # with or without a summary, freeze.json is the one the candidate names
-            _summary_state(world, directory, freeze_value, raw, problems, candidate, notes)
+            _summary_state(world, directory, freeze_value, raw, problems, candidate, notes, history)
             _ledger_problems(world, directory.name, freeze_value, problems)
             _capture_problems(world, history, directory.name, True, problems, notes)
             _summary_history(world, history, directory.name, problems, notes, superseded=True)
@@ -3374,7 +3555,7 @@ def check_frozen(world: World, out) -> int:
             _summary_history(world, history, current, problems)
             candidate = _candidate_problems(world.display(directory), directory, current, raw)
             problems.extend(candidate[1])
-            final = _summary_state(world, directory, existing, raw, problems, candidate, notes)
+            final = _summary_state(world, directory, existing, raw, problems, candidate, notes, history)
             if final:
                 _ledger_problems(world, current, existing, problems)
                 if len(problems) == before:
@@ -3411,26 +3592,52 @@ def _changed_inputs(world: World, existing: dict) -> list[tuple[str, str]]:
     return changed
 
 
+def _recorded_digests(existing: dict) -> dict[str, str]:
+    """``{path: sha256}`` of every input the freeze recorded (decision files, ledgers, repositories.json)."""
+    found: dict[str, str] = {}
+    for key in ("decisionFiles", "candidateLedgers"):
+        recorded = existing.get(key) if isinstance(existing.get(key), dict) else {}
+        found.update({rel: digest for rel, digest in recorded.items() if isinstance(digest, str)})
+    repositories = existing.get("repositories") if isinstance(existing.get("repositories"), dict) else {}
+    if isinstance(repositories.get("sha256"), str):
+        found[REPOSITORIES_REL] = repositories["sha256"]
+    return found
+
+
 def _rederive(world: World, directory: Path, current: str, existing: dict, problems: list[str], notes: list[str],
               before: int) -> None:
-    for rel, how in _changed_inputs(world, existing):
+    changed = _changed_inputs(world, existing)
+    digests = _recorded_digests(existing)
+    history = History(world)
+    actions: dict[str, str] = {}  # the next step for a derivation problem that a changed input causes
+    for rel, how in changed:
         what = {"missing": f"{rel} (missing) changed", "added": f"{rel} was added"}.get(how, f"{rel} changed")
-        restore = {"changed": f"; if no decision changed, restore the committed file (git checkout -- {rel}): frozen "
-                              "files are compared byte for byte, including \">\" lines and line endings",
-                   "missing": f"; restore it (git checkout -- {rel})",
-                   "added": f"; to keep {current}, remove it"}.get(how, "")
+        advice = restore_advice(world, rel, digests[rel], current, history) if rel in digests else None
+        restore = {"changed": f"; if no decision changed, restore the frozen bytes ({advice}): frozen files are "
+                              "compared byte for byte, including \">\" lines and line endings",
+                   "missing": f"; restore the frozen bytes ({advice})",
+                   "added": f"; to keep {current}, remove it"}.get(how, "") if how == "added" or advice else ""
         problems.append(f"{what} after the freeze of {current}; a changed decision needs a new campaign "
                         f"({FREEZE_README}){restore}")
+        primary = rel[:-len(".second.md")] + ".md" if rel.endswith(".second.md") else None
+        if how == "added":
+            action = f"remove {rel} to keep {current}, or freeze a new campaign ({FREEZE_README})"
+        elif advice is not None:
+            action = f"restore the frozen {rel} ({advice}) to keep {current}, or freeze a new campaign ({FREEZE_README})"
+        else:
+            continue
+        actions[rel] = action
+        if primary is not None:  # a second review added, changed or removed after the freeze
+            actions.setdefault(primary, action)
     derived = derive_campaign(world, current, frozen_at=existing.get("frozenAt"),
                               tooling=existing.get("tooling"), supersedes=existing.get("supersedes"),
                               existing=existing, verify_corpus=False)
     if derived.problems:
-        late = [rel for rel, how in _changed_inputs(world, existing) if how == "added"]
         for what, action in derived.problems:
-            for rel in late:  # a decision file added after the freeze (a late second review)
-                primary = rel[:-len(".second.md")] + ".md" if rel.endswith(".second.md") else rel
-                if what.startswith((rel, primary)):
-                    action = f"remove {rel} to keep {current}, or freeze a new campaign ({FREEZE_README})"
+            for rel, instead in actions.items():
+                if what.startswith((f"{rel}:", f"{rel} ")):
+                    action = instead
+                    break
             problems.append(f"{current} cannot be re-derived: {what}. Next: {action}")
         return
     on_disk = {path.relative_to(directory).as_posix() for path in directory.rglob("*") if path.is_file()}

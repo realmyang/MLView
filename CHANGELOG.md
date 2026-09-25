@@ -243,6 +243,43 @@ Round 3 review fixes (finding IDs refer to the Campaign 2 round 3 review):
   a squash or rebase merge (DISTCI3-1); the root README no longer calls main
   unmerged (SPECDOCS3-4); the CI history wording is exact (SPECDOCS3-5).
 
+Round 4 review fixes (finding IDs refer to the Campaign 2 round 4 review):
+- A final file (`candidate.json`, a stage summary) is judged from Git object
+  IDs: a version whose contents Git cannot read, such as a gitlink, no longer
+  turns a replaced file into a "not verified" note, and a version committed as
+  a gitlink or symbolic link is a problem (INTEGRITY4-1). The history queries
+  pin `log.follow`, `log.diffMerges` and `log.showRoot` and fail loudly on an
+  unexpected output form, so a user's Git configuration cannot hide a version
+  or fail a superseding campaign (DISTCI4-2).
+- The skill's drafts under `.mlview/` (SKILL.md's
+  `.mlview/llm/<run-id>/draft.json`) count as evidence that the prompt was
+  sent, in run-finish, `--amend`, `run-prepare --retry` and summarize
+  (INTEGRITY4-2, STATS4-1, SPECDOCS4-1).
+- A Stage 1 summary's `tooling` field no longer switches checks off on its
+  own word: the helper hash must be the candidate's, any other tool hash must
+  be the file committed with the summary, and the run statuses, failures and
+  earlier attempts are compared whatever the tools; `summarize --record`
+  refuses tools that differ from `HEAD` in the checkout, and check-frozen
+  reports a renderer hash that is neither running nor committed with the
+  summary (INTEGRITY4-3, STATS4-2).
+- Owner messages: the restore advice for a changed or missing frozen file
+  names where Git holds exactly the frozen bytes (the index or a commit) and
+  offers no git command when it does not, so it never restores the pending
+  template; the freeze says to commit before editing again (OWNERUX4-1,
+  SPECDOCS4-4). `check` notes a missing or edited `>` proposal line with the
+  ledger's text (INTEGRITY4-4). The high-severity note always names an unused
+  second-review ID (OWNERUX4-2, SPECDOCS4-3). The named-item rule ignores a
+  sentence-final `.` (OWNERUX4-3) and applies only to added items of the same
+  kind, and the first-word rule says which word to change (OWNERUX4-7). An
+  edited or removed frozen second review is handled like a late one
+  (OWNERUX4-4). `# Fact checked` is a comment, not a phantom section
+  (OWNERUX4-5), and an unknown `## ` heading says the lines after it were not
+  read (OWNERUX4-6).
+- The supersede path of the freeze refuses while a committed campaign is
+  missing or off the `supersedes` chain (SPECDOCS4-2).
+- The tests write summary Markdown as bytes, so the Windows job does not see
+  CRLF (DISTCI4-1).
+
 Not in this version: the owner's reference review and freeze, the development
 adjudication, any native session and the pilot itself (the owner's
 decisions); second-review tooling for run reviews and the development

@@ -40,10 +40,12 @@ captured (no `candidate.json` or stage summary now or anywhere in the Git
 history, merged branches included; deleting a committed candidate does not
 count), or after the owner has written its `invalidation.md`; the freeze then
 records the reason given with `--supersede-reason`. A committed campaign is
-never erased: restoring the pre-freeze `tasks.json` does not make a new
-campaign possible, because the freeze refuses while the history holds a
-committed campaign that `tasks.json` does not name. Both refuse in a shallow
-or partial clone, whose history could hide a deleted candidate.
+never erased: restoring the pre-freeze `tasks.json`, or a `tasks.json` that
+names an older campaign, does not make a new campaign possible, because the
+freeze refuses while the history holds a committed campaign that is missing
+or that the campaign `tasks.json` names does not reach through the
+`freeze.json` `supersedes` chain. Both refuse in a shallow or partial clone,
+whose history could hide a deleted candidate.
 
 ## Merging a campaign
 
@@ -92,20 +94,31 @@ files committed with it (so commit the campaign, the decisions and
 fails the check, also when `tasks.json` has no `pilotFreeze`. `candidate.json`
 and each stage summary are final once committed: each must have exactly one
 content in the history and still hold it (a recorded summary is final; a
-removal later restored byte for byte changes nothing). Two branches that both
+removal later restored byte for byte changes nothing). The rule is decided
+from Git object IDs, so a version whose contents Git cannot read never turns
+it into a note, and a version committed as a gitlink or symbolic link is a
+problem. Two branches that both
 recorded a summary and were merged leave two contents, which cannot be
 undone: the owner records `invalidation.md` and a new campaign supersedes this
 one, after which the finding is kept as a note. A superseded captured campaign
 without a usable `invalidation.md` also fails. When a summary names the
 running `tools/workflow_pilot.py` as its renderer, its Markdown must equal the
 rendering of its JSON; after a tool change that check is noted as not
-verified, so later tool changes cannot fail history. Without the full history
+verified, so later tool changes cannot fail history, but only when the named
+`tools/workflow_pilot.py` is the one committed with the summary (the summary's
+own `tooling` field is not trusted on its word; another hash is a problem).
+The history queries pin Git's `log.follow`, `log.diffMerges` and
+`log.showRoot` settings, so a user's Git configuration cannot change what
+they list. Without the full history
 (a shallow or partial clone, such as a default CI checkout, or no Git) these
 history checks cannot run, and check-frozen prints a `not verified` line for
 each campaign that names them; the Python CI jobs fetch the full history (the
 integration jobs' shallow checkouts only print those notes). A decision file
 the current freeze did not include, such as a second review written after it,
-is named as added after the freeze; removing it keeps the campaign.
+is named as added after the freeze; removing it keeps the campaign. A
+changed or missing frozen decision file is named with the command that
+restores its frozen bytes from where Git holds them (the index, or the commit
+that has them), or with no git command when Git does not hold them yet.
 
 ## Private run evidence
 
@@ -129,7 +142,9 @@ times as the run policy's infrastructure retries allow: only after a sealed
 after a timeout, a failure after the prompt or a completed session, and never
 when sealed evidence shows the prompt reached the host (a captured artifact,
 repair rounds, a sealed transcript that contains `PROMPT.txt`, or a draft the
-skill wrote in the workspace). It keeps the earlier attempt as
+skill wrote in the workspace: a `*.draft.json` or `*.mlview.json` file, or
+anything under `.mlview/`, such as `.mlview/llm/<run-id>/draft.json`). It keeps
+the earlier attempt as
 `evidence/<run>.attempt-<n>/`; `summarize` verifies each earlier attempt like
 a current record, requires the evidence, the attempts in `preparations.jsonl`
 and each session's `Prior attempts` to agree, and lists every earlier attempt

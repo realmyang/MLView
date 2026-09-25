@@ -60,6 +60,14 @@ SETTINGS = {host: {"model": f"synthetic-model-{host} (synthetic)", "reasoning": 
 PATH_LEAK = wp.MACHINE_PATH_RE
 
 
+@pytest.fixture(autouse=True)
+def isolated_git_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The tools' own Git reads never see the developer's Git configuration (DISTCI4-2); a test that
+    needs a configuration sets GIT_CONFIG_GLOBAL itself."""
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+
+
 def sha(data: bytes) -> str:
     return er.sha256_bytes(data)
 
@@ -1486,7 +1494,7 @@ def test_a_forged_stage1_go_does_not_unlock_stage_2(world: World, tmp_path: Path
     forged = json.loads(er.canonical_json(real))
     forged["decision"]["value"] = "go"
     (campaign_dir / "stage1-summary.json").write_bytes(er.canonical_json(forged))
-    (campaign_dir / "stage1-summary.md").write_text(wp.render_markdown(forged), encoding="utf-8")
+    (campaign_dir / "stage1-summary.md").write_bytes(wp.render_markdown(forged).encode("utf-8"))
     commit_files(world.root, {}, "synthetic forged go")
     code, _out, err = run_main(world, "run-prepare", "pilot-demo-a:codex:2", *pilot_args(world))
     assert code == 1 and "a re-computation of Stage 1 from the sealed evidence gives stop, not go" in err, err
@@ -1866,7 +1874,7 @@ def test_a_recorded_stage1_summary_is_final(world: World) -> None:
     # A go written around summarize --record does not unlock Stage 2 either.
     summary = summarize(world)
     (campaign_dir / "stage1-summary.json").write_bytes(er.canonical_json(summary))
-    (campaign_dir / "stage1-summary.md").write_text(wp.render_markdown(summary), encoding="utf-8")
+    (campaign_dir / "stage1-summary.md").write_bytes(wp.render_markdown(summary).encode("utf-8"))
     commit_files(world.root, {}, "synthetic go")
     code, _out, err = run_main(world, "run-prepare", "pilot-demo-a:codex:2", *pilot_args(world))
     assert code == 1 and "the committed stage1-summary.json differs from the version first committed in " in err \
@@ -2114,7 +2122,7 @@ def test_a_hand_edited_stage1_summary_does_not_unlock_stage_2(retry_world: World
     for run in value["runs"]:
         run["attempts"], run["priorAttempts"] = [], 0
     (directory / "stage1-summary.json").write_bytes(er.canonical_json(value))
-    (directory / "stage1-summary.md").write_text(markdown, encoding="utf-8")
+    (directory / "stage1-summary.md").write_bytes(markdown.encode("utf-8"))
     commit_files(retry_world.root, {}, "synthetic go, retry disclosure removed from the JSON")
     code, _out, err = run_main(retry_world, "run-prepare", "pilot-demo-a:codex:2", *pilot_args(retry_world))
     assert code == 1 and "the committed Stage 1 summary differs from a re-computation from the sealed evidence in " \
@@ -2123,17 +2131,152 @@ def test_a_hand_edited_stage1_summary_does_not_unlock_stage_2(retry_world: World
     value = json.loads(er.canonical_json(real))
     (directory / "stage1-summary.json").write_bytes(er.canonical_json(value))
     trimmed = "\n".join(line for line in markdown.splitlines() if not line.startswith("Earlier attempts")) + "\n"
-    (directory / "stage1-summary.md").write_text(trimmed, encoding="utf-8")
+    (directory / "stage1-summary.md").write_bytes(trimmed.encode("utf-8"))
     commit_files(retry_world.root, {}, "synthetic go, retry disclosure removed from the Markdown")
     code, _out, err = run_main(retry_world, "run-prepare", "pilot-demo-a:codex:2", *pilot_args(retry_world))
     assert code == 1 and "the committed stage1-summary.md is not the Markdown rendered from stage1-summary.json" in err, err
     git(retry_world.root, "reset", "--quiet", "--hard", "HEAD~1")
+    # A forged tooling field does not switch the comparison off (INTEGRITY4-3, STATS4-2).
+    hidden = json.loads(er.canonical_json(real))
+    hidden["failures"]["earlierAttempts"] = []
+    for run in hidden["runs"]:
+        run["attempts"], run["priorAttempts"] = [], 0
+    for key, expected in (("tools/workflow_pilot.py", "the committed Stage 1 summary names a tools/workflow_pilot.py "
+                                                      "(sha256 000000000000...) that is neither the running one nor the "
+                                                      "one committed with the summary in "),
+                          ("tools/eval_records.py", "the committed Stage 1 summary names a tools/eval_records.py"),
+                          ("skills/mlview/scripts/artifact.py", "the committed Stage 1 summary names a "
+                                                                "skills/mlview/scripts/artifact.py that is not the "
+                                                                "candidate's frozen helper")):
+        forged = json.loads(er.canonical_json(hidden))
+        forged["tooling"][key] = "0" * 64
+        (directory / "stage1-summary.json").write_bytes(er.canonical_json(forged))
+        (directory / "stage1-summary.md").write_bytes(wp.render_markdown(forged).encode("utf-8"))
+        commit_files(retry_world.root, {}, f"synthetic go, retry hidden, forged {key}")
+        code, _out, err = run_main(retry_world, "run-prepare", "pilot-demo-a:codex:2", *pilot_args(retry_world))
+        assert code == 1 and expected in err, err
+        git(retry_world.root, "reset", "--quiet", "--hard", "HEAD~1")
     # The bytes summarize --record writes (this synthetic world plans baselines it never ran).
     (directory / "stage1-summary.json").write_bytes(er.canonical_json(real))
-    (directory / "stage1-summary.md").write_text(markdown, encoding="utf-8")
+    (directory / "stage1-summary.md").write_bytes(markdown.encode("utf-8"))
     commit_files(retry_world.root, {}, "synthetic go as summarize --record writes it")
     code, _out, err = run_main(retry_world, "run-prepare", "pilot-demo-a:codex:2", *pilot_args(retry_world))
     assert code == 0, err
+
+
+def test_a_stage1_summary_recorded_with_other_committed_tools_still_discloses_retries(retry_world: World) -> None:
+    """A summary recorded with other tools, bound by Git (the tool committed with the summary), unlocks
+    Stage 2 with a note, but only while its run statuses, failures and earlier attempts equal the
+    re-computation (INTEGRITY4-3, STATS4-2)."""
+    run_id = "pilot-demo-a:codex:1"
+    redo(retry_world, run_id, publish_artifact=False, session=UNSENT, transcript=UNSENT_TRANSCRIPT)
+    assert run_main(retry_world, "run-prepare", run_id, *pilot_args(retry_world), "--retry", "crash (synthetic)")[0] == 0
+    finish_retry(retry_world, run_id)
+    directory = retry_world.root / wp.PILOT_REL / CAMPAIGN
+    old_tool = b"# an older synthetic tools/workflow_pilot.py\n"
+    real = json.loads(er.canonical_json(summarize(retry_world)))
+    real["tooling"]["tools/workflow_pilot.py"] = sha(old_tool)
+    real["perTask"] = "a field that another tool version shaped differently (synthetic)"
+    for hide in (True, False):
+        value = json.loads(er.canonical_json(real))
+        if hide:
+            value["failures"]["earlierAttempts"] = []
+            for run in value["runs"]:
+                run["attempts"], run["priorAttempts"] = [], 0
+        commit_files(retry_world.root, {f"{wp.PILOT_REL}/{CAMPAIGN}/stage1-summary.json": er.canonical_json(value),
+                                        f"{wp.PILOT_REL}/{CAMPAIGN}/stage1-summary.md": b"# rendered by the older tool\n",
+                                        "tools/workflow_pilot.py": old_tool}, "synthetic summary with its tools")
+        code, out, err = run_main(retry_world, "run-prepare", "pilot-demo-a:codex:2", *pilot_args(retry_world))
+        if hide:
+            assert code == 1 and "the committed Stage 1 summary misstates the runs' statuses, failures or earlier " \
+                                 "attempts (failures.earlierAttempts, runs)" in err, err
+            git(retry_world.root, "reset", "--quiet", "--hard", "HEAD~1")
+        else:
+            assert code == 0, err
+            assert "Note: the committed Stage 1 summary was recorded with other tools (the ones committed with it)" in out
+    assert (directory / "stage1-summary.json").is_file()
+
+
+def test_summarize_record_refuses_uncommitted_tools_in_the_checkout(world: World,
+                                                                    monkeypatch: pytest.MonkeyPatch) -> None:
+    """A summary is recorded only with the tools committed at HEAD, which the Stage 2 gate and check-frozen
+    read back from Git (INTEGRITY4-3)."""
+    summary = summarize(world)
+    assert wp._uncommitted_tools(world.root, summary) == []  # a test world outside the checkout
+    monkeypatch.setattr(wp, "ROOT", world.root)
+    assert wp._uncommitted_tools(world.root, summary) == list(wp.TOOL_KEYS)
+    with pytest.raises(wp.PilotError, match=r"differ\(s\) from the version committed at HEAD; commit or discard"):
+        wp.record_summary(world.root, summary)
+    commit_files(world.root, {key: (ROOT / key).read_bytes() for key in wp.TOOL_KEYS}, "synthetic copy of the tools")
+    assert wp._uncommitted_tools(world.root, summary) == []
+
+
+def skill_draft(run_id: str):
+    """A before_finish hook that writes the draft where SKILL.md puts it: .mlview/llm/<run-id>/draft.json."""
+    task, host = run_id.split(":")[:2]
+
+    def write(workspace: Path, _evidence: Path) -> None:
+        target = workspace / ".mlview" / "llm" / er.run_dir_name(run_id) / "draft.json"
+        target.parent.mkdir(parents=True)
+        target.write_text(json.dumps(draft_for(task, host)), encoding="utf-8")
+    return write
+
+
+def test_a_skill_draft_under_dot_mlview_shows_the_prompt_was_sent(retry_world: World,
+                                                                  monkeypatch: pytest.MonkeyPatch) -> None:
+    """The draft SKILL.md writes (.mlview/llm/<run-id>/draft.json) counts as skill output: run-finish, --amend
+    and run-prepare --retry refuse "Prompt sent: no", and summarize counts such an earlier attempt as sent
+    (INTEGRITY4-2, STATS4-1, SPECDOCS4-1)."""
+    assert wp._outputs_added({"README.md": "x", ".claude/skills/mlview/SKILL.md": "x"}, {
+        "README.md": "x", ".claude/skills/mlview/SKILL.md": "x", ".claude/skills/mlview/scripts/new.py": "x",
+        ".claude/settings.local.json": "x", ".mlview/llm/run/draft.json": "x", ".MLVIEW/llm/run/node.json": "x",
+        "notes.txt": "x", "sub/a.draft.json": "x"}) == [".MLVIEW/llm/run/node.json", ".mlview/llm/run/draft.json",
+                                                         "sub/a.draft.json"]
+    run_id = "pilot-demo-a:codex:1"
+    draft = f".mlview/llm/{er.run_dir_name(run_id)}/draft.json"
+    why = f"the skill wrote {draft} in the workspace, so the prompt reached the host"
+    forget(retry_world, run_id)
+    assert run_main(retry_world, "run-prepare", run_id, *pilot_args(retry_world))[0] == 0
+    workspace, evidence = retry_world.workspace(run_id), retry_world.evidence(run_id)
+    skill_draft(run_id)(workspace, evidence)
+    (evidence / "session.md").write_text(session_text(run_id, **dict(UNSENT, Transcript="", **{"UI log": ""})),
+                                         encoding="utf-8")
+    before = sorted(path.name for path in evidence.iterdir())
+    code, out, err = run_main(retry_world, "run-finish", run_id, *pilot_args(retry_world))
+    assert code == 1 and why in err, out + err
+    assert sorted(path.name for path in evidence.iterdir()) == before and workspace.is_dir()
+    shutil.rmtree(workspace)  # fixture setup only: start this run again
+    # A seal with "Prompt sent:" left empty cannot be amended to "no" beside the sealed draft.
+    redo(retry_world, run_id, publish_artifact=False, before_finish=skill_draft(run_id), transcript=UNSENT_TRANSCRIPT,
+         session={"Status": "failed", "Failure": "host-error -- the host crashed (synthetic)", "Repair rounds": "0"})
+    (evidence / "session.md").write_text(session_text(run_id, **dict(UNSENT)), encoding="utf-8")
+    code, out, err = run_main(retry_world, "run-finish", run_id, *pilot_args(retry_world), "--amend", "x (synthetic)")
+    assert code == 1 and f'this attempt cannot say "Prompt sent: no": the skill wrote {draft} in its workspace' in err, \
+        out + err
+    # A record sealed around run-finish with "no" beside the draft is not retried ...
+    with monkeypatch.context() as patched:
+        patched.setattr(wp, "_unsent_contradiction", lambda *args: None)
+        redo(retry_world, run_id, publish_artifact=False, before_finish=skill_draft(run_id), session=UNSENT,
+             transcript=UNSENT_TRANSCRIPT)
+    code, _out, err = run_main(retry_world, "run-prepare", run_id, *pilot_args(retry_world), "--retry", "x (synthetic)")
+    assert code == 1 and f"attempt 1 of {run_id} cannot be retried: the skill wrote {draft} in its workspace" in err, err
+    # ... and a retry prepared around that rule makes the run invalid, with the reason in the summary.
+    with monkeypatch.context() as patched:
+        patched.setattr(wp, "_prompt_sent", lambda chain, evidence=None: None)
+        assert run_main(retry_world, "run-prepare", run_id, *pilot_args(retry_world), "--retry", "x (synthetic)")[0] == 0
+    finish_retry(retry_world, run_id)
+    run = run_of(summarize(retry_world), run_id)
+    assert run["status"] == "invalid" and run["attempts"][0]["sentBecause"] == f"the skill wrote {draft} in its workspace"
+
+
+def test_summary_markdown_is_written_as_bytes_in_the_tests() -> None:
+    """The code compares a summary's Markdown byte for byte with LF output, and Path.write_text writes CRLF
+    on Windows, so the tests write summary Markdown as bytes (DISTCI4-1)."""
+    pattern = re.compile(r"summary\.md[\"')]*\)\.write_text\(")
+    offenders = [f"{path.name}:{number}" for path in sorted((ROOT / "evals" / "workflow").glob("test_*.py"))
+                 + sorted((ROOT / "tools").glob("test_*.py"))
+                 for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1) if pattern.search(line)]
+    assert offenders == []
 
 
 def test_check_frozen_renders_the_markdown_only_with_the_same_tool(world: World, tmp_path: Path) -> None:
@@ -2144,13 +2287,13 @@ def test_check_frozen_renders_the_markdown_only_with_the_same_tool(world: World,
     value = json.loads(er.canonical_json(summarize(world)))
     directory = tmp_path / "pilot-99"
     directory.mkdir()
-    (directory / "stage1-summary.md").write_text(wp.render_markdown(value), encoding="utf-8")
+    (directory / "stage1-summary.md").write_bytes(wp.render_markdown(value).encode("utf-8"))
     problems: list[str] = []
     notes: list[str] = []
     wd._rendering_check(value, directory, "stage1-summary.json", "stage1-summary.md", "pilot-99", problems, notes)
     assert problems == [] and notes == []
-    (directory / "stage1-summary.md").write_text(wp.render_markdown(value).replace("Failures: none.\n", ""),
-                                                 encoding="utf-8")
+    (directory / "stage1-summary.md").write_bytes(
+        wp.render_markdown(value).replace("Failures: none.\n", "").encode("utf-8"))
     wd._rendering_check(value, directory, "stage1-summary.json", "stage1-summary.md", "pilot-99", problems, notes)
     assert problems == ["pilot-99/stage1-summary.md is not the Markdown rendered from stage1-summary.json (a recorded "
                         "summary is written only by summarize --record)"]
@@ -2158,4 +2301,40 @@ def test_check_frozen_renders_the_markdown_only_with_the_same_tool(world: World,
     problems.clear()
     wd._rendering_check(value, directory, "stage1-summary.json", "stage1-summary.md", "pilot-99", problems, notes)
     assert problems == [] and notes == ["check-frozen: pilot-99: not verified: stage1-summary.md rendered from "
-                                        "stage1-summary.json (it was recorded with another tools/workflow_pilot.py)."]
+                                        "stage1-summary.json (it names another tools/workflow_pilot.py, and no commit "
+                                        "that recorded it can be read)."]
+
+
+def test_check_frozen_skips_the_rendering_only_for_the_tool_committed_with_the_summary(world: World,
+                                                                                       tmp_path: Path) -> None:
+    """The summary's tooling field never switches the rendering check off on its own word: another
+    tools/workflow_pilot.py is accepted (as a note) only when it is the one committed with the summary
+    (INTEGRITY4-3)."""
+    import workflow_decisions as wd  # noqa: PLC0415
+
+    value = json.loads(er.canonical_json(summarize(world)))
+    old_tool = b"# an older synthetic tools/workflow_pilot.py\n"
+    repo = tmp_path / "repo"
+    directory = repo / wp.PILOT_REL / "pilot-99"
+    value["tooling"]["tools/workflow_pilot.py"] = sha(old_tool)
+    commit_files(repo, {f"{wp.PILOT_REL}/pilot-99/stage1-summary.json": er.canonical_json(value),
+                        f"{wp.PILOT_REL}/pilot-99/stage1-summary.md": b"# not the rendering (synthetic)\n",
+                        "tools/workflow_pilot.py": old_tool})
+    first = git(repo, "rev-parse", "HEAD")
+
+    def checked(tooling: str) -> tuple[list[str], list[str]]:
+        value["tooling"]["tools/workflow_pilot.py"] = tooling
+        problems: list[str] = []
+        notes: list[str] = []
+        history = wd.History(wd.World(repo, None))
+        wd._rendering_check(value, directory, "stage1-summary.json", "stage1-summary.md", "pilot-99", problems, notes,
+                            history)
+        return problems, notes
+
+    assert checked(sha(old_tool)) == ([], [
+        "check-frozen: pilot-99: not verified: stage1-summary.md rendered from stage1-summary.json (it was recorded with "
+        f"the tools/workflow_pilot.py committed with it in {first[:12]}, not the running one)."])
+    assert checked("0" * 64) == ([
+        "pilot-99/stage1-summary.json names a tools/workflow_pilot.py (sha256 000000000000...) that is neither the "
+        f"running one nor the one committed with it in {first[:12]} (a recorded summary is written only by summarize "
+        "--record, with the committed tools)"], [])

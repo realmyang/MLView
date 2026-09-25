@@ -8,6 +8,42 @@ Run `sh scripts/e2e.sh` with Python 3.10+ and Node 20.18.1+ on PATH. On Windows
 use `powershell -File scripts/e2e.ps1`. The [script guide](../scripts/README.md)
 explains each gate and explicit skip options.
 
+## Campaign 2 round 4 fixes — 2026-09-25
+
+The fixes for the 19 verified findings of the campaign's fourth review (see
+the "Round 4 review fixes" paragraph of the [changelog](../CHANGELOG.md))
+were checked before their commit on the `campaign2-pilot-readiness` branch,
+on top of `b783add`, on the same macOS machine and virtualenv as below.
+**These are local automated checks only**. CI has not run on this branch.
+No Python 3.10 interpreter was available here; the system Python 3.9 parser
+read every changed Python file as a stand-in.
+
+- `MLVIEW_PYTHON="$PWD/.venv/bin/python" PATH="$PWD/.venv/bin:$PATH" PYTHONDONTWRITEBYTECODE=1 sh scripts/e2e.sh --skip-npm-install`:
+  **all 15 exercised gates passed**.
+  - Python helper, distribution and evaluation tests: **783 passed, 533
+    subtests passed**, none skipped.
+  - Viewer: **79 passed**. Extension: **250 passed**.
+  - The actual VSIX: 11 files, 155,593 bytes.
+- After a rebuild (viewer build, asset and skill sync, extension compile),
+  `git diff --exit-code` was clean over `webview/dist`,
+  `vscode-extension/media`, the extension's notices and
+  `claude-plugin/skills/mlview`.
+- `python tools/evidence_lock.py`: 95 files match the lock.
+  `python scripts/check_docs.py`: OK, 40 documents.
+  `python tools/verify.py --all`: OK.
+- The new regression tests (synthetic worlds only) fail against the round 3
+  tools and pass against the fixed ones. Of the reviewers' 18 reproduction
+  test cases, kept outside the repository, the 9 that asserted a defect now
+  fail; the other 9 check Git's own behaviour or errors that were already
+  loud. The Windows line-ending fix (DISTCI4-1) was not run on a Windows
+  host: the tests now write the compared Markdown as bytes, and the pilot and
+  decision tests passed under the reviewer's shim that makes
+  `Path.write_text` write CRLF.
+
+Every decision, review, verdict and policy value in the new tests is
+synthetic. No native session, human review, reference freeze, corpus
+`--update-sparse` or pilot run occurred.
+
 ## Campaign 2 round 3 fixes — 2026-09-25
 
 The fixes for the 25 verified findings of the campaign's third review (see

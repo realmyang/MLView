@@ -287,13 +287,14 @@ def test_unknown_sections_keys_and_ids_are_errors() -> None:
         "Runs  MUST state: yes",
     ])
     record, problems = parse(text, "d.md")
+    skipped = ' The lines after it, up to the next "## " heading, were not read.'  # OWNERUX4-6
     assert messages(problems) == [
         'd.md:2: ERROR header: unknown field "Reviewr". Allowed here: Candidate, Date, Reviewer, Transcribed by.',
         'd.md:3: ERROR Facts demo-f01: unknown section "## Facts demo-f01". Sections: Scenario, Fact <id>, Unknown <id>, '
-        "Non-defect <id>, Added fact <id>, Added unknown <id>, Defect <id>, Disagreements, Task.",
-        'd.md:5: ERROR Fact: section "## Fact" needs an ID: write "## Fact <id>".',
-        'd.md:6: ERROR Task now: section "## Task" takes no ID: write "## Task".',
-        'd.md:7: ERROR Fact demo f01: section IDs are one word: "## Fact demo f01".',
+        "Non-defect <id>, Added fact <id>, Added unknown <id>, Defect <id>, Disagreements, Task." + skipped,
+        'd.md:5: ERROR Fact: section "## Fact" needs an ID: write "## Fact <id>".' + skipped,
+        'd.md:6: ERROR Task now: section "## Task" takes no ID: write "## Task".' + skipped,
+        'd.md:7: ERROR Fact demo f01: section IDs are one word: "## Fact demo f01".' + skipped,
     ]
     assert [s.label for s in record.sections] == ["Unknown demo-u01"]
     assert record.sections[0].fields["Runs must state"].value == "yes"
@@ -361,6 +362,39 @@ def test_a_hash_comment_keeps_its_section_and_the_fields_around_it() -> None:
     swallowed, _problems = parse("# Reference decisions: pilot-demo\n## Fact demo-f01\nReason: kept\n# note\n  more\n",
                                  "d.md")
     assert swallowed.section("Fact", "demo-f01").value("Reason") == "kept"
+
+
+@pytest.mark.parametrize("section, line, fields", [
+    ("Fact demo-f04", "# Fact checked", "Decision: qualify\n# Fact checked\nWording: The corrected claim (synthetic).\n"
+                                        "Reason: synthetic\n"),
+    ("Defect demo-d01", "# Defect confirmed", "Wording: A synthetic defect.\n# Defect confirmed\nSeverity: low\n"
+                                              "Anchors: train.py:1\nCounter-evidence: none\nReason: synthetic\n"),
+])
+def test_a_one_hash_line_with_a_kind_and_a_plain_word_is_a_comment(section: str, line: str, fields: str) -> None:
+    """"# Fact checked" is a comment under the enclosing section, not a phantom "## Fact checked" section:
+    every reference item ID has a digit (OWNERUX4-5). A real item ID still starts that item."""
+    text = f"# Reference decisions: pilot-demo\n## {section}\n{fields}"
+    record, problems = parse(text, "d.md")
+    number = 3 + fields.split("\n").index(line)
+    assert messages(problems) == [f'd.md:{number}: ERROR {section}: "{line}" is not "Key: value". Put ">" in front of '
+                                  'notes; "#" does not start a comment.']
+    kept = record.section(*section.split(" "))
+    assert kept is not None and kept.value("Reason") == "synthetic" and len(record.sections) == 1
+    record, problems = parse("# Reference decisions: pilot-demo\n## Fact demo-f01\nDecision: accept\n# Fact demo-f02\n"
+                             "Decision: reject\n", "d.md")
+    assert record.section("Fact", "demo-f02").value("Decision") == "reject"
+    # The policy's host IDs have no digit, so the rule is limited to the reference item kinds.
+    policy, problems = parse("# Pilot run policy\n# Host codex\nModel: m (synthetic)\n", "p.md")
+    assert [s.label for s in policy.sections] == ["Host codex"]
+
+
+def test_an_unknown_two_hash_heading_says_its_lines_were_not_read() -> None:
+    """A well-formed but unknown "## Notes" heading skips the lines after it, and its error says so (OWNERUX4-6)."""
+    text = "# Reference decisions: pilot-demo\n## Fact demo-f07\n## Notes\nDecision: accept\n"
+    record, problems = parse(text, "d.md")
+    assert len(problems) == 1 and problems[0].message.endswith(
+        'The lines after it, up to the next "## " heading, were not read.'), problems
+    assert record.section("Fact", "demo-f07").value("Decision") is None
 
 
 @pytest.mark.parametrize("line", ["# Facts demo-f02", "# Task now", "#### My notes", "##Notes", "# Added facts x-h01"])
@@ -556,7 +590,8 @@ def test_every_campaign_file_type_parses_cleanly(name: str) -> None:
 
 def test_invalidation_has_no_sections_and_schemas_can_be_overridden() -> None:
     _record, problems = parse("# Invalidation: pilot-01\nScope: campaign\n## Notes\n", "inv.md")
-    assert messages(problems) == ['inv.md:3: ERROR Notes: unknown section "## Notes". This file has no sections.']
+    assert messages(problems) == ['inv.md:3: ERROR Notes: unknown section "## Notes". This file has no sections. The '
+                                  'lines after it, up to the next "## " heading, were not read.']
     custom = {"session": er.RecordSchema("Session", True, ("Status", "Partial artifact"), (er.SectionSpec("Deviations"),))}
     record, problems = er.parse_record(b"# Session: pilot-demo:codex:1\nPartial artifact: yes\n", "s.md", schemas=custom)
     assert problems == [] and record.header.value("Partial artifact") == "yes"

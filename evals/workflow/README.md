@@ -132,7 +132,9 @@ never sent: after a sealed `failed` or `blocked` attempt whose session says
 `Prompt sent: no` (the tool refuses that answer for a timeout, a
 `no-publication` or `repair-budget` failure, repair rounds above zero, a
 transcript that contains the prompt, a published `pilot.mlview.json` or a
-draft the skill wrote in the workspace, and an amendment never drops or
+draft the skill wrote in the workspace (a `*.draft.json` or `*.mlview.json`
+file, or anything under `.mlview/`, such as the `.mlview/llm/<run-id>/draft.json`
+that SKILL.md prescribes), and an amendment never drops or
 replaces a sealed transcript), `run-prepare RUN --campaign C --retry
 "<reason>"` keeps the earlier evidence as `evidence/<run>.attempt-<n>/`,
 prepares a fresh `workspaces/<run>.attempt-<n+1>/` and writes
@@ -219,10 +221,17 @@ refuses repeat runs until a committed Stage 1 summary says `go`, and it and
 directory without that evidence gives `incomplete`): a summary that is not a
 recorded Stage 1 summary of this candidate, whose decision or run hashes
 differ from the re-computation, whose other fields or Markdown differ from
-what `summarize --record` writes (checked while the tools are the ones that
-recorded it), that differs from the version first committed, or that was
-committed with more than one content (for example through a merge), does not
-unlock Stage 2. With per-host targets, a stop reason names each host that
+what `summarize --record` writes, that differs from the version first
+committed, or that was committed with more than one content (for example
+through a merge), does not unlock Stage 2. The summary's `tooling` field is
+part of the file being checked, so it never switches a check off on its own
+word: when it names the running tools, every field and the Markdown rendering
+are compared; when it names other tools, each of them must be the file
+committed with the summary (so `summarize --record` refuses tools that differ
+from `HEAD` in this checkout), `skills/mlview/scripts/artifact.py` must be the
+candidate's frozen helper, and the decision, the run hashes and each run's
+status, failure and earlier attempts are still compared (a note says the
+other fields and the Markdown were not). With per-host targets, a stop reason names each host that
 misses a target, and the early-stop indicators include each host's bound.
 
 If any target misses, stop before Stage 2 and report the numerators,

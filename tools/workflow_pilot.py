@@ -1142,14 +1142,24 @@ def _contains_prompt(said: bytes, prompt: bytes) -> bool:
 
 
 OUTPUT_SUFFIXES = (".mlview.json", ".draft.json")
-SKILL_PREFIXES = (".agents/skills/mlview/", ".claude/skills/mlview/", ".github/skills/mlview/", ".mlview/")
+OUTPUT_DIR = ".mlview/"
+INSTALLED_SKILL_PREFIXES = (".agents/skills/mlview/", ".claude/skills/mlview/", ".github/skills/mlview/")
 
 
 def _outputs_added(before: dict, after: dict) -> list[str]:
-    """Workspace paths that only the skill writes after the prompt (a draft or a published artifact),
-    added since run-prepare. Host settings files and the installed skill never count."""
-    return sorted(rel for rel in after if rel not in before and rel.casefold().endswith(OUTPUT_SUFFIXES)
-                  and not rel.casefold().startswith(SKILL_PREFIXES))
+    """Workspace paths that only the skill writes after the prompt, added since run-prepare: anything
+    under ``.mlview/`` (the skill's drafts and records, such as .mlview/llm/<run-id>/draft.json in
+    SKILL.md), or a ``*.draft.json`` or ``*.mlview.json`` file elsewhere. Nothing writes under
+    ``.mlview/`` in a pilot workspace before the prompt. Host settings files and the installed skill
+    (listed in workspace-before.json anyway) never count."""
+    found = []
+    for rel in after:
+        folded = rel.casefold()
+        if rel in before or folded.startswith(INSTALLED_SKILL_PREFIXES):
+            continue
+        if folded.startswith(OUTPUT_DIR) or folded.endswith(OUTPUT_SUFFIXES):
+            found.append(rel)
+    return sorted(found)
 
 
 def _sealed_json(evidence: Path, entry: object) -> object | None:
@@ -1171,8 +1181,9 @@ def _sealed_json(evidence: Path, entry: object) -> object | None:
 def _sent_evidence(seal: dict, evidence: Path | None) -> str | None:
     """Sealed facts showing that the prompt reached the host, whatever the session says: a captured
     artifact, repair rounds, a sealed transcript that contains PROMPT.txt, or a draft or artifact the
-    skill wrote in the workspace. Changed project files and host files are not proof: a host may
-    write files when it starts, before any prompt."""
+    skill wrote in the workspace (anything under .mlview/, a *.draft.json or a *.mlview.json; see
+    _outputs_added). Changed project files and host files are not proof: a host may write files when
+    it starts, before any prompt."""
     session = seal.get("session") if isinstance(seal.get("session"), dict) else {}
     sealed = seal.get("evidence") if isinstance(seal.get("evidence"), dict) else {}
     for key in ("artifact", "partialArtifact"):
@@ -1259,9 +1270,70 @@ def _stage1_inputs(summary: dict, planned: dict[str, dict]) -> list[tuple]:
     return sorted(found)
 
 
-def _stage1_matches(root: Path, campaign: Campaign, pilot_value: str | None, committed: dict) -> str | None:
+TOOL_KEYS = ("tools/workflow_pilot.py", "tools/eval_records.py", "tools/workflow_candidate.py")
+HELPER_KEY = "skills/mlview/scripts/artifact.py"
+SAME_TOOLS = "same tools"
+
+
+def _tooling_binding(root: Path, campaign: Campaign, committed: dict, recomputed: dict) -> str | None:
+    """SAME_TOOLS when the committed Stage 1 summary names the running tools; None when it names other
+    tools that are bound by Git (each differing tool hash is that file's sha256 in the commit that
+    first recorded the summary); otherwise why the summary's tooling cannot be trusted. The tooling
+    field is part of the file being verified, so it never switches a check off on its own word."""
+    tooling = committed.get("tooling") if isinstance(committed.get("tooling"), dict) else {}
+    fresh = recomputed["tooling"]
+    if tooling.get(HELPER_KEY) != fresh[HELPER_KEY]:
+        return (f"the committed Stage 1 summary names a {HELPER_KEY} that is not the candidate's frozen helper (a "
+                "recorded summary is written only by summarize --record)")
+    differing = [key for key in TOOL_KEYS if tooling.get(key) != fresh[key]]
+    if not differing:
+        return SAME_TOOLS
+    rel = f"{PILOT_REL}/{campaign.name}/stage1-summary.json"
+    versions = _path_versions(root, rel)
+    first = versions.first[1] if versions is not None and versions.first is not None else None
+    if first is None:
+        return ("the committed Stage 1 summary names tools other than the running ones, and the commit that recorded it "
+                "cannot be read")
+    for key in differing:
+        try:
+            data = er.git_show(root, first, key)
+        except ValueError:
+            data = None
+        if data is None or er.sha256_bytes(data) != tooling.get(key):
+            return (f"the committed Stage 1 summary names a {key} (sha256 {str(tooling.get(key))[:12]}...) that is "
+                    f"neither the running one nor the one committed with the summary in {first[:12]} (a recorded "
+                    "summary is written only by summarize --record, with the committed tools)")
+    return None
+
+
+def _disclosure(summary: dict) -> dict:
+    """What a Stage 1 summary discloses about each run's outcome and retries, which does not depend on
+    the tool version: runs[] id, status, failure and attempts, failures.runs and failures.earlierAttempts."""
+    def kind(value: object) -> object:
+        return value.get("kind") if isinstance(value, dict) else value
+
+    runs = summary.get("runs") if isinstance(summary.get("runs"), list) else []
+    failures = summary.get("failures") if isinstance(summary.get("failures"), dict) else {}
+    return {
+        "runs": sorted((str(run.get("id")), str(run.get("status")), str(kind(run.get("failure"))),
+                        str(run.get("priorAttempts")),
+                        tuple((str(item.get("attempt")), str(item.get("status")), str(item.get("promptSent")),
+                               str(kind(item.get("failure")))) for item in run.get("attempts") or []
+                              if isinstance(item, dict)))
+                       for run in runs if isinstance(run, dict)),
+        "failures.runs": sorted((str(item.get("id")), str(item.get("status")), str(item.get("failure")))
+                                for item in failures.get("runs") or [] if isinstance(item, dict)),
+        "failures.earlierAttempts": sorted((str(item.get("id")), str(item.get("attempt")), str(item.get("status")),
+                                            str(item.get("failure")), str(item.get("promptSent")))
+                                           for item in failures.get("earlierAttempts") or [] if isinstance(item, dict)),
+    }
+
+
+def _stage1_matches(root: Path, campaign: Campaign, pilot_value: str | None, committed: dict,
+                    notes: list[str] | None = None) -> str | None:
     """None when Stage 1, re-computed from the sealed evidence, is go with exactly the committed
-    inputs and the committed summary was generated after every Stage 1 record was sealed or amended."""
+    inputs and the committed summary was generated after every Stage 1 record was sealed or amended.
+    ``notes`` receives a note when the summary was recorded with other (Git-bound) tools."""
     try:
         recomputed = summarize(root, campaign.name, "1", pilot_value)
     except IntegrityError as exc:
@@ -1275,7 +1347,24 @@ def _stage1_matches(root: Path, campaign: Campaign, pilot_value: str | None, com
     if _stage1_inputs(recomputed, planned) != _stage1_inputs(committed, planned):
         return ("the committed Stage 1 summary does not match the sealed Stage 1 records and reviews "
                 "(a record, review or amendment differs)")
-    if committed.get("tooling") == recomputed.get("tooling"):
+    tools = _tooling_binding(root, campaign, committed, recomputed)
+    if tools is not None and tools != SAME_TOOLS:
+        return tools
+    if tools is None:
+        # Recorded with other tools, the ones committed with the summary (section 1.10): the decision,
+        # the inputs and the disclosure of every run's status, failure and earlier attempts must still
+        # be the re-computation; the other fields and the Markdown rendering belong to those tools.
+        fresh, recorded = _disclosure(recomputed), _disclosure(committed)
+        differing = sorted(key for key in set(fresh) | set(recorded) if fresh.get(key) != recorded.get(key))
+        if differing:
+            return (f"the committed Stage 1 summary misstates the runs' statuses, failures or earlier attempts "
+                    f"({', '.join(differing)}) compared with a re-computation from the sealed evidence (a recorded "
+                    "summary is written only by summarize --record)")
+        if notes is not None:
+            notes.append("the committed Stage 1 summary was recorded with other tools (the ones committed with it); "
+                         "its decision, inputs, run statuses, failures and earlier attempts were compared with a "
+                         "re-computation, not its other fields or its Markdown rendering")
+    else:
         # Recorded with these tools: every reported field must be the re-computation, and the
         # Markdown must be rendered from the JSON (section 4.7), so neither can hide a retry or a failure.
         fresh, recorded = _comparable(recomputed, planned), _comparable(committed, planned)
@@ -1398,6 +1487,10 @@ def _stage1_history(root: Path, campaign: Campaign) -> str | None:
         return None if not head else ("stage1-summary.json is committed, but the Git history lists no commit that "
                                       "recorded it (a recorded summary is final)")
     blob, first = versions.first
+    if versions.irregular:
+        _oid, where, mode = versions.irregular[0]
+        return (f"stage1-summary.json was committed as a non-file entry (mode {mode}) in {where[:12]} (a recorded "
+                "summary is final)")
     if head and head != blob:
         return (f"the committed stage1-summary.json differs from the version first committed in {first[:12]} "
                 "(a recorded summary is final)")
@@ -1536,11 +1629,12 @@ def run_prepare(root: Path, run_id: str, name: str, pilot_value: str | None, out
             raise PilotError(f"the workspace of attempt {len(previous)} still exists; remove it before a retry")
         if os.path.lexists(earlier):
             raise PilotError(f"{earlier} already exists; earlier attempts are never overwritten")
+    stage1_notes: list[str] = []
     if run["stage"] == 2:
         committed = _committed_stage1(root, campaign)
         reason = _stage1_go(committed, campaign) or _stage1_history(root, campaign)
         if reason is None:  # also in a pilot directory without Stage 1 evidence, which gives incomplete
-            reason = _stage1_matches(root, campaign, pilot_value, committed)
+            reason = _stage1_matches(root, campaign, pilot_value, committed, stage1_notes)
         if reason is not None:
             raise PilotError(f"Stage 2 repeats need a committed Stage 1 summary whose decision is go for this candidate; {reason}")
     if run["stage"] == 1 and campaign.adjudication_required:
@@ -1642,6 +1736,7 @@ def run_prepare(root: Path, run_id: str, name: str, pilot_value: str | None, out
         "directory, fill session.md, then run:",
         f"     python tools/workflow_eval.py run-finish {run_id} --campaign {name}",
     ]
+    lines += [f"Note: {note}." for note in stage1_notes]
     for line in lines:
         out(line)
     return 0
@@ -1753,7 +1848,8 @@ def _finish_problems(evidence: Path, finish: object, status: str, session_sha: s
 
 def _unsent_contradiction(workspace: Path, evidence: Path, campaign: Campaign) -> str | None:
     """What in the workspace shows that the prompt reached the host: the published artifact, or a
-    draft or artifact the skill wrote (see _outputs_added)."""
+    draft or artifact the skill wrote (anything under .mlview/, a *.draft.json or a *.mlview.json;
+    see _outputs_added)."""
     if (workspace / campaign.artifact_path).is_file():
         return f"{campaign.artifact_path} was published in the workspace"
     prepared = _json_loads(er.confined_file(evidence, BEFORE_FILE).read_bytes(), BEFORE_FILE)
@@ -3269,12 +3365,13 @@ def summarize(root: Path, name: str, stage: str, pilot_value: str | None) -> dic
         raise IntegrityError(problems)
     stage1 = _committed_stage1(root, campaign)
     stage1_problem = None
+    stage1_notes: list[str] = []
     if stage == "all" and any(s.record is not None and s.run["stage"] == 2 for s in states.values()):
         stage1_problem = (_stage1_go(stage1, campaign) or _stage1_history(root, campaign)
-                          or _stage1_matches(root, campaign, pilot_value, stage1))
+                          or _stage1_matches(root, campaign, pilot_value, stage1, stage1_notes))
     corpus = _corpus_root(root)
     verified: dict[str, dict] = {}
-    notes: list[str] = []
+    notes: list[str] = list(stage1_notes)
     complete = True
     for state in states.values():
         in_scope = state.run["condition"] == "baseline" or _in_stage(state.run, stage)
@@ -3653,6 +3750,20 @@ def render_markdown(summary: dict) -> str:
     return "\n".join(lines)
 
 
+def _uncommitted_tools(root: Path, summary: dict) -> list[str]:
+    """The tools named in ``summary`` whose running bytes differ from HEAD, when the tools run from the
+    repository being summarized (a synthetic test world outside the checkout is not checked)."""
+    if Path(root).resolve() != ROOT.resolve():
+        return []
+    tooling = summary.get("tooling") if isinstance(summary.get("tooling"), dict) else {}
+    found = []
+    for key in TOOL_KEYS:
+        committed = _show_at_head(root, key)
+        if committed is None or er.sha256_bytes(committed) != tooling.get(key):
+            found.append(key)
+    return found
+
+
 def record_summary(root: Path, summary: dict) -> tuple[Path, Path]:
     """Write stage<n>-summary.{json,md} exclusively; only a recordable decision is written."""
     value = summary["decision"]["value"]
@@ -3673,6 +3784,11 @@ def record_summary(root: Path, summary: dict) -> tuple[Path, Path]:
         if match:
             raise PilotError("the summary contains a machine path; amend the session wording (run-finish --amend) and "
                              "summarize again")
+    uncommitted = _uncommitted_tools(root, summary)
+    if uncommitted:
+        raise PilotError(f"{', '.join(uncommitted)} differ(s) from the version committed at HEAD; commit or discard the "
+                         "tool change before recording. A recorded summary names the tools that computed it, and the "
+                         "Stage 2 gate and check-frozen read those tools from the commit that records the summary")
     number = "1" if summary["stage"] == "1" else "2"
     directory = _campaign_dir(root, summary["campaign"])
     json_path, md_path = directory / f"stage{number}-summary.json", directory / f"stage{number}-summary.md"

@@ -18,10 +18,14 @@ checked the source.
 
 1. Open `evals/workflow/decisions/pilot-nanogpt.md`, which has ten proposed
    facts. Every item says `pending`, and its proposal is shown right above it
-   on lines starting with `>`. The tool writes those lines and the check
-   ignores them, so editing them changes no decision. After the freeze,
-   though, a frozen file is compared byte for byte, `>` lines and line endings
-   included, so leave it exactly as committed.
+   on lines starting with `>`. The tool writes those lines and the parser
+   ignores them, so editing them changes no decision: `accept` always takes
+   the proposal from the candidate ledger. If a proposal line under an item is
+   missing or differs from the ledger, for example because someone edited it,
+   the check prints a note that quotes the ledger's text, so read that note
+   before you accept. After the freeze, a frozen file is compared byte for
+   byte, `>` lines and line endings included, so leave it exactly as
+   committed.
 2. Read the exact pinned source: in VS Code (`.public-corpus/nanoGPT/train.py`),
    or in an optional local sheet that shows every cited line in context.
    `python tools/workflow_eval.py context pilot-nanogpt` writes it to
@@ -45,11 +49,14 @@ previous value, also after a blank line; an unindented line is an error, so
 indent a wrapped `Reason:` or `Wording:` instead of turning it into a note.
 Put your own notes on `>` lines; before the freeze you may add, edit or
 remove `>` lines. A line starting with `#` is not a comment: it is always
-reported as an error. If it looks like a heading (two or more `#`, or one `#`
-followed by a section kind and at most one ID, such as `# Facts nanogpt-f02`),
-the lines after it are not read until the next `## ` heading, and the error
-says so. Any other `#` line (`# checked twice on the train`) is reported under
-its section, and your decisions around it are kept. Section headings are
+reported as an error. A mistyped heading of a real item (`### Fact
+nanogpt-f02` or `# Fact nanogpt-f02`) still starts that item, so its lines are
+read. If it looks like a heading of an unknown section (`## Notes`, two or
+more `#`, or one `#` followed by a section kind and at most one ID, such as
+`# Facts nanogpt-f02`), the lines after it are not read until the next `## `
+heading, and the error says so. Any other `#` line (`# checked twice on the
+train`, or `# Fact checked`, whose last word is not an item ID) is reported
+under its section, and your decisions around it are kept. Section headings are
 `## <Kind> <id>`, with exactly two `#` and a space.
 
 For example, `nanogpt-f02` proposes that the no-override scenario initializes
@@ -107,8 +114,12 @@ addition, add it to your file under your own ID and write
 an added item of the same kind, and the frozen reference records the link
 (`adoptedAs`), so summaries count the adopted item inside the denominators.
 A resolution that starts with `adopted` is always read as an adoption, and one
-that names your own added item or starts like `adopted` (`adopt as`,
-`adpoted`) is an error until it uses that form. If the addition duplicates a
+that names your own added item of the same kind (a trailing `.` does not
+matter) or starts like `adopted` (`adopt as`, `adpoted`, `Adoption`) is an
+error until it uses that form or starts with another word, such as
+`not adopted -- <why>`. Naming an added item of another kind (an added fact
+in a defect's resolution) is fine, since only the same kind can be adopted.
+If the addition duplicates a
 candidate item that is already in your reference, it is not an adoption:
 write `<their id>: same as <candidate id> -- <why>`, without the word
 `adopted`. Keys are case-insensitive, so one item has one resolution line.
@@ -116,8 +127,9 @@ Your file holds the final decision, and the frozen reference keeps both
 positions and the resolution. The second reviewer's file has no place for
 your own additions, so your added facts and defects are second-reviewed only
 through theirs: they add the same item under their own ID (the note names
-an unused one, such as `nanogpt-s-d01`) and you resolve it as adopted. Until
-then, the check keeps a note on each of your high-severity defects. The second reviewer must be a different person (the check refuses
+an unused one, such as `nanogpt-s-d01`, and mentions a second-review defect
+that has no resolution yet as a possible match) and you resolve it as adopted.
+Until then, the check keeps a note on each of your high-severity defects. The second reviewer must be a different person (the check refuses
 the same name), and only a person can be a second reviewer; another model's
 opinion is not human acceptance.
 
@@ -177,17 +189,24 @@ applies. It refuses
 anything pending, re-verifies every kept quote against the pinned source, copies
 no source text into the repository, and adds no judgment or approval. Commit
 `evals/workflow/decisions`, `evals/workflow/pilot/pilot-01` and
-`evals/workflow/tasks.json` together, and merge them into main with a merge
-commit or a fast-forward, never a squash or rebase merge
+`evals/workflow/tasks.json` together before you edit any of them again
+(until that commit, Git does not hold the frozen bytes), and merge them into
+main with a merge commit or a fast-forward, never a squash or rebase merge
 ([why](../pilot/README.md#merging-a-campaign)). After the freeze, changing the
 reference means a new campaign. `check <task>` says `frozen in pilot-01` for
-an unchanged file, including a primary file whose second review was added
-after the freeze: that review's disagreements are listed as notes for a new
-campaign, and removing the late file keeps pilot-01. An edited file is
-reported as `changed after the freeze of pilot-01`, with the command that
-restores the committed bytes when no decision was meant to change (a `>` note
-or a line-ending conversion also counts as a change). `check-frozen` names
-each changed or added decision file.
+an unchanged file, including a primary file whose second review was added,
+edited or removed after the freeze: the disagreements this causes are listed
+as notes for a new campaign, and removing the late file (or restoring the
+frozen second review) keeps pilot-01. An edited file is reported as
+`changed after the freeze of pilot-01`, with the command that restores the
+frozen bytes when no decision was meant to change (a `>` note or a
+line-ending conversion also counts as a change). That command names where Git
+holds exactly those bytes: `git checkout -- <file>` when the index has them,
+or `git checkout <commit> -- <file>` for a committed change or removal. When
+Git does not hold them (the freeze is not committed yet), no git command is
+offered, because restoring the committed file would bring back the pending
+template: undo the edit in your editor instead. `check-frozen` names each
+changed, removed or added decision file.
 
 ## After runs: review the outputs separately
 
