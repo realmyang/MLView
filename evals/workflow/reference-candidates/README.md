@@ -105,6 +105,11 @@ completed runs and zero human reviews**. Its stored prompts are manifest drafts;
 replace them with frozen expanded prompts before execution. Planning or
 summarizing the matrix is not a model run.
 
+> 2026-09-25: superseded — prompts are frozen into
+> `evals/workflow/pilot/<campaign>/prompts/` by `freeze`; the
+> `.mlview/pilot-runs.json` matrix is no longer used. See
+> [REVIEW_GUIDE.md](REVIEW_GUIDE.md).
+
 ## Candidate implementation snapshot
 
 The following hashes preserve the original 2026-09-17 drafting snapshot. They
