@@ -37,14 +37,13 @@ export function buildEmptyState(graph: MLGraph | null, onRefresh: (() => void) |
   const root = el('div', 'mlv-state mlv-state--empty');
   root.setAttribute('role', 'status');
   const inner = add(root, el('div', 'mlv-state__inner'));
-  add(inner, el('h2', 'mlv-state__title', 'No ML pipeline found'));
+  add(inner, el('h2', 'mlv-state__title', 'No workflow steps'));
   add(
     inner,
     el(
       'p',
       'mlv-state__body',
-      'MLView looks for PyTorch, scikit-learn, Keras/TensorFlow, HuggingFace and Lightning code: ' +
-        'nn.Module subclasses, Dataset / DataLoader, train_test_split, optimizers and losses, .fit() / .predict().',
+      'This authored workflow does not contain any steps in the current scope.',
     ),
   );
   const diags: Diagnostic[] = graph ? graph.diagnostics || [] : [];
@@ -54,13 +53,7 @@ export function buildEmptyState(graph: MLGraph | null, onRefresh: (() => void) |
       add(list, el('li', '', (d.file ? d.file + ': ' : '') + d.kind + ' — ' + d.message));
     }
   } else if (graph) {
-    add(inner, el('p', 'mlv-state__body', graph.workspace.filesAnalyzed + ' files analyzed, nothing recognizable found.'));
-  }
-  if (onRefresh) {
-    const actions = add(inner, el('div', 'mlv-state__actions'));
-    const btn = button('mlv-btn mlv-btn--primary', 'Re-analyze');
-    on(btn, 'click', onRefresh);
-    actions.appendChild(btn);
+    add(inner, el('p', 'mlv-state__body', 'The author inspected ' + graph.workspace.filesAnalyzed + ' files.'));
   }
   return root;
 }

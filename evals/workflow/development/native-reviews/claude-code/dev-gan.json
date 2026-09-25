@@ -1,0 +1,265 @@
+{
+  "task": "dev-gan",
+  "artifact": "evals/workflow/development/native-artifacts/claude-code/dev-gan.mlview.json",
+  "artifactSha256": "7f2a72ea47471b4ef9fe534fff5daa15146b584a3eef8f07a80eda67fd330737",
+  "artifactRevision": "rev-dev-gan-20260917-1",
+  "artifactRequest": {
+    "configuration": "Scenario: the file run as a script (__main__ -> train() with no arguments). The script parses no command-line flags and reads no config file, so its module constants are the whole configuration and no overrides are selected: EPOCHS=25, BATCH_SIZE=128, WORKERS=4, LR=2e-4, BETAS=(0.5, 0.999), SEED=999, DATA_ROOT='data/celeba', SAMPLE_DIR='samples'. Device is a runtime alternative (cuda if available, else cpu); both alternatives follow the same code path. Relative paths (data/celeba, samples/, dcgan_epoch*.pt) resolve against the launch working directory, which is unknown.",
+    "entrypoints": [
+      "analyzer/tests/accuracy/corpus/vision_gan/train_dcgan.py"
+    ],
+    "question": "Explain the discriminator and generator losses, gradient paths, detached tensors, optimizer targets and alternating updates. Use repeated phases and show the iteration cycle.",
+    "scope": "Single-file DCGAN training script. Focus: the per-batch iteration cycle inside train() - discriminator update, then generator update - including which loss reaches which parameters, where detach() cuts the graph, and which optimizer owns which network. Setup, construction, per-epoch sampling/checkpointing and the return are traced for context. Phases marked with a cycle arrow repeat: four phases repeat every batch, one repeats every epoch."
+  },
+  "host": "claude-code",
+  "reviewerType": "model-provisional",
+  "reviewStatus": "pending-human-review",
+  "claims": [
+    {
+      "id": "optimizer-ownership",
+      "verdict": "supported",
+      "summary": "The optimizer parameter sources and later step ownership match the source.",
+      "artifactPointers": [
+        "node:opt-g",
+        "node:opt-d",
+        "node:d-step",
+        "node:g-step"
+      ],
+      "sourceReferences": [
+        "ev-opt-g",
+        "ev-opt-d",
+        "ev-d-zero",
+        "ev-detach",
+        "ev-d-backward",
+        "ev-d-step",
+        "ev-g-zero",
+        "ev-g-d-fwd",
+        "ev-g-loss",
+        "ev-g-backward",
+        "ev-g-step"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "discriminator-objective",
+      "verdict": "supported",
+      "summary": "The artifact accurately decomposes real and detached-fake BCE terms, sums them, backpropagates, and steps D.",
+      "artifactPointers": [
+        "node:d-loss-real",
+        "node:detach",
+        "node:d-loss-fake",
+        "node:d-loss",
+        "node:d-backward",
+        "node:d-step"
+      ],
+      "sourceReferences": [
+        "ev-d-zero",
+        "ev-detach",
+        "ev-d-backward",
+        "ev-d-step"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "detach-and-generator-path",
+      "verdict": "qualified",
+      "summary": "The graph path interpretation is materially correct, but gradient effects are framework semantics and several corresponding nodes and edges are labeled observed.",
+      "artifactPointers": [
+        "node:detach",
+        "node:g-d-fwd",
+        "edge:e-grad-lossd-blocked",
+        "edge:e-grad-lossg-netG"
+      ],
+      "sourceReferences": [
+        "ev-d-zero",
+        "ev-detach",
+        "ev-d-backward",
+        "ev-d-step",
+        "ev-g-zero",
+        "ev-g-d-fwd",
+        "ev-g-loss",
+        "ev-g-backward",
+        "ev-g-step"
+      ],
+      "failureTypes": [
+        "unqualified-inference"
+      ],
+      "humanDecision": null
+    },
+    {
+      "id": "alternating-cycle",
+      "verdict": "supported",
+      "summary": "The source order and separate batch and epoch back-edges clearly show the requested repeated D-then-G cycle.",
+      "artifactPointers": [
+        "edge:e-alt-dstep-gdfwd",
+        "edge:e-alt-gstep-gfwd",
+        "edge:e-loop-next-batch",
+        "edge:e-loop-next-epoch"
+      ],
+      "sourceReferences": [
+        "ev-d-zero",
+        "ev-detach",
+        "ev-d-backward",
+        "ev-d-step",
+        "ev-g-zero",
+        "ev-g-d-fwd",
+        "ev-g-loss",
+        "ev-g-backward",
+        "ev-g-step"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "running-sums",
+      "verdict": "supported",
+      "summary": "It correctly distinguishes dead running sums from the instantaneous values printed every 100 steps.",
+      "artifactPointers": [
+        "node:accumulate",
+        "node:log",
+        "finding:f-dead-running"
+      ],
+      "sourceReferences": [
+        "ev-accumulate",
+        "ev-log"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "item-sync",
+      "verdict": "qualified",
+      "summary": "The claim that item() forces host synchronization is conditional on CUDA; on CPU there is no device synchronization of that kind.",
+      "artifactPointers": [
+        "node:accumulate"
+      ],
+      "sourceReferences": [
+        "ev-accumulate",
+        "ev-log"
+      ],
+      "failureTypes": [
+        "unqualified-inference"
+      ],
+      "humanDecision": null
+    },
+    {
+      "id": "generator-gradient-targets",
+      "verdict": "qualified",
+      "summary": "The source proves opt_g was constructed from netG.parameters(), but statements about every imported network parameter and autograd traversal depend on unseen model definitions and framework behavior.",
+      "artifactPointers": [
+        "edge:e-target-optg-netG",
+        "edge:e-grad-lossg-through-netD",
+        "edge:e-grad-lossg-netG"
+      ],
+      "sourceReferences": [
+        "ev-opt-g",
+        "ev-opt-d",
+        "ev-g-zero",
+        "ev-g-d-fwd",
+        "ev-g-loss",
+        "ev-g-backward",
+        "ev-g-step"
+      ],
+      "failureTypes": [
+        "unqualified-inference"
+      ],
+      "humanDecision": null
+    },
+    {
+      "id": "epoch-outputs",
+      "verdict": "supported",
+      "summary": "It accurately reports sample generation, image writing, checkpoint contents, and the discarded script return value.",
+      "artifactPointers": [
+        "node:sample-grid",
+        "node:checkpoint",
+        "node:return"
+      ],
+      "sourceReferences": [
+        "ev-sample-call",
+        "ev-checkpoint",
+        "ev-sample-fn"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "sample-directory-risk",
+      "verdict": "qualified",
+      "summary": "The missing directory creation is source-observed, while failure depends on save_image/PIL behavior; the finding is appropriately inferred but its medium severity is model judgment.",
+      "artifactPointers": [
+        "finding:f-sample-dir"
+      ],
+      "sourceReferences": [
+        "ev-sample-call",
+        "ev-checkpoint",
+        "ev-sample-fn"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    }
+  ],
+  "usability": {
+    "dataOrigin": {
+      "status": "clear",
+      "answer": "Data path, transforms, and loader settings are detailed.",
+      "artifactPointers": [
+        "node:loader"
+      ],
+      "humanDecision": null
+    },
+    "updatedParametersAndFitState": {
+      "status": "clear",
+      "answer": "Optimizer construction, zeroing, backwards, and update sequence are explicit.",
+      "artifactPointers": [
+        "node:opt-g",
+        "node:opt-d",
+        "node:d-step",
+        "node:g-step"
+      ],
+      "humanDecision": null
+    },
+    "losses": {
+      "status": "clear",
+      "answer": "All three BCE uses and their targets are explicit.",
+      "artifactPointers": [
+        "node:d-loss-real",
+        "node:d-loss-fake",
+        "node:g-loss"
+      ],
+      "humanDecision": null
+    },
+    "evaluationBoundaries": {
+      "status": "clear",
+      "answer": "No holdout is claimed; fixed-noise sampling is separated as output.",
+      "artifactPointers": [
+        "node:loader",
+        "node:sample-grid"
+      ],
+      "humanDecision": null
+    },
+    "outputs": {
+      "status": "clear",
+      "answer": "Instantaneous logging, dead sums, images, checkpoints, and return behavior are distinguished.",
+      "artifactPointers": [
+        "node:accumulate",
+        "node:log",
+        "node:sample-grid",
+        "node:checkpoint"
+      ],
+      "humanDecision": null
+    },
+    "uncertainty": {
+      "status": "partial",
+      "answer": "Coverage is extensive, but some framework-derived gradient and synchronization claims are presented as observed or unconditional.",
+      "artifactPointers": [
+        "coverage",
+        "node:accumulate",
+        "edge:e-grad-lossg-netG"
+      ],
+      "humanDecision": null
+    }
+  },
+  "humanReview": null
+}

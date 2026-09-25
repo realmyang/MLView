@@ -16,9 +16,10 @@
  *      `styles/tokens.css` transcribed once. It serves jsdom, a mount before
  *      first paint, and any engine that declines to compute a custom property.
  *
- * The transcription is the drift risk, so it is gated: `test/export.test.mjs`
- * parses `dist/mlview.dev.css` and asserts every entry here is the last literal
- * in that token's declaration, for all three themes.
+ * The transcription is the drift risk, and no automated test checks it (the
+ * gate that did was removed with the analyzer, and `dist/mlview.dev.css` is no
+ * longer built): keep every entry equal to the last literal in that token's
+ * declaration in `styles/tokens.css`, for all three themes, by hand.
  */
 
 import type { ThemeKind } from '../types.js';

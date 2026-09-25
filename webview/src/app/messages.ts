@@ -9,11 +9,10 @@
  */
 
 import { dispatchHostMessage } from '../protocol.js';
-import { indexOverlay } from '../diff/overlay.js';
 import { regionFromHostWord } from '../export/actions.js';
-import { setDiff, setGraph } from './documents.js';
 import { renderChrome, renderRail } from './surfaces.js';
 import { runExport } from './exporting.js';
+import { onWorkflowStatus } from '../workflow.js';
 import { applyState } from './state.js';
 import type { App } from '../app.js';
 import type { HostToUi } from '../types.js';
@@ -26,19 +25,16 @@ export function onHostMessage(app: App, msg: HostToUi): void {
       renderChrome(app);
       renderRail(app);
     },
-    graph: (graph, preserve) => setGraph(app, graph, preserve, true),
-    analysisStarted: () => {
-      app.error = null;
-      app.showLoading(true);
-      renderChrome(app);
+    // One owner per frame (§1e): the host bootstrap mounts on the first
+    // `workflow` and ignores the rest; this listener applies every later one.
+    // A frame carrying the very document object already applied is dropped, so
+    // no path can render the same frame twice.
+    workflow: (document) => {
+      if (document === app.workflowDocument) return;
+      app.setWorkflow(document);
     },
-    analysisProgress: (done, total, file) => app.loading.progress(done, total, file),
-    analysisFailed: (message, detail, actions) => {
-      app.showLoading(false);
-      app.error = { message, detail, actions };
-      renderChrome(app);
-      app.announce('Analysis failed: ' + message);
-    },
+    workflowStatus: (codes) => onWorkflowStatus(app, codes),
+    actionResult: (result) => app.onActionResult(result),
     theme: (kind) => app.setTheme(kind),
     revealNode: (nodeId, center) => app.focusNode(nodeId, { center, pulse: true }),
     revealIssue: (issueId) => app.focusIssue(issueId),
@@ -46,14 +42,6 @@ export function onHostMessage(app: App, msg: HostToUi): void {
       if (codes) app.filters.setCodes(codes);
       app.setFilters({ severities: severities ? severities.slice() : undefined });
       if (typeof query === 'string') app.search.setQuery(query);
-    },
-    stale: (changedFiles) => {
-      app.stale = changedFiles.slice();
-      app.view.setStale(app.stale);
-      app.dismissed.delete('stale');
-      renderChrome(app);
-      app.view.render();
-      app.view.applySelection(app.selection);
     },
     restoreState: (state) => applyState(app, state, true),
     setScope: (spec, depth) => app.setScope(spec, depth === undefined ? undefined : { depth }),
@@ -63,18 +51,6 @@ export function onHostMessage(app: App, msg: HostToUi): void {
     requestExport: (kind, scope) => {
       app.exportMenu.setRegion(regionFromHostWord(scope));
       runExport(app, kind === 'png' ? 'png' : 'svg');
-    },
-    // VIEW-08: an optional sibling document. A malformed one is not an error
-    // and not a crash — `indexOverlay` hands back null and the diagram stays
-    // exactly as it was (invariant 1.1/6 over a second document).
-    diffOverlay: (raw, baseLabel) => {
-      const next = raw === null || raw === undefined ? null : indexOverlay(raw);
-      if (raw !== null && raw !== undefined && !next) {
-        app.bridge.post({ v: 1, type: 'log', level: 'warn', message: 'ignored an unreadable diff overlay' });
-        return;
-      }
-      app.diffBaseLabel = next ? baseLabel || '' : '';
-      setDiff(app, next);
     },
     onUnknown: (type) =>
       app.bridge.post({ v: 1, type: 'log', level: 'debug', message: 'ignored unknown message type: ' + type }),

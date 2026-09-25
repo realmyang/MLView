@@ -1,0 +1,95 @@
+{
+  "id": "evidence-004-owned-evidence-long-s-alias",
+  "findings": [
+    "SECURITY2-1"
+  ],
+  "description": "Evidence spelled .claude/\u017fkills/mlview/SKILL.md (U+017F long s) is MLView-owned: case-insensitive volumes such as APFS resolve it to the installed skill file. Both layers reject it lexically, even though the file exists and the quote matches; before SECURITY2-1 the helper published it and the extension rejected it after realpath.",
+  "files": {
+    "train.py": {
+      "text": "def train():\n"
+    },
+    ".claude/\u017fkills/mlview/SKILL.md": {
+      "text": "# MLView\n"
+    }
+  },
+  "artifact": "workflow.mlview.json",
+  "document": {
+    "workflowVersion": "1.0",
+    "title": "Training",
+    "producer": {
+      "kind": "host-llm",
+      "host": "codex"
+    },
+    "revision": {
+      "id": "r1"
+    },
+    "request": {
+      "question": "Explain training",
+      "scope": "train.py"
+    },
+    "phases": [
+      {
+        "id": "p",
+        "label": "Train"
+      }
+    ],
+    "nodes": [
+      {
+        "id": "n",
+        "label": "Train",
+        "phase": "p",
+        "basis": "observed",
+        "evidence": [
+          "ev",
+          "ev-owned"
+        ]
+      }
+    ],
+    "edges": [],
+    "findings": [],
+    "evidence": [
+      {
+        "id": "ev",
+        "file": "train.py",
+        "line": 1,
+        "endLine": 1,
+        "quote": "def train():"
+      },
+      {
+        "id": "ev-owned",
+        "file": ".claude/\u017fkills/mlview/SKILL.md",
+        "line": 1,
+        "endLine": 1,
+        "quote": "# MLView"
+      }
+    ],
+    "coverage": {
+      "status": "scoped",
+      "summary": "Inspected entrypoint",
+      "inspectedFiles": [
+        "train.py"
+      ],
+      "limitations": []
+    }
+  },
+  "expect": {
+    "schema": "valid",
+    "helper": {
+      "ok": false,
+      "codes": [
+        "excluded_evidence"
+      ],
+      "warnings": [],
+      "fingerprints": null,
+      "stale": []
+    },
+    "extension": {
+      "ok": false,
+      "stale": [],
+      "issuePaths": [
+        "$.evidence[1].file"
+      ]
+    }
+  },
+  "divergence": null
+}

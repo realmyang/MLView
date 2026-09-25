@@ -20,7 +20,7 @@ import { chooserRows, shouldAskPipeline } from '../ui/pipelinechooser.js';
 import { renderChrome, renderRail } from './surfaces.js';
 import type { DiffIndex } from '../diff/overlay.js';
 import type { App } from '../app.js';
-import type { MLGraph, ScopeSummary, ViewState } from '../types.js';
+import type { MLGraph, ScopeSummary, ViewState, Viewport } from '../types.js';
 
 /* ── graph + layout ──────────────────────────────────────────────────── */
 
@@ -64,8 +64,9 @@ export function setGraph(app: App, graph: MLGraph, preserve?: Partial<ViewState>
   app.pendingScope = null;
   // A drained scope announces, posts and persists through `afterScopeChange`,
   // so it needs no second post; anything else that moved the host's view of
-  // the scope does.
-  if (pending && drainScope(app, pending)) return;
+  // the scope does. A viewport restored with the scope (webview recreation,
+  // VIEWUI-3) belongs to the scoped view, so the drain applies it too.
+  if (pending && drainScope(app, pending, preserve && preserve.viewport ? preserve.viewport : undefined)) return;
   if (before && !sameScope(before, app.scopes.summary())) postScopeChanged(app);
   // MLV-P12: after the document is drawn and any pending scope has drained,
   // so a reader who already has a scope is never asked which pipeline to open.
@@ -81,7 +82,7 @@ export function setGraph(app: App, graph: MLGraph, preserve?: Partial<ViewState>
  * left standing as an empty diagram the user never asked for. Returns true when
  * it applied the scope and therefore already posted `scopeChanged`.
  */
-function drainScope(app: App, pending: { spec: string; depth?: number }): boolean {
+function drainScope(app: App, pending: { spec: string; depth?: number }, viewport?: Viewport): boolean {
   const result = app.scopes.set(pending.spec, pending.depth);
   if (!result.ok) {
     const error = result.error;
@@ -93,7 +94,7 @@ function drainScope(app: App, pending: { spec: string; depth?: number }): boolea
     app.view.toast('Scope no longer matches — cleared');
     return false;
   }
-  afterScopeChange(app);
+  afterScopeChange(app, viewport);
   return true;
 }
 
@@ -124,6 +125,9 @@ export function applyProjection(app: App, preserve?: Partial<ViewState>, announc
   if (preserve && preserve.selection !== undefined) app.selection = preserve.selection;
   if (app.selection && app.selection.kind === 'node' && !known.has(app.selection.id)) app.selection = null;
   if (app.selection && app.selection.kind === 'edge' && !index.edgeById.has(app.selection.id)) app.selection = null;
+  // VIEWUI-15: a finding the new revision removed is not a selection either,
+  // or the Inspector goes blank and the composer posts a stale id.
+  if (app.selection && app.selection.kind === 'issue' && !index.issueById.has(app.selection.id)) app.selection = null;
 
   app.view.relayout();
   const vp = preserve && preserve.viewport ? preserve.viewport : null;
@@ -134,11 +138,11 @@ export function applyProjection(app: App, preserve?: Partial<ViewState>, announc
   app.view.applySelection(app.selection);
   if (announce) {
     app.announce(
-      'Analysis loaded: ' +
+      'Workflow loaded: ' +
         graph.nodes.length +
         ' nodes, ' +
         graph.issues.length +
-        ' issues, ' +
+        ' findings, ' +
         graph.stats.issues.high +
         ' high severity.',
     );
@@ -202,20 +206,26 @@ export function stepDepth(app: App, delta: number): void {
   afterScopeChange(app);
 }
 
-/** The Inspector's "Scope to this unit / step". */
+/**
+ * The Inspector's "Scope to this unit / step". An authored node is scoped by
+ * its stable id, never by its label: labels are free text and may repeat
+ * (VIEWUI-7). `resolveUnit` matches the id first.
+ */
 export function scopeToNode(app: App, nodeId: string): void {
   const node = app.fullIndex ? app.fullIndex.nodeById.get(nodeId) : null;
   if (!node) return;
-  app.setScope('unit:' + node.qualname);
+  const authored = !!app.scopes.full && app.scopes.full.schemaVersion === 'workflow-view/1';
+  app.setScope('unit:' + (authored ? node.id : node.qualname));
 }
 
 /**
  * Applied, announced, posted and persisted. A scope change is LOCAL: it never
  * posts `requestRefresh` and never reaches the analyzer (CONTRACTS 11.8).
  */
-function afterScopeChange(app: App): void {
+function afterScopeChange(app: App, viewport?: Viewport): void {
   syncCollapsed(app);
-  applyProjection(app);
+  // Only a drained, restored scope passes a viewport; every user gesture refits.
+  applyProjection(app, viewport ? { viewport } : undefined);
   const summary = postScopeChanged(app);
   app.announce(
     summary.spec
@@ -259,6 +269,10 @@ function maybeOpenPipelineChooser(app: App): void {
   if (app.pipelineChosen || app.chooser.open) return;
   const graph = app.scopes.full;
   if (!graph || app.scopes.spec || app.pendingScope) return;
+  // VIEWUI-5. Authored entrypoints are chosen by the user, not ranked by a
+  // heuristic, and pipelines are not part of the WorkflowDocument contract, so
+  // an authored document never gets the chooser or its analyzer caveats.
+  if (graph.schemaVersion === 'workflow-view/1') return;
   const rows = pipelineRows(graph);
   // VIEW-R5. Two or more rows is not enough to earn a modal over the first
   // paint: `workspace.entrypoints` is a ranked heuristic, so on the 54-node

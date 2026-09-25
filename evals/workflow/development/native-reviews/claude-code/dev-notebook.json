@@ -1,0 +1,249 @@
+{
+  "task": "dev-notebook",
+  "artifact": "evals/workflow/development/native-artifacts/claude-code/dev-notebook.mlview.json",
+  "artifactSha256": "d66dfe36ea0b78fbd5500e495b8b27013db97be6ac16e8b3754d40c07b75a660",
+  "artifactRevision": "rev-20260917-leak-out-of-order-1",
+  "artifactRequest": {
+    "configuration": "The notebook has no config file, parameters, or launch arguments. Primary scenario: top-to-bottom execution in source order (what Restart & Run All would do) with the literals hard-coded in the cells: relative path features.npz, test_size=0.2, random_state=0, Linear(10, 3), lr=0.001, batch_size=32, one pass over the loader. Alternative scenario, kept separate: the saved execution_count record (cell 0 = 1, cell 2 = 2, cell 1 = 3, cell 3 = 4). Neither scenario was executed for this analysis.",
+    "entrypoints": [
+      "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb"
+    ],
+    "question": "Explain the notebook workflow with exact cell citations. Separate source order from recorded execution order and qualify any finding whose interpretation depends on runtime state.",
+    "scope": "Single notebook analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb (4 code cells), read statically. Two orderings are kept separate: source order (cell 0 → 1 → 2 → 3, edges of kind source-order) and the saved execution_count record (cell 0 → 2 → 1 → 3, edges of kind recorded-order). Data-flow edges are name-based def-use read from the cell source; cross-cell flows are marked inferred because they depend on kernel state."
+  },
+  "host": "claude-code",
+  "reviewerType": "model-provisional",
+  "reviewStatus": "pending-human-review",
+  "reviewEvidence": [
+    {
+      "id": "nb-count-0",
+      "file": "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb",
+      "jsonPointer": "/cells/0/execution_count",
+      "value": 1
+    },
+    {
+      "id": "nb-count-1",
+      "file": "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb",
+      "jsonPointer": "/cells/1/execution_count",
+      "value": 3
+    },
+    {
+      "id": "nb-count-2",
+      "file": "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb",
+      "jsonPointer": "/cells/2/execution_count",
+      "value": 2
+    },
+    {
+      "id": "nb-count-3",
+      "file": "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb",
+      "jsonPointer": "/cells/3/execution_count",
+      "value": 4
+    }
+  ],
+  "claims": [
+    {
+      "id": "source-and-recorded-order",
+      "verdict": "supported",
+      "summary": "Source order and saved-count order are separately represented, with recorded order explicitly treated as hypothetical metadata rather than executed history.",
+      "artifactPointers": [
+        "node:cell-0",
+        "node:cell-1",
+        "node:cell-2",
+        "node:cell-3",
+        "finding:finding-recorded-order-mismatch"
+      ],
+      "sourceReferences": [
+        "nb-count-0",
+        "nb-count-1",
+        "nb-count-2",
+        "nb-count-3"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "kernel-state-dependency",
+      "verdict": "supported",
+      "summary": "The artifact correctly explains that cell 2 reads X/y before their visible load under saved-count order and that success depends on unrecorded kernel state.",
+      "artifactPointers": [
+        "node:cell-2",
+        "edge:e-load-x",
+        "edge:e-load-y",
+        "finding:finding-recorded-order-mismatch"
+      ],
+      "sourceReferences": [
+        "ev-c1-load",
+        "ev-c2-all"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "full-data-scaling",
+      "verdict": "qualified",
+      "summary": "The source directly proves fit_transform(X) precedes the split; the interpretation as leakage relies on StandardScaler semantics, which coverage discloses.",
+      "artifactPointers": [
+        "node:fit-scale",
+        "finding:finding-scaler-fit-before-split"
+      ],
+      "sourceReferences": [
+        "ev-c2-all"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "unused-holdout",
+      "verdict": "supported",
+      "summary": "It correctly identifies X_test/y_test as bound but never read and states that no evaluation, metric, prediction, or saving follows.",
+      "artifactPointers": [
+        "node:heldout-unused",
+        "node:cell-3"
+      ],
+      "sourceReferences": [
+        "ev-c2-all",
+        "ev-c3-all"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "gradient-accumulation",
+      "verdict": "qualified",
+      "summary": "Missing zero_grad is source-observed, while accumulation behavior is framework knowledge; the finding and backward node overstate the behavioral conclusion as observed.",
+      "artifactPointers": [
+        "node:backward",
+        "finding:finding-no-zero-grad"
+      ],
+      "sourceReferences": [
+        "ev-c3-all"
+      ],
+      "failureTypes": [
+        "unqualified-inference"
+      ],
+      "humanDecision": null
+    },
+    {
+      "id": "data-contract",
+      "verdict": "supported",
+      "summary": "Absent features.npz leaves shape, dtype, row count, labels, and runtime compatibility unresolved.",
+      "artifactPointers": [
+        "node:load-npz",
+        "node:forward",
+        "finding:finding-data-contract-unresolved"
+      ],
+      "sourceReferences": [
+        "ev-c1-load",
+        "ev-c3-all"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "single-pass-training",
+      "verdict": "supported",
+      "summary": "There is one DataLoader loop with no enclosing epoch loop, and the forward, loss, backward, and step call order is accurately shown.",
+      "artifactPointers": [
+        "node:train-loop",
+        "node:forward",
+        "node:loss",
+        "node:backward",
+        "node:optimizer-step"
+      ],
+      "sourceReferences": [
+        "ev-c3-all"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "next-batch-edge",
+      "verdict": "qualified",
+      "summary": "The loop-back to a next batch is conditional on the loader yielding another batch; row count is unknown, so a second iteration is not source-established.",
+      "artifactPointers": [
+        "edge:e-loop-back"
+      ],
+      "sourceReferences": [
+        "ev-c1-load",
+        "ev-c3-all"
+      ],
+      "failureTypes": [
+        "unqualified-inference"
+      ],
+      "humanDecision": null
+    },
+    {
+      "id": "environment-setup",
+      "verdict": "supported",
+      "summary": "The IPython magic, unpinned pip install, and the fact sklearn is imported before that install are accurately described with runtime qualification.",
+      "artifactPointers": [
+        "node:env-setup",
+        "node:cell-0"
+      ],
+      "sourceReferences": [
+        "ev-c1-load"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    }
+  ],
+  "usability": {
+    "dataOrigin": {
+      "status": "clear",
+      "answer": "features.npz, relative-path behavior, and missing data contract are explicit.",
+      "artifactPointers": [
+        "node:load-npz",
+        "finding:finding-data-contract-unresolved"
+      ],
+      "humanDecision": null
+    },
+    "updatedParametersAndFitState": {
+      "status": "clear",
+      "answer": "Scaler fitting, Adam ownership, backward, stepping, and missing zeroing are shown.",
+      "artifactPointers": [
+        "node:fit-scale",
+        "node:build-model",
+        "node:backward",
+        "node:optimizer-step"
+      ],
+      "humanDecision": null
+    },
+    "losses": {
+      "status": "clear",
+      "answer": "Cross-entropy on outputs and labels is explicit.",
+      "artifactPointers": [
+        "node:loss"
+      ],
+      "humanDecision": null
+    },
+    "evaluationBoundaries": {
+      "status": "clear",
+      "answer": "The 80/20 split, unused holdout, and absent evaluation are prominent.",
+      "artifactPointers": [
+        "node:split",
+        "node:heldout-unused"
+      ],
+      "humanDecision": null
+    },
+    "outputs": {
+      "status": "clear",
+      "answer": "The artifact states that no metric, display, model, checkpoint, or other persisted result is produced.",
+      "artifactPointers": [
+        "node:cell-3",
+        "node:heldout-unused"
+      ],
+      "humanDecision": null
+    },
+    "uncertainty": {
+      "status": "clear",
+      "answer": "Kernel history, saved counters, data contract, and library-semantic assumptions are disclosed; the conditional next-batch edge is the remaining overstatement.",
+      "artifactPointers": [
+        "finding:finding-recorded-order-mismatch",
+        "finding:finding-data-contract-unresolved",
+        "coverage"
+      ],
+      "humanDecision": null
+    }
+  },
+  "humanReview": null
+}

@@ -1,0 +1,116 @@
+{
+  "id": "freshness-007-unkeyed-inspected-file-verified",
+  "findings": [
+    "CONTRACT-9",
+    "CONTRACT-8"
+  ],
+  "description": "A verified document lists an existing inspected-only file without a fingerprint (only a hand edit produces this). The helper fingerprints it; the viewer checks published freshness only for fingerprinted files, so its fingerprint map omits it.",
+  "files": {
+    "train.py": {
+      "text": "def train():\n    pass\n"
+    },
+    "notes.md": {
+      "text": "notes\n"
+    }
+  },
+  "artifact": "workflow.mlview.json",
+  "document": {
+    "workflowVersion": "1.0",
+    "title": "Training",
+    "producer": {
+      "kind": "host-llm",
+      "host": "codex"
+    },
+    "revision": {
+      "id": "r1"
+    },
+    "request": {
+      "question": "Explain training",
+      "scope": "train.py"
+    },
+    "phases": [
+      {
+        "id": "p",
+        "label": "Train"
+      }
+    ],
+    "nodes": [
+      {
+        "id": "n",
+        "label": "Train",
+        "phase": "p",
+        "basis": "observed",
+        "evidence": [
+          "ev"
+        ]
+      }
+    ],
+    "edges": [],
+    "findings": [],
+    "evidence": [
+      {
+        "id": "ev",
+        "file": "train.py",
+        "line": 1,
+        "endLine": 1,
+        "quote": "def train():"
+      }
+    ],
+    "coverage": {
+      "status": "scoped",
+      "summary": "Inspected entrypoint",
+      "inspectedFiles": [
+        "train.py",
+        "notes.md"
+      ],
+      "limitations": []
+    },
+    "verification": {
+      "files": {
+        "train.py": {
+          "$sha256": {
+            "text": "def train():\n    pass\n"
+          }
+        }
+      },
+      "publishedAt": "2026-09-25T00:00:00Z"
+    }
+  },
+  "expect": {
+    "schema": "valid",
+    "helper": {
+      "ok": true,
+      "codes": [],
+      "warnings": [],
+      "fingerprints": {
+        "notes.md": {
+          "$sha256": {
+            "text": "notes\n"
+          }
+        },
+        "train.py": {
+          "$sha256": {
+            "text": "def train():\n    pass\n"
+          }
+        }
+      },
+      "stale": []
+    },
+    "extension": {
+      "ok": true,
+      "stale": [],
+      "issuePaths": []
+    }
+  },
+  "divergence": {
+    "layers": [
+      "helper",
+      "extension"
+    ],
+    "findings": [
+      "CONTRACT-9"
+    ],
+    "status": "accepted",
+    "note": "Accepted class 2: an inspected-only file without a fingerprint inside a verified document is not touched by the viewer. Here the file exists, so both layers accept the document and only their fingerprint maps differ (P2)."
+  }
+}

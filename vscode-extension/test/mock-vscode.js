@@ -8,6 +8,7 @@
  */
 
 const path = require('node:path');
+const fs = require('node:fs');
 
 class Position {
   constructor(line, character) {
@@ -30,6 +31,12 @@ class Range {
 
 class Selection extends Range {}
 
+/**
+ * EXT-8: real `Uri.fsPath` lower-cases a Windows drive letter while Node's realpath keeps the
+ * canonical upper-case one. Off by default; `__setLowercaseDriveLetters(true)` opts in.
+ */
+let lowercaseDriveLetters = false;
+
 class Uri {
   constructor(fsPath, scheme = 'file') {
     this.fsPath = fsPath;
@@ -37,7 +44,9 @@ class Uri {
     this.path = fsPath.replace(/\\/g, '/');
   }
   static file(p) {
-    return new Uri(p);
+    let value = String(p);
+    if (lowercaseDriveLetters && /^[A-Za-z]:/.test(value)) value = value[0].toLowerCase() + value.slice(1);
+    return new Uri(value);
   }
   static parse(value) {
     return new Uri(value, value.split(':')[0] || 'file');
@@ -250,6 +259,13 @@ const recorded = {
   saveDialogs: [],
   quickPicks: [],
   writtenFiles: [],
+  /** Every showTextDocument call: {document, options, editor}; the editor records selection and revealRange. */
+  shownDocuments: [],
+  clipboardWrites: [],
+  /** EXT-8: every live createFileSystemWatcher: {glob, change, create, delete} listener lists. */
+  watchers: [],
+  /** EXT-8: workspace.onDidChangeNotebookDocument listeners. */
+  notebookChangeListeners: [],
   /** CFG-ONE: every workspace.getConfiguration(...).update() call. */
   configUpdates: [],
   /** H10: every languages.registerCodeLensProvider registration. */
@@ -269,6 +285,8 @@ let fsWriteError;
 const documents = new Map();
 /** H5: the subset of those with unsaved edits, set by `__setDirty`. */
 const dirtyDocuments = new Set();
+/** EXT-8: open notebooks with unsaved edits, keyed like documents, set by `__setNotebookDirty`. */
+const dirtyNotebooks = new Set();
 
 /**
  * One key for one file, whatever spelling reaches us.
@@ -293,6 +311,8 @@ function docKey(fsPath) {
  * reason `src/notebooks.ts` exists at all.
  */
 let notebookDocuments = [];
+let visibleTextEditors = [];
+let visibleNotebookEditors = [];
 
 const NotebookCellKind = { Markup: 1, Code: 2 };
 
@@ -315,7 +335,9 @@ function makeNotebook(fsPath, cells) {
       document: {
         uri: cellUri,
         languageId: kind === NotebookCellKind.Code ? 'python' : 'markdown',
-        lineCount: cell.lines === undefined ? 20 : cell.lines
+        lineCount: typeof cell.lines === 'number' ? cell.lines : String(cell.text || '').split('\n').length,
+        getText: () => String(cell.text || ''),
+        lineAt: (line) => ({ text: String(cell.text || '').split('\n')[line] || '' })
       }
     };
   });
@@ -323,8 +345,15 @@ function makeNotebook(fsPath, cells) {
     uri,
     notebookType: 'jupyter-notebook',
     cellCount: built.length,
+    get isDirty() {
+      return dirtyNotebooks.has(docKey(fsPath));
+    },
     getCells: () => built,
-    cellAt: (index) => built[index]
+    // EXT-9: VS Code clamps the index into [0, cellCount - 1] and throws on an empty notebook.
+    cellAt: (index) => {
+      if (built.length === 0) throw new TypeError('Cannot read properties of undefined (reading \'apiCell\')');
+      return built[Math.min(Math.max(0, index), built.length - 1)];
+    }
   };
   for (const cell of built) {
     cell.notebook = notebook;
@@ -334,7 +363,7 @@ function makeNotebook(fsPath, cells) {
 
 function makeDocument(uri) {
   const key = docKey(uri && uri.fsPath ? uri.fsPath : uri);
-  const text = documents.get(key);
+  const text = documents.get(key) ?? (fs.existsSync(key) && fs.statSync(key).isFile() ? fs.readFileSync(key, 'utf8') : undefined);
   if (text === undefined) {
     return { uri, lineCount: 400, languageId: 'python', isDirty: false, getText: () => '' };
   }
@@ -368,6 +397,7 @@ function makeWebviewPanel(viewType, title, showOptions, options) {
     viewType,
     title,
     options,
+    viewColumn: typeof showOptions === 'object' ? showOptions.viewColumn : showOptions,
     posted: [],
     revealed: 0,
     disposed: false,
@@ -427,6 +457,12 @@ const vscode = {
   ConfigurationTarget: { Global: 1, Workspace: 2, WorkspaceFolder: 3 },
   window: {
     activeTextEditor: undefined,
+    get visibleTextEditors() {
+      return visibleTextEditors;
+    },
+    get visibleNotebookEditors() {
+      return visibleNotebookEditors;
+    },
     activeColorTheme: { kind: 2 },
     createOutputChannel(name) {
       const channel = { name, lines: [], appendLine: (l) => channel.lines.push(l), show() {}, dispose() {} };
@@ -488,11 +524,21 @@ const vscode = {
       recorded.saveDialogs.push(options);
       return saveDialogAnswers.length ? saveDialogAnswers.shift() : undefined;
     },
-    showTextDocument: async () => ({
-      setDecorations() {},
-      revealRange() {},
-      selection: undefined
-    }),
+    showTextDocument: async (document, options) => {
+      const editor = {
+        document,
+        viewColumn: options && options.viewColumn,
+        setDecorations() {},
+        /** EXT-8: every revealRange(range, revealType) call, in order. */
+        revealed: [],
+        revealRange(range, revealType) {
+          editor.revealed.push({ range, revealType });
+        },
+        selection: undefined
+      };
+      recorded.shownDocuments.push({ document, options, editor });
+      return editor;
+    },
     setStatusBarMessage: () => ({ dispose() {} }),
     withProgress: async (_options, task) => task({ report() {} }, { isCancellationRequested: false }),
     createTerminal: () => ({ show() {}, sendText() {}, dispose() {} })
@@ -524,11 +570,19 @@ const vscode = {
         }
       };
     },
+    // EXT-10: like VS Code, the innermost folder that contains the path on a separator boundary.
     getWorkspaceFolder: (uri) => {
       const target = String(uri && uri.path).toLowerCase();
-      return (workspaceFolders || []).find((folder) =>
-        target.startsWith(folder.uri.path.toLowerCase())
-      );
+      let best;
+      let bestLength = -1;
+      for (const folder of workspaceFolders || []) {
+        const root = folder.uri.path.toLowerCase().replace(/\/+$/, '');
+        if ((target === root || target.startsWith(root + '/')) && root.length > bestLength) {
+          best = folder;
+          bestLength = root.length;
+        }
+      }
+      return best;
     },
     openTextDocument: async (uri) => makeDocument(uri),
     applyEdit: async (edit, metadata) => {
@@ -558,11 +612,34 @@ const vscode = {
     get notebookDocuments() {
       return notebookDocuments;
     },
+    get textDocuments() {
+      // Keys use '/' (docKey); a real Uri.file(...).fsPath is native, so normalise for Windows.
+      return [...documents.keys()].map((file) => makeDocument(Uri.file(path.normalize(file))));
+    },
+    openNotebookDocument: async (uri) => {
+      const found = notebookDocuments.find((doc) => doc.uri.fsPath === uri.fsPath);
+      if (!found) throw new Error(`notebook is not open: ${uri.fsPath}`);
+      return found;
+    },
     onDidSaveTextDocument: recordingEvent(recorded.saveListeners),
     onDidSaveNotebookDocument: recordingEvent(recorded.notebookSaveListeners),
     onDidChangeTextDocument: recordingEvent(recorded.changeListeners),
+    onDidChangeNotebookDocument: recordingEvent(recorded.notebookChangeListeners),
     onDidChangeWorkspaceFolders: recordingEvent(recorded.folderListeners),
     onDidChangeConfiguration: recordingEvent(recorded.configListeners),
+    createFileSystemWatcher: (glob) => {
+      const watcher = { glob, change: [], create: [], delete: [] };
+      recorded.watchers.push(watcher);
+      return {
+        onDidChange: recordingEvent(watcher.change),
+        onDidCreate: recordingEvent(watcher.create),
+        onDidDelete: recordingEvent(watcher.delete),
+        dispose() {
+          const at = recorded.watchers.indexOf(watcher);
+          if (at >= 0) recorded.watchers.splice(at, 1);
+        }
+      };
+    },
     fs: {
       stat: async () => ({ type: 1 }),
       // VIEW-07: the bytes the host wrote, kept verbatim so a test can assert the FILE and
@@ -610,7 +687,7 @@ const vscode = {
     executeCommand: async () => undefined
   },
   env: {
-    clipboard: { writeText: async () => undefined },
+    clipboard: { writeText: async (value) => void recorded.clipboardWrites.push(value) },
     openExternal: async () => true
   },
   extensions: { getExtension: () => undefined },
@@ -644,6 +721,21 @@ const vscode = {
     notebookDocuments = (specs || []).map((spec) => makeNotebook(spec.path, spec.cells || []));
     return notebookDocuments;
   },
+  __setVisibleTextEditors(specs) {
+    visibleTextEditors = (specs || []).map((spec) => ({
+      document: makeDocument(Uri.file(spec.path)),
+      viewColumn: spec.viewColumn
+    }));
+    vscode.window.activeTextEditor = visibleTextEditors.find(editor => editor.viewColumn === specs?.find(spec => spec.active)?.viewColumn);
+    return visibleTextEditors;
+  },
+  __setVisibleNotebookEditors(specs) {
+    visibleNotebookEditors = (specs || []).map((spec) => ({
+      notebook: notebookDocuments.find(notebook => notebook.uri.fsPath === spec.path),
+      viewColumn: spec.viewColumn
+    }));
+    return visibleNotebookEditors;
+  },
   /** Give `openTextDocument` real text for one absolute path. */
   __setDocument(fsPath, text) {
     documents.set(docKey(fsPath), text);
@@ -659,6 +751,27 @@ const vscode = {
     } else {
       dirtyDocuments.delete(key);
     }
+  },
+  /** EXT-8: mark an open notebook (by its path) as having unsaved changes. */
+  __setNotebookDirty(fsPath, dirty = true) {
+    const key = docKey(fsPath);
+    if (dirty) {
+      dirtyNotebooks.add(key);
+    } else {
+      dirtyNotebooks.delete(key);
+    }
+  },
+  /** EXT-8: fire a file-system watcher event (`change`, `create` or `delete`) for one path. */
+  __fireWatcher(kind, fsPath) {
+    if (!['change', 'create', 'delete'].includes(kind)) throw new Error(`unknown watcher event: ${kind}`);
+    const uri = Uri.file(fsPath);
+    for (const watcher of [...recorded.watchers]) {
+      for (const listener of [...watcher[kind]]) listener(uri);
+    }
+  },
+  /** EXT-8: make Uri.file lower-case a Windows drive letter, as vscode-uri's fsPath does. */
+  __setLowercaseDriveLetters(enabled = true) {
+    lowercaseDriveLetters = !!enabled;
   },
   __setConfig(section, key, value, resource) {
     const scope = resource ? `${String(resource).replace(/\\/g, '/').toLowerCase()}|` : '';
@@ -705,6 +818,8 @@ const vscode = {
     recorded.saveDialogs.length = 0;
     recorded.quickPicks.length = 0;
     recorded.writtenFiles.length = 0;
+    recorded.shownDocuments.length = 0;
+    recorded.clipboardWrites.length = 0;
     recorded.configUpdates.length = 0;
     recorded.codeLensProviders.length = 0;
     saveDialogAnswers.length = 0;
@@ -715,10 +830,17 @@ const vscode = {
     messageAnswers.length = 0;
     documents.clear();
     dirtyDocuments.clear();
+    dirtyNotebooks.clear();
+    recorded.watchers.length = 0;
+    recorded.notebookChangeListeners.length = 0;
+    lowercaseDriveLetters = false;
     recorded.tools.clear();
     recorded.participants.length = 0;
     recorded.serializers.clear();
     notebookDocuments = [];
+    visibleTextEditors = [];
+    visibleNotebookEditors = [];
+    vscode.window.activeTextEditor = undefined;
     for (const key of [
       'saveListeners',
       'notebookSaveListeners',

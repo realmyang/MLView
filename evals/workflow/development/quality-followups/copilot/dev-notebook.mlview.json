@@ -1,0 +1,281 @@
+{
+  "coverage": {
+    "inspectedFiles": [
+      "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb"
+    ],
+    "limitations": [
+      "No execution counts or outputs are recorded, so execution order and successful completion are unresolved.",
+      "features.npz was not inspected and the notebook was not imported or executed.",
+      "Label dtype, tensor dtype compatibility, metric values, and saved artifacts are runtime-dependent and unverified.",
+      "No external or later evaluation phase was inspected beyond this entrypoint."
+    ],
+    "status": "scoped",
+    "summary": "Inspected the selected notebook source only, tracing data loading, preprocessing, splitting, model construction, objective, optimizer ownership, and the training loop."
+  },
+  "edges": [
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-cell-1"
+      ],
+      "id": "edge-imports-load",
+      "label": "provides imported NumPy API",
+      "source": "imports",
+      "target": "load-data"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-cell-2",
+        "ev-cell-3-scale"
+      ],
+      "id": "edge-load-scale",
+      "label": "X is scaled",
+      "source": "load-data",
+      "target": "scale-before-split"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-cell-3-scale",
+        "ev-cell-3-split"
+      ],
+      "id": "edge-scale-split",
+      "label": "X_scaled is split",
+      "source": "scale-before-split",
+      "target": "split-data"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-cell-3-split",
+        "ev-cell-4-construct"
+      ],
+      "id": "edge-split-construct",
+      "label": "training arrays build dataset",
+      "source": "split-data",
+      "target": "construct-training"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-cell-4-construct",
+        "ev-cell-4-loop"
+      ],
+      "id": "edge-construct-train",
+      "label": "loader and optimizer drive loop",
+      "source": "construct-training",
+      "target": "train-batches"
+    },
+    {
+      "basis": "unresolved",
+      "evidence": [],
+      "id": "edge-train-eval",
+      "label": "no inspected evaluation path",
+      "source": "train-batches",
+      "target": "evaluation-unknown"
+    }
+  ],
+  "evidence": [
+    {
+      "cell": 0,
+      "endLine": 7,
+      "file": "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb",
+      "id": "ev-cell-1",
+      "line": 1,
+      "quote": "import numpy as np\nimport torch\nimport torch.nn as nn\nimport torch.optim as optim\nfrom torch.utils.data import DataLoader, TensorDataset\nfrom sklearn.model_selection import train_test_split\nfrom sklearn.preprocessing import StandardScaler"
+    },
+    {
+      "cell": 1,
+      "endLine": 5,
+      "file": "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb",
+      "id": "ev-cell-2",
+      "line": 2,
+      "quote": "!pip install --quiet scikit-learn\nraw = np.load(\"features.npz\")\nX = raw[\"features\"]\ny = raw[\"labels\"]"
+    },
+    {
+      "cell": 2,
+      "endLine": 2,
+      "file": "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb",
+      "id": "ev-cell-3-scale",
+      "line": 1,
+      "quote": "scaler = StandardScaler()\nX_scaled = scaler.fit_transform(X)"
+    },
+    {
+      "cell": 2,
+      "endLine": 4,
+      "file": "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb",
+      "id": "ev-cell-3-split",
+      "line": 3,
+      "quote": "X_train, X_test, y_train, y_test = train_test_split(\n    X_scaled, y, test_size=0.2, random_state=0)"
+    },
+    {
+      "cell": 3,
+      "endLine": 5,
+      "file": "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb",
+      "id": "ev-cell-4-construct",
+      "line": 1,
+      "quote": "model = nn.Sequential(nn.Linear(10, 3))\ncriterion = nn.CrossEntropyLoss()\noptimizer = optim.Adam(model.parameters(), lr=0.001)\nds = TensorDataset(torch.tensor(X_train), torch.tensor(y_train))\ntrain_loader = DataLoader(ds, batch_size=32, shuffle=True)"
+    },
+    {
+      "cell": 3,
+      "endLine": 10,
+      "file": "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb",
+      "id": "ev-cell-4-loop",
+      "line": 6,
+      "quote": "for features, labels in train_loader:\n    outputs = model(features)\n    loss = criterion(outputs, labels)\n    loss.backward()\n    optimizer.step()"
+    }
+  ],
+  "findings": [
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-cell-3-scale",
+        "ev-cell-3-split"
+      ],
+      "id": "finding-preprocessing-leakage",
+      "message": "StandardScaler.fit_transform(X) precedes train_test_split, so test rows contribute to the fitted preprocessing state. This is data leakage if X_test is intended to represent unseen data. The finding is about the source wiring; no metric impact is claimed without runtime results.",
+      "nodeIds": [
+        "scale-before-split",
+        "split-data"
+      ],
+      "severity": "high",
+      "title": "Scaler is fit before the train/test split"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-cell-4-loop"
+      ],
+      "id": "finding-gradient-reset",
+      "message": "The loop calls loss.backward() and optimizer.step() but does not call optimizer.zero_grad() or model.zero_grad(). In standard PyTorch semantics, gradients accumulate across batches, which changes the intended per-batch update unless accumulation is deliberate. The exact runtime outcome remains unverified because the notebook was not executed.",
+      "nodeIds": [
+        "train-batches"
+      ],
+      "severity": "medium",
+      "title": "The batch loop does not clear gradients"
+    },
+    {
+      "basis": "unresolved",
+      "evidence": [],
+      "id": "finding-execution-order-unknown",
+      "message": "The inspected notebook representation contains source cells and VS Code cell IDs but no execution_count metadata or recorded outputs. Therefore source order can be cited, but a successful execution order, whether cells were rerun, and whether state came from a prior run are unresolved.",
+      "nodeIds": [
+        "evaluation-unknown"
+      ],
+      "severity": "medium",
+      "title": "Recorded execution order cannot be established"
+    }
+  ],
+  "nodes": [
+    {
+      "basis": "unresolved",
+      "detail": "Cell 1 imports NumPy, PyTorch, DataLoader/TensorDataset, train_test_split, and StandardScaler.",
+      "evidence": [
+        "ev-cell-1"
+      ],
+      "id": "imports",
+      "label": "Import ML and data utilities",
+      "phase": "setup"
+    },
+    {
+      "basis": "observed",
+      "detail": "Cell 2 loads features.npz and assigns raw features to X and labels to y. The file contents and runtime result were not inspected.",
+      "evidence": [
+        "ev-cell-2"
+      ],
+      "id": "load-data",
+      "label": "Load features and labels",
+      "phase": "setup"
+    },
+    {
+      "basis": "observed",
+      "detail": "Cell 3 calls scaler.fit_transform(X) before train_test_split, so the fitted preprocessing state is learned from rows later assigned to X_test.",
+      "evidence": [
+        "ev-cell-3-scale"
+      ],
+      "id": "scale-before-split",
+      "label": "Fit scaler and transform all rows",
+      "phase": "preprocess"
+    },
+    {
+      "basis": "observed",
+      "detail": "Cell 3 splits X_scaled and y into training and test variables with test_size=0.2 and random_state=0.",
+      "evidence": [
+        "ev-cell-3-split"
+      ],
+      "id": "split-data",
+      "label": "Create train and test arrays",
+      "phase": "preprocess"
+    },
+    {
+      "basis": "observed",
+      "detail": "Cell 4 constructs a single Linear layer, CrossEntropyLoss, Adam over model.parameters(), a TensorDataset from X_train/y_train, and a shuffled batch loader.",
+      "evidence": [
+        "ev-cell-4-construct"
+      ],
+      "id": "construct-training",
+      "label": "Construct model, objective, optimizer, and loader",
+      "phase": "train"
+    },
+    {
+      "basis": "observed",
+      "detail": "For each loader batch, the code computes outputs and loss, calls backward, then optimizer.step. No optimizer.zero_grad call appears in this loop; accumulated gradients therefore depend on framework behavior and prior loop state, while the missing reset is directly observed.",
+      "evidence": [
+        "ev-cell-4-loop"
+      ],
+      "id": "train-batches",
+      "label": "Backpropagate and step each batch",
+      "phase": "train"
+    },
+    {
+      "basis": "unresolved",
+      "detail": "No evaluation metric, test-set consumption, logging, or saved output is present in the selected notebook source. This is an absence in the inspected source, not proof that no later or external evaluation exists.",
+      "evidence": [],
+      "id": "evaluation-unknown",
+      "label": "Evaluation and saved outputs",
+      "phase": "eval"
+    }
+  ],
+  "phases": [
+    {
+      "id": "setup",
+      "label": "Setup and data loading"
+    },
+    {
+      "id": "preprocess",
+      "label": "Preprocessing and split"
+    },
+    {
+      "id": "train",
+      "label": "Model training"
+    },
+    {
+      "id": "eval",
+      "label": "Evaluation and outputs"
+    }
+  ],
+  "producer": {
+    "host": "copilot",
+    "kind": "host-llm"
+  },
+  "request": {
+    "configuration": "Notebook source as stored; no command-line overrides or runtime state selected. Source order is cells 1-4. The notebook has VS Code cell IDs but no execution counts, so recorded execution order is unavailable rather than inferred from cell IDs.",
+    "entrypoints": [
+      "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb"
+    ],
+    "question": "Explain the notebook workflow, separating source order from recorded execution order and qualifying runtime-dependent findings.",
+    "scope": "Single selected notebook entrypoint"
+  },
+  "revision": {
+    "id": "rev-leak-out-of-order-1"
+  },
+  "title": "Notebook training workflow with out-of-order execution uncertainty",
+  "verification": {
+    "files": {
+      "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb": "f3fa7e4837d70e93cb95c04f204d7c2f5701c5f53b1b6c4598abca5e22cb30f9"
+    },
+    "publishedAt": "2026-09-17T23:23:29.423685Z"
+  },
+  "workflowVersion": "1.0"
+}

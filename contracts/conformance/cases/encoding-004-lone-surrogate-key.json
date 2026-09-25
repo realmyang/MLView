@@ -1,0 +1,99 @@
+{
+  "id": "encoding-004-lone-surrogate-key",
+  "findings": [
+    "CONTRACT-4"
+  ],
+  "description": "An object key containing an unpaired surrogate escape (here a verification.files key) is rejected by the helper (text_encoding) and by the extension.",
+  "files": {
+    "train.py": {
+      "text": "def train():\n"
+    }
+  },
+  "artifact": "workflow.mlview.json",
+  "document": {
+    "workflowVersion": "1.0",
+    "title": "Training",
+    "producer": {
+      "kind": "host-llm",
+      "host": "codex"
+    },
+    "revision": {
+      "id": "r1"
+    },
+    "request": {
+      "question": "Explain training",
+      "scope": "train.py"
+    },
+    "phases": [
+      {
+        "id": "p",
+        "label": "Train"
+      }
+    ],
+    "nodes": [
+      {
+        "id": "n",
+        "label": "Train",
+        "phase": "p",
+        "basis": "observed",
+        "evidence": [
+          "ev"
+        ]
+      }
+    ],
+    "edges": [],
+    "findings": [],
+    "evidence": [
+      {
+        "id": "ev",
+        "file": "train.py",
+        "line": 1,
+        "endLine": 1,
+        "quote": "def train():"
+      }
+    ],
+    "coverage": {
+      "status": "scoped",
+      "summary": "Inspected entrypoint",
+      "inspectedFiles": [
+        "train.py"
+      ],
+      "limitations": []
+    },
+    "verification": {
+      "files": {
+        "train.py": {
+          "$sha256": {
+            "text": "def train():\n"
+          }
+        },
+        "notes/\udc00.md": {
+          "$sha256": {
+            "text": "notes\n"
+          }
+        }
+      },
+      "publishedAt": "2026-09-25T00:00:00Z"
+    }
+  },
+  "expect": {
+    "schema": "valid",
+    "helper": {
+      "ok": false,
+      "codes": [
+        "text_encoding"
+      ],
+      "warnings": [],
+      "fingerprints": null,
+      "stale": []
+    },
+    "extension": {
+      "ok": false,
+      "stale": [],
+      "issuePaths": [
+        "$.verification.files.notes/\udc00.md"
+      ]
+    }
+  },
+  "divergence": null
+}

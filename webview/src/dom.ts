@@ -2,11 +2,11 @@
  * DOM helpers. The renderer builds every element with document.createElement /
  * createElementNS / textContent — never a markup-string assignment (CONTRACTS
  * section 8, "non-negotiable build rules"). The SVG namespace is assembled at
- * runtime from parts so the bundle contains no scheme-and-slashes literal, which
- * the offline / bundle-hygiene tests grep for.
+ * runtime from parts so the bundle contains no scheme-and-slashes literal.
+ * `test/bundle.test.mjs` checks the built bundle for both rules.
  */
 
-import { cellRef, locLabel, locParts, locTitle } from './notebook.js';
+import { authoredCell, cellRef, locLabel, locParts, locTitle } from './notebook.js';
 import type { LocLike } from './notebook.js';
 
 export const SVG_NS = ['http', '//www.w3.org/2000/svg'].join(':');
@@ -15,7 +15,7 @@ export const SVG_NS = ['http', '//www.w3.org/2000/svg'].join(':');
  * both are written, and the legacy one has to land in the XLink NAMESPACE (a
  * plain `setAttribute('xlink:href')` lands in no namespace and is ignored by
  * every renderer that only implements SVG 1.1). Assembled from parts for the
- * same reason as SVG_NS: the offline / bundle-hygiene greps.
+ * same reason as SVG_NS (`test/bundle.test.mjs`).
  */
 export const XLINK_NS = ['http', '//www.w3.org/1999/xlink'].join(':');
 
@@ -129,9 +129,14 @@ export function locSpan(cls: string, loc: LocLike, tag: 'span' | 'div' = 'span')
   add(span, el('span', 'mlv-loc__file', parts.head));
   add(span, el('span', 'mlv-loc__at', parts.tail));
   const ref = cellRef(loc);
+  const authored = ref ? null : authoredCell(loc);
   if (ref) {
     span.setAttribute('data-cell', String(ref.cell));
     span.setAttribute('data-cell-line', String(ref.line));
+    span.title = locTitle(loc);
+  } else if (authored) {
+    // VIEWUI-8: the zero-based index the contract carries.
+    span.setAttribute('data-cell', String(authored.cell));
     span.title = locTitle(loc);
   }
   return span;

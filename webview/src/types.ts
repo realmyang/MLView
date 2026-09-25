@@ -37,6 +37,8 @@ export interface Loc {
   cell?: number;
   /** NB. 1-based line inside `cell`. Meaningless without `cell`. */
   cellLine?: number;
+  /** Authored-workflow evidence record that supplied this location. */
+  evidenceId?: string;
 }
 
 export interface RelatedLoc extends Loc {
@@ -95,6 +97,16 @@ export interface MLNode {
   issueIds: string[];
   collapsedByDefault: boolean;
   stageEvidence: Evidence[];
+  /** Renderer-local authored-workflow epistemic basis. */
+  basis?: WorkflowBasis;
+  /**
+   * Renderer-local: true for every node the WorkflowDocument adapter builds.
+   * Authored text is data, so legacy parsers that read meaning into labels or
+   * details (config resolution) skip these nodes (RENDER-6).
+   */
+  authored?: boolean;
+  /** Renderer-local authored evidence anchors, in document order. */
+  evidenceLocs?: Loc[];
   /**
    * PERF-04 (CONTRACTS 11.46 B1). How many nodes `--max-nodes` folded INTO this
    * one, counted transitively; absent when none were. The children are not in
@@ -144,6 +156,10 @@ export interface MLEdge {
   tags: string[];
   confidence: number;
   issueIds: string[];
+  /** Renderer-local authored-workflow epistemic basis. */
+  basis?: WorkflowBasis;
+  /** Renderer-local authored evidence anchors, in document order. */
+  evidenceLocs?: Loc[];
   /**
    * PERF-04. How many document edges this one stands for after the rollup
    * re-pointed edges at surviving ancestors and deduped the parallels. Absent
@@ -220,6 +236,8 @@ export interface Issue {
   evidence: Evidence[];
   suppressed: boolean;
   docs: string;
+  /** Renderer-local authored-workflow epistemic basis. */
+  basis?: WorkflowBasis;
   /**
    * CI-ADOPT. How this finding relates to the diff the run was attributed
    * against: `new` (inside an added hunk), `touched` (changed file, outside the
@@ -461,6 +479,34 @@ export interface MLGraph {
   answers?: Answers;
   /** Appended as the LAST key by a projection; absent in a whole-workspace document. */
   view?: View;
+  /**
+   * Renderer-local, set only by the WorkflowDocument adapter: the authored
+   * coverage status and how many limitations the author listed, so the
+   * zero-findings state can name them instead of claiming a check (VIEWUI-1).
+   */
+  authoredCoverage?: { status: string; limitations: number };
+}
+
+/* ── model-authored workflow document ───────────────────────────────── */
+
+export type WorkflowBasis = 'observed' | 'inferred' | 'unresolved';
+export interface WorkflowEvidence { id: string; file: string; line: number; endLine: number; quote: string; cell?: number }
+export interface WorkflowNode { id: string; label: string; phase: string; parent?: string; kind?: string; detail?: string; basis: WorkflowBasis; evidence: string[] }
+export interface WorkflowEdge { id: string; source: string; target: string; label: string; kind?: string; basis: WorkflowBasis; evidence: string[] }
+export interface WorkflowFinding { id: string; title: string; message: string; severity: Severity; nodeIds: string[]; edgeIds?: string[]; basis: WorkflowBasis; evidence: string[]; counterEvidence?: string[]; suggestion?: string }
+export interface WorkflowDocument {
+  workflowVersion: '1.0';
+  title: string;
+  producer: { kind: 'host-llm'; host: 'copilot' | 'codex' | 'claude-code' | 'unknown'; model?: string };
+  revision: { id: string; parent?: string };
+  request: { question: string; scope: string; entrypoints?: string[]; configuration?: string };
+  phases: { id: string; label: string }[];
+  nodes: WorkflowNode[];
+  edges: WorkflowEdge[];
+  findings: WorkflowFinding[];
+  evidence: WorkflowEvidence[];
+  coverage: { status: 'scoped' | 'partial'; summary: string; inspectedFiles: string[]; limitations: string[] };
+  verification?: { files: Record<string, string>; publishedAt: string };
 }
 
 /* ── view state ────────────────────────────────────────────────────────── */
@@ -536,6 +582,26 @@ export interface ViewState {
    * chosen: that is a scope, and `scope` above already persists it.
    */
   pipelineChosen?: boolean;
+  /**
+   * The authored revision id the viewport belongs to. Written only for a
+   * `workflow-view/1` graph and absent otherwise, like every optional field
+   * here. A remounted viewer restores `viewport` instead of fitting only when
+   * this equals the revision it is handed (VIEWUI-3).
+   */
+  workflowRevision?: string;
+  /**
+   * The Refine composer of that authored revision: open, intent and custom
+   * text (VIEWUI-4). Absent at its default (closed, Explain, no text), and
+   * restored on a remount only when `workflowRevision` matches.
+   */
+  composer?: ComposerState;
+}
+
+/** A Refine composer's reader-visible state. */
+export interface ComposerState {
+  open: boolean;
+  intent: RefineIntent;
+  custom: string;
 }
 
 /* ── host protocol (CONTRACTS section 4) ───────────────────────────────── */
@@ -545,6 +611,7 @@ export interface Capabilities {
   canReanalyze: boolean;
   canExport: boolean;
   canAskAssistant: boolean;
+  canRefine?: boolean;
 }
 
 export interface HostAction {
@@ -552,8 +619,30 @@ export interface HostAction {
   label: string;
 }
 
+/** The five refinement intents the composer offers (Campaign 1 §1e/§1f). */
+export type RefineIntent = 'explain' | 'expand' | 'challenge' | 'trace' | 'custom';
+
+/** The requests that carry a `requestId` and are answered by one `actionResult`. */
+export type ResultAction = 'exportFile' | 'copy' | 'refineWorkflow';
+
+/**
+ * The host's single answer to an `exportFile`, `copy` or `refineWorkflow`
+ * request that carried a valid `requestId` (§1e). `message` is host-authored
+ * and never contains an absolute path; `name` is the saved basename and is sent
+ * only for a completed export.
+ */
+export interface ActionResult {
+  v: 1;
+  type: 'actionResult';
+  requestId: string;
+  action: ResultAction;
+  outcome: 'done' | 'cancelled' | 'failed';
+  message?: string;
+  name?: string;
+}
+
 export type HostToUi =
-  | { v: 1; type: 'init'; schemaVersion: string; theme: ThemeKind; host: HostKind; capabilities: Capabilities }
+  | { v: 1; type: 'init'; theme: ThemeKind; capabilities: Capabilities; artifact?: string; schemaVersion?: string; host?: HostKind }
   | { v: 1; type: 'graph'; requestId: string; graph: MLGraph; preserve?: { viewport?: Viewport; selection?: Sel | null; collapsed?: string[] } }
   | { v: 1; type: 'analysisStarted'; requestId: string; scope: 'workspace' | 'file'; path?: string }
   | { v: 1; type: 'analysisProgress'; requestId: string; done: number; total: number; file?: string }
@@ -591,12 +680,35 @@ export type HostToUi =
    * checkout, so without this the banner would read "base X → head X". Optional
    * everywhere: absent, the banner falls back to the root's last segment.
    */
-  | { v: 1; type: 'diffOverlay'; overlay: unknown; baseLabel?: string };
+  | { v: 1; type: 'diffOverlay'; overlay: unknown; baseLabel?: string }
+  /** A new or refreshed authored revision. The host never sends `preserve`. */
+  | { v: 1; type: 'workflow'; document: WorkflowDocument }
+  /**
+   * The host's status banner. The host bootstrap draws it; the App reads only
+   * `codes`, to clear a refinement refusal about the artifact file once the
+   * file is readable again (LINEAGE2-1). `''` clears the banner.
+   */
+  | { v: 1; type: 'workflowError'; message: string; retained?: boolean; codes?: string[] }
+  | ActionResult;
 
 export type UiToHost =
   | { v: 1; type: 'ready' }
-  | { v: 1; type: 'openLocation'; file: string; absFile: string; line: number; col: number; endLine: number; endCol: number; preview?: boolean }
+  | { v: 1; type: 'openLocation'; file: string; absFile: string; line: number; col: number; endLine: number; endCol: number; preview?: boolean; evidenceId?: string; cell?: number }
   | { v: 1; type: 'selectNode'; nodeId: string | null }
+  /**
+   * `customText` is sent only, and then required, when `intent` is `custom`.
+   * `requestId` matches /^[A-Za-z0-9_-]{1,64}$/ and is answered by one
+   * `actionResult`.
+   */
+  | {
+      v: 1;
+      type: 'refineWorkflow';
+      requestId?: string;
+      revisionId: string;
+      intent: RefineIntent;
+      customText?: string;
+      selection?: { kind: 'node' | 'edge' | 'issue'; id: string };
+    }
   | { v: 1; type: 'requestRefresh'; scope: 'workspace' | 'file'; path?: string }
   | { v: 1; type: 'exportHtml' }
   /**
@@ -636,8 +748,9 @@ export type UiToHost =
       data: string;
       suggestedName: string;
       scope: 'view' | 'all' | 'scope';
+      requestId?: string;
     }
-  | { v: 1; type: 'copy'; text: string }
+  | { v: 1; type: 'copy'; text: string; requestId?: string }
   | { v: 1; type: 'saveState'; state: ViewState }
   | { v: 1; type: 'action'; id: string }
   | { v: 1; type: 'askAssistant'; nodeId: string; prompt: string }
@@ -712,7 +825,6 @@ export interface ScopeSummary {
 }
 
 export interface MLViewApp {
-  update(graph: MLGraph, preserve?: Partial<ViewState>): void;
   /**
    * Re-project and relayout LOCALLY. Never posts `requestRefresh`, never
    * touches the analyzer. An unresolvable spec is a no-op plus a toast; it
@@ -726,4 +838,8 @@ export interface MLViewApp {
   setTheme(kind: ThemeKind): void;
   getState(): ViewState;
   destroy(): void;
+}
+
+export interface WorkflowViewApp extends MLViewApp {
+  setWorkflow(document: WorkflowDocument, preserve?: Partial<ViewState>): void;
 }

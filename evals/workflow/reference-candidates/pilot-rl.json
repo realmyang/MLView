@@ -1,0 +1,226 @@
+{
+  "taskId": "pilot-rl",
+  "repositoryCommit": "fe8d8a03c41a7ef5b523e2e354bd01c363e786bb",
+  "status": "draft-needs-human-review",
+  "scenario": {
+    "description": "Inspect cleanrl/ppo.py using its declared defaults, without executing or importing the target.",
+    "entrypoints": [
+      "cleanrl/ppo.py"
+    ],
+    "arguments": []
+  },
+  "facts": [
+    {
+      "id": "rl-default-scenario",
+      "claim": "The declared defaults select CartPole-v1, 500,000 total timesteps, four environments, and 128 rollout steps.",
+      "basis": "observed",
+      "essential": true,
+      "anchors": [
+        {
+          "id": "rl-a01",
+          "file": "cleanrl/ppo.py",
+          "line": 37,
+          "endLine": 46,
+          "quote": "    env_id: str = \"CartPole-v1\"\n    \"\"\"the id of the environment\"\"\"\n    total_timesteps: int = 500000\n    \"\"\"total timesteps of the experiments\"\"\"\n    learning_rate: float = 2.5e-4\n    \"\"\"the learning rate of the optimizer\"\"\"\n    num_envs: int = 4\n    \"\"\"the number of parallel game environments\"\"\"\n    num_steps: int = 128\n    \"\"\"the number of steps to run in each environment per policy rollout\"\"\""
+        }
+      ],
+      "review": "pending"
+    },
+    {
+      "id": "rl-batch-derived",
+      "claim": "Batch size is num_envs times num_steps; minibatch size divides that batch by four default minibatches, and iteration count divides total timesteps by batch size.",
+      "basis": "observed",
+      "essential": true,
+      "anchors": [
+        {
+          "id": "rl-a02",
+          "file": "cleanrl/ppo.py",
+          "line": 130,
+          "endLine": 133,
+          "quote": "    args = tyro.cli(Args)\n    args.batch_size = int(args.num_envs * args.num_steps)\n    args.minibatch_size = int(args.batch_size // args.num_minibatches)\n    args.num_iterations = args.total_timesteps // args.batch_size"
+        }
+      ],
+      "review": "pending"
+    },
+    {
+      "id": "rl-agent-outputs",
+      "claim": "The agent samples from a categorical actor and returns the action, its log probability, entropy, and critic value.",
+      "basis": "observed",
+      "essential": false,
+      "anchors": [
+        {
+          "id": "rl-a03",
+          "file": "cleanrl/ppo.py",
+          "line": 121,
+          "endLine": 126,
+          "quote": "    def get_action_and_value(self, x, action=None):\n        logits = self.actor(x)\n        probs = Categorical(logits=logits)\n        if action is None:\n            action = probs.sample()\n        return action, probs.log_prob(action), probs.entropy(), self.critic(x)"
+        }
+      ],
+      "review": "pending"
+    },
+    {
+      "id": "rl-rollout-storage",
+      "claim": "Rollout storage keeps observations, actions, log probabilities, rewards, done flags, and values for every rollout step and environment.",
+      "basis": "observed",
+      "essential": true,
+      "anchors": [
+        {
+          "id": "rl-a04",
+          "file": "cleanrl/ppo.py",
+          "line": 170,
+          "endLine": 176,
+          "quote": "    # ALGO Logic: Storage setup\n    obs = torch.zeros((args.num_steps, args.num_envs) + envs.single_observation_space.shape).to(device)\n    actions = torch.zeros((args.num_steps, args.num_envs) + envs.single_action_space.shape).to(device)\n    logprobs = torch.zeros((args.num_steps, args.num_envs)).to(device)\n    rewards = torch.zeros((args.num_steps, args.num_envs)).to(device)\n    dones = torch.zeros((args.num_steps, args.num_envs)).to(device)\n    values = torch.zeros((args.num_steps, args.num_envs)).to(device)"
+        }
+      ],
+      "review": "pending"
+    },
+    {
+      "id": "rl-interaction-cycle",
+      "claim": "Each rollout step stores the current observation and prior done flag, samples an action without gradients, steps the vector environment, and stores the reward.",
+      "basis": "observed",
+      "essential": true,
+      "anchors": [
+        {
+          "id": "rl-a05",
+          "file": "cleanrl/ppo.py",
+          "line": 192,
+          "endLine": 208,
+          "quote": "        for step in range(0, args.num_steps):\n            global_step += args.num_envs\n            obs[step] = next_obs\n            dones[step] = next_done\n\n            # ALGO LOGIC: action logic\n            with torch.no_grad():\n                action, logprob, _, value = agent.get_action_and_value(next_obs)\n                values[step] = value.flatten()\n            actions[step] = action\n            logprobs[step] = logprob\n\n            # TRY NOT TO MODIFY: execute the game and log data.\n            next_obs, reward, terminations, truncations, infos = envs.step(action.cpu().numpy())\n            next_done = np.logical_or(terminations, truncations)\n            rewards[step] = torch.tensor(reward).to(device).view(-1)\n            next_obs, next_done = torch.Tensor(next_obs).to(device), torch.Tensor(next_done).to(device)"
+        }
+      ],
+      "review": "pending"
+    },
+    {
+      "id": "rl-termination-truncation-mask",
+      "claim": "The code combines termination and truncation with logical OR into one done flag; it does not preserve separate flags in rollout storage.",
+      "basis": "observed",
+      "essential": true,
+      "anchors": [
+        {
+          "id": "rl-a06",
+          "file": "cleanrl/ppo.py",
+          "line": 204,
+          "endLine": 208,
+          "quote": "            # TRY NOT TO MODIFY: execute the game and log data.\n            next_obs, reward, terminations, truncations, infos = envs.step(action.cpu().numpy())\n            next_done = np.logical_or(terminations, truncations)\n            rewards[step] = torch.tensor(reward).to(device).view(-1)\n            next_obs, next_done = torch.Tensor(next_obs).to(device), torch.Tensor(next_done).to(device)"
+        }
+      ],
+      "review": "pending"
+    },
+    {
+      "id": "rl-gae-mask-semantics",
+      "claim": "GAE uses one minus the combined done flag as nextnonterminal, so both a termination and a truncation make the recurrence and bootstrap multiplier zero at that boundary.",
+      "basis": "observed",
+      "essential": true,
+      "anchors": [
+        {
+          "id": "rl-a07",
+          "file": "cleanrl/ppo.py",
+          "line": 217,
+          "endLine": 231,
+          "quote": "        # bootstrap value if not done\n        with torch.no_grad():\n            next_value = agent.get_value(next_obs).reshape(1, -1)\n            advantages = torch.zeros_like(rewards).to(device)\n            lastgaelam = 0\n            for t in reversed(range(args.num_steps)):\n                if t == args.num_steps - 1:\n                    nextnonterminal = 1.0 - next_done\n                    nextvalues = next_value\n                else:\n                    nextnonterminal = 1.0 - dones[t + 1]\n                    nextvalues = values[t + 1]\n                delta = rewards[t] + args.gamma * nextvalues * nextnonterminal - values[t]\n                advantages[t] = lastgaelam = delta + args.gamma * args.gae_lambda * nextnonterminal * lastgaelam\n            returns = advantages + values"
+        }
+      ],
+      "review": "pending"
+    },
+    {
+      "id": "rl-flatten-and-shuffle",
+      "claim": "After advantage estimation, rollout tensors are flattened and their indices are shuffled for each update epoch before minibatch selection.",
+      "basis": "observed",
+      "essential": true,
+      "anchors": [
+        {
+          "id": "rl-a08",
+          "file": "cleanrl/ppo.py",
+          "line": 233,
+          "endLine": 248,
+          "quote": "        # flatten the batch\n        b_obs = obs.reshape((-1,) + envs.single_observation_space.shape)\n        b_logprobs = logprobs.reshape(-1)\n        b_actions = actions.reshape((-1,) + envs.single_action_space.shape)\n        b_advantages = advantages.reshape(-1)\n        b_returns = returns.reshape(-1)\n        b_values = values.reshape(-1)\n\n        # Optimizing the policy and value network\n        b_inds = np.arange(args.batch_size)\n        clipfracs = []\n        for epoch in range(args.update_epochs):\n            np.random.shuffle(b_inds)\n            for start in range(0, args.batch_size, args.minibatch_size):\n                end = start + args.minibatch_size\n                mb_inds = b_inds[start:end]"
+        }
+      ],
+      "review": "pending"
+    },
+    {
+      "id": "rl-clipped-policy-loss",
+      "claim": "The policy objective uses the larger loss between the unclipped probability-ratio term and a ratio clipped to one plus or minus clip_coef.",
+      "basis": "observed",
+      "essential": true,
+      "anchors": [
+        {
+          "id": "rl-a09",
+          "file": "cleanrl/ppo.py",
+          "line": 250,
+          "endLine": 267,
+          "quote": "                _, newlogprob, entropy, newvalue = agent.get_action_and_value(b_obs[mb_inds], b_actions.long()[mb_inds])\n                logratio = newlogprob - b_logprobs[mb_inds]\n                ratio = logratio.exp()\n\n                with torch.no_grad():\n                    # calculate approx_kl http://joschu.net/blog/kl-approx.html\n                    old_approx_kl = (-logratio).mean()\n                    approx_kl = ((ratio - 1) - logratio).mean()\n                    clipfracs += [((ratio - 1.0).abs() > args.clip_coef).float().mean().item()]\n\n                mb_advantages = b_advantages[mb_inds]\n                if args.norm_adv:\n                    mb_advantages = (mb_advantages - mb_advantages.mean()) / (mb_advantages.std() + 1e-8)\n\n                # Policy loss\n                pg_loss1 = -mb_advantages * ratio\n                pg_loss2 = -mb_advantages * torch.clamp(ratio, 1 - args.clip_coef, 1 + args.clip_coef)\n                pg_loss = torch.max(pg_loss1, pg_loss2).mean()"
+        }
+      ],
+      "review": "pending"
+    },
+    {
+      "id": "rl-value-and-total-loss",
+      "claim": "By default, value loss is clipped relative to stored values; the total loss combines policy loss, a negative entropy bonus, and value loss weighted by vf_coef.",
+      "basis": "observed",
+      "essential": true,
+      "anchors": [
+        {
+          "id": "rl-a10",
+          "file": "cleanrl/ppo.py",
+          "line": 269,
+          "endLine": 285,
+          "quote": "                # Value loss\n                newvalue = newvalue.view(-1)\n                if args.clip_vloss:\n                    v_loss_unclipped = (newvalue - b_returns[mb_inds]) ** 2\n                    v_clipped = b_values[mb_inds] + torch.clamp(\n                        newvalue - b_values[mb_inds],\n                        -args.clip_coef,\n                        args.clip_coef,\n                    )\n                    v_loss_clipped = (v_clipped - b_returns[mb_inds]) ** 2\n                    v_loss_max = torch.max(v_loss_unclipped, v_loss_clipped)\n                    v_loss = 0.5 * v_loss_max.mean()\n                else:\n                    v_loss = 0.5 * ((newvalue - b_returns[mb_inds]) ** 2).mean()\n\n                entropy_loss = entropy.mean()\n                loss = pg_loss - args.ent_coef * entropy_loss + v_loss * args.vf_coef"
+        }
+      ],
+      "review": "pending"
+    },
+    {
+      "id": "rl-gradient-update",
+      "claim": "Each minibatch clears gradients, backpropagates the combined loss, clips gradients across all agent parameters, and steps Adam.",
+      "basis": "observed",
+      "essential": true,
+      "anchors": [
+        {
+          "id": "rl-a11",
+          "file": "cleanrl/ppo.py",
+          "line": 287,
+          "endLine": 290,
+          "quote": "                optimizer.zero_grad()\n                loss.backward()\n                nn.utils.clip_grad_norm_(agent.parameters(), args.max_grad_norm)\n                optimizer.step()"
+        }
+      ],
+      "review": "pending"
+    },
+    {
+      "id": "rl-logging",
+      "claim": "Episode return and length come from final_info, while learning rate, losses, KL estimates, clip fraction, explained variance, and throughput are written to TensorBoard.",
+      "basis": "observed",
+      "essential": false,
+      "anchors": [
+        {
+          "id": "rl-a12",
+          "file": "cleanrl/ppo.py",
+          "line": 210,
+          "endLine": 215,
+          "quote": "            if \"final_info\" in infos:\n                for info in infos[\"final_info\"]:\n                    if info and \"episode\" in info:\n                        print(f\"global_step={global_step}, episodic_return={info['episode']['r']}\")\n                        writer.add_scalar(\"charts/episodic_return\", info[\"episode\"][\"r\"], global_step)\n                        writer.add_scalar(\"charts/episodic_length\", info[\"episode\"][\"l\"], global_step)"
+        },
+        {
+          "id": "rl-a13",
+          "file": "cleanrl/ppo.py",
+          "line": 299,
+          "endLine": 309,
+          "quote": "        # TRY NOT TO MODIFY: record rewards for plotting purposes\n        writer.add_scalar(\"charts/learning_rate\", optimizer.param_groups[0][\"lr\"], global_step)\n        writer.add_scalar(\"losses/value_loss\", v_loss.item(), global_step)\n        writer.add_scalar(\"losses/policy_loss\", pg_loss.item(), global_step)\n        writer.add_scalar(\"losses/entropy\", entropy_loss.item(), global_step)\n        writer.add_scalar(\"losses/old_approx_kl\", old_approx_kl.item(), global_step)\n        writer.add_scalar(\"losses/approx_kl\", approx_kl.item(), global_step)\n        writer.add_scalar(\"losses/clipfrac\", np.mean(clipfracs), global_step)\n        writer.add_scalar(\"losses/explained_variance\", explained_var, global_step)\n        print(\"SPS:\", int(global_step / (time.time() - start_time)))\n        writer.add_scalar(\"charts/SPS\", int(global_step / (time.time() - start_time)), global_step)"
+        }
+      ],
+      "review": "pending"
+    }
+  ],
+  "unknowns": [
+    "Whether a human reviewer classifies masking truncations like terminations as a defect for this CartPole scenario.",
+    "The exact runtime autoreset and final-observation behavior supplied by the installed Gymnasium version was not inspected or executed.",
+    "CLI overrides, runtime device selection, generated trajectories, metrics, and output files are unknown because the target was not run."
+  ],
+  "nonDefects": [
+    "Policy and value clipping, advantage normalization, entropy regularization, gradient clipping, and learning-rate annealing are explicit configurable PPO choices; this draft does not label them defects.",
+    "This draft records the combined termination/truncation mask as observed behavior and leaves defect adjudication to human review."
+  ],
+  "review": {
+    "reviewer": null,
+    "decision": "pending"
+  }
+}

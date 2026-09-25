@@ -1,0 +1,393 @@
+{
+  "version": 1,
+  "status": "provisional",
+  "condition": "development-focused-followup",
+  "sourceCommit": "36dbbe5597de496b9807b0e52ef232ceca1df89e",
+  "candidateSkillBundleSha256": "837358d2689890ec663dfebac57092c369db02d6e75a9229953776b1b5f2e29b",
+  "humanReview": null,
+  "accuracyScore": null,
+  "questions": [
+    {
+      "id": "gan-objectives-and-targets",
+      "task": "dev-gan",
+      "question": "Does the artifact distinguish the two objectives and the parameter set each optimizer can update?",
+      "sourceEvidence": [
+        {
+          "file": "analyzer/tests/accuracy/corpus/vision_gan/train_dcgan.py",
+          "line": 67,
+          "endLine": 69,
+          "quote": "    criterion = nn.BCEWithLogitsLoss()\n    opt_g = torch.optim.Adam(netG.parameters(), lr=LR, betas=BETAS)\n    opt_d = torch.optim.Adam(netD.parameters(), lr=LR, betas=BETAS)"
+        },
+        {
+          "file": "analyzer/tests/accuracy/corpus/vision_gan/train_dcgan.py",
+          "line": 90,
+          "endLine": 99,
+          "quote": "            loss_d = loss_real + loss_fake\n            loss_d.backward()\n            opt_d.step()\n\n            # --- generator: maximise log D(G(z))\n            opt_g.zero_grad(set_to_none=True)\n            logits_for_g = netD(fake_images)\n            loss_g = criterion(logits_for_g, real_labels)\n            loss_g.backward()\n            opt_g.step()"
+        }
+      ]
+    },
+    {
+      "id": "gan-gradient-boundaries",
+      "task": "dev-gan",
+      "question": "Does the artifact distinguish the detached discriminator path, the attached generator path, and gradients from optimizer updates?",
+      "sourceEvidence": [
+        {
+          "file": "analyzer/tests/accuracy/corpus/vision_gan/train_dcgan.py",
+          "line": 86,
+          "endLine": 99,
+          "quote": "            noise = torch.randn(batch, LATENT_DIM, 1, 1, device=device)\n            fake_images = netG(noise)\n            logits_fake = netD(fake_images.detach())\n            loss_fake = criterion(logits_fake, fake_labels)\n            loss_d = loss_real + loss_fake\n            loss_d.backward()\n            opt_d.step()\n\n            # --- generator: maximise log D(G(z))\n            opt_g.zero_grad(set_to_none=True)\n            logits_for_g = netD(fake_images)\n            loss_g = criterion(logits_for_g, real_labels)\n            loss_g.backward()\n            opt_g.step()"
+        }
+      ]
+    },
+    {
+      "id": "gan-cycle-metrics-and-outputs",
+      "task": "dev-gan",
+      "question": "Does the artifact show batch/epoch repetition and accurately distinguish accumulated losses, printed losses, sample grids, and checkpoints?",
+      "sourceEvidence": [
+        {
+          "file": "analyzer/tests/accuracy/corpus/vision_gan/train_dcgan.py",
+          "line": 101,
+          "endLine": 109,
+          "quote": "            d_running += loss_d.item()\n            g_running += loss_g.item()\n            if step % 100 == 0:\n                print(\"epoch %d step %d loss_d %.4f loss_g %.4f\"\n                      % (epoch, step, loss_d.item(), loss_g.item()))\n\n        sample_grid(netG, fixed_noise, epoch)\n        torch.save({\"netG\": netG.state_dict(), \"netD\": netD.state_dict()},\n                   \"dcgan_epoch%d.pt\" % epoch)"
+        }
+      ]
+    },
+    {
+      "id": "notebook-source-vs-recorded-order",
+      "task": "dev-notebook",
+      "question": "Does the artifact keep source order separate from recorded execution-count order without treating metadata as proof of a successful run?",
+      "sourceEvidence": [
+        {
+          "file": "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb",
+          "cell": 1,
+          "line": 3,
+          "endLine": 5,
+          "quote": "raw = np.load(\"features.npz\")\nX = raw[\"features\"]\ny = raw[\"labels\"]"
+        },
+        {
+          "file": "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb",
+          "cell": 2,
+          "line": 1,
+          "endLine": 4,
+          "quote": "scaler = StandardScaler()\nX_scaled = scaler.fit_transform(X)\nX_train, X_test, y_train, y_test = train_test_split(\n    X_scaled, y, test_size=0.2, random_state=0)"
+        },
+        {
+          "file": "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb",
+          "jsonPointer": "/cells/0/execution_count",
+          "value": 1
+        },
+        {
+          "file": "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb",
+          "jsonPointer": "/cells/1/execution_count",
+          "value": 3
+        },
+        {
+          "file": "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb",
+          "jsonPointer": "/cells/2/execution_count",
+          "value": 2
+        },
+        {
+          "file": "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb",
+          "jsonPointer": "/cells/3/execution_count",
+          "value": 4
+        },
+        {
+          "file": "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb",
+          "jsonPointer": "/cells/0/outputs",
+          "value": []
+        },
+        {
+          "file": "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb",
+          "jsonPointer": "/cells/1/outputs",
+          "value": []
+        },
+        {
+          "file": "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb",
+          "jsonPointer": "/cells/2/outputs",
+          "value": []
+        },
+        {
+          "file": "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb",
+          "jsonPointer": "/cells/3/outputs",
+          "value": []
+        }
+      ]
+    },
+    {
+      "id": "notebook-state-and-training-risks",
+      "task": "dev-notebook",
+      "question": "Does the artifact identify fitted preprocessing state and gradient state while qualifying consequences that depend on library or runtime semantics?",
+      "sourceEvidence": [
+        {
+          "file": "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb",
+          "cell": 2,
+          "line": 1,
+          "endLine": 4,
+          "quote": "scaler = StandardScaler()\nX_scaled = scaler.fit_transform(X)\nX_train, X_test, y_train, y_test = train_test_split(\n    X_scaled, y, test_size=0.2, random_state=0)"
+        },
+        {
+          "file": "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb",
+          "cell": 3,
+          "line": 6,
+          "endLine": 10,
+          "quote": "for features, labels in train_loader:\n    outputs = model(features)\n    loss = criterion(outputs, labels)\n    loss.backward()\n    optimizer.step()"
+        }
+      ]
+    },
+    {
+      "id": "notebook-evaluation-and-unknowns",
+      "task": "dev-notebook",
+      "question": "Does the artifact follow the held-out data to its actual consumers and disclose unresolved dtype, shape, label, learned-state, output, and execution facts?",
+      "sourceEvidence": [
+        {
+          "file": "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb",
+          "cell": 2,
+          "line": 3,
+          "endLine": 4,
+          "quote": "X_train, X_test, y_train, y_test = train_test_split(\n    X_scaled, y, test_size=0.2, random_state=0)"
+        },
+        {
+          "file": "analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb",
+          "cell": 3,
+          "line": 4,
+          "endLine": 5,
+          "quote": "ds = TensorDataset(torch.tensor(X_train), torch.tensor(y_train))\ntrain_loader = DataLoader(ds, batch_size=32, shuffle=True)"
+        }
+      ]
+    }
+  ],
+  "failedRuns": [
+    {
+      "host": "copilot",
+      "task": "dev-gan",
+      "model": "GPT-5.6 Luna",
+      "reasoning": "not displayed",
+      "publishedArtifact": null,
+      "preservedDraft": "failed-drafts/copilot/dev-gan.draft.txt",
+      "preservedDraftSha256": "702fded9b70b239dc7ff95cb8664b3758452dcc7935797724532f9037f8cbf07",
+      "failure": "The initial validation and both permitted repair rounds returned invalid_json. Independent JSON parsing of the preserved current draft fails with Expecting ',' delimiter at line 135 column 3.",
+      "outOfBudgetAction": "The host began a third repair and queued parsing plus validation after the two-round limit; that pending action was cancelled. The preserved current draft is not represented as a valid final publication.",
+      "semanticComparison": null,
+      "humanReview": null,
+      "accuracyScore": null
+    }
+  ],
+  "comparisons": [
+    {
+      "host": "codex",
+      "task": "dev-gan",
+      "before": {
+        "path": "../native-artifacts/codex/dev-gan.mlview.json",
+        "revision": "rev-dcgan-loss-cycle-20260917-1",
+        "observations": {
+          "gan-objectives-and-targets": "The two losses, optimizer ownership, and D-then-G order were already explicit.",
+          "gan-gradient-boundaries": "The detach boundary and attached generator path were already distinguished with inferred autograd semantics.",
+          "gan-cycle-metrics-and-outputs": "The node said scalar losses are accumulated and every 100 steps they are printed, which can imply that the accumulated totals are the printed values."
+        }
+      },
+      "after": {
+        "path": "codex/dev-gan.mlview.json",
+        "revision": "rev-dev-gan-20260918-01",
+        "observations": {
+          "gan-objectives-and-targets": "Preserves separate BCE objectives and explicitly ties update targets to each optimizer's parameter ownership.",
+          "gan-gradient-boundaries": "Separates detached D training, attached G training, D gradients computed during G backward, and the fact that opt_g still steps only G.",
+          "gan-cycle-metrics-and-outputs": "Explicitly states that running totals accumulate across all epochs but are never printed, averaged, or returned; the printed values are current-batch losses. It also shows next-batch, next-epoch, grid, checkpoint, and final-return paths."
+        }
+      },
+      "delta": [
+        "Corrects the material ambiguity between accumulated totals and current-batch printed losses.",
+        "Makes the nested batch/epoch cycle and final return more explicit while retaining both epoch outputs."
+      ],
+      "newRisks": [
+        "The low-severity unneeded-D-gradient finding still depends on standard autograd behavior and the unavailable imported model retaining trainable D parameters; the artifact labels it inferred and discloses the missing model module."
+      ],
+      "nativeCompletionObservation": {
+        "model": "GPT-5.6 Sol",
+        "reasoning": "Ultra",
+        "revision": "rev-dev-gan-20260918-01",
+        "validatorRepairRounds": 0,
+        "materialCritiqueCorrection": "Normalized preprocessing was made exact, running totals were distinguished from printed current losses, and the gradient finding was narrowed."
+      },
+      "humanReview": null,
+      "accuracyScore": null
+    },
+    {
+      "host": "codex",
+      "task": "dev-notebook",
+      "before": {
+        "path": "../native-artifacts/codex/dev-notebook.mlview.json",
+        "revision": "rev-leak-out-of-order-native-1",
+        "observations": {
+          "notebook-source-vs-recorded-order": "Already represented source order and a distinct interpretation of recorded execution order.",
+          "notebook-state-and-training-risks": "Already identified pre-split scaling, missing gradient clearing, and the optimizer target.",
+          "notebook-evaluation-and-unknowns": "Identified the unused holdout and no evaluation, with some runtime dependencies qualified."
+        }
+      },
+      "after": {
+        "path": "codex/dev-notebook.mlview.json",
+        "revision": "rev-leak-out-of-order-20260918",
+        "observations": {
+          "notebook-source-vs-recorded-order": "Uses separate source-order and recorded-history phases and states repeatedly that execution counts do not prove success or a clean-kernel run.",
+          "notebook-state-and-training-risks": "Treats scaler fit effects and gradient accumulation as inferred framework semantics while the missing reset call and full-X fit are source facts.",
+          "notebook-evaluation-and-unknowns": "Scopes the unused holdout, missing evaluation/output/persistence, and explicitly leaves data dtype, shapes, labels, learned state, losses, cell success, and hidden kernel actions unresolved."
+        }
+      },
+      "delta": [
+        "Strengthens the separation between source order and recorded history.",
+        "Broadens and sharpens the runtime limitations without weakening the four actionable findings.",
+        "Scopes missing evaluation and persistence to the inspected notebook rather than claiming they never occurred elsewhere."
+      ],
+      "newRisks": [
+        "Execution-count claims rely on notebook metadata rather than source citations; the artifact explicitly discloses this evidence boundary.",
+        "Finding severities remain model judgments and have not been human adjudicated."
+      ],
+      "nativeCompletionObservation": {
+        "model": "GPT-5.6 Sol",
+        "reasoning": "Ultra",
+        "revision": "rev-leak-out-of-order-20260918",
+        "validatorRepairRounds": 0,
+        "materialCritiqueCorrection": "Separated source order from recorded history and qualified leakage and gradient accumulation as inferred; missing evaluation and outputs were scoped to the inspected notebook."
+      },
+      "humanReview": null,
+      "accuracyScore": null
+    },
+    {
+      "host": "claude-code",
+      "task": "dev-gan",
+      "before": {
+        "path": "../native-artifacts/claude-code/dev-gan.mlview.json",
+        "revision": "rev-dev-gan-20260917-1",
+        "observations": {
+          "gan-objectives-and-targets": "The core losses, optimizer ownership, and D-then-G order were detailed, but some claims about every D parameter and trainability exceeded the source available without models.py.",
+          "gan-gradient-boundaries": "The core detach and attached paths were present, while multiple framework and gradient statements used an observed basis despite depending on autograd semantics.",
+          "gan-cycle-metrics-and-outputs": "The cycle and outputs were extensive, but running-loss interpretation and conditional runtime behavior needed tighter qualification."
+        }
+      },
+      "after": {
+        "path": "claude-code/dev-gan.mlview.json",
+        "revision": "dev-gan-r1",
+        "observations": {
+          "gan-objectives-and-targets": "Separates observed calls and optimizer registration from inferred gradient-flow edges and describes the generator loss using the post-D-step discriminator.",
+          "gan-gradient-boundaries": "Shows the detached value path, attached reuse of fake_images, optimizer ownership, carried gradient buffers, and five gradient/state edges as inferred.",
+          "gan-cycle-metrics-and-outputs": "Shows eight phases, explicit batch and epoch returns, exact current-batch printing, never-read cross-epoch totals, fixed-noise grids, checkpoint contents, and the final return."
+        }
+      },
+      "delta": [
+        "Correctly distinguishes the never-read running totals from current-batch losses printed every 100 steps.",
+        "Narrows several gradient and state claims and makes the absent models module and runtime limits prominent.",
+        "Adds a source-grounded finding that running totals have no output effect and a conditional finding that a missing samples directory can prevent both the grid and the later checkpoint."
+      ],
+      "newRisks": [
+        "The loader node has basis observed while its reshuffle claim is explicitly framework behavior; the prose qualification helps, but the top-level basis remains stronger than that clause's evidence.",
+        "The netG/netD nodes call their parameter sets trainable and say they change only at their respective optimizer steps even though models.py and parameter requires_grad settings are unavailable. Optimizer registration and visible step calls are observed; actual trainability and mutation remain conditional.",
+        "The missing-samples-directory finding depends on torchvision save_image behavior and launch-directory state. It is appropriately inferred and conditional, but remains unexecuted."
+      ],
+      "nativeCompletionObservation": {
+        "model": "Fable 5.1",
+        "reasoning": "Extra high",
+        "revision": "dev-gan-r1",
+        "validatorRepairRounds": 0,
+        "materialCritiqueCorrections": [
+          "Added source citations for dataset constants.",
+          "Qualified reshuffling as framework behavior.",
+          "Narrowed the generator-parameter claim to visible gradient and optimizer behavior.",
+          "Explained why the original undetached fake_images remains reusable.",
+          "Clarified that checkpoint epoch identity is present only in the filename."
+        ]
+      },
+      "humanReview": null,
+      "accuracyScore": null
+    },
+    {
+      "host": "claude-code",
+      "task": "dev-notebook",
+      "before": {
+        "path": "../native-artifacts/claude-code/dev-notebook.mlview.json",
+        "revision": "rev-20260917-leak-out-of-order-1",
+        "observations": {
+          "notebook-source-vs-recorded-order": "Already separated source order from execution-count history and treated history as hypothetical rather than proof of execution.",
+          "notebook-state-and-training-risks": "Identified pre-split scaler fitting and missing gradient clearing, though the next-batch effect required an unknown second batch.",
+          "notebook-evaluation-and-unknowns": "Recorded the unused holdout and extensive runtime unknowns."
+        }
+      },
+      "after": {
+        "path": "claude-code/dev-notebook.mlview.json",
+        "revision": "rev-dev-notebook-20260918-1",
+        "observations": {
+          "notebook-source-vs-recorded-order": "Reports exact counts 1,3,2,4 and empty outputs, while marking the inferred sequence separately and presenting non-exhaustive alternative kernel-state explanations.",
+          "notebook-state-and-training-risks": "Explains that gradient accumulation requires more than one batch, is confined to one cell execution because the optimizer is rebuilt, and may never have occurred if the recorded run failed. It separately traces fitted scaler state.",
+          "notebook-evaluation-and-unknowns": "States that X_test/y_test have no consumer and no outputs are persisted, logged, or printed; feature count, dtypes, labels, row count, cell success, and learned state remain unresolved."
+        }
+      },
+      "delta": [
+        "Adds exact execution-count metadata and makes the source-order/recorded-history evidence boundary unusually explicit.",
+        "Corrects the gradient-accumulation claim by conditioning it on more than one batch and an actually executed loop.",
+        "Expands dtype, feature-width, label, row-count, and clean-kernel limitations while keeping the observed source facts distinct."
+      ],
+      "newRisks": [
+        "The scaler finding says any evaluation later added on X_test would be optimistic. Pre-split fitting contaminates the holdout and can bias evaluation, but the direction and magnitude are not guaranteed; this should be phrased as a risk of optimistic bias rather than a certain outcome.",
+        "The summary says the Linear weight and bias changed by Adam. The source establishes the intended update call and optimizer target, but because execution success, dtypes, feature width, and labels are unresolved, actual parameter mutation is not established."
+      ],
+      "nativeCompletionObservation": {
+        "model": "Fable 5.1",
+        "reasoning": "Extra high",
+        "revision": "rev-dev-notebook-20260918-1",
+        "validatorRepairRounds": 0,
+        "materialCritiqueCorrections": [
+          "Conditioned missing-zero-grad impact on an actual multi-batch loop.",
+          "Removed a runtime claim from the recorded-order label.",
+          "Distinguished what counts record from what actually ran.",
+          "Made alternative history explanations illustrative rather than exhaustive.",
+          "Explained why the recorded sequence uses an inferred basis."
+        ]
+      },
+      "humanReview": null,
+      "accuracyScore": null
+    },
+    {
+      "host": "copilot",
+      "task": "dev-notebook",
+      "before": {
+        "path": "../native-artifacts/copilot/dev-notebook.mlview.json",
+        "revision": "dev-notebook-rev-1",
+        "observations": {
+          "notebook-source-vs-recorded-order": "Qualified execution order but did not fully trace the notebook's risks.",
+          "notebook-state-and-training-risks": "Omitted whole-X scaling before the split and missing gradient clearing.",
+          "notebook-evaluation-and-unknowns": "Omitted the unused test split and absent evaluation, metrics, checkpoints, and persistence."
+        }
+      },
+      "after": {
+        "path": "copilot/dev-notebook.mlview.json",
+        "revision": "rev-leak-out-of-order-1",
+        "observations": {
+          "notebook-source-vs-recorded-order": "Incorrectly states that the notebook has no execution_count metadata or recorded execution order, although the stored counts are cell 0=1, cell 1=3, cell 2=2, and cell 3=4.",
+          "notebook-state-and-training-risks": "Now identifies whole-X scaler fitting before the split and the absent gradient-reset call, while noting that runtime consequences depend on framework behavior.",
+          "notebook-evaluation-and-unknowns": "Adds a node for absent test consumption, evaluation, logging, and saved output and scopes it to the selected source; runtime dtype and label facts remain unresolved."
+        }
+      },
+      "delta": [
+        "Recovers two material omissions from the earlier artifact: pre-split scaler fitting and missing gradient clearing.",
+        "Recovers the unused holdout and missing evaluation/output path in a scoped node.",
+        "Introduces a material regression by denying execution-count metadata that is present in the source notebook."
+      ],
+      "newRisks": [
+        "The execution-order finding is factually wrong: the notebook records counts 1,3,2,4 and empty outputs. The correct conclusion is that these counts do not prove successful execution, not that counts are absent.",
+        "The gradient-reset finding has basis observed even though its message combines the observed missing call with inferred PyTorch accumulation semantics. The node prose discloses the distinction, but the finding-level basis overstates it.",
+        "The artifact labels the import node unresolved despite the import statements being directly present in cell source.",
+        "The requested output name was dev-notebook.mlview.json, but the native publish command wrote workflow.mlview.json; the public snapshot is renamed and byte-identical."
+      ],
+      "nativeCompletionObservation": {
+        "model": "GPT-5.6 Luna",
+        "reasoning": "not displayed",
+        "revision": "rev-leak-out-of-order-1",
+        "validatorRepairRounds": 2,
+        "originalPublishedName": "workflow.mlview.json",
+        "requestedPublishedName": "dev-notebook.mlview.json",
+        "finalUiResponseObserved": false,
+        "artifactPublicationObserved": true
+      },
+      "humanReview": null,
+      "accuracyScore": null
+    }
+  ]
+}

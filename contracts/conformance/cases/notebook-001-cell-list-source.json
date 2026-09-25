@@ -1,0 +1,87 @@
+{
+  "id": "notebook-001-cell-list-source",
+  "findings": [
+    "CONTRACT-9"
+  ],
+  "description": "Notebook evidence names a zero-based cell whose source is a list of strings; lines and quotes are taken from the joined cell source. Both layers accept it.",
+  "files": {
+    "flow.ipynb": {
+      "text": "{\n \"cells\": [\n  {\n   \"cell_type\": \"code\",\n   \"metadata\": {},\n   \"source\": [\n    \"x = 1\\n\",\n    \"fit(x)\\n\"\n   ]\n  }\n ],\n \"metadata\": {},\n \"nbformat\": 4,\n \"nbformat_minor\": 5\n}\n"
+    }
+  },
+  "artifact": "workflow.mlview.json",
+  "document": {
+    "workflowVersion": "1.0",
+    "title": "Training",
+    "producer": {
+      "kind": "host-llm",
+      "host": "codex"
+    },
+    "revision": {
+      "id": "r1"
+    },
+    "request": {
+      "question": "Explain training",
+      "scope": "train.py"
+    },
+    "phases": [
+      {
+        "id": "p",
+        "label": "Train"
+      }
+    ],
+    "nodes": [
+      {
+        "id": "n",
+        "label": "Train",
+        "phase": "p",
+        "basis": "observed",
+        "evidence": [
+          "ev"
+        ]
+      }
+    ],
+    "edges": [],
+    "findings": [],
+    "evidence": [
+      {
+        "id": "ev",
+        "file": "flow.ipynb",
+        "cell": 0,
+        "line": 2,
+        "endLine": 2,
+        "quote": "fit(x)"
+      }
+    ],
+    "coverage": {
+      "status": "scoped",
+      "summary": "Inspected entrypoint",
+      "inspectedFiles": [
+        "flow.ipynb"
+      ],
+      "limitations": []
+    }
+  },
+  "expect": {
+    "schema": "valid",
+    "helper": {
+      "ok": true,
+      "codes": [],
+      "warnings": [],
+      "fingerprints": {
+        "flow.ipynb": {
+          "$sha256": {
+            "text": "{\n \"cells\": [\n  {\n   \"cell_type\": \"code\",\n   \"metadata\": {},\n   \"source\": [\n    \"x = 1\\n\",\n    \"fit(x)\\n\"\n   ]\n  }\n ],\n \"metadata\": {},\n \"nbformat\": 4,\n \"nbformat_minor\": 5\n}\n"
+          }
+        }
+      },
+      "stale": []
+    },
+    "extension": {
+      "ok": true,
+      "stale": [],
+      "issuePaths": []
+    }
+  },
+  "divergence": null
+}

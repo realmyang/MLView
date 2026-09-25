@@ -12,7 +12,7 @@ import { CONCERNS, CONCERN_LABELS, CONCERN_NAMES, parseScope } from './selector.
 import { PipelineIndex } from './pipelines.js';
 import { project, projectedNodeCount } from './project.js';
 import type { PipelineRow } from './pipelines.js';
-import type { IssueCounts, MLGraph, MLNode, Severity } from '../types.js';
+import type { IssueCounts, Loc, MLGraph, MLNode, Severity } from '../types.js';
 
 const SEVERITIES: Severity[] = ['high', 'medium', 'low'];
 
@@ -24,6 +24,8 @@ export interface ScopeUnit {
   qualname: string;
   file: string;
   line: number;
+  /** The node's own location, so a row can name an authored notebook cell (VIEWUI-8). */
+  loc: Loc;
   /** Cards this scope would draw at depth 0: the unit plus its descendants. */
   nodeCount: number;
   maxSeverity: Severity | null;
@@ -106,12 +108,14 @@ export function scopeCatalog(graph: MLGraph, limit = 40): ScopeUnit[] {
   for (const node of graph.nodes || []) {
     if (!isScopableUnit(node, children)) continue;
     rows.push({
-      spec: 'unit:' + node.qualname,
+      // VIEWUI-7: authored nodes by id, so two steps with one label stay apart.
+      spec: 'unit:' + (node.authored ? node.id : node.qualname),
       nodeId: node.id,
       label: node.label || node.qualname,
       qualname: node.qualname,
       file: node.loc.file,
       line: node.loc.line,
+      loc: node.loc,
       nodeCount: subtreeSize(children, node.id),
       maxSeverity: severityOf(graph, subtreeIds(children, node.id)),
     });

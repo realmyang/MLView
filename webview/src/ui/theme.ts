@@ -30,6 +30,11 @@ function isChoice(value: unknown): value is ThemeChoice {
   return value === 'auto' || value === 'light' || value === 'dark' || value === 'hc';
 }
 
+/** The three themes `styles/tokens.css` defines a palette for. */
+export function isThemeKind(value: unknown): value is ThemeKind {
+  return value === 'light' || value === 'dark' || value === 'hc';
+}
+
 export class ThemeController {
   private root: HTMLElement;
   private preference: ThemeChoice;
@@ -39,16 +44,22 @@ export class ThemeController {
 
   constructor(root: HTMLElement, theme: ThemeKind, preference?: unknown) {
     this.root = root;
-    this.current = theme;
-    this.preference = isChoice(preference) ? preference : theme;
+    this.current = isThemeKind(theme) ? theme : 'light';
+    this.preference = isChoice(preference) ? preference : this.current;
   }
 
   get kind(): ThemeKind {
     return this.current;
   }
 
-  /** Apply a resolved theme. The host message and the public setTheme land here. */
+  /**
+   * Apply a resolved theme. The host message and the public setTheme land here.
+   * A value outside `light` / `dark` / `hc` (for example an older host's
+   * `high-contrast`) has no palette, so it is ignored and the current theme
+   * stays (RENDER-5).
+   */
   apply(kind: ThemeKind): void {
+    if (!isThemeKind(kind)) return;
     this.current = kind;
     this.root.setAttribute('data-theme', kind);
     this.syncSwitch();

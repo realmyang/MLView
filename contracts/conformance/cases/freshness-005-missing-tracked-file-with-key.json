@@ -1,0 +1,101 @@
+{
+  "id": "freshness-005-missing-tracked-file-with-key",
+  "findings": [
+    "EXT-7",
+    "CONTRACT-9"
+  ],
+  "description": "A tracked inspected file with a published fingerprint was deleted. The viewer shows the revision as historical (the file is stale); the helper, which validates authoring, reports the missing path as path_outside_workspace. Stale cases assert each layer's own expectations (parity invariant P1 does not apply).",
+  "files": {
+    "train.py": {
+      "text": "def train():\n    pass\n"
+    }
+  },
+  "artifact": "workflow.mlview.json",
+  "document": {
+    "workflowVersion": "1.0",
+    "title": "Training entrypoint",
+    "producer": {
+      "kind": "host-llm",
+      "host": "codex"
+    },
+    "revision": {
+      "id": "r1"
+    },
+    "request": {
+      "question": "What does train.py run?",
+      "scope": "train.py and config.yaml"
+    },
+    "phases": [
+      {
+        "id": "train",
+        "label": "Train"
+      }
+    ],
+    "nodes": [
+      {
+        "id": "step",
+        "label": "Run training step",
+        "phase": "train",
+        "basis": "observed",
+        "evidence": [
+          "ev-1"
+        ]
+      }
+    ],
+    "edges": [],
+    "findings": [],
+    "evidence": [
+      {
+        "id": "ev-1",
+        "file": "train.py",
+        "line": 1,
+        "endLine": 1,
+        "quote": "def train():"
+      }
+    ],
+    "coverage": {
+      "status": "scoped",
+      "summary": "Read the entrypoint and its configuration.",
+      "inspectedFiles": [
+        "train.py",
+        "config.yaml"
+      ],
+      "limitations": []
+    },
+    "verification": {
+      "files": {
+        "config.yaml": {
+          "$sha256": {
+            "text": "epochs: 3\n"
+          }
+        },
+        "train.py": {
+          "$sha256": {
+            "text": "def train():\n    pass\n"
+          }
+        }
+      },
+      "publishedAt": "2026-09-25T00:00:00Z"
+    }
+  },
+  "expect": {
+    "schema": "valid",
+    "helper": {
+      "ok": false,
+      "codes": [
+        "path_outside_workspace"
+      ],
+      "warnings": [],
+      "fingerprints": null,
+      "stale": []
+    },
+    "extension": {
+      "ok": true,
+      "stale": [
+        "config.yaml"
+      ],
+      "issuePaths": []
+    }
+  },
+  "divergence": null
+}

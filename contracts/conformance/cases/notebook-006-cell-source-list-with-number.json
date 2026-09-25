@@ -1,0 +1,85 @@
+{
+  "id": "notebook-006-cell-source-list-with-number",
+  "findings": [
+    "CONTRACT-9"
+  ],
+  "description": "A notebook cell source must be a string or a list of strings; a list containing a number is rejected (the extension used to join it).",
+  "files": {
+    "flow.ipynb": {
+      "text": "{\n \"cells\": [\n  {\n   \"cell_type\": \"code\",\n   \"metadata\": {},\n   \"source\": [\n    \"fit(\",\n    1,\n    \")\"\n   ]\n  }\n ],\n \"metadata\": {},\n \"nbformat\": 4,\n \"nbformat_minor\": 5\n}\n"
+    }
+  },
+  "artifact": "workflow.mlview.json",
+  "document": {
+    "workflowVersion": "1.0",
+    "title": "Training",
+    "producer": {
+      "kind": "host-llm",
+      "host": "codex"
+    },
+    "revision": {
+      "id": "r1"
+    },
+    "request": {
+      "question": "Explain training",
+      "scope": "train.py"
+    },
+    "phases": [
+      {
+        "id": "p",
+        "label": "Train"
+      }
+    ],
+    "nodes": [
+      {
+        "id": "n",
+        "label": "Train",
+        "phase": "p",
+        "basis": "observed",
+        "evidence": [
+          "ev"
+        ]
+      }
+    ],
+    "edges": [],
+    "findings": [],
+    "evidence": [
+      {
+        "id": "ev",
+        "file": "flow.ipynb",
+        "cell": 0,
+        "line": 1,
+        "endLine": 1,
+        "quote": "fit(1)"
+      }
+    ],
+    "coverage": {
+      "status": "scoped",
+      "summary": "Inspected entrypoint",
+      "inspectedFiles": [
+        "flow.ipynb"
+      ],
+      "limitations": []
+    }
+  },
+  "expect": {
+    "schema": "valid",
+    "helper": {
+      "ok": false,
+      "codes": [
+        "notebook_cell"
+      ],
+      "warnings": [],
+      "fingerprints": null,
+      "stale": []
+    },
+    "extension": {
+      "ok": false,
+      "stale": [],
+      "issuePaths": [
+        "$.evidence[0].cell"
+      ]
+    }
+  },
+  "divergence": null
+}

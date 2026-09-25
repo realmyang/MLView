@@ -1,0 +1,150 @@
+{
+  "version": 1,
+  "sourceCommit": "36dbbe5597de496b9807b0e52ef232ceca1df89e",
+  "skillSha256": "fbbdf1aa3d203b925fe9068a58e98ebfe60780db1ab3c36c5ce384ac6bc5f6a7",
+  "artifactPublicationOnly": true,
+  "humanSemanticReview": "pending",
+  "fullNativeUiProof": false,
+  "rawLogs": "ignored",
+  "artifacts": [
+    {
+      "host": "codex",
+      "task": "dev-config",
+      "path": "codex/dev-config.mlview.json",
+      "bytes": 30048,
+      "sha256": "8607f0bc268a898294b2fc0dd5ab01a7e11d0917c47947c8d66c703ef4be2ab7",
+      "revision": "rev-distill-configured-training-20260917-01",
+      "finalUiResponseObserved": null
+    },
+    {
+      "host": "codex",
+      "task": "dev-sklearn",
+      "path": "codex/dev-sklearn.mlview.json",
+      "bytes": 20629,
+      "sha256": "a80aae6a88e5d1a603e423cee8c986c635f7efe560457912225406cd549e755a",
+      "revision": "rev-group-cv-clean-1",
+      "finalUiResponseObserved": null
+    },
+    {
+      "host": "codex",
+      "task": "dev-gan",
+      "path": "codex/dev-gan.mlview.json",
+      "bytes": 24712,
+      "sha256": "feb87853568777b3bc24cef099c7112167574070191c8e5e925b4217a4e7135c",
+      "revision": "rev-dcgan-loss-cycle-20260917-1",
+      "finalUiResponseObserved": null,
+      "provisionalChallenge": "Running loss sums are accumulated but current batch losses are printed; the artifact can imply the accumulators are reported."
+    },
+    {
+      "host": "codex",
+      "task": "dev-notebook",
+      "path": "codex/dev-notebook.mlview.json",
+      "bytes": 19137,
+      "sha256": "315993b9f909f79b7b03e32aa3d8b60f6ed5cf076239bca753be51e78229ab5a",
+      "revision": "rev-leak-out-of-order-native-1",
+      "finalUiResponseObserved": true,
+      "revalidationRequirement": "Reconstruct the original .agents/skills/mlview installed layout to validate every recorded file hash."
+    },
+    {
+      "host": "claude-code",
+      "task": "dev-config",
+      "path": "claude-code/dev-config.mlview.json",
+      "bytes": 47949,
+      "sha256": "a5d7ae7311c6ed1d24b8ba3c3449cf5ba3793b275521eb12cad3d71e777c43ab",
+      "revision": "dev-config-distill-r1",
+      "finalUiResponseObserved": null
+    },
+    {
+      "host": "copilot",
+      "task": "dev-config",
+      "path": "copilot/dev-config.mlview.json",
+      "bytes": 20883,
+      "sha256": "f2ab3caf7a59497a41dc33b356c800c4a67b571fa9cd5892c514ffa7a0f05e78",
+      "revision": "rev-distill-1",
+      "finalUiResponseObserved": null
+    },
+    {
+      "host": "claude-code",
+      "task": "dev-sklearn",
+      "path": "claude-code/dev-sklearn.mlview.json",
+      "bytes": 41548,
+      "sha256": "ec84f1eca09cfdc15c1f86523280e25a255165825e4cfd65f4df26aa4e070a7f",
+      "revision": "dev-sklearn-r1",
+      "finalUiResponseObserved": null
+    },
+    {
+      "host": "claude-code",
+      "task": "dev-gan",
+      "path": "claude-code/dev-gan.mlview.json",
+      "bytes": 59043,
+      "sha256": "7f2a72ea47471b4ef9fe534fff5daa15146b584a3eef8f07a80eda67fd330737",
+      "revision": "rev-dev-gan-20260917-1",
+      "finalUiResponseObserved": true,
+      "provisionalChallenge": "Framework, autograd, and gradient-flow semantics should be qualified as inferred; every netD parameter is unproven without models.py; host-device synchronization from .item() is conditional on CUDA; project-local and workspace inventory wording is overbroad. Publication-safety review passed; human semantic review remains pending."
+    },
+    {
+      "host": "copilot",
+      "task": "dev-sklearn",
+      "path": "copilot/dev-sklearn.mlview.json",
+      "bytes": 9201,
+      "sha256": "19a250761c99a03e9137d7a7b61c9859d4b98c584c236f092b80b5ee3e4e933f",
+      "revision": "rev-1",
+      "finalUiResponseObserved": true,
+      "provisionalChallenge": "The call-site flow is supported, but StratifiedGroupKFold library behavior and its conditional class-balance guarantee are labelled observed rather than library-inferred. Missing custom encoders/features modules prevent proving TargetEncoder internal fitting and preprocessing semantics. Human semantic review remains pending."
+    },
+    {
+      "host": "claude-code",
+      "task": "dev-notebook",
+      "path": "claude-code/dev-notebook.mlview.json",
+      "bytes": 32761,
+      "sha256": "d66dfe36ea0b78fbd5500e495b8b27013db97be6ac16e8b3754d40c07b75a660",
+      "revision": "rev-20260917-leak-out-of-order-1",
+      "finalUiResponseObserved": true,
+      "provisionalChallenge": "The next-batch updated-weights loop edge is conditional on another batch, whose existence is unknown because row count is unavailable. The missing-zero_grad source fact is observed, while its behavioral impact and dtype/scaler/CrossEntropyLoss semantics use disclosed library knowledge; severity remains a model judgment. Recorded execution order is correctly qualified as hypothetical metadata rather than proof of runtime execution."
+    },
+    {
+      "host": "copilot",
+      "task": "dev-notebook",
+      "path": "copilot/dev-notebook.mlview.json",
+      "bytes": 7276,
+      "sha256": "6fe4fbd79af4d30f47462a5c9d469c9f1943adca7e37029720f8f3e4f93139d4",
+      "revision": "dev-notebook-rev-1",
+      "finalUiResponseObserved": true,
+      "liveDiagramAcceptance": "passed",
+      "provisionalChallenge": "The output omits whole-X scaling before split, missing zero_grad, the unused test split, and absent evaluation/metrics/checkpoints; execution-order language is qualified; single gradient-descent loop is loose wording for Adam. Human semantic review remains pending."
+    },
+    {
+      "host": "copilot",
+      "task": "dev-gan",
+      "path": "copilot/dev-gan.mlview.json",
+      "bytes": 17810,
+      "sha256": "6451e734b53fbea73d8f621729b8bfc0c529f9db79209850c4ec9b0251b193fe",
+      "revision": "rev-1",
+      "finalUiResponseObserved": true,
+      "liveDiagramAcceptance": "passed",
+      "provisionalChallenge": "running_metrics can imply accumulated sums are printed every 100 batches; source prints current-batch losses. Framework/autograd effects labelled observed should be inferred. Human semantic review remains pending."
+    }
+  ],
+  "refinements": [
+    {
+      "host": "codex",
+      "task": "dev-gan",
+      "path": "refinements/codex-dev-gan-r2.mlview.json",
+      "bytes": 25198,
+      "sha256": "e57927985012ab9f45da9c80db9fa5a7025f5a1c54d745011476cfa31c47f175",
+      "revision": "rev-dcgan-loss-cycle-20260917-2",
+      "parentRevision": "rev-dcgan-loss-cycle-20260917-1",
+      "parentSha256": "feb87853568777b3bc24cef099c7112167574070191c8e5e925b4217a4e7135c",
+      "challenge": "Correct the explanation of cumulative running sums versus current-batch losses printed every 100 steps.",
+      "stableIdCounts": {
+        "nodes": {"preserved": 16, "parent": 16, "child": 16},
+        "edges": {"preserved": 19, "parent": 19, "child": 19},
+        "findings": {"preserved": 1, "parent": 1, "child": 1},
+        "evidence": {"preserved": 16, "parent": 16, "child": 16},
+        "phases": {"preserved": 8, "parent": 8, "child": 8}
+      },
+      "humanSemanticReview": "pending",
+      "accuracyScore": null
+    }
+  ]
+}

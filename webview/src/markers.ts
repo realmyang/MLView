@@ -87,7 +87,7 @@ export function severityGlyph(severity: string, size = 18, label?: string): SVGE
 function ariaForCounts(counts: IssueCounts): string {
   const total = countsTotal(counts);
   const top = highestSeverity(counts);
-  return total + (total === 1 ? ' issue' : ' issues') + ', highest severity ' + (top ? SEVERITY_WORD[top] : 'none');
+  return total + (total === 1 ? ' finding' : ' findings') + ', highest severity ' + (top ? SEVERITY_WORD[top] : 'none');
 }
 
 /**

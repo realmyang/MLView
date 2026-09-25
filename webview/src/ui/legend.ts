@@ -17,10 +17,9 @@ import { add, el, iconButton, on, svg } from '../dom.js';
 import { uiIcon } from '../icons.js';
 import { severityGlyph, SEVERITY_ORDER, SEVERITY_WORD } from '../markers.js';
 import { ARROW_HEADS, edgeKindClass, KNOWN_EDGE_KINDS } from '../render/edges.js';
-import { weightStroke } from '../rollup/rolled.js';
 
 export interface LegendRow {
-  /** `severity` | `edge` | `state` | `confidence`. */
+  /** `severity` | `edge` | `basis` | `freshness`. */
   group: string;
   key: string;
   label: string;
@@ -41,25 +40,16 @@ const EDGE_DETAIL: Record<string, string> = {
   unknown: 'A connection kind this renderer does not know.',
 };
 
-/** The card treatments, named exactly as `render/nodes.ts` stamps them. */
-const STATE_ROWS: LegendRow[] = [
-  { group: 'state', key: 'is-ghost', label: 'Missing step', detail: 'A stage the pipeline should have and does not.' },
-  { group: 'state', key: 'is-collapsed-group', label: 'Collapsed group', detail: 'A unit folded to one card; the badge counts what is inside.' },
-  // PERF-04. It sits beside the collapsed group on purpose: they look alike and
-  // the difference — one can be opened, the other cannot — is the whole reason
-  // the key has to name both.
-  { group: 'state', key: 'is-rolled-up', label: 'Rolled up', detail: 'The node budget folded other nodes into this card. They are not in this document, so it cannot be opened.' },
-  { group: 'state', key: 'is-dynamic', label: 'Dynamic scope', detail: 'A call the analyzer could not resolve statically.' },
-  { group: 'state', key: 'is-lowconf', label: 'Low confidence', detail: 'Drawn, but the evidence for it is thin.' },
-  { group: 'state', key: 'is-stale', label: 'Stale', detail: 'The file changed since this analysis ran.' },
-  { group: 'state', key: 'boundary', label: 'Boundary stub', detail: 'Pulled in by a scope hop; its findings are out of scope, so it carries no badge.' },
+/** WorkflowDocument 1.0's three authored evidence bases. */
+const BASIS_ROWS: LegendRow[] = [
+  { group: 'basis', key: 'observed', label: 'Observed', detail: 'Directly supported by cited workspace source.' },
+  { group: 'basis', key: 'inferred', label: 'Inferred', detail: 'Reasoned from cited source and stated assumptions; it was not directly observed at run time.' },
+  { group: 'basis', key: 'unresolved', label: 'Unresolved', detail: 'The available evidence does not settle this claim. It does not mean the step is absent.' },
 ];
 
-const CONFIDENCE_ROWS: LegendRow[] = [
-  { group: 'confidence', key: 'certain', label: 'certain', detail: 'Every factor the rule wants is present.' },
-  { group: 'confidence', key: 'likely', label: 'likely', detail: 'Strong evidence, one factor short.' },
-  { group: 'confidence', key: 'possible', label: 'possible', detail: 'Consistent with the defect; check it.' },
-  { group: 'confidence', key: 'speculative', label: 'speculative', detail: 'A hint, offered rather than asserted.' },
+const FRESHNESS_ROWS: LegendRow[] = [
+  { group: 'freshness', key: 'verified', label: 'Source snapshot', detail: 'Published file hashes can detect later source changes; they do not prove the interpretation.' },
+  { group: 'freshness', key: 'draft', label: 'Draft', detail: 'This revision has no published source hashes, so freshness is not verified.' },
 ];
 
 /** The legend's content, derived from the drawing tables. */
@@ -74,10 +64,10 @@ export function legendModel(): LegendSection[] {
         label: SEVERITY_WORD[sev],
         detail:
           sev === 'high'
-            ? 'Very likely wrong, and it changes the result.'
+            ? 'High potential impact if the finding is correct.'
             : sev === 'medium'
-              ? 'Worth fixing before you trust the numbers.'
-              : 'A smell, not a defect.',
+              ? 'Medium potential impact if the finding is correct.'
+              : 'Low potential impact if the finding is correct. Severity does not express certainty.',
       })),
     },
     {
@@ -90,14 +80,10 @@ export function legendModel(): LegendSection[] {
         detail: EDGE_DETAIL[kind] || '',
       })).concat([
         { group: 'edge', key: 'back', label: 'loop back', detail: 'The return leg of a loop, marked with a chevron.' },
-        // PERF-04: the thicker stroke is never the only cue — the cable also
-        // carries a `×n` pill and says "weight n" to a screen reader — but the
-        // key still has to say what a thick cable means.
-        { group: 'edge', key: 'weighted', label: 'merged (×n)', detail: 'One cable standing for several connections after the node budget merged them. It counts connections, not call sites.' },
       ]),
     },
-    { id: 'states', title: 'Card states', rows: STATE_ROWS },
-    { id: 'confidence', title: 'Confidence', rows: CONFIDENCE_ROWS },
+    { id: 'basis', title: 'Claim basis', rows: BASIS_ROWS },
+    { id: 'freshness', title: 'Source freshness', rows: FRESHNESS_ROWS },
   ];
 }
 
@@ -109,17 +95,12 @@ export function legendModel(): LegendSection[] {
  * shadow the scene's own markers.
  */
 function edgeSwatch(kind: string): SVGElement {
-  const weighted = kind === 'weighted';
-  const known = edgeKindClass(kind === 'back' || weighted ? kind === 'back' ? 'control' : 'data' : kind);
+  const known = edgeKindClass(kind === 'back' ? 'control' : kind);
   const root = svg('svg', { class: 'mlv-legend__swatch', viewBox: '0 0 44 14', width: 44, height: 14, 'aria-hidden': 'true' });
   const g = svg('g', {
     class:
-      'mlv-edge mlv-edge--' + known + (kind === 'back' ? ' mlv-edge--back' : '') +
-      (weighted ? ' mlv-edge--weighted' : ''),
+      'mlv-edge mlv-edge--' + known + (kind === 'back' ? ' mlv-edge--back' : ''),
   });
-  // The swatch shows the REAL stroke width the renderer would use, read from
-  // the same function, so a key that promised "thicker" could not show a hairline.
-  if (weighted) g.style.setProperty('--mlv-edge-w', weightStroke(4) + 'px');
   // `mlv-legend__edge`, never `mlv-edge__path`: edge.css lists both on every
   // kind rule, so the swatch shows the real stroke without becoming a decoy for
   // the queries that walk the scene's cables.
@@ -146,30 +127,17 @@ function edgeSwatch(kind: string): SVGElement {
 }
 
 /** A miniature card carrying the same class the scene stamps on a real one. */
-function stateSwatch(key: string): HTMLElement {
-  const card = el('div', 'mlv-legend__card mlv-node');
-  // `data-legend-role`, never `data-view-role`: that attribute is projection
-  // data, and scope.css lists both selectors so the swatch still shows the real
-  // dashed, faded treatment (see the note beside that rule).
-  if (key === 'boundary') card.setAttribute('data-legend-role', 'boundary');
-  else card.classList.add(key);
-  if (key === 'is-collapsed-group') add(card, el('span', 'mlv-badge__count', '6'));
-  // PERF-04: the chip the real card carries, so the key and the picture agree.
-  if (key === 'is-rolled-up') add(card, el('span', 'mlv-chip mlv-chip--rollup', '12 rolled up'));
-  return card;
-}
-
-function confidenceSwatch(bucket: string): HTMLElement {
-  const chip = el('span', 'mlv-chip mlv-chip--conf mlv-chip--conf-' + bucket, bucket);
-  chip.setAttribute('data-confidence', bucket);
+function basisSwatch(basis: string): HTMLElement {
+  const chip = el('span', 'mlv-chip mlv-chip--basis mlv-chip--basis-' + basis, basis);
+  chip.setAttribute('data-basis', basis);
   return chip;
 }
 
 function swatchFor(row: LegendRow): Node {
   if (row.group === 'severity') return severityGlyph(row.key, 14, '');
   if (row.group === 'edge') return edgeSwatch(row.key);
-  if (row.group === 'state') return stateSwatch(row.key);
-  return confidenceSwatch(row.key);
+  if (row.group === 'basis') return basisSwatch(row.key);
+  return el('span', 'mlv-chip', row.key === 'verified' ? 'hashes' : 'no hashes');
 }
 
 /**

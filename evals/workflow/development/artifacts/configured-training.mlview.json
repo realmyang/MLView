@@ -1,0 +1,703 @@
+{
+  "coverage": {
+    "inspectedFiles": [
+      "samples/configured_training/configs/distill.json",
+      "samples/configured_training/train.py",
+      "samples/configured_training/engine.py",
+      "samples/configured_training/models.py",
+      "samples/configured_training/infer.py"
+    ],
+    "limitations": [
+      "Development smoke authored by a gpt-5.6-sol developer subagent, not a live Copilot or Claude Code UI invocation.",
+      "Source was read but not imported or executed; external tensors and checkpoints were not inspected.",
+      "The link from the training output to the inference checkpoint argument is inferred because no launcher connects the two entrypoints."
+    ],
+    "status": "scoped",
+    "summary": "Selected distill.json scenario traced through configuration, construction, data loading, repeated training, validation, save, and the separate inference entrypoint."
+  },
+  "edges": [
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-config-models",
+        "ev-build-selected"
+      ],
+      "id": "config-to-student",
+      "kind": "config",
+      "label": "student=small",
+      "source": "selected-config",
+      "target": "student"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-config-models",
+        "ev-teacher-load"
+      ],
+      "id": "config-to-teacher",
+      "kind": "config",
+      "label": "teacher=wide and checkpoint",
+      "source": "selected-config",
+      "target": "teacher"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-config-lr",
+        "ev-optimizer"
+      ],
+      "id": "config-to-optimizer",
+      "kind": "config",
+      "label": "learning_rate=0.001",
+      "source": "selected-config",
+      "target": "optimizer"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-loaders",
+        "ev-epoch-loop"
+      ],
+      "id": "train-batches-to-epoch",
+      "kind": "data",
+      "label": "features and labels",
+      "source": "train-data",
+      "target": "epoch"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-teacher-forward"
+      ],
+      "id": "epoch-to-teacher",
+      "kind": "control",
+      "label": "each batch",
+      "source": "epoch",
+      "target": "teacher-forward"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-student-forward"
+      ],
+      "id": "epoch-to-student",
+      "kind": "control",
+      "label": "each batch",
+      "source": "epoch",
+      "target": "student-forward"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-supervised"
+      ],
+      "id": "student-to-supervised",
+      "kind": "data",
+      "label": "student logits + labels",
+      "source": "student-forward",
+      "target": "supervised-loss"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-distilled"
+      ],
+      "id": "student-to-distilled",
+      "kind": "data",
+      "label": "softened student distribution",
+      "source": "student-forward",
+      "target": "distillation-loss"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-distilled"
+      ],
+      "id": "teacher-to-distilled",
+      "kind": "data",
+      "label": "softened teacher targets",
+      "source": "teacher-forward",
+      "target": "distillation-loss"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-combined"
+      ],
+      "id": "supervised-to-combined",
+      "kind": "data",
+      "label": "weight 0.4",
+      "source": "supervised-loss",
+      "target": "combined-loss"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-combined"
+      ],
+      "id": "distilled-to-combined",
+      "kind": "data",
+      "label": "weight 0.6",
+      "source": "distillation-loss",
+      "target": "combined-loss"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-update"
+      ],
+      "id": "combined-to-update",
+      "kind": "control",
+      "label": "backward",
+      "source": "combined-loss",
+      "target": "student-update"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-epoch-loop",
+        "ev-update"
+      ],
+      "id": "update-next-batch",
+      "kind": "control",
+      "label": "next batch / next epoch",
+      "source": "student-update",
+      "target": "epoch"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-validation-call"
+      ],
+      "id": "student-to-validation",
+      "kind": "data",
+      "label": "updated student",
+      "source": "student",
+      "target": "student-validation"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-validation-call",
+        "ev-evaluate"
+      ],
+      "id": "validation-data-to-metric",
+      "kind": "data",
+      "label": "validation batches",
+      "source": "validation-data",
+      "target": "student-validation"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-epoch-loop",
+        "ev-validation-call"
+      ],
+      "id": "validation-next-epoch",
+      "kind": "control",
+      "label": "next epoch until five",
+      "source": "student-validation",
+      "target": "epoch"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-save"
+      ],
+      "id": "student-to-save",
+      "kind": "data",
+      "label": "state_dict",
+      "source": "student",
+      "target": "student-checkpoint"
+    },
+    {
+      "basis": "inferred",
+      "evidence": [
+        "ev-save",
+        "ev-infer-load"
+      ],
+      "id": "checkpoint-to-inference",
+      "kind": "data",
+      "label": "checkpoint supplied by caller",
+      "source": "student-checkpoint",
+      "target": "inference-load"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-infer-predict"
+      ],
+      "id": "inference-load-to-predict",
+      "kind": "data",
+      "label": "loaded student",
+      "source": "inference-load",
+      "target": "inference-predict"
+    }
+  ],
+  "evidence": [
+    {
+      "endLine": 4,
+      "file": "samples/configured_training/configs/distill.json",
+      "id": "ev-config-models",
+      "line": 2,
+      "quote": "  \"student\": \"small\",\n  \"teacher\": \"wide\",\n  \"teacher_checkpoint\": \"external/teacher.pt\","
+    },
+    {
+      "endLine": 8,
+      "file": "samples/configured_training/configs/distill.json",
+      "id": "ev-config-objective",
+      "line": 7,
+      "quote": "  \"alpha\": 0.6,\n  \"temperature\": 2.0,"
+    },
+    {
+      "endLine": 9,
+      "file": "samples/configured_training/configs/distill.json",
+      "id": "ev-config-lr",
+      "line": 9,
+      "quote": "  \"learning_rate\": 0.001,"
+    },
+    {
+      "endLine": 11,
+      "file": "samples/configured_training/configs/distill.json",
+      "id": "ev-config-run",
+      "line": 10,
+      "quote": "  \"epochs\": 5,\n  \"output\": \"student.pt\""
+    },
+    {
+      "endLine": 12,
+      "file": "samples/configured_training/train.py",
+      "id": "ev-batches",
+      "line": 9,
+      "quote": "def batches(filename, shuffle):\n    tensors = torch.load(filename, map_location=\"cpu\", weights_only=True)\n    return DataLoader(TensorDataset(tensors[\"features\"], tensors[\"labels\"]),\n                      batch_size=32, shuffle=shuffle)"
+    },
+    {
+      "endLine": 17,
+      "file": "samples/configured_training/train.py",
+      "id": "ev-build-selected",
+      "line": 15,
+      "quote": "def run(config):\n    student = build(config[\"student\"])\n    teacher = build(config[\"teacher\"])"
+    },
+    {
+      "endLine": 20,
+      "file": "samples/configured_training/train.py",
+      "id": "ev-teacher-load",
+      "line": 18,
+      "quote": "    teacher.load_state_dict(torch.load(config[\"teacher_checkpoint\"],\n                                      map_location=\"cpu\", weights_only=True))\n    teacher.requires_grad_(False)"
+    },
+    {
+      "endLine": 21,
+      "file": "samples/configured_training/train.py",
+      "id": "ev-optimizer",
+      "line": 21,
+      "quote": "    optimizer = torch.optim.Adam(student.parameters(), lr=config[\"learning_rate\"])"
+    },
+    {
+      "endLine": 23,
+      "file": "samples/configured_training/train.py",
+      "id": "ev-loaders",
+      "line": 22,
+      "quote": "    train_batches = batches(config[\"train_data\"], shuffle=True)\n    validation_batches = batches(config[\"validation_data\"], shuffle=False)"
+    },
+    {
+      "endLine": 26,
+      "file": "samples/configured_training/train.py",
+      "id": "ev-epoch-loop",
+      "line": 24,
+      "quote": "    for _ in range(config[\"epochs\"]):\n        train_epoch(student, teacher, train_batches, optimizer,\n                    config[\"alpha\"], config[\"temperature\"])"
+    },
+    {
+      "endLine": 27,
+      "file": "samples/configured_training/train.py",
+      "id": "ev-validation-call",
+      "line": 27,
+      "quote": "        print({\"validation_accuracy\": evaluate(student, validation_batches)})"
+    },
+    {
+      "endLine": 28,
+      "file": "samples/configured_training/train.py",
+      "id": "ev-save",
+      "line": 28,
+      "quote": "    torch.save(student.state_dict(), config[\"output\"])"
+    },
+    {
+      "endLine": 6,
+      "file": "samples/configured_training/models.py",
+      "id": "ev-small",
+      "line": 5,
+      "quote": "def small():\n    return nn.Sequential(nn.Linear(10, 16), nn.ReLU(), nn.Linear(16, 3))"
+    },
+    {
+      "endLine": 10,
+      "file": "samples/configured_training/models.py",
+      "id": "ev-wide",
+      "line": 9,
+      "quote": "def wide():\n    return nn.Sequential(nn.Linear(10, 64), nn.ReLU(), nn.Linear(64, 3))"
+    },
+    {
+      "endLine": 10,
+      "file": "samples/configured_training/engine.py",
+      "id": "ev-teacher-forward",
+      "line": 6,
+      "quote": "    student.train()\n    teacher.eval()\n    for features, labels in batches:\n        with torch.no_grad():\n            teacher_logits = teacher(features)"
+    },
+    {
+      "endLine": 11,
+      "file": "samples/configured_training/engine.py",
+      "id": "ev-student-forward",
+      "line": 11,
+      "quote": "        student_logits = student(features)"
+    },
+    {
+      "endLine": 12,
+      "file": "samples/configured_training/engine.py",
+      "id": "ev-supervised",
+      "line": 12,
+      "quote": "        supervised = F.cross_entropy(student_logits, labels)"
+    },
+    {
+      "endLine": 17,
+      "file": "samples/configured_training/engine.py",
+      "id": "ev-distilled",
+      "line": 13,
+      "quote": "        distilled = F.kl_div(\n            F.log_softmax(student_logits / temperature, dim=-1),\n            F.softmax(teacher_logits / temperature, dim=-1),\n            reduction=\"batchmean\",\n        ) * temperature ** 2"
+    },
+    {
+      "endLine": 18,
+      "file": "samples/configured_training/engine.py",
+      "id": "ev-combined",
+      "line": 18,
+      "quote": "        loss = (1 - alpha) * supervised + alpha * distilled"
+    },
+    {
+      "endLine": 21,
+      "file": "samples/configured_training/engine.py",
+      "id": "ev-update",
+      "line": 19,
+      "quote": "        optimizer.zero_grad()\n        loss.backward()\n        optimizer.step()"
+    },
+    {
+      "endLine": 32,
+      "file": "samples/configured_training/engine.py",
+      "id": "ev-evaluate",
+      "line": 24,
+      "quote": "@torch.no_grad()\ndef evaluate(student, batches):\n    student.eval()\n    correct, count = 0, 0\n    for features, labels in batches:\n        predictions = student(features).argmax(dim=-1)\n        correct += (predictions == labels).sum().item()\n        count += len(labels)\n    return correct / count if count else None"
+    },
+    {
+      "endLine": 9,
+      "file": "samples/configured_training/infer.py",
+      "id": "ev-infer-load",
+      "line": 5,
+      "quote": "@torch.no_grad()\ndef predict(checkpoint, features):\n    student = build(\"small\")\n    student.load_state_dict(torch.load(checkpoint, map_location=\"cpu\", weights_only=True))\n    student.eval()"
+    },
+    {
+      "endLine": 10,
+      "file": "samples/configured_training/infer.py",
+      "id": "ev-infer-predict",
+      "line": 9,
+      "quote": "    student.eval()\n    return student(features).argmax(dim=-1)"
+    }
+  ],
+  "findings": [
+    {
+      "basis": "observed",
+      "edgeIds": [
+        "teacher-to-distilled",
+        "combined-to-update"
+      ],
+      "evidence": [
+        "ev-teacher-load",
+        "ev-optimizer",
+        "ev-teacher-forward",
+        "ev-update"
+      ],
+      "id": "teacher-not-updated",
+      "message": "The teacher runs in evaluation mode under no_grad, is frozen, and is absent from the optimizer; the combined loss updates the student only.",
+      "nodeIds": [
+        "teacher",
+        "teacher-forward",
+        "student-update"
+      ],
+      "severity": "low",
+      "title": "Only the student is optimized"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-config-models",
+        "ev-infer-load"
+      ],
+      "id": "inference-architecture-fixed",
+      "message": "The inference entrypoint builds small directly rather than reading the training configuration, so it is compatible with the selected student but tied to that architecture.",
+      "nodeIds": [
+        "student",
+        "inference-load"
+      ],
+      "severity": "medium",
+      "suggestion": "Keep inference model selection aligned with the checkpoint-producing configuration.",
+      "title": "Inference reconstructs the small architecture"
+    }
+  ],
+  "nodes": [
+    {
+      "basis": "observed",
+      "detail": "small student, wide teacher, alpha 0.6, temperature 2.0, five epochs",
+      "evidence": [
+        "ev-config-models",
+        "ev-config-objective",
+        "ev-config-run"
+      ],
+      "id": "selected-config",
+      "kind": "config",
+      "label": "Select distill.json values",
+      "phase": "configure"
+    },
+    {
+      "basis": "observed",
+      "detail": "10→16→3 network",
+      "evidence": [
+        "ev-build-selected",
+        "ev-small"
+      ],
+      "id": "student",
+      "kind": "model",
+      "label": "Build small student",
+      "phase": "construct"
+    },
+    {
+      "basis": "observed",
+      "detail": "10→64→3 network loaded from external/teacher.pt",
+      "evidence": [
+        "ev-teacher-load",
+        "ev-wide"
+      ],
+      "id": "teacher",
+      "kind": "model",
+      "label": "Build and freeze wide teacher",
+      "phase": "construct"
+    },
+    {
+      "basis": "observed",
+      "detail": "Only student.parameters() at learning rate 0.001",
+      "evidence": [
+        "ev-optimizer",
+        "ev-config-lr"
+      ],
+      "id": "optimizer",
+      "kind": "optimizer",
+      "label": "Create student Adam optimizer",
+      "phase": "construct"
+    },
+    {
+      "basis": "observed",
+      "detail": "external/train.pt, batch size 32",
+      "evidence": [
+        "ev-batches",
+        "ev-loaders"
+      ],
+      "id": "train-data",
+      "kind": "dataset",
+      "label": "Load shuffled training batches",
+      "phase": "load-data"
+    },
+    {
+      "basis": "observed",
+      "detail": "external/validation.pt, batch size 32",
+      "evidence": [
+        "ev-batches",
+        "ev-loaders"
+      ],
+      "id": "validation-data",
+      "kind": "dataset",
+      "label": "Load ordered validation batches",
+      "phase": "load-data"
+    },
+    {
+      "basis": "observed",
+      "detail": "Repeated five times",
+      "evidence": [
+        "ev-epoch-loop"
+      ],
+      "id": "epoch",
+      "kind": "group",
+      "label": "Run one distillation epoch",
+      "phase": "train"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-teacher-forward"
+      ],
+      "id": "teacher-forward",
+      "kind": "model",
+      "label": "Compute teacher targets without gradients",
+      "parent": "epoch",
+      "phase": "train"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-student-forward"
+      ],
+      "id": "student-forward",
+      "kind": "model",
+      "label": "Compute student logits",
+      "parent": "epoch",
+      "phase": "train"
+    },
+    {
+      "basis": "observed",
+      "detail": "Student logits against ground-truth labels",
+      "evidence": [
+        "ev-supervised"
+      ],
+      "id": "supervised-loss",
+      "kind": "loss",
+      "label": "Compute supervised cross-entropy",
+      "parent": "epoch",
+      "phase": "train"
+    },
+    {
+      "basis": "observed",
+      "detail": "Student distribution against teacher distribution",
+      "evidence": [
+        "ev-distilled"
+      ],
+      "id": "distillation-loss",
+      "kind": "loss",
+      "label": "Compute temperature-scaled KL loss",
+      "parent": "epoch",
+      "phase": "train"
+    },
+    {
+      "basis": "observed",
+      "detail": "0.4 × supervised + 0.6 × distilled",
+      "evidence": [
+        "ev-combined",
+        "ev-config-objective"
+      ],
+      "id": "combined-loss",
+      "kind": "loss",
+      "label": "Mix supervised and distillation losses",
+      "parent": "epoch",
+      "phase": "train"
+    },
+    {
+      "basis": "observed",
+      "detail": "Teacher has no gradient path and is not owned by optimizer",
+      "evidence": [
+        "ev-update",
+        "ev-optimizer",
+        "ev-teacher-load"
+      ],
+      "id": "student-update",
+      "kind": "optimizer",
+      "label": "Backpropagate and update student",
+      "parent": "epoch",
+      "phase": "train"
+    },
+    {
+      "basis": "observed",
+      "detail": "Student-only argmax accuracy after each epoch",
+      "evidence": [
+        "ev-validation-call",
+        "ev-evaluate"
+      ],
+      "id": "student-validation",
+      "kind": "metric",
+      "label": "Measure student validation accuracy",
+      "phase": "validate"
+    },
+    {
+      "basis": "observed",
+      "detail": "student.pt after all epochs",
+      "evidence": [
+        "ev-save",
+        "ev-config-run"
+      ],
+      "id": "student-checkpoint",
+      "kind": "checkpoint",
+      "label": "Save student state",
+      "phase": "save"
+    },
+    {
+      "basis": "observed",
+      "evidence": [
+        "ev-infer-load"
+      ],
+      "id": "inference-load",
+      "kind": "checkpoint",
+      "label": "Rebuild small model and load checkpoint",
+      "phase": "inference"
+    },
+    {
+      "basis": "observed",
+      "detail": "Argmax class from the loaded small model",
+      "evidence": [
+        "ev-infer-predict"
+      ],
+      "id": "inference-predict",
+      "kind": "model",
+      "label": "Run no-gradient student prediction",
+      "phase": "inference"
+    }
+  ],
+  "phases": [
+    {
+      "id": "configure",
+      "label": "Selected configuration"
+    },
+    {
+      "id": "construct",
+      "label": "Construct models"
+    },
+    {
+      "id": "load-data",
+      "label": "Load datasets"
+    },
+    {
+      "id": "train",
+      "label": "Repeated distillation epoch"
+    },
+    {
+      "id": "validate",
+      "label": "Validate student"
+    },
+    {
+      "id": "save",
+      "label": "Save student"
+    },
+    {
+      "id": "inference",
+      "label": "Separate inference"
+    }
+  ],
+  "producer": {
+    "host": "codex",
+    "kind": "host-llm",
+    "model": "gpt-5.6-sol"
+  },
+  "request": {
+    "configuration": "samples/configured_training/configs/distill.json",
+    "entrypoints": [
+      "samples/configured_training/train.py",
+      "samples/configured_training/infer.py"
+    ],
+    "question": "Explain the configured distillation workflow, distinguish teacher and student losses and updates, and separate inference.",
+    "scope": "samples/configured_training with configs/distill.json selected"
+  },
+  "revision": {
+    "id": "dev-smoke-configured-training-r1"
+  },
+  "title": "Configured teacher-student distillation and inference",
+  "verification": {
+    "files": {
+      "samples/configured_training/configs/distill.json": "d9ccc690684883582504dea4e5542f23784418f2a8919441f0fbcb3ddae669c9",
+      "samples/configured_training/engine.py": "6df178870f297452ba4fa32c1c001b57372b9a06d283512c45a8f57f2dde2cce",
+      "samples/configured_training/infer.py": "09a1aff4e13c791bee610fb88420475d11de02698d1272712eb059925eae6cff",
+      "samples/configured_training/models.py": "5e3e7342062f4201a5d0a551314be846cc6acc82ad0a78a1cfae3923f8d8517e",
+      "samples/configured_training/train.py": "5b053c6707f04e02b4de238afdf7c4d20f3124be48ec12aad251c1473a630c14"
+    },
+    "publishedAt": "2026-09-16T21:37:06.485901Z"
+  },
+  "workflowVersion": "1.0"
+}

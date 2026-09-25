@@ -3,13 +3,13 @@
   "owner": { "name": "MLView" },
   "metadata": {
     "description": "MLView's marketplace: the plugin from this checkout, and the same plugin fetched from GitHub.",
-    "version": "0.1.0"
+    "version": "0.2.0"
   },
   "plugins": [
     {
       "name": "mlview",
       "source": "./claude-plugin",
-      "description": "Visualize and audit Python ML pipelines as an interactive diagram — fully local, static analysis only."
+      "description": "Use the active Claude model to understand ML workflows and publish source-linked interactive diagrams with local validation."
     },
     {
       "name": "mlview-github",
@@ -18,7 +18,7 @@
         "url": "https://github.com/realmyang/MLView.git",
         "path": "claude-plugin"
       },
-      "description": "The same MLView plugin, installed from GitHub — for a machine with no MLView checkout. The plugin lives in the repository's claude-plugin/ subdirectory, so this is the git-subdir source; the analyzer is vendored inside it, so there is nothing to pip install."
+      "description": "The same MLView plugin installed from GitHub: a native Claude skill for model-authored, source-linked workflow diagrams."
     }
   ]
 }

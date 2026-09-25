@@ -110,19 +110,26 @@ export function renderDiffBar(app: App): void {
 }
 
 export function renderRail(app: App): void {
+  // VIEWUI-12: a `rule` grouping (restored, or asked for) is not offered for an
+  // authored document, so it falls back to none.
+  if (app.railGroupBy === 'rule' && app.graph && app.graph.schemaVersion === 'workflow-view/1') app.railGroupBy = 'none';
   const sel = app.selection;
   // An issue selection resolves to its primary node, so the Inspector is never
   // empty just because the user clicked the issue row instead of the card
   // (MLV-R1-006).
   const nodeId = app.selectedNodeId();
   const selectedNode = nodeId && app.index ? app.index.nodeById.get(nodeId) || null : null;
+  const selectedEdge = sel && sel.kind === 'edge' && app.index ? app.index.edgeById.get(sel.id) || null : null;
+  const selectedIssue = sel && sel.kind === 'issue' && app.index ? app.index.issueById.get(sel.id) || null : null;
   app.rail.update({
     index: app.index,
     canAskAssistant: app.caps.canAskAssistant,
     tab: app.railTab,
     issues: app.graph ? app.graph.issues : [],
     selectedNode,
+    selectedEdge,
     selectedIssueId: sel && sel.kind === 'issue' ? sel.id : null,
+    selectedIssue,
     collapsed: app.view.collapsed,
     keep: app.filters.keep,
     keepBase: app.filters.keepBase,

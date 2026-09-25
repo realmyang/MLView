@@ -17,7 +17,7 @@
  * 2. LENGTH IS THE POLYLINE SUM over `RoutedEdge.points`. The DOM path API for
  *    measuring a path is NEVER called: jsdom does not implement it, so measuring
  *    the DOM would make the tested path a different path from the shipped one.
- *    A source scan asserts zero occurrences of that call across `webview/src`.
+ *    `test/bundle.test.mjs` asserts the built bundle never names that call.
  * 3. NOTHING ANIMATES THAT THE USER DID NOT CAUSE. Every element here is created
  *    lazily inside an already-debounced hover callback and destroyed by the next
  *    `render()` or `clear()`.

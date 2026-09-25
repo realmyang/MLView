@@ -45,8 +45,14 @@ export interface NodeVisual {
   filteredOut: boolean;
 }
 
+/**
+ * The DOM id of a card or group box. Injective (RENDER-7): every character
+ * outside `[A-Za-z0-9-]`, `_` included, becomes `_<hex>_`, so `load.data`,
+ * `load:data` and `load_data` get three different ids and
+ * `aria-activedescendant` always names the selected card.
+ */
 export function nodeDomId(id: string): string {
-  return 'mlv-n-' + id.replace(/[^A-Za-z0-9_-]/g, '_');
+  return 'mlv-n-' + id.replace(/[^A-Za-z0-9-]/g, (c) => '_' + c.charCodeAt(0).toString(16) + '_');
 }
 
 function stageOf(node: MLNode): string {
@@ -162,16 +168,28 @@ export function chipsFor(node: MLNode, metrics?: ChipMetrics | null, budget = 26
   return out;
 }
 
+/**
+ * The kind word a screen reader hears before the label. An authored node
+ * without a kind the renderer knows is a "step": the adapter's `unknown`
+ * default is not something the author wrote (VIEWUI-14).
+ */
+function kindSpoken(n: NodeVisual['node']): string {
+  if (n.authored && (n.kind === 'unknown' || !isKnownKind(n.kind))) return 'step';
+  return isKnownKind(n.kind) ? n.kind.replace(/_/g, ' ') : 'node';
+}
+
 export function ariaLabelFor(v: NodeVisual): string {
   const n = v.node;
   const bits: string[] = [];
   // VIEW-08: a resurrected ghost is a REMOVED node, not a missing step. Saying
   // "Missing step" over it would name the wrong kind of absence.
   if (n.diffStatus === 'removed') bits.push('Removed: ' + n.label);
+  else if (n.ghost && n.basis === 'unresolved') bits.push('Unresolved: ' + n.label);
   else if (n.ghost) bits.push('Missing step: ' + n.label);
-  else bits.push((isKnownKind(n.kind) ? n.kind.replace(/_/g, ' ') : 'node') + ' ' + n.label);
+  else bits.push(kindSpoken(n) + ' ' + n.label);
   bits.push(stageOf(n) + ' stage');
-  bits.push(locSpoken(n.loc));
+  if (n.loc.file) bits.push(locSpoken(n.loc));
+  if (n.basis) bits.push('basis ' + n.basis);
   // ANA-10: the resolved value, spoken. A config card that reads "batch_size"
   // to a screen reader and "batch_size = 64" on screen is two different cards.
   const config = configSpoken(n);
@@ -187,7 +205,8 @@ export function ariaLabelFor(v: NodeVisual): string {
   }
   const total = countsTotal(v.counts);
   const top = highestSeverity(v.counts);
-  if (total > 0) bits.push(total + (total === 1 ? ' issue' : ' issues') + ', highest severity ' + top);
+  // VIEWUI-14: the same "finding" wording as the card's own severity badge.
+  if (total > 0) bits.push(total + (total === 1 ? ' finding' : ' findings') + ', highest severity ' + top);
   if (v.descendants > 0) bits.push(v.descendants + ' nested nodes');
   if (n.dynamic) bits.push('partially resolved');
   if (n.viewRole === 'boundary') bits.push('outside the current scope');
@@ -292,7 +311,7 @@ export function buildNodeCard(v: NodeVisual, collapsedGroup: boolean): HTMLEleme
   // NB. `notebooks/leak.ipynb > cell 3 : 4` on the card, with the flat line it
   // was translated from in the hover. `locSpan` splits the path from the cell so
   // a card too narrow for both loses the path, never the cell.
-  add(text, locSpan('mlv-node__loc', n.loc, 'div'));
+  if (n.loc.file) add(text, locSpan('mlv-node__loc', n.loc, 'div'));
 
   // The collapsed-group count chip is PREPENDED after budgeting, so it can never
   // push the "+n" overflow chip off the end (MLV-R1-011).
@@ -421,6 +440,7 @@ export function buildGroupBox(v: NodeVisual): HTMLElement {
   header.appendChild(chevBtn);
   header.appendChild(kindIcon(n.kind, 14));
   add(header, el('span', 'mlv-group__name', middleTruncate(n.label || n.qualname, 42)));
+  if (n.basis) add(header, el('span', 'mlv-chip mlv-chip--basis', n.basis));
   add(header, el('span', 'mlv-group__count', String(v.descendants)));
   if (rolledGroup) {
     const chip = add(header, el('span', 'mlv-chip mlv-chip--rollup', rollupChipText(rolledGroup)));

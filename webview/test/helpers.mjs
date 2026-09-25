@@ -1,8 +1,3 @@
-/**
- * Shared test helpers. Every test runs against the BUILT bundle in dist/, which
- * is what the VS Code webview and the standalone report actually load.
- */
-
 import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -12,46 +7,16 @@ export const HERE = dirname(fileURLToPath(import.meta.url));
 export const WEBVIEW_ROOT = join(HERE, '..');
 export const REPO_ROOT = join(WEBVIEW_ROOT, '..');
 export const DIST_JS = join(WEBVIEW_ROOT, 'dist', 'mlview.js');
-export const DIST_CSS = join(WEBVIEW_ROOT, 'dist', 'mlview.css');
-/**
- * The readable concatenation of the ten source layers (BUILD-01).
- *
- * `dist/mlview.css` is now MINIFIED, so a gate that asserts authored structure
- * -- a selector written a particular way, a layer marker, a declaration spelled
- * with its space after the colon -- reads this file instead. It is not a
- * different stylesheet: `bundle.test.mjs` proves byte for byte that the shipped
- * file is exactly `minifyCss(dev)`, so an assertion here is an assertion about
- * what ships.
- */
-export const DIST_CSS_DEV = join(WEBVIEW_ROOT, 'dist', 'mlview.dev.css');
-export const SAMPLE_PATH = join(REPO_ROOT, 'contracts', 'graph.sample.json');
 
-export async function readBundle() {
-  return readFile(DIST_JS, 'utf8');
-}
-
-export async function readSample() {
-  return JSON.parse(await readFile(SAMPLE_PATH, 'utf8'));
-}
-
-/** A jsdom window with the built bundle evaluated in it. */
 export async function loadBundle() {
-  const code = await readBundle();
-  // jsdom cannot navigate, and the standalone bridge deliberately tries a
-  // vscode://file navigation; that is expected here, so keep it out of the log.
+  const code = await readFile(DIST_JS, 'utf8');
   const virtualConsole = new VirtualConsole();
   virtualConsole.on('jsdomError', () => undefined);
   const dom = new JSDOM('<!doctype html><html><head></head><body><div id="mlview-root"></div></body></html>', {
-    runScripts: 'dangerously',
-    pretendToBeVisual: true,
-    url: 'https://mlview.test/',
-    virtualConsole,
+    runScripts: 'dangerously', pretendToBeVisual: true, url: 'https://mlview.test/', virtualConsole,
   });
-  // jsdom 26 has no structuredClone; dagre uses it. Every real host (Chromium in
-  // the VS Code webview, any current browser for the standalone report) ships it,
-  // so this shim closes a jsdom gap rather than a product gap.
   if (typeof dom.window.structuredClone !== 'function') {
-    dom.window.structuredClone = deepClone;
+    dom.window.structuredClone = (value) => JSON.parse(JSON.stringify(value));
   }
   const script = dom.window.document.createElement('script');
   script.textContent = code;
@@ -60,218 +25,87 @@ export async function loadBundle() {
   return { dom, window: dom.window, document: dom.window.document, MLView: dom.window.MLView };
 }
 
-/** A bridge that records every posted message, for the parity test. */
-export function recordingBridge(window, host = 'standalone', overrides = {}) {
+export function recordingBridge(window, host = 'vscode', overrides = {}) {
   const posted = [];
   let listener = null;
   return {
-    host,
-    theme: 'light',
-    capabilities: {
-      canOpenSource: true,
-      canReanalyze: host === 'vscode',
-      canExport: host === 'vscode',
-      canAskAssistant: false,
-      ...(overrides.capabilities || {}),
-    },
+    host, theme: 'light',
+    capabilities: { canOpenSource: true, canReanalyze: true, canExport: true, canAskAssistant: false, ...(overrides.capabilities || {}) },
     posted,
-    post(msg) {
-      posted.push(msg);
-    },
-    onMessage(cb) {
-      listener = cb;
-      return () => {
-        listener = null;
-      };
-    },
-    send(msg) {
-      if (listener) listener(msg);
-    },
-    saveState(s) {
-      this.saved = s;
-    },
-    loadState() {
-      return overrides.state || null;
-    },
+    post(message) { posted.push(message); },
+    onMessage(callback) { listener = callback; return () => { listener = null; }; },
+    send(message) { if (listener) listener(message); },
+    saveState(state) { this.saved = state; },
+    loadState() { return overrides.state || null; },
   };
 }
 
-const HEX = '0123456789abcdef';
-
-function idOf(prefix, n) {
-  let s = '';
-  let v = n + 1;
-  for (let i = 0; i < 12; i++) {
-    s = HEX[v % 16] + s;
-    v = Math.floor(v / 16) + 7 * (i + 1);
-  }
-  return prefix + s;
-}
-
-const STAGES = [
-  ['config', 'Configuration'],
-  ['data', 'Data'],
-  ['preprocess', 'Preprocess'],
-  ['model', 'Model'],
-  ['objective', 'Objective'],
-  ['train', 'Train'],
-  ['eval', 'Evaluate'],
-  ['deliver', 'Save / Deploy'],
-];
-
-const KINDS = ['dataset', 'dataloader', 'split', 'transform', 'model', 'layer', 'loss', 'optimizer', 'metric', 'checkpoint'];
-const EDGE_KINDS = ['data', 'call', 'control', 'config'];
-
-function loc(file, line) {
+/** The renderer-regression fixture: 8 phases, 8 groups, cycles and two findings. */
+export function rendererRegressionWorkflow(size = 48) {
+  const phases = Array.from({ length: 8 }, (_, i) => ({ id: `phase-${i}`, label: `Phase ${i}` }));
+  const evidence = Array.from({ length: size }, (_, i) => ({
+    id: `ev-${i}`, file: `src/phase-${i % 8}.py`, line: i + 1, endLine: i + 1, quote: `step_${i}()`,
+  }));
+  const nodes = Array.from({ length: size }, (_, i) => ({
+    id: `node-${i}`, label: `Step ${i}`, detail: `operation ${i}`, phase: `phase-${i % 8}`,
+    kind: i < 8 ? 'group' : 'operation',
+    parent: i >= 8 ? `node-${i % 8}` : undefined,
+    basis: i % 3 === 0 ? 'observed' : i % 3 === 1 ? 'inferred' : 'unresolved', evidence: [`ev-${i}`],
+  }));
+  const edges = Array.from({ length: size + 16 }, (_, i) => ({
+    id: `edge-${i}`, source: `node-${i % size}`, target: `node-${(i * 5 + 7) % size}`,
+    label: `flow ${i}`, kind: i % 7 === 0 ? 'control' : 'data',
+    basis: i % 2 ? 'inferred' : 'observed', evidence: [`ev-${i % size}`],
+  })).filter((edge) => edge.source !== edge.target);
   return {
-    file,
-    absFile: '/w/' + file,
-    line,
-    col: 4,
-    endLine: line + 1,
-    endCol: 20,
-    symbol: 'sym' + line,
-    snippet: 'x = f(' + line + ')',
+    workflowVersion: '1.0', title: 'Renderer regression fixture',
+    producer: { kind: 'host-llm', host: 'codex', model: 'fixture' }, revision: { id: 'fixture-r1' },
+    request: { question: 'Trace the complete cyclic workflow', scope: 'src/', entrypoints: ['src/phase-0.py'] },
+    phases, nodes, edges,
+    findings: [
+      { id: 'finding-a', title: 'Review cycle', message: 'The cycle needs review.', severity: 'high', nodeIds: ['node-8'], edgeIds: ['edge-7'], basis: 'inferred', evidence: ['ev-8'] },
+      { id: 'finding-b', title: 'Unresolved output', message: 'The output destination is unresolved.', severity: 'medium', nodeIds: ['node-23'], edgeIds: [], basis: 'unresolved', evidence: ['ev-23'] },
+    ],
+    evidence, coverage: { status: 'scoped', summary: 'Synthetic renderer coverage', inspectedFiles: phases.map((p) => `src/${p.id}.py`), limitations: [] },
   };
+}
+
+const roundNumbers = (text) => String(text ?? '').replace(/-?\d+(?:\.\d+)?(?:e[-+]?\d+)?/gi, (n) => (Math.round(Number(n) * 10) / 10).toFixed(1));
+
+function boxOf(element) {
+  const s = element.style;
+  return [roundNumbers(s.left), roundNumbers(s.top), roundNumbers(s.width), roundNumbers(s.height)].join(' ');
 }
 
 /**
- * A deterministic synthetic graph: `nodes` nodes spread over the eight stages
- * with one group per stage, and `edges` typed edges including back-edges and
- * cross-lane edges. Used for the layout perf assertion (amendment A7).
+ * The routed picture as plain data: lane bands, cards and group boxes, edge and
+ * bundle paths, and edge label placements, with every number rounded to 0.1.
  */
-export function makeSyntheticGraph(nodeCount = 150, edgeCount = 300) {
-  const nodes = [];
-  const groupPerStage = new Map();
-  for (let i = 0; i < nodeCount; i++) {
-    const stageIndex = i % STAGES.length;
-    const [stage] = STAGES[stageIndex];
-    const id = idOf('n:', i);
-    const isGroup = i < STAGES.length;
-    if (isGroup) groupPerStage.set(stage, id);
-    const parent = !isGroup && i % 3 === 0 ? groupPerStage.get(stage) || null : null;
-    nodes.push({
-      id,
-      kind: isGroup ? 'model' : KINDS[i % KINDS.length],
-      level: isGroup ? 'unit' : 'op',
-      stage,
-      label: 'node_' + i,
-      sublabel: 'synthetic ' + i,
-      qualname: 'mod' + stageIndex + '.node_' + i,
-      framework: 'torch',
-      loc: loc('mod' + stageIndex + '.py', i + 1),
-      parent,
-      attrs: { idx: String(i) },
-      produces: [{ name: 'v' + i, tags: ['FEATURES'] }],
-      consumes: [],
-      ghost: false,
-      dynamic: i % 37 === 0,
-      confidence: 0.9,
-      confidenceBucket: 'certain',
-      issueIds: [],
-      collapsedByDefault: false,
-      stageEvidence: [{ kind: 'knowledge_table', detail: 'synthetic', weight: 1 }],
-    });
+export function routedGeometry(document) {
+  const boxes = [];
+  for (const lane of document.querySelectorAll('.mlv-lane')) boxes.push(['lane', lane.getAttribute('data-stage') || lane.getAttribute('data-lane-id') || '', boxOf(lane)]);
+  for (const node of document.querySelectorAll('[data-node-id]')) {
+    const kind = node.classList.contains('mlv-group') ? 'group' : 'node';
+    boxes.push([kind, node.getAttribute('data-node-id'), boxOf(node)]);
   }
-
-  const edges = [];
-  for (let i = 0; i < edgeCount; i++) {
-    const a = nodes[(i * 7) % nodes.length];
-    const b = nodes[(i * 13 + 5) % nodes.length];
-    if (a.id === b.id) continue;
-    const kind = EDGE_KINDS[i % EDGE_KINDS.length];
-    const edge = {
-      id: idOf('e:', i),
-      kind,
-      source: a.id,
-      target: b.id,
-      label: 'v' + i,
-      loc: loc(a.loc.file, a.loc.line),
-      tags: [],
-      confidence: 0.9,
-      issueIds: [],
-    };
-    if (kind === 'control' && i % 8 === 0) edge.subkind = 'back';
-    edges.push(edge);
+  const routes = [];
+  for (const edge of document.querySelectorAll('.mlv-edge[data-edge-id]')) {
+    const path = edge.querySelector('.mlv-edge__path');
+    routes.push(['edge', edge.getAttribute('data-edge-id'), roundNumbers(path && path.getAttribute('d'))]);
   }
-
-  const issues = [];
-  const severities = ['low', 'medium', 'high'];
-  for (let i = 0; i < 24; i++) {
-    const node = nodes[(i * 5 + 2) % nodes.length];
-    const severity = severities[i % 3];
-    const issue = {
-      id: idOf('i:', i),
-      code: 'MLV' + (100 + (i % 9)),
-      ruleVersion: 1,
-      severity,
-      confidence: 0.8,
-      confidenceBucket: 'likely',
-      title: 'Synthetic finding ' + i,
-      message: 'Synthetic message ' + i,
-      why: 'Because.',
-      fixHint: 'Fix it.',
-      loc: node.loc,
-      relatedLocs: [],
-      nodeIds: [node.id],
-      edgeIds: [],
-      stage: node.stage,
-      frameworks: ['torch'],
-      tags: [],
-      evidence: [],
-      suppressed: i % 11 === 0,
-      docs: 'docs/rules/MLV101.md',
-    };
-    issues.push(issue);
-    node.issueIds.push(issue.id);
+  for (const bundle of document.querySelectorAll('.mlv-bundle')) {
+    const paths = Array.from(bundle.querySelectorAll('path')).map((p) => (p.getAttribute('class') || '') + ':' + roundNumbers(p.getAttribute('d')));
+    const badge = bundle.querySelector('.mlv-bundle__badge');
+    routes.push(['bundle', paths.join('|'), roundNumbers(badge && badge.getAttribute('transform'))]);
   }
-
-  const counts = { low: 0, medium: 0, high: 0 };
-  for (const issue of issues) counts[issue.severity]++;
-
-  return {
-    schemaVersion: '1.0',
-    generator: { name: 'mlview', version: '0.1.0', rendererSha: '0'.repeat(64), generatedAt: '2026-09-06T00:00:00Z' },
-    workspace: {
-      root: '/w',
-      entrypoints: ['mod0.py'],
-      filesAnalyzed: 8,
-      filesFailed: 0,
-      notebooksSkipped: 0,
-      frameworks: ['torch'],
-    },
-    stages: STAGES.map(([id, label], order) => ({
-      id,
-      label,
-      order,
-      present: true,
-      nodeCount: nodes.filter((n) => n.stage === id).length,
-      issueCounts: { low: 0, medium: 0, high: 0 },
-      maxSeverity: null,
-    })),
-    nodes,
-    edges,
-    issues,
-    diagnostics: [],
-    stats: { nodes: nodes.length, edges: edges.length, issues: counts, suppressed: 0, durationMs: 1, truncated: false },
-  };
-}
-
-function deepClone(value) {
-  if (value === null || typeof value !== 'object') return value;
-  if (Array.isArray(value)) return value.map(deepClone);
-  if (value instanceof Date) return new Date(value.getTime());
-  if (value instanceof Map) {
-    const out = new Map();
-    for (const [k, v] of value) out.set(deepClone(k), deepClone(v));
-    return out;
+  const labels = [];
+  for (const edge of document.querySelectorAll('.mlv-edge[data-edge-id]')) {
+    const id = edge.getAttribute('data-edge-id');
+    if (edge.getAttribute('data-label-hidden') === '1') { labels.push([id, 'hidden']); continue; }
+    const label = edge.querySelector('.mlv-edge-label');
+    if (!label) continue;
+    labels.push([id, roundNumbers(label.getAttribute('x')) + ' ' + roundNumbers(label.getAttribute('y')), label.textContent,
+      label.getAttribute('data-label-axis') || '', label.getAttribute('data-label-flipped') || '']);
   }
-  if (value instanceof Set) {
-    const out = new Set();
-    for (const v of value) out.add(deepClone(v));
-    return out;
-  }
-  const out = {};
-  for (const key of Object.keys(value)) out[key] = deepClone(value[key]);
-  return out;
+  return { boxes, routes, labels };
 }

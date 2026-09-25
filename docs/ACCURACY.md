@@ -1,3 +1,7 @@
+> Historical record: the static analyzer was removed on 2026-09-18.
+> Commands, paths, and compatibility promises below describe earlier revisions.
+> See [current status](STATUS.md) for the supported product.
+
 # ACCURACY — the labelled corpus, and what it says today
 
 ANA-12. MLView's core asset is that it does not lie, and its core weakness is

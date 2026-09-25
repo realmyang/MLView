@@ -194,7 +194,8 @@ body.vscode-high-contrast-light .mlv-edge__charge-halo,
  * interpolate it against `0`, and degrades the animation to a DISCRETE step
  * between two endpoints exactly one dash period apart — which renders as two
  * identical frames, i.e. a stream that never moves (R2-FLOW-01). No keyframe in
- * this file may put calc() on the animated side; `bundle.test.mjs` gates it. */
+ * this file may put calc() on the animated side; `test/bundle.test.mjs` checks
+ * the built stylesheet for it. */
 @keyframes mlv-flow-stream {
   from {
     stroke-dashoffset: 0;

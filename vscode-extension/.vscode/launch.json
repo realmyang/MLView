@@ -7,9 +7,11 @@
       "request": "launch",
       "args": [
         "--extensionDevelopmentPath=${workspaceFolder}",
-        "${workspaceFolder}/../samples/vision_pipeline"
+        "${workspaceFolder}/.."
       ],
-      "outFiles": ["${workspaceFolder}/out/**/*.js"],
+      "outFiles": [
+        "${workspaceFolder}/out/**/*.js"
+      ],
       "preLaunchTask": "${defaultBuildTask}"
     },
     {
@@ -18,9 +20,11 @@
       "request": "launch",
       "args": [
         "--extensionDevelopmentPath=${workspaceFolder}",
-        "${workspaceFolder}/../samples/vision_pipeline"
+        "${workspaceFolder}/.."
       ],
-      "outFiles": ["${workspaceFolder}/out/**/*.js"]
+      "outFiles": [
+        "${workspaceFolder}/out/**/*.js"
+      ]
     }
   ]
 }

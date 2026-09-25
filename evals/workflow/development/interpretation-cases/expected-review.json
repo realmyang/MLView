@@ -1,0 +1,39 @@
+{
+  "status": "development-questions-only",
+  "humanReview": null,
+  "cases": [
+    {
+      "id": "optimizer-flow-and-outputs",
+      "files": ["evals/workflow/development/interpretation-cases/optimizer_flow.py"],
+      "request": "Explain both objectives, gradient paths, optimizer targets, logged values, and returned values.",
+      "questions": [
+        "Does the interpretation distinguish the detached critic-training path from the attached generator-training path?",
+        "Does it distinguish gradient traversal through the critic from the parameters stepped by generator_optimizer?",
+        "Does it identify logger inputs as current-batch item values while the returned generator total is batch-size weighted?",
+        "Are claims about autograd behavior qualified as framework semantics rather than direct source facts?"
+      ]
+    },
+    {
+      "id": "notebook-source-metadata-and-state",
+      "files": ["evals/workflow/development/interpretation-cases/out_of_order.ipynb"],
+      "request": "Explain preprocessing, split, training state, recorded order, and outputs without assuming the notebook ran cleanly.",
+      "questions": [
+        "Does the interpretation separate document order, execution_count metadata, saved output metadata, and actual execution?",
+        "Does it identify scaler fitting on all X before the authored split while qualifying runtime leakage consequences?",
+        "Does it scope missing gradient reset to the visible loop and condition accumulation on multiple iterations and execution?",
+        "Does it avoid treating the saved stdout output as proof that the null-count training cell completed?"
+      ]
+    },
+    {
+      "id": "configuration-lifecycle-and-absence",
+      "files": ["evals/workflow/development/interpretation-cases/lifecycle_config.py"],
+      "request": "Explain selected configuration precedence, training, optional evaluation and save, and callback lifecycle boundaries.",
+      "questions": [
+        "Does the interpretation resolve defaults, file values, and CLI overrides in the correct order?",
+        "Does it keep evaluate=false and evaluate=true as scenario alternatives rather than one path?",
+        "Does it include on_end in the finally lifecycle even when training or evaluation fails?",
+        "Are absent checkpoint or evaluation claims conditional on selected config values and limited to this entrypoint, without assuming callback internals?"
+      ]
+    }
+  ]
+}

@@ -1,12 +1,14 @@
 /**
  * Build: src/main.ts -> dist/mlview.js (IIFE, global name MLView) and
  * src/styles/*.css -> dist/mlview.css, concatenated in a fixed order and
- * MINIFIED (BUILD-01), with the readable concatenation kept beside it as
- * dist/mlview.dev.css.
+ * MINIFIED (BUILD-01). Nothing else is written: the readable
+ * `dist/mlview.dev.css` had no remaining consumer and is no longer produced
+ * (CRIT-10).
  *
  * Offline, no plugins, no network. The bundle must contain no innerHTML, no
- * eval, no dynamic import and no absolute URL — test/bundle.test.mjs enforces
- * that against the built file.
+ * outerHTML, no insertAdjacentHTML, no document.write, no eval, no new
+ * Function, no dynamic import and no absolute URL; test/bundle.test.mjs
+ * checks that against the built dist/mlview.js.
  */
 
 import { build, transform } from 'esbuild';
@@ -47,35 +49,24 @@ const CSS_FILES = [
   // has the same specificity as the per-kind stroke rules and has to win on
   // source order; and after `node.css` for the same reason on the card.
   'rollup.css',
+  // The authored-workflow panel and host banner. Before `export.css`, so the
+  // print block keeps the last word (RENDER-21).
+  'workflow.css',
   // VIEW-07, and LAST on purpose: it carries the `@media print` block, whose
   // `!important` overrides have to win over every layer above it.
   'export.css',
 ];
 
-/**
- * The ONE transform the shipped stylesheet goes through (BUILD-01).
- *
- * Exported so `test/bundle.test.mjs` can prove `dist/mlview.css` really is the
- * minification of `dist/mlview.dev.css` — which is what keeps every assertion
- * that reads the readable file an assertion about what actually ships.
- */
+/** The ONE transform the shipped stylesheet goes through (BUILD-01). */
 export async function minifyCss(source) {
   const result = await transform(source, { loader: 'css', minify: true });
   return result.code;
 }
 
 /**
- * The stylesheet ships minified.
- *
- * This function used to concatenate the nine layers verbatim while the JS beside
- * it was minified, so every emitted report — and four checked-in copies —
- * carried 78 214 B where 46 957 B says the same thing: −39 %, −30 KB, against a
- * contracted 100 KB–2 MB report size band (amendment A4).
- *
- * The readable concatenation, its `/* ---- file ---- *` markers and all, is
- * written beside it as `dist/mlview.dev.css`: it is what `dev/*.html` load and
- * what the structural CSS gates read. `tools/sync-assets.py` copies only the two
- * NAMED assets, so the dev file never reaches a host.
+ * The stylesheet ships minified: the layers are concatenated in `CSS_FILES`
+ * order and minified once. `tools/sync-assets.py` copies `mlview.js` and
+ * `mlview.css` to the extension.
  */
 async function buildCss() {
   const parts = [];
@@ -85,7 +76,6 @@ async function buildCss() {
   }
   const source = parts.join('\n');
   const minified = await minifyCss(source);
-  await writeFile(join(dist, 'mlview.dev.css'), source, 'utf8');
   await writeFile(join(dist, 'mlview.css'), minified, 'utf8');
   return { bytes: minified.length, sourceBytes: source.length };
 }

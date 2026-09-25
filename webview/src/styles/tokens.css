@@ -13,9 +13,10 @@
  * standalone report — MLV-R1-004. The light branch is restated on `.mlv-root`
  * too, so an explicit light choice wins over an inherited dark page.
  *
- * The `@contrast:` annotations below are machine-read by test/contrast.test.mjs,
- * which resolves the literal fallbacks and asserts every text pair clears
- * WCAG AA 4.5:1 in light and dark. Keep them in sync when adding a colour.
+ * The `@contrast:` annotations below name the text pairs that must clear WCAG
+ * AA 4.5:1 in light and dark. No automated test reads them any more (the
+ * contrast gate was removed with the analyzer), so check a new colour against
+ * them by hand and keep them in sync.
  *
  * @contrast: --mlv-text on --mlv-bg
  * @contrast: --mlv-text on --mlv-surface

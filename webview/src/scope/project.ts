@@ -82,6 +82,9 @@ function unitTiers(nodes: MLNode[], target: string, fold: boolean): MLNode[][] {
   const eq = (value: string | undefined, expected: string): boolean => !!value && f(value) === expected;
   const definition = (n: MLNode): boolean => n.level === 'stage' || n.level === 'unit';
   return [
+    // VIEWUI-7: an authored node is addressed by its stable id; labels are
+    // free text and may repeat. Exact only (never case-folded).
+    fold ? [] : nodes.filter((n) => n.authored === true && n.id === target),
     nodes.filter((n) => eq(n.qualname, want)),
     nodes.filter((n) => eq(n.fqn, want)),
     nodes.filter((n) => eq(lastSegment(n.qualname || ''), want) && definition(n)),
@@ -150,6 +153,10 @@ export function resolveScope(graph: MLGraph, scope: Scope): ScopeResolution {
   let anchors: MLNode[];
   if (scope.kind === 'stage') {
     anchors = nodes.filter((n) => n.stage === scope.target);
+    if (!anchors.length) {
+      const candidates = (graph.stages || []).map((stage) => stage.id);
+      if (candidates.indexOf(scope.target) < 0) throw new ScopeError('unknown_stage', scope.target, candidates);
+    }
   } else if (scope.kind === 'concern') {
     const wanted = CONCERNS[scope.target] || [];
     anchors = nodes.filter((n) => wanted.indexOf(n.stage) >= 0);
@@ -417,6 +424,12 @@ function retainIssues(
   for (const issue of issues) {
     const nodeIds = issue.nodeIds || [];
     const edgeIds = issue.edgeIds || [];
+    // CRIT-3: a workflow-level finding cites no node and no edge, so it is
+    // about the whole workflow and belongs to every scope.
+    if (!nodeIds.length && !edgeIds.length) {
+      out.push(clone(issue) as Issue);
+      continue;
+    }
     const throughNode = nodeIds.some((n) => core.has(n));
     const throughEdge = edgeIds.some((e) => coreEdgeIds.has(e));
     if (!throughNode && !throughEdge) continue;
@@ -488,9 +501,10 @@ function pruneGhosts(
     const edgeIds = new Set(keptEdges.map((e) => e.id));
     const survivors: Issue[] = [];
     for (const issue of retained) {
+      const workflowLevel = !issue.nodeIds.length && !issue.edgeIds.length;
       issue.nodeIds = issue.nodeIds.filter((n) => kept.has(n));
       issue.edgeIds = issue.edgeIds.filter((e) => edgeIds.has(e));
-      if (issue.nodeIds.length) survivors.push(issue);
+      if (issue.nodeIds.length || workflowLevel) survivors.push(issue);
     }
     retained = survivors;
   }

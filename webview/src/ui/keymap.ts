@@ -50,8 +50,8 @@ export interface KeyBinding {
 }
 
 export const KEYMAP: KeyBinding[] = [
-  { keys: ['Ctrl/Cmd+K', '/'], action: 'focusSearch', description: 'Search nodes, issues and rule codes' },
-  { keys: ['n', 'p'], action: 'cycleIssue', description: 'Next / previous issue by severity' },
+  { keys: ['Ctrl/Cmd+K', '/'], action: 'focusSearch', description: 'Search steps, findings, IDs, or cited text' },
+  { keys: ['n', 'p'], action: 'cycleIssue', description: 'Next / previous finding (document order)' },
   { keys: ['Enter'], action: 'open', description: 'Open the selection in the editor' },
   { keys: ['Space'], action: 'collapse', description: 'Collapse or expand the selected group' },
   { keys: ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'], action: 'move', description: 'Move the selection' },
@@ -68,7 +68,7 @@ export const KEYMAP: KeyBinding[] = [
   { keys: ['[', ']'], action: 'scopeDepth', description: 'Narrow / widen the scope by one hop' },
   { keys: ['1', '2', '3'], action: 'toggleSeverity', description: 'Toggle the high / medium / low filters' },
   { keys: ['Ctrl+B'], action: 'toggleRail', description: 'Show or hide the side rail' },
-  { keys: ['Ctrl+1', 'Ctrl+2', 'Ctrl+3'], action: 'railTab', description: 'Issues / Inspector / Outline' },
+  { keys: ['Ctrl+1', 'Ctrl+2', 'Ctrl+3'], action: 'railTab', description: 'Findings / Inspector / Outline' },
   { keys: ['?'], action: 'shortcuts', description: 'Show this shortcut sheet' },
   // The rungs, in the order `dismissTopmost` runs them (CONTRACTS 11.13). The
   // sheet is the only place the cascade is described to the user, and a scoped

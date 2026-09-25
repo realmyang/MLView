@@ -1,25 +1,8 @@
 #!/usr/bin/env python
-"""Copy the built viewer bundle to the two places that embed it.
+"""Copy the built WorkflowDocument viewer into the VS Code extension.
 
-One renderer, three copies, verified equal (CONTRACTS A2 and the second parity
-gate). `webview/dist/` is the source of truth:
-
-    webview/dist/mlview.js   ->  vscode-extension/media/mlview.js
-                                 analyzer/src/mlview/emit/assets/mlview.js
-    webview/dist/mlview.css  ->  vscode-extension/media/mlview.css
-                                 analyzer/src/mlview/emit/assets/mlview.css
-
-Usage:
-
-    python tools/sync-assets.py            # copy, then print the SHA-256
-    python tools/sync-assets.py --check    # verify only; exit 1 on drift
-    python tools/sync-assets.py --quiet    # only report problems
-
-This script is the ONLY thing permitted to write `vscode-extension/media/` and
-`analyzer/src/mlview/emit/assets/`. Once it has run, the analyzer starts emitting
-the real `generator.rendererSha` (it hashes `emit/assets/mlview.js` at runtime)
-and `--html` switches from the plain-table fallback to the mounted viewer; no
-analyzer or extension change is needed for either.
+Edit webview/src, build webview/dist, then run this script. --check verifies
+byte-identical JavaScript and CSS without changing either copy.
 """
 
 from __future__ import annotations
@@ -35,7 +18,6 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SOURCE_DIR = os.path.join(REPO_ROOT, "webview", "dist")
 TARGET_DIRS = (
     os.path.join(REPO_ROOT, "vscode-extension", "media"),
-    os.path.join(REPO_ROOT, "analyzer", "src", "mlview", "emit", "assets"),
 )
 ASSETS = ("mlview.js", "mlview.css")
 
@@ -126,7 +108,7 @@ def check(quiet: bool = False) -> int:
 def main(argv: List[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="sync-assets",
-        description="Copy webview/dist/{mlview.js,mlview.css} into the extension and the analyzer.",
+        description="Copy webview/dist/{mlview.js,mlview.css} into the extension.",
     )
     parser.add_argument("--check", action="store_true", help="verify only; exit 1 on drift")
     parser.add_argument("--quiet", action="store_true", help="print only problems")

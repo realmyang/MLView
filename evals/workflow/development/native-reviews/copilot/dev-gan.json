@@ -1,0 +1,219 @@
+{
+  "task": "dev-gan",
+  "artifact": "evals/workflow/development/native-artifacts/copilot/dev-gan.mlview.json",
+  "artifactSha256": "6451e734b53fbea73d8f621729b8bfc0c529f9db79209850c4ec9b0251b193fe",
+  "artifactRevision": "rev-1",
+  "artifactRequest": {
+    "configuration": "train_dcgan.py defaults: train(epochs=25), DATA_ROOT=data/celeba, BATCH_SIZE=128, LR=2e-4, BETAS=(0.5, 0.999); no command-line overrides selected. Runtime dataset availability and imported model definitions are unresolved because this artifact inspects source only.",
+    "entrypoints": [
+      "analyzer/tests/accuracy/corpus/vision_gan/train_dcgan.py"
+    ],
+    "question": "Explain discriminator and generator losses, gradient paths, detached tensors, optimizer targets, alternating updates, repeated phases, and the iteration cycle.",
+    "scope": "Selected DCGAN training entrypoint"
+  },
+  "host": "copilot",
+  "reviewerType": "model-provisional",
+  "reviewStatus": "pending-human-review",
+  "claims": [
+    {
+      "id": "optimizer-ownership",
+      "verdict": "supported",
+      "summary": "Separate optimizers target the generator and discriminator parameter iterables.",
+      "artifactPointers": [
+        "node:construct_models_optimizers",
+        "node:d_loss_update",
+        "node:g_loss_update"
+      ],
+      "sourceReferences": [
+        "ev-models-optimizers"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "discriminator-objective",
+      "verdict": "supported",
+      "summary": "The real-one and detached-fake-zero BCE branches, their sum, backward call, and discriminator step match source order.",
+      "artifactPointers": [
+        "node:d_real_path",
+        "node:d_fake_detached_path",
+        "node:d_loss_update"
+      ],
+      "sourceReferences": [
+        "ev-d-update",
+        "ev-d-loss-step"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "detach-boundary",
+      "verdict": "qualified",
+      "summary": "The described stop-gradient effect is standard framework inference from detach(), but these nodes label it observed rather than inferred.",
+      "artifactPointers": [
+        "node:d_fake_detached_path",
+        "node:g_path"
+      ],
+      "sourceReferences": [
+        "ev-d-update",
+        "ev-d-loss-step",
+        "ev-g-update",
+        "ev-g-loss-step"
+      ],
+      "failureTypes": [
+        "unqualified-inference"
+      ],
+      "humanDecision": null
+    },
+    {
+      "id": "generator-objective",
+      "verdict": "qualified",
+      "summary": "The call sequence and optimizer target are observed; the stated backpropagation path through D into G is framework inference presented as observed.",
+      "artifactPointers": [
+        "node:g_path",
+        "node:g_loss_update"
+      ],
+      "sourceReferences": [
+        "ev-g-update",
+        "ev-g-loss-step"
+      ],
+      "failureTypes": [
+        "unqualified-inference"
+      ],
+      "humanDecision": null
+    },
+    {
+      "id": "alternating-cycle",
+      "verdict": "supported",
+      "summary": "The diagram shows discriminator then generator phases and explicit batch and epoch repetition.",
+      "artifactPointers": [
+        "node:epoch_repeat",
+        "node:batch_repeat",
+        "edge:edge-d-step-g",
+        "edge:edge-g-repeat"
+      ],
+      "sourceReferences": [
+        "ev-d-update",
+        "ev-d-loss-step",
+        "ev-g-update",
+        "ev-g-loss-step"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "running-loss-report",
+      "verdict": "unsupported",
+      "summary": "The artifact implies the accumulated values are printed, while stdout uses the current batch losses and the running sums are never read.",
+      "artifactPointers": [
+        "node:running_metrics"
+      ],
+      "sourceReferences": [
+        "ev-metrics"
+      ],
+      "failureTypes": [
+        "wrong-output"
+      ],
+      "humanDecision": null
+    },
+    {
+      "id": "epoch-outputs",
+      "verdict": "supported",
+      "summary": "Fixed-noise image sampling and per-epoch checkpoints with both state dictionaries are represented.",
+      "artifactPointers": [
+        "node:sample_checkpoint"
+      ],
+      "sourceReferences": [
+        "ev-epoch-output",
+        "ev-sample-grid"
+      ],
+      "failureTypes": [],
+      "humanDecision": null
+    },
+    {
+      "id": "unused-running-sums",
+      "verdict": "omitted",
+      "summary": "The dead d_running and g_running accumulators are not identified.",
+      "artifactPointers": [],
+      "sourceReferences": [
+        "ev-metrics"
+      ],
+      "failureTypes": [
+        "missed-essential-behavior"
+      ],
+      "humanDecision": null
+    },
+    {
+      "id": "sample-directory-risk",
+      "verdict": "omitted",
+      "summary": "The source writes samples/epoch_NNN.png but does not create samples/; this runtime precondition is absent.",
+      "artifactPointers": [],
+      "sourceReferences": [
+        "ev-epoch-output",
+        "ev-sample-grid"
+      ],
+      "failureTypes": [
+        "missed-essential-behavior"
+      ],
+      "humanDecision": null
+    }
+  ],
+  "usability": {
+    "dataOrigin": {
+      "status": "clear",
+      "answer": "The ImageFolder source and preprocessing loader are visible.",
+      "artifactPointers": [
+        "node:seed_device_loader"
+      ],
+      "humanDecision": null
+    },
+    "updatedParametersAndFitState": {
+      "status": "clear",
+      "answer": "Optimizer ownership and D-then-G updates are explicit.",
+      "artifactPointers": [
+        "node:construct_models_optimizers",
+        "node:d_loss_update",
+        "node:g_loss_update"
+      ],
+      "humanDecision": null
+    },
+    "losses": {
+      "status": "clear",
+      "answer": "Both discriminator terms and generator loss are identifiable.",
+      "artifactPointers": [
+        "node:d_real_path",
+        "node:d_fake_detached_path",
+        "node:g_path"
+      ],
+      "humanDecision": null
+    },
+    "evaluationBoundaries": {
+      "status": "clear",
+      "answer": "Sampling is shown as an epoch output rather than held-out evaluation.",
+      "artifactPointers": [
+        "node:sample_checkpoint"
+      ],
+      "humanDecision": null
+    },
+    "outputs": {
+      "status": "partial",
+      "answer": "Samples and checkpoints are shown, but metric reporting is misstated and output-directory risk is absent.",
+      "artifactPointers": [
+        "node:running_metrics",
+        "node:sample_checkpoint"
+      ],
+      "humanDecision": null
+    },
+    "uncertainty": {
+      "status": "partial",
+      "answer": "Missing model definitions are disclosed, but framework gradient semantics are labeled observed.",
+      "artifactPointers": [
+        "finding:finding-models-unresolved",
+        "node:d_fake_detached_path",
+        "node:g_path"
+      ],
+      "humanDecision": null
+    }
+  },
+  "humanReview": null
+}

@@ -1,0 +1,43 @@
+{
+  "id": "shape-008-integer-with-fraction-raw",
+  "findings": [
+    "CONTRACT-9",
+    "CONTRACT-11"
+  ],
+  "description": "Evidence \"line\": 1.0. JSON.parse yields the integer 1 and JSON Schema counts 1.0 as an integer; the helper requires a JSON integer spelling.",
+  "files": {
+    "train.py": {
+      "text": "def train():\n"
+    }
+  },
+  "artifact": "workflow.mlview.json",
+  "raw": "{\n  \"workflowVersion\": \"1.0\",\n  \"title\": \"Training\",\n  \"producer\": {\n    \"kind\": \"host-llm\",\n    \"host\": \"codex\"\n  },\n  \"revision\": {\n    \"id\": \"r1\"\n  },\n  \"request\": {\n    \"question\": \"Explain training\",\n    \"scope\": \"train.py\"\n  },\n  \"phases\": [\n    {\n      \"id\": \"p\",\n      \"label\": \"Train\"\n    }\n  ],\n  \"nodes\": [\n    {\n      \"id\": \"n\",\n      \"label\": \"Train\",\n      \"phase\": \"p\",\n      \"basis\": \"observed\",\n      \"evidence\": [\n        \"ev\"\n      ]\n    }\n  ],\n  \"edges\": [],\n  \"findings\": [],\n  \"evidence\": [\n    {\n      \"id\": \"ev\",\n      \"file\": \"train.py\",\n      \"line\": 1.0,\n      \"endLine\": 1,\n      \"quote\": \"def train():\"\n    }\n  ],\n  \"coverage\": {\n    \"status\": \"scoped\",\n    \"summary\": \"Inspected entrypoint\",\n    \"inspectedFiles\": [\n      \"train.py\"\n    ],\n    \"limitations\": []\n  }\n}",
+  "expect": {
+    "schema": "valid",
+    "helper": {
+      "ok": false,
+      "codes": [
+        "range"
+      ],
+      "warnings": [],
+      "fingerprints": null,
+      "stale": []
+    },
+    "extension": {
+      "ok": true,
+      "stale": [],
+      "issuePaths": []
+    }
+  },
+  "divergence": {
+    "layers": [
+      "helper",
+      "extension"
+    ],
+    "findings": [
+      "CONTRACT-9"
+    ],
+    "status": "accepted",
+    "note": "Accepted class 1: a JSON spelling JSON.parse cannot see (an integer written as 1.0). Integers must be JSON integers; the helper enforces it and never publishes another spelling."
+  }
+}

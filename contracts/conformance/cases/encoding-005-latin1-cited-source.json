@@ -1,0 +1,85 @@
+{
+  "id": "encoding-005-latin1-cited-source",
+  "findings": [
+    "SPECDOCS1-3",
+    "CONTRACT-5"
+  ],
+  "description": "A cited source that is not UTF-8 (Latin-1 bytes) is refused in both layers: the helper reports source_encoding and the viewer says it cannot be decoded as UTF-8.",
+  "files": {
+    "train.py": {
+      "base64": "IyBjYWbpCmRlZiB0cmFpbigpOgo="
+    }
+  },
+  "artifact": "workflow.mlview.json",
+  "document": {
+    "workflowVersion": "1.0",
+    "title": "Training entrypoint",
+    "producer": {
+      "kind": "host-llm",
+      "host": "claude-code"
+    },
+    "revision": {
+      "id": "r1"
+    },
+    "request": {
+      "question": "What does train.py run?",
+      "scope": "train.py and config.cfg"
+    },
+    "phases": [
+      {
+        "id": "train",
+        "label": "Train"
+      }
+    ],
+    "nodes": [
+      {
+        "id": "step",
+        "label": "Run training step",
+        "phase": "train",
+        "basis": "observed",
+        "evidence": [
+          "ev-1"
+        ]
+      }
+    ],
+    "edges": [],
+    "findings": [],
+    "evidence": [
+      {
+        "id": "ev-1",
+        "file": "train.py",
+        "line": 2,
+        "endLine": 2,
+        "quote": "def train():"
+      }
+    ],
+    "coverage": {
+      "status": "scoped",
+      "summary": "Read the entrypoint and its configuration.",
+      "inspectedFiles": [
+        "train.py"
+      ],
+      "limitations": []
+    }
+  },
+  "expect": {
+    "schema": "valid",
+    "helper": {
+      "ok": false,
+      "codes": [
+        "source_encoding"
+      ],
+      "warnings": [],
+      "fingerprints": null,
+      "stale": []
+    },
+    "extension": {
+      "ok": false,
+      "stale": [],
+      "issuePaths": [
+        "$.evidence[0].file"
+      ]
+    }
+  },
+  "divergence": null
+}

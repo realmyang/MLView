@@ -1,0 +1,18 @@
+{
+  "task":"dev-sklearn","artifact":"evals/workflow/development/artifacts/dev-sklearn.mlview.json","artifactSha256":"e97da3ac40f6fa0c92e3cb25d8c39392b06b4d02d76c2126ecd9af5c47bb3b41","artifactRevision":"dev-sklearn-sol-1","artifactRequest":{"entrypoints":["analyzer/tests/accuracy/corpus/tabular_group_cv_clean/train.py"],"question":"Explain how grouped cross-validation keeps transformations inside the training folds. Identify the split, fitted preprocessing, estimator, and evaluation flow; inspect implementation before alleging leakage.","scope":"Grouped cross-validation entrypoint"},"reviewerType":"model-provisional","reviewStatus":"pending-human-review",
+  "claims":[
+    {"id":"group-boundaries","verdict":"supported","summary":"Account groups are separated in the holdout and inner folds.","artifactPointers":["node:holdout","node:folds"],"sourceReferences":["holdout","folds"],"failureTypes":[],"humanDecision":null},
+    {"id":"fold-fit-state","verdict":"supported","summary":"Each target encoder is fit on inner training rows and only transforms inner validation rows.","artifactPointers":["node:fold-encode"],"sourceReferences":["fold-encode","encoder-fit"],"failureTypes":[],"humanDecision":null},
+    {"id":"final-evaluation","verdict":"supported","summary":"A fresh encoder and booster fit all training rows before transforming the untouched holdout for final metrics.","artifactPointers":["node:final-fit","node:test-eval"],"sourceReferences":["final-fit","evaluate","main"],"failureTypes":[],"humanDecision":null},
+    {"id":"library-semantics","verdict":"qualified","summary":"Early stopping and prediction behavior depend on CatBoost and scikit-learn APIs outside inspected local source.","artifactPointers":["node:fold-fit","coverage"],"sourceReferences":["fold-fit","fold-score"],"failureTypes":["unqualified-inference"],"humanDecision":null},
+    {"id":"input-distribution","verdict":"omitted","summary":"The artifact cannot establish CSV contents or actual group and label distributions.","artifactPointers":[],"sourceReferences":["main","holdout"],"failureTypes":["missed-essential-behavior"],"humanDecision":null}
+  ],
+  "usability":{
+    "dataOrigin":{"status":"clear","answer":"A CSV is loaded, row-local features are engineered, and complete account groups are held out.","artifactPointers":["node:load","node:holdout"],"humanDecision":null},
+    "updatedParametersAndFitState":{"status":"clear","answer":"Target encoder maps and CatBoost state fit per fold, then fresh state fits all training rows.","artifactPointers":["node:fold-encode","node:fold-fit","node:final-fit"],"humanDecision":null},
+    "losses":{"status":"partial","answer":"CatBoost Logloss appears only in cited setup and is not a visible workflow node; the workflow emphasizes AUC selection.","artifactPointers":["node:fold-fit","node:select-rounds"],"humanDecision":null},
+    "evaluationBoundaries":{"status":"clear","answer":"Inner grouped validation selects rounds; an untouched group holdout supplies final metrics.","artifactPointers":["node:folds","node:select-rounds","node:test-eval"],"humanDecision":null},
+    "outputs":{"status":"clear","answer":"The report includes holdout ROC AUC, average precision, CV AUC, and held-out account count.","artifactPointers":["node:test-eval"],"humanDecision":null},
+    "uncertainty":{"status":"clear","answer":"Coverage states that data distributions and third-party runtime behavior were not observed.","artifactPointers":["coverage"],"humanDecision":null}
+  },"humanReview":null
+}

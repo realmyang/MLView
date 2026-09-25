@@ -61,17 +61,13 @@ representative at an online or offline event.
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
 reported to the community leaders responsible for enforcement.
 
-MLView is maintained by one person and publishes no contact address. **Report a
-concern by opening an issue at
-<https://github.com/realmyang/MLView/issues>**, titled so the maintainer can see
-what it is about without you having to restate the incident in public. If the
-report involves details you do not want to publish — and most do — say only that
-you have a Code of Conduct report and how you would like to be reached; the
-maintainer will move the conversation somewhere private before asking for
-anything further. A report made this way is still handled under the section
-below.
+MLView currently publishes no private Code of Conduct contact. For a
+non-sensitive concern, open an issue at
+<https://github.com/realmyang/MLView/issues>. Do not put private information or
+incident details in a public issue. For abuse that occurred on GitHub, use
+[GitHub's private abuse-reporting tools](https://docs.github.com/en/communities/maintaining-your-safety-on-github/reporting-abuse-or-spam).
 
-All complaints will be reviewed and investigated promptly and fairly.
+Reports received through an available channel will be reviewed fairly.
 
 All community leaders are obligated to respect the privacy and security of the
 reporter of any incident.

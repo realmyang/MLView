@@ -1,0 +1,113 @@
+{
+  "id": "freshness-002-bom-source-fresh",
+  "findings": [
+    "SKILL-9",
+    "EXT-7"
+  ],
+  "description": "A UTF-8 source with a byte-order mark is fingerprinted from its raw bytes (BOM included); the BOM is not part of line 1, so a quote without it matches and the published revision is fresh.",
+  "files": {
+    "bom.py": {
+      "base64": "77u/aW1wb3J0IHRvcmNoCm1vZGVsID0gdG9yY2gubm4uTGluZWFyKDIsIDEpCg=="
+    }
+  },
+  "artifact": "workflow.mlview.json",
+  "document": {
+    "workflowVersion": "1.0",
+    "title": "Model definition",
+    "producer": {
+      "kind": "host-llm",
+      "host": "claude-code"
+    },
+    "revision": {
+      "id": "r1"
+    },
+    "request": {
+      "question": "Which model does bom.py build?",
+      "scope": "bom.py"
+    },
+    "phases": [
+      {
+        "id": "model",
+        "label": "Model"
+      }
+    ],
+    "nodes": [
+      {
+        "id": "import",
+        "label": "Import torch",
+        "phase": "model",
+        "basis": "observed",
+        "evidence": [
+          "ev-1"
+        ]
+      },
+      {
+        "id": "linear",
+        "label": "Build linear model",
+        "phase": "model",
+        "basis": "observed",
+        "evidence": [
+          "ev-2"
+        ]
+      }
+    ],
+    "edges": [],
+    "findings": [],
+    "evidence": [
+      {
+        "id": "ev-1",
+        "file": "bom.py",
+        "line": 1,
+        "endLine": 1,
+        "quote": "import torch"
+      },
+      {
+        "id": "ev-2",
+        "file": "bom.py",
+        "line": 2,
+        "endLine": 2,
+        "quote": "model = torch.nn.Linear(2, 1)"
+      }
+    ],
+    "coverage": {
+      "status": "scoped",
+      "summary": "Read the model definition.",
+      "inspectedFiles": [
+        "bom.py"
+      ],
+      "limitations": []
+    },
+    "verification": {
+      "files": {
+        "bom.py": {
+          "$sha256": {
+            "base64": "77u/aW1wb3J0IHRvcmNoCm1vZGVsID0gdG9yY2gubm4uTGluZWFyKDIsIDEpCg=="
+          }
+        }
+      },
+      "publishedAt": "2026-09-25T00:00:00Z"
+    }
+  },
+  "expect": {
+    "schema": "valid",
+    "helper": {
+      "ok": true,
+      "codes": [],
+      "warnings": [],
+      "fingerprints": {
+        "bom.py": {
+          "$sha256": {
+            "base64": "77u/aW1wb3J0IHRvcmNoCm1vZGVsID0gdG9yY2gubm4uTGluZWFyKDIsIDEpCg=="
+          }
+        }
+      },
+      "stale": []
+    },
+    "extension": {
+      "ok": true,
+      "stale": [],
+      "issuePaths": []
+    }
+  },
+  "divergence": null
+}

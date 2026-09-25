@@ -41,7 +41,7 @@ import { ScopeSession } from './scope/session.js';
 import { ScopeBar } from './ui/scopebar.js';
 import { PipelineChooser } from './ui/pipelinechooser.js';
 import { DiffBar } from './ui/diffbar.js';
-import { readOverlay } from './diff/overlay.js';
+import { decorateWorkflow, normalizeWorkflow, sanitizeComposer } from './workflow.js';
 import { buildAppUi } from './app/build.js';
 import { scopeToNode, setGraph, setScope } from './app/documents.js';
 import { renderChrome, renderRail } from './app/surfaces.js';
@@ -51,7 +51,9 @@ import { onHostMessage } from './app/messages.js';
 import { applyState, safeLoad, snapshotState } from './app/state.js';
 import type { SearchHit } from './search.js';
 import type {
+  ActionResult,
   Capabilities,
+  ComposerState,
   ScopeSummary,
   Filters,
   HostBridge,
@@ -64,9 +66,16 @@ import type {
   RelatedLoc,
   Sel,
   ThemeKind,
+  UiToHost,
   ViewState,
   Viewport,
+  WorkflowDocument,
 } from './types.js';
+
+/** At most this many requests wait for an `actionResult`; the oldest is dropped. */
+const MAX_PENDING_REQUESTS = 32;
+
+type RequestFrame = UiToHost & { requestId?: string };
 
 export interface SelectOptions {
   open?: boolean;
@@ -150,6 +159,23 @@ export class App implements MLViewApp {
   error: { message: string; detail?: string; actions?: { id: string; label: string }[] } | null = null;
   railOpen = true;
   railWidth = 360;
+  /** The authored document last applied, as the very object that arrived. */
+  workflowDocument: WorkflowDocument | null = null;
+  /** Its revision id, which decides whether a new frame may keep the viewport. */
+  workflowRevision: string | null = null;
+  /**
+   * A restored viewport and the revision it was saved for (VIEWUI-3). Used by
+   * the first `setWorkflow` only, and only when the revisions match.
+   */
+  private restoredView: { revision: string; viewport: Viewport } | null = null;
+  /** The composer a remount restores, under the same rule as `restoredView` (VIEWUI-4). */
+  private restoredComposer: { revision: string; composer: ComposerState } | null = null;
+  /**
+   * Requests waiting for the host's `actionResult`, oldest first (§1e). No
+   * timeout: a save dialog may stay open for as long as the user likes.
+   */
+  private pending = new Map<string, (result: ActionResult) => void>();
+  private requestSerial = 0;
   private disposers: (() => void)[] = [];
   private destroyed = false;
 
@@ -172,20 +198,19 @@ export class App implements MLViewApp {
 
   saveSoon = debounce(() => this.bridge.saveState(this.getState()), 250);
 
-  constructor(root: HTMLElement, graph: MLGraph | null, bridge: HostBridge) {
+  constructor(root: HTMLElement, bridge: HostBridge) {
     this.root = root;
     this.bridge = bridge;
     this.caps = bridge.capabilities;
     this.themes = new ThemeController(root, bridge.theme || 'light', bridge.themePreference);
     buildAppUi(this);
-    // VIEW-08. The standalone report's overlay travels the way the rule-doc
-    // sidecar does — a second `<script type="application/json">` beside
-    // `#mlview-graph` — so it is read BEFORE the first document is adopted and
-    // the first paint already carries the ledges. A page without one is
-    // unaffected: `readOverlay` returns null and nothing else changes.
-    this.scopes.setDiff(readOverlay());
     const restored = safeLoad(bridge);
     if (restored) applyState(this, restored, false);
+    if (restored && typeof restored.workflowRevision === 'string' && restored.viewport) {
+      this.restoredView = { revision: restored.workflowRevision, viewport: { ...restored.viewport } };
+    }
+    const composer = restored && typeof restored.workflowRevision === 'string' ? sanitizeComposer(restored.composer) : null;
+    if (restored && composer) this.restoredComposer = { revision: restored.workflowRevision as string, composer };
     this.disposers.push(bridge.onMessage((msg) => this.onMessage(msg)));
     // The initial scope travels as an attribute on the root element the report
     // already emits, so `mount(root, graph, bridge)` keeps its exact frozen
@@ -194,9 +219,10 @@ export class App implements MLViewApp {
     const attrSpec = root.getAttribute('data-mlview-scope');
     const attrDepth = root.getAttribute('data-mlview-depth');
     if (attrSpec) this.pendingScope = { spec: attrSpec, depth: attrDepth ? Number(attrDepth) : undefined };
-    if (graph) setGraph(this, graph, restored ? { viewport: restored.viewport } : undefined);
-    else this.showLoading(true);
-    bridge.post({ v: 1, type: 'ready' });
+    this.showLoading(true);
+    // No `ready` here: the host bootstrap posts the one `ready` of a page load
+    // and mounts this App on the first `workflow` (§1e). A second `ready`
+    // would make the host replay the whole handshake and render it again.
   }
 
   /* ── chrome + rail ─────────────────────────────────────────────────── */
@@ -205,8 +231,60 @@ export class App implements MLViewApp {
     return this.index ? this.index.lanes.map((l) => l.id) : [];
   }
 
-  requestRefresh(): void {
-    this.bridge.post({ v: 1, type: 'requestRefresh', scope: 'workspace' });
+  /**
+   * Replace the current model-authored revision without remounting the UI.
+   *
+   * The same revision id keeps the reader's viewport (a refresh or a re-post
+   * is not a new picture); a new revision id fits, unless the caller passes a
+   * viewport. On the first document of a remounted viewer, a viewport saved
+   * for this same revision is restored instead of fitting (VIEWUI-3).
+   */
+  setWorkflow(document: WorkflowDocument, preserve?: Partial<ViewState>): void {
+    let next = preserve;
+    if (!preserve || !preserve.viewport) {
+      let viewport: Viewport | null = null;
+      if (this.graph && this.workflowRevision === document.revision.id) viewport = { ...this.viewportState };
+      else if (!this.graph && this.restoredView && this.restoredView.revision === document.revision.id) {
+        viewport = { ...this.restoredView.viewport };
+      }
+      if (viewport) next = { ...(preserve || {}), viewport };
+    }
+    this.restoredView = null;
+    const composer = this.restoredComposer && this.restoredComposer.revision === document.revision.id ? this.restoredComposer.composer : null;
+    this.restoredComposer = null;
+    this.workflowDocument = document;
+    this.workflowRevision = document.revision.id;
+    setGraph(this, normalizeWorkflow(document), next, true);
+    decorateWorkflow(this, document, composer);
+  }
+
+  /**
+   * Post a request that the host answers with one `actionResult` (§1e). The
+   * id is a counter plus four random base36 characters; at most
+   * `MAX_PENDING_REQUESTS` wait, and the oldest is forgotten first.
+   */
+  postRequest(message: RequestFrame, onResult: (result: ActionResult) => void): string {
+    this.requestSerial += 1;
+    let tail = '';
+    for (let i = 0; i < 4; i++) tail += Math.floor(Math.random() * 36).toString(36);
+    const requestId = 'r' + this.requestSerial.toString(36) + '-' + tail;
+    this.pending.set(requestId, onResult);
+    while (this.pending.size > MAX_PENDING_REQUESTS) {
+      const oldest = this.pending.keys().next().value;
+      if (oldest === undefined) break;
+      this.pending.delete(oldest);
+    }
+    this.bridge.post({ ...message, requestId } as UiToHost);
+    return requestId;
+  }
+
+  /** The host's answer to a request. An unknown or forgotten id is ignored. */
+  onActionResult(result: ActionResult): void {
+    if (!result || typeof result.requestId !== 'string') return;
+    const handler = this.pending.get(result.requestId);
+    if (!handler) return;
+    this.pending.delete(result.requestId);
+    handler(result);
   }
 
   /** True only where the HOST can actually make an edit behind a preview. */
@@ -350,14 +428,14 @@ export class App implements MLViewApp {
     if (!this.index) return null;
     if (sel.kind === 'node') {
       const node = this.index.nodeById.get(sel.id);
-      return node ? node.loc : null;
+      return node && node.loc.file ? node.loc : null;
     }
     if (sel.kind === 'edge') {
       const edge = this.index.edgeById.get(sel.id);
-      return edge ? edge.loc : null;
+      return edge && edge.loc.file ? edge.loc : null;
     }
     const issue = this.index.issueById.get(sel.id);
-    return issue ? issue.loc : null;
+    return issue && issue.loc.file ? issue.loc : null;
   }
 
   /** The node a non-node selection points at — an issue's primary node. */
@@ -378,7 +456,7 @@ export class App implements MLViewApp {
       if (label) this.announce('Selected ' + label);
     } else if (sel.kind === 'issue') {
       const issue = this.index.issueById.get(sel.id);
-      if (issue) this.announce('Issue ' + issue.code + ', ' + issue.severity + ' severity: ' + issue.title);
+      if (issue) this.announce('Finding ' + issue.code + ', ' + issue.severity + ' severity: ' + issue.title);
     }
   }
 
@@ -460,10 +538,6 @@ export class App implements MLViewApp {
 
   /* ── public API ────────────────────────────────────────────────────── */
 
-  update(graph: MLGraph, preserve?: Partial<ViewState>): void {
-    setGraph(this, graph, preserve);
-  }
-
   /**
    * Re-project and relayout LOCALLY. Never posts `requestRefresh`, never touches
    * the analyzer, and never throws: an unresolvable spec is a no-op plus a toast
@@ -526,6 +600,7 @@ export class App implements MLViewApp {
     if (this.destroyed) return;
     this.destroyed = true;
     this.saveSoon.cancel();
+    this.pending.clear();
     for (const dispose of this.disposers) {
       try {
         dispose();

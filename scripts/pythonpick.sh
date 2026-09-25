@@ -8,7 +8,7 @@
 # `python3.exe` is usually the Microsoft Store app-execution alias, which is not
 # an interpreter at all — so the order the candidates are tried in is
 # per-platform, not universal, and each candidate has to prove it can report a
-# 3.10+ version (`analyzer/pyproject.toml` requires-python) before it is taken.
+# 3.10+ version (the artifact helper requires Python 3.10+) before it is taken.
 #
 # Sets and exports PYTHON, so `sh scripts/build.sh` called from e2e.sh inherits
 # the same interpreter. Returns non-zero with a message on stderr when nothing on

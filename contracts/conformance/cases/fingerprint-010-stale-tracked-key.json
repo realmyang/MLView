@@ -1,0 +1,102 @@
+{
+  "id": "fingerprint-010-stale-tracked-key",
+  "findings": [
+    "SKILL-3"
+  ],
+  "description": "A supplied fingerprint that no longer matches a cited file is stale_source naming the file in the helper and stale in the viewer.",
+  "files": {
+    "train.py": {
+      "text": "def train():\n    return 2\n"
+    }
+  },
+  "artifact": "workflow.mlview.json",
+  "document": {
+    "workflowVersion": "1.0",
+    "title": "Training",
+    "producer": {
+      "kind": "host-llm",
+      "host": "codex"
+    },
+    "revision": {
+      "id": "r1"
+    },
+    "request": {
+      "question": "Explain training",
+      "scope": "train.py"
+    },
+    "phases": [
+      {
+        "id": "p",
+        "label": "Train"
+      }
+    ],
+    "nodes": [
+      {
+        "id": "n",
+        "label": "Train",
+        "phase": "p",
+        "basis": "observed",
+        "evidence": [
+          "ev"
+        ]
+      }
+    ],
+    "edges": [],
+    "findings": [],
+    "evidence": [
+      {
+        "id": "ev",
+        "file": "train.py",
+        "line": 1,
+        "endLine": 1,
+        "quote": "def train():"
+      }
+    ],
+    "coverage": {
+      "status": "scoped",
+      "summary": "Inspected entrypoint",
+      "inspectedFiles": [
+        "train.py"
+      ],
+      "limitations": []
+    },
+    "verification": {
+      "files": {
+        "train.py": {
+          "$sha256": {
+            "text": "def train():\n    return 1\n"
+          }
+        }
+      },
+      "publishedAt": "2026-09-25T00:00:00Z"
+    }
+  },
+  "expect": {
+    "schema": "valid",
+    "helper": {
+      "ok": false,
+      "codes": [
+        "stale_source"
+      ],
+      "warnings": [],
+      "fingerprints": {
+        "train.py": {
+          "$sha256": {
+            "text": "def train():\n    return 2\n"
+          }
+        }
+      },
+      "stale": [
+        "train.py"
+      ]
+    },
+    "extension": {
+      "ok": true,
+      "stale": [
+        "train.py"
+      ],
+      "issuePaths": []
+    }
+  },
+  "divergence": null
+}

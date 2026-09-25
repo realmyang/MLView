@@ -1,25 +1,245 @@
 # Changelog
 
-Every dated entry below was moved here from `docs/STATUS.md`, which is now a
-short current-state page. This file is the history: newest first, each entry
-condensed to what changed and the numbers that were measured at the time. The
-long-form reasoning for anything normative lives in `docs/CONTRACTS.md`; the
-acceptance clause each item was measured against lives in `docs/ROADMAP.md`.
+Newest first. Entries before the 2026-09-18 removal of the static analyzer
+(everything below "Unreleased — native workflow only") describe the retired
+static analyzer; their figures are historical and are not rewritten. Current
+truth lives in [docs/STATUS.md](docs/STATUS.md) and
+[docs/VALIDATION.md](docs/VALIDATION.md).
 
-Figures in a dated entry are **historical**. They were true on their date and
-are deliberately not rewritten when the tree moves on — `docs/STATUS.md`,
-`docs/ACCURACY.md` and `analyzer/tests/accuracy/baseline*.json` say what is true
-today.
+## 0.2.0 — reliability and trust (Campaign 1)
+
+Every manifest now says 0.2.0, the first version number distinct from the
+analyzer-era 0.1.0 that `main` still ships. It is released when PR #9 merges
+(the owner's decision) and also carries the two "Unreleased" native entries
+below, which never shipped under a version number. Finding IDs refer to the
+2026-09-25 takeover review.
+
+Open panel and freshness:
+- An open panel follows the artifact file: it shows the newest valid revision
+  on disk and no longer refuses every later revision after rejecting one;
+  Refine continues from the revision actually in the file (CONTRACT-2 = EXT-1 =
+  CRIT-2, EXT-11, EXT-12, NEW-1).
+- A revision whose sources changed is shown as a historical diagram with a
+  banner naming the changed files; only jumps into those files are blocked. A
+  revision the panel saw superseded (for example restored from git) is refused
+  until **MLView: Open Generated Diagram** is re-run. Banners name each case and
+  carry no absolute paths (EXT-18, CRIT-7).
+- Freshness uses the saved bytes on disk, as the helper does, so UTF-8 BOM and
+  CRLF files no longer look stale while open. Unsaved editor changes are
+  reported separately and block only a jump whose cited lines moved. Open files
+  are matched by real path, so symlinked roots are handled (an automated test
+  on macOS); Windows drive-letter case matching is implemented and unit-tested
+  but has not run on Windows (EXT-7 = CONTRACT-5, EXT-2, SKILL-9, EXT-9, EXT-13
+  functional part).
+- Both high-contrast themes use the high-contrast palette (EXT-4, RENDER-5), and
+  a restored panel opens only a `*.mlview.json` inside the workspace (EXT-16).
+
+Refinement:
+- The copied prompt has a host-written header and puts all artifact text in one
+  escaped JSON data block, so artifact text cannot forge prompt lines. It names
+  the artifact path portably and states VS Code Restricted Mode in an untrusted
+  workspace (EXT-6, EXT-17, CRIT-8).
+- Five explicit intents (Explain, Expand, Challenge, Trace, Custom), with the
+  same meanings in the skill; Explain never publishes (EXT-6, CRIT-8).
+- The Refine composer keeps its intent, text and selection across refreshes and
+  closes only after the prompt was copied (VIEWUI-4).
+
+Viewer:
+- A panel renders once on open and once per new revision; refreshes keep the
+  viewport, and a reopened panel restores it (VIEWUI-2 = EXT-3, VIEWUI-3).
+- Export and Copy scope report success only after VS Code saved or copied. A
+  PNG too large for the canvas is scaled down to fit; if it still cannot be
+  drawn, the viewer asks you to save the SVG instead (copying a PNG falls back
+  to copying the SVG) (CRIT-5, RENDER-3, VIEWUI-10 = EXT-5).
+- A document without findings says the assistant recorded none instead of a
+  clean result; workflow-level findings survive stage filters and scopes
+  (VIEWUI-1, CRIT-3).
+- Analyzer-era surfaces (pipeline chooser, Concerns, "Issues" wording, rule
+  grouping, limitation chips) are gone from authored diagrams. Scope-to-node
+  and search work by node ID, cited file and quote; notebook evidence names its
+  cell (VIEWUI-5 to VIEWUI-8, VIEWUI-11 to VIEWUI-15).
+- A rebuild during hover no longer leaves the diagram dimmed; reduced motion
+  keeps hover-intent delays (RENDER-1, RENDER-19). Finding connectors go only to
+  nodes the author named; distinct IDs get distinct element ids; exports use
+  the full title and escape invalid characters (RENDER-4, RENDER-6, RENDER-7,
+  RENDER-8 = CONTRACT-14, RENDER-11).
+- Edge routing runs its cheap geometric test first: identical layout, faster
+  large diagrams in the jsdom benchmark (RENDER-2).
+
+Skill and helper:
+- MLView's own artifacts, drafts and installed skill are never fingerprinted,
+  so a refinement is no longer stale the moment it is published; citing them is
+  an error, and `--output` must end in `.mlview.json` (SKILL-2, CRIT-1).
+- Drafts omit `verification`; a stale fingerprint names the file and the fix
+  (SKILL-3). Binary and non-UTF-8 inspected files can be listed, and files over
+  8 MiB are listed without a fingerprint (CONTRACT-6).
+- The helper refuses what the viewer cannot open: a `null` node parent or
+  verification block, unpaired surrogates, drive-letter paths, NUL in
+  entrypoints and artifacts over 2 MiB (CONTRACT-1, CONTRACT-3, CONTRACT-4,
+  CONTRACT-10, SKILL-21).
+- Errors say what to fix: relative drafts resolve against `--workspace`,
+  distinct draft errors with JSON line and column, the published revision in
+  `revision_conflict`, the cited lines in `quote_mismatch`, reachable
+  `revision_id_reused`, and a JSON `internal_error` instead of a traceback
+  (CONTRACT-15 = SKILL-14, SKILL-4, CONTRACT-7, SKILL-11). Published files keep
+  their permissions; notebooks are parsed once (SKILL-12, SKILL-18).
+- SKILL.md treats repository and artifact text as data, documents the intents,
+  what `--workspace` must be, recovery from helper errors and what to report;
+  the bundled contract lists every field (CRIT-8, EXT-6, SKILL-5, SKILL-6,
+  SKILL-20, CRIT-6).
+
+Contract, checks and distribution:
+- `contracts/conformance` holds 65 self-contained cases run through the
+  schema, the helper and the extension, plus a helper-publish, viewer-load
+  round trip; the extension now matches the helper on notebook cells, exact
+  quotes, code-point lengths and empty parents (CONTRACT-8 = SKILL-17,
+  CONTRACT-9, CONTRACT-10, CONTRACT-11, CONTRACT-4).
+- New regression suites cover revision lineage, the refine wedge with the real
+  helper (required by the e2e gate), the host protocol and bootstrap, export
+  payloads, recorded artifacts, bundle hygiene and a routed-geometry golden
+  (EXT-8, VIEWUI-17, RENDER-12).
+- `tools/verify.py` also checks the marketplace and viewer version literals
+  (CRIT-4). The Claude plugin's GitHub install command names the real
+  marketplace (DOCS-1 = SKILL-8). Dead export and `showOutput` code is gone
+  and the development launch configurations open the repository root
+  (EXT-14, EXT-15, DOCS-15).
+- CLAUDE.md is the tracked agent guide and AGENTS.md is removed; current docs
+  describe the new panel, freshness and refinement behaviour, and more of them
+  are link-checked (DOCS-3 to DOCS-6, DOCS-9, DOCS-11, DOCS-13 to DOCS-16,
+  DOCS-18, DOCS-19).
+
+Fixes from the first review of this campaign (finding IDs from the round-1
+review): re-running Open no longer turns an edited draft's historical banner
+into a rejection (LINEAGE1-1); a deeply nested artifact is a parse error
+instead of a stuck "checking" status (LINEAGE1-2); a direct child of the shown
+revision is always adopted (LINEAGE1-3); each disk event gets fresh read
+retries (LINEAGE1-4); banner and prompt text from the artifact is single-line,
+bounded, and escapes C0 and C1 controls, bidirectional controls, line and
+paragraph separators and Unicode default-ignorable characters (SECURITY1-1,
+SECURITY1-2); restored and opened paths are normalised before the workspace
+check, and refine selections must have a string kind (SECURITY1-3,
+SECURITY1-4); links and aliases of MLView files are never fingerprinted
+(SECURITY1-5); the helper refuses to edit a published artifact in any case
+spelling, reports a missing `--workspace`, more than 2000 tracked files, deep
+nesting, an oversize artifact and a missing revision ID with actionable codes,
+and checks dates the same way on every Python (HELPER1-1 to HELPER1-6,
+SECURITY1-6, SPECDOCS1-5); a scoped viewport and an open composer survive a
+webview recreation, a refusal does not outlive its revision, the scope picker
+names notebook cells and searches phases, focus mode survives re-renders, and
+cards say "step" and "finding" (WEBVIEW1-1 to WEBVIEW1-7, LINEAGE1-5); new
+corpus cases pin changed inspected files, entrypoint drive letters, BOM
+notebooks and Latin-1 sources (SPECDOCS1-1 to SPECDOCS1-3).
+
+Fixes from the second review of this campaign (finding IDs from the round-2
+review): a Refine refusal about a missing or unreadable artifact file is
+cleared once the file is read again, even when the revision is unchanged
+(LINEAGE2-1); a hand-edited value the viewer's checks used to crash on (an
+object with a `toString` member) is reported as an issue, so Refine continues
+from that revision instead of calling the file unreadable (LINEAGE2-2); an
+artifact opened through a differently cased path on macOS opens in the
+workspace folder's spelling (LINEAGE2-3); both layers treat the long s
+(U+017F) and the Kelvin sign (U+212A) as `s` and `k` when deciding what is an
+MLView file, as case-insensitive volumes do (SECURITY2-1); the escape set now
+covers every Unicode default-ignorable character, including variation
+selectors and Hangul fillers (SECURITY2-2, SPECDOCS2-1); the helper rejects
+`NaN` and `Infinity`, which are not JSON, in drafts and in an existing
+artifact (SPECDOCS2-3); the corpus pins the 64-level nesting bound, and both
+runners read JSON the way the product does (SPECDOCS2-4); docs no longer say
+evidence quotes are copied into the prompt (SPECDOCS2-2).
+
+Not in this version: the manual live VS Code checks (HC Light, BOM files open
+while publishing, symlinked roots, Windows drive letters), human semantic
+review and the held-out pilot. Deferred: EXT-13's per-click revalidation cost,
+EXT-10, the routing grid index, edge connectors and edge search hits,
+RENDER-9/16/20, and DOCS-7/10/17 (need owner approval).
+
+## Unreleased — trust and usability
+
+- Clarify authored uncertainty and severity, show every evidence quote, and add
+  direct claim challenges plus accessible textual relationship views.
+- Coalesce edit-driven validation; guard stale results, navigation and disposal
+  across overlapping source and artifact changes.
+- Add targeted interpretation guides and protected incremental draft edits.
+- Identify full skill bundles, diagnose installation drift, prepare separate
+  matched baselines and measure synthetic renderer scale through 2,000 nodes.
+- Fix native Windows draft paths and CI timing, keep source links beside the
+  diagram, and support arrow/Home/End navigation across the side tabs.
+- Align evidence requirements across the Python and VS Code validators;
+  correct synthetic benchmark references and authored search/Outline wording.
+- Preserve WorkflowDocument 1.0 and historical evaluation records. Human
+  semantic review and broader native-host/platform validation remain outstanding.
+
+## Unreleased — native workflow only
+
+- Remove the Python static analyzer, CLI, rules, caches, static reports, MCP
+  services, pre-commit hook, GitHub action, and static extension commands.
+- Ship the active-assistant MLView skill and WorkflowDocument viewer only.
+- Move retained ML example sources into evaluation fixtures without changing
+  recorded native outputs, evidence quotes or their hashes.
+- Replace analyzer release gates with native helper/viewer/distribution checks.
+
+
+The older dated entries below were moved here from `docs/STATUS.md`, each
+condensed to what changed and the numbers that were measured at the time. The
+long-form reasoning behind them is in the historical `docs/CONTRACTS.md` and
+`docs/ROADMAP.md`.
 
 **Most entries below were written before CI could confirm them.** GitHub Actions
 billing was blocked at the account level for the hardening rounds, the
 consolidation and the recall campaign, so every job came back unstarted and each
 of those entries is a measurement from one machine. The block went with the
 repository going public on 2026-09-15: the matrix has since run green over the
-tree the Unreleased entry describes — thirteen jobs, run 34986234828 and run
+legacy tree the consolidation entry describes — thirteen jobs, run 34986234828 and run
 34986239243, and thirteen again over its review fixes, run 35001150997 and run
 35001153856. Where an older entry quotes a CI run id, that run predates the
 block.
+
+---
+
+## Unreleased — review and public readiness (2026-09-18)
+
+- Hardened artifact paths, timestamps, malformed-input handling and publication
+  errors, with matching Python and TypeScript checks.
+- Reduced repeated parent traversal, source reads, hashing and graph counting.
+- Added symlink-safe skill distribution and a shared MIT license payload;
+  pinned the VSIX packager and adopted SPDX wheel metadata.
+- Fixed evaluation prompt/pointer validation and Windows review paths, and
+  made failed wheel builds fail their gate.
+- Updated contribution forms and documentation, preserved upstream evaluation
+  license notices, and enabled GitHub secret scanning and push protection.
+
+See the [review and validation record](docs/PUBLIC_READINESS_REVIEW.md).
+Human semantic review and the held-out pilot remain pending.
+
+---
+
+## Unreleased — native LLM workflow (2026-09-16–17)
+
+MLView now supplies a portable skill that asks the active assistant to interpret
+source and configuration, then publishes a cited semantic artifact for the
+interactive VS Code viewer. The default workflow follows the user's corrected
+intent; the existing static analyzer remains available as a legacy path.
+
+- Added WorkflowDocument 1.0, exact evidence and inspected-file fingerprints,
+  bounded validation/repair, guarded atomic publication, and revision lineage.
+- Added **Open Generated Diagram**, custom phases, groups/cycles, notebook
+  evidence, source freshness, refinement prompts, and SVG/PNG exports.
+- Added shared and Claude skill distributions; Claude's old automatic static
+  hooks are now opt-in, and static VS Code entrypoints are visibly labeled.
+- Added node/edge/finding refinement intents, visible scenario context and
+  stable-ID preservation guidance in prompts copied to the native assistant.
+- Fixed authored diagram selection being lost when VS Code recreated the
+  webview after source navigation. State is saved before navigation and retained
+  during bootstrap; regression coverage includes immediate webview destruction.
+- Added a read-only installation doctor, deterministic skill ZIPs, extracted
+  helper checks, and CI distribution artifacts for both host layouts.
+- Added eight development scenarios and the protocol for a 72-run held-out
+  pilot. The pilot and human semantic adjudication are outstanding.
+
+See [implementation and local verification](docs/LLM_IMPLEMENTATION.md) and the
+[native-host integration log](docs/demo-logs/2026-09-16-llm-workflow.md). Local
+verification and revision-specific remote CI are separate evidence; historical
+static accuracy numbers do not measure LLM understanding.
 
 ---
 

@@ -1,0 +1,25 @@
+{
+  "task": "dev-config",
+  "artifact": "evals/workflow/development/artifacts/configured-training.mlview.json",
+  "artifactSha256": "97eaa011aaaf7ea0974d3a6909d174e871a0f6020f470e4c643188ae8c47854e",
+  "artifactRevision": "dev-smoke-configured-training-r1",
+  "artifactRequest": {"configuration":"samples/configured_training/configs/distill.json","entrypoints":["samples/configured_training/train.py","samples/configured_training/infer.py"],"question":"Explain the configured distillation workflow, distinguish teacher and student losses and updates, and separate inference.","scope":"samples/configured_training with configs/distill.json selected"},
+  "reviewerType": "model-provisional",
+  "reviewStatus": "pending-human-review",
+  "claims": [
+    {"id":"config-selection","verdict":"supported","summary":"The selected configuration builds the small student and wide teacher with alpha 0.6 and temperature 2.0.","artifactPointers":["node:selected-config","node:student","node:teacher"],"sourceReferences":["ev-config-models","ev-config-objective","ev-small","ev-wide"],"failureTypes":[],"humanDecision":null},
+    {"id":"student-only-update","verdict":"supported","summary":"The teacher is frozen and evaluated without gradients while Adam owns only student parameters.","artifactPointers":["node:student-update"],"sourceReferences":["ev-teacher-load","ev-teacher-forward","ev-optimizer","ev-update"],"failureTypes":[],"humanDecision":null},
+    {"id":"student-only-finding","verdict":"unsupported","summary":"Correct student-only distillation behavior is presented as a finding even though the source provides no defect condition.","artifactPointers":["finding:teacher-not-updated"],"sourceReferences":["ev-teacher-load","ev-optimizer","ev-teacher-forward"],"failureTypes":["false-defect","misleading-emphasis"],"humanDecision":null},
+    {"id":"inference-architecture","verdict":"qualified","summary":"Inference hard-codes the small architecture and matches this configuration, but whether that coupling is a defect depends on intended configuration support.","artifactPointers":["finding:inference-architecture-fixed"],"sourceReferences":["ev-config-models","ev-infer-load"],"failureTypes":["unqualified-inference"],"humanDecision":null},
+    {"id":"external-contents","verdict":"omitted","summary":"The source names external train, validation, and teacher checkpoint files, but their contents and compatibility cannot be established without execution or inspection.","artifactPointers":[],"sourceReferences":["ev-config-models","ev-loaders"],"failureTypes":["missed-essential-behavior"],"humanDecision":null}
+  ],
+  "usability": {
+    "dataOrigin":{"status":"clear","answer":"External train and validation tensor files become shuffled and ordered batches respectively.","artifactPointers":["node:train-data","node:validation-data"],"humanDecision":null},
+    "updatedParametersAndFitState":{"status":"clear","answer":"Only student parameters are optimized; the teacher is frozen.","artifactPointers":["node:optimizer","node:student-update"],"humanDecision":null},
+    "losses":{"status":"clear","answer":"Cross-entropy and temperature-scaled KL are mixed 0.4/0.6.","artifactPointers":["node:supervised-loss","node:distillation-loss","node:combined-loss"],"humanDecision":null},
+    "evaluationBoundaries":{"status":"clear","answer":"Validation uses a separate configured loader after each epoch.","artifactPointers":["node:student-validation"],"humanDecision":null},
+    "outputs":{"status":"clear","answer":"Validation accuracy is printed and student state is saved, then loadable for prediction.","artifactPointers":["node:student-validation","node:student-checkpoint","node:inference-predict"],"humanDecision":null},
+    "uncertainty":{"status":"partial","answer":"External data and checkpoint contents are mentioned in coverage but not attached to the affected nodes.","artifactPointers":["coverage"],"humanDecision":null}
+  },
+  "humanReview": null
+}

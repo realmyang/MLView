@@ -44,9 +44,22 @@ export interface IssueGroup {
 /** Ordered worst-first: the bucket a group is only as strong as. */
 const BUCKET_ORDER = ['speculative', 'possible', 'likely', 'certain'];
 
+/** VIEWUI-12: an authored finding's basis, weakest first. */
+const BASIS_ORDER = ['unresolved', 'inferred', 'observed'];
+
 function bucketRank(bucket: string): number {
+  const basis = BASIS_ORDER.indexOf(bucket);
+  if (basis >= 0) return basis;
   const at = BUCKET_ORDER.indexOf(bucket);
   return at < 0 ? 0 : at;
+}
+
+/**
+ * The grouping modes a document offers. Finding IDs are unique in an authored
+ * document, so grouping by them never forms a group and is not offered.
+ */
+export function groupModesFor(schemaVersion: string | undefined): RailGroupBy[] {
+  return schemaVersion === 'workflow-view/1' ? RAIL_GROUP_MODES.filter((mode) => mode !== 'rule') : RAIL_GROUP_MODES;
 }
 
 /**

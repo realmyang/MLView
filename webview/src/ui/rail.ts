@@ -11,11 +11,12 @@ import { severityGlyph } from '../markers.js';
 import { appendTrustSections, confidenceChip } from './evidence.js';
 import { renderIssuePanel } from './issuelist.js';
 import { renderOutlineTree } from './outline.js';
+import type { RelationMode } from './outline.js';
 import { appendSuppressActions, stateChip } from './suppress.js';
 import { appendFixSection, hasFix } from './fixes.js';
 import { alternativeCount, isAlternatives, resolvedConfig } from '../config/resolved.js';
 import type { DiffIndex } from '../diff/overlay.js';
-import type { Issue, Loc, MLNode, RailGroupBy, RailTab, RelatedLoc } from '../types.js';
+import type { Issue, Loc, MLEdge, MLNode, RailGroupBy, RailTab, RelatedLoc } from '../types.js';
 import type { GraphIndex } from '../layout/model.js';
 
 export interface RailCallbacks {
@@ -23,6 +24,8 @@ export interface RailCallbacks {
   onClearFilters(): void;
   onSelectIssue(id: string): void;
   onSelectNode(id: string): void;
+  onSelectEdge(id: string): void;
+  onChallenge(): void;
   onOpen(loc: Loc | RelatedLoc): void;
   onResize(width: number): void;
   onToggleRail(): void;
@@ -51,7 +54,9 @@ export interface RailState {
   tab: RailTab;
   issues: Issue[];
   selectedNode: MLNode | null;
+  selectedEdge: MLEdge | null;
   selectedIssueId: string | null;
+  selectedIssue: Issue | null;
   /** The canvas's collapsed groups — the Outline mirrors them (MLV-R2-W08). */
   collapsed: Set<string>;
   keep(issue: Issue): boolean;
@@ -85,6 +90,8 @@ export class Rail {
    */
   private expanded = new Set<string>();
   private lastState: RailState | null = null;
+  private relationMode: RelationMode = 'outgoing';
+  private relationNodeId: string | null = null;
 
   constructor(cb: RailCallbacks) {
     this.cb = cb;
@@ -110,7 +117,8 @@ export class Rail {
       { id: 'inspector', label: 'Inspector' },
       { id: 'outline', label: 'Outline' },
     ];
-    for (const d of defs) {
+    for (let tabIndex = 0; tabIndex < defs.length; tabIndex++) {
+      const d = defs[tabIndex];
       const b = el('button', 'mlv-rail__tab', d.label) as HTMLButtonElement;
       b.type = 'button';
       b.id = uid + '-tab-' + d.id;
@@ -118,6 +126,18 @@ export class Rail {
       b.setAttribute('aria-controls', uid + '-panel-' + d.id);
       b.setAttribute('aria-selected', 'false');
       on(b, 'click', () => cb.onTab(d.id));
+      on(b, 'keydown', (ev: KeyboardEvent) => {
+        let nextIndex: number;
+        if (ev.key === 'ArrowRight') nextIndex = (tabIndex + 1) % defs.length;
+        else if (ev.key === 'ArrowLeft') nextIndex = (tabIndex + defs.length - 1) % defs.length;
+        else if (ev.key === 'Home') nextIndex = 0;
+        else if (ev.key === 'End') nextIndex = defs.length - 1;
+        else return;
+        ev.preventDefault();
+        const next = defs[nextIndex].id;
+        cb.onTab(next);
+        this.tabs.get(next)?.focus();
+      });
       strip.appendChild(b);
       this.tabs.set(d.id, b);
 
@@ -187,17 +207,21 @@ export class Rail {
     if (!active || typeof active.closest !== 'function' || !this.root.contains(active)) {
       return () => undefined;
     }
-    const owner = active.closest('[data-issue-id][role="option"], [data-outline-id], [data-outline-lane]');
+    const owner = active.closest('[data-issue-id][role="option"], [data-outline-id], [data-outline-lane], [data-relation-id]');
     if (!owner) return () => undefined;
     const attr = owner.hasAttribute('data-issue-id')
       ? 'data-issue-id'
       : owner.hasAttribute('data-outline-id')
         ? 'data-outline-id'
-        : 'data-outline-lane';
+        : owner.hasAttribute('data-outline-lane')
+          ? 'data-outline-lane'
+          : 'data-relation-id';
     const value = owner.getAttribute(attr) || '';
     return () => {
       const next = this.root.querySelector('[' + attr + '="' + value + '"]') as HTMLElement | null;
       if (!next) return;
+      const panel = next.closest('[role="tabpanel"]') as HTMLElement | null;
+      if (panel?.hidden) return;
       // Moving the tab stop with the focus keeps the roving tabindex honest.
       const composite = next.closest('[role="tree"], [role="listbox"]');
       if (composite) {
@@ -274,6 +298,17 @@ export class Rail {
     clear(panel);
     add(panel, el('h3', 'mlv-sr', 'Inspector'));
     const node = s.selectedNode;
+    if (s.selectedEdge && s.index) {
+      this.renderEdgeInspector(panel, s.selectedEdge, s.index);
+      return;
+    }
+    if (s.selectedIssue && s.index) {
+      add(panel, el('h4', 'mlv-insp__title', s.selectedIssue.title));
+      panel.appendChild(this.inspectorIssue(s.selectedIssue, s));
+      this.appendChallenge(panel);
+      this.renderWorkflowLimitations(panel, s.index);
+      return;
+    }
     if (!node || !s.index) {
       add(panel, el('div', 'mlv-empty-note', 'Select a node to inspect it.'));
       return;
@@ -284,12 +319,13 @@ export class Rail {
     const meta = add(panel, el('div', 'mlv-insp__meta'));
     const stageChip = add(meta, el('span', 'mlv-chip mlv-chip--stage', node.stage));
     stageChip.setAttribute('data-stage', node.stage);
-    add(meta, el('span', 'mlv-chip', node.kind));
-    add(meta, el('span', 'mlv-chip', node.level));
+    // VIEWUI-14: an absent kind reads as `unknown` and the level is the
+    // adapter's `unit`/`op`, neither of which the author wrote.
+    if (node.kind && node.kind !== 'unknown') add(meta, el('span', 'mlv-chip', node.kind));
     if (node.framework) add(meta, el('span', 'mlv-chip', node.framework));
-    add(meta, el('span', 'mlv-chip', node.confidenceBucket));
+    add(meta, el('span', 'mlv-chip', node.basis ? 'basis · ' + node.basis : node.confidenceBucket));
     // VIEW-08: a resurrected ghost is a REMOVED node, not a missing step.
-    if (node.ghost) add(meta, el('span', 'mlv-chip', 'missing step'));
+    if (node.ghost) add(meta, el('span', 'mlv-chip', 'removed from current revision'));
     if (node.dynamic) add(meta, el('span', 'mlv-chip', 'dynamic scope'));
     if (node.diffStatus && node.diffStatus !== 'unchanged') {
       const chip = stateChip(
@@ -306,16 +342,19 @@ export class Rail {
     add(panel, el('div', 'mlv-insp__fqn', node.fqn || node.qualname));
 
     const actions = add(panel, el('div', 'mlv-insp__actions'));
-    const openBtn = button('mlv-btn mlv-btn--primary', 'Open ' + fileLine(node.loc));
-    // NB. The button says the cell; its hover says the flat line the host is
-    // actually sent, so the two never look like a contradiction.
-    const nbCell = cellRef(node.loc);
-    if (nbCell) {
-      openBtn.setAttribute('data-cell', String(nbCell.cell));
-      openBtn.title = locTitle(node.loc);
+    // Legacy nodes have one canonical location and retain their established
+    // primary action. Authored nodes carry `evidenceLocs` (including an empty
+    // array for a conceptual group) and use the complete evidence list below.
+    if (node.evidenceLocs === undefined && node.loc.file) {
+      const openBtn = button('mlv-btn mlv-btn--primary', 'Open ' + fileLine(node.loc));
+      const nbCell = cellRef(node.loc);
+      if (nbCell) {
+        openBtn.setAttribute('data-cell', String(nbCell.cell));
+        openBtn.title = locTitle(node.loc);
+      }
+      on(openBtn, 'click', () => this.cb.onOpen(node.loc));
+      actions.appendChild(openBtn);
     }
-    on(openBtn, 'click', () => this.cb.onOpen(node.loc));
-    actions.appendChild(openBtn);
     if (s.canAskAssistant) {
       const ask = button('mlv-btn', 'Ask about this node');
       on(ask, 'click', () => this.cb.onAsk(node.id));
@@ -328,11 +367,10 @@ export class Rail {
     scopeBtn.setAttribute('data-scope-node', node.id);
     on(scopeBtn, 'click', () => this.cb.onScopeToNode(node.id));
     actions.appendChild(scopeBtn);
+    this.appendChallenge(actions);
 
-    if (node.loc.snippet) {
-      const pre = add(panel, el('pre', 'mlv-banner__detail', node.loc.snippet));
-      pre.style.marginTop = 'var(--mlv-s4)';
-    }
+    this.renderEvidenceLocations(panel, node.evidenceLocs || (node.loc.file ? [node.loc] : []));
+    this.renderWorkflowLimitations(panel, s.index);
 
     // ANA-10. The resolved value, and — where the analyzer could not choose —
     // ALL N alternatives, named. The card has room for three; this is where the
@@ -393,13 +431,85 @@ export class Rail {
 
     const issues = s.index.issuesOf(node.id, s.keep);
     if (issues.length) {
-      panel.appendChild(this.heading('Issues'));
+      panel.appendChild(this.heading('Findings'));
       for (const issue of issues) {
         const box = this.inspectorIssue(issue, s);
         if (s.selectedIssueId === issue.id) box.classList.add('is-selected');
         panel.appendChild(box);
       }
     }
+  }
+
+  private renderEdgeInspector(panel: HTMLElement, edge: MLEdge, index: GraphIndex): void {
+    add(panel, el('h4', 'mlv-insp__title', edge.label || edge.kind || 'Connection'));
+    const source = index.nodeById.get(edge.source);
+    const target = index.nodeById.get(edge.target);
+    const meta = add(panel, el('div', 'mlv-insp__meta'));
+    add(meta, el('span', 'mlv-chip', edge.kind || 'connection'));
+    if (edge.basis) add(meta, el('span', 'mlv-chip mlv-chip--basis', 'basis · ' + edge.basis));
+    add(panel, el('div', 'mlv-insp__fqn', (source?.label || edge.source) + ' → ' + (target?.label || edge.target)));
+    const actions = add(panel, el('div', 'mlv-insp__actions'));
+    this.appendChallenge(actions);
+    this.renderEvidenceLocations(panel, edge.evidenceLocs || (edge.loc.file ? [edge.loc] : []));
+    this.renderWorkflowLimitations(panel, index);
+  }
+
+  private renderWorkflowLimitations(panel: HTMLElement, index: GraphIndex): void {
+    if (index.graph.schemaVersion !== 'workflow-view/1') return;
+    const limitations = (index.graph.diagnostics || []).filter((item) => item.kind === 'workflow_limitation');
+    if (!limitations.length) return;
+    panel.appendChild(this.heading('Coverage limitations'));
+    const list = add(panel, el('ul', 'mlv-insp__related mlv-insp__limitations'));
+    for (const limitation of limitations) add(list, el('li', '', limitation.message));
+  }
+
+  private renderEvidenceLocations(panel: HTMLElement, locations: Loc[]): void {
+    if (!locations.length) {
+      add(panel, el('div', 'mlv-empty-note mlv-insp__no-evidence', 'No source evidence was authored for this item. Its basis and coverage limitations describe what remains uncertain.'));
+      return;
+    }
+    panel.appendChild(this.heading('Source evidence'));
+    const nav = add(panel, el('div', 'mlv-insp__evidence-nav'));
+    const previous = button('mlv-btn', 'Previous evidence');
+    const next = button('mlv-btn', 'Next evidence');
+    let active = 0;
+    const update = () => {
+      previous.disabled = active === 0;
+      next.disabled = active === locations.length - 1;
+      previous.title = previous.disabled ? 'This is the first evidence item' : 'Open the previous evidence item';
+      next.title = next.disabled ? 'This is the last evidence item' : 'Open the next evidence item';
+    };
+    on(previous, 'click', () => { if (active > 0) this.cb.onOpen(locations[--active]); update(); });
+    on(next, 'click', () => { if (active < locations.length - 1) this.cb.onOpen(locations[++active]); update(); });
+    nav.append(previous, next);
+    update();
+    const list = add(panel, el('ul', 'mlv-insp__related mlv-insp__source-evidence'));
+    for (const loc of locations) {
+      const li = add(list, el('li'));
+      const openBtn = button('mlv-link', 'Open ' + fileLine(loc));
+      openBtn.setAttribute('data-evidence-id', loc.evidenceId || '');
+      const nbCell = cellRef(loc);
+      if (nbCell) {
+        openBtn.setAttribute('data-cell', String(nbCell.cell));
+        openBtn.title = locTitle(loc);
+      } else if (loc.cell !== undefined && locTitle(loc)) {
+        // VIEWUI-8: an authored notebook citation names its zero-based cell.
+        openBtn.title = locTitle(loc);
+      }
+      on(openBtn, 'click', () => {
+        active = locations.indexOf(loc);
+        update();
+        this.cb.onOpen(loc);
+      });
+      li.appendChild(openBtn);
+      if (loc.snippet) add(li, el('pre', 'mlv-banner__detail', loc.snippet));
+    }
+  }
+
+  private appendChallenge(parent: HTMLElement): void {
+    const challenge = button('mlv-btn mlv-insp__challenge', 'Challenge this claim');
+    on(challenge, 'click', () => this.cb.onChallenge());
+    parent.appendChild(challenge);
   }
 
   /**
@@ -477,33 +587,35 @@ export class Rail {
       ).setAttribute('data-diff-issue', diffStatus);
     }
     add(box, el('p', 'mlv-insp__line', issue.message));
-    add(box, el('p', 'mlv-insp__line', issue.why));
-    add(box, el('div', 'mlv-insp__fix', issue.fixHint));
+    if (issue.fixHint) {
+      box.appendChild(this.heading('Suggested check'));
+      add(box, el('div', 'mlv-insp__fix', issue.fixHint));
+    }
     // H5. The Inspector is where a reader who has just read the evidence decides
     // what to do, so the computed edit — its title, its safety and the snippet —
     // goes here in full, above the two suppression actions.
-    if (hasFix(issue)) {
-      appendFixSection(box, issue, { onApplyFix: (id) => this.cb.onApplyFix(id) }, { canApply: s.canApplyFix });
+    if (s.index?.graph.schemaVersion !== 'workflow-view/1') {
+      if (hasFix(issue)) {
+        appendFixSection(box, issue, { onApplyFix: (id) => this.cb.onApplyFix(id) }, { canApply: s.canApplyFix });
+      }
+      appendTrustSections(box, issue);
+      const actions = add(box, el('div', 'mlv-insp__suppress'));
+      appendSuppressActions(actions, issue.code, {
+        onCopyIgnore: (code) => this.cb.onCopyIgnore(code),
+        onDisableRule: (code) => this.cb.onDisableRule(code),
+      });
     }
-    // MLV-P6: the same two disclosures the rail row carries, so "why should I
-    // believe this" is answerable from whichever surface the user is on.
-    appendTrustSections(box, issue);
-    // MLV-P10: and the same two actions, spelled out rather than icon-only —
-    // the Inspector has the room, and this is where a reader who has just read
-    // the evidence decides the finding is a false positive.
-    const actions = add(box, el('div', 'mlv-insp__suppress'));
-    appendSuppressActions(actions, issue.code, {
-      onCopyIgnore: (code) => this.cb.onCopyIgnore(code),
-      onDisableRule: (code) => this.cb.onDisableRule(code),
-    });
     if ((issue.relatedLocs || []).length) {
+      box.appendChild(this.heading('Evidence review'));
       const list = add(box, el('ul', 'mlv-insp__related'));
       for (const rel of issue.relatedLocs) {
         const li = add(list, el('li'));
         const link = el('button', 'mlv-link', (rel.message || rel.role) + ' — ' + fileLine(rel));
         link.type = 'button';
+        link.setAttribute('data-evidence-id', rel.evidenceId || '');
         on(link, 'click', () => this.cb.onOpen(rel));
         li.appendChild(link);
+        if (rel.snippet) add(li, el('pre', 'mlv-banner__detail', rel.snippet));
       }
     }
     return box;
@@ -522,19 +634,26 @@ export class Rail {
     add(panel, el('h3', 'mlv-sr', 'Outline'));
     const index = s.index;
     if (!index) {
-      add(panel, el('div', 'mlv-empty-note', 'No analysis loaded yet.'));
+      add(panel, el('div', 'mlv-empty-note', 'No workflow loaded yet.'));
       return;
     }
+    if (s.selectedNode) this.relationNodeId = s.selectedNode.id;
+    const relationNodeId = this.relationNodeId && index.nodeById.has(this.relationNodeId)
+      ? this.relationNodeId
+      : null;
     renderOutlineTree(
       panel,
       {
         index,
         keep: s.keep,
-        selectedNodeId: s.selectedNode ? s.selectedNode.id : null,
+        selectedNodeId: s.selectedNode ? s.selectedNode.id : relationNodeId,
         collapsed: s.collapsed,
+        relationMode: this.relationMode,
       },
       {
         onSelectNode: (id) => this.cb.onSelectNode(id),
+        onSelectEdge: (id) => this.cb.onSelectEdge(id),
+        onRelationMode: (mode) => { this.relationMode = mode; },
         onSelectLane: (laneId) => this.cb.onSelectLane(laneId),
         onToggleCollapse: (id) => this.cb.onToggleCollapse(id),
       },

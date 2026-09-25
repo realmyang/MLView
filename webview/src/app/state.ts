@@ -11,6 +11,7 @@
 import { sanitizeScope } from '../protocol.js';
 import { sanitizeGroupBy } from '../ui/railgroup.js';
 import { syncCollapsed } from './documents.js';
+import { composerViewState } from '../workflow.js';
 import { renderChrome, renderRail } from './surfaces.js';
 import type { App } from '../app.js';
 import type { HostBridge, ViewState } from '../types.js';
@@ -86,6 +87,14 @@ export function snapshotState(app: App): ViewState {
   if (app.scopes.changedOnly) state.diffOnly = true;
   // MLV-P12, and the same rule again: absent means "not asked yet".
   if (app.pipelineChosen) state.pipelineChosen = true;
+  // VIEWUI-3: which authored revision the viewport belongs to, so a remount
+  // restores it only for that revision. Absent for any other graph.
+  if (app.graph && app.graph.schemaVersion === 'workflow-view/1' && app.workflowRevision) {
+    state.workflowRevision = app.workflowRevision;
+    // VIEWUI-4: the Refine composer of that revision, absent at its default.
+    const composer = composerViewState(app.root);
+    if (composer) state.composer = composer;
+  }
   return state;
 }
 

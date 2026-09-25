@@ -1,0 +1,95 @@
+{
+  "id": "evidence-006-owned-evidence-artifact-suffix-alias",
+  "findings": [
+    "SECURITY2-1"
+  ],
+  "description": "Evidence citing other.mlview.j\u017fon (U+017F long s), which a case-insensitive volume maps onto another artifact, is MLView-owned and rejected by both layers.",
+  "files": {
+    "train.py": {
+      "text": "def train():\n"
+    },
+    "other.mlview.j\u017fon": {
+      "text": "# MLView\n"
+    }
+  },
+  "artifact": "workflow.mlview.json",
+  "document": {
+    "workflowVersion": "1.0",
+    "title": "Training",
+    "producer": {
+      "kind": "host-llm",
+      "host": "codex"
+    },
+    "revision": {
+      "id": "r1"
+    },
+    "request": {
+      "question": "Explain training",
+      "scope": "train.py"
+    },
+    "phases": [
+      {
+        "id": "p",
+        "label": "Train"
+      }
+    ],
+    "nodes": [
+      {
+        "id": "n",
+        "label": "Train",
+        "phase": "p",
+        "basis": "observed",
+        "evidence": [
+          "ev",
+          "ev-owned"
+        ]
+      }
+    ],
+    "edges": [],
+    "findings": [],
+    "evidence": [
+      {
+        "id": "ev",
+        "file": "train.py",
+        "line": 1,
+        "endLine": 1,
+        "quote": "def train():"
+      },
+      {
+        "id": "ev-owned",
+        "file": "other.mlview.j\u017fon",
+        "line": 1,
+        "endLine": 1,
+        "quote": "# MLView"
+      }
+    ],
+    "coverage": {
+      "status": "scoped",
+      "summary": "Inspected entrypoint",
+      "inspectedFiles": [
+        "train.py"
+      ],
+      "limitations": []
+    }
+  },
+  "expect": {
+    "schema": "valid",
+    "helper": {
+      "ok": false,
+      "codes": [
+        "excluded_evidence"
+      ],
+      "warnings": [],
+      "fingerprints": null,
+      "stale": []
+    },
+    "extension": {
+      "ok": false,
+      "stale": [],
+      "issuePaths": [
+        "$.evidence[1].file"
+      ]
+    }
+  },
+  "divergence": null
+}

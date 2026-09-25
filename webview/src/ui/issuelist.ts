@@ -12,7 +12,7 @@ import { locSpoken } from '../notebook.js';
 import { uiIcon } from '../icons.js';
 import { severityGlyph, SEVERITY_ORDER, normalizeSeverity } from '../markers.js';
 import { appendTrustSections, confidenceChip } from './evidence.js';
-import { defaultExpanded, groupIssues, needsHeader, occurrenceText, RAIL_GROUP_LABEL, RAIL_GROUP_MODES } from './railgroup.js';
+import { defaultExpanded, groupIssues, groupModesFor, needsHeader, occurrenceText, RAIL_GROUP_LABEL } from './railgroup.js';
 import { appendSuppressActions, stateChip, suppressedSummary } from './suppress.js';
 import { appendFixSection, fixMarker, hasFix } from './fixes.js';
 import { blindSpots, coverageHeadline } from './chromenotes.js';
@@ -67,7 +67,7 @@ export function renderIssuePanel(panel: HTMLElement, s: IssueListState, cb: Issu
   // hidden: the tab strip already names the panel on screen.
   add(panel, el('h3', 'mlv-sr', 'Findings'));
   if (!s.index) {
-    add(panel, el('div', 'mlv-empty-note', 'No analysis loaded yet.'));
+    add(panel, el('div', 'mlv-empty-note', 'No workflow loaded yet.'));
     return;
   }
   const visible = s.issues.filter(s.keep);
@@ -91,6 +91,7 @@ export function renderIssuePanel(panel: HTMLElement, s: IssueListState, cb: Issu
       panel.appendChild(allSuppressedState(setAside.length));
     } else if (s.issues.length) panel.appendChild(filteredEmptyState(cb));
     else if ((s.index.graph.nodes || []).length === 0) panel.appendChild(nothingAnalyzedState(s));
+    else if (s.index.graph.schemaVersion === 'workflow-view/1') panel.appendChild(noFindingsRecordedState(s));
     else panel.appendChild(cleanState(s));
     // "No issues found" over a document where three findings were silenced is
     // not a clean bill of health, so the section is drawn here too (MLV-P10).
@@ -224,13 +225,14 @@ function groupControl(s: IssueListState, cb: IssueListCallbacks): HTMLElement {
   box.setAttribute('aria-label', 'Group findings');
   box.setAttribute('data-group-by', s.groupBy);
   add(box, el('span', 'mlv-rail__groupby-label', 'Group by'));
-  for (const mode of RAIL_GROUP_MODES) {
+  for (const mode of groupModesFor(s.index?.graph.schemaVersion)) {
     const active = s.groupBy === mode;
-    const b = el('button', 'mlv-chip mlv-chip--btn mlv-rail__groupby-btn', RAIL_GROUP_LABEL[mode]) as HTMLButtonElement;
+    const label = RAIL_GROUP_LABEL[mode];
+    const b = el('button', 'mlv-chip mlv-chip--btn mlv-rail__groupby-btn', label) as HTMLButtonElement;
     b.type = 'button';
     b.setAttribute('data-group-mode', mode);
     b.setAttribute('aria-pressed', active ? 'true' : 'false');
-    b.title = 'Group findings by ' + RAIL_GROUP_LABEL[mode].toLowerCase();
+    b.title = 'Group findings by ' + label.toLowerCase();
     on(b, 'click', () => cb.onGroupBy(mode));
     box.appendChild(b);
   }
@@ -242,7 +244,7 @@ function groupControl(s: IssueListState, cb: IssueListCallbacks): HTMLElement {
 function flatList(issues: Issue[], sev: string, s: IssueListState, cb: IssueListCallbacks, label?: string): HTMLElement {
   const list = el('ul', 'mlv-issues');
   list.setAttribute('role', 'listbox');
-  list.setAttribute('aria-label', label || sev + ' severity issues');
+  list.setAttribute('aria-label', label || sev + ' severity findings');
   for (const issue of issues) list.appendChild(issueRow(issue, s, cb));
   wireListbox(list, cb);
   return list;
@@ -260,7 +262,7 @@ function renderGroups(section: HTMLElement, issues: Issue[], sev: string, s: Iss
     }
     section.appendChild(groupBlock(group, sev, s, cb));
   }
-  if (singles.length) section.appendChild(flatList(singles, sev, s, cb, sev + ' severity issues, ungrouped'));
+  if (singles.length) section.appendChild(flatList(singles, sev, s, cb, sev + ' severity findings, ungrouped'));
 }
 
 function groupBlock(group: IssueGroup, sev: string, s: IssueListState, cb: IssueListCallbacks): HTMLElement {
@@ -288,7 +290,7 @@ function groupBlock(group: IssueGroup, sev: string, s: IssueListState, cb: Issue
   count.setAttribute('data-group-occurrences', String(group.issues.length));
   if (group.worstBucket) {
     const chip = add(meta, el('span', 'mlv-chip mlv-chip--conf mlv-chip--conf-' + group.worstBucket, group.worstBucket));
-    chip.title = 'Lowest confidence in this group: ' + group.worstBucket;
+    chip.title = (s.index?.graph.schemaVersion === 'workflow-view/1' ? 'Weakest basis in this group: ' : 'Lowest confidence in this group: ') + group.worstBucket;
   }
   head.setAttribute(
     'aria-label',
@@ -300,7 +302,7 @@ function groupBlock(group: IssueGroup, sev: string, s: IssueListState, cb: Issue
   // silenced in one gesture — the case the 111-row list actually needs. Only
   // under `rule` grouping: a file group's key is a path, and "disable this
   // rule" over eleven different codes would be a lie about what it does.
-  if (s.groupBy === 'rule') {
+  if (s.groupBy === 'rule' && s.index?.graph.schemaVersion !== 'workflow-view/1') {
     const bar = add(box, el('div', 'mlv-railgroup__bar'));
     bar.appendChild(head);
     const n = group.issues.length;
@@ -343,7 +345,9 @@ function issueRow(issue: Issue, s: IssueListState, cb: IssueListCallbacks): HTML
   row.setAttribute('aria-selected', selected ? 'true' : 'false');
   row.setAttribute(
     'aria-label',
-    issue.code + ' ' + issue.severity + ' severity, ' + issue.title + ', ' + locSpoken(issue.loc) + ', confidence ' + issue.confidenceBucket,
+    issue.code + ' ' + issue.severity + ' severity, ' + issue.title +
+      (issue.loc.file ? ', ' + locSpoken(issue.loc) : '') +
+      (issue.basis ? ', basis ' + issue.basis : ', confidence ' + issue.confidenceBucket),
   );
   if (selected) row.classList.add('is-selected');
   if (issue.suppressed) row.classList.add('is-suppressed');
@@ -352,7 +356,7 @@ function issueRow(issue: Issue, s: IssueListState, cb: IssueListCallbacks): HTML
   add(text, el('div', 'mlv-issue__title', issue.title));
   const meta = add(text, el('div', 'mlv-issue__meta'));
   add(meta, el('span', '', issue.code));
-  meta.appendChild(locSpan('', issue.loc));
+  if (issue.loc.file) meta.appendChild(locSpan('', issue.loc));
   // MLV-P6: on EVERY row, styled by bucket. Drawing it only for `possible` and
   // `speculative` made `certain` and `likely` look identical — the distinction a
   // reviewer most needs — and made a missing chip ambiguous between "sure" and
@@ -389,18 +393,22 @@ function issueRow(issue: Issue, s: IssueListState, cb: IssueListCallbacks): HTML
   li.appendChild(row);
 
   // A sibling of the option, never a child of it (MLV-R2-W03).
-  const open = iconButton('mlv-btn mlv-btn--icon mlv-issue__open', 'Open ' + fileLine(issue.loc));
-  open.appendChild(uiIcon('open', 12));
-  on(open, 'click', (ev: Event) => {
-    ev.stopPropagation();
-    cb.onOpen(issue.loc);
-  });
-  li.appendChild(open);
+  if (issue.loc.file) {
+    const open = iconButton('mlv-btn mlv-btn--icon mlv-issue__open', 'Open ' + fileLine(issue.loc));
+    open.appendChild(uiIcon('open', 12));
+    on(open, 'click', (ev: Event) => {
+      ev.stopPropagation();
+      cb.onOpen(issue.loc);
+    });
+    li.appendChild(open);
+  }
 
   // MLV-P10: on EVERY row, siblings of the option like "Open" is — never
   // children of it, because `role="option"` may not contain a focusable
   // descendant (MLV-R2-W03).
-  appendSuppressActions(li, issue.code, cb, { compact: true });
+  if (s.index?.graph.schemaVersion !== 'workflow-view/1') {
+    appendSuppressActions(li, issue.code, cb, { compact: true });
+  }
 
   // The selected row expands in place with the message, the why line, the fix
   // hint and a Go to button per location — the most valuable content in the
@@ -425,16 +433,19 @@ function issueDetail(issue: Issue, s: IssueListState, cb: IssueListCallbacks): H
   if (issue.fixHint) add(box, el('div', 'mlv-insp__fix', issue.fixHint));
   // H5: the prose hint stays — it is what all 36 rules carry — and the computed
   // edit goes UNDER it, so the reader sees the advice before the diff of it.
-  if (hasFix(issue)) appendFixSection(box, issue, cb, { canApply: s.canApplyFix });
-  // MLV-P6: the evidence checklist and the rule card, both as disclosures.
-  appendTrustSections(box, issue);
+  if (s.index?.graph.schemaVersion !== 'workflow-view/1') {
+    if (hasFix(issue)) appendFixSection(box, issue, cb, { canApply: s.canApplyFix });
+    appendTrustSections(box, issue);
+  }
   const actions = add(box, el('div', 'mlv-issue__goto'));
-  const primary = button('mlv-btn', 'Go to ' + fileLine(issue.loc));
-  on(primary, 'click', (ev: Event) => {
-    ev.stopPropagation();
-    cb.onOpen(issue.loc);
-  });
-  actions.appendChild(primary);
+  if (issue.loc.file) {
+    const primary = button('mlv-btn', 'Go to ' + fileLine(issue.loc));
+    on(primary, 'click', (ev: Event) => {
+      ev.stopPropagation();
+      cb.onOpen(issue.loc);
+    });
+    actions.appendChild(primary);
+  }
   for (const rel of issue.relatedLocs || []) {
     const label = 'Go to ' + (rel.message || rel.role.replace(/_/g, ' ')) + ' — ' + fileLine(rel);
     const b = button('mlv-btn', label);
@@ -532,6 +543,32 @@ function cleanState(s: IssueListState): HTMLElement {
 }
 
 /**
+ * VIEWUI-1. Zero findings in an authored revision means only that the
+ * assistant wrote none, which is common for "explain this pipeline"
+ * questions. MLView checked nothing, so this state never says "checked",
+ * "nothing to flag" or "no issues found": it names the coverage instead.
+ */
+function noFindingsRecordedState(s: IssueListState): HTMLElement {
+  const box = el('div', 'mlv-empty-note mlv-nofindings');
+  box.setAttribute('role', 'status');
+  add(box, el('div', 'mlv-clean__title', 'No findings recorded in this revision'));
+  const coverage = s.index ? s.index.graph.authoredCoverage : undefined;
+  const status = coverage ? coverage.status : 'unknown';
+  const limits = coverage ? coverage.limitations : 0;
+  add(
+    box,
+    el(
+      'div',
+      'mlv-clean__detail',
+      'The assistant recorded no findings. Coverage: ' + status +
+        (limits ? '; ' + limits + (limits === 1 ? ' limitation' : ' limitations') + ' listed above' : '') +
+        '. This is not a check result.',
+    ),
+  );
+  return box;
+}
+
+/**
  * Nothing was analysed at all. The canvas already says "No ML pipeline found";
  * a rail that answers "No issues found" beside it reads as a clean bill of
  * health for a run that never looked at anything (MLV-R2-W05).
@@ -616,7 +653,7 @@ function allSuppressedState(count: number): HTMLElement {
 /** The filters excluded everything: say so, and offer the way back. */
 function filteredEmptyState(cb: IssueListCallbacks): HTMLElement {
   const box = el('div', 'mlv-empty-note');
-  add(box, el('div', '', 'No issues match these filters.'));
+  add(box, el('div', '', 'No findings match these filters.'));
   const clearBtn = button('mlv-btn', 'Clear filters');
   on(clearBtn, 'click', () => cb.onClearFilters());
   box.appendChild(clearBtn);

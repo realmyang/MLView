@@ -12,9 +12,9 @@
  *
  * Only the error CODE, the offending TERM and a sorted, <=10-entry candidate
  * list are contractual — the prose is free, so nobody maintains two English
- * strings in two languages. Everything else in this file is a line-for-line port
- * of `analyzer/src/mlview/core/project.py`, and the parity gate
- * (`test/scope_parity.test.mjs`) is what keeps it one.
+ * strings in two languages. This file began as a line-for-line port of the
+ * retired analyzer's `core/project.py`; the analyzer and the parity test that
+ * compared the two were removed on 2026-09-18, so nothing compares them now.
  */
 
 import type { MLGraph } from '../types.js';
@@ -181,7 +181,9 @@ export function parseScope(spec: string | null | undefined, depth?: number | str
     target = CONCERN_ALIASES[target] || target;
     if (!CONCERNS[target]) throw new ScopeError('unknown_concern', target, CONCERN_NAMES);
   }
-  if (kind === 'stage' && STAGE_IDS.indexOf(target) < 0) throw new ScopeError('unknown_stage', target, STAGE_IDS);
+  // Stage ids are document-authored. Legacy graphs use STAGE_IDS, while a
+  // workflow-view document may declare any ordered phase id; resolveScope has
+  // the document and validates against its actual stages.
   return { kind, target, depth: parseDepth(depth, kind), spec: kind + ':' + target };
 }
 

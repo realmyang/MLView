@@ -1,3 +1,7 @@
+> Historical record: the static analyzer was removed on 2026-09-18.
+> Commands, paths, and compatibility promises below describe earlier revisions.
+> See [current status](STATUS.md) for the supported product.
+
 # MLView — Review and Roadmap
 
 **Date:** 2026-09-08 · **Basis:** four independent audits (analysis depth, viewer,

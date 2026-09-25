@@ -189,11 +189,10 @@ export function wireCanvasGestures(
       // retargets the rest of the gesture to the canvas — so in a real browser
       // the legend's own close button never sees its `click`, and a drag inside
       // the panel pans the diagram underneath it. The rule behind the list is
-      // "a direct child of `.mlv-canvas` that is not `.mlv-world` is chrome",
-      // and `hardening_canvas_overlays.test.mjs` holds the list to it by reading
-      // the canvas's children at runtime.
+      // "a direct child of `.mlv-canvas` that is not `.mlv-world` is chrome".
+      // No automated test holds the list to that rule any more: extend it by
+      // hand when a new overlay is appended to the canvas.
       const target = ev.target as HTMLElement;
-      // ONE string literal on one line: the gate above reads it back out of the bundle.
       if (target.closest && target.closest('.mlv-node, .mlv-group__header, .mlv-minimap, .mlv-zoom, .mlv-edge__hit, .mlv-legend, .mlv-statehost, .mlv-tooltip, .mlv-toasts')) {
         return;
       }

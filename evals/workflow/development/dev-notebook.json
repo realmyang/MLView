@@ -1,0 +1,24 @@
+{
+  "task":"dev-notebook","artifact":"evals/workflow/development/artifacts/notebook.mlview.json","artifactSha256":"7b018f5f1b8c43a2e765b20b39b62f495f00b91260c139476157a832bbd03f29","artifactRevision":"dev-smoke-notebook-r1","artifactRequest":{"entrypoints":["analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb"],"question":"Explain the notebook workflow and its execution-order uncertainty.","scope":"analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb"},"reviewerType":"model-provisional","reviewStatus":"pending-human-review",
+  "reviewEvidence":[
+    {"id":"review-exec-0","file":"analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb","jsonPointer":"/cells/0/execution_count","value":1},
+    {"id":"review-exec-1","file":"analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb","jsonPointer":"/cells/1/execution_count","value":3},
+    {"id":"review-exec-2","file":"analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb","jsonPointer":"/cells/2/execution_count","value":2},
+    {"id":"review-exec-3","file":"analyzer/tests/fixtures/notebooks/leak_out_of_order.ipynb","jsonPointer":"/cells/3/execution_count","value":4}
+  ],
+  "claims":[
+    {"id":"source-order-leakage","verdict":"qualified","summary":"In source order the scaler fits all X before splitting, causing leakage; the recorded session cannot be reconstructed because execution counts are out of order.","artifactPointers":["finding:full-data-scaling"],"sourceReferences":["nb-scale","nb-split","nb-counts"],"failureTypes":[],"humanDecision":null},
+    {"id":"kernel-state","verdict":"supported","summary":"The notebook file does not preserve the earlier X value used when cell 2 ran before the load cell.","artifactPointers":["node:execution-state","finding:execution-order-uncertain"],"sourceReferences":["nb-load","nb-scale","review-exec-1","review-exec-2"],"failureTypes":[],"humanDecision":null},
+    {"id":"execution-count-anchor","verdict":"unsupported","summary":"The artifact labels execution-count claims observed but nb-counts quotes cell source rather than metadata, so the displayed anchor does not substantiate counts 1,3,2,4.","artifactPointers":["finding:execution-order-uncertain","coverage"],"sourceReferences":["nb-counts","review-exec-0","review-exec-1","review-exec-2","review-exec-3"],"failureTypes":["fabricated-behavior"],"humanDecision":null},
+    {"id":"training-update","verdict":"supported","summary":"The final cell computes cross-entropy, backpropagates, and steps Adam on the linear model.","artifactPointers":["node:forward-loss","node:update"],"sourceReferences":["nb-model","nb-forward","nb-update"],"failureTypes":[],"humanDecision":null},
+    {"id":"evaluation-output","verdict":"omitted","summary":"No test evaluation or persisted output exists in the notebook, and the artifact does not make that absence prominent.","artifactPointers":[],"sourceReferences":["nb-split","nb-update"],"failureTypes":["missed-essential-behavior"],"humanDecision":null}
+  ],
+  "usability":{
+    "dataOrigin":{"status":"clear","answer":"features.npz supplies features and labels, subject to unresolved kernel history.","artifactPointers":["node:load-npz","node:execution-state"],"humanDecision":null},
+    "updatedParametersAndFitState":{"status":"clear","answer":"StandardScaler fits all source-order X and Adam updates the linear classifier.","artifactPointers":["node:scale-full","node:update"],"humanDecision":null},
+    "losses":{"status":"clear","answer":"Cross-entropy on classifier logits and labels is shown.","artifactPointers":["node:forward-loss"],"humanDecision":null},
+    "evaluationBoundaries":{"status":"partial","answer":"A train/test split is shown, but no test evaluation follows.","artifactPointers":["node:split"],"humanDecision":null},
+    "outputs":{"status":"missing","answer":"The workflow ends at optimizer update and has no metric, display, or persisted model output.","artifactPointers":["node:update"],"humanDecision":null},
+    "uncertainty":{"status":"clear","answer":"The unresolved kernel state and source-order qualification are prominent.","artifactPointers":["node:execution-state","finding:full-data-scaling","coverage"],"humanDecision":null}
+  },"humanReview":null
+}

@@ -13,16 +13,17 @@ import { MAX_CHIPS, chipTitle, collectChips } from './chromechips.js';
 import type { ChipSpec } from './chromechips.js';
 import { suppressedSummary } from './suppress.js';
 import { isSetAside } from '../types.js';
+import { UNSPECIFIED_MODEL } from '../workflow.js';
 import type { Capabilities, Filters, MLGraph, Severity, Stage } from '../types.js';
 
 export interface ChromeCallbacks {
+  /** Retained for generic empty/error banner plumbing; authored views never show it. */
+  onRefresh(): void;
   onQuery(q: string): void;
   onStage(stageId: string): void;
   onClearFilters(): void;
   onZoomToSelection(): void;
   onSearchKey(ev: KeyboardEvent): void;
-  onRefresh(): void;
-  onExport(): void;
   onToggleRail(): void;
   onSeverity(sev: Severity): void;
   onShowSuppressed(next: boolean): void;
@@ -95,8 +96,6 @@ export class Chrome {
   readonly results: HTMLElement;
   private statsEl: HTMLElement;
   private sevButtons = new Map<Severity, HTMLButtonElement>();
-  private refreshBtn: HTMLButtonElement;
-  private exportBtn: HTMLButtonElement;
   private suppressedBtn: HTMLButtonElement;
   private zoomSelBtn: HTMLButtonElement;
   private rootLabel: HTMLElement;
@@ -251,16 +250,6 @@ export class Chrome {
     on(this.zoomSelBtn, 'click', () => cb.onZoomToSelection());
     this.toolbar.appendChild(this.zoomSelBtn);
 
-    this.refreshBtn = iconButton('mlv-btn mlv-btn--icon', 'Re-analyze workspace');
-    this.refreshBtn.appendChild(uiIcon('refresh'));
-    on(this.refreshBtn, 'click', () => cb.onRefresh());
-    this.toolbar.appendChild(this.refreshBtn);
-
-    this.exportBtn = iconButton('mlv-btn mlv-btn--icon', 'Export standalone HTML report');
-    this.exportBtn.appendChild(uiIcon('export'));
-    on(this.exportBtn, 'click', () => cb.onExport());
-    this.toolbar.appendChild(this.exportBtn);
-
     const rail = iconButton('mlv-btn mlv-btn--icon', 'Toggle side rail');
     rail.appendChild(uiIcon('rail'));
     on(rail, 'click', () => cb.onToggleRail());
@@ -347,8 +336,6 @@ export class Chrome {
     this.minimapBtn.title = 'Overview minimap is ' + (shown ? 'shown' : 'hidden');
     this.minimapBtn.setAttribute('aria-label', this.minimapBtn.title);
 
-    this.refreshBtn.hidden = !s.capabilities.canReanalyze;
-    this.exportBtn.hidden = !s.capabilities.canExport;
     this.zoomSelBtn.disabled = !s.hasSelection;
 
     this.renderStageFilters(s);
@@ -537,7 +524,7 @@ export class Chrome {
     clear(this.status);
     const g = s.graph;
     if (!g) {
-      add(this.status, el('span', '', 'Waiting for analysis…'));
+      add(this.status, el('span', '', 'Waiting for a workflow…'));
       return;
     }
     add(this.status, el('span', '', g.nodes.length + ' nodes · ' + g.edges.length + ' edges'));
@@ -550,9 +537,15 @@ export class Chrome {
     if (g.workspace.frameworks && g.workspace.frameworks.length) {
       add(this.status, el('span', '', g.workspace.frameworks.join(', ')));
     }
-    add(this.status, el('span', '', 'schema ' + g.schemaVersion + ' · mlview ' + g.generator.version));
+    // VIEWUI-13: an authored document's provenance is its revision, host and
+    // model; `generator.version` holds the MODEL there, never an MLView version.
+    if (g.schemaVersion === 'workflow-view/1') {
+      const model = g.generator.version && g.generator.version !== UNSPECIFIED_MODEL ? ' · ' + g.generator.version : '';
+      add(this.status, el('span', '', 'revision ' + g.generator.rendererSha + ' · ' + g.generator.name + model));
+    } else {
+      add(this.status, el('span', '', 'schema ' + g.schemaVersion + ' · mlview ' + g.generator.version));
+    }
     const notes = (g.diagnostics || []).length;
     if (notes) add(this.status, el('span', '', notes + (notes === 1 ? ' note' : ' notes')));
   }
 }
-

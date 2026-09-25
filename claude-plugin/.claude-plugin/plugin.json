@@ -1,9 +1,9 @@
 {
   "name": "mlview",
   "displayName": "MLView",
-  "version": "0.1.0",
-  "description": "Visualize and audit Python ML pipelines as an interactive diagram — fully local, static analysis only.",
+  "version": "0.2.0",
+  "description": "Use the active Claude model to understand ML workflows and publish source-linked interactive diagrams with local validation.",
   "author": { "name": "MLView" },
   "license": "MIT",
-  "keywords": ["machine-learning", "pytorch", "visualization", "static-analysis"]
+  "keywords": ["machine-learning", "pytorch", "visualization", "llm-analysis"]
 }

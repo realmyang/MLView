@@ -1,0 +1,114 @@
+{
+  "taskId": "pilot-transformers",
+  "repositoryCommit": "a2c15b30764b7c6cb0632ac6aed6eac227edc674",
+  "status": "draft-needs-human-review",
+  "scenario": {
+    "description": "Use the pinned README's MRPC GLUE example with BERT and both training and evaluation enabled.",
+    "entrypoints": ["examples/pytorch/text-classification/run_glue.py", "examples/pytorch/text-classification/README.md"],
+    "arguments": ["--model_name_or_path google-bert/bert-base-cased", "--task_name mrpc", "--do_train", "--do_eval", "--max_seq_length 128", "--per_device_train_batch_size 32", "--learning_rate 2e-5", "--num_train_epochs 3", "--output_dir /tmp/mrpc/"]
+  },
+  "facts": [
+    {
+      "id": "transformers-f01",
+      "claim": "The selected scenario is the README's MRPC command using google-bert/bert-base-cased with training and evaluation enabled.",
+      "basis": "observed",
+      "essential": true,
+      "anchors": [{"id": "transformers-a01", "file": "examples/pytorch/text-classification/README.md", "line": 31, "endLine": 39, "quote": "export TASK_NAME=mrpc\n\npython run_glue.py \\\n  --model_name_or_path google-bert/bert-base-cased \\\n  --task_name $TASK_NAME \\\n  --do_train \\\n  --do_eval \\\n  --max_seq_length 128 \\\n  --per_device_train_batch_size 32 \\"}],
+      "review": "pending"
+    },
+    {
+      "id": "transformers-f02",
+      "claim": "The scenario fixes learning rate 2e-5, three epochs, and /tmp/mrpc/ as output directory.",
+      "basis": "observed",
+      "essential": false,
+      "anchors": [{"id": "transformers-a02", "file": "examples/pytorch/text-classification/README.md", "line": 40, "endLine": 42, "quote": "  --learning_rate 2e-5 \\\n  --num_train_epochs 3 \\\n  --output_dir /tmp/$TASK_NAME/"}],
+      "review": "pending"
+    },
+    {
+      "id": "transformers-f03",
+      "claim": "For a named GLUE task, the script loads that task from nyu-mll/glue.",
+      "basis": "observed",
+      "essential": true,
+      "anchors": [{"id": "transformers-a03", "file": "examples/pytorch/text-classification/run_glue.py", "line": 282, "endLine": 289, "quote": "    if data_args.task_name is not None:\n        # Downloading and loading a dataset from the hub.\n        raw_datasets = load_dataset(\n            \"nyu-mll/glue\",\n            data_args.task_name,\n            cache_dir=model_args.cache_dir,\n            token=model_args.token,\n        )"}],
+      "review": "pending"
+    },
+    {
+      "id": "transformers-f04",
+      "claim": "The script derives label count from the GLUE training split and marks only STS-B as regression.",
+      "basis": "observed",
+      "essential": false,
+      "anchors": [{"id": "transformers-a04", "file": "examples/pytorch/text-classification/run_glue.py", "line": 339, "endLine": 346, "quote": "    # Labels\n    if data_args.task_name is not None:\n        is_regression = data_args.task_name == \"stsb\"\n        if not is_regression:\n            label_list = raw_datasets[\"train\"].features[\"label\"].names\n            num_labels = len(label_list)\n        else:\n            num_labels = 1"}],
+      "review": "pending"
+    },
+    {
+      "id": "transformers-f05",
+      "claim": "Configuration, tokenizer, and sequence-classification model are loaded from the selected pretrained model unless separate config or tokenizer names override it.",
+      "basis": "observed",
+      "essential": true,
+      "anchors": [{"id": "transformers-a05", "file": "examples/pytorch/text-classification/run_glue.py", "line": 363, "endLine": 381, "quote": "    config = AutoConfig.from_pretrained(\n        model_args.config_name if model_args.config_name else model_args.model_name_or_path,\n        num_labels=num_labels,\n        finetuning_task=data_args.task_name,\n        cache_dir=model_args.cache_dir,\n        revision=model_args.model_revision,\n        token=model_args.token,\n        trust_remote_code=model_args.trust_remote_code,\n    )\n    tokenizer = AutoTokenizer.from_pretrained(\n        model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,\n        cache_dir=model_args.cache_dir,\n        use_fast=model_args.use_fast_tokenizer,\n        revision=model_args.model_revision,\n        token=model_args.token,\n        trust_remote_code=model_args.trust_remote_code,\n    )\n    model = AutoModelForSequenceClassification.from_pretrained(\n        model_args.model_name_or_path,"}],
+      "review": "pending"
+    },
+    {
+      "id": "transformers-f06",
+      "claim": "The task selects its sentence columns from task_to_keys and tokenization truncates to the lesser of requested and tokenizer maximum length.",
+      "basis": "observed",
+      "essential": true,
+      "anchors": [
+        {"id": "transformers-a06a", "file": "examples/pytorch/text-classification/run_glue.py", "line": 391, "endLine": 393, "quote": "    # Preprocessing the raw_datasets\n    if data_args.task_name is not None:\n        sentence1_key, sentence2_key = task_to_keys[data_args.task_name]"},
+        {"id": "transformers-a06b", "file": "examples/pytorch/text-classification/run_glue.py", "line": 444, "endLine": 451, "quote": "    max_seq_length = min(data_args.max_seq_length, tokenizer.model_max_length)\n\n    def preprocess_function(examples):\n        # Tokenize the texts\n        args = (\n            (examples[sentence1_key],) if sentence2_key is None else (examples[sentence1_key], examples[sentence2_key])\n        )\n        result = tokenizer(*args, padding=padding, max_length=max_seq_length, truncation=True)"}
+      ],
+      "review": "pending"
+    },
+    {
+      "id": "transformers-f07",
+      "claim": "Training uses the train split and evaluation uses validation for MRPC.",
+      "basis": "observed",
+      "essential": true,
+      "anchors": [{"id": "transformers-a07", "file": "examples/pytorch/text-classification/run_glue.py", "line": 473, "endLine": 485, "quote": "    if training_args.do_train:\n        if \"train\" not in raw_datasets:\n            raise ValueError(\"--do_train requires a train dataset\")\n        train_dataset = raw_datasets[\"train\"]\n        if data_args.max_train_samples is not None:\n            max_train_samples = min(len(train_dataset), data_args.max_train_samples)\n            train_dataset = train_dataset.select(range(max_train_samples))\n        print_class_distribution(train_dataset, \"train\")\n\n    if training_args.do_eval:\n        if \"validation\" not in raw_datasets and \"validation_matched\" not in raw_datasets:\n            raise ValueError(\"--do_eval requires a validation dataset\")\n        eval_dataset = raw_datasets[\"validation_matched\" if data_args.task_name == \"mnli\" else \"validation\"]"}],
+      "review": "pending"
+    },
+    {
+      "id": "transformers-f08",
+      "claim": "For GLUE, metrics come from evaluate.load('glue', task_name); classification predictions use argmax and multi-valued metrics also receive a combined mean score.",
+      "basis": "observed",
+      "essential": true,
+      "anchors": [{"id": "transformers-a08", "file": "examples/pytorch/text-classification/run_glue.py", "line": 505, "endLine": 525, "quote": "    # Get the metric function\n    if data_args.task_name is not None:\n        metric = evaluate.load(\"glue\", data_args.task_name, cache_dir=model_args.cache_dir)\n    elif is_regression:\n        metric = evaluate.load(\"mse\", cache_dir=model_args.cache_dir)\n    else:\n        metric = evaluate.load(\"accuracy\", cache_dir=model_args.cache_dir)\n\n    # You can define your custom compute_metrics function. It takes an `EvalPrediction` object (a namedtuple with a\n    # predictions and label_ids field) and has to return a dictionary string to float.\n    def compute_metrics(p: EvalPrediction):\n        preds = p.predictions[0] if isinstance(p.predictions, tuple) else p.predictions\n        labels = p.label_ids\n        if not training_args.eval_do_concat_batches:\n            preds = np.concatenate(preds, axis=0)\n            labels = np.concatenate(p.label_ids, axis=0)\n        preds = np.squeeze(preds) if is_regression else np.argmax(preds, axis=1)\n        result = metric.compute(predictions=preds, references=labels)\n        if len(result) > 1:\n            result[\"combined_score\"] = np.mean(list(result.values())).item()\n        return result"}],
+      "review": "pending"
+    },
+    {
+      "id": "transformers-f09",
+      "claim": "Trainer receives the model, training arguments, selected train/eval datasets, metric function, tokenizer processing class, and collator.",
+      "basis": "observed",
+      "essential": true,
+      "anchors": [{"id": "transformers-a09", "file": "examples/pytorch/text-classification/run_glue.py", "line": 536, "endLine": 545, "quote": "    # Initialize our Trainer\n    trainer = Trainer(\n        model=model,\n        args=training_args,\n        train_dataset=train_dataset if training_args.do_train else None,\n        eval_dataset=eval_dataset if training_args.do_eval else None,\n        compute_metrics=compute_metrics,\n        processing_class=tokenizer,\n        data_collator=data_collator,\n    )"}],
+      "review": "pending"
+    },
+    {
+      "id": "transformers-f10",
+      "claim": "The training branch calls Trainer.train, then saves the model, training metrics, and trainer state.",
+      "basis": "observed",
+      "essential": true,
+      "anchors": [{"id": "transformers-a10", "file": "examples/pytorch/text-classification/run_glue.py", "line": 547, "endLine": 563, "quote": "    # Training\n    if training_args.do_train:\n        checkpoint = None\n        if training_args.resume_from_checkpoint is not None:\n            checkpoint = training_args.resume_from_checkpoint\n        train_result = trainer.train(resume_from_checkpoint=checkpoint)\n        metrics = train_result.metrics\n        max_train_samples = (\n            data_args.max_train_samples if data_args.max_train_samples is not None else len(train_dataset)\n        )\n        metrics[\"train_samples\"] = min(max_train_samples, len(train_dataset))\n\n        trainer.save_model()  # Saves the tokenizer too for easy upload\n\n        trainer.log_metrics(\"train\", metrics)\n        trainer.save_metrics(\"train\", metrics)\n        trainer.save_state()"}],
+      "review": "pending"
+    },
+    {
+      "id": "transformers-f11",
+      "claim": "The evaluation branch calls Trainer.evaluate on the selected validation dataset and saves evaluation metrics.",
+      "basis": "observed",
+      "essential": true,
+      "anchors": [{"id": "transformers-a11", "file": "examples/pytorch/text-classification/run_glue.py", "line": 581, "endLine": 595, "quote": "        for eval_dataset, task in zip(eval_datasets, tasks):\n            metrics = trainer.evaluate(eval_dataset=eval_dataset)\n\n            max_eval_samples = (\n                data_args.max_eval_samples if data_args.max_eval_samples is not None else len(eval_dataset)\n            )\n            metrics[\"eval_samples\"] = min(max_eval_samples, len(eval_dataset))\n\n            if task == \"mnli-mm\":\n                metrics = {k + \"_mm\": v for k, v in metrics.items()}\n            if task is not None and \"mnli\" in task:\n                combined.update(metrics)\n\n            trainer.log_metrics(\"eval\", metrics)\n            trainer.save_metrics(\"eval\", combined if task is not None and \"mnli\" in task else metrics)"}],
+      "review": "pending"
+    }
+  ],
+  "unknowns": [
+    "Dataset and pretrained-model contents are external to the pinned checkout and were not downloaded or inspected.",
+    "Trainer's optimizer, scheduling, checkpoint cadence, and distributed behavior live outside this entrypoint and require separately anchored library inspection if treated as reference facts.",
+    "The README output path is platform-specific and the pilot must decide whether to preserve it literally or substitute a recorded workspace-safe path."
+  ],
+  "nonDefects": [
+    "Using the validation split for --do_eval is the intended GLUE evaluation path in this example.",
+    "The MRPC scenario does not enter the MNLI matched/mismatched special case.",
+    "Creating a local model card when push_to_hub is false is intended output behavior."
+  ],
+  "review": {"reviewer": null, "decision": "pending"}
+}
