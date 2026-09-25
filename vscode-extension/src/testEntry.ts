@@ -4,7 +4,8 @@ export {
   defaultExportName,
   parseExportFileMessage,
   saveExportedFile,
-  MAX_EXPORT_BYTES
+  MAX_EXPORT_BYTES,
+  MAX_EXPORT_BASE64_LENGTH
 } from './exportDiagram';
 export { validateWorkflow, validateWorkflowStructure } from './workflowDocument';
 export {
