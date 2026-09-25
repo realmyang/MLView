@@ -60,3 +60,18 @@ The detailed developer notes, exact publish timestamps, and local timing remain
 in the gitignored campaign directory. This checked-in summary intentionally
 retains only the reproducible task identity, final artifact shape, repair
 history, and lessons needed to design the native-host pilot and human review.
+
+## Human adjudication of development reviews
+
+The twelve native development artifacts recorded later (four tasks in each of
+Codex, Claude Code and Copilot) have provisional, model-authored review
+ledgers in [`development/native-reviews/`](development/native-reviews/README.md),
+with three baseline notes. Those ledgers are immutable and are never edited to
+record a human decision. The owner's verdicts go in
+`evals/workflow/decisions/development-adjudication.md`: one line per claim and
+usability answer, in sections whose tool-written `Ledger:` line binds them to
+the ledger's bytes. Check it with
+`python tools/workflow_eval.py check development-adjudication`. Until a named
+reviewer completes that file, every development review remains provisional and
+no development result has a human score. The run policy decides whether the
+adjudication must be complete before the held-out Stage 1 starts.

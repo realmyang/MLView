@@ -51,6 +51,11 @@ Hard rules:
 - Never report tests, CI or UI checks as semantic accuracy, human review or
   live-host validation. Human reference review and the held-out pilot are
   the owner's decisions; never fabricate approvals.
+- `evals/workflow/decisions/` holds owner decisions. Agents never write
+  decision or verdict values, reviewer names or `Review: complete` on their
+  own initiative. When transcribing dictated decisions they fill
+  `Transcribed by:`. `evals/workflow/pilot/<campaign>/` is immutable once
+  committed.
 
 Contract changes touch five places: contracts/workflow.schema.json,
 artifact.py, vscode-extension/src/workflowDocument.ts (+ authoredPanel.ts
@@ -78,8 +83,11 @@ the flag); on Windows `powershell -File scripts/e2e.ps1`. Focused:
 `python -m pytest skills/mlview/tests tools evals scripts claude-plugin/tests -q`;
 `npm run check && npm test` in webview/ or vscode-extension/;
 `python tools/verify.py --all` (generated copies, versions, retired paths);
-`python scripts/check_docs.py` (links in current docs). CI runs Node 20.18.1
-and 22, so avoid APIs newer than Node 20 (for example
+`python scripts/check_docs.py` (links in current docs). The evidence lock
+(tools/evidence_lock.json, tools/test_evidence_lock.py) pins immutable
+evidence bytes; register a new dated record with
+`python tools/evidence_lock.py --add <path>`. CI runs Node 20.18.1,
+22, 24 and 26 and Python 3.10–3.14; avoid APIs newer than Node 20 (for example
 `String.prototype.isWellFormed`, `Array.prototype.toSorted`,
 `Promise.withResolvers`).
 

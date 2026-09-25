@@ -1,9 +1,5 @@
 # Evaluating LLM workflow understanding
 
-Use the [candidate protocol](CANDIDATE_PROTOCOL.md) to capture current bundle
-identities and prepare separate matched no-skill sessions. These preparations
-do not replace the human reference gate or execute the pilot.
-
 [tasks.json](tasks.json) fixes eight development tasks and eight pilot tasks.
 Pilot repositories are pinned to the existing public-corpus commits. They have
 been used for static-analyzer testing; they are reserved from new skill tuning,
@@ -12,10 +8,11 @@ Third-party source stays in the gitignored corpus; only URLs/commits are stored.
 
 The pilot is **8 tasks × 3 native VS Code hosts × 3 fresh sessions = 72 runs**.
 Run it in two predefined stages. Stage 1 is one fresh session for every
-task/host pair (**8 × 3 × 1 = 24 runs**). Stage 2 contains the remaining two
-fresh sessions for every pair (**8 × 3 × 2 = 48 runs**). Staging changes when
-work is attempted, not the matrix or denominators: all 72 generated records
-remain visible and pending until their native sessions and human reviews exist.
+task/host pair (**8 × 3 × 1 = 24 runs**, with run IDs such as
+`pilot-nanogpt:codex:1`). Stage 2 contains the remaining two fresh sessions for
+every pair (**8 × 3 × 2 = 48 runs**). Staging changes when work is attempted,
+not the matrix or denominators: every planned run stays in its stage's
+denominator, and a planned run without a sealed record counts as pending.
 The schema/helper/renderer tests and developer-subagent smoke artifacts do not
 count as native-host pilot runs. No pilot results or human-reviewed reference
 facts are asserted by this manifest. Its reference status explicitly requires
@@ -26,89 +23,215 @@ The completed 2026-09-16–17 developer campaign is summarized in
 repair history, and authoring lessons without claiming native-host coverage or
 human semantic scores.
 
-[Reference candidates](reference-candidates/README.md) now provide source-linked
+[Reference candidates](reference-candidates/README.md) provide source-linked
 draft facts and concrete scenario proposals for all eight held-out tasks,
 together with a proposed prompt/budget policy. They are AI-authored inputs to
 human review, not frozen truth or completed pilot results. The
-[readiness record](PILOT_READINESS.md) identifies the remaining gates.
+[review guide](reference-candidates/REVIEW_GUIDE.md) explains how the owner
+records, checks and freezes decisions, and the
+[readiness record](PILOT_READINESS.md) lists the remaining gates in order.
+
+Run every command below from the repository root. The evaluation tools read,
+hash, compare, copy and render. They never log into a host, run a model, judge
+semantics or write a human decision. Frozen files, run records and summaries
+are created exclusively, so recorded evidence is never silently overwritten.
 
 ## Before running
 
-1. A reviewer inspects each pinned scenario and freezes essential workflow facts,
-   connections, config choices, unresolved cases, real defects and non-defects.
-   Give each fact an ID and source anchors. Do this before inspecting outputs.
-2. Freeze skill revision, prompts, budgets and reference revision. Use the same
-   question/budget for each host. If a task needs an additional config selection,
-   settle it in the reference before runs. Do not silently choose one per host.
-3. Generate an empty matrix, then record each actual session:
+1. **Reference review.** A named reviewer inspects each pinned scenario and
+   records, in `evals/workflow/decisions/<task>.md`, a decision on every
+   proposed fact, unknown and non-defect, plus any omitted fact, unknown or
+   real defect, before inspecting outputs. Facts keep their IDs and source
+   anchors. `python tools/workflow_eval.py check` prints every remaining
+   problem as `file:line`.
+2. **Run policy.** The owner fills `evals/workflow/decisions/run-policy.md`:
+   host models, reasoning settings and invocations, the helper Python, the
+   budget and repair limits, how qualified claims count, per-host targets,
+   baselines, the full skill and no-skill prompt texts, and privacy. Use the
+   same question and budget for each host. If a task needs an additional
+   config selection, settle it in the reference scenario before runs. Do not
+   silently choose one per host.
+3. **Corpus.** Every pinned checkout must pass
+   `python tools/fetch_workflow_repos.py --verify`
+   (see [source locations](#source-fixture-locations)).
+4. **Freeze.** `python tools/workflow_eval.py freeze --campaign pilot-01` is a
+   dry run; add `--write` to create `evals/workflow/pilot/pilot-01/`
+   ([contents](pilot/README.md)): eight frozen references, their
+   `referenceRevision`, the run policy and 16 rendered prompts. The task
+   manifest's `prompt` stays condition-neutral; the frozen prompt files are
+   what hosts receive. `python tools/workflow_eval.py check-frozen` re-derives
+   the frozen files from the decisions and requires byte equality.
+5. **Candidate.** From a clean tree, capture the pilot candidate, which builds
+   the VSIX itself and pins the frozen campaign
+   ([candidate protocol](CANDIDATE_PROTOCOL.md)), then commit its
+   `candidate.json`. Its SHA-256 is the campaign identity that every run
+   record and summary binds.
 
 ```sh
-python tools/workflow_eval.py plan > .mlview/pilot-runs.json
-python tools/workflow_eval.py summarize .mlview/pilot-runs.json
+export MLVIEW_PILOT_DIR=~/mlview-pilot
+python tools/workflow_candidate.py --campaign pilot-01 --build-vsix
 ```
 
-Create the output directory first. This tool prepares and summarizes records;
-it never logs into a host, runs a model, or judges semantics. Keep sessions and
-run artifacts outside committed source unless reviewed for redistribution.
+`MLVIEW_PILOT_DIR` holds the VSIX, run workspaces and run evidence and has no
+default; the run commands also accept `--pilot-dir`. It must be outside the
+MLView checkout and outside any Git work tree, and no ancestor directory may
+contain `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`, `AGENTS.override.md` or
+`.github/copilot-instructions.md`, because hosts load such files from parent
+folders. User-level host configuration cannot be excluded; record it in the
+run's `session.md`.
 
-Do not start Stage 1 until the human-reviewed references and implementation,
-including the skill revision, prompts, budgets, host settings and repair rules,
-are frozen. Run the 24 records whose `repeat` is `1`, retain every failure or
-block, and complete source-based human adjudication for all 24 before deciding
-whether to continue. Stage 1 proceeds to the 48 records whose `repeat` is `2`
-or `3` only when its reviewed results meet every predefined target:
+## Run and record
 
-- 100% structurally valid published artifacts;
-- 100% exact supplied anchors;
-- at least 95% supported claims;
-- at least 85% essential-fact recall;
-- every known unresolved scenario explicitly qualified; and
-- zero high-severity false accusations.
+```sh
+python tools/workflow_eval.py plan --campaign pilot-01 --stage 1
+python tools/workflow_eval.py run-prepare pilot-nanogpt:codex:1 --campaign pilot-01
+python tools/workflow_eval.py run-finish pilot-nanogpt:codex:1 --campaign pilot-01
+```
+
+`plan` prints the planned run IDs and conditions from the frozen manifest;
+`--stage` takes `1`, `2` or `all`, and `--output PATH` writes a new file
+instead. `run-prepare` refuses unless the frozen chain, the pinned checkout
+and the installed skill identity verify. It then creates a fresh workspace
+(`$MLVIEW_PILOT_DIR/workspaces/pilot-nanogpt.codex.1`, not a Git repository)
+containing only the manifest's pinned paths, installs the skill for skill
+runs, copies the frozen prompt to the evidence directory's `PROMPT.txt`, and
+prints the operator checklist.
+
+The operator opens that workspace in a new VS Code window and runs one fresh
+native session with the policy's settings and invocation, then fills
+`session.md` in `$MLVIEW_PILOT_DIR/evidence/pilot-nanogpt.codex.1/`: status
+(`completed`, `failed`, `timed-out` or `blocked`) and failure kind, start and
+end times, active and approval-wait minutes, repair rounds, host and extension
+versions, model and reasoning settings (unknown where hidden), invocation,
+helper Python, exposed usage, transcript, native UI log, prior attempts and
+deviations. Complete the [live UI checklist](../../docs/LLM_WORKFLOW.md) in
+the UI log, separately from semantic scores.
+
+`run-finish` copies the published `pilot.mlview.json`, records any changed
+project file and the skill doctor report, hashes every evidence file into a
+sealed `record.json`, and removes the workspace. A sealed record changes only
+through `run-finish ... --amend "<reason>"`, which keeps the previous seal.
+Retain every failure, timeout and block; never replace an attempt with a
+retry the policy does not allow. Transcripts, UI logs, run reviews and
+workspaces stay out of the repository; committed summaries contain counts,
+statuses and hashes only.
+
+## Stage 1 stop/go
+
+Do not start Stage 1 until the human-reviewed references, run policy and
+candidate, including the skill revision, prompts, budgets, host settings and
+repair rules, are frozen and committed. Run the 24 `repeat: 1` records, retain
+every failure or block, and complete source-based human adjudication for all
+24 before deciding whether to continue. Stage 1 proceeds to the 48 records
+whose `repeat` is `2` or `3` only when its reviewed results meet every
+predefined target (`pilotTargets` in the task manifest):
+
+| # | Key | Target | Denominator |
+|---|---|---|---|
+| T1 | `structurallyValid` | 100% structurally valid published artifacts | all planned runs; failed, timed-out, blocked, invalid and pending runs count as not valid |
+| T2 | `exactAnchors` | 100% exact supplied anchors | evidence records of completed, non-invalid runs, checked by the frozen helper |
+| T3 | `supportedClaimPrecision` | at least 95% supported claims | observed and inferred claims of reviewed runs; qualified claims count as the run policy says |
+| T4 | `essentialFactRecall` | at least 85% essential-fact recall | all planned runs, each against its task's frozen essential facts |
+| T5 | `knownUnresolvedQualified` | every must-state unknown explicitly stated | all planned runs, each against its task's frozen must-state unknowns |
+| T6 | `highSeverityFalseAccusations` | zero high-severity false accusations | reviewed runs; a `high` finding judged `unsupported` |
+
+T1, T4 and T5 count every planned run (intention to treat), so a missing or
+failed run never counts as a pass. Recall and unknown values over reviewed
+runs only are reported beside them as secondary. If the run policy asks for
+per-host targets, T3 and T4 must also be met within each host.
+
+```sh
+python tools/workflow_eval.py review-template pilot-nanogpt:codex:1 --campaign pilot-01
+python tools/workflow_eval.py summarize --campaign pilot-01 --stage 1
+```
+
+`summarize` verifies before it counts. It reads every frozen input and the
+artifact helper at the candidate's source commit, validates each artifact with
+that frozen helper against the pinned corpus, and re-hashes every sealed file.
+An integrity failure, such as a missing or changed evidence file, a wrong
+prompt, candidate or reference hash, or an unplanned or duplicate run, exits 1
+with no decision. A protocol violation makes the run `invalid`, which counts
+as a failure: settings that differ from the policy, over budget, too many
+repairs, a helper Python older than 3.10, a changed project file, a wrong
+producer host, skill identity drift, a baseline with MLView available, or a
+deviation marked as invalidating. `--json` prints the machine-readable
+summary. The decision is always labeled "computed against predefined
+targets; not an approval":
+
+- `incomplete`: a planned run is pending, a completed run is unreviewed, a
+  review still has problems, or the corpus was absent. Early-stop indicators
+  list targets that can no longer be met, but no decision is issued before all
+  24 runs are adjudicated.
+- `stop`: complete, and at least one target is missed; the reasons give each
+  numerator and denominator.
+- `go`: complete, and all six targets are met. This permits collecting the 48
+  repeats; it is not a pilot pass.
+- `invalid`: the owner wrote `evals/workflow/pilot/<campaign>/invalidation.md`.
+  Tools never create it.
+
+`--record` also creates `stage1-summary.json` and `stage1-summary.md` in the
+campaign directory, only for `go`, `stop` or `invalid`; commit them.
+`run-prepare` refuses repeat runs until a committed Stage 1 summary says `go`.
 
 If any target misses, stop before Stage 2 and report the numerators,
 denominators and failure taxonomy. Do not repair the skill against held-out
 outputs and then count repeats as confirmation of the original frozen system.
-An implementation or protocol failure that makes Stage 1 invalid requires an
-explicit invalidation record and a newly frozen campaign; it is not a pass.
+An implementation or protocol failure that makes Stage 1 invalid requires the
+owner's invalidation record and a newly frozen campaign; it is not a pass.
 Passing Stage 1 authorizes collection of the repeats but does not establish
-pilot success. The same targets apply to the complete 72 human-reviewed runs.
+pilot success. The same six targets apply to the complete 72 human-reviewed
+runs: `summarize --campaign pilot-01 --stage all` reports `targets-met`,
+`targets-missed`, `incomplete` or `invalid`.
 
-## Record and adjudicate
+## Review and adjudicate
 
-Record host/extension/model versions (unknown where hidden), skill revision,
-commit/config, exact prompt, artifact and SHA-256, elapsed time, repair rounds,
-failure/cancellation state, native UI log and observable usage. Complete the
-[live UI checklist](../../docs/LLM_WORKFLOW.md) separately from semantic scores.
+Each completed run gets one human review file, `review.md` in its evidence
+directory. `review-template` writes one line per artifact node, edge,
+finding, coverage summary and configuration, so no element can be skipped.
+The reviewer gives each a verdict, `supported`, `qualified`, `unsupported` or
+`no-claim`, with a reason for anything other than supported or no-claim, and
+adds `<pointer>#2` lines when one element makes several claims. The claim type
+comes from the artifact's basis, not from the reviewer. Count factual
+assertions in node details, edge meanings, findings, scenario choices and
+coverage summaries as claims. Map equivalent wording/grouping to reference
+facts; do not score JSON similarity or reward unresolved placeholders as
+covered behavior. Unresolved-basis elements and `no-claim` lines are listed
+but never counted in precision.
 
-Count factual assertions in node details, edge meanings, findings, scenario
-choices and coverage summaries as claims. Map equivalent wording/grouping to
-reference facts; do not score JSON similarity or reward unresolved placeholders
-as covered behavior. Maintain a claim ledger with artifact pointers, relevant
-source, and supported/unsupported/qualified decisions.
+For each frozen essential fact the reviewer writes `covered`, `partial`,
+`missing` or `contradicted` with the artifact pointers, and for each
+must-state unknown `stated` or `not-stated`. For essential facts, the
+denominator is the frozen task reference, not the claims the model chose to
+make. Reviewers no longer count anchors: exactness is computed by the frozen
+helper from the artifact's evidence records. Severity agreement and task
+usability (six questions and overall usefulness) are recorded and reported,
+not gated. Baseline reviews cite transcript line ranges (`response:12-14`)
+instead of artifact elements. `python tools/workflow_eval.py check <path>`
+validates a `session.md` or `review.md` like the owner's decision files.
 
-A human review record supplies `reviewer`, `referenceRevision`, `claimLedger`,
-and `{supported, total}` counts for `observedClaims`, `inferredClaims`,
-`essentialFacts`, and `anchors`, plus `highSeverityFalseAccusations`. For anchors,
-count supplied navigable references; unlocated conceptual groups are excluded.
-For essential facts, the denominator is the frozen task reference, not the
-claims the model chose to make. Keep direct and inferred claims separate.
-Record severity agreement, unknown handling, and task usability in the ledger.
-
-The initial pilot targets are 100% valid published structure and exact anchors,
-95% supported claims, 85% essential-fact recall, all known unresolved scenarios
-qualified, and no high-severity false accusation. They are **targets, not
-measurements**. A complete matrix does not itself mean these targets passed.
-Report per-host/task results and numerators/denominators; repeated runs on the
-same eight tasks are not 72 independent tasks.
+A second model may help locate disputed claims but cannot replace
+source-based human adjudication. Each run has a single human reviewer, and
+summaries say so. Missing or blocked runs stay visible and never count as
+passes. Report per-host/task results and numerators/denominators; repeated
+runs on the same eight tasks are not 72 independent tasks.
 
 No Stage 1 or Stage 2 run has been completed or human-reviewed. None of the
-targets above has passed; they remain stop/go criteria rather than measurements.
+targets above has passed; they remain stop/go criteria rather than
+measurements. A complete matrix does not itself mean these targets passed.
 
-Compare the same tasks with a native assistant without the skill. The static
-product is retired and is not an active evaluation condition. Keep those conditions in separate records; do not mix them
-into the 72 skill runs. A second model may help locate disputed claims but
-cannot replace source-based human adjudication. Missing or blocked runs stay
-visible and never count as passes.
+Development-task adjudication is separate: the owner records verdicts on the
+provisional native development reviews in
+`evals/workflow/decisions/development-adjudication.md`.
+
+## Compare without the skill
+
+Compare the same Stage 1 tasks with a native assistant without the skill when
+the run policy plans 24 baseline sessions; `plan` then lists them as
+`<task>:<host>:baseline:1`. Baselines use the frozen no-skill prompt, the same
+pinned source, model settings and budget, have no skill installed, and are
+never part of the stop/go gate. The static product is retired and is not an
+active evaluation condition. Keep those conditions in separate records; do not
+mix them into the 72 skill runs.
 
 ## Source fixture locations
 
@@ -121,8 +244,13 @@ Open historical artifacts against their recorded source revision for live
 navigation; the current `samples/configured_training.mlview.json` example uses
 paths that remain valid in this checkout.
 
-The eight held-out repository pins are in `repositories.json`. Fetch only the
-source needed for an evaluation with `python tools/fetch_workflow_repos.py`
-from the repository root, optionally `--repo nanoGPT`. This is an explicit
-network operation and never runs analysis or executes fetched code. Existing
-dirty or differently pinned checkouts are refused rather than reset.
+The eight held-out repository pins and sparse paths are in `repositories.json`.
+Fetch only the source needed for an evaluation with
+`python tools/fetch_workflow_repos.py` from the repository root, optionally
+`--repo nanoGPT`. This is an explicit network operation and never runs analysis
+or executes fetched code. Existing dirty or differently pinned checkouts are
+refused rather than reset. `--verify` (optionally with `--json`) reads every
+checkout without changing it and checks its HEAD, clean state, sparse patterns
+and blob-exact files. `--update-sparse` applies a changed sparse list to a
+clean checkout at its pin, refusing if that would drop a covered file; it may
+fetch newly included blobs, and says so.
