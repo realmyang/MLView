@@ -8,6 +8,49 @@ Run `sh scripts/e2e.sh` with Python 3.10+ and Node 20.18.1+ on PATH. On Windows
 use `powershell -File scripts/e2e.ps1`. The [script guide](../scripts/README.md)
 explains each gate and explicit skip options.
 
+## Campaign 2 final check fixes — 2026-09-25
+
+The fixes for the three regressions the final check of `e7d92c1` found
+(REG-1 to REG-3; see "Final check fixes" in the
+[changelog](../CHANGELOG.md)) are commit `e6d8b98` on the
+`campaign2-pilot-readiness` branch, on top of `cee902b`, checked on the same
+macOS machine and virtualenv as below. **These are local automated checks
+only**. CI has not run on these commits, so the Python 3.10–3.14 and Node
+20.18.1–26 matrix, Windows and the PowerShell drivers are unverified here.
+
+- `MLVIEW_PYTHON="$PWD/.venv/bin/python" PATH="$PWD/.venv/bin:$PATH" PYTHONDONTWRITEBYTECODE=1 sh scripts/e2e.sh --skip-npm-install`,
+  run on the changes before their commit (the commit only rewraps one
+  paragraph of the pilot README after it): **all 15 exercised gates
+  passed**.
+  - Python helper, distribution and evaluation tests: **842 passed, 537
+    subtests passed**, none skipped.
+  - Viewer: **79 passed**. Extension: **250 passed**.
+  - The actual VSIX: 11 files, 155,593 bytes.
+- After a rebuild (viewer build, asset and skill sync, extension compile),
+  `git diff --exit-code` was clean over `webview/dist`,
+  `vscode-extension/media`, the extension's notices and
+  `claude-plugin/skills/mlview`.
+- `python tools/evidence_lock.py`: 95 files match the lock.
+  `python scripts/check_docs.py`: OK, 40 documents.
+  `python tools/verify.py --all`: OK.
+- Every changed Python file parses with `ast.parse(feature_version=(3, 10))`
+  and compiles under a Python 3.10.21 interpreter.
+- The 14 new regression test cases (synthetic worlds only) pass; the 4 that
+  change a verdict, a reviewer or a baseline review under a summary recorded
+  with other tools fail against the `cee902b` tools, as do the two updated
+  tests that pin the not-an-ancestor message and the `template --init-all`
+  refusal. The reviewers' honest-path rehearsal, kept outside the
+  repository, ran 830 steps with no honest-path failure against a scratch
+  clone of `e6d8b98`. Their REG-1 probe now holds Stage 2 after a changed
+  verdict with other tools, as with the same tools; their REG-2 probe still
+  expects `check-frozen` to report the ancestry, which the corrected text no
+  longer claims, and a copy that follows the corrected text passes for a
+  recovery through the candidate tag and through the original branch.
+
+Every decision, review, verdict and policy value in the new tests, the
+rehearsal and the probes is synthetic. No native session, human review,
+reference freeze, corpus `--update-sparse` or pilot run occurred.
+
 ## Campaign 2 final round fixes — 2026-09-25
 
 The fixes for the 36 verified findings of the campaign's final review (see
