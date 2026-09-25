@@ -14,6 +14,9 @@ ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location("workflow_eval", ROOT / "tools/workflow_eval.py")
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
+if str(ROOT / "tools") not in sys.path:
+    sys.path.insert(0, str(ROOT / "tools"))
+import workflow_pilot as pilot  # noqa: E402
 MANIFEST = json.loads((Path(__file__).parent / "tasks.json").read_text())
 
 
@@ -27,65 +30,21 @@ def test_locked_matrix_and_pinned_sources():
             assert task["commit"] == pinned[task["repository"]]["sha"]
         else:
             assert all((ROOT / path).is_file() for path in task["entrypoints"])
-    assert len(module.plan(MANIFEST)) == 72
+    runs = pilot.planned_runs(MANIFEST, baselines=False)
+    assert len(runs) == 72 and sum(run["stage"] == 1 for run in runs) == 24
+    assert len(pilot.planned_runs(MANIFEST, baselines=True)) == 96
 
 
-def test_missing_and_blocked_runs_never_pass():
-    record = module.plan(MANIFEST)[0]
-    record["status"] = "blocked"
-    summary = module.summarize([record], MANIFEST)
-    assert summary["statuses"] == {"blocked": 1, "pending": 71}
-    assert summary["humanReviewedRuns"] == 0
-    assert summary["highSeverityFalseAccusations"] is None
-    assert not summary["pilotComplete"]
-
-
-def test_stage_one_baselines_match_tasks_but_cannot_enter_skill_scores():
-    baselines = module.baseline_plan(MANIFEST)
-    first = [record for record in module.plan(MANIFEST) if record["repeat"] == 1]
-    assert len(baselines) == 24
-    assert {(r["task"], r["host"], r["repositoryCommit"], r["prompt"]) for r in baselines} == {
-        (r["task"], r["host"], r["repositoryCommit"], r["prompt"]) for r in first}
-    assert not {r["id"] for r in baselines} & {r["id"] for r in module.plan(MANIFEST)}
-    assert all(r["condition"] == "baseline" and r["humanReview"] is None
-               and r["status"] == "pending" and "artifact" not in r for r in baselines)
-    with pytest.raises(ValueError, match="unknown"):
-        module.summarize(baselines, MANIFEST)
-
-
-def test_duplicate_or_mismatched_run_rejected():
-    record = module.plan(MANIFEST)[0]
-    with pytest.raises(ValueError, match="duplicate"):
-        module.summarize([record, record], MANIFEST)
-    record["host"] = "wrong"
-    with pytest.raises(ValueError, match="identity"):
-        module.summarize([record], MANIFEST)
-
-
-def test_changed_pilot_prompt_cannot_count_as_a_pinned_run():
-    record = module.plan(MANIFEST)[0]
-    record["prompt"] += " Skip the difficult parts."
-    with pytest.raises(ValueError, match="identity"):
-        module.summarize([record], MANIFEST)
-
-
-def test_completed_requires_live_evidence_and_review_counts():
-    record = module.plan(MANIFEST)[0]
-    record["status"] = "completed"
-    with pytest.raises(ValueError, match="hostVersion"):
-        module.summarize([record], MANIFEST)
-    for field in ("hostVersion", "skillRevision", "artifact", "artifactSha256", "liveUiLog"):
-        record[field] = "test-only"
-    assert module.summarize([record], MANIFEST)["humanReviewedRuns"] == 0
-    record["humanReview"] = {"reviewer": "Test reviewer", "referenceRevision": "test", "claimLedger": "test",
-                             **{key: {"supported": 1, "total": 2} for key in module.PAIRS},
-                             "highSeverityFalseAccusations": 1}
-    summary = module.summarize([record], MANIFEST)
-    assert summary["counts"]["observedClaims"] == {"supported": 1, "total": 2}
-    assert summary["highSeverityFalseAccusations"] == 1
-    record["humanReview"]["anchors"]["supported"] = 3
-    with pytest.raises(ValueError, match="review counts"):
-        module.summarize([record], MANIFEST)
+def test_legacy_summarize_and_baseline_plan_are_removed():
+    """EVAL-1/EVAL-7: the unverified summarize() and the unfrozen baseline_plan() are gone; plan and
+    summarize are routed to tools/workflow_pilot.py (tested in test_pilot_runs.py)."""
+    for name in ("plan", "summarize", "baseline_plan", "PAIRS", "LEGACY_FALLBACK"):
+        assert not hasattr(module, name)
+    assert module.ROUTED_COMMANDS["plan"][0] == module.ROUTED_COMMANDS["summarize"][0] == "workflow_pilot"
+    out, err = io.StringIO(), io.StringIO()
+    with redirect_stdout(out), redirect_stderr(err), pytest.raises(SystemExit):
+        module.main(["baseline-plan"])
+    assert "invalid choice: 'baseline-plan'" in err.getvalue()
 
 
 def test_development_plan_keeps_native_runs_and_baselines_separate():
@@ -99,7 +58,6 @@ def test_development_plan_keeps_native_runs_and_baselines_separate():
     assert {record["task"] for record in baseline} == {"dev-config"}
     assert all(record["status"] == "pending-native-run" for record in records)
     assert all(record["humanReview"] is None for record in records)
-    assert len(module.plan(MANIFEST)) == 72
 
 
 def test_provisional_development_reviews_have_exact_sources_and_no_human_scores():

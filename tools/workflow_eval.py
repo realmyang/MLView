@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Prepare and summarize human-reviewed native-host pilot records; never run a model."""
+"""Development-run records and review packets, plus the dispatcher for the Campaign 2 evaluation
+commands (tools/workflow_decisions.py, tools/workflow_pilot.py). Never runs a model."""
 from __future__ import annotations
 
 import argparse
@@ -35,13 +36,7 @@ ROUTED_COMMANDS = {
     "review-template": ("workflow_pilot", "create the pending human review file of one pilot run"),
     "summarize": ("workflow_pilot", "verify sealed pilot runs and compute a stage summary against the predefined targets"),
 }
-# Until tools/workflow_pilot.py is present, these two keep their implementations in this file.
-LEGACY_FALLBACK = {
-    "plan": "print the pending held-out skill-run records (legacy until tools/workflow_pilot.py is present)",
-    "summarize": "summarize human-entered run records (legacy until tools/workflow_pilot.py is present)",
-}
 UNAVAILABLE = "not available in this build"
-PAIRS = ("observedClaims", "inferredClaims", "essentialFacts", "anchors")
 DEVELOPMENT_TASKS = ("dev-config", "dev-sklearn", "dev-gan", "dev-notebook")
 REVIEW_VERDICTS = {"supported", "qualified", "unsupported", "omitted"}
 USABILITY_QUESTIONS = {
@@ -55,21 +50,6 @@ DEVELOPMENT_ARTIFACTS = {
     "dev-notebook": "evals/workflow/development/artifacts/notebook.mlview.json",
 }
 NATIVE_ARTIFACT_MANIFEST = ROOT / "evals/workflow/development/native-artifacts/manifest.json"
-
-
-def plan(manifest: dict) -> list[dict]:
-    return [
-        {"id": f"{task['id']}:{host}:{repeat}", "task": task["id"],
-         "host": host, "repeat": repeat, "status": "pending",
-         "condition": "skill", "prompt": task["prompt"],
-         "repositoryCommit": task["commit"], "hostVersion": None,
-         "model": None, "skillRevision": None, "artifact": None,
-         "artifactSha256": None, "elapsedSeconds": None, "repairRounds": None,
-         "usage": None, "liveUiLog": None, "humanReview": None}
-        for task in manifest["tasks"] if task["split"] == "heldout"
-        for host in manifest["hosts"]
-        for repeat in range(1, manifest["repetitions"] + 1)
-    ]
 
 
 def development_plan(manifest: dict) -> list[dict]:
@@ -91,20 +71,6 @@ def development_plan(manifest: dict) -> list[dict]:
                 "provisionalReview": None, "humanReview": None,
             })
     return records
-
-
-def baseline_plan(manifest: dict) -> list[dict]:
-    """Additional Stage 1 no-skill sessions, kept separate from the 72 skill runs."""
-    return [
-        {"id": f"{task['id']}:{host}:baseline:1", "task": task["id"], "host": host,
-         "repeat": 1, "condition": "baseline", "status": "pending",
-         "prompt": task["prompt"], "promptStatus": "scenario-expansion-and-freeze-pending",
-         "repositoryCommit": task["commit"], "hostVersion": None, "model": None,
-         "settings": None, "elapsedSeconds": None, "responseCaptureSha256": None,
-         "captureHashIndependentlyVerified": False, "humanReview": None}
-        for task in manifest["tasks"] if task["split"] == "heldout"
-        for host in manifest["hosts"]
-    ]
 
 
 def _confined_path(value: object, root: Path = ROOT, require_file: bool = True) -> Path:
@@ -561,62 +527,6 @@ def generate_review_packet(review_dir: Path, baselines_path: Path, output: Path,
         eval_records.write_exclusive(output, data)
 
 
-def summarize(records: list[dict], manifest: dict) -> dict:
-    expected = {record["id"]: record for record in plan(manifest)}
-    seen = set()
-    statuses: Counter = Counter()
-    totals = {key: {"supported": 0, "total": 0} for key in PAIRS}
-    per_host = {host: {"completed": 0, "reviewed": 0} for host in manifest["hosts"]}
-    reviewed = false_high = 0
-    for record in records:
-        key = record.get("id")
-        if key not in expected or key in seen:
-            raise ValueError("unknown or duplicate run ID")
-        seen.add(key)
-        wanted = expected[key]
-        if any(record.get(k) != wanted[k] for k in ("host", "task", "repeat", "repositoryCommit", "condition", "prompt")):
-            raise ValueError("run identity differs from the pinned matrix")
-        status = record.get("status")
-        if status not in {"pending", "completed", "failed", "blocked"}:
-            raise ValueError("invalid run status")
-        statuses[status] += 1
-        review = record.get("humanReview")
-        if status != "completed":
-            if review is not None:
-                raise ValueError("only completed runs may have a semantic review")
-            continue
-        for field in ("hostVersion", "skillRevision", "artifact", "artifactSha256", "liveUiLog"):
-            if not isinstance(record.get(field), str) or not record[field].strip():
-                raise ValueError(f"completed run requires {field}")
-        per_host[record["host"]]["completed"] += 1
-        if review is None:
-            continue
-        if not isinstance(review, dict) or not all(isinstance(review.get(k), str) and review[k].strip()
-                                                   for k in ("reviewer", "referenceRevision", "claimLedger")):
-            raise ValueError("review requires named human reviewer, frozen reference revision and claim ledger")
-        for metric in PAIRS:
-            pair = review.get(metric)
-            if not isinstance(pair, dict):
-                raise ValueError(f"missing review counts: {metric}")
-            numerator, denominator = pair.get("supported"), pair.get("total")
-            if type(numerator) is not int or type(denominator) is not int or not 0 <= numerator <= denominator:
-                raise ValueError("review counts must be integers with 0 <= supported <= total")
-            totals[metric]["supported"] += numerator
-            totals[metric]["total"] += denominator
-        count = review.get("highSeverityFalseAccusations")
-        if type(count) is not int or count < 0:
-            raise ValueError("high-severity false accusations require an explicit nonnegative count")
-        false_high += count
-        reviewed += 1
-        per_host[record["host"]]["reviewed"] += 1
-    statuses["pending"] += len(expected) - len(seen)
-    return {"expectedRuns": len(expected), "statuses": dict(statuses),
-            "humanReviewedRuns": reviewed, "perHost": per_host,
-            "counts": totals, "highSeverityFalseAccusations": false_high if reviewed else None,
-            "pilotComplete": reviewed == len(expected),
-            "note": "Counts are human-entered, not semantic judgments by this tool. Missing runs never count as passes."}
-
-
 def load_tool(name: str) -> ModuleType | None:
     """Import tools/<name>.py on first use; None when this build does not ship it."""
     path = TOOLS / f"{name}.py"
@@ -647,16 +557,11 @@ def build_parser() -> argparse.ArgumentParser:
     for command, (tool, text) in ROUTED_COMMANDS.items():
         if (TOOLS / f"{tool}.py").is_file():
             sub.add_parser(command, help=f"{text} (tools/{tool}.py)", add_help=False)
-        elif command in LEGACY_FALLBACK:
-            legacy = sub.add_parser(command, help=LEGACY_FALLBACK[command])
-            if command == "summarize":
-                legacy.add_argument("records", type=Path)
         else:
             sub.add_parser(command, help=f"{text} [{UNAVAILABLE}: tools/{tool}.py is missing]", add_help=False)
     development = sub.add_parser("development-plan", help="print the pending native development-run records")
     development.add_argument("--output", type=Path,
                              help="also create this file (exclusive: an existing file is never overwritten)")
-    sub.add_parser("baseline-plan", help="prepare additional no-skill Stage 1 records; does not run or freeze them")
     development_summary = sub.add_parser("summarize-development",
                                          help="summarize native development-run records; makes no human-review judgement")
     development_summary.add_argument("records", type=Path)
@@ -682,16 +587,13 @@ def main(argv: list[str] | None = None) -> int:
         module = load_tool(tool)
         if module is not None:
             return int(module.main(arguments) or 0)
-        if command not in LEGACY_FALLBACK:
-            print(f"workflow_eval.py {command}: {UNAVAILABLE} (tools/{tool}.py is missing)", file=sys.stderr)
-            return 2
+        print(f"workflow_eval.py {command}: {UNAVAILABLE} (tools/{tool}.py is missing)", file=sys.stderr)
+        return 2
     parser = build_parser()
     args = parser.parse_args(arguments)
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
     try:
-        if args.command == "plan":
-            value = plan(manifest)
-        elif args.command == "development-plan":
+        if args.command == "development-plan":
             value = development_plan(manifest)
             if args.output is not None:
                 data = (json.dumps(value, indent=2) + "\n").encode("utf-8")
@@ -702,8 +604,6 @@ def main(argv: list[str] | None = None) -> int:
                                      "overwritten. Choose a new file name.") from None
                 value = {"ok": True, "output": str(args.output), "records": len(value),
                          "note": "Pending development-run records written; nothing was run."}
-        elif args.command == "baseline-plan":
-            value = baseline_plan(manifest)
         elif args.command == "validate-development":
             for path in args.reviews:
                 validate_development_review(json.loads(path.read_text(encoding="utf-8")))
@@ -717,8 +617,6 @@ def main(argv: list[str] | None = None) -> int:
             value = {"ok": True, "output": str(args.output), "reviews": 12,
                      "baselines": len(manifest["hosts"]),
                      "note": "Packet contains validated provisional material; human adjudication remains pending."}
-        elif args.command == "summarize":
-            value = summarize(json.loads(args.records.read_text(encoding="utf-8")), manifest)
         else:
             parser.error(f"{args.command}: {UNAVAILABLE}")
     except (OSError, ValueError, TypeError) as exc:
