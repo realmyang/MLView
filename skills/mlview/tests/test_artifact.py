@@ -988,5 +988,15 @@ class ArtifactTests(unittest.TestCase):
                 doc = document(); doc["verification"] = {"files": {}, "publishedAt": value}
                 self.assertEqual({"format"}, self.codes(doc))
 
+    def test_published_at_profile_is_stricter_than_rfc3339(self):
+        # Campaign 2 SPEC 7.1 (conformance shape-016 to shape-018): uppercase T and Z only, no leap
+        # second, any fraction length; the schema layer and the extension share this profile.
+        for value, valid in (("2026-09-25T10:00:00.123456789Z", True), ("2026-09-25T10:00:00z", False),
+                             ("2026-09-25t10:00:00Z", False), ("2026-06-30T23:59:60Z", False),
+                             ("2026-09-25T10:00:00+05:59", True), ("2026-09-25T10:00:00+05:60", False)):
+            with self.subTest(value=value):
+                doc = document(); doc["verification"] = {"files": {}, "publishedAt": value}
+                self.assertEqual(set() if valid else {"format"}, self.codes(doc))
+
 
 if __name__ == "__main__": unittest.main()
