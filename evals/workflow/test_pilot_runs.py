@@ -519,7 +519,8 @@ def test_run_prepare_builds_an_isolated_workspace(fresh: World) -> None:
     assert wp.check_file(evidence / "session.md")[0].message.startswith("Status is still pending")
     # exclusive: a run is prepared once
     code, _out, err = run_main(fresh, "run-prepare", "pilot-demo-b:claude-code:1", *pilot_args(fresh))
-    assert code == 1 and "was already prepared (1 attempt(s)" in err and "--retry" in err
+    assert code == 1 and "was already prepared (1 attempt(s)" in err and "--retry" not in err
+    assert "the run policy allows 0 infrastructure retries, so attempt 1 is kept and counted" in err
 
 
 def test_run_prepare_baseline_has_no_skill(fresh: World) -> None:
@@ -1514,17 +1515,35 @@ def test_stage_2_runs_are_invalid_when_stage_1_no_longer_matches(world: World) -
 
 
 UNSENT = {"Status": "failed", "Failure": "host-error -- the host crashed before the prompt (synthetic)",
-          "Prompt sent": "no"}
+          "Prompt sent": "no", "Repair rounds": "0"}
 UNSENT_TRANSCRIPT = "The host crashed before the prompt was sent (synthetic).\n"
 
 
-def test_a_failed_run_is_retried_only_through_the_ledger(world: World) -> None:
+def test_a_failed_run_is_retried_only_through_the_ledger(world: World, monkeypatch: pytest.MonkeyPatch) -> None:
     run_id = "pilot-demo-b:codex:1"
     code, _out, err = run_main(world, "run-prepare", run_id, *pilot_args(world), "--retry", "again (synthetic)")
     assert code == 1 and "a completed run is never retried" in err, err
     redo(world, run_id, publish_artifact=False, session=UNSENT, transcript=UNSENT_TRANSCRIPT)
-    code, out, err = run_main(world, "run-prepare", run_id, *pilot_args(world), "--retry", "the host crashed (synthetic)")
-    assert code == 0, err
+    # The synthetic policy allows no infrastructure retry, so run-prepare refuses one (STATS3-2) ...
+    code, _out, err = run_main(world, "run-prepare", run_id, *pilot_args(world), "--retry", "the host crashed (synthetic)")
+    assert code == 1 and "the run policy allows 0 infrastructure retries; attempt 1 of pilot-demo-b:codex:1 is kept " \
+                         "and counted" in err, err
+    code, _out, err = run_main(world, "run-prepare", run_id, *pilot_args(world))
+    assert code == 1 and "the run policy allows 0 infrastructure retries, so attempt 1 is kept and counted" in err, err
+    assert "--retry" not in err
+    # ... and a retry prepared around that rule is counted invalid by summarize.
+    real = wp.load_campaign
+
+    def lenient(root: Path, name: str) -> wp.Campaign:
+        campaign = real(root, name)
+        campaign.retries = 1  # stands in for a retry prepared around the policy
+        return campaign
+
+    with monkeypatch.context() as patched:
+        patched.setattr(wp, "load_campaign", lenient)
+        code, out, err = run_main(world, "run-prepare", run_id, *pilot_args(world), "--retry",
+                                  "the host crashed (synthetic)")
+        assert code == 0, err
     earlier = world.pilot / "evidence" / "pilot-demo-b.codex.1.attempt-1"
     evidence = world.evidence(run_id)
     workspace = world.pilot / "workspaces" / "pilot-demo-b.codex.1.attempt-2"
@@ -1690,12 +1709,13 @@ def retry_world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> World:
     ({"Status": "failed", "Failure": "no-publication -- nothing published (synthetic)"}, "it failed with no-publication"),
     ({"Status": "failed", "Failure": "host-error -- crashed (synthetic)", "Prompt sent": "yes"},
      'its session says "Prompt sent: yes"'),
-    ({"Status": "blocked", "Failure": "host-error -- crashed (synthetic)"}, 'its session does not say "Prompt sent: no"'),
+    ({"Status": "blocked", "Failure": "host-error -- crashed (synthetic)", "Repair rounds": "0"},
+     'its session does not say "Prompt sent: no"'),
 ])
 def test_a_failure_after_the_prompt_was_sent_is_never_retried(retry_world: World, session: dict, why: str) -> None:
     """--retry replaces only an attempt whose prompt never reached the host (INTEGRITY2-2, SPECDOCS2-1)."""
     run_id = "pilot-demo-a:codex:1"
-    redo(retry_world, run_id, publish_artifact=False, session=session)
+    redo(retry_world, run_id, publish_artifact=False, session=session, transcript=UNSENT_TRANSCRIPT)
     stop = summarize(retry_world)
     code, _out, err = run_main(retry_world, "run-prepare", run_id, *pilot_args(retry_world), "--retry", "again (synthetic)")
     assert code == 1 and f"attempt 1 of {run_id} cannot be retried: {why}; a retry is allowed only if the prompt was " \
@@ -1729,11 +1749,21 @@ def test_a_prompt_sent_no_session_must_be_consistent(tmp_path: Path) -> None:
 
 
 def test_a_completed_attempt_amended_to_a_failure_is_never_retried(retry_world: World) -> None:
-    """An amendment chain that was ever completed counts as a completed session (INTEGRITY2-2, P2)."""
+    """An amendment chain that was ever completed counts as a completed session (INTEGRITY2-2, P2).
+    The sealed transcript is kept, and a captured artifact rules out "Prompt sent: no" (INTEGRITY3-3)."""
     run_id = "pilot-demo-b:codex:1"
     evidence = retry_world.evidence(run_id)
+    sealed = (evidence / "transcript.txt").read_bytes()
     (evidence / "session.md").write_text(session_text(run_id, **UNSENT), encoding="utf-8")
     (evidence / "transcript.txt").write_text(UNSENT_TRANSCRIPT, encoding="utf-8")
+    code, out, err = run_main(retry_world, "run-finish", run_id, *pilot_args(retry_world), "--amend",
+                              "the host crashed (synthetic)")
+    assert code == 1 and "the transcript sealed earlier (transcript.txt, sha256 " in err, out + err
+    (evidence / "transcript.txt").write_bytes(sealed)
+    code, out, err = run_main(retry_world, "run-finish", run_id, *pilot_args(retry_world), "--amend",
+                              "the host crashed (synthetic)")
+    assert code == 1 and "the transcript contains PROMPT.txt, so the prompt was sent" in out, out + err
+    (evidence / "session.md").write_text(session_text(run_id, **dict(UNSENT, **{"Prompt sent": "yes"})), encoding="utf-8")
     code, out, err = run_main(retry_world, "run-finish", run_id, *pilot_args(retry_world), "--amend",
                               "the host crashed (synthetic)")
     assert code == 0, out + err
@@ -1754,10 +1784,11 @@ def test_a_retry_after_an_unsent_prompt_is_reported_in_the_summary(retry_world: 
     assert summary["decision"]["value"] == "go" and run["status"] == "completed" and run["invalidReasons"] == []
     failure = {"kind": "host-error", "detail": "the host crashed before the prompt (synthetic)"}
     assert run["priorAttempts"] == 1 and run["attempts"] == [
-        {"attempt": 1, "status": "failed", "failure": failure, "promptSent": False, "statuses": ["failed"]}]
+        {"attempt": 1, "status": "failed", "failure": failure, "promptSent": False, "sentBecause": None,
+         "statuses": ["failed"]}]
     assert summary["failures"]["earlierAttempts"] == [
         {"id": run_id, "attempt": 1, "status": "failed", "failure": "host-error",
-         "detail": "the host crashed before the prompt (synthetic)", "promptSent": False}]
+         "detail": "the host crashed before the prompt (synthetic)", "promptSent": False, "sentBecause": None}]
     earlier = retry_world.pilot / "evidence" / "pilot-demo-a.codex.1.attempt-1"
     entry = next(item for item in summary["inputs"]["runs"] if item["id"] == run_id)
     assert entry["earlierAttempts"] == [{"attempt": 1, "record": er.sha256_file(earlier / "record.json"), "review": None,
@@ -1802,7 +1833,7 @@ def test_a_hand_made_retry_after_a_sent_prompt_makes_the_run_invalid(retry_world
     redo(retry_world, run_id, publish_artifact=False,
          session={"Status": "failed", "Failure": "repair-budget -- two repairs did not help (synthetic)"})
     with monkeypatch.context() as patched:
-        patched.setattr(wp, "_prompt_sent", lambda chain: None)  # stands in for a retry prepared around the rule
+        patched.setattr(wp, "_prompt_sent", lambda chain, evidence=None: None)  # a retry prepared around the rule
         code, _out, err = run_main(retry_world, "run-prepare", run_id, *pilot_args(retry_world), "--retry", "x (synthetic)")
         assert code == 0, err
     finish_retry(retry_world, run_id)
@@ -1838,8 +1869,8 @@ def test_a_recorded_stage1_summary_is_final(world: World) -> None:
     (campaign_dir / "stage1-summary.md").write_text(wp.render_markdown(summary), encoding="utf-8")
     commit_files(world.root, {}, "synthetic go")
     code, _out, err = run_main(world, "run-prepare", "pilot-demo-a:codex:2", *pilot_args(world))
-    assert code == 1 and "stage1-summary.json was added in 2 commits: a recorded summary was removed and recorded " \
-                         "again (a recorded summary is final)" in err, err
+    assert code == 1 and "the committed stage1-summary.json differs from the version first committed in " in err \
+        and "(a recorded summary is final)" in err, err
 
 
 def test_an_edited_stage1_go_does_not_unlock_stage_2(world: World) -> None:
@@ -1851,3 +1882,280 @@ def test_an_edited_stage1_go_does_not_unlock_stage_2(world: World) -> None:
     commit_files(world.root, {}, "synthetic edit")
     code, _out, err = run_main(world, "run-prepare", "pilot-demo-a:codex:2", *pilot_args(world))
     assert code == 1 and "the committed stage1-summary.json differs from the version first committed in" in err, err
+
+
+# --------------------------------------------------------------------------------------------
+# Round 3: merges, retries and summaries (synthetic data only)
+
+
+def test_a_recorded_stop_replaced_by_a_go_through_a_merge_does_not_unlock_stage_2(world: World) -> None:
+    """A go recorded on a branch cut before the stop, merged with the conflict resolved to the go,
+    leaves two contents in the history (INTEGRITY3-1)."""
+    root = world.root
+    rel = f"{wp.PILOT_REL}/{CAMPAIGN}"
+    git(root, "branch", "side")
+    _set_review(world, "pilot-demo-a:codex:1", "demo-a-u01: stated coverage", "demo-a-u01: not-stated")
+    code, _out, err = run_main(world, "summarize", *pilot_args(world), "--stage", "1", "--record")
+    assert code == 0, err
+    commit_files(root, {}, "synthetic stage 1 stop")
+    main = git(root, "rev-parse", "--abbrev-ref", "HEAD")
+    git(root, "checkout", "--quiet", "side")
+    _set_review(world, "pilot-demo-a:codex:1", "demo-a-u01: not-stated", "demo-a-u01: stated coverage")
+    code, _out, err = run_main(world, "summarize", *pilot_args(world), "--stage", "1", "--record")
+    assert code == 0, err  # the side branch never saw the stop
+    commit_files(root, {}, "synthetic stage 1 go on a side branch")
+    git(root, "checkout", "--quiet", main)
+    subprocess.run(["git", "-C", str(root), "merge", "--quiet", "--no-edit", "side"], capture_output=True, env=git_env(),
+                   check=False)
+    git(root, "checkout", "--theirs", "--", f"{rel}/stage1-summary.json", f"{rel}/stage1-summary.md")
+    commit_files(root, {}, "synthetic merge resolved to the go")
+    assert json.loads((root / rel / "stage1-summary.json").read_text(encoding="utf-8"))["decision"]["value"] == "go"
+    code, _out, err = run_main(world, "run-prepare", "pilot-demo-a:codex:2", *pilot_args(world))
+    assert code == 1 and "(a recorded summary is final" in err, err
+    assert "stage1-summary.json was committed with 2 different contents" in err or \
+        "differs from the version first committed in" in err, err
+
+
+def test_a_summary_removed_behind_a_merge_is_never_recorded_again(world: World) -> None:
+    """record_summary reads the merge-aware history: a removal the default log hides still counts (INTEGRITY3-1)."""
+    root = world.root
+    main = git(root, "rev-parse", "--abbrev-ref", "HEAD")
+    git(root, "branch", "older")
+    code, _out, err = run_main(world, "summarize", *pilot_args(world), "--stage", "1", "--record")
+    assert code == 0, err
+    commit_files(root, {}, "synthetic stage 1 go")
+    git(root, "rm", "--quiet", f"{wp.PILOT_REL}/{CAMPAIGN}/stage1-summary.json",
+        f"{wp.PILOT_REL}/{CAMPAIGN}/stage1-summary.md")
+    git(root, "commit", "--quiet", "-m", "synthetic removal")
+    git(root, "checkout", "--quiet", "older")
+    commit_files(root, {"older.txt": b"synthetic\n"}, "synthetic older work")
+    git(root, "merge", "--quiet", "--no-edit", main)
+    git(root, "checkout", "--quiet", main)
+    git(root, "merge", "--quiet", "--ff-only", "older")
+    assert git(root, "log", "--format=%H", "--", f"{wp.PILOT_REL}/{CAMPAIGN}/stage1-summary.json") == ""
+    code, _out, err = run_main(world, "summarize", *pilot_args(world), "--stage", "1", "--record")
+    assert code == 1 and "a recorded summary is final and is never recorded again" in err, err
+
+
+
+def test_prompt_sent_no_is_refused_against_the_workspace(retry_world: World) -> None:
+    """A published artifact or a draft in the workspace shows the prompt reached the host, so run-finish
+    refuses "Prompt sent: no" before writing anything (STATS3-1, INTEGRITY3-3)."""
+    run_id = "pilot-demo-a:codex:1"
+    forget(retry_world, run_id)
+    assert run_main(retry_world, "run-prepare", run_id, *pilot_args(retry_world))[0] == 0
+    workspace, evidence = retry_world.workspace(run_id), retry_world.evidence(run_id)
+    (workspace / "draft.draft.json").write_text("{}", encoding="utf-8")
+    (evidence / "session.md").write_text(session_text(run_id, **dict(UNSENT, Transcript="", **{"UI log": ""})),
+                                         encoding="utf-8")
+    before = sorted(path.name for path in evidence.iterdir())
+    code, out, err = run_main(retry_world, "run-finish", run_id, *pilot_args(retry_world))
+    assert code == 1 and "the skill wrote draft.draft.json in the workspace, so the prompt reached the host; write " \
+                         '"Prompt sent: yes"' in err, out + err
+    assert sorted(path.name for path in evidence.iterdir()) == before and workspace.is_dir()
+    publish(workspace, "codex", "pilot-demo-a")
+    code, out, err = run_main(retry_world, "run-finish", run_id, *pilot_args(retry_world))
+    assert code == 1 and "pilot.mlview.json was published in the workspace, so the prompt reached the host" in err, err
+    # Repair rounds above zero contradict "Prompt sent: no" in the session itself.
+    (evidence / "session.md").write_text(session_text(run_id, **dict(UNSENT, **{"Repair rounds": "2"})),
+                                         encoding="utf-8")
+    messages = [p.message for p in wp.check_file(evidence / "session.md")]
+    assert 'Repair rounds is 2, so the validator ran and the prompt was sent; write "Prompt sent: yes".' in messages
+
+
+def test_prompt_sent_no_is_refused_against_sealed_evidence(retry_world: World, monkeypatch: pytest.MonkeyPatch) -> None:
+    """An amendment cannot drop a sealed transcript or say "Prompt sent: no" beside a captured artifact,
+    and a retry made around those rules is refused and counted invalid (INTEGRITY3-3, STATS3-1)."""
+    run_id = "pilot-demo-b:codex:1"
+    # Seal 1: failed, "Prompt sent:" left empty, the sealed transcript contains PROMPT.txt.
+    redo(retry_world, run_id, publish_artifact=False,
+         session={"Status": "failed", "Failure": "host-error -- the host crashed (synthetic)", "Repair rounds": "0"})
+    evidence = retry_world.evidence(run_id)
+    sealed_session = (evidence / "session.md").read_bytes()
+    (evidence / "session.md").write_text(session_text(run_id, **dict(UNSENT, Transcript="")), encoding="utf-8")
+    code, out, err = run_main(retry_world, "run-finish", run_id, *pilot_args(retry_world), "--amend", "x (synthetic)")
+    assert code == 1 and "the transcript sealed earlier (transcript.txt, sha256 " in err, out + err
+    (evidence / "session.md").write_bytes(sealed_session)
+    # A seal that captured the published artifact (and no transcript) cannot be amended to "no".
+    other = "pilot-demo-a:claude-code:1"
+    redo(retry_world, other, publish_artifact=True, transcript="", session={
+        "Status": "failed", "Failure": "host-error -- the host crashed (synthetic)", "Repair rounds": "0",
+        "Transcript": ""})
+    other_evidence = retry_world.evidence(other)
+    record = json.loads((other_evidence / "record.json").read_text(encoding="utf-8"))
+    assert record["evidence"]["partialArtifact"]["file"] == "partial-artifact.mlview.json"
+    (other_evidence / "session.md").write_text(session_text(other, **dict(UNSENT, Transcript="")), encoding="utf-8")
+    code, out, err = run_main(retry_world, "run-finish", other, *pilot_args(retry_world), "--amend", "x (synthetic)")
+    assert code == 1 and 'this attempt cannot say "Prompt sent: no": it captured the published artifact ' \
+                         "(partial-artifact.mlview.json)" in err, out + err
+    # A record sealed around run-finish with "no" beside a captured artifact is not retried ...
+    with monkeypatch.context() as patched:
+        patched.setattr(wp, "_unsent_contradiction", lambda *args: None)
+        redo(retry_world, other, publish_artifact=True, transcript="", session=dict(UNSENT, Transcript=""))
+    code, _out, err = run_main(retry_world, "run-prepare", other, *pilot_args(retry_world), "--retry", "x (synthetic)")
+    assert code == 1 and f"attempt 1 of {other} cannot be retried: it captured the published artifact " \
+                         "(partial-artifact.mlview.json)" in err, err
+    # ... and a retry prepared around that rule makes the run invalid, with the reason in the summary.
+    with monkeypatch.context() as patched:
+        patched.setattr(wp, "_prompt_sent", lambda chain, evidence=None: None)
+        assert run_main(retry_world, "run-prepare", other, *pilot_args(retry_world), "--retry", "x (synthetic)")[0] == 0
+    finish_retry(retry_world, other)
+    summary = summarize(retry_world)
+    run = run_of(summary, other)
+    assert run["status"] == "invalid" and run["invalidReasons"][0].startswith(
+        "attempt 1 of this run sent the prompt (it captured the published artifact (partial-artifact.mlview.json))")
+    assert run["attempts"][0]["sentBecause"] == "it captured the published artifact (partial-artifact.mlview.json)"
+    markdown = wp.render_markdown(summary)
+    assert "prompt never sent" not in markdown
+    assert f"{other} attempt 1 {EM} failed (host-error: the host crashed before the prompt (synthetic)); counted as " \
+           "sent: it captured the published artifact (partial-artifact.mlview.json)" in markdown
+
+
+def test_per_host_targets_name_the_failing_host(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A per-host miss names the host and does not print a pooled fraction that meets the threshold as
+    the reason; the early-stop bound is repeated for each host (STATS3-4)."""
+    world = build_world(tmp_path / "hosts", policy=make_policy(**{"scoring.perHostTargets": "yes"}))
+    patches(monkeypatch, world)
+    for run_id in stage1_ids():
+        overrides = {("Essential facts", "demo-b-f02"): "missing"} if run_id == "pilot-demo-b:claude-code:1" else {}
+        do_run(world, run_id, review_kwargs={"overrides": overrides})
+    summary = summarize(world)
+    assert summary["decision"]["value"] == "stop"
+    assert summary["decision"]["reasons"] == [
+        "T4 essentialFactRecall: pooled 7/8 meets it; within host claude-code 3/4 (needs >= 0.85)"]
+    runs = [{"id": f"t{task}:{host}:1", "task": f"t{task}", "host": host, "status": status, "failure": None,
+             "invalidReasons": [], "SV": int(status == "completed"), "E": 5 if status == "completed" else None,
+             "X": 5 if status == "completed" else None, "errorCodes": [], "ess": 3 if reviewed else 0, "ESS": 10,
+             "unk": int(reviewed), "UNK": 1, "fa": 0, "reviewed": reviewed,
+             "reviewStatus": "complete" if reviewed else "missing",
+             "claims": {"observed": {"supported": 10 if reviewed else 0, "qualified": 0, "unsupported": 0},
+                        "inferred": {"supported": 0, "qualified": 0, "unsupported": 0}}}
+            for task in range(8) for host in ("copilot", "codex", "claude-code")
+            for status, reviewed in [("completed", True) if host == "codex" and task < 3 else ("pending", False)]]
+    thresholds = {"structurallyValid": 1.0, "exactAnchors": 1.0, "supportedClaimPrecision": 0.95,
+                  "essentialFactRecall": 0.85, "knownUnresolvedQualified": 1.0, "highSeverityFalseAccusations": 0}
+    targets = wp.compute_targets(runs, thresholds, "not-supported", True, ["copilot", "codex", "claude-code"])
+    indicators = wp._early_stop(runs, targets)
+    assert "T4 (codex): at most 59/80 can still be reached" in indicators
+    assert not any(item.startswith("T4: ") for item in indicators)
+
+
+def test_a_pending_side_has_no_paired_difference(world: World) -> None:
+    """A pending skill or baseline run shows no recall difference (STATS3-5)."""
+    forget(world, "pilot-demo-a:codex:baseline:1")
+    assert run_main(world, "run-prepare", "pilot-demo-a:codex:baseline:1", *pilot_args(world))[0] == 0
+    forget(world, "pilot-demo-b:codex:1")
+    assert run_main(world, "run-prepare", "pilot-demo-b:codex:1", *pilot_args(world))[0] == 0
+    summary = summarize(world)
+    rows = {(row["task"], row["host"]): row for row in summary["baselines"]["paired"]}
+    assert rows[("pilot-demo-a", "codex")]["baseline"]["status"] == "pending"
+    assert rows[("pilot-demo-a", "codex")]["recallDifference"] is None
+    assert rows[("pilot-demo-b", "codex")]["skill"]["status"] == "pending"
+    assert rows[("pilot-demo-b", "codex")]["recallDifference"] is None
+    assert rows[("pilot-demo-a", "claude-code")]["recallDifference"] is not None
+    markdown = wp.render_markdown(summary)
+    assert "| pilot-demo-a | codex | 2/2 (completed) | 0/2 (pending) | n/a |" in markdown, markdown
+    assert "a pending run, or a completed run that is not yet reviewed" in markdown
+
+
+def test_baseline_entries_keep_their_reasons_and_earlier_attempts(tmp_path: Path,
+                                                                  monkeypatch: pytest.MonkeyPatch) -> None:
+    """An invalid baseline keeps its reasons, and a retried baseline's earlier attempt keeps its status
+    and failure in the summary and the Markdown (STATS3-3, SPECDOCS3-1)."""
+    world = build_world(tmp_path / "baselines", policy=make_policy(**{"budget.infrastructureRetries": 1}))
+    patches(monkeypatch, world)
+    retried = "pilot-demo-b:claude-code:baseline:1"
+    for run_id in stage1_ids():
+        if run_id == "pilot-demo-a:codex:baseline:1":
+            do_run(world, run_id, session={"Active minutes": "35"})  # over the synthetic 20-minute budget
+        elif run_id == retried:
+            do_run(world, run_id, session=dict(UNSENT, **{"Repair rounds": ""}), transcript=UNSENT_TRANSCRIPT)
+        else:
+            do_run(world, run_id)
+    assert run_main(world, "run-prepare", retried, *pilot_args(world), "--retry", "crash (synthetic)")[0] == 0
+    evidence = world.evidence(retried)
+    prompt = (evidence / "PROMPT.txt").read_text(encoding="utf-8")
+    (evidence / "transcript.txt").write_text(prompt + "\nThe loop runs 40 steps.\n", encoding="utf-8")
+    (evidence / "session.md").write_text(session_text(retried, **{"Prior attempts": "1"}), encoding="utf-8")
+    assert run_main(world, "run-finish", retried, *pilot_args(world))[0] == 0
+    assert run_main(world, "review-template", retried, *pilot_args(world))[0] == 0
+    fill_review(evidence / "review.md")
+    summary = summarize(world)
+    runs = {run["id"]: run for run in summary["baselines"]["runs"]}
+    invalid = runs["pilot-demo-a:codex:baseline:1"]
+    assert invalid["status"] == "invalid" and any("exceed the budget" in reason for reason in invalid["invalidReasons"])
+    failure = {"kind": "host-error", "detail": "the host crashed before the prompt (synthetic)"}
+    assert runs[retried]["priorAttempts"] == 1 and runs[retried]["attempts"] == [
+        {"attempt": 1, "status": "failed", "failure": failure, "promptSent": False, "sentBecause": None,
+         "statuses": ["failed"]}]
+    assert summary["baselines"]["earlierAttempts"] == [
+        {"id": retried, "attempt": 1, "status": "failed", "failure": "host-error",
+         "detail": "the host crashed before the prompt (synthetic)", "promptSent": False, "sentBecause": None}]
+    assert summary["failures"]["earlierAttempts"] == []  # skill runs only
+    markdown = wp.render_markdown(summary)
+    assert "Baseline failures: pilot-demo-a:codex:baseline:1 — invalid [" in markdown and "exceed the budget" in markdown
+    assert f"Baseline earlier attempts, kept and replaced by a retry: {retried} attempt 1 {EM} failed (host-error: the " \
+           "host crashed before the prompt (synthetic)); prompt never sent." in markdown
+
+
+def test_a_hand_edited_stage1_summary_does_not_unlock_stage_2(retry_world: World) -> None:
+    """With the same tools, the whole committed Stage 1 summary must equal the re-computation and its
+    Markdown the rendering of its JSON, so a retry cannot be hidden before the first commit (INTEGRITY3-4)."""
+    run_id = "pilot-demo-a:codex:1"
+    redo(retry_world, run_id, publish_artifact=False, session=UNSENT, transcript=UNSENT_TRANSCRIPT)
+    assert run_main(retry_world, "run-prepare", run_id, *pilot_args(retry_world), "--retry", "crash (synthetic)")[0] == 0
+    finish_retry(retry_world, run_id)
+    directory = retry_world.root / wp.PILOT_REL / CAMPAIGN
+    real = summarize(retry_world)
+    assert real["decision"]["value"] == "go" and real["failures"]["earlierAttempts"]
+    value = json.loads(er.canonical_json(real))
+    markdown = wp.render_markdown(value)
+    value["failures"]["earlierAttempts"] = []
+    for run in value["runs"]:
+        run["attempts"], run["priorAttempts"] = [], 0
+    (directory / "stage1-summary.json").write_bytes(er.canonical_json(value))
+    (directory / "stage1-summary.md").write_text(markdown, encoding="utf-8")
+    commit_files(retry_world.root, {}, "synthetic go, retry disclosure removed from the JSON")
+    code, _out, err = run_main(retry_world, "run-prepare", "pilot-demo-a:codex:2", *pilot_args(retry_world))
+    assert code == 1 and "the committed Stage 1 summary differs from a re-computation from the sealed evidence in " \
+                         "failures, runs" in err, err
+    git(retry_world.root, "reset", "--quiet", "--hard", "HEAD~1")
+    value = json.loads(er.canonical_json(real))
+    (directory / "stage1-summary.json").write_bytes(er.canonical_json(value))
+    trimmed = "\n".join(line for line in markdown.splitlines() if not line.startswith("Earlier attempts")) + "\n"
+    (directory / "stage1-summary.md").write_text(trimmed, encoding="utf-8")
+    commit_files(retry_world.root, {}, "synthetic go, retry disclosure removed from the Markdown")
+    code, _out, err = run_main(retry_world, "run-prepare", "pilot-demo-a:codex:2", *pilot_args(retry_world))
+    assert code == 1 and "the committed stage1-summary.md is not the Markdown rendered from stage1-summary.json" in err, err
+    git(retry_world.root, "reset", "--quiet", "--hard", "HEAD~1")
+    # The bytes summarize --record writes (this synthetic world plans baselines it never ran).
+    (directory / "stage1-summary.json").write_bytes(er.canonical_json(real))
+    (directory / "stage1-summary.md").write_text(markdown, encoding="utf-8")
+    commit_files(retry_world.root, {}, "synthetic go as summarize --record writes it")
+    code, _out, err = run_main(retry_world, "run-prepare", "pilot-demo-a:codex:2", *pilot_args(retry_world))
+    assert code == 0, err
+
+
+def test_check_frozen_renders_the_markdown_only_with_the_same_tool(world: World, tmp_path: Path) -> None:
+    """check-frozen compares a recorded summary's Markdown with the rendering of its JSON while the
+    summary names the running tools/workflow_pilot.py; otherwise it notes the check (INTEGRITY3-4)."""
+    import workflow_decisions as wd  # noqa: PLC0415
+
+    value = json.loads(er.canonical_json(summarize(world)))
+    directory = tmp_path / "pilot-99"
+    directory.mkdir()
+    (directory / "stage1-summary.md").write_text(wp.render_markdown(value), encoding="utf-8")
+    problems: list[str] = []
+    notes: list[str] = []
+    wd._rendering_check(value, directory, "stage1-summary.json", "stage1-summary.md", "pilot-99", problems, notes)
+    assert problems == [] and notes == []
+    (directory / "stage1-summary.md").write_text(wp.render_markdown(value).replace("Failures: none.\n", ""),
+                                                 encoding="utf-8")
+    wd._rendering_check(value, directory, "stage1-summary.json", "stage1-summary.md", "pilot-99", problems, notes)
+    assert problems == ["pilot-99/stage1-summary.md is not the Markdown rendered from stage1-summary.json (a recorded "
+                        "summary is written only by summarize --record)"]
+    value["tooling"]["tools/workflow_pilot.py"] = "0" * 64
+    problems.clear()
+    wd._rendering_check(value, directory, "stage1-summary.json", "stage1-summary.md", "pilot-99", problems, notes)
+    assert problems == [] and notes == ["check-frozen: pilot-99: not verified: stage1-summary.md rendered from "
+                                        "stage1-summary.json (it was recorded with another tools/workflow_pilot.py)."]

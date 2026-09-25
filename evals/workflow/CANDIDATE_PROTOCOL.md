@@ -22,7 +22,10 @@ are not ignored. The capture stops at the first failure:
 
 1. It refuses unless the tree is clean, the task manifest's `pilotFreeze`
    names the campaign, the campaign's freeze files are tracked and
-   `check-frozen` passes.
+   `check-frozen` passes. It needs the full Git history (it refuses a shallow
+   or partial clone) and refuses a campaign whose `candidate.json` was ever
+   committed, in any branch merged into HEAD, even if it was deleted since: a
+   campaign has one candidate, which is final once committed.
 2. It builds the VSIX itself, as `$MLVIEW_PILOT_DIR/mlview-<version>.vsix`,
    and refuses if that file exists. Packaging recompiles the extension, so the
    bundle comes from the clean tree; a pre-built VSIX is never accepted.
@@ -34,7 +37,11 @@ are not ignored. The capture stops at the first failure:
 5. It requires the skill payload to equal `git ls-files skills/mlview` without
    `tests/`.
 6. It creates `evals/workflow/pilot/pilot-01/candidate.json` and never
-   overwrites one. Commit it.
+   overwrites one. Commit it, and bring that commit to main with a merge commit
+   or a fast-forward, never a squash or rebase merge, which would leave
+   `source.commit` outside main's history. Keep `source.commit` reachable: keep
+   its branch or push a tag at it
+   ([merging a campaign](pilot/README.md#merging-a-campaign)).
 
 The candidate (`"version": 2`, `"kind": "pilot-candidate"`) records the
 source commit and tree, the full skill identity, the VSIX bytes and inner
@@ -53,8 +60,10 @@ python tools/workflow_candidate.py --check evals/workflow/pilot/pilot-01/candida
 
 `--check` verifies the structure, that the source commit is an ancestor of
 HEAD, and every component as stored at that commit. It reports drift at HEAD
-as information and compares the VSIX bytes when `--vsix` is given. Success
-says nothing about human approval.
+as information and compares the VSIX bytes when `--vsix` is given. A source
+commit that is missing or not an ancestor after a squash or rebase merge, or
+after its branch was deleted, fails here and in `run-prepare` and `summarize`.
+Success says nothing about human approval.
 
 For local development, this still creates a `development-snapshot`, in which
 a dirty tree is allowed and a VSIX is optional (`--vsix PATH`):

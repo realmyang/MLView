@@ -363,12 +363,35 @@ def test_a_hash_comment_keeps_its_section_and_the_fields_around_it() -> None:
     assert swallowed.section("Fact", "demo-f01").value("Reason") == "kept"
 
 
-@pytest.mark.parametrize("line", ["# Facts demo-f02", "# Task now", "#### My notes", "##Notes"])
+@pytest.mark.parametrize("line", ["# Facts demo-f02", "# Task now", "#### My notes", "##Notes", "# Added facts x-h01"])
 def test_a_heading_like_hash_line_still_skips_its_lines(line: str) -> None:
     text = f"# Reference decisions: pilot-demo\n## Fact demo-f01\nDecision: accept\n{line}\nDecision: reject\n"
     record, problems = parse(text, "d.md")
     assert len(problems) == 1 and "is not a section heading. Write section headings as" in problems[0].message
+    assert 'The lines after it, up to the next "## " heading, were not read.' in problems[0].message
     assert record.section("Fact", "demo-f01").value("Decision") == "accept"
+
+
+@pytest.mark.parametrize("line", ["# added the randint detail", "# fact wording changed",
+                                  "# unknown whether val.bin exists", "# scenario matters here"])
+def test_a_comment_starting_with_a_section_word_keeps_the_decisions_after_it(line: str) -> None:
+    """Only a kind plus at most one ID-like word looks like a heading; prose is a comment (OWNERUX3-1)."""
+    text = (f"# Reference decisions: pilot-demo\n## Fact demo-f01\nDecision: qualify\n{line}\n"
+            "Wording: The synthetic claim (synthetic).\nReason: synthetic\n")
+    record, problems = parse(text, "d.md")
+    assert messages(problems) == [f'd.md:4: ERROR Fact demo-f01: "{line}" is not "Key: value". Put ">" in front of '
+                                  'notes; "#" does not start a comment.']
+    fact = record.section("Fact", "demo-f01")
+    assert (fact.value("Decision"), fact.value("Wording"), fact.value("Reason")) == (
+        "qualify", "The synthetic claim (synthetic).", "synthetic")
+    task, _problems = parse("# Reference decisions: pilot-demo\n## Task\n# Task done, signing off\nReview: complete\n",
+                            "d.md")
+    assert task.section("Task").value("Review") == "complete"
+    policy, problems = parse("# Pilot run policy\n## Budget\nActive minutes: 20\n# budget agreed with ops\n"
+                             "Repair rounds: 2\nInfrastructure retries: 0\n", "run-policy.md")
+    budget = policy.section("Budget")
+    assert (budget.value("Repair rounds"), budget.value("Infrastructure retries")) == ("2", "0")
+    assert len(problems) == 1 and '"#" does not start a comment' in problems[0].message
 
 
 def test_a_wrapped_line_after_a_blank_or_note_line_gets_the_continuation_hint() -> None:

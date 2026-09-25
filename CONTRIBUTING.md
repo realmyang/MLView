@@ -91,7 +91,11 @@ its jsdom timings are not VS Code paint or model-quality measurements.
 ## Pull requests
 
 Use a feature branch based on the current target branch. Describe the user
-problem, resulting behavior and validation actually performed. Keep credentials,
+problem, resulting behavior and validation actually performed. A pull request
+that carries a pilot campaign freeze, a `candidate.json` or a stage summary is
+merged with a merge commit or a fast-forward, never a squash or rebase merge,
+because the pilot tools bind those files to their commits
+([merging a campaign](evals/workflow/pilot/README.md#merging-a-campaign)). Keep credentials,
 private sources, raw assistant histories and local test artifacts out of commits.
 Include new redistributed dependency licenses in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 Report security defects through [SECURITY.md](SECURITY.md).

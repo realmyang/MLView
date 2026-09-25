@@ -52,24 +52,31 @@ def is_pristine(raw: bytes, template: str, name: str) -> bool:
             and [(s.kind, s.ident, s.fence) for s in record.sections] == [(s.kind, s.ident, s.fence) for s in fresh.sections])
 
 
+def _note(line: str) -> bool:
+    return line.lstrip().startswith(">")
+
+
 def pristine_difference(raw: bytes, template: str) -> str | None:
     """None when ``raw`` is the template apart from what the grammar ignores (section 1.3): line
-    endings, a byte order mark, trailing spaces, a missing final newline, and added or removed blank
-    lines and added note lines (first non-space character ">"), which the owner may add before
-    deciding anything; otherwise the first difference."""
+    endings, a byte order mark, trailing spaces, a missing final newline, blank lines, and note lines
+    (first non-space character ">"), which the owner may add, edit or remove before deciding
+    anything (the candidate ledger, bound by the Candidate line, stays the source of the proposals);
+    otherwise the first difference."""
     text = raw.decode("utf-8")
     if text.startswith("\ufeff"):
         text = text[1:]
     lines = [line.rstrip() for line in re.split(r"\r\n|\r|\n", text)]
-    expected = [line.rstrip() for line in template.split("\n")]
+    expected = [line.rstrip() for line in template.split("\n") if not _note(line)]
     index = 0
     for number, line in enumerate(lines, 1):
+        if _note(line):
+            continue
         while index < len(expected) and not expected[index] and line != expected[index]:
             index += 1  # a blank template line the owner removed
         if index < len(expected) and line == expected[index]:
             index += 1
             continue
-        if not line or line.lstrip().startswith(">"):
+        if not line:
             continue
         wanted = repr(expected[index]) if index < len(expected) else "the end of the file"
         return f"line {number} is {line!r} where the template has {wanted}"
@@ -81,8 +88,8 @@ def pristine_difference(raw: bytes, template: str) -> str | None:
 
 def pristine_message(path: Path, name: str, difference: str) -> str:
     return (f"{path.name} still has every value pending but differs from `python tools/workflow_eval.py template "
-            f"--show {name}`: {difference}. Only blank lines and note lines starting with \">\" may be added before the "
-            f"first decision; restore the other lines from template --show.")
+            f"--show {name}`: {difference}. Only blank lines and note lines starting with \">\" may be added, edited "
+            f"or removed before the first decision; restore the other lines from template --show.")
 
 
 def test_the_folder_holds_every_owner_file() -> None:
@@ -156,6 +163,18 @@ def test_owner_notes_and_line_endings_keep_a_pristine_file_valid() -> None:
         assert pristine_difference(variant.encode("utf-8"), template) is None, variant[:80]
     deleted = template.replace("Decision: pending\n", "", 1)
     assert pristine_difference(deleted.encode("utf-8"), template) is not None
+    # Editing or deleting a tool-written ">" note is ignored like adding one (OWNERUX3-6); the next
+    # difference is still reported at its own line.
+    notes = [index for index, line in enumerate(lines) if line.startswith(">")]
+    edited = "\n".join(line + " (check the resume branch too)" if index == notes[-1] else line
+                       for index, line in enumerate(lines))
+    trimmed = "\n".join(line for index, line in enumerate(lines) if index != notes[0])
+    for variant in (edited, trimmed):
+        assert variant != template and pristine_difference(variant.encode("utf-8"), template) is None
+    both = edited.replace("Decision: pending", "Decision:  pending", 1)
+    difference = pristine_difference(both.encode("utf-8"), template)
+    assert difference is not None and difference.startswith(
+        f"line {both.split(chr(10)).index('Decision:  pending') + 1} is 'Decision:  pending'"), difference
     truncated = template[:template.index("## Task")]
     assert "the file ends before the template line '## Task'" == pristine_difference(truncated.encode("utf-8"), template)
 

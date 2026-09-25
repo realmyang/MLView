@@ -27,6 +27,7 @@ from __future__ import annotations
 import argparse
 import copy
 import datetime as _dt
+import difflib
 import importlib
 import json
 import os
@@ -624,6 +625,7 @@ class RefCheck:
     corpus_note: str = ""
     second: "RefCheck | None" = None
     frozen_in: str | None = None  # the campaign whose freeze.json lists this file with its current bytes
+    changed_after: str | None = None  # the campaign whose freeze.json lists this file with other bytes
     added_after: str | None = None  # the campaign frozen without this file, which its freeze would now read
 
     @property
@@ -1140,9 +1142,12 @@ class _RefChecker:
         disagreeing = {ident for ident, _mine, _theirs in differing} | {item["id"] for item in added}
         if section is not None:
             after_resolution = False
+            folded = {ident.casefold(): ident for ident in disagreeing}
+            unresolved = sorted(set(disagreeing) - {folded[line.key.strip().casefold()] for line in section.lines
+                                                    if line.key.strip().casefold() in folded})
             for line in section.lines:
                 key = line.key.strip()
-                match = next((ident for ident in disagreeing if ident.casefold() == key.casefold()), None)
+                match = folded.get(key.casefold())
                 if match is None:
                     if second is None:
                         message = (f'"{key}": there is no second review ({self.task_id}.second.md) to disagree with; '
@@ -1153,9 +1158,19 @@ class _RefChecker:
                         # Usually the wrapped second line of the resolution above ("the DDP branch: ...").
                         message = (f'"{key}" is not an item ID. To continue the previous line, indent it by two '
                                    'spaces; put ">" in front of notes only.')
+                    elif unresolved:
+                        close = difflib.get_close_matches(key, unresolved, n=1, cutoff=0.6)
+                        message = (f'"{key}" is not an item that disagrees with the second review (still open: '
+                                   f'{", ".join(unresolved)})' + (f'; did you mean "{close[0]}"?' if close else "")
+                                   + " Correct the ID, or delete this line.")
                     else:
                         message = f'"{key}" is not an item that disagrees with the second review; delete this line.'
                     self.report.error(line.line, "Disagreements", message)
+                    after_resolution = False
+                    continue
+                if match in resolutions:  # keys are case-insensitive: a second line never replaces the first
+                    self.report.error(line.line, "Disagreements", f'"{key}" appears twice (first on line '
+                                                                  f"{resolutions[match].line}). Keep one.")
                     after_resolution = False
                     continue
                 resolutions[match] = line
@@ -1190,6 +1205,20 @@ class _RefChecker:
                 continue
             text = resolution.value.strip()
             entry: dict = {"item": ident, "primary": None, "second": theirs, "resolution": text}
+            first_word = text.split()[0].casefold().strip(".,;:!-—") if text.split() else ""
+            if not text.casefold().startswith("adopted"):
+                named = next((own[token.casefold()]["id"] for token in _ITEM_ID_RE.findall(text)
+                              if token.casefold() in own), None)
+                if named is not None or first_word.startswith("adopt") or \
+                        (len(first_word) >= 5 and _edit_distance(first_word, "adopted") <= 2):
+                    what = (f"names your added item {named}" if named is not None
+                            else f'starts with "{text.split()[0]}", which is not "adopted"')
+                    self.report.error(resolution.line, "Disagreements",
+                                      f'{ident}: the resolution {what}, so it is read as not adopted. Write "{ident}: '
+                                      f'adopted as <your ID> -- <why>" to adopt it' + (
+                                          f", or remove {named} from this line if it is not adopted." if named
+                                          else f', or "{ident}: <why it is not adopted>" otherwise.'))
+                    continue
             if text.casefold().startswith("adopted"):
                 found = _ADOPTED_RE.match(text)
                 kind = item.get("kind")
@@ -1198,9 +1227,17 @@ class _RefChecker:
                 target = own.get(adopted_id.casefold()) if adopted_id else None
                 if target is None or target.get("kind") != kind:
                     named = f'"adopted as {adopted_id}"' if adopted_id else '"adopted"'
+                    candidate_item = bool(adopted_id) and target is None and any(
+                        position.casefold() == adopted_id.casefold() for position in self.result.positions)
+                    hint = ""
+                    if candidate_item or not adopted_id:
+                        hint = (f' A resolution that starts with "adopted" is read as an adoption. A candidate item '
+                                f'is already in your reference: if the addition duplicates it, write "{ident}: <why it '
+                                f'is not adopted>" (for example "same as '
+                                f'{adopted_id if candidate_item else "<candidate ID>"}") without the word "adopted".')
                     self.report.error(resolution.line, "Disagreements",
                                       f"{ident}: {named} must name the section you added for it in this file, "
-                                      f'"## {kind} {example}"; write "{ident}: adopted as <your ID> -- <why>".')
+                                      f'"## {kind} {example}"; write "{ident}: adopted as <your ID> -- <why>".' + hint)
                     continue
                 entry["primary"] = self.result.positions.get(target["id"])
                 entry["adoptedAs"] = target["id"]
@@ -1211,15 +1248,39 @@ class _RefChecker:
         """A NOTE for each of the primary reviewer's high-severity defects that no second reviewer covered.
         A second review covers one only through its own addition, resolved here as adopted."""
         second_prefix = added_prefix(self.task_id, "second")
+        found = [(int(match.group(1)), str(item["id"])) for item in (self.second.added_items if self.second else [])
+                 for match in [re.fullmatch(re.escape(second_prefix) + r"-d(\d+)", str(item.get("id") or ""),
+                                            re.IGNORECASE)] if match]
+        adopted = {ident.casefold() for ident in self.adopted.values()}
+        # A second-review defect not yet adopted is suggested first; then the next unused number.
+        unadopted = [ident for _number, ident in sorted(found) if ident.casefold() not in adopted]
+        number = max((n for n, _ident in found), default=0)
         for line, label, ident in self.high_defects:
             if self.second is None:
                 self.report.note(line, label, "a second reviewer is recommended for high-severity defects (REVIEW_GUIDE).")
             elif ident not in self.adopted:
+                if unadopted:
+                    suggested = unadopted.pop(0)
+                else:
+                    number += 1
+                    suggested = f"{second_prefix}-d{number:02d}"
                 self.report.note(line, label, "the second review does not cover your own additions. For a second "
                                               f"opinion on this high-severity defect, the second reviewer adds it as "
-                                              f'"## Defect {second_prefix}-d01" and you resolve it as '
-                                              f'"{second_prefix}-d01: adopted as {ident} -- <why>"; otherwise it is '
+                                              f'"## Defect {suggested}" and you resolve it as '
+                                              f'"{suggested}: adopted as {ident} -- <why>"; otherwise it is '
                                               "not second-reviewed (REVIEW_GUIDE).")
+
+
+def _edit_distance(left: str, right: str) -> int:
+    """Optimal string alignment distance (a swap of two neighbours counts once: "adpoted" is 1 from "adopted")."""
+    rows = [list(range(len(right) + 1))] + [[index] + [0] * len(right) for index in range(1, len(left) + 1)]
+    for i in range(1, len(left) + 1):
+        for j in range(1, len(right) + 1):
+            cost = 0 if left[i - 1] == right[j - 1] else 1
+            rows[i][j] = min(rows[i - 1][j] + 1, rows[i][j - 1] + 1, rows[i - 1][j - 1] + cost)
+            if i > 1 and j > 1 and left[i - 1] == right[j - 2] and left[i - 2] == right[j - 1]:
+                rows[i][j] = min(rows[i][j], rows[i - 2][j - 2] + 1)
+    return rows[len(left)][len(right)]
 
 
 _POSITION_LABELS = (("basis", "basis"), ("essential", "essential"), ("runsMustState", "runs must state"),
@@ -1311,6 +1372,7 @@ def check_reference(world: World, raw: bytes, display: str, *, second: RefCheck 
 
 def reference_summary(world: World, result: RefCheck) -> list[str]:
     ready = (f"frozen in {result.frozen_in}" if result.frozen_in else
+             f"changed after the freeze of {result.changed_after}" if result.changed_after else
              f"added after the freeze of {result.added_after}" if result.added_after else "ready to freeze")
     lines = [f"{result.name}: {result.errors} error(s), {result.todos} to do; "
              f"{state_text(result.errors, result.todos, ready)}."]
@@ -1357,6 +1419,7 @@ class PolicyCheck:
     skill_template: str | None = None
     baseline_template: str | None = None
     frozen_in: str | None = None
+    changed_after: str | None = None
 
     @property
     def errors(self) -> int:
@@ -1518,7 +1581,8 @@ def _prompt_rules(report: Report, section: er.Section, template: str, skill: boo
 
 
 def policy_summary(result: PolicyCheck) -> list[str]:
-    ready = f"frozen in {result.frozen_in}" if result.frozen_in else "ready to freeze"
+    ready = (f"frozen in {result.frozen_in}" if result.frozen_in else
+             f"changed after the freeze of {result.changed_after}" if result.changed_after else "ready to freeze")
     lines = [f"{POLICY_TARGET}: {result.errors} error(s), {result.todos} to do; "
              f"{state_text(result.errors, result.todos, ready)}."]
     values = result.values
@@ -1858,9 +1922,19 @@ def _frozen_state(world: World, path: Path, digest: str, report: Report) -> str 
         return None
     if recorded == digest:
         return frozen[0]
-    report.note(1, "header", f"this file was frozen in {frozen[0]} (sha256 {recorded[:12]}...) and has changed since; "
-                             f"a changed decision needs a new campaign ({FREEZE_README}).")
+    report.note(1, "header", f"this file was frozen in {frozen[0]} (sha256 {recorded[:12]}...) and has changed since. "
+                             f"If you did not mean to change a decision, restore the committed file (git checkout -- "
+                             f"{world.display(path)}): frozen decision files are compared byte for byte, including "
+                             f'">" lines and line endings. A changed decision needs a new campaign ({FREEZE_README}).')
     return None
+
+
+def _changed_after(world: World, path: Path, digest: str) -> str | None:
+    """The current campaign when its freeze.json lists ``path`` with other bytes."""
+    frozen = current_freeze(world)
+    files = frozen[1].get("decisionFiles") if frozen is not None else None
+    recorded = files.get(world.display(path)) if isinstance(files, dict) else None
+    return frozen[0] if isinstance(recorded, str) and recorded != digest else None
 
 
 def title_kind(raw: bytes) -> str | None:
@@ -1876,6 +1950,35 @@ class FileCheck:
     errors: int
     todos: int
     result: object = None
+
+
+def _late_review_notes(world: World, checks: list[FileCheck]) -> list[FileCheck]:
+    """For the check command only: a primary file frozen with unchanged bytes whose second review was
+    added after the freeze is still the frozen version. The to-dos and the "Review is complete" error
+    that the late review causes become NOTEs for a new campaign, so the owner is never told to edit a
+    frozen file (freeze and check-frozen keep the strict result)."""
+    primary = checks[0].result if checks else None
+    second = checks[1].result if len(checks) > 1 else None
+    if not isinstance(primary, RefCheck) or not isinstance(second, RefCheck) or not primary.frozen_in \
+            or second.added_after != primary.frozen_in:
+        return checks
+    campaign = primary.frozen_in
+    late = world.display(world.decisions_dir / f"{primary.task_id}.second.md")
+    prefix = f"for a new campaign ({late} was added after the freeze of {campaign}): "
+    problems = []
+    for problem in checks[0].problems:
+        caused = (problem.level == er.TODO and problem.section == "Disagreements") or (
+            problem.level == er.ERROR and problem.section == "Task" and "item(s) above are still to do" in problem.message)
+        problems.append(problem._replace(level=er.NOTE, message=prefix + problem.message) if caused else problem)
+    problems.append(er.Problem(checks[0].display, 1, er.NOTE, "header",
+                               f"this file is still the version frozen in {campaign}. To keep {campaign}, remove {late} "
+                               f"(or keep it out of the repository); resolving it needs a new campaign ({FREEZE_README})."))
+    problems.sort(key=lambda problem: (problem.line, LEVEL_ORDER.get(problem.level, 9)))
+    errors = sum(problem.level == er.ERROR for problem in problems)
+    todos = sum(problem.level == er.TODO for problem in problems)
+    summary = [f"{primary.name}: {errors} error(s), {todos} to do; "
+               f"{state_text(errors, todos, f'frozen in {campaign}')}."] + checks[0].summary[1:]
+    return [FileCheck(checks[0].display, problems, summary, errors, todos, primary)] + checks[1:]
 
 
 def check_path(world: World, path: Path, *, with_second: bool = True) -> list[FileCheck]:
@@ -1908,6 +2011,7 @@ def check_path(world: World, path: Path, *, with_second: bool = True) -> list[Fi
                                 f'(both files name "{usable.reviewer}").')
         if result.record is not None:
             result.frozen_in = _frozen_state(world, path, result.record.sha256, result.report)
+            result.changed_after = _changed_after(world, path, result.record.sha256)
             result.added_after = _added_after_freeze(world, path, result.report)
         checks.append(FileCheck(display, result.report.ordered(), reference_summary(world, result), result.errors,
                                 result.todos, result))
@@ -1915,6 +2019,7 @@ def check_path(world: World, path: Path, *, with_second: bool = True) -> list[Fi
             if second_check.record is not None:
                 second_check.frozen_in = _frozen_state(world, second_path, second_check.record.sha256,
                                                        second_check.report)
+                second_check.changed_after = _changed_after(world, second_path, second_check.record.sha256)
                 second_check.added_after = _added_after_freeze(world, second_path, second_check.report)
             checks.append(FileCheck(second_check.display, second_check.report.ordered(),
                                     reference_summary(world, second_check), second_check.errors, second_check.todos,
@@ -1924,6 +2029,7 @@ def check_path(world: World, path: Path, *, with_second: bool = True) -> list[Fi
         result = check_reference(world, raw, display, expected_name=_expected_name(world, path, True))
         if result.record is not None:
             result.frozen_in = _frozen_state(world, path, result.record.sha256, result.report)
+            result.changed_after = _changed_after(world, path, result.record.sha256)
             result.added_after = _added_after_freeze(world, path, result.report)
         return [FileCheck(display, result.report.ordered(), reference_summary(world, result), result.errors,
                           result.todos, result)]
@@ -1931,6 +2037,7 @@ def check_path(world: World, path: Path, *, with_second: bool = True) -> list[Fi
         result = check_policy(world, raw, display)
         if result.record is not None:
             result.frozen_in = _frozen_state(world, path, result.record.sha256, result.report)
+            result.changed_after = _changed_after(world, path, result.record.sha256)
         return [FileCheck(display, result.report.ordered(), policy_summary(result), result.errors, result.todos, result)]
     if kind == "Development adjudication":
         result = check_adjudication(world, raw, display)
@@ -2049,7 +2156,7 @@ def command_check(world: World, targets: Sequence[str], *, show: bool, out) -> i
     errors = 0
     first = True
     for path in paths:
-        for check in check_path(world, path, with_second=with_second):
+        for check in _late_review_notes(world, check_path(world, path, with_second=with_second)):
             if not first:
                 print("", file=out)
             first = False
@@ -2501,11 +2608,19 @@ class History:
     """Read-only Git history of the repository at ``world.root``.
 
     ``root`` is None when the history cannot answer (no Git work tree at exactly that root, or a
-    shallow clone, whose missing commits could hide a deleted file); ``reason`` then says why."""
+    shallow or partial clone, whose missing commits or objects could hide a removed or replaced
+    file); ``reason`` then says why. Every query lists the versions a path had anywhere in the
+    history reachable from HEAD, merges included (eval_records.path_history). A path whose
+    history Git cannot read is recorded in ``unreadable`` and answered with None, never as "never
+    committed"."""
 
     def __init__(self, world: World) -> None:
         self.root: Path | None = None
         self.reason: str | None = None
+        self.unreadable: list[str] = []
+        self._empty = False
+        self._versions: dict[str, er.PathHistory | None] = {}
+        self._campaigns: dict[str, dict[str, str]] | None = None
         root = world.root.resolve()
         try:
             top = er._git(root, "rev-parse", "--show-toplevel").decode("utf-8").strip()
@@ -2515,28 +2630,79 @@ class History:
         if not top or Path(top).resolve() != root:
             self.reason = "the repository root is not the top of a Git work tree"
             return
-        try:
-            shallow = er._git(root, "rev-parse", "--is-shallow-repository").decode("utf-8").strip() == "true"
-        except ValueError:
-            shallow = False
-        if shallow:
-            self.reason = "this is a shallow clone (git fetch --unshallow gives the full history)"
+        limit = er.history_limit(root)
+        if limit:
+            self.reason = limit
             return
         self.root = root
+        try:
+            er._git(root, "rev-parse", "--verify", "--quiet", "HEAD")
+        except ValueError:
+            self._empty = True  # no commit yet: nothing was ever committed
 
     @property
     def full(self) -> bool:
         return self.root is not None
 
-    def commits(self, rel: str, *, added: bool = False) -> list[str]:
-        """Commits touching (or, with ``added``, adding) ``rel``, newest first; [] without commits."""
+    @property
+    def incomplete(self) -> bool:
+        """The history is shallow or partial (not merely absent, as in a directory outside Git)."""
+        return self.reason is not None and ("shallow" in self.reason or "partial" in self.reason)
+
+    def versions(self, rel: str) -> er.PathHistory | None:
+        """Every version ``rel`` had in the history reachable from HEAD, or None when the history
+        cannot answer (see ``reason`` and ``unreadable``)."""
         if self.root is None:
-            return []
-        args = ["log", "--format=%H", "--no-renames"] + (["--diff-filter=A"] if added else []) + ["--", rel]
+            return None
+        if self._empty:
+            return er.PathHistory({}, [])
+        if rel not in self._versions:
+            try:
+                self._versions[rel] = er.path_history(self.root, rel)
+            except ValueError:
+                self.unreadable.append(rel)
+                self._versions[rel] = None
+        return self._versions[rel]
+
+    def campaigns(self) -> dict[str, dict[str, str]] | None:
+        """``{campaign: {file: oldest commit}}`` for every campaign whose freeze.json, candidate.json
+        or stage summary the history reachable from HEAD ever recorded, or None when it cannot say."""
+        if self.root is None:
+            return None
+        if self._empty:
+            return {}
+        if self._campaigns is None:
+            try:
+                paths = er.committed_paths(self.root, PILOT_REL)
+            except ValueError:
+                self.unreadable.append(PILOT_REL)
+                return None
+            names = {"freeze.json", "candidate.json"} | {name for pair in SUMMARY_FILES.values() for name in pair}
+            found: dict[str, dict[str, str]] = {}
+            for path, commit in paths.items():
+                parts = path[len(PILOT_REL) + 1:].split("/")
+                if len(parts) == 2 and parts[1] in names:
+                    found.setdefault(parts[0], {})[parts[1]] = commit
+            self._campaigns = found
+        return self._campaigns
+
+    def at_head(self, rel: str) -> bool:
+        """Whether HEAD holds ``rel``."""
+        if self.root is None or self._empty:
+            return False
         try:
-            return er._git(self.root, *args).decode("ascii").split()
+            er._git(self.root, "cat-file", "-e", f"HEAD:{rel}")
         except ValueError:
-            return []
+            return False
+        return True
+
+    def blob(self, oid: str) -> bytes | None:
+        if self.root is None or not er.OBJECT_RE.fullmatch(oid):
+            return None
+        try:
+            return er._git(self.root, "cat-file", "blob", oid)
+        except ValueError:
+            return None
 
     def show(self, commit: str, rel: str) -> bytes | None:
         if self.root is None:
@@ -2548,17 +2714,34 @@ class History:
 
 
 def _has_candidate(world: World, history: History, campaign: str) -> str | None:
-    """Why ``campaign`` counts as captured (a candidate.json or stage summary now or ever committed), or None."""
+    """Why ``campaign`` counts as captured (a candidate.json or stage summary now or ever committed,
+    in any branch merged into HEAD), or None. Callers check ``history`` first: without the full
+    history only the present files are seen."""
     directory = world.root / PILOT_REL / campaign
     names = ["candidate.json"] + [name for pair in SUMMARY_FILES.values() for name in pair]
     for name in names:
         if os.path.lexists(directory / name):
             return f"it has {name}"
     for name in names:
-        added = history.commits(f"{PILOT_REL}/{campaign}/{name}", added=True)
-        if added:
-            return f"{name} was committed in {added[-1][:12]}; deleting it does not undo the capture"
+        versions = history.versions(f"{PILOT_REL}/{campaign}/{name}")
+        if versions is not None and versions.committed:
+            first = versions.first[1] if versions.first else versions.removals[0]
+            return f"{name} was committed in {first[:12]}; deleting it does not undo the capture"
     return None
+
+
+def _history_refusal(history: History, what: str, result: Campaign) -> bool:
+    """Refuse (True) when the history cannot say ``what``: a shallow or partial clone, or a history Git
+    cannot read. A directory outside Git has no history to consult and is not refused."""
+    if history.incomplete:
+        result.fail(f"cannot tell {what}: {history.reason}", "fetch the full history (git fetch --unshallow, or clone "
+                                                           "without --filter)")
+        return True
+    if history.unreadable:
+        result.fail(f"cannot tell {what}: git cannot read the history of {', '.join(history.unreadable)}",
+                    "fetch the full history and run the freeze again")
+        return True
+    return False
 
 
 def _supersede_check(world: World, campaign: str, reason: str | None, result: Campaign) -> dict | None:
@@ -2574,6 +2757,16 @@ def _supersede_check(world: World, campaign: str, reason: str | None, result: Ca
             result.fail(f"{TASKS_REL}: {', '.join(not_prefreeze)} not needs-human-review", f"fix {TASKS_REL}")
         if reason:
             result.fail("--supersede-reason was given but no campaign is frozen", "drop --supersede-reason")
+        # A committed campaign is immutable: restoring the pre-freeze tasks.json never erases one.
+        history = History(world)
+        committed = history.campaigns()
+        if not _history_refusal(history, "whether a campaign was committed before", result) and committed:
+            names = ", ".join(sorted(committed))
+            result.fail(f"{TASKS_REL} has no pilotFreeze, but the Git history holds committed campaign(s) {names} "
+                        f"under {PILOT_REL}; a committed campaign is immutable and is never erased",
+                        f"restore {PILOT_REL}/<campaign> and the {TASKS_REL} that names it from the Git history, then "
+                        "supersede it with --supersede-reason (after its owner-authored invalidation.md if it was "
+                        f"captured; {FREEZE_README})")
         return None
     old = freeze.get("campaign") if isinstance(freeze, dict) else None
     if not reason:
@@ -2586,10 +2779,13 @@ def _supersede_check(world: World, campaign: str, reason: str | None, result: Ca
         return None
     old_dir = world.root / PILOT_REL / str(old)
     history = History(world)
-    if history.reason and "shallow" in history.reason:
-        result.fail(f"cannot tell whether {old} was ever captured: {history.reason}", "git fetch --unshallow")
+    if history.incomplete:
+        result.fail(f"cannot tell whether {old} was ever captured: {history.reason}",
+                    "fetch the full history (git fetch --unshallow, or clone without --filter)")
         return None
     captured = _has_candidate(world, history, str(old))
+    if _history_refusal(history, f"whether {old} was ever captured", result):
+        return None
     if captured:
         invalidation = old_dir / "invalidation.md"
         problem = _invalidation_problem(invalidation, str(old))
@@ -2739,8 +2935,31 @@ def _candidate_problems(label: str, directory: Path, campaign: str, freeze_raw: 
     return raw, []
 
 
+def _rendering_check(value: dict, directory: Path, json_name: str, md_name: str, label: str, problems: list[str],
+                     notes: list[str] | None) -> None:
+    """The recorded Markdown must be the one summarize renders from the recorded JSON (section 4.7).
+    Checked only when the summary names the running tools/workflow_pilot.py as its renderer, so a
+    later tool change never fails a recorded summary (section 1.10); otherwise a note says so."""
+    import workflow_pilot  # noqa: PLC0415 - workflow_pilot imports this module lazily too
+
+    tooling = value.get("tooling") if isinstance(value.get("tooling"), dict) else {}
+    if tooling.get("tools/workflow_pilot.py") != er.sha256_file(Path(workflow_pilot.__file__).resolve()):
+        if notes is not None:
+            notes.append(f"check-frozen: {directory.name}: not verified: {md_name} rendered from {json_name} (it was "
+                         "recorded with another tools/workflow_pilot.py).")
+        return
+    try:
+        rendered = workflow_pilot.render_markdown(value).encode("utf-8")
+    except (AttributeError, IndexError, KeyError, TypeError, ValueError):
+        rendered = None
+    if rendered is None or (directory / md_name).read_bytes() != rendered:
+        problems.append(f"{label}/{md_name} is not the Markdown rendered from {json_name} (a recorded summary is "
+                        "written only by summarize --record)")
+
+
 def _summary_state(world: World, directory: Path, freeze_value: dict, freeze_raw: bytes,
-                   problems: list[str], candidate: tuple[bytes | None, list[str]]) -> bool:
+                   problems: list[str], candidate: tuple[bytes | None, list[str]],
+                   notes: list[str] | None = None) -> bool:
     """True when a genuine final summary is recorded: a Stage 1 stop or invalid, or an all-stage
     summary. Every stage summary file must be a summary the pilot recorded for this campaign's
     candidate and freeze; anything else is a problem and never switches off the re-derivation.
@@ -2807,6 +3026,7 @@ def _summary_state(world: World, directory: Path, freeze_value: dict, freeze_raw
                 wrong.append(f"{md_name} does not open with the title and decision of {json_name}")
             if not wrong:
                 verdicts[number] = verdict
+                _rendering_check(value, directory, json_name, md_name, label, problems, notes)
         if wrong:
             problems.append(f"{label}/{json_name} is not a recorded summary of this candidate ({'; '.join(wrong)})")
     if "2" in verdicts and verdicts.get("1") != "go":
@@ -2861,16 +3081,29 @@ def _recorded_fields(world: World, history: History, campaign: str, freeze_value
         tasks_sha = None
     unverified: list[str] = []
     freeze_rel = f"{PILOT_REL}/{campaign}/freeze.json"
-    added = history.commits(freeze_rel, added=True)
-    commit = added[-1] if history.full and added else None  # the commit that first added freeze.json
-    if commit is not None:
-        committed = history.show(commit, freeze_rel)
-        if committed is not None and committed != freeze_raw:
+    versions = history.versions(freeze_rel)
+    commit = None  # the oldest commit that recorded freeze.json, in any branch merged into HEAD
+    why = history.reason or "freeze.json is not committed yet"
+    if versions is not None and versions.first is not None:
+        blob, commit = versions.first
+        committed = history.blob(blob)
+        if committed is None:
+            unverified.append(f"freeze.json against its first commit (git cannot read it from {commit[:12]})")
+        elif committed != freeze_raw:
             problems.append(f"{freeze_rel} differs from the version committed in {commit[:12]} "
                             "(frozen files are immutable)")
-    elif history.full:  # without the full history, _history_note covers this check
-        unverified.append("freeze.json against its first commit (freeze.json is not committed yet)")
-    why = history.reason or "freeze.json is not committed yet"
+        if len(versions.versions) > 1:
+            problems.append(f"{freeze_rel} was committed with {len(versions.versions)} different contents "
+                            f"({', '.join(c[:12] for c in versions.versions.values())}), for example in a merge "
+                            "(frozen files are immutable)")
+    elif versions is not None:
+        if history.at_head(freeze_rel):
+            problems.append(f"{freeze_rel} is committed, but the Git history lists no commit that recorded it "
+                            "(frozen files are immutable)")
+        else:
+            unverified.append("freeze.json against its first commit (freeze.json is not committed yet)")
+    elif history.full:  # git could not read the history of freeze.json; _history_note names it
+        why = f"git cannot read the history of {freeze_rel}"
     if tasks_sha is not None:
         current = world.manifest_bytes()
         if not (_names_campaign(current, campaign) and er.sha256_bytes(current) == tasks_sha):
@@ -2878,9 +3111,12 @@ def _recorded_fields(world: World, history: History, campaign: str, freeze_value
             if at_freeze is not None and _names_campaign(at_freeze, campaign):
                 if er.sha256_bytes(at_freeze) != tasks_sha:
                     problems.append(f"{campaign}/freeze.json tasksManifest.sha256 differs from the {TASKS_REL} "
-                                    f"committed with it in {commit[:12]}")
+                                    f"committed with it in {commit[:12]} (a squash or rebase merge that combined the "
+                                    f"freeze with later {TASKS_REL} edits also causes this; {FREEZE_README}, "
+                                    '"Merging a campaign")')
             else:
-                detail = why if commit is None else f"{TASKS_REL} was committed separately from freeze.json"
+                detail = (why if commit is None else f"{TASKS_REL} cannot be read at {commit[:12]}" if at_freeze is None
+                          else f"{TASKS_REL} was committed separately from freeze.json")
                 unverified.append(f"tasksManifest.sha256 ({detail})")
     if adjudication is not None:
         path = world.root / adjudication_rel
@@ -2914,14 +3150,59 @@ def _names_campaign(data: bytes, campaign: str) -> bool:
     return isinstance(pointer, dict) and pointer.get("campaign") == campaign
 
 
-def _capture_problems(world: World, history: History, campaign: str, superseded: bool, problems: list[str]) -> None:
-    """A captured campaign keeps its candidate.json; a superseded captured campaign needs its invalidation.md."""
+CANDIDATE_RULE = "a campaign has one candidate; it is never removed or replaced"
+SUMMARY_RULE = "a recorded summary is final"
+
+
+def _final_problems(world: World, history: History, rel: str, rule: str, relaxed: list[str] | None = None,
+                    campaign: str = "") -> list[str]:
+    """Problems of a file that is final once committed (candidate.json, a stage summary): in the
+    history reachable from HEAD, merges included, it has exactly one content, and the working tree
+    still holds that content. A removal later restored byte for byte changes nothing. For a
+    superseded campaign the owner invalidated, ``relaxed`` receives the several-contents finding as
+    a note while the file still holds one of them (such a history cannot be undone)."""
+    versions = history.versions(rel)
+    if versions is None:
+        return []  # _history_note names the check
+    path = world.root / rel
+    if versions.first is None:
+        if versions.removals and not path.is_file():
+            return [f"{rel} was removed in {versions.removals[0][:12]} ({rule})"]
+        if history.at_head(rel):
+            return [f"{rel} is committed, but the Git history lists no commit that recorded it ({rule})"]
+        return []
+    blob, first = versions.first
+    if not path.is_file():
+        return [f"{rel} was committed in {first[:12]} and is missing now ({rule})"]
+    current = path.read_bytes()
+    contents = {oid: history.blob(oid) for oid in versions.versions}
+    if any(data is None for data in contents.values()):
+        history.unreadable.append(rel)
+        return []
+    found = []
+    if len(contents) > 1:
+        message = (f"{rel} was committed with {len(contents)} different contents "
+                   f"({', '.join(commit[:12] for commit in versions.versions.values())}), for example through a merge "
+                   f"of two branches that both recorded it ({rule}; if two recordings were merged, the owner records "
+                   f"invalidation.md and a new campaign supersedes this one, {FREEZE_README})")
+        if relaxed is not None and current in contents.values():
+            relaxed.append(f"check-frozen: {campaign} (invalidated): {message}.")
+        else:
+            found.append(message)
+            if current != contents[blob]:
+                found.append(f"{rel} differs from the version first committed in {first[:12]} ({rule})")
+    elif current != contents[blob]:
+        found.append(f"{rel} differs from the version first committed in {first[:12]} ({rule})")
+    return found
+
+
+def _capture_problems(world: World, history: History, campaign: str, superseded: bool, problems: list[str],
+                      notes: list[str]) -> None:
+    """A captured campaign keeps its one candidate.json; a superseded captured campaign needs its invalidation.md."""
     directory = world.root / PILOT_REL / campaign
-    rel = f"{PILOT_REL}/{campaign}/candidate.json"
-    if not (directory / "candidate.json").is_file():
-        added = history.commits(rel, added=True)
-        if added:
-            problems.append(f"{rel} was committed in {added[-1][:12]} and is missing now (a candidate is never removed)")
+    invalidated = superseded and _invalidation_problem(directory / "invalidation.md", campaign) is None
+    problems.extend(_final_problems(world, history, f"{PILOT_REL}/{campaign}/candidate.json", CANDIDATE_RULE,
+                                    notes if invalidated else None, campaign))
     if superseded:
         captured = _has_candidate(world, history, campaign)
         if captured:
@@ -2931,33 +3212,28 @@ def _capture_problems(world: World, history: History, campaign: str, superseded:
                                 f"invalidation.md is not usable ({problem})")
 
 
-def _summary_history(world: World, history: History, campaign: str, problems: list[str]) -> None:
-    """A recorded summary is final: each stage*-summary.{json,md} ever committed must still exist with
-    the bytes of the commit that first added it, and must have been added only once."""
+def _summary_history(world: World, history: History, campaign: str, problems: list[str],
+                     notes: list[str] | None = None, superseded: bool = False) -> None:
+    """A recorded summary is final: each stage*-summary.{json,md} ever committed, in any branch merged
+    into HEAD, must still exist with the one content it was committed with."""
     directory = world.root / PILOT_REL / campaign
+    invalidated = superseded and _invalidation_problem(directory / "invalidation.md", campaign) is None
     for name in [name for pair in SUMMARY_FILES.values() for name in pair]:
-        rel = f"{PILOT_REL}/{campaign}/{name}"
-        added = history.commits(rel, added=True)
-        if not added:
-            continue
-        first = added[-1]
-        path = directory / name
-        if not path.is_file():
-            problems.append(f"{rel} was committed in {first[:12]} and is missing now (a recorded summary is final)")
-        elif path.read_bytes() != history.show(first, rel):
-            problems.append(f"{rel} differs from the version first committed in {first[:12]} (a recorded summary is "
-                            "final)")
-        if len(added) > 1:
-            problems.append(f"{rel} was added in {len(added)} commits: a recorded summary was removed and recorded "
-                            "again (a recorded summary is final)")
+        problems.extend(_final_problems(world, history, f"{PILOT_REL}/{campaign}/{name}", SUMMARY_RULE,
+                                        notes if invalidated else None, campaign))
 
 
 def _history_note(history: History, campaign: str, notes: list[str]) -> None:
-    """Say which checks did not run because the Git history is not available (a shallow clone or no Git)."""
+    """Say which checks did not run because the Git history is not available (a shallow or partial
+    clone, no Git, or a history Git cannot read)."""
     if not history.full:
         notes.append(f"check-frozen: {campaign}: not verified without the full Git history ({history.reason}): "
-                     "freeze.json against its first commit, and whether a committed candidate.json or stage summary "
-                     "was removed or changed.")
+                     "freeze.json against its first commit, and whether a committed campaign, candidate.json or "
+                     "stage summary was removed or changed.")
+        return
+    unread = sorted({rel for rel in history.unreadable if rel.startswith(f"{PILOT_REL}/{campaign}/")})
+    if unread:
+        notes.append(f"check-frozen: {campaign}: not verified: git cannot read the history of {', '.join(unread)}.")
 
 
 def _integrity(world: World, directory: Path, problems: list[str]) -> dict | None:
@@ -3007,13 +3283,28 @@ def check_frozen(world: World, out) -> int:
     for problem in er.check_task_manifest(manifest):
         problems.append(f"{TASKS_REL}: {problem}")
     current = freeze_pointer.get("campaign") if isinstance(freeze_pointer, dict) else None
+    # A committed campaign is immutable: every campaign the history ever recorded must still exist,
+    # also when tasks.json was restored to its pre-freeze state (checked before "nothing to check").
+    history = History(world)
+    committed = history.campaigns()
+    for name, files in sorted((committed or {}).items()):
+        if name not in names:
+            what = "freeze.json" if "freeze.json" in files else sorted(files)[0]
+            problems.append(f"{PILOT_REL}/{name}/{what} was committed in {files[what][:12]} and is missing now; a "
+                            f"committed campaign is immutable and is never erased (restore {PILOT_REL}/{name} from the "
+                            f"Git history; {FREEZE_README})")
+    if committed is None and (freeze_pointer is None or history.full):  # else each campaign's note says it
+        detail = history.reason or f"git cannot read the history of {PILOT_REL}"
+        notes.append(f"check-frozen: not verified without the full Git history ({detail}): whether a committed "
+                     "campaign was removed.")
     if freeze_pointer is None:
         for directory in campaigns:
             problems.append(f"{world.display(directory)}/freeze.json exists but {TASKS_REL} has no pilotFreeze")
         if not problems:
+            for line in notes:
+                print(line, file=out)
             print(f"check-frozen: no frozen campaign ({TASKS_REL} has no pilotFreeze); nothing to check.", file=out)
             return 0
-    history = History(world)
     values: dict[str, tuple[dict, bytes]] = {}
     for directory in campaigns:
         try:
@@ -3032,6 +3323,12 @@ def check_frozen(world: World, out) -> int:
             superseded_by[target] = name
     if current in superseded_by:
         problems.append(f"{current} is the current campaign but {superseded_by[current]} supersedes it")
+    reached: set[str] = set()
+    name = current
+    while isinstance(name, str) and name in values and name not in reached:
+        reached.add(name)
+        pointer = values[name][0].get("supersedes")
+        name = pointer.get("campaign") if isinstance(pointer, dict) else None
     for directory in campaigns:
         if directory.name == current:
             continue
@@ -3039,16 +3336,19 @@ def check_frozen(world: World, out) -> int:
         if directory.name not in superseded_by:
             problems.append(f"{world.display(directory)} is neither the current campaign nor superseded by one "
                             "(freeze.json supersedes)")
+        elif current is not None and directory.name not in reached:
+            problems.append(f"{world.display(directory)} is not reached from the current campaign {current} through "
+                            "the freeze.json supersedes chain")
         freeze_value = _integrity(world, directory, problems)
         if freeze_value is not None and directory.name in values:
             raw = values[directory.name][1]
             _recorded_fields(world, history, directory.name, freeze_value, raw, names, problems, notes)
             candidate = _candidate_problems(world.display(directory), directory, directory.name, raw)
             problems.extend(candidate[1])  # with or without a summary, freeze.json is the one the candidate names
-            _summary_state(world, directory, freeze_value, raw, problems, candidate)
+            _summary_state(world, directory, freeze_value, raw, problems, candidate, notes)
             _ledger_problems(world, directory.name, freeze_value, problems)
-            _capture_problems(world, history, directory.name, True, problems)
-            _summary_history(world, history, directory.name, problems)
+            _capture_problems(world, history, directory.name, True, problems, notes)
+            _summary_history(world, history, directory.name, problems, notes, superseded=True)
         if len(problems) == before:
             notes.append(f"check-frozen: {directory.name} (superseded): hashes intact.")
         _history_note(history, directory.name, notes)
@@ -3070,11 +3370,11 @@ def check_frozen(world: World, out) -> int:
                                 "(hosts, repetitions, pilotTargets or a held-out task's id, repository, url, commit, "
                                 "entrypoints or prompt); a changed reference needs a new campaign")
             _recorded_fields(world, history, current, existing, raw, names, problems, notes)
-            _capture_problems(world, history, current, False, problems)
+            _capture_problems(world, history, current, False, problems, notes)
             _summary_history(world, history, current, problems)
             candidate = _candidate_problems(world.display(directory), directory, current, raw)
             problems.extend(candidate[1])
-            final = _summary_state(world, directory, existing, raw, problems, candidate)
+            final = _summary_state(world, directory, existing, raw, problems, candidate, notes)
             if final:
                 _ledger_problems(world, current, existing, problems)
                 if len(problems) == before:
@@ -3115,13 +3415,22 @@ def _rederive(world: World, directory: Path, current: str, existing: dict, probl
               before: int) -> None:
     for rel, how in _changed_inputs(world, existing):
         what = {"missing": f"{rel} (missing) changed", "added": f"{rel} was added"}.get(how, f"{rel} changed")
+        restore = {"changed": f"; if no decision changed, restore the committed file (git checkout -- {rel}): frozen "
+                              "files are compared byte for byte, including \">\" lines and line endings",
+                   "missing": f"; restore it (git checkout -- {rel})",
+                   "added": f"; to keep {current}, remove it"}.get(how, "")
         problems.append(f"{what} after the freeze of {current}; a changed decision needs a new campaign "
-                        f"({FREEZE_README})")
+                        f"({FREEZE_README}){restore}")
     derived = derive_campaign(world, current, frozen_at=existing.get("frozenAt"),
                               tooling=existing.get("tooling"), supersedes=existing.get("supersedes"),
                               existing=existing, verify_corpus=False)
     if derived.problems:
+        late = [rel for rel, how in _changed_inputs(world, existing) if how == "added"]
         for what, action in derived.problems:
+            for rel in late:  # a decision file added after the freeze (a late second review)
+                primary = rel[:-len(".second.md")] + ".md" if rel.endswith(".second.md") else rel
+                if what.startswith((rel, primary)):
+                    action = f"remove {rel} to keep {current}, or freeze a new campaign ({FREEZE_README})"
             problems.append(f"{current} cannot be re-derived: {what}. Next: {action}")
         return
     on_disk = {path.relative_to(directory).as_posix() for path in directory.rglob("*") if path.is_file()}

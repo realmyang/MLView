@@ -65,7 +65,10 @@ are created exclusively, so recorded evidence is never silently overwritten.
    the VSIX itself and pins the frozen campaign
    ([candidate protocol](CANDIDATE_PROTOCOL.md)), then commit its
    `candidate.json`. Its SHA-256 is the campaign identity that every run
-   record and summary binds.
+   record and summary binds. Merge the freeze, candidate and summary commits
+   into main with a merge commit or a fast-forward, never a squash or rebase
+   merge, and keep the candidate's `source.commit` reachable
+   ([merging a campaign](pilot/README.md#merging-a-campaign)).
 
 ```sh
 export MLVIEW_PILOT_DIR=~/mlview-pilot
@@ -127,16 +130,24 @@ Retain every failure, timeout and block, and never replace an attempt with a
 retry the policy does not allow. A retry is allowed only if the prompt was
 never sent: after a sealed `failed` or `blocked` attempt whose session says
 `Prompt sent: no` (the tool refuses that answer for a timeout, a
-`no-publication` or `repair-budget` failure, or a transcript that contains the
-prompt), `run-prepare RUN --campaign C --retry "<reason>"` keeps the earlier
-evidence as `evidence/<run>.attempt-<n>/`, prepares a fresh
-`workspaces/<run>.attempt-<n+1>/` and writes `Prior attempts: <n>` into the
-new `session.md`. It refuses an attempt that timed out, failed after the
-prompt, says `Prompt sent: yes` or leaves it empty, or completed at any point
-of its amendment chain, and it verifies the sealed record first. Attempts
-beyond the policy's infrastructure retries make the run invalid, and every
-earlier attempt stays in the summary (its status and failure in the run entry
-and the failures list, its hashes in the inputs). Transcripts, UI logs, run
+`no-publication` or `repair-budget` failure, repair rounds above zero, a
+transcript that contains the prompt, a published `pilot.mlview.json` or a
+draft the skill wrote in the workspace, and an amendment never drops or
+replaces a sealed transcript), `run-prepare RUN --campaign C --retry
+"<reason>"` keeps the earlier evidence as `evidence/<run>.attempt-<n>/`,
+prepares a fresh `workspaces/<run>.attempt-<n+1>/` and writes
+`Prior attempts: <n>` into the new `session.md`. It refuses an attempt that
+timed out, failed after the prompt, says `Prompt sent: yes` or leaves it
+empty, completed at any point of its amendment chain, or has sealed evidence
+that the prompt reached the host (a captured artifact, repair rounds, a
+sealed transcript with the prompt, or a draft in the workspace); it verifies
+the sealed record first, and it refuses a retry beyond the policy's
+infrastructure retries (with the proposed policy, none). Changed project
+files and host settings files are not taken as proof, because a host may
+write files when it starts. A retry made around these rules makes the run
+invalid, and every earlier attempt stays in the summary (its status, failure
+and why it counts as sent in the run entry and the failures list, or in the
+baseline section for a baseline, and its hashes in the inputs). Transcripts, UI logs, run
 reviews and workspaces stay out of the repository; committed summaries contain
 counts, statuses and hashes only.
 
@@ -200,14 +211,19 @@ targets; not an approval":
 campaign directory, only for `go`, `stop` or `invalid`, and only once every
 planned baseline is sealed and reviewed (baselines never change the decision;
 a completed baseline without a finished review shows as `unreviewed`, with no
-paired difference); commit them. A recorded summary is final: `--record`
-refuses a summary file that was ever committed, even after it was deleted.
-`run-prepare` refuses repeat runs until a committed Stage 1 summary says `go`,
-and it and `summarize --stage all` re-compute Stage 1 from the sealed evidence
-(a pilot directory without that evidence gives `incomplete`): a summary that
-is not a recorded Stage 1 summary of this candidate, whose decision or run
-hashes differ from the re-computation, that differs from the version first
-committed, or that was committed more than once, does not unlock Stage 2.
+paired difference, and neither does a pending one); commit them. A recorded
+summary is final: `--record` refuses a summary file that was ever committed,
+in any branch merged into `HEAD`, even after it was deleted. `run-prepare`
+refuses repeat runs until a committed Stage 1 summary says `go`, and it and
+`summarize --stage all` re-compute Stage 1 from the sealed evidence (a pilot
+directory without that evidence gives `incomplete`): a summary that is not a
+recorded Stage 1 summary of this candidate, whose decision or run hashes
+differ from the re-computation, whose other fields or Markdown differ from
+what `summarize --record` writes (checked while the tools are the ones that
+recorded it), that differs from the version first committed, or that was
+committed with more than one content (for example through a merge), does not
+unlock Stage 2. With per-host targets, a stop reason names each host that
+misses a target, and the early-stop indicators include each host's bound.
 
 If any target misses, stop before Stage 2 and report the numerators,
 denominators and failure taxonomy. Do not repair the skill against held-out

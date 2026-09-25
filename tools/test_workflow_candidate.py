@@ -294,6 +294,27 @@ def test_check_frozen_must_pass_and_an_existing_candidate_is_never_replaced(tmp_
 
 
 @needs_git
+def test_a_removed_candidate_is_never_captured_again_and_a_shallow_clone_cannot_tell(tmp_path: Path) -> None:
+    """A committed candidate that was deleted blocks a second capture, also where check-frozen cannot
+    see the history: capture refuses a shallow clone itself (DISTCI3-2)."""
+    root = make_world(tmp_path)
+    capture(root, tmp_path / "pilot")
+    git(root, "add", "-A")
+    git(root, "commit", "--quiet", "-m", "record the candidate")
+    git(root, "rm", "--quiet", f"evals/workflow/pilot/{CAMPAIGN}/candidate.json")
+    git(root, "commit", "--quiet", "-m", "synthetic deletion")
+    with pytest.raises(candidate.CaptureError, match="candidate.json was committed in [0-9a-f]{12}; a campaign has one "
+                                                     "candidate and a removed candidate is never captured again"):
+        capture(root, tmp_path / "pilot2", package=never_package)
+    clone = tmp_path / "shallow"
+    subprocess.run(["git", "clone", "--quiet", "--depth", "1", root.resolve().as_uri(), str(clone)], check=True,
+                   capture_output=True)
+    with pytest.raises(candidate.CaptureError, match="cannot tell from the Git history whether pilot-01 was captured "
+                                                     "before: this is a shallow clone"):
+        capture(clone, tmp_path / "pilot3", package=never_package)
+
+
+@needs_git
 @pytest.mark.parametrize("name", ["stage1-summary.json", "stage2-summary.md", "invalidation.md"])
 def test_a_campaign_with_a_summary_or_invalidation_is_never_captured(tmp_path: Path, name: str) -> None:
     root = make_world(tmp_path, **{f"evals/workflow/pilot/{CAMPAIGN}/{name}": b"synthetic leftover\n"})

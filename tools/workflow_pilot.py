@@ -506,10 +506,10 @@ def load_campaign(root: Path, name: str) -> Campaign:
         defects = [f"cannot be checked: {exc}"]
     problems.extend(f"candidate.json: {line}" for line in defects or [] if not _informational(str(line)))
     commit = candidate["source"]["commit"]
-    shallow = _git_text(root, "rev-parse", "--is-shallow-repository")
-    if shallow == "true":
-        raise IntegrityError(["this checkout is a shallow clone; fetch the full history (git fetch --unshallow) so the "
-                              "candidate commit and its ancestry can be read"])
+    limit = er.history_limit(root)
+    if limit is not None:
+        raise IntegrityError([f"the full history is needed so the candidate commit, its ancestry and the recorded "
+                              f"summaries can be read: {limit}"])
     if _git_run(root, "cat-file", "-e", f"{commit}^{{commit}}").returncode != 0:
         raise IntegrityError([f"candidate source commit {commit[:12]} is not in this repository; fetch the full history"])
     ancestry = _git_run(root, "merge-base", "--is-ancestor", commit, "HEAD")
@@ -1098,13 +1098,16 @@ def check_session(record: er.Record, display: str, evidence_dir: Path | None, *,
                 transcript = name
             else:
                 ui_log = name
+    if prompt_sent is False and isinstance(repairs, int) and repairs > 0:
+        add(er.ERROR, line_of("Prompt sent"), f"Repair rounds is {repairs}, so the validator ran and the prompt was sent; "
+                                              'write "Prompt sent: yes".')
     if prompt_sent is False and transcript is not None and evidence_dir is not None:
         try:
-            said = er.confined_file(evidence_dir, transcript).read_bytes().decode("utf-8", "replace")
-            prompt = er.confined_file(evidence_dir, PROMPT_FILE).read_bytes().decode("utf-8", "replace")
+            said = er.confined_file(evidence_dir, transcript).read_bytes()
+            prompt = er.confined_file(evidence_dir, PROMPT_FILE).read_bytes()
         except ValueError:
-            said = prompt = ""
-        if prompt.strip() and " ".join(prompt.split()) in " ".join(said.split()):
+            said = prompt = b""
+        if _contains_prompt(said, prompt):
             add(er.ERROR, line_of("Prompt sent"), f'the transcript contains {PROMPT_FILE}, so the prompt was sent; write '
                                                   '"Prompt sent: yes".')
     deviations = record.section("Deviations")
@@ -1130,6 +1133,73 @@ def check_session(record: er.Record, display: str, evidence_dir: Path | None, *,
     problems.sort(key=lambda p: p.line)
     ok = status is not None and not any(p.level == er.ERROR for p in problems)
     return SessionResult(problems, block if ok else None, transcript, ui_log)
+
+
+def _contains_prompt(said: bytes, prompt: bytes) -> bool:
+    """Whether a transcript contains PROMPT.txt (whitespace-normalised)."""
+    text = prompt.decode("utf-8", "replace")
+    return bool(text.strip()) and " ".join(text.split()) in " ".join(said.decode("utf-8", "replace").split())
+
+
+OUTPUT_SUFFIXES = (".mlview.json", ".draft.json")
+SKILL_PREFIXES = (".agents/skills/mlview/", ".claude/skills/mlview/", ".github/skills/mlview/", ".mlview/")
+
+
+def _outputs_added(before: dict, after: dict) -> list[str]:
+    """Workspace paths that only the skill writes after the prompt (a draft or a published artifact),
+    added since run-prepare. Host settings files and the installed skill never count."""
+    return sorted(rel for rel in after if rel not in before and rel.casefold().endswith(OUTPUT_SUFFIXES)
+                  and not rel.casefold().startswith(SKILL_PREFIXES))
+
+
+def _sealed_json(evidence: Path, entry: object) -> object | None:
+    """The JSON of a sealed evidence entry whose bytes still match its hash, else None."""
+    if not isinstance(entry, dict) or not isinstance(entry.get("file"), str):
+        return None
+    try:
+        data = er.confined_file(evidence, entry["file"]).read_bytes()
+    except ValueError:
+        return None
+    if er.sha256_bytes(data) != entry.get("sha256"):
+        return None
+    try:
+        return _json_loads(data, entry["file"])
+    except ValueError:
+        return None
+
+
+def _sent_evidence(seal: dict, evidence: Path | None) -> str | None:
+    """Sealed facts showing that the prompt reached the host, whatever the session says: a captured
+    artifact, repair rounds, a sealed transcript that contains PROMPT.txt, or a draft or artifact the
+    skill wrote in the workspace. Changed project files and host files are not proof: a host may
+    write files when it starts, before any prompt."""
+    session = seal.get("session") if isinstance(seal.get("session"), dict) else {}
+    sealed = seal.get("evidence") if isinstance(seal.get("evidence"), dict) else {}
+    for key in ("artifact", "partialArtifact"):
+        entry = sealed.get(key)
+        if isinstance(entry, dict):
+            return f"it captured the published artifact ({entry.get('file')})"
+    rounds = session.get("repairRounds")
+    if _is_int(rounds) and rounds > 0:
+        return f"its session reports {rounds} repair round(s)"
+    if evidence is None:
+        return None
+    transcript = sealed.get("transcript")
+    if isinstance(transcript, dict) and isinstance(transcript.get("file"), str):
+        try:
+            said = er.confined_file(evidence, transcript["file"]).read_bytes()
+            prompt = er.confined_file(evidence, PROMPT_FILE).read_bytes()
+        except ValueError:
+            said = prompt = b""
+        if er.sha256_bytes(said) == transcript.get("sha256") and _contains_prompt(said, prompt):
+            return f"its sealed transcript contains {PROMPT_FILE}"
+    workspace = seal.get("workspace") if isinstance(seal.get("workspace"), dict) else {}
+    before, after = (_sealed_json(evidence, workspace.get(key)) for key in ("before", "after"))
+    if isinstance(before, dict) and isinstance(after, dict):
+        outputs = _outputs_added(before, after)
+        if outputs:
+            return f"the skill wrote {outputs[0]} in its workspace"
+    return None
 
 
 def _split_reason(value: str) -> tuple[str, list[str], str | None]:
@@ -1205,6 +1275,18 @@ def _stage1_matches(root: Path, campaign: Campaign, pilot_value: str | None, com
     if _stage1_inputs(recomputed, planned) != _stage1_inputs(committed, planned):
         return ("the committed Stage 1 summary does not match the sealed Stage 1 records and reviews "
                 "(a record, review or amendment differs)")
+    if committed.get("tooling") == recomputed.get("tooling"):
+        # Recorded with these tools: every reported field must be the re-computation, and the
+        # Markdown must be rendered from the JSON (section 4.7), so neither can hide a retry or a failure.
+        fresh, recorded = _comparable(recomputed, planned), _comparable(committed, planned)
+        differing = sorted(key for key in set(fresh) | set(recorded) if fresh.get(key) != recorded.get(key))
+        if differing:
+            return (f"the committed Stage 1 summary differs from a re-computation from the sealed evidence in "
+                    f"{', '.join(differing)} (a recorded summary is written only by summarize --record)")
+        markdown = _show_at_head(root, f"{PILOT_REL}/{campaign.name}/stage1-summary.md")
+        if markdown is None or markdown != render_markdown(committed).encode("utf-8"):
+            return ("the committed stage1-summary.md is not the Markdown rendered from stage1-summary.json "
+                    "(a recorded summary is written only by summarize --record)")
     generated = _parse_time(committed.get("generatedAt"))
     evidence_root = _pilot_dir(pilot_value) / "evidence"
     for run_id, *_rest in _stage1_inputs(recomputed, planned):
@@ -1219,6 +1301,21 @@ def _stage1_matches(root: Path, campaign: Campaign, pilot_value: str | None, com
             return (f"the committed Stage 1 summary was generated before {run_id} was sealed or amended; "
                     "summarize Stage 1 again")
     return None
+
+
+def _comparable(summary: dict, planned: dict[str, dict]) -> dict:
+    """A summary without what legitimately differs between its recording and a later re-computation:
+    generatedAt, tooling, the environment's verification notes, and inputs of runs outside Stage 1."""
+    value = json.loads(er.canonical_json(summary))
+    value.pop("generatedAt", None)
+    value.pop("tooling", None)
+    if isinstance(value.get("verification"), dict):
+        value["verification"].pop("notes", None)
+    inputs = value.get("inputs")
+    if isinstance(inputs, dict) and isinstance(inputs.get("runs"), list):
+        inputs["runs"] = [item for item in inputs["runs"] if isinstance(item, dict)
+                          and (planned.get(item.get("id")) or {}).get("stage") == 1]
+    return value
 
 
 def _adjudication_check(root: Path, raw: bytes):
@@ -1267,10 +1364,11 @@ def _attempt_chain(evidence: Path, record: dict) -> list[dict]:
     return chain + [record]
 
 
-def _prompt_sent(chain: list[dict]) -> str | None:
+def _prompt_sent(chain: list[dict], evidence: Path | None = None) -> str | None:
     """Why an attempt counts as having sent the prompt, so a retry may not replace it (any seal that
-    timed out, failed after the prompt, or says "Prompt sent: yes"), or None when the last seal says
-    "Prompt sent: no" and no seal contradicts it."""
+    timed out, failed after the prompt, says "Prompt sent: yes", or holds sealed evidence that the
+    prompt reached the host; see _sent_evidence), or None when the last seal says "Prompt sent: no"
+    and no seal contradicts it. ``evidence`` is the attempt's evidence directory."""
     for seal in chain:
         session = seal.get("session") if isinstance(seal.get("session"), dict) else {}
         failure = session.get("failure") if isinstance(session.get("failure"), dict) else {}
@@ -1280,38 +1378,49 @@ def _prompt_sent(chain: list[dict]) -> str | None:
             return f"it failed with {failure['kind']}"
         if session.get("promptSent") is True:
             return 'its session says "Prompt sent: yes"'
+        why = _sent_evidence(seal, evidence)
+        if why is not None:
+            return why
     last = chain[-1].get("session") if isinstance(chain[-1].get("session"), dict) else {}
     return None if last.get("promptSent") is False else NOT_STATED
 
 
 def _stage1_history(root: Path, campaign: Campaign) -> str | None:
-    """A recorded Stage 1 summary is final: the committed stage1-summary.json must be the bytes that
-    first added it, and it must have been added only once (not removed and recorded again)."""
+    """A recorded Stage 1 summary is final: in the history reachable from HEAD, merges included,
+    stage1-summary.json has exactly one content, and HEAD holds it."""
     rel = f"{PILOT_REL}/{campaign.name}/stage1-summary.json"
-    added = _added_commits(root, rel)
-    if added is None:
-        return "the Git history of stage1-summary.json cannot be read (a shallow clone? git fetch --unshallow)"
-    if len(added) > 1:
-        return (f"stage1-summary.json was added in {len(added)} commits: a recorded summary was removed and recorded "
-                "again (a recorded summary is final)")
-    if added:
-        try:
-            first = er.git_show(root, added[0], rel)
-        except ValueError:
-            first = None
-        if first is None or _show_at_head(root, rel) != first:
-            return (f"the committed stage1-summary.json differs from the version first committed in {added[0][:12]} "
-                    "(a recorded summary is final)")
+    versions = _path_versions(root, rel)
+    if versions is None:
+        return ("the Git history of stage1-summary.json cannot be read (a shallow or partial clone? git fetch "
+                "--unshallow, or clone without --filter)")
+    head = _git_text(root, "rev-parse", "--verify", "--quiet", f"HEAD:{rel}")
+    if versions.first is None:
+        return None if not head else ("stage1-summary.json is committed, but the Git history lists no commit that "
+                                      "recorded it (a recorded summary is final)")
+    blob, first = versions.first
+    if head and head != blob:
+        return (f"the committed stage1-summary.json differs from the version first committed in {first[:12]} "
+                "(a recorded summary is final)")
+    if len(versions.versions) > 1:
+        return (f"stage1-summary.json was committed with {len(versions.versions)} different contents "
+                f"({', '.join(commit[:12] for commit in versions.versions.values())}), for example through a merge of "
+                "two branches that both recorded it (a recorded summary is final; the owner records invalidation.md "
+                "and a new campaign supersedes this one)")
     return None
 
 
-def _added_commits(root: Path, rel: str) -> list[str] | None:
-    """The commits that added ``rel``, newest first, or None when the history cannot say (a shallow
-    clone, whose missing commits could hide an earlier version, or no readable Git history)."""
-    if _git_text(root, "rev-parse", "--is-shallow-repository") == "true":
+def _path_versions(root: Path, rel: str) -> er.PathHistory | None:
+    """Every version ``rel`` had in the history reachable from HEAD (eval_records.path_history), or
+    None when the history cannot say (a shallow or partial clone, whose missing commits or objects
+    could hide an earlier version, or a history Git cannot read)."""
+    if er.history_limit(root) is not None:
         return None
-    text = _git_text(root, "log", "--format=%H", "--no-renames", "--diff-filter=A", "--", rel)
-    return None if text is None else text.split()
+    if _head(root) is None:
+        return er.PathHistory({}, [])
+    try:
+        return er.path_history(root, rel)
+    except ValueError:
+        return None
 
 
 def _workspace_name(directory: str, attempt: int) -> str:
@@ -1385,11 +1494,14 @@ def run_prepare(root: Path, run_id: str, name: str, pilot_value: str | None, out
     evidence = evidence_root / directory
     earlier = evidence_root / f"{directory}.attempt-{len(previous)}"
     retry_command = f'python tools/workflow_eval.py run-prepare {run_id} --campaign {name} --retry "<reason>"'
+    allowed = campaign.retries
+    retries_text = f"the run policy allows {allowed} infrastructure retr{'y' if allowed == 1 else 'ies'}"
     if retry is None and previous:
         raise PilotError(f"{run_id} was already prepared ({len(previous)} attempt(s), the last at "
                          f"{previous[-1].get('preparedAt')}); every attempt is prepared once and its evidence is kept. "
-                         f'Only a sealed failed or blocked attempt whose session says "Prompt sent: no" may be '
-                         f"retried, with: {retry_command}")
+                         + (f'Only a sealed failed or blocked attempt whose session says "Prompt sent: no" may be '
+                            f"retried ({retries_text}), with: {retry_command}" if len(previous) <= allowed
+                            else f"{retries_text}, so attempt {len(previous)} is kept and counted"))
     if retry is not None:
         if not retry.strip():
             raise PilotError("--retry needs a reason")
@@ -1411,12 +1523,15 @@ def run_prepare(root: Path, run_id: str, name: str, pilot_value: str | None, out
             raise PilotError(f"attempt {len(previous)} of {run_id} completed"
                              + ("" if _seal_status(chain[-1]) == "completed" else " before it was amended")
                              + "; a completed run is never retried")
-        why = _prompt_sent(chain)
+        why = _prompt_sent(chain, evidence)
         if why is not None:
             hint = ("" if why != NOT_STATED else ' If the prompt never reached the host, write "Prompt sent: no" in '
                     f'session.md and run: python tools/workflow_eval.py run-finish {run_id} --campaign {name} --amend '
                     '"<reason>".')
             raise PilotError(f"attempt {len(previous)} of {run_id} cannot be retried: {why}; {RETRY_RULE}.{hint}")
+        if len(previous) > allowed:
+            raise PilotError(f"{retries_text}; attempt {len(previous)} of {run_id} is kept and counted (a retry "
+                             "beyond the policy would make the run invalid)")
         if os.path.lexists(workspaces / _workspace_name(directory, len(previous))):
             raise PilotError(f"the workspace of attempt {len(previous)} still exists; remove it before a retry")
         if os.path.lexists(earlier):
@@ -1636,6 +1751,16 @@ def _finish_problems(evidence: Path, finish: object, status: str, session_sha: s
     return problems
 
 
+def _unsent_contradiction(workspace: Path, evidence: Path, campaign: Campaign) -> str | None:
+    """What in the workspace shows that the prompt reached the host: the published artifact, or a
+    draft or artifact the skill wrote (see _outputs_added)."""
+    if (workspace / campaign.artifact_path).is_file():
+        return f"{campaign.artifact_path} was published in the workspace"
+    prepared = _json_loads(er.confined_file(evidence, BEFORE_FILE).read_bytes(), BEFORE_FILE)
+    outputs = _outputs_added(prepared if isinstance(prepared, dict) else {}, _workspace_hashes(workspace))
+    return f"the skill wrote {outputs[0]} in the workspace" if outputs else None
+
+
 def run_finish(root: Path, run_id: str, name: str, pilot_value: str | None, amend: str | None,
                out: Callable[[str], None] = print) -> int:
     root = Path(root)
@@ -1686,6 +1811,11 @@ def run_finish(root: Path, run_id: str, name: str, pilot_value: str | None, amen
     if workspace.is_symlink():
         raise PilotError(f"{workspace} is a symbolic link; refusing to read or remove it")
     if workspace.is_dir():
+        if session.block["promptSent"] is False:  # checked before anything is written or removed
+            what = _unsent_contradiction(workspace, evidence, campaign)
+            if what:
+                raise PilotError(f'{what}, so the prompt reached the host; write "Prompt sent: yes" in session.md and '
+                                 "run run-finish again (a failure after the prompt was sent is kept and counted)")
         written: dict[str, str] = {}
         if skill:
             source = workspace / campaign.artifact_path
@@ -1825,6 +1955,17 @@ def _amend(campaign: Campaign, run: dict, evidence: Path, session: SessionResult
         record["evidence"]["partialArtifact"] = None if status == "completed" else published
     record["evidence"]["transcript"] = _file_entry(evidence, session.transcript) if session.transcript else None
     record["evidence"]["uiLog"] = _file_entry(evidence, session.ui_log) if (skill and session.ui_log) else None
+    sealed_transcript = previous["evidence"].get("transcript")
+    if sealed_transcript is not None and record["evidence"]["transcript"] != sealed_transcript:
+        raise PilotError(f"the transcript sealed earlier ({sealed_transcript.get('file')}, sha256 "
+                         f"{str(sealed_transcript.get('sha256'))[:12]}...) is evidence and is kept: leave the file "
+                         f'unchanged and name it in session.md ("Transcript: {sealed_transcript.get("file")}")')
+    if session.block["promptSent"] is False:
+        for seal in _attempt_chain(evidence, previous) + [record]:
+            why = _sent_evidence(seal, evidence)
+            if why is not None:
+                raise PilotError(f'this attempt cannot say "Prompt sent: no": {why}, so the prompt reached the host; '
+                                 'write "Prompt sent: yes" (a failure after the prompt was sent is kept and counted)')
     number = len(previous.get("amendments") or []) + 1
     _write_or_same(evidence / PREVIOUS_RECORD.format(n=number), previous_bytes)
     record["amendments"] = list(previous.get("amendments") or []) + [
@@ -2872,17 +3013,41 @@ def _early_stop(runs: list[dict], targets: list[dict]) -> list[str]:
     anchors = by_key["exactAnchors"]
     if anchors["threshold"] >= 1 and anchors["numerator"] < anchors["denominator"]:
         indicators.append(f"T2: {anchors['denominator'] - anchors['numerator']} inexact anchor(s) already recorded")
+
+    def open_total(total_key: str, host: str | None = None) -> int:
+        return sum(r[total_key] for r in runs if not r["reviewed"] and (host is None or r["host"] == host) and (
+            r["status"] == "pending" or (r["status"] == "completed" and r["reviewStatus"] != "not-applicable")))
+
     for key in ("essentialFactRecall", "knownUnresolvedQualified"):
         target = by_key[key]
         total_key = "ESS" if key == "essentialFactRecall" else "UNK"
-        open_total = sum(r[total_key] for r in runs if not r["reviewed"] and (
-            r["status"] == "pending" or (r["status"] == "completed" and r["reviewStatus"] != "not-applicable")))
-        if target["denominator"] and not _met(target["numerator"] + open_total, target["denominator"], target["threshold"], ">="):
-            indicators.append(f"{target['id']}: at most {target['numerator'] + open_total}/{target['denominator']} can still be reached")
+        reachable = target["numerator"] + open_total(total_key)
+        if target["denominator"] and not _met(reachable, target["denominator"], target["threshold"], ">="):
+            indicators.append(f"{target['id']}: at most {reachable}/{target['denominator']} can still be reached")
+        for host, item in sorted((target.get("perHost") or {}).items()):  # per-host targets (T4 only)
+            reachable = item["numerator"] + open_total(total_key, host)
+            if item["denominator"] and not _met(reachable, item["denominator"], target["threshold"], ">="):
+                indicators.append(f"{target['id']} ({host}): at most {reachable}/{item['denominator']} can still be "
+                                  "reached")
     fa = by_key["highSeverityFalseAccusations"]
     if fa["numerator"] > fa["threshold"]:
         indicators.append(f"T6: {fa['numerator']} high-severity false accusation(s) already recorded")
     return indicators
+
+
+def _missed_reason(target: dict) -> str:
+    """The stop reason of a missed >= target: the pooled fraction, and with per-host targets each host
+    that misses it (a pooled fraction that meets the threshold is said to meet it)."""
+    shown = f"{target['numerator']}/{target['denominator']}"
+    needs = f"needs >= {target['threshold']:g}"
+    failing = [f"{host} {item['numerator']}/{item['denominator']}"
+               for host, item in sorted((target.get("perHost") or {}).items()) if not item["met"]]
+    head = f"{target['id']} {target['key']}: "
+    if not failing:
+        return head + f"{shown} ({needs})"
+    if _met(target["numerator"], target["denominator"], target["threshold"], ">="):
+        return head + f"pooled {shown} meets it; within host {', '.join(failing)} ({needs})"
+    return head + f"pooled {shown} ({needs}); within host {', '.join(failing)}"
 
 
 def _pct(numerator: int, denominator: int) -> str:
@@ -2913,7 +3078,7 @@ def _run_entry(state: RunState, campaign: Campaign) -> dict:
         "promptInTranscript": state.prompt_in_transcript, "warnings": list(state.warnings),
         "amendments": [{"at": a["at"], "reason": a["reason"]} for a in record.get("amendments") or []],
         "priorAttempts": len(state.earlier),
-        "attempts": [{key: item[key] for key in ("attempt", "status", "failure", "promptSent", "statuses")}
+        "attempts": [{key: item[key] for key in ("attempt", "status", "failure", "promptSent", "sentBecause", "statuses")}
                      for item in state.earlier],
     }
 
@@ -3020,10 +3185,11 @@ def _attempt_problems(pilot_dir: Path, planned: dict[str, dict], states: dict[st
             if verified:
                 continue
             chain = _attempt_chain(path, old)
+            why = None
             if any(_seal_status(seal) == "completed" for seal in chain):
                 state.earlier_completed.append(number)
             else:
-                why = _prompt_sent(chain)
+                why = _prompt_sent(chain, path)
                 if why is not None:
                     state.earlier_sent.append((number, why))
             review = None
@@ -3035,7 +3201,8 @@ def _attempt_problems(pilot_dir: Path, planned: dict[str, dict], states: dict[st
                     continue
             state.earlier.append({
                 "attempt": number, "status": old_session.get("status"), "failure": old_session.get("failure"),
-                "promptSent": old_session.get("promptSent"), "statuses": [_seal_status(seal) for seal in chain],
+                "promptSent": old_session.get("promptSent"), "sentBecause": why,
+                "statuses": [_seal_status(seal) for seal in chain],
                 "record": er.sha256_bytes(raw), "review": review,
                 "amendments": [a["previous"] for a in old.get("amendments") or []]})
     return problems
@@ -3162,9 +3329,7 @@ def summarize(root: Path, name: str, stage: str, pilot_value: str | None) -> dic
             if target["comparator"] == "<=":
                 reasons.append(f"{target['id']} {target['key']}: {target['numerator']} (needs <= {target['threshold']:g})")
             else:
-                shown = f"{target['numerator']}/{target['denominator']}"
-                reasons.append(f"{target['id']} {target['key']}: {shown} (needs >= {target['threshold']:g})"
-                               + ("" if not target.get("perHost") else " pooled or within a host"))
+                reasons.append(_missed_reason(target))
         if value == "go":
             reasons.append(GO_TEXT)
     early = _early_stop(stage_runs, targets) if value == "incomplete" else []
@@ -3194,13 +3359,9 @@ def summarize(root: Path, name: str, stage: str, pilot_value: str | None) -> dic
         if run["status"] != "pending":
             failure_runs.append({"id": run["id"], "status": run["status"], "failure": kind,
                                  "detail": (run["failure"] or {}).get("detail"), "invalidReasons": run["invalidReasons"]})
-    replaced = [{"id": run["id"], "attempt": item["attempt"], "status": item["status"],
-                 "failure": (item["failure"] or {}).get("kind"), "detail": (item["failure"] or {}).get("detail"),
-                 "promptSent": item["promptSent"]}
-                for run in stage_runs for item in run["attempts"]]
     failures = {"counts": [{"status": k[0], "failure": k[1], "host": k[2], "task": k[3], "runs": n}
                            for k, n in sorted(failure_rows.items())],
-                "runs": failure_runs, "earlierAttempts": replaced}
+                "runs": failure_runs, "earlierAttempts": _replaced(stage_runs)}
     baselines = _baselines(baseline_runs, entries, campaign) if campaign.baselines_planned else None
     disputed = _disputed_essential(campaign, task_ids)
     denominator_disputes = _disputed_items(campaign, task_ids)
@@ -3241,6 +3402,14 @@ def summarize(root: Path, name: str, stage: str, pilot_value: str | None) -> dic
     }
 
 
+def _replaced(runs: list[dict]) -> list[dict]:
+    """Every earlier attempt of ``runs`` (kept and replaced by a retry), for the failures lists."""
+    return [{"id": run["id"], "attempt": item["attempt"], "status": item["status"],
+             "failure": (item["failure"] or {}).get("kind"), "detail": (item["failure"] or {}).get("detail"),
+             "promptSent": item["promptSent"], "sentBecause": item["sentBecause"]}
+            for run in runs for item in run["attempts"]]
+
+
 def _unreviewed(entry: dict) -> bool:
     """A completed run whose review is missing, incomplete or has problems (so its zeros mean nothing yet)."""
     return entry["status"] == "completed" and entry["reviewStatus"] in ("missing", "incomplete", "problems")
@@ -3264,8 +3433,8 @@ def _baselines(baseline_runs: list[dict], entries: dict[str, dict], campaign: Ca
                     "precision": _ratio(*prec) if entry["reviewed"] else None}
 
         skill_side, base_side = side(skill), side(run)
-        difference = None
-        if run["ESS"] and not _unreviewed(skill) and not _unreviewed(run):
+        difference = None  # a pending or unreviewed side has no meaningful zeros yet
+        if run["ESS"] and not any(_unreviewed(entry) or entry["status"] == "pending" for entry in (skill, run)):
             difference = (skill["ess"] - run["ess"]) / run["ESS"]
         paired.append({"task": run["task"], "host": run["host"], "skill": skill_side, "baseline": base_side,
                        "recallDifference": difference})
@@ -3275,8 +3444,11 @@ def _baselines(baseline_runs: list[dict], entries: dict[str, dict], campaign: Ca
     return {"planned": len(baseline_runs), "completed": len(completed), "reviewed": len(reviewed),
             "pending": pending, "unreviewed": unreviewed, "reviewProblems": problems,
             "complete": not (pending or unreviewed or problems),
-            "runs": [{"id": r["id"], "status": r["status"], "reviewStatus": r["reviewStatus"],
-                      "reviewProblems": r["reviewProblemCount"]} for r in baseline_runs],
+            "runs": [{"id": r["id"], "status": r["status"], "failure": r["failure"], "invalidReasons": r["invalidReasons"],
+                      "warnings": r["warnings"], "reviewStatus": r["reviewStatus"],
+                      "reviewProblems": r["reviewProblemCount"], "priorAttempts": r["priorAttempts"],
+                      "attempts": r["attempts"]} for r in baseline_runs],
+            "earlierAttempts": _replaced(baseline_runs),
             "precision": _ratio(*precision),
             "recall": _ratio(sum(r["ess"] for r in baseline_runs), sum(r["ESS"] for r in baseline_runs)),
             "unknowns": _ratio(sum(r["unk"] for r in baseline_runs), sum(r["UNK"] for r in baseline_runs)),
@@ -3285,7 +3457,8 @@ def _baselines(baseline_runs: list[dict], entries: dict[str, dict], campaign: Ca
                               "mean": (sum(minutes) / len(minutes)) if minutes else None},
             "paired": paired,
             "note": "Baselines are never part of the gate; the paired table compares skill repeat 1 with the no-skill "
-                    "session, and a completed run that is not yet reviewed shows as unreviewed, with no difference."}
+                    "session, and a pending run, or a completed run that is not yet reviewed (shown as unreviewed), "
+                    "has no difference."}
 
 
 def _disputed_essential(campaign: Campaign, task_ids: list[str]) -> list[dict]:
@@ -3360,6 +3533,28 @@ def _needed(target: dict) -> str:
     return "100%" if target["threshold"] >= 1 else f"≥{100 * target['threshold']:g}%"
 
 
+def _failures_line(title: str, failures: list[dict]) -> str | None:
+    if not failures:
+        return None
+    return f"{title}: " + "; ".join(
+        f"{item['id']} — {item['status']}"
+        + (f" ({item['failure']}" + (f": {item['detail']}" if item.get("detail") else "") + ")" if item.get("failure") else "")
+        + (f" [{'; '.join(item['invalidReasons'])}]" if item["invalidReasons"] else "")
+        for item in failures) + "."
+
+
+def _attempts_line(replaced: list[dict], title: str = "Earlier attempts") -> str | None:
+    if not replaced:
+        return None
+    return f"{title}, kept and replaced by a retry: " + "; ".join(
+        f"{item['id']} attempt {item['attempt']} — {item['status']}"
+        + (f" ({item['failure']}" + (f": {item['detail']}" if item.get("detail") else "") + ")" if item.get("failure")
+           else "")
+        + ("; counted as sent: " + item["sentBecause"] if item.get("sentBecause")
+           else "; prompt never sent" if item.get("promptSent") is False else "")
+        for item in replaced) + "."
+
+
 def render_markdown(summary: dict) -> str:
     """The Markdown summary; every value comes from the summary JSON."""
     stage_title = "Stage 1 summary" if summary["stage"] == "1" else "all-stage summary"
@@ -3393,22 +3588,10 @@ def render_markdown(summary: dict) -> str:
               + "; ".join(f"{item['id']} {_fmt_ratio(item)}" for item in summary["secondary"]) + "."]
     failures = summary["failures"]["runs"]
     lines.append("")
-    if failures:
-        lines.append("Failures: " + "; ".join(
-            f"{item['id']} — {item['status']}"
-            + (f" ({item['failure']}" + (f": {item['detail']}" if item.get("detail") else "") + ")" if item.get("failure") else "")
-            + (f" [{'; '.join(item['invalidReasons'])}]" if item["invalidReasons"] else "")
-            for item in failures) + ".")
-    else:
-        lines.append("Failures: none.")
-    replaced = summary["failures"].get("earlierAttempts") or []
+    lines.append(_failures_line("Failures", failures) or "Failures: none.")
+    replaced = _attempts_line(summary["failures"].get("earlierAttempts") or [])
     if replaced:
-        lines.append("Earlier attempts, kept and replaced by a retry: " + "; ".join(
-            f"{item['id']} attempt {item['attempt']} — {item['status']}"
-            + (f" ({item['failure']}" + (f": {item['detail']}" if item.get("detail") else "") + ")" if item.get("failure")
-               else "")
-            + ("; prompt never sent" if item.get("promptSent") is False else "")
-            for item in replaced) + ".")
+        lines.append(replaced)
     for title, groups in (("Per host", summary["perHost"]), ("Per task", summary["perTask"])):
         lines += ["", f"## {title}", "", "| | Runs | Valid | Anchors | Precision | Recall | Unknowns | High FA |",
                   "|---|---|---|---|---|---|---|---|"]
@@ -3439,8 +3622,15 @@ def render_markdown(summary: dict) -> str:
                   + (f" Pending: {', '.join(baselines['pending'])}." if baselines.get("pending") else "")
                   + (f" Unreviewed: {', '.join(baselines['unreviewed'])}." if baselines.get("unreviewed") else "")
                   + (f" Review problems: {', '.join(baselines['reviewProblems'])}." if baselines.get("reviewProblems")
-                     else ""),
-                  "", "| Task | Host | Skill recall | No-skill recall | Difference |", "|---|---|---|---|---|"]
+                     else "")]
+        baseline_failures = [{"id": run["id"], "status": run["status"], "failure": (run.get("failure") or {}).get("kind"),
+                              "detail": (run.get("failure") or {}).get("detail"),
+                              "invalidReasons": run.get("invalidReasons") or []}
+                             for run in baselines["runs"] if run["status"] not in ("completed", "pending")]
+        extra = [_failures_line("Baseline failures", baseline_failures),
+                 _attempts_line(baselines.get("earlierAttempts") or [], "Baseline earlier attempts")]
+        lines += [line for line in extra if line]
+        lines += ["", "| Task | Host | Skill recall | No-skill recall | Difference |", "|---|---|---|---|---|"]
         for row in baselines["paired"]:
             difference = "n/a" if row["recallDifference"] is None else f"{100 * row['recallDifference']:+.1f} pts"
             lines.append(f"| {row['task']} | {row['host']} | {row['skill']['ess']}/{row['skill']['ESS']} ({row['skill']['status']}) | "
@@ -3489,13 +3679,14 @@ def record_summary(root: Path, summary: dict) -> tuple[Path, Path]:
     for path in (json_path, md_path):
         if os.path.lexists(path):
             raise PilotError(f"{path.name} already exists; recorded summaries are never overwritten")
-        added = _added_commits(root, f"{PILOT_REL}/{summary['campaign']}/{path.name}")
-        if added is None:
-            raise PilotError(f"cannot tell from the Git history whether {path.name} was recorded before (a shallow "
-                             "clone or no readable history; git fetch --unshallow)")
-        if added:
-            raise PilotError(f"{path.name} was committed in {added[-1][:12]} and removed since; a recorded summary is "
-                             f"final and is never recorded again (restore it with git checkout {added[-1][:12]} -- "
+        versions = _path_versions(root, f"{PILOT_REL}/{summary['campaign']}/{path.name}")
+        if versions is None:
+            raise PilotError(f"cannot tell from the Git history whether {path.name} was recorded before (a shallow or "
+                             "partial clone, or no readable history; git fetch --unshallow, or clone without --filter)")
+        if versions.committed:
+            first = versions.first[1] if versions.first else versions.removals[0]
+            raise PilotError(f"{path.name} was committed in {first[:12]} and removed since; a recorded summary is "
+                             f"final and is never recorded again (restore it with git checkout {first[:12]} -- "
                              f"{PILOT_REL}/{summary['campaign']}/{path.name}; a changed decision needs the owner's "
                              "invalidation.md and a new campaign)")
     er.write_exclusive(json_path, json_bytes)
@@ -3527,8 +3718,9 @@ def build_parser() -> argparse.ArgumentParser:
         if command == "run-prepare":
             item.add_argument("--retry", metavar="REASON",
                               help='prepare a new attempt after a sealed failed or blocked one whose session says '
-                                   '"Prompt sent: no" (a failure after the prompt was sent is never replaced); the '
-                                   "earlier attempt's evidence is kept as <run>.attempt-<n>")
+                                   '"Prompt sent: no" (a failure after the prompt was sent is never replaced), up to the '
+                                   "run policy's infrastructure retries; the earlier attempt's evidence is kept as "
+                                   "<run>.attempt-<n>")
     summary = sub.add_parser("summarize", help="verify sealed runs and compute the stage summary against the targets")
     summary.add_argument("--campaign", required=True)
     summary.add_argument("--stage", choices=("1", "all"), required=True)

@@ -592,6 +592,24 @@ def _check_skill_payload(root: Path) -> dict[str, bytes]:
     return payload
 
 
+def _require_first_capture(root: Path, campaign: str) -> None:
+    """A campaign has one candidate: refuse when the history reachable from HEAD (merges included)
+    ever recorded its candidate.json, and refuse a shallow or partial clone, which cannot tell."""
+    limit = er.history_limit(root)
+    if limit is not None:
+        raise CaptureError(f"cannot tell from the Git history whether {campaign} was captured before: {limit}")
+    rel = candidate_path(campaign)
+    try:
+        versions = er.path_history(root, rel)
+    except ValueError as exc:
+        raise CaptureError(f"cannot read the Git history of {rel} ({exc})") from None
+    if versions.committed:
+        first = versions.first[1] if versions.first else versions.removals[0]
+        raise CaptureError(f"{rel} was committed in {first[:12]}; a campaign has one candidate and a removed candidate "
+                           f"is never captured again. Restore it (git checkout {first[:12]} -- {rel}), or the owner "
+                           f"records {PILOT_REL}/{campaign}/invalidation.md and a new campaign is frozen")
+
+
 def capture_pilot(campaign: str, pilot_dir: Path | None, root: Path = ROOT, *,
                   package: Callable[[Path, Path], None] | None = None,
                   check_frozen: Callable[[Path], None] | None = None) -> tuple[Path, dict]:
@@ -621,6 +639,7 @@ def capture_pilot(campaign: str, pilot_dir: Path | None, root: Path = ROOT, *,
     if leftovers:
         raise CaptureError(f"{PILOT_REL}/{campaign} already holds {', '.join(leftovers)}; summaries and invalidations "
                            "follow a capture, so this campaign cannot be captured. Freeze a new campaign instead")
+    _require_first_capture(root, campaign)
     (check_frozen or run_check_frozen)(root)
     package_json = _read_json(root, EXTENSION_PACKAGE)
     version = package_json.get("version") if isinstance(package_json, dict) else None
@@ -710,6 +729,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Wrote {rel} (candidateSha256 {er.sha256_file(target)}).")
         print(f"VSIX: {record['vsix']['file']} in MLVIEW_PILOT_DIR (install this file for every run).")
         print(f"Next: commit {rel}. This record identifies bytes; it is not an approval.")
+        print(f"Merge it into main with a merge commit or a fast-forward, never a squash or rebase merge, and keep "
+              f"source.commit reachable (for example git tag {args.campaign}-candidate "
+              f"{record['source']['commit'][:12]}; {PILOT_REL}/README.md, \"Merging a campaign\").")
         return 0
     if args.pilot_dir:
         parser.error("--pilot-dir applies only to the pilot capture")

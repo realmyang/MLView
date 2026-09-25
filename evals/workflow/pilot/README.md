@@ -22,7 +22,7 @@ runs and the stop/go computation.
 | `prompts/skill/<task>.txt`, `prompts/baseline/<task>.txt` | `freeze --write` | The 16 rendered prompts: UTF-8, LF, exactly one trailing newline. Each is what a host receives after its invocation. |
 | `freeze.json` | `freeze --write` | Format `mlview-freeze/1`: `frozenAt`, `referenceRevision`, any superseded campaign, the SHA-256 of every file above, of the decision files and of the candidate ledgers, the held-out projection of `tasks.json`, the repositories manifest hash and sparse lists, the development adjudication (or `null`) and the hashes of the freezing tools. |
 | `candidate.json` | `python tools/workflow_candidate.py --campaign <campaign> --build-vsix` | Candidate snapshot version 2, kind `pilot-candidate`, with `pilotApproved: false`. Its SHA-256 is the campaign identity that every run record and summary binds ([candidate protocol](../CANDIDATE_PROTOCOL.md)). |
-| `stage1-summary.json`, `stage1-summary.md` | `summarize --campaign <campaign> --stage 1 --record` | Format `mlview-pilot-summary/1`: the Stage 1 decision (`go`, `stop` or `invalid`), every target with numerator and denominator, breakdowns, caveats and input hashes. The Markdown is rendered only from the JSON. |
+| `stage1-summary.json`, `stage1-summary.md` | `summarize --campaign <campaign> --stage 1 --record` | Format `mlview-pilot-summary/1`: the Stage 1 decision (`go`, `stop` or `invalid`), every target with numerator and denominator, breakdowns, caveats and input hashes. Every earlier attempt of a skill run or a baseline is listed with its status, failure and, when the prompt counts as sent, why (`runs[].attempts`, `failures.earlierAttempts`, `baselines.runs[]`, `baselines.earlierAttempts`), and each baseline keeps its failure and invalid reasons. The Markdown is rendered only from the JSON. |
 | `stage2-summary.json`, `stage2-summary.md` | `summarize --campaign <campaign> --stage all --record` | The complete 72-run summary in the same format (`targets-met`, `targets-missed` or `invalid`). |
 | `invalidation.md` | the owner only | `# Invalidation: <campaign>` with `Reviewer:`, `Date:`, `Scope: stage1` or `campaign`, and `Reason:`. Tools never create it. |
 
@@ -37,10 +37,29 @@ campaign, its `freeze.json` and its `referenceRevision`. Commit
 `evals/workflow/decisions`, the campaign directory and `tasks.json` together.
 A later campaign may supersede this one only while this one was never
 captured (no `candidate.json` or stage summary now or anywhere in the Git
-history; deleting a committed candidate does not count), or after the owner
-has written its `invalidation.md`; the freeze then records the reason given
-with `--supersede-reason`. It refuses in a shallow clone, whose history could
-hide a deleted candidate.
+history, merged branches included; deleting a committed candidate does not
+count), or after the owner has written its `invalidation.md`; the freeze then
+records the reason given with `--supersede-reason`. A committed campaign is
+never erased: restoring the pre-freeze `tasks.json` does not make a new
+campaign possible, because the freeze refuses while the history holds a
+committed campaign that `tasks.json` does not name. Both refuse in a shallow
+or partial clone, whose history could hide a deleted candidate.
+
+## Merging a campaign
+
+The pilot tools bind evidence to Git history: `candidate.json` names its
+`source.commit`, which must stay an ancestor of `HEAD`, and `check-frozen`
+reads `tasksManifest.sha256` against the `tasks.json` committed with
+`freeze.json`. So commits that carry a campaign freeze (`freeze.json` with its
+`tasks.json`), a `candidate.json` or a stage summary reach main by a merge
+commit or a fast-forward, never a squash or rebase merge, which rewrites
+those commits (a squash can also combine the freeze with later `tasks.json`
+edits, which check-frozen then reports on main). Freezing and capturing
+directly on main also works. Keep the commit that `candidate.json` names
+reachable: keep its branch, or push a tag at it, for example
+`git tag pilot-01-candidate <source.commit>` and `git push origin
+pilot-01-candidate`. A pull request's CI tests the merge ref, which keeps the
+branch history, so it cannot catch a squash merge before it happens.
 
 ## Checks
 
@@ -60,21 +79,33 @@ campaign with a `candidate.json`, with or without a summary, `freeze.json` must
 be the one `candidate.json` identifies; the hash-only check also requires the
 candidate ledgers to keep their frozen bytes. For every campaign it
 also checks the fields the re-derivation copies: `supersedes` must name
-another frozen campaign (and every earlier campaign must be superseded) and
-`developmentAdjudication` must have its fixed shape. With the full Git
-history, `freeze.json` must equal the version first committed, and
+another frozen campaign (and every earlier campaign must be reached from the
+current one through `supersedes`) and `developmentAdjudication` must have its
+fixed shape. The history checks read every version a file ever had in the
+history reachable from `HEAD`, merges included (a version added, replaced or
+removed inside a merge, or on a branch merged later, counts). With the full
+Git history, `freeze.json` must equal the version first committed, and
 `tasksManifest.sha256` and the development adjudication hash must match the
 files committed with it (so commit the campaign, the decisions and
-`tasks.json` together, as the freeze says). A captured campaign that lost its
-committed `candidate.json`, a stage summary that was committed and is now
-missing, differs from its first committed version or was committed more than
-once (a recorded summary is final), and a superseded captured campaign without
-a usable `invalidation.md` fail the check. Without the full history (a shallow
-clone, such as a default CI checkout, or no Git) these history checks cannot
-run, and check-frozen prints a `not verified` line for each campaign that
-names them; the CI job that runs the evaluation tests fetches the full
-history. A decision file the current freeze did not include, such as a second
-review written after it, is named as added after the freeze.
+`tasks.json` together, as the freeze says). A campaign whose `freeze.json`,
+`candidate.json` or stage summary was ever committed and that is now missing
+fails the check, also when `tasks.json` has no `pilotFreeze`. `candidate.json`
+and each stage summary are final once committed: each must have exactly one
+content in the history and still hold it (a recorded summary is final; a
+removal later restored byte for byte changes nothing). Two branches that both
+recorded a summary and were merged leave two contents, which cannot be
+undone: the owner records `invalidation.md` and a new campaign supersedes this
+one, after which the finding is kept as a note. A superseded captured campaign
+without a usable `invalidation.md` also fails. When a summary names the
+running `tools/workflow_pilot.py` as its renderer, its Markdown must equal the
+rendering of its JSON; after a tool change that check is noted as not
+verified, so later tool changes cannot fail history. Without the full history
+(a shallow or partial clone, such as a default CI checkout, or no Git) these
+history checks cannot run, and check-frozen prints a `not verified` line for
+each campaign that names them; the Python CI jobs fetch the full history (the
+integration jobs' shallow checkouts only print those notes). A decision file
+the current freeze did not include, such as a second review written after it,
+is named as added after the freeze; removing it keeps the campaign.
 
 ## Private run evidence
 
@@ -92,12 +123,16 @@ replaced by `.`, for example `pilot-nanogpt.codex.1`:
 
 `$MLVIEW_PILOT_DIR/preparations.jsonl` gets one line per `run-prepare`
 attempt and is never rewritten. A retry (`run-prepare <run> --retry
-"<reason>"`) is allowed only if the prompt was never sent: only after a sealed
+"<reason>"`) is allowed only if the prompt was never sent, and only as many
+times as the run policy's infrastructure retries allow: only after a sealed
 `failed` or `blocked` attempt whose `session.md` says `Prompt sent: no`, never
-after a timeout, a failure after the prompt or a completed session. It keeps
-the earlier attempt as `evidence/<run>.attempt-<n>/`; `summarize` verifies
-each earlier attempt like a current record, requires the evidence, the
-attempts in `preparations.jsonl` and each session's `Prior attempts` to agree,
-and lists every earlier attempt in the summary.
+after a timeout, a failure after the prompt or a completed session, and never
+when sealed evidence shows the prompt reached the host (a captured artifact,
+repair rounds, a sealed transcript that contains `PROMPT.txt`, or a draft the
+skill wrote in the workspace). It keeps the earlier attempt as
+`evidence/<run>.attempt-<n>/`; `summarize` verifies each earlier attempt like
+a current record, requires the evidence, the attempts in `preparations.jsonl`
+and each session's `Prior attempts` to agree, and lists every earlier attempt
+in the summary, for skill runs and baselines alike.
 
 A hash identifies bytes; it does not supply human approval.

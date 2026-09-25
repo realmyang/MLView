@@ -8,6 +8,39 @@ Run `sh scripts/e2e.sh` with Python 3.10+ and Node 20.18.1+ on PATH. On Windows
 use `powershell -File scripts/e2e.ps1`. The [script guide](../scripts/README.md)
 explains each gate and explicit skip options.
 
+## Campaign 2 round 3 fixes — 2026-09-25
+
+The fixes for the 25 verified findings of the campaign's third review (see
+the "Round 3 review fixes" paragraph of the [changelog](../CHANGELOG.md))
+were checked before their commit on the `campaign2-pilot-readiness` branch,
+on top of `1325db8`, on the same macOS machine and virtualenv as below.
+**These are local automated checks only**. CI has not run on this branch.
+No Python 3.10 interpreter was available here; the system Python 3.9 parser
+read every changed Python file as a stand-in.
+
+- `MLVIEW_PYTHON="$PWD/.venv/bin/python" PATH="$PWD/.venv/bin:$PATH" PYTHONDONTWRITEBYTECODE=1 sh scripts/e2e.sh --skip-npm-install`:
+  **all 15 exercised gates passed**.
+  - Python helper, distribution and evaluation tests: **759 passed, 533
+    subtests passed**, none skipped.
+  - Viewer: **79 passed**. Extension: **250 passed**.
+  - The actual VSIX: 11 files, 155,593 bytes.
+- After a rebuild (viewer build, asset and skill sync, extension compile),
+  `git diff --exit-code` was clean over `webview/dist`,
+  `vscode-extension/media`, the extension's notices and
+  `claude-plugin/skills/mlview`.
+- `python tools/evidence_lock.py`: 95 files match the lock.
+  `git diff --name-status d99904f` over the immutable evidence paths printed
+  nothing.
+- The reviewers' reproduction tests for the merge, erased-campaign, merged
+  freeze and retry findings, kept outside the repository, were run against
+  the fixed tools: none reproduces any more (each of the 6 fails where the
+  defect used to let it pass).
+
+The history tests build synthetic Git repositories with merges, shallow and
+partial clones. Every decision, review, verdict and policy value in the new
+tests is synthetic. No native session, human review, reference freeze, corpus
+`--update-sparse` or pilot run occurred.
+
 ## Campaign 2 round 2 fixes — 2026-09-25
 
 The fixes for the 15 verified findings of the campaign's second review (see

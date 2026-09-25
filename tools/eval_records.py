@@ -21,10 +21,11 @@ The grammar of every human-authored file (Campaign 2 specification, section 1.3)
   ``## dev-gan / codex``) uses its normalised heading as its kind. Any other line that starts with
   ``#`` is an error. When it names a known section (``### Fact x`` or ``##Fact x``) that section
   still starts there. When it looks like a heading of an unknown section (two or more ``#``, or one
-  ``#`` before a few words starting with a section kind, such as ``# Facts x``) the following lines
-  are skipped until the next valid heading, so they are never attributed to the previous section.
-  Any other ``#`` line (``# reviewed on the train``) is a comment written in the wrong form: it is
-  reported under the enclosing section, which keeps its fields.
+  ``#`` before a section kind and at most one ID-like word, such as ``# Facts x``) the following
+  lines are skipped until the next valid heading, so they are never attributed to the previous
+  section, and the error says so. Any other ``#`` line (``# reviewed on the train``, ``# added the
+  randint detail``) is a comment written in the wrong form: it is reported under the enclosing
+  section, which keeps its fields.
 * Every other line is ``Key: value``. Fixed keys are matched case-insensitively and stored under
   their canonical spelling. In a section with free keys (item IDs, artifact pointers, dated
   lines) the key ends at the first ``:`` that is followed by a space or the end of the line, so a
@@ -292,17 +293,27 @@ class _Sink:
 _SINK = _Sink()
 
 
+_ID_LIKE = re.compile(r"[a-z0-9][a-z0-9._-]*")
+
+
 def _heading_like(schema: RecordSchema, line: str, text: str) -> bool:
     """Whether a ``#`` line that names no known section was meant as a heading rather than as a
-    comment: two or more ``#`` (``### My notes``), or one ``#`` before a few words that start with a
-    section kind (``# Facts demo-f02``, ``# Task now``). Any other ``#`` line is a comment."""
+    comment: two or more ``#`` (``### My notes``), or one ``#`` before a section kind (or its plural)
+    and at most one ID-like word (``# Facts demo-f02``, ``# Task now``). Any other ``#`` line, such as
+    ``# added the randint detail``, is a comment."""
     if line.startswith("##"):
         return True
     words = text.casefold().split()
-    if not 1 <= len(words) <= 4:
-        return False
-    kinds = {spec.kind.split()[0].casefold() for spec in schema.sections if spec.pattern is None}
-    return words[0] in kinds or (words[0].endswith("s") and words[0][:-1] in kinds)
+    for spec in schema.sections:
+        if spec.pattern is not None:
+            continue
+        kind = spec.kind.casefold().split()
+        size = len(kind)
+        forms = (kind, kind[:-1] + [kind[-1] + "s"])
+        if any(words[:size] == form for form in forms) and len(words) <= size + 1 \
+                and (len(words) == size or _ID_LIKE.fullmatch(words[size])):
+            return True
+    return False
 
 
 def _match_heading(schema: RecordSchema, heading: str) -> tuple[SectionSpec | None, str | None, str | None]:
@@ -447,7 +458,8 @@ def parse_record(raw: bytes, display_path: str, *,
             if known is None:
                 where = attempt or "#"
                 report(number, where, f'"{stripped[:40]}" is not a section heading. Write section headings as '
-                                      '"## <Kind> <id>" (two # and a space); put ">" in front of notes.')
+                                      '"## <Kind> <id>" (two # and a space); put ">" in front of notes. The lines '
+                                      'after it, up to the next "## " heading, were not read.')
                 current = None
                 continue
             report(number, attempt, f'"{stripped[:40]}" is not a section heading; write "## {attempt}" (two # and a '
@@ -699,6 +711,101 @@ def git_show(root: Path, commit: str, path: str) -> bytes:
     if problem:
         raise ValueError(f"{path!r}: the path {problem}")
     return _git(Path(root), "cat-file", "blob", f"{commit}:{path}")
+
+
+@dataclass
+class PathHistory:
+    """Every version one path ever had in the history reachable from HEAD.
+
+    ``versions`` maps each distinct blob ID to the oldest commit (topological order) whose diff
+    records the path with that blob; ``removals`` lists the commits whose diff removes the path.
+    Merges are diffed against every parent (``git log --full-history -m``), so a version added,
+    replaced or removed inside a merge, or on a branch merged later, is listed too. Counting
+    distinct blobs rather than commits keeps an ordinary merge of a branch that added the file
+    (which records the same blob twice) at one version."""
+
+    versions: dict[str, str]
+    removals: list[str]
+
+    @property
+    def committed(self) -> bool:
+        return bool(self.versions or self.removals)
+
+    @property
+    def first(self) -> tuple[str, str] | None:
+        """(blob, commit) of the oldest version, or None."""
+        return next(iter(self.versions.items()), None)
+
+
+def history_limit(repo: Path) -> str | None:
+    """Why the Git history of ``repo`` may be incomplete (a shallow or a partial clone, whose missing
+    commits or objects are never fetched here), or None."""
+    repo = Path(repo)
+    try:
+        shallow = _git(repo, "rev-parse", "--is-shallow-repository").decode("utf-8").strip() == "true"
+    except ValueError:
+        shallow = False
+    if shallow:
+        return "this is a shallow clone (git fetch --unshallow gives the full history)"
+    try:
+        config = _git(repo, "config", "--get-regexp", r"^(remote\..*\.promisor|extensions\.partialclone)$")
+    except ValueError:  # git config exits 1 when no key matches
+        config = b""
+    for line in config.decode("utf-8", "replace").splitlines():
+        key, _space, value = line.partition(" ")
+        value = value.strip().casefold()
+        if (key.endswith(".promisor") and value in ("true", "yes", "on", "1")) or \
+                (key == "extensions.partialclone" and value):
+            return "this is a partial clone, whose missing objects are not fetched here (clone without --filter)"
+    return None
+
+
+def path_history(repo: Path, rel: str) -> PathHistory:
+    """The :class:`PathHistory` of ``rel`` in the repository at ``repo``. Raises ValueError when Git
+    cannot read the history (for example an object missing from a partial clone)."""
+    problem = _path_problem(rel)
+    if problem:
+        raise ValueError(f"{rel!r}: the path {problem}")
+    output = _git(Path(repo), "log", "--full-history", "-m", "--no-renames", "--no-abbrev", "--topo-order", "--reverse",
+                  "--format=%x01%H", "--raw", "--", f":(literal){rel}")
+    versions: dict[str, str] = {}
+    removals: list[str] = []
+    commit = None
+    for line in output.decode("utf-8", "replace").splitlines():
+        if line.startswith("\x01"):
+            commit = line[1:].strip()
+            continue
+        meta, tab, path = line.partition("\t")
+        fields = meta.split()
+        if commit is None or not tab or path != rel or len(fields) < 5 or not fields[0].startswith(":"):
+            continue
+        blob = fields[3]
+        if not blob.strip("0"):
+            removals.append(commit)
+        elif blob not in versions:
+            versions[blob] = commit
+    return PathHistory(versions, removals)
+
+
+def committed_paths(repo: Path, rel: str) -> dict[str, str]:
+    """``{path: oldest commit}`` of every path under the directory ``rel`` that the history reachable
+    from HEAD ever recorded (merges diffed against every parent, removals included). Raises
+    ValueError when Git cannot read the history."""
+    problem = _path_problem(rel)
+    if problem:
+        raise ValueError(f"{rel!r}: the path {problem}")
+    output = _git(Path(repo), "log", "--full-history", "-m", "--no-renames", "--no-abbrev", "--topo-order", "--reverse",
+                  "--format=%x01%H", "--raw", "--", f":(literal){rel}")
+    found: dict[str, str] = {}
+    commit = None
+    for line in output.decode("utf-8", "replace").splitlines():
+        if line.startswith("\x01"):
+            commit = line[1:].strip()
+            continue
+        meta, tab, path = line.partition("\t")
+        if commit is not None and tab and meta.startswith(":") and path.startswith(rel.rstrip("/") + "/"):
+            found.setdefault(path, commit)
+    return found
 
 
 # --------------------------------------------------------------------------------------------

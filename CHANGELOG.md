@@ -173,9 +173,10 @@ Round 2 review fixes (finding IDs refer to the Campaign 2 round 2 review):
 - `check-frozen` binds `freeze.json` to `candidate.json` for every captured
   campaign, with or without a summary (SPECDOCS2-2), prints a `not verified`
   line naming the history checks it cannot run in a shallow clone or without
-  Git, and the CI job that runs the evaluation tests fetches the full history
-  (INTEGRITY2-4, SPECDOCS2-3). It names a decision file added after the
-  freeze, which `check` notes (OWNERUX2-5).
+  Git, and the Python CI jobs fetch the full history (the integration jobs'
+  shallow checkouts only print those notes) (INTEGRITY2-4, SPECDOCS2-3). It
+  names a decision file added after the freeze, which `check` notes
+  (OWNERUX2-5).
 - Owner files: a `#` line is a comment in the wrong form, reported under its
   section without dropping the lines around it, unless it looks like a heading
   (OWNERUX2-1); a second-review addition is adopted with
@@ -187,6 +188,60 @@ Round 2 review fixes (finding IDs refer to the Campaign 2 round 2 review):
   pending files ignores what the grammar ignores (OWNERUX2-4).
 - The Sensitivity section's macro and leave-one-task-out percentages are
   floored like the other Markdown percentages (SPECDOCS2-5).
+
+Round 3 review fixes (finding IDs refer to the Campaign 2 round 3 review):
+- The history checks read every version a file ever had in the history
+  reachable from HEAD, merges included, and count distinct contents rather
+  than adding commits. A recorded summary replaced through a merge, a freeze
+  recorded inside a merge and then edited, and a removal hidden behind a merge
+  are found; an ordinary pull-request merge is not a finding
+  (INTEGRITY3-1). `candidate.json` is final once committed like a summary, and
+  capture refuses a shallow or partial clone and a campaign whose candidate
+  was ever committed (DISTCI3-2). A partial clone, or a history Git cannot
+  read, is reported as not verified instead of "never committed", and a
+  supersede refuses there (INTEGRITY3-5).
+- A committed campaign is never erased: check-frozen fails when a campaign
+  that was ever committed is missing, also with a pre-freeze `tasks.json`, and
+  requires every earlier campaign to be reached through `supersedes`; the
+  freeze refuses while the history holds a campaign `tasks.json` does not name
+  (INTEGRITY3-2). Two merged recordings of one summary are settled by the
+  owner's `invalidation.md` and a new campaign, after which the finding is a
+  note.
+- `Prompt sent: no` is refused against sealed evidence: repair rounds above
+  zero, a published `pilot.mlview.json` or a skill draft in the workspace at
+  `run-finish`, a captured artifact or a sealed transcript with the prompt at
+  `--amend` (which also never drops or replaces a sealed transcript), and any
+  of these in `run-prepare --retry` and in `summarize`'s check of earlier
+  attempts, which report why an attempt counts as sent (`sentBecause`)
+  (INTEGRITY3-3, STATS3-1). `run-prepare --retry` refuses a retry beyond the
+  policy's infrastructure retries (STATS3-2).
+- With the same tools, a committed Stage 1 summary must equal the
+  re-computation in every field and its Markdown the rendering of its JSON
+  before Stage 2 is prepared; check-frozen checks the rendering while the
+  summary names the running `tools/workflow_pilot.py` and otherwise notes it
+  (INTEGRITY3-4).
+- Summaries: baseline entries keep their failure, invalid reasons, warnings
+  and earlier attempts (`baselines.earlierAttempts`), rendered in the
+  Baseline comparison (STATS3-3, SPECDOCS3-1); a per-host miss names the host
+  and each host gets its own early-stop bound (STATS3-4); a pending run shows
+  no paired difference (STATS3-5).
+- Owner files: only a section kind with at most one ID after a single `#`
+  looks like a heading, and the error says the lines after it were not read
+  (OWNERUX3-1, SPECDOCS3-2); a resolution that names the primary's own
+  addition or starts like `adopted` must use the adoption form (OWNERUX3-2);
+  a case-only duplicate resolution is an error (OWNERUX3-3); `check` keeps a
+  primary with a late second review `frozen in` its campaign and lists that
+  review's disagreements as notes for a new campaign, and check-frozen says
+  to remove the late file to keep the campaign (OWNERUX3-4); a byte change
+  after the freeze names the restore command and is labelled `changed after
+  the freeze` (OWNERUX3-5); the pending-file CI guard ignores edited or
+  removed tool notes (OWNERUX3-6); adopting a candidate item explains the
+  non-adoption form (OWNERUX3-7); the high-severity note suggests an unused
+  second-review defect ID (OWNERUX3-8); a mistyped resolution ID lists the
+  items still open (OWNERUX3-9).
+- Docs: campaign commits reach main by a merge commit or fast-forward, never
+  a squash or rebase merge (DISTCI3-1); the root README no longer calls main
+  unmerged (SPECDOCS3-4); the CI history wording is exact (SPECDOCS3-5).
 
 Not in this version: the owner's reference review and freeze, the development
 adjudication, any native session and the pilot itself (the owner's
