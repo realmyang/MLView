@@ -243,6 +243,9 @@ def _verify_repo(repo: dict, corpus_root: Path) -> dict:
 
 
 def _verify_detail(result: dict) -> str:
+    sentences = result.get("problems")
+    if isinstance(sentences, list) and sentences and all(isinstance(item, str) for item in sentences):
+        return "; ".join(sentences)  # fetch_workflow_repos.verify_repo: one sentence with a remedy per failure
     parts = []
     for key in ("error", "head", "clean", "sparseMatches", "missing", "extraMaterialized", "blobMismatches"):
         value = result.get(key)

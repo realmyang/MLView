@@ -975,16 +975,16 @@ def test_check_routes_session_and_run_review_titles(tmp_path: Path, monkeypatch)
                              "build." in out
     fake = types.ModuleType("workflow_pilot")
     fake.__file__ = str(wd.TOOLS / "workflow_pilot.py")
-    seen: list[Path] = []
+    seen: list[tuple[Path, Path | None]] = []
 
-    def check_file(path: Path) -> list[er.Problem]:
-        seen.append(Path(path))
+    def check_file(path: Path, *, root: Path | None = None) -> list[er.Problem]:
+        seen.append((Path(path), root))
         return [er.Problem(str(path), 2, er.TODO, "header", "Status is still pending (synthetic).")]
 
     fake.check_file = check_file
     monkeypatch.setitem(sys.modules, "workflow_pilot", fake)
     code, out = run(world, "check", str(session))
-    assert code == 0 and seen == [session]
+    assert code == 0 and seen == [(session, world.root)]  # a run review resolves its campaign in this checkout
     assert out.splitlines()[-1] == "session.md: 0 error(s), 1 to do; in progress."
     assert run(world, "check", "pilot-missing")[0] == 2
     assert run(world, "check", "pilot-demo")[0] == 2  # the decisions file does not exist yet

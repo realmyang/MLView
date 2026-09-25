@@ -1760,7 +1760,7 @@ def check_path(world: World, path: Path, *, with_second: bool = True) -> list[Fi
             problem = er.Problem(display, 1, er.ERROR, "header", f"{kind} files are checked by tools/workflow_pilot.py, "
                                                                  "which is not available in this build.")
             return [FileCheck(display, [problem], [f"{path.name}: 1 error(s), 0 to do; not ready (fix the errors)."], 1, 0)]
-        problems = sorted(pilot.check_file(path), key=lambda p: (p.line, LEVEL_ORDER.get(p.level, 9)))
+        problems = sorted(pilot.check_file(path, root=world.root), key=lambda p: (p.line, LEVEL_ORDER.get(p.level, 9)))
         errors = sum(1 for p in problems if p.level == er.ERROR)
         todos = sum(1 for p in problems if p.level == er.TODO)
         return [FileCheck(display, problems, [f"{path.name}: {errors} error(s), {todos} to do; "
@@ -2007,6 +2007,9 @@ def _verify_corpus(world: World, task: dict) -> str | None:
     except Exception as exc:  # noqa: BLE001 - any failure of the verifier refuses the freeze
         return f"verify_repo failed: {exc}"
     if not isinstance(report, dict) or report.get("ok") is not True:
+        sentences = report.get("problems") if isinstance(report, dict) else None
+        if isinstance(sentences, list) and sentences and all(isinstance(item, str) for item in sentences):
+            return "verify_repo reported a problem (" + "; ".join(sentences) + ")"
         details = []
         if isinstance(report, dict):
             for key in ("head", "clean", "sparseMatches", "missing", "extraMaterialized", "blobMismatches"):
