@@ -1,6 +1,6 @@
 # Trust and usability campaign — 2026-09-18
 
-The user authorized execution of the [improvement recommendations](IMPROVEMENT_RESEARCH_2026-09-18.md).
+The maintainer authorized execution of the [improvement recommendations](IMPROVEMENT_RESEARCH_2026-09-18.md).
 This campaign implements the first trust/usability work and the interpretation
 and measurement foundations that can proceed before human reference review.
 Work starts from `d40d96e` on `llm-workflow`. WorkflowDocument remains 1.0.
@@ -56,11 +56,11 @@ The commands and final integration results are recorded in
 selection and navigation, relationship views, source-less findings, concurrent
 validation/disposal races and package consistency.
 
-An independent Sol agent exercised the skill in an isolated temporary workspace
-using only a fresh development source fixture and the installed skill. It
-published after one schema repair, exercised one incremental node replacement,
-and revalidated its result. Its interpretation separated unscaled logger values
-from the accumulated return value, found no print call, and left concrete
+An auxiliary Codex agent (gpt-5.6-sol) independently exercised the skill in an
+isolated temporary workspace using only a fresh development source fixture and
+the installed skill. It published after one schema repair, exercised one
+incremental node replacement, and revalidated its result. Its interpretation
+separated unscaled logger values from the accumulated return value, found no print call, and left concrete
 optimizer parameter ownership and actual runtime mutations unresolved. No
 target code was imported or executed. The missing finding example caused the
 repair and was subsequently corrected in the quick reference. Later helper
@@ -77,10 +77,10 @@ validated the temporary published artifact before cleanup.
 The full-size jsdom baseline demonstrates successful representation/export at
 2,000 nodes but slow full-view updates. It is not a VS Code responsiveness pass;
 the [performance report](PERFORMANCE.md) gives exact hashes, sizes and limits.
-The initial desktop-control attempt stalled. The authorized follow-up completed
-focused browser measurements and actual VS Code UI and scale checks. It fixed
-keyboard tab navigation, authored search/Outline wording, source-column reuse,
-Windows draft paths, a timing-sensitive CI test, benchmark fixture integrity,
+The first attempt to automate the live VS Code exercise stalled. The authorized
+follow-up completed focused browser measurements and actual VS Code UI and
+scale checks. It fixed keyboard tab navigation, authored search/Outline
+wording, source-column reuse, Windows draft paths, a timing-sensitive CI test, benchmark fixture integrity,
 and native/helper evidence-validation parity. See [VALIDATION.md](VALIDATION.md)
 and [PERFORMANCE.md](PERFORMANCE.md). Accessibility-tree checks do not establish
 a spoken screen-reader result.

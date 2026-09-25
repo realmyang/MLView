@@ -7,7 +7,7 @@ validate structure, workspace paths, hashes and exact citations; they do not
 perform semantic analysis.
 
 The old static analyzer and all of its runtime integrations were removed on
-2026-09-18 at the user's request. There is no analyzer CLI, Python package,
+2026-09-18 at the maintainer's request. There is no analyzer CLI, Python package,
 static rule engine, MCP analysis server, static Copilot tool, pre-commit hook,
 or analyzer GitHub action in the current tree.
 
@@ -24,10 +24,9 @@ not establish model accuracy. See [the evaluation protocol](../evals/workflow/RE
 and [current validation](VALIDATION.md).
 
 Historical live host exercises predate this removal. Windows and remote VS Code
-interaction need live validation before compatibility is claimed. The rewritten
-CI matrix passed all eight jobs for `5319777` in both the
-[push run](https://github.com/realmyang/MLView/actions/runs/35329824132) and
-[PR run](https://github.com/realmyang/MLView/actions/runs/35329828241).
+interaction need live validation before compatibility is claimed. Latest CI
+results: see [VALIDATION.md](VALIDATION.md) and the repository's
+[Actions page](https://github.com/realmyang/MLView/actions).
 
 The [trust and usability campaign](TRUST_USABILITY_CAMPAIGN.md) implements the
 first campaign from the [improvement research](IMPROVEMENT_RESEARCH_2026-09-18.md):

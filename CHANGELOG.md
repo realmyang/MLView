@@ -1,5 +1,11 @@
 # Changelog
 
+Newest first. Entries before the 2026-09-18 removal of the static analyzer
+(everything below "Unreleased — native workflow only") describe the retired
+static analyzer; their figures are historical and are not rewritten. Current
+truth lives in [docs/STATUS.md](docs/STATUS.md) and
+[docs/VALIDATION.md](docs/VALIDATION.md).
+
 ## Unreleased — trust and usability
 
 - Clarify authored uncertainty and severity, show every evidence quote, and add
@@ -26,16 +32,10 @@
 - Replace analyzer release gates with native helper/viewer/distribution checks.
 
 
-The older dated entries were moved here from `docs/STATUS.md`, which is now a
-short current-state page. This file is the history: newest first, each entry
+The older dated entries below were moved here from `docs/STATUS.md`, each
 condensed to what changed and the numbers that were measured at the time. The
-long-form reasoning for anything normative lives in `docs/CONTRACTS.md`; the
-acceptance clause each item was measured against lives in `docs/ROADMAP.md`.
-
-Figures in a dated entry are **historical**. They were true on their date and
-are deliberately not rewritten when the tree moves on — `docs/STATUS.md`,
-`docs/ACCURACY.md` and `analyzer/tests/accuracy/baseline*.json` say what is true
-today.
+long-form reasoning behind them is in the historical `docs/CONTRACTS.md` and
+`docs/ROADMAP.md`.
 
 **Most entries below were written before CI could confirm them.** GitHub Actions
 billing was blocked at the account level for the hardening rounds, the

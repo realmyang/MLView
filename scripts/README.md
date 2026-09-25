@@ -16,8 +16,14 @@ standard-library-only; tests require `pip install -r requirements-dev.txt`.
 
 Both shell drivers delegate to `scripts/check.py`. PowerShell equivalents are
 `scripts/build.ps1` and `scripts/e2e.ps1`. `--skip-npm-install` reuses existing
-node_modules; `--skip-build` explicitly skips the e2e build. A skipped step is
-reported as skipped, never counted as a successful gate.
+node_modules: the two `npm ci` steps do not run, are not printed as skipped and
+are simply absent from the gate count (15 exercised gates instead of 17 for a
+full e2e run). `--skip-build` (e2e only) skips `npm ci`, the viewer build, both
+syncs and the extension compile, and prints `SKIP:`. It does not freeze the
+outputs: `npm test`'s pretest still rebuilds the extension bundle (and checks
+the notices copy), and VSIX packaging recompiles the extension, rewriting its
+bundle and `THIRD_PARTY_NOTICES.md`. Steps that did not run are never counted
+as successful gates.
 
 Tests create temporary skill archives and a temporary VSIX and remove them on
 completion. To retain packages for installation, run `npm run package` inside
