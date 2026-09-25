@@ -8,6 +8,65 @@ Run `sh scripts/e2e.sh` with Python 3.10+ and Node 20.18.1+ on PATH. On Windows
 use `powershell -File scripts/e2e.ps1`. The [script guide](../scripts/README.md)
 explains each gate and explicit skip options.
 
+## Campaign 2 follow-up check fixes — 2026-09-25
+
+The fixes for the three findings of the check of `e6d8b98` (NEW-1 to NEW-3,
+all for a Stage 1 summary recorded by other tools; see "Follow-up check
+fixes" in the [changelog](../CHANGELOG.md)) are commit `452c68c` on the
+`campaign2-pilot-readiness` branch, on top of `2738202`. They were checked on
+the same macOS machine and virtualenv as below. **These are local automated
+checks only**. CI has not run on these commits, so the Python 3.10–3.14 and
+Node 20.18.1–26 matrix, Windows and the PowerShell drivers are unverified
+here.
+
+- `MLVIEW_PYTHON="$PWD/.venv/bin/python" PATH="$PWD/.venv/bin:$PATH" PYTHONDONTWRITEBYTECODE=1 sh scripts/e2e.sh --skip-npm-install`
+  on `452c68c`: **all 15 exercised gates passed**.
+  - Python helper, distribution and evaluation tests: **848 passed, 537
+    subtests passed**, none skipped.
+  - Viewer: **79 passed**. Extension: **250 passed**.
+  - The actual VSIX: 11 files, 155,593 bytes.
+- After a rebuild (viewer build, asset and skill sync, extension compile),
+  `git diff --exit-code` was clean over `webview/dist`,
+  `vscode-extension/media`, the extension's notices and
+  `claude-plugin/skills/mlview`.
+- `python tools/evidence_lock.py`: 95 files match the lock.
+  `python scripts/check_docs.py`: OK, 40 documents.
+  `python tools/verify.py --all`: OK.
+- The two changed Python files parse with
+  `ast.parse(feature_version=(3, 10))` and compile under a Python 3.10.21
+  interpreter.
+- There are 6 new regression test cases, on synthetic worlds only. Five of
+  them fail against the `2738202` tools: the changed baseline false
+  accusation with other tools, the two cases of a baseline the recording
+  tools judged invalid, and the two cases of a re-save after a later tool
+  change. The sixth, the same false accusation with the same tools, passed
+  before too. The 4 updated other-tools cases also fail against those tools,
+  because they now require the recorded sha256 in the message.
+- The reviewers' honest-path rehearsal, kept outside the repository, ran
+  830 steps against a fresh scratch clone of `452c68c` with no honest-path
+  failure.
+- The checker's REG-1 probes were run against that clone:
+  - With other tools, a CRLF re-save plus a `>` note on all 12 Stage 1
+    reviews passes, and so does no change.
+  - Every changed skill-run or baseline verdict holds Stage 2, including a
+    baseline false accusation (`baselines.falseAccusations`). A changed
+    baseline usability rating is not reported and passes with either
+    tools.
+  - A baseline the recording tools judged invalid no longer holds Stage 2
+    when later tools read its untouched review.
+  - A later review rule or claim count plus a CRLF re-save is held. The
+    message says a re-save can differ here and gives the recorded sha256.
+  - The reviewers' REG-1 probe still holds Stage 2 with either tools.
+- The REG-2 squash-recovery probe, run through the candidate tag and
+  through the original branch, gives the same result as before. Its only
+  failure is its outdated expectation that `check-frozen` reports the
+  ancestry. After the recovery, `python tools/workflow_candidate.py --check
+  evals/workflow/pilot/pilot-01/candidate.json` exits 0 in both clones.
+
+Every decision, review, verdict and policy value in the new tests, the
+rehearsal and the probes is synthetic. No native session, human review,
+reference freeze, corpus `--update-sparse` or pilot run occurred.
+
 ## Campaign 2 final check fixes — 2026-09-25
 
 The fixes for the three regressions the final check of `e7d92c1` found
