@@ -1,0 +1,88 @@
+{
+  "id": "notebook-008-bom-notebook",
+  "findings": [
+    "SPECDOCS1-3",
+    "SKILL-9"
+  ],
+  "description": "A notebook saved with a UTF-8 byte-order mark is parsed from its BOM-stripped text in both layers, and fingerprinted from its raw bytes (with the BOM).",
+  "files": {
+    "flow.ipynb": {
+      "base64": "77u/ewogImNlbGxzIjogWwogIHsKICAgImNlbGxfdHlwZSI6ICJjb2RlIiwKICAgIm1ldGFkYXRhIjoge30sCiAgICJzb3VyY2UiOiBbCiAgICAieCA9IDFcbiIsCiAgICAiZml0KHgpXG4iCiAgIF0KICB9CiBdLAogIm1ldGFkYXRhIjoge30sCiAibmJmb3JtYXQiOiA0LAogIm5iZm9ybWF0X21pbm9yIjogNQp9Cg=="
+    }
+  },
+  "artifact": "workflow.mlview.json",
+  "document": {
+    "workflowVersion": "1.0",
+    "title": "Training",
+    "producer": {
+      "kind": "host-llm",
+      "host": "codex"
+    },
+    "revision": {
+      "id": "r1"
+    },
+    "request": {
+      "question": "Explain training",
+      "scope": "train.py"
+    },
+    "phases": [
+      {
+        "id": "p",
+        "label": "Train"
+      }
+    ],
+    "nodes": [
+      {
+        "id": "n",
+        "label": "Train",
+        "phase": "p",
+        "basis": "observed",
+        "evidence": [
+          "ev"
+        ]
+      }
+    ],
+    "edges": [],
+    "findings": [],
+    "evidence": [
+      {
+        "id": "ev",
+        "file": "flow.ipynb",
+        "cell": 0,
+        "line": 2,
+        "endLine": 2,
+        "quote": "fit(x)"
+      }
+    ],
+    "coverage": {
+      "status": "scoped",
+      "summary": "Inspected entrypoint",
+      "inspectedFiles": [
+        "flow.ipynb"
+      ],
+      "limitations": []
+    }
+  },
+  "expect": {
+    "schema": "valid",
+    "helper": {
+      "ok": true,
+      "codes": [],
+      "warnings": [],
+      "fingerprints": {
+        "flow.ipynb": {
+          "$sha256": {
+            "base64": "77u/ewogImNlbGxzIjogWwogIHsKICAgImNlbGxfdHlwZSI6ICJjb2RlIiwKICAgIm1ldGFkYXRhIjoge30sCiAgICJzb3VyY2UiOiBbCiAgICAieCA9IDFcbiIsCiAgICAiZml0KHgpXG4iCiAgIF0KICB9CiBdLAogIm1ldGFkYXRhIjoge30sCiAibmJmb3JtYXQiOiA0LAogIm5iZm9ybWF0X21pbm9yIjogNQp9Cg=="
+          }
+        }
+      },
+      "stale": []
+    },
+    "extension": {
+      "ok": true,
+      "stale": [],
+      "issuePaths": []
+    }
+  },
+  "divergence": null
+}

@@ -102,10 +102,19 @@ export interface ValidateOptions {
     baseline?: Readonly<Record<string, string>>;
     /** Reads raw bytes; the default stats the path (regular file, <= limit) and reads it from disk. */
     readBytes?: (absolutePath: string, limit: number) => Promise<Uint8Array>;
+    /**
+     * Absolute paths of MLView files (the panel's artifact): another name for one of them (a hard
+     * link or case alias) is never cited, read or fingerprinted, like the helper's draft/output.
+     */
+    ownedFiles?: readonly string[];
 }
 export const MAX_SOURCE_BYTES = 8 * 1024 * 1024;
 export const MAX_DOCUMENT_BYTES = 2 * 1024 * 1024;
 export const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+/** verification.files holds at most 2000 keys, so at most 2000 tracked files can be fingerprinted (mirrors the helper). */
+export const MAX_TRACKED_FILES = 2000;
+const TRACKED_LIMIT_MESSAGE = `at most ${MAX_TRACKED_FILES} distinct tracked files (cited evidence files plus inspected project files) can be fingerprinted; list fewer files`;
+const OWNED_EVIDENCE_MESSAGE = 'evidence must cite project files, not an MLView artifact, draft or installed MLView skill file';
 const OWNED_PREFIXES = ['.mlview/', '.agents/skills/mlview/', '.claude/skills/mlview/', '.github/skills/mlview/'];
 const OWNED_SUFFIXES = ['.mlview.json', '.draft.json'];
 /** MLView's own files: artifacts, drafts and the installed skill (ASCII case-insensitive; mirrors the helper). */
@@ -388,7 +397,7 @@ export function validateWorkflowStructure(raw: unknown): {
         if (typeof x.file === 'string' && !relativePath(x.file))
             issues.push({ path: `${a}.file`, message: 'must be a slash-separated workspace-relative path' });
         if (typeof x.file === 'string' && isOwnedPath(x.file))
-            issues.push({ path: `${a}.file`, message: 'evidence must cite project files, not an MLView artifact, draft or installed MLView skill file' });
+            issues.push({ path: `${a}.file`, message: OWNED_EVIDENCE_MESSAGE });
         if (typeof x.quote !== 'string')
             issues.push({ path: `${a}.quote`, message: 'must be a string' });
         if (typeof x.quote === 'string' && longerThan(x.quote, 16000))
@@ -415,6 +424,16 @@ export function validateWorkflowStructure(raw: unknown): {
             issues.push({ path: '$.coverage.inspectedFiles', message: 'must contain at most 2000 paths' });
         coverage.inspectedFiles.forEach((v, i) => { if (typeof v !== 'string' || !relativePath(v))
             issues.push({ path: `$.coverage.inspectedFiles[${i}]`, message: 'must contain non-empty workspace-relative paths' }); });
+        // tracked(doc) as written, like the helper: cited files plus inspected files that are not MLView-owned.
+        const tracked = new Set<string>();
+        for (const x of evidence)
+            if (typeof x.file === 'string')
+                tracked.add(x.file);
+        for (const v of coverage.inspectedFiles)
+            if (typeof v === 'string' && !isOwnedPath(v))
+                tracked.add(v);
+        if (tracked.size > MAX_TRACKED_FILES)
+            issues.push({ path: '$.coverage.inspectedFiles', message: TRACKED_LIMIT_MESSAGE });
     }
     if (Array.isArray(coverage.limitations)) {
         if (coverage.limitations.length > 500)
@@ -556,6 +575,19 @@ function unpairedSurrogates(raw: unknown, issues: ValidationIssue[]): void {
         }
     }
 }
+/**
+ * "dev:ino" of an existing file (bigint, so large NTFS file ids stay exact); undefined when unknown
+ * or 0, and, with `linkedOnly`, when the file has a single hard link.
+ */
+async function fileIdentity(file: string, linkedOnly = false): Promise<string | undefined> {
+    try {
+        const info = await fs.stat(file, { bigint: true });
+        return info.ino && (!linkedOnly || info.nlink > 1n) ? `${info.dev}:${info.ino}` : undefined;
+    }
+    catch {
+        return undefined;
+    }
+}
 /** JSON.parse, with undefined (never a JSON value) for text that does not parse. */
 function parseJson(text: string): unknown {
     try {
@@ -632,6 +664,16 @@ export async function validateWorkflow(raw: unknown, root: string, options: Vali
     };
     const staleReason = (failure: ReadFailure): StaleReason => failure === 'missing' ? 'missing' : failure === 'too-large' ? 'too-large' : 'unreadable';
     const contained = (value: string): boolean => value === realRoot || value.startsWith(realRoot + path.sep);
+    // realpath already resolves symlinks and canonicalises letter case (macOS, Windows), so only
+    // an owned file with more than one hard link can be reached under an unowned real name.
+    const ownedIds = new Set((await Promise.all((options.ownedFiles ?? []).map(file => fileIdentity(file, true)))).filter((id): id is string => id !== undefined));
+    /**
+     * A tracked path that is not owned as written but reaches an MLView file: its realpath is owned
+     * (a symlink into .mlview/, onto an artifact, or a case alias that realpath canonicalises), or
+     * it is another name of an owned file (hard link).
+     */
+    const ownedTarget = async (real: string): Promise<boolean> =>
+        isOwnedPath(path.relative(realRoot, real).split(path.sep).join('/')) || (ownedIds.size > 0 && ownedIds.has((await fileIdentity(real)) ?? ''));
     for (let i = 0; i < doc.evidence.length; i++) {
         const e = doc.evidence[i]!;
         const at = `$.evidence[${i}]`;
@@ -661,6 +703,10 @@ export async function validateWorkflow(raw: unknown, root: string, options: Vali
         }
         if (!contained(real)) {
             issues.push({ path: `${at}.file`, message: 'escapes the owning workspace' });
+            continue;
+        }
+        if (await ownedTarget(real)) {
+            issues.push({ path: `${at}.file`, message: OWNED_EVIDENCE_MESSAGE });
             continue;
         }
         files.add(real);
@@ -757,6 +803,9 @@ export async function validateWorkflow(raw: unknown, root: string, options: Vali
             issues.push({ path: at, message: `${rel} escapes the owning workspace` });
             continue;
         }
+        // Another name for an MLView file is listed only, exactly like an owned spelling.
+        if (await ownedTarget(real))
+            continue;
         files.add(real);
         const loaded = await load(real);
         if (!loaded.ok) {

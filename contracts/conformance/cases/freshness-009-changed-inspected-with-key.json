@@ -1,0 +1,118 @@
+{
+  "id": "freshness-009-changed-inspected-with-key",
+  "findings": [
+    "SPECDOCS1-1",
+    "CONTRACT-6",
+    "EXT-7"
+  ],
+  "description": "An inspected-only configuration file changed after its fingerprint was published: the helper reports stale_source naming it and the viewer shows it stale. Before this case no corpus case changed an inspected-only file, so dropping the viewer's check passed every runner.",
+  "files": {
+    "train.py": {
+      "text": "def train():\n    pass\n"
+    },
+    "config.cfg": {
+      "text": "name=changed\n"
+    }
+  },
+  "artifact": "workflow.mlview.json",
+  "document": {
+    "workflowVersion": "1.0",
+    "title": "Training entrypoint",
+    "producer": {
+      "kind": "host-llm",
+      "host": "claude-code"
+    },
+    "revision": {
+      "id": "r1"
+    },
+    "request": {
+      "question": "What does train.py run?",
+      "scope": "train.py and config.cfg"
+    },
+    "phases": [
+      {
+        "id": "train",
+        "label": "Train"
+      }
+    ],
+    "nodes": [
+      {
+        "id": "step",
+        "label": "Run training step",
+        "phase": "train",
+        "basis": "observed",
+        "evidence": [
+          "ev-1"
+        ]
+      }
+    ],
+    "edges": [],
+    "findings": [],
+    "evidence": [
+      {
+        "id": "ev-1",
+        "file": "train.py",
+        "line": 1,
+        "endLine": 1,
+        "quote": "def train():"
+      }
+    ],
+    "coverage": {
+      "status": "scoped",
+      "summary": "Read the entrypoint and its configuration.",
+      "inspectedFiles": [
+        "train.py",
+        "config.cfg"
+      ],
+      "limitations": []
+    },
+    "verification": {
+      "files": {
+        "config.cfg": {
+          "$sha256": {
+            "base64": "bmFtZT1jYWbpCg=="
+          }
+        },
+        "train.py": {
+          "$sha256": {
+            "text": "def train():\n    pass\n"
+          }
+        }
+      },
+      "publishedAt": "2026-09-25T00:00:00Z"
+    }
+  },
+  "expect": {
+    "schema": "valid",
+    "helper": {
+      "ok": false,
+      "codes": [
+        "stale_source"
+      ],
+      "warnings": [],
+      "fingerprints": {
+        "config.cfg": {
+          "$sha256": {
+            "text": "name=changed\n"
+          }
+        },
+        "train.py": {
+          "$sha256": {
+            "text": "def train():\n    pass\n"
+          }
+        }
+      },
+      "stale": [
+        "config.cfg"
+      ]
+    },
+    "extension": {
+      "ok": true,
+      "stale": [
+        "config.cfg"
+      ],
+      "issuePaths": []
+    }
+  },
+  "divergence": null
+}

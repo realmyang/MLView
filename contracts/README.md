@@ -26,8 +26,9 @@ and a schema-checked example under `skills/mlview/references/`.
   helper and the extension count code points too.
 - **The schema cannot express workspace rules.** The helper and the extension
   also check that paths stay inside the workspace, that quotes match the cited
-  lines, fingerprints, MLView's own files, drive letters, parent references
-  and unpaired surrogates. A schema-valid document can still be invalid.
+  lines, fingerprints, MLView's own files, drive letters, parent references,
+  unpaired surrogates and the limit of 2000 distinct tracked files. A
+  schema-valid document can still be invalid.
 
 ## Conformance corpus
 

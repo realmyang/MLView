@@ -95,11 +95,12 @@ were needed, separately from validator repairs. Then run the helper with
 `--workspace` set to the VS Code workspace folder that will contain the
 artifact (the folder the user opened; in a monorepo, the opened root, not the
 subproject). Evidence paths are relative to it, and the viewer resolves them
-against it:
+against it. Relative draft and `--record` paths are also resolved against
+`--workspace`, not your working directory; use absolute paths when they differ:
 
 ```sh
-python3 <skill-directory>/scripts/artifact.py validate .mlview/llm/<run-id>/draft.json --workspace .
-python3 <skill-directory>/scripts/artifact.py publish .mlview/llm/<run-id>/draft.json --workspace . --output workflow.mlview.json
+python3 <skill-directory>/scripts/artifact.py validate .mlview/llm/<run-id>/draft.json --workspace <workspace-folder>
+python3 <skill-directory>/scripts/artifact.py publish .mlview/llm/<run-id>/draft.json --workspace <workspace-folder> --output workflow.mlview.json
 ```
 
 Use [references/coverage-obligations.md](references/coverage-obligations.md) as
@@ -110,7 +111,7 @@ edit can replace or append one ID-bearing phase, node, edge, finding, or evidenc
 record while preserving the prior draft on failure:
 
 ```sh
-python3 <skill-directory>/scripts/artifact.py upsert .mlview/llm/<run-id>/draft.json --workspace . --collection nodes --record .mlview/llm/<run-id>/node.json
+python3 <skill-directory>/scripts/artifact.py upsert .mlview/llm/<run-id>/draft.json --workspace <workspace-folder> --collection nodes --record .mlview/llm/<run-id>/node.json
 ```
 
 The existing draft and edited checkpoint must both validate. Add dependencies

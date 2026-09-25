@@ -40,13 +40,17 @@ entry except MLView's own files: any `*.mlview.json` or `*.draft.json`,
 anything under `.mlview/`, and the installed skill under
 `.agents/skills/mlview/`, `.claude/skills/mlview/` or `.github/skills/mlview/`
 (ASCII case-insensitive). MLView's own files must not be cited, and are listed
-without fingerprints if inspected. Inspected files may be binary; files over
-8 MiB are listed without a fingerprint. Readers ignore fingerprints for
-untracked paths. A file is fresh when its current raw bytes match its
-fingerprint. A draft should omit `verification`. If one is present, a
-fingerprint that no longer matches a tracked file blocks publication with
-`stale_source` naming that file. A published artifact is at most 2 MiB, and
-`--output` must end in `.mlview.json`. Optional fields are omitted, never
+without fingerprints if inspected. Inspected files may be binary; files over 8
+MiB are listed without a fingerprint. At most 2000 distinct tracked files fit
+in `verification.files`, and both validators refuse a document with more
+(`limit` at `coverage.inspectedFiles`). A path that reaches an MLView file
+under another name (a symlink into `.mlview/` or onto an artifact, or a hard
+link to the artifact or draft being checked) is treated as that file. Readers
+ignore fingerprints for untracked paths. A file is fresh when its current raw
+bytes match its fingerprint. A draft should omit `verification`. If one is
+present, a fingerprint that no longer matches a tracked file blocks publication
+with `stale_source` naming that file. A published artifact is at most 2 MiB,
+and `--output` must end in `.mlview.json`. Optional fields are omitted, never
 `null`. If no artifact exists, the draft omits `revision.parent`; otherwise the
 parent equals the published revision ID. The new ID must differ from that
 revision's ID and its parent's ID. MLView keeps no longer history, so never
@@ -97,6 +101,11 @@ Successful `validate` and `publish` results add `warnings` (entries with
 `document`; `publish` adds `output` and `revision`; `upsert` adds `draft`,
 `collection`, `id` and `action`. Error entries have stable `code`, `path`, and
 `message` fields; some add fields, such as `file` on `stale_source` and `line`
-and `column` on `invalid_json`. Command-line usage errors come from the argument
-parser: exit status 2 with plain-text usage on stderr and no JSON. Paths and
-diagnostics never expose absolute filesystem paths.
+and `column` on `invalid_json` for JSON syntax errors (a duplicate member or
+nesting deeper than 64 levels has neither). Relative draft and `--record` paths
+resolve against `--workspace`, which must be an existing directory
+(`workspace_path`). The helper refuses to publish over an existing artifact the
+viewer cannot read (over 2 MiB, not UTF-8 JSON, or without a valid
+`revision.id`) with `published_invalid`. Command-line usage errors come from
+the argument parser: exit status 2 with plain-text usage on stderr and no JSON.
+Paths and diagnostics never expose absolute filesystem paths.

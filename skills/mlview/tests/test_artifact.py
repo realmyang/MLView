@@ -414,8 +414,11 @@ class ArtifactTests(unittest.TestCase):
         artifact_path = self.root / "workflow.mlview.json"
         before = artifact_path.read_bytes()
         second = document(); second["revision"] = {"id": "r2", "parent": "r1"}
+        second["nodes"][0]["detail"] = "x" * 500
         draft = self.write_draft(second)
-        limit = len(draft.read_bytes()) + 10
+        # The existing artifact and the draft must still fit (the helper refuses to publish over an
+        # oversize artifact); only the new revision is too large.
+        limit = max(len(before), len(draft.read_bytes())) + 10
         with mock.patch.object(artifact, "MAX_DOCUMENT", limit):
             code, response = self.run_main("publish", str(draft), "--workspace", str(self.root))
         self.assertEqual(1, code)
@@ -498,6 +501,8 @@ class ArtifactTests(unittest.TestCase):
     def test_missing_draft_is_draft_not_found(self):
         code, response = self.run_raw("validate", "missing/draft.json", "--workspace", str(self.root))
         self.assertEqual(1, code)
+        self.assertEqual([{"code": "draft_not_found", "path": "draft", "message": "draft file does not exist (relative paths are resolved against --workspace)"}], response["errors"])
+        code, response = self.run_raw("validate", str(self.root / "missing" / "draft.json"), "--workspace", str(self.root))
         self.assertEqual([{"code": "draft_not_found", "path": "draft", "message": "draft file does not exist"}], response["errors"])
         record = self.root / "record.json"; record.write_text("{}", encoding="utf-8")
         self.write_draft(document())
@@ -534,7 +539,7 @@ class ArtifactTests(unittest.TestCase):
         self.write_draft(document())
         base = ("upsert", "draft.json", "--workspace", str(self.root), "--collection", "nodes", "--record")
         code, response = self.run_raw(*base, "missing-record.json")
-        self.assertEqual([{"code": "draft_not_found", "path": "record", "message": "record file does not exist"}], response["errors"])
+        self.assertEqual([{"code": "draft_not_found", "path": "record", "message": "record file does not exist (relative paths are resolved against --workspace)"}], response["errors"])
         outside = self.root.parent / (self.root.name + "-record.json")
         outside.write_text("{}", encoding="utf-8")
         try:
@@ -761,6 +766,170 @@ class ArtifactTests(unittest.TestCase):
         self.assertEqual({"invalid_path"}, self.codes(doc))
         result = self.run_cli("publish", document(), output="C:/x/workflow.mlview.json")
         self.assertEqual([{"code": "output_path", "path": "--output", "message": drive}], json.loads(result.stdout)["errors"])
+
+
+    # Review round 1
+
+    def upsert_raw(self, target, record):
+        (self.root / "record.json").write_text(json.dumps(record), encoding="utf-8")
+        return self.run_raw("upsert", target, "--workspace", str(self.root), "--collection", "nodes", "--record", "record.json")
+
+    def test_upsert_refuses_published_artifacts_in_any_case_spelling(self):
+        # HELPER1-1 / SECURITY1-6: the guard folds case like --output and the owned-path rule.
+        record = {"id": "n2", "label": "N2", "phase": "p", "basis": "observed", "evidence": ["ev"]}
+        self.assertEqual(0, self.run_cli("publish", document(), output="Diagram.MLVIEW.JSON").returncode)
+        upper = self.root / "Diagram.MLVIEW.JSON"
+        before = upper.read_bytes()
+        code, response = self.upsert_raw("Diagram.MLVIEW.JSON", record)
+        self.assertEqual((1, "published_target"), (code, response["errors"][0]["code"]))
+        self.assertEqual(before, upper.read_bytes())
+        self.assertEqual(0, self.run_cli("publish", document()).returncode)
+        published = self.root / "workflow.mlview.json"
+        before = published.read_bytes()
+        for alias in ("WORKFLOW.MLVIEW.JSON", "workflow.mlview.jſon"):
+            with self.subTest(alias=alias):
+                try:
+                    aliased = os.path.samefile(self.root / alias, published)
+                except OSError:
+                    aliased = False
+                if not aliased:
+                    self.skipTest("the file system does not map this spelling onto the artifact")
+                code, response = self.upsert_raw(alias, record)
+                self.assertEqual((1, "published_target"), (code, response["errors"][0]["code"]))
+                self.assertEqual(before, published.read_bytes())
+
+    def test_missing_workspace_is_reported(self):
+        # HELPER1-2: a --workspace that does not exist is not a directory of workspace files.
+        draft = self.write_draft(document())
+        code, response = self.run_raw("validate", str(draft), "--workspace", str(self.root / "missing"))
+        self.assertEqual(1, code)
+        self.assertEqual([{"code": "workspace_path", "path": "--workspace", "message": "must be an existing directory (the VS Code workspace folder that will contain the artifact)"}], response["errors"])
+
+    def test_tracked_file_limit_is_reported_by_validate_and_publish(self):
+        # HELPER1-3: verification.files holds at most 2000 keys, so validate refuses more tracked files.
+        (self.root / "ctx").mkdir()
+        doc = document()
+        doc["coverage"]["inspectedFiles"] = [f"ctx/f{i}.txt" for i in range(2000)]
+        for rel in doc["coverage"]["inspectedFiles"]: (self.root / rel).write_text("x\n", encoding="utf-8")
+        message = "at most 2000 distinct tracked files (cited evidence files plus inspected project files) can be fingerprinted; list fewer files"
+        errors = self.validate(doc)
+        self.assertEqual([("limit", "coverage.inspectedFiles", message)], [(e["code"], e["path"], e["message"]) for e in errors])
+        result = self.run_cli("publish", doc)
+        self.assertEqual(1, result.returncode)
+        self.assertEqual(["limit"], [e["code"] for e in json.loads(result.stdout)["errors"]])
+        doc["coverage"]["inspectedFiles"][-1] = "train.py"  # the cited file inside the list: 2000 tracked
+        self.assertEqual([], self.validate(doc))
+        doc["coverage"]["inspectedFiles"][-1] = ".mlview/notes.md"  # owned entries are not tracked: 1999 + train.py
+        self.assertEqual([], self.validate(doc))
+
+    def test_final_publish_problems_that_are_not_source_changes_are_reported_as_is(self):
+        # HELPER1-3: source_changed only when fingerprints move.
+        draft = self.write_draft(document())
+        real_validate = artifact.validate
+        calls = 0
+        def final_error(doc, root, **kwargs):
+            nonlocal calls
+            calls += 1
+            errors, hashes = real_validate(doc, root, **kwargs)
+            return (errors + [{"code": "limit", "path": "verification.files", "message": "must contain at most 2000 entries"}] if calls == 2 else errors), hashes
+        with mock.patch.object(artifact, "validate", side_effect=final_error):
+            code, response = self.run_main("publish", str(draft), "--workspace", str(self.root))
+        self.assertEqual(1, code)
+        self.assertEqual(["limit"], [e["code"] for e in response["errors"]])
+        self.assertFalse((self.root / "workflow.mlview.json").exists())
+
+    def test_nesting_beyond_the_depth_limit_is_invalid_json_on_every_python(self):
+        # HELPER1-4: validate walks never see deep structures (3.12+ parses far deeper than the recursion limit).
+        for depth in (65, 1500, 5000):
+            with self.subTest(depth=depth):
+                doc = document(); doc["junk"] = json.loads("[" * (depth - 1) + "]" * (depth - 1))
+                draft = self.write_draft(doc)
+                code, response = self.run_raw("validate", str(draft), "--workspace", str(self.root))
+                self.assertEqual((1, [{"code": "invalid_json", "path": "$", "message": "nesting is too deep"}]), (code, response["errors"]))
+        doc = document(); doc["junk"] = json.loads("[" * 62 + "]" * 62)
+        code, response = self.run_raw("validate", str(self.write_draft(doc)), "--workspace", str(self.root))
+        self.assertEqual(["additional_property"], [e["code"] for e in response["errors"]])
+        self.write_draft(document())
+        record = {"id": "n2", "label": json.loads("[" * 1500 + "]" * 1500)}
+        code, response = self.upsert_raw("draft.json", record)
+        self.assertEqual((1, [{"code": "invalid_json", "path": "record", "message": "nesting is too deep"}]), (code, response["errors"]))
+        self.assertFalse((self.root / "draft.json.lock").exists())
+        # A library caller that skips the parse guard still gets errors, never a RecursionError.
+        doc = document(); doc["title"] = json.loads("[" * 5000 + '"x"' + "]" * 5000)
+        self.assertIn("type", {e["code"] for e in self.validate(doc)})
+
+    def test_publish_refuses_an_oversize_existing_artifact(self):
+        # HELPER1-5: the viewer calls an artifact over 2 MiB unreadable; the helper refuses to publish over it.
+        published = self.root / "workflow.mlview.json"
+        big = document(); big["coverage"]["limitations"] = ["x" * 1500] * 2100
+        published.write_text(json.dumps(big), encoding="utf-8")
+        self.assertGreater(published.stat().st_size, artifact.MAX_DOCUMENT)
+        before = published.read_bytes()
+        second = document(); second["revision"] = {"id": "r2", "parent": "r1"}
+        result = self.run_cli("publish", second)
+        self.assertEqual([{"code": "published_invalid", "path": "workflow.mlview.json", "message": "existing artifact exceeds 2097152 bytes"}], json.loads(result.stdout)["errors"])
+        self.assertEqual(before, published.read_bytes())
+
+    def test_publish_refuses_an_artifact_without_a_valid_revision_id(self):
+        # HELPER1-6: consistent published_invalid, never an overwrite or an impossible revision_conflict.
+        published = self.root / "workflow.mlview.json"
+        for revision in ({"id": None}, {"id": 5}, {"id": "bad id"}, {}, None, "r1"):
+            with self.subTest(revision=revision):
+                existing = document(); existing["revision"] = revision
+                published.write_text(json.dumps(existing), encoding="utf-8")
+                before = published.read_bytes()
+                result = self.run_cli("publish", document())
+                self.assertEqual([{"code": "published_invalid", "path": "workflow.mlview.json", "message": "existing artifact has no valid revision.id"}], json.loads(result.stdout)["errors"])
+                self.assertEqual(before, published.read_bytes())
+        published.write_text("[" * 100 + "]" * 100, encoding="utf-8")
+        self.assertEqual("existing artifact is invalid", json.loads(self.run_cli("publish", document()).stdout)["errors"][0]["message"])
+
+    def test_aliases_of_mlview_files_are_never_fingerprinted(self):
+        # SECURITY1-5: a symlink or hard link to the artifact is an MLView file under another name.
+        self.assertEqual(0, self.run_cli("publish", document()).returncode)
+        published = self.root / "workflow.mlview.json"
+        links = []
+        try:
+            os.symlink("workflow.mlview.json", self.root / "notes.json"); links.append("notes.json")
+        except (OSError, NotImplementedError):
+            pass
+        try:
+            os.link(published, self.root / "copy.json"); links.append("copy.json")
+        except (OSError, NotImplementedError):
+            pass
+        if not links:
+            self.skipTest("links are unavailable here")
+        second = document(); second["revision"] = {"id": "r2", "parent": "r1"}
+        second["coverage"]["inspectedFiles"] += links
+        result = self.run_cli("publish", second)
+        response = json.loads(result.stdout)
+        self.assertEqual(0, result.returncode, response)
+        self.assertEqual([f"coverage.inspectedFiles[{1 + i}]" for i in range(len(links))], [w["path"] for w in response["warnings"]])
+        self.assertEqual({"excluded_inspected"}, {w["code"] for w in response["warnings"]})
+        self.assertEqual(["train.py"], sorted(json.loads(published.read_text(encoding="utf-8"))["verification"]["files"]))
+        # The published revision is not immediately stale.
+        code, response = self.run_raw("validate", "workflow.mlview.json", "--workspace", str(self.root))
+        self.assertEqual((0, []), (code, response["errors"]))
+        if "notes.json" in links:
+            self.assertEqual({"excluded_evidence"}, self.codes(document("notes.json", "{")))
+
+    def test_published_at_accepts_any_fraction_length_on_every_python(self):
+        # SPECDOCS1-5: fromisoformat accepted only 3 or 6 fraction digits before Python 3.11, so the
+        # check must not depend on it. Simulate the old parser to prove that on any interpreter.
+        class Pre311Datetime(artifact.datetime):
+            @classmethod
+            def fromisoformat(cls, value):
+                fraction = value.split(".", 1)[1].rstrip("Z").split("+")[0].split("-")[0] if "." in value else ""
+                if fraction and len(fraction) not in (3, 6): raise ValueError("pre-3.11 fraction rule")
+                return artifact.datetime.fromisoformat(value)
+        for value in ("2026-09-25T00:00:00.5Z", "2026-09-25T00:00:00.12Z", "2026-09-25T00:00:00.1234Z", "2026-09-25T00:00:00.1234567+01:00"):
+            with self.subTest(value=value), mock.patch.object(artifact, "datetime", Pre311Datetime):
+                doc = document(); doc["verification"] = {"files": {}, "publishedAt": value}
+                self.assertEqual(set(), self.codes(doc))
+        for value in ("0000-01-01T00:00:00Z", "2026-09-25T00:00:00+24:00", "２026-09-25T00:00:00Z", "2026-09-25T00:00:00Z\n", "2026-02-30T00:00:00Z"):
+            with self.subTest(value=value):
+                doc = document(); doc["verification"] = {"files": {}, "publishedAt": value}
+                self.assertEqual({"format"}, self.codes(doc))
 
 
 if __name__ == "__main__": unittest.main()

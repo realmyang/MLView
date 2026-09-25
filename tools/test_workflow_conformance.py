@@ -137,12 +137,20 @@ class SchemaLayerTests(unittest.TestCase):
         self.assertTrue(self.validator.is_valid(doc))
 
     def test_date_time_check_mirrors_the_helper(self):
-        for value in ("2026-09-25T00:00:00Z", "2026-09-25T23:59:59.123456+05:30", "2024-02-29T00:00:00-00:00"):
-            self.assertTrue(bridge.rfc3339_date_time(value), value)
-        for value in ("yesterday", "2026-09-25", "2026-09-25T00:00:00", "2026-02-30T00:00:00Z", "0000-01-01T00:00:00Z",
-                      "2026-09-25T24:00:00Z", "2026-09-25T00:00:60Z", "2026-09-25T00:00:00+24:00", "2026-09-25t00:00:00z",
-                      "2026-09-25T00:00:00Z\n", "２026-09-25T00:00:00Z"):
-            self.assertFalse(bridge.rfc3339_date_time(value), value)
+        accepted = ("2026-09-25T00:00:00Z", "2026-09-25T23:59:59.123456+05:30", "2024-02-29T00:00:00-00:00",
+                    "2026-09-25T00:00:00.5Z", "2026-09-25T00:00:00.12Z", "2026-09-25T00:00:00.1234Z", "2026-09-25T00:00:00.1234567Z")
+        rejected = ("yesterday", "2026-09-25", "2026-09-25T00:00:00", "2026-02-30T00:00:00Z", "0000-01-01T00:00:00Z",
+                    "2026-09-25T24:00:00Z", "2026-09-25T00:00:60Z", "2026-09-25T00:00:00+24:00", "2026-09-25t00:00:00z",
+                    "2026-09-25T00:00:00Z\n", "２026-09-25T00:00:00Z")
+        example = json.loads((ROOT / EXAMPLE).read_text(encoding="utf-8"))
+        for value in accepted + rejected:
+            with self.subTest(value=value):
+                doc = json.loads(json.dumps(example))
+                doc["verification"] = {"files": {}, "publishedAt": value}
+                with tempfile.TemporaryDirectory() as temp:
+                    helper_accepts = "format" not in {error["code"] for error in helper.validate(doc, Path(temp))[0]}
+                self.assertEqual(value in accepted, bridge.rfc3339_date_time(value))
+                self.assertEqual(value in accepted, helper_accepts, "the helper agrees with the schema layer")
 
     def test_case_schema_expectations(self):
         for path in CASES:

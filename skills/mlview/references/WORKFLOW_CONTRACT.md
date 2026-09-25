@@ -15,7 +15,7 @@ Fields (omit an optional field instead of writing null; IDs match ^[A-Za-z0-9][A
 - edges[<= 4000]: id; source; target; label (<= 300); kind?; basis; evidence
 - findings[<= 1000]: id; title (<= 300); message (<= 8000); severity; nodeIds; edgeIds?; basis; evidence; counterEvidence?; suggestion? (<= 4000)
 - evidence[<= 5000]: id; file; line; endLine; quote (<= 16000); cell? (.ipynb only, zero-based)
-- coverage: status scoped | partial; summary (<= 4000); inspectedFiles (<= 2000); limitations (<= 500, each <= 2000)
+- coverage: status scoped | partial; summary (<= 4000); inspectedFiles (<= 2000; at most 2000 tracked files in all); limitations (<= 500, each <= 2000)
 - verification: written by publish; never copy it into a draft
 ```
 
@@ -69,10 +69,13 @@ be empty for a workflow-level finding. Optional fields are `edgeIds`,
 tracked file to the SHA-256 of its raw bytes. Tracked files are the cited
 evidence files plus every `inspectedFiles` entry except MLView's own files.
 Inspected files may be binary; files over 8 MiB are listed without a
-fingerprint (warning `not_fingerprinted`). Readers ignore fingerprints for
-untracked paths. A file is fresh when its current raw bytes match its
-fingerprint. The helper recomputes the fingerprints during locked, atomic
-publication; an existing lock is never stolen automatically.
+fingerprint (warning `not_fingerprinted`). At most 2000 distinct tracked files
+fit in `verification.files`; list fewer files (`limit`) if a draft has more. A
+symlink that resolves to an MLView file, or another name (such as a hard link)
+for the draft or artifact being checked, is treated like that file. Readers
+ignore fingerprints for untracked paths. A file is fresh when its current raw
+bytes match its fingerprint. The helper recomputes the fingerprints during
+locked, atomic publication; an existing lock is never stolen automatically.
 
 A draft should omit `verification`: when you start one from the published
 artifact, delete the block. If a draft carries one anyway, it must be an
@@ -86,14 +89,18 @@ a published artifact is at most 2 MiB. If no artifact exists, the draft omits
 revision ID must differ from the published revision's ID and its parent's ID;
 MLView keeps no longer history, so never reuse earlier IDs.
 
-Every helper command prints one JSON object with `ok` and `errors`; each error
-has `code`, `path`, and `message` (`stale_source` adds `file`, `invalid_json`
-adds `line` and `column`). A successful `validate` or `publish` adds `warnings`
-only when there are any; warnings never block publication. `validate` adds
-`revision`, `files`, and, with `--include-document`, `document`; `publish` adds
-`output` and `revision`; `upsert` adds `draft`, `collection`, `id`, and
-`action`. A relative draft path is resolved against `--workspace`. Output never
-contains absolute paths.
+Every helper command prints one JSON object with `ok` and `errors`, except
+command-line usage errors (a missing argument or an unknown option), which the
+argument parser reports as plain text on stderr with exit status 2 and no JSON.
+Each error has `code`, `path`, and `message`; `stale_source` adds `file`, and
+`invalid_json` adds `line` and `column` for JSON syntax errors only (not for a
+duplicate member or nesting deeper than 64 levels). A successful `validate` or
+`publish` adds `warnings` only when there are any; warnings never block
+publication. `validate` adds `revision`, `files`, and, with
+`--include-document`, `document`; `publish` adds `output` and `revision`;
+`upsert` adds `draft`, `collection`, `id`, and `action`. A relative draft or
+`--record` path is resolved against `--workspace`, which must be an existing
+directory (`workspace_path`). Output never contains absolute paths.
 
 An early useful overview can be a published `coverage.status: "partial"`
 revision with specific remaining work in `coverage.limitations`. It must meet

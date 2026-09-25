@@ -20,11 +20,17 @@ ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 HOSTS = {"copilot", "codex", "claude-code", "unknown"}
 BASES = {"observed", "inferred", "unresolved"}
 EDITABLE_COLLECTIONS = {"phases", "nodes", "edges", "findings", "evidence"}
-RFC3339_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$")
+RFC3339_RE = re.compile(r"(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-](\d{2}):(\d{2}))", re.ASCII)
 DIGEST_RE = re.compile(r"[0-9a-f]{64}")
 DRIVE_RE = re.compile(r"^[A-Za-z]:")
 DRIVE_MESSAGE = "must be a slash-separated relative path without a drive letter"
 ARTIFACT_SUFFIX = ".mlview.json"
+# No WorkflowDocument needs more than about 5 levels; deeper JSON is refused at parse time so no
+# later walk can recurse too deeply on any Python version (the extension uses the same bound).
+MAX_JSON_DEPTH = 64
+# verification.files holds at most 2000 keys, so at most 2000 tracked files can be fingerprinted.
+MAX_TRACKED = 2000
+TRACKED_LIMIT_MESSAGE = f"at most {MAX_TRACKED} distinct tracked files (cited evidence files plus inspected project files) can be fingerprinted; list fewer files"
 
 # MLView's own files (published artifacts, drafts and installed skill copies)
 # are never project evidence. The same ASCII-case-insensitive predicate is used
@@ -41,6 +47,66 @@ _UMASK: int | None = None
 def is_owned_path(rel: str) -> bool:
     folded = rel.translate(_ASCII_LOWER)
     return folded.startswith(OWNED_PREFIXES) or folded.endswith(OWNED_SUFFIXES)
+
+
+def _identity(path: Path) -> tuple[int, int] | None:
+    """(device, inode) of an existing file; None when unknown (some file systems report inode 0)."""
+    try:
+        info = path.stat()
+    except OSError:
+        return None
+    return (info.st_dev, info.st_ino) if info.st_ino else None
+
+
+def _owned_target(resolved: Path, root: Path, owned: set[tuple[int, int]]) -> bool:
+    """True when a path that is not owned as written reaches an MLView file: through a symlink to
+    an owned location, or as another name (hard link or case alias) of the draft or artifact."""
+    try:
+        if is_owned_path(resolved.relative_to(root).as_posix()):
+            return True
+    except ValueError:
+        return False
+    return bool(owned) and _identity(resolved) in owned
+
+
+def _tracked(doc: dict[str, Any]) -> set[str]:
+    """tracked(doc) as written: cited evidence files plus inspected files that are not MLView-owned."""
+    evidence = doc.get("evidence")
+    coverage = doc.get("coverage")
+    inspected = coverage.get("inspectedFiles") if isinstance(coverage, dict) else None
+    cited = {ev["file"] for ev in evidence if isinstance(ev, dict) and isinstance(ev.get("file"), str)} if isinstance(evidence, list) else set()
+    listed = {value for value in inspected if isinstance(value, str) and not is_owned_path(value)} if isinstance(inspected, list) else set()
+    return cited | listed
+
+
+def _json_depth(value: Any) -> int:
+    """Nesting depth of parsed JSON (a scalar is 0, [] is 1), computed without recursion."""
+    deepest = 0
+    pending: list[tuple[Any, int]] = [(value, 0)]
+    while pending:
+        current, depth = pending.pop()
+        if isinstance(current, (dict, list)):
+            deepest = max(deepest, depth + 1)
+            children = current.values() if isinstance(current, dict) else current
+            pending.extend((child, depth + 1) for child in children if isinstance(child, (dict, list)))
+    return deepest
+
+
+def _rfc3339(value: str) -> bool:
+    """Strict RFC 3339 date-time with an offset, identical to the schema layer and the extension on
+    every Python version (datetime.fromisoformat accepts only 3 or 6 fraction digits before 3.11)."""
+    match = RFC3339_RE.fullmatch(value)
+    if not match:
+        return False
+    year, month, day, hour, minute, second = (int(part) for part in match.groups()[:6])
+    offset_hour, offset_minute = (int(part) if part is not None else 0 for part in match.groups()[6:])
+    if offset_hour > 23 or offset_minute > 59:
+        return False
+    try:
+        datetime(year, month, day, hour, minute, second)
+    except ValueError:
+        return False
+    return True
 
 
 class Problems:
@@ -121,7 +187,7 @@ def _parse_notebook(text: str) -> Any:
         return None
 
 
-def _validate_evidence(doc: dict[str, Any], root: Path, problems: Problems) -> dict[str, str]:
+def _validate_evidence(doc: dict[str, Any], root: Path, problems: Problems, owned: set[tuple[int, int]] = frozenset()) -> dict[str, str]:
     hashes: dict[str, str] = {}
     cache: dict[str, tuple[bytes, str]] = {}
     notebooks: dict[str, Any] = {}
@@ -137,6 +203,9 @@ def _validate_evidence(doc: dict[str, Any], root: Path, problems: Problems) -> d
         if not located:
             continue
         rel, source_path = located
+        if _owned_target(source_path, root, owned):
+            problems.add("excluded_evidence", f"{at}.file", EXCLUDED_EVIDENCE_MESSAGE)
+            continue
         content = cache.get(rel)
         if content is None:
             content = _read_source(source_path, problems, f"{at}.file")
@@ -183,7 +252,7 @@ def _validate_evidence(doc: dict[str, Any], root: Path, problems: Problems) -> d
     return dict(sorted(hashes.items()))
 
 
-def _validate_inspected(doc: dict[str, Any], root: Path, hashes: dict[str, str], problems: Problems, warnings: list[dict[str, str]]) -> dict[str, str]:
+def _validate_inspected(doc: dict[str, Any], root: Path, hashes: dict[str, str], problems: Problems, warnings: list[dict[str, str]], owned: set[tuple[int, int]] = frozenset()) -> dict[str, str]:
     coverage = doc.get("coverage")
     files = coverage.get("inspectedFiles", []) if isinstance(coverage, dict) else []
     evidence = doc.get("evidence")
@@ -204,6 +273,9 @@ def _validate_inspected(doc: dict[str, Any], root: Path, hashes: dict[str, str],
         if rel in cited or rel in seen:
             continue
         seen.add(rel)
+        if _owned_target(path, root, owned):
+            _warn(warnings, "excluded_inspected", at, EXCLUDED_INSPECTED_MESSAGE)
+            continue
         # Inspected-only context may be binary or non-UTF-8: fingerprint raw bytes.
         try:
             if path.stat().st_size > MAX_SOURCE:
@@ -304,14 +376,7 @@ def _basic_shape(doc: Any, p: Problems) -> None:
             published = verification.get("publishedAt")
             if not isinstance(published, str): p.add("type", "verification.publishedAt", "must be a string")
             else:
-                try:
-                    if not RFC3339_RE.fullmatch(published): raise ValueError
-                    if not published.endswith("Z"):
-                        offset_hour, offset_minute = published[-5:-3], published[-2:]
-                        if int(offset_hour) > 23 or int(offset_minute) > 59: raise ValueError
-                    parsed = datetime.fromisoformat(published.replace("Z", "+00:00"))
-                    if parsed.tzinfo is None: raise ValueError
-                except ValueError: p.add("format", "verification.publishedAt", "must be an RFC 3339 date-time with timezone")
+                if not _rfc3339(published): p.add("format", "verification.publishedAt", "must be an RFC 3339 date-time with timezone")
             files = verification.get("files")
             if not isinstance(files, dict): p.add("type", "verification.files", "must be an object")
             else:
@@ -343,21 +408,33 @@ def _basic_shape(doc: Any, p: Problems) -> None:
 
 
 def _walk_strings(value: Any, path: str = "$"):
-    if isinstance(value, str):
-        yield path, value
-    elif isinstance(value, dict):
-        for key, child in value.items(): yield from _walk_strings(child, f"{path}.{key}")
-    elif isinstance(value, list):
-        for index, child in enumerate(value): yield from _walk_strings(child, f"{path}[{index}]")
+    """Every string value with its path, in document order (iterative: nesting cannot overflow)."""
+    pending: list[tuple[Any, str]] = [(value, path)]
+    while pending:
+        current, at = pending.pop()
+        if isinstance(current, str):
+            yield at, current
+        elif isinstance(current, dict):
+            pending.extend(reversed([(child, f"{at}.{key}") for key, child in current.items()]))
+        elif isinstance(current, list):
+            pending.extend(reversed([(child, f"{at}[{index}]") for index, child in enumerate(current)]))
 
 
 def _walk_keys(value: Any, path: str = "$"):
-    if isinstance(value, dict):
-        for key, child in value.items():
-            yield f"{path}.{key}", key
-            yield from _walk_keys(child, f"{path}.{key}")
-    elif isinstance(value, list):
-        for index, child in enumerate(value): yield from _walk_keys(child, f"{path}[{index}]")
+    """Every object key with its path, in document order (iterative: nesting cannot overflow)."""
+    pending: list[tuple[bool, Any, str]] = [(False, value, path)]
+    while pending:
+        is_key, current, at = pending.pop()
+        if is_key:
+            yield at, current
+        elif isinstance(current, dict):
+            entries: list[tuple[bool, Any, str]] = []
+            for key, child in current.items():
+                entries.append((True, key, f"{at}.{key}"))
+                entries.append((False, child, f"{at}.{key}"))
+            pending.extend(reversed(entries))
+        elif isinstance(current, list):
+            pending.extend(reversed([(False, child, f"{at}[{index}]") for index, child in enumerate(current)]))
 
 
 def _encodable(value: str) -> bool:
@@ -461,15 +538,21 @@ def _claim(item: dict[str, Any], at: str, evidence_ids: set[str], p: Problems) -
     if isinstance(refs, list) and len(refs) > 100: p.add("limit", f"{at}.evidence", "must contain at most 100 references")
 
 
-def validate(doc: Any, workspace: Path, *, warnings: list[dict[str, str]] | None = None) -> tuple[list[dict[str, Any]], dict[str, str]]:
-    """Return (errors, fingerprints); non-blocking warnings are appended to ``warnings`` when given."""
+def validate(doc: Any, workspace: Path, *, warnings: list[dict[str, str]] | None = None, owned_files: Any = ()) -> tuple[list[dict[str, Any]], dict[str, str]]:
+    """Return (errors, fingerprints); non-blocking warnings are appended to ``warnings`` when given.
+
+    ``owned_files`` are MLView files (the draft being validated, the artifact being published):
+    another name for one of them (a hard link or case alias) is never cited or fingerprinted.
+    """
     workspace = workspace.resolve()
     notes: list[dict[str, str]] = warnings if warnings is not None else []
+    owned = {identity for identity in (_identity(Path(item)) for item in owned_files) if identity is not None}
     p = Problems(); _basic_shape(doc, p)
     if not isinstance(doc, dict): return p.items, {}
     _references(doc, p)
-    hashes = _validate_evidence(doc, workspace, p) if isinstance(doc.get("evidence"), list) else {}
-    hashes = _validate_inspected(doc, workspace, hashes, p, notes)
+    if len(_tracked(doc)) > MAX_TRACKED: p.add("limit", "coverage.inspectedFiles", TRACKED_LIMIT_MESSAGE)
+    hashes = _validate_evidence(doc, workspace, p, owned) if isinstance(doc.get("evidence"), list) else {}
+    hashes = _validate_inspected(doc, workspace, hashes, p, notes, owned)
     verification = doc.get("verification")
     if isinstance(verification, dict):
         supplied = verification.get("files")
@@ -518,14 +601,17 @@ def _parse(raw: bytes) -> Any:
 _INVALID = object()
 
 
-def _read_input(path: Path, problems: Problems, label: str) -> bytes | None:
+RELATIVE_HINT = " (relative paths are resolved against --workspace)"
+
+
+def _read_input(path: Path, problems: Problems, label: str, relative: bool = False) -> bytes | None:
     """Read a draft or record file, reporting a distinct error code per failure."""
     try:
         return _read_bounded(path)
     except _TooLarge:
         problems.add("draft_too_large", label, f"{label} file exceeds {MAX_DOCUMENT} bytes")
     except (FileNotFoundError, NotADirectoryError):
-        problems.add("draft_not_found", label, f"{label} file does not exist")
+        problems.add("draft_not_found", label, f"{label} file does not exist" + (RELATIVE_HINT if relative else ""))
     except IsADirectoryError:
         problems.add("draft_path", label, f"{label} must identify a regular file")
     except OSError:
@@ -540,7 +626,11 @@ def _parse_input(raw: bytes, problems: Problems, label: str, at: str) -> Any:
         problems.add("draft_encoding", label, f"{label} file must be UTF-8 JSON")
         return _INVALID
     try:
-        return json.loads(text, object_pairs_hook=_unique_object)
+        value = json.loads(text, object_pairs_hook=_unique_object)
+        if _json_depth(value) > MAX_JSON_DEPTH:
+            problems.add("invalid_json", at, "nesting is too deep")
+            return _INVALID
+        return value
     except json.JSONDecodeError as exc:
         problems.add("invalid_json", at, f"{exc.msg} at line {exc.lineno}, column {exc.colno}", line=exc.lineno, column=exc.colno)
     except _DuplicateMember as exc:
@@ -577,7 +667,7 @@ def _draft_path(value: str, root: Path, problems: Problems, label: str = "draft"
     try:
         resolved = path.resolve(strict=True)
     except (FileNotFoundError, NotADirectoryError):
-        problems.add("draft_not_found", label, f"{label} file does not exist")
+        problems.add("draft_not_found", label, f"{label} file does not exist" + ("" if Path(value).is_absolute() else RELATIVE_HINT))
         return None
     except (OSError, ValueError, RuntimeError):
         problems.add("draft_path", label, "must identify an existing file inside the workspace")
@@ -626,7 +716,7 @@ def _upsert_draft(draft: Path, collection: str, record: Any, root: Path) -> int:
     # still validate against the current workspace before and after the edit.
     checkpoint = dict(doc)
     checkpoint.pop("verification", None)
-    before_errors, _ = validate(checkpoint, root)
+    before_errors, _ = validate(checkpoint, root, owned_files=(draft,))
     if before_errors:
         print(json.dumps({"ok": False, "errors": [{"code": "checkpoint_invalid", "path": "$", "message": "existing draft must validate before an incremental edit"}] + before_errors}, sort_keys=True)); return 1
     if not isinstance(record, dict) or not _id(record.get("id")):
@@ -641,7 +731,7 @@ def _upsert_draft(draft: Path, collection: str, record: Any, root: Path) -> int:
     else: records.append(record)
     edited[collection] = records
     edited.pop("verification", None)
-    after_errors, _ = validate(edited, root)
+    after_errors, _ = validate(edited, root, owned_files=(draft,))
     if after_errors:
         print(json.dumps({"ok": False, "errors": after_errors}, sort_keys=True)); return 1
     serialized = (json.dumps(edited, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8")
@@ -662,24 +752,39 @@ def _upsert_draft(draft: Path, collection: str, record: Any, root: Path) -> int:
     print(json.dumps({"ok": True, "errors": [], "draft": draft.relative_to(root).as_posix(), "collection": collection, "id": record["id"], "action": action}, sort_keys=True)); return 0
 
 
-def _publish_locked(doc: dict[str, Any], hashes: dict[str, str], root: Path, output: Path, output_name: str, *, warnings: list[dict[str, str]] | None = None) -> int:
+def _published_invalid(output_name: str, message: str) -> int:
+    print(json.dumps({"ok": False, "errors": [{"code": "published_invalid", "path": output_name, "message": message}]})); return 1
+
+
+def _publish_locked(doc: dict[str, Any], hashes: dict[str, str], root: Path, output: Path, output_name: str, *, warnings: list[dict[str, str]] | None = None, owned_files: Any = ()) -> int:
     current_id = None; current_doc = None; current_snapshot = None
     if output.exists():
+        # Read the existing artifact exactly as the viewer does: at most 2 MiB, strict UTF-8 JSON
+        # (a BOM fails), bounded nesting, and a valid revision.id. The viewer refuses Refine for
+        # anything else, telling the user this helper will not publish over it.
         try:
-            current_snapshot = output.read_bytes()
+            current_snapshot = _read_bounded(output)
+        except _TooLarge:
+            return _published_invalid(output_name, f"existing artifact exceeds {MAX_DOCUMENT} bytes")
+        except OSError:
+            return _published_invalid(output_name, "existing artifact could not be read")
+        try:
             current_doc = json.loads(current_snapshot.decode("utf-8"))
-            current_id = current_doc["revision"]["id"]
-        except (OSError, ValueError, KeyError, TypeError, RecursionError):
-            print(json.dumps({"ok": False, "errors": [{"code": "published_invalid", "path": output_name, "message": "existing artifact is invalid"}]})); return 1
+            if _json_depth(current_doc) > MAX_JSON_DEPTH: raise ValueError
+        except (ValueError, RecursionError):
+            return _published_invalid(output_name, "existing artifact is invalid")
+        revision = current_doc.get("revision") if isinstance(current_doc, dict) else None
+        if not isinstance(revision, dict) or not _id(revision.get("id")):
+            return _published_invalid(output_name, "existing artifact has no valid revision.id")
+        current_id = revision["id"]
     if doc["revision"].get("parent") != current_id:
         if current_doc is None: message = f"no artifact is published at {output_name}; omit revision.parent"
-        elif _id(current_id): message = f"does not match the published revision {current_id}"
-        else: message = "does not match the published revision; the published artifact has no valid revision.id"
+        else: message = f"does not match the published revision {current_id}"
         print(json.dumps({"ok": False, "errors": [{"code": "revision_conflict", "path": "revision.parent", "message": message}]})); return 1
     # The artifact keeps no longer history, but its current revision names its
     # own parent: that ID was already published and must not be reused.
     current_parent = current_doc["revision"].get("parent") if current_doc is not None else None
-    if current_parent is not None and doc["revision"]["id"] == current_parent:
+    if _id(current_parent) and doc["revision"]["id"] == current_parent:
         revision_id = doc["revision"]["id"]
         print(json.dumps({"ok": False, "errors": [{"code": "revision_id_reused", "path": "revision.id", "message": f"revision ID {revision_id} was already used by this artifact (the published revision's parent); choose a new ID"}]})); return 1
     doc["verification"] = {"files": hashes, "publishedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")}
@@ -690,12 +795,16 @@ def _publish_locked(doc: dict[str, Any], hashes: dict[str, str], root: Path, out
     try:
         with os.fdopen(fd, "wb") as stream:
             stream.write(serialized); stream.flush(); os.fsync(stream.fileno())
-        final_errors, final_hashes = validate(doc, root)
-        if final_errors or final_hashes != hashes:
+        final_errors, final_hashes = validate(doc, root, owned_files=owned_files)
+        # Only a fingerprint change (or a source that became stale or unreadable) means the
+        # sources moved; any other final problem is reported as it is.
+        if final_hashes != hashes or any(error["code"] in {"stale_source", "source_read", "path_outside_workspace", "quote_mismatch"} for error in final_errors):
             print(json.dumps({"ok": False, "errors": [{"code": "source_changed", "path": "verification.files", "message": "source or configuration changed during publication"}]})); return 1
+        if final_errors:
+            print(json.dumps({"ok": False, "errors": final_errors}, sort_keys=True)); return 1
         if current_snapshot is not None:
-            try: unchanged = output.read_bytes() == current_snapshot
-            except OSError: unchanged = False
+            try: unchanged = _read_bounded(output) == current_snapshot
+            except (OSError, ValueError): unchanged = False
             if not unchanged:
                 print(json.dumps({"ok": False, "errors": [{"code": "revision_conflict", "path": "revision.parent", "message": "published revision changed during publication"}]})); return 1
         elif output.exists():
@@ -735,13 +844,17 @@ def _main(argv: list[str] | None) -> int:
     # plain write would have produced.
     _UMASK = os.umask(0); os.umask(_UMASK)
     root = Path(args.workspace).resolve()
+    if not root.is_dir():
+        print(json.dumps({"ok": False, "errors": [{"code": "workspace_path", "path": "--workspace", "message": "must be an existing directory (the VS Code workspace folder that will contain the artifact)"}]})); return 1
     if args.command == "upsert":
         p = Problems(); draft_path = _draft_path(args.draft, root, p)
         if draft_path is None or args.collection is None or args.record is None:
             if draft_path is not None:
                 p.add("arguments", "$", "upsert requires --collection and --record")
             print(json.dumps({"ok": False, "errors": p.items}, sort_keys=True)); return 1
-        if draft_path.name.endswith(".mlview.json"):
+        # ASCII case folding like --output and the owned-path rule; casefold also catches the
+        # long s and Kelvin sign spellings a case-insensitive volume maps onto the artifact.
+        if draft_path.name.casefold().endswith(ARTIFACT_SUFFIX):
             print(json.dumps({"ok": False, "errors": [{"code": "published_target", "path": "draft", "message": "refusing to edit a published *.mlview.json artifact; copy it to a *.draft.json checkpoint first"}]})); return 1
         record_path = _draft_path(args.record, root, p, label="record")
         raw_record = _read_input(record_path, p, "record") if record_path is not None else None
@@ -765,12 +878,16 @@ def _main(argv: list[str] | None) -> int:
             except FileNotFoundError: pass
     p = Problems()
     draft = _input_path(args.draft, root, p)
-    raw_draft = _read_input(draft, p, "draft") if draft is not None else None
+    raw_draft = _read_input(draft, p, "draft", relative=not Path(args.draft).is_absolute()) if draft is not None else None
     doc = _parse_input(raw_draft, p, "draft", "$") if raw_draft is not None else _INVALID
     if p.items:
         print(json.dumps({"ok": False, "errors": p.items}, sort_keys=True)); return 1
+    # The draft and the artifact are MLView files under any name.
+    owned_files: list[Path] = [draft]
+    if args.command == "publish" and _output_problem(args.output) is None:
+        owned_files.append(root.joinpath(*PurePosixPath(args.output).parts))
     warnings: list[dict[str, str]] = []
-    errors, hashes = validate(doc, root, warnings=warnings)
+    errors, hashes = validate(doc, root, warnings=warnings, owned_files=owned_files)
     if errors: print(json.dumps({"ok": False, "errors": errors}, sort_keys=True)); return 1
     if args.command == "validate":
         result: dict[str, Any] = {"ok": True, "errors": [], "revision": doc["revision"]["id"], "files": hashes}
@@ -799,7 +916,7 @@ def _main(argv: list[str] | None) -> int:
     try:
         try:
             os.close(lock_fd)
-            return _publish_locked(doc, hashes, root, output, output_arg.as_posix(), warnings=warnings)
+            return _publish_locked(doc, hashes, root, output, output_arg.as_posix(), warnings=warnings, owned_files=owned_files)
         except OSError:
             print(json.dumps({"ok": False, "errors": [{"code": "publication_io", "path": "--output", "message": "could not write the published artifact"}]})); return 1
     finally:

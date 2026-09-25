@@ -335,3 +335,53 @@ test('malformed optional and nested values are rejected without throwing', () =>
     assert.equal(validateWorkflowStructure(value).document,undefined);
   }
 });
+
+test('a changed inspected-only file with a fingerprint is stale (SPECDOCS1-1)', async () => {
+  const root=fixture('mlview-inspected-changed-');
+  fs.writeFileSync(path.join(root,'pipeline.py'),'fit()\n');
+  fs.writeFileSync(path.join(root,'config.cfg'),'name=cafe\n');
+  const value=document();value.coverage.inspectedFiles.push('config.cfg');
+  published(value,{'pipeline.py':Buffer.from('fit()\n'),'config.cfg':Buffer.from('name=cafe\n')});
+  const fresh=await validateWorkflow(value,root);
+  assert.deepEqual(fresh.value.stale,[]);
+  fs.writeFileSync(path.join(root,'config.cfg'),'name=changed\n');
+  const changed=await validateWorkflow(value,root);
+  assert.deepEqual(changed.issues,[]);
+  assert.deepEqual(changed.value.stale.map(x=>[x.rel,x.reason]),[['config.cfg','changed']]);
+  assert.deepEqual(changed.value.staleFiles,[path.join(await fs.promises.realpath(root),'config.cfg')]);
+  assert.equal(changed.value.fingerprints['config.cfg'],sha(Buffer.from('name=changed\n')));
+});
+
+test('more than 2000 distinct tracked files is a structural issue, mirroring the helper (HELPER1-3)', () => {
+  const value=document();
+  value.coverage.inspectedFiles=Array.from({length:2000},(_,i)=>`ctx/f${i}.txt`);
+  const message='at most 2000 distinct tracked files (cited evidence files plus inspected project files) can be fingerprinted; list fewer files';
+  assert.deepEqual(validateWorkflowStructure(value).issues,[{path:'$.coverage.inspectedFiles',message}]);
+  value.coverage.inspectedFiles[1999]='pipeline.py';
+  assert.deepEqual(validateWorkflowStructure(value).issues,[]);
+  value.coverage.inspectedFiles[1999]='.mlview/notes.md';
+  assert.deepEqual(validateWorkflowStructure(value).issues,[]);
+});
+
+test('links and aliases of MLView files are never cited or fingerprinted (SECURITY1-5)', async (t) => {
+  const root=fs.realpathSync(fixture('mlview-owned-alias-'));
+  fs.writeFileSync(path.join(root,'pipeline.py'),'fit()\n');
+  const artifact=path.join(root,'workflow.mlview.json');
+  fs.writeFileSync(artifact,'{"old":"artifact"}\n');
+  const links=[];
+  try { fs.symlinkSync('workflow.mlview.json',path.join(root,'notes.json')); links.push('notes.json'); } catch {}
+  try { fs.linkSync(artifact,path.join(root,'copy.json')); links.push('copy.json'); } catch {}
+  if (!links.length) { t.skip('links are unavailable here'); return; }
+  const value=document();value.coverage.inspectedFiles.push(...links);
+  // An old helper fingerprinted the alias; the artifact has since been rewritten.
+  published(value,Object.fromEntries([['pipeline.py',Buffer.from('fit()\n')],...links.map(rel=>[rel,Buffer.from('{"old":"artifact"}\n')])]));
+  fs.writeFileSync(artifact,'{"new":"artifact"}\n'); // in place, so the hard link stays shared
+  const result=await validateWorkflow(value,root,{ownedFiles:[artifact]});
+  assert.deepEqual(result.issues,[]);
+  assert.deepEqual(result.value.stale,[]);
+  assert.deepEqual(Object.keys(result.value.fingerprints),['pipeline.py']);
+  if (links.includes('notes.json')) {
+    const cited=document('notes.json');
+    assert.deepEqual((await validateWorkflow(cited,root)).issues,[{path:'$.evidence[0].file',message:'evidence must cite project files, not an MLView artifact, draft or installed MLView skill file'}]);
+  }
+});

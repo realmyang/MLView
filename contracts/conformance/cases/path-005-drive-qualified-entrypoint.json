@@ -1,0 +1,88 @@
+{
+  "id": "path-005-drive-qualified-entrypoint",
+  "findings": [
+    "SPECDOCS1-2",
+    "SKILL-21"
+  ],
+  "description": "A drive-qualified entrypoint is invalid in both layers. Entrypoints are never read from disk, so only the lexical drive rule can reject it (path-001's evidence would also fail as a missing file).",
+  "files": {
+    "train.py": {
+      "text": "def train():\n    pass\n"
+    }
+  },
+  "artifact": "workflow.mlview.json",
+  "document": {
+    "workflowVersion": "1.0",
+    "title": "Training entrypoint",
+    "producer": {
+      "kind": "host-llm",
+      "host": "claude-code"
+    },
+    "revision": {
+      "id": "r1"
+    },
+    "request": {
+      "question": "What does train.py run?",
+      "scope": "train.py and config.cfg",
+      "entrypoints": [
+        "C:/x/train.py"
+      ]
+    },
+    "phases": [
+      {
+        "id": "train",
+        "label": "Train"
+      }
+    ],
+    "nodes": [
+      {
+        "id": "step",
+        "label": "Run training step",
+        "phase": "train",
+        "basis": "observed",
+        "evidence": [
+          "ev-1"
+        ]
+      }
+    ],
+    "edges": [],
+    "findings": [],
+    "evidence": [
+      {
+        "id": "ev-1",
+        "file": "train.py",
+        "line": 1,
+        "endLine": 1,
+        "quote": "def train():"
+      }
+    ],
+    "coverage": {
+      "status": "scoped",
+      "summary": "Read the entrypoint and its configuration.",
+      "inspectedFiles": [
+        "train.py"
+      ],
+      "limitations": []
+    }
+  },
+  "expect": {
+    "schema": "valid",
+    "helper": {
+      "ok": false,
+      "codes": [
+        "invalid_path"
+      ],
+      "warnings": [],
+      "fingerprints": null,
+      "stale": []
+    },
+    "extension": {
+      "ok": false,
+      "stale": [],
+      "issuePaths": [
+        "$.request.entrypoints[0]"
+      ]
+    }
+  },
+  "divergence": null
+}
