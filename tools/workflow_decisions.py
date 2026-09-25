@@ -3849,7 +3849,10 @@ def command_template(world: World, args, out) -> int:
             return 1
         frozen = [message for message in (_missing_frozen(world, path) for path in files.values()) if message]
         if frozen:
-            print("template --init-all: refusing; " + " ".join(frozen), file=out)
+            print(f"template --init-all: refusing; {len(frozen)} frozen decision file(s) are missing and templates "
+                  "never replace them:", file=out)
+            for message in frozen:
+                print(f"  {message}", file=out)
             return 1
         for name, (path, generate) in targets.items():
             er.write_exclusive(path, generate().encode("utf-8"))

@@ -2928,7 +2928,15 @@ def test_template_never_replaces_a_deleted_frozen_file(tmp_path: Path, verified)
     for name in ("pilot-demo.md", "pilot-book.md", "run-policy.md", "development-adjudication.md", "README.md"):
         (world.root / wd.DECISIONS_REL / name).unlink(missing_ok=True)
     code, out = run(world, "template", "--init-all")
-    assert code == 1 and "template --init-all: refusing;" in out and "was frozen in pilot-99 and is missing" in out, out
+    lines = out.splitlines()
+    missing = [line for line in lines if "was frozen in pilot-99 and is missing" in line]
+    assert code == 1 and lines[0] == f"template --init-all: refusing; {len(missing)} frozen decision file(s) are " \
+                                      "missing and templates never replace them:", out
+    # One refusal per line, each a whole sentence with its own restore (REG-3).
+    assert len(missing) >= 2 and all(line.startswith("  evals/workflow/decisions/") for line in missing), out
+    assert all(line.count("was frozen in pilot-99") == 1 for line in missing), out
+    assert any(line.startswith(f"  {rel} was frozen in pilot-99 and is missing; restore it (git checkout -- {rel})")
+               for line in missing), out
     assert not (world.root / rel).exists()
 
 

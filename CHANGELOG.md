@@ -384,6 +384,23 @@ calibrated to the threat model in the specification's section 1.10):
   rather than review bytes; a changed Stage 1 input leaves the all-stage
   summary incomplete rather than invalid; the Markdown writes `>=`.
 
+Final check fixes (REG IDs refer to the final check of the final round):
+- With a Stage 1 summary recorded by other (Git-bound) tools, a changed
+  Stage 1 verdict or reviewer that keeps the decision at `go` now holds
+  Stage 2 and leaves `summarize --stage all` incomplete, as with the same
+  tools: for each `review.md` whose bytes changed since the record (or that
+  was deleted), the verdict-derived fields (reviewed, reviewer and the review
+  counts of a skill run; the paired row of a baseline) are compared and each
+  run is named. Tool-judged fields are still not compared across tool
+  versions, and a re-save or note that keeps every verdict still does no harm
+  (REG-1).
+- The squash-merge recovery names the commands that report a candidate
+  commit outside `HEAD`'s history (`run-prepare`, `summarize` and
+  `workflow_candidate.py --check`; `check-frozen` does not check it) and
+  confirms the recovery with `workflow_candidate.py --check` (REG-2).
+- `template --init-all` prints each missing frozen file on its own line
+  (REG-3).
+
 Not in this version: the owner's reference review and freeze, the development
 adjudication, any native session and the pilot itself (the owner's
 decisions); second-review tooling for run reviews and the development

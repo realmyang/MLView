@@ -65,17 +65,20 @@ pilot-01-candidate`. A pull request's CI tests the merge ref, which keeps the
 branch history, so it cannot catch a squash merge before it happens.
 
 If a campaign branch was squash- or rebase-merged anyway, main no longer holds
-the commits the campaign names, and `check-frozen` and the pilot tools say
-that `source.commit` is not an ancestor of `HEAD`. Nothing is lost while the
-original branch or the candidate tag still exists: merge it into main with a
-merge commit, for example `git merge --no-ff pilot-01-candidate` (or the
-original branch), then run `python tools/workflow_eval.py check-frozen`. The
-merge brings back the original commits, and the changes the squash already
-brought in usually merge cleanly; resolve any conflict in favour of main's
-current files. If check-frozen still reports the tasks manifest, ask the
-owner. Run the pilot tools from main (or a branch that contains
-`candidate.json`), never from the candidate's source commit, which precedes
-`candidate.json`.
+the commits the campaign names, and `run-prepare`, `summarize` and
+`python tools/workflow_candidate.py --check` say that `source.commit` is not
+an ancestor of `HEAD` (`check-frozen` does not check the candidate's
+ancestry). Nothing is lost while the original branch or the candidate tag
+still exists: merge it into main with a merge commit, for example
+`git merge --no-ff pilot-01-candidate` (or the original branch), then confirm
+with `python tools/workflow_candidate.py --check
+evals/workflow/pilot/pilot-01/candidate.json` (or `run-prepare`) and run
+`python tools/workflow_eval.py check-frozen`. The merge brings back the
+original commits, and the changes the squash already brought in usually merge
+cleanly; resolve any conflict in favour of main's current files. If
+check-frozen reports the tasks manifest, ask the owner. Run the pilot tools
+from main (or a branch that contains `candidate.json`), never from the
+candidate's source commit, which precedes `candidate.json`.
 
 Commit both files of a recorded summary at once, right after `summarize
 --record`, before any other commit, pull, merge or rebase. A recorded summary

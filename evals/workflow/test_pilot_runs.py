@@ -2257,8 +2257,8 @@ def test_a_stage1_summary_recorded_with_other_committed_tools_still_discloses_re
         else:
             assert code == 0, err
             assert "Note: the committed Stage 1 summary was recorded with other tools (versions committed in its " \
-                   "history); its decision, its sealed inputs, and the failures and earlier attempts of its skill runs " \
-                   "and baselines were compared" in out, out
+                   "history); its decision, its sealed inputs, the failures and earlier attempts of its skill runs " \
+                   "and baselines, and what it reports of each review changed since were compared" in out, out
     assert (directory / "stage1-summary.json").is_file()
 
 
@@ -2513,8 +2513,8 @@ def test_a_summary_recorded_with_other_tools_must_disclose_the_baselines(tmp_pat
         git(world.root, "reset", "--quiet", "--hard", "HEAD~1")
     commit_files(world.root, summary_files(real), "synthetic: the summary as recorded")
     code, out, err = run_main(world, "run-prepare", "pilot-demo-a:codex:2", *pilot_args(world))
-    assert code == 0 and "the failures and earlier attempts of its skill runs and baselines were compared" in out, \
-        out + err
+    assert code == 0 and "the failures and earlier attempts of its skill runs and baselines, and what it reports of " \
+                         "each review changed since were compared" in out, out + err
 
 
 def test_stage1_runs_are_final_once_the_stage1_summary_is_recorded(tmp_path: Path,
@@ -2686,6 +2686,108 @@ def test_a_later_tool_rule_for_a_baseline_leaves_an_honest_go_in_force(world: Wo
     assert not [run["id"] for run in summary["runs"] if run["status"] == "invalid"]
     code, _out, err = run_main(world, "summarize", *pilot_args(world), "--stage", "all", "--record")
     assert code == 0, err
+
+
+def record_stage1_go(world: World, tools: str) -> None:
+    """Record and commit the Stage 1 go of ``world``: with summarize --record (the running tools), or as the
+    other, Git-bound tools committed at HEAD then would have written it (synthetic older tool bytes)."""
+    if tools == "same":
+        code, _out, err = run_main(world, "summarize", *pilot_args(world), "--stage", "1", "--record")
+        assert code == 0, err
+        commit_files(world.root, {}, "synthetic: the recorded summary")
+        return
+    real = json.loads(er.canonical_json(summarize(world)))
+    assert real["decision"]["value"] == "go"
+    real["tooling"]["tools/workflow_pilot.py"] = sha(OLD_TOOL)
+    commit_files(world.root, {"tools/workflow_pilot.py": OLD_TOOL}, "synthetic: the tools when summarize --record ran")
+    commit_files(world.root, summary_files(real), "synthetic: the recorded summary")
+
+
+@pytest.mark.parametrize("tools", ["same", "other"])
+@pytest.mark.parametrize("edit", ["none", "resave", "skill-verdict", "skill-reviewer", "baseline-verdict",
+                                  "baseline-deleted"])
+def test_a_changed_stage1_verdict_that_keeps_go_holds_stage_2_whichever_tools_recorded_it(world: World, tools: str,
+                                                                                          edit: str) -> None:
+    """After the Stage 1 go is recorded, with the running tools or with other (Git-bound) tools, a changed verdict
+    or reviewer that keeps the re-computed decision at go is named, holds Stage 2 and leaves the all-stage summary
+    incomplete without making Stage 2 runs invalid; no change, a CRLF re-save and a '>' note that keep every verdict
+    do no harm (REG-1; HONEST-F2 and INTEGRITY-F1 kept)."""
+    record_stage1_go(world, tools)
+    do_run(world, "pilot-demo-a:codex:2", session={"Started": "2026-10-25T09:00:00Z", "Ended": "2026-10-25T09:10:00Z"})
+    skill, base = "pilot-demo-a:codex:1", "pilot-demo-a:codex:baseline:1"
+    originals = {run_id: (world.evidence(run_id) / "review.md").read_bytes() for run_id in (skill, base)}
+    if edit == "resave":
+        (world.evidence(skill) / "review.md").write_bytes(originals[skill].replace(b"\n", b"\r\n"))
+        (world.evidence(base) / "review.md").write_bytes(originals[base] + b"> a note added later (synthetic)\n")
+    elif edit == "skill-verdict":
+        _set_review(world, skill, "demo-a-f01: covered node:load", "demo-a-f01: missing")
+    elif edit == "skill-reviewer":
+        _set_review(world, skill, f"Reviewer: {REVIEWER}", "Reviewer: Another Reviewer (synthetic)")
+    elif edit == "baseline-verdict":
+        _set_review(world, base, "demo-a-f01: covered response:1-2", "demo-a-f01: missing")
+    elif edit == "baseline-deleted":
+        (world.evidence(base) / "review.md").unlink()
+    assert summarize(world)["decision"]["value"] == "go"
+    code, out, err = run_main(world, "run-prepare", "pilot-demo-a:claude-code:2", *pilot_args(world))
+    summary = summarize(world, "all")
+    assert summary["decision"]["value"] == "incomplete"
+    assert not [run["id"] for run in summary["runs"] if run["status"] == "invalid"]
+    held = "the committed Stage 1 go is not re-verified here (see the verification notes)"
+    if edit in ("none", "resave"):
+        assert code == 0, err
+        assert ("Note: the committed Stage 1 summary was recorded with other tools" in out) == (tools == "other"), out
+        assert held not in summary["decision"]["reasons"], summary["decision"]
+        return
+    changed = base if edit.startswith("baseline") else skill
+    assert code == 1 and f"after review.md of {changed} changed since the summary was recorded; Stage 1 reviews are " \
+                         "final once the Stage 1 summary is recorded" in err, err
+    if tools == "other":
+        field = {"skill-verdict": "ess", "skill-reviewer": "reviewer", "baseline-verdict": "ess",
+                 "baseline-deleted": "reviewed"}[edit]
+        assert f"differs from the committed summary in what the review of {changed} (" in err and field in err, err
+    assert held in summary["decision"]["reasons"], summary["decision"]
+    assert any(f"review.md of {changed} changed" in note for note in summary["verification"]["notes"]), \
+        summary["verification"]["notes"]
+    for run_id, raw in originals.items():
+        (world.evidence(run_id) / "review.md").write_bytes(raw)
+    code, _out, err = run_main(world, "run-prepare", "pilot-demo-a:claude-code:2", *pilot_args(world))
+    assert code == 0, err
+
+
+@pytest.mark.parametrize("later", ["count", "protocol-and-resave"])
+def test_a_later_tool_judgement_of_an_unchanged_review_leaves_an_other_tools_go_in_force(
+        world: World, monkeypatch: pytest.MonkeyPatch, later: str) -> None:
+    """With other (Git-bound) tools, only the verdicts of a review the running tools read with other bytes (or that
+    was deleted) are compared: a later tool version that counts an unchanged baseline review differently, or that
+    judges a baseline invalid (so its review is not read) after a CRLF re-save, neither holds Stage 2 nor names the
+    run (REG-1, INTEGRITY-F1, HONEST-F2)."""
+    record_stage1_go(world, "other")
+    base = "pilot-demo-a:codex:baseline:1"
+    if later == "count":
+        earlier_metrics = wp._run_metrics
+
+        def later_metrics(state, campaign):
+            metrics = earlier_metrics(state, campaign)
+            if state.run["id"] == base:
+                metrics["ess"] = max(0, metrics["ess"] - 1)
+            return metrics
+        monkeypatch.setattr(wp, "_run_metrics", later_metrics)
+    else:
+        earlier_protocol = wp._protocol
+
+        def later_protocol(state, campaign, stage1, stage1_problem=None):
+            earlier_protocol(state, campaign, stage1, stage1_problem)
+            if state.run["id"] == base:
+                state.invalid.append("a later synthetic protocol rule")
+        monkeypatch.setattr(wp, "_protocol", later_protocol)
+        review = world.evidence(base) / "review.md"
+        review.write_bytes(review.read_bytes().replace(b"\n", b"\r\n"))
+    summary = summarize(world)
+    assert summary["decision"]["value"] == "go"
+    side = next(row for row in summary["baselines"]["paired"] if (row["task"], row["host"]) == ("pilot-demo-a", "codex"))
+    assert side["baseline"]["ess"] == (side["baseline"]["ESS"] - 1 if later == "count" else 0)
+    code, out, err = run_main(world, "run-prepare", "pilot-demo-a:codex:2", *pilot_args(world))
+    assert code == 0 and "recorded with other tools" in out, err
 
 
 def test_a_retriable_failure_stays_open_in_the_early_stop_indicators(retry_world: World) -> None:

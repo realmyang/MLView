@@ -394,7 +394,7 @@ def test_check_proves_the_record_at_its_commit_and_reports_head_drift_as_informa
 
 
 @needs_git
-def test_check_requires_the_commit_to_exist_and_be_an_ancestor_of_head(tmp_path: Path) -> None:
+def test_check_requires_the_commit_to_exist_and_be_an_ancestor_of_head(tmp_path: Path, monkeypatch, capsys) -> None:
     root = make_world(tmp_path)
     _, record = capture(root, tmp_path / "pilot")
     missing = json.loads(json.dumps(record))
@@ -404,8 +404,21 @@ def test_check_requires_the_commit_to_exist_and_be_an_ancestor_of_head(tmp_path:
     git(root, "checkout", "--quiet", "--orphan", "elsewhere")
     git(root, "commit", "--quiet", "-m", "unrelated history")
     problems = candidate.check(record, root)
-    assert problems == [candidate.not_ancestor_problem(base[:12])]
-    assert "merge the original branch (or the <campaign>-candidate tag) into main with git merge --no-ff" in problems[0]
+    assert problems == [candidate.not_ancestor_problem(base[:12], CAMPAIGN)]
+    command = f"python tools/workflow_candidate.py --check evals/workflow/pilot/{CAMPAIGN}/candidate.json"
+    assert f"merge the original branch (or the {CAMPAIGN}-candidate tag) into main with git merge --no-ff, then " \
+           f"confirm with {command} (" in problems[0]
+    assert "check-frozen" not in problems[0]  # check-frozen does not check the ancestry (REG-2)
+    # The command the message names exists, reports the problem, and confirms the documented recovery.
+    monkeypatch.setattr(candidate, "ROOT", root)
+    monkeypatch.chdir(root)
+    argv = command.split()[2:]
+    capsys.readouterr()
+    assert candidate.main(argv) == 1
+    assert json.loads(capsys.readouterr().out)["problems"] == problems
+    git(root, "merge", "--quiet", "--no-ff", "--allow-unrelated-histories", "-m", "recovery merge (synthetic)", base)
+    assert candidate.main(argv) == 0
+    assert json.loads(capsys.readouterr().out)["ok"] is True
 
 
 @needs_git

@@ -518,7 +518,7 @@ def load_campaign(root: Path, name: str) -> Campaign:
     if _git_run(root, "cat-file", "-e", f"{commit}^{{commit}}").returncode != 0:
         raise IntegrityError([f"candidate source commit {commit[:12]} is not in this repository; fetch the full history"])
     ancestry = _git_run(root, "merge-base", "--is-ancestor", commit, "HEAD")
-    not_ancestor = f"candidate.json: {workflow_candidate.not_ancestor_problem(commit[:12])}"
+    not_ancestor = f"candidate.json: {workflow_candidate.not_ancestor_problem(commit[:12], name)}"
     if ancestry.returncode != 0 and not_ancestor not in problems:  # workflow_candidate.check reports it too
         problems.append(not_ancestor)
     components = {item["path"]: item for item in candidate["components"]}
@@ -1324,7 +1324,8 @@ def _tooling_binding(root: Path, campaign: Campaign, committed: dict, recomputed
     or a tool commit in between (a rebase that rewrites an unpushed commit holding them can break the
     link; the pilot README gives the repair before pushing). The tooling field is part of the file
     being verified, so it never names tools that were never committed, and the decision, the sealed
-    inputs and the disclosure of every run are compared whichever tools it names."""
+    inputs, the disclosure of every run and what the summary reports of each review changed since are
+    compared whichever tools it names."""
     tooling = committed.get("tooling") if isinstance(committed.get("tooling"), dict) else {}
     fresh = recomputed["tooling"]
     if tooling.get(HELPER_KEY) != fresh[HELPER_KEY]:
@@ -1390,6 +1391,61 @@ def _disclosure(summary: dict) -> dict:
     }
 
 
+# What a summary reports that a Stage 1 run's review verdicts determine: for a skill run these fields
+# of its runs[] entry, for a baseline these fields of the baseline side of its paired row. The
+# tool-judged status and reviewStatus, the baselines' state and the reference totals (ESS, UNK) are
+# not part of it.
+RUN_VERDICT_KEYS = ("reviewed", "reviewer", "claims", "baselineClaims", "ess", "unk", "fa", "falseAccusationsListed",
+                    "reported")
+PAIRED_VERDICT_KEYS = ("reviewed", "ess", "unk", "precision")
+
+
+def _verdict_fields(summary: dict, planned: dict[str, dict]) -> dict[str, dict]:
+    """By run ID, the fields of ``summary`` that the review verdicts of each Stage 1 run determine
+    (RUN_VERDICT_KEYS of a skill run's runs[] entry, PAIRED_VERDICT_KEYS of a baseline's paired row),
+    as far as the summary carries them."""
+    value = json.loads(er.canonical_json(summary))
+    found: dict[str, dict] = {}
+    for run in value.get("runs") if isinstance(value.get("runs"), list) else []:
+        if isinstance(run, dict) and (planned.get(run.get("id")) or {}).get("stage") == 1:
+            found[run["id"]] = {key: run[key] for key in RUN_VERDICT_KEYS if key in run}
+    baselines = value.get("baselines") if isinstance(value.get("baselines"), dict) else {}
+    paired = baselines.get("paired") if isinstance(baselines.get("paired"), list) else []
+    sides = {(row.get("task"), row.get("host")): row.get("baseline") for row in paired if isinstance(row, dict)}
+    for run_id, run in planned.items():
+        side = sides.get((run["task"], run["host"])) if run["condition"] == "baseline" else None
+        if isinstance(side, dict):
+            found[run_id] = {key: side[key] for key in PAIRED_VERDICT_KEYS if key in side}
+    return found
+
+
+def _review_edited(evidence_root: Path, run_id: str, fresh: object, recorded: object) -> bool:
+    """Whether the verdicts of the review.md of ``run_id`` can differ from those a summary recorded:
+    the running tools read other bytes (sha256 ``fresh``) than the recorded ones, or the file was
+    deleted. A review they did not read (for a run a later tool version judges invalid, say) gives no
+    verdicts to compare."""
+    if fresh is not None:
+        return fresh != recorded
+    return recorded is not None and not os.path.lexists(evidence_root / er.run_dir_name(run_id) / REVIEW_FILE)
+
+
+def _verdict_differences(fresh: dict, recorded: dict, planned: dict[str, dict], run_ids: list[str]) -> list[str]:
+    """Each of ``run_ids`` (Stage 1 runs whose review.md bytes changed since the summary was recorded)
+    for which the re-computation reports other verdict-derived fields than the committed summary, with
+    those fields. A review whose bytes are unchanged says what it said, so a difference there belongs
+    to the tools and is not looked at."""
+    now, then = _verdict_fields(fresh, planned), _verdict_fields(recorded, planned)
+    named = []
+    for run_id in run_ids:
+        old, new = then.get(run_id), now.get(run_id, {})
+        if old is None:
+            continue
+        keys = [key for key in old if key not in new or new[key] != old[key]]
+        if keys:
+            named.append(f"{run_id} ({', '.join(keys)})")
+    return named
+
+
 class Stage1Unverified(str):
     """Why a committed Stage 1 go could not be re-verified here although its sealed inputs are unchanged
     (the corpus is absent or unverified, or the running tools find Stage 1 incomplete), as opposed to
@@ -1413,7 +1469,8 @@ def _stage1_matches(root: Path, campaign: Campaign, pilot_value: str | None, com
                     notes: list[str] | None = None) -> str | None:
     """None when Stage 1, re-computed from the sealed evidence, is go with exactly the committed sealed
     inputs (records, amendments, earlier attempts), says the same (with the same tools, every field;
-    review.md bytes themselves are not compared) and the committed summary was generated after every
+    with other tools, the disclosure and, for each review.md whose bytes changed, the fields its verdicts
+    determine; review.md bytes themselves are not compared) and the committed summary was generated after every
     Stage 1 record was sealed or amended. A Stage1Changed reason when Stage 1 evidence here differs
     from the summary (named, with what to restore); a Stage1Unverified reason when the sealed inputs
     are unchanged but the re-computation is incomplete (the corpus is absent here, for example);
@@ -1454,18 +1511,28 @@ def _stage1_matches(root: Path, campaign: Campaign, pilot_value: str | None, com
     if tools is None:
         # Recorded with other tools, committed in the summary's history (section 1.10): the decision,
         # the sealed inputs and the disclosure of retries and failures (sealed facts) must still be
-        # the re-computation; the other fields and the Markdown rendering belong to those tools.
+        # the re-computation, and so must what the summary reports of every review whose bytes changed
+        # since; the other fields and the Markdown rendering belong to those tools.
         fresh, recorded = _disclosure(recomputed), _disclosure(committed)
         differing = sorted(key for key in set(fresh) | set(recorded) if fresh.get(key) != recorded.get(key))
         if differing:
             return (f"the committed Stage 1 summary misstates the runs' statuses, failures or earlier attempts "
                     f"({', '.join(differing)}) compared with a re-computation from the sealed evidence (a recorded "
                     "summary is written only by summarize --record)")
+        now, then = _stage1_input_index(recomputed, planned), _stage1_input_index(committed, planned)
+        evidence_root = _pilot_dir(pilot_value) / "evidence"
+        edited = [run_id for run_id in reviews
+                  if _review_edited(evidence_root, run_id, now[run_id].get("review"), then[run_id].get("review"))]
+        verdicts = _verdict_differences(recomputed, committed, planned, edited)
+        if verdicts:
+            return Stage1Changed(f"a re-computation of Stage 1 differs from the committed summary in what the review "
+                                 f"of {_shown(verdicts)} gives, after review.md of {_shown(edited, separator=', ')} "
+                                 f"changed since the summary was recorded; {REVIEWS_FINAL}")
         if notes is not None:
             notes.append("the committed Stage 1 summary was recorded with other tools (versions committed in its "
-                         "history); its decision, its sealed inputs, and the failures and earlier attempts of its "
-                         "skill runs and baselines were compared with a re-computation, not its other fields or its "
-                         "Markdown rendering")
+                         "history); its decision, its sealed inputs, the failures and earlier attempts of its "
+                         "skill runs and baselines, and what it reports of each review changed since were compared "
+                         "with a re-computation, not its other fields or its Markdown rendering")
     else:
         # Recorded with these tools: every reported field must be the re-computation, and the
         # Markdown must be rendered from the JSON (section 4.7), so neither can hide a retry or a failure.

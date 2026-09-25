@@ -265,8 +265,12 @@ again), `skills/mlview/scripts/artifact.py` must be the candidate's frozen
 helper, and the decision, the sealed inputs and the disclosure of retries and
 failures (each skill run's status, failure and earlier attempts, and each
 baseline's failure and earlier attempts; a baseline's computed status and
-review state belong to the tools) are still compared (a note says the other
-fields and the Markdown were not). With per-host targets, a stop reason names
+review state belong to the tools) are still compared, and so is what the
+summary reports of each Stage 1 `review.md` whose bytes changed since or that
+was deleted (whether the review is complete, its verdict counts and a skill
+run's reviewer), so a changed verdict holds Stage 2 whichever tools recorded
+the summary (a note says the other fields and the Markdown were not
+compared). With per-host targets, a stop reason names
 each host that misses a target, and the early-stop indicators include each
 host's bound.
 

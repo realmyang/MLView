@@ -67,9 +67,11 @@ skill differs. Run the pilot tools from main or a branch that contains
 `candidate.json`, never from `source.commit` itself, which precedes it. A
 source commit that is missing or not an ancestor after a squash or rebase
 merge, or after its branch was deleted, fails here and in `run-prepare` and
-`summarize`. To recover from a squash or rebase merge, merge the original
-branch (or the candidate tag) into main with `git merge --no-ff`, then run
-`check-frozen` ([merging a campaign](pilot/README.md#merging-a-campaign)).
+`summarize` (`check-frozen` does not check the candidate's ancestry). To
+recover from a squash or rebase merge, merge the original branch (or the
+candidate tag) into main with `git merge --no-ff`, then confirm with
+`python tools/workflow_candidate.py --check evals/workflow/pilot/pilot-01/candidate.json`
+([merging a campaign](pilot/README.md#merging-a-campaign)).
 Success says nothing about human approval.
 
 For local development, this still creates a `development-snapshot`, in which
