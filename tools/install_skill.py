@@ -102,8 +102,12 @@ def _remove_empty_parents(path: Path, stop: Path) -> None:
         parent = parent.parent
 
 
-def install(workspace: Path, destination: str = ".agents/skills/mlview", *, force: bool = False) -> Path:
+def install(workspace: Path, destination: str = ".agents/skills/mlview", *, force: bool = False,
+            source: Path | None = None) -> Path:
     """Install or upgrade the skill; returns the workspace-relative destination.
+
+    ``source`` is the skill directory to install (default: this checkout's skills/mlview); the
+    pilot's run-prepare passes the candidate's skill, read from its source commit.
 
     A file MLView installed earlier (listed in the destination's .mlview-install.json with the
     bytes it still has) is replaced, and deleted when the new skill no longer ships it. A file
@@ -116,7 +120,8 @@ def install(workspace: Path, destination: str = ".agents/skills/mlview", *, forc
     relative = Path(destination)
     if not destination or "\\" in destination or relative.is_absolute() or any(part in {"", ".", ".."} for part in destination.split("/")):
         raise ValueError("destination must be a slash-separated relative path within the workspace")
-    payload = canonical_files(SOURCE)
+    skill = Path(source) if source is not None else SOURCE
+    payload = canonical_files(skill)
     target = root / relative
     resolved_parent = target.parent.resolve(strict=False)
     if not _inside(resolved_parent, root):
@@ -126,8 +131,8 @@ def install(workspace: Path, destination: str = ".agents/skills/mlview", *, forc
     resolved_target = target.resolve(strict=False)
     if not _inside(resolved_target, root):
         raise ValueError("destination resolves outside the workspace")
-    source = SOURCE.resolve()
-    if _inside(resolved_target, source) or _inside(source, resolved_target):
+    resolved_source = skill.resolve()
+    if _inside(resolved_target, resolved_source) or _inside(resolved_source, resolved_target):
         raise ValueError("destination must not contain or be contained by the source skill")
     if target.exists() and not target.is_dir():
         raise ValueError("destination exists and is not a directory")
@@ -153,7 +158,7 @@ def install(workspace: Path, destination: str = ".agents/skills/mlview", *, forc
     target.mkdir(exist_ok=True)
     for rel, data in sorted(payload.items()):
         if current.get(rel) != data:
-            _write_file(target.joinpath(*rel.split("/")), data, mode_from=SOURCE.joinpath(*rel.split("/")))
+            _write_file(target.joinpath(*rel.split("/")), data, mode_from=skill.joinpath(*rel.split("/")))
     for rel in sorted(set(existing) - set(payload)):
         path = target.joinpath(*rel.split("/"))
         path.unlink()
@@ -163,14 +168,15 @@ def install(workspace: Path, destination: str = ".agents/skills/mlview", *, forc
     return relative
 
 
-def doctor(workspace: Path) -> tuple[dict[str, object], bool]:
-    """Inspect the two documented skill locations without executing or modifying files."""
+def doctor(workspace: Path, *, source: Path | None = None) -> tuple[dict[str, object], bool]:
+    """Inspect the two documented skill locations without executing or modifying files. ``source``
+    is the skill directory the installed copy is compared with (default: this checkout's)."""
     root = workspace.resolve(strict=True)
     locations: list[dict[str, object]] = []
     installed = 0
     healthy = True
     links: list[str] = []
-    expected = canonical_files(SOURCE)
+    expected = canonical_files(Path(source) if source is not None else SOURCE)
     expected_identity = bundle_identity(expected)
     for relative in SKILL_LOCATIONS:
         target = root / relative

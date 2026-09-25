@@ -582,7 +582,13 @@ def _task_section(report: Report, record: er.Record, *, closing: str) -> str | N
     value = found.value.strip().casefold() if found is not None else ""
     open_items = report.todos
     if value == "complete":
-        if open_items:
+        disagreements = sum(problem.level == er.TODO and problem.section == "Disagreements" for problem in report.problems)
+        if open_items and open_items == disagreements:
+            # Only a second review (possibly merged after this file said complete) opens Disagreements items:
+            # a to-do for the primary reviewer, never an error in a file the second reviewer must not edit.
+            report.todo(found.line, "Task", f"Review is complete, but the second review added {open_items} item(s) to "
+                                            "resolve under ## Disagreements.")
+        elif open_items:
             report.error(found.line, "Task", f"Review is complete, but {open_items} item(s) above are still to do.")
         return "complete"
     if value not in ("", "pending"):
@@ -637,11 +643,13 @@ class RefCheck:
     corpus_checked: bool = False
     corpus_note: str = ""
     second: "RefCheck | None" = None
+    second_unreadable: str | None = None  # the second-review file that exists but cannot be used (primary only)
     frozen_in: str | None = None  # the campaign whose freeze.json lists this file with its current bytes
     changed_after: str | None = None  # the campaign whose freeze.json lists this file with other bytes
     added_after: str | None = None  # the campaign frozen without this file, which its freeze would now read
     proposal_notes: list = field(default_factory=list)  # (problem, quoted ledger text) of each proposal-line NOTE
     high_notes: list = field(default_factory=list)  # the high-severity NOTEs (high_severity_notes)
+    anchor_notes: list = field(default_factory=list)  # (problem, locator) of each dropped-anchor NOTE
 
     @property
     def errors(self) -> int:
@@ -1012,6 +1020,7 @@ class _RefChecker:
                         self.report.note(_field_line(section, "Anchors"), label,
                                          f"{_locator(anchor)} (proposed) is no longer an anchor: Anchors: replaces "
                                          "the proposed list, so repeat every proposed anchor you keep.")
+                        self.result.anchor_notes.append((self.report.problems[-1], _locator(anchor)))
         if not anchors and basis != "unresolved":
             self.report.error(_field_line(section, "Anchors"), label,
                               "a fact needs at least one anchor unless Basis is unresolved.")
@@ -1194,7 +1203,10 @@ class _RefChecker:
                 key = line.key.strip()
                 match = folded.get(key.casefold())
                 if match is None:
-                    if second is None:
+                    if second is None and self.result.second_unreadable:
+                        message = (f'"{key}": {self.result.second_unreadable} cannot be read (see its errors); fix or '
+                                   "restore it before resolving disagreements. Keep this line.")
+                    elif second is None:
                         message = (f'"{key}": there is no second review ({self.task_id}.second.md) to disagree with; '
                                    "delete this line.")
                     elif key.casefold() in {item.casefold() for item in known_items}:
@@ -1403,14 +1415,16 @@ def _merge_anchors(fact_id: str, candidates: list[dict], parsed: list[tuple]) ->
 
 
 def check_reference(world: World, raw: bytes, display: str, *, second: RefCheck | None = None,
-                    expected_name: str | None = None) -> RefCheck:
+                    expected_name: str | None = None, second_unreadable: str | None = None) -> RefCheck:
     """Check one reference-decisions or second-review file. ``second`` is the checked second
-    review of the same task (primary files only)."""
+    review of the same task (primary files only); ``second_unreadable`` names a second-review file
+    that exists but cannot be used, so its Disagreements lines are not called stray."""
     report = Report(display)
     record, problems = er.parse_record(raw, display)
     report.problems.extend(problems)
     role = "second" if record is not None and record.kind == "Second review" else "primary"
     result = RefCheck(record.ident if record else None, role, display, report, record)
+    result.second_unreadable = second_unreadable if second is None else None
     if record is None:
         return result
     task = world.heldout_task(record.ident)
@@ -2073,7 +2087,8 @@ def _frozen_digest(world: World, path: Path) -> str | None:
 def _frozen_rewrites(check: RefCheck, *, high: bool) -> None:
     """For a file frozen in (or changed after) the current campaign, the NOTEs written while it was
     being edited never tell the owner to edit it: the proposal-line NOTE says the freeze took the
-    ledger's proposal (a frozen file stays exactly as committed), and with ``high`` a frozen file's
+    ledger's proposal (a frozen file stays exactly as committed), a dropped-anchor NOTE says the freeze
+    recorded the fact without that anchor, and with ``high`` a frozen file's
     high-severity NOTE says the defect was not second-reviewed in that campaign instead of asking for
     a second-review addition and its resolution (both need a new campaign). Without ``high`` (the
     second review was added, changed or removed after the freeze) _late_review_notes prefixes those
@@ -2087,6 +2102,10 @@ def _frozen_rewrites(check: RefCheck, *, high: bool) -> None:
             f'the ">" proposal lines under this heading are missing or differ from the candidate ledger '
             f"{check.task_id}.json; the freeze of {campaign} took the ledger's proposal: {quoted}."
             + (" Leave this frozen file exactly as committed." if check.frozen_in else "")))
+    for problem, locator in check.anchor_notes:
+        replaced[id(problem)] = problem._replace(message=(
+            f"the freeze of {campaign} recorded this fact without {locator} (proposed); changing its anchors needs a "
+            f"new campaign ({FREEZE_README})."))
     if high and check.frozen_in:
         for problem in check.high_notes:
             replaced[id(problem)] = problem._replace(message=(
@@ -2114,7 +2133,7 @@ def _late_review_notes(world: World, checks: list[FileCheck]) -> list[FileCheck]
     recorded = files.get(rel) if isinstance(files, dict) else None
     if isinstance(second, RefCheck) and second.added_after == campaign:
         prefix = f"for a new campaign ({rel} was added after the freeze of {campaign}): "
-        keep = f"remove {rel} (or keep it out of the repository)"
+        keep = f"move {rel} out of {DECISIONS_REL}/ (keep it for a new campaign; it holds a reviewer's decisions)"
         strict = False  # the primary had no second review, so none of its Disagreements lines are affected
     elif isinstance(second, RefCheck) and second.changed_after == campaign and isinstance(recorded, str):
         unreadable = " and cannot be read" if second.record is None else ""
@@ -2133,6 +2152,8 @@ def _late_review_notes(world: World, checks: list[FileCheck]) -> list[FileCheck]
                                                                or (strict and problem.level == er.ERROR))
         caused = disagreement or (problem.level == er.ERROR and problem.section == "Task"
                                   and "item(s) above are still to do" in problem.message) \
+            or (problem.level == er.TODO and problem.section == "Task"
+                and "the second review added" in problem.message) \
             or any(problem == note for note in primary.high_notes)
         problems.append(problem._replace(level=er.NOTE, message=prefix + problem.message) if caused else problem)
     problems.append(er.Problem(checks[0].display, 1, er.NOTE, "header",
@@ -2168,7 +2189,9 @@ def check_path(world: World, path: Path, *, with_second: bool = True) -> list[Fi
                                           f'a second review must start with "# Second review: {ident}".')
             elif second_check.record is not None:
                 usable = second_check
-        result = check_reference(world, raw, display, second=usable, expected_name=_expected_name(world, path, False))
+        unreadable = world.display(second_path) if second_check is not None and usable is None else None
+        result = check_reference(world, raw, display, second=usable, expected_name=_expected_name(world, path, False),
+                                 second_unreadable=unreadable)
         if usable is not None and result.reviewer and usable.reviewer \
                 and _fold_name(result.reviewer) == _fold_name(usable.reviewer):
             usable.report.error(_field_line(usable.record.header, "Reviewer"), "header",
@@ -2232,9 +2255,16 @@ def check_path(world: World, path: Path, *, with_second: bool = True) -> list[Fi
     if record is not None:  # a known title without a checker here (for example an invalidation record)
         problems = problems + [er.Problem(display, record.header.line, er.ERROR, "header",
                                           f'"# {record.kind}" files are not checked by this command.')]
+    # A frozen decision file that no longer parses (re-saved as UTF-16 or ANSI, a damaged title) is
+    # named with its frozen state and the restore, from its raw bytes, like any other change.
+    digest = er.sha256_bytes(raw)
+    frozen = Report(display)
+    _frozen_state(world, path, digest, frozen)
+    changed = _changed_after(world, path, digest)
+    problems = problems + frozen.problems
     errors = sum(1 for p in problems if p.level == er.ERROR)
-    return [FileCheck(display, problems, [f"{path.name}: {errors} error(s), 0 to do; not ready (fix the errors)."],
-                      errors, 0)]
+    state = f"changed after the freeze of {changed}" if changed else "not ready (fix the errors)"
+    return [FileCheck(display, problems, [f"{path.name}: {errors} error(s), 0 to do; {state}."], errors, 0)]
 
 
 def show_prompts(world: World, policy: PolicyCheck) -> tuple[list[str], int]:
@@ -2826,8 +2856,9 @@ class History:
         root = world.root.resolve()
         try:
             top = er._git(root, "rev-parse", "--show-toplevel").decode("utf-8").strip()
-        except ValueError:
-            self.reason = "the repository root is not a Git work tree"
+        except ValueError as exc:
+            self.reason = (f"git cannot run ({exc}); install Git or put it on PATH" if str(exc).startswith("cannot run git")
+                           else "the repository root is not a Git work tree")
             return
         if not top or Path(top).resolve() != root:
             self.reason = "the repository root is not the top of a Git work tree"
@@ -3135,7 +3166,8 @@ def freeze(world: World, campaign: str, *, write: bool, frozen_at: str | None, s
         print("Re-run with --write. Frozen files are created exclusively and never overwritten.", file=out)
     else:
         print(f"Next: commit {DECISIONS_REL}, {PILOT_REL}/{campaign} and {TASKS_REL} together, before editing any of "
-              "them again (until then Git does not hold the frozen bytes). The freeze records the reviewers' decisions; "
+              "them again (until then Git does not hold the frozen bytes), and merge that commit into main with a merge "
+              "commit or a fast-forward, never a squash or rebase merge. The freeze records the reviewers' decisions; "
               "it does not add an approval.", file=out)
     return 0
 
@@ -3241,7 +3273,10 @@ def _rendering_check(value: dict, directory: Path, json_name: str, md_name: str,
             message = (f"{label}/{json_name} names a tools/workflow_pilot.py (sha256 {str(recorded)[:12]}...) that is "
                        f"neither the running one nor any version committed in the history of {first[:12]}, the commit "
                        "that recorded it (a recorded summary is written only by summarize --record, with the tools "
-                       "committed at HEAD; a rebase that rewrote the commit holding those tools also causes this)")
+                       "committed at HEAD; a rebase that rewrote the commit holding those tools also causes this). "
+                       "Next: if the summary commit is not pushed, drop it, delete both summary files and record "
+                       "again; otherwise the owner writes invalidation.md and a new campaign supersedes this one "
+                       "(evals/workflow/pilot/README.md)")
             if invalidated and notes is not None:
                 notes.append(f"check-frozen: {directory.name} (invalidated): {message}.")
             else:
@@ -3746,12 +3781,14 @@ def _rederive(world: World, directory: Path, current: str, existing: dict, probl
         restore = {"changed": f"; if no decision changed, restore the frozen bytes ({advice}): frozen files are "
                               "compared byte for byte, including \">\" lines and line endings",
                    "missing": f"; restore the frozen bytes ({advice})",
-                   "added": f"; to keep {current}, remove it"}.get(how, "") if how == "added" or advice else ""
+                   "added": f"; to keep {current}, move it out of {DECISIONS_REL}/ (keep it for a new "
+                            "campaign)"}.get(how, "") if how == "added" or advice else ""
         problems.append(f"{what} after the freeze of {current}; a changed decision needs a new campaign "
                         f"({FREEZE_README}){restore}")
         primary = rel[:-len(".second.md")] + ".md" if rel.endswith(".second.md") else None
         if how == "added":
-            action = f"remove {rel} to keep {current}, or freeze a new campaign ({FREEZE_README})"
+            action = (f"move {rel} out of {DECISIONS_REL}/ to keep {current} (keep it for a new campaign), or freeze a "
+                      f"new campaign ({FREEZE_README})")
         elif advice is not None:
             action = f"restore the frozen {rel} ({advice}) to keep {current}, or freeze a new campaign ({FREEZE_README})"
         else:
@@ -3810,6 +3847,10 @@ def command_template(world: World, args, out) -> int:
             print("template --init-all: refusing; these files already exist and templates are never overwritten: "
                   + ", ".join(existing), file=out)
             return 1
+        frozen = [message for message in (_missing_frozen(world, path) for path in files.values()) if message]
+        if frozen:
+            print("template --init-all: refusing; " + " ".join(frozen), file=out)
+            return 1
         for name, (path, generate) in targets.items():
             er.write_exclusive(path, generate().encode("utf-8"))
             print(f"created {world.display(path)}", file=out)
@@ -3835,6 +3876,10 @@ def command_template(world: World, args, out) -> int:
     if args.show:
         out.write(text)
         return 0
+    missing = _missing_frozen(world, path)  # a deleted frozen file is restored, never replaced by a template
+    if missing is not None:
+        print(f"template: refusing; {missing}", file=out)
+        return 1
     try:
         er.write_exclusive(path, text.encode("utf-8"))
     except FileExistsError:
@@ -3885,6 +3930,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None, *, root: Path | None = None, corpus: object = _DEFAULT,
          out=None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
+    er.safe_streams()
     out = sys.stdout if out is None else out
     parser = build_parser()
     try:

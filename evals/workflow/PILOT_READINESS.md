@@ -117,7 +117,9 @@ or transcribed at the owner's dictation with `Transcribed by:` filled.
    every unmet precondition; `--write` creates the campaign directory
    ([contents](pilot/README.md)) and marks the held-out tasks `frozen`. Commit
    `evals/workflow/decisions`, `evals/workflow/pilot/pilot-01` and
-   `evals/workflow/tasks.json` together.
+   `evals/workflow/tasks.json` together, and merge that commit into main with
+   a merge commit or a fast-forward, never a squash or rebase merge
+   ([merging a campaign](pilot/README.md#merging-a-campaign)).
 
    ```sh
    python tools/workflow_eval.py freeze --campaign pilot-01
@@ -129,7 +131,11 @@ or transcribed at the owner's dictation with `Transcribed by:` filled.
    candidate. It builds the VSIX, pins the distributed bytes and the frozen
    campaign, and records `pilotApproved: false`
    ([candidate protocol](CANDIDATE_PROTOCOL.md)). The historical snapshots
-   above cannot identify changed skill bytes. Commit `candidate.json`.
+   above cannot identify changed skill bytes. Commit `candidate.json`, merge
+   it into main with a merge commit or a fast-forward, never a squash or
+   rebase merge, and push a tag at its `source.commit`. Later skill changes on
+   main do no harm: `run-prepare` installs the candidate's skill from that
+   commit.
 
    ```sh
    export MLVIEW_PILOT_DIR=~/mlview-pilot
@@ -172,10 +178,12 @@ or transcribed at the owner's dictation with `Transcribed by:` filled.
    recall, every must-state unknown stated, and zero high-severity false
    accusations. A target miss stops the campaign; it must not be hidden by
    proceeding to repeats. Retry or amend Stage 1 runs before recording:
-   `--record` writes the summary for `go`, `stop` or `invalid`, and from then
-   on Stage 1 runs can no longer be retried or amended. Commit both summary
-   files at once, right away, before any other commit, pull, merge or rebase,
-   and merge that commit without squashing or rebasing it.
+   `--record` writes the summary for `go`, `stop` or `invalid` (it refuses
+   while a failure the run policy lets you retry is still open), and from
+   then on Stage 1 runs can no longer be retried or amended, and no Stage 1
+   review may change a verdict; keep a copy of the evidence directory. Commit
+   both summary files at once, right away, before any other commit, pull,
+   merge or rebase, and merge that commit without squashing or rebasing it.
 
    ```sh
    python tools/workflow_eval.py summarize --campaign pilot-01 --stage 1

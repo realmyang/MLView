@@ -200,7 +200,8 @@ Round 3 review fixes (finding IDs refer to the Campaign 2 round 3 review):
   was ever committed (DISTCI3-2). A partial clone, or a history Git cannot
   read, is reported as not verified instead of "never committed", and a
   supersede refuses there (INTEGRITY3-5).
-- A committed campaign is never erased: check-frozen fails when a campaign
+- Deleting a committed campaign does not clear the way for a new one:
+  check-frozen fails when a campaign in the history reachable from `HEAD`
   that was ever committed is missing, also with a pre-freeze `tasks.json`, and
   requires every earlier campaign to be reached through `supersedes`; the
   freeze refuses while the history holds a campaign `tasks.json` does not name
@@ -283,16 +284,18 @@ Round 4 review fixes (finding IDs refer to the Campaign 2 round 4 review):
 Round 5 review fixes (finding IDs refer to the Campaign 2 round 5 review):
 - A summary's other-tool hashes are bound to Git history instead of one
   commit: each must be a version of that tool committed in the history of
-  the commit that recorded the summary, so a pull, merge, rebase or tool
-  commit between `summarize --record` and the summary's commit no longer
-  wedges an honest summary; a hash of tools never committed there is still
+  the commit that recorded the summary, so a pull, merge or tool commit
+  between `summarize --record` and the summary's commit no longer wedges an
+  honest summary (a rebase that rewrites the unpushed commit holding those
+  tools still can: drop the summary commit and record again, corrected in
+  the final round); a hash of tools never committed there is still
   refused. For a superseded campaign the owner invalidated, check-frozen
   keeps an unbound renderer hash as a note. `--record` says to commit both
   files at once, before any other commit, pull, merge or rebase
   (INTEGRITY5-1, DISTCI5-1, SPECDOCS5-1).
 - With other tools, the baselines' statuses, failures, review states and
   earlier attempts are compared with the re-computation too (INTEGRITY5-2,
-  STATS5-3).
+  STATS5-3; narrowed to sealed facts in the final round).
 - Once the Stage 1 summary is recorded (in the working tree or the history),
   `run-prepare --retry` and `run-finish --amend` refuse Stage 1 runs, which
   would otherwise stop the recorded go from unlocking Stage 2 (STATS5-1).
@@ -317,6 +320,67 @@ Round 5 review fixes (finding IDs refer to the Campaign 2 round 5 review):
   finality of Stage 1 evidence once its summary is recorded, the
   environment-incomplete Stage 1 re-computation in the all-stage summary,
   and the wider `#` comment rule (section 1.3).
+
+Final round review fixes (finding IDs refer to the Campaign 2 final review,
+calibrated to the threat model in the specification's section 1.10):
+- `run-prepare` installs the candidate's skill from its `source.commit`
+  (read through Git), never from the working tree, so a skill change on main
+  during the pilot no longer blocks runs with a dead-end "check out the
+  candidate commit" remedy; a note says when the checkout's skill differs,
+  and `run-finish`'s doctor compares with the candidate's skill too. Without
+  `candidate.json`, the tools say to work on a branch that contains it
+  (HONESTF-1).
+- The Stage 1 gate compares the sealed inputs (records, amendments, earlier
+  attempts) and the decision, no longer the review files' bytes, so a
+  re-save or note that keeps every verdict does no harm. A changed sealed
+  input or a changed verdict names each run and what to restore, and leaves
+  `summarize --stage all` incomplete instead of making Stage 2 runs invalid
+  (HONESTF-2, SPECDOCSF-1, STATSF-2, STATSF-5). With other tools, a
+  baseline's disclosure is its sealed facts (failure and earlier attempts),
+  not its tool-judged status or review state (INTEGRITYF-1). An integrity
+  problem is named with its first example and the summarize command
+  (STATSF-4).
+- The retry rule is shared: `summarize` lists each failure the run policy
+  still lets the operator retry, with its command, the early-stop indicators
+  count it as open, and `--record` refuses until it is retried (INTEGRITYF-3,
+  STATSF-1). After the Stage 1 summary is recorded, `run-prepare` refuses a
+  Stage 1 run before any retry hint, and a refused amendment says to undo an
+  edit to the sealed `session.md` (INTEGRITYF-2). `--record` prints its
+  finality warning after it writes, and the review template says Stage 1
+  reviews are final.
+- An amendment away from `completed` tells the operator to remove
+  `review.md`; `check` of such a review says the same, and summarize names
+  each run's first review problem (STATSF-3). The `--record` baseline rule
+  applies to Stage 1 `go` and `stop` only.
+- Decision files: a second review added after `Review: complete` is a to-do,
+  not an error (HONESTF-3); an unreadable second review is named as such,
+  never as "no second review ... delete this line" (OWNERUXF-1); a frozen file
+  that no longer parses gets its frozen state and restore (OWNERUXF-2); the
+  dropped-anchor note on a frozen file asks for no edit (OWNERUXF-3);
+  `template` refuses to replace a deleted frozen file (OWNERUXF-6); the
+  unbound-renderer error names a next step (OWNERUXF-7); a second review
+  added after the freeze is moved out, never removed (OWNERUXF-8); the freeze
+  `Next:` line names the merge rule (SPECDOCSF-3).
+- Portability: every tool's stdout and stderr fall back to `\` escapes for
+  characters the console encoding lacks, and the Markdown writes `>=`
+  (HONESTF-4, DISTCIF-3); sparse checkouts use `init --no-cone` then
+  `set --`, which git before 2.35 accepts (DISTCIF-2); the helper's nesting
+  test uses a depth that fails on every supported Python (DISTCIF-1); the
+  Windows integration job gets 45 minutes (DISTCIF-4); a missing Git is
+  named as such (DISTCIF-5); a pilot directory given with `..` is judged by
+  its real parents (HONESTF-5).
+- Docs: squash-merge recovery (SPECDOCSF-2), the corrected rebase caveat
+  (INTEGRITYF-4, SPECDOCSF-4), the review guide's adoption example and `#`
+  rules (OWNERUXF-4, OWNERUXF-5, SPECDOCSF-6), the exact label and
+  `--record` rules (SPECDOCSF-8), VALIDATION's tree ID instead of an
+  unpushed commit (SPECDOCSF-7), and a "Known limits" section in the pilot
+  README: the history checks catch accidents and make tampering visible,
+  and do not stop someone with push access (SPECDOCSF-5).
+- Differs from the Campaign 2 specification: the skill comes from the
+  candidate's source commit rather than the checkout; `--record` refuses
+  while a permitted retry is open; the Stage 1 gate compares review verdicts
+  rather than review bytes; a changed Stage 1 input leaves the all-stage
+  summary incomplete rather than invalid; the Markdown writes `>=`.
 
 Not in this version: the owner's reference review and freeze, the development
 adjudication, any native session and the pilot itself (the owner's

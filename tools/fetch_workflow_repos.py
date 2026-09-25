@@ -347,8 +347,10 @@ def fetch_one(repo: dict[str, Any], destination_root: Path) -> Path:
         _git(["remote", "add", "origin", repo["url"]], staging)
         sparse = repo.get("sparse", [])
         if sparse:
+            # "init --no-cone" selects non-cone mode, which "set" keeps. Git before 2.35 does not know
+            # "set --no-cone" and would store the flag as a pattern.
             _git(["sparse-checkout", "init", "--no-cone"], staging)
-            _git(["sparse-checkout", "set", "--no-cone", "--", *sparse], staging)
+            _git(["sparse-checkout", "set", "--", *sparse], staging)
         _git(["fetch", "--depth", "1", "--filter=blob:none", "origin", repo["sha"]], staging)
         _git(["checkout", "--quiet", "--detach", "FETCH_HEAD"], staging)
         report = _verify_checkout(repo, staging)
@@ -394,7 +396,8 @@ def update_sparse_one(repo: dict[str, Any], destination_root: Path) -> dict[str,
           f"{repo['url']}")
     checkout = destination_root / name
     if patterns:
-        _git(["sparse-checkout", "set", "--no-cone", "--", *patterns], checkout)
+        _git(["sparse-checkout", "init", "--no-cone"], checkout)  # also turns a cone-mode checkout into non-cone
+        _git(["sparse-checkout", "set", "--", *patterns], checkout)
     else:
         _git(["sparse-checkout", "disable"], checkout)
     after = verify_repo(repo, destination_root)

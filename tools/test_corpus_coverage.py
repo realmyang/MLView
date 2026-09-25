@@ -1,7 +1,7 @@
 """The repository manifest fetches every path the held-out tasks need (Campaign 2 section 5.2).
 
 (a) every required path of every held-out task is covered by its repository's sparse patterns;
-(b) the coverage matcher agrees with real `git sparse-checkout set --no-cone`;
+(b) the coverage matcher agrees with real non-cone `git sparse-checkout set`;
 (c) the commit triple: tasks.json commit = repositories.json sha = ledger repositoryCommit;
 (d) corpus-gated: in each local checkout the covered set equals the materialised set and every
     required file is blob-exact (skipped, with the reason, when the checkout is absent).
@@ -133,14 +133,16 @@ def test_coverage_matcher_agrees_with_real_git_on_every_manifest_pattern_set(tmp
     pattern_sets += [patterns for patterns, _, _ in SPEC_VECTORS]
     for patterns in pattern_sets:
         if patterns:
-            git(repo, "sparse-checkout", "set", "--no-cone", "--", *patterns)
+            git(repo, "sparse-checkout", "init", "--no-cone")  # "set --no-cone" needs Git 2.35
+            git(repo, "sparse-checkout", "set", "--", *patterns)
         else:
             git(repo, "sparse-checkout", "disable")
         present = {path.relative_to(repo).as_posix() for path in repo.rglob("*")
                    if path.is_file() and ".git" not in path.relative_to(repo).parts}
         assert present == {rel for rel in paths if er.sparse_covers(patterns, rel)}, patterns
     for patterns, path, expected in SPEC_VECTORS:
-        git(repo, "sparse-checkout", "set", "--no-cone", "--", *patterns)
+        git(repo, "sparse-checkout", "init", "--no-cone")
+        git(repo, "sparse-checkout", "set", "--", *patterns)
         assert (repo / path).is_file() is expected, (patterns, path)
 
 

@@ -19,6 +19,7 @@ says it is computed against predefined targets and is not an approval.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import math
 import os
@@ -27,12 +28,13 @@ import shutil
 import stat
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from fractions import Fraction
 from pathlib import Path
 from types import ModuleType
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, Iterable, Iterator
 
 TOOLS = Path(__file__).resolve().parent
 if str(TOOLS) not in sys.path:
@@ -491,7 +493,9 @@ def load_campaign(root: Path, name: str) -> Campaign:
     _check_name(name)
     path = _campaign_dir(root, name) / "candidate.json"
     if not path.is_file() or path.is_symlink():
-        raise PilotError(f"{PILOT_REL}/{name}/candidate.json does not exist; capture the pilot candidate "
+        raise PilotError(f"{PILOT_REL}/{name}/candidate.json does not exist in this checkout. If the candidate was "
+                         "captured and committed, work on a branch that contains that commit (the pilot tools run from "
+                         "main, never from the candidate's source commit, which precedes it); otherwise capture it "
                          f"(python tools/workflow_candidate.py --campaign {name} --build-vsix) and commit it first")
     candidate_bytes = path.read_bytes()
     try:
@@ -514,8 +518,9 @@ def load_campaign(root: Path, name: str) -> Campaign:
     if _git_run(root, "cat-file", "-e", f"{commit}^{{commit}}").returncode != 0:
         raise IntegrityError([f"candidate source commit {commit[:12]} is not in this repository; fetch the full history"])
     ancestry = _git_run(root, "merge-base", "--is-ancestor", commit, "HEAD")
-    if ancestry.returncode != 0:
-        problems.append(f"candidate source commit {commit[:12]} is not an ancestor of HEAD")
+    not_ancestor = f"candidate.json: {workflow_candidate.not_ancestor_problem(commit[:12])}"
+    if ancestry.returncode != 0 and not_ancestor not in problems:  # workflow_candidate.check reports it too
+        problems.append(not_ancestor)
     components = {item["path"]: item for item in candidate["components"]}
     campaign_rel = f"{PILOT_REL}/{name}"
 
@@ -1257,18 +1262,52 @@ def _stage1_go(summary: dict | None, campaign: Campaign) -> str | None:
     return None
 
 
-def _stage1_inputs(summary: dict, planned: dict[str, dict]) -> list[tuple]:
-    """(id, record, review, amendments, earlier attempts) of every Stage 1 run in a summary's inputs."""
+def _stage1_input_index(summary: dict, planned: dict[str, dict]) -> dict[str, dict]:
+    """The inputs.runs entries of a summary's Stage 1 runs, by run ID."""
     runs = (summary.get("inputs") or {}).get("runs") if isinstance(summary.get("inputs"), dict) else None
-    found = []
-    for item in runs if isinstance(runs, list) else []:
-        if isinstance(item, dict) and item.get("id") in planned and planned[item["id"]]["stage"] == 1:
-            earlier = tuple((attempt.get("attempt"), attempt.get("record"), attempt.get("review"),
-                             tuple(attempt.get("amendments") or []))
-                            for attempt in item.get("earlierAttempts") or [] if isinstance(attempt, dict))
-            found.append((item["id"], item.get("record"), item.get("review"), tuple(item.get("amendments") or []),
-                          earlier))
-    return sorted(found)
+    return {item["id"]: item for item in runs if isinstance(runs, list) and isinstance(item, dict)
+            and item.get("id") in planned and planned[item["id"]]["stage"] == 1} if isinstance(runs, list) else {}
+
+
+def _sealed_inputs(item: dict) -> tuple:
+    """The sealed part of one run's inputs: its record, amendments and earlier attempts (not review.md,
+    which people may re-save; what a review says is compared through the re-computation)."""
+    earlier = tuple((attempt.get("attempt"), attempt.get("record"), tuple(attempt.get("amendments") or []))
+                    for attempt in item.get("earlierAttempts") or [] if isinstance(attempt, dict))
+    return item.get("record"), tuple(item.get("amendments") or []), earlier
+
+
+def _input_differences(fresh: dict, recorded: dict, planned: dict[str, dict]) -> tuple[list[str], list[str]]:
+    """(sealed, reviews) between the Stage 1 inputs of a re-computation and a committed summary:
+    each run whose sealed record, amendments or earlier attempts differ (or that has no sealed record
+    in this pilot directory), and each run whose review.md bytes differ."""
+    now, then = _stage1_input_index(fresh, planned), _stage1_input_index(recorded, planned)
+    sealed: list[str] = []
+    missing = sorted(set(then) - set(now))
+    if missing:
+        sealed.append(f"{len(missing)} Stage 1 run(s) of the summary have no sealed record in this pilot directory, "
+                      f"for example {missing[0]}")
+    reviews = []
+    for run_id in sorted(now):
+        item, old = now[run_id], then.get(run_id)
+        if old is None:
+            sealed.append(f"{run_id} is sealed here but not in the summary's inputs")
+            continue
+        (record, amendments, earlier), (old_record, old_amendments, old_earlier) = _sealed_inputs(item), _sealed_inputs(old)
+        if record != old_record:
+            sealed.append(f"{run_id}: record.json sha256 {str(record)[:12]}... differs from the recorded "
+                          f"{str(old_record)[:12]}...")
+        elif amendments != old_amendments:
+            sealed.append(f"{run_id}: {len(amendments)} amendment(s) here, {len(old_amendments)} recorded")
+        elif earlier != old_earlier:
+            sealed.append(f"{run_id}: its earlier attempts differ from the recorded ones")
+        if item.get("review") != old.get("review"):
+            reviews.append(run_id)
+    return sealed, reviews
+
+
+def _shown(items: list[str], limit: int = 3, separator: str = "; ") -> str:
+    return separator.join(items[:limit]) + (f"{separator}and {len(items) - limit} more" if len(items) > limit else "")
 
 
 TOOL_KEYS = ("tools/workflow_pilot.py", "tools/eval_records.py", "tools/workflow_candidate.py")
@@ -1280,11 +1319,12 @@ def _tooling_binding(root: Path, campaign: Campaign, committed: dict, recomputed
     """SAME_TOOLS when the committed Stage 1 summary names the running tools; None when it names other
     tools that are bound by Git; otherwise why the summary's tooling cannot be trusted. Each differing
     tool hash must be the sha256 of a version of that file committed in the history of the commit
-    that recorded the summary: summarize --record writes only the tools committed at HEAD, and that
-    HEAD is in the history of the commit that later adds the summary, also when a pull, a merge, a
-    rebase or a tool commit came in between. The tooling field is part of the file being verified,
-    so it never names tools that were never committed, and the decision, the inputs and the
-    disclosure of every run are compared whichever tools it names."""
+    that recorded the summary: summarize --record writes only the tools committed at HEAD, and those
+    tool versions stay in the history of the commit that later adds the summary after a pull, a merge
+    or a tool commit in between (a rebase that rewrites an unpushed commit holding them can break the
+    link; the pilot README gives the repair before pushing). The tooling field is part of the file
+    being verified, so it never names tools that were never committed, and the decision, the sealed
+    inputs and the disclosure of every run are compared whichever tools it names."""
     tooling = committed.get("tooling") if isinstance(committed.get("tooling"), dict) else {}
     fresh = recomputed["tooling"]
     if tooling.get(HELPER_KEY) != fresh[HELPER_KEY]:
@@ -1314,11 +1354,12 @@ def _tooling_binding(root: Path, campaign: Campaign, committed: dict, recomputed
 
 
 def _disclosure(summary: dict) -> dict:
-    """What a Stage 1 summary discloses about each run's outcome and retries, skill runs and baselines
-    alike, which does not depend on the tool version: runs[] and baselines.runs[] id, status, failure
-    kind and attempts (baselines also their review status), failures.runs, failures.earlierAttempts,
-    baselines.earlierAttempts and which baselines are pending, unreviewed or have review problems.
-    The wording of invalid reasons and failure details belongs to the tools and is not compared."""
+    """What a Stage 1 summary discloses about retries and failures, taken from sealed facts only, so a
+    later tool version that judges a run differently does not change it: runs[] id, status (every
+    skill run of a go is completed), failure kind and attempts, failures.runs, failures.earlierAttempts,
+    and the baselines' failure kinds, earlier attempts and baselines.earlierAttempts. A baseline's
+    computed status and review state belong to the tools (baselines never change the decision), and
+    the wording of invalid reasons and failure details is not compared either."""
     def kind(value: object) -> object:
         return value.get("kind") if isinstance(value, dict) else value
 
@@ -1335,11 +1376,6 @@ def _disclosure(summary: dict) -> dict:
     failures = summary.get("failures") if isinstance(summary.get("failures"), dict) else {}
     baselines = summary.get("baselines") if isinstance(summary.get("baselines"), dict) else {}
     baseline_runs = baselines.get("runs") if isinstance(baselines.get("runs"), list) else []
-
-    def ids(key: str) -> list:
-        value = baselines.get(key)
-        return sorted(str(item) for item in value) if isinstance(value, list) else [repr(value)]
-
     return {
         "runs": sorted((str(run.get("id")), str(run.get("status")), str(kind(run.get("failure"))),
                         str(run.get("priorAttempts")), attempts(run))
@@ -1347,54 +1383,78 @@ def _disclosure(summary: dict) -> dict:
         "failures.runs": sorted((str(item.get("id")), str(item.get("status")), str(item.get("failure")))
                                 for item in failures.get("runs") or [] if isinstance(item, dict)),
         "failures.earlierAttempts": replaced(failures.get("earlierAttempts") or []),
-        "baselines.runs": sorted((str(run.get("id")), str(run.get("status")), str(kind(run.get("failure"))),
-                                  str(run.get("reviewStatus")), str(run.get("priorAttempts")), attempts(run))
-                                 for run in baseline_runs if isinstance(run, dict)),
+        "baselines.runs": sorted((str(run.get("id")), str(kind(run.get("failure"))), str(run.get("priorAttempts")),
+                                  attempts(run)) for run in baseline_runs if isinstance(run, dict)),
         "baselines.earlierAttempts": replaced(baselines.get("earlierAttempts") if "earlierAttempts" in baselines
                                               else []),
-        "baselines.state": (ids("pending"), ids("unreviewed"), ids("reviewProblems"), str(baselines.get("complete"))),
     }
 
 
 class Stage1Unverified(str):
-    """Why a committed Stage 1 go could not be re-verified in this environment (the corpus is absent
-    or unverified), as opposed to evidence that contradicts it. run-prepare still refuses Stage 2;
-    summarize --stage all reports the summary as incomplete instead of making Stage 2 runs invalid."""
+    """Why a committed Stage 1 go could not be re-verified here although its sealed inputs are unchanged
+    (the corpus is absent or unverified, or the running tools find Stage 1 incomplete), as opposed to
+    evidence that contradicts it. run-prepare still refuses Stage 2; summarize --stage all reports
+    the summary as incomplete instead of making Stage 2 runs invalid."""
+
+
+class Stage1Changed(str):
+    """Why the Stage 1 evidence here no longer matches an otherwise genuine committed go: a sealed Stage 1
+    record, amendment or earlier attempt differs from the summary's inputs or is missing from this
+    pilot directory, or a Stage 1 review.md now says something else. run-prepare refuses Stage 2 and
+    names what to restore; summarize --stage all is incomplete, and no Stage 2 run becomes invalid."""
+
+
+REVIEWS_FINAL = ("Stage 1 reviews are final once the Stage 1 summary is recorded: restore what those reviews said "
+                 "then (a re-save or a wording change that keeps every verdict, the reviewer and the Review line does "
+                 "no harm)")
 
 
 def _stage1_matches(root: Path, campaign: Campaign, pilot_value: str | None, committed: dict,
                     notes: list[str] | None = None) -> str | None:
-    """None when Stage 1, re-computed from the sealed evidence, is go with exactly the committed
-    inputs and the committed summary was generated after every Stage 1 record was sealed or amended;
-    a Stage1Unverified reason when the re-computation has exactly the committed inputs and is
-    incomplete only because the corpus is absent or unverified here; otherwise why it does not
-    match. ``notes`` receives a note when the summary was recorded with other (Git-bound) tools."""
+    """None when Stage 1, re-computed from the sealed evidence, is go with exactly the committed sealed
+    inputs (records, amendments, earlier attempts), says the same (with the same tools, every field;
+    review.md bytes themselves are not compared) and the committed summary was generated after every
+    Stage 1 record was sealed or amended. A Stage1Changed reason when Stage 1 evidence here differs
+    from the summary (named, with what to restore); a Stage1Unverified reason when the sealed inputs
+    are unchanged but the re-computation is incomplete (the corpus is absent here, for example);
+    otherwise why the committed summary does not hold. ``notes`` receives a note when the summary was
+    recorded with other (Git-bound) tools."""
     try:
         recomputed = summarize(root, campaign.name, "1", pilot_value)
     except IntegrityError as exc:
-        return f"the Stage 1 evidence has {len(exc.problems)} integrity problem(s)"
+        return (f"the campaign evidence has {len(exc.problems)} integrity problem(s), for example {exc.problems[0]} "
+                f"(see python tools/workflow_eval.py summarize --campaign {campaign.name} --stage 1)")
     except PilotError as exc:
         return f"Stage 1 cannot be re-computed ({exc})"
     value = recomputed["decision"]["value"]
     planned = {run["id"]: run for run in campaign.plan()}
-    same_inputs = _stage1_inputs(recomputed, planned) == _stage1_inputs(committed, planned)
-    if value == "incomplete" and same_inputs and recomputed["decision"].get("reasons") == [UNVERIFIED_REASON]:
-        # The environment, not the evidence: the corpus is absent or unverified here (section 4.5 E).
-        return Stage1Unverified("a re-computation of Stage 1 cannot verify the artifacts here (corpus absent or "
-                                "unverified), so the committed go is not re-verified")
+    sealed, reviews = _input_differences(recomputed, committed, planned)
+    if sealed:
+        return Stage1Changed(f"the sealed Stage 1 evidence here differs from the committed summary's inputs "
+                             f"({_shown(sealed)}); use the pilot directory that holds the Stage 1 evidence as it was "
+                             "recorded, and restore the exact bytes of any changed file (Stage 1 evidence is final once "
+                             "its summary is recorded)")
+    changed = f"review.md of {_shown(reviews, separator=', ')} changed since the summary was recorded"
+    if value == "incomplete":
+        reasons = recomputed["decision"].get("reasons") or []
+        if reasons == [UNVERIFIED_REASON]:  # the environment, not the evidence (section 4.5 E)
+            return Stage1Unverified("a re-computation of Stage 1 cannot verify the artifacts here (corpus absent or "
+                                    "unverified), so the committed go is not re-verified")
+        if reviews:
+            return Stage1Changed(f"a re-computation of Stage 1 gives incomplete ({_shown(reasons, 2)}) after {changed}; "
+                                 f"{REVIEWS_FINAL}")
+        return Stage1Unverified(f"a re-computation of Stage 1 with these tools gives incomplete ({_shown(reasons, 2)}), "
+                                "so the committed go is not re-verified")
     if value != "go":
-        return f"a re-computation of Stage 1 from the sealed evidence gives {value}, not go"
-    if not same_inputs:
-        return ("the committed Stage 1 summary does not match the sealed Stage 1 records and reviews "
-                "(a record, review or amendment differs)")
+        text = f"a re-computation of Stage 1 from the sealed evidence gives {value}, not go"
+        return Stage1Changed(f"{text}, after {changed}; {REVIEWS_FINAL}") if reviews else text
     tools = _tooling_binding(root, campaign, committed, recomputed)
     if tools is not None and tools != SAME_TOOLS:
         return tools
     if tools is None:
         # Recorded with other tools, committed in the summary's history (section 1.10): the decision,
-        # the inputs and the disclosure of every run's (skill run and baseline) status, failure and
-        # earlier attempts must still be the re-computation; the other fields and the Markdown
-        # rendering belong to those tools.
+        # the sealed inputs and the disclosure of retries and failures (sealed facts) must still be
+        # the re-computation; the other fields and the Markdown rendering belong to those tools.
         fresh, recorded = _disclosure(recomputed), _disclosure(committed)
         differing = sorted(key for key in set(fresh) | set(recorded) if fresh.get(key) != recorded.get(key))
         if differing:
@@ -1403,14 +1463,17 @@ def _stage1_matches(root: Path, campaign: Campaign, pilot_value: str | None, com
                     "summary is written only by summarize --record)")
         if notes is not None:
             notes.append("the committed Stage 1 summary was recorded with other tools (versions committed in its "
-                         "history); its decision, inputs, and the statuses, failures and earlier attempts of its skill "
-                         "runs and baselines were compared with a re-computation, not its other fields or its Markdown "
-                         "rendering")
+                         "history); its decision, its sealed inputs, and the failures and earlier attempts of its "
+                         "skill runs and baselines were compared with a re-computation, not its other fields or its "
+                         "Markdown rendering")
     else:
         # Recorded with these tools: every reported field must be the re-computation, and the
         # Markdown must be rendered from the JSON (section 4.7), so neither can hide a retry or a failure.
         fresh, recorded = _comparable(recomputed, planned), _comparable(committed, planned)
         differing = sorted(key for key in set(fresh) | set(recorded) if fresh.get(key) != recorded.get(key))
+        if differing and reviews:
+            return Stage1Changed(f"a re-computation of Stage 1 differs from the committed summary in "
+                                 f"{', '.join(differing)} after {changed}; {REVIEWS_FINAL}")
         if differing:
             return (f"the committed Stage 1 summary differs from a re-computation from the sealed evidence in "
                     f"{', '.join(differing)} (a recorded summary is written only by summarize --record)")
@@ -1420,7 +1483,7 @@ def _stage1_matches(root: Path, campaign: Campaign, pilot_value: str | None, com
                     "(a recorded summary is written only by summarize --record)")
     generated = _parse_time(committed.get("generatedAt"))
     evidence_root = _pilot_dir(pilot_value) / "evidence"
-    for run_id, *_rest in _stage1_inputs(recomputed, planned):
+    for run_id in sorted(_stage1_input_index(recomputed, planned)):
         try:
             record = _json_loads(er.confined_file(evidence_root / er.run_dir_name(run_id), RECORD_FILE).read_bytes(),
                                  RECORD_FILE)
@@ -1436,7 +1499,8 @@ def _stage1_matches(root: Path, campaign: Campaign, pilot_value: str | None, com
 
 def _comparable(summary: dict, planned: dict[str, dict]) -> dict:
     """A summary without what legitimately differs between its recording and a later re-computation:
-    generatedAt, tooling, the environment's verification notes, and inputs of runs outside Stage 1."""
+    generatedAt, tooling, the environment's verification notes, inputs of runs outside Stage 1, and
+    the review.md hashes (a re-saved review that says the same gives the same fields)."""
     value = json.loads(er.canonical_json(summary))
     value.pop("generatedAt", None)
     value.pop("tooling", None)
@@ -1446,6 +1510,11 @@ def _comparable(summary: dict, planned: dict[str, dict]) -> dict:
     if isinstance(inputs, dict) and isinstance(inputs.get("runs"), list):
         inputs["runs"] = [item for item in inputs["runs"] if isinstance(item, dict)
                           and (planned.get(item.get("id")) or {}).get("stage") == 1]
+        for item in inputs["runs"]:
+            item.pop("review", None)
+            for attempt in item.get("earlierAttempts") or []:
+                if isinstance(attempt, dict):
+                    attempt.pop("review", None)
     return value
 
 
@@ -1516,6 +1585,25 @@ def _prompt_sent(chain: list[dict], evidence: Path | None = None) -> str | None:
     return None if last.get("promptSent") is False else NOT_STATED
 
 
+def _retry_refusal(chain: list[dict], evidence: Path | None, attempt: int, allowed: int) -> tuple[str, str] | None:
+    """None when attempt ``attempt`` of a run (its seals ``chain``, oldest first) may be retried under a
+    policy of ``allowed`` infrastructure retries; otherwise (kind, why): "completed", "sent" (why the
+    prompt counts as sent) or "policy". run-prepare --retry, summarize and summarize --record share
+    this one rule, so an open retry is named before a summary is recorded."""
+    if any(_seal_status(seal) == "completed" for seal in chain):
+        return "completed", "" if _seal_status(chain[-1]) == "completed" else " before it was amended"
+    why = _prompt_sent(chain, evidence)
+    if why is not None:
+        return "sent", why
+    if attempt > allowed:
+        return "policy", ""
+    return None
+
+
+def _retry_command(run_id: str, name: str) -> str:
+    return f'python tools/workflow_eval.py run-prepare {run_id} --campaign {name} --retry "<reason>"'
+
+
 def _stage1_history(root: Path, campaign: Campaign) -> str | None:
     """A recorded Stage 1 summary is final: in the history reachable from HEAD, merges included,
     stage1-summary.json has exactly one content, and HEAD holds it."""
@@ -1546,8 +1634,23 @@ def _stage1_history(root: Path, campaign: Campaign) -> str | None:
 
 STAGE1_FINAL = ("Stage 1 evidence is final once its summary is recorded: a retry or an amendment of a Stage 1 run "
                 "belongs before summarize --stage 1 --record. Changing it now would stop the recorded summary from "
-                "unlocking Stage 2 and would make Stage 2 runs invalid; only the owner's invalidation.md and a new "
-                "campaign could follow")
+                "unlocking Stage 2 and would leave the all-stage summary incomplete; only the owner's invalidation.md "
+                "and a new campaign could follow")
+
+
+def _sealed_session_hint(evidence: Path) -> str:
+    """A sentence for the refusals of a final Stage 1 run: session.md must keep its sealed bytes, and an
+    edit made for the refused amendment must be undone (empty when session.md is unchanged)."""
+    try:
+        record = _json_loads(er.confined_file(evidence, RECORD_FILE).read_bytes(), RECORD_FILE)
+        sealed = record["session"]["sha256"]
+        now = er.sha256_bytes(er.confined_file(evidence, SESSION_FILE).read_bytes())
+    except (ValueError, KeyError, TypeError):
+        return ""
+    if now == sealed:
+        return ""
+    return (f". session.md no longer has its sealed bytes (sha256 {str(sealed)[:12]}...): undo your edit exactly, or "
+            "Stage 1 fails verification and Stage 2 stays blocked")
 
 
 def _stage1_recorded(root: Path, campaign: Campaign) -> str | None:
@@ -1581,6 +1684,36 @@ def _path_versions(root: Path, rel: str) -> er.PathHistory | None:
         return er.path_history(root, rel)
     except ValueError:
         return None
+
+
+@contextlib.contextmanager
+def _candidate_skill(root: Path, campaign: Campaign) -> Iterator[Path]:
+    """The candidate's skill, read with git from its source commit (never from the checkout, whose
+    skill may have changed since the capture), in a temporary directory that is removed afterwards.
+    Its identity must equal candidate.skill."""
+    commit = campaign.commit
+    with tempfile.TemporaryDirectory(prefix="mlview-candidate-skill-") as temporary:
+        directory = Path(temporary) / "mlview"
+        try:
+            listing = er._git(Path(root), "ls-tree", "-r", "-z", commit, "--", SKILL_REL + "/")
+            modes = {}
+            for entry in listing.split(b"\0"):
+                if entry:
+                    meta, _tab, raw = entry.partition(b"\t")
+                    modes[raw.decode("utf-8")[len(SKILL_REL) + 1:]] = meta.split(b" ")[0].decode("ascii")
+            for item in campaign.candidate["skill"]["files"]:
+                rel = item["path"]
+                if er._path_problem(rel) or modes.get(rel) not in er.REGULAR_MODES:
+                    raise ValueError(f"{SKILL_REL}/{rel} is not a regular file at {commit[:12]}")
+                target = directory.joinpath(*rel.split("/"))
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(er.git_show(root, commit, f"{SKILL_REL}/{rel}"))
+                os.chmod(target, 0o755 if modes[rel] == "100755" else 0o644)
+            if package_skill.bundle_identity(package_skill.canonical_files(directory)) != campaign.candidate["skill"]:
+                raise ValueError(f"the skill files at {commit[:12]} differ from candidate.skill")
+        except (ValueError, OSError, UnicodeDecodeError) as exc:
+            raise PilotError(f"cannot read the candidate's skill from its source commit: {exc}") from None
+        yield directory
 
 
 def _workspace_name(directory: str, attempt: int) -> str:
@@ -1653,7 +1786,7 @@ def run_prepare(root: Path, run_id: str, name: str, pilot_value: str | None, out
     workspaces, evidence_root = pilot_dir / "workspaces", pilot_dir / "evidence"
     evidence = evidence_root / directory
     earlier = evidence_root / f"{directory}.attempt-{len(previous)}"
-    retry_command = f'python tools/workflow_eval.py run-prepare {run_id} --campaign {name} --retry "<reason>"'
+    retry_command = _retry_command(run_id, name)
     allowed = campaign.retries
     retries_text = f"the run policy allows {allowed} infrastructure retr{'y' if allowed == 1 else 'ies'}"
     if retry is None and previous:
@@ -1669,6 +1802,11 @@ def run_prepare(root: Path, run_id: str, name: str, pilot_value: str | None, out
             raise PilotError("the retry reason contains a machine path; describe it without the path")
         if not previous:
             raise PilotError(f"{run_id} has not been prepared yet; run run-prepare without --retry")
+        if run["stage"] == 1:  # skill runs and baselines of Stage 1, before any other advice about the attempt
+            recorded = _stage1_recorded(root, campaign)
+            if recorded is not None:
+                raise PilotError(f"{run_id} cannot be retried: the Stage 1 summary is recorded ({recorded}). "
+                                 f"{STAGE1_FINAL}")
         try:
             sealed = _json_loads(er.confined_file(evidence, RECORD_FILE).read_bytes(), RECORD_FILE)
         except ValueError:
@@ -1678,29 +1816,22 @@ def run_prepare(root: Path, run_id: str, name: str, pilot_value: str | None, out
         if sealed_problems:
             raise PilotError(f"attempt {len(previous)} of {run_id} does not verify against its sealed evidence "
                              f"({sealed_problems[0]}); a retry needs an intact sealed record")
-        chain = _attempt_chain(evidence, sealed)
-        if any(_seal_status(seal) == "completed" for seal in chain):
-            raise PilotError(f"attempt {len(previous)} of {run_id} completed"
-                             + ("" if _seal_status(chain[-1]) == "completed" else " before it was amended")
-                             + "; a completed run is never retried")
-        why = _prompt_sent(chain, evidence)
-        if why is not None:
-            hint = ("" if why != NOT_STATED else ' If the prompt never reached the host, write "Prompt sent: no" in '
-                    f'session.md and run: python tools/workflow_eval.py run-finish {run_id} --campaign {name} --amend '
-                    '"<reason>".')
-            raise PilotError(f"attempt {len(previous)} of {run_id} cannot be retried: {why}; {RETRY_RULE}.{hint}")
-        if len(previous) > allowed:
+        refusal = _retry_refusal(_attempt_chain(evidence, sealed), evidence, len(previous), allowed)
+        if refusal is not None and refusal[0] == "completed":
+            raise PilotError(f"attempt {len(previous)} of {run_id} completed{refusal[1]}; a completed run is never "
+                             "retried")
+        if refusal is not None and refusal[0] == "sent":
+            hint = ("" if refusal[1] != NOT_STATED else ' If the prompt never reached the host, write "Prompt sent: no" '
+                    f'in session.md and run: python tools/workflow_eval.py run-finish {run_id} --campaign {name} '
+                    '--amend "<reason>".')
+            raise PilotError(f"attempt {len(previous)} of {run_id} cannot be retried: {refusal[1]}; {RETRY_RULE}.{hint}")
+        if refusal is not None:
             raise PilotError(f"{retries_text}; attempt {len(previous)} of {run_id} is kept and counted (a retry "
                              "beyond the policy would make the run invalid)")
         if os.path.lexists(workspaces / _workspace_name(directory, len(previous))):
             raise PilotError(f"the workspace of attempt {len(previous)} still exists; remove it before a retry")
         if os.path.lexists(earlier):
             raise PilotError(f"{earlier} already exists; earlier attempts are never overwritten")
-        if run["stage"] == 1:  # skill runs and baselines of Stage 1
-            recorded = _stage1_recorded(root, campaign)
-            if recorded is not None:
-                raise PilotError(f"{run_id} cannot be retried: the Stage 1 summary is recorded ({recorded}). "
-                                 f"{STAGE1_FINAL}")
     stage1_notes: list[str] = []
     if run["stage"] == 2:
         committed = _committed_stage1(root, campaign)
@@ -1725,10 +1856,10 @@ def run_prepare(root: Path, run_id: str, name: str, pilot_value: str | None, out
         detail = _verify_detail(report)
         raise PilotError(f"the corpus repository {repo['name']} failed verification ({detail}); run "
                          + _corpus_remedy(detail, repo["name"]))
-    head_skill = package_skill.bundle_identity(package_skill.canonical_files(root / SKILL_REL))
-    if head_skill != campaign.candidate["skill"]:
-        raise PilotError(f"the skill in this checkout differs from the candidate's; check out the candidate commit "
-                         f"({campaign.commit[:12]}) before preparing runs")
+    try:
+        head_skill = package_skill.bundle_identity(package_skill.canonical_files(root / SKILL_REL))
+    except (OSError, ValueError):
+        head_skill = None
     workspace = workspaces / _workspace_name(directory, attempt)
     if os.path.lexists(workspace) or (retry is None and os.path.lexists(evidence)):
         raise PilotError(f"{workspace if os.path.lexists(workspace) else evidence} already exists; every run is prepared "
@@ -1755,7 +1886,9 @@ def run_prepare(root: Path, run_id: str, name: str, pilot_value: str | None, out
         installed = None
         if run["condition"] == "skill":
             destination = _skill_destination(run["host"])
-            install_skill.install(workspace, destination)
+            # The candidate's skill from its source commit, whatever this checkout's skill is now.
+            with _candidate_skill(root, campaign) as source:
+                install_skill.install(workspace, destination, source=source)
             identity = package_skill.bundle_identity(package_skill.canonical_files(workspace / destination))
             if identity != campaign.candidate["skill"]:
                 raise PilotError("the installed skill differs from the candidate's skill identity")
@@ -1808,6 +1941,9 @@ def run_prepare(root: Path, run_id: str, name: str, pilot_value: str | None, out
         "directory, fill session.md, then run:",
         f"     python tools/workflow_eval.py run-finish {run_id} --campaign {name}",
     ]
+    if run["condition"] == "skill" and head_skill != campaign.candidate["skill"]:
+        stage1_notes.append(f"the skill in this checkout differs from the candidate's; the candidate's skill was "
+                            f"installed from its source commit {campaign.commit[:12]}")
     lines += [f"Note: {note}." for note in stage1_notes]
     for line in lines:
         out(line)
@@ -1956,10 +2092,14 @@ def run_finish(root: Path, run_id: str, name: str, pilot_value: str | None, amen
             recorded = _stage1_recorded(root, campaign)
             if recorded is not None:
                 raise PilotError(f"{run_id} cannot be amended: the Stage 1 summary is recorded ({recorded}). "
-                                 f"{STAGE1_FINAL}")
+                                 f"{STAGE1_FINAL}{_sealed_session_hint(evidence)}")
         session, session_raw = _session_or_fail(evidence, run_id, campaign.helper, out)
         return _amend(campaign, run, evidence, session, session_raw, amend.strip(), out)
     if os.path.lexists(record_path):
+        recorded = _stage1_recorded(root, campaign) if run["stage"] == 1 else None
+        if recorded is not None:
+            raise PilotError(f"{run_id} is already sealed, and the Stage 1 summary is recorded ({recorded}). "
+                             f"{STAGE1_FINAL}{_sealed_session_hint(evidence)}")
         raise PilotError(f"{run_id} is already sealed; to change the session facts run: python tools/workflow_eval.py "
                          f'run-finish {run_id} --campaign {name} --amend "<reason>"')
     if any(PREVIOUS_RECORD_RE.fullmatch(path.name) for path in evidence.iterdir()):
@@ -2022,7 +2162,8 @@ def run_finish(root: Path, run_id: str, name: str, pilot_value: str | None, amen
                 else:
                     entry["sha256"] = after[rel]
             (host_files if rel in host_allowed and change != "removed" else changes).append(entry)
-        doctor, _ok = install_skill.doctor(workspace)
+        with _candidate_skill(root, campaign) as source:  # compared with the candidate's skill, not the checkout's
+            doctor, _ok = install_skill.doctor(workspace, source=source)
         for rel, data in ((AFTER_FILE, er.canonical_json(after)), (DOCTOR_FILE, er.canonical_json(doctor))):
             _write_or_same(evidence / rel, data)
             written[rel] = er.sha256_bytes(data)
@@ -2148,6 +2289,8 @@ def _amend(campaign: Campaign, run: dict, evidence: Path, session: SessionResult
     er.write_atomic(record_path, data)
     out(f"Amended {run['id']} (amendment {number}); the previous record is kept as {PREVIOUS_RECORD.format(n=number)} "
         f"(sha256 {er.sha256_bytes(previous_bytes)[:12]}...).")
+    if status != "completed" and os.path.lexists(evidence / REVIEW_FILE):
+        out(f"Next: remove {REVIEW_FILE} (a {status} run is not reviewed; summarize counts its review as a problem).")
     return 0
 
 
@@ -2199,8 +2342,11 @@ def review_template_text(run: dict, record: dict, reference: dict, artifact: dic
     lines = [f"# Run review: {run_id}",
              "> Written by review-template. Run, " + ("Transcript" if baseline else "Artifact")
              + " and Reference are checked against the sealed run; do not edit them.",
-             '> Fill Reviewer and Date, replace every "pending", then check: python tools/workflow_eval.py check <this file>',
-             f"Run: {run_id}"]
+             '> Fill Reviewer and Date, replace every "pending", then check: python tools/workflow_eval.py check <this file>']
+    if run.get("stage") == 1:
+        lines.append("> Stage 1 reviews are final once the Stage 1 summary is recorded: change no verdict afterwards, "
+                     "and keep a copy of the evidence directory (it is outside Git).")
+    lines.append(f"Run: {run_id}")
     if baseline:
         lines.append(f"Transcript: {record['evidence']['transcript']['sha256']}")
     else:
@@ -2626,6 +2772,11 @@ def check_file(path: Path | str, *, root: Path | None = None) -> list[er.Problem
     try:
         sealed = _json_loads(er.confined_file(evidence, RECORD_FILE).read_bytes(), RECORD_FILE)
         run = {"id": sealed["id"], "task": sealed["task"], "condition": sealed["condition"]}
+        status = sealed["session"]["status"]
+        if status != "completed":  # for example after an amendment to failed or timed-out
+            return problems + [er.Problem(display, 1, er.ERROR, "header",
+                                          f"a {status} run is not reviewed (its record.json says Status: {status}); "
+                                          "remove review.md.")]
         reference_path = Path(root or ROOT) / PILOT_REL / sealed["campaign"] / "reference" / f"{sealed['task']}.json"
         reference = _json_loads(reference_path.read_bytes(), str(reference_path))
         ctx = _review_context(run, sealed, reference, evidence, None)
@@ -3171,8 +3322,11 @@ def _group_metrics(runs: list[dict], qualified_policy: str) -> dict:
 RATE_KEYS = er.RATE_TARGET_KEYS
 
 
-def _early_stop(runs: list[dict], targets: list[dict]) -> list[str]:
+def _early_stop(runs: list[dict], targets: list[dict], retriable: Iterable[str] = ()) -> list[str]:
+    """Targets that can no longer be met while the decision is incomplete. A run in ``retriable`` (a
+    failure the run policy still lets the operator retry) is open: its retry could still count."""
     indicators = []
+    retriable = set(retriable)
     by_key = {target["key"]: target for target in targets}
     for run in runs:
         if run["status"] in ("failed", "timed-out", "blocked", "invalid") or (run["status"] == "completed" and run["SV"] == 0
@@ -3182,14 +3336,16 @@ def _early_stop(runs: list[dict], targets: list[dict]) -> list[str]:
                 detail = "; ".join(run["invalidReasons"][:2])
             elif run["status"] == "completed":
                 detail = "not structurally valid: " + ", ".join(run["errorCodes"] or ["unpublished"])
-            indicators.append(f"T1: {run['id']} {run['status']}" + (f" ({detail})" if detail else ""))
+            indicators.append(f"T1: {run['id']} {run['status']}" + (f" ({detail})" if detail else "")
+                              + ("; may still be retried" if run["id"] in retriable else ""))
     anchors = by_key["exactAnchors"]
     if anchors["threshold"] >= 1 and anchors["numerator"] < anchors["denominator"]:
         indicators.append(f"T2: {anchors['denominator'] - anchors['numerator']} inexact anchor(s) already recorded")
 
     def open_total(total_key: str, host: str | None = None) -> int:
         return sum(r[total_key] for r in runs if not r["reviewed"] and (host is None or r["host"] == host) and (
-            r["status"] == "pending" or (r["status"] == "completed" and r["reviewStatus"] != "not-applicable")))
+            r["status"] == "pending" or r["id"] in retriable
+            or (r["status"] == "completed" and r["reviewStatus"] != "not-applicable")))
 
     for key in ("essentialFactRecall", "knownUnresolvedQualified"):
         target = by_key[key]
@@ -3383,6 +3539,28 @@ def _attempt_problems(pilot_dir: Path, planned: dict[str, dict], states: dict[st
     return problems
 
 
+def _open_retries(root: Path, campaign: Campaign, states: dict[str, RunState], run_ids: list[str]) -> list[dict]:
+    """Each sealed attempt of ``run_ids`` that run-prepare --retry would still accept under the run
+    policy (the rule of _retry_refusal; a Stage 1 run only while the Stage 1 summary is not recorded),
+    with its retry command, so the operator retries before a recorded summary makes the failure final."""
+    found = []
+    stage1_recorded: list[str | None] = []
+    for run_id in run_ids:
+        state = states[run_id]
+        if state.record is None or state.evidence is None or _seal_status(state.record) not in ("failed", "blocked"):
+            continue
+        attempt = len(state.earlier) + 1
+        if _retry_refusal(_attempt_chain(state.evidence, state.record), state.evidence, attempt, campaign.retries):
+            continue
+        if state.run["stage"] == 1:
+            if not stage1_recorded:
+                stage1_recorded.append(_stage1_recorded(root, campaign))
+            if stage1_recorded[0] is not None:
+                continue
+        found.append({"id": run_id, "attempt": attempt, "command": _retry_command(run_id, campaign.name)})
+    return found
+
+
 def summarize(root: Path, name: str, stage: str, pilot_value: str | None) -> dict:
     """Verify every sealed run of a campaign and compute the stage summary (sections 4.5-4.7).
 
@@ -3452,11 +3630,14 @@ def summarize(root: Path, name: str, stage: str, pilot_value: str | None) -> dic
     verified: dict[str, dict] = {}
     notes: list[str] = list(stage1_notes)
     complete = True
-    if isinstance(stage1_problem, Stage1Unverified):
-        # Not a protocol violation of the Stage 2 runs (section 4.5 D/E): the summary is incomplete.
-        notes.append(f"the committed Stage 1 go could not be re-verified: {stage1_problem}; fetch or verify the corpus "
-                     "and summarize again")
-        complete = False
+    stage1_hold = None
+    if isinstance(stage1_problem, (Stage1Unverified, Stage1Changed)):
+        # Not a protocol violation of the Stage 2 runs (section 4.5 D/E): the summary is incomplete
+        # until the environment or the changed Stage 1 evidence is put right.
+        stage1_hold = str(stage1_problem)
+        notes.append(f"the committed Stage 1 go could not be re-verified: {stage1_problem}; "
+                     + ("fetch or verify the corpus" if isinstance(stage1_problem, Stage1Unverified)
+                        else "restore the Stage 1 evidence") + " and summarize again")
         stage1_problem = None
     for state in states.values():
         in_scope = state.run["condition"] == "baseline" or _in_stage(state.run, stage)
@@ -3486,11 +3667,14 @@ def summarize(root: Path, name: str, stage: str, pilot_value: str | None) -> dic
     unreviewed = [s.run["id"] for s in stage_states if s.status == "completed" and not s.invalid
                   and s.review_status in ("missing", "incomplete")]
     review_problems = [f"{s.run['id']}: {problem}" for s in stage_states for problem in s.review_problems]
+    first_problems = [f"{s.run['id']}: {s.review_problems[0]}" for s in stage_states if s.review_problems]
+    retries = _open_retries(root, campaign, states, [r["id"] for r in plan if _in_stage(r, stage)
+                                                     or r["condition"] == "baseline"])
     reasons: list[str] = []
     if invalidation is not None:
         value = "invalid"
         reasons.append(f"the owner recorded an invalidation (scope {invalidation['scope']}, {invalidation['date']})")
-    elif pending or unreviewed or review_problems or not complete:
+    elif pending or unreviewed or review_problems or not complete or stage1_hold:
         value = "incomplete"
         if pending:
             reasons.append(f"{len(pending)} planned run(s) pending: " + ", ".join(pending[:6]) + (" ..." if len(pending) > 6 else ""))
@@ -3498,9 +3682,12 @@ def summarize(root: Path, name: str, stage: str, pilot_value: str | None) -> dic
             reasons.append(f"{len(unreviewed)} completed run(s) unreviewed: " + ", ".join(unreviewed[:6])
                            + (" ..." if len(unreviewed) > 6 else ""))
         if review_problems:
-            reasons.append(f"{len(review_problems)} review problem(s) unresolved")
+            reasons.append(f"{len(review_problems)} review problem(s) unresolved: " + "; ".join(first_problems[:6])
+                           + (" ..." if len(first_problems) > 6 else ""))
         if not complete:
             reasons.append(UNVERIFIED_REASON)
+        if stage1_hold:
+            reasons.append("the committed Stage 1 go is not re-verified here (see the verification notes)")
     else:
         missed = [t for t in targets if not t["met"]]
         if stage == "1":
@@ -3514,7 +3701,7 @@ def summarize(root: Path, name: str, stage: str, pilot_value: str | None) -> dic
                 reasons.append(_missed_reason(target))
         if value == "go":
             reasons.append(GO_TEXT)
-    early = _early_stop(stage_runs, targets) if value == "incomplete" else []
+    early = _early_stop(stage_runs, targets, {item["id"] for item in retries}) if value == "incomplete" else []
     per_host = {host: _group_metrics([r for r in stage_runs if r["host"] == host], campaign.qualified_policy) for host in hosts}
     per_task = {task: _group_metrics([r for r in stage_runs if r["task"] == task], campaign.qualified_policy) for task in task_ids}
     macro = {}
@@ -3579,6 +3766,7 @@ def summarize(root: Path, name: str, stage: str, pilot_value: str | None) -> dic
         "perHost": per_host, "perTask": per_task,
         "macro": macro, "sensitivity": sensitivity, "failures": failures, "baselines": baselines,
         "decision": {"value": value, "reasons": reasons, "earlyStopIndicators": early, "label": NOT_APPROVAL},
+        "openRetries": retries,
         "disputedEssentialFacts": disputed, "disputedDenominatorItems": denominator_disputes,
         "caveats": notes_text, "note": SUMMARY_NOTE, "pilotApproved": False,
     }
@@ -3712,7 +3900,7 @@ def _fmt_value(value: object) -> str:
 def _needed(target: dict) -> str:
     if target["comparator"] == "<=":
         return f"{target['threshold']:g}"
-    return "100%" if target["threshold"] >= 1 else f"≥{100 * target['threshold']:g}%"
+    return "100%" if target["threshold"] >= 1 else f">={100 * target['threshold']:g}%"  # ASCII: any stdout encodes it
 
 
 def _failures_line(title: str, failures: list[dict]) -> str | None:
@@ -3749,6 +3937,10 @@ def render_markdown(summary: dict) -> str:
     if decision["earlyStopIndicators"]:
         lines += ["", "Early-stop indicators (targets that can no longer be met; no decision before every run is adjudicated):"]
         lines += [f"- {item}" for item in decision["earlyStopIndicators"]]
+    if summary.get("openRetries"):
+        lines += ["", "Retries still open under the run policy (retry before summarize --record; a recorded summary is "
+                      "final):"]
+        lines += [f"- {item['id']} attempt {item['attempt']}: {item['command']}" for item in summary["openRetries"]]
     policy = summary["qualifiedClaims"]
     labels = dict(TARGET_LABELS)
     labels["supportedClaimPrecision"] = f"Supported claims (observed+inferred; qualified = {policy})"
@@ -3855,13 +4047,29 @@ def record_summary(root: Path, summary: dict) -> tuple[Path, Path]:
     allowed = ("go", "stop", "invalid") if summary["stage"] == "1" else ("targets-met", "targets-missed", "invalid")
     if value not in allowed:
         raise PilotError(f"the decision is {value}; only {', '.join(allowed)} can be recorded")
+    retries = summary.get("openRetries") or []
+    if value != "invalid" and retries:
+        raise PilotError("a failure the run policy lets you retry is still open ("
+                         + "; ".join(f"attempt {item['attempt']} of {item['id']}: {item['command']}" for item in retries)
+                         + "); retry it before recording: a recorded summary is final, and a retry is refused "
+                           "afterwards")
     baselines = summary.get("baselines")
-    if value != "invalid" and isinstance(baselines, dict) and not baselines.get("complete", True):
+    # Baselines belong to Stage 1; the all-stage summary follows a Stage 1 go recorded with them complete.
+    if summary["stage"] == "1" and value != "invalid" and isinstance(baselines, dict) \
+            and not baselines.get("complete", True):
         waiting = [f"{label} {', '.join(baselines[key])}" for key, label in
                    (("pending", "pending:"), ("unreviewed", "unreviewed:"), ("reviewProblems", "review problems:"))
                    if baselines.get(key)]
-        raise PilotError("the planned baselines are not complete (" + "; ".join(waiting) + "); seal and review them "
-                         "before recording. Baselines never change the decision, but a recorded summary is final")
+        remove = [run["id"] for run in baselines.get("runs") or []
+                  if run.get("id") in (baselines.get("reviewProblems") or []) and run.get("status") != "completed"]
+        advice = "seal and review them before recording"
+        if remove:
+            others = bool(baselines.get("pending") or baselines.get("unreviewed")) or \
+                len(remove) < len(baselines.get("reviewProblems") or [])
+            advice = (f"remove review.md of {', '.join(remove)} (a run that did not complete is not reviewed)"
+                      + ("; seal and review the others" if others else "") + " before recording")
+        raise PilotError("the planned baselines are not complete (" + "; ".join(waiting) + f"); {advice}. Baselines "
+                         "never change the decision, but a recorded summary is final")
     json_bytes = er.canonical_json(summary)
     md_bytes = render_markdown(json.loads(json_bytes)).encode("utf-8")
     for data in (json_bytes, md_bytes):
@@ -3935,6 +4143,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None, *, root: Path | None = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
+    er.safe_streams()
     parser = build_parser()
     args = parser.parse_args(arguments)
     root = Path(root) if root is not None else ROOT
@@ -3958,14 +4167,22 @@ def main(argv: list[str] | None = None, *, root: Path | None = None) -> int:
         summary = summarize(root, args.campaign, args.stage, args.pilot_dir)
         data = er.canonical_json(summary)
         # The Markdown is rendered only from the JSON (section 4.7).
-        sys.stdout.write(data.decode("utf-8") if args.json else render_markdown(json.loads(data)))
+        text = data.decode("utf-8") if args.json else render_markdown(json.loads(data))
         if args.record:
-            json_path, md_path = record_summary(root, summary)
+            try:  # recorded before anything is printed, so an output failure never loses a recording
+                json_path, md_path = record_summary(root, summary)
+            except PilotError:
+                sys.stdout.write(text)
+                raise
+            sys.stdout.write(text)
             print(f"Recorded {json_path.name} and {md_path.name} in {PILOT_REL}/{args.campaign}/. Commit both files "
                   "now, in one commit, before any other commit, pull, merge or rebase, and merge that commit without "
                   "squashing or rebasing it: a recorded summary is final and is never recorded again."
-                  + (" Stage 1 runs can no longer be retried or amended." if summary["stage"] == "1" else "")
+                  + (" Stage 1 runs can no longer be retried or amended, and every Stage 1 review must keep saying "
+                     "what it says now; keep a copy of the evidence directory." if summary["stage"] == "1" else "")
                   + f" The summary is {NOT_APPROVAL}.", file=sys.stderr)
+            return 0
+        sys.stdout.write(text)
         return 0
     except IntegrityError as exc:
         for problem in exc.problems:

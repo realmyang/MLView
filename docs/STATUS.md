@@ -36,17 +36,25 @@ against the frozen campaign and computes the Stage 1 stop/go decision. The
 owner's reference review has not happened and **no reference is frozen**: every
 file in `evals/workflow/decisions/` is a pending template. The pilot has **not
 run**: Stage 1 has 24 skill runs pending and 0 passed, and Stage 2 has 48
-pending. The fixes for the campaign's first five reviews (37, 15, 25, 19 and
-15 findings) are in: among them, a run is retried only if its prompt was never
+pending. The fixes for the campaign's six reviews (37, 15, 25, 19, 15 and
+36 findings) are in: among them, a run is retried only if its prompt was never
 sent (`Prompt sent: no` in `session.md`, refused against sealed evidence that
 it was sent, including the skill's drafts under `.mlview/`), every earlier
-attempt stays in the summary, a recorded summary or candidate can never be
-removed, replaced or recorded again, merges included, Stage 1 runs are final
-once the Stage 1 summary is recorded, a summary's own `tooling` field never
-switches a check off (other tools must be versions committed in the
-summary's history), and a committed campaign is never erased. Campaign commits reach
-`main` by a merge commit or fast-forward, never a squash. With them, the local
-gate passed on one macOS machine ([details](VALIDATION.md)).
+attempt stays in the summary, `check-frozen` and `--record` fail when a
+recorded summary or candidate in the history reachable from `HEAD` was
+removed, replaced or recorded twice, merges included, Stage 1 runs and
+reviews are final once the Stage 1 summary is recorded, a summary's own
+`tooling` field never switches a check off (other tools must be versions
+committed in the summary's history), deleting a committed campaign does not
+clear the way for a new one, and `run-prepare` installs the candidate's skill
+from its source commit, so later skill changes on `main` do not block runs.
+Campaign commits reach `main` by a merge commit or fast-forward, never a
+squash or rebase merge. The history checks catch accidents and make changes
+visible; they do not stop someone with push access from rewriting history,
+and commit authorship, `Transcribed by:`, branch protection and the pushed
+candidate tag are the safeguards
+([known limits](../evals/workflow/pilot/README.md#known-limits)). With these
+fixes, the local gate passed on one macOS machine ([details](VALIDATION.md)).
 CI has not yet run on the Campaign 2 branch. 0.2.0 shipped to `main` on
 2026-09-25, when PR #9 was squash-merged as `d99904f`; the Campaign 2 branch
 is based on that commit.

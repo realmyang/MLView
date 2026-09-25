@@ -617,7 +617,10 @@ def test_second_review_disagreement_and_resolution(tmp_path: Path, verified) -> 
         f"evals/workflow/decisions/pilot-demo.md:{primary.split(chr(10)).index('## Disagreements') + 1}: TODO  "
         f"Disagreements: demo-f02: the second reviewer ({SECOND}) chose accept (essential: yes); you chose accept "
         '(essential: no). Add "demo-f02: <how it was resolved>".']
-    assert "pilot-demo: 1 error(s), 2 to do; not ready (fix the errors)." in lines
+    # A second review merged after the owner's "Review: complete" leaves to-dos, never an error (HONEST-F3).
+    assert "pilot-demo: 0 error(s), 3 to do; in progress." in lines, lines
+    assert any("TODO  Task: Review is complete, but the second review added 2 item(s) to resolve under ## "
+               "Disagreements." in line for line in lines), lines
     assert "pilot-demo (second review): 0 error(s), 1 to do; in progress." in lines
     assert not [line for line in lines if "pilot-demo.second.md" in line and "Decision is still pending" in line]
     resolved = primary.replace("## Disagreements\n", "## Disagreements\ndemo-f01: kept the qualification after "
@@ -1206,8 +1209,9 @@ def test_freeze_dry_run_and_write(tmp_path: Path, verified) -> None:
     assert code == 0, out
     assert out.splitlines()[-1] == ("Next: commit evals/workflow/decisions, evals/workflow/pilot/pilot-99 and "
                                     "evals/workflow/tasks.json together, before editing any of them again (until then "
-                                    "Git does not hold the frozen bytes). The freeze records the reviewers' decisions; "
-                                    "it does not add an approval.")
+                                    "Git does not hold the frozen bytes), and merge that commit into main with a merge "
+                                    "commit or a fast-forward, never a squash or rebase merge. The freeze records the "
+                                    "reviewers' decisions; it does not add an approval.")
     files = all_files(frozen_dir(world))
     assert sorted(files) == ["freeze.json", "policy.json", "prompts/baseline/pilot-book.txt",
                              "prompts/baseline/pilot-demo.txt", "prompts/skill/pilot-book.txt",
@@ -2313,15 +2317,19 @@ def test_a_late_second_review_keeps_the_primary_frozen_in_check(tmp_path: Path, 
     assert "pilot-demo: 0 error(s), 0 to do; frozen in pilot-99." in out, out
     assert "NOTE  Disagreements: for a new campaign (evals/workflow/decisions/pilot-demo.second.md was added after the " \
            "freeze of pilot-99): demo-f02:" in out, out
-    assert "this file is still the version frozen in pilot-99. To keep pilot-99, remove " \
-           "evals/workflow/decisions/pilot-demo.second.md" in out, out
+    assert "this file is still the version frozen in pilot-99. To keep pilot-99, move " \
+           "evals/workflow/decisions/pilot-demo.second.md out of evals/workflow/decisions/ (keep it for a new " \
+           "campaign" in out, out
+    assert "NOTE  Task: for a new campaign (evals/workflow/decisions/pilot-demo.second.md was added after the freeze " \
+           "of pilot-99): Review is complete, but the second review added 1 item(s) to resolve" in out, out
     assert "TODO" not in out.split("pilot-demo: 0 error(s)")[0], out
     code, out = run(world, "check-frozen")
-    assert code == 1 and "Next: remove evals/workflow/decisions/pilot-demo.second.md to keep pilot-99, or freeze a new " \
-                         "campaign (evals/workflow/pilot/README.md)" in out, out
+    assert code == 1 and "Next: move evals/workflow/decisions/pilot-demo.second.md out of evals/workflow/decisions/ to " \
+                         "keep pilot-99 (keep it for a new campaign), or freeze a new campaign " \
+                         "(evals/workflow/pilot/README.md)" in out, out
     # The freeze of a new campaign still sees the unresolved disagreement.
     code, out = run(world, "freeze", "--campaign", "pilot-100", "--frozen-at", FROZEN_AT, "--supersede-reason", "x")
-    assert code == 1 and "evals/workflow/decisions/pilot-demo.md: 1 error(s), 1 to do" in out, out
+    assert code == 1 and "evals/workflow/decisions/pilot-demo.md: 0 error(s), 2 to do" in out, out
     path.unlink()
     assert run(world, "check-frozen")[0] == 0
 
@@ -2826,3 +2834,113 @@ def test_an_unbound_renderer_of_an_invalidated_superseded_campaign_is_a_note(tmp
     commit_all(world, "synthetic invalidation and pilot-100")
     code, out = run(world, "check-frozen")
     assert code == 0 and "check-frozen: pilot-99 (invalidated): evals/workflow/pilot/" + message in out, out
+
+
+# --------------------------------------------------------------------------------------------
+# Final round: honest-path fixes (synthetic data only)
+
+
+@pytest.mark.parametrize("damage", ["utf16", "primary-title"])
+def test_an_unreadable_second_review_never_asks_to_delete_the_resolutions(tmp_path: Path, verified,
+                                                                          damage: str) -> None:
+    """Before the freeze, a second review that exists but cannot be used (re-saved as UTF-16, or started from
+    a copy of the primary) leaves the owner's resolution lines alone: the error names the unreadable file,
+    never "there is no second review ... delete this line" (OWNERUX-F1)."""
+    world = make_world(tmp_path)
+    rel = "evals/workflow/decisions/pilot-demo.second.md"
+    second = complete(decide(fill_header(wd.task_template(world, "pilot-demo", second=True), SECOND), "Fact demo-f02",
+                             "reject", "Reason: synthetic"))
+    path = write(world, "pilot-demo.second.md", second)
+    write(world, "pilot-demo.md", complete(accept_all(world, "pilot-demo")).replace(
+        "## Disagreements\n", "## Disagreements\ndemo-f02: kept after discussion (synthetic)\n"))
+    code, out = run(world, "check", "pilot-demo")
+    assert code == 0 and "pilot-demo: 0 error(s), 0 to do; ready to freeze." in out, out
+    if damage == "utf16":
+        path.write_bytes(second.encode("utf-16"))
+    else:
+        path.write_bytes(wd.task_template(world, "pilot-demo").encode("utf-8"))
+    code, out = run(world, "check", "pilot-demo")
+    assert code == 1 and "delete this line" not in out, out
+    assert f'ERROR Disagreements: "demo-f02": {rel} cannot be read (see its errors); fix or restore it before ' \
+           "resolving disagreements. Keep this line." in out, out
+    # A second review that really does not exist still asks for the stray line to go.
+    path.unlink()
+    code, out = run(world, "check", "pilot-demo")
+    assert code == 1 and 'there is no second review (pilot-demo.second.md) to disagree with; delete this line.' in out
+
+
+@pytest.mark.parametrize("target, damage", [("pilot-demo", "utf16"), ("pilot-demo", "title"), ("run-policy", "utf16"),
+                                            ("run-policy", "title")])
+def test_check_names_the_restore_of_a_frozen_file_that_no_longer_parses(tmp_path: Path, verified, target: str,
+                                                                        damage: str) -> None:
+    """A frozen primary or run policy re-saved as UTF-16 or with a damaged title is reported with its frozen
+    state and the restore, as for any other change after the freeze (OWNERUX-F2)."""
+    world = make_world(tmp_path)
+    complete_world(world)
+    assert run(world, "freeze", "--campaign", "pilot-99", "--write", "--frozen-at", FROZEN_AT)[0] == 0
+    world.reload_manifest()
+    git_world(world)
+    rel = f"evals/workflow/decisions/{target}.md"
+    path = world.root / rel
+    raw = path.read_bytes()
+    path.write_bytes(raw.decode("utf-8").encode("utf-16") if damage == "utf16" else raw.replace(b"# ", b"#", 1))
+    code, out = run(world, "check", target)
+    assert code == 1 and "this file was frozen in pilot-99" in out and f"(git checkout -- {rel})" in out, out
+    assert f"{target}.md: " in out and "0 to do; changed after the freeze of pilot-99." in out, out
+    git(world.root, "checkout", "--", rel)
+    code, out = run(world, "check", target)
+    assert code == 0 and "frozen in pilot-99" in out, out
+
+
+def test_a_frozen_dropped_anchor_note_asks_for_no_edit(tmp_path: Path, verified) -> None:
+    """After the freeze, the dropped-anchor note of an unchanged frozen file says what the freeze recorded
+    instead of asking to repeat the anchor (OWNERUX-F3)."""
+    world = make_world(tmp_path)
+    complete_world(world)
+    primary = in_section(complete(accept_all(world, "pilot-demo")), "Fact demo-f03", "Decision: accept",
+                         ["Decision: accept", "Anchors: train.py:20-22", "Reason: the config line adds nothing (synthetic)"])
+    write(world, "pilot-demo.md", primary)
+    code, out = run(world, "check", "pilot-demo")
+    assert "repeat every proposed anchor you keep" in out, out
+    assert run(world, "freeze", "--campaign", "pilot-99", "--write", "--frozen-at", FROZEN_AT)[0] == 0
+    world.reload_manifest()
+    git_world(world)
+    code, out = run(world, "check", "pilot-demo")
+    assert "frozen in pilot-99" in out and "repeat every proposed anchor" not in out, out
+    assert "NOTE  Fact demo-f03: the freeze of pilot-99 recorded this fact without configs/a.py:2 (proposed); " \
+           "changing its anchors needs a new campaign" in out, out
+
+
+def test_template_never_replaces_a_deleted_frozen_file(tmp_path: Path, verified) -> None:
+    """template refuses to write a pending template over a frozen decision file that was deleted, and names
+    the restore instead (OWNERUX-F6)."""
+    world = make_world(tmp_path)
+    complete_world(world)
+    assert run(world, "freeze", "--campaign", "pilot-99", "--write", "--frozen-at", FROZEN_AT)[0] == 0
+    world.reload_manifest()
+    git_world(world)
+    rel = "evals/workflow/decisions/pilot-demo.md"
+    (world.root / rel).unlink()
+    code, out = run(world, "template", "pilot-demo")
+    assert code == 1 and f"template: refusing; {rel} was frozen in pilot-99 and is missing; restore it (git checkout " \
+                         f"-- {rel})" in out, out
+    assert not (world.root / rel).exists()
+    for name in ("pilot-demo.md", "pilot-book.md", "run-policy.md", "development-adjudication.md", "README.md"):
+        (world.root / wd.DECISIONS_REL / name).unlink(missing_ok=True)
+    code, out = run(world, "template", "--init-all")
+    assert code == 1 and "template --init-all: refusing;" in out and "was frozen in pilot-99 and is missing" in out, out
+    assert not (world.root / rel).exists()
+
+
+def test_a_missing_git_is_named_as_the_reason_history_was_not_checked(tmp_path: Path, verified,
+                                                                      monkeypatch: pytest.MonkeyPatch) -> None:
+    """Without git on PATH, the history note names the missing git instead of "not a Git work tree"
+    (DISTCI-F5)."""
+    world = frozen_world(tmp_path)
+    git_world(world)
+    empty = tmp_path / "no-git"
+    empty.mkdir()
+    monkeypatch.setenv("PATH", str(empty))
+    history = wd.History(world)
+    assert history.reason is not None and history.reason.startswith("git cannot run (cannot run git: ") and \
+        history.reason.endswith("); install Git or put it on PATH"), history.reason

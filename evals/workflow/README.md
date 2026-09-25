@@ -97,8 +97,10 @@ a new file (never overwritten). `run-prepare` refuses unless the frozen chain,
 the pinned checkout and the installed skill identity verify. It then creates a
 fresh workspace (`$MLVIEW_PILOT_DIR/workspaces/pilot-nanogpt.codex.1`, not a
 Git repository) containing only the manifest's pinned paths, installs the
-skill for skill runs, copies the frozen prompt to the evidence directory's
-`PROMPT.txt`, appends the attempt to `$MLVIEW_PILOT_DIR/preparations.jsonl`
+candidate's skill for skill runs (read from the candidate's source commit, so
+a later skill change on main is never installed and never blocks a run; a
+note says when the checkout's skill differs), copies the frozen prompt to the
+evidence directory's `PROMPT.txt`, appends the attempt to `$MLVIEW_PILOT_DIR/preparations.jsonl`
 and prints the operator checklist. Every attempt is prepared once: deleting
 an evidence directory never allows preparing the run again.
 
@@ -197,13 +199,16 @@ host, skill identity drift, a baseline with MLView available or an MLView
 file in a baseline workspace, a retry after a completed attempt or after an
 attempt that sent the prompt, or a deviation marked as invalidating. A baseline is held to the policy's model and
 reasoning, not to the skill invocation. `--json` prints the machine-readable
-summary. The decision is always labeled "computed against predefined
+summary. The decision is always labeled "computed against the predefined
 targets; not an approval":
 
 - `incomplete`: a planned run is pending, a completed run is unreviewed, a
-  review still has problems, or the corpus was absent. Early-stop indicators
-  list targets that can no longer be met, but no decision is issued before all
-  24 runs are adjudicated.
+  review still has problems (each run is named with its first problem, for
+  example `remove review.md` after an amendment to `failed` or `timed-out`),
+  or the corpus was absent. Early-stop indicators list targets that can no
+  longer be met, but no decision is issued before all 24 runs are adjudicated;
+  a failure the run policy still lets the operator retry is marked "may still
+  be retried" and counted as open.
 - `stop`: complete, and at least one target is missed; the reasons give each
   numerator and denominator.
 - `go`: complete, and all six targets are met. This permits collecting the 48
@@ -212,41 +217,58 @@ targets; not an approval":
   Tools never create it.
 
 `--record` also creates `stage1-summary.json` and `stage1-summary.md` in the
-campaign directory, only for `go`, `stop` or `invalid`, and only once every
-planned baseline is sealed and reviewed (baselines never change the decision;
-a completed baseline without a finished review shows as `unreviewed`, with no
-paired difference, and neither does a pending one). Commit both files at
-once, right away, before any other commit, pull, merge or rebase. A recorded
-summary is final: `--record` refuses a summary file that was ever committed,
-in any branch merged into `HEAD`, even after it was deleted. So is the Stage 1
-evidence behind it: once `stage1-summary.json` exists in the working tree or
-the history, `run-prepare --retry` and `run-finish --amend` refuse every Stage
-1 run, skill run or baseline (retry or amend before `--record`), because a
-changed Stage 1 record would stop the recorded go from unlocking Stage 2 and
-make the Stage 2 runs invalid. `run-prepare`
+campaign directory, only for `go`, `stop` or `invalid`. For `go` or `stop` it
+also waits until every planned baseline is sealed and reviewed (baselines
+never change the decision; a completed baseline without a finished review
+shows as `unreviewed`, with no paired difference, and neither does a pending
+one; a baseline that did not complete needs its `review.md` removed) and
+until no failure the run policy still lets the operator retry is open (the
+summary lists each with its `run-prepare ... --retry` command; retry it
+first). The same retry rule applies to `--stage all --record`. Commit both
+files at once, right away, before any other commit, pull, merge or rebase. A
+recorded summary is final: `--record` refuses a summary file that was ever
+committed, in any branch merged into `HEAD`, even after it was deleted. So is
+the Stage 1 evidence behind it: once `stage1-summary.json` exists in the
+working tree or the history, `run-prepare --retry` and `run-finish --amend`
+refuse every Stage 1 run, skill run or baseline (retry or amend before
+`--record`; undo any edit made for a refused amendment, because `session.md`
+must keep its sealed bytes), and every Stage 1 `review.md`, skill run or
+baseline, must keep saying what it said: a re-save or a wording change that
+leaves every verdict, the reviewer and the `Review:` line as they were does no
+harm, but a changed verdict stops the recorded go from unlocking Stage 2 and
+leaves the all-stage summary `incomplete` until it is changed back. Review
+files live outside Git, so keep a copy of the evidence directory. `run-prepare`
 refuses repeat runs until a committed Stage 1 summary says `go`, and it and
-`summarize --stage all` re-compute Stage 1 from the sealed evidence (a pilot
-directory without that evidence gives `incomplete`): a summary that is not a
-recorded Stage 1 summary of this candidate, whose decision or run hashes
-differ from the re-computation, whose other fields or Markdown differ from
-what `summarize --record` writes, that differs from the version first
-committed, or that was committed with more than one content (for example
-through a merge), does not unlock Stage 2. The summary's `tooling` field is
-part of the file being checked, so it never switches a check off on its own
-word: when it names the running tools, every field and the Markdown rendering
-are compared; when it names other tools, each of them must be a version of
-that file committed in the history of the commit that records the summary
-(`summarize --record` refuses tools that differ from `HEAD` in this checkout,
-and that `HEAD` stays in the history of the summary's commit after a pull,
-merge, rebase or tool commit in between), `skills/mlview/scripts/artifact.py`
-must be the candidate's frozen helper, and the decision, the run hashes and
-the status, failure and earlier attempts of every skill run and baseline are
-still compared (a note says the other fields and the Markdown were not). When
-the re-computation is incomplete only because the corpus is absent or
-unverified here, `run-prepare` still refuses Stage 2, and `summarize --stage
-all` is `incomplete` with a note that the Stage 1 go could not be
-re-verified, without marking the Stage 2 runs invalid. With per-host targets, a stop reason names each host that
-misses a target, and the early-stop indicators include each host's bound.
+`summarize --stage all` re-compute Stage 1 from the sealed evidence and the
+reviews: a summary that is not a recorded Stage 1 summary of this candidate,
+whose decision differs from the re-computation, whose other fields or
+Markdown differ from what `summarize --record` writes, that differs from the
+version first committed, or that was committed with more than one content
+(for example through a merge), does not unlock Stage 2, and those Stage 2
+runs count as invalid. When the Stage 1 evidence here differs from the
+summary's sealed inputs (a record, amendment or earlier attempt changed, or
+missing from this pilot directory) or a changed review now says something
+else, the message names each run and what to restore, `run-prepare` refuses
+Stage 2, and `summarize --stage all` is `incomplete` with a note instead of
+marking the Stage 2 runs invalid; so it is when the re-computation is
+incomplete only because the corpus is absent or unverified here. The
+summary's `tooling` field is part of the file being checked, so it never
+switches a check off on its own word: when it names the running tools, every
+field and the Markdown rendering are compared; when it names other tools,
+each of them must be a version of that file committed in the history of the
+commit that records the summary (`summarize --record` refuses tools that
+differ from `HEAD` in this checkout; those tool versions stay in the history
+of the summary's commit after a pull, merge or tool commit in between, but a
+rebase that rewrites an unpushed commit holding them can break the link:
+before pushing, drop the summary commit, delete the two files and record
+again), `skills/mlview/scripts/artifact.py` must be the candidate's frozen
+helper, and the decision, the sealed inputs and the disclosure of retries and
+failures (each skill run's status, failure and earlier attempts, and each
+baseline's failure and earlier attempts; a baseline's computed status and
+review state belong to the tools) are still compared (a note says the other
+fields and the Markdown were not). With per-host targets, a stop reason names
+each host that misses a target, and the early-stop indicators include each
+host's bound.
 
 If any target misses, stop before Stage 2 and report the numerators,
 denominators and failure taxonomy. Do not repair the skill against held-out
@@ -283,7 +305,11 @@ helper from the artifact's evidence records. Severity agreement and task
 usability (six questions and overall usefulness) are recorded and reported,
 not gated. Baseline reviews cite transcript line ranges (`response:12-14`)
 instead of artifact elements. `python tools/workflow_eval.py check <path>`
-validates a `session.md` or `review.md` like the owner's decision files.
+validates a `session.md` or `review.md` like the owner's decision files (a
+`review.md` of a run whose record is no longer `completed` is told to go).
+Stage 1 reviews are final once the Stage 1 summary is recorded: do not change
+a verdict afterwards, and keep a copy of the evidence directory (see "Stage 1
+stop/go").
 
 A second model may help locate disputed claims but cannot replace
 source-based human adjudication. Each run has a single human reviewer, and

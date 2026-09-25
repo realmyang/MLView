@@ -60,9 +60,16 @@ python tools/workflow_candidate.py --check evals/workflow/pilot/pilot-01/candida
 
 `--check` verifies the structure, that the source commit is an ancestor of
 HEAD, and every component as stored at that commit. It reports drift at HEAD
-as information and compares the VSIX bytes when `--vsix` is given. A source
-commit that is missing or not an ancestor after a squash or rebase merge, or
-after its branch was deleted, fails here and in `run-prepare` and `summarize`.
+as information and compares the VSIX bytes when `--vsix` is given. Drift at
+HEAD does not affect runs: `run-prepare` installs the candidate's skill from
+`source.commit`, never from the working tree, and notes when the checkout's
+skill differs. Run the pilot tools from main or a branch that contains
+`candidate.json`, never from `source.commit` itself, which precedes it. A
+source commit that is missing or not an ancestor after a squash or rebase
+merge, or after its branch was deleted, fails here and in `run-prepare` and
+`summarize`. To recover from a squash or rebase merge, merge the original
+branch (or the candidate tag) into main with `git merge --no-ff`, then run
+`check-frozen` ([merging a campaign](pilot/README.md#merging-a-campaign)).
 Success says nothing about human approval.
 
 For local development, this still creates a `development-snapshot`, in which

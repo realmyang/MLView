@@ -8,6 +8,44 @@ Run `sh scripts/e2e.sh` with Python 3.10+ and Node 20.18.1+ on PATH. On Windows
 use `powershell -File scripts/e2e.ps1`. The [script guide](../scripts/README.md)
 explains each gate and explicit skip options.
 
+## Campaign 2 final round fixes — 2026-09-25
+
+The fixes for the 36 verified findings of the campaign's final review (see
+the "Final round review fixes" paragraph of the [changelog](../CHANGELOG.md))
+were checked before their commit on the `campaign2-pilot-readiness` branch,
+on top of `867cdf2`, on the same macOS machine and virtualenv as below.
+**These are local automated checks only**. CI has not run on these
+commits, so the Python 3.10–3.14 and Node 20.18.1–26 matrix, Windows and
+the PowerShell drivers are unverified here.
+
+- `MLVIEW_PYTHON="$PWD/.venv/bin/python" PATH="$PWD/.venv/bin:$PATH" PYTHONDONTWRITEBYTECODE=1 sh scripts/e2e.sh --skip-npm-install`:
+  **all 15 exercised gates passed**.
+  - Python helper, distribution and evaluation tests: **828 passed, 533
+    subtests passed**, none skipped.
+  - Viewer: **79 passed**. Extension: **250 passed**.
+  - The actual VSIX: 11 files, 155,593 bytes.
+- After a rebuild (viewer build, asset and skill sync, extension compile),
+  `git diff --exit-code` was clean over `webview/dist`,
+  `vscode-extension/media`, the extension's notices and
+  `claude-plugin/skills/mlview`.
+- `python tools/evidence_lock.py`: 95 files match the lock.
+  `python scripts/check_docs.py`: OK, 40 documents.
+  `python tools/verify.py --all`: OK.
+- Every changed Python file parses with `ast.parse(feature_version=(3, 10))`
+  and compiles under a Python 3.10.21 interpreter; the helper's nesting test
+  was run under 3.10.21, 3.13.15 and 3.14.7.
+- The 18 new regression test cases (synthetic worlds only) fail against the
+  `867cdf2` tools and pass against the fixed ones. The reviewers' honest-path
+  rehearsal, kept outside the repository, ran 830 steps with no honest-path
+  failure against these changes in a scratch clone (a synthetic world: a
+  skill fix on main after the capture, a re-saved Stage 1 review, a late
+  second review, a cp1252 stdout, rebase and merge pulls). Their git 2.34.1
+  reproductions fetch and update a synthetic sparse repository.
+
+Every decision, review, verdict and policy value in the new tests and the
+rehearsal is synthetic. No native session, human review, reference freeze,
+corpus `--update-sparse` or pilot run occurred.
+
 ## Campaign 2 round 5 fixes — 2026-09-25
 
 The fixes for the 15 verified findings of the campaign's fifth review (see
@@ -194,8 +232,8 @@ Campaign 2 ("pilot readiness", version 0.3.0; see the
 `campaign2-pilot-readiness` branch. The branch was built on `llm-workflow` at
 `25b7a39` while PR #9 was open, then re-parented onto `main` at `d99904f`, the
 squash merge of PR #9, which has the same tree as `25b7a39`. Every re-parented
-commit keeps its tree, so the checks below apply unchanged (this commit was
-`8a824f9` before the move).
+commit keeps its tree, so the checks below apply unchanged (the checked tree
+is `9a33c6af`, unchanged by the move).
 **These are local automated checks on one macOS machine** (Darwin 25.6.0,
 Node 26.4.0, npm 11.17.0, git 2.54.0, Python 3.13.15 in a virtualenv). The
 venv's `pip freeze` has `pytest==9.1.1` and `jsonschema==4.26.0`, the exact

@@ -39,9 +39,10 @@ A later campaign may supersede this one only while this one was never
 captured (no `candidate.json` or stage summary now or anywhere in the Git
 history, merged branches included; deleting a committed candidate does not
 count), or after the owner has written its `invalidation.md`; the freeze then
-records the reason given with `--supersede-reason`. A committed campaign is
-never erased: restoring the pre-freeze `tasks.json`, or a `tasks.json` that
-names an older campaign, does not make a new campaign possible, because the
+records the reason given with `--supersede-reason`. Deleting a committed
+campaign does not clear the way for a new one: restoring the pre-freeze
+`tasks.json`, or a `tasks.json` that names an older campaign, does not make a
+new campaign possible, because the
 freeze refuses while the history holds a committed campaign that is missing
 or that the campaign `tasks.json` names does not reach through the
 `freeze.json` `supersedes` chain. Both refuse in a shallow or partial clone,
@@ -63,6 +64,19 @@ reachable: keep its branch, or push a tag at it, for example
 pilot-01-candidate`. A pull request's CI tests the merge ref, which keeps the
 branch history, so it cannot catch a squash merge before it happens.
 
+If a campaign branch was squash- or rebase-merged anyway, main no longer holds
+the commits the campaign names, and `check-frozen` and the pilot tools say
+that `source.commit` is not an ancestor of `HEAD`. Nothing is lost while the
+original branch or the candidate tag still exists: merge it into main with a
+merge commit, for example `git merge --no-ff pilot-01-candidate` (or the
+original branch), then run `python tools/workflow_eval.py check-frozen`. The
+merge brings back the original commits, and the changes the squash already
+brought in usually merge cleanly; resolve any conflict in favour of main's
+current files. If check-frozen still reports the tasks manifest, ask the
+owner. Run the pilot tools from main (or a branch that contains
+`candidate.json`), never from the candidate's source commit, which precedes
+`candidate.json`.
+
 Commit both files of a recorded summary at once, right after `summarize
 --record`, before any other commit, pull, merge or rebase. A recorded summary
 is final and is never recorded again. It names the tools that computed it,
@@ -72,10 +86,14 @@ versions committed in the history of the commit that records the summary, so
 a pull or tool commit in between does no harm. A rebase that rewrites an
 unpushed commit holding those tools can break that link, and the gate then
 refuses the summary; before pushing, drop the summary commit, delete the two
-files and record again. Once the Stage 1 summary is
-recorded, committed or not, Stage 1 runs (skill runs and baselines) can no
-longer be retried or amended: that would stop the recorded go from unlocking
-Stage 2 and make Stage 2 runs invalid.
+files and record again. `summarize --record` refuses while a failure the run
+policy lets the operator retry is still open; retry it first. Once the Stage
+1 summary is recorded (once `stage1-summary.json` exists in the working tree
+or the history), Stage 1 runs (skill runs and baselines) can no longer be
+retried or amended, and every Stage 1 `review.md` must keep saying what it
+said: a changed record or verdict stops the recorded go from unlocking Stage 2
+and leaves the all-stage summary `incomplete` until it is restored. Review
+files live outside Git, so keep a copy of the evidence directory.
 
 ## Checks
 
@@ -132,7 +150,9 @@ history checks cannot run, and check-frozen prints a `not verified` line for
 each campaign that names them; the Python CI jobs fetch the full history (the
 integration jobs' shallow checkouts only print those notes). A decision file
 the current freeze did not include, such as a second review written after it,
-is named as added after the freeze; removing it keeps the campaign. A
+is named as added after the freeze; moving it out of
+`evals/workflow/decisions/` (it holds a reviewer's decisions, so keep it for a
+new campaign) keeps this one. A
 changed or missing frozen decision file is named with the command that
 restores its frozen bytes from where Git holds them (the index, or the commit
 that has them), or with no git command when Git does not hold them yet.
@@ -168,3 +188,15 @@ and each session's `Prior attempts` to agree, and lists every earlier attempt
 in the summary, for skill runs and baselines alike.
 
 A hash identifies bytes; it does not supply human approval.
+
+## Known limits
+
+The history checks exist to catch accidents (a squash merge, a re-recorded
+summary, an edited frozen file, a lost commit) and to make tampering visible
+in the history; they do not resist someone with push access. A force push, a
+rewritten or crafted history, a summary recorded with tools that were
+committed only to justify it, a tag moved to another commit, or evidence
+files outside Git edited and re-sealed consistently are not caught. Commit
+authorship and the `Transcribed by:` line in decision files, branch
+protection on main, and the pushed candidate tag are the safeguards; review
+who committed what before trusting a result.

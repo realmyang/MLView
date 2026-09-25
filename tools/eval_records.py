@@ -54,6 +54,7 @@ import os
 import re
 import stat
 import subprocess
+import sys
 import tempfile
 import types
 from dataclasses import dataclass, field
@@ -978,6 +979,18 @@ def is_rfc3339(value: str, helper: types.ModuleType | None = None) -> bool:
     return isinstance(value, str) and bool(_helper(helper)._rfc3339(value))
 
 
+def safe_streams() -> None:
+    """Let stdout and stderr write any text: a character their encoding lacks (a Windows code page for a
+    redirect, a pipe or Git Bash without UTF-8 mode) becomes a backslash escape instead of an error."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            try:
+                reconfigure(errors="backslashreplace")
+            except (AttributeError, OSError, TypeError, ValueError):
+                pass
+
+
 def rfc3339_utc_now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -1278,7 +1291,9 @@ def outside_repositories(path: Path, mlview_root: Path = ROOT) -> list[str]:
             where = "work tree" if result.stdout.strip() == b"true" else "repository directory"
             reasons.append(f"{target} is inside a Git {where} (git rev-parse --is-inside-work-tree succeeds)")
     directories: list[Path] = []
-    for start in (target, given.absolute()):
+    # The real (resolved) path and the logical one, lexically normalised: "<checkout>/../pilot" has the
+    # checkout's parent as its parent, never the checkout itself.
+    for start in (target, Path(os.path.abspath(given))):
         for directory in (start, *start.parents):
             if directory not in directories:
                 directories.append(directory)

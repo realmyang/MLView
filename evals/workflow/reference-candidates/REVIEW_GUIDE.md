@@ -58,11 +58,17 @@ reported as an error, and where the lines after it go depends on its form:
   (`v2`) the check says it is not an item, and a `Decision:` after it no
   longer belongs to the item above it, which then reports its decision
   missing.
+- A mistyped heading of a section that takes no ID (`# Task`, `### Scenario`,
+  `# Disagreements`) starts that section: the lines after it are read there,
+  and the section is reported as appearing twice (on the real `## ` heading
+  after it, or on this line when the real heading came first, in which case
+  its lines are not read). Delete the mistyped line.
 - A line that looks like a heading of an unknown section, meaning `## Notes`,
-  two or more `#` (`### Fact checked`), or one `#` followed by a section kind
-  alone (`# Facts`) or by one word that could be an ID of that kind (`# Facts
-  nanogpt-f02`), skips the lines after it until the next `## ` heading, and
-  the error says they were not read.
+  two or more `#` before anything that is not a section heading (`### Fact
+  checked`, `### Facts`), or one `#` followed by an item kind alone or in the
+  plural (`# Fact`, `# Facts`) or by one word that could be an ID of that
+  kind (`# Facts nanogpt-f02`), skips the lines after it until the next `## `
+  heading, and the error says they were not read.
 - Any other `#` line is reported under its section, and your decisions around
   it are kept. That covers prose (`# checked twice on the train`), one `#`
   before an item kind and a word without a digit (`# Fact checked`, `# Defects
@@ -133,9 +139,11 @@ more rules catch a mistyped adoption:
   `.` does not matter), whatever its first word, is an error until it reads
   `<their id>: adopted as <your id> -- <why>`, or until you remove your ID
   from the line because the item is not adopted. `nanogpt-s-d02: not adopted
-  -- duplicates nanogpt-d01` is still an error when `nanogpt-d01` is your own
-  added defect; write `nanogpt-s-d02: not adopted -- duplicates my defect`
-  instead.
+  -- narrower than nanogpt-d01` is still an error when `nanogpt-d01` is your
+  own added defect; write `nanogpt-s-d02: not adopted -- narrower than my
+  defect` instead. If their addition is the same item as your own addition,
+  that is how yours is second-reviewed: resolve it as
+  `<their id>: adopted as <your id> -- <why>`.
 - A resolution whose first word looks like `adopted` (`adopt as`, `adpoted`,
   `Adoption`) is an error until it uses the adoption form or starts with
   another word, such as `not adopted -- <why>`.
@@ -157,7 +165,12 @@ after the freeze, the note on a frozen file only says the defect was not
 second-reviewed in that campaign, because a second opinion then needs a new
 campaign. The second reviewer must be a different person (the check refuses
 the same name), and only a person can be a second reviewer; another model's
-opinion is not human acceptance.
+opinion is not human acceptance. A second review added after you wrote
+`Review: complete` does not make your file an error: its differences are
+to-dos, and a `## Task` to-do says how many it added under
+`## Disagreements`. If the second reviewer's file cannot be read (for example
+after a re-save as UTF-16), each resolution line says so: fix or restore that
+file, and keep your resolution lines.
 
 ## Then: agree on the run policy
 

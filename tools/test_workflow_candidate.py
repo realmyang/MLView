@@ -404,8 +404,8 @@ def test_check_requires_the_commit_to_exist_and_be_an_ancestor_of_head(tmp_path:
     git(root, "checkout", "--quiet", "--orphan", "elsewhere")
     git(root, "commit", "--quiet", "-m", "unrelated history")
     problems = candidate.check(record, root)
-    assert problems == [f"source.commit {base[:12]} is not an ancestor of HEAD; check out the candidate commit "
-                        "or a descendant of it"]
+    assert problems == [candidate.not_ancestor_problem(base[:12])]
+    assert "merge the original branch (or the <campaign>-candidate tag) into main with git merge --no-ff" in problems[0]
 
 
 @needs_git

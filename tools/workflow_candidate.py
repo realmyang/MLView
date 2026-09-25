@@ -320,6 +320,14 @@ def _skill_paths(paths: list[str]) -> list[str]:
 # Check
 
 
+def not_ancestor_problem(short: str) -> str:
+    """The problem (and the way out) when a pilot candidate's source commit is not an ancestor of HEAD."""
+    return (f"source.commit {short} is not an ancestor of HEAD; work on a branch that contains it. If the campaign "
+            "branch was squash- or rebase-merged into main, merge the original branch (or the <campaign>-candidate "
+            "tag) into main with git merge --no-ff, then run check-frozen (evals/workflow/pilot/README.md, "
+            '"Merging a campaign")')
+
+
 def _prove_pilot(record: dict, root: Path) -> list[str]:
     """Prove every pinned byte at ``git show <source.commit>:<path>``."""
     commit = record["source"]["commit"]
@@ -331,8 +339,7 @@ def _prove_pilot(record: dict, root: Path) -> list[str]:
     problems = []
     ancestor = _git_run(root, "merge-base", "--is-ancestor", commit, "HEAD").returncode
     if ancestor:
-        problems.append(f"source.commit {short} is not an ancestor of HEAD; check out the candidate commit "
-                        "or a descendant of it")
+        problems.append(not_ancestor_problem(short))
     if git_value(root, "rev-parse", f"{commit}^{{tree}}") != record["source"]["tree"]:
         problems.append(f"source.tree is not the tree of {short}")
     for entry in record["components"]:

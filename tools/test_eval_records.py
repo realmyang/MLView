@@ -839,7 +839,8 @@ def test_sparse_covers_agrees_with_real_git(tmp_path: Path) -> None:
     checked = 0
     for patterns in manifest_pattern_sets() + EXTRA_PATTERN_SETS:
         if patterns:
-            git(repo, "sparse-checkout", "set", "--no-cone", "--", *patterns)
+            git(repo, "sparse-checkout", "init", "--no-cone")  # "set --no-cone" needs Git 2.35
+            git(repo, "sparse-checkout", "set", "--", *patterns)
         else:
             git(repo, "sparse-checkout", "disable")
         materialised = {p.relative_to(repo).as_posix() for p in repo.rglob("*")
@@ -1171,6 +1172,35 @@ def test_outside_repositories(tmp_path: Path) -> None:
         subprocess.run(["git", "init", "--quiet", str(tmp_path / "repo")], check=True, env=git_env())
         reasons = er.outside_repositories(tmp_path / "repo" / "not" / "yet", fake_root)
         assert any("Git work tree" in r for r in reasons)
+
+
+def test_a_pilot_directory_given_with_dot_dot_is_judged_by_its_real_parents(tmp_path: Path,
+                                                                           monkeypatch: pytest.MonkeyPatch) -> None:
+    """"<checkout>/../pilot" is a sibling of the checkout: the checkout's CLAUDE.md is not one of its parents
+    (HONEST-F5), while an instruction file in a real parent still counts."""
+    if er.outside_repositories(tmp_path / "probe" / "pilot", tmp_path / "unrelated-root"):
+        pytest.skip("the temporary directory itself sits inside a repository or below an instruction file")
+    checkout = tmp_path / "iso" / "checkout"
+    checkout.mkdir(parents=True)
+    (checkout / "CLAUDE.md").write_text("synthetic instructions\n", encoding="utf-8")
+    assert er.outside_repositories(checkout / ".." / "pilot", tmp_path / "unrelated-root") == []
+    monkeypatch.chdir(checkout)
+    assert er.outside_repositories(Path("..") / "pilot", tmp_path / "unrelated-root") == []
+    assert er.outside_repositories(checkout / "inner" / ".." / "pilot", tmp_path / "unrelated-root") == [
+        f"{checkout / 'CLAUDE.md'} would be read by a host as instructions"]
+
+
+def test_safe_streams_never_fail_on_a_character_the_encoding_lacks(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A Windows code-page stdout (a redirect, a pipe, Git Bash) writes a character it lacks as an escape
+    instead of failing the command (HONEST-F4, DISTCI-F3)."""
+    buffer = io.BytesIO()
+    stream = io.TextIOWrapper(buffer, encoding="cp1252", errors="strict", newline="\n")
+    monkeypatch.setattr(sys, "stdout", stream)
+    monkeypatch.setattr(sys, "stderr", io.StringIO())  # no reconfigure: left alone
+    er.safe_streams()
+    print("T3 \u2265 95% \u2014 synthetic")
+    stream.flush()
+    assert buffer.getvalue() == b"T3 \\u2265 95% \x97 synthetic\n"
 
 
 def test_canonical_json() -> None:

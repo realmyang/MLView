@@ -173,7 +173,10 @@ def test_new_checkout_uses_argument_vectors_disables_autocrlf_and_verifies_pin(m
     checkout = calls.index(("checkout", "--quiet", "--detach", "FETCH_HEAD"))
     assert autocrlf < checkout
     assert ("remote", "add", "origin", repo["url"]) in calls
-    assert ("sparse-checkout", "set", "--no-cone", "--", *repo["sparse"]) in calls
+    init = calls.index(("sparse-checkout", "init", "--no-cone"))
+    # No "set --no-cone": Git before 2.35 would store the flag as a pattern (DISTCI-F2).
+    assert calls.index(("sparse-checkout", "set", "--", *repo["sparse"])) == init + 1
+    assert not any(args[:2] == ("sparse-checkout", "set") and "--no-cone" in args for args in calls)
     assert calls.index(("fetch", "--depth", "1", "--filter=blob:none", "origin", repo["sha"])) < checkout
     after = fake.calls[checkout + 1:]
     assert after and all(offline and is_read(args) for args, offline in after)

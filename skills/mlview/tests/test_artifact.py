@@ -735,7 +735,9 @@ class ArtifactTests(unittest.TestCase):
         self.assertIn("quote_mismatch", {e["code"] for e in self.validate(document("flow.ipynb", "old(x)", cell=0))})
 
     def test_deeply_nested_notebook_metadata_is_a_notebook_cell_error(self):
-        nested = "[" * 20000 + "]" * 20000
+        # Deep enough that json.loads raises RecursionError on every supported Python (3.14 parses
+        # 20000 levels on an 8 MiB stack; 1,000,000 fails on 3.10 through 3.14).
+        nested = "[" * 1_000_000 + "]" * 1_000_000
         text = '{"cells": [{"cell_type": "code", "source": "train(x)"}], "metadata": {"deep": %s}, "nbformat": 4, "nbformat_minor": 5}' % nested
         (self.root / "deep.ipynb").write_text(text, encoding="utf-8")
         errors = self.validate(document("deep.ipynb", "train(x)", cell=0))

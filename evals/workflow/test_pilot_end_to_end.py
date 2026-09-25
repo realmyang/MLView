@@ -485,8 +485,9 @@ def build(base: Path, patcher: pytest.MonkeyPatch, clock: Clock) -> World:
     write_lf(work / wd.DECISIONS_REL / f"{TASK}.second.md", second_decisions(work))
     write_lf(work / wd.DECISIONS_REL / f"{TASK}.md", primary.replace("\nReview: pending\n", "\nReview: complete\n"))
     code, out = decisions(work, corpus, "check", TASK)
-    assert code == 1 and "Disagreements: demo-f01: the second reviewer (Second Test Reviewer (synthetic)) chose " \
+    assert code == 0 and "Disagreements: demo-f01: the second reviewer (Second Test Reviewer (synthetic)) chose " \
                          "reject; you chose accept" in out, out
+    assert "TODO  Task: Review is complete, but the second review added 1 item(s) to resolve" in out, out
     resolved = primary.replace("## Disagreements\n", "## Disagreements\ndemo-f01: kept the accepted claim after "
                                                      "discussion (synthetic)\n")
     write_lf(work / wd.DECISIONS_REL / f"{TASK}.md", resolved.replace("\nReview: pending\n", "\nReview: complete\n"))

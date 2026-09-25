@@ -581,6 +581,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
+    eval_records.safe_streams()
     if arguments and arguments[0] in ROUTED_COMMANDS:
         command = arguments[0]
         tool = ROUTED_COMMANDS[command][0]

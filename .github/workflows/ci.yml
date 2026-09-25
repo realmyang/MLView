@@ -35,7 +35,9 @@ jobs:
   integration:
     name: Native packages (${{ matrix.os }}, Node ${{ matrix.node }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
+    # The Python gate launches many git processes; on windows-latest it alone ran past 14 minutes
+    # (run 36156303450), so Windows gets 45 minutes and the other runners keep 15.
+    timeout-minutes: ${{ matrix.os == 'windows-latest' && 45 || 15 }}
     strategy:
       fail-fast: false
       matrix:
