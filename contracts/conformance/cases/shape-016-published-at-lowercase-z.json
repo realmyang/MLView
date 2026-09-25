@@ -1,0 +1,94 @@
+{
+  "id": "shape-016-published-at-lowercase-z",
+  "findings": [
+    "CONTRACT-11"
+  ],
+  "description": "A publishedAt with a lowercase z offset is refused in every layer: the shared profile accepts only an uppercase T and Z, which is stricter than RFC 3339 section 5.6 allows.",
+  "files": {
+    "train.py": {
+      "text": "def train():\n    pass\n"
+    }
+  },
+  "artifact": "workflow.mlview.json",
+  "document": {
+    "workflowVersion": "1.0",
+    "title": "Training entrypoint",
+    "producer": {
+      "kind": "host-llm",
+      "host": "claude-code"
+    },
+    "revision": {
+      "id": "r1"
+    },
+    "request": {
+      "question": "What does train.py run?",
+      "scope": "train.py"
+    },
+    "phases": [
+      {
+        "id": "train",
+        "label": "Train"
+      }
+    ],
+    "nodes": [
+      {
+        "id": "step",
+        "label": "Run training step",
+        "phase": "train",
+        "basis": "observed",
+        "evidence": [
+          "ev-1"
+        ]
+      }
+    ],
+    "edges": [],
+    "findings": [],
+    "evidence": [
+      {
+        "id": "ev-1",
+        "file": "train.py",
+        "line": 1,
+        "endLine": 1,
+        "quote": "def train():"
+      }
+    ],
+    "coverage": {
+      "status": "scoped",
+      "summary": "Read the entrypoint.",
+      "inspectedFiles": [
+        "train.py"
+      ],
+      "limitations": []
+    },
+    "verification": {
+      "files": {
+        "train.py": {
+          "$sha256": {
+            "text": "def train():\n    pass\n"
+          }
+        }
+      },
+      "publishedAt": "2026-09-25T10:00:00z"
+    }
+  },
+  "expect": {
+    "schema": "invalid",
+    "helper": {
+      "ok": false,
+      "codes": [
+        "format"
+      ],
+      "warnings": [],
+      "fingerprints": null,
+      "stale": []
+    },
+    "extension": {
+      "ok": false,
+      "stale": [],
+      "issuePaths": [
+        "$.verification.publishedAt"
+      ]
+    }
+  },
+  "divergence": null
+}

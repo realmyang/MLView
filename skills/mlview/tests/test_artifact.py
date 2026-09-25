@@ -713,6 +713,27 @@ class ArtifactTests(unittest.TestCase):
         self.assertFalse((self.root / "workflow.mlview.json").exists())
         self.assertFalse(any(self.root.glob(".mlview-*.tmp")))
 
+    def test_notebooks_with_nan_or_infinity_are_not_json(self):
+        # Campaign 2 SPEC 7.2: json.loads accepted NaN and Infinity in a cited notebook, while the
+        # viewer's JSON.parse refuses the notebook, so a helper-valid citation failed in the viewer.
+        message = "cited notebook is not valid JSON (NaN, Infinity or a syntax error); the viewer cannot read it"
+        for constant in ("NaN", "Infinity", "-Infinity", "nan", "1,"):
+            with self.subTest(constant=constant):
+                text = '{"cells": [{"cell_type": "code", "execution_count": %s, "source": ["fit(x)"]}], "metadata": {}, "nbformat": 4, "nbformat_minor": 5}' % constant
+                (self.root / "flow.ipynb").write_text(text, encoding="utf-8")
+                self.assertIsNone(artifact._parse_notebook(text))
+                errors = self.validate(document("flow.ipynb", "fit(x)", cell=0))
+                self.assertEqual([("notebook_cell", "evidence[0].cell", message)], [(e["code"], e["path"], e["message"]) for e in errors])
+        # A cell that does not exist in a valid notebook keeps its own message.
+        (self.root / "flow.ipynb").write_text('{"cells": [], "metadata": {}, "nbformat": 4, "nbformat_minor": 5}', encoding="utf-8")
+        self.assertEqual(["cell does not identify valid notebook source"], [e["message"] for e in self.validate(document("flow.ipynb", "fit(x)", cell=0))])
+
+    def test_duplicate_notebook_members_keep_the_last_value_like_json_parse(self):
+        text = '{"cells": [{"cell_type": "code", "source": ["old(x)"], "source": ["fit(x)"]}], "metadata": {}, "nbformat": 4, "nbformat_minor": 5}'
+        (self.root / "flow.ipynb").write_text(text, encoding="utf-8")
+        self.assertEqual([], self.validate(document("flow.ipynb", "fit(x)", cell=0)))
+        self.assertIn("quote_mismatch", {e["code"] for e in self.validate(document("flow.ipynb", "old(x)", cell=0))})
+
     def test_deeply_nested_notebook_metadata_is_a_notebook_cell_error(self):
         nested = "[" * 20000 + "]" * 20000
         text = '{"cells": [{"cell_type": "code", "source": "train(x)"}], "metadata": {"deep": %s}, "nbformat": 4, "nbformat_minor": 5}' % nested
@@ -966,6 +987,16 @@ class ArtifactTests(unittest.TestCase):
             with self.subTest(value=value):
                 doc = document(); doc["verification"] = {"files": {}, "publishedAt": value}
                 self.assertEqual({"format"}, self.codes(doc))
+
+    def test_published_at_profile_is_stricter_than_rfc3339(self):
+        # Campaign 2 SPEC 7.1 (conformance shape-016 to shape-018): uppercase T and Z only, no leap
+        # second, any fraction length; the schema layer and the extension share this profile.
+        for value, valid in (("2026-09-25T10:00:00.123456789Z", True), ("2026-09-25T10:00:00z", False),
+                             ("2026-09-25t10:00:00Z", False), ("2026-06-30T23:59:60Z", False),
+                             ("2026-09-25T10:00:00+05:59", True), ("2026-09-25T10:00:00+05:60", False)):
+            with self.subTest(value=value):
+                doc = document(); doc["verification"] = {"files": {}, "publishedAt": value}
+                self.assertEqual(set() if valid else {"format"}, self.codes(doc))
 
 
 if __name__ == "__main__": unittest.main()

@@ -8,17 +8,22 @@ import shutil
 import sys
 from pathlib import Path
 
+try:
+    from tools.package_skill import portable
+except ModuleNotFoundError:  # Run as a script: tools/ is on sys.path.
+    from package_skill import portable
+
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "skills" / "mlview"
 TARGET = ROOT / "claude-plugin" / "skills" / "mlview"
-IGNORED = {"tests", "__pycache__"}
 
 
 def files(root: Path) -> dict[Path, Path]:
+    """The portable skill files under root (package_skill.portable), keyed by relative path."""
     result: dict[Path, Path] = {}
     for path in root.rglob("*"):
         relative = path.relative_to(root)
-        if IGNORED.intersection(relative.parts) or path.suffix == ".pyc":
+        if not portable(relative):
             continue
         if path.is_symlink():
             raise ValueError(f"skill tree must not contain symlinks: {relative.as_posix()}")
@@ -27,17 +32,22 @@ def files(root: Path) -> dict[Path, Path]:
     return result
 
 
-def check() -> list[str]:
-    source, target = files(SOURCE), files(TARGET) if TARGET.exists() else {}
+def check(source_root: Path = SOURCE, target_root: Path = TARGET) -> list[str]:
+    source, target = files(source_root), files(target_root) if target_root.exists() else {}
     problems = [f"missing copy: {path.as_posix()}" for path in sorted(source.keys() - target.keys())]
     problems += [f"stale extra: {path.as_posix()}" for path in sorted(target.keys() - source.keys())]
     problems += [f"different copy: {path.as_posix()}" for path in sorted(source.keys() & target.keys()) if not filecmp.cmp(source[path], target[path], shallow=False)]
     return problems
 
 
-def sync() -> None:
-    if TARGET.exists(): shutil.rmtree(TARGET)
-    shutil.copytree(SOURCE, TARGET, ignore=shutil.ignore_patterns("tests", "__pycache__", "*.pyc"))
+def sync(source_root: Path = SOURCE, target_root: Path = TARGET) -> None:
+    """Replace target_root with exactly the portable files of source_root (modes kept)."""
+    source = files(source_root)
+    if target_root.exists(): shutil.rmtree(target_root)
+    for relative, path in sorted(source.items()):
+        destination = target_root / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(path, destination)
 
 
 def main() -> int:

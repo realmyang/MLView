@@ -186,8 +186,11 @@ def _lines(text: str) -> list[str]:
 
 
 def _parse_notebook(text: str) -> Any:
+    """The parsed notebook, or None when it is not JSON as the viewer's JSON.parse reads it: a syntax
+    error, or NaN, Infinity or -Infinity (json.loads accepts those by default). A duplicate member
+    keeps the last value, as in JSON.parse."""
     try:
-        return json.loads(text)
+        return json.loads(text, parse_constant=_reject_constant)
     except (ValueError, RecursionError):
         return None
 
@@ -226,10 +229,11 @@ def _validate_evidence(doc: dict[str, Any], root: Path, problems: Problems, owne
                 continue
             if rel not in notebooks:
                 notebooks[rel] = _parse_notebook(text)
+            notebook = notebooks[rel]
+            if notebook is None:
+                problems.add("notebook_cell", f"{at}.cell", "cited notebook is not valid JSON (NaN, Infinity or a syntax error); the viewer cannot read it")
+                continue
             try:
-                notebook = notebooks[rel]
-                if notebook is None:
-                    raise ValueError
                 cells = notebook["cells"]
                 source = cells[cell]["source"]
                 text = "".join(source) if isinstance(source, list) else source

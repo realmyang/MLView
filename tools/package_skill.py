@@ -4,11 +4,34 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-from pathlib import Path
+from pathlib import Path, PurePath, PurePosixPath
 from zipfile import ZIP_STORED, ZipFile, ZipInfo
 
 ROOT = Path(__file__).resolve().parents[1]
+# Never part of the distributed skill: the skill's own tests, bytecode caches, and the editor
+# and OS files that .gitignore hides from Git and CI (EVAL-8).
 SKIP_PARTS = {"tests", "__pycache__"}
+SKIP_NAMES = {"thumbs.db", "desktop.ini"}
+SKIP_SUFFIXES = ("~", ".swp", ".swo", ".pyc")
+
+
+def portable(relative: str | PurePath) -> bool:
+    """True when a skill-relative path belongs to the portable payload.
+
+    False for a path with a ``tests`` or ``__pycache__`` component, a component that starts with
+    ``.`` (``.DS_Store``, AppleDouble ``._*``, ``.git``, the installer's ``.mlview-install.json``),
+    a component ending in ``~``, ``.swp``, ``.swo`` or ``.pyc``, or a ``Thumbs.db`` or
+    ``desktop.ini`` component. The packager, the plugin sync, the installer and (through
+    canonical_files) the candidate snapshot share this one rule. A string is a POSIX path.
+    """
+    parts = PurePosixPath(relative).parts if isinstance(relative, str) else PurePath(relative).parts
+    if not parts:
+        return False
+    for part in parts:
+        folded = part.lower()
+        if part in SKIP_PARTS or part.startswith(".") or folded in SKIP_NAMES or folded.endswith(SKIP_SUFFIXES):
+            return False
+    return True
 
 
 def canonical_files(source: Path | None = None) -> dict[str, bytes]:
@@ -17,7 +40,7 @@ def canonical_files(source: Path | None = None) -> dict[str, bytes]:
     payload: dict[str, bytes] = {}
     for path in sorted(source.rglob("*")):
         relative = path.relative_to(source)
-        if any(part in SKIP_PARTS for part in relative.parts) or path.suffix == ".pyc":
+        if not portable(relative):
             continue
         # Following a repository symlink here could silently package arbitrary
         # bytes from outside the reviewed skill tree.
