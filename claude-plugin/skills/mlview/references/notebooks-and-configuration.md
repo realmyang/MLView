@@ -20,6 +20,10 @@ an optimizer, model, iterator, or fitted transform, state which earlier state
 is replaced and which could persist. Condition accumulation findings on enough
 iterations or repeated executions for the effect to occur.
 
+Notebooks over 8 MiB (usually embedded outputs) cannot be cited: ask the user
+to clear outputs, or list the notebook as inspected and mark dependent claims
+inferred or unresolved.
+
 ## Configuration and lifecycle
 
 Resolve values in precedence order across defaults, config files, environment,

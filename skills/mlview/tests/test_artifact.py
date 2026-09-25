@@ -1,10 +1,12 @@
+import hashlib
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from pathlib import Path
 from unittest import mock
@@ -118,7 +120,12 @@ class ArtifactTests(unittest.TestCase):
         doc = document(); doc["verification"] = {"files": {"train.py": "0" * 64}, "publishedAt": "2020-01-01T00:00:00Z"}
         result = self.run_cli("publish", doc)
         self.assertNotEqual(0, result.returncode)
-        self.assertIn("stale_source", {e["code"] for e in json.loads(result.stdout)["errors"]})
+        stale = [e for e in json.loads(result.stdout)["errors"] if e["code"] == "stale_source"]
+        self.assertEqual(1, len(stale), result.stdout)
+        self.assertEqual("train.py", stale[0]["file"])
+        self.assertEqual("verification.files", stale[0]["path"])
+        self.assertIn("delete the draft's verification block", stale[0]["message"])
+        self.assertFalse((self.root / "workflow.mlview.json").exists())
 
     def test_published_at_requires_rfc3339_syntax(self):
         doc = document()
@@ -135,20 +142,33 @@ class ArtifactTests(unittest.TestCase):
                 self.assertNotEqual(0, result.returncode)
                 self.assertEqual("output_path", json.loads(result.stdout)["errors"][0]["code"])
 
-    def test_same_revision_id_cannot_change_content(self):
+    def test_publish_rejects_self_parent(self):
         self.assertEqual(0, self.run_cli("publish", document()).returncode)
         changed = document(); changed["revision"]["parent"] = "r1"; changed["title"] = "Changed"
         result = self.run_cli("publish", changed)
         self.assertEqual("revision", json.loads(result.stdout)["errors"][0]["code"])
 
+    def test_parent_revision_id_cannot_be_reused(self):
+        self.assertEqual(0, self.run_cli("publish", document()).returncode)
+        second = document(); second["revision"] = {"id": "r2", "parent": "r1"}
+        self.assertEqual(0, self.run_cli("publish", second).returncode)
+        reused = document(); reused["revision"] = {"id": "r1", "parent": "r2"}; reused["title"] = "Different content reusing r1"
+        result = self.run_cli("publish", reused)
+        self.assertEqual(1, result.returncode)
+        error = json.loads(result.stdout)["errors"][0]
+        self.assertEqual("revision_id_reused", error["code"])
+        self.assertEqual("revision.id", error["path"])
+        self.assertEqual("revision ID r1 was already used by this artifact (the published revision's parent); choose a new ID", error["message"])
+        self.assertEqual("r2", json.loads((self.root / "workflow.mlview.json").read_text())["revision"]["id"])
+
     def test_source_edit_during_publish_is_rejected(self):
         draft = self.root / "draft.json"; draft.write_text(json.dumps(document()), encoding="utf-8")
         real_validate = artifact.validate
         calls = 0
-        def changing_validate(doc, root):
+        def changing_validate(doc, root, **kwargs):
             nonlocal calls
             calls += 1
-            result = real_validate(doc, root)
+            result = real_validate(doc, root, **kwargs)
             if calls == 1:
                 (self.root / "train.py").write_text("changed\n", encoding="utf-8")
             return result
@@ -184,13 +204,14 @@ class ArtifactTests(unittest.TestCase):
         draft.write_text("[" * 10000 + "]" * 10000, encoding="utf-8")
         result = subprocess.run([sys.executable, str(HELPER), "validate", str(draft), "--workspace", str(self.root)], text=True, capture_output=True)
         self.assertEqual(1, result.returncode)
-        self.assertEqual("invalid_json", json.loads(result.stdout)["errors"][0]["code"])
+        error = json.loads(result.stdout)["errors"][0]
+        self.assertEqual(("invalid_json", "$", "nesting is too deep"), (error["code"], error["path"], error["message"]))
         self.assertEqual("", result.stderr)
 
     def test_output_io_errors_are_sanitized(self):
         blocker = self.root / "blocker"
         blocker.write_text("file", encoding="utf-8")
-        result = self.run_cli("publish", document(), output="blocker/workflow.json")
+        result = self.run_cli("publish", document(), output="blocker/workflow.mlview.json")
         self.assertEqual(1, result.returncode)
         self.assertEqual("publication_io", json.loads(result.stdout)["errors"][0]["code"])
         self.assertNotIn(str(self.root), result.stdout + result.stderr)
@@ -269,10 +290,10 @@ class ArtifactTests(unittest.TestCase):
         changed = document(); changed["title"] = "External edit"
         real_validate = artifact.validate
         calls = 0
-        def changing_validate(doc, root):
+        def changing_validate(doc, root, **kwargs):
             nonlocal calls
             calls += 1
-            result = real_validate(doc, root)
+            result = real_validate(doc, root, **kwargs)
             if calls == 2:
                 draft.write_text(json.dumps(changed), encoding="utf-8")
             return result
@@ -335,6 +356,411 @@ class ArtifactTests(unittest.TestCase):
             "--collection", "nodes", "--record", str(record_path),
         ], text=True, capture_output=True)
         self.assertEqual("draft_path", json.loads(linked.stdout)["errors"][0]["code"])
+
+    # Helpers for the contract tests below.
+
+    def write_draft(self, doc, name="draft.json"):
+        draft = self.root / name
+        draft.parent.mkdir(parents=True, exist_ok=True)
+        draft.write_text(json.dumps(doc), encoding="utf-8")
+        return draft
+
+    def run_main(self, *args):
+        stdout, stderr = StringIO(), StringIO()
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            code = artifact.main(list(args))
+        self.assertEqual("", stderr.getvalue())
+        lines = stdout.getvalue().splitlines()
+        self.assertEqual(1, len(lines), stdout.getvalue())
+        self.assertNotIn(str(self.root), stdout.getvalue())
+        return code, json.loads(lines[0])
+
+    def run_raw(self, *args, cwd=None):
+        result = subprocess.run([sys.executable, str(HELPER), *args], text=True, capture_output=True, cwd=cwd)
+        self.assertEqual("", result.stderr)
+        self.assertNotIn(str(self.root), result.stdout)
+        return result.returncode, json.loads(result.stdout)
+
+    def codes(self, doc, warnings=None):
+        return {error["code"] for error in artifact.validate(doc, self.root, warnings=warnings)[0]}
+
+    # CONTRACT-1
+
+    def test_null_node_parent_is_rejected_and_not_published(self):
+        doc = document()
+        doc["nodes"].append({"id": "child", "label": "Child", "phase": "p", "parent": None, "basis": "observed", "evidence": ["ev"]})
+        errors = self.validate(doc)
+        parent = [error for error in errors if error["code"] == "parent"]
+        self.assertEqual("nodes[1].parent", parent[0]["path"])
+        self.assertEqual("must be the ID of a different node; omit parent for root nodes", parent[0]["message"])
+        for value in ("", "missing", "child"):
+            with self.subTest(parent=value):
+                doc["nodes"][1]["parent"] = value
+                self.assertIn("parent", self.codes(doc))
+        doc["nodes"][1]["parent"] = None
+        result = self.run_cli("publish", doc)
+        self.assertEqual(1, result.returncode)
+        self.assertFalse((self.root / "workflow.mlview.json").exists())
+
+    def test_null_verification_is_a_type_error(self):
+        doc = document(); doc["verification"] = None
+        errors = self.validate(doc)
+        self.assertEqual([("type", "verification")], [(error["code"], error["path"]) for error in errors])
+
+    # CONTRACT-3
+
+    def test_publish_refuses_an_artifact_over_the_size_limit(self):
+        self.assertEqual(0, self.run_cli("publish", document()).returncode)
+        artifact_path = self.root / "workflow.mlview.json"
+        before = artifact_path.read_bytes()
+        second = document(); second["revision"] = {"id": "r2", "parent": "r1"}
+        draft = self.write_draft(second)
+        limit = len(draft.read_bytes()) + 10
+        with mock.patch.object(artifact, "MAX_DOCUMENT", limit):
+            code, response = self.run_main("publish", str(draft), "--workspace", str(self.root))
+        self.assertEqual(1, code)
+        error = response["errors"][0]
+        self.assertEqual(("document_too_large", "$"), (error["code"], error["path"]))
+        self.assertRegex(error["message"], rf"^published artifact would be \d+ bytes; the limit is {limit}$")
+        self.assertEqual(before, artifact_path.read_bytes())
+        self.assertFalse(any(self.root.glob(".mlview-*.tmp")))
+        self.assertFalse((self.root / "workflow.mlview.json.lock").exists())
+
+    # CONTRACT-4
+
+    def test_unpaired_surrogates_are_rejected_by_every_command(self):
+        doc = document(); doc["title"] = "Loss \ud83d spike"
+        errors = self.validate(doc)
+        self.assertIn(("text_encoding", "$.title", "contains an unpaired surrogate; use valid Unicode text"), {(e["code"], e["path"], e["message"]) for e in errors})
+        keyed = document(); keyed["nodes"][0]["\udc00"] = 1
+        self.assertIn("text_encoding", self.codes(keyed))
+        for command in ("validate", "publish"):
+            with self.subTest(command=command):
+                code, response = self.run_raw(command, str(self.write_draft(doc)), "--workspace", str(self.root))
+                self.assertEqual(1, code)
+                self.assertIn("text_encoding", {error["code"] for error in response["errors"]})
+        self.assertFalse((self.root / "workflow.mlview.json").exists())
+        record = {"id": "n", "label": "Bad \udc00 label", "phase": "p", "basis": "observed", "evidence": ["ev"]}
+        result, draft = self.run_upsert(document(), "nodes", record)
+        self.assertEqual(1, result.returncode)
+        self.assertEqual("", result.stderr)
+        self.assertIn("text_encoding", {error["code"] for error in json.loads(result.stdout)["errors"]})
+        self.assertEqual(document(), json.loads(draft.read_text(encoding="utf-8")))
+
+    # CONTRACT-6
+
+    def test_binary_and_latin1_inspected_files_are_fingerprinted_from_raw_bytes(self):
+        pdf = b"%PDF-1.4\n\x00\xff\xfe binary\n%%EOF\n"
+        latin1 = "name = caf\xe9\n".encode("latin-1")
+        (self.root / "paper.pdf").write_bytes(pdf)
+        (self.root / "latin1.cfg").write_bytes(latin1)
+        doc = document(); doc["coverage"]["inspectedFiles"] += ["paper.pdf", "latin1.cfg"]
+        result = self.run_cli("publish", doc)
+        self.assertEqual(0, result.returncode, result.stdout)
+        self.assertNotIn("warnings", json.loads(result.stdout))
+        files = json.loads((self.root / "workflow.mlview.json").read_text(encoding="utf-8"))["verification"]["files"]
+        self.assertEqual(hashlib.sha256(pdf).hexdigest(), files["paper.pdf"])
+        self.assertEqual(hashlib.sha256(latin1).hexdigest(), files["latin1.cfg"])
+
+    def test_oversize_inspected_file_is_listed_without_a_fingerprint(self):
+        (self.root / "big.bin").write_bytes(b"a" * 100)
+        doc = document(); doc["coverage"]["inspectedFiles"].append("big.bin")
+        draft = self.write_draft(doc)
+        with mock.patch.object(artifact, "MAX_SOURCE", 64):
+            code, response = self.run_main("validate", str(draft), "--workspace", str(self.root))
+        self.assertEqual(0, code, response)
+        self.assertEqual({"train.py"}, set(response["files"]))
+        self.assertEqual([{"code": "not_fingerprinted", "path": "coverage.inspectedFiles[1]", "message": "file is larger than 64 bytes; listed without a freshness fingerprint"}], response["warnings"])
+
+    def test_inspected_directory_is_still_rejected(self):
+        (self.root / "sub").mkdir()
+        doc = document(); doc["coverage"]["inspectedFiles"].append("sub")
+        errors = self.validate(doc)
+        self.assertEqual([("invalid_path", "coverage.inspectedFiles[1]")], [(e["code"], e["path"]) for e in errors])
+
+    # CONTRACT-15 and SKILL-4
+
+    def test_relative_draft_resolves_against_the_workspace(self):
+        self.write_draft(document(), ".mlview/llm/run/draft.json")
+        for command in ("validate", "publish"):
+            with self.subTest(command=command):
+                code, response = self.run_raw(command, ".mlview/llm/run/draft.json", "--workspace", self.root.name, cwd=self.root.parent)
+                self.assertEqual(0, code, response)
+        self.assertTrue((self.root / "workflow.mlview.json").is_file())
+
+    def test_draft_path_syntax_errors(self):
+        for value in ("sub\\draft.json", "C:draft.json"):
+            with self.subTest(value=value):
+                code, response = self.run_raw("validate", value, "--workspace", str(self.root))
+                self.assertEqual(1, code)
+                self.assertEqual(("draft_path", "draft"), (response["errors"][0]["code"], response["errors"][0]["path"]))
+
+    def test_missing_draft_is_draft_not_found(self):
+        code, response = self.run_raw("validate", "missing/draft.json", "--workspace", str(self.root))
+        self.assertEqual(1, code)
+        self.assertEqual([{"code": "draft_not_found", "path": "draft", "message": "draft file does not exist"}], response["errors"])
+        record = self.root / "record.json"; record.write_text("{}", encoding="utf-8")
+        self.write_draft(document())
+        code, response = self.run_raw("upsert", "missing.json", "--workspace", str(self.root), "--collection", "nodes", "--record", "record.json")
+        self.assertEqual("draft_not_found", response["errors"][0]["code"])
+
+    def test_oversized_draft_is_draft_too_large(self):
+        draft = self.root / "draft.json"; draft.write_bytes(b" " * (artifact.MAX_DOCUMENT + 1))
+        code, response = self.run_raw("validate", str(draft), "--workspace", str(self.root))
+        self.assertEqual(1, code)
+        self.assertEqual([{"code": "draft_too_large", "path": "draft", "message": "draft file exceeds 2097152 bytes"}], response["errors"])
+
+    def test_non_utf8_draft_is_draft_encoding(self):
+        draft = self.root / "draft.json"; draft.write_bytes(b'{"title": "caf\xe9"}')
+        code, response = self.run_raw("publish", str(draft), "--workspace", str(self.root))
+        self.assertEqual(1, code)
+        self.assertEqual(("draft_encoding", "draft"), (response["errors"][0]["code"], response["errors"][0]["path"]))
+
+    def test_parse_error_reports_line_and_column(self):
+        draft = self.root / "draft.json"; draft.write_text('{\n  "title": "x"\n  "nodes": []\n}\n', encoding="utf-8")
+        code, response = self.run_raw("validate", str(draft), "--workspace", str(self.root))
+        self.assertEqual(1, code)
+        self.assertEqual([{"code": "invalid_json", "path": "$", "message": "Expecting ',' delimiter at line 3, column 3", "line": 3, "column": 3}], response["errors"])
+
+    def test_duplicate_member_error_names_the_key(self):
+        draft = self.root / "draft.json"; draft.write_text('{"title": "a", "title": "b"}', encoding="utf-8")
+        code, response = self.run_raw("validate", str(draft), "--workspace", str(self.root))
+        self.assertEqual([{"code": "invalid_json", "path": "$", "message": "duplicate JSON member: title"}], response["errors"])
+        draft.write_text('{"%s": 1, "%s": 2}' % ("k" * 300, "k" * 300), encoding="utf-8")
+        code, response = self.run_raw("validate", str(draft), "--workspace", str(self.root))
+        self.assertEqual("duplicate JSON member: " + "k" * 200, response["errors"][0]["message"])
+
+    def test_record_errors_use_the_record_path(self):
+        self.write_draft(document())
+        base = ("upsert", "draft.json", "--workspace", str(self.root), "--collection", "nodes", "--record")
+        code, response = self.run_raw(*base, "missing-record.json")
+        self.assertEqual([{"code": "draft_not_found", "path": "record", "message": "record file does not exist"}], response["errors"])
+        outside = self.root.parent / (self.root.name + "-record.json")
+        outside.write_text("{}", encoding="utf-8")
+        try:
+            code, response = self.run_raw(*base, str(outside))
+            self.assertEqual(("draft_path", "record"), (response["errors"][0]["code"], response["errors"][0]["path"]))
+        finally: outside.unlink()
+        (self.root / "record.json").write_text('{"id": ', encoding="utf-8")
+        code, response = self.run_raw(*base, "record.json")
+        self.assertEqual(("invalid_json", "record"), (response["errors"][0]["code"], response["errors"][0]["path"]))
+        self.assertIn("line", response["errors"][0])
+
+    def test_revision_conflict_names_the_published_revision(self):
+        orphan = document(); orphan["revision"] = {"id": "r2", "parent": "r1"}
+        result = self.run_cli("publish", orphan)
+        self.assertEqual("no artifact is published at workflow.mlview.json; omit revision.parent", json.loads(result.stdout)["errors"][0]["message"])
+        self.assertEqual(0, self.run_cli("publish", document()).returncode)
+        for revision in ({"id": "r2", "parent": "wrong"}, {"id": "r2"}):
+            with self.subTest(revision=revision):
+                stale = document(); stale["revision"] = revision
+                error = json.loads(self.run_cli("publish", stale).stdout)["errors"][0]
+                self.assertEqual(("revision_conflict", "does not match the published revision r1"), (error["code"], error["message"]))
+
+    def test_producer_error_lists_supported_hosts(self):
+        doc = document(); doc["producer"]["host"] = "claude"
+        error = [e for e in self.validate(doc) if e["code"] == "producer"][0]
+        self.assertIn("copilot, codex, claude-code, unknown", error["message"])
+
+    def test_quote_mismatch_shows_the_cited_lines(self):
+        error = [e for e in self.validate(document(quote="def train()")) if e["code"] == "quote_mismatch"][0]
+        self.assertEqual('quote does not exactly match the cited lines; the cited lines are: "def train():"', error["message"])
+        (self.root / "long.py").write_text("x" * 150 + "\n" + "y" * 150 + "\n", encoding="utf-8")
+        doc = document("long.py", "wrong"); doc["evidence"][0]["endLine"] = 2
+        error = [e for e in self.validate(doc) if e["code"] == "quote_mismatch"][0]
+        self.assertTrue(error["message"].endswith(json.dumps("x" * 150 + "\n" + "y" * 49)), error["message"])
+
+    # SKILL-2 and CRIT-1
+
+    def test_owned_path_predicate(self):
+        owned = (".mlview/llm/run/draft.json", ".MLView/notes.md", ".agents/skills/mlview/SKILL.md", ".claude/skills/mlview/scripts/artifact.py",
+                 ".github/skills/MLVIEW/references/x.md", "workflow.mlview.json", "sub/Diagram.MLView.JSON", "old.draft.json", "a/b.DRAFT.json")
+        project = ("skills/mlview/SKILL.md", "train.py", ".mlviewer/x.py", "mlview.json", "draft.jsonl", ".agents/skills/other/SKILL.md", "notes.mlview.json.bak")
+        for rel in owned:
+            with self.subTest(rel=rel): self.assertTrue(artifact.is_owned_path(rel))
+        for rel in project:
+            with self.subTest(rel=rel): self.assertFalse(artifact.is_owned_path(rel))
+
+    def test_refinement_listing_the_artifact_is_not_fingerprinted(self):
+        self.assertEqual(0, self.run_cli("publish", document()).returncode)
+        second = document(); second["revision"] = {"id": "r2", "parent": "r1"}
+        second["coverage"]["inspectedFiles"].append("workflow.mlview.json")
+        result = self.run_cli("publish", second)
+        self.assertEqual(0, result.returncode, result.stdout)
+        response = json.loads(result.stdout)
+        self.assertEqual([{"code": "excluded_inspected", "path": "coverage.inspectedFiles[1]", "message": "MLView-owned file is listed but not fingerprinted; list only project files"}], response["warnings"])
+        published = json.loads((self.root / "workflow.mlview.json").read_text(encoding="utf-8"))
+        self.assertEqual({"train.py"}, set(published["verification"]["files"]))
+        code, check = self.run_raw("validate", "workflow.mlview.json", "--workspace", str(self.root))
+        self.assertEqual(0, code, check)
+        self.assertEqual([], check["errors"])
+        self.assertEqual(["excluded_inspected"], [w["code"] for w in check["warnings"]])
+
+    def test_evidence_on_mlview_files_is_excluded(self):
+        self.write_draft(document(), "workflow.mlview.json")
+        for rel in ("workflow.mlview.json", ".mlview/llm/run/draft.json", ".Agents/Skills/MLView/SKILL.md"):
+            with self.subTest(rel=rel):
+                errors = self.validate(document(rel, "{"))
+                self.assertEqual([("excluded_evidence", "evidence[0].file")], [(e["code"], e["path"]) for e in errors if e["path"].startswith("evidence")])
+                self.assertEqual("evidence must cite project files, not an MLView artifact, draft or installed MLView skill file", errors[0]["message"])
+
+    def test_output_must_end_in_mlview_json(self):
+        result = self.run_cli("publish", document(), output="diagram.json")
+        self.assertEqual(1, result.returncode)
+        self.assertEqual([{"code": "output_path", "path": "--output", "message": "must be a workspace-relative path ending in .mlview.json"}], json.loads(result.stdout)["errors"])
+        self.assertFalse((self.root / "diagram.json").exists())
+        result = self.run_cli("publish", document(), output="out/Diagram.MLView.JSON")
+        self.assertEqual(0, result.returncode, result.stdout)
+        self.assertEqual("out/Diagram.MLView.JSON", json.loads(result.stdout)["output"])
+
+    def test_installed_skill_files_are_listed_without_a_fingerprint(self):
+        skill = self.root / ".agents/skills/mlview/SKILL.md"
+        skill.parent.mkdir(parents=True); skill.write_text("changed after publish\n", encoding="utf-8")
+        doc = document(); doc["coverage"]["inspectedFiles"].append(".agents/skills/mlview/SKILL.md")
+        digest = artifact.validate(document(), self.root)[1]["train.py"]
+        doc["verification"] = {"files": {"train.py": digest, ".agents/skills/mlview/SKILL.md": "0" * 64}, "publishedAt": "2026-09-25T00:00:00Z"}
+        warnings = []
+        errors, hashes = artifact.validate(doc, self.root, warnings=warnings)
+        self.assertEqual([], errors)
+        self.assertEqual({"train.py"}, set(hashes))
+        self.assertEqual([("excluded_inspected", "coverage.inspectedFiles[1]")], [(w["code"], w["path"]) for w in warnings])
+        skill.unlink()
+        self.assertEqual([], artifact.validate(doc, self.root)[0])
+        doc["coverage"]["inspectedFiles"][1] = ".agents/skills/mlview/../SKILL.md"
+        self.assertEqual({"path_outside_workspace"}, self.codes(doc))
+
+    # SKILL-3
+
+    def test_narrowed_scope_verification_key_is_ignored(self):
+        (self.root / "config.yaml").write_text("batch: 8\n", encoding="utf-8")
+        first = document(); first["coverage"]["inspectedFiles"].append("config.yaml")
+        self.assertEqual(0, self.run_cli("publish", first).returncode)
+        published = json.loads((self.root / "workflow.mlview.json").read_text(encoding="utf-8"))
+        (self.root / "config.yaml").write_text("batch: 16\n", encoding="utf-8")
+        narrowed = document(); narrowed["revision"] = {"id": "r2", "parent": "r1"}
+        narrowed["verification"] = published["verification"]
+        narrowed["verification"]["files"]["unlisted/other.py"] = "1" * 64
+        result = self.run_cli("publish", narrowed)
+        self.assertEqual(0, result.returncode, result.stdout)
+        files = json.loads((self.root / "workflow.mlview.json").read_text(encoding="utf-8"))["verification"]["files"]
+        self.assertEqual({"train.py"}, set(files))
+
+    # SKILL-5
+
+    def test_bundled_example_validates_with_the_helper(self):
+        example = json.loads((HELPER.parents[1] / "references" / "workflow-example.json").read_text(encoding="utf-8"))
+        (self.root / "train.py").write_text("def train():\n", encoding="utf-8")
+        self.assertEqual([], self.validate(example))
+        self.assertEqual("example-model", example["producer"]["model"])
+        self.assertEqual("loop", example["nodes"][1]["parent"])
+
+    # SKILL-9
+
+    def test_bom_source_accepts_line1_quote_with_or_without_the_bom(self):
+        raw = b"\xef\xbb\xbfimport torch\nx = 1\n"
+        (self.root / "bom.py").write_bytes(raw)
+        for quote in ("import torch", "\ufeffimport torch"):
+            with self.subTest(quote=quote):
+                errors, hashes = artifact.validate(document("bom.py", quote), self.root)
+                self.assertEqual([], errors)
+                self.assertEqual(hashlib.sha256(raw).hexdigest(), hashes["bom.py"])
+        doc = document("bom.py", "import torch\nx = 1"); doc["evidence"][0]["endLine"] = 2
+        self.assertEqual([], self.validate(doc))
+        doc = document("bom.py", "\ufeffx = 1"); doc["evidence"][0].update(line=2, endLine=2)
+        self.assertIn("quote_mismatch", self.codes(doc))
+        notebook = {"cells": [{"cell_type": "code", "source": ["train(x)"]}], "metadata": {}, "nbformat": 4, "nbformat_minor": 5}
+        (self.root / "bom.ipynb").write_bytes(b"\xef\xbb\xbf" + json.dumps(notebook).encode("utf-8"))
+        self.assertEqual([], self.validate(document("bom.ipynb", "train(x)", cell=0)))
+
+    # SKILL-11
+
+    def test_resolve_runtime_errors_are_reported_as_json(self):
+        (self.root / "loop.py").write_text("x = 1\n", encoding="utf-8")
+        real_resolve = Path.resolve
+        def looping(path, *args, **kwargs):
+            if path.name in {"loop.py", "loop.mlview.json", "loop.draft.json"}:
+                raise RuntimeError(f"Symlink loop from {path}")
+            return real_resolve(path, *args, **kwargs)
+        draft = self.write_draft(document("loop.py", "x = 1"))
+        with mock.patch.object(Path, "resolve", looping):
+            code, response = self.run_main("validate", str(draft), "--workspace", str(self.root))
+            self.assertEqual(1, code)
+            self.assertEqual(("path_outside_workspace", "evidence[0].file"), (response["errors"][0]["code"], response["errors"][0]["path"]))
+            code, response = self.run_main("publish", str(self.write_draft(document())), "--workspace", str(self.root), "--output", "loop.mlview.json")
+            self.assertEqual(("output_path", 1), (response["errors"][0]["code"], code))
+            self.write_draft(document(), "loop.draft.json")
+            code, response = self.run_main("upsert", "loop.draft.json", "--workspace", str(self.root), "--collection", "nodes", "--record", "record.json")
+            self.assertEqual(("draft_path", "draft"), (response["errors"][0]["code"], response["errors"][0]["path"]))
+
+    def test_unexpected_exception_is_a_sanitized_internal_error(self):
+        draft = self.write_draft(document())
+        with mock.patch.object(artifact, "_match_mode", side_effect=ZeroDivisionError(str(self.root))):
+            code, response = self.run_main("publish", str(draft), "--workspace", str(self.root))
+        self.assertEqual(1, code)
+        self.assertEqual({"ok": False, "errors": [{"code": "internal_error", "path": "$", "message": "the helper failed unexpectedly (ZeroDivisionError)"}]}, response)
+        self.assertFalse((self.root / "workflow.mlview.json.lock").exists())
+        self.assertFalse((self.root / "workflow.mlview.json").exists())
+        self.assertFalse(any(self.root.glob(".mlview-*.tmp")))
+
+    def test_deeply_nested_notebook_metadata_is_a_notebook_cell_error(self):
+        nested = "[" * 20000 + "]" * 20000
+        text = '{"cells": [{"cell_type": "code", "source": "train(x)"}], "metadata": {"deep": %s}, "nbformat": 4, "nbformat_minor": 5}' % nested
+        (self.root / "deep.ipynb").write_text(text, encoding="utf-8")
+        errors = self.validate(document("deep.ipynb", "train(x)", cell=0))
+        self.assertEqual([("notebook_cell", "evidence[0].cell")], [(e["code"], e["path"]) for e in errors])
+
+    # SKILL-12
+
+    @unittest.skipIf(os.name == "nt", "POSIX file modes")
+    def test_replacement_files_keep_the_target_mode_or_honour_the_umask(self):
+        draft = self.write_draft(document())
+        artifact_path = self.root / "workflow.mlview.json"
+        old = os.umask(0o027)
+        try:
+            self.assertEqual(0, self.run_main("publish", str(draft), "--workspace", str(self.root))[0])
+            self.assertEqual(0o640, artifact_path.stat().st_mode & 0o777)
+            os.chmod(artifact_path, 0o644)
+            second = document(); second["revision"] = {"id": "r2", "parent": "r1"}
+            os.umask(0o077)
+            self.assertEqual(0, self.run_main("publish", str(self.write_draft(second)), "--workspace", str(self.root))[0])
+            self.assertEqual(0o644, artifact_path.stat().st_mode & 0o777)
+            checkpoint = self.write_draft(document(), "checkpoint.draft.json"); os.chmod(checkpoint, 0o644)
+            (self.root / "record.json").write_text(json.dumps({"id": "n", "label": "Renamed", "phase": "p", "basis": "observed", "evidence": ["ev"]}), encoding="utf-8")
+            code, response = self.run_main("upsert", "checkpoint.draft.json", "--workspace", str(self.root), "--collection", "nodes", "--record", "record.json")
+            self.assertEqual(0, code, response)
+            self.assertEqual(0o644, checkpoint.stat().st_mode & 0o777)
+        finally:
+            os.umask(old)
+
+    # SKILL-18
+
+    def test_notebook_is_parsed_once_for_many_citations(self):
+        source = [f"step_{i} = {i}\n" for i in range(200)]
+        notebook = {"cells": [{"cell_type": "code", "source": source}], "metadata": {}, "nbformat": 4, "nbformat_minor": 5}
+        (self.root / "many.ipynb").write_text(json.dumps(notebook), encoding="utf-8")
+        doc = document("many.ipynb", "step_0 = 0", cell=0)
+        doc["evidence"] = [{"id": f"ev{i}", "file": "many.ipynb", "cell": 0, "line": i + 1, "endLine": i + 1, "quote": f"step_{i} = {i}"} for i in range(200)]
+        doc["nodes"][0]["evidence"] = ["ev0"]
+        with mock.patch.object(artifact, "_parse_notebook", wraps=artifact._parse_notebook) as parse:
+            self.assertEqual([], self.validate(doc))
+        self.assertEqual(1, parse.call_count)
+
+    # SKILL-21 (plus the helper half of CONTRACT-10: NUL in entrypoints)
+
+    def test_drive_qualified_and_nul_paths_are_rejected(self):
+        drive = "must be a slash-separated relative path without a drive letter"
+        errors = self.validate(document("C:/x/train.py", "def train():"))
+        self.assertIn(("invalid_path", "evidence[0].file", drive), {(e["code"], e["path"], e["message"]) for e in errors})
+        doc = document(); doc["request"]["entrypoints"] = ["a\u0000b.py", "C:/train.py", "train.py"]
+        errors = self.validate(doc)
+        self.assertEqual([("invalid_path", "request.entrypoints[0]"), ("invalid_path", "request.entrypoints[1]")], [(e["code"], e["path"]) for e in errors])
+        self.assertEqual(drive, errors[1]["message"])
+        doc = document(); doc["coverage"]["inspectedFiles"].append("c:train.py")
+        self.assertEqual({"invalid_path"}, self.codes(doc))
+        doc = document(); doc["verification"] = {"files": {"C:/train.py": "0" * 64}, "publishedAt": "2026-09-25T00:00:00Z"}
+        self.assertEqual({"invalid_path"}, self.codes(doc))
+        result = self.run_cli("publish", document(), output="C:/x/workflow.mlview.json")
+        self.assertEqual([{"code": "output_path", "path": "--output", "message": drive}], json.loads(result.stdout)["errors"])
 
 
 if __name__ == "__main__": unittest.main()

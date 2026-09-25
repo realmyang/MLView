@@ -1,11 +1,14 @@
 {
   "workflowVersion": "1.0",
   "title": "Example training workflow",
-  "producer": {"kind": "host-llm", "host": "unknown"},
+  "producer": {"kind": "host-llm", "host": "unknown", "model": "example-model"},
   "revision": {"id": "rev-1"},
   "request": {"question": "Explain training", "scope": "Selected training entrypoint", "entrypoints": ["train.py"], "configuration": "train.py defaults; no command-line overrides selected"},
   "phases": [{"id": "train", "label": "Training"}],
-  "nodes": [{"id": "step", "label": "Run training step", "phase": "train", "basis": "observed", "evidence": ["ev-1"]}],
+  "nodes": [
+    {"id": "loop", "label": "Training loop", "phase": "train", "kind": "group", "detail": "Groups the steps of one training run.", "basis": "inferred", "evidence": []},
+    {"id": "step", "label": "Run training step", "phase": "train", "parent": "loop", "kind": "operation", "detail": "Entry function of the training script.", "basis": "observed", "evidence": ["ev-1"]}
+  ],
   "edges": [],
   "findings": [],
   "evidence": [{"id": "ev-1", "file": "train.py", "line": 1, "endLine": 1, "quote": "def train():"}],
