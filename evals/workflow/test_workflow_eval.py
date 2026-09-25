@@ -1,9 +1,11 @@
 import importlib.util
 import hashlib
+import io
 import json
 import re
 import shutil
 import sys
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 import pytest
@@ -12,6 +14,9 @@ ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location("workflow_eval", ROOT / "tools/workflow_eval.py")
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
+if str(ROOT / "tools") not in sys.path:
+    sys.path.insert(0, str(ROOT / "tools"))
+import workflow_pilot as pilot  # noqa: E402
 MANIFEST = json.loads((Path(__file__).parent / "tasks.json").read_text())
 
 
@@ -25,65 +30,21 @@ def test_locked_matrix_and_pinned_sources():
             assert task["commit"] == pinned[task["repository"]]["sha"]
         else:
             assert all((ROOT / path).is_file() for path in task["entrypoints"])
-    assert len(module.plan(MANIFEST)) == 72
+    runs = pilot.planned_runs(MANIFEST, baselines=False)
+    assert len(runs) == 72 and sum(run["stage"] == 1 for run in runs) == 24
+    assert len(pilot.planned_runs(MANIFEST, baselines=True)) == 96
 
 
-def test_missing_and_blocked_runs_never_pass():
-    record = module.plan(MANIFEST)[0]
-    record["status"] = "blocked"
-    summary = module.summarize([record], MANIFEST)
-    assert summary["statuses"] == {"blocked": 1, "pending": 71}
-    assert summary["humanReviewedRuns"] == 0
-    assert summary["highSeverityFalseAccusations"] is None
-    assert not summary["pilotComplete"]
-
-
-def test_stage_one_baselines_match_tasks_but_cannot_enter_skill_scores():
-    baselines = module.baseline_plan(MANIFEST)
-    first = [record for record in module.plan(MANIFEST) if record["repeat"] == 1]
-    assert len(baselines) == 24
-    assert {(r["task"], r["host"], r["repositoryCommit"], r["prompt"]) for r in baselines} == {
-        (r["task"], r["host"], r["repositoryCommit"], r["prompt"]) for r in first}
-    assert not {r["id"] for r in baselines} & {r["id"] for r in module.plan(MANIFEST)}
-    assert all(r["condition"] == "baseline" and r["humanReview"] is None
-               and r["status"] == "pending" and "artifact" not in r for r in baselines)
-    with pytest.raises(ValueError, match="unknown"):
-        module.summarize(baselines, MANIFEST)
-
-
-def test_duplicate_or_mismatched_run_rejected():
-    record = module.plan(MANIFEST)[0]
-    with pytest.raises(ValueError, match="duplicate"):
-        module.summarize([record, record], MANIFEST)
-    record["host"] = "wrong"
-    with pytest.raises(ValueError, match="identity"):
-        module.summarize([record], MANIFEST)
-
-
-def test_changed_pilot_prompt_cannot_count_as_a_pinned_run():
-    record = module.plan(MANIFEST)[0]
-    record["prompt"] += " Skip the difficult parts."
-    with pytest.raises(ValueError, match="identity"):
-        module.summarize([record], MANIFEST)
-
-
-def test_completed_requires_live_evidence_and_review_counts():
-    record = module.plan(MANIFEST)[0]
-    record["status"] = "completed"
-    with pytest.raises(ValueError, match="hostVersion"):
-        module.summarize([record], MANIFEST)
-    for field in ("hostVersion", "skillRevision", "artifact", "artifactSha256", "liveUiLog"):
-        record[field] = "test-only"
-    assert module.summarize([record], MANIFEST)["humanReviewedRuns"] == 0
-    record["humanReview"] = {"reviewer": "Test reviewer", "referenceRevision": "test", "claimLedger": "test",
-                             **{key: {"supported": 1, "total": 2} for key in module.PAIRS},
-                             "highSeverityFalseAccusations": 1}
-    summary = module.summarize([record], MANIFEST)
-    assert summary["counts"]["observedClaims"] == {"supported": 1, "total": 2}
-    assert summary["highSeverityFalseAccusations"] == 1
-    record["humanReview"]["anchors"]["supported"] = 3
-    with pytest.raises(ValueError, match="review counts"):
-        module.summarize([record], MANIFEST)
+def test_legacy_summarize_and_baseline_plan_are_removed():
+    """EVAL-1/EVAL-7: the unverified summarize() and the unfrozen baseline_plan() are gone; plan and
+    summarize are routed to tools/workflow_pilot.py (tested in test_pilot_runs.py)."""
+    for name in ("plan", "summarize", "baseline_plan", "PAIRS", "LEGACY_FALLBACK"):
+        assert not hasattr(module, name)
+    assert module.ROUTED_COMMANDS["plan"][0] == module.ROUTED_COMMANDS["summarize"][0] == "workflow_pilot"
+    out, err = io.StringIO(), io.StringIO()
+    with redirect_stdout(out), redirect_stderr(err), pytest.raises(SystemExit):
+        module.main(["baseline-plan"])
+    assert "invalid choice: 'baseline-plan'" in err.getvalue()
 
 
 def test_development_plan_keeps_native_runs_and_baselines_separate():
@@ -97,7 +58,6 @@ def test_development_plan_keeps_native_runs_and_baselines_separate():
     assert {record["task"] for record in baseline} == {"dev-config"}
     assert all(record["status"] == "pending-native-run" for record in records)
     assert all(record["humanReview"] is None for record in records)
-    assert len(module.plan(MANIFEST)) == 72
 
 
 def test_provisional_development_reviews_have_exact_sources_and_no_human_scores():
@@ -295,6 +255,8 @@ def test_native_review_is_bound_to_registered_host_path_hash_and_revision():
         ("artifactSha256", "0" * 64, "artifact manifest"),
         ("artifactRevision", "wrong", "artifact manifest"),
         ("artifactRequest", {"question": "wrong"}, "request mismatch"),
+        # EVAL-5: the smoke artifact with a native host label must match the native registration.
+        ("artifact", module.DEVELOPMENT_ARTIFACTS["dev-config"], "registered task/host artifact"),
     ]
     for field, value, message in mutations:
         changed = _native_review()
@@ -390,7 +352,7 @@ def test_baseline_capture_hashes_are_optional_and_verified_before_rendering(tmp_
             "id": f"dev-config:{host}:baseline", "task": "dev-config", "host": host,
             "responseSha256": _digest(capture), "captureKind": "native response",
             "summary": "Summary.", "strengths": [], "gaps": [],
-            "reviewEvidence": [{"id": "src", "file": "source.py", "line": 1,
+            "reviewEvidence": [{"id": "src", "file": "source.py", "line": 1, "endLine": 1,
                                 "quote": "source line"}], "humanReview": None,
         })
     mapping = tmp_path / "captures.json"
@@ -423,7 +385,17 @@ def test_baseline_capture_hashes_are_optional_and_verified_before_rendering(tmp_
     monkeypatch.setattr(module, "validate_development_review", lambda review, root: None)
     public_output = tmp_path / "public.html"
     module.generate_review_packet(reviews, baseline_path, public_output, MANIFEST, tmp_path)
-    assert "private &lt;response&gt;" not in public_output.read_text(encoding="utf-8")
+    public_html = public_output.read_text(encoding="utf-8")
+    assert "private &lt;response&gt;" not in public_html
+    # The instruction paragraph points to the decisions file (Campaign 2 specification, section 2).
+    assert "evals/workflow/decisions/development-adjudication.md" in public_html
+    assert "python tools/workflow_eval.py check development-adjudication" in public_html
+    # EVAL-4: the packet is created exclusively; --force replaces the derived file.
+    with pytest.raises(ValueError, match="already exists; the packet is derived, so pass --force"):
+        module.generate_review_packet(reviews, baseline_path, public_output, MANIFEST, tmp_path)
+    public_output.write_text("stale", encoding="utf-8")
+    module.generate_review_packet(reviews, baseline_path, public_output, MANIFEST, tmp_path, force=True)
+    assert public_output.read_text(encoding="utf-8") == public_html
     private_output = tmp_path / "private.html"
     module.generate_review_packet(reviews, baseline_path, private_output, MANIFEST, tmp_path,
                                   baseline_captures_path=mapping)
@@ -455,19 +427,20 @@ def test_baseline_rejects_empty_out_of_bounds_anchor(tmp_path):
         module.validate_baselines(value, MANIFEST, tmp_path)
 
 
-@pytest.mark.parametrize("cell", [-1, True, 1])
-def test_notebook_source_rejects_invalid_cell_indices(tmp_path, cell):
+@pytest.mark.parametrize("cell,message", [(-1, "zero-based integer index"), (True, "zero-based integer index"),
+                                          (1, "cell 1 does not identify valid notebook source")])
+def test_notebook_source_rejects_invalid_cell_indices(tmp_path, cell, message):
     notebook = tmp_path / "notebook.ipynb"
     notebook.write_text(json.dumps({"cells": [{"source": ["first\n", "second\n"]}]}),
                         encoding="utf-8")
-    with pytest.raises(ValueError, match="notebook cell index"):
+    with pytest.raises(ValueError, match=message):
         module._source_lines(notebook, cell)
 
 
 def test_notebook_source_rejects_invalid_cell_source_and_locations_show_metadata(tmp_path):
     notebook = tmp_path / "notebook.ipynb"
     notebook.write_text(json.dumps({"cells": [{"source": ["valid\n", 3]}]}), encoding="utf-8")
-    with pytest.raises(ValueError, match="notebook cell source"):
+    with pytest.raises(ValueError, match="cell 0 does not identify valid notebook source"):
         module._source_lines(notebook, 0)
     assert module._evidence_location({
         "file": "flow.ipynb", "cell": 3, "line": 6, "endLine": 10,
@@ -508,3 +481,67 @@ def test_checked_in_development_artifacts_are_sanitized_snapshots():
         assert forbidden.search(text) is None
         document = json.loads(text)
         assert document["workflowVersion"] == "1.0"
+
+
+def _excerpt_source(tmp_path, text: bytes, **fields) -> dict:
+    (tmp_path / "source.py").write_bytes(text)
+    return {"id": "src", "file": "source.py", **fields}
+
+
+def test_replay_uses_the_helper_line_semantics(tmp_path):
+    """EVAL-15: replay splits only on CRLF, CR and LF, keeps a trailing empty element and strips a
+    BOM, exactly like the product helper; str.splitlines() would split on the form feed."""
+    source = _excerpt_source(tmp_path, b"\xef\xbb\xbfa = 1\x0cb = 2\r\nc = 3\rd = 4\n",
+                             line=1, endLine=2, quote="a = 1\x0cb = 2\nc = 3")
+    module._validate_source_excerpt(source, tmp_path, "replay evidence")
+    assert module._source_lines(tmp_path / "source.py") == ["a = 1\x0cb = 2", "c = 3", "d = 4", ""]
+    helper = module.eval_records.load_helper()
+    assert module._source_lines(tmp_path / "source.py") == helper._lines(helper._strip_bom(
+        (tmp_path / "source.py").read_bytes().decode("utf-8")))
+    source.update(line=4, endLine=4, quote="")
+    with pytest.raises(ValueError, match="nonempty source quote"):
+        module._validate_source_excerpt(source, tmp_path, "replay evidence")
+    source.update(line=1, endLine=1, quote="\ufeffa = 1\x0cb = 2")  # a line-1 quote may keep the BOM
+    module._validate_source_excerpt(source, tmp_path, "replay evidence")
+
+
+def test_replay_requires_an_integer_end_line(tmp_path):
+    source = _excerpt_source(tmp_path, b"one\ntwo\n", line=1, quote="one")
+    with pytest.raises(ValueError, match="invalid replay evidence source range"):
+        module._validate_source_excerpt(source, tmp_path, "replay evidence")
+    source["endLine"] = 1
+    module._validate_source_excerpt(source, tmp_path, "replay evidence")
+    source["endLine"] = "1"
+    with pytest.raises(ValueError, match="source range"):
+        module._validate_source_excerpt(source, tmp_path, "replay evidence")
+
+
+def test_smoke_branch_only_without_a_host_key():
+    """EVAL-5: a developer-subagent smoke ledger has no host key; adding one requires registration."""
+    smoke = json.loads((Path(__file__).parent / "development/dev-config.json").read_text())
+    assert "host" not in smoke
+    module.validate_development_review(smoke)
+    for host in ("codex", None):
+        labelled = dict(smoke, host=host)
+        with pytest.raises(ValueError, match="registered task/host artifact|not uniquely registered"):
+            module.validate_development_review(labelled)
+
+
+def test_configuration_pointer_resolves_request_configuration():
+    artifact = {"request": {"question": "q", "scope": "s", "configuration": "defaults"}, "nodes": [], "coverage": {}}
+    module._validate_pointers(["configuration", "coverage"], artifact)
+    with pytest.raises(ValueError, match="does not resolve: configuration"):
+        module._validate_pointers(["configuration"], {"request": {"question": "q", "scope": "s"}})
+
+
+def test_development_plan_output_is_exclusive(tmp_path):
+    output = tmp_path / "plans" / "development.json"
+    out = io.StringIO()
+    with redirect_stdout(out):
+        assert module.main(["development-plan", "--output", str(output)]) == 0
+    assert json.loads(output.read_text(encoding="utf-8")) == module.development_plan(MANIFEST)
+    assert json.loads(out.getvalue())["records"] == 15
+    err = io.StringIO()
+    with redirect_stdout(io.StringIO()), redirect_stderr(err), pytest.raises(SystemExit):
+        module.main(["development-plan", "--output", str(output)])
+    assert "already exists; it may hold recorded run data, so it is never overwritten" in err.getvalue()

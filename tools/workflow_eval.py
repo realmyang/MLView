@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Prepare and summarize human-reviewed native-host pilot records; never run a model."""
+"""Development-run records and review packets, plus the dispatcher for the Campaign 2 evaluation
+commands (tools/workflow_decisions.py, tools/workflow_pilot.py). Never runs a model."""
 from __future__ import annotations
 
 import argparse
@@ -16,6 +17,10 @@ from types import ModuleType
 
 ROOT = Path(__file__).resolve().parents[1]
 TOOLS = Path(__file__).resolve().parent
+if str(TOOLS) not in sys.path:
+    sys.path.insert(0, str(TOOLS))
+import eval_records  # noqa: E402  (the shared Campaign 2 primitives; stdlib only)
+
 MANIFEST = ROOT / "evals/workflow/tasks.json"
 # Commands owned by other tools. main() imports the tool lazily and calls its main(argv) with the
 # full argument list, command name first; a build without the tool says so (exit status 2).
@@ -31,13 +36,7 @@ ROUTED_COMMANDS = {
     "review-template": ("workflow_pilot", "create the pending human review file of one pilot run"),
     "summarize": ("workflow_pilot", "verify sealed pilot runs and compute a stage summary against the predefined targets"),
 }
-# Until tools/workflow_pilot.py is present, these two keep their implementations in this file.
-LEGACY_FALLBACK = {
-    "plan": "print the pending held-out skill-run records (legacy until tools/workflow_pilot.py is present)",
-    "summarize": "summarize human-entered run records (legacy until tools/workflow_pilot.py is present)",
-}
 UNAVAILABLE = "not available in this build"
-PAIRS = ("observedClaims", "inferredClaims", "essentialFacts", "anchors")
 DEVELOPMENT_TASKS = ("dev-config", "dev-sklearn", "dev-gan", "dev-notebook")
 REVIEW_VERDICTS = {"supported", "qualified", "unsupported", "omitted"}
 USABILITY_QUESTIONS = {
@@ -51,21 +50,6 @@ DEVELOPMENT_ARTIFACTS = {
     "dev-notebook": "evals/workflow/development/artifacts/notebook.mlview.json",
 }
 NATIVE_ARTIFACT_MANIFEST = ROOT / "evals/workflow/development/native-artifacts/manifest.json"
-
-
-def plan(manifest: dict) -> list[dict]:
-    return [
-        {"id": f"{task['id']}:{host}:{repeat}", "task": task["id"],
-         "host": host, "repeat": repeat, "status": "pending",
-         "condition": "skill", "prompt": task["prompt"],
-         "repositoryCommit": task["commit"], "hostVersion": None,
-         "model": None, "skillRevision": None, "artifact": None,
-         "artifactSha256": None, "elapsedSeconds": None, "repairRounds": None,
-         "usage": None, "liveUiLog": None, "humanReview": None}
-        for task in manifest["tasks"] if task["split"] == "heldout"
-        for host in manifest["hosts"]
-        for repeat in range(1, manifest["repetitions"] + 1)
-    ]
 
 
 def development_plan(manifest: dict) -> list[dict]:
@@ -87,20 +71,6 @@ def development_plan(manifest: dict) -> list[dict]:
                 "provisionalReview": None, "humanReview": None,
             })
     return records
-
-
-def baseline_plan(manifest: dict) -> list[dict]:
-    """Additional Stage 1 no-skill sessions, kept separate from the 72 skill runs."""
-    return [
-        {"id": f"{task['id']}:{host}:baseline:1", "task": task["id"], "host": host,
-         "repeat": 1, "condition": "baseline", "status": "pending",
-         "prompt": task["prompt"], "promptStatus": "scenario-expansion-and-freeze-pending",
-         "repositoryCommit": task["commit"], "hostVersion": None, "model": None,
-         "settings": None, "elapsedSeconds": None, "responseCaptureSha256": None,
-         "captureHashIndependentlyVerified": False, "humanReview": None}
-        for task in manifest["tasks"] if task["split"] == "heldout"
-        for host in manifest["hosts"]
-    ]
 
 
 def _confined_path(value: object, root: Path = ROOT, require_file: bool = True) -> Path:
@@ -223,21 +193,10 @@ def summarize_development(records: list[dict], manifest: dict, root: Path = ROOT
 
 
 def _source_lines(path: Path, cell: int | None = None) -> list[str]:
-    if cell is None:
-        return path.read_text(encoding="utf-8").splitlines()
-    notebook = json.loads(path.read_text(encoding="utf-8"))
-    cells = notebook.get("cells")
-    if (type(cell) is not int or cell < 0 or not isinstance(cells, list)
-            or cell >= len(cells) or not isinstance(cells[cell], dict)):
-        raise ValueError("invalid notebook cell index")
-    source = cells[cell].get("source")
-    if isinstance(source, str):
-        text = source
-    elif isinstance(source, list) and all(isinstance(line, str) for line in source):
-        text = "".join(source)
-    else:
-        raise ValueError("invalid notebook cell source")
-    return text.splitlines()
+    """The lines the product helper compares quotes against (EVAL-15): UTF-8 with the BOM stripped,
+    split only on CRLF, CR and LF, keeping a trailing empty element; a notebook cell's joined source.
+    Delegates to eval_records.source_lines, which uses the helper's own functions."""
+    return eval_records.source_lines(path.read_bytes(), cell)
 
 
 def _evidence_location(source: dict) -> str:
@@ -252,15 +211,18 @@ def _evidence_location(source: dict) -> str:
 
 
 def _validate_source_excerpt(source: dict, root: Path, label: str) -> None:
+    """Replay one recorded excerpt with the helper's rules: an integer endLine is required (it is
+    no longer defaulted to line), and the quote must equal the cited lines exactly, except that a
+    line-1 quote may include or omit a byte-order mark (EVAL-15)."""
     lines = _source_lines(historical_source(source.get("file"), root), source.get("cell"))
-    start, end = source.get("line"), source.get("endLine", source.get("line"))
+    start, end = source.get("line"), source.get("endLine")
     if (type(start) is not int or type(end) is not int or start < 1
             or end < start or end > len(lines)):
         raise ValueError(f"invalid {label} source range")
     quote = source.get("quote")
     if not isinstance(quote, str) or not quote:
         raise ValueError(f"{label} requires a nonempty source quote")
-    if "\n".join(lines[start - 1:end]) != quote:
+    if not eval_records.quote_matches(quote, lines, start, end):
         raise ValueError(f"{label} source quote mismatch: {source.get('id')}")
 
 
@@ -298,12 +260,14 @@ def validate_development_review(review: dict, root: Path = ROOT) -> None:
     artifact_path = review.get("artifact")
     if task not in DEVELOPMENT_ARTIFACTS:
         raise ValueError("development review task and artifact do not match")
-    smoke_artifact = artifact_path == DEVELOPMENT_ARTIFACTS[task]
+    # EVAL-5: only a ledger without a "host" key is a developer-subagent smoke review. A ledger that
+    # names a host (even the smoke artifact's path) must match the native artifact registration.
     native_registration = None
-    if not smoke_artifact:
-        host = review.get("host")
-        if host is None:
+    if "host" not in review:
+        if artifact_path != DEVELOPMENT_ARTIFACTS[task]:
             raise ValueError("development review task and artifact do not match")
+    else:
+        host = review.get("host")
         manifest_path = root / NATIVE_ARTIFACT_MANIFEST.relative_to(ROOT)
         if not manifest_path.is_file():
             raise ValueError("native artifact manifest is unavailable")
@@ -387,6 +351,11 @@ def _validate_pointers(pointers: object, artifact: dict) -> None:
             if "coverage" not in artifact:
                 raise ValueError("artifact pointer does not resolve: coverage")
             continue
+        if pointer == "configuration":  # request.configuration (Campaign 2 specification, section 4.4)
+            request = artifact.get("request")
+            if not isinstance(request, dict) or "configuration" not in request:
+                raise ValueError("artifact pointer does not resolve: configuration")
+            continue
         if not isinstance(pointer, str) or ":" not in pointer:
             raise ValueError(f"invalid artifact pointer: {pointer}")
         kind, identifier = pointer.split(":", 1)
@@ -464,8 +433,13 @@ def _load_baseline_captures(path: Path, baselines: list[dict], root: Path) -> di
 
 def generate_review_packet(review_dir: Path, baselines_path: Path, output: Path,
                            manifest: dict, root: Path = ROOT,
-                           baseline_captures_path: Path | None = None) -> None:
-    """Render reviewer-authored ledgers; this function makes no semantic judgments."""
+                           baseline_captures_path: Path | None = None, *, force: bool = False) -> None:
+    """Render reviewer-authored ledgers; this function makes no semantic judgments.
+
+    The output is created exclusively (EVAL-4); ``force`` replaces an existing file atomically,
+    which is safe because the packet is derived from committed ledgers."""
+    if not force and os.path.lexists(output):
+        raise ValueError(f"{output} already exists; the packet is derived, so pass --force to replace it")
     baseline_resolved = baselines_path.resolve()
     review_paths = sorted(path for path in review_dir.glob("**/*.json")
                           if path.resolve() != baseline_resolved)
@@ -497,7 +471,7 @@ def generate_review_packet(review_dir: Path, baselines_path: Path, output: Path,
              "</select></label> <label>host <select id='host-filter'><option value=''>all</option>" +
              "".join(f"<option>{esc(host)}</option>" for host in manifest["hosts"]) +
              "</select></label></p>",
-             "<p>Return decisions by artifact identity and claim ID, for example: <code>dev-gan / codex / optimizer-ownership: supported — rationale…</code>. For usability, use <code>dev-gan / codex / usability.losses: clear — rationale…</code>. Include your name and review date separately; do not edit provisional fields into human decisions.</p>"]
+             "<p>Record your decisions in <code>evals/workflow/decisions/development-adjudication.md</code>: under <code>## dev-gan / codex</code> replace <code>optimizer-ownership: pending</code> with, for example, <code>optimizer-ownership: supported</code>, and <code>usability.losses: pending</code> with <code>usability.losses: clear</code>. Add <code> — reason</code> whenever you differ from the provisional label. Fill Reviewer and Date there, then run <code>python tools/workflow_eval.py check development-adjudication</code>. Do not edit the provisional ledgers; they stay immutable.</p>"]
     by_identity = {(review["task"], review["host"]): review for review in reviews}
     for task in DEVELOPMENT_TASKS:
         parts.append(f"<section><h2>{esc(task)}</h2>")
@@ -546,64 +520,11 @@ def generate_review_packet(review_dir: Path, baselines_path: Path, output: Path,
             parts.append(f"<details><summary>Private raw response — hash verified</summary><pre>{esc(captures[item['host']])}</pre></details>")
         parts.append("<div class='decision'>Human baseline comparison: ______ &nbsp; Rationale: ____________________</div></article>")
     parts.append("</section><script>for(const id of ['task-filter','host-filter'])document.getElementById(id).addEventListener('change',()=>{const t=document.getElementById('task-filter').value,h=document.getElementById('host-filter').value;for(const a of document.querySelectorAll('article[data-task]'))a.hidden=!!((t&&a.dataset.task!==t)||(h&&a.dataset.host!==h))})</script></body></html>")
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text("".join(parts), encoding="utf-8")
-
-
-def summarize(records: list[dict], manifest: dict) -> dict:
-    expected = {record["id"]: record for record in plan(manifest)}
-    seen = set()
-    statuses: Counter = Counter()
-    totals = {key: {"supported": 0, "total": 0} for key in PAIRS}
-    per_host = {host: {"completed": 0, "reviewed": 0} for host in manifest["hosts"]}
-    reviewed = false_high = 0
-    for record in records:
-        key = record.get("id")
-        if key not in expected or key in seen:
-            raise ValueError("unknown or duplicate run ID")
-        seen.add(key)
-        wanted = expected[key]
-        if any(record.get(k) != wanted[k] for k in ("host", "task", "repeat", "repositoryCommit", "condition", "prompt")):
-            raise ValueError("run identity differs from the pinned matrix")
-        status = record.get("status")
-        if status not in {"pending", "completed", "failed", "blocked"}:
-            raise ValueError("invalid run status")
-        statuses[status] += 1
-        review = record.get("humanReview")
-        if status != "completed":
-            if review is not None:
-                raise ValueError("only completed runs may have a semantic review")
-            continue
-        for field in ("hostVersion", "skillRevision", "artifact", "artifactSha256", "liveUiLog"):
-            if not isinstance(record.get(field), str) or not record[field].strip():
-                raise ValueError(f"completed run requires {field}")
-        per_host[record["host"]]["completed"] += 1
-        if review is None:
-            continue
-        if not isinstance(review, dict) or not all(isinstance(review.get(k), str) and review[k].strip()
-                                                   for k in ("reviewer", "referenceRevision", "claimLedger")):
-            raise ValueError("review requires named human reviewer, frozen reference revision and claim ledger")
-        for metric in PAIRS:
-            pair = review.get(metric)
-            if not isinstance(pair, dict):
-                raise ValueError(f"missing review counts: {metric}")
-            numerator, denominator = pair.get("supported"), pair.get("total")
-            if type(numerator) is not int or type(denominator) is not int or not 0 <= numerator <= denominator:
-                raise ValueError("review counts must be integers with 0 <= supported <= total")
-            totals[metric]["supported"] += numerator
-            totals[metric]["total"] += denominator
-        count = review.get("highSeverityFalseAccusations")
-        if type(count) is not int or count < 0:
-            raise ValueError("high-severity false accusations require an explicit nonnegative count")
-        false_high += count
-        reviewed += 1
-        per_host[record["host"]]["reviewed"] += 1
-    statuses["pending"] += len(expected) - len(seen)
-    return {"expectedRuns": len(expected), "statuses": dict(statuses),
-            "humanReviewedRuns": reviewed, "perHost": per_host,
-            "counts": totals, "highSeverityFalseAccusations": false_high if reviewed else None,
-            "pilotComplete": reviewed == len(expected),
-            "note": "Counts are human-entered, not semantic judgments by this tool. Missing runs never count as passes."}
+    data = "".join(parts).encode("utf-8")
+    if force:
+        eval_records.write_atomic(output, data)
+    else:
+        eval_records.write_exclusive(output, data)
 
 
 def load_tool(name: str) -> ModuleType | None:
@@ -636,14 +557,11 @@ def build_parser() -> argparse.ArgumentParser:
     for command, (tool, text) in ROUTED_COMMANDS.items():
         if (TOOLS / f"{tool}.py").is_file():
             sub.add_parser(command, help=f"{text} (tools/{tool}.py)", add_help=False)
-        elif command in LEGACY_FALLBACK:
-            legacy = sub.add_parser(command, help=LEGACY_FALLBACK[command])
-            if command == "summarize":
-                legacy.add_argument("records", type=Path)
         else:
             sub.add_parser(command, help=f"{text} [{UNAVAILABLE}: tools/{tool}.py is missing]", add_help=False)
-    sub.add_parser("development-plan", help="print the pending native development-run records")
-    sub.add_parser("baseline-plan", help="prepare additional no-skill Stage 1 records; does not run or freeze them")
+    development = sub.add_parser("development-plan", help="print the pending native development-run records")
+    development.add_argument("--output", type=Path,
+                             help="also create this file (exclusive: an existing file is never overwritten)")
     development_summary = sub.add_parser("summarize-development",
                                          help="summarize native development-run records; makes no human-review judgement")
     development_summary.add_argument("records", type=Path)
@@ -654,7 +572,10 @@ def build_parser() -> argparse.ArgumentParser:
     packet.add_argument("--reviews", required=True, type=Path)
     packet.add_argument("--baselines", required=True, type=Path)
     packet.add_argument("--baseline-captures", type=Path)
-    packet.add_argument("--output", required=True, type=Path)
+    packet.add_argument("--output", required=True, type=Path,
+                        help="the HTML file to create; an existing file is refused unless --force")
+    packet.add_argument("--force", action="store_true",
+                        help="replace an existing packet (it is derived from the committed ledgers)")
     return parser
 
 
@@ -666,19 +587,23 @@ def main(argv: list[str] | None = None) -> int:
         module = load_tool(tool)
         if module is not None:
             return int(module.main(arguments) or 0)
-        if command not in LEGACY_FALLBACK:
-            print(f"workflow_eval.py {command}: {UNAVAILABLE} (tools/{tool}.py is missing)", file=sys.stderr)
-            return 2
+        print(f"workflow_eval.py {command}: {UNAVAILABLE} (tools/{tool}.py is missing)", file=sys.stderr)
+        return 2
     parser = build_parser()
     args = parser.parse_args(arguments)
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
     try:
-        if args.command == "plan":
-            value = plan(manifest)
-        elif args.command == "development-plan":
+        if args.command == "development-plan":
             value = development_plan(manifest)
-        elif args.command == "baseline-plan":
-            value = baseline_plan(manifest)
+            if args.output is not None:
+                data = (json.dumps(value, indent=2) + "\n").encode("utf-8")
+                try:
+                    eval_records.write_exclusive(args.output, data)
+                except FileExistsError:
+                    raise ValueError(f"{args.output} already exists; it may hold recorded run data, so it is never "
+                                     "overwritten. Choose a new file name.") from None
+                value = {"ok": True, "output": str(args.output), "records": len(value),
+                         "note": "Pending development-run records written; nothing was run."}
         elif args.command == "validate-development":
             for path in args.reviews:
                 validate_development_review(json.loads(path.read_text(encoding="utf-8")))
@@ -688,12 +613,10 @@ def main(argv: list[str] | None = None) -> int:
             value = summarize_development(json.loads(args.records.read_text(encoding="utf-8")), manifest)
         elif args.command == "review-packet":
             generate_review_packet(args.reviews, args.baselines, args.output, manifest,
-                                   baseline_captures_path=args.baseline_captures)
+                                   baseline_captures_path=args.baseline_captures, force=args.force)
             value = {"ok": True, "output": str(args.output), "reviews": 12,
                      "baselines": len(manifest["hosts"]),
                      "note": "Packet contains validated provisional material; human adjudication remains pending."}
-        elif args.command == "summarize":
-            value = summarize(json.loads(args.records.read_text(encoding="utf-8")), manifest)
         else:
             parser.error(f"{args.command}: {UNAVAILABLE}")
     except (OSError, ValueError, TypeError) as exc:
