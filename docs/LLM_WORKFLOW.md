@@ -30,7 +30,17 @@ python3 tools/install_skill.py /path/to/target-project
 ```
 
 The copied directory contains the skill, its contract/example, and its helper;
-it has no dependency on the MLView checkout afterward. Restart or refresh the
+it has no dependency on the MLView checkout afterward. The installer also
+writes `.mlview-install.json` there, recording the SHA-256 of every file it
+installed; like other dotfiles, this manifest is not part of the skill's
+identity. Rerunning the installer upgrades that installation: unmodified files
+are replaced, and files that a newer skill no longer ships are removed when
+unmodified. A file you edited is refused with `destination has local edits:
+<files>. Back them up and rerun with --force to replace them.` After backing
+it up, add `--force` to replace it. Files the installer never wrote are never
+replaced or deleted. An installation without a manifest, such as one made
+before 0.3.0 or extracted from a skill ZIP, needs `--force` for every file that
+differs from the new skill. Restart or refresh the
 assistant's skill discovery if needed. Codex and current VS Code Copilot can
 discover the `.agents/skills/mlview/` layout. Invoke `$mlview` in Codex or choose
 `mlview` in Copilot's skill picker. Actual discovery and invocation depend on
@@ -58,7 +68,10 @@ python3 tools/install_skill.py /path/to/target-project --doctor
 
 This checks Python 3.10+, the documented skill directories, missing, edited and
 unexpected bundled files, exact bundle hashes and duplicate installations.
-It reports remediation without overwriting local edits. It cannot certify native skill discovery or
+It reports remediation without overwriting local edits. A skill location that
+is a symbolic link is reported as present but linked, with advice to remove the
+link (not its target) and rerun the installer, because MLView installs only
+real directories. It cannot certify native skill discovery or
 the extension UI; complete those checks in the chosen assistant. CI is configured
 to package and check both standalone skill ZIPs alongside the VSIX.
 
