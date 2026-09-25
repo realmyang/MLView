@@ -105,6 +105,75 @@ publication. `validate` adds `revision`, `files`, and, with
 `--record` path is resolved against `--workspace`, which must be an existing
 directory (`workspace_path`). Output never contains absolute paths.
 
+<!-- helper-codes:begin -->
+Helper codes and the usual repair (the entry's `path` names what to fix):
+
+```text
+Errors (block validate, publish and upsert):
+- additional_property: remove a field the object does not allow
+- arguments: upsert needs --collection and --record
+- basis: use observed, inferred or unresolved
+- checkpoint_invalid: the draft upsert edits must validate first
+- coverage: give coverage a status (scoped|partial) and a summary
+- document_too_large: the artifact would exceed 2 MiB; shorten it
+- draft_conflict: the draft changed during upsert; edit it again
+- draft_encoding: save the draft or record as UTF-8 JSON
+- draft_io: the draft or record could not be read or written
+- draft_locked: the draft's .lock exists; wait, or ask the user
+- draft_not_found: no such draft or record (relative to --workspace)
+- draft_path: pass a regular file (upsert: inside the workspace)
+- draft_too_large: the draft or record exceeds 2 MiB
+- duplicate_id: an ID repeats within its collection
+- duplicate_reference: list each referenced ID once
+- evidence_required: cite evidence or use basis unresolved
+- excluded_evidence: cite project files, never MLView files
+- fingerprint: delete the draft's verification block
+- format: delete the draft's verification block
+- id: IDs match ^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$
+- internal_error: the helper failed; report the command
+- invalid_json: fix the JSON (syntax, duplicate member, NaN, nesting)
+- invalid_path: use a slash-separated relative path to a regular file
+- limit: shorten text or lists; at most 2000 tracked files
+- notebook_cell: cite an existing zero-based cell of a valid notebook
+- output_path: --output is a workspace-relative *.mlview.json path
+- parent: another node's ID; omit parent for root nodes
+- parent_cycle: parent links must form a forest
+- path_outside_workspace: cite an existing file inside --workspace
+- phase: give every phase a label
+- producer: kind host-llm; host copilot|codex|claude-code|unknown
+- publication_io: the artifact, its folder or lock could not be written
+- publish_locked: the artifact's .lock exists; wait, or ask the user
+- published_invalid: the existing artifact is unreadable; ask the user
+- published_target: upsert a *.draft.json copy, not the artifact
+- python_version: run the helper with Python 3.10+
+- quote_mismatch: copy the cited lines exactly (the message shows them)
+- range: line..endLine is a one-based inclusive range in the source
+- record: the upsert record needs a valid id
+- reference: reference an ID that exists
+- request: request.question and request.scope must be non-empty
+- required: add the missing field; phases and nodes are non-empty
+- revision: revision.id and parent are valid, distinct IDs
+- revision_conflict: parent is the published revision ID (omit if none)
+- revision_id_reused: choose a new revision ID
+- severity: use low, medium or high
+- source_changed: sources changed while publishing; publish again
+- source_encoding: cite UTF-8 files only
+- source_read: the file could not be read
+- source_too_large: the cited source exceeds 8 MiB
+- stale_source: re-read the file, update claims, delete verification
+- text_encoding: remove unpaired surrogates
+- text_too_large: shorten strings to 16000 characters
+- type: use the JSON type the contract names
+- unexpected_cell: cell is only for .ipynb evidence
+- verification: delete the draft's verification block
+- version: workflowVersion is "1.0"
+- workspace_path: --workspace is the existing workspace folder
+Warnings (never block publication):
+- excluded_inspected: MLView file in inspectedFiles; not fingerprinted
+- not_fingerprinted: inspected file over 8 MiB; no fingerprint
+```
+<!-- helper-codes:end -->
+
 An early useful overview can be a published `coverage.status: "partial"`
 revision with specific remaining work in `coverage.limitations`. It must meet
 the same citation and structure checks as a fuller result. Refinement publishes
