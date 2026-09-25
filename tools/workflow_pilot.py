@@ -1421,28 +1421,54 @@ def _verdict_fields(summary: dict, planned: dict[str, dict]) -> dict[str, dict]:
 
 def _review_edited(evidence_root: Path, run_id: str, fresh: object, recorded: object) -> bool:
     """Whether the verdicts of the review.md of ``run_id`` can differ from those a summary recorded:
-    the running tools read other bytes (sha256 ``fresh``) than the recorded ones, or the file was
-    deleted. A review they did not read (for a run a later tool version judges invalid, say) gives no
-    verdicts to compare."""
+    the running tools read other bytes (sha256 ``fresh``) than the recorded ones (``recorded``), or the
+    file was deleted. A review the recording tools did not read (recorded None: they judged the run
+    invalid, say, which a later tool version may not) reports no verdicts in the summary, and one the
+    running tools do not read gives none, so neither is compared: only the tools' judgement changed."""
+    if recorded is None:
+        return False
     if fresh is not None:
         return fresh != recorded
-    return recorded is not None and not os.path.lexists(evidence_root / er.run_dir_name(run_id) / REVIEW_FILE)
+    return not os.path.lexists(evidence_root / er.run_dir_name(run_id) / REVIEW_FILE)
 
 
-def _verdict_differences(fresh: dict, recorded: dict, planned: dict[str, dict], run_ids: list[str]) -> list[str]:
+def _baseline_accusations(summary: dict) -> object:
+    """The baselines' false accusations total (baselines.falseAccusations) of ``summary``: only baseline
+    reviews list false accusations, and the summary carries only their total."""
+    baselines = summary.get("baselines") if isinstance(summary.get("baselines"), dict) else {}
+    return json.loads(er.canonical_json(baselines.get("falseAccusations")))
+
+
+def _review_states(summary: dict) -> dict[str, object]:
+    """By run ID, the reviewStatus ``summary`` gives each skill run and baseline."""
+    baselines = summary.get("baselines") if isinstance(summary.get("baselines"), dict) else {}
+    found: dict[str, object] = {}
+    for items in (summary.get("runs"), baselines.get("runs")):
+        for item in items if isinstance(items, list) else []:
+            if isinstance(item, dict):
+                found[str(item.get("id"))] = item.get("reviewStatus")
+    return found
+
+
+def _verdict_differences(fresh: dict, recorded: dict, planned: dict[str, dict],
+                         run_ids: list[str]) -> list[tuple[str, list[str]]]:
     """Each of ``run_ids`` (Stage 1 runs whose review.md bytes changed since the summary was recorded)
     for which the re-computation reports other verdict-derived fields than the committed summary, with
-    those fields. A review whose bytes are unchanged says what it said, so a difference there belongs
-    to the tools and is not looked at."""
+    those fields. The baselines' false accusations total is named with each changed baseline when it
+    differs. A review whose bytes are unchanged says what it said, so a difference there belongs to the
+    tools and is not looked at."""
     now, then = _verdict_fields(fresh, planned), _verdict_fields(recorded, planned)
+    accusations = _baseline_accusations(fresh) != _baseline_accusations(recorded)
     named = []
     for run_id in run_ids:
         old, new = then.get(run_id), now.get(run_id, {})
         if old is None:
             continue
         keys = [key for key in old if key not in new or new[key] != old[key]]
+        if accusations and planned[run_id]["condition"] == "baseline":
+            keys.append("baselines.falseAccusations")
         if keys:
-            named.append(f"{run_id} ({', '.join(keys)})")
+            named.append((run_id, keys))
     return named
 
 
@@ -1463,6 +1489,15 @@ class Stage1Changed(str):
 REVIEWS_FINAL = ("Stage 1 reviews are final once the Stage 1 summary is recorded: restore what those reviews said "
                  "then (a re-save or a wording change that keeps every verdict, the reviewer and the Review line does "
                  "no harm)")
+# With a summary recorded by other tools, a changed review is compared by what the running tools read
+# from it, so a later tool change can make a re-save that keeps every verdict differ too; the exact
+# recorded bytes always clear it (such a review is no longer compared).
+REVIEWS_FINAL_OTHER_TOOLS = (
+    "Stage 1 reviews are final once the Stage 1 summary is recorded: restore what those reviews said then. The "
+    "summary was recorded with other tools (versions committed in its history), and a review.md whose bytes changed "
+    "is compared by what these tools read from it, so a re-save or a note that keeps every verdict can differ here "
+    "too when these tools judge or count that review differently; restoring the exact bytes each named review.md "
+    "had when the summary was recorded clears this")
 
 
 def _stage1_matches(root: Path, campaign: Campaign, pilot_value: str | None, committed: dict,
@@ -1525,9 +1560,15 @@ def _stage1_matches(root: Path, campaign: Campaign, pilot_value: str | None, com
                   if _review_edited(evidence_root, run_id, now[run_id].get("review"), then[run_id].get("review"))]
         verdicts = _verdict_differences(recomputed, committed, planned, edited)
         if verdicts:
+            states = _review_states(recomputed)
+            read_as = {"problems": "; these tools find problems in it", "incomplete": "; these tools find it incomplete"}
+            shown = [f"{run_id} ({', '.join(keys)}{read_as.get(str(states.get(run_id)), '')})"
+                     for run_id, keys in verdicts]
+            recorded_bytes = [f"{run_id} {str(then[run_id].get('review'))[:12]}..." for run_id, _keys in verdicts]
             return Stage1Changed(f"a re-computation of Stage 1 differs from the committed summary in what the review "
-                                 f"of {_shown(verdicts)} gives, after review.md of {_shown(edited, separator=', ')} "
-                                 f"changed since the summary was recorded; {REVIEWS_FINAL}")
+                                 f"of {_shown(shown)} gives, after review.md of {_shown(edited, separator=', ')} "
+                                 f"changed since the summary was recorded; {REVIEWS_FINAL_OTHER_TOOLS} (recorded "
+                                 f"sha256: {_shown(recorded_bytes, separator=', ')})")
         if notes is not None:
             notes.append("the committed Stage 1 summary was recorded with other tools (versions committed in its "
                          "history); its decision, its sealed inputs, the failures and earlier attempts of its "

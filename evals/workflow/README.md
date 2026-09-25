@@ -235,7 +235,9 @@ refuse every Stage 1 run, skill run or baseline (retry or amend before
 must keep its sealed bytes), and every Stage 1 `review.md`, skill run or
 baseline, must keep saying what it said: a re-save or a wording change that
 leaves every verdict, the reviewer and the `Review:` line as they were does no
-harm, but a changed verdict stops the recorded go from unlocking Stage 2 and
+harm (but see summaries recorded with other tools below), while a changed
+verdict that changes what the summary reports (a baseline's usability rating,
+for one, is not reported) stops the recorded go from unlocking Stage 2 and
 leaves the all-stage summary `incomplete` until it is changed back. Review
 files live outside Git, so keep a copy of the evidence directory. `run-prepare`
 refuses repeat runs until a committed Stage 1 summary says `go`, and it and
@@ -267,10 +269,17 @@ failures (each skill run's status, failure and earlier attempts, and each
 baseline's failure and earlier attempts; a baseline's computed status and
 review state belong to the tools) are still compared, and so is what the
 summary reports of each Stage 1 `review.md` whose bytes changed since or that
-was deleted (whether the review is complete, its verdict counts and a skill
-run's reviewer), so a changed verdict holds Stage 2 whichever tools recorded
-the summary (a note says the other fields and the Markdown were not
-compared). With per-host targets, a stop reason names
+was deleted (whether the review is complete, its verdict counts, the
+baselines' false accusations total and a skill run's reviewer), so a changed
+verdict holds Stage 2 whichever tools recorded the summary (a note says the
+other fields and the Markdown were not compared). Such a review is compared by
+what the running tools read from it, so when they judge or count it
+differently from the recording tools, even a re-save or a note that keeps
+every verdict holds Stage 2: the message gives the sha256 the summary
+recorded for each named `review.md`, and restoring those exact bytes clears
+it. A review the recording tools did not read (a baseline they judged
+invalid) reports no verdicts in the summary and is not compared. With
+per-host targets, a stop reason names
 each host that misses a target, and the early-stop indicators include each
 host's bound.
 

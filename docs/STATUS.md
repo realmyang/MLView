@@ -37,7 +37,8 @@ owner's reference review has not happened and **no reference is frozen**: every
 file in `evals/workflow/decisions/` is a pending template. The pilot has **not
 run**: Stage 1 has 24 skill runs pending and 0 passed, and Stage 2 has 48
 pending. The fixes for the campaign's six reviews (37, 15, 25, 19, 15 and
-36 findings) and for the three regressions its final check found are in:
+36 findings), for the three regressions its final check found and for the
+three a follow-up check found are in:
 among them, a run is retried only if its prompt was never
 sent (`Prompt sent: no` in `session.md`, refused against sealed evidence that
 it was sent, including the skill's drafts under `.mlview/`), every earlier

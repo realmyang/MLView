@@ -401,6 +401,22 @@ Final check fixes (REG IDs refer to the final check of the final round):
 - `template --init-all` prints each missing frozen file on its own line
   (REG-3).
 
+Follow-up check fixes (NEW IDs refer to the check of the final check fixes),
+all for a Stage 1 summary recorded by other (Git-bound) tools:
+- A baseline the recording tools judged invalid has no recorded review, so
+  the summary reports none of its verdicts; when later tools judge it valid
+  and read its untouched review, Stage 2 is no longer held with a message
+  that its `review.md` changed (NEW-1).
+- A changed review is compared by what the running tools read from it, so
+  after a tool change that judges or counts it differently even a re-save can
+  hold Stage 2. The message now says so, says when these tools find problems
+  in the review or find it incomplete, and gives the sha256 the summary
+  recorded for each named `review.md`; restoring those exact bytes clears the
+  hold (NEW-2).
+- A changed false accusation in a baseline review now holds Stage 2 too: the
+  summary carries only the baselines' total, which is compared whenever a
+  baseline review changed and is named with each changed baseline (NEW-3).
+
 Not in this version: the owner's reference review and freeze, the development
 adjudication, any native session and the pilot itself (the owner's
 decisions); second-review tooling for run reviews and the development

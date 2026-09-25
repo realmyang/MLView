@@ -94,9 +94,14 @@ policy lets the operator retry is still open; retry it first. Once the Stage
 1 summary is recorded (once `stage1-summary.json` exists in the working tree
 or the history), Stage 1 runs (skill runs and baselines) can no longer be
 retried or amended, and every Stage 1 `review.md` must keep saying what it
-said: a changed record or verdict stops the recorded go from unlocking Stage 2
-and leaves the all-stage summary `incomplete` until it is restored. Review
-files live outside Git, so keep a copy of the evidence directory.
+said: a changed record, or a changed verdict that changes what the summary
+reports, stops the recorded go from unlocking Stage 2 and leaves the
+all-stage summary `incomplete` until it is restored. Review files live
+outside Git, so keep a copy of the evidence directory. When the tools have
+changed since the summary was recorded, a re-saved review is compared by what
+the running tools read from it, so even a re-save can hold Stage 2; the
+message then gives the sha256 the summary recorded for each named
+`review.md`, and restoring those exact bytes from the copy clears it.
 
 ## Checks
 

@@ -2705,13 +2705,15 @@ def record_stage1_go(world: World, tools: str) -> None:
 
 @pytest.mark.parametrize("tools", ["same", "other"])
 @pytest.mark.parametrize("edit", ["none", "resave", "skill-verdict", "skill-reviewer", "baseline-verdict",
-                                  "baseline-deleted"])
+                                  "baseline-false-accusation", "baseline-deleted"])
 def test_a_changed_stage1_verdict_that_keeps_go_holds_stage_2_whichever_tools_recorded_it(world: World, tools: str,
                                                                                           edit: str) -> None:
     """After the Stage 1 go is recorded, with the running tools or with other (Git-bound) tools, a changed verdict
     or reviewer that keeps the re-computed decision at go is named, holds Stage 2 and leaves the all-stage summary
     incomplete without making Stage 2 runs invalid; no change, a CRLF re-save and a '>' note that keep every verdict
-    do no harm (REG-1; HONEST-F2 and INTEGRITY-F1 kept)."""
+    do no harm. A baseline's false accusations, which the summary carries only as the baselines' total, count too;
+    with other tools the message gives the recorded sha256 whose exact bytes clear it (REG-1, NEW-3, NEW-2;
+    HONEST-F2 and INTEGRITY-F1 kept)."""
     record_stage1_go(world, tools)
     do_run(world, "pilot-demo-a:codex:2", session={"Started": "2026-10-25T09:00:00Z", "Ended": "2026-10-25T09:10:00Z"})
     skill, base = "pilot-demo-a:codex:1", "pilot-demo-a:codex:baseline:1"
@@ -2725,6 +2727,10 @@ def test_a_changed_stage1_verdict_that_keeps_go_holds_stage_2_whichever_tools_re
         _set_review(world, skill, f"Reviewer: {REVIEWER}", "Reviewer: Another Reviewer (synthetic)")
     elif edit == "baseline-verdict":
         _set_review(world, base, "demo-a-f01: covered response:1-2", "demo-a-f01: missing")
+    elif edit == "baseline-false-accusation":
+        instruction = '"response:40-42: high | medium | low" for each false accusation in the answer.\n'
+        _set_review(world, base, instruction, instruction + "response:1-2: high\n")
+        assert not wp.check_file(world.evidence(base) / "review.md", root=world.root)
     elif edit == "baseline-deleted":
         (world.evidence(base) / "review.md").unlink()
     assert summarize(world)["decision"]["value"] == "go"
@@ -2743,8 +2749,12 @@ def test_a_changed_stage1_verdict_that_keeps_go_holds_stage_2_whichever_tools_re
                          "final once the Stage 1 summary is recorded" in err, err
     if tools == "other":
         field = {"skill-verdict": "ess", "skill-reviewer": "reviewer", "baseline-verdict": "ess",
-                 "baseline-deleted": "reviewed"}[edit]
+                 "baseline-false-accusation": "baselines.falseAccusations", "baseline-deleted": "reviewed"}[edit]
         assert f"differs from the committed summary in what the review of {changed} (" in err and field in err, err
+        assert "restoring the exact bytes each named review.md had when the summary was recorded clears this " \
+               f"(recorded sha256: {changed} {sha(originals[changed])[:12]}...)" in err, err
+    else:
+        assert "(a re-save or a wording change that keeps every verdict" in err, err
     assert held in summary["decision"]["reasons"], summary["decision"]
     assert any(f"review.md of {changed} changed" in note for note in summary["verification"]["notes"]), \
         summary["verification"]["notes"]
@@ -2786,6 +2796,81 @@ def test_a_later_tool_judgement_of_an_unchanged_review_leaves_an_other_tools_go_
     assert summary["decision"]["value"] == "go"
     side = next(row for row in summary["baselines"]["paired"] if (row["task"], row["host"]) == ("pilot-demo-a", "codex"))
     assert side["baseline"]["ess"] == (side["baseline"]["ESS"] - 1 if later == "count" else 0)
+    code, out, err = run_main(world, "run-prepare", "pilot-demo-a:codex:2", *pilot_args(world))
+    assert code == 0 and "recorded with other tools" in out, err
+
+
+@pytest.mark.parametrize("review", ["untouched", "resaved"])
+def test_a_baseline_review_the_recording_tools_did_not_read_is_not_compared(
+        world: World, monkeypatch: pytest.MonkeyPatch, review: str) -> None:
+    """With other (Git-bound) tools that judged a reviewed baseline invalid, the summary records no review of it and
+    none of its verdicts; running tools that judge it valid and read its review.md (untouched, or re-saved with CRLF)
+    neither hold Stage 2 nor say the review changed: only the tools' judgement changed (NEW-1, INTEGRITY-F1)."""
+    base = "pilot-demo-a:codex:baseline:1"
+    earlier_protocol = wp._protocol
+
+    def recording_protocol(state, campaign, stage1, stage1_problem=None):
+        earlier_protocol(state, campaign, stage1, stage1_problem)
+        if state.run["id"] == base:
+            state.invalid.append("a synthetic rule of the recording tools that a later fix drops")
+    with pytest.MonkeyPatch.context() as recording:
+        recording.setattr(wp, "_protocol", recording_protocol)
+        record_stage1_go(world, "other")
+    committed = json.loads((world.root / wp.PILOT_REL / CAMPAIGN / "stage1-summary.json").read_text(encoding="utf-8"))
+    assert next(item for item in committed["inputs"]["runs"] if item["id"] == base)["review"] is None
+    path = world.evidence(base) / "review.md"
+    if review == "resaved":
+        path.write_bytes(path.read_bytes().replace(b"\n", b"\r\n"))
+    side = next(row for row in summarize(world)["baselines"]["paired"]
+                if (row["task"], row["host"]) == ("pilot-demo-a", "codex"))
+    assert side["baseline"]["reviewed"] is True
+    code, out, err = run_main(world, "run-prepare", "pilot-demo-a:codex:2", *pilot_args(world))
+    assert code == 0 and "recorded with other tools" in out, err
+    reasons = summarize(world, "all")["decision"]["reasons"]
+    assert not [reason for reason in reasons if "not re-verified" in reason], reasons
+
+
+@pytest.mark.parametrize("later", ["rule", "count"])
+def test_a_resave_after_a_later_tool_change_is_held_with_the_recorded_bytes_that_clear_it(
+        world: World, monkeypatch: pytest.MonkeyPatch, later: str) -> None:
+    """With other (Git-bound) tools, a later tool version that finds a problem in a baseline review, or counts a
+    skill run's claims differently, leaves the go in force while the review keeps its bytes; after a CRLF re-save the
+    review is compared by what these tools read from it, so Stage 2 is held with a message that says a re-save can
+    differ here and gives the recorded sha256, and restoring those exact bytes clears it (NEW-2)."""
+    record_stage1_go(world, "other")
+    run_id = "pilot-demo-a:codex:baseline:1" if later == "rule" else "pilot-demo-a:codex:1"
+    if later == "rule":
+        earlier_check = wp.check_review
+
+        def later_check(record, display, ctx):
+            problems, data = earlier_check(record, display, ctx)
+            if ctx.run_id == run_id:
+                problems = problems + [er.Problem(display, 1, er.ERROR, "Task", "a later synthetic review rule")]
+            return problems, data
+        monkeypatch.setattr(wp, "check_review", later_check)
+    else:
+        earlier_metrics = wp._run_metrics
+
+        def later_metrics(state, campaign):
+            metrics = earlier_metrics(state, campaign)
+            if state.run["id"] == run_id:
+                observed = dict(metrics["claims"]["observed"])
+                observed["supported"], observed["qualified"] = observed["supported"] - 1, observed["qualified"] + 1
+                metrics["claims"] = dict(metrics["claims"], observed=observed)
+            return metrics
+        monkeypatch.setattr(wp, "_run_metrics", later_metrics)
+    path = world.evidence(run_id) / "review.md"
+    original = path.read_bytes()
+    code, out, err = run_main(world, "run-prepare", "pilot-demo-a:claude-code:2", *pilot_args(world))
+    assert code == 0 and "recorded with other tools" in out, err
+    path.write_bytes(original.replace(b"\n", b"\r\n"))
+    code, out, err = run_main(world, "run-prepare", "pilot-demo-a:codex:2", *pilot_args(world))
+    assert code == 1 and f"what the review of {run_id} (" in err, err
+    assert ("these tools find problems in it" in err) == (later == "rule"), err
+    assert "a re-save or a note that keeps every verdict can differ here too when these tools judge or count that " \
+           "review differently; restoring the exact bytes each named review.md had when the summary was recorded " \
+           f"clears this (recorded sha256: {run_id} {sha(original)[:12]}...)" in err, err
+    path.write_bytes(original)
     code, out, err = run_main(world, "run-prepare", "pilot-demo-a:codex:2", *pilot_args(world))
     assert code == 0 and "recorded with other tools" in out, err
 
