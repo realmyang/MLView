@@ -27,6 +27,53 @@ class PackageSkillTests(unittest.TestCase):
         self.assertNotEqual(identity["sha256"], packager.bundle_identity({**payload, "a.txt": b"ONE"})["sha256"])
         self.assertNotEqual(identity["sha256"], packager.bundle_identity({"renamed.txt": b"one", "z.txt": b"two"})["sha256"])
 
+    def test_portable_filter_skips_tests_caches_and_editor_or_os_files(self):
+        # EVAL-8: one rule for the packager, the plugin sync, the installer and the candidate.
+        for relative in ("SKILL.md", "LICENSE", "references/WORKFLOW_CONTRACT.md", "scripts/artifact.py",
+                         "references/workflow-example.json", "notes.v2.md"):
+            with self.subTest(relative=relative):
+                self.assertTrue(packager.portable(relative))
+                self.assertTrue(packager.portable(Path(relative)))
+        for relative in ("tests/test_artifact.py", "scripts/__pycache__/artifact.cpython-313.pyc", "scripts/artifact.pyc",
+                         ".DS_Store", "references/.DS_Store", "._SKILL.md", "references/._training-state.md",
+                         ".git/config", ".mlview-install.json", ".hidden/SKILL.md", "SKILL.md~", ".SKILL.md.swp",
+                         "references/notes.swo", "Thumbs.db", "references/THUMBS.DB", "desktop.ini", "Desktop.ini",
+                         "backup~/SKILL.md", "", "../SKILL.md"):
+            with self.subTest(relative=relative):
+                self.assertFalse(packager.portable(relative))
+                if relative:
+                    self.assertFalse(packager.portable(Path(relative)))
+
+    def test_every_tracked_skill_file_outside_tests_is_portable(self):
+        # A real dotfile or backup file committed to the skill would silently leave the bundle; fail instead.
+        try:
+            listed = subprocess.run(["git", "ls-files", "-z", "--", "skills/mlview"], cwd=SCRIPT.parents[1],
+                                    capture_output=True, check=True).stdout.decode("utf-8").split("\0")
+        except (OSError, subprocess.CalledProcessError) as exc:
+            self.skipTest(f"git is unavailable here: {exc}")
+        tracked = [path.removeprefix("skills/mlview/") for path in listed if path]
+        if not tracked:
+            self.skipTest("not a Git checkout")
+        shipped = [path for path in tracked if not path.startswith("tests/")]
+        self.assertTrue(shipped)
+        self.assertEqual([], [path for path in shipped if not packager.portable(path)])
+        self.assertLessEqual(set(shipped), set(packager.canonical_files()))
+
+    def test_editor_and_os_files_leave_the_bundle_identity_unchanged(self):
+        with tempfile.TemporaryDirectory() as temp:
+            source = Path(temp) / "skill"
+            for relative, contents in packager.canonical_files().items():
+                (source / relative).parent.mkdir(parents=True, exist_ok=True)
+                (source / relative).write_bytes(contents)
+            clean = packager.bundle_identity(packager.canonical_files(source))
+            self.assertEqual(packager.bundle_identity(packager.canonical_files()), clean)
+            for junk in (".DS_Store", "._SKILL.md", "references/.DS_Store", "references/._WORKFLOW_CONTRACT.md",
+                         "scripts/__pycache__/artifact.cpython-313.pyc", "SKILL.md~", "references/.notes.md.swp",
+                         "Thumbs.db", "desktop.ini", ".mlview-install.json", ".git/HEAD", "tests/test_extra.py"):
+                (source / junk).parent.mkdir(parents=True, exist_ok=True)
+                (source / junk).write_bytes(b"junk")
+            self.assertEqual(clean, packager.bundle_identity(packager.canonical_files(source)))
+
     def test_canonical_skill_license_matches_repository_license(self):
         self.assertEqual(
             (SCRIPT.parents[1] / "LICENSE").read_bytes(),

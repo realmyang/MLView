@@ -47,6 +47,21 @@ class InstallerTests(unittest.TestCase):
             target.mkdir(parents=True); (target / "personal.txt").write_text("keep")
             with self.assertRaises(ValueError): installer.install(root)
 
+    def test_editor_and_os_files_in_the_destination_are_left_alone(self):
+        # EVAL-8: a Finder visit (.DS_Store) or bytecode cache must not block a reinstall.
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            target = root / installer.install(root)
+            for junk in (".DS_Store", "._SKILL.md", "scripts/__pycache__/artifact.cpython-313.pyc", "SKILL.md~"):
+                (target / junk).parent.mkdir(parents=True, exist_ok=True)
+                (target / junk).write_bytes(b"junk")
+            installer.install(root)
+            self.assertEqual(b"junk", (target / ".DS_Store").read_bytes())
+            self.assertEqual(b"junk", (target / "scripts/__pycache__/artifact.cpython-313.pyc").read_bytes())
+            report, ok = installer.doctor(root)
+            self.assertTrue(ok, report)
+            self.assertEqual([], report["locations"][0]["unexpected"])
+
     def test_rejects_copying_source_onto_itself(self):
         source = SCRIPT.resolve().parents[1]
         with self.assertRaises(ValueError): installer.install(source, "skills/mlview")

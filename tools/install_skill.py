@@ -9,9 +9,9 @@ import sys
 from pathlib import Path
 
 try:
-    from tools.package_skill import bundle_identity, canonical_files
+    from tools.package_skill import bundle_identity, canonical_files, portable
 except ModuleNotFoundError:  # Direct invocation from outside the checkout.
-    from package_skill import bundle_identity, canonical_files
+    from package_skill import bundle_identity, canonical_files, portable
 
 SKILL_LOCATIONS = (Path(".agents/skills/mlview"), Path(".claude/skills/mlview"))
 REQUIRED_FILES = (Path("SKILL.md"), Path("LICENSE"), Path("scripts/artifact.py"), Path("references/WORKFLOW_CONTRACT.md"), Path("references/workflow-example.json"))
@@ -29,7 +29,7 @@ def _portable_files(source: Path) -> set[Path]:
     files: set[Path] = set()
     for path in source.rglob("*"):
         relative = path.relative_to(source)
-        if "tests" in relative.parts or "__pycache__" in relative.parts or path.suffix == ".pyc":
+        if not portable(relative):
             continue
         if path.is_symlink():
             raise ValueError(f"source skill must not contain symlinks: {relative.as_posix()}")
@@ -61,9 +61,12 @@ def install(workspace: Path, destination: str = ".agents/skills/mlview") -> Path
         for path in target.rglob("*"):
             if path.is_symlink():
                 raise ValueError("destination tree must not contain symlinks")
-            if path.is_file() and path.relative_to(target) not in source_files:
+            # Editor and OS files (package_skill.portable) are left alone.
+            if path.is_file() and portable(path.relative_to(target)) and path.relative_to(target) not in source_files:
                 raise ValueError("destination contains files not owned by the MLView skill")
-    shutil.copytree(source, target, dirs_exist_ok=True, ignore=shutil.ignore_patterns("tests", "__pycache__", "*.pyc"))
+    for file in sorted(source_files):
+        (target / file).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source / file, target / file)
     return relative
 
 
