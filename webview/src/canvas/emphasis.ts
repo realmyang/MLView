@@ -57,6 +57,8 @@ export class Emphasis {
   private focusLocked = false;
   /** The node whose lineage stream is latched by focus mode (row 7). */
   private focusNodeId: string | null = null;
+  /** The card that carries the focused lineage: the node, or its collapsed group. */
+  private focusShown: string | null = null;
 
   constructor(ctx: EmphasisContext) {
     this.ctx = ctx;
@@ -69,7 +71,7 @@ export class Emphasis {
 
   /** The node focus mode has latched, or null when it is off (row 7). */
   get lockedNodeId(): string | null {
-    return this.focusLocked ? this.focusNodeId : null;
+    return this.focusLocked ? this.focusShown ?? this.focusNodeId : null;
   }
 
   get isFocusLocked(): boolean {
@@ -85,7 +87,8 @@ export class Emphasis {
    * persistent canvas element, so leaving it there dims every card of the new
    * scene (with `pointer-events: none`) and nothing could clear it; the tooltip
    * of a node from the old scene is hidden; a pending hover timer is dropped;
-   * and focus mode unlocks when its node is no longer in the document.
+   * and focus mode is re-lit from its own node (or unlocks when the new scene
+   * has no card for it), because the new cards arrive without `is-lit`.
    */
   resetHover(): void {
     if (this.hoverTimer !== null) {
@@ -96,13 +99,34 @@ export class Emphasis {
     this.hoverId = null;
     this.trace(null, 'is-tracing');
     this.ctx.tooltip.hide();
-    const index = this.ctx.index();
-    if (this.focusLocked && this.focusNodeId && (!index || !index.nodeById.has(this.focusNodeId))) {
-      this.focusLocked = false;
-      this.focusNodeId = null;
-      this.ctx.canvas.classList.remove('is-focusing');
-      this.trace(null, 'is-focusing');
+    this.retraceFocus();
+  }
+
+  /**
+   * Light focus mode from `focusNodeId`, never from the selection: a
+   * background click clears the selection, and a re-render drops every lit
+   * class. The lineage is traced from the node's visible representative (its
+   * collapsed group when it is inside one). When the scene has no card for it
+   * (removed, filtered out, scoped away), focus mode unlocks instead of leaving
+   * every card dimmed and unclickable.
+   */
+  private retraceFocus(): void {
+    if (!this.focusLocked || !this.focusNodeId) return;
+    const ctx = this.ctx;
+    const index = ctx.index();
+    const shown = index && index.nodeById.has(this.focusNodeId) ? index.visibleRepresentative(this.focusNodeId, ctx.collapsed()) : null;
+    if (shown && ctx.nodeEls().has(shown)) {
+      this.focusShown = shown;
+      ctx.canvas.classList.remove('is-tracing');
+      this.trace(shown, 'is-focusing');
+      return;
     }
+    this.focusLocked = false;
+    this.focusNodeId = null;
+    this.focusShown = null;
+    ctx.canvas.classList.remove('is-focusing');
+    this.trace(null, 'is-focusing');
+    ctx.announce('Focus mode off.');
   }
 
   applySelection(sel: Sel | null): void {
@@ -115,6 +139,8 @@ export class Emphasis {
     ctx.flow.setLatchedEdge(sel && sel.kind === 'edge' ? sel.id : null);
     if (!sel) {
       ctx.canvas.removeAttribute('aria-activedescendant');
+      // Deselecting (a background click) leaves focus mode latched on its node.
+      this.retraceFocus();
       ctx.syncBundles();
       ctx.flow.stop();
       return;
@@ -131,7 +157,13 @@ export class Emphasis {
     } else if (sel.kind === 'issue') {
       this.highlightIssue(sel.id);
     }
-    if (this.focusLocked) this.trace(sel.kind === 'node' ? sel.id : null, 'is-focusing');
+    // Focus follows a newly selected node (through its collapsed group when
+    // needed); an edge or finding selection shows the whole diagram, as before.
+    if (this.focusLocked && sel.kind === 'node') {
+      this.focusNodeId = sel.id;
+      this.retraceFocus();
+    }
+    else if (this.focusLocked) this.trace(null, 'is-focusing');
     ctx.syncBundles();
     ctx.flow.stop();
   }
@@ -227,6 +259,7 @@ export class Emphasis {
     if (this.focusLocked) {
       this.focusLocked = false;
       this.focusNodeId = null;
+      this.focusShown = null;
       ctx.canvas.classList.remove('is-focusing');
       this.trace(null, 'is-focusing');
       ctx.flow.clear();
@@ -239,10 +272,10 @@ export class Emphasis {
     }
     this.focusLocked = true;
     this.focusNodeId = sel.id;
-    ctx.canvas.classList.remove('is-tracing');
-    this.trace(sel.id, 'is-focusing');
+    this.retraceFocus();
+    if (!this.focusLocked) return;
     // The same stream, latched, so a pipeline can be read at leisure (row 7).
-    ctx.flow.stream(sel.id);
+    ctx.flow.stream(this.focusShown ?? sel.id);
     ctx.announce('Focus mode on.');
   }
 

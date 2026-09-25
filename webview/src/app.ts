@@ -41,7 +41,7 @@ import { ScopeSession } from './scope/session.js';
 import { ScopeBar } from './ui/scopebar.js';
 import { PipelineChooser } from './ui/pipelinechooser.js';
 import { DiffBar } from './ui/diffbar.js';
-import { decorateWorkflow, normalizeWorkflow } from './workflow.js';
+import { decorateWorkflow, normalizeWorkflow, sanitizeComposer } from './workflow.js';
 import { buildAppUi } from './app/build.js';
 import { scopeToNode, setGraph, setScope } from './app/documents.js';
 import { renderChrome, renderRail } from './app/surfaces.js';
@@ -53,6 +53,7 @@ import type { SearchHit } from './search.js';
 import type {
   ActionResult,
   Capabilities,
+  ComposerState,
   ScopeSummary,
   Filters,
   HostBridge,
@@ -167,6 +168,8 @@ export class App implements MLViewApp {
    * the first `setWorkflow` only, and only when the revisions match.
    */
   private restoredView: { revision: string; viewport: Viewport } | null = null;
+  /** The composer a remount restores, under the same rule as `restoredView` (VIEWUI-4). */
+  private restoredComposer: { revision: string; composer: ComposerState } | null = null;
   /**
    * Requests waiting for the host's `actionResult`, oldest first (§1e). No
    * timeout: a save dialog may stay open for as long as the user likes.
@@ -206,6 +209,8 @@ export class App implements MLViewApp {
     if (restored && typeof restored.workflowRevision === 'string' && restored.viewport) {
       this.restoredView = { revision: restored.workflowRevision, viewport: { ...restored.viewport } };
     }
+    const composer = restored && typeof restored.workflowRevision === 'string' ? sanitizeComposer(restored.composer) : null;
+    if (restored && composer) this.restoredComposer = { revision: restored.workflowRevision as string, composer };
     this.disposers.push(bridge.onMessage((msg) => this.onMessage(msg)));
     // The initial scope travels as an attribute on the root element the report
     // already emits, so `mount(root, graph, bridge)` keeps its exact frozen
@@ -245,10 +250,12 @@ export class App implements MLViewApp {
       if (viewport) next = { ...(preserve || {}), viewport };
     }
     this.restoredView = null;
+    const composer = this.restoredComposer && this.restoredComposer.revision === document.revision.id ? this.restoredComposer.composer : null;
+    this.restoredComposer = null;
     this.workflowDocument = document;
     this.workflowRevision = document.revision.id;
     setGraph(this, normalizeWorkflow(document), next, true);
-    decorateWorkflow(this, document);
+    decorateWorkflow(this, document, composer);
   }
 
   /**

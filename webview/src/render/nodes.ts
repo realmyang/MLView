@@ -168,6 +168,16 @@ export function chipsFor(node: MLNode, metrics?: ChipMetrics | null, budget = 26
   return out;
 }
 
+/**
+ * The kind word a screen reader hears before the label. An authored node
+ * without a kind the renderer knows is a "step": the adapter's `unknown`
+ * default is not something the author wrote (VIEWUI-14).
+ */
+function kindSpoken(n: NodeVisual['node']): string {
+  if (n.authored && (n.kind === 'unknown' || !isKnownKind(n.kind))) return 'step';
+  return isKnownKind(n.kind) ? n.kind.replace(/_/g, ' ') : 'node';
+}
+
 export function ariaLabelFor(v: NodeVisual): string {
   const n = v.node;
   const bits: string[] = [];
@@ -176,7 +186,7 @@ export function ariaLabelFor(v: NodeVisual): string {
   if (n.diffStatus === 'removed') bits.push('Removed: ' + n.label);
   else if (n.ghost && n.basis === 'unresolved') bits.push('Unresolved: ' + n.label);
   else if (n.ghost) bits.push('Missing step: ' + n.label);
-  else bits.push((isKnownKind(n.kind) ? n.kind.replace(/_/g, ' ') : 'node') + ' ' + n.label);
+  else bits.push(kindSpoken(n) + ' ' + n.label);
   bits.push(stageOf(n) + ' stage');
   if (n.loc.file) bits.push(locSpoken(n.loc));
   if (n.basis) bits.push('basis ' + n.basis);
@@ -195,7 +205,8 @@ export function ariaLabelFor(v: NodeVisual): string {
   }
   const total = countsTotal(v.counts);
   const top = highestSeverity(v.counts);
-  if (total > 0) bits.push(total + (total === 1 ? ' issue' : ' issues') + ', highest severity ' + top);
+  // VIEWUI-14: the same "finding" wording as the card's own severity badge.
+  if (total > 0) bits.push(total + (total === 1 ? ' finding' : ' findings') + ', highest severity ' + top);
   if (v.descendants > 0) bits.push(v.descendants + ' nested nodes');
   if (n.dynamic) bits.push('partially resolved');
   if (n.viewRole === 'boundary') bits.push('outside the current scope');

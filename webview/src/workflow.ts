@@ -2,7 +2,7 @@
 import { add, clear, el, on } from './dom.js';
 import { emptyCounts } from './markers.js';
 import type { App } from './app.js';
-import type { ActionResult, Issue, Loc, MLGraph, RefineIntent, WorkflowDocument, WorkflowEvidence } from './types.js';
+import type { ActionResult, ComposerState, Issue, Loc, MLGraph, RefineIntent, WorkflowDocument, WorkflowEvidence } from './types.js';
 
 /**
  * An authored evidence item as a renderer `Loc`. Evidence paths are always
@@ -113,6 +113,33 @@ interface ComposerSnapshot {
   selection: ComposerSelection;
 }
 
+/**
+ * The composer as `ViewState.composer`: undefined at its default (closed,
+ * Explain, no text), per the "absent at default" rule, or when no authored
+ * composer is mounted.
+ */
+export function composerViewState(root: HTMLElement): ComposerState | undefined {
+  const panel = root.querySelector<HTMLElement>('.mlv-workflow');
+  const snapshot = panel ? captureComposer(panel) : null;
+  if (!snapshot) return undefined;
+  const intent = sanitizeIntent(snapshot.intent);
+  if (!snapshot.open && intent === 'explain' && !snapshot.custom) return undefined;
+  return { open: snapshot.open, intent, custom: snapshot.custom };
+}
+
+const sanitizeIntent = (value: unknown): RefineIntent => INTENTS.find(([intent]) => intent === value)?.[0] ?? 'explain';
+
+/** A restored `ViewState.composer`, validated field by field (saved state comes from the webview's storage). */
+export function sanitizeComposer(value: unknown): ComposerState | null {
+  if (!value || typeof value !== 'object') return null;
+  const record = value as Record<string, unknown>;
+  return {
+    open: record.open === true,
+    intent: sanitizeIntent(record.intent),
+    custom: typeof record.custom === 'string' ? record.custom.slice(0, 500) : '',
+  };
+}
+
 function captureComposer(panel: HTMLElement): ComposerSnapshot | null {
   const composer = panel.querySelector<HTMLFormElement>('.mlv-workflow__composer');
   const intent = panel.querySelector<HTMLSelectElement>('.mlv-workflow__intent');
@@ -154,22 +181,32 @@ function onRefineResult(app: App, result: ActionResult): void {
     custom.value = '';
     status.textContent = '';
     refine.focus();
+    app.saveSoon();
     return;
   }
   composer.hidden = false;
   refine.setAttribute('aria-expanded', 'true');
   status.textContent = result.message || 'The refinement prompt was not copied.';
+  app.saveSoon();
 }
 
-/** Add authored provenance and coverage above the existing diagram surface. */
-export function decorateWorkflow(app: App, document: WorkflowDocument): void {
+/**
+ * Add authored provenance and coverage above the existing diagram surface.
+ * `restored` is the composer a remounted viewer saved for this same revision.
+ */
+export function decorateWorkflow(app: App, document: WorkflowDocument, restored?: ComposerState | null): void {
   app.root.classList.add('mlv-root--workflow');
   app.root.setAttribute('data-workflow-revision', document.revision.id);
   let panel = app.root.querySelector<HTMLElement>('.mlv-workflow');
   if (!panel) { panel = el('section', 'mlv-workflow'); app.root.insertBefore(panel, app.root.querySelector('.mlv-body')); }
   // VIEWUI-4: a re-posted or refreshed revision must not wipe an open composer
   // or the request the reader is typing, so its state survives the rebuild.
-  const prior = captureComposer(panel);
+  // A remounted viewer has no composer to capture: it restores the one saved
+  // with its state for this same revision (a new revision id was never saved).
+  const captured = captureComposer(panel);
+  const prior: ComposerSnapshot | null = captured
+    ?? (restored ? { revision: document.revision.id, open: restored.open, intent: restored.intent, custom: restored.custom, status: '', focus: null, selection: undefined } : null);
+  const fromRestore = !captured && !!restored;
   clear(panel);
   panel.setAttribute('data-revision', document.revision.id);
   const heading = add(panel, el('div', 'mlv-workflow__heading'));
@@ -220,8 +257,11 @@ export function decorateWorkflow(app: App, document: WorkflowDocument): void {
     composer.hidden = !composer.hidden;
     refine.setAttribute('aria-expanded', composer.hidden ? 'false' : 'true');
     if (!composer.hidden) { refreshSelection(); intent.focus(); }
+    app.saveSoon();
   });
-  on(intent, 'change', () => { custom.hidden = intent.value !== 'custom'; if (!custom.hidden) custom.focus(); });
+  on(intent, 'change', () => { custom.hidden = intent.value !== 'custom'; if (!custom.hidden) custom.focus(); app.saveSoon(); });
+  // The typed request survives a webview recreation (the panel does not retain its context when hidden).
+  on(custom, 'input', () => app.saveSoon());
   on(composer, 'submit', (event) => {
     event.preventDefault();
     const chosen = intent.value as RefineIntent;
@@ -240,14 +280,16 @@ export function decorateWorkflow(app: App, document: WorkflowDocument): void {
     if (INTENTS.some(([value]) => value === prior.intent)) intent.value = prior.intent;
     custom.value = prior.custom;
     custom.hidden = intent.value !== 'custom';
-    status.textContent = prior.status;
+    // The host's last answer describes the revision it was given; a new
+    // revision starts with no stale refusal on screen.
+    status.textContent = prior.revision === document.revision.id ? prior.status : '';
     if (prior.open) {
       composer.hidden = false;
       refine.setAttribute('aria-expanded', 'true');
       // Same revision: the reader's captured selection still resolves. A new
       // revision re-captures from `app.selection`, which the projection has
       // already cleared if the revision removed it (VIEWUI-15).
-      if (prior.revision === document.revision.id) showSelection(prior.selection);
+      if (prior.revision === document.revision.id && !fromRestore) showSelection(prior.selection);
       else refreshSelection();
     }
     if (prior.focus === 'refine') refine.focus();

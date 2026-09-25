@@ -16,6 +16,7 @@ import { uiIcon } from '../icons.js';
 import { concernRows, pipelineRows, scopeCatalog, stageRows, viewCountOf } from '../scope/catalog.js';
 import type { ScopeGroup, ScopeUnit } from '../scope/catalog.js';
 import { drawnCount, rowSeverity } from '../scope/pipelines.js';
+import { locLabel, locTitle } from '../notebook.js';
 import type { PipelineRow } from '../scope/pipelines.js';
 import type { MLGraph } from '../types.js';
 
@@ -59,7 +60,7 @@ export class ScopePicker {
     head.appendChild(close);
 
     const search = add(this.root, el('div', 'mlv-scopepicker__search'));
-    const label = add(search, el('label', 'mlv-sr', 'Search units'));
+    const label = add(search, el('label', 'mlv-sr', 'Search steps, phases, files'));
     label.htmlFor = uid + '-q';
     this.searchInput = add(search, el('input', 'mlv-input')) as HTMLInputElement;
     this.searchInput.id = uid + '-q';
@@ -154,13 +155,16 @@ export class ScopePicker {
       depths.appendChild(b);
     }
 
-    const stages = stageRows(graph).filter((s) => s.present);
+    // The search box offers steps, phases and files, so it filters the stage
+    // rows too (by label or id), and units also match by node id (VIEWUI-6).
+    const stages = this.filteredStages(stageRows(graph).filter((s) => s.present));
     if (stages.length) {
       this.body.appendChild(this.heading('Stages'));
       for (const row of stages) this.body.appendChild(this.groupRow(row));
     }
 
     const units = this.filtered(scopeCatalog(graph, 200));
+    if (!units.length && stages.length && this.query.trim()) return;
     this.body.appendChild(this.heading('Units'));
     if (!units.length) {
       add(this.body, el('div', 'mlv-empty-note', 'No unit matches “' + this.query + '”.'));
@@ -183,8 +187,15 @@ export class ScopePicker {
       (u) =>
         u.label.toLowerCase().indexOf(q) >= 0 ||
         u.qualname.toLowerCase().indexOf(q) >= 0 ||
+        u.nodeId.toLowerCase().indexOf(q) >= 0 ||
         u.file.toLowerCase().indexOf(q) >= 0,
     );
+  }
+
+  private filteredStages(stages: ScopeGroup[]): ScopeGroup[] {
+    const q = this.query.trim().toLowerCase();
+    if (!q) return stages;
+    return stages.filter((s) => s.label.toLowerCase().indexOf(q) >= 0 || s.spec.replace(/^stage:/, '').toLowerCase().indexOf(q) >= 0);
   }
 
   private heading(text: string): HTMLElement {
@@ -257,10 +268,13 @@ export class ScopePicker {
 
   private unitRow(unit: ScopeUnit): HTMLElement {
     const drawn = this.drawn(unit.spec, unit.nodeCount);
-    // A step with no evidence has no location; never print a fake `:1`.
-    const where = unit.file ? unit.file + ':' + unit.line + ' · ' : '';
+    // A step with no evidence has no location; never print a fake `:1`. The
+    // shared label names an authored notebook cell, like the card (VIEWUI-8).
+    const where = unit.file ? locLabel(unit.loc) + ' · ' : '';
     const detail = where + drawn + (drawn === 1 ? ' node' : ' nodes');
     const row = this.row(unit.label, detail, unit.spec, this.state.spec === unit.spec);
+    const title = unit.file ? locTitle(unit.loc) : '';
+    if (title) row.title = unit.label + ' — ' + detail + ' (' + title + ')';
     if (unit.maxSeverity) row.setAttribute('data-sev', unit.maxSeverity);
     return row;
   }

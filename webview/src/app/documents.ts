@@ -20,7 +20,7 @@ import { chooserRows, shouldAskPipeline } from '../ui/pipelinechooser.js';
 import { renderChrome, renderRail } from './surfaces.js';
 import type { DiffIndex } from '../diff/overlay.js';
 import type { App } from '../app.js';
-import type { MLGraph, ScopeSummary, ViewState } from '../types.js';
+import type { MLGraph, ScopeSummary, ViewState, Viewport } from '../types.js';
 
 /* ── graph + layout ──────────────────────────────────────────────────── */
 
@@ -64,8 +64,9 @@ export function setGraph(app: App, graph: MLGraph, preserve?: Partial<ViewState>
   app.pendingScope = null;
   // A drained scope announces, posts and persists through `afterScopeChange`,
   // so it needs no second post; anything else that moved the host's view of
-  // the scope does.
-  if (pending && drainScope(app, pending)) return;
+  // the scope does. A viewport restored with the scope (webview recreation,
+  // VIEWUI-3) belongs to the scoped view, so the drain applies it too.
+  if (pending && drainScope(app, pending, preserve && preserve.viewport ? preserve.viewport : undefined)) return;
   if (before && !sameScope(before, app.scopes.summary())) postScopeChanged(app);
   // MLV-P12: after the document is drawn and any pending scope has drained,
   // so a reader who already has a scope is never asked which pipeline to open.
@@ -81,7 +82,7 @@ export function setGraph(app: App, graph: MLGraph, preserve?: Partial<ViewState>
  * left standing as an empty diagram the user never asked for. Returns true when
  * it applied the scope and therefore already posted `scopeChanged`.
  */
-function drainScope(app: App, pending: { spec: string; depth?: number }): boolean {
+function drainScope(app: App, pending: { spec: string; depth?: number }, viewport?: Viewport): boolean {
   const result = app.scopes.set(pending.spec, pending.depth);
   if (!result.ok) {
     const error = result.error;
@@ -93,7 +94,7 @@ function drainScope(app: App, pending: { spec: string; depth?: number }): boolea
     app.view.toast('Scope no longer matches — cleared');
     return false;
   }
-  afterScopeChange(app);
+  afterScopeChange(app, viewport);
   return true;
 }
 
@@ -221,9 +222,10 @@ export function scopeToNode(app: App, nodeId: string): void {
  * Applied, announced, posted and persisted. A scope change is LOCAL: it never
  * posts `requestRefresh` and never reaches the analyzer (CONTRACTS 11.8).
  */
-function afterScopeChange(app: App): void {
+function afterScopeChange(app: App, viewport?: Viewport): void {
   syncCollapsed(app);
-  applyProjection(app);
+  // Only a drained, restored scope passes a viewport; every user gesture refits.
+  applyProjection(app, viewport ? { viewport } : undefined);
   const summary = postScopeChanged(app);
   app.announce(
     summary.spec

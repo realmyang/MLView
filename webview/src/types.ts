@@ -589,6 +589,19 @@ export interface ViewState {
    * this equals the revision it is handed (VIEWUI-3).
    */
   workflowRevision?: string;
+  /**
+   * The Refine composer of that authored revision: open, intent and custom
+   * text (VIEWUI-4). Absent at its default (closed, Explain, no text), and
+   * restored on a remount only when `workflowRevision` matches.
+   */
+  composer?: ComposerState;
+}
+
+/** A Refine composer's reader-visible state. */
+export interface ComposerState {
+  open: boolean;
+  intent: RefineIntent;
+  custom: string;
 }
 
 /* ── host protocol (CONTRACTS section 4) ───────────────────────────────── */

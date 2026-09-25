@@ -285,3 +285,83 @@ test('a theme word outside light, dark and hc keeps the current theme', async ()
   assert.equal(root.getAttribute('data-theme'), 'hc');
   ctx.app.destroy();
 });
+
+// ---- Review round 1 ----
+
+test('a remount with a saved scope restores the scoped viewport instead of refitting (WEBVIEW1-1)', async () => {
+  const saved = { x: -123, y: -45, zoom: 1.7 };
+  const ctx = await mount(workflow('r1'), { viewport: saved, workflowRevision: 'r1', scope: { spec: 'stage:loop', depth: 0 } });
+  assert.equal(ctx.app.getScope().spec, 'stage:loop');
+  assert.deepEqual(JSON.parse(JSON.stringify(ctx.app.getState().viewport)), saved);
+  ctx.app.destroy();
+  // The full round trip: scope, pan, snapshot, remount.
+  const first = await mount();
+  first.app.setScope('stage:loop');
+  first.bridge.send({ v: 1, type: 'restoreState', state: { viewport: { x: -300, y: -200, zoom: 2 } } });
+  const state = JSON.parse(JSON.stringify(first.app.getState()));
+  first.app.destroy();
+  const second = await mount(workflow('r1'), state);
+  assert.equal(second.app.getScope().spec, 'stage:loop');
+  assert.deepEqual(JSON.parse(JSON.stringify(second.app.getState().viewport)), { x: -300, y: -200, zoom: 2 });
+  second.app.destroy();
+  // Without a restored viewport a drained scope still fits the scoped view.
+  const fitted = await mount(workflow('r1'), { scope: { spec: 'stage:loop', depth: 0 } });
+  assert.equal(fitted.app.getScope().spec, 'stage:loop');
+  assert.notDeepEqual(JSON.parse(JSON.stringify(fitted.app.getState().viewport)), saved);
+  fitted.app.destroy();
+});
+
+test('a refinement refusal is not shown again for a new revision (LINEAGE1-5, WEBVIEW1-2)', async () => {
+  const ctx = await mount();
+  const q = (selector) => ctx.document.querySelector(selector);
+  q('.mlv-workflow__refine').click();
+  q('.mlv-workflow__composer').dispatchEvent(new ctx.window.Event('submit', { bubbles: true, cancelable: true }));
+  const refusal = 'the artifact file cannot be read right now (JSON parse error); the MLView helper refuses to publish over it. Repair or restore run.mlview.json first.';
+  reply(ctx, lastOf(ctx.bridge, 'refineWorkflow'), 'failed', { message: refusal });
+  assert.equal(q('.mlv-workflow__status').textContent, refusal);
+  ctx.bridge.send({ v: 1, type: 'workflow', document: workflow('r1') });
+  assert.equal(q('.mlv-workflow__status').textContent, refusal, 'the same revision keeps the last answer');
+  q('.mlv-workflow__intent').value = 'custom';
+  q('.mlv-workflow__intent').dispatchEvent(new ctx.window.Event('change', { bubbles: true }));
+  q('.mlv-workflow__custom').value = 'keep me';
+  ctx.bridge.send({ v: 1, type: 'workflow', document: workflow('r2') });
+  assert.equal(q('.mlv-workflow__status').textContent, '', 'a new revision starts without the old refusal');
+  assert.equal(q('.mlv-workflow__composer').hidden, false);
+  assert.equal(q('.mlv-workflow__custom').value, 'keep me');
+  ctx.app.destroy();
+});
+
+test('an open composer survives a webview recreation for the same revision (WEBVIEW1-7)', async () => {
+  const first = await mount();
+  const q = (ctx, selector) => ctx.document.querySelector(selector);
+  assert.equal('composer' in first.app.getState(), false, 'absent at its default');
+  q(first, '.mlv-workflow__refine').click();
+  q(first, '.mlv-workflow__intent').value = 'custom';
+  q(first, '.mlv-workflow__intent').dispatchEvent(new first.window.Event('change', { bubbles: true }));
+  q(first, '.mlv-workflow__custom').value = 'Why is the loss averaged twice?';
+  q(first, '.mlv-workflow__custom').dispatchEvent(new first.window.Event('input', { bubbles: true }));
+  const state = JSON.parse(JSON.stringify(first.app.getState()));
+  assert.deepEqual(state.composer, { open: true, intent: 'custom', custom: 'Why is the loss averaged twice?' });
+  await tick(300);
+  assert.deepEqual(JSON.parse(JSON.stringify(first.bridge.saved.composer)), state.composer, 'typing schedules a state save');
+  first.app.destroy();
+
+  const second = await mount(workflow('r1'), state);
+  assert.equal(q(second, '.mlv-workflow__composer').hidden, false);
+  assert.equal(q(second, '.mlv-workflow__refine').getAttribute('aria-expanded'), 'true');
+  assert.equal(q(second, '.mlv-workflow__intent').value, 'custom');
+  assert.equal(q(second, '.mlv-workflow__custom').hidden, false);
+  assert.equal(q(second, '.mlv-workflow__custom').value, 'Why is the loss averaged twice?');
+  second.app.destroy();
+
+  const other = await mount(workflow('r2'), state);
+  assert.equal(q(other, '.mlv-workflow__composer').hidden, true, 'a different revision starts closed');
+  assert.equal(q(other, '.mlv-workflow__custom').value, '');
+  other.app.destroy();
+
+  const hostile = await mount(workflow('r1'), { ...state, composer: { open: 'yes', intent: 'rm -rf', custom: 'x'.repeat(900) } });
+  assert.equal(q(hostile, '.mlv-workflow__composer').hidden, true);
+  assert.equal(q(hostile, '.mlv-workflow__intent').value, 'explain');
+  assert.equal(q(hostile, '.mlv-workflow__custom').value.length, 500);
+  hostile.app.destroy();
+});

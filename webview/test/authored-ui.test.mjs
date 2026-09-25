@@ -318,3 +318,105 @@ test('exports keep a title containing a slash whole, and stay well-formed XML wi
   assert.equal(odd.error, 0, 'the export parses as XML');
   assert.match(odd.svg, /Loss � spike � end/);
 });
+
+// ---- Review round 1 ----
+
+test('scope picker rows name an authored notebook cell like the card does (WEBVIEW1-3)', async () => {
+  const ctx = await mount(workflow({
+    evidence: [
+      { id: 'ev-load', file: 'nb/explore.ipynb', cell: 7, line: 3, endLine: 3, quote: 'df = load()' },
+      { id: 'ev-step', file: 'src/train.py', line: 42, endLine: 47, quote: 'optimizer.step()' },
+      { id: 'ev-loss', file: 'src/train.py', line: 35, endLine: 36, quote: 'loss.mean()' },
+    ],
+  }));
+  ctx.root.querySelector('.mlv-btn--scope').click();
+  const rows = Array.from(ctx.root.querySelectorAll('.mlv-scopepicker__row'), (row) => row.textContent);
+  assert.ok(rows.some((text) => /^Read recordsnb\/explore\.ipynb › cell 8 : 3 · \d+ nodes?$/.test(text)), rows.join(' | '));
+  assert.equal(rows.some((text) => /explore\.ipynb:3/.test(text)), false);
+  const row = Array.from(ctx.root.querySelectorAll('.mlv-scopepicker__row')).find((r) => /explore/.test(r.textContent));
+  assert.match(row.title, /cell index 7 \(zero-based\), line 3 of that cell/);
+  assert.match(ctx.root.querySelector('[data-node-id="dataset"]').textContent, /nb\/explore\.ipynb › cell 8 : 3/);
+  ctx.app.destroy();
+});
+
+test('the scope picker search finds phases by label or id and steps by id (WEBVIEW1-6)', async () => {
+  const ctx = await mount();
+  ctx.root.querySelector('.mlv-btn--scope').click();
+  const picker = ctx.root.querySelector('.mlv-scopepicker');
+  const input = picker.querySelector('input[type="search"]');
+  assert.equal(input.placeholder, 'Search steps, phases, files…');
+  assert.equal(picker.querySelector('label.mlv-sr').textContent, 'Search steps, phases, files');
+  const search = (text) => {
+    input.value = text;
+    input.dispatchEvent(new ctx.window.Event('input', { bubbles: true }));
+    return {
+      stages: Array.from(picker.querySelectorAll('[data-scope-spec^="stage:"]'), (b) => b.getAttribute('data-scope-spec')),
+      units: Array.from(picker.querySelectorAll('[data-scope-spec^="unit:"]'), (b) => b.getAttribute('data-scope-spec')),
+      empty: picker.querySelector('.mlv-empty-note')?.textContent || '',
+    };
+  };
+  assert.deepEqual(search('Repeated training'), { stages: ['stage:loop'], units: [], empty: '' });
+  assert.deepEqual(search('loop'), { stages: ['stage:loop'], units: [], empty: '' });
+  assert.deepEqual(search('epoch'), { stages: [], units: ['unit:epoch'], empty: '' });
+  assert.deepEqual(search('src/data.py'), { stages: [], units: ['unit:dataset'], empty: '' });
+  assert.deepEqual(search('nothing like this'), { stages: [], units: [], empty: 'No unit matches “nothing like this”.' });
+  assert.equal(search('').stages.length, 2);
+  ctx.app.destroy();
+});
+
+test('focus mode stays lit after a deselect and a new revision, and follows a collapsed group (WEBVIEW1-4)', async () => {
+  const lit = (ctx) => Array.from(ctx.root.querySelectorAll('.mlv-node.is-lit'), (n) => n.getAttribute('data-node-id')).sort();
+  const focusing = (ctx) => ctx.root.querySelector('.mlv-canvas').classList.contains('is-focusing');
+  const ctx = await mount();
+  ctx.app.select({ kind: 'node', id: 'dataset' });
+  ctx.app.view.toggleFocusMode(ctx.app.selection);
+  assert.equal(focusing(ctx), true);
+  const before = lit(ctx);
+  assert.ok(before.includes('dataset'));
+  ctx.app.clearSelection();
+  assert.deepEqual(lit(ctx), before);
+  ctx.bridge.send({ v: 1, type: 'workflow', document: workflow() });
+  assert.deepEqual(lit(ctx), before, 'a same-revision re-post re-lights focus');
+  ctx.bridge.send({ v: 1, type: 'workflow', document: workflow({ revision: { id: 'r2', parent: 'r1' } }) });
+  assert.equal(focusing(ctx), true);
+  assert.deepEqual(lit(ctx), before, 'a new revision re-lights focus');
+  ctx.app.setFilters({ severities: ['high'] });
+  assert.ok(!focusing(ctx) || lit(ctx).length > 0, 'a filter never leaves every card dimmed');
+  ctx.app.destroy();
+
+  const nested = await mount();
+  nested.app.select({ kind: 'node', id: 'step' });
+  nested.app.view.toggleFocusMode(nested.app.selection);
+  nested.app.view.toggleCollapse('epoch');
+  assert.equal(focusing(nested), true);
+  assert.ok(lit(nested).includes('epoch'), 'the collapsed group carries the focused lineage: ' + lit(nested).join(','));
+  nested.app.view.toggleCollapse('epoch');
+  assert.ok(lit(nested).includes('step'), 'expanding lights the focused node again');
+  nested.app.destroy();
+
+  const gone = await mount();
+  gone.app.select({ kind: 'node', id: 'dataset' });
+  gone.app.view.toggleFocusMode(gone.app.selection);
+  const reduced = workflow({ revision: { id: 'r3' } });
+  reduced.nodes = reduced.nodes.filter((n) => n.id !== 'dataset');
+  reduced.edges = [];
+  gone.bridge.send({ v: 1, type: 'workflow', document: reduced });
+  assert.equal(focusing(gone), false, 'focus unlocks when its node is gone');
+  assert.equal(gone.app.view.isFocusLocked, false);
+  gone.app.destroy();
+});
+
+test('card names speak "step" and "finding" for authored nodes (WEBVIEW1-5)', async () => {
+  const ctx = await mount();
+  const label = (id) => {
+    const card = ctx.root.querySelector(`[data-node-id="${id}"]`);
+    return (card.querySelector('.mlv-group__header') || card).getAttribute('aria-label');
+  };
+  assert.match(label('step'), /^step Update weights, /);
+  assert.match(label('step'), /, 1 finding, highest severity medium\.$/);
+  assert.match(label('dataset'), /^step Read records, /);
+  assert.doesNotMatch(label('step'), /unknown|issue/);
+  assert.match(label('epoch'), /^step Epoch, /);
+  assert.doesNotMatch(label('epoch'), /unknown|issue|^node /);
+  ctx.app.destroy();
+});
