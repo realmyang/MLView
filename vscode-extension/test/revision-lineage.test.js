@@ -217,9 +217,11 @@ test('canonicalJson and jsonDepth are iterative, so deep nesting cannot overflow
   const value = JSON.parse(text);
   assert.equal(canonicalJson(value), text);
   assert.equal(jsonDepth(value), depth);
-  const nested = JSON.parse('{"a":' + '{"b":'.repeat(5000) + '1' + '}'.repeat(5000) + '}');
+  // Compare with the source text: JSON.stringify recurses and overflows Linux's default stack here.
+  const nestedText = '{"a":' + '{"b":'.repeat(5000) + '1' + '}'.repeat(5000) + '}';
+  const nested = JSON.parse(nestedText);
   assert.equal(jsonDepth(nested), 5001);
-  assert.equal(canonicalJson(nested).length, JSON.stringify(nested).length);
+  assert.equal(canonicalJson(nested), nestedText);
   assert.equal(jsonDepth(1), 0);
   assert.equal(jsonDepth([]), 1);
   assert.equal(jsonDepth({ a: [{ b: [] }], c: 'x' }), 4);

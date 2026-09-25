@@ -846,22 +846,29 @@ class ArtifactTests(unittest.TestCase):
 
     def test_nesting_beyond_the_depth_limit_is_invalid_json_on_every_python(self):
         # HELPER1-4: validate walks never see deep structures (3.12+ parses far deeper than the recursion limit).
+        # Deep inputs are written as raw text: before Python 3.12, json.loads/json.dumps of 1500+
+        # levels raise RecursionError in the test itself, while the helper must still answer.
+        def with_raw(doc, key, raw):
+            return json.dumps({**doc, key: "__RAW__"}).replace('"__RAW__"', raw)
         for depth in (65, 1500, 5000):
             with self.subTest(depth=depth):
-                doc = document(); doc["junk"] = json.loads("[" * (depth - 1) + "]" * (depth - 1))
-                draft = self.write_draft(doc)
+                draft = self.root / "draft.json"
+                draft.write_text(with_raw(document(), "junk", "[" * (depth - 1) + "]" * (depth - 1)), encoding="utf-8")
                 code, response = self.run_raw("validate", str(draft), "--workspace", str(self.root))
                 self.assertEqual((1, [{"code": "invalid_json", "path": "$", "message": "nesting is too deep"}]), (code, response["errors"]))
         doc = document(); doc["junk"] = json.loads("[" * 62 + "]" * 62)
         code, response = self.run_raw("validate", str(self.write_draft(doc)), "--workspace", str(self.root))
         self.assertEqual(["additional_property"], [e["code"] for e in response["errors"]])
         self.write_draft(document())
-        record = {"id": "n2", "label": json.loads("[" * 1500 + "]" * 1500)}
-        code, response = self.upsert_raw("draft.json", record)
+        (self.root / "record.json").write_text(with_raw({"id": "n2"}, "label", "[" * 1500 + "]" * 1500), encoding="utf-8")
+        code, response = self.run_raw("upsert", "draft.json", "--workspace", str(self.root), "--collection", "nodes", "--record", "record.json")
         self.assertEqual((1, [{"code": "invalid_json", "path": "record", "message": "nesting is too deep"}]), (code, response["errors"]))
         self.assertFalse((self.root / "draft.json.lock").exists())
         # A library caller that skips the parse guard still gets errors, never a RecursionError.
-        doc = document(); doc["title"] = json.loads("[" * 5000 + '"x"' + "]" * 5000)
+        deep = "x"
+        for _ in range(5000):
+            deep = [deep]
+        doc = document(); doc["title"] = deep
         self.assertIn("type", {e["code"] for e in self.validate(doc)})
 
     def test_publish_refuses_an_oversize_existing_artifact(self):
