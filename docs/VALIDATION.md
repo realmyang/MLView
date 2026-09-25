@@ -8,6 +8,33 @@ Run `sh scripts/e2e.sh` with Python 3.10+ and Node 20.18.1+ on PATH. On Windows
 use `powershell -File scripts/e2e.ps1`. The [script guide](../scripts/README.md)
 explains each gate and explicit skip options.
 
+## Campaign 1 CI and live check — 2026-09-25
+
+The first CI runs of the campaign (`8aa3e62`) failed in test code only: a
+helper test built its deep-nesting input with `json.loads`, which raises
+`RecursionError` before Python 3.12, and an extension test compared against
+`JSON.stringify` of a 5,001-level object, which overflowed the default stack on
+Linux Node 20 and 22. Both now write the input as raw text (`10dd273`). The next
+run exposed a Windows-only difference in the vscode mock, whose open documents
+had `/`-separated paths where real VS Code gives native ones (`deab60a`). At
+`deab60a` all eight CI jobs passed (Python 3.10–3.13; Node 20.18.1 and 22 on
+Linux, Node 22 on macOS and Windows) in both the [push run](https://github.com/realmyang/MLView/actions/runs/36093596906) and the
+[PR run](https://github.com/realmyang/MLView/actions/runs/36093599706). The local gate results above are unchanged by these test-only
+commits.
+
+A partial live check followed, on macOS only: VS Code 1.139.0 Extension
+Development Host with an isolated profile, the Campaign 1 extension and viewer,
+and a scratch workspace. High Contrast Light mapped to the viewer's
+high-contrast palette; a UTF-8 BOM source published by the 0.2.0 helper showed
+no banner while open in an editor; typing produced the unsaved-edit banner and
+reverting cleared it; a change on disk produced the historical-diagram banner
+and restoring the bytes cleared it; a zero-finding document read "No findings
+recorded in this revision"; and the copied Challenge prompt matched the new
+format. See the [dated log](demo-logs/2026-09-25-campaign1-live-check.md) for
+exact observations and what was not covered (HC Dark, the other intents,
+notebooks, a symlinked root, Restricted Mode, Windows, Linux, remote
+workspaces, a native assistant).
+
 ## Campaign 1 local checks — 2026-09-25
 
 Campaign 1 ("reliability and trust", version 0.2.0; see the

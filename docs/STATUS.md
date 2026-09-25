@@ -37,11 +37,13 @@ intents; Explain never publishes. The helper no longer fingerprints MLView's own
 artifacts, drafts or installed skill. A shared corpus in
 `contracts/conformance` checks the schema, helper and extension together. With
 the fixes from the campaign's first and second reviews, on commit `106f172`, the
-full local gate passed on one macOS machine ([details](VALIDATION.md)). CI has not yet run
-on it. The manual live VS Code
-checks (high-contrast light, a BOM file open while publishing, a symlinked
-root, Windows drive letters) have not been run, and none of this is semantic
-validation.
+full local gate passed on one macOS machine ([details](VALIDATION.md)).
+CI then passed all eight jobs (Python 3.10–3.13; Node 20.18.1 and 22 on Linux, macOS and Windows) at `deab60a`, in the [push](https://github.com/realmyang/MLView/actions/runs/36093596906) and [PR](https://github.com/realmyang/MLView/actions/runs/36093599706) runs, after two test-only fixes for older Python and Windows. A partial
+[live check](demo-logs/2026-09-25-campaign1-live-check.md) in a macOS VS Code
+Extension Development Host confirmed High Contrast Light, a BOM source open in
+an editor, unsaved-edit and changed-on-disk banners, and the Challenge prompt.
+HC Dark, the other intents, a symlinked root, Restricted Mode and Windows were
+not exercised live, and none of this is semantic validation.
 
 The [trust and usability campaign](TRUST_USABILITY_CAMPAIGN.md) implements the
 first campaign from the [improvement research](IMPROVEMENT_RESEARCH_2026-09-18.md):
@@ -53,8 +55,9 @@ remaining gates. No human semantic review or held-out pilot pass is implied.
 The follow-up completed macOS VS Code viewer/keyboard checks and focused browser
 and native performance profiling through 2,000 nodes. Source links now retain
 the visible diagram, side tabs support keyboard navigation, and both validators
-enforce the same evidence requirements. Large full-view updates remain slow;
-the [profile](PERFORMANCE.md) identifies repeated routing obstacle checks as
-the next optimization target. These synthetic viewer exercises do not run or
+enforce the same evidence requirements. The [profile](PERFORMANCE.md) identified
+repeated routing obstacle checks as the bottleneck; Campaign 1 now runs the
+cheap geometric test first, with identical routes, and the jsdom benchmark's
+2,000-node update fell from about 10 s to about 1.5 s on the same machine. These synthetic viewer exercises do not run or
 score a native assistant. The [human review guide](../evals/workflow/reference-candidates/REVIEW_GUIDE.md)
 explains the pending owner/reviewer decisions.
