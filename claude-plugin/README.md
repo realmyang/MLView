@@ -36,8 +36,16 @@ Directly from GitHub:
 
 ```text
 /plugin marketplace add realmyang/MLView
-/plugin install mlview@mlview-github
+/plugin install mlview-github@mlview-local
 ```
+
+The repository's marketplace is named `mlview-local` whether it is added from
+a checkout or from GitHub; add it from only one of them. The `mlview-github`
+entry pins no ref: it installs `claude-plugin/` from the repository's default
+branch. That branch gives this native skill only after
+[pull request #9](https://github.com/realmyang/MLView/pull/9) merges; until
+then it still delivers the retired static-analyzer plugin, so use one of the
+checkout-based installs above.
 
 Then ask Claude to visualize, map, review, or explain an ML workflow. Claude
 loads the `mlview` skill, writes `workflow.mlview.json` in the workspace, and
@@ -54,6 +62,9 @@ claude-plugin/
     LICENSE
     SKILL.md
     references/WORKFLOW_CONTRACT.md
+    references/coverage-obligations.md
+    references/notebooks-and-configuration.md
+    references/training-state.md
     references/workflow-example.json
     scripts/artifact.py
   tests/test_distribution.py
