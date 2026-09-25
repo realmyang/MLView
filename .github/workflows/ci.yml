@@ -18,7 +18,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python: ['3.10', '3.11', '3.12', '3.13']
+        python: ['3.10', '3.11', '3.12', '3.13', '3.14']
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
@@ -37,10 +37,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # 20.18.1 is engines.node and enforces "no API newer than Node 20".
           - os: ubuntu-latest
             node: '20.18.1'
           - os: ubuntu-latest
             node: '22'
+          - os: ubuntu-latest
+            node: '24'
+          - os: ubuntu-latest
+            node: '26'
           - os: windows-latest
             node: '22'
           - os: macos-latest
@@ -60,7 +65,12 @@ jobs:
             webview/package-lock.json
             vscode-extension/package-lock.json
       - run: python -m pip install -r requirements-dev.txt
-      - run: python scripts/check.py e2e
+      - name: End-to-end gate (native sh driver, 17 gates)
+        if: runner.os != 'Windows'
+        run: sh scripts/e2e.sh
+      - name: End-to-end gate (native PowerShell driver, 17 gates)
+        if: runner.os == 'Windows'
+        run: pwsh -File scripts/e2e.ps1
       - name: Built viewer is committed and synchronized
         run: git diff --exit-code -- webview/dist vscode-extension/media vscode-extension/THIRD_PARTY_NOTICES.md claude-plugin/skills/mlview
       - name: Produce distributable packages
@@ -77,3 +87,26 @@ jobs:
             .mlview/dist/*.zip
           include-hidden-files: true
           if-no-files-found: error
+  claude-plugin:
+    # Conditional (Campaign 2 SPEC section 6, EVAL-11): if `claude plugin validate` turns out to
+    # need credentials or online services, this job is removed and the reason is recorded in
+    # docs/VALIDATION.md. No secrets are ever added.
+    name: Claude plugin validate --strict
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      - run: python -m pip install -r requirements-dev.txt
+      - run: npm install -g @anthropic-ai/claude-code@2.1.274
+      - name: Plugin and marketplace validate strictly (a missing CLI fails)
+        run: python -m pytest claude-plugin/tests -q
+        env:
+          MLVIEW_REQUIRE_CLAUDE_CLI: '1'
