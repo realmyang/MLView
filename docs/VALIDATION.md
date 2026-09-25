@@ -13,7 +13,7 @@ explains each gate and explicit skip options.
 The fixes for the 15 verified findings of the campaign's second review (see
 the "Round 2 review fixes" paragraph of the [changelog](../CHANGELOG.md))
 were checked before their commit on the `campaign2-pilot-readiness` branch,
-on top of `f295e44`, on the same macOS machine and virtualenv as below.
+on top of `fd75106`, on the same macOS machine and virtualenv as below.
 **These are local automated checks only**. CI has not run on this branch.
 No Python 3.10 interpreter was available here; the system Python 3.9 parser
 read every changed Python file as a stand-in.
@@ -44,7 +44,7 @@ synthetic. No native session, human review, reference freeze, corpus
 The fixes for the 37 verified findings of the campaign's first review (see
 the "Round 1 review fixes" paragraph of the [changelog](../CHANGELOG.md))
 were checked before their commit on the `campaign2-pilot-readiness` branch,
-on top of `5f12856`, on the same macOS machine and virtualenv as below.
+on top of `484a032`, on the same macOS machine and virtualenv as below.
 **These are local automated checks only**. CI has not run on this branch.
 No Python 3.10 interpreter was available here. As a stand-in, the system
 Python 3.9 parser read every Python file directly in `tools/`,
@@ -84,10 +84,12 @@ run occurred.
 ## Campaign 2 local checks — 2026-09-25
 
 Campaign 2 ("pilot readiness", version 0.3.0; see the
-[changelog](../CHANGELOG.md)) was checked on commit `8a824f9` of the
-`campaign2-pilot-readiness` branch, which is based on `llm-workflow` at
-`25b7a39` because PR #9 has not merged (`git merge-base --is-ancestor 25b7a39
-origin/main` was false after a fetch).
+[changelog](../CHANGELOG.md)) was checked on commit `72e0ab3` of the
+`campaign2-pilot-readiness` branch. The branch was built on `llm-workflow` at
+`25b7a39` while PR #9 was open, then re-parented onto `main` at `d99904f`, the
+squash merge of PR #9, which has the same tree as `25b7a39`. Every re-parented
+commit keeps its tree, so the checks below apply unchanged (this commit was
+`8a824f9` before the move).
 **These are local automated checks on one macOS machine** (Darwin 25.6.0,
 Node 26.4.0, npm 11.17.0, git 2.54.0, Python 3.13.15 in a virtualenv). The
 venv's `pip freeze` has `pytest==9.1.1` and `jsonschema==4.26.0`, the exact
@@ -131,7 +133,7 @@ validation or semantic accuracy.
   `f4eb582052434a649c377eb48c3cf9026b04db445ae2f50522013cdfa5b04443`,
   `mlview.css` unchanged at
   `e43c14dec5968faf86c28993dbbe8c39c35b334e9f6589c817d1ed286daa6185`.
-- After the 0.3.0 bump (`a36002c`) a second rebuild (viewer build, asset and
+- After the 0.3.0 bump (`458ae3a`) a second rebuild (viewer build, asset and
   skill sync, extension compile) left `git diff --exit-code` over
   `webview/dist`, `vscode-extension/media`, the extension's notices and
   `claude-plugin/skills/mlview` clean.
@@ -151,7 +153,7 @@ validation or semantic accuracy.
 - `claude plugin validate --strict` did not run: there is no Claude CLI on this
   machine. The conditional CI job is configured but has not run; if it needs
   credentials it will be withdrawn with the reason recorded here.
-- Tooling exercise on scratch copies only (a clone at `a36002c` and a copy of
+- Tooling exercise on scratch copies only (a clone at `458ae3a` and a copy of
   the 8 pinned checkouts outside the repository): synthetic decisions (reviewer
   "Test Reviewer (synthetic)", all accepted, the Flax scenario replaced) for the
   8 tasks and a synthetic run policy passed `check`; after `--update-sparse` on

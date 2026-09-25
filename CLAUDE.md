@@ -95,10 +95,11 @@ Report only commands actually run, with their results. Local tests do not
 prove live-host use or semantic correctness, and an older CI run does not
 validate newer edits.
 
-Git: work on a feature branch. The native workflow is on `llm-workflow`
-(draft PR #9 to main); until it merges, the default branch still ships the
-retired analyzer, so a fresh clone or worktree may start from the wrong base.
-Check `git merge-base --is-ancestor <intended commit> HEAD` before starting.
+Git: work on a feature branch from `main`, which ships the native workflow
+since PR #9 (0.2.0) was squash-merged on 2026-09-25, so the old
+`llm-workflow` commits are not ancestors of `main`. Harness worktrees can
+start from `origin/main` rather than your working branch: check
+`git merge-base --is-ancestor <intended commit> HEAD` before starting.
 Commit and push only when asked; never force-push or rewrite shared history.
 Preserve unrelated working changes. Keep raw transcripts, credentials and
 machine-specific paths out of committed files. Frozen decision records stay

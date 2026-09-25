@@ -13,7 +13,7 @@ campaign and run, seal, review and summarize the held-out pilot. Nothing here
 reviews a reference, runs a model or decides the pilot: every committed
 decision file is a pending template, `pilotApproved` is the constant `false`,
 and summaries say "computed against the predefined targets; not an approval".
-0.3.0 follows 0.2.0, which ships when PR #9 merges. Finding IDs refer to the
+0.3.0 follows 0.2.0, which shipped on 2026-09-25. Finding IDs refer to the
 2026-09-25 takeover review; N and J items are the Campaign 2 specification's
 own observations.
 
@@ -201,8 +201,9 @@ hash-pinned development dependencies; automatic transcript capture.
 ## 0.2.0 — reliability and trust (Campaign 1)
 
 Every manifest now says 0.2.0, the first version number distinct from the
-analyzer-era 0.1.0 that `main` still ships. It is released when PR #9 merges
-(the owner's decision) and also carries the two "Unreleased" native entries
+analyzer-era 0.1.0 that `main` shipped before it. It was released on
+2026-09-25, when the owner squash-merged PR #9 into `main` (`d99904f`), and
+also carries the two "Unreleased" native entries
 below, which never shipped under a version number. Finding IDs refer to the
 2026-09-25 takeover review.
 

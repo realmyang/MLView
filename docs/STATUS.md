@@ -41,9 +41,9 @@ are in: among them, a run is retried only if its prompt was never sent
 (`Prompt sent: no` in `session.md`), every earlier attempt stays in the
 summary, and a recorded summary can never be removed and recorded again. With
 them, the local gate passed on one macOS machine ([details](VALIDATION.md)).
-CI has not yet run on the Campaign 2 branch. PR #9 (0.2.0) is still open, so
-Campaign 2 is based on `llm-workflow` and the CLAUDE.md Git paragraph is
-unchanged.
+CI has not yet run on the Campaign 2 branch. 0.2.0 shipped to `main` on
+2026-09-25, when PR #9 was squash-merged as `d99904f`; the Campaign 2 branch
+is based on that commit.
 
 Version 0.2.0 adds Campaign 1, "reliability and trust" (see the
 [changelog](../CHANGELOG.md)). An open panel follows the artifact file on disk

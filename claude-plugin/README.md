@@ -42,10 +42,9 @@ Directly from GitHub:
 The repository's marketplace is named `mlview-local` whether it is added from
 a checkout or from GitHub; add it from only one of them. The `mlview-github`
 entry pins no ref: it installs `claude-plugin/` from the repository's default
-branch. That branch gives this native skill only after
-[pull request #9](https://github.com/realmyang/MLView/pull/9) merges; until
-then it still delivers the retired static-analyzer plugin, so use one of the
-checkout-based installs above.
+branch, `main`, which has delivered this native skill since 0.2.0
+([pull request #9](https://github.com/realmyang/MLView/pull/9)). A
+checkout-based install gives the version of that checkout.
 
 Then ask Claude to visualize, map, review, or explain an ML workflow. Claude
 loads the `mlview` skill, writes `workflow.mlview.json` in the workspace, and
