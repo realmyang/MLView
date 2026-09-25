@@ -1,35 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { loadBundle, recordingBridge } from './helpers.mjs';
-
-function workflow(size = 48) {
-  const phases = Array.from({ length: 8 }, (_, i) => ({ id: `phase-${i}`, label: `Phase ${i}` }));
-  const evidence = Array.from({ length: size }, (_, i) => ({
-    id: `ev-${i}`, file: `src/phase-${i % 8}.py`, line: i + 1, endLine: i + 1, quote: `step_${i}()`,
-  }));
-  const nodes = Array.from({ length: size }, (_, i) => ({
-    id: `node-${i}`, label: `Step ${i}`, detail: `operation ${i}`, phase: `phase-${i % 8}`,
-    kind: i < 8 ? 'group' : 'operation',
-    parent: i >= 8 ? `node-${i % 8}` : undefined,
-    basis: i % 3 === 0 ? 'observed' : i % 3 === 1 ? 'inferred' : 'unresolved', evidence: [`ev-${i}`],
-  }));
-  const edges = Array.from({ length: size + 16 }, (_, i) => ({
-    id: `edge-${i}`, source: `node-${i % size}`, target: `node-${(i * 5 + 7) % size}`,
-    label: `flow ${i}`, kind: i % 7 === 0 ? 'control' : 'data',
-    basis: i % 2 ? 'inferred' : 'observed', evidence: [`ev-${i % size}`],
-  })).filter((edge) => edge.source !== edge.target);
-  return {
-    workflowVersion: '1.0', title: 'Renderer regression fixture',
-    producer: { kind: 'host-llm', host: 'codex', model: 'fixture' }, revision: { id: 'fixture-r1' },
-    request: { question: 'Trace the complete cyclic workflow', scope: 'src/', entrypoints: ['src/phase-0.py'] },
-    phases, nodes, edges,
-    findings: [
-      { id: 'finding-a', title: 'Review cycle', message: 'The cycle needs review.', severity: 'high', nodeIds: ['node-8'], edgeIds: ['edge-7'], basis: 'inferred', evidence: ['ev-8'] },
-      { id: 'finding-b', title: 'Unresolved output', message: 'The output destination is unresolved.', severity: 'medium', nodeIds: ['node-23'], edgeIds: [], basis: 'unresolved', evidence: ['ev-23'] },
-    ],
-    evidence, coverage: { status: 'scoped', summary: 'Synthetic renderer coverage', inspectedFiles: phases.map((p) => `src/${p.id}.py`), limitations: [] },
-  };
-}
+import { loadBundle, recordingBridge, rendererRegressionWorkflow as workflow } from './helpers.mjs';
 
 async function mount(size = 48) {
   const ctx = await loadBundle();
