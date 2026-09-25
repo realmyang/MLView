@@ -13,8 +13,11 @@ Start with the [project overview](../README.md) and
 | [Validation](VALIDATION.md) | Current local check results and their limits |
 | [Contributing](../CONTRIBUTING.md) | Development setup and release gates |
 | [Agent guide](../CLAUDE.md) | Project rules, boundaries and checks for coding agents |
-| [Evaluation protocol](../evals/workflow/README.md) | Native-host semantic and human review |
-| [Human review guide](../evals/workflow/reference-candidates/REVIEW_GUIDE.md) | Decisions needed from the pilot owner, with a plain-text template |
+| [Evaluation protocol](../evals/workflow/README.md) | Native-host pilot runs, human review and the Stage 1 stop/go computation |
+| [Human review guide](../evals/workflow/reference-candidates/REVIEW_GUIDE.md) | Decisions needed from the pilot owner, and how to record, check and freeze them |
+| [Pilot readiness](../evals/workflow/PILOT_READINESS.md) | Remaining pilot gates in order, each with its command |
+| [Candidate protocol](../evals/workflow/CANDIDATE_PROTOCOL.md) | Pilot candidate identity, frozen prompts and no-skill baselines |
+| [Frozen pilot campaigns](../evals/workflow/pilot/README.md) | Campaign file formats; immutable once committed |
 | [Security policy](../SECURITY.md) | Trust boundaries and private reporting |
 
 ## Historical records
