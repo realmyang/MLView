@@ -144,12 +144,14 @@ empty, completed at any point of its amendment chain, or has sealed evidence
 that the prompt reached the host (a captured artifact, repair rounds, a
 sealed transcript with the prompt, or a draft in the workspace); it verifies
 the sealed record first, and it refuses a retry beyond the policy's
-infrastructure retries (with the proposed policy, none). Changed project
+infrastructure retries (with the proposed policy, none) and a retry of a
+Stage 1 run once the Stage 1 summary is recorded. Changed project
 files and host settings files are not taken as proof, because a host may
 write files when it starts. A retry made around these rules makes the run
 invalid, and every earlier attempt stays in the summary (its status, failure
-and why it counts as sent in the run entry and the failures list, or in the
-baseline section for a baseline, and its hashes in the inputs). Transcripts, UI logs, run
+and why it counts as sent, including "it completed" for an attempt that
+completed before an amendment, in the run entry and the failures list, or in
+the baseline section for a baseline, and its hashes in the inputs). Transcripts, UI logs, run
 reviews and workspaces stay out of the repository; committed summaries contain
 counts, statuses and hashes only.
 
@@ -213,9 +215,15 @@ targets; not an approval":
 campaign directory, only for `go`, `stop` or `invalid`, and only once every
 planned baseline is sealed and reviewed (baselines never change the decision;
 a completed baseline without a finished review shows as `unreviewed`, with no
-paired difference, and neither does a pending one); commit them. A recorded
+paired difference, and neither does a pending one). Commit both files at
+once, right away, before any other commit, pull, merge or rebase. A recorded
 summary is final: `--record` refuses a summary file that was ever committed,
-in any branch merged into `HEAD`, even after it was deleted. `run-prepare`
+in any branch merged into `HEAD`, even after it was deleted. So is the Stage 1
+evidence behind it: once `stage1-summary.json` exists in the working tree or
+the history, `run-prepare --retry` and `run-finish --amend` refuse every Stage
+1 run, skill run or baseline (retry or amend before `--record`), because a
+changed Stage 1 record would stop the recorded go from unlocking Stage 2 and
+make the Stage 2 runs invalid. `run-prepare`
 refuses repeat runs until a committed Stage 1 summary says `go`, and it and
 `summarize --stage all` re-compute Stage 1 from the sealed evidence (a pilot
 directory without that evidence gives `incomplete`): a summary that is not a
@@ -226,12 +234,18 @@ committed, or that was committed with more than one content (for example
 through a merge), does not unlock Stage 2. The summary's `tooling` field is
 part of the file being checked, so it never switches a check off on its own
 word: when it names the running tools, every field and the Markdown rendering
-are compared; when it names other tools, each of them must be the file
-committed with the summary (so `summarize --record` refuses tools that differ
-from `HEAD` in this checkout), `skills/mlview/scripts/artifact.py` must be the
-candidate's frozen helper, and the decision, the run hashes and each run's
-status, failure and earlier attempts are still compared (a note says the
-other fields and the Markdown were not). With per-host targets, a stop reason names each host that
+are compared; when it names other tools, each of them must be a version of
+that file committed in the history of the commit that records the summary
+(`summarize --record` refuses tools that differ from `HEAD` in this checkout,
+and that `HEAD` stays in the history of the summary's commit after a pull,
+merge, rebase or tool commit in between), `skills/mlview/scripts/artifact.py`
+must be the candidate's frozen helper, and the decision, the run hashes and
+the status, failure and earlier attempts of every skill run and baseline are
+still compared (a note says the other fields and the Markdown were not). When
+the re-computation is incomplete only because the corpus is absent or
+unverified here, `run-prepare` still refuses Stage 2, and `summarize --stage
+all` is `incomplete` with a note that the Stage 1 go could not be
+re-verified, without marking the Stage 2 runs invalid. With per-host targets, a stop reason names each host that
 misses a target, and the early-stop indicators include each host's bound.
 
 If any target misses, stop before Stage 2 and report the numerators,

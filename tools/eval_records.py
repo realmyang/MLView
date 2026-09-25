@@ -19,15 +19,18 @@ The grammar of every human-authored file (Campaign 2 specification, section 1.3)
 * Lines before the first ``##`` are header fields. ``## <Kind>`` or ``## <Kind> <id>`` starts a
   section. A section whose schema entry has a ``pattern`` (the development adjudication's
   ``## dev-gan / codex``) uses its normalised heading as its kind. Any other line that starts with
-  ``#`` is an error. When it names a known section (``### Fact x`` or ``##Fact x``) that section
-  still starts there. When it looks like a heading of an unknown section (two or more ``#``, or one
-  ``#`` before a section kind and at most one ID-like word, such as ``# Facts x``) the following
-  lines are skipped until the next valid heading, so they are never attributed to the previous
-  section, and the error says so. Any other ``#`` line (``# reviewed on the train``, ``# added the
-  randint detail``) is a comment written in the wrong form: it is reported under the enclosing
-  section, which keeps its fields. So is one ``#`` before a reference item kind and a plain word
-  that is not an item ID (``# Fact checked``; every ledger and added item ID has a digit). An
-  unknown ``## `` heading also skips the lines after it, and its error says so.
+  ``#`` is an error. When it names a known section (``### Fact x``, ``##Fact x``, ``# Fact f02``)
+  that section still starts there, and the lines after it belong to it. When it looks like a
+  heading of an unknown section (two or more ``#``, or one ``#`` before a section kind or its plural
+  and nothing else or one word that could be an ID of that kind, such as ``# Facts f02``) the
+  following lines are skipped until the next valid heading, so they are never attributed to the
+  previous section, and the error says so. Any other ``#`` line is a comment written in the wrong
+  form: it is reported under the enclosing section, which keeps its fields. That covers prose
+  (``# reviewed on the train``, ``# added the randint detail``), one ``#`` before a reference item
+  kind and a word without a digit (``# Fact checked``, ``# Defects none``; every ledger and added
+  item ID has a digit), and one ``#`` before a kind that takes no ID and one word (``# Scenario
+  checked``, ``# Task done``). An unknown ``## `` heading also skips the lines after it, and its
+  error says so.
 * Every other line is ``Key: value``. Fixed keys are matched case-insensitively and stored under
   their canonical spelling. In a section with free keys (item IDs, artifact pointers, dated
   lines) the key ends at the first ``:`` that is followed by a space or the end of the line, so a
@@ -302,9 +305,11 @@ _NOT_READ = ' The lines after it, up to the next "## " heading, were not read.'
 
 def _heading_like(schema: RecordSchema, line: str, text: str) -> bool:
     """Whether a ``#`` line that names no known section was meant as a heading rather than as a
-    comment: two or more ``#`` (``### My notes``), or one ``#`` before a section kind (or its plural)
-    and at most one ID-like word (``# Facts demo-f02``, ``# Task now``). Any other ``#`` line, such as
-    ``# added the randint detail``, is a comment."""
+    comment: two or more ``#`` (``### My notes``), one ``#`` before a section kind or its plural
+    alone (``# Facts``), or one ``#`` before a section kind (or its plural) and one word that could be
+    an ID of that kind (``# Facts demo-f02``: the kind takes an ID, and a reference item ID has a
+    digit). Any other ``#`` line is a comment, such as ``# added the randint detail``, ``# Task done``
+    or ``# Scenario checked`` (Task and Scenario take no ID) and ``# Defects none`` (no digit)."""
     if line.startswith("##"):
         return True
     words = text.casefold().split()
@@ -314,8 +319,12 @@ def _heading_like(schema: RecordSchema, line: str, text: str) -> bool:
         kind = spec.kind.casefold().split()
         size = len(kind)
         forms = (kind, kind[:-1] + [kind[-1] + "s"])
-        if any(words[:size] == form for form in forms) and len(words) <= size + 1 \
-                and (len(words) == size or _ID_LIKE.fullmatch(words[size])):
+        if not any(words[:size] == form for form in forms) or len(words) > size + 1:
+            continue
+        if len(words) == size:
+            return True
+        word = words[size]
+        if spec.ident and _ID_LIKE.fullmatch(word) and (not spec.numbered or any(char.isdigit() for char in word)):
             return True
     return False
 
@@ -451,11 +460,13 @@ def parse_record(raw: bytes, display_path: str, *,
             # names a known section, that section starts here so its fields stay with it.
             attempt = " ".join(line.lstrip("#").split())
             known, _ident, _error = _match_heading(schema, attempt) if attempt else (None, None, None)
-            # One "#" before a reference item kind and a word that is not an item ID ("# Fact checked",
-            # "# Defect confirmed") is a comment: every ledger and added item ID has a digit.
-            worded = known is not None and known.numbered and not line.startswith("##") and _ident is not None \
+            # A reference item kind and a word that is not an item ID (every ledger and added item ID
+            # has a digit) never starts that item: after one "#" ("# Fact checked", "# Defect
+            # confirmed") it is a comment, after two or more ("### Fact checked") an unknown heading.
+            no_id = known is not None and known.numbered and _ident is not None \
                 and not any(char.isdigit() for char in _ident)
-            if worded:
+            worded = no_id and not line.startswith("##")
+            if no_id:
                 known = None
             if known is None and (worded or not _heading_like(schema, line, attempt)):
                 # A "#" comment ("# reviewed on the train", "#1 priority"): an error, but the section
@@ -788,16 +799,19 @@ _HISTORY_CONFIG = ("-c", "log.follow=false", "-c", "log.diffMerges=separate", "-
                    "-c", "log.showSignature=false", "-c", "diff.renames=false", "-c", "core.quotePath=true")
 
 
-def _raw_history(repo: Path, rel: str) -> list[tuple[str, list[str], list[str]]]:
-    """``(commit, fields, paths)`` of every ``--raw`` line of ``git log`` for the pathspec ``rel``,
-    oldest first (merges diffed against every parent). Raises ValueError when Git cannot read the
-    history or prints a line in a form this parser does not know (a combined merge diff, or a copy
-    or rename), so a caller reports "not verified" instead of silently missing a version."""
+def _raw_history(repo: Path, rel: str, tip: str = "HEAD") -> list[tuple[str, list[str], list[str]]]:
+    """``(commit, fields, paths)`` of every ``--raw`` line of ``git log`` for the pathspec ``rel``
+    in the history reachable from ``tip`` (HEAD, or a full commit ID), oldest first (merges diffed
+    against every parent). Raises ValueError when Git cannot read the history or prints a line in a
+    form this parser does not know (a combined merge diff, or a copy or rename), so a caller reports
+    "not verified" instead of silently missing a version."""
     problem = _path_problem(rel)
     if problem:
         raise ValueError(f"{rel!r}: the path {problem}")
+    if tip != "HEAD" and not (isinstance(tip, str) and OBJECT_RE.fullmatch(tip)):
+        raise ValueError(f"a history tip is HEAD or a full hexadecimal object name, not {tip!r}")
     output = _git(Path(repo), *_HISTORY_CONFIG, "log", "--full-history", "-m", "--no-renames", "--no-abbrev",
-                  "--no-color", "--topo-order", "--reverse", "--format=%x01%H", "--raw", "--",
+                  "--no-color", "--topo-order", "--reverse", "--format=%x01%H", "--raw", tip, "--",
                   f":(literal){rel}")
     lines: list[tuple[str, list[str], list[str]]] = []
     commit = None
@@ -817,13 +831,14 @@ def _raw_history(repo: Path, rel: str) -> list[tuple[str, list[str], list[str]]]
     return lines
 
 
-def path_history(repo: Path, rel: str) -> PathHistory:
-    """The :class:`PathHistory` of ``rel`` in the repository at ``repo``. Raises ValueError when Git
-    cannot read the history (for example an object missing from a partial clone)."""
+def path_history(repo: Path, rel: str, tip: str = "HEAD") -> PathHistory:
+    """The :class:`PathHistory` of ``rel`` in the repository at ``repo``, in the history reachable
+    from ``tip`` (HEAD by default). Raises ValueError when Git cannot read the history (for example
+    an object missing from a partial clone)."""
     versions: dict[str, str] = {}
     removals: list[str] = []
     modes: dict[str, str] = {}
-    for commit, fields, paths in _raw_history(repo, rel):
+    for commit, fields, paths in _raw_history(repo, rel, tip):
         if paths[0] != rel:
             continue
         blob, mode = fields[3], fields[1]
@@ -835,6 +850,21 @@ def path_history(repo: Path, rel: str) -> PathHistory:
         if mode not in REGULAR_MODES:
             modes.setdefault(blob, mode)
     return PathHistory(versions, removals, modes)
+
+
+def version_hashes(repo: Path, rel: str, tip: str) -> dict[str, str]:
+    """``{sha256: commit}`` of every regular-file version ``rel`` had in the history reachable from
+    the commit ``tip`` (merges included; each version with the oldest commit that recorded it). A
+    version of a file at any commit of that history is listed, because every such version is the
+    one some commit of the history recorded. Raises ValueError when Git cannot read the history or
+    a version's bytes."""
+    found: dict[str, str] = {}
+    history = path_history(repo, rel, tip)
+    for oid, commit in history.versions.items():
+        if oid in history.modes:
+            continue  # a gitlink or a symbolic link is not a version of a file
+        found.setdefault(sha256_bytes(_git(Path(repo), "cat-file", "blob", oid)), commit)
+    return found
 
 
 def committed_paths(repo: Path, rel: str) -> dict[str, str]:

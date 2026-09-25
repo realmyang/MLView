@@ -280,6 +280,44 @@ Round 4 review fixes (finding IDs refer to the Campaign 2 round 4 review):
 - The tests write summary Markdown as bytes, so the Windows job does not see
   CRLF (DISTCI4-1).
 
+Round 5 review fixes (finding IDs refer to the Campaign 2 round 5 review):
+- A summary's other-tool hashes are bound to Git history instead of one
+  commit: each must be a version of that tool committed in the history of
+  the commit that recorded the summary, so a pull, merge, rebase or tool
+  commit between `summarize --record` and the summary's commit no longer
+  wedges an honest summary; a hash of tools never committed there is still
+  refused. For a superseded campaign the owner invalidated, check-frozen
+  keeps an unbound renderer hash as a note. `--record` says to commit both
+  files at once, before any other commit, pull, merge or rebase
+  (INTEGRITY5-1, DISTCI5-1, SPECDOCS5-1).
+- With other tools, the baselines' statuses, failures, review states and
+  earlier attempts are compared with the re-computation too (INTEGRITY5-2,
+  STATS5-3).
+- Once the Stage 1 summary is recorded (in the working tree or the history),
+  `run-prepare --retry` and `run-finish --amend` refuse Stage 1 runs, which
+  would otherwise stop the recorded go from unlocking Stage 2 (STATS5-1).
+- `summarize --stage all` no longer marks Stage 2 runs invalid, or lists
+  false early-stop indicators, when the Stage 1 re-computation is incomplete
+  only because the corpus is absent or unverified; the summary is
+  incomplete with a note (STATS5-2).
+- An earlier attempt that completed before an amendment says "counted as
+  sent: it completed ..." instead of "prompt never sent" (STATS5-4).
+- Owner messages: after the freeze, the proposal-line and high-severity notes
+  of a frozen file never ask for an edit (OWNERUX5-1); a frozen second review
+  that no longer parses is handled like an edited one (OWNERUX5-2); an
+  unreadable primary is a freeze precondition and a check-frozen restore
+  step instead of a traceback (OWNERUX5-3); a deleted frozen file gets its
+  restore in `check <task>` and `check` (OWNERUX5-4); `# Scenario checked`,
+  `# Task done` and `# Defects none` are comments, and `### Fact checked` says
+  its lines were not read (OWNERUX5-6); the review guide states the adoption
+  rules and the `#` line rules as the check applies them (OWNERUX5-5,
+  SPECDOCS5-2).
+- Differs from the Campaign 2 specification: the binding of a summary's
+  `tooling` field to Git history (section 4.7 names only the hashes), the
+  finality of Stage 1 evidence once its summary is recorded, the
+  environment-incomplete Stage 1 re-computation in the all-stage summary,
+  and the wider `#` comment rule (section 1.3).
+
 Not in this version: the owner's reference review and freeze, the development
 adjudication, any native session and the pilot itself (the owner's
 decisions); second-review tooling for run reviews and the development

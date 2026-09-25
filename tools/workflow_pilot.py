@@ -62,6 +62,7 @@ CANDIDATE_KIND = "pilot-candidate"
 BUNDLE_ALGORITHM = "sha256-sorted-path-nul-bytes-nul"
 
 NOT_APPROVAL = "computed against the predefined targets; not an approval"
+UNVERIFIED_REASON = "artifact verification is incomplete (corpus absent or unverified)"
 PILOT_DIR_REMEDY = "export MLVIEW_PILOT_DIR=~/mlview-pilot"
 README_STOP_GO = 'evals/workflow/README.md, "Stage 1 stop/go"'
 README_REVIEW = 'evals/workflow/README.md, "Review and adjudicate"'
@@ -1277,9 +1278,13 @@ SAME_TOOLS = "same tools"
 
 def _tooling_binding(root: Path, campaign: Campaign, committed: dict, recomputed: dict) -> str | None:
     """SAME_TOOLS when the committed Stage 1 summary names the running tools; None when it names other
-    tools that are bound by Git (each differing tool hash is that file's sha256 in the commit that
-    first recorded the summary); otherwise why the summary's tooling cannot be trusted. The tooling
-    field is part of the file being verified, so it never switches a check off on its own word."""
+    tools that are bound by Git; otherwise why the summary's tooling cannot be trusted. Each differing
+    tool hash must be the sha256 of a version of that file committed in the history of the commit
+    that recorded the summary: summarize --record writes only the tools committed at HEAD, and that
+    HEAD is in the history of the commit that later adds the summary, also when a pull, a merge, a
+    rebase or a tool commit came in between. The tooling field is part of the file being verified,
+    so it never names tools that were never committed, and the decision, the inputs and the
+    disclosure of every run are compared whichever tools it names."""
     tooling = committed.get("tooling") if isinstance(committed.get("tooling"), dict) else {}
     fresh = recomputed["tooling"]
     if tooling.get(HELPER_KEY) != fresh[HELPER_KEY]:
@@ -1296,44 +1301,74 @@ def _tooling_binding(root: Path, campaign: Campaign, committed: dict, recomputed
                 "cannot be read")
     for key in differing:
         try:
-            data = er.git_show(root, first, key)
+            known = er.version_hashes(root, key, first)
         except ValueError:
-            data = None
-        if data is None or er.sha256_bytes(data) != tooling.get(key):
+            return (f"the committed Stage 1 summary names a {key} other than the running one, and the Git history of "
+                    f"{key} cannot be read")
+        if tooling.get(key) not in known:
             return (f"the committed Stage 1 summary names a {key} (sha256 {str(tooling.get(key))[:12]}...) that is "
-                    f"neither the running one nor the one committed with the summary in {first[:12]} (a recorded "
-                    "summary is written only by summarize --record, with the committed tools)")
+                    f"neither the running one nor any version committed in the history of {first[:12]}, the commit that "
+                    "recorded the summary (a recorded summary is written only by summarize --record, with the tools "
+                    "committed at HEAD; a rebase that rewrote the commit holding those tools also causes this)")
     return None
 
 
 def _disclosure(summary: dict) -> dict:
-    """What a Stage 1 summary discloses about each run's outcome and retries, which does not depend on
-    the tool version: runs[] id, status, failure and attempts, failures.runs and failures.earlierAttempts."""
+    """What a Stage 1 summary discloses about each run's outcome and retries, skill runs and baselines
+    alike, which does not depend on the tool version: runs[] and baselines.runs[] id, status, failure
+    kind and attempts (baselines also their review status), failures.runs, failures.earlierAttempts,
+    baselines.earlierAttempts and which baselines are pending, unreviewed or have review problems.
+    The wording of invalid reasons and failure details belongs to the tools and is not compared."""
     def kind(value: object) -> object:
         return value.get("kind") if isinstance(value, dict) else value
 
+    def attempts(run: dict) -> tuple:
+        return tuple((str(item.get("attempt")), str(item.get("status")), str(item.get("promptSent")),
+                      str(kind(item.get("failure")))) for item in run.get("attempts") or [] if isinstance(item, dict))
+
+    def replaced(items: object) -> list:
+        return sorted((str(item.get("id")), str(item.get("attempt")), str(item.get("status")), str(item.get("failure")),
+                       str(item.get("promptSent"))) for item in items or [] if isinstance(item, dict)) \
+            if isinstance(items, list) else [repr(items)]
+
     runs = summary.get("runs") if isinstance(summary.get("runs"), list) else []
     failures = summary.get("failures") if isinstance(summary.get("failures"), dict) else {}
+    baselines = summary.get("baselines") if isinstance(summary.get("baselines"), dict) else {}
+    baseline_runs = baselines.get("runs") if isinstance(baselines.get("runs"), list) else []
+
+    def ids(key: str) -> list:
+        value = baselines.get(key)
+        return sorted(str(item) for item in value) if isinstance(value, list) else [repr(value)]
+
     return {
         "runs": sorted((str(run.get("id")), str(run.get("status")), str(kind(run.get("failure"))),
-                        str(run.get("priorAttempts")),
-                        tuple((str(item.get("attempt")), str(item.get("status")), str(item.get("promptSent")),
-                               str(kind(item.get("failure")))) for item in run.get("attempts") or []
-                              if isinstance(item, dict)))
+                        str(run.get("priorAttempts")), attempts(run))
                        for run in runs if isinstance(run, dict)),
         "failures.runs": sorted((str(item.get("id")), str(item.get("status")), str(item.get("failure")))
                                 for item in failures.get("runs") or [] if isinstance(item, dict)),
-        "failures.earlierAttempts": sorted((str(item.get("id")), str(item.get("attempt")), str(item.get("status")),
-                                            str(item.get("failure")), str(item.get("promptSent")))
-                                           for item in failures.get("earlierAttempts") or [] if isinstance(item, dict)),
+        "failures.earlierAttempts": replaced(failures.get("earlierAttempts") or []),
+        "baselines.runs": sorted((str(run.get("id")), str(run.get("status")), str(kind(run.get("failure"))),
+                                  str(run.get("reviewStatus")), str(run.get("priorAttempts")), attempts(run))
+                                 for run in baseline_runs if isinstance(run, dict)),
+        "baselines.earlierAttempts": replaced(baselines.get("earlierAttempts") if "earlierAttempts" in baselines
+                                              else []),
+        "baselines.state": (ids("pending"), ids("unreviewed"), ids("reviewProblems"), str(baselines.get("complete"))),
     }
+
+
+class Stage1Unverified(str):
+    """Why a committed Stage 1 go could not be re-verified in this environment (the corpus is absent
+    or unverified), as opposed to evidence that contradicts it. run-prepare still refuses Stage 2;
+    summarize --stage all reports the summary as incomplete instead of making Stage 2 runs invalid."""
 
 
 def _stage1_matches(root: Path, campaign: Campaign, pilot_value: str | None, committed: dict,
                     notes: list[str] | None = None) -> str | None:
     """None when Stage 1, re-computed from the sealed evidence, is go with exactly the committed
-    inputs and the committed summary was generated after every Stage 1 record was sealed or amended.
-    ``notes`` receives a note when the summary was recorded with other (Git-bound) tools."""
+    inputs and the committed summary was generated after every Stage 1 record was sealed or amended;
+    a Stage1Unverified reason when the re-computation has exactly the committed inputs and is
+    incomplete only because the corpus is absent or unverified here; otherwise why it does not
+    match. ``notes`` receives a note when the summary was recorded with other (Git-bound) tools."""
     try:
         recomputed = summarize(root, campaign.name, "1", pilot_value)
     except IntegrityError as exc:
@@ -1341,19 +1376,25 @@ def _stage1_matches(root: Path, campaign: Campaign, pilot_value: str | None, com
     except PilotError as exc:
         return f"Stage 1 cannot be re-computed ({exc})"
     value = recomputed["decision"]["value"]
+    planned = {run["id"]: run for run in campaign.plan()}
+    same_inputs = _stage1_inputs(recomputed, planned) == _stage1_inputs(committed, planned)
+    if value == "incomplete" and same_inputs and recomputed["decision"].get("reasons") == [UNVERIFIED_REASON]:
+        # The environment, not the evidence: the corpus is absent or unverified here (section 4.5 E).
+        return Stage1Unverified("a re-computation of Stage 1 cannot verify the artifacts here (corpus absent or "
+                                "unverified), so the committed go is not re-verified")
     if value != "go":
         return f"a re-computation of Stage 1 from the sealed evidence gives {value}, not go"
-    planned = {run["id"]: run for run in campaign.plan()}
-    if _stage1_inputs(recomputed, planned) != _stage1_inputs(committed, planned):
+    if not same_inputs:
         return ("the committed Stage 1 summary does not match the sealed Stage 1 records and reviews "
                 "(a record, review or amendment differs)")
     tools = _tooling_binding(root, campaign, committed, recomputed)
     if tools is not None and tools != SAME_TOOLS:
         return tools
     if tools is None:
-        # Recorded with other tools, the ones committed with the summary (section 1.10): the decision,
-        # the inputs and the disclosure of every run's status, failure and earlier attempts must still
-        # be the re-computation; the other fields and the Markdown rendering belong to those tools.
+        # Recorded with other tools, committed in the summary's history (section 1.10): the decision,
+        # the inputs and the disclosure of every run's (skill run and baseline) status, failure and
+        # earlier attempts must still be the re-computation; the other fields and the Markdown
+        # rendering belong to those tools.
         fresh, recorded = _disclosure(recomputed), _disclosure(committed)
         differing = sorted(key for key in set(fresh) | set(recorded) if fresh.get(key) != recorded.get(key))
         if differing:
@@ -1361,9 +1402,10 @@ def _stage1_matches(root: Path, campaign: Campaign, pilot_value: str | None, com
                     f"({', '.join(differing)}) compared with a re-computation from the sealed evidence (a recorded "
                     "summary is written only by summarize --record)")
         if notes is not None:
-            notes.append("the committed Stage 1 summary was recorded with other tools (the ones committed with it); "
-                         "its decision, inputs, run statuses, failures and earlier attempts were compared with a "
-                         "re-computation, not its other fields or its Markdown rendering")
+            notes.append("the committed Stage 1 summary was recorded with other tools (versions committed in its "
+                         "history); its decision, inputs, and the statuses, failures and earlier attempts of its skill "
+                         "runs and baselines were compared with a re-computation, not its other fields or its Markdown "
+                         "rendering")
     else:
         # Recorded with these tools: every reported field must be the re-computation, and the
         # Markdown must be rendered from the JSON (section 4.7), so neither can hide a retry or a failure.
@@ -1502,6 +1544,31 @@ def _stage1_history(root: Path, campaign: Campaign) -> str | None:
     return None
 
 
+STAGE1_FINAL = ("Stage 1 evidence is final once its summary is recorded: a retry or an amendment of a Stage 1 run "
+                "belongs before summarize --stage 1 --record. Changing it now would stop the recorded summary from "
+                "unlocking Stage 2 and would make Stage 2 runs invalid; only the owner's invalidation.md and a new "
+                "campaign could follow")
+
+
+def _stage1_recorded(root: Path, campaign: Campaign) -> str | None:
+    """Where the Stage 1 summary of ``campaign`` is recorded (in the working tree, or anywhere in the
+    Git history reachable from HEAD), or None when it is not. A history Git cannot read counts as
+    recorded, because then nobody can tell."""
+    directory = _campaign_dir(root, campaign.name)
+    for name in ("stage1-summary.json", "stage1-summary.md"):
+        if os.path.lexists(directory / name):
+            return f"{PILOT_REL}/{campaign.name}/{name} exists"
+    for name in ("stage1-summary.json", "stage1-summary.md"):
+        versions = _path_versions(root, f"{PILOT_REL}/{campaign.name}/{name}")
+        if versions is None:
+            return (f"the Git history of {PILOT_REL}/{campaign.name}/{name} cannot be read, so it may have been "
+                    "recorded")
+        if versions.committed:
+            commit = next(iter(versions.versions.values()), None) or versions.removals[0]
+            return f"{PILOT_REL}/{campaign.name}/{name} was committed in {commit[:12]}"
+    return None
+
+
 def _path_versions(root: Path, rel: str) -> er.PathHistory | None:
     """Every version ``rel`` had in the history reachable from HEAD (eval_records.path_history), or
     None when the history cannot say (a shallow or partial clone, whose missing commits or objects
@@ -1629,6 +1696,11 @@ def run_prepare(root: Path, run_id: str, name: str, pilot_value: str | None, out
             raise PilotError(f"the workspace of attempt {len(previous)} still exists; remove it before a retry")
         if os.path.lexists(earlier):
             raise PilotError(f"{earlier} already exists; earlier attempts are never overwritten")
+        if run["stage"] == 1:  # skill runs and baselines of Stage 1
+            recorded = _stage1_recorded(root, campaign)
+            if recorded is not None:
+                raise PilotError(f"{run_id} cannot be retried: the Stage 1 summary is recorded ({recorded}). "
+                                 f"{STAGE1_FINAL}")
     stage1_notes: list[str] = []
     if run["stage"] == 2:
         committed = _committed_stage1(root, campaign)
@@ -1880,6 +1952,11 @@ def run_finish(root: Path, run_id: str, name: str, pilot_value: str | None, amen
             raise PilotError("the amendment reason contains a machine path; describe it without the path")
         if not record_path.is_file():
             raise PilotError(f"{run_id} is not sealed yet; run run-finish without --amend")
+        if run["stage"] == 1:
+            recorded = _stage1_recorded(root, campaign)
+            if recorded is not None:
+                raise PilotError(f"{run_id} cannot be amended: the Stage 1 summary is recorded ({recorded}). "
+                                 f"{STAGE1_FINAL}")
         session, session_raw = _session_or_fail(evidence, run_id, campaign.helper, out)
         return _amend(campaign, run, evidence, session, session_raw, amend.strip(), out)
     if os.path.lexists(record_path):
@@ -3284,6 +3361,8 @@ def _attempt_problems(pilot_dir: Path, planned: dict[str, dict], states: dict[st
             why = None
             if any(_seal_status(seal) == "completed" for seal in chain):
                 state.earlier_completed.append(number)
+                # Recorded so the summary never says "prompt never sent" beside an attempt that completed.
+                why = "it completed" + ("" if _seal_status(chain[-1]) == "completed" else " before it was amended")
             else:
                 why = _prompt_sent(chain, path)
                 if why is not None:
@@ -3373,6 +3452,12 @@ def summarize(root: Path, name: str, stage: str, pilot_value: str | None) -> dic
     verified: dict[str, dict] = {}
     notes: list[str] = list(stage1_notes)
     complete = True
+    if isinstance(stage1_problem, Stage1Unverified):
+        # Not a protocol violation of the Stage 2 runs (section 4.5 D/E): the summary is incomplete.
+        notes.append(f"the committed Stage 1 go could not be re-verified: {stage1_problem}; fetch or verify the corpus "
+                     "and summarize again")
+        complete = False
+        stage1_problem = None
     for state in states.values():
         in_scope = state.run["condition"] == "baseline" or _in_stage(state.run, stage)
         if state.record is None or not in_scope:
@@ -3415,7 +3500,7 @@ def summarize(root: Path, name: str, stage: str, pilot_value: str | None) -> dic
         if review_problems:
             reasons.append(f"{len(review_problems)} review problem(s) unresolved")
         if not complete:
-            reasons.append("artifact verification is incomplete (corpus absent or unverified)")
+            reasons.append(UNVERIFIED_REASON)
     else:
         missed = [t for t in targets if not t["met"]]
         if stage == "1":
@@ -3788,7 +3873,8 @@ def record_summary(root: Path, summary: dict) -> tuple[Path, Path]:
     if uncommitted:
         raise PilotError(f"{', '.join(uncommitted)} differ(s) from the version committed at HEAD; commit or discard the "
                          "tool change before recording. A recorded summary names the tools that computed it, and the "
-                         "Stage 2 gate and check-frozen read those tools from the commit that records the summary")
+                         "Stage 2 gate and check-frozen look for those tools in the Git history of the commit that "
+                         "records the summary")
     number = "1" if summary["stage"] == "1" else "2"
     directory = _campaign_dir(root, summary["campaign"])
     json_path, md_path = directory / f"stage{number}-summary.json", directory / f"stage{number}-summary.md"
@@ -3875,8 +3961,11 @@ def main(argv: list[str] | None = None, *, root: Path | None = None) -> int:
         sys.stdout.write(data.decode("utf-8") if args.json else render_markdown(json.loads(data)))
         if args.record:
             json_path, md_path = record_summary(root, summary)
-            print(f"Recorded {json_path.name} and {md_path.name} in {PILOT_REL}/{args.campaign}/; commit them. "
-                  f"The summary is {NOT_APPROVAL}.", file=sys.stderr)
+            print(f"Recorded {json_path.name} and {md_path.name} in {PILOT_REL}/{args.campaign}/. Commit both files "
+                  "now, in one commit, before any other commit, pull, merge or rebase, and merge that commit without "
+                  "squashing or rebasing it: a recorded summary is final and is never recorded again."
+                  + (" Stage 1 runs can no longer be retried or amended." if summary["stage"] == "1" else "")
+                  + f" The summary is {NOT_APPROVAL}.", file=sys.stderr)
         return 0
     except IntegrityError as exc:
         for problem in exc.problems:

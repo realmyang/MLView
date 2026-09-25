@@ -2142,8 +2142,8 @@ def test_a_hand_edited_stage1_summary_does_not_unlock_stage_2(retry_world: World
     for run in hidden["runs"]:
         run["attempts"], run["priorAttempts"] = [], 0
     for key, expected in (("tools/workflow_pilot.py", "the committed Stage 1 summary names a tools/workflow_pilot.py "
-                                                      "(sha256 000000000000...) that is neither the running one nor the "
-                                                      "one committed with the summary in "),
+                                                      "(sha256 000000000000...) that is neither the running one nor any "
+                                                      "version committed in the history of "),
                           ("tools/eval_records.py", "the committed Stage 1 summary names a tools/eval_records.py"),
                           ("skills/mlview/scripts/artifact.py", "the committed Stage 1 summary names a "
                                                                 "skills/mlview/scripts/artifact.py that is not the "
@@ -2193,7 +2193,9 @@ def test_a_stage1_summary_recorded_with_other_committed_tools_still_discloses_re
             git(retry_world.root, "reset", "--quiet", "--hard", "HEAD~1")
         else:
             assert code == 0, err
-            assert "Note: the committed Stage 1 summary was recorded with other tools (the ones committed with it)" in out
+            assert "Note: the committed Stage 1 summary was recorded with other tools (versions committed in its " \
+                   "history); its decision, inputs, and the statuses, failures and earlier attempts of its skill runs " \
+                   "and baselines were compared" in out, out
     assert (directory / "stage1-summary.json").is_file()
 
 
@@ -2333,8 +2335,215 @@ def test_check_frozen_skips_the_rendering_only_for_the_tool_committed_with_the_s
 
     assert checked(sha(old_tool)) == ([], [
         "check-frozen: pilot-99: not verified: stage1-summary.md rendered from stage1-summary.json (it was recorded with "
-        f"the tools/workflow_pilot.py committed with it in {first[:12]}, not the running one)."])
+        f"the tools/workflow_pilot.py committed in {first[:12]}, not the running one)."])
     assert checked("0" * 64) == ([
         "pilot-99/stage1-summary.json names a tools/workflow_pilot.py (sha256 000000000000...) that is neither the "
-        f"running one nor the one committed with it in {first[:12]} (a recorded summary is written only by summarize "
-        "--record, with the committed tools)"], [])
+        f"running one nor any version committed in the history of {first[:12]}, the commit that recorded it (a recorded "
+        "summary is written only by summarize --record, with the tools committed at HEAD; a rebase that rewrote the "
+        "commit holding those tools also causes this)"], [])
+
+
+# --------------------------------------------------------------------------------------------
+# Round 5: tool binding through Git history, baseline disclosure, final Stage 1 evidence (synthetic)
+
+
+OLD_TOOL = b"# the synthetic tools/workflow_pilot.py committed at HEAD when summarize --record ran\n"
+
+
+def summary_files(summary: dict) -> dict[str, bytes]:
+    return {f"{wp.PILOT_REL}/{CAMPAIGN}/stage1-summary.json": er.canonical_json(summary),
+            f"{wp.PILOT_REL}/{CAMPAIGN}/stage1-summary.md": wp.render_markdown(summary).encode("utf-8")}
+
+
+@pytest.mark.parametrize("order", ["pull-before-commit", "commit-with-tool-change", "rebase-after-commit",
+                                   "commit-then-pull"])
+def test_an_honest_summary_stays_bound_when_the_tools_change_around_its_commit(world: World, order: str) -> None:
+    """summarize --record writes the tools committed at HEAD; a pull, a rebase or a tool commit between the
+    record and the summary's commit keeps that HEAD in the summary's history, so the Stage 2 gate and
+    check-frozen accept the summary with a note (INTEGRITY5-1, DISTCI5-1, SPECDOCS5-1)."""
+    import workflow_decisions as wd  # noqa: PLC0415
+
+    root = world.root
+    real = json.loads(er.canonical_json(summarize(world)))
+    assert real["decision"]["value"] == "go"
+    real["tooling"]["tools/workflow_pilot.py"] = sha(OLD_TOOL)
+    running = (ROOT / "tools" / "workflow_pilot.py").read_bytes()
+    commit_files(root, {"tools/workflow_pilot.py": OLD_TOOL}, "synthetic: the tools when summarize --record ran")
+    if order == "pull-before-commit":
+        commit_files(root, {"tools/workflow_pilot.py": running}, "synthetic: a pulled tool update")
+        commit_files(root, summary_files(real), "synthetic: the recorded summary")
+    elif order == "commit-with-tool-change":
+        commit_files(root, {**summary_files(real), "tools/workflow_pilot.py": running},
+                     "synthetic: git commit -a with a tool edit")
+    elif order == "rebase-after-commit":
+        branch = git(root, "rev-parse", "--abbrev-ref", "HEAD")
+        git(root, "checkout", "--quiet", "-b", "upstream")
+        commit_files(root, {"tools/workflow_pilot.py": running}, "synthetic: an upstream tool update")
+        git(root, "checkout", "--quiet", branch)
+        commit_files(root, summary_files(real), "synthetic: the recorded summary")
+        git(root, "rebase", "--quiet", "upstream")  # git pull --rebase
+    else:
+        commit_files(root, summary_files(real), "synthetic: the recorded summary")
+        commit_files(root, {"tools/workflow_pilot.py": running}, "synthetic: a later tool update")
+    code, out, err = run_main(world, "run-prepare", "pilot-demo-a:codex:2", *pilot_args(world))
+    assert code == 0, err
+    assert "Note: the committed Stage 1 summary was recorded with other tools (versions committed in its history)" \
+        in out, out
+    problems: list[str] = []
+    notes: list[str] = []
+    wd._rendering_check(real, root / wp.PILOT_REL / CAMPAIGN, "stage1-summary.json", "stage1-summary.md", CAMPAIGN,
+                        problems, notes, wd.History(wd.World(root, None)))
+    assert problems == [] and len(notes) == 1 and "it was recorded with the tools/workflow_pilot.py committed in " \
+        in notes[0], (problems, notes)
+
+
+def unsent_baseline_world(base: Path, monkeypatch: pytest.MonkeyPatch) -> World:
+    """Every Stage 1 run sealed and reviewed under a synthetic one-retry policy (no human agreed to it), with the
+    baseline RETRIED failed before the prompt was sent; Stage 1 is go and its baselines are complete."""
+    world = build_world(base, policy=make_policy(**{"budget.infrastructureRetries": 1}))
+    patches(monkeypatch, world)
+    for run_id in stage1_ids():
+        if run_id == RETRIED:
+            do_run(world, run_id, session=dict(UNSENT, **{"Repair rounds": ""}), transcript=UNSENT_TRANSCRIPT)
+        else:
+            do_run(world, run_id)
+    return world
+
+
+RETRIED = "pilot-demo-b:claude-code:baseline:1"
+
+
+def retry_baseline(world: World) -> None:
+    """Retry RETRIED through run-prepare and seal and review the new attempt (synthetic)."""
+    assert run_main(world, "run-prepare", RETRIED, *pilot_args(world), "--retry", "crash (synthetic)")[0] == 0
+    evidence = world.evidence(RETRIED)
+    prompt = (evidence / "PROMPT.txt").read_text(encoding="utf-8")
+    (evidence / "transcript.txt").write_text(prompt + "\nThe loop runs 40 steps.\n", encoding="utf-8")
+    (evidence / "session.md").write_text(session_text(RETRIED, **{"Prior attempts": "1"}), encoding="utf-8")
+    assert run_main(world, "run-finish", RETRIED, *pilot_args(world))[0] == 0
+    assert run_main(world, "review-template", RETRIED, *pilot_args(world))[0] == 0
+    fill_review(evidence / "review.md")
+
+
+def test_a_summary_recorded_with_other_tools_must_disclose_the_baselines(tmp_path: Path,
+                                                                        monkeypatch: pytest.MonkeyPatch) -> None:
+    """With other committed tools, the baselines' statuses, failures and earlier attempts are compared with the
+    re-computation too, as the note says (INTEGRITY5-2, STATS5-3)."""
+    world = unsent_baseline_world(tmp_path / "w", monkeypatch)
+    retry_baseline(world)
+    real = json.loads(er.canonical_json(summarize(world)))
+    assert real["decision"]["value"] == "go" and real["baselines"]["complete"] is True
+    assert len(real["baselines"]["earlierAttempts"]) == 1
+    real["tooling"]["tools/workflow_pilot.py"] = sha(OLD_TOOL)
+    commit_files(world.root, {"tools/workflow_pilot.py": OLD_TOOL}, "synthetic: the tools when recorded")
+    hidden = json.loads(er.canonical_json(real))
+    for run in hidden["baselines"]["runs"]:
+        if run["id"] == RETRIED:
+            run.update(priorAttempts=0, attempts=[])
+    hidden["baselines"]["earlierAttempts"] = []
+    restated = json.loads(er.canonical_json(real))
+    restated["baselines"]["runs"][0].update(status="invalid", invalidReasons=["synthetic"])
+    for forged, keys in ((hidden, "baselines.earlierAttempts, baselines.runs"), (restated, "baselines.runs")):
+        commit_files(world.root, summary_files(forged), "synthetic: a summary with its baselines misstated")
+        code, _out, err = run_main(world, "run-prepare", "pilot-demo-a:codex:2", *pilot_args(world))
+        assert code == 1 and f"misstates the runs' statuses, failures or earlier attempts ({keys})" in err, err
+        git(world.root, "reset", "--quiet", "--hard", "HEAD~1")
+    commit_files(world.root, summary_files(real), "synthetic: the summary as recorded")
+    code, out, err = run_main(world, "run-prepare", "pilot-demo-a:codex:2", *pilot_args(world))
+    assert code == 0 and "statuses, failures and earlier attempts of its skill runs and baselines were compared" in out, \
+        out + err
+
+
+def test_stage1_runs_are_final_once_the_stage1_summary_is_recorded(tmp_path: Path,
+                                                                   monkeypatch: pytest.MonkeyPatch) -> None:
+    """A retry or an amendment of a Stage 1 run after summarize --record would stop the recorded go from
+    unlocking Stage 2 for good, so both are refused from the record on, committed or not (STATS5-1)."""
+    world = unsent_baseline_world(tmp_path / "w", monkeypatch)
+    code, _out, err = run_main(world, "summarize", *pilot_args(world), "--stage", "1", "--record")
+    assert code == 0 and "Stage 1 runs can no longer be retried or amended." in err, err
+    assert "Commit both files now, in one commit, before any other commit, pull, merge or rebase" in err, err
+    evidence = world.evidence(RETRIED)
+    before = sorted(path.name for path in evidence.iterdir())
+    code, _out, err = run_main(world, "run-prepare", RETRIED, *pilot_args(world), "--retry", "crash (synthetic)")
+    assert code == 1 and f"{RETRIED} cannot be retried: the Stage 1 summary is recorded (evals/workflow/pilot/" \
+                         f"{CAMPAIGN}/stage1-summary.json exists). Stage 1 evidence is final" in err, err
+    commit_files(world.root, {}, "synthetic stage 1 go")
+    code, _out, err = run_main(world, "run-prepare", RETRIED, *pilot_args(world), "--retry", "crash (synthetic)")
+    assert code == 1 and "the Stage 1 summary is recorded" in err, err
+    skill = "pilot-demo-b:codex:1"
+    session = world.evidence(skill) / "session.md"
+    session.write_text(session_text(skill, **{"Active minutes": "12"}), encoding="utf-8")
+    code, _out, err = run_main(world, "run-finish", skill, *pilot_args(world), "--amend", "typo (synthetic)")
+    assert code == 1 and f"{skill} cannot be amended: the Stage 1 summary is recorded" in err, err
+    assert sorted(path.name for path in evidence.iterdir()) == before
+    assert not (world.pilot / "evidence" / f"{er.run_dir_name(RETRIED)}.attempt-1").exists()
+    git(world.root, "rm", "--quiet", f"{wp.PILOT_REL}/{CAMPAIGN}/stage1-summary.json",
+        f"{wp.PILOT_REL}/{CAMPAIGN}/stage1-summary.md")
+    commit_files(world.root, {}, "synthetic removal (a recorded summary stays recorded in the history)")
+    code, _out, err = run_main(world, "run-prepare", RETRIED, *pilot_args(world), "--retry", "crash (synthetic)")
+    assert code == 1 and f"stage1-summary.json was committed in " in err, err
+    code, out, err = run_main(world, "run-prepare", "pilot-demo-a:codex:2", *pilot_args(world))
+    assert code == 1  # the removed summary no longer unlocks Stage 2 either
+
+
+def test_an_absent_corpus_leaves_stage_2_runs_valid_in_the_all_stage_summary(world: World) -> None:
+    """A Stage 1 re-computation that is incomplete only because the corpus is absent here does not make the
+    Stage 2 runs protocol-invalid: the all-stage summary is incomplete with a note (STATS5-2, section 4.5 E)."""
+    code, _out, err = run_main(world, "summarize", *pilot_args(world), "--stage", "1", "--record")
+    assert code == 0, err
+    commit_files(world.root, {}, "synthetic stage 1 go")
+    later = {"Started": "2026-10-25T09:00:00Z", "Ended": "2026-10-25T09:15:00Z"}
+    for run_id in [f"{task}:{host}:{rep}" for task, _repo, _entry in TASKS for host in HOSTS for rep in (2, 3)]:
+        do_run(world, run_id, session=later)
+    assert summarize(world, "all")["decision"]["value"] == "targets-met"
+    shutil.move(str(world.corpus / "demo-b"), str(world.base / "demo-b-away"))
+    summary = summarize(world, "all")
+    assert summary["decision"]["value"] == "incomplete"
+    assert [run["id"] for run in summary["runs"] if run["status"] == "invalid"] == []
+    assert not [line for line in summary["decision"]["earlyStopIndicators"] if line.startswith("T1:")]
+    assert any(note.startswith("the committed Stage 1 go could not be re-verified: a re-computation of Stage 1 cannot "
+                               "verify the artifacts here (corpus absent or unverified)")
+               for note in summary["verification"]["notes"]), summary["verification"]["notes"]
+    campaign = wp.load_campaign(world.root, CAMPAIGN)
+    stage1 = wp._committed_stage1(world.root, campaign)
+    assert isinstance(wp._stage1_matches(world.root, campaign, str(world.pilot), stage1), wp.Stage1Unverified)
+    # Evidence that differs from the committed go still invalidates the Stage 2 runs.
+    _set_review(world, "pilot-demo-b:codex:1", "Date: 2026-10-21", "Date: 2026-10-22")
+    reasons = run_of(summarize(world, "all"), "pilot-demo-a:codex:2")["invalidReasons"]
+    assert reasons == ["Stage 2 run without a committed Stage 1 go summary (a re-computation of Stage 1 from the sealed "
+                       "evidence gives incomplete, not go)"], reasons
+
+
+def test_an_earlier_attempt_that_completed_is_never_shown_as_unsent(tmp_path: Path,
+                                                                    monkeypatch: pytest.MonkeyPatch) -> None:
+    """A completed baseline amended to failed with "Prompt sent: no" and then retried around run-prepare is
+    invalid, and the summary says why the attempt counts as sent instead of "prompt never sent" (STATS5-4)."""
+    world = build_world(tmp_path / "w", policy=make_policy(**{"budget.infrastructureRetries": 1}))
+    patches(monkeypatch, world)
+    base = "pilot-demo-a:codex:baseline:1"
+    answer = "The loop runs 40 steps.\nIt updates data.\nThe data origin is unknown.\n"
+    for run_id in stage1_ids():
+        if run_id == base:
+            do_run(world, run_id, transcript=answer, review=False)
+        else:
+            do_run(world, run_id)
+    evidence = world.evidence(base)
+    (evidence / "session.md").write_text(session_text(base, **dict(UNSENT, **{"Repair rounds": ""})), encoding="utf-8")
+    assert run_main(world, "run-finish", base, *pilot_args(world), "--amend", "the answer was lost (synthetic)")[0] == 0
+    code, _out, err = run_main(world, "run-prepare", base, *pilot_args(world), "--retry", "x (synthetic)")
+    assert code == 1 and "completed before it was amended; a completed run is never retried" in err, err
+    with monkeypatch.context() as patched:
+        patched.setattr(wp, "_seal_status", lambda seal: "failed")  # a retry prepared around the rule
+        assert run_main(world, "run-prepare", base, *pilot_args(world), "--retry", "x (synthetic)")[0] == 0
+    prompt = (evidence / "PROMPT.txt").read_text(encoding="utf-8")
+    (evidence / "transcript.txt").write_text(prompt + "\n" + answer, encoding="utf-8")
+    (evidence / "session.md").write_text(session_text(base, **{"Prior attempts": "1"}), encoding="utf-8")
+    assert run_main(world, "run-finish", base, *pilot_args(world))[0] == 0
+    assert run_main(world, "review-template", base, *pilot_args(world))[0] == 0
+    fill_review(evidence / "review.md")
+    summary = summarize(world)
+    run = next(item for item in summary["baselines"]["runs"] if item["id"] == base)
+    assert run["status"] == "invalid" and run["attempts"][0]["sentBecause"] == "it completed before it was amended"
+    markdown = wp.render_markdown(summary)
+    line = next(item for item in markdown.splitlines() if item.startswith("Baseline earlier attempts"))
+    assert "prompt never sent" not in line and "counted as sent: it completed before it was amended" in line, line

@@ -171,8 +171,11 @@ or transcribed at the owner's dictation with `Transcribed by:` filled.
    exact anchors, at least 95% supported claims, at least 85% essential-fact
    recall, every must-state unknown stated, and zero high-severity false
    accusations. A target miss stops the campaign; it must not be hidden by
-   proceeding to repeats. `--record` writes the summary for `go`, `stop` or
-   `invalid`; commit it.
+   proceeding to repeats. Retry or amend Stage 1 runs before recording:
+   `--record` writes the summary for `go`, `stop` or `invalid`, and from then
+   on Stage 1 runs can no longer be retried or amended. Commit both summary
+   files at once, right away, before any other commit, pull, merge or rebase,
+   and merge that commit without squashing or rebasing it.
 
    ```sh
    python tools/workflow_eval.py summarize --campaign pilot-01 --stage 1
@@ -183,7 +186,8 @@ or transcribed at the owner's dictation with `Transcribed by:` filled.
     `repeat: 2` and `repeat: 3` records until then. Prepare, run, seal and
     review them the same way, then report complete 72-run per-host/task
     numerators and denominators with
-    `python tools/workflow_eval.py summarize --campaign pilot-01 --stage all --record`.
+    `python tools/workflow_eval.py summarize --campaign pilot-01 --stage all --record`,
+    and commit that summary the same way.
     Stage 1 success is permission to collect more evidence, not a completed
     or passed pilot.
 

@@ -640,6 +640,8 @@ class RefCheck:
     frozen_in: str | None = None  # the campaign whose freeze.json lists this file with its current bytes
     changed_after: str | None = None  # the campaign whose freeze.json lists this file with other bytes
     added_after: str | None = None  # the campaign frozen without this file, which its freeze would now read
+    proposal_notes: list = field(default_factory=list)  # (problem, quoted ledger text) of each proposal-line NOTE
+    high_notes: list = field(default_factory=list)  # the high-severity NOTEs (high_severity_notes)
 
     @property
     def errors(self) -> int:
@@ -854,7 +856,8 @@ class _RefChecker:
             if section.kind in known and section.ident not in known[section.kind]:
                 report.error(section.line, section.label,
                              f'"{section.ident}" is not an item of {self.task_id}.json. Added items use '
-                             f'"## Added fact {self.short}-h01".')
+                             f'"## Added fact {self.short}-h01". The lines under this heading, up to the next '
+                             'one, belong to it, not to the section above it; put ">" in front of notes.')
                 continue
             handler = handlers.get(section.kind)
             if handler is not None:
@@ -891,6 +894,7 @@ class _RefChecker:
                                  f"ledger {self.task_id}.json, and accept takes the ledger's proposal: {quoted}. If "
                                  f"someone edited them, restore the lines the tool wrote ({TEMPLATE_COMMAND} --show "
                                  f"{self.task_id}{'' if self.primary else ' --second'}).")
+                self.result.proposal_notes.append((self.report.problems[-1], quoted))
 
     def position(self, ident: str, value: dict) -> None:
         self.result.positions[ident] = value
@@ -1308,6 +1312,7 @@ class _RefChecker:
         for line, label, ident in self.high_defects:
             if self.second is None:
                 self.report.note(line, label, "a second reviewer is recommended for high-severity defects (REVIEW_GUIDE).")
+                self.result.high_notes.append(self.report.problems[-1])
             elif ident not in self.adopted:
                 number += 1
                 suggested = f"{second_prefix}-d{number:02d}"
@@ -1319,6 +1324,7 @@ class _RefChecker:
                                               f'"## Defect {suggested}" and you resolve it as '
                                               f'"{suggested}: adopted as {ident} -- <why>"; otherwise it is '
                                               f"not second-reviewed (REVIEW_GUIDE).{match}")
+                self.result.high_notes.append(self.report.problems[-1])
 
 
 def _edit_distance(left: str, right: str) -> int:
@@ -1898,6 +1904,9 @@ def resolve_target(world: World, target: str) -> Path:
     if world.heldout_task(target) is not None or target in (POLICY_TARGET, ADJUDICATION_TARGET):
         path = world.decisions_dir / f"{target}.md"
         if not path.is_file():
+            missing = _missing_frozen(world, path)
+            if missing is not None:
+                raise UsageError(missing)
             hint = f"{TEMPLATE_COMMAND} {target}"
             raise UsageError(f"{world.display(path)} does not exist; create it with {hint}")
         return path
@@ -1905,6 +1914,21 @@ def resolve_target(world: World, target: str) -> Path:
     if path.is_file():
         return path
     raise UsageError(f"{target} is not a held-out task ID, {POLICY_TARGET}, {ADJUDICATION_TARGET} or an existing file")
+
+
+def _missing_frozen(world: World, path: Path) -> str | None:
+    """What to do about a decision file the current campaign froze and that is missing now (restore
+    it; never a new pending template in its place), or None."""
+    if path.is_file():
+        return None
+    recorded = _frozen_digest(world, path)
+    frozen = current_freeze(world)
+    if recorded is None or frozen is None:
+        return None
+    rel = world.display(path)
+    advice = restore_advice(world, rel, recorded, frozen[0])
+    return (f"{rel} was frozen in {frozen[0]} and is missing; restore it ({advice}) to keep {frozen[0]}, or freeze a new "
+            f"campaign ({FREEZE_README})")
 
 
 def _expected_name(world: World, path: Path, second: bool) -> str | None:
@@ -2038,6 +2062,40 @@ class FileCheck:
     result: object = None
 
 
+def _frozen_digest(world: World, path: Path) -> str | None:
+    """The sha256 the current campaign's freeze.json records for ``path``, or None."""
+    frozen = current_freeze(world)
+    files = frozen[1].get("decisionFiles") if frozen is not None else None
+    recorded = files.get(world.display(path)) if isinstance(files, dict) else None
+    return recorded if isinstance(recorded, str) else None
+
+
+def _frozen_rewrites(check: RefCheck, *, high: bool) -> None:
+    """For a file frozen in (or changed after) the current campaign, the NOTEs written while it was
+    being edited never tell the owner to edit it: the proposal-line NOTE says the freeze took the
+    ledger's proposal (a frozen file stays exactly as committed), and with ``high`` a frozen file's
+    high-severity NOTE says the defect was not second-reviewed in that campaign instead of asking for
+    a second-review addition and its resolution (both need a new campaign). Without ``high`` (the
+    second review was added, changed or removed after the freeze) _late_review_notes prefixes those
+    NOTEs for a new campaign instead."""
+    campaign = check.frozen_in or check.changed_after
+    if campaign is None:
+        return
+    replaced: dict[int, er.Problem] = {}
+    for problem, quoted in check.proposal_notes:
+        replaced[id(problem)] = problem._replace(message=(
+            f'the ">" proposal lines under this heading are missing or differ from the candidate ledger '
+            f"{check.task_id}.json; the freeze of {campaign} took the ledger's proposal: {quoted}."
+            + (" Leave this frozen file exactly as committed." if check.frozen_in else "")))
+    if high and check.frozen_in:
+        for problem in check.high_notes:
+            replaced[id(problem)] = problem._replace(message=(
+                f"this high-severity defect was not second-reviewed in {campaign} (a second review covers your own "
+                f"additions only through its own additions); a second opinion needs a new campaign ({FREEZE_README})."))
+    if replaced:
+        check.report.problems = [replaced.get(id(problem), problem) for problem in check.report.problems]
+
+
 def _late_review_notes(world: World, checks: list[FileCheck]) -> list[FileCheck]:
     """For the check command only: a primary file frozen with unchanged bytes is still the frozen
     version when its second review was added after the freeze, changed after it, or removed. The
@@ -2059,7 +2117,8 @@ def _late_review_notes(world: World, checks: list[FileCheck]) -> list[FileCheck]
         keep = f"remove {rel} (or keep it out of the repository)"
         strict = False  # the primary had no second review, so none of its Disagreements lines are affected
     elif isinstance(second, RefCheck) and second.changed_after == campaign and isinstance(recorded, str):
-        prefix = f"for a new campaign ({rel} changed after the freeze of {campaign}): "
+        unreadable = " and cannot be read" if second.record is None else ""
+        prefix = f"for a new campaign ({rel} changed after the freeze of {campaign}{unreadable}): "
         keep = f"restore the frozen {rel} ({restore_advice(world, rel, recorded, campaign)})"
         strict = True
     elif second is None and isinstance(recorded, str) and not (world.root / rel).is_file():
@@ -2073,7 +2132,8 @@ def _late_review_notes(world: World, checks: list[FileCheck]) -> list[FileCheck]
         disagreement = problem.section == "Disagreements" and (problem.level == er.TODO
                                                                or (strict and problem.level == er.ERROR))
         caused = disagreement or (problem.level == er.ERROR and problem.section == "Task"
-                                  and "item(s) above are still to do" in problem.message)
+                                  and "item(s) above are still to do" in problem.message) \
+            or any(problem == note for note in primary.high_notes)
         problems.append(problem._replace(level=er.NOTE, message=prefix + problem.message) if caused else problem)
     problems.append(er.Problem(checks[0].display, 1, er.NOTE, "header",
                                f"this file is still the version frozen in {campaign}. To keep {campaign}, {keep}; "
@@ -2118,14 +2178,22 @@ def check_path(world: World, path: Path, *, with_second: bool = True) -> list[Fi
             result.frozen_in = _frozen_state(world, path, result.record.sha256, result.report)
             result.changed_after = _changed_after(world, path, result.record.sha256)
             result.added_after = _added_after_freeze(world, path, result.report)
+        if second_check is not None:
+            # From the raw bytes (what Record.sha256 holds), so a frozen second review that no longer
+            # parses (re-saved as UTF-16 or ANSI, a damaged title) still counts as changed after the freeze.
+            digest = second_check.record.sha256 if second_check.record is not None else er.sha256_bytes(second_raw)
+            second_check.frozen_in = _frozen_state(world, second_path, digest, second_check.report)
+            second_check.changed_after = _changed_after(world, second_path, digest)
+            second_check.added_after = _added_after_freeze(world, second_path, second_check.report)
+        late = second_check is not None and result.frozen_in is not None \
+            and result.frozen_in in (second_check.added_after, second_check.changed_after)
+        missing = second_check is None and result.frozen_in is not None \
+            and _frozen_digest(world, world.decisions_dir / (path.name[:-3] + ".second.md")) is not None
+        _frozen_rewrites(result, high=not (late or missing))
         checks.append(FileCheck(display, result.report.ordered(), reference_summary(world, result), result.errors,
                                 result.todos, result))
         if second_check is not None:
-            if second_check.record is not None:
-                second_check.frozen_in = _frozen_state(world, second_path, second_check.record.sha256,
-                                                       second_check.report)
-                second_check.changed_after = _changed_after(world, second_path, second_check.record.sha256)
-                second_check.added_after = _added_after_freeze(world, second_path, second_check.report)
+            _frozen_rewrites(second_check, high=True)
             checks.append(FileCheck(second_check.display, second_check.report.ordered(),
                                     reference_summary(world, second_check), second_check.errors, second_check.todos,
                                     second_check))
@@ -2136,6 +2204,7 @@ def check_path(world: World, path: Path, *, with_second: bool = True) -> list[Fi
             result.frozen_in = _frozen_state(world, path, result.record.sha256, result.report)
             result.changed_after = _changed_after(world, path, result.record.sha256)
             result.added_after = _added_after_freeze(world, path, result.report)
+        _frozen_rewrites(result, high=True)
         return [FileCheck(display, result.report.ordered(), reference_summary(world, result), result.errors,
                           result.todos, result)]
     if kind == "Pilot run policy":
@@ -2251,7 +2320,8 @@ def command_check(world: World, targets: Sequence[str], *, show: bool, out) -> i
         with_second = True
     else:
         paths = decision_files(world)
-        if not paths:
+        frozen = current_freeze(world)
+        if not paths and not (frozen is not None and frozen[1].get("decisionFiles")):
             raise UsageError(f"{world.display(world.decisions_dir)} has no decision files; create them with "
                              f"{TEMPLATE_COMMAND} --init-all")
         primaries = {path.name[:-3] for path in paths if not path.name.endswith(".second.md")}
@@ -2275,6 +2345,27 @@ def command_check(world: World, targets: Sequence[str], *, show: bool, out) -> i
                 print("", file=out)
                 for line in rendered:
                     print(line, file=out)
+    if not targets:
+        # A decision file the current campaign froze and that is missing now. A missing second review
+        # of an existing primary is named by the primary's check (it is still the frozen version).
+        frozen = current_freeze(world)
+        files = frozen[1].get("decisionFiles") if frozen is not None else None
+        for rel in sorted(files) if isinstance(files, dict) else []:
+            name = rel[len(DECISIONS_REL) + 1:] if isinstance(rel, str) and rel.startswith(DECISIONS_REL + "/") else ""
+            if not name or "/" in name:
+                continue
+            path = world.root / rel
+            if rel.endswith(".second.md") and path.with_name(path.name[:-len(".second.md")] + ".md").is_file():
+                continue
+            message = _missing_frozen(world, path)
+            if message is None:
+                continue
+            if not first:
+                print("", file=out)
+            first = False
+            print(str(er.Problem(rel, 1, er.ERROR, "header", message + ".")), file=out)
+            print(f"{path.name}: 1 error(s), 0 to do; missing (frozen in {frozen[0]}).", file=out)
+            errors += 1
     if show and not any(title_kind(Path(p).read_bytes()) == "Pilot run policy" for p in paths):
         print("--show-prompts applies to the run policy; check run-policy --show-prompts", file=out)
     return 1 if errors else 0
@@ -2455,7 +2546,12 @@ def derive_campaign(world: World, campaign: str, *, frozen_at: str, tooling: dic
             continue
         checks = check_path(world, path)
         primary = checks[0].result
-        assert isinstance(primary, RefCheck)
+        if not isinstance(primary, RefCheck) or primary.record is None:
+            # Not readable as a reference-decisions file (not UTF-8, a damaged title): a precondition,
+            # never an exception (check-frozen maps it to restoring the frozen bytes).
+            result.fail(f"{rel}: {checks[0].errors} error(s); it cannot be read as a reference-decisions file",
+                        f"{CHECK_COMMAND} {task_id}")
+            continue
         for check in checks:
             if check.errors or check.todos or not getattr(check.result, "ready", False):
                 result.fail(f"{check.display}: {check.errors} error(s), {check.todos} to do"
@@ -2725,6 +2821,7 @@ class History:
         self.unreadable: list[str] = []
         self._empty = False
         self._versions: dict[str, er.PathHistory | None] = {}
+        self._tools: dict[str, dict[str, str] | None] = {}
         self._campaigns: dict[str, dict[str, str]] | None = None
         root = world.root.resolve()
         try:
@@ -2826,6 +2923,19 @@ class History:
             return er.git_show(self.root, commit, rel)
         except ValueError:
             return None
+
+    def tool_versions(self, commit: str, rel: str) -> dict[str, str] | None:
+        """``{sha256: commit}`` of every version of ``rel`` committed in the history of ``commit``
+        (eval_records.version_hashes), or None when Git cannot read it."""
+        if self.root is None:
+            return None
+        key = f"{commit}\0{rel}"
+        if key not in self._tools:
+            try:
+                self._tools[key] = er.version_hashes(self.root, rel, commit)
+            except ValueError:
+                self._tools[key] = None
+        return self._tools[key]
 
 
 def _has_candidate(world: World, history: History, campaign: str) -> str | None:
@@ -3090,38 +3200,56 @@ def _candidate_problems(label: str, directory: Path, campaign: str, freeze_raw: 
 
 
 def _rendering_check(value: dict, directory: Path, json_name: str, md_name: str, label: str, problems: list[str],
-                     notes: list[str] | None, history: "History | None" = None) -> None:
+                     notes: list[str] | None, history: "History | None" = None, invalidated: bool = False) -> None:
     """The recorded Markdown must be the one summarize renders from the recorded JSON (section 4.7).
     Checked when the summary names the running tools/workflow_pilot.py as its renderer. A summary that
     names another one is noted, so a later tool change never fails a recorded summary (section 1.10),
-    but only when that hash is the tools/workflow_pilot.py committed with the summary: the tooling
-    field is part of the file being verified and never switches the check off on its own word."""
+    but only when that hash is a tools/workflow_pilot.py committed in the history of the commit that
+    recorded the summary's content (summarize --record runs with the tools committed at HEAD, and that
+    HEAD stays in the history of the commit that adds the summary, also after a pull, merge or rebase
+    in between): the tooling field is part of the file being verified and never names tools that were
+    never committed. For a superseded campaign the owner invalidated (``invalidated``), an unbound
+    renderer hash is a note, as the several-contents finding is."""
     import workflow_pilot  # noqa: PLC0415 - workflow_pilot imports this module lazily too
 
     tooling = value.get("tooling") if isinstance(value.get("tooling"), dict) else {}
     recorded = tooling.get("tools/workflow_pilot.py")
     if recorded != er.sha256_file(Path(workflow_pilot.__file__).resolve()):
-        versions = history.versions(f"{PILOT_REL}/{directory.name}/{json_name}") if history is not None else None
+        rel = f"{PILOT_REL}/{directory.name}/{json_name}"
+        versions = history.versions(rel) if history is not None else None
         first = versions.first[1] if versions is not None and versions.first is not None else None
+        if versions is not None and first is not None:
+            current = history.blob_id(rel)  # the commit that recorded the content checked here
+            first = versions.versions.get(current, first) if current else first
         if first is None:
             if notes is not None:
                 notes.append(f"check-frozen: {directory.name}: not verified: {md_name} rendered from {json_name} (it "
                              "names another tools/workflow_pilot.py, and no commit that recorded it can be read).")
             return
-        committed = history.show(first, "tools/workflow_pilot.py")
-        if committed is None and history.root != ROOT.resolve():
+        known = history.tool_versions(first, "tools/workflow_pilot.py")
+        if known is None:
+            if notes is not None:
+                notes.append(f"check-frozen: {directory.name}: not verified: {md_name} rendered from {json_name} (it "
+                             "names another tools/workflow_pilot.py, and git cannot read the history of that tool).")
+            return
+        if not known and history.root != ROOT.resolve():
             if notes is not None:  # a test world: the tools are not part of the repository checked here
                 notes.append(f"check-frozen: {directory.name}: not verified: {md_name} rendered from {json_name} (it "
                              "names another tools/workflow_pilot.py, and this repository does not hold the tools).")
             return
-        if committed is None or er.sha256_bytes(committed) != recorded:
-            problems.append(f"{label}/{json_name} names a tools/workflow_pilot.py (sha256 {str(recorded)[:12]}...) that "
-                            f"is neither the running one nor the one committed with it in {first[:12]} (a recorded "
-                            "summary is written only by summarize --record, with the committed tools)")
+        if recorded not in known:
+            message = (f"{label}/{json_name} names a tools/workflow_pilot.py (sha256 {str(recorded)[:12]}...) that is "
+                       f"neither the running one nor any version committed in the history of {first[:12]}, the commit "
+                       "that recorded it (a recorded summary is written only by summarize --record, with the tools "
+                       "committed at HEAD; a rebase that rewrote the commit holding those tools also causes this)")
+            if invalidated and notes is not None:
+                notes.append(f"check-frozen: {directory.name} (invalidated): {message}.")
+            else:
+                problems.append(message)
         elif notes is not None:
             notes.append(f"check-frozen: {directory.name}: not verified: {md_name} rendered from {json_name} (it was "
-                         f"recorded with the tools/workflow_pilot.py committed with it in {first[:12]}, not the running "
-                         "one).")
+                         f"recorded with the tools/workflow_pilot.py committed in {known[recorded][:12]}, not the "
+                         "running one).")
         return
     try:
         rendered = workflow_pilot.render_markdown(value).encode("utf-8")
@@ -3134,7 +3262,8 @@ def _rendering_check(value: dict, directory: Path, json_name: str, md_name: str,
 
 def _summary_state(world: World, directory: Path, freeze_value: dict, freeze_raw: bytes,
                    problems: list[str], candidate: tuple[bytes | None, list[str]],
-                   notes: list[str] | None = None, history: "History | None" = None) -> bool:
+                   notes: list[str] | None = None, history: "History | None" = None,
+                   invalidated: bool = False) -> bool:
     """True when a genuine final summary is recorded: a Stage 1 stop or invalid, or an all-stage
     summary. Every stage summary file must be a summary the pilot recorded for this campaign's
     candidate and freeze; anything else is a problem and never switches off the re-derivation.
@@ -3201,7 +3330,7 @@ def _summary_state(world: World, directory: Path, freeze_value: dict, freeze_raw
                 wrong.append(f"{md_name} does not open with the title and decision of {json_name}")
             if not wrong:
                 verdicts[number] = verdict
-                _rendering_check(value, directory, json_name, md_name, label, problems, notes, history)
+                _rendering_check(value, directory, json_name, md_name, label, problems, notes, history, invalidated)
         if wrong:
             problems.append(f"{label}/{json_name} is not a recorded summary of this candidate ({'; '.join(wrong)})")
     if "2" in verdicts and verdicts.get("1") != "go":
@@ -3526,7 +3655,8 @@ def check_frozen(world: World, out) -> int:
             _recorded_fields(world, history, directory.name, freeze_value, raw, names, problems, notes)
             candidate = _candidate_problems(world.display(directory), directory, directory.name, raw)
             problems.extend(candidate[1])  # with or without a summary, freeze.json is the one the candidate names
-            _summary_state(world, directory, freeze_value, raw, problems, candidate, notes, history)
+            invalidated = _invalidation_problem(directory / "invalidation.md", directory.name) is None
+            _summary_state(world, directory, freeze_value, raw, problems, candidate, notes, history, invalidated)
             _ledger_problems(world, directory.name, freeze_value, problems)
             _capture_problems(world, history, directory.name, True, problems, notes)
             _summary_history(world, history, directory.name, problems, notes, superseded=True)

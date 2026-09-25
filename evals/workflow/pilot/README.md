@@ -63,6 +63,20 @@ reachable: keep its branch, or push a tag at it, for example
 pilot-01-candidate`. A pull request's CI tests the merge ref, which keeps the
 branch history, so it cannot catch a squash merge before it happens.
 
+Commit both files of a recorded summary at once, right after `summarize
+--record`, before any other commit, pull, merge or rebase. A recorded summary
+is final and is never recorded again. It names the tools that computed it,
+which `summarize --record` requires to be the ones committed at `HEAD`; the
+Stage 2 gate and `check-frozen` accept those tools as long as they are
+versions committed in the history of the commit that records the summary, so
+a pull or tool commit in between does no harm. A rebase that rewrites an
+unpushed commit holding those tools can break that link, and the gate then
+refuses the summary; before pushing, drop the summary commit, delete the two
+files and record again. Once the Stage 1 summary is
+recorded, committed or not, Stage 1 runs (skill runs and baselines) can no
+longer be retried or amended: that would stop the recorded go from unlocking
+Stage 2 and make Stage 2 runs invalid.
+
 ## Checks
 
 `python tools/workflow_eval.py check-frozen` re-derives every file of the
@@ -105,8 +119,11 @@ without a usable `invalidation.md` also fails. When a summary names the
 running `tools/workflow_pilot.py` as its renderer, its Markdown must equal the
 rendering of its JSON; after a tool change that check is noted as not
 verified, so later tool changes cannot fail history, but only when the named
-`tools/workflow_pilot.py` is the one committed with the summary (the summary's
-own `tooling` field is not trusted on its word; another hash is a problem).
+`tools/workflow_pilot.py` is a version committed in the history of the commit
+that recorded the summary's content (the summary's own `tooling` field is not
+trusted on its word; a hash of tools that were never committed there is a
+problem, kept as a note once the owner invalidated the campaign and a new
+campaign supersedes it).
 The history queries pin Git's `log.follow`, `log.diffMerges` and
 `log.showRoot` settings, so a user's Git configuration cannot change what
 they list. Without the full history

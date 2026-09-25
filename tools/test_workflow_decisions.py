@@ -537,7 +537,8 @@ def test_added_items_and_defects(shared_world: wd.World) -> None:
                      'ERROR Defect demo-d1: "Severity: huge" must be high, medium or low.',
                      "NOTE  Defect demo-d02: a second reviewer is recommended for high-severity defects (REVIEW_GUIDE).",
                      'ERROR Fact demo-f99: "demo-f99" is not an item of pilot-demo.json. Added items use '
-                     '"## Added fact demo-h01".']:
+                     '"## Added fact demo-h01". The lines under this heading, up to the next one, belong to it, not '
+                     'to the section above it; put ">" in front of notes.']:
         assert expected in found, (expected, found)
 
 
@@ -2645,3 +2646,183 @@ def test_history_queries_ignore_the_users_log_configuration(tmp_path: Path, veri
     commit_all(world, "synthetic invalidation and pilot-100")
     code, out = run(world, "check-frozen")
     assert code == 0, out
+
+
+# --------------------------------------------------------------------------------------------
+# Round 5: frozen files in check, unreadable files, missing frozen files (synthetic data only)
+
+
+HIGH_DEFECT = ["## Defect demo-d01", "Wording: A high synthetic defect.", "Severity: high", "Anchors: lib/model.py:5",
+               "Counter-evidence: none (synthetic)", "Reason: synthetic", ""]
+
+
+def test_check_never_tells_the_owner_to_edit_a_frozen_file_for_its_proposal_lines(tmp_path: Path, verified) -> None:
+    """A frozen primary whose ">" proposal line was edited before the freeze is noted with the ledger text the
+    freeze took, never with advice to restore lines in the frozen file (OWNERUX5-1)."""
+    world = make_world(tmp_path)
+    complete_world(world)
+    claim = "> Claim: The synthetic model width comes from lib/model.py constants."
+    path = world.root / wd.DECISIONS_REL / "pilot-demo.md"
+    path.write_bytes(path.read_bytes().replace(claim.encode(), b"> Claim: an edited proposal line (synthetic)."))
+    assert run(world, "freeze", "--campaign", "pilot-99", "--write", "--frozen-at", FROZEN_AT)[0] == 0
+    world.reload_manifest()
+    git_world(world)
+    code, out = run(world, "check", "pilot-demo")
+    assert code == 0 and "pilot-demo: 0 error(s), 0 to do; frozen in pilot-99." in out, out
+    assert "the freeze of pilot-99 took the ledger's proposal: \"Claim: The synthetic model width comes from " \
+           "lib/model.py constants.\". Leave this frozen file exactly as committed." in out, out
+    assert "restore the lines the tool wrote" not in out and "template --show" not in out, out
+    assert run(world, "check-frozen")[0] == 0
+
+
+@pytest.mark.parametrize("second", ["frozen", "none", "added-after"])
+def test_a_frozen_high_severity_defect_is_never_resolved_in_its_frozen_file(tmp_path: Path, verified,
+                                                                             second: str) -> None:
+    """After the freeze, the high-severity NOTE of a frozen primary says the defect was not second-reviewed in
+    that campaign; with a second review added after the freeze it is a note for a new campaign. Neither asks
+    anyone to add or resolve anything in the frozen file (OWNERUX5-1)."""
+    world = make_world(tmp_path)
+    complete_world(world)
+    if second == "frozen":
+        review = decide(fill_header(wd.task_template(world, "pilot-demo", second=True), SECOND), "Fact demo-f02",
+                        "accept")
+        write(world, "pilot-demo.second.md", complete(review))
+    write(world, "pilot-demo.md", complete(insert_before(accept_all(world, "pilot-demo"), "## Disagreements",
+                                                         HIGH_DEFECT)))
+    assert run(world, "freeze", "--campaign", "pilot-99", "--write", "--frozen-at", FROZEN_AT)[0] == 0
+    world.reload_manifest()
+    git_world(world)
+    if second == "added-after":
+        review = decide(fill_header(wd.task_template(world, "pilot-demo", second=True), SECOND), "Fact demo-f02",
+                        "accept")
+        write(world, "pilot-demo.second.md", complete(review))
+    _code, out = run(world, "check", "pilot-demo")
+    notes = [line for line in out.splitlines() if "Defect demo-d01:" in line]
+    assert len(notes) == 1 and notes[0].startswith(
+        "evals/workflow/decisions/pilot-demo.md:"), out
+    assert "pilot-demo: 0 error(s), 0 to do; frozen in pilot-99." in out, out
+    if second == "added-after":
+        assert "NOTE  Defect demo-d01: for a new campaign (evals/workflow/decisions/pilot-demo.second.md was added " \
+               "after the freeze of pilot-99): the second review does not cover your own additions" in notes[0], notes
+    else:
+        assert "NOTE  Defect demo-d01: this high-severity defect was not second-reviewed in pilot-99 (a second review " \
+               "covers your own additions only through its own additions); a second opinion needs a new campaign (" \
+               in notes[0], notes
+        assert "you resolve it" not in out and "adds it as" not in out and "recommended" not in notes[0], out
+
+
+@pytest.mark.parametrize("damage", ["cp1252", "utf16", "title"])
+def test_an_unreadable_frozen_second_review_keeps_the_primary_frozen_in_check(tmp_path: Path, verified,
+                                                                              damage: str) -> None:
+    """A frozen second review re-saved in another encoding, or with a damaged title, counts as changed after
+    the freeze: the primary stays "frozen in" its campaign, its Disagreements line becomes a note for a new
+    campaign, and the second-review file names its restore (OWNERUX5-2)."""
+    world = second_review_world(tmp_path)
+    rel = "evals/workflow/decisions/pilot-demo.second.md"
+    path = world.root / rel
+    raw = path.read_bytes()
+    if damage == "cp1252":
+        path.write_bytes(raw.replace(b"Reason: synthetic\n", b"Reason: synthetic \x96 re-saved\n", 1))
+    elif damage == "utf16":
+        path.write_bytes(raw.decode("utf-8").encode("utf-16"))
+    else:
+        path.write_bytes(raw.replace(b"# Second review: pilot-demo", b"# Second reviw pilot-demo", 1))
+    code, out = run(world, "check", "pilot-demo")
+    assert "pilot-demo: 0 error(s), 0 to do; frozen in pilot-99." in out, out
+    assert "ERROR Disagreements" not in out, out
+    assert f"NOTE  Disagreements: for a new campaign ({rel} changed after the freeze of pilot-99 and cannot be " \
+           "read): " in out, out
+    assert f"this file was frozen in pilot-99" in out and f"(git checkout -- {rel})" in out, out
+    code, out = run(world, "check-frozen")
+    assert code == 1 and f"Next: restore the frozen {rel} (git checkout -- {rel})" in out, out
+    git(world.root, "checkout", "--", rel)
+    assert run(world, "check-frozen")[0] == 0
+
+
+@pytest.mark.parametrize("damage", ["cp1252", "utf16", "title"])
+def test_freeze_and_check_frozen_report_an_unreadable_primary_without_a_traceback(tmp_path: Path, verified,
+                                                                                  damage: str) -> None:
+    """A primary decision file that cannot be parsed (a Windows ANSI save, a UTF-16 redirect of template --show,
+    a damaged title) is a precondition of the freeze and a restore step of check-frozen (OWNERUX5-3)."""
+    def spoil(path: Path) -> None:
+        raw = path.read_bytes()
+        if damage == "cp1252":
+            path.write_bytes(raw.replace(b"> Claim:", b"> Claim \x96", 1))
+        elif damage == "utf16":
+            path.write_bytes(raw.decode("utf-8").encode("utf-16"))
+        else:
+            path.write_bytes(raw.replace(b"# Reference decisions: pilot-demo", b"# Reference decisons pilot-demo", 1))
+
+    world = make_world(tmp_path)
+    complete_world(world)
+    rel = "evals/workflow/decisions/pilot-demo.md"
+    path = world.root / rel
+    original = path.read_bytes()
+    spoil(path)
+    code, out = run(world, "freeze", "--campaign", "pilot-99")
+    assert code == 1 and f"{rel}: 1 error(s); it cannot be read as a reference-decisions file" in out, out
+    path.write_bytes(original)
+    assert run(world, "freeze", "--campaign", "pilot-99", "--write", "--frozen-at", FROZEN_AT)[0] == 0
+    world.reload_manifest()
+    git_world(world)
+    spoil(path)
+    code, out = run(world, "check-frozen")
+    assert code == 1 and f"Next: restore the frozen {rel} (git checkout -- {rel}) to keep pilot-99" in out, out
+    git(world.root, "checkout", "--", rel)
+    assert run(world, "check-frozen")[0] == 0
+
+
+def test_a_deleted_frozen_file_gets_the_restore_in_check(tmp_path: Path, verified,
+                                                         capsys: pytest.CaptureFixture[str]) -> None:
+    """check names the restore of a frozen decision file that is missing, never a new pending template, and
+    check without a target reports it (OWNERUX5-4)."""
+    world = make_world(tmp_path)
+    complete_world(world)
+    assert run(world, "freeze", "--campaign", "pilot-99", "--write", "--frozen-at", FROZEN_AT)[0] == 0
+    world.reload_manifest()
+    git_world(world)
+    rel = "evals/workflow/decisions/pilot-demo.md"
+    (world.root / rel).unlink()
+    code, _out = run(world, "check", "pilot-demo")
+    err = capsys.readouterr().err
+    assert code == 2 and f"{rel} was frozen in pilot-99 and is missing; restore it (git checkout -- {rel}) to keep " \
+                         "pilot-99, or freeze a new campaign" in err, err
+    assert "template pilot-demo" not in err, err
+    code, out = run(world, "check")
+    assert code == 1 and f"{rel}:1: ERROR header: {rel} was frozen in pilot-99 and is missing; restore it " \
+                         f"(git checkout -- {rel})" in out, out
+    assert "pilot-demo.md: 1 error(s), 0 to do; missing (frozen in pilot-99)." in out, out
+    git(world.root, "checkout", "--", rel)
+    assert run(world, "check")[0] == 0
+
+
+def test_an_unbound_renderer_of_an_invalidated_superseded_campaign_is_a_note(tmp_path: Path, verified) -> None:
+    """A summary naming a tools/workflow_pilot.py that was never committed in its history fails check-frozen,
+    and the owner's invalidation.md plus a superseding campaign turn that into a note, as the documented
+    remedy says (INTEGRITY5-1, SPECDOCS5-1)."""
+    world = frozen_world(tmp_path)
+    git_world(world)
+    synthetic_candidate(world)
+    commit_all(world, "synthetic capture")
+    (world.root / "tools").mkdir()
+    (world.root / "tools/workflow_pilot.py").write_bytes(b"# a synthetic tools/workflow_pilot.py\n")
+    synthetic_summary(world, "stop")
+    summary = frozen_dir(world) / "stage1-summary.json"
+    value = json.loads(summary.read_text(encoding="utf-8"))
+    value["tooling"] = {"tools/workflow_pilot.py": "0" * 64}
+    summary.write_bytes(er.canonical_json(value))
+    commit_all(world, "synthetic stop naming a tool that was never committed")
+    message = ("pilot-99/stage1-summary.json names a tools/workflow_pilot.py (sha256 000000000000...) that is neither "
+               "the running one nor any version committed in the history of ")
+    code, out = run(world, "check-frozen")
+    assert code == 1 and message in out, out
+    (frozen_dir(world) / "invalidation.md").write_bytes(
+        b"# Invalidation: pilot-99\nReviewer: Test Owner (synthetic)\nDate: 2026-10-05\nScope: campaign\n"
+        b"Reason: synthetic reason for a new campaign\n")
+    code, out = run(world, "freeze", "--campaign", "pilot-100", "--write", "--frozen-at", FROZEN_AT,
+                    "--supersede-reason", "synthetic supersede")
+    assert code == 0, out
+    world.reload_manifest()
+    commit_all(world, "synthetic invalidation and pilot-100")
+    code, out = run(world, "check-frozen")
+    assert code == 0 and "check-frozen: pilot-99 (invalidated): evals/workflow/pilot/" + message in out, out

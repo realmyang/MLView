@@ -36,14 +36,15 @@ against the frozen campaign and computes the Stage 1 stop/go decision. The
 owner's reference review has not happened and **no reference is frozen**: every
 file in `evals/workflow/decisions/` is a pending template. The pilot has **not
 run**: Stage 1 has 24 skill runs pending and 0 passed, and Stage 2 has 48
-pending. The fixes for the campaign's first four reviews (37, 15, 25 and 19
-findings) are in: among them, a run is retried only if its prompt was never
+pending. The fixes for the campaign's first five reviews (37, 15, 25, 19 and
+15 findings) are in: among them, a run is retried only if its prompt was never
 sent (`Prompt sent: no` in `session.md`, refused against sealed evidence that
 it was sent, including the skill's drafts under `.mlview/`), every earlier
 attempt stays in the summary, a recorded summary or candidate can never be
-removed, replaced or recorded again, merges included, a summary's own
-`tooling` field never switches a check off, and a committed campaign is never
-erased. Campaign commits reach
+removed, replaced or recorded again, merges included, Stage 1 runs are final
+once the Stage 1 summary is recorded, a summary's own `tooling` field never
+switches a check off (other tools must be versions committed in the
+summary's history), and a committed campaign is never erased. Campaign commits reach
 `main` by a merge commit or fast-forward, never a squash. With them, the local
 gate passed on one macOS machine ([details](VALIDATION.md)).
 CI has not yet run on the Campaign 2 branch. 0.2.0 shipped to `main` on

@@ -397,13 +397,42 @@ def test_an_unknown_two_hash_heading_says_its_lines_were_not_read() -> None:
     assert record.section("Fact", "demo-f07").value("Decision") is None
 
 
-@pytest.mark.parametrize("line", ["# Facts demo-f02", "# Task now", "#### My notes", "##Notes", "# Added facts x-h01"])
+@pytest.mark.parametrize("line", ["# Facts demo-f02", "# Facts", "#### My notes", "##Notes", "# Added facts x-h01",
+                                  "### Fact checked"])
 def test_a_heading_like_hash_line_still_skips_its_lines(line: str) -> None:
     text = f"# Reference decisions: pilot-demo\n## Fact demo-f01\nDecision: accept\n{line}\nDecision: reject\n"
     record, problems = parse(text, "d.md")
     assert len(problems) == 1 and "is not a section heading. Write section headings as" in problems[0].message
     assert 'The lines after it, up to the next "## " heading, were not read.' in problems[0].message
     assert record.section("Fact", "demo-f01").value("Decision") == "accept"
+
+
+@pytest.mark.parametrize("line, section", [
+    ("# Scenario checked", "Scenario"), ("# Task done", "Task"), ("# Defects none", "Scenario"),
+    ("# Disagreements none", "Scenario"), ("# Facts checked", "Scenario"), ("# Non-defects ok", "Scenario")])
+def test_a_one_hash_kind_and_a_word_that_cannot_be_its_id_is_a_comment(line: str, section: str) -> None:
+    """"# Scenario checked" and "# Task done" (kinds that take no ID) and "# Defects none" (no digit) are
+    comments under the enclosing section, which keeps the decisions around them (OWNERUX5-6)."""
+    fields = {"Scenario": "Decision: accept\n{line}\nReason: synthetic\n", "Task": "{line}\nReview: complete\n"}
+    text = f"# Reference decisions: pilot-demo\n## {section}\n" + fields[section].format(line=line)
+    record, problems = parse(text, "d.md")
+    assert messages(problems) == [f'd.md:{text.split(chr(10)).index(line) + 1}: ERROR {section}: "{line}" is not '
+                                  '"Key: value". Put ">" in front of notes; "#" does not start a comment.']
+    kept = record.section(section)
+    assert kept is not None and len(record.sections) == 1
+    assert (kept.value("Decision"), kept.value("Reason")) == ("accept", "synthetic") if section == "Scenario" \
+        else kept.value("Review") == "complete"
+
+
+def test_a_mistyped_heading_with_a_wrong_id_keeps_its_lines_as_documented() -> None:
+    """"# Fact v2" names an ID with a digit, so it starts the item "Fact v2" (not an item of the task), and
+    the lines after it belong to it: REVIEW_GUIDE says so, and the check says where the lines went (SPECDOCS5-2)."""
+    text = "# Reference decisions: pilot-demo\n## Fact demo-f02\n# Fact v2\nDecision: accept\n"
+    record, problems = parse(text, "d.md")
+    assert [section.label for section in record.sections] == ["Fact demo-f02", "Fact v2"]
+    assert record.section("Fact", "v2").value("Decision") == "accept"
+    assert messages(problems) == ['d.md:3: ERROR Fact v2: "# Fact v2" is not a section heading; write "## Fact v2" (two '
+                                  '# and a space).']
 
 
 @pytest.mark.parametrize("line", ["# added the randint detail", "# fact wording changed",

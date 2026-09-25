@@ -25,7 +25,7 @@ checked the source.
    the check prints a note that quotes the ledger's text, so read that note
    before you accept. After the freeze, a frozen file is compared byte for
    byte, `>` lines and line endings included, so leave it exactly as
-   committed.
+   committed; the note then only says which proposal the freeze took.
 2. Read the exact pinned source: in VS Code (`.public-corpus/nanoGPT/train.py`),
    or in an optional local sheet that shows every cited line in context.
    `python tools/workflow_eval.py context pilot-nanogpt` writes it to
@@ -49,15 +49,28 @@ previous value, also after a blank line; an unindented line is an error, so
 indent a wrapped `Reason:` or `Wording:` instead of turning it into a note.
 Put your own notes on `>` lines; before the freeze you may add, edit or
 remove `>` lines. A line starting with `#` is not a comment: it is always
-reported as an error. A mistyped heading of a real item (`### Fact
-nanogpt-f02` or `# Fact nanogpt-f02`) still starts that item, so its lines are
-read. If it looks like a heading of an unknown section (`## Notes`, two or
-more `#`, or one `#` followed by a section kind and at most one ID, such as
-`# Facts nanogpt-f02`), the lines after it are not read until the next `## `
-heading, and the error says so. Any other `#` line (`# checked twice on the
-train`, or `# Fact checked`, whose last word is not an item ID) is reported
-under its section, and your decisions around it are kept. Section headings are
-`## <Kind> <id>`, with exactly two `#` and a space.
+reported as an error, and where the lines after it go depends on its form:
+
+- A mistyped heading with an item kind and a word with a digit (`### Fact
+  nanogpt-f02`, `# Fact nanogpt-f02`, but also `# Fact v2`) starts an item of
+  that name, so the lines after it, up to the next heading, belong to it.
+  For a real item they are read; for a name that is not an item of the task
+  (`v2`) the check says it is not an item, and a `Decision:` after it no
+  longer belongs to the item above it, which then reports its decision
+  missing.
+- A line that looks like a heading of an unknown section, meaning `## Notes`,
+  two or more `#` (`### Fact checked`), or one `#` followed by a section kind
+  alone (`# Facts`) or by one word that could be an ID of that kind (`# Facts
+  nanogpt-f02`), skips the lines after it until the next `## ` heading, and
+  the error says they were not read.
+- Any other `#` line is reported under its section, and your decisions around
+  it are kept. That covers prose (`# checked twice on the train`), one `#`
+  before an item kind and a word without a digit (`# Fact checked`, `# Defects
+  none`; every item ID has a digit), and one `#` before a section that takes
+  no ID and one word (`# Scenario checked`, `# Task done`).
+
+Section headings are `## <Kind> <id>`, with exactly two `#` and a space; put
+your notes on `>` lines instead of any of these forms.
 
 For example, `nanogpt-f02` proposes that the no-override scenario initializes
 from scratch. Its anchor is `train.py:41`, where `init_from` is assigned
@@ -113,12 +126,22 @@ addition, add it to your file under your own ID and write
 `<their id>: adopted as <your id> -- <why>`: the check requires your ID to be
 an added item of the same kind, and the frozen reference records the link
 (`adoptedAs`), so summaries count the adopted item inside the denominators.
-A resolution that starts with `adopted` is always read as an adoption, and one
-that names your own added item of the same kind (a trailing `.` does not
-matter) or starts like `adopted` (`adopt as`, `adpoted`, `Adoption`) is an
-error until it uses that form or starts with another word, such as
-`not adopted -- <why>`. Naming an added item of another kind (an added fact
-in a defect's resolution) is fine, since only the same kind can be adopted.
+A resolution that starts with `adopted` is always read as an adoption. Two
+more rules catch a mistyped adoption:
+
+- A resolution that names your own added item of the same kind (a trailing
+  `.` does not matter), whatever its first word, is an error until it reads
+  `<their id>: adopted as <your id> -- <why>`, or until you remove your ID
+  from the line because the item is not adopted. `nanogpt-s-d02: not adopted
+  -- duplicates nanogpt-d01` is still an error when `nanogpt-d01` is your own
+  added defect; write `nanogpt-s-d02: not adopted -- duplicates my defect`
+  instead.
+- A resolution whose first word looks like `adopted` (`adopt as`, `adpoted`,
+  `Adoption`) is an error until it uses the adoption form or starts with
+  another word, such as `not adopted -- <why>`.
+
+Naming an added item of another kind (an added fact in a defect's resolution)
+is fine, since only the same kind can be adopted.
 If the addition duplicates a
 candidate item that is already in your reference, it is not an adoption:
 write `<their id>: same as <candidate id> -- <why>`, without the word
@@ -129,7 +152,10 @@ your own additions, so your added facts and defects are second-reviewed only
 through theirs: they add the same item under their own ID (the note names
 an unused one, such as `nanogpt-s-d01`, and mentions a second-review defect
 that has no resolution yet as a possible match) and you resolve it as adopted.
-Until then, the check keeps a note on each of your high-severity defects. The second reviewer must be a different person (the check refuses
+Until then, the check keeps a note on each of your high-severity defects;
+after the freeze, the note on a frozen file only says the defect was not
+second-reviewed in that campaign, because a second opinion then needs a new
+campaign. The second reviewer must be a different person (the check refuses
 the same name), and only a person can be a second reviewer; another model's
 opinion is not human acceptance.
 
@@ -197,7 +223,12 @@ reference means a new campaign. `check <task>` says `frozen in pilot-01` for
 an unchanged file, including a primary file whose second review was added,
 edited or removed after the freeze: the disagreements this causes are listed
 as notes for a new campaign, and removing the late file (or restoring the
-frozen second review) keeps pilot-01. An edited file is reported as
+frozen second review) keeps pilot-01. That includes a second review that no
+longer parses, for example because it was re-saved as UTF-16 or in a Windows
+ANSI encoding: `check` names its restore, not a change to your file. A
+frozen file that was deleted is named with its restore too, both by `check
+<task>` and by `check` without a target, never with a new template in its
+place. An edited file is reported as
 `changed after the freeze of pilot-01`, with the command that restores the
 frozen bytes when no decision was meant to change (a `>` note or a
 line-ending conversion also counts as a change). That command names where Git
