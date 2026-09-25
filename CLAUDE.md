@@ -9,6 +9,7 @@ Assign sonnet only to stages that are simple and low-risk:
 Keep opus for planning, debugging, design decisions, ambiguous or
 cross-cutting changes, verification, and final synthesis.
 If unsure whether a task is simple, use opus.
+
 ## Project: MLView (native LLM skill + VS Code viewer)
 The user's assistant (Copilot, Codex or Claude Code) invokes the `mlview`
 skill, reads the target ML code and authors a `*.mlview.json`
