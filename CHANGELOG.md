@@ -364,9 +364,11 @@ calibrated to the threat model in the specification's section 1.10):
 - Portability: every tool's stdout and stderr fall back to `\` escapes for
   characters the console encoding lacks, and the Markdown writes `>=`
   (HONESTF-4, DISTCIF-3); sparse checkouts use `init --no-cone` then
-  `set --`, which git before 2.35 accepts (DISTCIF-2); the helper's nesting
-  test uses a depth that fails on every supported Python (DISTCIF-1); the
-  Windows integration job gets 45 minutes (DISTCIF-4); a missing Git is
+  `set --`, which git before 2.35 accepts (DISTCIF-2); the helper refuses a
+  cited notebook nested more than 500 levels deep with its own message, so
+  the result no longer depends on the Python version (3.14 parses what
+  3.10-3.13 cannot; DISTCIF-1, N9); the Windows integration job gets 45
+  minutes (DISTCIF-4); a missing Git is
   named as such (DISTCIF-5); a pilot directory given with `..` is judged by
   its real parents (HONESTF-5).
 - Docs: squash-merge recovery (SPECDOCSF-2), the corrected rebase caveat
@@ -386,7 +388,7 @@ Not in this version: the owner's reference review and freeze, the development
 adjudication, any native session and the pilot itself (the owner's
 decisions); second-review tooling for run reviews and the development
 adjudication; SKILL-16 (identity framing; `files` is documented as part of the
-identity); N9 (notebook nesting beyond Python's recursion limit); DOCS-7/10/17;
+identity); DOCS-7/10/17;
 a CI job that fetches the corpus; blinded or randomised review order;
 hash-pinned development dependencies; automatic transcript capture.
 `development/native-reviews/README.md` is a frozen record and still shows

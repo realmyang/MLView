@@ -29,9 +29,9 @@ are invalid. Lines are one-based and inclusive. For `.ipynb`, `cell` is the
 zero-based notebook cell index and line coordinates address that cell's
 `source`; the raw notebook bytes are fingerprinted. Cited notebooks must be
 valid JSON; NaN and Infinity are refused (`notebook_cell`), because the viewer
-cannot read them. A repeated member keeps its last value, as in `JSON.parse`.
-Notebook execution order is
-not implied. `coverage.inspectedFiles` entries follow the same path rules, and
+cannot read them, and so is nesting deeper than 500 levels, which not every
+Python version can parse. A repeated member keeps its last value, as in
+`JSON.parse`. Notebook execution order is not implied. `coverage.inspectedFiles` entries follow the same path rules, and
 project entries must name existing regular files.
 
 Evidence quotes are the exact cited lines of the UTF-8 source, with CRLF/CR

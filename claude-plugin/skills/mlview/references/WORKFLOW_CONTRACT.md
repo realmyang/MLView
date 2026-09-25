@@ -33,8 +33,9 @@ UTF-8 source, with CRLF/CR normalised to LF and joined with LF. A leading
 byte-order mark is not part of line 1; a line-1 quote may include or omit it.
 Notebook evidence adds a zero-based `cell`; line ranges then address that
 cell's source. Cited notebooks must be valid JSON; NaN and Infinity are refused
-(`notebook_cell`). Phase array order is display order. Parent links must form a
-forest, while semantic edges may cycle. IDs are unique within each collection.
+(`notebook_cell`), and so is nesting deeper than 500 levels. Phase array order
+is display order. Parent links must form a forest, while semantic edges may
+cycle. IDs are unique within each collection.
 All references must resolve. Across revisions, keep IDs for concepts whose
 meaning is unchanged. Coverage's `inspectedFiles` records every materially
 considered project source, configuration, notebook, script, test, or document,

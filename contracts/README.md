@@ -30,7 +30,8 @@ and a schema-checked example under `skills/mlview/references/`.
 - **`NaN` and `Infinity` are not JSON.** `JSON.parse` rejects them, but
   Python's `json` module accepts them by default; the helper rejects them in
   drafts, in an existing artifact and in cited notebooks. Cited notebooks must
-  be valid JSON; NaN and Infinity are refused (`notebook_cell`).
+  be valid JSON; NaN and Infinity are refused (`notebook_cell`), and so is
+  nesting deeper than 500 levels.
 - **Lengths count Unicode code points**, as JSON Schema `maxLength` does. The
   helper and the extension count code points too.
 - **The schema cannot express workspace rules.** The helper and the extension

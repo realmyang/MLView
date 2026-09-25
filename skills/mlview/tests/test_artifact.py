@@ -735,13 +735,22 @@ class ArtifactTests(unittest.TestCase):
         self.assertIn("quote_mismatch", {e["code"] for e in self.validate(document("flow.ipynb", "old(x)", cell=0))})
 
     def test_deeply_nested_notebook_metadata_is_a_notebook_cell_error(self):
-        # Deep enough that json.loads raises RecursionError on every supported Python (3.14 parses
-        # 20000 levels on an 8 MiB stack; 1,000,000 fails on 3.10 through 3.14).
-        nested = "[" * 1_000_000 + "]" * 1_000_000
-        text = '{"cells": [{"cell_type": "code", "source": "train(x)"}], "metadata": {"deep": %s}, "nbformat": 4, "nbformat_minor": 5}' % nested
-        (self.root / "deep.ipynb").write_text(text, encoding="utf-8")
-        errors = self.validate(document("deep.ipynb", "train(x)", cell=0))
-        self.assertEqual([("notebook_cell", "evidence[0].cell")], [(e["code"], e["path"]) for e in errors])
+        # json.loads raises RecursionError at 20000 levels on Python 3.10-3.13 but parses it on 3.14
+        # (8 MiB stack), and raises it at 1,000,000 levels on every version; the helper refuses by an
+        # explicit depth, so both paths give the same result.
+        def notebook(arrays):
+            nested = "[" * arrays + "]" * arrays
+            return '{"cells": [{"cell_type": "code", "source": "train(x)"}], "metadata": {"deep": %s}, "nbformat": 4, "nbformat_minor": 5}' % nested
+        depth_message = f"cited notebook nests JSON more than {artifact.MAX_NOTEBOOK_DEPTH} levels deep; the helper does not read it"
+        # The root object and "metadata" are two levels, so 498 arrays reach the limit exactly.
+        for arrays, expected in ((artifact.MAX_NOTEBOOK_DEPTH - 2, []),
+                                 (artifact.MAX_NOTEBOOK_DEPTH - 1, [("notebook_cell", "evidence[0].cell", depth_message)]),
+                                 (20000, [("notebook_cell", "evidence[0].cell", depth_message)]),
+                                 (1_000_000, [("notebook_cell", "evidence[0].cell", depth_message)])):
+            with self.subTest(arrays=arrays):
+                (self.root / "deep.ipynb").write_text(notebook(arrays), encoding="utf-8")
+                errors = self.validate(document("deep.ipynb", "train(x)", cell=0))
+                self.assertEqual(expected, [(e["code"], e["path"], e["message"]) for e in errors])
 
     # SKILL-12
 
@@ -775,7 +784,7 @@ class ArtifactTests(unittest.TestCase):
         doc = document("many.ipynb", "step_0 = 0", cell=0)
         doc["evidence"] = [{"id": f"ev{i}", "file": "many.ipynb", "cell": 0, "line": i + 1, "endLine": i + 1, "quote": f"step_{i} = {i}"} for i in range(200)]
         doc["nodes"][0]["evidence"] = ["ev0"]
-        with mock.patch.object(artifact, "_parse_notebook", wraps=artifact._parse_notebook) as parse:
+        with mock.patch.object(artifact, "_read_notebook", wraps=artifact._read_notebook) as parse:
             self.assertEqual([], self.validate(doc))
         self.assertEqual(1, parse.call_count)
 
