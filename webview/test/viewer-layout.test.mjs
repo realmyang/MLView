@@ -330,9 +330,14 @@ test('an authored title is truncated once: whole label in the DOM, wrapped to th
   const title = card.querySelector('.mlv-node__title');
   assert.equal(title.textContent, label, 'no middle ellipsis in the DOM');
   assert.ok(title.classList.contains('mlv-node__title--wrap'));
-  assert.equal(title.style.getPropertyValue('--mlv-title-lines'), '3');
+  assert.equal(title.getAttribute('data-lines'), '3');
   const short = ctx.document.querySelector('[data-node-id="a"]');
-  assert.equal(short.querySelector('.mlv-node__title').style.getPropertyValue('--mlv-title-lines'), '1');
+  assert.equal(short.querySelector('.mlv-node__title').getAttribute('data-lines'), '1');
+  const css = await readFile(join(WEBVIEW_ROOT, 'dist', 'mlview.css'), 'utf8');
+  for (const n of ['2', '3']) {
+    assert.equal(declarationsFor(css, `.mlv-node__title--wrap[data-lines="${n}"]`)['-webkit-line-clamp'], n, 'the clamp matches the reserved lines');
+  }
+  assert.equal(declarationsFor(css, '.mlv-canvas[data-lod=compact] .mlv-node__title--wrap[data-lines="3"]')['-webkit-line-clamp'], '5', 'compact cards give the title two more lines');
   assert.equal(parseFloat(card.style.height) - parseFloat(short.style.height), 36, 'two extra 18 px title lines are reserved');
   // The SVG export draws the same lines.
   ctx.document.querySelector('.mlv-btn--exportmenu').click();

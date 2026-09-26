@@ -74,6 +74,21 @@ const TITLE_ADVANCE_PX = 13 * 0.55;
  * Pure, so the layout (how tall), the SVG export (what text) and a test agree.
  */
 export function wrapTitle(label: string, width: number, maxLines = NODE_TITLE_MAX_LINES): string[] {
+  const key = width + '|' + maxLines + '|' + label;
+  const hit = wrapCache.get(key);
+  if (hit) return hit;
+  const lines = wrapUncached(label, width, maxLines);
+  // Layout and the card both ask, once per relayout and per render; a bounded
+  // memo keeps a 2000-node document from re-splitting every label each time.
+  if (wrapCache.size >= WRAP_CACHE_MAX) wrapCache.clear();
+  wrapCache.set(key, lines);
+  return lines;
+}
+
+const WRAP_CACHE_MAX = 8192;
+const wrapCache = new Map<string, string[]>();
+
+function wrapUncached(label: string, width: number, maxLines: number): string[] {
   const perLine = Math.max(4, Math.floor((width - CARD_TEXT_INSET) / TITLE_ADVANCE_PX));
   const words = String(label || '').trim().split(/\s+/).filter(Boolean);
   const lines: string[] = [];

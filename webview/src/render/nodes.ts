@@ -309,12 +309,11 @@ export function buildNodeCard(v: NodeVisual, collapsedGroup: boolean): HTMLEleme
     // Now the whole label is in the DOM and wraps to the lines the layout
     // reserved (`cardmetrics.titleLines`), clamped with one ellipsis. The full
     // label is in the hover card and the accessible name.
-    const lines = titleLines(n, v.box.w);
+    // `data-lines` (1-3) selects the clamp in node.css; an attribute rather
+    // than a custom property, because a style write per card is the slow path
+    // on a 2000-node document.
     const title = add(text, el('div', 'mlv-node__title mlv-node__title--wrap', label));
-    title.style.setProperty('--mlv-title-lines', String(lines));
-    // Below the detail threshold the sub, loc and chip rows are not drawn, so
-    // the title may use two more lines of the same box.
-    title.style.setProperty('--mlv-title-lines-compact', String(Math.min(5, lines + 2)));
+    title.setAttribute('data-lines', String(titleLines(n, v.box.w)));
   } else {
     add(text, el('div', 'mlv-node__title', middleTruncate(label, 34)));
   }
