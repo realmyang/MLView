@@ -43,11 +43,14 @@ files as missing. Fixes from four model reviews of the integrated branch
 make default excerpt IDs unique per path, bound the `foundAt` search, draw
 authored self-edges as loops, keep a revealed finding target beside the
 narrow-window rail drawer and keep the collapsed header's controls visible on
-short panels. There is no schema change and no version bump. Issues 13,
-16, 19 and 20 are deferred on purpose. Only local checks have run
-([details](VALIDATION.md)); CI, live hosts and the pilot have not, and once
-quotes come from `excerpt` the pilot's exact-anchor target shows only that
-cited ranges exist and are fresh.
+short panels. A confirmation run of ten shakedown cases with the fixed skill
+then bounded the critique (correct what the draft covers, then publish) and
+stopped counting refused upserts as repair rounds; that last change has not
+run on a live host ([record](demo-logs/2026-09-26-public-shakedown.md)).
+There is no schema change and no version bump. Issues 13, 16, 19 and 20 are
+deferred on purpose. Local checks and CI: [details](VALIDATION.md); the pilot
+has not run, and once quotes come from `excerpt` the pilot's exact-anchor
+target shows only that cited ranges exist and are fresh.
 
 Version 0.3.0 adds Campaign 2, "pilot readiness" (see the
 [changelog](../CHANGELOG.md)): owner decision files with a `check` command,

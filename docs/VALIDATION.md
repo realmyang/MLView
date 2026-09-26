@@ -95,6 +95,31 @@ run.
   and a fixture's two self-edges were drawn (none before). This is a layout
   check in headless Chrome, not a VS Code live check.
 
+### Post-review changes, CI and confirmation run — 2026-09-27
+
+Later commits on the branch: `590c97d` (the documented default `excerpt` ID
+and one error-list entry), `c2182e7` (a test expectation for Windows
+absolute paths), `c37a275` (the skill's critique is bounded) and `577a381`
+(refused upserts are not repair rounds; no partial publication at the
+limit), plus this record and the dated shakedown record.
+
+- CI at `590c97d` ([run 36271081599](https://github.com/realmyang/MLView/actions/runs/36271081599)):
+  11 of 12 jobs passed; the Windows job failed on one test that expected
+  the POSIX error code for an absolute path (`c2182e7` fixes the test; the
+  helper was right). CI at `c37a275` ([run 36273489712](https://github.com/realmyang/MLView/actions/runs/36273489712)):
+  **all 12 jobs passed**, including Windows.
+- `sh scripts/e2e.sh --skip-npm-install` on `577a381`, in a separate
+  worktree without the public corpus checkout: **all 15 exercised gates
+  passed**. Python: **875 passed, 17 skipped** (the corpus tests), 630
+  subtests passed. Viewer: **100 passed**. Extension: **266 passed**. The
+  actual VSIX: 11 files, 161,147 bytes. The worktree stayed clean.
+- A confirmation run of ten shakedown cases with the fixed skill on live
+  hosts, and a re-run of one case after `c37a275`, are recorded in
+  [2026-09-26-public-shakedown.md](demo-logs/2026-09-26-public-shakedown.md):
+  four cases stopped on account quotas, and `577a381` has not run on a live
+  host. That record is a provisional model review, not human review,
+  semantic accuracy or a pilot result.
+
 ## Campaign 2 final local checks and CI — 2026-09-25
 
 Campaign 2 at `d6e0e52` on the `campaign2-pilot-readiness` branch (the
