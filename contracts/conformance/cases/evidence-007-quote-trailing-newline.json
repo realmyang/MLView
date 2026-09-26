@@ -1,0 +1,84 @@
+{
+  "id": "evidence-007-quote-trailing-newline",
+  "findings": [
+    "SHAKEDOWN3-2"
+  ],
+  "description": "A quote with a line break after its last line does not match: cited lines are joined with LF and have none after the last line. The helper names the extra line break (quote_mismatch with the first difference); both layers refuse the document.",
+  "files": {
+    "train.py": {
+      "text": "import torch\n\ndef train(model, data):\n    for batch in data:\n        loss = model(batch)\n        loss.backward()\n    return model\n"
+    }
+  },
+  "artifact": "workflow.mlview.json",
+  "document": {
+    "workflowVersion": "1.0",
+    "title": "Training loop",
+    "producer": {
+      "kind": "host-llm",
+      "host": "codex"
+    },
+    "revision": {
+      "id": "r1"
+    },
+    "request": {
+      "question": "How does train.py train the model?",
+      "scope": "train.py"
+    },
+    "phases": [
+      {
+        "id": "train",
+        "label": "Train"
+      }
+    ],
+    "nodes": [
+      {
+        "id": "loop",
+        "label": "Training loop",
+        "phase": "train",
+        "basis": "observed",
+        "evidence": [
+          "ev-loop"
+        ]
+      }
+    ],
+    "edges": [],
+    "findings": [],
+    "evidence": [
+      {
+        "id": "ev-loop",
+        "file": "train.py",
+        "line": 4,
+        "endLine": 6,
+        "quote": "    for batch in data:\n        loss = model(batch)\n        loss.backward()\n"
+      }
+    ],
+    "coverage": {
+      "status": "scoped",
+      "summary": "Read the training function.",
+      "inspectedFiles": [
+        "train.py"
+      ],
+      "limitations": []
+    }
+  },
+  "expect": {
+    "schema": "valid",
+    "helper": {
+      "ok": false,
+      "codes": [
+        "quote_mismatch"
+      ],
+      "warnings": [],
+      "fingerprints": null,
+      "stale": []
+    },
+    "extension": {
+      "ok": false,
+      "stale": [],
+      "issuePaths": [
+        "$.evidence[0].quote"
+      ]
+    }
+  },
+  "divergence": null
+}

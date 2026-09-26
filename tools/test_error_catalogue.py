@@ -130,9 +130,11 @@ class ErrorCatalogueTests(unittest.TestCase):
     def test_the_scan_sees_every_code_the_helper_can_emit(self):
         self.assertEqual([], self.problems)
         kinds = sorted(self.codes.values())
-        # 58 error codes and 2 warnings when the catalogue was written (Campaign 2 SPEC 7.3).
+        # 58 error codes and 2 warnings when the catalogue was written (Campaign 2 SPEC 7.3), plus the
+        # six non-blocking hygiene warnings of Campaign 3.
         self.assertGreaterEqual(kinds.count("error"), 58)
-        self.assertEqual(["excluded_inspected", "not_fingerprinted"], sorted(code for code, kind in self.codes.items() if kind == "warning"))
+        self.assertEqual(["duplicate_inspected", "evidence_overlap", "excluded_inspected", "isolated_node", "not_fingerprinted",
+                          "self_edge", "unreferenced_evidence", "wide_evidence"], sorted(code for code, kind in self.codes.items() if kind == "warning"))
 
     def test_the_scan_refuses_computed_codes(self):
         codes, problems = helper_codes(

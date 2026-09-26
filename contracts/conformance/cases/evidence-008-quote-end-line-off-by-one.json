@@ -1,0 +1,84 @@
+{
+  "id": "evidence-008-quote-end-line-off-by-one",
+  "findings": [
+    "SHAKEDOWN3-2"
+  ],
+  "description": "The right text cited one line short: the quote holds lines 4-6 but endLine is 5. The helper reports quote_mismatch and, because the quoted text occurs exactly once, where it is (a diagnostic only; the range is never rewritten).",
+  "files": {
+    "train.py": {
+      "text": "import torch\n\ndef train(model, data):\n    for batch in data:\n        loss = model(batch)\n        loss.backward()\n    return model\n"
+    }
+  },
+  "artifact": "workflow.mlview.json",
+  "document": {
+    "workflowVersion": "1.0",
+    "title": "Training loop",
+    "producer": {
+      "kind": "host-llm",
+      "host": "codex"
+    },
+    "revision": {
+      "id": "r1"
+    },
+    "request": {
+      "question": "How does train.py train the model?",
+      "scope": "train.py"
+    },
+    "phases": [
+      {
+        "id": "train",
+        "label": "Train"
+      }
+    ],
+    "nodes": [
+      {
+        "id": "loop",
+        "label": "Training loop",
+        "phase": "train",
+        "basis": "observed",
+        "evidence": [
+          "ev-loop"
+        ]
+      }
+    ],
+    "edges": [],
+    "findings": [],
+    "evidence": [
+      {
+        "id": "ev-loop",
+        "file": "train.py",
+        "line": 4,
+        "endLine": 5,
+        "quote": "    for batch in data:\n        loss = model(batch)\n        loss.backward()"
+      }
+    ],
+    "coverage": {
+      "status": "scoped",
+      "summary": "Read the training function.",
+      "inspectedFiles": [
+        "train.py"
+      ],
+      "limitations": []
+    }
+  },
+  "expect": {
+    "schema": "valid",
+    "helper": {
+      "ok": false,
+      "codes": [
+        "quote_mismatch"
+      ],
+      "warnings": [],
+      "fingerprints": null,
+      "stale": []
+    },
+    "extension": {
+      "ok": false,
+      "stale": [],
+      "issuePaths": [
+        "$.evidence[0].quote"
+      ]
+    }
+  },
+  "divergence": null
+}

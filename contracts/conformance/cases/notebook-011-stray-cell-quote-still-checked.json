@@ -1,19 +1,19 @@
 {
-  "id": "notebook-003-cell-on-non-notebook",
+  "id": "notebook-011-stray-cell-quote-still-checked",
   "findings": [
-    "CONTRACT-9",
-    "SHAKEDOWN3-2"
+    "SHAKEDOWN3-2",
+    "CONTRACT-9"
   ],
-  "description": "A cell index is only valid for .ipynb evidence, even when the cited JSON file happens to contain notebook-like cells. The helper still checks the quote against the file's own lines, so the mismatching quote is reported in the same round.",
+  "description": "A cell index on a .py citation is unexpected_cell, and the quote is still checked against the file's own lines, so a wrong quote on the same record is reported in the same round (previously the quote check was skipped).",
   "files": {
-    "data.json": {
-      "text": "{\"cells\": [{\"source\": \"fit(x)\"}]}\n"
+    "train.py": {
+      "text": "import torch\n\ndef train(model, data):\n    for batch in data:\n        loss = model(batch)\n        loss.backward()\n    return model\n"
     }
   },
   "artifact": "workflow.mlview.json",
   "document": {
     "workflowVersion": "1.0",
-    "title": "Training",
+    "title": "Training loop",
     "producer": {
       "kind": "host-llm",
       "host": "codex"
@@ -22,23 +22,23 @@
       "id": "r1"
     },
     "request": {
-      "question": "Explain training",
+      "question": "How does train.py train the model?",
       "scope": "train.py"
     },
     "phases": [
       {
-        "id": "p",
+        "id": "train",
         "label": "Train"
       }
     ],
     "nodes": [
       {
-        "id": "n",
-        "label": "Train",
-        "phase": "p",
+        "id": "loop",
+        "label": "Training loop",
+        "phase": "train",
         "basis": "observed",
         "evidence": [
-          "ev"
+          "ev-loop"
         ]
       }
     ],
@@ -46,19 +46,19 @@
     "findings": [],
     "evidence": [
       {
-        "id": "ev",
-        "file": "data.json",
+        "id": "ev-loop",
+        "file": "train.py",
         "cell": 0,
-        "line": 1,
-        "endLine": 1,
-        "quote": "fit(x)"
+        "line": 4,
+        "endLine": 6,
+        "quote": "    for batch in data:\n        loss = model(batch)\n        loss.backward"
       }
     ],
     "coverage": {
       "status": "scoped",
-      "summary": "Inspected entrypoint",
+      "summary": "Read the training function.",
       "inspectedFiles": [
-        "data.json"
+        "train.py"
       ],
       "limitations": []
     }

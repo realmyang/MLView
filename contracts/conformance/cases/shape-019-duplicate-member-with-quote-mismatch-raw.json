@@ -1,0 +1,36 @@
+{
+  "id": "shape-019-duplicate-member-with-quote-mismatch-raw",
+  "findings": [
+    "SHAKEDOWN3-2",
+    "CONTRACT-9"
+  ],
+  "description": "A draft with a repeated top-level member and a wrong quote. The helper reports the repeated member (invalid_json) and still validates the last value, as JSON.parse reads it, so the quote_mismatch surfaces in the same round (previously the repeated member hid every other check). Both layers refuse it.",
+  "files": {
+    "train.py": {
+      "text": "import torch\n\ndef train(model, data):\n    for batch in data:\n        loss = model(batch)\n        loss.backward()\n    return model\n"
+    }
+  },
+  "artifact": "workflow.mlview.json",
+  "raw": "{\n  \"workflowVersion\": \"1.0\",\n  \"title\": \"Training loop\",\n  \"producer\": {\n    \"kind\": \"host-llm\",\n    \"host\": \"codex\"\n  },\n  \"revision\": {\n    \"id\": \"r1\"\n  },\n  \"request\": {\n    \"question\": \"How does train.py train the model?\",\n    \"scope\": \"train.py\"\n  },\n  \"phases\": [\n    {\n      \"id\": \"train\",\n      \"label\": \"Train\"\n    }\n  ],\n  \"nodes\": [\n    {\n      \"id\": \"loop\",\n      \"label\": \"Training loop\",\n      \"phase\": \"train\",\n      \"basis\": \"observed\",\n      \"evidence\": [\n        \"ev-loop\"\n      ]\n    }\n  ],\n  \"edges\": [],\n  \"findings\": [],\n  \"findings\": [],\n  \"evidence\": [\n    {\n      \"id\": \"ev-loop\",\n      \"file\": \"train.py\",\n      \"line\": 4,\n      \"endLine\": 6,\n      \"quote\": \"    for batch in data:\\n        loss = model(batch)\"\n    }\n  ],\n  \"coverage\": {\n    \"status\": \"scoped\",\n    \"summary\": \"Read the training function.\",\n    \"inspectedFiles\": [\n      \"train.py\"\n    ],\n    \"limitations\": []\n  }\n}",
+  "expect": {
+    "schema": "valid",
+    "helper": {
+      "ok": false,
+      "codes": [
+        "invalid_json",
+        "quote_mismatch"
+      ],
+      "warnings": [],
+      "fingerprints": null,
+      "stale": []
+    },
+    "extension": {
+      "ok": false,
+      "stale": [],
+      "issuePaths": [
+        "$.evidence[0].quote"
+      ]
+    }
+  },
+  "divergence": null
+}

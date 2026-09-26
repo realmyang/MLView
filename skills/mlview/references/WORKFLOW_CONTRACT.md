@@ -9,7 +9,7 @@ bundled example shows them in use.
 Fields (omit an optional field instead of writing null; IDs match ^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$):
 - producer: kind "host-llm"; host copilot | codex | claude-code | unknown; model? (<= 200)
 - revision: id; parent? (the published revision ID; never reuse the published ID or its parent's ID)
-- request: question (<= 4000); scope (<= 2000); entrypoints? (<= 100 paths); configuration? (<= 2000)
+- request: question (<= 4000, the user's request verbatim); scope (<= 2000); entrypoints? (<= 100 paths); configuration? (<= 2000)
 - phases[1..100]: id; label (<= 200)
 - nodes[1..2000]: id; label (<= 300); phase; parent? (a different node ID); kind? (<= 100); detail? (<= 8000); basis; evidence
 - edges[<= 4000]: id; source; target; label (<= 300); kind?; basis; evidence
@@ -22,14 +22,31 @@ Fields (omit an optional field instead of writing null; IDs match ^[A-Za-z0-9][A
 Omit optional fields you do not use; never write `null` for them (a root node
 has no `parent` field).
 
+`request.question` is the user's request verbatim; if it exceeds 4000
+characters, cut it there and say so in `request.scope`. Put your
+interpretation (selected scenario, exclusions) in `request.scope` and
+`request.configuration`, never in a paraphrased question.
 `request.entrypoints` lists unique selected entrypoint paths, and
 `request.configuration` describes the selected config/launch arguments and
 material default assumptions. Omit unknown details rather than inventing them;
-record unresolved choices in coverage. Separate incompatible scenarios.
+record unresolved choices in coverage. Separate incompatible scenarios. Start a
+limitation with `Excluded by request:` only when the request excluded the work;
+otherwise write `Not inspected: <what> (<reason>)`.
 
-Paths are workspace-relative slash paths without a drive letter. Evidence uses
+`kind` stays optional free text, but prefer these values. Edges: `data`,
+`control`, `call`, `config`, `state`, `loop`, `output`. Nodes: `operation`,
+`data`, `model`, `state`, `objective`, `optimizer`, `evaluation`, `metric`,
+`output`, `config`, `loop`, `branch`, `group`, `entrypoint`, `artifact`.
+
+Path fields (`evidence[].file`, `inspectedFiles`, `entrypoints`, `--output`)
+are workspace-relative slash paths without a drive letter; the helper refuses
+absolute ones there. Free text is not checked, but must not contain
+machine-specific absolute paths (home directory, workspace root, temporary
+directories); placeholders quoted from the scenario or project docs, such as
+`/path/to/data`, are fine. Evidence uses
 one-based inclusive line ranges, and each quote is the exact cited lines of the
-UTF-8 source, with CRLF/CR normalised to LF and joined with LF. A leading
+UTF-8 source, with CRLF/CR normalised to LF and joined with LF, with no line
+break after the last line (unless the range ends on an empty line). A leading
 byte-order mark is not part of line 1; a line-1 quote may include or omit it.
 Notebook evidence adds a zero-based `cell`; line ranges then address that
 cell's source. Cited notebooks must be valid JSON; NaN and Infinity are refused
@@ -92,27 +109,50 @@ a published artifact is at most 2 MiB. If no artifact exists, the draft omits
 revision ID must differ from the published revision's ID and its parent's ID;
 MLView keeps no longer history, so never reuse earlier IDs.
 
-Every helper command prints one JSON object with `ok` and `errors`, except
-command-line usage errors (a missing argument or an unknown option), which the
-argument parser reports as plain text on stderr with exit status 2 and no JSON.
-Each error has `code`, `path`, and `message`; `stale_source` adds `file`, and
-`invalid_json` adds `line` and `column` for JSON syntax errors only (not for a
-duplicate member, `NaN` or `Infinity`, which are not JSON, or nesting deeper
-than 64 levels). A successful `validate` or
-`publish` adds `warnings` only when there are any; warnings never block
-publication. `validate` adds `revision`, `files`, and, with
-`--include-document`, `document`; `publish` adds `output` and `revision`;
-`upsert` adds `draft`, `collection`, `id`, and `action`. A relative draft or
-`--record` path is resolved against `--workspace`, which must be an existing
-directory (`workspace_path`). Output never contains absolute paths.
+Every helper command prints one JSON object with `ok` and `errors`, except a
+successful `excerpt` (it prints the evidence record) and command-line usage
+errors (a missing argument or an unknown option), which the argument parser
+reports as plain text on stderr with exit status 2 and no JSON.
+
+```sh
+python3 <skill-directory>/scripts/artifact.py excerpt <file> --lines <start>[-<end>] [--cell <n>] [--id <evidence-id>] --workspace <workspace-folder>
+```
+
+`excerpt` is read-only: for a workspace-relative `<file>` it prints one line,
+`{"id", "file", ("cell",) "line", "endLine", "quote"}`, exactly as `validate`
+accepts it (same path rules, MLView files refused, `--cell` required for
+`.ipynb` and refused elsewhere); a bad path or range exits 1 with `errors`.
+`upsert --record` holds one record or a JSON array of records for the same
+collection, applied in order and validated once: all are written or none;
+`upsert` then adds `records` (each `id` and `action`), plus `id` and `action`
+for a single record, and `draft` and `collection`.
+
+Each error has `code`, `path`, and `message`. `quote_mismatch` adds `id`,
+`file`, `cell`, `line`, `endLine`, `citedLines`, `quoteLines`, `difference`
+(`rangeLine`, source `line`, `column`, and each side's text as `quote` and
+`cited`, JSON-escaped so tabs, CR and trailing spaces show) and, when the
+quoted text occurs exactly once in that file or cell, `foundAt` (`line`,
+`endLine`): a hint, never applied for you. `reference` and
+`duplicate_reference` paths index the entry and add `value`; `duplicate_id`
+adds `value` and `firstIndex`; `range` adds `maxLine`; `stale_source` adds
+`file`; `invalid_json` adds `line` and `column` for syntax errors and
+`member` for a repeated member, after which a draft is still validated with
+the last value, so other errors show in the same run. A successful `validate`,
+`publish` or `upsert` adds `warnings` only when there are any; warnings never
+block publication. `validate` adds `revision`, `files`, `basis` (counts of
+observed, inferred and unresolved nodes, edges and findings) and, with
+`--include-document`, `document`; `publish` adds `output` and `revision`. Each
+hygiene warning code lists at most 10 entries, then a count. A relative draft
+or `--record` path is resolved against `--workspace`, which must be an
+existing directory (`workspace_path`). Output never contains absolute paths.
 
 <!-- helper-codes:begin -->
 Helper codes and the usual repair (the entry's `path` names what to fix):
 
 ```text
-Errors (block validate, publish and upsert):
+Errors (block validate, publish, upsert and excerpt):
 - additional_property: remove a field the object does not allow
-- arguments: upsert needs --collection and --record
+- arguments: upsert needs --collection, --record; excerpt --lines
 - basis: use observed, inferred or unresolved
 - checkpoint_invalid: the draft upsert edits must validate first
 - coverage: give coverage a status (scoped|partial) and a summary
@@ -147,9 +187,9 @@ Errors (block validate, publish and upsert):
 - published_invalid: the existing artifact is unreadable; ask the user
 - published_target: upsert a *.draft.json copy, not the artifact
 - python_version: run the helper with Python 3.10+
-- quote_mismatch: copy the cited lines exactly (the message shows them)
+- quote_mismatch: fix the range (see foundAt) or the quote (difference)
 - range: line..endLine is a one-based inclusive range in the source
-- record: the upsert record needs a valid id
+- record: each upsert record needs a valid id
 - reference: reference an ID that exists
 - request: request.question and request.scope must be non-empty
 - required: add the missing field; phases and nodes are non-empty
@@ -172,6 +212,12 @@ Errors (block validate, publish and upsert):
 Warnings (never block publication):
 - excluded_inspected: MLView file in inspectedFiles; not fingerprinted
 - not_fingerprinted: inspected file over 8 MiB; no fingerprint
+- unreferenced_evidence: no claim cites it; cite it or remove it
+- isolated_node: no edge, parent or child; connect it
+- self_edge: source is target; kind loop if intended
+- wide_evidence: over 60 lines; cite a narrower range
+- evidence_overlap: same ID in evidence and counterEvidence
+- duplicate_inspected: inspectedFiles lists it twice
 ```
 <!-- helper-codes:end -->
 

@@ -31,6 +31,9 @@ These are contract checks, run locally and in CI. They are not semantic
 accuracy, human review or live-host validation. The corpus does not cover
 the panel's revision acceptance (`revision-lineage`, `authored-lineage` and
 `refine-wedge` tests in `vscode-extension/test/`) or the webview projection.
+It records codes, not messages: the structured error fields, the warning cap,
+the `basis` summary, `excerpt` and multi-record `upsert` are covered by the
+helper's unit tests (`skills/mlview/tests/`).
 
 ## Case format
 
@@ -63,9 +66,14 @@ Expectations:
   `invalid`.
 - `expect.helper`: `{ok, codes, warnings, fingerprints, stale}` from
   `artifact.validate(doc, root, warnings=w)`. `codes` and `warnings` are the
-  exact sets of error and warning codes. A `raw` is parsed the way the CLI
-  parses a draft (strict UTF-8, unique members, no `NaN` or `Infinity`, at
-  most 64 levels of nesting), and one the parser rejects gives
+  exact sets of error and warning codes; the hygiene warnings
+  (`unreferenced_evidence`, `isolated_node`, `self_edge`, `wide_evidence`,
+  `evidence_overlap`, `duplicate_inspected`) are computed only for a document
+  without errors. A `raw` is parsed the way the CLI parses a draft (strict
+  UTF-8, no `NaN` or `Infinity`, at most 64 levels of nesting). A repeated
+  member gives `invalid_json` plus the codes of validating the value that
+  keeps each member's last occurrence, as the CLI reports them, with no
+  warnings; any other `raw` the parser rejects gives
   `codes: ["invalid_json"]`. `fingerprints` is the exact hash map, or `null`
   for "not checked". `stale` is the set of `file` fields on `stale_source`
   errors.

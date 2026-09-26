@@ -1,0 +1,86 @@
+{
+  "id": "evidence-011-sixty-line-evidence-no-warning",
+  "findings": [
+    "SHAKEDOWN3-3"
+  ],
+  "description": "An evidence record spanning exactly 60 lines is not wide: no warning.",
+  "files": {
+    "values.py": {
+      "text": "value_0 = 0\nvalue_1 = 1\nvalue_2 = 2\nvalue_3 = 3\nvalue_4 = 4\nvalue_5 = 5\nvalue_6 = 6\nvalue_7 = 7\nvalue_8 = 8\nvalue_9 = 9\nvalue_10 = 10\nvalue_11 = 11\nvalue_12 = 12\nvalue_13 = 13\nvalue_14 = 14\nvalue_15 = 15\nvalue_16 = 16\nvalue_17 = 17\nvalue_18 = 18\nvalue_19 = 19\nvalue_20 = 20\nvalue_21 = 21\nvalue_22 = 22\nvalue_23 = 23\nvalue_24 = 24\nvalue_25 = 25\nvalue_26 = 26\nvalue_27 = 27\nvalue_28 = 28\nvalue_29 = 29\nvalue_30 = 30\nvalue_31 = 31\nvalue_32 = 32\nvalue_33 = 33\nvalue_34 = 34\nvalue_35 = 35\nvalue_36 = 36\nvalue_37 = 37\nvalue_38 = 38\nvalue_39 = 39\nvalue_40 = 40\nvalue_41 = 41\nvalue_42 = 42\nvalue_43 = 43\nvalue_44 = 44\nvalue_45 = 45\nvalue_46 = 46\nvalue_47 = 47\nvalue_48 = 48\nvalue_49 = 49\nvalue_50 = 50\nvalue_51 = 51\nvalue_52 = 52\nvalue_53 = 53\nvalue_54 = 54\nvalue_55 = 55\nvalue_56 = 56\nvalue_57 = 57\nvalue_58 = 58\nvalue_59 = 59\nvalue_60 = 60\nvalue_61 = 61\nvalue_62 = 62\nvalue_63 = 63\nvalue_64 = 64\nvalue_65 = 65\nvalue_66 = 66\nvalue_67 = 67\nvalue_68 = 68\nvalue_69 = 69\n"
+    }
+  },
+  "artifact": "workflow.mlview.json",
+  "document": {
+    "workflowVersion": "1.0",
+    "title": "Training loop",
+    "producer": {
+      "kind": "host-llm",
+      "host": "codex"
+    },
+    "revision": {
+      "id": "r1"
+    },
+    "request": {
+      "question": "How does train.py train the model?",
+      "scope": "train.py"
+    },
+    "phases": [
+      {
+        "id": "train",
+        "label": "Train"
+      }
+    ],
+    "nodes": [
+      {
+        "id": "values",
+        "label": "Define values",
+        "phase": "train",
+        "basis": "observed",
+        "evidence": [
+          "ev-values"
+        ]
+      }
+    ],
+    "edges": [],
+    "findings": [],
+    "evidence": [
+      {
+        "id": "ev-values",
+        "file": "values.py",
+        "line": 2,
+        "endLine": 61,
+        "quote": "value_1 = 1\nvalue_2 = 2\nvalue_3 = 3\nvalue_4 = 4\nvalue_5 = 5\nvalue_6 = 6\nvalue_7 = 7\nvalue_8 = 8\nvalue_9 = 9\nvalue_10 = 10\nvalue_11 = 11\nvalue_12 = 12\nvalue_13 = 13\nvalue_14 = 14\nvalue_15 = 15\nvalue_16 = 16\nvalue_17 = 17\nvalue_18 = 18\nvalue_19 = 19\nvalue_20 = 20\nvalue_21 = 21\nvalue_22 = 22\nvalue_23 = 23\nvalue_24 = 24\nvalue_25 = 25\nvalue_26 = 26\nvalue_27 = 27\nvalue_28 = 28\nvalue_29 = 29\nvalue_30 = 30\nvalue_31 = 31\nvalue_32 = 32\nvalue_33 = 33\nvalue_34 = 34\nvalue_35 = 35\nvalue_36 = 36\nvalue_37 = 37\nvalue_38 = 38\nvalue_39 = 39\nvalue_40 = 40\nvalue_41 = 41\nvalue_42 = 42\nvalue_43 = 43\nvalue_44 = 44\nvalue_45 = 45\nvalue_46 = 46\nvalue_47 = 47\nvalue_48 = 48\nvalue_49 = 49\nvalue_50 = 50\nvalue_51 = 51\nvalue_52 = 52\nvalue_53 = 53\nvalue_54 = 54\nvalue_55 = 55\nvalue_56 = 56\nvalue_57 = 57\nvalue_58 = 58\nvalue_59 = 59\nvalue_60 = 60"
+      }
+    ],
+    "coverage": {
+      "status": "scoped",
+      "summary": "Read the training function.",
+      "inspectedFiles": [
+        "values.py"
+      ],
+      "limitations": []
+    }
+  },
+  "expect": {
+    "schema": "valid",
+    "helper": {
+      "ok": true,
+      "codes": [],
+      "warnings": [],
+      "fingerprints": {
+        "values.py": {
+          "$sha256": {
+            "text": "value_0 = 0\nvalue_1 = 1\nvalue_2 = 2\nvalue_3 = 3\nvalue_4 = 4\nvalue_5 = 5\nvalue_6 = 6\nvalue_7 = 7\nvalue_8 = 8\nvalue_9 = 9\nvalue_10 = 10\nvalue_11 = 11\nvalue_12 = 12\nvalue_13 = 13\nvalue_14 = 14\nvalue_15 = 15\nvalue_16 = 16\nvalue_17 = 17\nvalue_18 = 18\nvalue_19 = 19\nvalue_20 = 20\nvalue_21 = 21\nvalue_22 = 22\nvalue_23 = 23\nvalue_24 = 24\nvalue_25 = 25\nvalue_26 = 26\nvalue_27 = 27\nvalue_28 = 28\nvalue_29 = 29\nvalue_30 = 30\nvalue_31 = 31\nvalue_32 = 32\nvalue_33 = 33\nvalue_34 = 34\nvalue_35 = 35\nvalue_36 = 36\nvalue_37 = 37\nvalue_38 = 38\nvalue_39 = 39\nvalue_40 = 40\nvalue_41 = 41\nvalue_42 = 42\nvalue_43 = 43\nvalue_44 = 44\nvalue_45 = 45\nvalue_46 = 46\nvalue_47 = 47\nvalue_48 = 48\nvalue_49 = 49\nvalue_50 = 50\nvalue_51 = 51\nvalue_52 = 52\nvalue_53 = 53\nvalue_54 = 54\nvalue_55 = 55\nvalue_56 = 56\nvalue_57 = 57\nvalue_58 = 58\nvalue_59 = 59\nvalue_60 = 60\nvalue_61 = 61\nvalue_62 = 62\nvalue_63 = 63\nvalue_64 = 64\nvalue_65 = 65\nvalue_66 = 66\nvalue_67 = 67\nvalue_68 = 68\nvalue_69 = 69\n"
+          }
+        }
+      },
+      "stale": []
+    },
+    "extension": {
+      "ok": true,
+      "stale": [],
+      "issuePaths": []
+    }
+  },
+  "divergence": null
+}

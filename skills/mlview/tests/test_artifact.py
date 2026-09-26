@@ -530,10 +530,12 @@ class ArtifactTests(unittest.TestCase):
     def test_duplicate_member_error_names_the_key(self):
         draft = self.root / "draft.json"; draft.write_text('{"title": "a", "title": "b"}', encoding="utf-8")
         code, response = self.run_raw("validate", str(draft), "--workspace", str(self.root))
-        self.assertEqual([{"code": "invalid_json", "path": "$", "message": "duplicate JSON member: title"}], response["errors"])
+        self.assertEqual(1, code)
+        continued = "; the rest of the draft was validated with its last value, as JSON.parse reads it"
+        self.assertEqual({"code": "invalid_json", "path": "$", "member": "title", "message": "duplicate JSON member: title" + continued}, response["errors"][0])
         draft.write_text('{"%s": 1, "%s": 2}' % ("k" * 300, "k" * 300), encoding="utf-8")
         code, response = self.run_raw("validate", str(draft), "--workspace", str(self.root))
-        self.assertEqual("duplicate JSON member: " + "k" * 200, response["errors"][0]["message"])
+        self.assertEqual("duplicate JSON member: " + "k" * 200 + continued, response["errors"][0]["message"])
 
     def test_record_errors_use_the_record_path(self):
         self.write_draft(document())
@@ -567,13 +569,20 @@ class ArtifactTests(unittest.TestCase):
         error = [e for e in self.validate(doc) if e["code"] == "producer"][0]
         self.assertIn("copilot, codex, claude-code, unknown", error["message"])
 
-    def test_quote_mismatch_shows_the_cited_lines(self):
+    def test_quote_mismatch_shows_the_first_difference(self):
         error = [e for e in self.validate(document(quote="def train()")) if e["code"] == "quote_mismatch"][0]
-        self.assertEqual('quote does not exactly match the cited lines; the cited lines are: "def train():"', error["message"])
+        self.assertEqual('quote does not exactly match the cited lines of evidence "ev" (train.py, line 1). '
+                         'First difference at line 1 of the quote (source line 1), column 12: '
+                         'the quote has "def train()" where the cited lines have "def train():". '
+                         'The quote is only part of the cited lines; quote complete lines exactly, or narrow the range to the lines you quote.',
+                         error["message"])
+        self.assertEqual({"rangeLine": 1, "line": 1, "column": 12, "startColumn": 1, "quote": "def train()", "cited": "def train():"}, error["difference"])
         (self.root / "long.py").write_text("x" * 150 + "\n" + "y" * 150 + "\n", encoding="utf-8")
-        doc = document("long.py", "wrong"); doc["evidence"][0]["endLine"] = 2
+        doc = document("long.py", "x" * 150 + "\n" + "y" * 149 + "z"); doc["evidence"][0]["endLine"] = 2
         error = [e for e in self.validate(doc) if e["code"] == "quote_mismatch"][0]
-        self.assertTrue(error["message"].endswith(json.dumps("x" * 150 + "\n" + "y" * 49)), error["message"])
+        # The difference is past character 200 of the quote; the message shows it, bounded.
+        self.assertEqual({"rangeLine": 2, "line": 2, "column": 150, "startColumn": 120, "quote": "y" * 30 + "z", "cited": "y" * 31}, error["difference"])
+        self.assertIn('the quote has "%s" where the cited lines have "%s" (both shown from column 120)' % ("y" * 30 + "z", "y" * 31), error["message"])
 
     # SKILL-2 and CRIT-1
 
