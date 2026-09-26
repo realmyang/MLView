@@ -59,6 +59,48 @@ Windows and the PowerShell drivers are unverified here.
   steps only re-save a Stage 1 review with CRLF, which the new rule allows,
   so none of them needed a change.
 
+A review of those commits found six problems (STATS-1, HONEST-1, STATS-2,
+HONEST-2, INTEGRITY-1 and INTEGRITY-2, listed in the changelog entry). Commit
+`40cee7b` fixes them and was checked the same way, on the same machine and
+toolchain. Again, CI has not run on it.
+
+- `sh scripts/e2e.sh --skip-npm-install` on `40cee7b`: **all 15 exercised
+  gates passed**, and the worktree stayed clean after its rebuilds.
+  - Python helper, distribution and evaluation tests: **852 passed, 17
+    skipped, 537 subtests passed**. The 17 skips are the same corpus tests
+    (8 corpus-coverage, 8 reference-candidate quote, 1 decision-tool case).
+    A separate `-rs` run of those three files printed each skip reason:
+    every one is a missing corpus checkout.
+  - Viewer: **79 passed**. Extension: **250 passed**.
+  - The actual VSIX: 11 files, 155,593 bytes.
+- `python -m pytest skills/mlview/tests tools evals scripts claude-plugin/tests -q -p no:cacheprovider`
+  on the same tree: 852 passed, 17 skipped, 537 subtests passed.
+- `python tools/verify.py --all`: OK. `python tools/evidence_lock.py`: 95
+  files match the lock. `python scripts/check_docs.py`: OK, 40 documents.
+- The five changed Python files parse with
+  `ast.parse(feature_version=(3, 10))` and compile under Python 3.10.21.
+  The pinned normalization vector, now written with escapes, and the
+  whitespace set were checked under 3.10.21 too.
+- Tests added or rewritten for the fixes, all on synthetic worlds:
+  - 7 gate cases, 5 new and 2 rewritten: a summary without normalized
+    hashes held with either tools; Stage 2 runs collected under such a
+    summary staying valid; a same-tools summary that nulls a read review;
+    a review restored into a failed baseline with either tools; and a later
+    rule that rejects a recorded skill review. All 7 fail against the gate
+    at `c933569`.
+  - An ASCII check of the normalization v1 source.
+- The honest-path rehearsal (kept outside the repository) ran against a
+  fresh scratch clone of `40cee7b`. It covered the main timeline, the 15
+  earlier variants and the 6 normalized-hash variants in one run: 1,019
+  steps, no honest-path failure.
+  - Its two later-review-rule probes (44 steps, outside the honest count)
+    now print the new message. It names the three rejected reviews, says
+    they are final and must not be edited, and says Stage 2 needs the tool
+    change reverted.
+  - In those probes the all-stage summary is `incomplete`, no Stage 2 run
+    is invalid, and the note gives that remedy instead of "fetch or verify
+    the corpus".
+
 Every decision, review, verdict and policy value in the new tests and the
 rehearsal is synthetic. No native session, human review, reference freeze
 or pilot run occurred.
