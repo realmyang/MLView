@@ -240,7 +240,10 @@ final summary cannot be recorded. Editing the review to satisfy the new rule
 changes its normalized hash and holds Stage 2 as well, so the way forward is
 to revert that tool change (the tools that recorded the Stage 1 summary
 accept the review). Introduce a stricter review rule between campaigns, or
-make it leave recorded Stage 1 reviews alone.
+make it leave recorded Stage 1 reviews alone. Likewise, a later change in how
+the tools count Stage 1 that turns the recorded `go` into `stop` over
+unchanged evidence holds Stage 2, and the final summary, until that tool
+change is reverted: a recorded Stage 1 summary is final.
 
 With a Stage 1 summary recorded by other tools, the gate cannot tell a
 review those tools did not read (a baseline they judged invalid) from a read

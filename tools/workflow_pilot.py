@@ -1524,7 +1524,8 @@ def _stage1_matches(root: Path, campaign: Campaign, pilot_value: str | None, com
     across tool versions. A Stage1Changed reason when Stage 1 evidence here differs from the summary
     (named, with what to restore); a Stage1Unverified reason when the summary predates normalized
     review hashes, or when the evidence is unchanged but the re-computation is incomplete (the corpus
-    is absent here, or these tools reject a recorded review, for example); otherwise why the
+    is absent here, or these tools reject a recorded review, for example) or, with other tools, not
+    go (they count it differently); otherwise why the
     committed summary does not hold. ``notes`` receives a note when the summary was recorded with
     other (Git-bound) tools."""
     planned = {run["id"]: run for run in campaign.plan()}
@@ -1553,7 +1554,8 @@ def _stage1_matches(root: Path, campaign: Campaign, pilot_value: str | None, com
     if stray:
         return Stage1Changed(f"{len(stray)} Stage 1 run(s) that did not complete have a review.md that the summary "
                              f"does not list: {'; '.join(stray)}. Remove each named review.md: a run that did not "
-                             "complete is not reviewed, and Stage 1 evidence is final once its summary is recorded")
+                             "complete is not reviewed, and Stage 1 evidence is final once its summary is recorded",
+                             "remove each named review.md")
     value = recomputed["decision"]["value"]
     if value == "incomplete":
         reasons = recomputed["decision"].get("reasons") or []
@@ -1581,9 +1583,17 @@ def _stage1_matches(root: Path, campaign: Campaign, pilot_value: str | None, com
             "is not re-verified; the sealed Stage 1 inputs and the reviews the summary lists are unchanged, so these "
             "tools judge Stage 1 differently from the tools that recorded the summary",
             "revert the tool change that judges the unchanged Stage 1 evidence differently")
-    if value != "go":
-        return f"a re-computation of Stage 1 from the sealed evidence gives {value}, not go"
     tools = _tooling_binding(root, campaign, committed, recomputed)
+    if value != "go":
+        if tools is None:
+            # Recorded with other (Git-bound) tools over the same sealed inputs and reviews: only the
+            # tools' counting changed, and a recorded summary is final, so the tool change has to go.
+            return Stage1Unverified(
+                f"a re-computation of Stage 1 with these tools gives {value}, not go; the sealed Stage 1 inputs and the "
+                "reviews the summary lists are unchanged, so these tools count Stage 1 differently from the tools that "
+                "recorded the summary. A recorded Stage 1 summary is final, so Stage 2 needs that tool change reverted",
+                "revert the tool change that counts the unchanged Stage 1 evidence differently")
+        return f"a re-computation of Stage 1 from the sealed evidence gives {value}, not go"
     if tools is not None and tools != SAME_TOOLS:
         return tools
     if tools is None:

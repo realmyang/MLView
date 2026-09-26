@@ -3122,8 +3122,9 @@ def test_a_review_restored_into_a_stage1_run_that_did_not_complete_is_named(worl
     summary = summarize(world, "all")
     assert summary["decision"]["value"] == "incomplete" and HELD in summary["decision"]["reasons"], summary["decision"]
     assert not [run["id"] for run in summary["runs"] if run["status"] == "invalid"]
-    assert any(where in note and note.endswith("restore the Stage 1 evidence and summarize again")
+    assert any(where in note and note.endswith("; remove each named review.md and summarize again")
                for note in summary["verification"]["notes"]), summary["verification"]["notes"]
+    assert not any("restore the Stage 1 evidence" in note for note in summary["verification"]["notes"])
     path.unlink()
     code, _out, err = run_main(world, "run-prepare", "pilot-demo-a:claude-code:2", *pilot_args(world))
     assert code == 0, err
@@ -3172,6 +3173,45 @@ def test_a_later_tool_rule_that_rejects_a_recorded_skill_review_is_named_with_it
         assert code == 1 and rejected in err, err
     code, out, err = run_main(world, "run-prepare", "pilot-demo-a:claude-code:2", *pilot_args(world))
     assert code == 0 and "recorded with other tools" in out, err
+
+
+@pytest.mark.parametrize("tools", ["same", "other"])
+def test_a_later_count_that_turns_the_recorded_go_into_stop(world: World, tools: str) -> None:
+    """CHECK (predates the normalized hashes): with other (Git-bound) tools, a later count change that makes the
+    unchanged Stage 1 evidence a stop holds Stage 2 with the revert remedy, and the all-stage summary is incomplete
+    without making Stage 2 runs invalid; with the same tools the committed go was never theirs, so it stays a plain
+    reason."""
+    record_stage1_go(world, tools)
+    do_run(world, "pilot-demo-a:codex:2", session=LATER)
+    earlier_targets = wp.compute_targets
+
+    def later_targets(runs, *args, **kwargs):
+        targets = earlier_targets(runs, *args, **kwargs)
+        if runs and all(run.get("stage", 1) == 1 for run in runs):
+            for target in targets:
+                if target["key"] == "essentialFactRecall":
+                    target["met"] = False
+        return targets
+    unverified = "a re-computation of Stage 1 with these tools gives stop, not go; the sealed Stage 1 inputs and the " \
+                 "reviews the summary lists are unchanged"
+    with pytest.MonkeyPatch.context() as later:
+        later.setattr(wp, "compute_targets", later_targets)
+        assert summarize(world)["decision"]["value"] == "stop"
+        code, _out, err = run_main(world, "run-prepare", "pilot-demo-a:claude-code:2", *pilot_args(world))
+        summary = summarize(world, "all")
+        invalid = [run["id"] for run in summary["runs"] if run["status"] == "invalid"]
+        if tools == "other":
+            assert code == 1 and unverified in err and "Stage 2 needs that tool change reverted" in err, err
+            assert summary["decision"]["value"] == "incomplete" and HELD in summary["decision"]["reasons"]
+            assert not invalid, invalid
+            assert any(unverified in note and note.endswith("; revert the tool change that counts the unchanged "
+                                                            "Stage 1 evidence differently and summarize again")
+                       for note in summary["verification"]["notes"]), summary["verification"]["notes"]
+        else:
+            assert code == 1 and "a re-computation of Stage 1 from the sealed evidence gives stop, not go" in err, err
+            assert unverified not in err and invalid, invalid
+    code, _out, err = run_main(world, "run-prepare", "pilot-demo-a:claude-code:2", *pilot_args(world))
+    assert code == 0, err
 
 
 def test_a_retriable_failure_stays_open_in_the_early_stop_indicators(retry_world: World) -> None:

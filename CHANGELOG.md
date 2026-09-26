@@ -82,6 +82,13 @@ a run or decides the pilot.
   - The normalization v1 constants and test vectors are spelled with
     escapes instead of invisible raw characters (INTEGRITY-2); the pinned
     bytes and hash are unchanged.
+  - With other tools, a later change in how the tools count Stage 1 that
+    turns the recorded `go` into `stop` over unchanged evidence is a hold
+    with the remedy to revert that change, instead of a missing go that
+    counted every Stage 2 run invalid in a recordable all-stage summary
+    (found by the final check; 0.3.0 behaved the same). The note for a
+    `review.md` in a Stage 1 run that did not complete now ends with its own
+    remedy (remove it) rather than "restore the Stage 1 evidence".
 
 ## 0.3.0 — pilot readiness (Campaign 2)
 

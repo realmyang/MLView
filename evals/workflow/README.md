@@ -286,10 +286,14 @@ The fields the tools count from a review (its verdict counts, the
 baselines' false accusations total, a skill run's reviewer) are never
 compared across tool versions, so a later tool version that counts a review
 differently does not hold Stage 2 over an unchanged or re-saved review
-(unless the re-computed decision is no longer `go`). The decision itself is
-compared, and a recorded skill review that the running tools reject (they
-find a problem in it or find it incomplete, after a new review rule, say)
-leaves the re-computed decision `incomplete`: `run-prepare` refuses Stage 2
+unless the re-computed decision is no longer `go`. The decision itself is
+compared: when other tools re-compute the unchanged Stage 1 evidence as
+`stop`, `run-prepare` refuses Stage 2 and `summarize --stage all` is
+`incomplete` (no Stage 2 run becomes invalid), with the remedy to revert the
+tool change that counts it differently. A recorded skill review that the
+running tools reject (they find a problem in it or find it incomplete, after
+a new review rule, say) leaves the re-computed decision `incomplete`:
+`run-prepare` refuses Stage 2
 with a message that names each such review, says it is final and must not be
 edited (an edit changes its normalized hash and holds Stage 2 as well) and
 that Stage 2 needs that tool change reverted (the tools that recorded the
