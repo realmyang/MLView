@@ -1232,7 +1232,7 @@ def _output_problem(value: str) -> str | None:
 
 
 def _default_evidence_id(rel: str, cell: int | None, start: int, end: int) -> str:
-    """A valid evidence ID derived from the path and range, for example ev-src-train.py-7e5d2a91-10-24.
+    """A valid evidence ID derived from the path and range, for example ev-src-train.py-a454ee59-10-24.
     The slug keeps it readable; the first 8 hex digits of the path's SHA-256 keep apart paths whose
     slugs coincide (src/io.py and src-io.py, names in a non-Latin script, a truncated long path)."""
     digest = hashlib.sha256(rel.encode("utf-8", "surrogatepass")).hexdigest()[:8]

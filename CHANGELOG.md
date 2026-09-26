@@ -143,7 +143,7 @@ Integration review fixes (four provisional model reviews of the integrated
 branch, covering the helper, the skill, the live viewer and a replay of the
 shakedown drafts; not a human review):
 - Helper: default `excerpt` IDs add 8 hex digits of the path's SHA-256 (for
-  example `ev-src-train.py-7e5d2a91-10-24`), so paths that slug alike
+  example `ev-src-train.py-a454ee59-10-24`), so paths that slug alike
   (`utils/io.py` and `utils-io.py`, or names in a non-Latin script) no
   longer share an ID and silently replace each other through `upsert`; an
   `upsert` array that repeats an ID is refused (`record`). `excerpt` refuses

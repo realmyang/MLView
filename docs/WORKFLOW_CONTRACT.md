@@ -178,11 +178,12 @@ line of JSON, the evidence record `{"id", "file", ("cell",) "line",
 "endLine", "quote"}`, which `validate` accepts as printed: the record-level
 checks run before it is printed. Without `--id` the ID is derived from the
 path and range, with the first 8 hex digits of the path's SHA-256 so that
-paths that read alike stay apart, for example `ev-src-train.py-7e5d2a91-10-24`;
+paths that read alike stay apart, for example `ev-src-train.py-a454ee59-10-24`;
 the same path and range always give the same ID. A bad option, path or range
 exits 1 with the usual `{"ok": false, "errors": [...]}`: `arguments` or
 `range` at `--lines`, `id` at `--id`, path and source codes at `file` (with
-`limit` for a path over 500 characters), notebook codes at `--cell`, `limit`
+`limit` for a path over 500 characters and `text_encoding` for a path that is
+not valid Unicode), notebook codes at `--cell`, `limit`
 when the quote would exceed 16000 characters, and `text_encoding` at
 `--lines` when the cited notebook text holds an unpaired surrogate. It never
 writes a file.
