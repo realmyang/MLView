@@ -118,7 +118,8 @@ def test_documented_install_commands_name_the_marketplace_and_its_plugins() -> N
 def test_bundled_helper_validates_the_shipped_example(tmp_path: Path) -> None:
     example = PLUGIN_ROOT / "skills" / "mlview" / "references" / "workflow-example.json"
     helper = PLUGIN_ROOT / "skills" / "mlview" / "scripts" / "artifact.py"
-    (tmp_path / "train.py").write_text("def train():\n", encoding="utf-8")
+    # The source file the example cites.
+    shutil.copyfile(REPO_ROOT / "skills" / "mlview" / "tests" / "fixtures" / "example-workspace" / "train.py", tmp_path / "train.py")
     result = subprocess.run(
         [sys.executable, str(helper), "validate", str(example), "--workspace", str(tmp_path)],
         capture_output=True,
@@ -128,6 +129,7 @@ def test_bundled_helper_validates_the_shipped_example(tmp_path: Path) -> None:
     payload = json.loads(result.stdout)
     assert result.returncode == 0, payload
     assert payload["ok"] is True
+    assert payload.get("warnings", []) == [], payload
 
 
 def _claude_cli_required() -> bool:

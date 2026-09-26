@@ -118,7 +118,8 @@ class PackageSkillTests(unittest.TestCase):
             workspace.mkdir()
             with ZipFile(archive) as zipped:
                 zipped.extractall(workspace)
-            (workspace / "train.py").write_text("def train():\n    return 1\n", encoding="utf-8")
+            # The source file the bundled example cites.
+            (workspace / "train.py").write_bytes((SCRIPT.resolve().parents[1] / "skills/mlview/tests/fixtures/example-workspace/train.py").read_bytes())
             draft = json.loads((workspace / ".agents/skills/mlview/references/workflow-example.json").read_text(encoding="utf-8"))
             draft_path = workspace / "draft.json"
             draft_path.write_text(json.dumps(draft), encoding="utf-8")

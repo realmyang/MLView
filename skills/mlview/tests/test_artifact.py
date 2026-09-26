@@ -669,10 +669,21 @@ class ArtifactTests(unittest.TestCase):
 
     def test_bundled_example_validates_with_the_helper(self):
         example = json.loads((HELPER.parents[1] / "references" / "workflow-example.json").read_text(encoding="utf-8"))
-        (self.root / "train.py").write_text("def train():\n", encoding="utf-8")
+        (self.root / "train.py").write_bytes((Path(__file__).parent / "fixtures" / "example-workspace" / "train.py").read_bytes())
         self.assertEqual([], self.validate(example))
         self.assertEqual("example-model", example["producer"]["model"])
-        self.assertEqual("loop", example["nodes"][1]["parent"])
+        # It shows the structure SKILL.md asks for: a loop node with children and a loop back-edge,
+        # a state node, an inferred node, and only the recommended kinds.
+        nodes = {node["id"]: node for node in example["nodes"]}
+        loops = {node_id for node_id, node in nodes.items() if node.get("kind") == "loop"}
+        self.assertTrue(loops and any(node.get("parent") in loops for node in nodes.values()))
+        self.assertTrue(any(edge.get("kind") == "loop" and nodes[edge["target"]].get("parent") in loops for edge in example["edges"]))
+        self.assertIn("state", {node.get("kind") for node in nodes.values()})
+        self.assertIn("inferred", {node["basis"] for node in nodes.values()})
+        self.assertLessEqual({edge.get("kind") for edge in example["edges"]}, {"data", "control", "call", "config", "state", "loop", "output"})
+        self.assertLessEqual({node.get("kind") for node in nodes.values()}, {
+            "operation", "data", "model", "state", "objective", "optimizer", "evaluation", "metric", "output", "config", "loop",
+            "branch", "group", "entrypoint", "artifact"})
 
     # SKILL-9
 
