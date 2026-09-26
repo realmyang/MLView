@@ -646,10 +646,27 @@ def test_summarize_go_is_recorded_and_opens_stage_2(world: World) -> None:
     assert no_machine_paths(recorded.read_bytes()) and no_machine_paths(markdown)
     code, _out, err = pilot(world.clone, "summarize", "--stage", "1", "--record", *world.args())
     assert code == 1 and "never overwritten" in err
+    for item in json.loads(recorded.read_bytes())["inputs"]["runs"]:  # review normalization v1 beside each review
+        path = world.evidence(item["id"]) / "review.md"
+        assert item["reviewNormalized"] == (None if item["review"] is None else
+                                            {"version": 1, "sha256": er.normalized_review_sha256(path.read_bytes())})
     commit_all(world.clone, "synthetic Stage 1 summary")
     code, out = decisions(world.clone, world.corpus, "check-frozen")
     assert code == 0, out
     code, out, err = pilot(world.clone, "run-prepare", f"{TASK}:codex:2", *world.args())
+    assert code == 0, err
+    # A re-saved Stage 1 review (CRLF and a note) keeps its normalized hash; a changed verdict holds Stage 2.
+    review = world.evidence(f"{TASK}:copilot:1") / "review.md"
+    original = review.read_bytes()
+    review.write_bytes(original.replace(b"\n", b"\r\n") + b"> a note added after the record (synthetic)\r\n")
+    code, out, err = pilot(world.clone, "run-prepare", f"{TASK}:copilot:2", *world.args())
+    assert code == 0, err
+    review.write_bytes(original.replace(b"\ndemo-f02: covered", b"\ndemo-f02: missing", 1))
+    assert review.read_bytes() != original
+    code, out, err = pilot(world.clone, "run-prepare", f"{TASK}:claude-code:2", *world.args())
+    assert code == 1 and f"{TASK}:copilot:1 (evidence/{TASK}.copilot.1/review.md) changed (normalized sha256" in err, err
+    review.write_bytes(original)
+    code, out, err = pilot(world.clone, "run-prepare", f"{TASK}:claude-code:2", *world.args())
     assert code == 0, err
 
 

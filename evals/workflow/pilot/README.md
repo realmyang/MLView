@@ -93,15 +93,29 @@ files and record again. `summarize --record` refuses while a failure the run
 policy lets the operator retry is still open; retry it first. Once the Stage
 1 summary is recorded (once `stage1-summary.json` exists in the working tree
 or the history), Stage 1 runs (skill runs and baselines) can no longer be
-retried or amended, and every Stage 1 `review.md` must keep saying what it
-said: a changed record, or a changed verdict that changes what the summary
-reports, stops the recorded go from unlocking Stage 2 and leaves the
-all-stage summary `incomplete` until it is restored. Review files live
-outside Git, so keep a copy of the evidence directory. When the tools have
-changed since the summary was recorded, a re-saved review is compared by what
-the running tools read from it, so even a re-save can hold Stage 2; the
-message then gives the sha256 the summary recorded for each named
-`review.md`, and restoring those exact bytes from the copy clears it.
+retried or amended, and every Stage 1 `review.md` must keep its content. The
+summary records each review's normalized hash (review normalization v1: UTF-8,
+no BOM, any line endings, no trailing whitespace, no blank lines and no `>`
+notes; see `evals/workflow/README.md`, "Stage 1 stop/go"), and the Stage 2
+gate compares those hashes whichever tools recorded the summary. So `>` notes,
+line endings, trailing spaces and blank lines may change afterwards; a changed
+record, or any other change to a review (a verdict, a reason, the reviewer,
+the date, a false accusation, a deleted review), stops the recorded go from
+unlocking Stage 2 and leaves the all-stage summary `incomplete` until it is
+restored. The message names each run and file; restore everything but those
+allowed changes exactly, from the copy of the evidence directory (review
+files live outside Git, so keep one). What the tools count from a review is
+not compared across tool versions, so a later tool version that counts a
+review differently does not hold Stage 2 over an unchanged or re-saved
+review; the decision itself is still compared, so a later tool version that
+rejects a recorded Stage 1 skill review holds Stage 2 until that tool change
+is reverted (see [Known limits](#known-limits)). A `review.md` that appears
+after the record in a Stage 1 run that did not complete is named and holds
+Stage 2 until it is removed. A Stage 1 summary recorded before these hashes
+existed is refused and holds Stage 2 (no Stage 2 run becomes invalid), with
+the advice to record Stage 1 again with the current tools only while no
+Stage 2 run has been prepared and the summary commit is unpushed, and
+otherwise to supersede the campaign; no pilot has run, so none exists.
 
 ## Checks
 
@@ -209,11 +223,30 @@ authorship and the `Transcribed by:` line in decision files, branch
 protection on main, and the pushed candidate tag are the safeguards; review
 who committed what before trusting a result.
 
-With a Stage 1 summary recorded by earlier tools, a changed Stage 1 review
-is compared by what the current tools read from it, and the baselines' false
-accusations only as one total. So a tool change that judges or counts one
-baseline's accusations differently, plus an honest re-save or `>` note of
-another baseline review, can hold Stage 2 and name the re-saved review.
-Nothing is lost: restore the exact bytes of each named `review.md` (the
-message gives the sha256 the summary recorded; keep a copy of every Stage 1
-review) and Stage 2 proceeds.
+The Stage 1 gate compares each Stage 1 review by its normalized hash, not by
+what the tools read from it, so it cannot tell a harmless edit that changes
+the hash (a changed indentation, a reworded reason with the same verdict, a
+corrected date) from a changed verdict: each holds Stage 2 until the named
+`review.md` is restored. Keep a copy of every Stage 1 review. (This replaces
+the RC2-1 limit of 0.3.0, where a tool change in how one baseline's false
+accusations count, plus a re-save of another baseline review, held Stage 2.)
+
+A tools change must not reject a recorded Stage 1 review. The gate still
+compares the re-computed decision, so when a later tool version finds a
+problem in a recorded Stage 1 skill review, or finds it incomplete (a new
+review rule, say), `run-prepare` refuses Stage 2 with a message that names
+each such review, and `summarize --stage all` stays `incomplete`, so the
+final summary cannot be recorded. Editing the review to satisfy the new rule
+changes its normalized hash and holds Stage 2 as well, so the way forward is
+to revert that tool change (the tools that recorded the Stage 1 summary
+accept the review). Introduce a stricter review rule between campaigns, or
+make it leave recorded Stage 1 reviews alone. Likewise, a later change in how
+the tools count Stage 1 that turns the recorded `go` into `stop` over
+unchanged evidence holds Stage 2, and the final summary, until that tool
+change is reverted: a recorded Stage 1 summary is final.
+
+With a Stage 1 summary recorded by other tools, the gate cannot tell a
+review those tools did not read (a baseline they judged invalid) from a read
+review whose hashes an edited summary dropped; with the running tools the
+re-computation shows which reviews are read, so such an edit does not
+unlock Stage 2. Commit authorship is the safeguard for the former.

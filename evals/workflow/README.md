@@ -233,13 +233,22 @@ working tree or the history, `run-prepare --retry` and `run-finish --amend`
 refuse every Stage 1 run, skill run or baseline (retry or amend before
 `--record`; undo any edit made for a refused amendment, because `session.md`
 must keep its sealed bytes), and every Stage 1 `review.md`, skill run or
-baseline, must keep saying what it said: a re-save or a wording change that
-leaves every verdict, the reviewer and the `Review:` line as they were does no
-harm (but see summaries recorded with other tools below), while a changed
-verdict that changes what the summary reports (a baseline's usability rating,
-for one, is not reported) stops the recorded go from unlocking Stage 2 and
-leaves the all-stage summary `incomplete` until it is changed back. Review
-files live outside Git, so keep a copy of the evidence directory. `run-prepare`
+baseline, must keep its content. Beside each review's SHA-256 the summary
+records a normalized hash (`inputs.runs[].reviewNormalized`, review
+normalization v1), and the Stage 2 gate compares it for every review the
+summary lists, whichever tools recorded the summary. Normalization v1 decodes
+the file as UTF-8, strips a leading BOM, treats CRLF, CR and LF alike, strips
+trailing whitespace from every line, drops blank lines and `>` notes (lines
+whose first non-blank character is `>`, which the review grammar ignores),
+keeps leading indentation (a continuation line depends on it), and takes the
+SHA-256 of the remaining lines, each ended by LF. So after the record only
+`>` notes (added, edited or removed), line endings, trailing spaces and blank
+lines may change. Any other change, such as a verdict, a reason, the
+reviewer, the date, a severity, a false accusation added or removed, a
+changed indentation or a deleted review, stops the recorded go from unlocking
+Stage 2 and leaves the all-stage summary `incomplete` until that `review.md`
+is restored exactly as it was, apart from those changes. Review files live
+outside Git, so keep a copy of the evidence directory. `run-prepare`
 refuses repeat runs until a committed Stage 1 summary says `go`, and it and
 `summarize --stage all` re-compute Stage 1 from the sealed evidence and the
 reviews: a summary that is not a recorded Stage 1 summary of this candidate,
@@ -249,14 +258,18 @@ version first committed, or that was committed with more than one content
 (for example through a merge), does not unlock Stage 2, and those Stage 2
 runs count as invalid. When the Stage 1 evidence here differs from the
 summary's sealed inputs (a record, amendment or earlier attempt changed, or
-missing from this pilot directory) or a changed review now says something
-else, the message names each run and what to restore, `run-prepare` refuses
-Stage 2, and `summarize --stage all` is `incomplete` with a note instead of
-marking the Stage 2 runs invalid; so it is when the re-computation is
-incomplete only because the corpus is absent or unverified here. The
+missing from this pilot directory) or a review it lists has lost its
+normalized hash, the message names each run and file and what to restore,
+`run-prepare` refuses Stage 2, and `summarize --stage all` is `incomplete`
+with a note instead of marking the Stage 2 runs invalid. So it is when the
+evidence is unchanged but the re-computation is incomplete (the corpus is
+absent or unverified here, or these tools reject a recorded review; see
+below), and when the summary has no normalized review hashes. The
 summary's `tooling` field is part of the file being checked, so it never
 switches a check off on its own word: when it names the running tools, every
-field and the Markdown rendering are compared; when it names other tools,
+field (the normalized review hashes too, so a summary that drops the hashes
+of a review the tools read does not unlock Stage 2) and the Markdown
+rendering are compared; when it names other tools,
 each of them must be a version of that file committed in the history of the
 commit that records the summary (`summarize --record` refuses tools that
 differ from `HEAD` in this checkout; those tool versions stay in the history
@@ -264,25 +277,45 @@ of the summary's commit after a pull, merge or tool commit in between, but a
 rebase that rewrites an unpushed commit holding them can break the link:
 before pushing, drop the summary commit, delete the two files and record
 again), `skills/mlview/scripts/artifact.py` must be the candidate's frozen
-helper, and the decision, the sealed inputs and the disclosure of retries and
-failures (each skill run's status, failure and earlier attempts, and each
-baseline's failure and earlier attempts; a baseline's computed status and
-review state belong to the tools) are still compared, and so is what the
-summary reports of each Stage 1 `review.md` whose bytes changed since or that
-was deleted (whether the review is complete, its verdict counts, the
-baselines' false accusations total and a skill run's reviewer), so a changed
-verdict holds Stage 2 whichever tools recorded the summary (a note says the
-other fields and the Markdown were not compared). Such a review is compared by
-what the running tools read from it, so when they judge or count it
-differently from the recording tools, even a re-save or a note that keeps
-every verdict holds Stage 2: the message gives the sha256 the summary
-recorded for each named `review.md`, and restoring those exact bytes clears
-it. A review the recording tools did not read (a baseline they judged
-invalid) reports no verdicts in the summary and is not compared itself, but
-the baselines' false accusations are compared only as a total, so a re-save
-of another baseline review can still hold Stage 2 when the running tools
-count that unread baseline's accusations (see the pilot README's known
-limits; restoring the named review's exact bytes clears it). With
+helper, and the decision, the sealed inputs, the normalized review hashes and
+the disclosure of retries and failures (each skill run's status, failure and
+earlier attempts, and each baseline's failure and earlier attempts; a
+baseline's computed status and review state belong to the tools) are still
+compared (a note says the other fields and the Markdown were not compared).
+The fields the tools count from a review (its verdict counts, the
+baselines' false accusations total, a skill run's reviewer) are never
+compared across tool versions, so a later tool version that counts a review
+differently does not hold Stage 2 over an unchanged or re-saved review
+unless the re-computed decision is no longer `go`. The decision itself is
+compared: when other tools re-compute the unchanged Stage 1 evidence as
+`stop`, `run-prepare` refuses Stage 2 and `summarize --stage all` is
+`incomplete` (no Stage 2 run becomes invalid), with the remedy to revert the
+tool change that counts it differently. A recorded skill review that the
+running tools reject (they find a problem in it or find it incomplete, after
+a new review rule, say) leaves the re-computed decision `incomplete`:
+`run-prepare` refuses Stage 2
+with a message that names each such review, says it is final and must not be
+edited (an edit changes its normalized hash and holds Stage 2 as well) and
+that Stage 2 needs that tool change reverted (the tools that recorded the
+summary accept the review), and `summarize --stage all` is `incomplete` with
+the same remedy. So a tools change during a pilot must not reject a recorded
+Stage 1 review ([known limits](pilot/README.md#known-limits)). A review the
+recording tools did not read (a baseline they judged invalid) has a null
+review hash in the summary and is not compared. A run that did not complete
+is never reviewed: a `review.md` that appears in such a Stage 1 run after the
+record (restored from a copy made before `--record` asked to remove it, say)
+is named, and Stage 2 is held until it is removed, whichever tools recorded
+the summary. An earlier attempt is never reviewed, and its raw review hash,
+if any, stays evidence only. A Stage 1 summary recorded before normalized
+review hashes existed has none: it holds Stage 2 (`run-prepare` refuses, and
+`summarize --stage all` is `incomplete` without making Stage 2 runs
+invalid). The message says to record Stage 1 again with the current tools
+only while no Stage 2 run has been prepared and the summary commit is not
+pushed; otherwise the owner writes `invalidation.md` and a new campaign
+supersedes this one, because a summary recorded again after Stage 2 runs were
+prepared makes each of them invalid (they started before it was generated).
+No pilot has run, so no such summary exists; the tools refuse one rather than
+fall back to comparing re-derived verdicts. With
 per-host targets, a stop reason names
 each host that misses a target, and the early-stop indicators include each
 host's bound.
@@ -324,9 +357,9 @@ not gated. Baseline reviews cite transcript line ranges (`response:12-14`)
 instead of artifact elements. `python tools/workflow_eval.py check <path>`
 validates a `session.md` or `review.md` like the owner's decision files (a
 `review.md` of a run whose record is no longer `completed` is told to go).
-Stage 1 reviews are final once the Stage 1 summary is recorded: do not change
-a verdict afterwards, and keep a copy of the evidence directory (see "Stage 1
-stop/go").
+Stage 1 reviews are final once the Stage 1 summary is recorded: afterwards
+change nothing but `>` notes, line endings, trailing spaces and blank lines,
+and keep a copy of the evidence directory (see "Stage 1 stop/go").
 
 A second model may help locate disputed claims but cannot replace
 source-based human adjudication. Each run has a single human reviewer, and

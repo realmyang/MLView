@@ -1259,7 +1259,7 @@ def _stage1_go(summary: dict | None, campaign: Campaign) -> str | None:
         return "the committed Stage 1 summary was computed from other frozen inputs"
     if _parse_time(summary.get("generatedAt")) is None:
         return "the committed Stage 1 summary has no valid generatedAt"
-    return None
+    return None  # its normalized review hashes are checked by _stage1_matches (a hold, not a missing go)
 
 
 def _stage1_input_index(summary: dict, planned: dict[str, dict]) -> dict[str, dict]:
@@ -1269,25 +1269,142 @@ def _stage1_input_index(summary: dict, planned: dict[str, dict]) -> dict[str, di
             and item.get("id") in planned and planned[item["id"]]["stage"] == 1} if isinstance(runs, list) else {}
 
 
+SHA256_RE = re.compile(r"[0-9a-f]{64}", re.ASCII)
+
+
+class _Stage1Hold(str):
+    """A reason that holds Stage 2 without making Stage 2 runs invalid: run-prepare refuses Stage 2, and
+    summarize --stage all reports the summary as incomplete, with ``remedy`` in its note."""
+    remedy = "put it right"
+
+    def __new__(cls, text: str, remedy: str | None = None):
+        value = super().__new__(cls, text)
+        value.remedy = cls.remedy if remedy is None else remedy
+        return value
+
+
+class Stage1Unverified(_Stage1Hold):
+    """Why a committed Stage 1 go could not be re-verified here, as opposed to evidence that contradicts
+    it: the summary predates the normalized review hashes these tools compare (or names another
+    normalization version), or its sealed inputs and reviews are unchanged but the re-computation is
+    incomplete (the corpus is absent or unverified, or the running tools judge the unchanged Stage 1
+    evidence differently, for example by rejecting a recorded review). ``remedy`` says what helps."""
+    remedy = "fetch or verify the corpus"
+
+
+class Stage1Changed(_Stage1Hold):
+    """Why the Stage 1 evidence here no longer matches an otherwise genuine committed go: a sealed Stage 1
+    record, amendment or earlier attempt differs from the summary's inputs or is missing from this
+    pilot directory, a Stage 1 review.md the summary lists lost its normalized hash (review
+    normalization v1), or a review.md appeared in a Stage 1 run that did not complete. run-prepare
+    names what to restore or remove."""
+    remedy = "restore the Stage 1 evidence"
+
+
+NO_REVIEW_HASHES = (
+    "the committed Stage 1 summary has no normalized review hashes (inputs.runs[].reviewNormalized): it was recorded "
+    f"by tools older than review normalization v{er.REVIEW_NORMALIZATION_VERSION}, and these tools do not verify such a "
+    "summary. Only while no Stage 2 run has been prepared and the summary commit is not pushed, record Stage 1 again "
+    "with the current tools: drop that commit, delete both summary files and run summarize --stage 1 --record. "
+    "Otherwise the owner writes invalidation.md and a new campaign supersedes this one: a summary recorded again after "
+    "Stage 2 runs were prepared makes each of them invalid (it started before that summary was generated)")
+NO_REVIEW_HASHES_REMEDY = "follow that advice (record Stage 1 again only if no Stage 2 run was prepared)"
+
+
+def _recorded_reviews(summary: dict, planned: dict[str, dict]) -> dict[str, str] | str:
+    """By run ID, the normalized hash (review normalization v1, eval_records) that a Stage 1 summary
+    records for each Stage 1 review it read: inputs.runs[].reviewNormalized beside a non-null review.
+    A string instead says why the summary cannot be verified by them: a Stage1Unverified hold when it
+    predates normalized review hashes (NO_REVIEW_HASHES; there is no fallback for such a summary) or
+    names another normalization version, a plain reason when it holds a malformed entry."""
+    entries = _stage1_input_index(summary, planned)
+    if any("reviewNormalized" not in item for item in entries.values()):
+        return Stage1Unverified(NO_REVIEW_HASHES, NO_REVIEW_HASHES_REMEDY)
+    recorded: dict[str, str] = {}
+    for run_id in sorted(entries):
+        item = entries[run_id]
+        value = item["reviewNormalized"]
+        if item.get("review") is None and value is None:
+            continue
+        version = value.get("version") if isinstance(value, dict) else None
+        if _is_int(version) and version != er.REVIEW_NORMALIZATION_VERSION:
+            return Stage1Unverified(f"the committed Stage 1 summary records the review of {run_id} with review "
+                                    f"normalization v{version}; these tools implement "
+                                    f"v{er.REVIEW_NORMALIZATION_VERSION} only",
+                                    "use tools that implement that normalization version")
+        sha = value.get("sha256") if isinstance(value, dict) else None
+        if item.get("review") is None or not isinstance(value, dict) or set(value) != {"version", "sha256"} \
+                or not _is_int(version) or not isinstance(sha, str) or not SHA256_RE.fullmatch(sha):
+            return (f"the committed Stage 1 summary has a malformed normalized review hash for {run_id} (a recorded "
+                    "summary is written only by summarize --record)")
+        recorded[run_id] = sha
+    return recorded
+
+
+def _review_changes(evidence_root: Path, recorded: dict[str, str]) -> list[str]:
+    """Each Stage 1 review.md of ``recorded`` (run ID -> the normalized hash its summary recorded) that
+    is missing, unreadable or not UTF-8 now, or whose normalized hash differs, named with its run and
+    file. Only the review normalization is involved: what the tools read or count from a review never
+    is, so a later tool version cannot make an unchanged review differ."""
+    changed = []
+    for run_id in sorted(recorded):
+        directory = er.run_dir_name(run_id)
+        where = f"{run_id} (evidence/{directory}/{REVIEW_FILE})"
+        if not os.path.lexists(evidence_root / directory / REVIEW_FILE):
+            changed.append(f"{where} was deleted")
+            continue
+        try:
+            raw = er.confined_file(evidence_root / directory, REVIEW_FILE).read_bytes()
+        except (ValueError, OSError) as exc:
+            changed.append(f"{where} cannot be read ({exc})")
+            continue
+        now = er.normalized_review_sha256(raw)
+        if now is None:
+            changed.append(f"{where} is no longer valid UTF-8")
+        elif now != recorded[run_id]:
+            changed.append(f"{where} changed (normalized sha256 {now[:12]}..., recorded {recorded[run_id][:12]}...)")
+    return changed
+
+
+def _stray_reviews(evidence_root: Path, committed: dict, planned: dict[str, dict]) -> list[str]:
+    """Each Stage 1 run that the summary lists without a review and whose sealed session did not
+    complete, but whose evidence directory now holds a review.md, named with its run and file. A run
+    that did not complete is not reviewed, so a recorded go has no such file (summarize --record
+    refuses one in a baseline, and one in a skill run makes the decision incomplete): it appeared
+    after the record (restored from a copy made before it was removed, say)."""
+    stray = []
+    for run_id, item in sorted(_stage1_input_index(committed, planned).items()):
+        directory = er.run_dir_name(run_id)
+        if item.get("review") is not None or not os.path.lexists(evidence_root / directory / REVIEW_FILE):
+            continue
+        try:
+            record = _json_loads(er.confined_file(evidence_root / directory, RECORD_FILE).read_bytes(), RECORD_FILE)
+        except ValueError:
+            continue  # the re-computation reports an unreadable record
+        session = record.get("session") if isinstance(record, dict) else None
+        status = session.get("status") if isinstance(session, dict) else None
+        if status != "completed":
+            stray.append(f"{run_id} (evidence/{directory}/{REVIEW_FILE}; the run is {status})")
+    return stray
+
+
 def _sealed_inputs(item: dict) -> tuple:
     """The sealed part of one run's inputs: its record, amendments and earlier attempts (not review.md,
-    which people may re-save; what a review says is compared through the re-computation)."""
+    which the normalized review hashes cover; see _review_changes)."""
     earlier = tuple((attempt.get("attempt"), attempt.get("record"), tuple(attempt.get("amendments") or []))
                     for attempt in item.get("earlierAttempts") or [] if isinstance(attempt, dict))
     return item.get("record"), tuple(item.get("amendments") or []), earlier
 
 
-def _input_differences(fresh: dict, recorded: dict, planned: dict[str, dict]) -> tuple[list[str], list[str]]:
-    """(sealed, reviews) between the Stage 1 inputs of a re-computation and a committed summary:
-    each run whose sealed record, amendments or earlier attempts differ (or that has no sealed record
-    in this pilot directory), and each run whose review.md bytes differ."""
+def _input_differences(fresh: dict, recorded: dict, planned: dict[str, dict]) -> list[str]:
+    """Each Stage 1 run whose sealed record, amendments or earlier attempts differ between a
+    re-computation and a committed summary (or that has no sealed record in this pilot directory)."""
     now, then = _stage1_input_index(fresh, planned), _stage1_input_index(recorded, planned)
     sealed: list[str] = []
     missing = sorted(set(then) - set(now))
     if missing:
         sealed.append(f"{len(missing)} Stage 1 run(s) of the summary have no sealed record in this pilot directory, "
                       f"for example {missing[0]}")
-    reviews = []
     for run_id in sorted(now):
         item, old = now[run_id], then.get(run_id)
         if old is None:
@@ -1301,9 +1418,7 @@ def _input_differences(fresh: dict, recorded: dict, planned: dict[str, dict]) ->
             sealed.append(f"{run_id}: {len(amendments)} amendment(s) here, {len(old_amendments)} recorded")
         elif earlier != old_earlier:
             sealed.append(f"{run_id}: its earlier attempts differ from the recorded ones")
-        if item.get("review") != old.get("review"):
-            reviews.append(run_id)
-    return sealed, reviews
+    return sealed
 
 
 def _shown(items: list[str], limit: int = 3, separator: str = "; ") -> str:
@@ -1324,8 +1439,8 @@ def _tooling_binding(root: Path, campaign: Campaign, committed: dict, recomputed
     or a tool commit in between (a rebase that rewrites an unpushed commit holding them can break the
     link; the pilot README gives the repair before pushing). The tooling field is part of the file
     being verified, so it never names tools that were never committed, and the decision, the sealed
-    inputs, the disclosure of every run and what the summary reports of each review changed since are
-    compared whichever tools it names."""
+    inputs, the normalized review hashes and the disclosure of every run are compared whichever tools
+    it names."""
     tooling = committed.get("tooling") if isinstance(committed.get("tooling"), dict) else {}
     fresh = recomputed["tooling"]
     if tooling.get(HELPER_KEY) != fresh[HELPER_KEY]:
@@ -1391,126 +1506,32 @@ def _disclosure(summary: dict) -> dict:
     }
 
 
-# What a summary reports that a Stage 1 run's review verdicts determine: for a skill run these fields
-# of its runs[] entry, for a baseline these fields of the baseline side of its paired row. The
-# tool-judged status and reviewStatus, the baselines' state and the reference totals (ESS, UNK) are
-# not part of it.
-RUN_VERDICT_KEYS = ("reviewed", "reviewer", "claims", "baselineClaims", "ess", "unk", "fa", "falseAccusationsListed",
-                    "reported")
-PAIRED_VERDICT_KEYS = ("reviewed", "ess", "unk", "precision")
-
-
-def _verdict_fields(summary: dict, planned: dict[str, dict]) -> dict[str, dict]:
-    """By run ID, the fields of ``summary`` that the review verdicts of each Stage 1 run determine
-    (RUN_VERDICT_KEYS of a skill run's runs[] entry, PAIRED_VERDICT_KEYS of a baseline's paired row),
-    as far as the summary carries them."""
-    value = json.loads(er.canonical_json(summary))
-    found: dict[str, dict] = {}
-    for run in value.get("runs") if isinstance(value.get("runs"), list) else []:
-        if isinstance(run, dict) and (planned.get(run.get("id")) or {}).get("stage") == 1:
-            found[run["id"]] = {key: run[key] for key in RUN_VERDICT_KEYS if key in run}
-    baselines = value.get("baselines") if isinstance(value.get("baselines"), dict) else {}
-    paired = baselines.get("paired") if isinstance(baselines.get("paired"), list) else []
-    sides = {(row.get("task"), row.get("host")): row.get("baseline") for row in paired if isinstance(row, dict)}
-    for run_id, run in planned.items():
-        side = sides.get((run["task"], run["host"])) if run["condition"] == "baseline" else None
-        if isinstance(side, dict):
-            found[run_id] = {key: side[key] for key in PAIRED_VERDICT_KEYS if key in side}
-    return found
-
-
-def _review_edited(evidence_root: Path, run_id: str, fresh: object, recorded: object) -> bool:
-    """Whether the verdicts of the review.md of ``run_id`` can differ from those a summary recorded:
-    the running tools read other bytes (sha256 ``fresh``) than the recorded ones (``recorded``), or the
-    file was deleted. A review the recording tools did not read (recorded None: they judged the run
-    invalid, say, which a later tool version may not) reports no verdicts in the summary, and one the
-    running tools do not read gives none, so neither is compared: only the tools' judgement changed."""
-    if recorded is None:
-        return False
-    if fresh is not None:
-        return fresh != recorded
-    return not os.path.lexists(evidence_root / er.run_dir_name(run_id) / REVIEW_FILE)
-
-
-def _baseline_accusations(summary: dict) -> object:
-    """The baselines' false accusations total (baselines.falseAccusations) of ``summary``: only baseline
-    reviews list false accusations, and the summary carries only their total."""
-    baselines = summary.get("baselines") if isinstance(summary.get("baselines"), dict) else {}
-    return json.loads(er.canonical_json(baselines.get("falseAccusations")))
-
-
-def _review_states(summary: dict) -> dict[str, object]:
-    """By run ID, the reviewStatus ``summary`` gives each skill run and baseline."""
-    baselines = summary.get("baselines") if isinstance(summary.get("baselines"), dict) else {}
-    found: dict[str, object] = {}
-    for items in (summary.get("runs"), baselines.get("runs")):
-        for item in items if isinstance(items, list) else []:
-            if isinstance(item, dict):
-                found[str(item.get("id"))] = item.get("reviewStatus")
-    return found
-
-
-def _verdict_differences(fresh: dict, recorded: dict, planned: dict[str, dict],
-                         run_ids: list[str]) -> list[tuple[str, list[str]]]:
-    """Each of ``run_ids`` (Stage 1 runs whose review.md bytes changed since the summary was recorded)
-    for which the re-computation reports other verdict-derived fields than the committed summary, with
-    those fields. The baselines' false accusations total is named with each changed baseline when it
-    differs. A review whose bytes are unchanged says what it said, so a difference there belongs to the
-    tools and is not looked at."""
-    now, then = _verdict_fields(fresh, planned), _verdict_fields(recorded, planned)
-    accusations = _baseline_accusations(fresh) != _baseline_accusations(recorded)
-    named = []
-    for run_id in run_ids:
-        old, new = then.get(run_id), now.get(run_id, {})
-        if old is None:
-            continue
-        keys = [key for key in old if key not in new or new[key] != old[key]]
-        if accusations and planned[run_id]["condition"] == "baseline":
-            keys.append("baselines.falseAccusations")
-        if keys:
-            named.append((run_id, keys))
-    return named
-
-
-class Stage1Unverified(str):
-    """Why a committed Stage 1 go could not be re-verified here although its sealed inputs are unchanged
-    (the corpus is absent or unverified, or the running tools find Stage 1 incomplete), as opposed to
-    evidence that contradicts it. run-prepare still refuses Stage 2; summarize --stage all reports
-    the summary as incomplete instead of making Stage 2 runs invalid."""
-
-
-class Stage1Changed(str):
-    """Why the Stage 1 evidence here no longer matches an otherwise genuine committed go: a sealed Stage 1
-    record, amendment or earlier attempt differs from the summary's inputs or is missing from this
-    pilot directory, or a Stage 1 review.md now says something else. run-prepare refuses Stage 2 and
-    names what to restore; summarize --stage all is incomplete, and no Stage 2 run becomes invalid."""
-
-
-REVIEWS_FINAL = ("Stage 1 reviews are final once the Stage 1 summary is recorded: restore what those reviews said "
-                 "then (a re-save or a wording change that keeps every verdict, the reviewer and the Review line does "
-                 "no harm)")
-# With a summary recorded by other tools, a changed review is compared by what the running tools read
-# from it, so a later tool change can make a re-save that keeps every verdict differ too; the exact
-# recorded bytes always clear it (such a review is no longer compared).
-REVIEWS_FINAL_OTHER_TOOLS = (
-    "Stage 1 reviews are final once the Stage 1 summary is recorded: restore what those reviews said then. The "
-    "summary was recorded with other tools (versions committed in its history), and a review.md whose bytes changed "
-    "is compared by what these tools read from it, so a re-save or a note that keeps every verdict can differ here "
-    "too when these tools judge or count that review differently; restoring the exact bytes each named review.md "
-    "had when the summary was recorded clears this")
+REVIEWS_FINAL = (f"Stage 1 reviews are final once the Stage 1 summary is recorded (review normalization "
+                 f"v{er.REVIEW_NORMALIZATION_VERSION}): only '>' notes, line endings, trailing spaces and blank lines "
+                 "may change; restore everything else in each named review.md exactly as it was when the summary was "
+                 "recorded (keep a copy of the evidence directory)")
 
 
 def _stage1_matches(root: Path, campaign: Campaign, pilot_value: str | None, committed: dict,
                     notes: list[str] | None = None) -> str | None:
     """None when Stage 1, re-computed from the sealed evidence, is go with exactly the committed sealed
-    inputs (records, amendments, earlier attempts), says the same (with the same tools, every field;
-    with other tools, the disclosure and, for each review.md whose bytes changed, the fields its verdicts
-    determine; review.md bytes themselves are not compared) and the committed summary was generated after every
-    Stage 1 record was sealed or amended. A Stage1Changed reason when Stage 1 evidence here differs
-    from the summary (named, with what to restore); a Stage1Unverified reason when the sealed inputs
-    are unchanged but the re-computation is incomplete (the corpus is absent here, for example);
-    otherwise why the committed summary does not hold. ``notes`` receives a note when the summary was
-    recorded with other (Git-bound) tools."""
+    inputs (records, amendments, earlier attempts), every Stage 1 review.md the summary lists keeps
+    its normalized hash (review normalization v1; whichever tools recorded the summary), no Stage 1
+    run that did not complete has gained a review.md, the summary says the same (with the same tools,
+    every field, including the normalized review hashes, and the Markdown rendering; with other tools,
+    the decision and the disclosure of retries and failures) and it was generated after every Stage 1
+    record was sealed or amended. What the tools read or count from a review is never compared
+    across tool versions. A Stage1Changed reason when Stage 1 evidence here differs from the summary
+    (named, with what to restore); a Stage1Unverified reason when the summary predates normalized
+    review hashes, or when the evidence is unchanged but the re-computation is incomplete (the corpus
+    is absent here, or these tools reject a recorded review, for example) or, with other tools, not
+    go (they count it differently); otherwise why the
+    committed summary does not hold. ``notes`` receives a note when the summary was recorded with
+    other (Git-bound) tools."""
+    planned = {run["id"]: run for run in campaign.plan()}
+    recorded = _recorded_reviews(committed, planned)
+    if isinstance(recorded, str):
+        return recorded
     try:
         recomputed = summarize(root, campaign.name, "1", pilot_value)
     except IntegrityError as exc:
@@ -1518,70 +1539,85 @@ def _stage1_matches(root: Path, campaign: Campaign, pilot_value: str | None, com
                 f"(see python tools/workflow_eval.py summarize --campaign {campaign.name} --stage 1)")
     except PilotError as exc:
         return f"Stage 1 cannot be re-computed ({exc})"
-    value = recomputed["decision"]["value"]
-    planned = {run["id"]: run for run in campaign.plan()}
-    sealed, reviews = _input_differences(recomputed, committed, planned)
+    sealed = _input_differences(recomputed, committed, planned)
     if sealed:
         return Stage1Changed(f"the sealed Stage 1 evidence here differs from the committed summary's inputs "
                              f"({_shown(sealed)}); use the pilot directory that holds the Stage 1 evidence as it was "
                              "recorded, and restore the exact bytes of any changed file (Stage 1 evidence is final once "
                              "its summary is recorded)")
-    changed = f"review.md of {_shown(reviews, separator=', ')} changed since the summary was recorded"
+    evidence_root = _pilot_dir(pilot_value) / "evidence"
+    changed = _review_changes(evidence_root, recorded)
+    if changed:
+        return Stage1Changed(f"{len(changed)} Stage 1 review(s) changed since the summary was recorded: "
+                             f"{'; '.join(changed)}. {REVIEWS_FINAL}")
+    stray = _stray_reviews(evidence_root, committed, planned)
+    if stray:
+        return Stage1Changed(f"{len(stray)} Stage 1 run(s) that did not complete have a review.md that the summary "
+                             f"does not list: {'; '.join(stray)}. Remove each named review.md: a run that did not "
+                             "complete is not reviewed, and Stage 1 evidence is final once its summary is recorded",
+                             "remove each named review.md")
+    value = recomputed["decision"]["value"]
     if value == "incomplete":
         reasons = recomputed["decision"].get("reasons") or []
         if reasons == [UNVERIFIED_REASON]:  # the environment, not the evidence (section 4.5 E)
             return Stage1Unverified("a re-computation of Stage 1 cannot verify the artifacts here (corpus absent or "
                                     "unverified), so the committed go is not re-verified")
-        if reviews:
-            return Stage1Changed(f"a re-computation of Stage 1 gives incomplete ({_shown(reasons, 2)}) after {changed}; "
-                                 f"{REVIEWS_FINAL}")
-        return Stage1Unverified(f"a re-computation of Stage 1 with these tools gives incomplete ({_shown(reasons, 2)}), "
-                                "so the committed go is not re-verified")
-    if value != "go":
-        text = f"a re-computation of Stage 1 from the sealed evidence gives {value}, not go"
-        return Stage1Changed(f"{text}, after {changed}; {REVIEWS_FINAL}") if reviews else text
+        rejected = [run["id"] for run in recomputed.get("runs") or []
+                    if run.get("id") in recorded and run.get("reviewStatus") in ("problems", "incomplete")]
+        if rejected:
+            # The reviews are final and unchanged (same normalized hash): only the tools' judgement of them
+            # changed. Editing them would change their hashes, so the tool change has to go instead.
+            return Stage1Unverified(
+                f"these tools reject {len(rejected)} Stage 1 review(s) that are unchanged since the summary was recorded "
+                f"(their normalized hashes match): {_shown(rejected, separator=', ')}; a re-computation of Stage 1 with "
+                f"these tools gives incomplete ({_shown(reasons, 2)}). Those reviews are final: do not edit them (an "
+                "edit changes the normalized hash, which holds Stage 2 as well). A tool change must not reject a "
+                "recorded Stage 1 review, so Stage 2 needs the tool change that rejects them reverted (the tools that "
+                "recorded the Stage 1 summary accept them)",
+                "do not edit those Stage 1 reviews; revert the tool change that rejects them")
+        if UNVERIFIED_REASON in reasons:
+            return Stage1Unverified(f"a re-computation of Stage 1 with these tools gives incomplete "
+                                    f"({_shown(reasons, 2)}), so the committed go is not re-verified")
+        return Stage1Unverified(
+            f"a re-computation of Stage 1 with these tools gives incomplete ({_shown(reasons, 2)}), so the committed go "
+            "is not re-verified; the sealed Stage 1 inputs and the reviews the summary lists are unchanged, so these "
+            "tools judge Stage 1 differently from the tools that recorded the summary",
+            "revert the tool change that judges the unchanged Stage 1 evidence differently")
     tools = _tooling_binding(root, campaign, committed, recomputed)
+    if value != "go":
+        if tools is None:
+            # Recorded with other (Git-bound) tools over the same sealed inputs and reviews: only the
+            # tools' counting changed, and a recorded summary is final, so the tool change has to go.
+            return Stage1Unverified(
+                f"a re-computation of Stage 1 with these tools gives {value}, not go; the sealed Stage 1 inputs and the "
+                "reviews the summary lists are unchanged, so these tools count Stage 1 differently from the tools that "
+                "recorded the summary. A recorded Stage 1 summary is final, so Stage 2 needs that tool change reverted",
+                "revert the tool change that counts the unchanged Stage 1 evidence differently")
+        return f"a re-computation of Stage 1 from the sealed evidence gives {value}, not go"
     if tools is not None and tools != SAME_TOOLS:
         return tools
     if tools is None:
         # Recorded with other tools, committed in the summary's history (section 1.10): the decision,
-        # the sealed inputs and the disclosure of retries and failures (sealed facts) must still be
-        # the re-computation, and so must what the summary reports of every review whose bytes changed
-        # since; the other fields and the Markdown rendering belong to those tools.
-        fresh, recorded = _disclosure(recomputed), _disclosure(committed)
-        differing = sorted(key for key in set(fresh) | set(recorded) if fresh.get(key) != recorded.get(key))
+        # the sealed inputs, the normalized review hashes (above) and the disclosure of retries and
+        # failures (sealed facts) must still hold; the fields those tools computed from the reviews,
+        # the other fields and the Markdown rendering belong to those tools.
+        fresh, recorded_disclosure = _disclosure(recomputed), _disclosure(committed)
+        differing = sorted(key for key in set(fresh) | set(recorded_disclosure)
+                           if fresh.get(key) != recorded_disclosure.get(key))
         if differing:
             return (f"the committed Stage 1 summary misstates the runs' statuses, failures or earlier attempts "
                     f"({', '.join(differing)}) compared with a re-computation from the sealed evidence (a recorded "
                     "summary is written only by summarize --record)")
-        now, then = _stage1_input_index(recomputed, planned), _stage1_input_index(committed, planned)
-        evidence_root = _pilot_dir(pilot_value) / "evidence"
-        edited = [run_id for run_id in reviews
-                  if _review_edited(evidence_root, run_id, now[run_id].get("review"), then[run_id].get("review"))]
-        verdicts = _verdict_differences(recomputed, committed, planned, edited)
-        if verdicts:
-            states = _review_states(recomputed)
-            read_as = {"problems": "; these tools find problems in it", "incomplete": "; these tools find it incomplete"}
-            shown = [f"{run_id} ({', '.join(keys)}{read_as.get(str(states.get(run_id)), '')})"
-                     for run_id, keys in verdicts]
-            recorded_bytes = [f"{run_id} {str(then[run_id].get('review'))[:12]}..." for run_id, _keys in verdicts]
-            return Stage1Changed(f"a re-computation of Stage 1 differs from the committed summary in what the review "
-                                 f"of {_shown(shown)} gives, after review.md of {_shown(edited, separator=', ')} "
-                                 f"changed since the summary was recorded; {REVIEWS_FINAL_OTHER_TOOLS} (recorded "
-                                 f"sha256: {_shown(recorded_bytes, separator=', ')})")
         if notes is not None:
             notes.append("the committed Stage 1 summary was recorded with other tools (versions committed in its "
-                         "history); its decision, its sealed inputs, the failures and earlier attempts of its "
-                         "skill runs and baselines, and what it reports of each review changed since were compared "
-                         "with a re-computation, not its other fields or its Markdown rendering")
+                         "history); its decision, its sealed inputs, its normalized review hashes and the failures and "
+                         "earlier attempts of its skill runs and baselines were compared with a re-computation, not "
+                         "its other fields or its Markdown rendering")
     else:
         # Recorded with these tools: every reported field must be the re-computation, and the
         # Markdown must be rendered from the JSON (section 4.7), so neither can hide a retry or a failure.
-        fresh, recorded = _comparable(recomputed, planned), _comparable(committed, planned)
-        differing = sorted(key for key in set(fresh) | set(recorded) if fresh.get(key) != recorded.get(key))
-        if differing and reviews:
-            return Stage1Changed(f"a re-computation of Stage 1 differs from the committed summary in "
-                                 f"{', '.join(differing)} after {changed}; {REVIEWS_FINAL}")
+        fresh, recorded_fields = _comparable(recomputed, planned), _comparable(committed, planned)
+        differing = sorted(key for key in set(fresh) | set(recorded_fields) if fresh.get(key) != recorded_fields.get(key))
         if differing:
             return (f"the committed Stage 1 summary differs from a re-computation from the sealed evidence in "
                     f"{', '.join(differing)} (a recorded summary is written only by summarize --record)")
@@ -1590,7 +1626,6 @@ def _stage1_matches(root: Path, campaign: Campaign, pilot_value: str | None, com
             return ("the committed stage1-summary.md is not the Markdown rendered from stage1-summary.json "
                     "(a recorded summary is written only by summarize --record)")
     generated = _parse_time(committed.get("generatedAt"))
-    evidence_root = _pilot_dir(pilot_value) / "evidence"
     for run_id in sorted(_stage1_input_index(recomputed, planned)):
         try:
             record = _json_loads(er.confined_file(evidence_root / er.run_dir_name(run_id), RECORD_FILE).read_bytes(),
@@ -1606,9 +1641,11 @@ def _stage1_matches(root: Path, campaign: Campaign, pilot_value: str | None, com
 
 
 def _comparable(summary: dict, planned: dict[str, dict]) -> dict:
-    """A summary without what legitimately differs between its recording and a later re-computation:
-    generatedAt, tooling, the environment's verification notes, inputs of runs outside Stage 1, and
-    the review.md hashes (a re-saved review that says the same gives the same fields)."""
+    """A summary without what legitimately differs between its recording and a later re-computation
+    with the same tools: generatedAt, tooling, the environment's verification notes, inputs of runs
+    outside Stage 1, and the raw review.md hashes (a re-saved review that says the same gives the same
+    fields). The normalized review hashes stay: with the same tools the re-computation reads the same
+    reviews, so a hash the summary nulls or alters differs (INTEGRITY-1)."""
     value = json.loads(er.canonical_json(summary))
     value.pop("generatedAt", None)
     value.pop("tooling", None)
@@ -2452,8 +2489,9 @@ def review_template_text(run: dict, record: dict, reference: dict, artifact: dic
              + " and Reference are checked against the sealed run; do not edit them.",
              '> Fill Reviewer and Date, replace every "pending", then check: python tools/workflow_eval.py check <this file>']
     if run.get("stage") == 1:
-        lines.append("> Stage 1 reviews are final once the Stage 1 summary is recorded: change no verdict afterwards, "
-                     "and keep a copy of the evidence directory (it is outside Git).")
+        lines.append("> Stage 1 reviews are final once the Stage 1 summary is recorded: afterwards change nothing but "
+                     "> notes, line endings, trailing spaces and blank lines, and keep a copy of the evidence directory "
+                     "(it is outside Git).")
     lines.append(f"Run: {run_id}")
     if baseline:
         lines.append(f"Transcript: {record['evidence']['transcript']['sha256']}")
@@ -2915,6 +2953,7 @@ class RunState:
     error_codes: list[str] = field(default_factory=list)
     review_status: str = "missing"   # missing | incomplete | problems | complete | not-applicable | not-required
     review_sha256: str | None = None
+    review_normalized: str | None = None  # review normalization v1 (eval_records), beside review_sha256
     review_problems: list[str] = field(default_factory=list)
     review: ReviewData | None = None
     artifact_doc: dict | None = None
@@ -3284,6 +3323,7 @@ def _review(state: RunState, campaign: Campaign) -> None:
         state.review_status, state.review_problems = "problems", [f"review.md: {exc}"]
         return
     state.review_sha256 = er.sha256_bytes(raw)
+    state.review_normalized = er.normalized_review_sha256(raw)
     record, problems = er.parse_record(raw, REVIEW_FILE)
     if record is None or record.kind != "Run review":
         state.review_status = "problems"
@@ -3739,13 +3779,12 @@ def summarize(root: Path, name: str, stage: str, pilot_value: str | None) -> dic
     notes: list[str] = list(stage1_notes)
     complete = True
     stage1_hold = None
-    if isinstance(stage1_problem, (Stage1Unverified, Stage1Changed)):
+    if isinstance(stage1_problem, _Stage1Hold):
         # Not a protocol violation of the Stage 2 runs (section 4.5 D/E): the summary is incomplete
-        # until the environment or the changed Stage 1 evidence is put right.
+        # until the environment, the changed Stage 1 evidence or the tools are put right (the remedy).
         stage1_hold = str(stage1_problem)
-        notes.append(f"the committed Stage 1 go could not be re-verified: {stage1_problem}; "
-                     + ("fetch or verify the corpus" if isinstance(stage1_problem, Stage1Unverified)
-                        else "restore the Stage 1 evidence") + " and summarize again")
+        notes.append(f"the committed Stage 1 go could not be re-verified: {stage1_problem}; {stage1_problem.remedy} "
+                     "and summarize again")
         stage1_problem = None
     for state in states.values():
         in_scope = state.run["condition"] == "baseline" or _in_stage(state.run, stage)
@@ -3856,6 +3895,8 @@ def summarize(root: Path, name: str, stage: str, pilot_value: str | None) -> dic
               "referenceSet": campaign.reference_set_sha256,
               "invalidation": invalidation["sha256"] if invalidation else None,
               "runs": [{"id": s.run["id"], "record": s.record_sha256, "review": s.review_sha256,
+                        "reviewNormalized": None if s.review_sha256 is None else
+                        {"version": er.REVIEW_NORMALIZATION_VERSION, "sha256": s.review_normalized},
                         "amendments": [a["previous"] for a in (s.record or {}).get("amendments") or []],
                         "earlierAttempts": [{key: item[key] for key in ("attempt", "record", "review", "amendments")}
                                             for item in s.earlier]}
@@ -4125,7 +4166,9 @@ def render_markdown(summary: dict) -> str:
     lines += ["", "## Inputs (hashes)", "", f"- candidate.json {summary['candidateSha256']}",
               f"- referenceRevision {summary['referenceRevision']}", f"- freeze.json {inputs['freeze']}"]
     for run in inputs["runs"]:
+        normalized = run.get("reviewNormalized") if isinstance(run.get("reviewNormalized"), dict) else {}
         lines.append(f"- {run['id']}: record {run['record']}" + (f", review {run['review']}" if run["review"] else "")
+                     + (f" (normalized v{normalized.get('version')} {normalized.get('sha256')})" if normalized else "")
                      + (f", {len(run['amendments'])} amendment(s)" if run["amendments"] else "")
                      + "".join(f"; attempt {item['attempt']} record {item['record']}"
                                + (f", review {item['review']}" if item["review"] else "")
@@ -4286,8 +4329,10 @@ def main(argv: list[str] | None = None, *, root: Path | None = None) -> int:
             print(f"Recorded {json_path.name} and {md_path.name} in {PILOT_REL}/{args.campaign}/. Commit both files "
                   "now, in one commit, before any other commit, pull, merge or rebase, and merge that commit without "
                   "squashing or rebasing it: a recorded summary is final and is never recorded again."
-                  + (" Stage 1 runs can no longer be retried or amended, and every Stage 1 review must keep saying "
-                     "what it says now; keep a copy of the evidence directory." if summary["stage"] == "1" else "")
+                  + (" Stage 1 runs can no longer be retried or amended, and every Stage 1 review.md must keep its "
+                     "content: only '>' notes, line endings, trailing spaces and blank lines may change (the summary "
+                     "records each review's normalized hash); keep a copy of the evidence directory."
+                     if summary["stage"] == "1" else "")
                   + f" The summary is {NOT_APPROVAL}.", file=sys.stderr)
             return 0
         sys.stdout.write(text)

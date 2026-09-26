@@ -726,6 +726,107 @@ def test_hashes(tmp_path: Path) -> None:
     assert er.git_blob_oid(b"hello\n") == "ce013625030ba8dba906f756967f9e9ca394464a"
 
 
+# Review normalization v1 is fixed: these bytes and this hash must never change. A different normalization
+# gets a new version number, and v1 stays as it is for every summary that records it.
+V1_RAW = ("\ufeff# Run review: pilot-demo:codex:1 \t\r\n"
+          "> Written by review-template (a note)\r\n"
+          "   > an indented note\r"
+          "\t> a tab-indented note\n"
+          "\xa0\u3000> a note after Unicode spaces\n"
+          "Run: pilot-demo:codex:1\xa0\u3000\n"
+          "\r\n"
+          " \t \n"
+          "Reviewer: Test Reviewer (synthetic)   \n"
+          "## Claims\n"
+          "node:load: qualified -- a reason > with a quote sign  \n"
+          "  continued after two spaces\n"
+          "\tcontinued after a tab\n"
+          "\u200b> a zero-width space is not whitespace\n"
+          "## Task\r\n"
+          "Review: complete").encode("utf-8")
+V1_NORMALIZED = (b"# Run review: pilot-demo:codex:1\nRun: pilot-demo:codex:1\nReviewer: Test Reviewer (synthetic)\n"
+                 b"## Claims\nnode:load: qualified -- a reason > with a quote sign\n  continued after two spaces\n"
+                 b"\tcontinued after a tab\n\xe2\x80\x8b> a zero-width space is not whitespace\n## Task\n"
+                 b"Review: complete\n")
+V1_SHA256 = "a4fdba1f0104d0cc806cff89560845eb664f9b15a6bc46f986095fee0d090f24"
+
+
+def test_review_normalization_v1_is_pinned_byte_for_byte() -> None:
+    assert er.REVIEW_NORMALIZATION_VERSION == 1
+    assert er.normalized_review_bytes(V1_RAW) == V1_NORMALIZED
+    assert er.normalized_review_sha256(V1_RAW) == V1_SHA256 == er.sha256_bytes(V1_NORMALIZED)
+    assert er.normalized_review_sha256(V1_NORMALIZED) == V1_SHA256
+    assert er.normalized_review_sha256(b"") == er.sha256_bytes(b"")  # nothing kept: no line, no LF
+    assert er.normalized_review_sha256(b"\n> note\n \n") == er.sha256_bytes(b"")
+    assert er.normalized_review_sha256(BOM + BOM + b"x\n") == er.sha256_bytes("\ufeffx\n".encode("utf-8"))  # one BOM
+    assert er.normalized_review_sha256(b"x\xff\n") is None
+    with pytest.raises(ValueError, match="not valid UTF-8"):
+        er.normalized_review_bytes("x\n".encode("utf-16"))
+
+
+def test_review_normalization_v1_whitespace_is_what_the_parser_strips() -> None:
+    """The parser skips a line when str.strip() leaves it empty or starting with ">" and ignores what str.rstrip()
+    removes; v1 spells that set out, and this interpreter must agree with it (Python 3.10 to 3.14 do)."""
+    running = "".join(char for char in map(chr, range(0x110000)) if char.isspace())
+    assert er._V1_SPACE == running and len(er._V1_SPACE) == 29
+    sample = "".join(map(chr, range(0x3001))) + "x"
+    assert sample.strip() == sample.strip(er._V1_SPACE)
+    # v1 is spelled with escapes, so no invisible character can be lost or hidden by an editor (INTEGRITY-2).
+    source = Path(er.__file__).read_text(encoding="utf-8")
+    block = source[source.index("REVIEW_NORMALIZATION_VERSION = 1"):source.index("def normalized_review_sha256")]
+    assert block.isascii(), [hex(ord(char)) for char in block if not char.isascii()]
+
+
+def _review_fields(raw: bytes) -> list:
+    record, problems = er.parse_record(raw, "review.md")
+    assert record is not None
+    return [record.title, [problem.message for problem in problems]] + [
+        (section.kind, section.ident, [(item.key, item.value) for item in section.lines])
+        for section in [record.header] + record.sections]
+
+
+def test_review_normalization_keeps_the_hash_exactly_when_the_review_reads_the_same() -> None:
+    """A re-save (BOM, CRLF or CR), '>' notes added, edited or removed, trailing spaces and blank lines keep both
+    what the parser reads and the v1 hash; a changed verdict, reason, reviewer, key, heading or indentation
+    changes the hash."""
+    base = SPEC_FILES["review"].replace("Reviewer:\n", "Reviewer: Test Reviewer (synthetic)\n").replace(
+        "demo-f01: pending", "demo-f01: partial node:load-batches -- a synthetic reason\n  wrapped onto a second line"
+    ).replace("## Task\n", "## Task\n> a recorded note (synthetic)\n").encode("utf-8")
+    reference = er.normalized_review_sha256(base)
+
+    def per_line(change) -> bytes:
+        return "\n".join(item for line in base.decode("utf-8").split("\n") for item in change(line)).encode("utf-8")
+
+    honest = {
+        "bom": BOM + base, "crlf": base.replace(b"\n", b"\r\n"), "cr": base.replace(b"\n", b"\r"),
+        "note added": per_line(lambda line: [line, "  > a note (synthetic)"] if line.startswith("## ") else [line]),
+        "note between a value and its continuation": base.replace(b"reason\n", b"reason\n> a note\n\n"),
+        "trailing spaces": per_line(lambda line: [line + " \t\xa0\u3000" if line else line]),
+        "blank lines": per_line(lambda line: ["", line, " ", "\t"]),
+    }
+    honest["note edited"] = base.replace(b"> a recorded note (synthetic)", b"   > the edited note (synthetic)")
+    honest["note removed"] = base.replace(b"> a recorded note (synthetic)\n", b"")
+    for name, raw in honest.items():
+        assert raw != base, name
+        assert er.normalized_review_sha256(raw) == reference, name
+        assert _review_fields(raw) == _review_fields(base), name
+    changed = {
+        "verdict": base.replace(b"demo-f01: partial", b"demo-f01: missing"),
+        "reason": base.replace(b"a synthetic reason", b"a synthetic  reason"),
+        "continuation": base.replace(b"  wrapped onto", b"  Wrapped onto"),
+        "reviewer": base.replace(b"Test Reviewer", b"Another Reviewer"),
+        "severity": base.replace(b"f1: pending", b"f1: agree"),
+        "false accusation": base.replace(b"response:40-42: high", b"response:40-42: low"),
+        "line removed": base.replace(b"finding:f1: pending\n", b""),
+        "indentation": base.replace(b"  wrapped onto", b"    wrapped onto"),
+        "a # comment": base.replace(b"## Task\n", b"# a comment\n## Task\n"),
+        "a zero-width space before >": base + "\u200b> not a note\n".encode("utf-8"),
+    }
+    for name, raw in changed.items():
+        assert raw != base, name
+        assert er.normalized_review_sha256(raw) != reference, name
+
+
 @needs_git
 def test_pinned_tree_bytes_and_git_show(tmp_path: Path) -> None:
     files = {"train.py": b"import torch\r\n", "configs/a.py": BOM + b"lr = 1\n", "docs/x.md": b"# doc\n"}

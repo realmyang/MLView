@@ -8,6 +8,118 @@ Run `sh scripts/e2e.sh` with Python 3.10+ and Node 20.18.1+ on PATH. On Windows
 use `powershell -File scripts/e2e.ps1`. The [script guide](../scripts/README.md)
 explains each gate and explicit skip options.
 
+## Stage 1 normalized review hashes — 2026-09-26
+
+The change in the "Unreleased — Stage 1 normalized review hashes" entry of
+the [changelog](../CHANGELOG.md) is commits `48bc142` (tools and tests) and
+`8514df7` (docs) on the `pilot-stage1-review-hash` branch, on top of
+`00e5d45` (0.3.0 on `main`). It was checked in a separate worktree on the same
+macOS machine as below (Node 26.4.0, git 2.54.0, Python 3.13.15 in a
+virtualenv with `pytest==9.1.1` and `jsonschema==4.26.0`; `npm ci` in both
+packages first, whose script policy skipped the esbuild and keytar install
+scripts). **These are local automated checks only**. CI has not run
+on these commits, so the Python 3.10–3.14 and Node 20.18.1–26 matrix,
+Windows and the PowerShell drivers are unverified here.
+
+- `sh scripts/e2e.sh --skip-npm-install` on `8514df7`: **all 15 exercised
+  gates passed**, and the worktree stayed clean after its rebuilds.
+  - Python helper, distribution and evaluation tests: **847 passed, 17
+    skipped, 537 subtests passed**. All 17 skips are corpus tests (8
+    corpus-coverage, 8 reference-candidate quote and 1 decision-tool case)
+    because this worktree has no public corpus checkout; none of them
+    exercises the changed code.
+  - Viewer: **79 passed**. Extension: **250 passed**.
+  - The actual VSIX: 11 files, 155,593 bytes.
+- `python -m pytest skills/mlview/tests tools evals scripts claude-plugin/tests -q -p no:cacheprovider`
+  on `8514df7`: 847 passed, 17 skipped (the same corpus tests), 537 subtests
+  passed.
+- `python tools/verify.py --all`: OK. `python tools/evidence_lock.py`: 95
+  files match the lock. `python scripts/check_docs.py`: OK, 40 documents.
+- The five changed Python files parse with
+  `ast.parse(feature_version=(3, 10))` and compile under a Python 3.10.21
+  interpreter, and the pinned normalization vector and the whitespace set
+  were checked under 3.10.21 as well.
+- New and rewritten tests, on synthetic worlds only: 3 for normalization v1
+  (a byte-level pin of its output and hash, its whitespace set against the
+  running interpreter, and parser agreement for honest edits) and 29 gate
+  cases (the recorded hashes; honest re-saves with either tools; 20 changed
+  or deleted reviews with either tools; both RC2-1 variants; a re-save after
+  a later tool rule or count; summaries without normalized hashes). They
+  replace the 16 cases of the two tests that pinned the removed behaviour,
+  and seven tests, including the end-to-end test, were updated. Against the
+  `00e5d45` gate (its `tools/workflow_pilot.py` with the new
+  `tools/eval_records.py`), 33 of the 38 new or updated gate cases fail. Both RC2-1 variants and both
+  re-save-after-a-later-tool-change cases fail because that gate holds Stage
+  2 with its re-derivation message; the others fail on the new messages or
+  the missing `reviewNormalized` field. The honest re-save, absent-corpus and
+  later-judgement cases pass against both.
+- The reviewers' honest-path rehearsal, kept outside the repository, ran
+  830 steps against a fresh scratch clone of `8514df7` with no honest-path
+  failure; its Stage 2 steps printed the new other-tools note. Its review
+  steps only re-save a Stage 1 review with CRLF, which the new rule allows,
+  so none of them needed a change.
+
+A review of those commits found six problems (STATS-1, HONEST-1, STATS-2,
+HONEST-2, INTEGRITY-1 and INTEGRITY-2, listed in the changelog entry). Commit
+`40cee7b` fixes them and was checked the same way, on the same machine and
+toolchain. Again, CI has not run on it.
+
+- `sh scripts/e2e.sh --skip-npm-install` on `40cee7b`: **all 15 exercised
+  gates passed**, and the worktree stayed clean after its rebuilds.
+  - Python helper, distribution and evaluation tests: **852 passed, 17
+    skipped, 537 subtests passed**. The 17 skips are the same corpus tests
+    (8 corpus-coverage, 8 reference-candidate quote, 1 decision-tool case).
+    A separate `-rs` run of those three files printed each skip reason:
+    every one is a missing corpus checkout.
+  - Viewer: **79 passed**. Extension: **250 passed**.
+  - The actual VSIX: 11 files, 155,593 bytes.
+- `python -m pytest skills/mlview/tests tools evals scripts claude-plugin/tests -q -p no:cacheprovider`
+  on the same tree: 852 passed, 17 skipped, 537 subtests passed.
+- `python tools/verify.py --all`: OK. `python tools/evidence_lock.py`: 95
+  files match the lock. `python scripts/check_docs.py`: OK, 40 documents.
+- The five changed Python files parse with
+  `ast.parse(feature_version=(3, 10))` and compile under Python 3.10.21.
+  The pinned normalization vector, now written with escapes, and the
+  whitespace set were checked under 3.10.21 too.
+- Tests added or rewritten for the fixes, all on synthetic worlds:
+  - 7 gate cases, 5 new and 2 rewritten: a summary without normalized
+    hashes held with either tools; Stage 2 runs collected under such a
+    summary staying valid; a same-tools summary that nulls a read review;
+    a review restored into a failed baseline with either tools; and a later
+    rule that rejects a recorded skill review. All 7 fail against the gate
+    at `c933569`.
+  - An ASCII check of the normalization v1 source.
+- The honest-path rehearsal (kept outside the repository) ran against a
+  fresh scratch clone of `40cee7b`. It covered the main timeline, the 15
+  earlier variants and the 6 normalized-hash variants in one run: 1,019
+  steps, no honest-path failure.
+  - Its two later-review-rule probes (44 steps, outside the honest count)
+    now print the new message. It names the three rejected reviews, says
+    they are final and must not be edited, and says Stage 2 needs the tool
+    change reverted.
+  - In those probes the all-stage summary is `incomplete`, no Stage 2 run
+    is invalid, and the note gives that remedy instead of "fetch or verify
+    the corpus".
+
+A final check of `40cee7b` found one wording problem in a note (CHECK-1)
+and one case that predates this branch: with other tools, a later count
+change that turned the recorded `go` into `stop` over unchanged evidence
+counted every Stage 2 run invalid. Commit `dfd9663` fixes both, with a new
+gate test (either tools) and an updated one; the three affected cases fail
+against the gate at `19ce3a9`. It was checked the same way, on the same
+machine and toolchain; CI has not run on it yet.
+
+- `sh scripts/e2e.sh --skip-npm-install` on `dfd9663`'s tree: **all 15
+  exercised gates passed**. Python: **854 passed, 17 skipped** (the same
+  corpus tests), 537 subtests passed. Viewer: **79 passed**. Extension:
+  **250 passed**. The actual VSIX: 11 files, 155,593 bytes.
+- `python tools/verify.py --all`: OK. `python tools/evidence_lock.py`: 95
+  files match the lock. `python scripts/check_docs.py`: OK, 40 documents.
+
+Every decision, review, verdict and policy value in the new tests and the
+rehearsal is synthetic. No native session, human review, reference freeze
+or pilot run occurred.
+
 ## Campaign 2 final local checks and CI — 2026-09-25
 
 Campaign 2 at `d6e0e52` on the `campaign2-pilot-readiness` branch (the
