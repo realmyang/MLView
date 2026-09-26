@@ -382,7 +382,9 @@ class ExcerptTests(HelperCase):
         outside = self.root.parent / (self.root.name + "-outside.py")
         outside.write_text("secret\n", encoding="utf-8")
         try:
-            for value, code in ((str(outside), "path_outside_workspace"), ("../" + outside.name, "path_outside_workspace"), ("./train.py", "path_outside_workspace"),
+            # A Windows absolute path has a drive and backslashes, which fail the path syntax first.
+            absolute = "invalid_path" if "\\" in str(outside) or str(outside)[1:2] == ":" else "path_outside_workspace"
+            for value, code in ((str(outside), absolute), ("../" + outside.name, "path_outside_workspace"), ("./train.py", "path_outside_workspace"),
                                 ("missing.py", "path_outside_workspace"), ("C:/train.py", "invalid_path"), ("sub\\train.py", "invalid_path")):
                 with self.subTest(value=value):
                     status, response = self.excerpt(value, "--lines", "1")
