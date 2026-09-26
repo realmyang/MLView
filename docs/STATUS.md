@@ -39,7 +39,11 @@ the skill defines repair rounds, early and partial drafts, basis, findings and
 structure rules; the viewer opens the authored header collapsed so the canvas
 keeps its height, wraps titles, drops the `?` glyph for authored nodes and
 styles the recommended edge kinds; and the extension reports deleted cited
-files as missing. There is no schema change and no version bump. Issues 13,
+files as missing. Fixes from four model reviews of the integrated branch
+make default excerpt IDs unique per path, bound the `foundAt` search, draw
+authored self-edges as loops, keep a revealed finding target beside the
+narrow-window rail drawer and keep the collapsed header's controls visible on
+short panels. There is no schema change and no version bump. Issues 13,
 16, 19 and 20 are deferred on purpose. Only local checks have run
 ([details](VALIDATION.md)); CI, live hosts and the pilot have not, and once
 quotes come from `excerpt` the pilot's exact-anchor target shows only that

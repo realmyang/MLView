@@ -84,6 +84,8 @@ export class CanvasView {
   private emphasis: Emphasis;
   /** Which cable the pointer owns, and the delay before that means anything. */
   private edgeHover: EdgeHover;
+  /** The visible area as of the last viewport change, so a resize knows what was in view (VL-1). */
+  private lastArea: { w: number; h: number } | null = null;
 
   constructor(shell: Shell, host: CanvasHost) {
     this.host = host;
@@ -126,8 +128,10 @@ export class CanvasView {
       this.zoomLevelEl.textContent = Math.round(vp.zoom * 100) + '%';
       const size = this.viewport.size();
       this.minimap.setViewport(vp, size.w, size.h);
+      this.lastArea = this.viewport.visibleArea();
       this.host.onViewportChange(vp);
     });
+    this.viewport.coveredRight = () => this.host.coveredRight();
 
     for (const dispose of wireCanvasGestures(this.canvasEl, this.viewport, {
       onKeyDown: (ev) => this.host.onKeyDown(ev),
@@ -347,9 +351,19 @@ export class CanvasView {
     this.minimap.root.classList.toggle('is-short', height < MINIMAP_MIN_CANVAS_H);
   }
 
-  /** The window or the canvas resized (issue 6). */
+  /**
+   * The window or the canvas resized (issue 6). Campaign 3 review (VL-1): a selected target that
+   * was in view stays in view. Following evidence from a docked rail opens a split, the panel
+   * narrows under the 900 px breakpoint, and the rail the reader is using becomes a drawer over
+   * the target; the target is re-centred, at the same zoom, in the strip the drawer leaves.
+   */
   handleResize(): void {
-    this.viewport.onResize();
+    const kept = this.host.keptTarget();
+    const target = kept ? this.targetRect(kept) : null;
+    const before = this.lastArea;
+    const wasVisible = !!(target && before && this.viewport.isVisible(target, before));
+    const refitted = this.viewport.onResize();
+    if (!refitted && target && wasVisible && !this.viewport.isVisible(target)) this.viewport.centerOn(target);
     this.syncShortCanvas();
   }
 
@@ -562,23 +576,34 @@ export class CanvasView {
 
   /** Issue 6: bring a connection's two ends into view, zooming in when below the detail threshold. */
   revealEdge(id: string): void {
-    if (!this.index || !this.frameData) return;
-    const edge = this.index.edgeById.get(id);
-    if (!edge) return;
-    const a = this.frameData.boxes.get(this.index.visibleRepresentative(edge.source, this.collapsedSet));
-    const b = this.frameData.boxes.get(this.index.visibleRepresentative(edge.target, this.collapsedSet));
-    if (!a || !b) return;
-    const x = Math.min(a.x, b.x);
-    const y = Math.min(a.y, b.y);
-    const union = { x, y, w: Math.max(a.x + a.w, b.x + b.w) - x, h: Math.max(a.y + a.h, b.y + b.h) - y };
+    const union = this.targetRect({ kind: 'edge', id });
+    if (!union) return;
     if (this.viewport.vp.zoom < LOD_FULL_ZOOM) this.viewport.centerOn(union, Math.max(this.viewport.vp.zoom, this.readableZoomFor(union)));
     else if (!this.viewport.isVisible(union)) this.viewport.centerOn(union);
   }
 
-  /** READABLE_ZOOM, or less when the box would not fit the canvas at it. */
+  /** The laid-out rect of a node's visible card, or of both ends of a connection. */
+  private targetRect(target: { kind: 'node' | 'edge'; id: string }): { x: number; y: number; w: number; h: number } | null {
+    if (!this.index || !this.frameData) return null;
+    if (target.kind === 'node') return this.frameData.boxes.get(this.index.visibleRepresentative(target.id, this.collapsedSet)) || null;
+    const edge = this.index.edgeById.get(target.id);
+    if (!edge) return null;
+    const a = this.frameData.boxes.get(this.index.visibleRepresentative(edge.source, this.collapsedSet));
+    const b = this.frameData.boxes.get(this.index.visibleRepresentative(edge.target, this.collapsedSet));
+    if (!a || !b) return null;
+    const x = Math.min(a.x, b.x);
+    const y = Math.min(a.y, b.y);
+    return { x, y, w: Math.max(a.x + a.w, b.x + b.w) - x, h: Math.max(a.y + a.h, b.y + b.h) - y };
+  }
+
+  /**
+   * READABLE_ZOOM, or less when the box would not fit the visible area at it. The margin shrinks
+   * with a narrow strip beside the rail drawer (VL-1), so a card still lands at full detail there.
+   */
   private readableZoomFor(box: { w: number; h: number }): number {
-    const size = this.viewport.size();
-    const fits = Math.min((size.w - 48) / Math.max(1, box.w), (size.h - 48) / Math.max(1, box.h));
+    const area = this.viewport.visibleArea();
+    const margin = Math.min(48, Math.round(Math.min(area.w, area.h) / 10));
+    const fits = Math.min((area.w - margin) / Math.max(1, box.w), (area.h - margin) / Math.max(1, box.h));
     return Math.min(READABLE_ZOOM, fits);
   }
 

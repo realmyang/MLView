@@ -12,7 +12,7 @@
   "nodes": [
     {"id": "main", "label": "Load config file and call train", "phase": "setup", "kind": "entrypoint", "detail": "Reads the JSON config named by the first command-line argument.", "basis": "observed", "evidence": ["ev-main"]},
     {"id": "model", "label": "Build model", "phase": "setup", "kind": "model", "detail": "Model(width) from the external toolkit package.", "basis": "observed", "evidence": ["ev-model"]},
-    {"id": "loader", "label": "Shuffled batch loader", "phase": "setup", "kind": "data", "detail": "Loader over the configured data with the configured batch size and shuffle=True.", "basis": "observed", "evidence": ["ev-loader"]},
+    {"id": "loader", "label": "Batch loader", "phase": "setup", "kind": "data", "detail": "Loader over the configured data with the configured batch size, called with shuffle=True; what the toolkit does with that flag is not read.", "basis": "observed", "evidence": ["ev-loader"]},
     {"id": "best", "label": "Best score and wait counter", "phase": "train", "kind": "state", "detail": "Starts at infinity and 0; set to the new score and 0 on improvement, otherwise the counter grows by one.", "basis": "observed", "evidence": ["ev-best", "ev-track"]},
     {"id": "epochs", "label": "Epoch loop", "phase": "train", "kind": "loop", "detail": "Runs at most the configured number of epochs and leaves early when patience is exhausted.", "basis": "observed", "evidence": ["ev-loop", "ev-stop"]},
     {"id": "update", "label": "Update model on each batch", "phase": "train", "parent": "epochs", "kind": "operation", "detail": "Calls model.update(x, y, lr) for every batch of the epoch.", "basis": "observed", "evidence": ["ev-loop", "ev-update"]},
@@ -24,7 +24,7 @@
   "edges": [
     {"id": "cfg-model", "source": "main", "target": "model", "label": "width", "kind": "config", "basis": "observed", "evidence": ["ev-model"]},
     {"id": "cfg-loader", "source": "main", "target": "loader", "label": "data path, batch size", "kind": "config", "basis": "observed", "evidence": ["ev-loader"]},
-    {"id": "batches", "source": "loader", "target": "update", "label": "shuffled batches", "kind": "data", "basis": "observed", "evidence": ["ev-loop"]},
+    {"id": "batches", "source": "loader", "target": "update", "label": "batches", "kind": "data", "basis": "observed", "evidence": ["ev-loop"]},
     {"id": "model-updated", "source": "model", "target": "update", "label": "model object", "kind": "data", "basis": "observed", "evidence": ["ev-update"]},
     {"id": "model-scored", "source": "model", "target": "score", "label": "same model object", "kind": "data", "basis": "observed", "evidence": ["ev-score"]},
     {"id": "mutate", "source": "update", "target": "params", "label": "in-place update", "kind": "state", "basis": "inferred", "evidence": ["ev-update"]},

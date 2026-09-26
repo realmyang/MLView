@@ -167,6 +167,10 @@ test('the shipped CSS caps the header, lets it shrink, and gives the authored ca
   assert.equal(chips.display, 'block', 'a flex chip cannot ellipsise its text');
   assert.equal(chips['text-overflow'], 'ellipsis');
   assert.equal(chips['max-width'], '100%');
+  // Campaign 3 review (VL-2): collapsed, the bounded header never shrinks behind its own scroller
+  // (a 541x502 panel hid the Details toggle and Refine); the canvas floor yields instead.
+  assert.equal(declarationsFor(css, '.mlv-workflow:not([data-expanded=true])')['flex-shrink'], '0');
+  assert.match(declarationsFor(css, '.mlv-workflow:not([data-expanded=true])~.mlv-body')['min-height'] || '', /^min\(320px,\s*25vh\)$/);
   const stages = declarationsFor(css, '.mlv-root--workflow .mlv-filterrow');
   assert.match(stages['max-height'] || '', /vh$/, '100 authored phases cannot push the canvas off the page');
   assert.equal(stages['overflow-y'], 'auto');
@@ -292,6 +296,114 @@ test('a finding or rail item selected below the detail threshold zooms to its ta
   const row = ctx.document.querySelector('[data-outline-id="node-12"] .mlv-outline__row') || ctx.document.querySelector('[data-outline-id] .mlv-outline__row');
   row.click();
   assert.ok(ctx.app.getState().viewport.zoom >= 0.62, 'the outline selection is readable');
+  ctx.app.destroy();
+});
+
+/* ── Campaign 3 review: VL-1 reveal beside the rail drawer, self-loops ── */
+
+/** Stub the rail's box: jsdom lays nothing out, so the drawer's geometry is given. */
+function placeRail(ctx, left, right, height = 600) {
+  ctx.document.querySelector('.mlv-rail').getBoundingClientRect = () => ({ x: left, y: 0, top: 0, left, width: right - left, height, right, bottom: height });
+}
+
+/** The target card's box on screen, from the viewport and the laid-out frame. */
+function screenBox(ctx, id) {
+  const vp = ctx.app.getState().viewport;
+  const box = ctx.app.view.frameData.boxes.get(id);
+  return { left: box.x * vp.zoom + vp.x, right: (box.x + box.w) * vp.zoom + vp.x, top: box.y * vp.zoom + vp.y, bottom: (box.y + box.h) * vp.zoom + vp.y };
+}
+
+test('below the breakpoint a finding reveals its target in the strip the rail drawer leaves', async () => {
+  // MEASURED live: at 541 px the drawer covered x 181-541 and the target sat at x 173-368, 4 % visible.
+  const ctx = await mount(rendererRegressionWorkflow(48), { rootWidth: () => 541 });
+  sizeCanvas(ctx, { w: 541, h: 600 });
+  placeRail(ctx, 181, 541);
+  ctx.app.view.viewport.set({ zoom: 0.2 });
+  ctx.app.focusIssue('finding-a');
+  assert.equal(ctx.document.querySelector('.mlv-rail').hidden, false, 'the finding opened the drawer');
+  const primary = ctx.app.index.issueById.get('finding-a').nodeIds[0];
+  const card = screenBox(ctx, ctx.app.index.visibleRepresentative(primary, new Set()) || primary);
+  assert.ok(card.left >= 0 && card.right <= 181, `the card (${card.left.toFixed(0)}-${card.right.toFixed(0)}) is left of the drawer`);
+  assert.ok(ctx.app.getState().viewport.zoom >= 0.62, 'and still drawn at full detail');
+  ctx.app.destroy();
+});
+
+test('a strip too narrow for a card reveals on the whole canvas, and a docked rail changes nothing', async () => {
+  const ctx = await mount(rendererRegressionWorkflow(48), { rootWidth: () => 393 });
+  sizeCanvas(ctx, { w: 393, h: 600 });
+  placeRail(ctx, 55, 393);
+  ctx.app.view.viewport.set({ zoom: 0.2 });
+  ctx.app.focusIssue('finding-a');
+  assert.equal(ctx.app.getState().viewport.zoom, 0.9, 'READABLE_ZOOM on the whole canvas; the target shows once the drawer closes');
+  // Docked (the rail starts where the canvas ends), the whole canvas is visible.
+  sizeCanvas(ctx, { w: 1022, h: 600 });
+  placeRail(ctx, 1022, 1382);
+  const area = ctx.app.view.viewport.visibleArea();
+  assert.deepEqual([area.w, area.h], [1022, 600]);
+  ctx.app.destroy();
+});
+
+test('a selected target stays in view when a split turns the docked rail into a drawer over it', async () => {
+  // MEASURED live: finding selected at 1382 px (rail docked), evidence followed, panel 691 px: the
+  // chosen rail became the drawer at x 331-691 and the target was 0 % visible behind it.
+  let width = 1382;
+  const ctx = await mount(rendererRegressionWorkflow(48), { rootWidth: () => width });
+  sizeCanvas(ctx, { w: 1022, h: 600 });
+  placeRail(ctx, 1022, 1382);
+  ctx.app.focusIssue('finding-b');
+  const primary = ctx.app.index.issueById.get('finding-b').nodeIds[0];
+  // Put the target on the right of the docked canvas, where the drawer will land.
+  const box = ctx.app.view.frameData.boxes.get(primary);
+  const zoom = ctx.app.getState().viewport.zoom;
+  ctx.app.view.viewport.set({ x: 900 - (box.x + box.w) * zoom, y: 300 - (box.y + box.h / 2) * zoom });
+  const before = screenBox(ctx, primary);
+  assert.ok(before.left >= 331 && before.right <= 1022, 'in view on the docked canvas, under where the drawer will be');
+  width = 691;
+  sizeCanvas(ctx, { w: 691, h: 600 });
+  placeRail(ctx, 331, 691);
+  resize(ctx);
+  const after = screenBox(ctx, primary);
+  assert.ok(after.left >= 0 && after.right <= 331, `re-centred left of the drawer (${after.left.toFixed(0)}-${after.right.toFixed(0)})`);
+  assert.equal(ctx.app.getState().viewport.zoom, zoom, 'at the same zoom');
+  // A target the reader had already moved out of view is left where it is.
+  ctx.app.view.viewport.set({ x: -5000 });
+  const moved = ctx.app.getState().viewport.x;
+  width = 600;
+  sizeCanvas(ctx, { w: 600, h: 600 });
+  placeRail(ctx, 240, 600);
+  resize(ctx);
+  assert.equal(ctx.app.getState().viewport.x, moved);
+  ctx.app.destroy();
+});
+
+test('an authored self-edge is drawn as a loop on its card; one hidden in a folded group is not', async () => {
+  // Shakedown issue 11 and its review: the contract accepts a self-edge (kind "loop" draws no
+  // helper warning), but the canvas skipped every edge whose ends were the same node.
+  const document = doc({
+    nodes: [
+      { id: 'a', label: 'Read the records', phase: 'prep', kind: 'data', basis: 'observed', evidence: ['e1'] },
+      { id: 'g', label: 'Epochs', phase: 'loop', kind: 'loop', basis: 'observed', evidence: [] },
+      { id: 'b', label: 'Update weights', phase: 'loop', parent: 'g', kind: 'optimizer', basis: 'inferred', evidence: ['e1'] },
+    ],
+    edges: [
+      { id: 'ab', source: 'a', target: 'b', label: 'batches', kind: 'data', basis: 'observed', evidence: ['e1'] },
+      { id: 'bb', source: 'b', target: 'b', label: 'next batch', kind: 'loop', basis: 'observed', evidence: ['e1'] },
+      { id: 'bb2', source: 'b', target: 'b', label: 'retry', kind: 'control', basis: 'observed', evidence: ['e1'] },
+    ],
+  });
+  const ctx = await mount(document);
+  const drawn = () => [...ctx.document.querySelectorAll('.mlv-edge[data-edge-id]')].map((e) => e.getAttribute('data-edge-id')).sort();
+  assert.deepEqual(drawn(), ['ab', 'bb', 'bb2']);
+  const loop = ctx.document.querySelector('.mlv-edge[data-edge-id="bb"] .mlv-edge__path');
+  assert.match(loop.getAttribute('d'), /^M /, 'a real path');
+  assert.equal(ctx.document.querySelector('.mlv-edge[data-edge-id="bb"]').getAttribute('data-edge-kind'), 'loop');
+  const box = ctx.app.view.frameData.boxes.get('b');
+  const [x0, y0] = loop.getAttribute('d').slice(2).split(' ').map(Number);
+  assert.equal(x0, box.x + box.w, 'it leaves the card\'s right face');
+  const other = ctx.document.querySelector('.mlv-edge[data-edge-id="bb2"] .mlv-edge__path').getAttribute('d');
+  assert.notEqual(other, loop.getAttribute('d'), 'a second self-edge nests outside the first');
+  ctx.app.view.toggleCollapse('g');
+  assert.deepEqual(drawn(), ['ab'], 'folded into its group, the loop is inside the card it folded into');
   ctx.app.destroy();
 });
 

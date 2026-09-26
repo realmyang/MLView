@@ -53,6 +53,7 @@ _OWNED_FOLD = str.maketrans({**{chr(c): chr(c + 32) for c in range(0x41, 0x5B)},
 EXCLUDED_EVIDENCE_MESSAGE = "evidence must cite project files, not an MLView artifact, draft or installed MLView skill file"
 EXCLUDED_INSPECTED_MESSAGE = "MLView-owned file is listed but not fingerprinted; list only project files"
 MAX_QUOTE = 16000
+MAX_EVIDENCE_PATH = 500
 # Non-blocking hygiene warnings list at most WARNING_CAP entries per code, then one entry that
 # counts the rest, so a large draft cannot flood the output. Evidence wider than WIDE_EVIDENCE_LINES
 # lines is reported as wide_evidence.
@@ -64,6 +65,11 @@ QUOTE_WINDOW = 80
 QUOTE_CONTEXT = 30
 # At most this many repeated JSON members are listed individually.
 MAX_DUPLICATE_MEMBERS = 20
+# foundAt compares at most FIND_BUDGET source lines per quote, and FIND_TOTAL_BUDGET per validation,
+# before giving up, so mismatched quotes of repeated lines (blank lines, say) cannot make validate
+# quadratic in the file size.
+FIND_BUDGET = 200_000
+FIND_TOTAL_BUDGET = 5_000_000
 LINES_RE = re.compile(r"(\d+)(?:-(\d+))?", re.ASCII)
 
 _UMASK: int | None = None
@@ -184,8 +190,11 @@ def _path_syntax(value: Any) -> tuple[str, str] | None:
         return "invalid_path", "must be a non-empty slash-separated relative path"
     if DRIVE_RE.match(value):
         return "invalid_path", DRIVE_MESSAGE
-    if PurePosixPath(value).is_absolute() or any(part in {"", ".", ".."} for part in value.split("/")):
+    parts = value.split("/")
+    if PurePosixPath(value).is_absolute() or ".." in parts:
         return "path_outside_workspace", "must stay within the workspace"
+    if any(part in {"", "."} for part in parts):
+        return "path_outside_workspace", 'must be a normalised relative path such as src/train.py, without "./", empty or trailing segments'
     return None
 
 
@@ -315,21 +324,44 @@ def _range_message(maximum: int) -> str:
     return f"line range is invalid for the cited source: line and endLine must be integers with 1 <= line <= endLine <= {maximum}"
 
 
-def _find_quote(lines: list[str], quote_lines: list[str], positions: dict[str, list[int]]) -> tuple[int, int] | None:
+def _find_quote(lines: list[str], quote_lines: list[str], positions: dict[str, list[int]], spent: list[int]) -> tuple[int, int] | None:
     """(line, endLine) of the one place where the quote's lines occur exactly, or None when they occur
-    nowhere or more than once. A diagnostic only: the helper never rewrites a range."""
+    nowhere, more than once, or only past the comparison budget. A diagnostic only: the helper never
+    rewrites a range.
+
+    The search anchors on the quote line that occurs least often in the source and compares line by
+    line with an early exit, spending at most FIND_BUDGET comparisons (and what is left of the
+    validation's FIND_TOTAL_BUDGET, counted in ``spent``), so its cost stays bounded whatever the
+    quote and the file hold."""
+    budget = min(FIND_BUDGET, FIND_TOTAL_BUDGET - spent[0])
+    if budget <= 0:
+        return None
     wanted = [_strip_bom(quote_lines[0])] + quote_lines[1:]
+    count = len(wanted)
+    anchor = min(range(count), key=lambda i: len(positions.get(wanted[i], ())))
     found = None
-    for start in positions.get(wanted[0], ()):
-        if lines[start:start + len(wanted)] == wanted:
+    for position in positions.get(wanted[anchor], ()):
+        start = position - anchor
+        if start < 0:
+            continue
+        if start + count > len(lines):
+            break
+        k = 0
+        while k < count and lines[start + k] == wanted[k]:
+            k += 1
+        budget -= k + 1
+        spent[0] += k + 1
+        if k == count:
             if found is not None:
                 return None
             found = start
-    return None if found is None else (found + 1, found + len(wanted))
+        if budget < 0:
+            return None
+    return None if found is None else (found + 1, found + count)
 
 
 def _quote_mismatch(ev: dict[str, Any], rel: str, cell: Any, lines: list[str], line: int, end: int, expected: str,
-                    positions: Any) -> tuple[str, dict[str, Any]]:
+                    positions: Any, spent: list[int]) -> tuple[str, dict[str, Any]]:
     """The message and structured fields of a quote_mismatch: which record and range, the first
     differing line and column with both sides shown, the line counts, and where the quoted text
     occurs when it occurs exactly once elsewhere in the same file or cell."""
@@ -360,8 +392,12 @@ def _quote_mismatch(ev: dict[str, Any], rel: str, cell: Any, lines: list[str], l
                                   "quote": None if ours is None else ours[start:start + QUOTE_WINDOW],
                                   "cited": None if theirs is None else theirs[start:start + QUOTE_WINDOW]}
     details["difference"] = difference
+    # Every position where the two sides differ, counting lines only one side has.
+    differing = sum(1 for i in range(max(len(quote_lines), len(cited_lines)))
+                    if i >= shared or quote_lines[i] != cited_lines[i])
+    details["differingLines"] = differing
     parts = [head]
-    found = _find_quote(lines, quote.split("\n"), positions()) if quote else None
+    found = _find_quote(lines, quote.split("\n"), positions(), spent) if quote else None
     if found is not None and found != (line, end):
         details["foundAt"] = {"line": found[0], "endLine": found[1]}
         parts.append(f"The quoted text occurs exactly once, at {_span(*found)}{' of this cell' if cell is not None else ''}: "
@@ -383,6 +419,10 @@ def _quote_mismatch(ev: dict[str, Any], rel: str, cell: Any, lines: list[str], l
         parts.append("The quote is only part of the cited lines; quote complete lines exactly, or narrow the range to the lines you quote.")
     if len(quote_lines) != len(cited_lines):
         parts.append(f"The quote has {len(quote_lines)} lines; the cited range has {len(cited_lines)}.")
+    # With foundAt the whole fix is the range; otherwise say that patching the first line is not enough.
+    if differing > 1 and "foundAt" not in details:
+        parts.append(f"In all, {differing} lines of the quote differ from the cited lines, not only this one: "
+                     "rerun excerpt for the range and replace the whole record rather than editing a line.")
     return " ".join(parts), details
 
 
@@ -392,6 +432,7 @@ def _validate_evidence(doc: dict[str, Any], root: Path, problems: Problems, owne
     notebooks: dict[str, Any] = {}
     sources: dict[tuple[str, Any], list[str]] = {}
     indexes: dict[tuple[str, Any], dict[str, list[int]]] = {}
+    spent = [0]  # foundAt comparisons so far in this validation
 
     def positions(key: tuple[str, Any]):
         def build() -> dict[str, list[int]]:
@@ -425,7 +466,7 @@ def _validate_evidence(doc: dict[str, Any], root: Path, problems: Problems, owne
         # quote with or without it, and compare every other quote exactly.
         matches = _strip_bom(quote) == _strip_bom(expected) if line == 1 and isinstance(quote, str) else quote == expected
         if not matches:
-            message, details = _quote_mismatch(ev, rel, key[1], lines, line, end, expected, positions(key))
+            message, details = _quote_mismatch(ev, rel, key[1], lines, line, end, expected, positions(key), spent)
             problems.add("quote_mismatch", f"{at}.quote", message, **details)
     return dict(sorted(hashes.items()))
 
@@ -649,7 +690,7 @@ def _references(doc: dict[str, Any], p: Problems) -> None:
         if ev is None: continue
         if not isinstance(ev.get("quote"), str): p.add("type", f"evidence[{i}].quote", "must be a string")
         elif len(ev["quote"]) > 16000: p.add("limit", f"evidence[{i}].quote", "must contain at most 16000 characters")
-        if isinstance(ev.get("file"), str) and len(ev["file"]) > 500: p.add("limit", f"evidence[{i}].file", "must contain at most 500 characters")
+        if isinstance(ev.get("file"), str) and len(ev["file"]) > MAX_EVIDENCE_PATH: p.add("limit", f"evidence[{i}].file", f"must contain at most {MAX_EVIDENCE_PATH} characters")
     children: set[str] = set()
     parent_of: dict[str, str] = {}
     for i, node in enumerate(collections["nodes"] if isinstance(collections["nodes"], list) else []):
@@ -753,11 +794,13 @@ def _hygiene(doc: dict[str, Any], warnings: list[dict[str, str]]) -> None:
     connected = {edge["source"] for edge in edges} | {edge["target"] for edge in edges}
     connected |= {node["parent"] for node in nodes if "parent" in node} | {node["id"] for node in nodes if "parent" in node}
     # A one-node diagram has nothing to connect to.
-    isolated = [(f"nodes[{i}]", f"node {_shown(node['id'])} has no edge, parent or child; connect it, nest it under a group node, or remove it")
+    isolated = [(f"nodes[{i}]", f"node {_shown(node['id'])} has no edge, parent or child; connect it to the step it affects or nest it under a group node "
+                 "(a node that only records an absence or an external unknown can become a coverage limitation instead)")
                 for i, node in enumerate(nodes) if len(nodes) > 1 and node["id"] not in connected]
     for path, message in _capped(isolated, "nodes", "isolated nodes"):
         _warn(warnings, "isolated_node", path, message)
-    looped = [(f"edges[{i}]", f"edge {_shown(edge['id'])} connects node {_shown(edge['source'])} to itself; give it kind \"loop\" if the repetition is intended, otherwise connect two different nodes")
+    looped = [(f"edges[{i}]", f"edge {_shown(edge['id'])} connects node {_shown(edge['source'])} to itself; for an iteration, draw the loop edge from the last "
+               "step of the repeated work back to its first step (or give a one-step repetition kind \"loop\"), otherwise connect two different nodes")
               for i, edge in enumerate(edges) if edge["source"] == edge["target"] and not (isinstance(edge.get("kind"), str) and edge["kind"].strip().lower() == "loop")]
     for path, message in _capped(looped, "edges", "self-edges"):
         _warn(warnings, "self_edge", path, message)
@@ -1057,6 +1100,15 @@ def _upsert_draft(draft: Path, collection: str, record: Any, root: Path) -> int:
         print(json.dumps({"ok": False, "errors": [{"code": "record", "path": "record", "message": "record file must hold one record object or a non-empty array of records"}]})); return 1
     invalid = [{"code": "record", "path": f"record[{index}].id" if isinstance(record, list) else "record.id", "message": "record must be an object with a valid ID"}
                for index, item in enumerate(batch) if not isinstance(item, dict) or not _id(item.get("id"))]
+    # One array lists each ID once: a repeat would silently replace a record the same batch added.
+    seen_ids: dict[str, int] = {}
+    for index, item in enumerate(batch):
+        if isinstance(item, dict) and _id(item.get("id")):
+            if item["id"] in seen_ids:
+                invalid.append({"code": "record", "path": f"record[{index}].id",
+                                "message": f"record ID {_shown(item['id'])} is already used by record[{seen_ids[item['id']]}]; list each ID once per record file"})
+            else:
+                seen_ids[item["id"]] = index
     if invalid:
         print(json.dumps({"ok": False, "errors": invalid}, sort_keys=True)); return 1
     edited = dict(doc)
@@ -1167,8 +1219,11 @@ def _publish_locked(doc: dict[str, Any], hashes: dict[str, str], root: Path, out
 
 def _output_problem(value: str) -> str | None:
     pure = PurePosixPath(value)
-    if not value or "\\" in value or "\0" in value or pure.is_absolute() or any(part in {"", ".", ".."} for part in value.split("/")):
+    parts = value.split("/")
+    if not value or "\\" in value or "\0" in value or pure.is_absolute() or ".." in parts:
         return "must stay within the workspace"
+    if any(part in {"", "."} for part in parts):
+        return 'must be a normalised workspace-relative path such as workflow.mlview.json, without "./", empty or trailing segments'
     if DRIVE_RE.match(value):
         return DRIVE_MESSAGE
     if not value.translate(_ASCII_LOWER).endswith(ARTIFACT_SUFFIX):
@@ -1177,8 +1232,11 @@ def _output_problem(value: str) -> str | None:
 
 
 def _default_evidence_id(rel: str, cell: int | None, start: int, end: int) -> str:
-    """A valid evidence ID derived from the path and range, for example ev-src-train.py-10-24."""
-    suffix = (f"-c{cell}" if cell is not None else "") + f"-{start}" + (f"-{end}" if end != start else "")
+    """A valid evidence ID derived from the path and range, for example ev-src-train.py-7e5d2a91-10-24.
+    The slug keeps it readable; the first 8 hex digits of the path's SHA-256 keep apart paths whose
+    slugs coincide (src/io.py and src-io.py, names in a non-Latin script, a truncated long path)."""
+    digest = hashlib.sha256(rel.encode("utf-8", "surrogatepass")).hexdigest()[:8]
+    suffix = f"-{digest}" + (f"-c{cell}" if cell is not None else "") + f"-{start}" + (f"-{end}" if end != start else "")
     slug = re.sub(r"[^A-Za-z0-9._-]+", "-", rel).strip("-.") or "file"
     return "ev-" + slug[-(128 - len("ev-") - len(suffix)):] + suffix
 
@@ -1206,8 +1264,16 @@ def _excerpt(value: str, lines_arg: str | None, cell: int | None, evidence_id: s
         p.add("range", "--lines", f"line range is invalid for the cited source: need 1 <= START <= END <= {len(lines)}", maxLine=len(lines))
         print(json.dumps({"ok": False, "errors": p.items}, sort_keys=True)); return 1
     quote = "\n".join(lines[start - 1:end])
+    # The record-level checks validate applies to evidence, so the printed record is accepted as printed.
+    if len(rel) > MAX_EVIDENCE_PATH:
+        p.add("limit", "file", f"must contain at most {MAX_EVIDENCE_PATH} characters, the longest evidence path a document may record")
+    elif not _encodable(rel):
+        p.add("text_encoding", "file", "the path contains an unpaired surrogate (bytes that are not UTF-8), which a document cannot record")
     if len(quote) > MAX_QUOTE:
         p.add("limit", "--lines", f"the excerpt has {len(quote)} characters; a quote holds at most {MAX_QUOTE}, so cite a narrower range")
+    elif not _encodable(quote):
+        p.add("text_encoding", "--lines", "the cited lines contain an unpaired surrogate, which validate refuses in a quote; cite lines without it")
+    if p.items:
         print(json.dumps({"ok": False, "errors": p.items}, sort_keys=True)); return 1
     record: dict[str, Any] = {"id": evidence_id or _default_evidence_id(rel, cell if notebook else None, start, end), "file": rel}
     if notebook:

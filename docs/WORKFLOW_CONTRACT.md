@@ -11,11 +11,16 @@ relationships form a forest; semantic edges may contain cycles. Every ID is
 unique within its collection, and every phase, node, edge, and evidence
 reference must resolve.
 
-`request.question` records the user's request verbatim, up to the 4000
-characters the schema and both validators allow; a longer request is cut at
-that limit and `request.scope` says so. Interpretation (the selected scenario,
-what was left out and why) belongs in `request.scope` and
-`request.configuration`, never in a paraphrased question.
+`request.question` records the user's analysis request verbatim, up to the
+4000 characters the schema and both validators allow; a longer request is cut
+at that limit and `request.scope` says so. Only the skill invocation and
+instructions about running the skill (where to publish, what to report) are
+left out, and a machine-specific absolute path in the request is replaced by a
+placeholder, which `request.scope` notes. A refinement keeps the published
+revision's question unless the user asks a new one, and describes the
+refinement in `request.scope`. Interpretation (the selected scenario, what was
+left out and why) belongs in `request.scope` and `request.configuration`,
+never in a paraphrased question.
 `request.entrypoints` names the selected entrypoints; avoid duplicate paths.
 `request.configuration` records the selected configuration, relevant launch
 arguments and material default/override assumptions. These existing fields are
@@ -170,19 +175,26 @@ refusal of MLView's own files (`excluded_evidence`), the 8 MiB and UTF-8
 limits, zero-based notebook cells (`--cell` is required for `.ipynb` and
 refused elsewhere), and the same line splitting and joining. It prints one
 line of JSON, the evidence record `{"id", "file", ("cell",) "line",
-"endLine", "quote"}`, which `validate` accepts as printed. Without `--id` the
-ID is derived from the path and range, for example `ev-src-train.py-10-24`.
-A bad option, path or range exits 1 with the usual `{"ok": false, "errors":
-[...]}`: `arguments` or `range` at `--lines`, `id` at `--id`, path and source
-codes at `file`, notebook codes at `--cell`, and `limit` when the quote would
-exceed 16000 characters. It never writes a file.
+"endLine", "quote"}`, which `validate` accepts as printed: the record-level
+checks run before it is printed. Without `--id` the ID is derived from the
+path and range, with the first 8 hex digits of the path's SHA-256 so that
+paths that read alike stay apart, for example `ev-src-train.py-7e5d2a91-10-24`;
+the same path and range always give the same ID. A bad option, path or range
+exits 1 with the usual `{"ok": false, "errors": [...]}`: `arguments` or
+`range` at `--lines`, `id` at `--id`, path and source codes at `file` (with
+`limit` for a path over 500 characters), notebook codes at `--cell`, `limit`
+when the quote would exceed 16000 characters, and `text_encoding` at
+`--lines` when the cited notebook text holds an unpaired surrogate. It never
+writes a file.
 
 **upsert** takes a `--record` file that holds one record object, or a JSON
-array of records for the same `--collection`. An array is applied in order (a
-record whose ID is already present replaces it) and validated once as a
-whole, so a record may cite another in the same array; if the result is
-invalid, nothing is written. `records` lists each applied ID with `inserted`
-or `replaced`, in order. The existing draft must still validate first.
+array of records for the same `--collection`. An array lists each ID once
+(a repeat is refused with `record`, because it would replace a record the
+same batch added), is applied in order (a record whose ID is already in the
+draft replaces it) and is validated once as a whole, so a record may cite
+another in the same array; if the result is invalid, nothing is written.
+`records` lists each applied ID with `inserted` or `replaced`, in order. The
+existing draft must still validate first.
 
 **Error details.** Some errors add structured fields:
 
@@ -195,11 +207,15 @@ or `replaced`, in order. The existing draft must still validate first.
   `startColumn`, or `null` when that side has no such line. When the quoted
   text occurs exactly once in the same file or cell, `foundAt` gives its
   `line` and `endLine`. That is a diagnostic only; the helper never rewrites
-  a range. The message states the same facts with both sides JSON-quoted, so
+  a range, and the search for it is bounded, so a quote of many repeated
+  lines may get no `foundAt`. `differingLines` counts the quote lines that
+  differ from the cited line at the same position (a line only one side has
+  counts). The message states the same facts with both sides JSON-quoted, so
   tabs, carriage returns, trailing spaces and a byte-order mark are visible,
-  and names the common causes: a line break after the last line, a range that
+  names the common causes (a line break after the last line, a range that
   ends on an empty line the quote leaves out, a carriage return, a
-  whitespace-only difference, or part of a line.
+  whitespace-only difference, or part of a line) and, without `foundAt`, says
+  when more lines than the first differ.
 - `reference`: `value` names an unresolved string. In a reference list the
   path indexes the entry (for example `nodes[3].evidence[1]`) and `index`
   gives its position; `phase`, `source` and `target` keep the field's path.
@@ -227,7 +243,8 @@ order: `unreferenced_evidence` (an evidence record that no node, edge or
 finding cites, counting `counterEvidence`), `isolated_node` (in a diagram of
 two or more nodes, a node with no edge, parent or child), `self_edge` (an
 edge whose source and target are the same node, unless its `kind` is `loop`,
-ignoring case and surrounding spaces), `wide_evidence` (an evidence record
+ignoring case and surrounding spaces; the viewer draws a self-edge as a small
+loop on its card), `wide_evidence` (an evidence record
 spanning more than 60 lines), `evidence_overlap` (a finding that lists the
 same evidence ID in `evidence` and `counterEvidence`) and
 `duplicate_inspected` (a repeated `coverage.inspectedFiles` entry). Each of
@@ -283,7 +300,7 @@ table (or the skill's quick reference) does not list.
 | `excluded_evidence` | error | Evidence cites an MLView file (an artifact, a draft, `.mlview/` or the installed skill), under any name. | Cite project files only. |
 | `invalid_path` | error | A path is empty, uses `\`, NUL or a drive letter, or does not name a regular file. | Use a slash-separated workspace-relative path to a file. |
 | `notebook_cell` | error | Notebook evidence has no valid zero-based `cell`, the cell has no source, or the notebook is not valid JSON (`NaN`, `Infinity` or a syntax error). | Cite an existing cell of a valid notebook. |
-| `path_outside_workspace` | error | A path is absolute or uses `..`, or the file is missing or resolves outside the workspace. | Cite an existing file inside `--workspace`. |
+| `path_outside_workspace` | error | A path is absolute or uses `..`, is not normalised (a `./`, empty or trailing segment), or the file is missing or resolves outside the workspace. | Cite an existing file inside `--workspace`, written like `src/train.py`. |
 | `quote_mismatch` | error | A quote is not exactly the cited lines; `difference` shows the first differing line and column, and `foundAt` where the quoted text occurs when it occurs exactly once. | Fix the line numbers (see `foundAt`), then rerun `excerpt` for that range and replace the record. |
 | `range` | error | `line`/`endLine` (or `excerpt --lines`) are not integers with `1 <= line <= endLine <=` the line count (`maxLine`). | Use a one-based inclusive range inside the source. |
 | `source_encoding` | error | A cited source is not UTF-8. | Cite a UTF-8 file; list other files under `inspectedFiles` only. |
@@ -313,7 +330,7 @@ table (or the skill's quick reference) does not list.
 | `published_invalid` | error | The existing artifact is one the viewer cannot read (over 2 MiB, not UTF-8 JSON, too deep, no valid `revision.id`). | Move the file aside or choose another `--output`. |
 | `published_target` | error | `upsert` was pointed at a published `*.mlview.json`. | Copy it to a `*.draft.json` checkpoint and edit that. |
 | `python_version` | error | The interpreter is older than Python 3.10. | Run the helper with Python 3.10 or newer. |
-| `record` | error | An `upsert` record is not an object with a valid `id`, or the record array is empty. | Give every record a valid ID. |
+| `record` | error | An `upsert` record is not an object with a valid `id`, the record array is empty, or it repeats an ID. | Give every record a valid ID, once per record file. |
 | `revision_conflict` | error | `revision.parent` does not name the published revision, or the artifact changed during publication. | Set `parent` to the current published ID (omit it for a first publication). |
 | `revision_id_reused` | error | The new revision ID equals the published revision's parent. | Choose a new revision ID. |
 | `source_changed` | error | A source changed while publication was in progress. | Publish again once the files are stable. |
@@ -326,8 +343,8 @@ table (or the skill's quick reference) does not list.
 | `excluded_inspected` | warning | An MLView file is listed in `coverage.inspectedFiles`; it is not fingerprinted. | None needed; list only project files to silence it. |
 | `not_fingerprinted` | warning | An inspected file exceeds 8 MiB and is listed without a fingerprint. | None needed; its freshness is not tracked. |
 | `unreferenced_evidence` | warning | No node, edge or finding cites this evidence record. | Cite it where it supports a claim, or remove it. |
-| `isolated_node` | warning | In a diagram of two or more nodes, this node has no edge, parent or child. | Connect it, nest it under a group node, or remove it. |
-| `self_edge` | warning | An edge connects a node to itself without `kind: "loop"`. | Use kind `loop` for intended repetition, or connect two nodes. |
+| `isolated_node` | warning | In a diagram of two or more nodes, this node has no edge, parent or child. | Connect it to the step it affects or nest it under a group node; a node that only records an absence or an external unknown can become a coverage limitation. |
+| `self_edge` | warning | An edge connects a node to itself without `kind: "loop"`. | Draw an iteration from the last step of the repeated work back to its first step (kind `loop` also marks a one-step repetition), or connect two nodes. |
 | `wide_evidence` | warning | An evidence record spans more than 60 lines. | Cite the narrowest range that contains the claim, or split it. |
 | `evidence_overlap` | warning | A finding lists the same evidence ID in `evidence` and `counterEvidence`. | Keep it on the side it supports. |
 | `duplicate_inspected` | warning | `coverage.inspectedFiles` lists the same file twice. | List each file once. |

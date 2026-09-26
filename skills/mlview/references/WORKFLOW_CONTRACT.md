@@ -22,10 +22,14 @@ Fields (omit an optional field instead of writing null; IDs match ^[A-Za-z0-9][A
 Omit optional fields you do not use; never write `null` for them (a root node
 has no `parent` field).
 
-`request.question` is the user's request verbatim; if it exceeds 4000
-characters, cut it there and say so in `request.scope`. Put your
-interpretation (selected scenario, exclusions) in `request.scope` and
-`request.configuration`, never in a paraphrased question.
+`request.question` is the user's analysis request verbatim, without the skill
+invocation or instructions about running the skill (where to publish, what to
+report); if it exceeds 4000 characters, cut it there and say so in
+`request.scope`. Replace a machine-specific absolute path in it with a
+placeholder and note that in `request.scope`. A refinement keeps the published
+question unless the user asks a new one and describes the refinement in
+`request.scope`. Put your interpretation (selected scenario, exclusions) in
+`request.scope` and `request.configuration`, never in a paraphrased question.
 `request.entrypoints` lists unique selected entrypoint paths, and
 `request.configuration` describes the selected config/launch arguments and
 material default assumptions. Omit unknown details rather than inventing them;
@@ -39,11 +43,12 @@ otherwise write `Not inspected: <what> (<reason>)`.
 `output`, `config`, `loop`, `branch`, `group`, `entrypoint`, `artifact`.
 
 Path fields (`evidence[].file`, `inspectedFiles`, `entrypoints`, `--output`)
-are workspace-relative slash paths without a drive letter; the helper refuses
-absolute ones there. Free text is not checked, but must not contain
-machine-specific absolute paths (home directory, workspace root, temporary
-directories); placeholders quoted from the scenario or project docs, such as
-`/path/to/data`, are fine. Evidence uses
+are normalised workspace-relative slash paths without a drive letter or a
+leading `./` (`src/train.py`); the helper refuses absolute ones there. Free
+text is not checked, but must not contain machine-specific absolute paths
+(home directory, workspace root, temporary directories); placeholders quoted
+from the scenario or project docs, such as `/path/to/data`, are fine.
+Evidence uses
 one-based inclusive line ranges, and each quote is the exact cited lines of the
 UTF-8 source, with CRLF/CR normalised to LF and joined with LF, with no line
 break after the last line (unless the range ends on an empty line). A leading
@@ -72,7 +77,7 @@ A finding has this minimal shape:
 {
   "id": "finding-id",
   "title": "Concise concern",
-  "message": "What may be wrong or unresolved and why it matters.",
+  "message": "The consequence in the selected scenario, what to change, and where counter-evidence was searched for.",
   "severity": "medium",
   "nodeIds": ["affected-node-id"],
   "basis": "inferred",
@@ -122,17 +127,20 @@ python3 <skill-directory>/scripts/artifact.py excerpt <file> --lines <start>[-<e
 `{"id", "file", ("cell",) "line", "endLine", "quote"}`, exactly as `validate`
 accepts it (same path rules, MLView files refused, `--cell` required for
 `.ipynb` and refused elsewhere); a bad path or range exits 1 with `errors`.
-`upsert --record` holds one record or a JSON array of records for the same
-collection, applied in order and validated once: all are written or none;
+Without `--id`, the ID joins a slug of the path, 8 hex digits of its SHA-256
+and the range. `upsert --record` holds one record or a JSON array of records
+for the same collection, each ID once, applied in order and validated once:
+all are written or none;
 `upsert` then adds `records` (each `id` and `action`), plus `id` and `action`
 for a single record, and `draft` and `collection`.
 
 Each error has `code`, `path`, and `message`. `quote_mismatch` adds `id`,
 `file`, `cell`, `line`, `endLine`, `citedLines`, `quoteLines`, `difference`
 (`rangeLine`, source `line`, `column`, and each side's text as `quote` and
-`cited`, JSON-escaped so tabs, CR and trailing spaces show) and, when the
-quoted text occurs exactly once in that file or cell, `foundAt` (`line`,
-`endLine`): a hint, never applied for you. `reference` and
+`cited`, JSON-escaped so tabs, CR and trailing spaces show), `differingLines`
+(how many quote lines differ) and, when the quoted text occurs exactly once in
+that file or cell, `foundAt` (`line`, `endLine`): a hint, never applied for
+you. `reference` and
 `duplicate_reference` paths index the entry and add `value`; `duplicate_id`
 adds `value` and `firstIndex`; `range` adds `maxLine`; `stale_source` adds
 `file`; `invalid_json` adds `line` and `column` for syntax errors and
@@ -189,7 +197,7 @@ Errors (block validate, publish, upsert and excerpt):
 - python_version: run the helper with Python 3.10+
 - quote_mismatch: rerun excerpt for the intended range (see foundAt)
 - range: line..endLine is a one-based inclusive range in the source
-- record: each upsert record needs a valid id
+- record: each upsert record needs a valid, unique id
 - reference: reference an ID that exists
 - request: request.question and request.scope must be non-empty
 - required: add the missing field; phases and nodes are non-empty
@@ -214,7 +222,7 @@ Warnings (never block publication):
 - not_fingerprinted: inspected file over 8 MiB; no fingerprint
 - unreferenced_evidence: no claim cites it; cite it or remove it
 - isolated_node: no edge, parent or child; connect it
-- self_edge: source is target; kind loop if intended
+- self_edge: source is target; loop last step to first
 - wide_evidence: over 60 lines; cite a narrower range
 - evidence_overlap: same ID in evidence and counterEvidence
 - duplicate_inspected: inspectedFiles lists it twice

@@ -139,6 +139,56 @@ table point `quote_mismatch` repairs at `excerpt`, and the README, the
 extension README and `docs/LLM_WORKFLOW.md` describe the collapsed header,
 the missing-file wording, `excerpt` and the warnings.
 
+Integration review fixes (four provisional model reviews of the integrated
+branch, covering the helper, the skill, the live viewer and a replay of the
+shakedown drafts; not a human review):
+- Helper: default `excerpt` IDs add 8 hex digits of the path's SHA-256 (for
+  example `ev-src-train.py-7e5d2a91-10-24`), so paths that slug alike
+  (`utils/io.py` and `utils-io.py`, or names in a non-Latin script) no
+  longer share an ID and silently replace each other through `upsert`; an
+  `upsert` array that repeats an ID is refused (`record`). `excerpt` refuses
+  a path over 500 characters (`limit`) and notebook text holding an unpaired
+  surrogate (`text_encoding`) instead of printing a record `validate`
+  rejects. The `foundAt` search anchors on the quote's rarest line and stops
+  at a comparison budget per record and per validation: three mismatched
+  2,001-line quotes against a 1,000,000-line blank file took 11.9 s before
+  and 0.07 s after on the development machine, and `foundAt` was unchanged
+  on all 137 replayed shakedown mismatches. `quote_mismatch` adds
+  `differingLines` and, without `foundAt`, says when more lines than the
+  first differ. A `./`, empty or trailing path segment is reported as an
+  unnormalised path instead of "must stay within the workspace". The
+  `isolated_node` and `self_edge` messages no longer suggest deleting
+  content: connect a node to the step it affects (or move an absence to
+  `coverage.limitations`), and draw an iteration from the last repeated step
+  back to the first.
+- Viewer: an authored self-edge on a drawn node is a small loop on its card
+  instead of being silently skipped (edges folded into a collapsed group stay
+  hidden). Below the 900 px breakpoint a reveal centres its target in the
+  strip the rail drawer leaves, when that strip is at least 160 px: in a
+  headless Chrome check at 541 px the finding targets went from 4% visible
+  behind the drawer to fully visible at 75% zoom; at 393 px the drawer
+  leaves 55 px, so the target is still centred behind it and shows when the
+  drawer closes. A selected target that was in view is re-centred, at the
+  same zoom, when a resize (a split opened by following evidence) turns the
+  docked rail into a drawer over it. The collapsed header no longer shrinks
+  behind its own scroller: at 541x502 its Details toggle went from 0 of 28 px
+  visible to 28 of 28; while it is collapsed the canvas floor is
+  `min(320px, 25vh)`, and expanded it stays `min(320px, 50vh)`.
+- Skill guidance: a loop edge runs from the last step of the repeated work
+  back to its first; independent `excerpt` calls may run in parallel, and a
+  scratch script may collect `excerpt` output into an `upsert` array;
+  warnings on a growing draft are expected and are acted on in the critique;
+  a repair round is an edit after a `validate`, `publish` or `upsert` error
+  (a refused upsert counts, an `excerpt` error does not), and at the limit a
+  draft that still validates may be published as `partial`;
+  `request.question` leaves out the skill invocation and run instructions,
+  replaces machine-specific paths with placeholders and is kept on
+  refinement; a certain failure that shows itself (an exception or crash) is
+  `medium`; the shared-component examples use neutral wording, and the
+  update-mechanism rule is no longer repeated in the training-state
+  reference; the bundled example no longer labels its loader as observed
+  shuffling, and the minimal finding shape states a search boundary.
+
 Deferred on purpose:
 - Issue 13, guidance for values resolved through registries, default tables
   or override chains: the review rated its overfitting risk high because it
@@ -161,7 +211,12 @@ Measurement caveat: once quotes come from the `excerpt` command, the pilot's
 Whether a range supports its claim rests on supported-claim scoring
 (`supportedClaimPrecision`, T3). The owner should also note, before a freeze,
 that the skill's repair-round limit ("at most two unless the user or the run
-sets another limit") must agree with the proposed run policy, that a published
+sets another limit") must agree with the proposed run policy, including how
+rounds are counted (the skill counts refused upserts but not `excerpt`
+errors, which the shakedown harness counted), that one `excerpt` call per
+evidence record has not been timed on a live host against the proposed
+20-minute budget, that the `medium` severity for a certain visible failure is
+a proposal the owner may change, that a published
 partial revision may lower essential-fact recall (`essentialFactRecall`, T4)
 when a run stops before refining it, and that a verbatim `request.question`
 lengthens the header's one-line question.

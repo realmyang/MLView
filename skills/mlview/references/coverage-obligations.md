@@ -68,9 +68,10 @@ Claims against the source:
 Structure:
 
 - Every repeated phase is a loop: a `loop` node with children and a `loop`
-  edge carrying state across iterations.
-- Every shared component (model, tokenizer, loader, fitted transform) has an
-  edge to each step that uses it.
+  edge from the last step of the repeated work back to its first step,
+  carrying state across iterations.
+- Every shared component (a model, data loader, or preprocessing object) has
+  an edge to each step that uses it.
 - Every branch or loop outcome (such as continue, retry, skip, or stop) is an
   edge.
 - Components whose parameters change by different mechanisms (optimizer step,
@@ -97,19 +98,25 @@ Findings:
   an unresolved node. A finding does not restate a limitation.
 - Severity follows the rubric in SKILL.md: `high`, silently wrong results in
   the selected scenario; `medium`, a plausible conditional risk with a stated
-  trigger; `low`, reproducibility or observability.
+  trigger, or a certain failure that shows itself when it happens (an
+  exception or crash); `low`, reproducibility or observability.
 - An unresolved-risk finding names the node or edge whose outcome could flip.
 - `counterEvidence` holds only source that weakens, bounds, or conditions the
   finding; a medium or high finding carries it or states the search boundary.
 
 Helper output (warnings never block publication and never count as repair
-rounds, but each can signal an omission):
+rounds, but on the finished draft each can signal an omission; while the draft
+is still growing they are expected):
 
 - `unreferenced_evidence`: attach the record to the claim it supports, or
   remove it.
-- `isolated_node`: add the missing edge or parent, or remove the node.
-- `self_edge`: point the edge at the real target, or give it kind `loop` when
-  it is an iteration.
+- `isolated_node`: connect it to the step it affects or nest it under a
+  group; a node that only records an absence or an external unknown belongs
+  in `coverage.limitations` instead.
+- `self_edge`: point the edge at the real target; for an iteration, draw the
+  `loop` edge from the last step of the repeated work back to its first step
+  (a one-step repetition may keep a self-edge of kind `loop`, drawn as a small
+  loop on its card).
 - `wide_evidence`: split the range into records for each claim.
 - `evidence_overlap`: counterEvidence repeats a supporting record; remove it.
 - `duplicate_inspected`: list each inspected file once.

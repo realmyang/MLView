@@ -4,12 +4,14 @@ summary and multi-record upsert (Campaign 3 shakedown issues 2, 3, 5, 7 and 11).
 These are local unit tests of skills/mlview/scripts/artifact.py. They are not semantic accuracy,
 human review or live-host validation.
 """
+import hashlib
 import importlib.util
 import json
 import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
@@ -37,6 +39,11 @@ def document(evidence=None, nodes=None, edges=None, findings=None, inspected=("t
         "edges": edges if edges is not None else [], "findings": findings if findings is not None else [], "evidence": evidence,
         "coverage": {"status": "scoped", "summary": "Inspected entrypoint", "inspectedFiles": list(inspected), "limitations": []},
     }
+
+
+def digest(rel):
+    """The path digest a default excerpt ID carries."""
+    return hashlib.sha256(rel.encode("utf-8")).hexdigest()[:8]
 
 
 def node(node_id, evidence=("ev",), **extra):
@@ -101,6 +108,8 @@ class QuoteMismatchTests(HelperCase):
         self.assertEqual(("ev-loop", "train.py", 4, 6, 3, 3), tuple(error[k] for k in ("id", "file", "line", "endLine", "citedLines", "quoteLines")))
         self.assertNotIn("cell", error)
         self.assertEqual({"rangeLine": 3, "line": 6, "column": 22, "startColumn": 1, "quote": "        loss.backward", "cited": "        loss.backward()"}, error["difference"])
+        self.assertEqual(1, error["differingLines"])
+        self.assertNotIn("In all,", error["message"], "one differing line needs no count")
         self.assertTrue(error["message"].startswith('quote does not exactly match the cited lines of evidence "ev-loop" (train.py, lines 4-6). '), error["message"])
         self.assertIn("First difference at line 3 of the quote (source line 6), column 22", error["message"])
 
@@ -110,6 +119,8 @@ class QuoteMismatchTests(HelperCase):
                                          "quote": "        loss = model(batch)\n        loss.backward()"}]))
         self.assertEqual({"line": 5, "endLine": 6}, error["foundAt"])
         self.assertIn("The quoted text occurs exactly once, at lines 5-6: if that is the code you meant, set line and endLine to that range.", error["message"])
+        self.assertEqual(2, error["differingLines"])
+        self.assertNotIn("In all,", error["message"], "with foundAt the range is the whole fix")
 
     def test_no_location_hint_when_the_quote_occurs_nowhere_or_more_than_once(self):
         self.write("twice.py", "x = 1\ny = 2\nx = 1\n")
@@ -119,6 +130,43 @@ class QuoteMismatchTests(HelperCase):
         error = self.mismatch(doc)
         self.assertNotIn("foundAt", error)
         self.assertNotIn("occurs exactly once", error["message"])
+
+    def test_every_differing_line_is_counted_so_one_patch_is_not_mistaken_for_the_fix(self):
+        # Two paraphrased lines: the message names the first and says the rest differ too.
+        error = self.mismatch(document([{"id": "ev", "file": "train.py", "line": 4, "endLine": 6,
+                                         "quote": "    for b in data:\n        loss = model(batch)\n        loss.backward(retain=True)"}]))
+        self.assertEqual(2, error["differingLines"])
+        self.assertEqual(1, error["difference"]["rangeLine"])
+        self.assertIn("In all, 2 lines of the quote differ from the cited lines, not only this one: rerun excerpt for the range", error["message"])
+        # A line only one side has counts as differing.
+        error = self.mismatch(document([{"id": "ev", "file": "train.py", "line": 4, "endLine": 5,
+                                         "quote": "    for batch in data:\n        loss = model(batch)\n        loss.backward()"}]))
+        self.assertEqual(1, error["differingLines"])
+
+    def test_the_location_search_is_bounded_for_quotes_of_repeated_lines(self):
+        # Shakedown review: a mismatched quote of 2000 blank lines against a blank-heavy file made
+        # foundAt compare a 2000-line slice at every blank line (about 15 s per record; about 4 s
+        # per record for this file before the budget, a few hundredths of a second after it).
+        self.write("blank.txt", "\n" * 1_000_000)
+        quote = "\n" * 2000 + "x"
+        evidence = [{"id": f"ev{i}", "file": "blank.txt", "line": 1, "endLine": 2001, "quote": quote} for i in range(3)]
+        doc = document(evidence, nodes=[node("n", evidence=("ev0", "ev1", "ev2"))], inspected=("blank.txt",))
+        started = time.perf_counter()
+        errors = self.errors(doc)
+        elapsed = time.perf_counter() - started
+        self.assertEqual(["quote_mismatch"] * 3, [e["code"] for e in errors])
+        self.assertTrue(all("foundAt" not in e for e in errors))
+        self.assertLess(elapsed, 3, f"validate took {elapsed:.1f} s")
+        # The budget only ever withholds the hint: a unique quote in an ordinary file is still found.
+        self.write("repeat.py", "\n".join(["", "x = 1"] * 5000 + ["y = 2", "z = 3"]) + "\n")
+        doc = document([{"id": "ev", "file": "repeat.py", "line": 1, "endLine": 3, "quote": "x = 1\ny = 2\nz = 3"}], inspected=("repeat.py",))
+        self.assertEqual({"line": 10000, "endLine": 10002}, self.mismatch(doc)["foundAt"])
+        spent = [0]
+        lines = ["a"] * 100
+        positions = {"a": list(range(100))}
+        self.assertIsNone(artifact._find_quote(lines, ["a", "b"], positions, [artifact.FIND_TOTAL_BUDGET]), "an exhausted validation budget gives no hint")
+        self.assertIsNone(artifact._find_quote(lines, ["a", "a"], positions, spent), "more than one place gives no hint")
+        self.assertGreater(spent[0], 0)
 
     def test_trailing_newline_is_named_and_the_join_convention_stated(self):
         error = self.mismatch(document([{"id": "ev", "file": "train.py", "line": 3, "endLine": 3, "quote": "def train(model, data):\n"}]))
@@ -287,7 +335,7 @@ class ExcerptTests(HelperCase):
         self.assertEqual(["id", "file", "line", "endLine", "quote"], list(record))
         self.assert_accepted(record, "train.py")
         code, record = self.excerpt("train.py", "--lines", "3")
-        self.assertEqual({"id": "ev-train.py-3", "file": "train.py", "line": 3, "endLine": 3, "quote": "def train(model, data):"}, record)
+        self.assertEqual({"id": f"ev-train.py-{digest('train.py')}-3", "file": "train.py", "line": 3, "endLine": 3, "quote": "def train(model, data):"}, record)
         self.assert_accepted(record, "train.py")
 
     def test_crlf_bom_tabs_and_trailing_spaces_are_read_as_validate_reads_them(self):
@@ -305,7 +353,7 @@ class ExcerptTests(HelperCase):
                     "metadata": {}, "nbformat": 4, "nbformat_minor": 5}
         self.write("nb/flow.ipynb", json.dumps(notebook))
         code, record = self.excerpt("nb/flow.ipynb", "--lines", "2-3", "--cell", "1")
-        self.assertEqual({"id": "ev-nb-flow.ipynb-c1-2-3", "file": "nb/flow.ipynb", "cell": 1, "line": 2, "endLine": 3, "quote": "fit(x)\ny = 2"}, record)
+        self.assertEqual({"id": f"ev-nb-flow.ipynb-{digest('nb/flow.ipynb')}-c1-2-3", "file": "nb/flow.ipynb", "cell": 1, "line": 2, "endLine": 3, "quote": "fit(x)\ny = 2"}, record)
         self.assertEqual(["id", "file", "cell", "line", "endLine", "quote"], list(record))
         self.assert_accepted(record, "nb/flow.ipynb")
         code, response = self.excerpt("nb/flow.ipynb", "--lines", "1")
@@ -342,6 +390,9 @@ class ExcerptTests(HelperCase):
                     self.assertNotIn("secret", json.dumps(response))
                     hinted = value == str(outside) or value.startswith("C:")
                     self.assertEqual(hinted, response["errors"][0]["message"].endswith("; pass the path relative to --workspace, as evidence[].file records it"))
+                    if value == "./train.py":
+                        # The file is inside the workspace: say what is wrong with the spelling.
+                        self.assertEqual('must be a normalised relative path such as src/train.py, without "./", empty or trailing segments', response["errors"][0]["message"])
         finally:
             outside.unlink()
         (self.root / "folder").mkdir()
@@ -395,8 +446,45 @@ class ExcerptTests(HelperCase):
         status, record = self.excerpt(rel, "--lines", "1-2")
         self.assertEqual(0, status)
         self.assertTrue(artifact._id(record["id"]), record["id"])
-        self.assertTrue(record["id"].startswith("ev-") and record["id"].endswith("-train-file-copy-.py-1-2"), record["id"])
+        self.assertTrue(record["id"].startswith("ev-") and record["id"].endswith(f"-train-file-copy-.py-{digest(rel)}-1-2"), record["id"])
+        self.assertLessEqual(len(record["id"]), 128)
         self.assert_accepted(record, rel)
+
+    def test_default_ids_differ_for_paths_whose_slugs_coincide(self):
+        # Shakedown review: these pairs slugged alike, so upserting the second record silently
+        # replaced the first and a claim came to cite another file.
+        pairs = [("数据/加载.py", "模型/训练.py"), ("utils/io.py", "utils-io.py"), ("data loader.py", "data-loader.py"),
+                 ("/".join(["a"] * 70) + "/x.py", "/".join(["b"] * 70) + "/x.py")]
+        for first, second in pairs:
+            with self.subTest(first=first):
+                self.write(first, "a = 1\n")
+                self.write(second, "a = 1\n")
+                ids = [self.excerpt(rel, "--lines", "1")[1]["id"] for rel in (first, second)]
+                self.assertNotEqual(ids[0], ids[1])
+                self.assertTrue(all(artifact._id(value) for value in ids), ids)
+        notebook = {"cells": [{"cell_type": "code", "source": ["x = load()\n", "fit(x)\n", "y = 2"]}], "metadata": {}, "nbformat": 4, "nbformat_minor": 5}
+        ids = []
+        for rel in ("notebooks/第一章.ipynb", "notebooks/第二章.ipynb"):
+            self.write(rel, json.dumps(notebook))
+            ids.append(self.excerpt(rel, "--lines", "1-3", "--cell", "0")[1]["id"])
+        self.assertNotEqual(ids[0], ids[1])
+        # The same path and range always give the same ID, so re-excerpting still replaces.
+        self.assertEqual(ids[1], self.excerpt("notebooks/第二章.ipynb", "--lines", "1-3", "--cell", "0")[1]["id"])
+
+    def test_records_validate_would_refuse_are_not_printed(self):
+        # A path longer than an evidence record may hold.
+        rel = "/".join(["d" * 50] * 9) + "/" + "f" * 50 + ".py"
+        self.assertGreater(len(rel), 500)
+        self.write(rel, "a = 1\n")
+        status, response = self.excerpt(rel, "--lines", "1")
+        self.assertEqual((1, [("limit", "file")]), (status, [(e["code"], e["path"]) for e in response["errors"]]))
+        # A notebook cell holding an unpaired surrogate (a JSON escape) cannot be quoted.
+        self.write("nb.ipynb", '{"cells": [{"cell_type": "code", "source": ["x = \\"\\ud800\\"\\n", "y = 2"]}], "metadata": {}, "nbformat": 4, "nbformat_minor": 5}')
+        status, response = self.excerpt("nb.ipynb", "--lines", "1", "--cell", "0")
+        self.assertEqual((1, [("text_encoding", "--lines")]), (status, [(e["code"], e["path"]) for e in response["errors"]]))
+        status, record = self.excerpt("nb.ipynb", "--lines", "2", "--cell", "0")
+        self.assertEqual((0, "y = 2"), (status, record["quote"]))
+        self.assert_accepted(record, "nb.ipynb")
 
     def test_excerpt_is_read_only_and_prints_one_json_line(self):
         before = sorted(p.relative_to(self.root).as_posix() for p in self.root.rglob("*"))
@@ -428,8 +516,9 @@ class WarningTests(HelperCase):
         ], [(w["code"], w["path"]) for w in found])
         messages = {w["code"]: w["message"] for w in found}
         self.assertEqual('evidence "ev-unused" is not cited by any node, edge or finding; cite it where it supports a claim, or remove it', messages["unreferenced_evidence"])
-        self.assertEqual('node "alone" has no edge, parent or child; connect it, nest it under a group node, or remove it', messages["isolated_node"])
-        self.assertIn('edge "e-self" connects node "b" to itself; give it kind "loop"', messages["self_edge"])
+        self.assertEqual('node "alone" has no edge, parent or child; connect it to the step it affects or nest it under a group node '
+                         '(a node that only records an absence or an external unknown can become a coverage limitation instead)', messages["isolated_node"])
+        self.assertIn('edge "e-self" connects node "b" to itself; for an iteration, draw the loop edge from the last step of the repeated work back to its first step', messages["self_edge"])
         self.assertIn('evidence "ev-wide" spans 61 lines (more than 60)', messages["wide_evidence"])
         self.assertIn('finding "f" lists evidence "ev" in both evidence and counterEvidence', messages["evidence_overlap"])
         self.assertEqual('"train.py" is already listed at coverage.inspectedFiles[0]; list each file once', messages["duplicate_inspected"])
@@ -507,9 +596,9 @@ class MultiRecordUpsertTests(HelperCase):
                           "records": [{"id": "ev-loop", "action": "inserted"}, {"id": "ev", "action": "replaced"}],
                           "warnings": [{"code": "unreferenced_evidence", "path": "evidence[1]",
                                         "message": 'evidence "ev-loop" is not cited by any node, edge or finding; cite it where it supports a claim, or remove it'}]}, response)
-        code, response = self.upsert("nodes", [node("loop", evidence=("ev-loop",)), node("n", evidence=("ev",), label="Train loop"), node("loop", evidence=("ev-loop",), label="Batches")])
+        code, response = self.upsert("nodes", [node("loop", evidence=("ev-loop",), label="Batches"), node("n", evidence=("ev",), label="Train loop")])
         self.assertEqual(0, code, response)
-        self.assertEqual([{"id": "loop", "action": "inserted"}, {"id": "n", "action": "replaced"}, {"id": "loop", "action": "replaced"}], response["records"])
+        self.assertEqual([{"id": "loop", "action": "inserted"}, {"id": "n", "action": "replaced"}], response["records"])
         edited = json.loads(self.draft.read_text(encoding="utf-8"))
         self.assertEqual([("n", "Train loop"), ("loop", "Batches")], [(n["id"], n["label"]) for n in edited["nodes"]])
 
@@ -525,6 +614,17 @@ class MultiRecordUpsertTests(HelperCase):
         self.assertEqual([{"code": "record", "path": "record", "message": "record file must hold one record object or a non-empty array of records"}], response["errors"])
         self.assertEqual(before, self.draft.read_bytes())
         self.assertFalse((self.root / "draft.json.lock").exists())
+
+    def test_an_array_that_repeats_an_id_is_refused(self):
+        # Shakedown review: [A, B] with one ID was applied as inserted-then-replaced, so A vanished.
+        before = self.draft.read_bytes()
+        records = [{"id": "ev-x", "file": "train.py", "line": 4, "endLine": 4, "quote": "    for batch in data:"},
+                   {"id": "ev-y", "file": "train.py", "line": 1, "endLine": 1, "quote": "import torch"},
+                   {"id": "ev-x", "file": "train.py", "line": 5, "endLine": 5, "quote": "        loss = model(batch)"}]
+        code, response = self.upsert("evidence", records)
+        self.assertEqual(1, code)
+        self.assertEqual([{"code": "record", "path": "record[2].id", "message": 'record ID "ev-x" is already used by record[0]; list each ID once per record file'}], response["errors"])
+        self.assertEqual(before, self.draft.read_bytes())
 
     def test_a_single_record_keeps_its_result_fields(self):
         self.write("records.json", json.dumps(node("n", label="Renamed")))

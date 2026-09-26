@@ -31,9 +31,12 @@ and keep any scratch files, including scripts, under `.mlview/`.
 State the selected scenario before tracing it. Use the user's entrypoint/config
 when supplied; for a single clear default, state that assumption and proceed.
 When materially different choices remain, ask one focused question or keep
-the alternatives explicitly separate. Copy the user's request into
-`request.question` verbatim, with no paraphrase or dropped clause (past 4000
-characters, keep the start and say so in `request.scope`). Record unique
+the alternatives explicitly separate. Copy the user's analysis request into
+`request.question` verbatim, with no paraphrase or dropped clause, leaving out
+only the skill invocation and instructions about running this skill (where to
+publish, what to report); replace a machine-specific absolute path in it with
+a placeholder and note that in `request.scope` (past 4000 characters, keep
+the start and say so in `request.scope`). Record unique
 `request.entrypoints`; your interpretation goes in `request.scope` and in
 `request.configuration`, which names the selected config, relevant launch
 arguments, and default/override assumptions. Do not merge mutually exclusive
@@ -77,6 +80,11 @@ accepts it (for a notebook add `--cell <n>`, zero-based; lines then count
 within that cell's source). Check that the printed quote shows the claimed
 expression, then paste the record unchanged into the draft. After changing a
 range, run excerpt again; never paste text from an error message.
+Independent excerpt calls may run in parallel where the host allows. For many
+records, a scratch script in the run folder may run excerpt once per range (as
+a subprocess with an argument list, no shell) and write the printed records,
+unchanged, as one JSON array for `upsert`; it never slices or retypes source
+itself.
 
 ```sh
 python3 <skill-directory>/scripts/artifact.py excerpt src/train.py --lines 40-52 --id ev-loss --workspace .
@@ -94,7 +102,9 @@ the main nodes, a few evidence records), then grow it. For a large draft, add
 records in parts: put one record, or an array of records for one collection,
 in a file in the run folder and apply it with upsert, dependencies first
 (evidence before the nodes citing it, nodes before edges). Upsert needs a valid
-draft and applies all records or none, keeping the prior draft on failure:
+draft and applies all records or none, keeping the prior draft on failure.
+Warnings on an incomplete draft (evidence not yet cited, nodes not yet
+connected) are expected while it grows; act on them in the critique:
 
 ```sh
 python3 <skill-directory>/scripts/artifact.py upsert .mlview/llm/<run-id>/draft.json --workspace . --collection nodes --record .mlview/llm/<run-id>/nodes-2.json
@@ -103,9 +113,10 @@ python3 <skill-directory>/scripts/artifact.py upsert .mlview/llm/<run-id>/draft.
 ## Diagram content
 
 Use semantic steps people recognize, and draw structure as edges: each repeated
-phase is a `loop` node with children and a `loop` edge carrying state into the
-next iteration; each shared component (model, tokenizer, loader, fitted
-transform) has an edge to every step that uses it; each branch or loop outcome
+phase is a `loop` node with children and a `loop` edge from the last step of
+the repeated work back to its first step, carrying state into the next
+iteration; each shared component (a model, data loader, or preprocessing
+object) has an edge to every step that uses it; each branch or loop outcome
 is its own edge; components whose parameters change by different mechanisms
 (optimizer step, averaging or copying, frozen) are separate nodes or state
 nodes. Prefer these kinds (free text is accepted): edges data, control, call,
@@ -127,8 +138,9 @@ the user would change. Expected or correct behavior belongs in node detail or
 the explanation; general external unknowns go to `coverage.limitations` and
 unresolved nodes. An unresolved-risk finding names the node or edge whose
 outcome could flip. Severity: `high`, silently wrong results in the selected
-scenario; `medium`, a plausible conditional risk with a stated trigger; `low`,
-reproducibility or observability. Search for counter-evidence first:
+scenario; `medium`, a plausible conditional risk with a stated trigger, or a
+certain failure that shows itself when it happens (an exception or crash);
+`low`, reproducibility or observability. Search for counter-evidence first:
 `counterEvidence` lists source that weakens, bounds, or conditions the finding
 (never its supporting records) and is omitted when none was found; a medium or
 high finding carries it or states the search boundary. An empty `findings`
@@ -173,10 +185,12 @@ python3 <skill-directory>/scripts/artifact.py publish .mlview/llm/<run-id>/draft
 
 ## Repair
 
-A repair round is one edit-and-revalidate after the helper reported errors.
-The first validation is not a repair, and neither are warnings or critique
-edits after a passing validation. Use at most two rounds unless the user or the
-run sets another limit, and count every round in the run exactly. By code:
+A repair round is one edit made because a `validate`, `publish` or `upsert`
+run reported errors, ending with the next such run; a refused upsert counts.
+Excerpt errors (a bad path or range), warnings, the first validation, and
+critique edits after a passing validation are not rounds. Use at most two
+rounds unless the user or the run sets another limit, and count every round in
+the run exactly. By code:
 
 - `quote_mismatch`: rerun excerpt for the intended range and replace the whole
   record; the error's `difference` (first differing line and column) and, when
@@ -188,9 +202,13 @@ run sets another limit, and count every round in the run exactly. By code:
   depend on it, regenerate its records with excerpt, and delete `verification`.
 - Other codes: follow the code list in `references/WORKFLOW_CONTRACT.md`.
 
-If errors remain at the limit, stop editing. Never delete a failing draft:
-report its path, the remaining errors, and the exact number of rounds used, and
-leave the last published revision untouched.
+If errors remain at the limit, stop repairing. A refused upsert leaves the
+draft as it was: if the draft still validates, set `coverage.status` to
+`partial`, name the refused work in a `Not inspected: ... (partial revision)`
+limitation, validate, and publish it (this is not a repair round; if that
+validation fails, stop). Otherwise never delete a failing draft: report its
+path, the remaining errors, and the exact number of rounds used, and leave the
+last published revision untouched.
 
 If the helper reports `publish_locked` or `draft_locked`, another publisher may
 be active: stop, tell the user, and never delete a lock file yourself.
@@ -225,6 +243,8 @@ artifact.
 
 For refinement requests, read the published artifact and retain phase, node,
 edge, finding, and evidence IDs for concepts that still mean the same thing.
+Keep its `request.question` unless the user asks a new question, and describe
+the refinement in `request.scope`.
 Assign new IDs only to new concepts, and remove IDs only when their concepts
 leave the requested scenario. Set `revision.parent` to the `revision.id`
 currently in the published artifact file, and choose a revision ID that

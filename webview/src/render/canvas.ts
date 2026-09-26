@@ -96,6 +96,13 @@ export const READABLE_ZOOM = 0.9;
 export const REFIT_MIN_PX = 80;
 export const REFIT_MIN_RATIO = 0.1;
 
+/**
+ * The narrowest strip beside an overlay that a reveal centres in (Campaign 3 review, VL-1): at
+ * 541 px the rail drawer leaves 181 px, enough for a card at a readable zoom; in a 393 px panel it
+ * leaves 55 px, so the reveal uses the whole canvas and the target shows when the drawer closes.
+ */
+export const REVEAL_MIN_STRIP = 160;
+
 export class ViewportController {
   readonly canvas: HTMLElement;
   readonly world: HTMLElement;
@@ -115,6 +122,12 @@ export class ViewportController {
   private fitted = false;
   /** The canvas size the last fit was computed for, and how (whole or first-paint). */
   private fitSize: { w: number; h: number; whole: boolean; padding: number } | null = null;
+  /**
+   * How many pixels at the canvas's right edge an overlay covers: the rail, which below the
+   * 900 px breakpoint is a drawer over the canvas rather than a column beside it. Set by the view;
+   * 0 when nothing covers the canvas (and in jsdom, which measures nothing).
+   */
+  coveredRight: () => number = () => 0;
 
   constructor(canvas: HTMLElement, world: HTMLElement, onChange: (vp: Viewport) => void) {
     this.canvas = canvas;
@@ -292,9 +305,22 @@ export class ViewportController {
     return false;
   }
 
+  /**
+   * The part of the canvas a reveal can use (VL-1): the strip left of an overlay while it is at
+   * least REVEAL_MIN_STRIP wide, otherwise the whole canvas. Fit is unaffected: it lays the whole
+   * document out for the canvas, drawer or not.
+   */
+  visibleArea(): { w: number; h: number } {
+    const size = this.size();
+    const covered = this.coveredRight();
+    if (!(covered > 0)) return size;
+    const w = size.w - covered;
+    return w >= REVEAL_MIN_STRIP ? { w, h: size.h } : size;
+  }
+
   centerOn(rect: Rect, zoom?: number): void {
     this.fitted = false;
-    const { w, h } = this.size();
+    const { w, h } = this.visibleArea();
     if (typeof zoom === 'number') this.vp.zoom = clamp(zoom, MIN_ZOOM, MAX_ZOOM);
     const z = this.vp.zoom;
     this.vp.x = w / 2 - (rect.x + rect.w / 2) * z;
@@ -303,14 +329,14 @@ export class ViewportController {
   }
 
   zoomToBox(rect: Rect, padding = 80): void {
-    const { w, h } = this.size();
+    const { w, h } = this.visibleArea();
     const z = clamp(Math.min((w - padding) / Math.max(rect.w, 1), (h - padding) / Math.max(rect.h, 1)), MIN_ZOOM, MAX_ZOOM);
     this.centerOn(rect, z);
   }
 
-  /** True when the rect is fully inside the visible area. */
-  isVisible(rect: Rect): boolean {
-    const { w, h } = this.size();
+  /** True when the rect is fully inside the visible area (by default the current one). */
+  isVisible(rect: Rect, area: { w: number; h: number } = this.visibleArea()): boolean {
+    const { w, h } = area;
     const x = rect.x * this.vp.zoom + this.vp.x;
     const y = rect.y * this.vp.zoom + this.vp.y;
     return x >= 0 && y >= 0 && x + rect.w * this.vp.zoom <= w && y + rect.h * this.vp.zoom <= h;

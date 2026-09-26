@@ -12,8 +12,9 @@
  *      provenance chips and ONE line of the question, behind a disclosure;
  *   2. a height cap with its own scroller for the expanded state;
  *   3. `flex-shrink` with `min-height: 0`, so when the chrome above and the
- *      canvas floor below need the room the header gives it up and scrolls,
- *      rather than pushing the diagram (or the status bar) off the page.
+ *      canvas floor below need the room the expanded header gives it up and
+ *      scrolls, rather than pushing the diagram (or the status bar) off the
+ *      page. The collapsed header is bounded and never shrinks (VL-2 below).
  * The canvas floor itself is `.mlv-root--workflow > .mlv-body` below.
  */
 .mlv-workflow {
@@ -133,6 +134,24 @@
    */
   flex: 1 1 0;
   min-height: min(320px, 50vh);
+}
+
+/*
+ * Campaign 3 review (VL-2). MEASURED live: in a 541x502 panel (the bottom
+ * terminal open) the collapsed header shrank to 62 of its 124 px behind an
+ * overlay scrollbar, hiding the Details toggle, the coverage chip, the
+ * question line and most of Refine. Collapsed, the header is bounded (a
+ * two-line title, its chips, one question line: 125-153 px at 393-541 px
+ * wide), so it never shrinks; while it is collapsed the canvas floor yields
+ * instead, low enough that a 393x502 panel still shows the status bar.
+ * Expanded, the rules above still apply: the long header scrolls and the
+ * canvas keeps min(320px, 50vh).
+ */
+.mlv-workflow:not([data-expanded="true"]) {
+  flex-shrink: 0;
+}
+.mlv-workflow:not([data-expanded="true"]) ~ .mlv-body {
+  min-height: min(320px, 25vh);
 }
 
 /*
