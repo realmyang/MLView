@@ -190,12 +190,17 @@ python3 <skill-directory>/scripts/artifact.py publish .mlview/llm/<run-id>/draft
 
 ## Repair
 
-A repair round is one edit made because a `validate`, `publish` or `upsert`
-run reported errors, ending with the next such run; a refused upsert counts.
-Excerpt errors (a bad path or range), warnings, the first validation, and
-critique edits after a passing validation are not rounds. Use at most two
-rounds unless the user or the run sets another limit, and count every round in
-the run exactly. By code:
+A repair round is one edit of the draft made because `validate` or `publish`
+reported errors, ending with the next such run. The first validation, warnings,
+excerpt errors (a bad path or range), and critique edits after a passing
+validation are not rounds. Use at most two rounds unless the user or the run
+sets another limit, and count every round in the run exactly.
+
+A refused `upsert` changes nothing, so it is not a repair round: fix the record
+file it names (rerun excerpt for a record with a quote error) and apply it
+again. If the same record file is refused a third time, drop it and name what it
+would have added in a `Not inspected: ... (refused records)` limitation. By
+code:
 
 - `quote_mismatch`: rerun excerpt for the intended range and replace the whole
   record; the error's `difference` (first differing line and column) and, when
@@ -207,13 +212,9 @@ the run exactly. By code:
   depend on it, regenerate its records with excerpt, and delete `verification`.
 - Other codes: follow the code list in `references/WORKFLOW_CONTRACT.md`.
 
-If errors remain at the limit, stop repairing. A refused upsert leaves the
-draft as it was: if the draft still validates, set `coverage.status` to
-`partial`, name the refused work in a `Not inspected: ... (partial revision)`
-limitation, validate, and publish it (this is not a repair round; if that
-validation fails, stop). Otherwise never delete a failing draft: report its
-path, the remaining errors, and the exact number of rounds used, and leave the
-last published revision untouched.
+If errors remain at the limit, stop repairing. Never delete a failing draft:
+report its path, the remaining errors, and the exact number of rounds used, and
+leave the last published revision untouched.
 
 If the helper reports `publish_locked` or `draft_locked`, another publisher may
 be active: stop, tell the user, and never delete a lock file yourself.
@@ -239,7 +240,8 @@ with no publication, say so plainly, and never describe a draft as a usable
 diagram or claim to keep running after Stop.
 
 Report the published relative path, revision ID, selected scenario, coverage,
-important limitations, critique corrections, and the exact repair-round count.
+important limitations, critique corrections, the exact repair-round count, and
+the number of refused upserts.
 An MLView panel already showing this artifact updates by itself; otherwise tell
 the user to run **MLView: Open Generated Diagram** in VS Code and select the
 artifact.

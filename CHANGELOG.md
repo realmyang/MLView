@@ -72,8 +72,8 @@ Skill (`skills/mlview/`; guidance only, framework-agnostic):
   range that shows every stated value; every record comes from `excerpt`,
   pasted unchanged, and a changed range means running `excerpt` again, never
   pasting text from an error message (issue 3).
-- Repair: a repair round is one edit-and-revalidate after the helper reported
-  errors; at most two unless the user or the run sets another limit, counted
+- Repair: a repair round is one edit made after `validate` or `publish`
+  reported errors (see the confirmation re-run fixes below); at most two unless the user or the run sets another limit, counted
   exactly; per-code recipes; at the limit the draft is kept and its path,
   remaining errors and round count are reported (issue 4).
 - Drafting: create `.mlview/llm/<run-id>/` first, write the draft with the
@@ -178,9 +178,6 @@ shakedown drafts; not a human review):
   back to its first; independent `excerpt` calls may run in parallel, and a
   scratch script may collect `excerpt` output into an `upsert` array;
   warnings on a growing draft are expected and are acted on in the critique;
-  a repair round is an edit after a `validate`, `publish` or `upsert` error
-  (a refused upsert counts, an `excerpt` error does not), and at the limit a
-  draft that still validates may be published as `partial`;
   `request.question` leaves out the skill invocation and run instructions,
   replaces machine-specific paths with placeholders and is kept on
   refinement; a certain failure that shows itself (an exception or crash) is
@@ -188,6 +185,25 @@ shakedown drafts; not a human review):
   update-mechanism rule is no longer repeated in the training-state
   reference; the bundled example no longer labels its loader as observed
   shuffling, and the minimal finding shape states a search boundary.
+
+Confirmation re-run fixes. A confirmation run of the fixed skill on ten of
+the shakedown cases (run once each; provisional model review) found two
+problems, both fixed in the skill text:
+- Claude Code had a valid yolov5 draft at 28 minutes, then turned the
+  critique of the validated draft into new tracing and was stopped at 40
+  minutes without publishing (the 0.3.0 skill published in 27). The critique
+  now corrects, qualifies and connects what the draft already covers and is
+  followed by publication; further work it suggests is named as a
+  `Not inspected:` limitation and continued in a child revision.
+- Codex built its whisper draft with `upsert`; two refused upserts used up
+  both repair rounds, and the rule that a still-valid draft is published as
+  `partial` at the limit then published a 3-node skeleton. A repair round is
+  now an edit after a `validate` or `publish` error only. A refused upsert
+  changes nothing and is not a round: the host fixes that record file and
+  applies it again, drops it after a third refusal (naming the dropped work
+  as a limitation), and reports how many upserts were refused. The
+  publish-as-partial-at-the-limit rule is removed; partial publication
+  follows only the partial-publication rule (main steps traced and cited).
 
 Deferred on purpose:
 - Issue 13, guidance for values resolved through registries, default tables
@@ -212,8 +228,8 @@ Whether a range supports its claim rests on supported-claim scoring
 (`supportedClaimPrecision`, T3). The owner should also note, before a freeze,
 that the skill's repair-round limit ("at most two unless the user or the run
 sets another limit") must agree with the proposed run policy, including how
-rounds are counted (the skill counts refused upserts but not `excerpt`
-errors, which the shakedown harness counted), that one `excerpt` call per
+rounds are counted (the skill counts edits after `validate` or `publish`
+errors, not refused upserts or `excerpt` errors), that one `excerpt` call per
 evidence record has not been timed on a live host against the proposed
 20-minute budget, that the `medium` severity for a certain visible failure is
 a proposal the owner may change, that a published
