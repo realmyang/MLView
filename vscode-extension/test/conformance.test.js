@@ -240,7 +240,8 @@ test('SECURITY2-1: where the volume resolves U+017F to s, the long-s spelling of
 test('recorded-artifact suite: the bundled skill example is valid and fresh in the extension', async (t) => {
   const example = JSON.parse(fs.readFileSync(EXAMPLE, 'utf8'));
   assert.deepEqual(api.validateWorkflowStructure(example).issues, []);
-  const root = materialise(t, { files: { 'train.py': { text: 'def train():\n' } }, artifact: 'workflow.mlview.json', raw: JSON.stringify(example, null, 2) + '\n' });
+  const source = fs.readFileSync(path.join(REPO_ROOT, 'skills', 'mlview', 'tests', 'fixtures', 'example-workspace', 'train.py'), 'utf8');
+  const root = materialise(t, { files: { 'train.py': { text: source } }, artifact: 'workflow.mlview.json', raw: JSON.stringify(example, null, 2) + '\n' });
   const loaded = await loadArtifact(root, 'workflow.mlview.json');
   assert.deepEqual(loaded.issues, []);
   assert.equal(loaded.ok, true);
