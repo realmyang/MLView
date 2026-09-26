@@ -728,12 +728,12 @@ def test_hashes(tmp_path: Path) -> None:
 
 # Review normalization v1 is fixed: these bytes and this hash must never change. A different normalization
 # gets a new version number, and v1 stays as it is for every summary that records it.
-V1_RAW = ("﻿# Run review: pilot-demo:codex:1 \t\r\n"
+V1_RAW = ("\ufeff# Run review: pilot-demo:codex:1 \t\r\n"
           "> Written by review-template (a note)\r\n"
           "   > an indented note\r"
           "\t> a tab-indented note\n"
-          " 　> a note after Unicode spaces\n"
-          "Run: pilot-demo:codex:1 　\n"
+          "\xa0\u3000> a note after Unicode spaces\n"
+          "Run: pilot-demo:codex:1\xa0\u3000\n"
           "\r\n"
           " \t \n"
           "Reviewer: Test Reviewer (synthetic)   \n"
@@ -741,7 +741,7 @@ V1_RAW = ("﻿# Run review: pilot-demo:codex:1 \t\r\n"
           "node:load: qualified -- a reason > with a quote sign  \n"
           "  continued after two spaces\n"
           "\tcontinued after a tab\n"
-          "​> a zero-width space is not whitespace\n"
+          "\u200b> a zero-width space is not whitespace\n"
           "## Task\r\n"
           "Review: complete").encode("utf-8")
 V1_NORMALIZED = (b"# Run review: pilot-demo:codex:1\nRun: pilot-demo:codex:1\nReviewer: Test Reviewer (synthetic)\n"
@@ -758,7 +758,7 @@ def test_review_normalization_v1_is_pinned_byte_for_byte() -> None:
     assert er.normalized_review_sha256(V1_NORMALIZED) == V1_SHA256
     assert er.normalized_review_sha256(b"") == er.sha256_bytes(b"")  # nothing kept: no line, no LF
     assert er.normalized_review_sha256(b"\n> note\n \n") == er.sha256_bytes(b"")
-    assert er.normalized_review_sha256(BOM + BOM + b"x\n") == er.sha256_bytes("﻿x\n".encode("utf-8"))  # one BOM
+    assert er.normalized_review_sha256(BOM + BOM + b"x\n") == er.sha256_bytes("\ufeffx\n".encode("utf-8"))  # one BOM
     assert er.normalized_review_sha256(b"x\xff\n") is None
     with pytest.raises(ValueError, match="not valid UTF-8"):
         er.normalized_review_bytes("x\n".encode("utf-16"))
@@ -771,6 +771,10 @@ def test_review_normalization_v1_whitespace_is_what_the_parser_strips() -> None:
     assert er._V1_SPACE == running and len(er._V1_SPACE) == 29
     sample = "".join(map(chr, range(0x3001))) + "x"
     assert sample.strip() == sample.strip(er._V1_SPACE)
+    # v1 is spelled with escapes, so no invisible character can be lost or hidden by an editor (INTEGRITY-2).
+    source = Path(er.__file__).read_text(encoding="utf-8")
+    block = source[source.index("REVIEW_NORMALIZATION_VERSION = 1"):source.index("def normalized_review_sha256")]
+    assert block.isascii(), [hex(ord(char)) for char in block if not char.isascii()]
 
 
 def _review_fields(raw: bytes) -> list:
@@ -797,7 +801,7 @@ def test_review_normalization_keeps_the_hash_exactly_when_the_review_reads_the_s
         "bom": BOM + base, "crlf": base.replace(b"\n", b"\r\n"), "cr": base.replace(b"\n", b"\r"),
         "note added": per_line(lambda line: [line, "  > a note (synthetic)"] if line.startswith("## ") else [line]),
         "note between a value and its continuation": base.replace(b"reason\n", b"reason\n> a note\n\n"),
-        "trailing spaces": per_line(lambda line: [line + " \t 　" if line else line]),
+        "trailing spaces": per_line(lambda line: [line + " \t\xa0\u3000" if line else line]),
         "blank lines": per_line(lambda line: ["", line, " ", "\t"]),
     }
     honest["note edited"] = base.replace(b"> a recorded note (synthetic)", b"   > the edited note (synthetic)")
@@ -816,7 +820,7 @@ def test_review_normalization_keeps_the_hash_exactly_when_the_review_reads_the_s
         "line removed": base.replace(b"finding:f1: pending\n", b""),
         "indentation": base.replace(b"  wrapped onto", b"    wrapped onto"),
         "a # comment": base.replace(b"## Task\n", b"# a comment\n## Task\n"),
-        "a zero-width space before >": base + "​> not a note\n".encode("utf-8"),
+        "a zero-width space before >": base + "\u200b> not a note\n".encode("utf-8"),
     }
     for name, raw in changed.items():
         assert raw != base, name

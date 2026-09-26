@@ -2731,7 +2731,7 @@ HONEST_EDITS = {
                                          if line.startswith("## ") else [line]) + b"> a closing note (synthetic)\n",
     "note-edited": lambda raw: _each_line(raw, _note_edited),
     "note-removed": lambda raw: _each_line(raw, lambda line: [] if line.startswith("> ") else [line]),
-    "trailing-spaces": lambda raw: _each_line(raw, lambda line: [line + " \t " if line else line]),
+    "trailing-spaces": lambda raw: _each_line(raw, lambda line: [line + " \t\xa0" if line else line]),
     "blank-lines": lambda raw: _each_line(raw, lambda line: [line, "", "   ", "\t"] if line.startswith("## ") else [line]),
 }
 
@@ -3013,11 +3013,9 @@ def test_a_resave_after_a_later_tool_change_leaves_an_other_tools_go_in_force(
     assert code == 0 and "recorded with other tools" in out, err
 
 
-@pytest.mark.parametrize("tools", ["same", "other"])
-def test_a_stage1_summary_without_normalized_review_hashes_is_refused(world: World, tools: str) -> None:
-    """A Stage 1 summary recorded before normalized review hashes existed is refused, whichever tools it names, with
-    the advice to record Stage 1 again with the current tools; there is no fallback to re-derived verdicts. Another
-    normalization version and a malformed entry are refused too."""
+def _without_normalized_hashes(world: World, tools: str) -> dict:
+    """Commit the Stage 1 go of ``world`` as tools older than review normalization v1 would have recorded it (no
+    inputs.runs[].reviewNormalized), naming the running tools or other (Git-bound) tools; returns the real summary."""
     real = json.loads(er.canonical_json(summarize(world)))
     assert real["decision"]["value"] == "go"
     older = json.loads(er.canonical_json(real))
@@ -3027,24 +3025,153 @@ def test_a_stage1_summary_without_normalized_review_hashes_is_refused(world: Wor
         older["tooling"]["tools/workflow_pilot.py"] = sha(OLD_TOOL)
         commit_files(world.root, {"tools/workflow_pilot.py": OLD_TOOL}, "synthetic: the tools when recorded")
     commit_files(world.root, summary_files(older), "synthetic: a summary recorded by older tools")
+    return real
+
+
+@pytest.mark.parametrize("tools", ["same", "other"])
+def test_a_stage1_summary_without_normalized_review_hashes_is_refused(world: World, tools: str) -> None:
+    """A Stage 1 summary recorded before normalized review hashes existed is refused, whichever tools it names, as a
+    hold (not a missing go, STATS-1), with the advice to record Stage 1 again only while no Stage 2 run has been
+    prepared and the commit is unpushed; there is no fallback to re-derived verdicts. Another normalization version is
+    held too; a malformed entry is refused as a summary that summarize --record never writes."""
+    real = _without_normalized_hashes(world, tools)
     code, _out, err = run_main(world, "run-prepare", "pilot-demo-a:codex:2", *pilot_args(world))
     assert code == 1 and wp.NO_REVIEW_HASHES in err, err
-    assert "Record Stage 1 again with the current tools" in wp.NO_REVIEW_HASHES
+    assert "Only while no Stage 2 run has been prepared and the summary commit is not pushed, record Stage 1 again " \
+           "with the current tools" in wp.NO_REVIEW_HASHES
+    assert "a summary recorded again after Stage 2 runs were prepared makes each of them invalid" in wp.NO_REVIEW_HASHES
     assert not world.evidence("pilot-demo-a:codex:2").exists()
     campaign = wp.load_campaign(world.root, CAMPAIGN)
-    assert wp._stage1_go(older, campaign) == wp.NO_REVIEW_HASHES
-    assert wp._stage1_go(real, campaign) is None
+    planned = {item["id"]: item for item in campaign.plan()}
+    older = wp._committed_stage1(world.root, campaign)
+    assert wp._stage1_go(older, campaign) is None and wp._stage1_go(real, campaign) is None
+    held = wp._stage1_matches(world.root, campaign, str(world.pilot), older)
+    assert isinstance(held, wp.Stage1Unverified) and held == wp.NO_REVIEW_HASHES
+    assert held.remedy == wp.NO_REVIEW_HASHES_REMEDY
+    assert sorted(wp._recorded_reviews(real, planned)) == sorted(stage1_ids())
     run_id = "pilot-demo-a:codex:1"
-    for change, expected in (
-            ({"version": 2}, f"records the review of {run_id} with review normalization v2; these tools implement v1 only"),
-            ({"version": True}, f"has a malformed normalized review hash for {run_id}"),
-            ({"sha256": "A" * 64}, f"has a malformed normalized review hash for {run_id}"),
-            ({"extra": 1}, f"has a malformed normalized review hash for {run_id}"),
-            (None, f"has a malformed normalized review hash for {run_id}")):
+    for change, expected, hold in (
+            ({"version": 2}, f"records the review of {run_id} with review normalization v2; these tools implement v1 only",
+             True),
+            ({"version": True}, f"has a malformed normalized review hash for {run_id}", False),
+            ({"sha256": "A" * 64}, f"has a malformed normalized review hash for {run_id}", False),
+            ({"extra": 1}, f"has a malformed normalized review hash for {run_id}", False),
+            (None, f"has a malformed normalized review hash for {run_id}", False)):
         forged = json.loads(er.canonical_json(real))
         entry = next(item for item in forged["inputs"]["runs"] if item["id"] == run_id)
         entry["reviewNormalized"] = None if change is None else dict(entry["reviewNormalized"], **change)
-        assert expected in str(wp._stage1_go(forged, campaign)), change
+        reason = wp._recorded_reviews(forged, planned)
+        assert isinstance(reason, str) and expected in reason, change
+        assert isinstance(reason, wp.Stage1Unverified) == hold, change
+
+
+def test_stage2_runs_under_a_summary_without_normalized_review_hashes_stay_valid(world: World) -> None:
+    """STATS-1: Stage 2 runs prepared (by the 0.3.0 gate, simulated) under a Stage 1 go that it recorded without
+    normalized review hashes are not made invalid by these tools: the all-stage summary is incomplete, with a note
+    that gives the advice, and cannot be recorded (before, it was a recordable targets-missed with every Stage 2 run
+    invalid)."""
+    _without_normalized_hashes(world, "other")
+    with pytest.MonkeyPatch.context() as earlier:
+        earlier.setattr(wp, "_recorded_reviews", lambda summary, planned: {})  # the 0.3.0 gate never read them
+        for run_id in [f"{task}:{host}:{rep}" for task, _repo, _entry in TASKS for host in HOSTS for rep in (2, 3)]:
+            do_run(world, run_id, session=LATER)
+    summary = summarize(world, "all")
+    assert summary["decision"]["value"] == "incomplete" and HELD in summary["decision"]["reasons"], summary["decision"]
+    assert not [run["id"] for run in summary["runs"] if run["status"] == "invalid"]
+    assert any(wp.NO_REVIEW_HASHES in note and note.endswith(f"; {wp.NO_REVIEW_HASHES_REMEDY} and summarize again")
+               for note in summary["verification"]["notes"]), summary["verification"]["notes"]
+    code, _out, err = run_main(world, "summarize", *pilot_args(world), "--stage", "all", "--record")
+    assert code == 1 and "the decision is incomplete" in err, err
+
+
+def test_a_same_tools_summary_that_nulls_a_read_review_does_not_unlock_stage_2(world: World) -> None:
+    """INTEGRITY-1: with the same tools, the re-computation shows which reviews the tools read, and the normalized
+    review hashes are part of the comparison, so a summary that lists a read review with null hashes (which would
+    exempt it from the finality rule) does not unlock Stage 2."""
+    real = json.loads(er.canonical_json(summarize(world)))
+    run_id = "pilot-demo-a:codex:1"
+    entry = next(item for item in real["inputs"]["runs"] if item["id"] == run_id)
+    entry["review"] = entry["reviewNormalized"] = None
+    commit_files(world.root, summary_files(real), "synthetic: a summary that nulls a read review")
+    code, _out, err = run_main(world, "run-prepare", "pilot-demo-a:codex:2", *pilot_args(world))
+    assert code == 1 and "the committed Stage 1 summary differs from a re-computation from the sealed evidence in " \
+                         "inputs (a recorded summary is written only by summarize --record)" in err, err
+
+
+@pytest.mark.parametrize("tools", ["same", "other"])
+def test_a_review_restored_into_a_stage1_run_that_did_not_complete_is_named(world: World, tools: str) -> None:
+    """STATS-2, HONEST-2: a review.md that reappears after the record in a Stage 1 baseline that failed (the summary
+    lists it without a review) is named with its run and file and the remedy, holds Stage 2 and leaves the all-stage
+    summary incomplete without making Stage 2 runs invalid, whichever tools recorded the summary; removing it clears
+    it."""
+    base = "pilot-demo-a:codex:baseline:1"
+    kept = (world.evidence(base) / "review.md").read_bytes()
+    redo(world, base, session={"Status": "failed", "Failure": f"host-error {EM} crashed mid-answer (synthetic)",
+                               "Prompt sent": "yes"})
+    record_stage1_go(world, tools)
+    entry = next(item for item in committed_stage1(world)["inputs"]["runs"] if item["id"] == base)
+    assert entry["review"] is None and entry["reviewNormalized"] is None
+    do_run(world, "pilot-demo-a:codex:2", session=LATER)
+    path = world.evidence(base) / "review.md"
+    path.write_bytes(kept)
+    code, _out, err = run_main(world, "run-prepare", "pilot-demo-a:claude-code:2", *pilot_args(world))
+    where = f"{base} (evidence/{er.run_dir_name(base)}/review.md; the run is failed)"
+    assert code == 1 and f"1 Stage 1 run(s) that did not complete have a review.md that the summary does not list: " \
+                         f"{where}. Remove each named review.md" in err, err
+    assert "a recorded summary is written only by summarize --record" not in err, err
+    summary = summarize(world, "all")
+    assert summary["decision"]["value"] == "incomplete" and HELD in summary["decision"]["reasons"], summary["decision"]
+    assert not [run["id"] for run in summary["runs"] if run["status"] == "invalid"]
+    assert any(where in note and note.endswith("restore the Stage 1 evidence and summarize again")
+               for note in summary["verification"]["notes"]), summary["verification"]["notes"]
+    path.unlink()
+    code, _out, err = run_main(world, "run-prepare", "pilot-demo-a:claude-code:2", *pilot_args(world))
+    assert code == 0, err
+
+
+def test_a_later_tool_rule_that_rejects_a_recorded_skill_review_is_named_with_its_remedy(
+        world: World, monkeypatch: pytest.MonkeyPatch) -> None:
+    """HONEST-1: with other (Git-bound) tools, a later review rule that rejects an unchanged Stage 1 skill review
+    holds Stage 2 with its own message: it names the review, says it is final and must not be edited, and that Stage 2
+    needs the rule reverted; the all-stage summary is incomplete with that remedy (not "fetch or verify the corpus")
+    and no Stage 2 run becomes invalid. Editing the review as the rule asks changes its hash; restoring it and
+    reverting the rule clears the hold."""
+    record_stage1_go(world, "other")
+    do_run(world, "pilot-demo-a:codex:2", session=LATER)
+    skill = "pilot-demo-a:codex:1"
+    path = world.evidence(skill) / "review.md"
+    original = path.read_bytes()
+    earlier_check = wp.check_review
+
+    def later_check(record, display, ctx):
+        problems, data = earlier_check(record, display, ctx)
+        if ctx.run_id == skill:
+            problems = problems + [er.Problem(display, 1, er.ERROR, "Claims", "a later synthetic review rule")]
+        return problems, data
+    rejected = (f"these tools reject 1 Stage 1 review(s) that are unchanged since the summary was recorded (their "
+                f"normalized hashes match): {skill}; a re-computation of Stage 1 with these tools gives incomplete (")
+    with pytest.MonkeyPatch.context() as later:
+        later.setattr(wp, "check_review", later_check)
+        assert summarize(world)["decision"]["value"] == "incomplete"
+        code, _out, err = run_main(world, "run-prepare", "pilot-demo-a:claude-code:2", *pilot_args(world))
+        assert code == 1 and rejected in err, err
+        assert "Those reviews are final: do not edit them" in err and "Stage 2 needs the tool change that rejects " \
+               "them reverted (the tools that recorded the Stage 1 summary accept them)" in err, err
+        summary = summarize(world, "all")
+        assert summary["decision"]["value"] == "incomplete" and HELD in summary["decision"]["reasons"]
+        assert not [run["id"] for run in summary["runs"] if run["status"] == "invalid"]
+        notes = summary["verification"]["notes"]
+        assert any(rejected in note and note.endswith("; do not edit those Stage 1 reviews; revert the tool change "
+                                                      "that rejects them and summarize again") for note in notes), notes
+        assert not any("fetch or verify the corpus" in note for note in notes), notes
+        _set_review(world, skill, "Date: 2026-10-21", "Date: 2026-10-22")  # what the rule asks would change it too
+        code, _out, err = run_main(world, "run-prepare", "pilot-demo-a:claude-code:2", *pilot_args(world))
+        assert code == 1 and f"1 Stage 1 review(s) changed since the summary was recorded: {skill} " in err, err
+        path.write_bytes(honest_resave(original))
+        code, _out, err = run_main(world, "run-prepare", "pilot-demo-a:claude-code:2", *pilot_args(world))
+        assert code == 1 and rejected in err, err
+    code, out, err = run_main(world, "run-prepare", "pilot-demo-a:claude-code:2", *pilot_args(world))
+    assert code == 0 and "recorded with other tools" in out, err
 
 
 def test_a_retriable_failure_stays_open_in_the_early_stop_indicators(retry_world: World) -> None:

@@ -197,7 +197,9 @@ or transcribed at the owner's dictation with `Transcribed by:` filled.
     review them the same way, then report complete 72-run per-host/task
     numerators and denominators with
     `python tools/workflow_eval.py summarize --campaign pilot-01 --stage all --record`,
-    and commit that summary the same way.
+    and commit that summary the same way. A tools change during the pilot
+    must not reject a recorded Stage 1 review: the gate then holds Stage 2
+    until that change is reverted ([known limits](pilot/README.md#known-limits)).
     Stage 1 success is permission to collect more evidence, not a completed
     or passed pilot.
 

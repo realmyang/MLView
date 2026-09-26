@@ -261,12 +261,15 @@ summary's sealed inputs (a record, amendment or earlier attempt changed, or
 missing from this pilot directory) or a review it lists has lost its
 normalized hash, the message names each run and file and what to restore,
 `run-prepare` refuses Stage 2, and `summarize --stage all` is `incomplete`
-with a note instead of marking the Stage 2 runs invalid; so it is when the
-re-computation is incomplete only because the corpus is absent or unverified
-here. The
+with a note instead of marking the Stage 2 runs invalid. So it is when the
+evidence is unchanged but the re-computation is incomplete (the corpus is
+absent or unverified here, or these tools reject a recorded review; see
+below), and when the summary has no normalized review hashes. The
 summary's `tooling` field is part of the file being checked, so it never
 switches a check off on its own word: when it names the running tools, every
-field and the Markdown rendering are compared; when it names other tools,
+field (the normalized review hashes too, so a summary that drops the hashes
+of a review the tools read does not unlock Stage 2) and the Markdown
+rendering are compared; when it names other tools,
 each of them must be a version of that file committed in the history of the
 commit that records the summary (`summarize --record` refuses tools that
 differ from `HEAD` in this checkout; those tool versions stay in the history
@@ -279,19 +282,36 @@ the disclosure of retries and failures (each skill run's status, failure and
 earlier attempts, and each baseline's failure and earlier attempts; a
 baseline's computed status and review state belong to the tools) are still
 compared (a note says the other fields and the Markdown were not compared).
-What the tools read or count from a review (whether it is complete, its
-verdict counts, the baselines' false accusations total, a skill run's
-reviewer) is never compared across tool versions, so a later tool version
-that judges or counts a review differently does not hold Stage 2 over an
-unchanged or re-saved review (unless the re-computed decision is no longer
-`go`). A review the recording tools did not read (a
-baseline they judged invalid) is not listed in the summary and is not
-compared; an earlier attempt is never reviewed, and its raw review hash, if
-any, stays evidence only. A Stage 1 summary recorded before normalized review
-hashes existed has none: it does not unlock Stage 2, and the message says to
-record Stage 1 again with the current tools. No pilot has run, so no such
-summary exists; the tools refuse one rather than fall back to comparing
-re-derived verdicts. With
+The fields the tools count from a review (its verdict counts, the
+baselines' false accusations total, a skill run's reviewer) are never
+compared across tool versions, so a later tool version that counts a review
+differently does not hold Stage 2 over an unchanged or re-saved review
+(unless the re-computed decision is no longer `go`). The decision itself is
+compared, and a recorded skill review that the running tools reject (they
+find a problem in it or find it incomplete, after a new review rule, say)
+leaves the re-computed decision `incomplete`: `run-prepare` refuses Stage 2
+with a message that names each such review, says it is final and must not be
+edited (an edit changes its normalized hash and holds Stage 2 as well) and
+that Stage 2 needs that tool change reverted (the tools that recorded the
+summary accept the review), and `summarize --stage all` is `incomplete` with
+the same remedy. So a tools change during a pilot must not reject a recorded
+Stage 1 review ([known limits](pilot/README.md#known-limits)). A review the
+recording tools did not read (a baseline they judged invalid) has a null
+review hash in the summary and is not compared. A run that did not complete
+is never reviewed: a `review.md` that appears in such a Stage 1 run after the
+record (restored from a copy made before `--record` asked to remove it, say)
+is named, and Stage 2 is held until it is removed, whichever tools recorded
+the summary. An earlier attempt is never reviewed, and its raw review hash,
+if any, stays evidence only. A Stage 1 summary recorded before normalized
+review hashes existed has none: it holds Stage 2 (`run-prepare` refuses, and
+`summarize --stage all` is `incomplete` without making Stage 2 runs
+invalid). The message says to record Stage 1 again with the current tools
+only while no Stage 2 run has been prepared and the summary commit is not
+pushed; otherwise the owner writes `invalidation.md` and a new campaign
+supersedes this one, because a summary recorded again after Stage 2 runs were
+prepared makes each of them invalid (they started before it was generated).
+No pilot has run, so no such summary exists; the tools refuse one rather than
+fall back to comparing re-derived verdicts. With
 per-host targets, a stop reason names
 each host that misses a target, and the early-stop indicators include each
 host's bound.

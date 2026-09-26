@@ -64,7 +64,9 @@ instead of re-deriving its verdicts, so after the Stage 1 record only `>`
 notes, line endings, trailing spaces and blank lines may change in a review,
 and a later tool version that reads or counts reviews differently no longer
 holds Stage 2 unless it changes the decision, which closes the narrow case
-(RC2-1) that 0.3.0 left open. 0.2.0
+(RC2-1) that 0.3.0 left open. A tools change that rejects a recorded Stage 1
+review does change it (to `incomplete`), so such a change must wait for the
+next campaign. 0.2.0
 shipped to `main` on 2026-09-25, when PR #9 was squash-merged as `d99904f`;
 the Campaign 2 branch is based on that commit.
 

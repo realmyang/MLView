@@ -48,12 +48,40 @@ a run or decides the pilot.
 - The end-to-end pilot test also records and checks the normalized hashes
   through the command line.
 - A Stage 1 summary without normalized review hashes (one recorded by the
-  0.3.0 tools) is refused, with the advice to record Stage 1 again with the
-  current tools; there is no fallback path. No pilot has run, so no such
-  summary exists.
+  0.3.0 tools) is refused; there is no fallback path. It holds Stage 2
+  (`run-prepare` refuses, and `summarize --stage all` is `incomplete`
+  without making Stage 2 runs invalid), and the message says to record Stage
+  1 again with the current tools only while no Stage 2 run has been prepared
+  and the summary commit is unpushed, and otherwise to supersede the
+  campaign, since a summary recorded again after Stage 2 runs were prepared
+  makes them invalid. No pilot has run, so no such summary exists.
 - The review template's Stage 1 note, the `--record` message and the docs
   (the evaluation README, the pilot README and its known limits, the pilot
   readiness checklist) state the new rule.
+- Review fixes on the branch, each with a regression test on synthetic data:
+  - A summary without normalized review hashes, or with another
+    normalization version, is a hold rather than a missing go, so Stage 2
+    runs collected under it are no longer counted invalid in a recordable
+    all-stage summary (STATS-1).
+  - A later tool version that rejects an unchanged, recorded Stage 1 skill
+    review (a new review rule) gets its own message: it names each review,
+    says it is final and must not be edited, and that Stage 2 needs the tool
+    change reverted; the all-stage note gives that remedy instead of "fetch
+    or verify the corpus". The docs no longer say that whether a review is
+    complete is not compared across tool versions, and the pilot README's
+    known limits say that a tools change must not reject a recorded Stage 1
+    review (HONEST-1).
+  - A `review.md` that reappears after the record in a Stage 1 run that did
+    not complete is named with the remedy (remove it) and holds Stage 2,
+    whichever tools recorded the summary, instead of a message that pointed
+    at a forged summary and Stage 2 runs counted invalid with the same tools
+    (STATS-2, HONEST-2; the latter predates this branch).
+  - With the same tools, the normalized review hashes are part of the full
+    comparison, so a summary that nulls the hashes of a review the tools read
+    no longer unlocks Stage 2 (INTEGRITY-1).
+  - The normalization v1 constants and test vectors are spelled with
+    escapes instead of invisible raw characters (INTEGRITY-2); the pinned
+    bytes and hash are unchanged.
 
 ## 0.3.0 — pilot readiness (Campaign 2)
 

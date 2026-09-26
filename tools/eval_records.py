@@ -674,8 +674,8 @@ def sha256_file(path: Path) -> str:
 # spaces or blank lines therefore keep the hash; any other change, including a change of leading
 # indentation, changes it.
 REVIEW_NORMALIZATION_VERSION = 1
-_V1_SPACE = ("\t\n\x0b\x0c\r\x1c\x1d\x1e\x1f \x85\xa0          "
-             "      　")
+_V1_SPACE = ("\t\n\x0b\x0c\r\x1c\x1d\x1e\x1f \x85\xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005"
+             "\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000")
 _V1_LINE_BREAK = re.compile(r"\r\n|\r|\n")
 
 
@@ -685,7 +685,7 @@ def normalized_review_bytes(raw: bytes) -> bytes:
         text = bytes(raw).decode("utf-8")
     except UnicodeDecodeError:
         raise ValueError("the file is not valid UTF-8") from None
-    if text.startswith("﻿"):
+    if text.startswith("\ufeff"):
         text = text[1:]
     kept = []
     for line in _V1_LINE_BREAK.split(text):
