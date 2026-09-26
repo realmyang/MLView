@@ -196,6 +196,18 @@ test('the rail starts closed when the canvas beside it would be under 900 px, an
   ctx.app.destroy();
 });
 
+test('working in the rail keeps it: a narrower panel after following evidence does not close it', async () => {
+  let width = 1382;
+  const ctx = await mount(doc(), { rootWidth: () => width });
+  const rail = ctx.document.querySelector('.mlv-rail');
+  assert.equal(rail.hidden, false);
+  rail.dispatchEvent(new ctx.window.Event('pointerdown', { bubbles: true }));
+  width = 691;
+  resize(ctx);
+  assert.equal(rail.hidden, false, 'the split beside the source must not take the finding away');
+  ctx.app.destroy();
+});
+
 test('selecting a finding opens a collapsed rail', async () => {
   const ctx = await mount(doc(), { rootWidth: () => 541 });
   const rail = ctx.document.querySelector('.mlv-rail');

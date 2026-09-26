@@ -173,8 +173,9 @@ export class App implements MLViewApp {
   error: { message: string; detail?: string; actions?: { id: string; label: string }[] } | null = null;
   railOpen = true;
   /**
-   * The reader has shown or hidden the rail themselves (or selected a finding,
-   * which opens it), so the width rule in `autoRail` no longer decides.
+   * The reader has shown or hidden the rail themselves, selected a finding
+   * (which opens it) or worked inside it, so the width rule in `autoRail` no
+   * longer decides.
    */
   railChosen = false;
   railWidth = 360;
@@ -420,11 +421,14 @@ export class App implements MLViewApp {
     this.legend.setOtherKinds(Array.from(kinds).sort(), unspecified);
   }
 
-  /** A finding was selected: its detail lives in the rail, so the rail opens. */
+  /**
+   * A finding was selected: its detail lives in the rail, so the rail opens and
+   * stays open — the reader is now reading it, and a later resize (the split a
+   * followed evidence link opens) must not take it away.
+   */
   private showRailForFinding(): void {
-    if (this.railOpen) return;
     this.railChosen = true;
-    this.setRailOpen(true);
+    if (!this.railOpen) this.setRailOpen(true);
   }
 
   setRailOpen(open: boolean): void {
