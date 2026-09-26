@@ -34,7 +34,9 @@ the user put out of scope) or `Not inspected:` with the reason.
 
 Run it once on the validated draft. Fix what fails, validate again, and then
 re-read each material correction in the validated draft before reporting it: a
-failed edit can leave the old text in place.
+failed edit can leave the old text in place. The checklist corrects the draft;
+record a step not yet traced as a `Not inspected:` limitation and trace it in a
+child revision after publishing, not before.
 
 Workflow questions:
 

@@ -168,8 +168,13 @@ warnings (unreferenced evidence, isolated nodes, self edges, wide evidence, and
 others) as possible omissions and its `basis` summary as a check on the labels;
 warnings never block publication. Apply corrections, validate again, and
 re-read each material correction in the validated draft before reporting it.
-Report material critique corrections, or that none were needed, separately
-from validator repairs.
+The critique corrects, qualifies, and connects what the draft already covers;
+it does not start new tracing. Publish once the corrections validate. Name
+further work it suggests (new steps, deeper tracing) in a `Not inspected: ...`
+limitation (with `coverage.status` `partial` if that work is on the selected
+path) and continue it in a child revision after publishing, when the run
+allows. Report material critique corrections, or that none were needed,
+separately from validator repairs.
 
 Run the helper with `--workspace` set to the VS Code workspace folder that will
 contain the artifact (the folder the user opened; in a monorepo, the opened
