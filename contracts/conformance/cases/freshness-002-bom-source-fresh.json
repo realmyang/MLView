@@ -2,9 +2,10 @@
   "id": "freshness-002-bom-source-fresh",
   "findings": [
     "SKILL-9",
-    "EXT-7"
+    "EXT-7",
+    "SHAKEDOWN3-11"
   ],
-  "description": "A UTF-8 source with a byte-order mark is fingerprinted from its raw bytes (BOM included); the BOM is not part of line 1, so a quote without it matches and the published revision is fresh.",
+  "description": "A UTF-8 source with a byte-order mark is fingerprinted from its raw bytes (BOM included); the BOM is not part of line 1, so a quote without it matches and the published revision is fresh. Its two nodes are unconnected, so the helper also warns isolated_node (non-blocking).",
   "files": {
     "bom.py": {
       "base64": "77u/aW1wb3J0IHRvcmNoCm1vZGVsID0gdG9yY2gubm4uTGluZWFyKDIsIDEpCg=="
@@ -93,7 +94,9 @@
     "helper": {
       "ok": true,
       "codes": [],
-      "warnings": [],
+      "warnings": [
+        "isolated_node"
+      ],
       "fingerprints": {
         "bom.py": {
           "$sha256": {

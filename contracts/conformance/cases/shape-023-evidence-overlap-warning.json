@@ -1,0 +1,105 @@
+{
+  "id": "shape-023-evidence-overlap-warning",
+  "findings": [
+    "SHAKEDOWN3-11"
+  ],
+  "description": "A finding that lists the same evidence ID in evidence and counterEvidence is valid and publishes, with the non-blocking warning evidence_overlap.",
+  "files": {
+    "train.py": {
+      "text": "import torch\n\ndef train(model, data):\n    for batch in data:\n        loss = model(batch)\n        loss.backward()\n    return model\n"
+    }
+  },
+  "artifact": "workflow.mlview.json",
+  "document": {
+    "workflowVersion": "1.0",
+    "title": "Training loop",
+    "producer": {
+      "kind": "host-llm",
+      "host": "codex"
+    },
+    "revision": {
+      "id": "r1"
+    },
+    "request": {
+      "question": "How does train.py train the model?",
+      "scope": "train.py"
+    },
+    "phases": [
+      {
+        "id": "train",
+        "label": "Train"
+      }
+    ],
+    "nodes": [
+      {
+        "id": "loop",
+        "label": "Training loop",
+        "phase": "train",
+        "basis": "observed",
+        "evidence": [
+          "ev-loop"
+        ]
+      }
+    ],
+    "edges": [],
+    "findings": [
+      {
+        "id": "no-clip",
+        "title": "No gradient clipping",
+        "message": "The loop calls backward without clipping.",
+        "severity": "low",
+        "nodeIds": [
+          "loop"
+        ],
+        "basis": "inferred",
+        "evidence": [
+          "ev-loop"
+        ],
+        "counterEvidence": [
+          "ev-loop"
+        ]
+      }
+    ],
+    "evidence": [
+      {
+        "id": "ev-loop",
+        "file": "train.py",
+        "line": 4,
+        "endLine": 6,
+        "quote": "    for batch in data:\n        loss = model(batch)\n        loss.backward()"
+      }
+    ],
+    "coverage": {
+      "status": "scoped",
+      "summary": "Read the training function.",
+      "inspectedFiles": [
+        "train.py"
+      ],
+      "limitations": []
+    }
+  },
+  "expect": {
+    "schema": "valid",
+    "helper": {
+      "ok": true,
+      "codes": [],
+      "warnings": [
+        "evidence_overlap"
+      ],
+      "fingerprints": {
+        "train.py": {
+          "$sha256": {
+            "text": "import torch\n\ndef train(model, data):\n    for batch in data:\n        loss = model(batch)\n        loss.backward()\n    return model\n"
+          }
+        }
+      },
+      "stale": []
+    },
+    "extension": {
+      "ok": true,
+      "stale": [],
+      "issuePaths": []
+    }
+  },
+  "divergence": null
+}

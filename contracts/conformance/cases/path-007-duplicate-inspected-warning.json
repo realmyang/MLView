@@ -1,0 +1,89 @@
+{
+  "id": "path-007-duplicate-inspected-warning",
+  "findings": [
+    "SHAKEDOWN3-11"
+  ],
+  "description": "A repeated coverage.inspectedFiles entry is valid (the schema has no uniqueItems) and publishes, with the non-blocking warning duplicate_inspected.",
+  "files": {
+    "train.py": {
+      "text": "import torch\n\ndef train(model, data):\n    for batch in data:\n        loss = model(batch)\n        loss.backward()\n    return model\n"
+    }
+  },
+  "artifact": "workflow.mlview.json",
+  "document": {
+    "workflowVersion": "1.0",
+    "title": "Training loop",
+    "producer": {
+      "kind": "host-llm",
+      "host": "codex"
+    },
+    "revision": {
+      "id": "r1"
+    },
+    "request": {
+      "question": "How does train.py train the model?",
+      "scope": "train.py"
+    },
+    "phases": [
+      {
+        "id": "train",
+        "label": "Train"
+      }
+    ],
+    "nodes": [
+      {
+        "id": "loop",
+        "label": "Training loop",
+        "phase": "train",
+        "basis": "observed",
+        "evidence": [
+          "ev-loop"
+        ]
+      }
+    ],
+    "edges": [],
+    "findings": [],
+    "evidence": [
+      {
+        "id": "ev-loop",
+        "file": "train.py",
+        "line": 4,
+        "endLine": 6,
+        "quote": "    for batch in data:\n        loss = model(batch)\n        loss.backward()"
+      }
+    ],
+    "coverage": {
+      "status": "scoped",
+      "summary": "Read the training function.",
+      "inspectedFiles": [
+        "train.py",
+        "train.py"
+      ],
+      "limitations": []
+    }
+  },
+  "expect": {
+    "schema": "valid",
+    "helper": {
+      "ok": true,
+      "codes": [],
+      "warnings": [
+        "duplicate_inspected"
+      ],
+      "fingerprints": {
+        "train.py": {
+          "$sha256": {
+            "text": "import torch\n\ndef train(model, data):\n    for batch in data:\n        loss = model(batch)\n        loss.backward()\n    return model\n"
+          }
+        }
+      },
+      "stale": []
+    },
+    "extension": {
+      "ok": true,
+      "stale": [],
+      "issuePaths": []
+    }
+  },
+  "divergence": null
+}
