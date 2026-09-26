@@ -250,16 +250,44 @@ export class GraphIndex {
     return id;
   }
 
-  /** Groups that start collapsed: the document's own hint, plus large subtrees. */
+  /**
+   * Groups that start collapsed: the document's own hint, plus large subtrees.
+   *
+   * Campaign 3, issue 6: for an AUTHORED document a group that holds the target
+   * of a finding (a node it names, or an end of a connection it names) is never
+   * folded by this size rule. The rule folded away the training loop in four of
+   * twelve Claude Code shakedown artifacts, and with it every finding placed on
+   * the loop, while peripheral groups stayed open. The reader can still fold it.
+   */
   defaultCollapsed(): string[] {
     const out: string[] = [];
     const big = (this.graph.nodes || []).length > 120;
+    const holdsTarget = this.graph.schemaVersion === 'workflow-view/1' ? this.findingTargetAncestors() : null;
     for (const n of this.graph.nodes || []) {
       if (!this.isGroup(n.id)) continue;
+      if (holdsTarget && holdsTarget.has(n.id)) continue;
       const kids = this.descendantCount(n.id);
       if (n.collapsedByDefault || kids > 12 || (big && kids > 4)) out.push(n.id);
     }
     return out.sort();
+  }
+
+  /** Every group that contains a node or connection end some finding names. */
+  private findingTargetAncestors(): Set<string> {
+    const targets = new Set<string>();
+    for (const issue of this.graph.issues || []) {
+      for (const id of issue.nodeIds || []) targets.add(id);
+      for (const id of issue.edgeIds || []) {
+        const edge = this.edgeById.get(id);
+        if (edge) {
+          targets.add(edge.source);
+          targets.add(edge.target);
+        }
+      }
+    }
+    const out = new Set<string>();
+    for (const id of targets) for (const ancestor of this.ancestors(id)) out.add(ancestor);
+    return out;
   }
 }
 

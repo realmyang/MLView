@@ -15,6 +15,7 @@ import type { RelationMode } from './outline.js';
 import { appendSuppressActions, stateChip } from './suppress.js';
 import { appendFixSection, hasFix } from './fixes.js';
 import { alternativeCount, isAlternatives, resolvedConfig } from '../config/resolved.js';
+import { edgeKindText } from '../render/edges.js';
 import type { DiffIndex } from '../diff/overlay.js';
 import type { Issue, Loc, MLEdge, MLNode, RailGroupBy, RailTab, RelatedLoc } from '../types.js';
 import type { GraphIndex } from '../layout/model.js';
@@ -441,11 +442,14 @@ export class Rail {
   }
 
   private renderEdgeInspector(panel: HTMLElement, edge: MLEdge, index: GraphIndex): void {
-    add(panel, el('h4', 'mlv-insp__title', edge.label || edge.kind || 'Connection'));
+    add(panel, el('h4', 'mlv-insp__title', edge.label || edgeKindText(edge.kind) || 'Connection'));
     const source = index.nodeById.get(edge.source);
     const target = index.nodeById.get(edge.target);
     const meta = add(panel, el('div', 'mlv-insp__meta'));
-    add(meta, el('span', 'mlv-chip', edge.kind || 'connection'));
+    // Issue 9: the authored kind word, never the adapter's `unknown`; a
+    // normalised synonym names what the author wrote as well.
+    const kindChip = add(meta, el('span', 'mlv-chip mlv-insp__edgekind', edgeKindText(edge.kind) + (edge.authoredKind ? ' · authored as ' + edge.authoredKind : '')));
+    kindChip.setAttribute('data-edge-kind', edge.kind);
     if (edge.basis) add(meta, el('span', 'mlv-chip mlv-chip--basis', 'basis · ' + edge.basis));
     add(panel, el('div', 'mlv-insp__fqn', (source?.label || edge.source) + ' → ' + (target?.label || edge.target)));
     const actions = add(panel, el('div', 'mlv-insp__actions'));

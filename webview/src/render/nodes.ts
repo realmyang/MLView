@@ -5,13 +5,20 @@
 
 import { el, add, middleTruncate, locSpan } from '../dom.js';
 import { locSpoken } from '../notebook.js';
-import { kindIcon, uiIcon, isKnownKind } from '../icons.js';
+import { kindIcon, uiIcon, isKnownKind, nodeGlyphKind } from '../icons.js';
 import { severityBadge, severityCluster, highestSeverity, countsTotal } from '../markers.js';
 import { alternativeCount, configSpoken, configSublabel, isAlternatives, resolvedConfig } from '../config/resolved.js';
 import { rollupChipText, rollupCount, rollupSpoken } from '../rollup/rolled.js';
 import type { IssueCounts, MLNode } from '../types.js';
 import type { LayoutBox, LayoutLane } from '../layout/layout.js';
-import { chipCandidates } from '../layout/cardmetrics.js';
+import { chipCandidates, titleLines } from '../layout/cardmetrics.js';
+
+/**
+ * An authored sublabel is the model's `detail`, up to 8000 characters. The card
+ * shows one ellipsised line of it (CSS), so the DOM keeps only a prefix far
+ * longer than any card can draw; the inspector has the whole text.
+ */
+const SUB_DOM_CHARS = 240;
 
 /**
  * VIEW-08. How each diff status reads on a card, and to a screen reader.
@@ -230,6 +237,9 @@ export function buildNodeCard(v: NodeVisual, collapsedGroup: boolean): HTMLEleme
   card.setAttribute('data-stage', stageOf(n));
   card.setAttribute('data-kind', n.kind);
   card.setAttribute('data-level', n.level);
+  // Issue 14: the uncertainty treatment belongs to the authored basis, not to
+  // an unfamiliar kind word (node.css `[data-basis="unresolved"]`).
+  if (n.authored && n.basis) card.setAttribute('data-basis', n.basis);
   const top = highestSeverity(v.counts);
   // A BOUNDARY stub carries no severity badge: its findings are out of scope,
   // and a badge you cannot open is a lie (FEATURES 3.7).
@@ -288,17 +298,34 @@ export function buildNodeCard(v: NodeVisual, collapsedGroup: boolean): HTMLEleme
   add(card, el('div', 'mlv-node__rail'));
   const main = add(card, el('div', 'mlv-node__main'));
   const iconbox = add(main, el('div', 'mlv-node__iconbox'));
-  iconbox.appendChild(kindIcon(groupLike ? 'artifact' : n.kind));
+  iconbox.appendChild(kindIcon(nodeGlyphKind(n, groupLike)));
 
   const text = add(main, el('div', 'mlv-node__text'));
-  add(text, el('div', 'mlv-node__title', middleTruncate(n.label || n.qualname || n.id, 34)));
+  const label = n.label || n.qualname || n.id;
+  if (n.authored) {
+    // Campaign 3, issue 14: truncated ONCE. The title used to be cut to 34
+    // characters in the middle and then again by the CSS end ellipsis
+    // ("Acquire the dataset ......"); 723 of 865 shakedown labels were longer.
+    // Now the whole label is in the DOM and wraps to the lines the layout
+    // reserved (`cardmetrics.titleLines`), clamped with one ellipsis. The full
+    // label is in the hover card and the accessible name.
+    const lines = titleLines(n, v.box.w);
+    const title = add(text, el('div', 'mlv-node__title mlv-node__title--wrap', label));
+    title.style.setProperty('--mlv-title-lines', String(lines));
+    // Below the detail threshold the sub, loc and chip rows are not drawn, so
+    // the title may use two more lines of the same box.
+    title.style.setProperty('--mlv-title-lines-compact', String(Math.min(5, lines + 2)));
+  } else {
+    add(text, el('div', 'mlv-node__title', middleTruncate(label, 34)));
+  }
   // ANA-10: the RESOLVED value outranks the document's own sublabel, because
   // "where does batch_size come from" is the question the config lane exists to
   // answer and `download=False` is not the answer to it. Absent when the
   // analyzer resolved nothing, which leaves the card exactly as it was.
   const resolved = configSublabel(n);
   const sub = resolved || n.sublabel || (n.fqn ? n.fqn : n.kind);
-  const subEl = add(text, el('div', 'mlv-node__sub', middleTruncate(sub, 40)));
+  // Issue 14: an authored sublabel is prose, cut once by the CSS end ellipsis.
+  const subEl = add(text, el('div', 'mlv-node__sub', n.authored && !resolved ? sub.slice(0, SUB_DOM_CHARS) : middleTruncate(sub, 40)));
   if (resolved) {
     subEl.classList.add('mlv-node__sub--config');
     // The card middle-truncates at 40 characters, so a three-candidate registry
@@ -438,8 +465,9 @@ export function buildGroupBox(v: NodeVisual): HTMLElement {
   chev.setAttribute('class', 'mlv-uicon mlv-group__chevron');
   chevBtn.appendChild(chev);
   header.appendChild(chevBtn);
-  header.appendChild(kindIcon(n.kind, 14));
-  add(header, el('span', 'mlv-group__name', middleTruncate(n.label || n.qualname, 42)));
+  header.appendChild(kindIcon(nodeGlyphKind(n, false), 14));
+  // Issue 14: an authored group name is cut once, by the CSS end ellipsis.
+  add(header, el('span', 'mlv-group__name', n.authored ? n.label || n.qualname : middleTruncate(n.label || n.qualname, 42)));
   if (n.basis) add(header, el('span', 'mlv-chip mlv-chip--basis', n.basis));
   add(header, el('span', 'mlv-group__count', String(v.descendants)));
   if (rolledGroup) {

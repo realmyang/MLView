@@ -41,7 +41,85 @@
  */
 
 import type { MLNode } from '../types.js';
-import { NODE_H, NODE_H_GHOST, NODE_CHIP_ROW_H, NODE_W, NODE_W_LG, NODE_W_SM } from './constants.js';
+import {
+  NODE_H,
+  NODE_H_GHOST,
+  NODE_CHIP_ROW_H,
+  NODE_TITLE_LINE_H,
+  NODE_TITLE_MAX_LINES,
+  NODE_W,
+  NODE_W_LG,
+  NODE_W_SM,
+} from './constants.js';
+
+/**
+ * The card's text column: the width minus both borders, the stage rail, the
+ * main padding, the icon tile and its gap (node.css), i.e. what the SVG export
+ * calls `box.w - TEXT_X - PAD_R`.
+ */
+export const CARD_TEXT_INSET = 58;
+
+/**
+ * Average advance of the 13 px semibold title, in px: the SVG export's
+ * `ADVANCE_SANS_BOLD` (0.55 em) at 13 px. An estimate — it only decides how
+ * many lines to reserve; the DOM wraps by real metrics and clamps to that count.
+ */
+const TITLE_ADVANCE_PX = 13 * 0.55;
+
+/**
+ * Campaign 3, issue 14. The title as the lines a card of `width` draws: greedy
+ * word wrap on the average advance, at most NODE_TITLE_MAX_LINES, the last line
+ * ending in one ellipsis when text remains. A word longer than a line (a dotted
+ * path, an identifier) is broken, as `overflow-wrap: anywhere` does on the card.
+ * Pure, so the layout (how tall), the SVG export (what text) and a test agree.
+ */
+export function wrapTitle(label: string, width: number, maxLines = NODE_TITLE_MAX_LINES): string[] {
+  const perLine = Math.max(4, Math.floor((width - CARD_TEXT_INSET) / TITLE_ADVANCE_PX));
+  const words = String(label || '').trim().split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let line = '';
+  let rest = false;
+  for (let i = 0; i < words.length; i++) {
+    let word = words[i];
+    while (word.length > perLine) {
+      // Break an over-long word, filling the current line first.
+      const room = line ? perLine - line.length - 1 : perLine;
+      if (room >= 4) {
+        line = line ? line + ' ' + word.slice(0, room) : word.slice(0, room);
+        word = word.slice(room);
+      }
+      lines.push(line);
+      line = '';
+      if (lines.length === maxLines) break;
+    }
+    if (lines.length === maxLines) { rest = true; break; }
+    const next = line ? line + ' ' + word : word;
+    if (next.length <= perLine) {
+      line = next;
+      continue;
+    }
+    lines.push(line);
+    line = word;
+    if (lines.length === maxLines) { rest = true; break; }
+  }
+  if (!rest && line) lines.push(line);
+  else if (rest && lines.length) {
+    const last = lines[lines.length - 1];
+    lines[lines.length - 1] = (last.length >= perLine ? last.slice(0, perLine - 1) : last) + '…';
+  }
+  if (lines.length > maxLines) lines.length = maxLines;
+  return lines.length ? lines : [''];
+}
+
+/**
+ * How many title lines the card reserves. Authored cards wrap (issue 14: 723
+ * of 865 shakedown labels were longer than the old 34-character cut); legacy
+ * cards keep their single middle-truncated line.
+ */
+export function titleLines(node: MLNode, width: number): number {
+  if (!node.authored) return 1;
+  return wrapTitle(node.label || node.qualname || node.id, width).length;
+}
 
 /**
  * The attribute chips a card COULD draw, before any width budget.
@@ -85,7 +163,8 @@ export function drawsLocRow(node: MLNode): boolean {
 /** The reserved height of one card — the box every other layer trusts. */
 export function cardHeight(node: MLNode, collapsedGroup = false): number {
   const base = drawsLocRow(node) || collapsedGroup ? NODE_H : NODE_H_GHOST;
-  return base + (drawsChipRow(node, collapsedGroup) ? NODE_CHIP_ROW_H : 0);
+  const extraTitle = (titleLines(node, cardWidth(node, collapsedGroup)) - 1) * NODE_TITLE_LINE_H;
+  return base + extraTitle + (drawsChipRow(node, collapsedGroup) ? NODE_CHIP_ROW_H : 0);
 }
 
 /** The reserved width of one card. Unchanged from the old `nodeSize`. */

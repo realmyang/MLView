@@ -145,8 +145,8 @@ export function buildAppUi(app: App): void {
     onTab: (tab) => app.setRailTab(tab),
     onClearFilters: () => app.clearFilters(),
     onSelectIssue: (id) => app.focusIssue(id),
-    onSelectNode: (id) => app.select({ kind: 'node', id }, { center: true }),
-    onSelectEdge: (id) => app.select({ kind: 'edge', id }, { tab: 'inspector' }),
+    onSelectNode: (id) => app.select({ kind: 'node', id }, { center: true, reveal: true }),
+    onSelectEdge: (id) => app.select({ kind: 'edge', id }, { tab: 'inspector', reveal: true }),
     onChallenge: () => {
       const refine = app.root.querySelector<HTMLButtonElement>('.mlv-workflow__refine');
       const composer = app.root.querySelector<HTMLFormElement>('.mlv-workflow__composer');

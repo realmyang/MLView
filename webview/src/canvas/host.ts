@@ -28,6 +28,12 @@ export const HOVER_CLOSE_MS = 120;
 /** The graph size at which an overview earns the corner it occupies (UX_DESIGN §1). */
 export const MINIMAP_MIN_NODES = 30;
 
+/**
+ * Below this canvas height the minimap is not drawn (Campaign 3, issue 6): at
+ * 270-310 px its 200x132 panel covered the lower right of the diagram.
+ */
+export const MINIMAP_MIN_CANVAS_H = 350;
+
 export interface CanvasHost {
   /** The App's issue filter — a marker is drawn only for issues this keeps. */
   keep(issue: Issue): boolean;

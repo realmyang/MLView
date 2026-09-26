@@ -13,6 +13,13 @@ export const NODE_H_GHOST = 60;
  * it owns the decision, this is only the number.
  */
 export const NODE_CHIP_ROW_H = 26;
+/**
+ * One more line of a wrapped authored card title (Campaign 3, issue 14): the
+ * 13 px title at line-height 1.35 is 17.55 px; the half pixel is headroom.
+ */
+export const NODE_TITLE_LINE_H = 18;
+/** An authored title wraps to at most this many lines on the card. */
+export const NODE_TITLE_MAX_LINES = 3;
 
 export const GROUP_HEADER_H = 34;
 export const GROUP_PAD = 16;

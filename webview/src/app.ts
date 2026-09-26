@@ -23,7 +23,7 @@
  * depend on anything that `MLViewApp` (types.ts) does not name.
  */
 
-import { clear, debounce } from './dom.js';
+import { clear, debounce, on } from './dom.js';
 import { GraphIndex } from './layout/model.js';
 import { CanvasView } from './canvasview.js';
 import { FilterModel } from './filters.js';
@@ -42,6 +42,7 @@ import { ScopeBar } from './ui/scopebar.js';
 import { PipelineChooser } from './ui/pipelinechooser.js';
 import { DiffBar } from './ui/diffbar.js';
 import { decorateWorkflow, normalizeWorkflow, sanitizeComposer } from './workflow.js';
+import { KNOWN_EDGE_KINDS } from './render/edges.js';
 import { buildAppUi } from './app/build.js';
 import { scopeToNode, setGraph, setScope } from './app/documents.js';
 import { renderChrome, renderRail } from './app/surfaces.js';
@@ -75,6 +76,14 @@ import type {
 /** At most this many requests wait for an `actionResult`; the oldest is dropped. */
 const MAX_PENDING_REQUESTS = 32;
 
+/**
+ * Campaign 3, issue 6. The rail docks only when the canvas beside it keeps at
+ * least this width; below the 900 px breakpoint it is an overlay over 86 % of
+ * the canvas. Until the reader toggles it, it starts closed when either would
+ * leave a diagram narrower than this.
+ */
+export const RAIL_MIN_CANVAS_W = 900;
+
 type RequestFrame = UiToHost & { requestId?: string };
 
 export interface SelectOptions {
@@ -82,6 +91,11 @@ export interface SelectOptions {
   center?: boolean;
   tab?: RailTab;
   pulse?: boolean;
+  /**
+   * A selection made from the rail (issue 6): below the detail threshold the
+   * canvas zooms to the target instead of only centring a shape nobody can read.
+   */
+  reveal?: boolean;
 }
 
 export class App implements MLViewApp {
@@ -158,6 +172,11 @@ export class App implements MLViewApp {
   dismissed = new Set<string>();
   error: { message: string; detail?: string; actions?: { id: string; label: string }[] } | null = null;
   railOpen = true;
+  /**
+   * The reader has shown or hidden the rail themselves (or selected a finding,
+   * which opens it), so the width rule in `autoRail` no longer decides.
+   */
+  railChosen = false;
   railWidth = 360;
   /** The authored document last applied, as the very object that arrived. */
   workflowDocument: WorkflowDocument | null = null;
@@ -212,6 +231,7 @@ export class App implements MLViewApp {
     const composer = restored && typeof restored.workflowRevision === 'string' ? sanitizeComposer(restored.composer) : null;
     if (restored && composer) this.restoredComposer = { revision: restored.workflowRevision as string, composer };
     this.disposers.push(bridge.onMessage((msg) => this.onMessage(msg)));
+    if (typeof window !== 'undefined') this.disposers.push(on(window, 'resize', () => this.autoRail()));
     // The initial scope travels as an attribute on the root element the report
     // already emits, so `mount(root, graph, bridge)` keeps its exact frozen
     // three-argument signature (CONTRACTS 11.8). It outranks a restored scope,
@@ -254,8 +274,14 @@ export class App implements MLViewApp {
     this.restoredComposer = null;
     this.workflowDocument = document;
     this.workflowRevision = document.revision.id;
+    // Before the first fit, so the fit sees the canvas the rail leaves (issue 6).
+    this.autoRail();
     setGraph(this, normalizeWorkflow(document), next, true);
     decorateWorkflow(this, document, composer);
+    this.legendOtherKinds();
+    // The header is built after the fit ran; refit a viewport nobody moved to
+    // the canvas that is actually left (issue 1).
+    this.view.afterChromeChange();
   }
 
   /**
@@ -359,7 +385,46 @@ export class App implements MLViewApp {
   }
 
   toggleRail(): void {
+    this.railChosen = true;
     this.setRailOpen(!this.railOpen);
+  }
+
+  /**
+   * Campaign 3, issue 6. MEASURED live: the docked rail took 360 of a 1086 or
+   * 1382 px panel, and below the 900 px breakpoint the open overlay covered
+   * 86 % of the canvas at the default 541 px. Until the reader chooses, the
+   * rail is open only when the canvas beside it keeps RAIL_MIN_CANVAS_W, and
+   * follows the panel width as it changes. An unmeasurable root (jsdom, a
+   * detached mount) leaves it as it is.
+   */
+  autoRail(): void {
+    if (this.railChosen) return;
+    const width = this.root.getBoundingClientRect().width;
+    if (!(width > 0)) return;
+    const open = width - this.railWidth >= RAIL_MIN_CANVAS_W;
+    if (open === this.railOpen) return;
+    this.setRailOpen(open);
+    // A docked rail changes the canvas width; refit a viewport nobody moved
+    // now rather than waiting for the host's ResizeObserver (none in jsdom).
+    if (this.graph) this.view.handleResize();
+  }
+
+  /** Issue 9: tell the legend which authored edge kinds draw the catch-all stroke. */
+  private legendOtherKinds(): void {
+    const kinds = new Set<string>();
+    let unspecified = 0;
+    for (const edge of (this.scopes.full || this.graph)?.edges || []) {
+      if (edge.kind === 'unknown') unspecified++;
+      else if (KNOWN_EDGE_KINDS.indexOf(edge.kind) < 0) kinds.add(edge.kind);
+    }
+    this.legend.setOtherKinds(Array.from(kinds).sort(), unspecified);
+  }
+
+  /** A finding was selected: its detail lives in the rail, so the rail opens. */
+  private showRailForFinding(): void {
+    if (this.railOpen) return;
+    this.railChosen = true;
+    this.setRailOpen(true);
   }
 
   setRailOpen(open: boolean): void {
@@ -403,10 +468,13 @@ export class App implements MLViewApp {
     if (sel.kind !== 'edge') this.edgeAnchor = null;
     this.selection = sel;
     if (opts && opts.tab) this.railTab = opts.tab;
+    if (sel.kind === 'issue') this.showRailForFinding();
     this.view.applySelection(sel);
     renderRail(this);
     if (sel.kind === 'node') this.bridge.post({ v: 1, type: 'selectNode', nodeId: sel.id });
-    if (opts && opts.center) this.view.centerOnNode(sel.id, !!opts.pulse);
+    if (opts && opts.reveal && sel.kind === 'edge') this.view.revealEdge(sel.id);
+    else if (opts && opts.center && opts.reveal) this.view.revealNode(sel.id, !!opts.pulse);
+    else if (opts && opts.center) this.view.centerOnNode(sel.id, !!opts.pulse);
     if (opts && opts.open) {
       const loc = this.locOf(sel);
       if (loc) this.openLocation(loc);
@@ -581,7 +649,11 @@ export class App implements MLViewApp {
     if (primary) this.view.expandAncestors(primary);
     this.railTab = 'issues';
     this.select({ kind: 'issue', id }, { tab: 'issues' });
-    if (primary) this.view.centerOnNode(primary, true);
+    // Issue 6: at 15-45 % a centred card is an unreadable shape, so below the
+    // detail threshold the canvas zooms to the finding's target. A finding on
+    // connections only reveals its first connection.
+    if (primary) this.view.revealNode(primary, true);
+    else if (issue.edgeIds.length) this.view.revealEdge(issue.edgeIds[0]);
   }
 
   setFilters(f: Partial<Filters>): void {

@@ -6,6 +6,7 @@
 
 import { add, clear, el, locSpan } from '../dom.js';
 import { severityGlyph } from '../markers.js';
+import { edgeKindText } from './edges.js';
 import type { GraphIndex, IssuePredicate } from '../layout/model.js';
 import type { LayoutBox } from '../layout/layout.js';
 import type { RoutedEdge } from '../layout/routing.js';
@@ -96,8 +97,10 @@ export class Tooltip {
   showEdge(index: GraphIndex, route: RoutedEdge): void {
     const edge = index.edgeById.get(route.id);
     clear(this.root);
-    add(this.root, el('div', 'mlv-tooltip__title', route.label || route.kind));
-    add(this.root, el('div', 'mlv-tooltip__row', route.kind + (route.subkind ? ' · ' + route.subkind : '')));
+    add(this.root, el('div', 'mlv-tooltip__title', route.label || edgeKindText(route.kind)));
+    // Issue 9: the authored kind word, never `unknown`.
+    const authored = edge && edge.authoredKind ? ' · authored as ' + edge.authoredKind : '';
+    add(this.root, el('div', 'mlv-tooltip__row', edgeKindText(route.kind) + (route.subkind ? ' · ' + route.subkind : '') + authored));
     if (edge && edge.basis) add(this.root, el('div', 'mlv-tooltip__row', 'Basis · ' + edge.basis));
     if (edge && edge.loc.file) add(this.root, locSpan('mlv-tooltip__loc', edge.loc, 'div'));
     if (route.count > 1) add(this.root, el('div', 'mlv-tooltip__row', route.count + ' merged connections'));
