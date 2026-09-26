@@ -52,6 +52,49 @@ run happened in this integration.
   with the new warnings) were made on their branches and were not repeated
   here. They are scratch evidence, not committed records.
 
+### Integration review fixes — 2026-09-26
+
+Four provisional model reviews of `c67e000` (helper, skill, live viewer and a
+replay of the shakedown drafts; not a human review) reported 18 findings,
+some overlapping. The fixes are commit `428b9ad`; this addition to the record
+is the only later change. **These are local automated checks only**, with
+the same caveats as above: CI has not run on these commits, and nothing here
+is semantic accuracy, human review, a live-host run of the skill or a pilot
+run.
+
+- `sh scripts/e2e.sh --skip-npm-install` on `428b9ad`: **all 15 exercised
+  gates passed** (`E2E OK: 15 exercised gates`).
+  - Python helper, distribution and evaluation tests: **892 passed, 630
+    subtests passed**, none skipped.
+  - Viewer: **100 passed**, 0 failed, 0 skipped. Extension: **266 passed**,
+    0 failed, 0 skipped.
+  - The actual VSIX: 11 files, 161,147 bytes.
+  - The same gate on the uncommitted tree just before the commit (identical
+    apart from one rewrapped paragraph in the skill's contract reference)
+    also passed all 15 gates with the same counts.
+- After the gate's rebuild, `git status` was clean, so `webview/dist`,
+  `vscode-extension/media`, the extension's notices and
+  `claude-plugin/skills/mlview` match their sources.
+- `python tools/verify.py --all`: OK. `python tools/evidence_lock.py`: 95
+  files match the lock. `python scripts/check_docs.py`: OK, 40 documents.
+- Under Python 3.10.21, `python3.10 -m unittest discover -s
+  skills/mlview/tests -p 'test_artifact*.py'` ran 118 tests, OK.
+- Scratch measurements, not committed records: a read-only `validate` of the
+  32 published shakedown artifacts with the fixed helper (32 valid); the
+  helper's `foundAt` hint compared before and after the bounded search on
+  the 137 `quote_mismatch` errors of the replayed shakedown drafts (all
+  identical); three mismatched 2,001-line quotes against a 1,000,000-line
+  blank file (11.9 s before, 0.07 s after); and a headless Chrome check of
+  the built viewer bundle before and after the fixes. In that check, at
+  541x502 and 541x450 the collapsed header's Details toggle went from 0 of
+  28 px visible to 28 of 28, with the status bar visible in every measured
+  size; at 541x798 the finding targets of two artifacts went from 4% visible
+  behind the rail drawer to fully visible at 75% zoom (at 393 px they stay
+  behind the drawer by design); a target selected with the rail docked at
+  1382 px stayed fully visible after the panel narrowed to 691 px (0% before);
+  and a fixture's two self-edges were drawn (none before). This is a layout
+  check in headless Chrome, not a VS Code live check.
+
 ## Campaign 2 final local checks and CI — 2026-09-25
 
 Campaign 2 at `d6e0e52` on the `campaign2-pilot-readiness` branch (the
