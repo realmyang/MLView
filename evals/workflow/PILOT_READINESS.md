@@ -181,7 +181,9 @@ or transcribed at the owner's dictation with `Transcribed by:` filled.
    `--record` writes the summary for `go`, `stop` or `invalid` (it refuses
    while a failure the run policy lets you retry is still open), and from
    then on Stage 1 runs can no longer be retried or amended, and no Stage 1
-   review may change a verdict; keep a copy of the evidence directory. Commit
+   review may change except for `>` notes, line endings, trailing spaces and
+   blank lines (the summary records each review's normalized hash, and the
+   Stage 2 gate compares it); keep a copy of the evidence directory. Commit
    both summary files at once, right away, before any other commit, pull,
    merge or rebase, and merge that commit without squashing or rebasing it.
 

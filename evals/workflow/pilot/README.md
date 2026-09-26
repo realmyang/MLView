@@ -93,15 +93,24 @@ files and record again. `summarize --record` refuses while a failure the run
 policy lets the operator retry is still open; retry it first. Once the Stage
 1 summary is recorded (once `stage1-summary.json` exists in the working tree
 or the history), Stage 1 runs (skill runs and baselines) can no longer be
-retried or amended, and every Stage 1 `review.md` must keep saying what it
-said: a changed record, or a changed verdict that changes what the summary
-reports, stops the recorded go from unlocking Stage 2 and leaves the
-all-stage summary `incomplete` until it is restored. Review files live
-outside Git, so keep a copy of the evidence directory. When the tools have
-changed since the summary was recorded, a re-saved review is compared by what
-the running tools read from it, so even a re-save can hold Stage 2; the
-message then gives the sha256 the summary recorded for each named
-`review.md`, and restoring those exact bytes from the copy clears it.
+retried or amended, and every Stage 1 `review.md` must keep its content. The
+summary records each review's normalized hash (review normalization v1: UTF-8,
+no BOM, any line endings, no trailing whitespace, no blank lines and no `>`
+notes; see `evals/workflow/README.md`, "Stage 1 stop/go"), and the Stage 2
+gate compares those hashes whichever tools recorded the summary. So `>` notes,
+line endings, trailing spaces and blank lines may change afterwards; a changed
+record, or any other change to a review (a verdict, a reason, the reviewer,
+the date, a false accusation, a deleted review), stops the recorded go from
+unlocking Stage 2 and leaves the all-stage summary `incomplete` until it is
+restored. The message names each run and file; restore everything but those
+allowed changes exactly, from the copy of the evidence directory (review
+files live outside Git, so keep one). What the tools derive from a review
+(its counts, whether it is complete) is not compared across tool versions, so
+a later tool version that reads or counts a review differently does not hold
+Stage 2 over an unchanged or re-saved review; the decision itself is still
+compared. A Stage 1 summary
+recorded before these hashes existed is refused, with the advice to record
+Stage 1 again with the current tools; no pilot has run, so none exists.
 
 ## Checks
 
@@ -209,11 +218,10 @@ authorship and the `Transcribed by:` line in decision files, branch
 protection on main, and the pushed candidate tag are the safeguards; review
 who committed what before trusting a result.
 
-With a Stage 1 summary recorded by earlier tools, a changed Stage 1 review
-is compared by what the current tools read from it, and the baselines' false
-accusations only as one total. So a tool change that judges or counts one
-baseline's accusations differently, plus an honest re-save or `>` note of
-another baseline review, can hold Stage 2 and name the re-saved review.
-Nothing is lost: restore the exact bytes of each named `review.md` (the
-message gives the sha256 the summary recorded; keep a copy of every Stage 1
-review) and Stage 2 proceeds.
+The Stage 1 gate compares each Stage 1 review by its normalized hash, not by
+what the tools read from it, so it cannot tell a harmless edit that changes
+the hash (a changed indentation, a reworded reason with the same verdict, a
+corrected date) from a changed verdict: each holds Stage 2 until the named
+`review.md` is restored. Keep a copy of every Stage 1 review. (This replaces
+the RC2-1 limit of 0.3.0, where a tool change in how one baseline's false
+accusations count, plus a re-save of another baseline review, held Stage 2.)

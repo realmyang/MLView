@@ -6,6 +6,55 @@ static analyzer; their figures are historical and are not rewritten. Current
 truth lives in [docs/STATUS.md](docs/STATUS.md) and
 [docs/VALIDATION.md](docs/VALIDATION.md).
 
+## Unreleased — Stage 1 normalized review hashes
+
+Evaluation tooling only: `tools/` is not part of the shipped skill, plugin or
+VSIX, so no version changes. This simplifies the Stage 1 finality rule of
+0.3.0, as its RC2-1 note proposed. No pilot has run, and nothing here reviews
+a run or decides the pilot.
+
+- A Stage 1 summary records, beside each review's SHA-256, a normalized hash
+  (`inputs.runs[].reviewNormalized`, `{"version": 1, "sha256": ...}`, null
+  where no review was read; the Markdown lists it). Review normalization v1 is
+  fixed and independent of the review parser (`tools/eval_records.py`): UTF-8,
+  one leading BOM stripped, CRLF, CR and LF alike, trailing whitespace
+  stripped, blank lines and `>` notes dropped, leading indentation kept, then
+  the SHA-256 of the remaining lines, each ended by LF. A test pins its bytes
+  and hash, and another checks that its whitespace set is what the parser
+  strips.
+- The Stage 2 gate (`run-prepare` of a repeat, and `summarize --stage all`)
+  compares the normalized hash of every Stage 1 review the recorded summary
+  lists, whichever tools recorded it. A changed or deleted review is named
+  with its run and file, the message says that only `>` notes, line endings,
+  trailing spaces and blank lines may change and everything else must be
+  restored exactly, and Stage 2 is held (the all-stage summary is
+  `incomplete`; no Stage 2 run becomes invalid). With the same tools the full
+  re-computation stays (decision, sealed inputs, every field and the
+  Markdown), without comparing review bytes; with other (Git-bound) tools the
+  decision, the sealed inputs and the disclosure of retries and failures are
+  compared as before.
+- Removed: the re-derivation of review verdicts with other tools (0.3.0's
+  REG-1 and NEW-1 to NEW-3 fixes, which compared the verdict-derived fields
+  and the baselines' false accusations total of each review whose bytes
+  changed, and the message that gave the recorded sha256). What the tools read
+  or count from a review is no longer compared across tool versions. This
+  closes 0.3.0's known limit RC2-1: a tool change in how one baseline's false
+  accusations count, plus a re-save of another baseline review, no longer
+  holds Stage 2, and neither does a re-save after any later change in how the
+  tools judge a review, as long as the re-computed decision stays `go`. The
+  rule is stricter where 0.3.0 was lenient: a wording change that kept every
+  verdict (a reworded reason, a corrected date) now holds Stage 2 until it is
+  restored.
+- The end-to-end pilot test also records and checks the normalized hashes
+  through the command line.
+- A Stage 1 summary without normalized review hashes (one recorded by the
+  0.3.0 tools) is refused, with the advice to record Stage 1 again with the
+  current tools; there is no fallback path. No pilot has run, so no such
+  summary exists.
+- The review template's Stage 1 note, the `--record` message and the docs
+  (the evaluation README, the pilot README and its known limits, the pilot
+  readiness checklist) state the new rule.
+
 ## 0.3.0 — pilot readiness (Campaign 2)
 
 Tooling the owner and an operator need to review the reference packet, freeze a
