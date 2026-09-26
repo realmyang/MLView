@@ -28,6 +28,23 @@ interaction need live validation before compatibility is claimed. Latest CI
 results: see [VALIDATION.md](VALIDATION.md) and the repository's
 [Actions page](https://github.com/realmyang/MLView/actions).
 
+Unreleased, on the `campaign3-shakedown` branch: Campaign 3 fixes the issues a
+public shakedown found (see the [changelog](../CHANGELOG.md)). The skill ran
+once per host on 12 public repositories outside the held-out pilot, and a
+provisional model review, not a human review, ranked 22 issues. The helper
+adds a read-only `excerpt` command that prints exact evidence records,
+`quote_mismatch` and reference errors that locate the problem, six
+non-blocking hygiene warnings, a `basis` summary and multi-record `upsert`;
+the skill defines repair rounds, early and partial drafts, basis, findings and
+structure rules; the viewer opens the authored header collapsed so the canvas
+keeps its height, wraps titles, drops the `?` glyph for authored nodes and
+styles the recommended edge kinds; and the extension reports deleted cited
+files as missing. There is no schema change and no version bump. Issues 13,
+16, 19 and 20 are deferred on purpose. Only local checks have run
+([details](VALIDATION.md)); CI, live hosts and the pilot have not, and once
+quotes come from `excerpt` the pilot's exact-anchor target shows only that
+cited ranges exist and are fresh.
+
 Version 0.3.0 adds Campaign 2, "pilot readiness" (see the
 [changelog](../CHANGELOG.md)): owner decision files with a `check` command,
 the campaign freeze and `check-frozen`, the v2 pilot candidate that builds its

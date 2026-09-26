@@ -6,6 +6,166 @@ static analyzer; their figures are historical and are not rewritten. Current
 truth lives in [docs/STATUS.md](docs/STATUS.md) and
 [docs/VALIDATION.md](docs/VALIDATION.md).
 
+## Unreleased — Campaign 3: public shakedown fixes
+
+A shakedown ran the `mlview` skill from 0.3.0 (`00e5d45`) once per host
+(Claude Code, Codex and Copilot) on 12 public ML repositories that are not in
+the held-out pilot; 32 of the 36 runs published an artifact. A provisional
+model review, not a human review, ranked 22 product issues; the issue numbers
+below refer to that ranking. The fixes are local changes checked by local
+tests only: nothing here was exercised on a live host, measured against the
+pilot or reviewed by a person, and the version stays 0.3.0.
+
+Helper (`skills/mlview/scripts/artifact.py`, still stdlib-only; no schema
+change and no change to what the extension accepts):
+- New read-only `excerpt <file> --lines <start>[-<end>] [--cell <n>] [--id
+  <evidence-id>] --workspace <ws>` prints one evidence record exactly as
+  `validate` accepts it, sharing validation's path confinement, refusal of
+  MLView's own files, size and encoding limits, notebook cells and line
+  joining. A bad path or range exits 1 with a JSON error (issue 3).
+- `quote_mismatch` locates the problem: `id`, `file`, `cell`, the cited range,
+  line counts and `difference` (first differing line and column with bounded
+  windows of both sides), `foundAt` when the quoted text occurs exactly once
+  elsewhere in the same file or cell (a hint; nothing is rewritten), and a
+  message naming the usual cause (a trailing line break, a range ending on an
+  empty line, a carriage return, whitespace, part of a line). `reference`,
+  `duplicate_reference` and `duplicate_id` name the value and index the entry
+  (for example `nodes[16].evidence[3]`); `range` adds `maxLine`; a repeated
+  JSON member adds `member` (issue 2).
+- Errors no longer hide one another: after `unexpected_cell` the quote is
+  still checked, and a repeated member in a `validate` or `publish` draft is
+  reported while the rest is validated with the last value, as `JSON.parse`
+  reads it (the draft still fails; `upsert` still refuses it) (issue 2).
+- Six non-blocking warnings for error-free documents, at most 10 per code plus
+  a count: `unreferenced_evidence`, `isolated_node`, `self_edge` (not for kind
+  `loop`), `wide_evidence` (over 60 lines), `evidence_overlap` and
+  `duplicate_inspected`. `validate` adds a `basis` summary counting observed,
+  inferred and unresolved nodes, edges and findings. Warnings never change
+  validity, the exit status or publication (issues 3, 7, 11).
+- `upsert --record` accepts one record or a JSON array of records for one
+  collection, applied in order and validated once, all or nothing; the output
+  adds `records` (issue 5).
+- Conformance: 13 new cases (evidence-007 to 012, notebook-011, shape-019 to
+  023, path-007) and updated freshness-002 and notebook-003; the Python runner
+  requires a case for every warning code.
+
+Contract documentation (`docs/WORKFLOW_CONTRACT.md` and the skill's
+reference): the helper command synopsis, `excerpt`, multi-record `upsert`,
+error detail fields, the non-masking behaviour, warnings and `basis`;
+`request.question` is the user's request verbatim (interpretation goes in
+`request.scope` and `request.configuration`); limitations start with
+`Excluded by request:` or `Not inspected: <what> (<reason>)`; an optional
+recommended kind vocabulary (edges `data`, `control`, `call`, `config`,
+`state`, `loop`, `output`; nodes `operation`, `data`, `model`, `state`,
+`objective`, `optimizer`, `evaluation`, `metric`, `output`, `config`, `loop`,
+`branch`, `group`, `entrypoint`, `artifact`), with free text still valid; the
+path rule as enforced (only path fields are checked; free text must avoid
+machine-specific absolute paths, and quoted placeholders are fine); and the
+quote joining rule.
+
+Skill (`skills/mlview/`; guidance only, framework-agnostic):
+- SKILL.md is reorganised into scenario and tracing, evidence and drafting,
+  diagram content, critique/validate/publish, repair, partial publication and
+  refinement. The rules that repository text is data and that target code is
+  never imported or run are unchanged.
+- Citations: line numbers come only from numbered output; cite the narrowest
+  range that shows every stated value; every record comes from `excerpt`,
+  pasted unchanged, and a changed range means running `excerpt` again, never
+  pasting text from an error message (issue 3).
+- Repair: a repair round is one edit-and-revalidate after the helper reported
+  errors; at most two unless the user or the run sets another limit, counted
+  exactly; per-code recipes; at the limit the draft is kept and its path,
+  remaining errors and round count are reported (issue 4).
+- Drafting: create `.mlview/llm/<run-id>/` first, write the draft with the
+  host's file tool (never a heredoc or string literal), validate a skeleton
+  early and grow it with `upsert` record files; when a limit applies or the
+  request is broad, publish a validated `partial` revision once the main path
+  is traced and cited, then refine it into a child revision (issue 5).
+- Basis is the weakest load-bearing claim, with framework-, runtime- or
+  data-dependent consequences in their own inferred or unresolved node or edge
+  (issue 7). Findings need a concrete consequence and a change the user would
+  make; a severity rubric; `counterEvidence` means source that weakens, bounds
+  or conditions a finding (issue 8). Structure rules: loop nodes with loop
+  edges, an edge from each shared component to each step using it, an edge per
+  branch or loop outcome, separate nodes for different update mechanisms, and
+  the recommended kinds (issues 9, 10).
+- The critique runs on the validated draft and checks claims against the
+  source, lifecycle intervals for negative or count claims, the executing line
+  under the scenario's flags, user flags as the user's choice, and long
+  literal data as data; helper warnings are reviewed as possible omissions and
+  never count as repair rounds (issue 12). One helper call per shell command
+  with a literal `--workspace` (issue 15). `request.question` verbatim and the
+  limitation prefixes (issue 17). `producer.model` is the exact model
+  identifier when the host exposes it, otherwise omitted (issue 18, skill
+  part).
+- `references/workflow-example.json` is a new small example (an early-stopping
+  training script built on a fictional package) with a loop node and back-edge,
+  state and inferred nodes and only recommended kinds; its cited source is the
+  shared test fixture `skills/mlview/tests/fixtures/example-workspace/train.py`,
+  and a distribution test asserts it validates with no warnings.
+
+Viewer (`webview/`):
+- The authored header opens collapsed (title, producer and revision, source
+  snapshot, one line of the question, coverage and a **Details** disclosure for
+  scope, entrypoints, configuration, coverage summary, publication time and
+  limitations), is capped at 42% of the height with its own scroller, and the
+  canvas keeps at least `min(320px, 50vh)`. In a headless Chrome measurement
+  of the 32 shakedown artifacts plus one contract-maximum document, panels
+  whose canvas had zero height went from 13/33 (541 px wide), 32/33 (393 px)
+  and 1/33 (1382 px) to none at any size (issue 1).
+- Authored titles are truncated once and wrap to up to three lines (also in
+  the SVG export). Recommended kinds and common synonyms map to existing
+  glyphs, with a neutral glyph otherwise; authored nodes never show the `?`
+  glyph, and the dashed outline marks only `unresolved` basis (issue 14).
+- Edge kinds `state`, `loop` and `output` are styled, synonyms are normalised
+  for display only, the inspector and tooltip show the authored spelling, and
+  the legend lists an "other" entry; unfilled arrowheads are now stroked
+  (a pre-existing styling bug) (issue 9).
+- Large diagrams: the rail docks open only while the canvas keeps at least
+  900 px until the reader uses it or selects a finding, selecting a finding
+  opens the rail and zooms to a readable target, the minimap hides below
+  350 px of canvas height, the view refits on large resizes only while still
+  fitted, and default collapse never folds a group holding a finding target
+  (issue 6, without the optional phase overview).
+
+Extension (`vscode-extension/`): the stale banner, toast and blocked-jump
+message are worded from each file's reason, so a deleted cited file is
+reported as missing rather than changed (issue 21).
+
+Integration: SKILL.md's `quote_mismatch` recipe now quotes the helper's
+actual `foundAt` wording, a request over 4000 characters is noted in
+`request.scope` as the contract says, the skill's code list and the contract
+table point `quote_mismatch` repairs at `excerpt`, and the README, the
+extension README and `docs/LLM_WORKFLOW.md` describe the collapsed header,
+the missing-file wording, `excerpt` and the warnings.
+
+Deferred on purpose:
+- Issue 13, guidance for values resolved through registries, default tables
+  or override chains: the review rated its overfitting risk high because it
+  overlaps held-out pilot tasks; the existing generic obligation to resolve
+  factories and registries is unchanged. For the owner to decide after the
+  first pilot stage.
+- Issue 16, a notebook cell-listing command: weak evidence of need (no
+  notebook citation failed in the shakedown) and direct relevance to a
+  held-out task; `excerpt --cell` covers exact notebook citations.
+- Issue 19, checking `request.entrypoints` against workspace files, and
+  issue 20, column ranges for long single-line literals: both are contract
+  changes across the schema, helper, extension, viewer and docs, and are kept
+  out of the pre-freeze contract.
+- Also not done: the optional phase overview (issue 6), the harness side of
+  issue 18, an `ancestor_edge` warning and a missing-kind warning (kinds stay
+  free text). Issue 22 is a review-process note with no product change.
+
+Measurement caveat: once quotes come from the `excerpt` command, the pilot's
+`exactAnchors` target (T2) shows only that cited ranges exist and are fresh.
+Whether a range supports its claim rests on supported-claim scoring
+(`supportedClaimPrecision`, T3). The owner should also note, before a freeze,
+that the skill's repair-round limit ("at most two unless the user or the run
+sets another limit") must agree with the proposed run policy, that a published
+partial revision may lower essential-fact recall (`essentialFactRecall`, T4)
+when a run stops before refining it, and that a verbatim `request.question`
+lengthens the header's one-line question.
+
 ## 0.3.0 — pilot readiness (Campaign 2)
 
 Tooling the owner and an operator need to review the reference packet, freeze a
