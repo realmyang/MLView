@@ -26,7 +26,7 @@ import { minimapDots, renderScene } from './render/scene.js';
 import { planScene, ScenePlan, ScenePlanOptions } from './render/plan.js';
 import { nextMountSerial } from './render/edges.js';
 import { BundleBinding } from './render/bundles.js';
-import { Minimap, ViewportController } from './render/canvas.js';
+import { LOD_FULL_ZOOM, Minimap, READABLE_ZOOM, ViewportController } from './render/canvas.js';
 import { FlowBinding } from './render/flowbinding.js';
 import { EdgeHover } from './render/edgehover.js';
 import { Tooltip } from './render/tooltip.js';
@@ -34,7 +34,7 @@ import { Toasts, buildEmptyState, buildFilterEmptyState, buildScopeEmptyState } 
 import { wireCanvasGestures } from './ui/shell.js';
 import { Emphasis } from './canvas/emphasis.js';
 import { wireEdgeEvents, wireNodeEvents } from './canvas/wiring.js';
-import { HOVER_CLOSE_MS, HOVER_OPEN_MS, MINIMAP_MIN_NODES } from './canvas/host.js';
+import { HOVER_CLOSE_MS, HOVER_OPEN_MS, MINIMAP_MIN_CANVAS_H, MINIMAP_MIN_NODES } from './canvas/host.js';
 import type { CanvasHost, NextSelection } from './canvas/host.js';
 import type { Shell } from './ui/shell.js';
 import type { Sel } from './types.js';
@@ -132,8 +132,18 @@ export class CanvasView {
     for (const dispose of wireCanvasGestures(this.canvasEl, this.viewport, {
       onKeyDown: (ev) => this.host.onKeyDown(ev),
       onBackgroundClick: () => this.host.onBackgroundClick(),
+      onResize: () => this.handleResize(),
     })) {
       this.disposers.push(dispose);
+    }
+    // The canvas also changes size without the window doing so: the rail is
+    // shown or hidden, the header's disclosure opens. Where the host has a
+    // ResizeObserver (every contracted host; not jsdom) it drives the same path.
+    const RO = (typeof window !== 'undefined' ? (window as unknown as { ResizeObserver?: typeof ResizeObserver }).ResizeObserver : undefined);
+    if (RO) {
+      const observer = new RO(() => this.handleResize());
+      observer.observe(this.canvasEl);
+      this.disposers.push(() => observer.disconnect());
     }
 
     this.flow = new FlowBinding({
@@ -322,6 +332,35 @@ export class CanvasView {
     const dots = minimapDots(this.index, this.frameData, (issue) => this.host.keep(issue));
     this.minimap.render(dots, this.frameData.width, this.frameData.height);
     this.minimap.root.hidden = dots.length < MINIMAP_MIN_NODES;
+    this.syncShortCanvas();
+  }
+
+  /**
+   * Issue 6: a 200x132 minimap over a canvas under MINIMAP_MIN_CANVAS_H tall
+   * covers a third of the diagram it is meant to summarise, so it is not drawn
+   * there (`.is-short`, styles/workflow.css). The reader's own collapse choice
+   * is untouched. An unmeasurable canvas (jsdom, before first layout) keeps it.
+   */
+  private syncShortCanvas(): void {
+    const height = this.canvasEl.getBoundingClientRect().height;
+    if (!(height > 0)) return;
+    this.minimap.root.classList.toggle('is-short', height < MINIMAP_MIN_CANVAS_H);
+  }
+
+  /** The window or the canvas resized (issue 6). */
+  handleResize(): void {
+    this.viewport.onResize();
+    this.syncShortCanvas();
+  }
+
+  /**
+   * The app changed chrome ABOVE the canvas after the first fit ran (the
+   * authored header is built once the document is laid out), so a fitted
+   * viewport is refitted to the canvas it really has.
+   */
+  afterChromeChange(): void {
+    this.viewport.refitIfFitted();
+    this.syncShortCanvas();
   }
 
   private renderEmptyState(): void {
@@ -499,6 +538,52 @@ export class CanvasView {
     this.viewport.centerOn(box);
     if (!pulse) return;
     const element = this.nodeEls.get(visible);
+    if (!element) return;
+    element.classList.add('is-pulse');
+    setTimeout(() => element.classList.remove('is-pulse'), 700);
+  }
+
+  /**
+   * Issue 6: centre a node, and below the detail threshold zoom in to
+   * READABLE_ZOOM (or as far as the box still fits) first. A finding selected
+   * at 15-45 % used to highlight a card too small to see.
+   */
+  revealNode(id: string, pulse: boolean): void {
+    if (!this.index || !this.frameData) return;
+    const box = this.frameData.boxes.get(this.index.visibleRepresentative(id, this.collapsedSet));
+    if (!box) return;
+    if (this.viewport.vp.zoom >= LOD_FULL_ZOOM) {
+      this.centerOnNode(id, pulse);
+      return;
+    }
+    this.viewport.centerOn(box, Math.max(this.viewport.vp.zoom, this.readableZoomFor(box)));
+    if (pulse) this.pulseNode(this.index.visibleRepresentative(id, this.collapsedSet));
+  }
+
+  /** Issue 6: bring a connection's two ends into view, zooming in when below the detail threshold. */
+  revealEdge(id: string): void {
+    if (!this.index || !this.frameData) return;
+    const edge = this.index.edgeById.get(id);
+    if (!edge) return;
+    const a = this.frameData.boxes.get(this.index.visibleRepresentative(edge.source, this.collapsedSet));
+    const b = this.frameData.boxes.get(this.index.visibleRepresentative(edge.target, this.collapsedSet));
+    if (!a || !b) return;
+    const x = Math.min(a.x, b.x);
+    const y = Math.min(a.y, b.y);
+    const union = { x, y, w: Math.max(a.x + a.w, b.x + b.w) - x, h: Math.max(a.y + a.h, b.y + b.h) - y };
+    if (this.viewport.vp.zoom < LOD_FULL_ZOOM) this.viewport.centerOn(union, Math.max(this.viewport.vp.zoom, this.readableZoomFor(union)));
+    else if (!this.viewport.isVisible(union)) this.viewport.centerOn(union);
+  }
+
+  /** READABLE_ZOOM, or less when the box would not fit the canvas at it. */
+  private readableZoomFor(box: { w: number; h: number }): number {
+    const size = this.viewport.size();
+    const fits = Math.min((size.w - 48) / Math.max(1, box.w), (size.h - 48) / Math.max(1, box.h));
+    return Math.min(READABLE_ZOOM, fits);
+  }
+
+  private pulseNode(id: string): void {
+    const element = this.nodeEls.get(id);
     if (!element) return;
     element.classList.add('is-pulse');
     setTimeout(() => element.classList.remove('is-pulse'), 700);

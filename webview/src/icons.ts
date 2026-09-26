@@ -1,10 +1,19 @@
 /**
  * Inline SVG symbols. One line-art glyph per NodeKind (UX_DESIGN section 4.1),
- * drawn in a 16x16 box, stroked in the stage colour. Unknown kinds fall back to
- * the question-mark glyph — invariant 1.1/6.
+ * drawn in a 16x16 box, stroked in the stage colour.
+ *
+ * The table is keyed to the retired analyzer's kinds. An AUTHORED node's kind
+ * is free text, so `nodeGlyphKind` maps the contract's recommended kinds and
+ * their common synonyms onto these glyphs and gives everything else a neutral
+ * dot (Campaign 3, issue 14): 711 of 817 shakedown nodes, 647 of them
+ * `observed`, used to draw the question mark, which read as uncertainty beside
+ * an observed basis. Uncertainty is the authored basis's to show (node.css
+ * `[data-basis="unresolved"]`). Only a legacy graph's unknown kind still falls
+ * back to the question mark.
  */
 
 import { SVG_NS, svg, setAttrs } from './dom.js';
+import type { MLNode } from './types.js';
 
 const KIND_PATHS: Record<string, string> = {
   entrypoint: 'M5 3.2 12.4 8 5 12.8Z',
@@ -38,10 +47,90 @@ const KIND_PATHS: Record<string, string> = {
     'M8 2.2A5.8 5.8 0 1 0 8 13.8 5.8 5.8 0 0 0 8 2.2ZM6.2 6.3a1.85 1.85 0 1 1 2.7 1.7c-.6.3-.9.8-.9 1.5M8 11.2v.9',
 };
 
+/**
+ * Glyphs only an authored node draws. Kept out of `KIND_PATHS`, so the legacy
+ * `isKnownKind` vocabulary (and the words a screen reader hears) is unchanged.
+ */
+const AUTHORED_PATHS: Record<string, string> = {
+  /** A neutral dot: a step whose kind word this renderer has no picture for. */
+  step: 'M8 5.6A2.4 2.4 0 1 0 8 10.4 2.4 2.4 0 0 0 8 5.6Z',
+  /** Four tiles: an authored group or phase container. */
+  group: 'M2.6 2.6h4.4V7H2.6ZM9 2.6h4.4V7H9ZM2.6 9h4.4v4.4H2.6ZM9 9h4.4v4.4H9Z',
+};
+
+/**
+ * Authored kind words, normalised (lower case, `-`/`_`/spaces collapsed to one
+ * space), to a glyph. The contract's recommended node kinds come first; the
+ * rest are synonyms seen in real authored documents. Framework-agnostic on
+ * purpose: nothing here names a library.
+ */
+const AUTHORED_GLYPHS: Record<string, string> = {
+  // recommended kinds
+  operation: 'function', data: 'dataset', model: 'model', state: 'layer', objective: 'loss',
+  optimizer: 'optimizer', evaluation: 'eval_loop', metric: 'metric', output: 'external', config: 'config',
+  loop: 'train_loop', branch: 'split', group: 'group', entrypoint: 'entrypoint', artifact: 'artifact',
+  // synonyms
+  op: 'function', step: 'function', function: 'function', method: 'function', compute: 'function',
+  computation: 'function', process: 'function', construction: 'function', initialization: 'function',
+  hook: 'function', callback: 'function', forward: 'function', class: 'class', component: 'class',
+  dataset: 'dataset', 'data source': 'dataset', datasource: 'dataset', input: 'dataset', inputs: 'dataset',
+  batch: 'dataset', dataloader: 'dataloader', 'data loader': 'dataloader', loader: 'dataloader',
+  batching: 'dataloader', sampler: 'dataloader', 'data pipeline': 'dataloader', split: 'split',
+  'data split': 'split', decision: 'split', conditional: 'split', condition: 'split', selection: 'split',
+  control: 'split', 'control flow': 'split', preprocessing: 'transform', preprocess: 'transform',
+  postprocessing: 'transform', transform: 'transform', transformation: 'transform', augmentation: 'augment',
+  augment: 'augment', network: 'model', module: 'model', architecture: 'model', layer: 'layer',
+  'state update': 'layer', update: 'layer', 'state init': 'layer', variable: 'layer', buffer: 'layer',
+  parameters: 'layer', weights: 'layer', loss: 'loss', criterion: 'loss', optimiser: 'optimizer',
+  optimization: 'optimizer', optimisation: 'optimizer', 'optimizer step': 'optimizer', 'optimization step': 'optimizer',
+  scheduler: 'scheduler', schedule: 'scheduler', 'learning rate': 'scheduler', scaler: 'scaler',
+  'training loop': 'train_loop', 'train loop': 'train_loop', 'optimization loop': 'train_loop', epoch: 'train_loop',
+  'training run': 'train_loop', eval: 'eval_loop', validation: 'eval_loop', test: 'eval_loop',
+  'evaluation loop': 'eval_loop', metrics: 'metric', score: 'metric', scoring: 'metric', log: 'tracker',
+  logging: 'tracker', logger: 'tracker', tracker: 'tracker', history: 'tracker', checkpoint: 'checkpoint',
+  checkpointing: 'checkpoint', persistence: 'checkpoint', save: 'checkpoint', outputs: 'external',
+  result: 'external', return: 'external', display: 'external', external: 'external', configuration: 'config',
+  settings: 'config', hyperparameters: 'config', arguments: 'config', args: 'config', environment: 'config',
+  'entry point': 'entrypoint', entry: 'entrypoint', launcher: 'entrypoint', 'api entry': 'entrypoint',
+  main: 'entrypoint', script: 'entrypoint', file: 'artifact', inference: 'predict', predict: 'predict',
+  prediction: 'predict', sampling: 'predict', generation: 'predict', phase: 'group', stage: 'group',
+};
+
+/** `Data-Source`, `data_source` and `data source` are one kind word. */
+export function normalizeKindWord(kind: string): string {
+  return String(kind || '').trim().toLowerCase().replace(/[\s_-]+/g, ' ');
+}
+
+/**
+ * The glyph an authored kind word draws: the whole word, else its last word
+ * (`custom metric`, `evaluation data`), else its first (`model loading`), else
+ * the neutral dot. Never the question mark.
+ */
+export function authoredGlyphKind(kind: string | undefined): string {
+  const key = normalizeKindWord(kind || '');
+  if (!key || key === 'unknown') return 'step';
+  if (AUTHORED_GLYPHS[key]) return AUTHORED_GLYPHS[key];
+  const words = key.split(/[^a-z0-9]+/).filter(Boolean);
+  const last = words[words.length - 1];
+  if (last && AUTHORED_GLYPHS[last]) return AUTHORED_GLYPHS[last];
+  const first = words[0];
+  if (first && AUTHORED_GLYPHS[first]) return AUTHORED_GLYPHS[first];
+  return 'step';
+}
+
+/**
+ * The glyph a card or group header draws. A collapsed authored group is still
+ * a group; a legacy collapsed unit keeps the artifact cube it always drew.
+ */
+export function nodeGlyphKind(node: Pick<MLNode, 'kind' | 'authored'>, groupLike: boolean): string {
+  if (node.authored) return groupLike ? 'group' : authoredGlyphKind(node.kind);
+  return groupLike ? 'artifact' : node.kind;
+}
+
 export const KNOWN_KINDS = Object.keys(KIND_PATHS).sort();
 
 export function kindPath(kind: string): string {
-  return KIND_PATHS[kind] || KIND_PATHS.unknown;
+  return KIND_PATHS[kind] || AUTHORED_PATHS[kind] || KIND_PATHS.unknown;
 }
 
 export function isKnownKind(kind: string): boolean {

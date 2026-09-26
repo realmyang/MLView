@@ -32,7 +32,7 @@
 
 import { SVG_NS, middleTruncate } from '../dom.js';
 import { locParts } from '../notebook.js';
-import { kindPath } from '../icons.js';
+import { kindPath, nodeGlyphKind } from '../icons.js';
 import { countsTotal, highestSeverity, normalizeSeverity } from '../markers.js';
 import { ARROW_HEADS, edgeKindClass } from '../render/edges.js';
 import { ariaLabelFor, chipsFor } from '../render/nodes.js';
@@ -71,7 +71,8 @@ import {
 export { EXPORT_MONO, EXPORT_SANS, esc, intersects, width } from './svgprim.js';
 import type { ScenePlan } from '../render/plan.js';
 import type { LayoutBox } from '../layout/layout.js';
-import { NODE_H, NODE_CHIP_ROW_H } from '../layout/constants.js';
+import { NODE_H, NODE_CHIP_ROW_H, NODE_TITLE_LINE_H } from '../layout/constants.js';
+import { wrapTitle } from '../layout/cardmetrics.js';
 import type { Point } from '../layout/routing.js';
 import type { Rect } from '../render/canvas.js';
 import type { IssueCounts, ThemeKind } from '../types.js';
@@ -358,17 +359,24 @@ function nodeCard(
     '<rect x="' + num(iconX) + '" y="' + num(iconY) + '" width="' + ICON_BOX + '" height="' + ICON_BOX +
       '" rx="6" fill="' + esc(colour) + '" fill-opacity="0.12"/>',
   );
-  out.push(glyphPath(kindPath(groupLike ? 'artifact' : n.kind), iconX + 5, iconY + 5, 16 / 16, colour, 1.3));
+  out.push(glyphPath(kindPath(nodeGlyphKind(n, groupLike)), iconX + 5, iconY + 5, 16 / 16, colour, 1.3));
 
   /* text block */
   const tx = box.x + TEXT_X;
   const tw = Math.max(24, box.w - TEXT_X - PAD_R);
-  const title = ellipsise(middleTruncate(n.label || n.qualname || n.id, 34), tw, FS_TITLE, false, true);
-  out.push(text(title, tx, box.y + Y_TITLE, { size: FS_TITLE, fill: ghost ? palette.text2 : palette.text, weight: 650 }));
+  const label = n.label || n.qualname || n.id;
+  // Campaign 3, issue 14: an authored title is the same wrapped lines the
+  // layout reserved (`cardmetrics.wrapTitle`), and the rows below move down
+  // by the extra lines, as the DOM card's flex column does.
+  const titleRows = n.authored ? wrapTitle(label, box.w) : [ellipsise(middleTruncate(label, 34), tw, FS_TITLE, false, true)];
+  titleRows.forEach((row, i) => {
+    out.push(text(n.authored ? ellipsise(row, tw, FS_TITLE, false, true) : row, tx, box.y + Y_TITLE + i * NODE_TITLE_LINE_H, { size: FS_TITLE, fill: ghost ? palette.text2 : palette.text, weight: 650 }));
+  });
+  const shift = (titleRows.length - 1) * NODE_TITLE_LINE_H;
   const subRaw = n.sublabel || (n.fqn ? n.fqn : n.kind);
-  const sub = ellipsise(middleTruncate(subRaw, 40), tw, FS_SUB, false, false);
+  const sub = ellipsise(n.authored ? subRaw : middleTruncate(subRaw, 40), tw, FS_SUB, false, false);
   out.push(
-    text(sub, tx, box.y + Y_SUB, { size: FS_SUB, fill: palette.text2, italic: ghost }),
+    text(sub, tx, box.y + Y_SUB + shift, { size: FS_SUB, fill: palette.text2, italic: ghost }),
   );
   // NB. The cell reference (or, on a `.py` path, the line number) is reserved
   // out of the budget first, so a path too long for the card loses the
@@ -376,7 +384,7 @@ function nodeCard(
   const locBits = locParts(n.loc);
   const tailPx = width(locBits.tail, FS_LOC, true, false);
   const loc = ellipsise(locBits.head, Math.max(12, tw - tailPx), FS_LOC, true, false) + locBits.tail;
-  out.push(text(loc, tx, box.y + Y_LOC, { size: FS_LOC, fill: palette.text3, mono: true }));
+  out.push(text(loc, tx, box.y + Y_LOC + shift, { size: FS_LOC, fill: palette.text3, mono: true }));
 
   // PERF-04: `7 rolled up` on the picture too, and for the same reason as on
   // the card — the two counts mean different things and one wording for both
@@ -384,7 +392,7 @@ function nodeCard(
   const chips = groupLike
     ? [rolled ? rollupChipText(rolled) : visual.descendants + ' nodes'].concat(chipsFor(n, null, 14, 1))
     : chipsFor(n, chipMetrics(tw), 26, 3);
-  if (chips.length && box.h >= CHIP_MIN_H) {
+  if (chips.length && box.h - shift >= CHIP_MIN_H) {
     const chipTop = box.y + box.h - CHIP_BOTTOM;
     let cx = tx;
     for (const chip of chips) {
@@ -433,14 +441,14 @@ function groupFrame(
       (box.depth >= 2 ? '1 3' : '5 4') + '"/>',
   );
   const iconY = box.y + (GROUP_HEADER_H - 14) / 2;
-  out.push(glyphPath(kindPath(n.kind), box.x + 8, iconY, 14 / 16, colour, 1.3));
+  out.push(glyphPath(kindPath(nodeGlyphKind(n, false)), box.x + 8, iconY, 14 / 16, colour, 1.3));
   const nameX = box.x + 28;
   const baseline = box.y + GROUP_HEADER_H / 2 + 4;
   // The count pill needs ~40 px and a severity cluster up to ~90 more, so the
   // name's budget shrinks when there is one — measured against the flagship,
   // where `for images, labels in …` sat under its own "❗2 ⚠2".
   const nameBudget = Math.max(40, box.w - (top ? 170 : 96));
-  const name = ellipsise(middleTruncate(n.label || n.qualname, 42), nameBudget, FS_GROUP, false, true);
+  const name = ellipsise(n.authored ? n.label || n.qualname : middleTruncate(n.label || n.qualname, 42), nameBudget, FS_GROUP, false, true);
   out.push(text(name, nameX, baseline, { size: FS_GROUP, fill: palette.text, weight: 650 }));
   const countText = String(visual.descendants);
   const countW = width(countText, FS_COUNT, false, false) + 12;
@@ -588,6 +596,10 @@ const EDGE_STYLE: Record<string, { width: number; dash: string; opacity: number;
   control: { width: 1.5, dash: '1 4', opacity: 0.65, arrow: true },
   config: { width: 1, dash: '2 4', opacity: 0.5, arrow: false },
   unknown: { width: 1.5, dash: '3 3', opacity: 0.6, arrow: true },
+  // Campaign 3, issue 9 — the same three strokes as styles/edge.css.
+  state: { width: 1.5, dash: '8 3', opacity: 0.85, arrow: true },
+  loop: { width: 1.5, dash: '6 2.5 1.5 2.5', opacity: 0.75, arrow: true },
+  output: { width: 2, dash: '', opacity: 1, arrow: true },
 };
 
 /**

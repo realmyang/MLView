@@ -62,6 +62,49 @@
   opacity: 0.6;
 }
 
+/*
+ * Campaign 3, issue 9: the contract's recommended vocabulary adds three kinds,
+ * each with its own dash AND arrowhead so they survive greyscale too:
+ * state = long dash + filled diamond, loop = dash-dot + open chevron,
+ * output = heavier solid + hollow triangle.
+ */
+.mlv-edge--state .mlv-edge__path,
+.mlv-edge--state .mlv-legend__edge {
+  stroke-dasharray: 8 3;
+  opacity: 0.85;
+}
+
+.mlv-edge--loop .mlv-edge__path,
+.mlv-edge--loop .mlv-legend__edge {
+  stroke-dasharray: 6 2.5 1.5 2.5;
+  opacity: 0.75;
+}
+
+.mlv-edge--output .mlv-edge__path,
+.mlv-edge--output .mlv-legend__edge {
+  stroke-width: 2;
+}
+
+/*
+ * The arrowheads. `<marker>` content does not inherit from the path that
+ * references it, so each head is painted here from the same edge token: a
+ * filled head in `--mlv-edge`, an open one stroked in it. Unstyled, a filled
+ * head was the UA's black and an open one (`fill="none"`, no stroke) did not
+ * draw at all.
+ */
+.mlv-arrow {
+  fill: var(--mlv-edge);
+  stroke: none;
+}
+
+.mlv-arrow.mlv-arrow--open {
+  fill: none;
+  stroke: var(--mlv-edge);
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .mlv-edge.is-hover .mlv-edge__path,
 .mlv-edge.is-lit .mlv-edge__path {
   stroke: var(--mlv-text-2);
@@ -138,7 +181,10 @@
  * reaches (MLV-R1-012). Above the LOD threshold they are simply on.
  */
 .mlv-canvas[data-lod="full"] .mlv-edge--data .mlv-edge-label,
-.mlv-canvas[data-lod="full"] .mlv-edge--control .mlv-edge-label {
+.mlv-canvas[data-lod="full"] .mlv-edge--control .mlv-edge-label,
+.mlv-canvas[data-lod="full"] .mlv-edge--state .mlv-edge-label,
+.mlv-canvas[data-lod="full"] .mlv-edge--loop .mlv-edge-label,
+.mlv-canvas[data-lod="full"] .mlv-edge--output .mlv-edge-label {
   opacity: 1;
 }
 

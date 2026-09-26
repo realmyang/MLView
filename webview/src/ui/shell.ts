@@ -148,6 +148,8 @@ function isAppRoot(node: Node): boolean {
 export interface GestureHandlers {
   onKeyDown(ev: KeyboardEvent): void;
   onBackgroundClick(): void;
+  /** The window resized. Absent: only the derived chrome is refreshed. */
+  onResize?(): void;
 }
 
 /** Pan by dragging the background, zoom on the wheel, keys on the canvas. */
@@ -261,8 +263,9 @@ export function wireCanvasGestures(
 
   if (typeof window !== 'undefined') {
     // Keep the derived chrome (zoom readout, minimap viewport) in step with a
-    // resized panel without moving what the user is looking at.
-    disposers.push(on(window, 'resize', () => viewport.apply()));
+    // resized panel. The canvas view decides whether a fitted viewport refits
+    // (Campaign 3, issue 6); nothing the reader moved is ever moved back.
+    disposers.push(on(window, 'resize', () => (handlers.onResize ? handlers.onResize() : viewport.apply())));
   }
 
   disposers.push(() => pinch.clear());

@@ -145,8 +145,8 @@ export function buildAppUi(app: App): void {
     onTab: (tab) => app.setRailTab(tab),
     onClearFilters: () => app.clearFilters(),
     onSelectIssue: (id) => app.focusIssue(id),
-    onSelectNode: (id) => app.select({ kind: 'node', id }, { center: true }),
-    onSelectEdge: (id) => app.select({ kind: 'edge', id }, { tab: 'inspector' }),
+    onSelectNode: (id) => app.select({ kind: 'node', id }, { center: true, reveal: true }),
+    onSelectEdge: (id) => app.select({ kind: 'edge', id }, { tab: 'inspector', reveal: true }),
     onChallenge: () => {
       const refine = app.root.querySelector<HTMLButtonElement>('.mlv-workflow__refine');
       const composer = app.root.querySelector<HTMLFormElement>('.mlv-workflow__composer');
@@ -179,6 +179,11 @@ export function buildAppUi(app: App): void {
     onApplyFix: (id) => app.applyFix(id),
   });
   shell.body.appendChild(app.rail.root);
+  // Campaign 3, issue 6: a reader working IN the rail has chosen it. Following
+  // an evidence link opens the source in a split that narrows this panel, and
+  // the width rule (`App.autoRail`) must not then close the finding being read.
+  on(app.rail.root, 'pointerdown', () => { app.railChosen = true; });
+  on(app.rail.root, 'keydown', () => { app.railChosen = true; });
 
   // Anchored inside the canvas, beside the minimap, so the key sits with the
   // picture it explains rather than in a modal over it (VIEW-10).

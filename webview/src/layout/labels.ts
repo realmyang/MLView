@@ -165,14 +165,22 @@ export function labelWidth(text: string): number {
  * Whether this label is on screen without a pointer on it.
  *
  * It mirrors `styles/edge.css` exactly: back-edges and merged routes carry
- * `has-label` / `--merged` at every zoom, and data and control labels are simply
- * on at LOD `full` (>= 0.62). Only these participate in the declutter pass and
+ * `has-label` / `--merged` at every zoom, and data, control, state, loop and
+ * output labels are simply on at LOD `full` (>= 0.62). Only these participate in the declutter pass and
  * only these can be hidden by it — a call or config label appears one at a time
  * under the pointer, where it cannot collide with a sibling that is not drawn.
  */
 export function alwaysVisible(route: { kind: string; back: boolean; count: number }): boolean {
-  return route.back || route.count > 1 || route.kind === 'data' || route.kind === 'control';
+  return route.back || route.count > 1 || ALWAYS_LABELLED.indexOf(route.kind) >= 0;
 }
+
+/**
+ * The kinds whose labels are on at LOD `full` — edge.css lists the same five.
+ * `state`, `loop` and `output` joined `data` and `control` in Campaign 3
+ * (issue 9): state updates, iterations and written outputs are the relations a
+ * training workflow is read for.
+ */
+const ALWAYS_LABELLED = ['data', 'control', 'state', 'loop', 'output'];
 
 /* ── rectangles ─────────────────────────────────────────────────────────── */
 

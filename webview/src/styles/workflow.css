@@ -1,11 +1,90 @@
+/*
+ * Campaign 3, issue 1 — the authored header may never starve the diagram.
+ *
+ * MEASURED in the live webview (1440x900 window, 541x798 panel beside the
+ * artifact editor): the header printed the request and coverage text in full
+ * and drew 736-915 px, leaving the canvas 0 px for 12 of 12 Claude Code
+ * artifacts; at 393 px wide the canvas was 0 for 31 of 32. `.mlv-root` is
+ * `overflow: hidden`, so nothing could be scrolled into view.
+ *
+ * Three rules, each sufficient on its own for a contract-maximum document:
+ *   1. collapsed by default (`workflow.ts`): the title (two lines at most), the
+ *      provenance chips and ONE line of the question, behind a disclosure;
+ *   2. a height cap with its own scroller for the expanded state;
+ *   3. `flex-shrink` with `min-height: 0`, so when the chrome above and the
+ *      canvas floor below need the room the header gives it up and scrolls,
+ *      rather than pushing the diagram (or the status bar) off the page.
+ * The canvas floor itself is `.mlv-root--workflow > .mlv-body` below.
+ */
 .mlv-workflow {
-  padding: 12px 16px;
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 42vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 8px 12px;
   border-bottom: 1px solid var(--mlv-border);
   background: var(--mlv-surface);
 }
-.mlv-workflow__heading, .mlv-workflow__meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.mlv-workflow__title { margin: 0; font-size: 16px; line-height: 1.35; }
-.mlv-workflow__question { margin: 6px 0; color: var(--mlv-text); }
+.mlv-workflow__heading, .mlv-workflow__meta { display: flex; align-items: center; gap: 6px 8px; flex-wrap: wrap; }
+.mlv-workflow__heading { min-width: 0; }
+.mlv-workflow__title {
+  flex: 1 1 16ch;
+  min-width: 0;
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.35;
+  /* Two lines at most; the whole title is on `title` and in the panel tab. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+/*
+ * A 200-character model name is one ellipsised chip, never a row of its own.
+ * `display: block` because `.mlv-chip` is a flex box, and `text-overflow`
+ * only ellipsises the text of a block container.
+ */
+.mlv-workflow__heading > .mlv-chip,
+.mlv-workflow__coverage-chip {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 18px;
+}
+.mlv-workflow__summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin-top: 6px;
+}
+.mlv-workflow__toggle { flex: none; gap: 4px; padding-inline: 6px; }
+.mlv-workflow__chevron { transition: transform var(--mlv-dur-2) var(--mlv-ease); }
+.mlv-workflow[data-expanded="true"] .mlv-workflow__chevron { transform: rotate(90deg); }
+.mlv-workflow__coverage-chip { flex: none; }
+.mlv-workflow__question {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  color: var(--mlv-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Expanded, the one line becomes the whole question, wrapped in place. */
+.mlv-workflow[data-expanded="true"] .mlv-workflow__summary { align-items: flex-start; }
+.mlv-workflow[data-expanded="true"] .mlv-workflow__question {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.mlv-workflow__details { margin-top: 6px; }
+.mlv-workflow__details[hidden] { display: none; }
+.mlv-workflow__meta > span { overflow-wrap: anywhere; }
 .mlv-workflow__composer { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; margin-block: 8px; }
 .mlv-workflow__composer[hidden] { display: none; }
 .mlv-workflow__selection { color: var(--mlv-text-2); font-size: 11px; }
@@ -27,12 +106,56 @@
   margin: 0;
   padding: 6px 12px;
   flex: none;
+  /* A long rejection (eight issue lines) scrolls inside its own band. */
+  max-height: 20vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   font-family: var(--mlv-font, var(--vscode-font-family, system-ui, sans-serif));
   font-size: 12px;
   line-height: 1.45;
   color: var(--mlv-text, var(--vscode-foreground, inherit));
   background: var(--mlv-surface-2, var(--vscode-editorWidget-background, transparent));
   border-bottom: 1px solid var(--mlv-sev-medium, var(--vscode-editorWarning-foreground, currentColor));
+}
+
+/*
+ * The canvas floor (issue 1). With the header able to shrink to nothing, the
+ * diagram keeps at least this much height whatever the authored text says;
+ * `min()` lets a genuinely short panel still show the status bar.
+ */
+.mlv-root--workflow > .mlv-body {
+  /*
+   * Basis 0, not auto: with `auto` the body's basis is its tallest content (a
+   * docked rail full of evidence), and flexbox shrinks items in proportion to
+   * their basis, so the header lost 4-27 px to its own scroller even on a
+   * 1382x798 panel with room to spare. At 0 the body only takes free space,
+   * and the header shrinks only when the floor below needs the room.
+   */
+  flex: 1 1 0;
+  min-height: min(320px, 50vh);
+}
+
+/*
+ * The stage filter row can hold up to 100 authored phases. Three wrapped rows
+ * at most; the rest scroll inside the row (the roving toolbar scrolls a
+ * focused chip into view), like the capped chip row in chrome.css.
+ */
+.mlv-root--workflow .mlv-filterrow {
+  max-height: 12vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  align-items: flex-start;
+}
+/* A 200-character phase label is one ellipsised chip; `title` carries it. */
+.mlv-root--workflow .mlv-filterrow .mlv-chip--stage {
+  max-width: 100%;
+  min-width: 0;
+}
+.mlv-root--workflow .mlv-filterrow .mlv-chip--stage > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Rule configuration and static-analyzer answers have no meaning for authored findings. */
@@ -43,3 +166,8 @@
 .mlv-root--workflow [data-rule-doc],
 .mlv-root--workflow .mlv-insp__fix,
 .mlv-root--workflow .mlv-answers { display: none !important; }
+
+/* Issue 6: a canvas too short for the minimap to summarise anything (canvasview.ts). */
+.mlv-minimap.is-short {
+  display: none;
+}
