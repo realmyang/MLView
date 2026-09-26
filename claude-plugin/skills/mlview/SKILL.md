@@ -33,7 +33,7 @@ when supplied; for a single clear default, state that assumption and proceed.
 When materially different choices remain, ask one focused question or keep
 the alternatives explicitly separate. Copy the user's request into
 `request.question` verbatim, with no paraphrase or dropped clause (past 4000
-characters, keep the start and say so in the limitations). Record unique
+characters, keep the start and say so in `request.scope`). Record unique
 `request.entrypoints`; your interpretation goes in `request.scope` and in
 `request.configuration`, which names the selected config, relevant launch
 arguments, and default/override assumptions. Do not merge mutually exclusive
@@ -179,8 +179,9 @@ edits after a passing validation. Use at most two rounds unless the user or the
 run sets another limit, and count every round in the run exactly. By code:
 
 - `quote_mismatch`: rerun excerpt for the intended range and replace the whole
-  record; the message's first difference and any "quoted text is at lines X-Y"
-  detail show where the range went wrong.
+  record; the error's `difference` (first differing line and column) and, when
+  present, `foundAt` ("the quoted text occurs exactly once, at lines X-Y") show
+  where the range went wrong.
 - `reference`, `duplicate_reference`, `duplicate_id`: fix the named ID at the
   reported path (add the missing record, correct the ID, or drop the repeat).
 - `stale_source`: the named file changed; re-read it, update the claims that

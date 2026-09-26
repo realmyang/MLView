@@ -86,7 +86,10 @@ An effective first request names an entrypoint and config when known:
 The assistant inspects the source with its native tools, chooses meaningful
 steps and connections, checks alternative interpretations, and writes a draft.
 It uses the bundled helper to validate exact citations and publish a revision.
-The helper does not decide the steps, findings, or diagram meaning. Invalid
+The helper does not decide the steps, findings, or diagram meaning. Its
+read-only `excerpt` command prints the exact evidence record for a cited
+range, and validation adds non-blocking hygiene warnings (such as uncited
+evidence or unconnected nodes) for the assistant's own critique. Invalid
 drafts receive actionable errors with a bounded repair loop.
 
 Open the resulting `*.mlview.json` file and run **MLView: Open Generated
@@ -207,9 +210,9 @@ dependencies, not every file the model could have read through opaque host
 tools.
 
 When a saved source file changes after publication, the diagram stays visible
-as a historical diagram. The banner names the changed files; jumps into those
-files are blocked, and evidence in unchanged files still opens. Ask the
-assistant to publish a fresh revision to update the diagram.
+as a historical diagram. The banner names the changed or missing files; jumps
+into those files are blocked, and evidence in unchanged files still opens.
+Ask the assistant to publish a fresh revision to update the diagram.
 
 Unsaved editor changes do not make a diagram stale, because freshness uses the
 saved files. The banner lists files with unsaved changes, and a jump is

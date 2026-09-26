@@ -187,7 +187,7 @@ Errors (block validate, publish, upsert and excerpt):
 - published_invalid: the existing artifact is unreadable; ask the user
 - published_target: upsert a *.draft.json copy, not the artifact
 - python_version: run the helper with Python 3.10+
-- quote_mismatch: fix the range (see foundAt) or the quote (difference)
+- quote_mismatch: rerun excerpt for the intended range (see foundAt)
 - range: line..endLine is a one-based inclusive range in the source
 - record: each upsert record needs a valid id
 - reference: reference an ID that exists

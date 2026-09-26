@@ -284,7 +284,7 @@ table (or the skill's quick reference) does not list.
 | `invalid_path` | error | A path is empty, uses `\`, NUL or a drive letter, or does not name a regular file. | Use a slash-separated workspace-relative path to a file. |
 | `notebook_cell` | error | Notebook evidence has no valid zero-based `cell`, the cell has no source, or the notebook is not valid JSON (`NaN`, `Infinity` or a syntax error). | Cite an existing cell of a valid notebook. |
 | `path_outside_workspace` | error | A path is absolute or uses `..`, or the file is missing or resolves outside the workspace. | Cite an existing file inside `--workspace`. |
-| `quote_mismatch` | error | A quote is not exactly the cited lines; `difference` shows the first differing line and column, and `foundAt` where the quoted text occurs when it occurs exactly once. | Fix the line numbers, or copy the cited lines exactly (`excerpt` prints them). |
+| `quote_mismatch` | error | A quote is not exactly the cited lines; `difference` shows the first differing line and column, and `foundAt` where the quoted text occurs when it occurs exactly once. | Fix the line numbers (see `foundAt`), then rerun `excerpt` for that range and replace the record. |
 | `range` | error | `line`/`endLine` (or `excerpt --lines`) are not integers with `1 <= line <= endLine <=` the line count (`maxLine`). | Use a one-based inclusive range inside the source. |
 | `source_encoding` | error | A cited source is not UTF-8. | Cite a UTF-8 file; list other files under `inspectedFiles` only. |
 | `source_read` | error | A cited or inspected file could not be read. | Check that the file is readable. |

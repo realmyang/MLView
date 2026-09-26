@@ -50,8 +50,9 @@ in the runbook. Only install one copy of the skill in each discovery path.
 
 To refine a particular node, edge, or finding, select it and use **Refine →
 Copy prompt**. Choose an intent or enter a specific question, then paste the
-prompt into the same assistant. The diagram header shows the entrypoints and
-configuration being explained.
+prompt into the same assistant. The diagram header shows the title, the
+request and the coverage status; its **Details** disclosure shows the scope,
+entrypoints, configuration and limitations being explained.
 
 The Inspector brings together claim basis, source quotes, counter-evidence and
 coverage limitations. **Challenge this claim** prepares a focused refinement
