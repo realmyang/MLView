@@ -101,6 +101,21 @@ toolchain. Again, CI has not run on it.
     is invalid, and the note gives that remedy instead of "fetch or verify
     the corpus".
 
+A final check of `40cee7b` found one wording problem in a note (CHECK-1)
+and one case that predates this branch: with other tools, a later count
+change that turned the recorded `go` into `stop` over unchanged evidence
+counted every Stage 2 run invalid. Commit `dfd9663` fixes both, with a new
+gate test (either tools) and an updated one; the three affected cases fail
+against the gate at `19ce3a9`. It was checked the same way, on the same
+machine and toolchain; CI has not run on it yet.
+
+- `sh scripts/e2e.sh --skip-npm-install` on `dfd9663`'s tree: **all 15
+  exercised gates passed**. Python: **854 passed, 17 skipped** (the same
+  corpus tests), 537 subtests passed. Viewer: **79 passed**. Extension:
+  **250 passed**. The actual VSIX: 11 files, 155,593 bytes.
+- `python tools/verify.py --all`: OK. `python tools/evidence_lock.py`: 95
+  files match the lock. `python scripts/check_docs.py`: OK, 40 documents.
+
 Every decision, review, verdict and policy value in the new tests and the
 rehearsal is synthetic. No native session, human review, reference freeze
 or pilot run occurred.
