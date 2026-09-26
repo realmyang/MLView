@@ -1551,11 +1551,13 @@ def test_a_forged_stage1_go_does_not_unlock_stage_2(world: World, tmp_path: Path
 
 
 def test_a_changed_stage1_review_holds_stage_2_without_invalidating_it(world: World) -> None:
-    """After the Stage 1 record, a review.md re-saved (CRLF) or reworded without changing what it says does no
-    harm; a changed verdict is named, blocks Stage 2 with the remedy and makes the all-stage summary incomplete
-    instead of marking Stage 2 runs invalid (HONEST-F2, SPECDOCS-F1, STATS-F2, STATS-F5)."""
+    """After the Stage 1 record, a review.md re-saved (CRLF), given trailing spaces, blank lines or a '>' note keeps
+    its normalized hash and does no harm; a changed verdict is named with its run and file, blocks Stage 2 with the
+    remedy and makes the all-stage summary incomplete instead of marking Stage 2 runs invalid, also when the
+    re-computed decision is stop (HONEST-F2, SPECDOCS-F1, STATS-F2, STATS-F5)."""
     code, _out, err = run_main(world, "summarize", *pilot_args(world), "--stage", "1", "--record")
-    assert code == 0 and "every Stage 1 review must keep saying what it says now" in err, err
+    assert code == 0 and "every Stage 1 review.md must keep its content: only '>' notes, line endings, trailing " \
+                         "spaces and blank lines may change" in err, err
     commit_files(world.root, {}, "synthetic stage 1 summary")
     later = {"Started": "2026-10-25T09:00:00Z", "Ended": "2026-10-25T09:10:00Z"}
     do_run(world, "pilot-demo-a:codex:2", session=later)
@@ -1563,22 +1565,24 @@ def test_a_changed_stage1_review_holds_stage_2_without_invalidating_it(world: Wo
     baseline_review = world.evidence("pilot-demo-a:codex:baseline:1") / "review.md"
     original = review.read_bytes()
     review.write_bytes(original.replace(b"\n", b"\r\n"))  # an editor's re-save with CRLF
-    _set_review(world, "pilot-demo-a:codex:baseline:1", "Date: 2026-10-21", "Date: 2026-10-22")
-    baseline_review.write_bytes(baseline_review.read_bytes() + b"> a note added later (synthetic)\n")
+    baseline_review.write_bytes(baseline_review.read_bytes().replace(b"\n## ", b"   \n\n## ")
+                                + b"> a note added later (synthetic)\n")
     assert run_main(world, "run-prepare", "pilot-demo-a:claude-code:2", *pilot_args(world))[0] == 0
     assert run_of(summarize(world, "all"), "pilot-demo-a:codex:2")["status"] == "completed"
     # A changed verdict: named, with the remedy; Stage 2 stays valid, the all-stage summary incomplete.
     review.write_bytes(original.replace(b"demo-b-u01: stated coverage", b"demo-b-u01: not-stated"))
+    assert summarize(world)["decision"]["value"] == "stop"
     code, _out, err = run_main(world, "run-prepare", "pilot-demo-b:claude-code:2", *pilot_args(world))
-    assert code == 1 and "gives stop, not go, after review.md of pilot-demo-a:codex:baseline:1, pilot-demo-b:codex:1 " \
-                         "changed since the summary was recorded; Stage 1 reviews are final once the Stage 1 summary " \
-                         "is recorded" in err, err
+    assert code == 1 and "1 Stage 1 review(s) changed since the summary was recorded: pilot-demo-b:codex:1 " \
+                         "(evidence/pilot-demo-b.codex.1/review.md) changed (normalized sha256 " in err, err
+    assert "pilot-demo-a:codex:baseline:1" not in err and "Stage 1 reviews are final once the Stage 1 summary is " \
+                                                          "recorded" in err, err
     summary = summarize(world, "all")
     assert summary["decision"]["value"] == "incomplete"
     assert "the committed Stage 1 go is not re-verified here (see the verification notes)" in summary["decision"]["reasons"]
     assert not [run["id"] for run in summary["runs"] if run["status"] == "invalid"]
-    assert any("review.md of pilot-demo-a:codex:baseline:1, pilot-demo-b:codex:1 changed" in note
-               for note in summary["verification"]["notes"]), summary["verification"]["notes"]
+    assert any("changed since the summary was recorded: pilot-demo-b:codex:1 (evidence/pilot-demo-b.codex.1/review.md)"
+               in note for note in summary["verification"]["notes"]), summary["verification"]["notes"]
     with pytest.raises(wp.PilotError, match="the decision is incomplete"):
         wp.record_summary(world.root, summary)
     review.write_bytes(original)
@@ -1867,8 +1871,10 @@ def test_a_retry_after_an_unsent_prompt_is_reported_in_the_summary(retry_world: 
     markdown = wp.render_markdown(summary)
     assert f"Earlier attempts, kept and replaced by a retry: {run_id} attempt 1 {EM} failed (host-error: the host " \
            "crashed before the prompt (synthetic)); prompt never sent." in markdown
-    assert f"- {run_id}: record {entry['record']}, review {entry['review']}; attempt 1 record " \
-           f"{er.sha256_file(earlier / 'record.json')}" in markdown
+    review = (retry_world.evidence(run_id) / "review.md").read_bytes()
+    assert entry["reviewNormalized"] == {"version": 1, "sha256": er.normalized_review_sha256(review)}
+    assert f"- {run_id}: record {entry['record']}, review {entry['review']} (normalized v1 " \
+           f"{entry['reviewNormalized']['sha256']}); attempt 1 record {er.sha256_file(earlier / 'record.json')}" in markdown
     planned = {item["id"]: item for item in wp.load_campaign(retry_world.root, CAMPAIGN).plan()}
     assert wp._sealed_inputs(wp._stage1_input_index(summary, planned)[run_id])[2] == (
         (1, er.sha256_file(earlier / "record.json"), ()),)
@@ -2257,8 +2263,8 @@ def test_a_stage1_summary_recorded_with_other_committed_tools_still_discloses_re
         else:
             assert code == 0, err
             assert "Note: the committed Stage 1 summary was recorded with other tools (versions committed in its " \
-                   "history); its decision, its sealed inputs, the failures and earlier attempts of its skill runs " \
-                   "and baselines, and what it reports of each review changed since were compared" in out, out
+                   "history); its decision, its sealed inputs, its normalized review hashes and the failures and " \
+                   "earlier attempts of its skill runs and baselines were compared with a re-computation" in out, out
     assert (directory / "stage1-summary.json").is_file()
 
 
@@ -2513,8 +2519,8 @@ def test_a_summary_recorded_with_other_tools_must_disclose_the_baselines(tmp_pat
         git(world.root, "reset", "--quiet", "--hard", "HEAD~1")
     commit_files(world.root, summary_files(real), "synthetic: the summary as recorded")
     code, out, err = run_main(world, "run-prepare", "pilot-demo-a:codex:2", *pilot_args(world))
-    assert code == 0 and "the failures and earlier attempts of its skill runs and baselines, and what it reports of " \
-                         "each review changed since were compared" in out, out + err
+    assert code == 0 and "its normalized review hashes and the failures and earlier attempts of its skill runs and " \
+                         "baselines were compared" in out, out + err
 
 
 def test_stage1_runs_are_final_once_the_stage1_summary_is_recorded(tmp_path: Path,
@@ -2586,8 +2592,9 @@ def test_an_absent_corpus_leaves_stage_2_runs_valid_in_the_all_stage_summary(wor
     campaign = wp.load_campaign(world.root, CAMPAIGN)
     stage1 = wp._committed_stage1(world.root, campaign)
     assert isinstance(wp._stage1_matches(world.root, campaign, str(world.pilot), stage1), wp.Stage1Unverified)
-    # A re-saved review changes nothing either way; with the corpus back, the go is re-verified.
-    _set_review(world, "pilot-demo-b:codex:1", "Date: 2026-10-21", "Date: 2026-10-22")
+    # A re-saved review (CRLF, a note) changes nothing either way; with the corpus back, the go is re-verified.
+    review = world.evidence("pilot-demo-b:codex:1") / "review.md"
+    review.write_bytes(review.read_bytes().replace(b"\n", b"\r\n") + b"> a note added later (synthetic)\r\n")
     summary = summarize(world, "all")
     assert summary["decision"]["value"] == "incomplete" and not [r for r in summary["runs"] if r["status"] == "invalid"]
     shutil.move(str(world.base / "demo-b-away"), str(world.corpus / "demo-b"))
@@ -2688,6 +2695,54 @@ def test_a_later_tool_rule_for_a_baseline_leaves_an_honest_go_in_force(world: Wo
     assert code == 0, err
 
 
+# --------------------------------------------------------------------------------------------
+# Normalized review hashes (review normalization v1): the Stage 1 gate compares, for every Stage 1
+# review the recorded summary lists, the hash of the review without what the grammar ignores,
+# whichever tools recorded the summary (synthetic data only)
+
+
+LATER = {"Started": "2026-10-25T09:00:00Z", "Ended": "2026-10-25T09:10:00Z"}
+ACCUSATIONS = '"response:40-42: high | medium | low" for each false accusation in the answer.\n'
+HELD = "the committed Stage 1 go is not re-verified here (see the verification notes)"
+RESTORE = ("only '>' notes, line endings, trailing spaces and blank lines may change; restore everything else in each "
+           "named review.md exactly as it was when the summary was recorded")
+
+
+def _each_line(raw: bytes, change) -> bytes:
+    """``raw`` (LF lines) with ``change(line) -> [lines]`` applied to every line."""
+    out: list[str] = []
+    for line in raw.decode("utf-8").split("\n"):
+        out.extend(change(line))
+    return "\n".join(out).encode("utf-8")
+
+
+def _note_edited(line: str) -> list[str]:
+    return ["  > Written by review-template; this note was edited after the record (synthetic)"] \
+        if line.startswith("> Written by review-template") else [line]
+
+
+# What an editor, or a reviewer adding notes, may do to a recorded Stage 1 review.md (synthetic): every
+# other character stays as it was.
+HONEST_EDITS = {
+    "crlf": lambda raw: raw.replace(b"\n", b"\r\n"),
+    "cr": lambda raw: raw.replace(b"\n", b"\r"),
+    "bom": lambda raw: b"\xef\xbb\xbf" + raw,
+    "note-added": lambda raw: _each_line(raw, lambda line: [line, "\t> a note added after the record (synthetic)"]
+                                         if line.startswith("## ") else [line]) + b"> a closing note (synthetic)\n",
+    "note-edited": lambda raw: _each_line(raw, _note_edited),
+    "note-removed": lambda raw: _each_line(raw, lambda line: [] if line.startswith("> ") else [line]),
+    "trailing-spaces": lambda raw: _each_line(raw, lambda line: [line + " \t " if line else line]),
+    "blank-lines": lambda raw: _each_line(raw, lambda line: [line, "", "   ", "\t"] if line.startswith("## ") else [line]),
+}
+
+
+def honest_resave(raw: bytes) -> bytes:
+    """Every edit of HONEST_EDITS at once, saved with a BOM and CRLF line endings."""
+    for name in ("note-edited", "note-added", "blank-lines", "trailing-spaces", "bom", "crlf"):
+        raw = HONEST_EDITS[name](raw)
+    return raw
+
+
 def record_stage1_go(world: World, tools: str) -> None:
     """Record and commit the Stage 1 go of ``world``: with summarize --record (the running tools), or as the
     other, Git-bound tools committed at HEAD then would have written it (synthetic older tool bytes)."""
@@ -2703,74 +2758,159 @@ def record_stage1_go(world: World, tools: str) -> None:
     commit_files(world.root, summary_files(real), "synthetic: the recorded summary")
 
 
+def committed_stage1(world: World) -> dict:
+    return json.loads((world.root / wp.PILOT_REL / CAMPAIGN / "stage1-summary.json").read_text(encoding="utf-8"))
+
+
+def test_the_summary_records_a_normalized_hash_beside_each_review_hash(world: World) -> None:
+    """inputs.runs[].reviewNormalized is {"version": 1, "sha256": ...} beside every review hash and null where no
+    review was read; the Markdown lists it."""
+    summary = summarize(world)
+    entries = {item["id"]: item for item in summary["inputs"]["runs"]}
+    assert sorted(entries) == sorted(stage1_ids())
+    for run_id, item in entries.items():
+        raw = (world.evidence(run_id) / "review.md").read_bytes()
+        assert item["review"] == sha(raw)
+        assert item["reviewNormalized"] == {"version": 1, "sha256": er.normalized_review_sha256(raw)}
+        assert item["reviewNormalized"]["sha256"] != item["review"]
+    run_id = "pilot-demo-a:codex:1"
+    assert f"- {run_id}: record {entries[run_id]['record']}, review {entries[run_id]['review']} (normalized v1 " \
+           f"{entries[run_id]['reviewNormalized']['sha256']})" in wp.render_markdown(summary)
+    (world.evidence(run_id) / "review.md").unlink()
+    entry = next(item for item in summarize(world)["inputs"]["runs"] if item["id"] == run_id)
+    assert entry["review"] is None and entry["reviewNormalized"] is None
+
+
 @pytest.mark.parametrize("tools", ["same", "other"])
-@pytest.mark.parametrize("edit", ["none", "resave", "skill-verdict", "skill-reviewer", "baseline-verdict",
-                                  "baseline-false-accusation", "baseline-deleted"])
-def test_a_changed_stage1_verdict_that_keeps_go_holds_stage_2_whichever_tools_recorded_it(world: World, tools: str,
-                                                                                          edit: str) -> None:
-    """After the Stage 1 go is recorded, with the running tools or with other (Git-bound) tools, a changed verdict
-    or reviewer that keeps the re-computed decision at go is named, holds Stage 2 and leaves the all-stage summary
-    incomplete without making Stage 2 runs invalid; no change, a CRLF re-save and a '>' note that keep every verdict
-    do no harm. A baseline's false accusations, which the summary carries only as the baselines' total, count too;
-    with other tools the message gives the recorded sha256 whose exact bytes clear it (REG-1, NEW-3, NEW-2;
-    HONEST-F2 and INTEGRITY-F1 kept)."""
+def test_an_honest_resave_of_every_stage1_review_leaves_the_go_in_force(world: World, tools: str) -> None:
+    """After the record, a CRLF, CR or BOM re-save, a '>' note added, edited or removed, trailing spaces and blank
+    lines, one by one and all at once on all 8 Stage 1 reviews, keep every normalized hash: Stage 2 proceeds and the
+    all-stage summary is not held, whichever tools recorded the summary."""
     record_stage1_go(world, tools)
-    do_run(world, "pilot-demo-a:codex:2", session={"Started": "2026-10-25T09:00:00Z", "Ended": "2026-10-25T09:10:00Z"})
-    skill, base = "pilot-demo-a:codex:1", "pilot-demo-a:codex:baseline:1"
-    originals = {run_id: (world.evidence(run_id) / "review.md").read_bytes() for run_id in (skill, base)}
-    if edit == "resave":
-        (world.evidence(skill) / "review.md").write_bytes(originals[skill].replace(b"\n", b"\r\n"))
-        (world.evidence(base) / "review.md").write_bytes(originals[base] + b"> a note added later (synthetic)\n")
-    elif edit == "skill-verdict":
-        _set_review(world, skill, "demo-a-f01: covered node:load", "demo-a-f01: missing")
-    elif edit == "skill-reviewer":
-        _set_review(world, skill, f"Reviewer: {REVIEWER}", "Reviewer: Another Reviewer (synthetic)")
-    elif edit == "baseline-verdict":
-        _set_review(world, base, "demo-a-f01: covered response:1-2", "demo-a-f01: missing")
-    elif edit == "baseline-false-accusation":
-        instruction = '"response:40-42: high | medium | low" for each false accusation in the answer.\n'
-        _set_review(world, base, instruction, instruction + "response:1-2: high\n")
-        assert not wp.check_file(world.evidence(base) / "review.md", root=world.root)
-    elif edit == "baseline-deleted":
-        (world.evidence(base) / "review.md").unlink()
-    assert summarize(world)["decision"]["value"] == "go"
-    code, out, err = run_main(world, "run-prepare", "pilot-demo-a:claude-code:2", *pilot_args(world))
+    campaign = wp.load_campaign(world.root, CAMPAIGN)
+    committed = wp._committed_stage1(world.root, campaign)
+    paths = [world.evidence(run_id) / "review.md" for run_id in stage1_ids()]
+    originals = {path: path.read_bytes() for path in paths}
+    for name, edit in list(HONEST_EDITS.items()) + [("all", honest_resave)]:
+        for path, raw in originals.items():
+            path.write_bytes(edit(raw))
+            assert path.read_bytes() != raw, name
+        notes: list[str] = []
+        assert wp._stage1_matches(world.root, campaign, str(world.pilot), committed, notes) is None, name
+        assert bool(notes) == (tools == "other"), (name, notes)
+        assert summarize(world)["decision"]["value"] == "go", name
+    do_run(world, "pilot-demo-a:codex:2", session=LATER)  # its run-prepare passes the gate
     summary = summarize(world, "all")
-    assert summary["decision"]["value"] == "incomplete"
+    assert HELD not in summary["decision"]["reasons"], summary["decision"]
     assert not [run["id"] for run in summary["runs"] if run["status"] == "invalid"]
-    held = "the committed Stage 1 go is not re-verified here (see the verification notes)"
-    if edit in ("none", "resave"):
-        assert code == 0, err
-        assert ("Note: the committed Stage 1 summary was recorded with other tools" in out) == (tools == "other"), out
-        assert held not in summary["decision"]["reasons"], summary["decision"]
-        return
+
+
+@pytest.mark.parametrize("tools", ["same", "other"])
+@pytest.mark.parametrize("edit", ["skill-verdict", "skill-reason", "skill-reviewer", "skill-severity", "skill-deleted",
+                                  "baseline-verdict", "baseline-reviewer", "baseline-false-accusation-added",
+                                  "baseline-false-accusation-removed", "baseline-deleted"])
+def test_a_changed_stage1_review_holds_stage_2_whichever_tools_recorded_it(world: World, tools: str, edit: str) -> None:
+    """After the Stage 1 go is recorded, with the running tools or with other (Git-bound) tools, a changed verdict,
+    reason, reviewer or severity, a false accusation added or removed, or a deleted review, of a skill run or a
+    baseline, is named with its run and file, holds Stage 2 and leaves the all-stage summary incomplete without
+    making Stage 2 runs invalid, even where the decision stays go. Restoring the content clears it, also when the
+    restored file is saved with CRLF and a note (REG-1, NEW-3 and HONEST-F2, now by normalized hash)."""
+    skill, base = "pilot-demo-a:codex:1", "pilot-demo-a:codex:baseline:1"
+    accused = ACCUSATIONS + "response:1-2: high\n"
+    if edit == "skill-reason":  # 23 of 24 claims supported still meets the 95% target
+        _set_review(world, skill, "edge:e1: supported", f"edge:e1: qualified {EM} a synthetic reason")
+    elif edit == "baseline-false-accusation-removed":
+        _set_review(world, base, ACCUSATIONS, accused)
+    record_stage1_go(world, tools)
+    do_run(world, "pilot-demo-a:codex:2", session=LATER)
+    originals = {run_id: (world.evidence(run_id) / "review.md").read_bytes() for run_id in (skill, base)}
     changed = base if edit.startswith("baseline") else skill
-    assert code == 1 and f"after review.md of {changed} changed since the summary was recorded; Stage 1 reviews are " \
-                         "final once the Stage 1 summary is recorded" in err, err
-    if tools == "other":
-        field = {"skill-verdict": "ess", "skill-reviewer": "reviewer", "baseline-verdict": "ess",
-                 "baseline-false-accusation": "baselines.falseAccusations", "baseline-deleted": "reviewed"}[edit]
-        assert f"differs from the committed summary in what the review of {changed} (" in err and field in err, err
-        assert "restoring the exact bytes each named review.md had when the summary was recorded clears this " \
-               f"(recorded sha256: {changed} {sha(originals[changed])[:12]}...)" in err, err
+    review = world.evidence(changed) / "review.md"
+    if edit.endswith("-deleted"):
+        review.unlink()
     else:
-        assert "(a re-save or a wording change that keeps every verdict" in err, err
-    assert held in summary["decision"]["reasons"], summary["decision"]
-    assert any(f"review.md of {changed} changed" in note for note in summary["verification"]["notes"]), \
-        summary["verification"]["notes"]
+        old, new = {"skill-verdict": ("demo-a-f01: covered node:load", "demo-a-f01: missing"),
+                    "skill-reason": ("a synthetic reason", "another synthetic reason"),
+                    "skill-reviewer": (f"Reviewer: {REVIEWER}", "Reviewer: Another Reviewer (synthetic)"),
+                    "skill-severity": ("\nf1: agree\n", "\nf1: too-high\n"),
+                    "baseline-verdict": ("demo-a-f01: covered response:1-2", "demo-a-f01: missing"),
+                    "baseline-reviewer": (f"Reviewer: {REVIEWER}", "Reviewer: Another Reviewer (synthetic)"),
+                    "baseline-false-accusation-added": (ACCUSATIONS, accused),
+                    "baseline-false-accusation-removed": (accused, ACCUSATIONS)}[edit]
+        _set_review(world, changed, old, new)
+        assert not wp.check_file(review, root=world.root)
+    code, _out, err = run_main(world, "run-prepare", "pilot-demo-a:claude-code:2", *pilot_args(world))
+    where = f"{changed} (evidence/{er.run_dir_name(changed)}/review.md)"
+    assert code == 1 and f"1 Stage 1 review(s) changed since the summary was recorded: {where} " in err, err
+    if edit.endswith("-deleted"):
+        assert f"{where} was deleted." in err, err
+    else:
+        recorded = next(item for item in committed_stage1(world)["inputs"]["runs"] if item["id"] == changed)
+        now = er.normalized_review_sha256(review.read_bytes())
+        assert f"{where} changed (normalized sha256 {now[:12]}..., recorded " \
+               f"{recorded['reviewNormalized']['sha256'][:12]}...)." in err, err
+    assert f"Stage 1 reviews are final once the Stage 1 summary is recorded (review normalization v1): {RESTORE}" in err
+    summary = summarize(world, "all")
+    assert summary["decision"]["value"] == "incomplete" and HELD in summary["decision"]["reasons"], summary["decision"]
+    assert not [run["id"] for run in summary["runs"] if run["status"] == "invalid"]
+    assert any(f"review(s) changed since the summary was recorded: {where}" in note
+               for note in summary["verification"]["notes"]), summary["verification"]["notes"]
     for run_id, raw in originals.items():
-        (world.evidence(run_id) / "review.md").write_bytes(raw)
+        (world.evidence(run_id) / "review.md").write_bytes(honest_resave(raw))
     code, _out, err = run_main(world, "run-prepare", "pilot-demo-a:claude-code:2", *pilot_args(world))
     assert code == 0, err
+
+
+@pytest.mark.parametrize("counted", ["later-count", "read-later"])
+def test_rc2_1_a_later_count_of_one_baseline_and_a_resave_of_another_leave_an_other_tools_go_in_force(
+        world: World, monkeypatch: pytest.MonkeyPatch, counted: str) -> None:
+    """RC2-1, closed: with other (Git-bound) tools, a later tool version that counts one baseline's false accusations
+    differently (a changed count, or a baseline the recording tools judged invalid and did not read, whose accusation
+    the running tools now count), together with a CRLF re-save and a note of another baseline's review, changes the
+    baselines' false accusations total but neither holds Stage 2 nor the all-stage summary: tool-counted fields are
+    not compared across tool versions, and the re-saved review keeps its normalized hash."""
+    first, resaved = "pilot-demo-a:codex:baseline:1", "pilot-demo-b:claude-code:baseline:1"
+    if counted == "later-count":
+        record_stage1_go(world, "other")
+        earlier_metrics = wp._run_metrics
+
+        def later_metrics(state, campaign):
+            metrics = earlier_metrics(state, campaign)
+            if state.run["id"] == first:
+                metrics["accusations"] = dict(metrics["accusations"], low=metrics["accusations"]["low"] + 1)
+            return metrics
+        monkeypatch.setattr(wp, "_run_metrics", later_metrics)
+    else:
+        _set_review(world, first, ACCUSATIONS, ACCUSATIONS + "response:1-2: low\n")
+        earlier_protocol = wp._protocol
+
+        def recording_protocol(state, campaign, stage1, stage1_problem=None):
+            earlier_protocol(state, campaign, stage1, stage1_problem)
+            if state.run["id"] == first:
+                state.invalid.append("a synthetic rule of the recording tools that a later fix drops")
+        with pytest.MonkeyPatch.context() as recording:
+            recording.setattr(wp, "_protocol", recording_protocol)
+            record_stage1_go(world, "other")
+        assert next(item for item in committed_stage1(world)["inputs"]["runs"] if item["id"] == first)["review"] is None
+    path = world.evidence(resaved) / "review.md"
+    path.write_bytes(path.read_bytes().replace(b"\n", b"\r\n") + b"> a note added after the record (synthetic)\r\n")
+    later = summarize(world)
+    assert later["decision"]["value"] == "go"
+    assert later["baselines"]["falseAccusations"] != committed_stage1(world)["baselines"]["falseAccusations"]
+    do_run(world, "pilot-demo-a:codex:2", session=LATER)  # its run-prepare passes the gate
+    code, out, err = run_main(world, "run-prepare", "pilot-demo-a:claude-code:2", *pilot_args(world))
+    assert code == 0 and "recorded with other tools" in out, err
+    summary = summarize(world, "all")
+    assert HELD not in summary["decision"]["reasons"], summary["decision"]
+    assert not [run["id"] for run in summary["runs"] if run["status"] == "invalid"]
 
 
 @pytest.mark.parametrize("later", ["count", "protocol-and-resave"])
 def test_a_later_tool_judgement_of_an_unchanged_review_leaves_an_other_tools_go_in_force(
         world: World, monkeypatch: pytest.MonkeyPatch, later: str) -> None:
-    """With other (Git-bound) tools, only the verdicts of a review the running tools read with other bytes (or that
-    was deleted) are compared: a later tool version that counts an unchanged baseline review differently, or that
-    judges a baseline invalid (so its review is not read) after a CRLF re-save, neither holds Stage 2 nor names the
-    run (REG-1, INTEGRITY-F1, HONEST-F2)."""
+    """With other (Git-bound) tools, a later tool version that counts an unchanged baseline review differently, or
+    that judges a baseline invalid (so its review is not read) after a CRLF re-save, neither holds Stage 2 nor names
+    the run: only normalized review hashes are compared (REG-1, INTEGRITY-F1, HONEST-F2)."""
     record_stage1_go(world, "other")
     base = "pilot-demo-a:codex:baseline:1"
     if later == "count":
@@ -2803,9 +2943,9 @@ def test_a_later_tool_judgement_of_an_unchanged_review_leaves_an_other_tools_go_
 @pytest.mark.parametrize("review", ["untouched", "resaved"])
 def test_a_baseline_review_the_recording_tools_did_not_read_is_not_compared(
         world: World, monkeypatch: pytest.MonkeyPatch, review: str) -> None:
-    """With other (Git-bound) tools that judged a reviewed baseline invalid, the summary records no review of it and
-    none of its verdicts; running tools that judge it valid and read its review.md (untouched, or re-saved with CRLF)
-    neither hold Stage 2 nor say the review changed: only the tools' judgement changed (NEW-1, INTEGRITY-F1)."""
+    """With other (Git-bound) tools that judged a reviewed baseline invalid, the summary lists no review of it (no
+    hash, no normalized hash); running tools that judge it valid and read its review.md (untouched, or re-saved with
+    CRLF) neither hold Stage 2 nor say the review changed: only the tools' judgement changed (NEW-1, INTEGRITY-F1)."""
     base = "pilot-demo-a:codex:baseline:1"
     earlier_protocol = wp._protocol
 
@@ -2816,8 +2956,8 @@ def test_a_baseline_review_the_recording_tools_did_not_read_is_not_compared(
     with pytest.MonkeyPatch.context() as recording:
         recording.setattr(wp, "_protocol", recording_protocol)
         record_stage1_go(world, "other")
-    committed = json.loads((world.root / wp.PILOT_REL / CAMPAIGN / "stage1-summary.json").read_text(encoding="utf-8"))
-    assert next(item for item in committed["inputs"]["runs"] if item["id"] == base)["review"] is None
+    entry = next(item for item in committed_stage1(world)["inputs"]["runs"] if item["id"] == base)
+    assert entry["review"] is None and entry["reviewNormalized"] is None
     path = world.evidence(base) / "review.md"
     if review == "resaved":
         path.write_bytes(path.read_bytes().replace(b"\n", b"\r\n"))
@@ -2831,12 +2971,11 @@ def test_a_baseline_review_the_recording_tools_did_not_read_is_not_compared(
 
 
 @pytest.mark.parametrize("later", ["rule", "count"])
-def test_a_resave_after_a_later_tool_change_is_held_with_the_recorded_bytes_that_clear_it(
+def test_a_resave_after_a_later_tool_change_leaves_an_other_tools_go_in_force(
         world: World, monkeypatch: pytest.MonkeyPatch, later: str) -> None:
-    """With other (Git-bound) tools, a later tool version that finds a problem in a baseline review, or counts a
-    skill run's claims differently, leaves the go in force while the review keeps its bytes; after a CRLF re-save the
-    review is compared by what these tools read from it, so Stage 2 is held with a message that says a re-save can
-    differ here and gives the recorded sha256, and restoring those exact bytes clears it (NEW-2)."""
+    """With other (Git-bound) tools, a later tool version that finds a problem in a baseline review, or counts a skill
+    run's claims differently, leaves the go in force, before and after a CRLF re-save of that review (NEW-2's hold is
+    gone); a changed verdict in it is still held, and restoring the content clears it."""
     record_stage1_go(world, "other")
     run_id = "pilot-demo-a:codex:baseline:1" if later == "rule" else "pilot-demo-a:codex:1"
     if later == "rule":
@@ -2865,14 +3004,47 @@ def test_a_resave_after_a_later_tool_change_is_held_with_the_recorded_bytes_that
     assert code == 0 and "recorded with other tools" in out, err
     path.write_bytes(original.replace(b"\n", b"\r\n"))
     code, out, err = run_main(world, "run-prepare", "pilot-demo-a:codex:2", *pilot_args(world))
-    assert code == 1 and f"what the review of {run_id} (" in err, err
-    assert ("these tools find problems in it" in err) == (later == "rule"), err
-    assert "a re-save or a note that keeps every verdict can differ here too when these tools judge or count that " \
-           "review differently; restoring the exact bytes each named review.md had when the summary was recorded " \
-           f"clears this (recorded sha256: {run_id} {sha(original)[:12]}...)" in err, err
-    path.write_bytes(original)
-    code, out, err = run_main(world, "run-prepare", "pilot-demo-a:codex:2", *pilot_args(world))
     assert code == 0 and "recorded with other tools" in out, err
+    path.write_bytes(original.replace(b"demo-a-f02: covered", b"demo-a-f02: partial"))
+    code, _out, err = run_main(world, "run-prepare", "pilot-demo-b:codex:2", *pilot_args(world))
+    assert code == 1 and f"{run_id} (evidence/{er.run_dir_name(run_id)}/review.md) changed" in err, err
+    path.write_bytes(honest_resave(original))
+    code, out, err = run_main(world, "run-prepare", "pilot-demo-b:codex:2", *pilot_args(world))
+    assert code == 0 and "recorded with other tools" in out, err
+
+
+@pytest.mark.parametrize("tools", ["same", "other"])
+def test_a_stage1_summary_without_normalized_review_hashes_is_refused(world: World, tools: str) -> None:
+    """A Stage 1 summary recorded before normalized review hashes existed is refused, whichever tools it names, with
+    the advice to record Stage 1 again with the current tools; there is no fallback to re-derived verdicts. Another
+    normalization version and a malformed entry are refused too."""
+    real = json.loads(er.canonical_json(summarize(world)))
+    assert real["decision"]["value"] == "go"
+    older = json.loads(er.canonical_json(real))
+    for item in older["inputs"]["runs"]:
+        del item["reviewNormalized"]
+    if tools == "other":
+        older["tooling"]["tools/workflow_pilot.py"] = sha(OLD_TOOL)
+        commit_files(world.root, {"tools/workflow_pilot.py": OLD_TOOL}, "synthetic: the tools when recorded")
+    commit_files(world.root, summary_files(older), "synthetic: a summary recorded by older tools")
+    code, _out, err = run_main(world, "run-prepare", "pilot-demo-a:codex:2", *pilot_args(world))
+    assert code == 1 and wp.NO_REVIEW_HASHES in err, err
+    assert "Record Stage 1 again with the current tools" in wp.NO_REVIEW_HASHES
+    assert not world.evidence("pilot-demo-a:codex:2").exists()
+    campaign = wp.load_campaign(world.root, CAMPAIGN)
+    assert wp._stage1_go(older, campaign) == wp.NO_REVIEW_HASHES
+    assert wp._stage1_go(real, campaign) is None
+    run_id = "pilot-demo-a:codex:1"
+    for change, expected in (
+            ({"version": 2}, f"records the review of {run_id} with review normalization v2; these tools implement v1 only"),
+            ({"version": True}, f"has a malformed normalized review hash for {run_id}"),
+            ({"sha256": "A" * 64}, f"has a malformed normalized review hash for {run_id}"),
+            ({"extra": 1}, f"has a malformed normalized review hash for {run_id}"),
+            (None, f"has a malformed normalized review hash for {run_id}")):
+        forged = json.loads(er.canonical_json(real))
+        entry = next(item for item in forged["inputs"]["runs"] if item["id"] == run_id)
+        entry["reviewNormalized"] = None if change is None else dict(entry["reviewNormalized"], **change)
+        assert expected in str(wp._stage1_go(forged, campaign)), change
 
 
 def test_a_retriable_failure_stays_open_in_the_early_stop_indicators(retry_world: World) -> None:
