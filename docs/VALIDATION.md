@@ -8,6 +8,50 @@ Run `sh scripts/e2e.sh` with Python 3.10+ and Node 20.18.1+ on PATH. On Windows
 use `powershell -File scripts/e2e.ps1`. The [script guide](../scripts/README.md)
 explains each gate and explicit skip options.
 
+## Campaign 3 integration local checks — 2026-09-26
+
+Campaign 3 (public shakedown fixes, unreleased) at `0641c85` on the
+`campaign3-shakedown` branch: the no-fast-forward merges of the `c3-helper`,
+`c3-skill` and `c3-viewer` streams onto 0.3.0 (`00e5d45`), the integration
+wording fixes and the changelog and status entries; this record is the only
+later change. **These are local automated checks only.** CI has not run on
+these commits, so the Python 3.10–3.14 and Node 20.18.1–26 matrix, Windows and
+the PowerShell drivers are unverified here. The tests check structure,
+contracts and viewer mechanics; they are not semantic accuracy, human review
+or live-host validation, and no native session, live VS Code check or pilot
+run happened in this integration.
+
+- Machine: the same macOS machine as below, Node 26.4.0 (npm 11.17.0), Python
+  3.13.15 in a virtualenv with `pytest==9.1.1` and `jsonschema==4.26.0`,
+  `PYTHONDONTWRITEBYTECODE=1`.
+- `sh scripts/e2e.sh --skip-npm-install` on `0641c85`: **all 15 exercised
+  gates passed** (`E2E OK: 15 exercised gates`).
+  - Python helper, distribution and evaluation tests: **887 passed, 626
+    subtests passed**, none skipped.
+  - Viewer: **96 passed**, 0 failed, 0 skipped. Extension: **266 passed**,
+    0 failed, 0 skipped.
+  - The actual VSIX: 11 files, 160,627 bytes.
+  - An earlier run of the same gate, on the merge commit `7dcb6a0` with most
+    of the integration wording fixes applied but not yet committed, also
+    passed all 15 gates with the same test counts (VSIX 160,628 bytes).
+- After the gate's rebuild (viewer build, asset and skill sync, extension
+  compile), `git diff --exit-code` was clean over `webview/dist`,
+  `vscode-extension/media`, the extension's notices and
+  `claude-plugin/skills/mlview`.
+- `python tools/verify.py --all`: OK. `python tools/evidence_lock.py`: 95
+  files match the lock. `python scripts/check_docs.py`: OK, 40 documents.
+- Under a Python 3.10.21 interpreter, `python3.10 -m unittest discover -s
+  skills/mlview/tests -p 'test_artifact*.py'` ran 113 tests, OK.
+- The skill's bundled example validates with the merged helper on a scratch
+  workspace holding its fixture source (`ok`, no warnings), and the SKILL.md
+  `excerpt`, `validate`, multi-record `upsert` and `publish` commands ran as
+  documented on a scratch workspace.
+- The streams' own measurements (a headless Chrome layout measurement of the
+  32 shakedown artifacts, an Extension Development Host layout check, a
+  2,000-node jsdom benchmark and a read-only `validate` of all 32 artifacts
+  with the new warnings) were made on their branches and were not repeated
+  here. They are scratch evidence, not committed records.
+
 ## Campaign 2 final local checks and CI — 2026-09-25
 
 Campaign 2 at `d6e0e52` on the `campaign2-pilot-readiness` branch (the
