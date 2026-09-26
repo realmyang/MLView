@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import filecmp
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -129,10 +130,17 @@ def test_bundled_helper_validates_the_shipped_example(tmp_path: Path) -> None:
     assert payload["ok"] is True
 
 
+def _claude_cli_required() -> bool:
+    """CI's claude-plugin job sets MLVIEW_REQUIRE_CLAUDE_CLI=1 so a missing CLI fails instead of skipping."""
+    return os.environ.get("MLVIEW_REQUIRE_CLAUDE_CLI") == "1"
+
+
 @pytest.mark.parametrize("target", ["./claude-plugin", "./.claude-plugin/marketplace.json"])
 def test_claude_plugin_validate_strict_passes(target: str) -> None:
     claude = shutil.which("claude") or shutil.which("claude.cmd") or shutil.which("claude.exe")
     if claude is None:
+        if _claude_cli_required():
+            pytest.fail("MLVIEW_REQUIRE_CLAUDE_CLI=1, but the Claude CLI (claude) is not on PATH")
         pytest.skip("the Claude CLI is unavailable")
     result = subprocess.run(
         [claude, "plugin", "validate", target, "--strict"],

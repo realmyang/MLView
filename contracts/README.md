@@ -16,7 +16,12 @@ and a schema-checked example under `skills/mlview/references/`.
 - **`format: "date-time"` is a requirement.** `verification.publishedAt` is an
   RFC 3339 date-time with an offset (`Z` or `+hh:mm`/`-hh:mm`). Draft 2020-12
   treats `format` as an annotation by default, and Python's jsonschema has no
-  `date-time` checker without extra packages, so assert it explicitly.
+  `date-time` checker without extra packages, so assert it explicitly. The
+  schema layer, the helper and the extension share one profile, stricter than
+  RFC 3339 section 5.6: uppercase `T` and `Z` only; any number of fraction
+  digits; seconds 00-59, with no leap second; a mandatory offset whose hour is
+  at most 23 and minute at most 59; and a year of at least 1. The conformance
+  corpus pins it (`shape-006`, `shape-011`, `shape-016` to `shape-018`).
 - **Integers must be JSON integers.** JSON Schema counts `1.0` and `1e0` as
   integers, and `JSON.parse` turns them into `1`. The helper rejects them and
   never writes them.
@@ -24,7 +29,9 @@ and a schema-checked example under `skills/mlview/references/`.
   `JSON.parse` and most schema validators silently keep the last one.
 - **`NaN` and `Infinity` are not JSON.** `JSON.parse` rejects them, but
   Python's `json` module accepts them by default; the helper rejects them in
-  drafts and in an existing artifact.
+  drafts, in an existing artifact and in cited notebooks. Cited notebooks must
+  be valid JSON; NaN and Infinity are refused (`notebook_cell`), and so is
+  nesting deeper than 500 levels.
 - **Lengths count Unicode code points**, as JSON Schema `maxLength` does. The
   helper and the extension count code points too.
 - **The schema cannot express workspace rules.** The helper and the extension

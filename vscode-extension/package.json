@@ -2,7 +2,7 @@
   "name": "mlview",
   "displayName": "MLView",
   "description": "Open interactive, source-linked ML workflow diagrams authored by your active Copilot, Codex, or Claude Code model.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publisher": "mlview",
   "license": "MIT",
   "icon": "media/icon.png",

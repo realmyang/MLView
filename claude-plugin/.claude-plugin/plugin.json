@@ -1,7 +1,7 @@
 {
   "name": "mlview",
   "displayName": "MLView",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Use the active Claude model to understand ML workflows and publish source-linked interactive diagrams with local validation.",
   "author": { "name": "MLView" },
   "license": "MIT",

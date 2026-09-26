@@ -28,6 +28,13 @@ ARTIFACT_SUFFIX = ".mlview.json"
 # No WorkflowDocument needs more than about 5 levels; deeper JSON is refused at parse time so no
 # later walk can recurse too deeply on any Python version (the extension uses the same bound).
 MAX_JSON_DEPTH = 64
+# JSON.parse reads a cited notebook at any nesting depth, but json.loads raises RecursionError near the
+# interpreter's recursion limit on Python 3.10-3.13 and parses far deeper on 3.14. Refusing deeper
+# notebooks on every version keeps the verdict independent of the interpreter; real notebooks,
+# widget and plot outputs included, stay far below this.
+MAX_NOTEBOOK_DEPTH = 500
+NOTEBOOK_JSON_MESSAGE = "cited notebook is not valid JSON (NaN, Infinity or a syntax error); the viewer cannot read it"
+NOTEBOOK_DEPTH_MESSAGE = f"cited notebook nests JSON more than {MAX_NOTEBOOK_DEPTH} levels deep; the helper does not read it"
 # verification.files holds at most 2000 keys, so at most 2000 tracked files can be fingerprinted.
 MAX_TRACKED = 2000
 TRACKED_LIMIT_MESSAGE = f"at most {MAX_TRACKED} distinct tracked files (cited evidence files plus inspected project files) can be fingerprinted; list fewer files"
@@ -185,11 +192,25 @@ def _lines(text: str) -> list[str]:
     return text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
 
 
-def _parse_notebook(text: str) -> Any:
+def _read_notebook(text: str) -> tuple[Any, str | None]:
+    """(notebook, None), or (None, message) when the notebook cannot be cited: it is not JSON as the
+    viewer's JSON.parse reads it (a syntax error, or NaN, Infinity or -Infinity, which json.loads
+    accepts by default), or it nests deeper than MAX_NOTEBOOK_DEPTH. A duplicate member keeps the
+    last value, as in JSON.parse."""
     try:
-        return json.loads(text)
-    except (ValueError, RecursionError):
-        return None
+        value = json.loads(text, parse_constant=_reject_constant)
+    except RecursionError:
+        return None, NOTEBOOK_DEPTH_MESSAGE
+    except ValueError:
+        return None, NOTEBOOK_JSON_MESSAGE
+    if _json_depth(value) > MAX_NOTEBOOK_DEPTH:
+        return None, NOTEBOOK_DEPTH_MESSAGE
+    return value, None
+
+
+def _parse_notebook(text: str) -> Any:
+    """The parsed notebook, or None when _read_notebook refuses it."""
+    return _read_notebook(text)[0]
 
 
 def _validate_evidence(doc: dict[str, Any], root: Path, problems: Problems, owned: set[tuple[int, int]] = frozenset()) -> dict[str, str]:
@@ -225,11 +246,12 @@ def _validate_evidence(doc: dict[str, Any], root: Path, problems: Problems, owne
                 problems.add("notebook_cell", f"{at}.cell", "notebook evidence requires a zero-based cell index")
                 continue
             if rel not in notebooks:
-                notebooks[rel] = _parse_notebook(text)
+                notebooks[rel] = _read_notebook(text)
+            notebook, unreadable = notebooks[rel]
+            if notebook is None:
+                problems.add("notebook_cell", f"{at}.cell", unreadable)
+                continue
             try:
-                notebook = notebooks[rel]
-                if notebook is None:
-                    raise ValueError
                 cells = notebook["cells"]
                 source = cells[cell]["source"]
                 text = "".join(source) if isinstance(source, list) else source

@@ -17,7 +17,7 @@ VS Code extension. The JavaScript bundle exposes this browser API:
 
 ```ts
 window.MLView = {
-  version: '0.2.0',
+  version: '0.3.0',
   mountWorkflow(root: HTMLElement, document: WorkflowDocument, bridge: HostBridge): WorkflowViewApp,
   normalizeWorkflow(document: WorkflowDocument): MLGraph,
   bridges: { vscode(): HostBridge }

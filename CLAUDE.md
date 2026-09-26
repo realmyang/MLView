@@ -51,6 +51,11 @@ Hard rules:
 - Never report tests, CI or UI checks as semantic accuracy, human review or
   live-host validation. Human reference review and the held-out pilot are
   the owner's decisions; never fabricate approvals.
+- `evals/workflow/decisions/` holds owner decisions. Agents never write
+  decision or verdict values, reviewer names or `Review: complete` on their
+  own initiative. When transcribing dictated decisions they fill
+  `Transcribed by:`. `evals/workflow/pilot/<campaign>/` is immutable once
+  committed.
 
 Contract changes touch five places: contracts/workflow.schema.json,
 artifact.py, vscode-extension/src/workflowDocument.ts (+ authoredPanel.ts
@@ -78,8 +83,12 @@ the flag); on Windows `powershell -File scripts/e2e.ps1`. Focused:
 `python -m pytest skills/mlview/tests tools evals scripts claude-plugin/tests -q`;
 `npm run check && npm test` in webview/ or vscode-extension/;
 `python tools/verify.py --all` (generated copies, versions, retired paths);
-`python scripts/check_docs.py` (links in current docs). CI runs Node 20.18.1
-and 22, so avoid APIs newer than Node 20 (for example
+`python scripts/check_docs.py` (links in current docs). The evidence lock
+(tools/evidence_lock.json, tools/test_evidence_lock.py) pins the bytes of the
+evaluation evidence roots listed in tools/evidence_lock.py (not docs/archive,
+docs/demo-logs or historical-banner docs); register a new dated record there
+with `python tools/evidence_lock.py --add <path>`. CI runs Node 20.18.1,
+22, 24 and 26 and Python 3.10–3.14; avoid APIs newer than Node 20 (for example
 `String.prototype.isWellFormed`, `Array.prototype.toSorted`,
 `Promise.withResolvers`).
 
@@ -87,10 +96,14 @@ Report only commands actually run, with their results. Local tests do not
 prove live-host use or semantic correctness, and an older CI run does not
 validate newer edits.
 
-Git: work on a feature branch. The native workflow is on `llm-workflow`
-(draft PR #9 to main); until it merges, the default branch still ships the
-retired analyzer, so a fresh clone or worktree may start from the wrong base.
-Check `git merge-base --is-ancestor <intended commit> HEAD` before starting.
+Git: work on a feature branch from `main`, which ships the native workflow
+since PR #9 (0.2.0) was squash-merged on 2026-09-25, so the old
+`llm-workflow` commits are not ancestors of `main`. Harness worktrees can
+start from `origin/main` rather than your working branch: check
+`git merge-base --is-ancestor <intended commit> HEAD` before starting.
+Pilot campaign commits (freeze, candidate, summaries under
+evals/workflow/pilot/) must reach `main` by a merge commit or fast-forward,
+never a squash or rebase merge (evals/workflow/pilot/README.md).
 Commit and push only when asked; never force-push or rewrite shared history.
 Preserve unrelated working changes. Keep raw transcripts, credentials and
 machine-specific paths out of committed files. Frozen decision records stay

@@ -6,11 +6,440 @@ static analyzer; their figures are historical and are not rewritten. Current
 truth lives in [docs/STATUS.md](docs/STATUS.md) and
 [docs/VALIDATION.md](docs/VALIDATION.md).
 
+## 0.3.0 — pilot readiness (Campaign 2)
+
+Tooling the owner and an operator need to review the reference packet, freeze a
+campaign and run, seal, review and summarize the held-out pilot. Nothing here
+reviews a reference, runs a model or decides the pilot: every committed
+decision file is a pending template, `pilotApproved` is the constant `false`,
+and summaries say "computed against the predefined targets; not an approval".
+0.3.0 follows 0.2.0, which shipped on 2026-09-25. Finding IDs refer to the
+2026-09-25 takeover review; N and J items are the Campaign 2 specification's
+own observations.
+
+Evaluation pipeline:
+- Owner decisions are plain Markdown files in `evals/workflow/decisions/`:
+  eight pending task templates, `run-policy.md` and
+  `development-adjudication.md`. `python tools/workflow_eval.py check` prints
+  every problem as `path:line: LEVEL section: message` and ends with "ready to
+  freeze" or not; `template` (exclusive, `--second`, `--show`, `--init-all`)
+  and `context` (a gitignored sheet with each quote verified against the
+  pinned bytes) support the review. Unknowns and non-defects get stable IDs,
+  and the Flax placeholder argument must be replaced before a freeze (EVAL-2,
+  N2, N3).
+- `freeze --campaign C [--write]` checks every precondition (ready files,
+  resolved second-review disagreements, verified corpus, exact quotes, covered
+  paths, no reference leakage or machine paths in prompts) and writes the
+  frozen references, reference set, run policy, 16 prompts and `freeze.json`
+  exclusively; `referenceRevision` is the reference set's hash. `check-frozen`
+  re-derives the current campaign byte for byte and guards the held-out
+  manifest fields. The host invocation is frozen per host, outside the hashed
+  prompt (EVAL-6, N5).
+- Candidate snapshot v2: `python tools/workflow_candidate.py --campaign C
+  --build-vsix` builds the VSIX itself on a clean tree, checks its payload,
+  media and version and the skill payload against `git ls-files`, and pins the
+  schema, manifests, viewer bundle, extension manifest and `freeze.json`
+  (no longer the ignored `out/extension.js`). `--output` writes a development
+  snapshot, which summaries refuse (CRIT-9).
+- Pilot runs: `plan`, `run-prepare` (a fresh workspace per run under
+  `$MLVIEW_PILOT_DIR`, outside every Git work tree and instruction file, with
+  only the pinned sparse paths and the installed skill), `run-finish` (a
+  sealed `record.json` with every evidence hash; `--amend` keeps the previous
+  seal), `review-template` and `check` for `session.md` and `review.md`
+  (N6, N8, J2, J3).
+- `summarize --stage 1|all` reads every frozen input and the helper at the
+  candidate commit, refuses integrity failures, counts protocol violations as
+  invalid runs, and computes T1-T6 with intention-to-treat denominators, the
+  three qualified-claim policies, per-host targets, paired baselines and the
+  documented go/stop/incomplete/invalid decision; `--record` writes the stage
+  summary exclusively. The unverified legacy `summarize`, `baseline-plan` and
+  test-only placeholders are removed (EVAL-1, EVAL-7). `pilotTargets` gains
+  `knownUnresolvedQualified` (N1).
+- Smoke reviews are bound only to host-less ledgers (EVAL-5); replayed
+  citations use the helper's line and notebook semantics and require an
+  integer `endLine` (EVAL-15); `development-plan --output` is exclusive and
+  `review-packet` needs `--force` to replace its HTML (EVAL-4).
+- `tools/evidence_lock.json` pins every byte under the evaluation evidence
+  roots, `tools/evidence_lock.py --add` appends new dated records, and
+  manifest tests re-hash the recorded native artifacts (EVAL-17). Required
+  source paths are computed from entrypoints, anchors and frozen sources, never
+  parsed from arguments (J1).
+
+Corpus:
+- The mmdetection sparse list adds the five root-anchored config files the
+  registry task needs (EVAL-3). `fetch_workflow_repos.py --verify [--json]`
+  checks each checkout in place (HEAD, clean state, sparse list, blob-exact
+  covered files) without changing it; `--update-sparse` applies a changed list
+  to a clean pinned checkout. The analyzer-era `.mlview-pinned-sha` marker is
+  tolerated when it holds the pin (EVAL-16), and new checkouts turn off
+  `core.autocrlf` (J5).
+
+Distribution and CI:
+- One portable-file filter keeps `.DS_Store`, editor and OS files out of the
+  skill identity, ZIPs, plugin copy and installs (EVAL-8). The installer
+  records `.mlview-install.json`, upgrades unmodified files, refuses local
+  edits unless `--force`, and doctor explains symlinked locations (SKILL-15).
+- `vsix_check.py` reports a missing working-tree source instead of skipping
+  and gains `--payload-only` (EVAL-10). CI adds Python 3.14 and Node 24 and 26,
+  runs the native sh and PowerShell drivers, and has a conditional
+  `claude plugin validate --strict` job; with `MLVIEW_REQUIRE_CLAUDE_CLI=1` a
+  missing Claude CLI fails instead of skipping (EVAL-11). The PowerShell
+  drivers choose a Python 3.10+ interpreter like the sh drivers (EVAL-13).
+  `requirements-dev.txt` pins `pytest==9.1.1` and `jsonschema==4.26.0`
+  (EVAL-12), and `check.py --skip-build` says what still rebuilds (EVAL-14
+  remainder).
+
+Helper:
+- A cited notebook containing `NaN` or `Infinity` is refused with
+  `notebook_cell`, as the viewer cannot read it; the conformance corpus grows
+  from 65 to 70 cases (NaN and duplicate keys in notebooks, and three
+  `publishedAt` profile pins: lowercase `z`, a leap second, a nine-digit
+  fraction).
+- Every helper error and warning code (58 and 2) is catalogued in
+  `docs/WORKFLOW_CONTRACT.md` and, compactly, in the skill's bundled contract;
+  a test fails when a code is added without documentation.
+
+Round 1 review fixes (finding IDs refer to the Campaign 2 round 1 review):
+- `check-frozen` counts a final summary only when it is a summary
+  `summarize --record` wrote for the campaign's `candidate.json` and
+  `freeze.json`; any other file named like a summary is reported and never
+  switches the re-derivation off. The hash-only check still binds `freeze.json`
+  to the candidate and the ledgers to their frozen bytes, checks the copied
+  `supersedes`, `developmentAdjudication` and `tasksManifest.sha256` fields
+  (against the commit that added `freeze.json` when the Git history is
+  complete), and names each changed decision file (INTEGRITY2, INTEGRITY9,
+  OWNERUX1-4). A campaign whose candidate or summary was ever committed needs
+  an owner invalidation to be superseded, and the capture refuses a campaign
+  that already holds a summary or invalidation (INTEGRITY7).
+- `summarize` and `run-prepare` bind every frozen reference and the run policy
+  to the decision files and ledgers at the candidate commit (INTEGRITY3); a
+  Stage 1 summary unlocks Stage 2 only when it has the recorded format and a
+  re-computation from the sealed evidence gives the same `go` and run hashes
+  (INTEGRITY4); the development-adjudication gate uses the full checker
+  (INTEGRITY6).
+- `run-finish` compares the workspace with the pinned bytes recomputed from the
+  corpus, records paths where `workspace-before.json` differs, reports Claude
+  Code's `.claude/settings.local.json` as a host file instead of invalidating
+  the run, counts MLView files in a baseline, and writes `finish-state.json` so
+  a deleted `record.json` is never sealed again with other session facts
+  (INTEGRITY1, INTEGRITY5, STATS1-4, STATS1-5). `summarize` checks the sealed
+  workspace lists and the amendment chain against the hashed evidence
+  (STATS1-2). Every `run-prepare` attempt is appended to
+  `$MLVIEW_PILOT_DIR/preparations.jsonl`; a failed attempt is retried only with
+  `--retry "<reason>"`, which keeps its evidence (INTEGRITY8).
+- Baselines are held to the policy's model and reasoning, not the skill
+  invocation (STATS1-1); unreviewed baselines show no paired difference and
+  block `--record` (STATS1-3); the early-stop bound skips unreviewable runs
+  (STATS1-6); split claims refuse leading zeros and repeats (STATS1-7);
+  `disputedDenominatorItems` lists disputes on essential and runs-must-state
+  flags (STATS1-9); Markdown percentages are floored (STATS1-10). Machine
+  paths such as `D:/` are refused in session values, amendment reasons and
+  summaries (INTEGRITY11). Summaries and review templates cite README sections
+  by heading instead of stale line numbers (SPECDOCS1-1).
+- Owner files: second reviews get their own ID space and their additions must
+  be resolved, and a second review by the primary reviewer is an error
+  (OWNERUX1-1, INTEGRITY10); an unindented wrapped line or a mistyped heading
+  gets a message that does not lead to deleting a decision (OWNERUX1-2,
+  OWNERUX1-10); owner notes and CRLF line endings keep a pending file valid in
+  CI (OWNERUX1-3); the no-skill prompt refuses publishing words (OWNERUX1-5);
+  templates cite document sections (OWNERUX1-6, SPECDOCS1-2); messages show the
+  typeable ` -- ` separator and explain a single `-` (OWNERUX1-7); a sparse
+  mismatch names `--update-sparse --repo <name>` (OWNERUX1-8); a replaced
+  `Anchors:` list notes each dropped proposed anchor (OWNERUX1-9). The pending
+  decision files were regenerated from the templates.
+- `--update-sparse` refuses when the pinned tree could not be listed or
+  classified (DISTCI1-2), a relative pilot directory is made absolute before
+  packaging (DISTCI1-1), and the protocol, README and guide wording now match
+  the tools (SPECDOCS1-3, SPECDOCS1-4, SPECDOCS1-5).
+
+Round 2 review fixes (finding IDs refer to the Campaign 2 round 2 review):
+- A retry is allowed only if the prompt was never sent, as the run policy
+  defines it. `session.md` gains `Prompt sent: yes | no`; `run-finish` refuses
+  `no` for a timeout, a `no-publication` or `repair-budget` failure, a
+  completed session or a transcript that contains the prompt. `run-prepare
+  --retry` verifies the sealed record and refuses an attempt that timed out,
+  failed after the prompt, does not say `Prompt sent: no`, or completed at any
+  point of its amendment chain; `summarize` marks a run invalid when an earlier
+  attempt sent the prompt. Every earlier attempt is verified like a current
+  record and reported: `runs[].attempts`, `failures.earlierAttempts` and
+  `inputs.runs[].earlierAttempts`, which a committed Stage 1 summary binds
+  (INTEGRITY2-2, INTEGRITY2-3, SPECDOCS2-1).
+- A recorded summary is final: `summarize --record` refuses a summary file
+  that was ever committed, `run-prepare` and `summarize --stage all` refuse a
+  Stage 1 summary that differs from its first commit or was committed more
+  than once, and `check-frozen` fails when a committed stage summary is
+  missing, changed or re-added (INTEGRITY2-1). `run-prepare` re-computes
+  Stage 1 even in a pilot directory without its evidence (SPECDOCS2-4).
+- `check-frozen` binds `freeze.json` to `candidate.json` for every captured
+  campaign, with or without a summary (SPECDOCS2-2), prints a `not verified`
+  line naming the history checks it cannot run in a shallow clone or without
+  Git, and the Python CI jobs fetch the full history (the integration jobs'
+  shallow checkouts only print those notes) (INTEGRITY2-4, SPECDOCS2-3). It
+  names a decision file added after the freeze, which `check` notes
+  (OWNERUX2-5).
+- Owner files: a `#` line is a comment in the wrong form, reported under its
+  section without dropping the lines around it, unless it looks like a heading
+  (OWNERUX2-1); a second-review addition is adopted with
+  `<their id>: adopted as <your id> -- <why>`, recorded as `adoptedAs`, so
+  summaries count it inside the denominators (OWNERUX2-2); the high-severity
+  defect note stays until a second-review addition is adopted as that defect
+  (OWNERUX2-3); a wrapped line after a blank or note line, or a wrapped
+  resolution containing `: `, is told to indent (OWNERUX2-6); the CI guard for
+  pending files ignores what the grammar ignores (OWNERUX2-4).
+- The Sensitivity section's macro and leave-one-task-out percentages are
+  floored like the other Markdown percentages (SPECDOCS2-5).
+
+Round 3 review fixes (finding IDs refer to the Campaign 2 round 3 review):
+- The history checks read every version a file ever had in the history
+  reachable from HEAD, merges included, and count distinct contents rather
+  than adding commits. A recorded summary replaced through a merge, a freeze
+  recorded inside a merge and then edited, and a removal hidden behind a merge
+  are found; an ordinary pull-request merge is not a finding
+  (INTEGRITY3-1). `candidate.json` is final once committed like a summary, and
+  capture refuses a shallow or partial clone and a campaign whose candidate
+  was ever committed (DISTCI3-2). A partial clone, or a history Git cannot
+  read, is reported as not verified instead of "never committed", and a
+  supersede refuses there (INTEGRITY3-5).
+- Deleting a committed campaign does not clear the way for a new one:
+  check-frozen fails when a campaign in the history reachable from `HEAD`
+  that was ever committed is missing, also with a pre-freeze `tasks.json`, and
+  requires every earlier campaign to be reached through `supersedes`; the
+  freeze refuses while the history holds a campaign `tasks.json` does not name
+  (INTEGRITY3-2). Two merged recordings of one summary are settled by the
+  owner's `invalidation.md` and a new campaign, after which the finding is a
+  note.
+- `Prompt sent: no` is refused against sealed evidence: repair rounds above
+  zero, a published `pilot.mlview.json` or a skill draft in the workspace at
+  `run-finish`, a captured artifact or a sealed transcript with the prompt at
+  `--amend` (which also never drops or replaces a sealed transcript), and any
+  of these in `run-prepare --retry` and in `summarize`'s check of earlier
+  attempts, which report why an attempt counts as sent (`sentBecause`)
+  (INTEGRITY3-3, STATS3-1). `run-prepare --retry` refuses a retry beyond the
+  policy's infrastructure retries (STATS3-2).
+- With the same tools, a committed Stage 1 summary must equal the
+  re-computation in every field and its Markdown the rendering of its JSON
+  before Stage 2 is prepared; check-frozen checks the rendering while the
+  summary names the running `tools/workflow_pilot.py` and otherwise notes it
+  (INTEGRITY3-4).
+- Summaries: baseline entries keep their failure, invalid reasons, warnings
+  and earlier attempts (`baselines.earlierAttempts`), rendered in the
+  Baseline comparison (STATS3-3, SPECDOCS3-1); a per-host miss names the host
+  and each host gets its own early-stop bound (STATS3-4); a pending run shows
+  no paired difference (STATS3-5).
+- Owner files: only a section kind with at most one ID after a single `#`
+  looks like a heading, and the error says the lines after it were not read
+  (OWNERUX3-1, SPECDOCS3-2); a resolution that names the primary's own
+  addition or starts like `adopted` must use the adoption form (OWNERUX3-2);
+  a case-only duplicate resolution is an error (OWNERUX3-3); `check` keeps a
+  primary with a late second review `frozen in` its campaign and lists that
+  review's disagreements as notes for a new campaign, and check-frozen says
+  to remove the late file to keep the campaign (OWNERUX3-4); a byte change
+  after the freeze names the restore command and is labelled `changed after
+  the freeze` (OWNERUX3-5); the pending-file CI guard ignores edited or
+  removed tool notes (OWNERUX3-6); adopting a candidate item explains the
+  non-adoption form (OWNERUX3-7); the high-severity note suggests an unused
+  second-review defect ID (OWNERUX3-8); a mistyped resolution ID lists the
+  items still open (OWNERUX3-9).
+- Docs: campaign commits reach main by a merge commit or fast-forward, never
+  a squash or rebase merge (DISTCI3-1); the root README no longer calls main
+  unmerged (SPECDOCS3-4); the CI history wording is exact (SPECDOCS3-5).
+
+Round 4 review fixes (finding IDs refer to the Campaign 2 round 4 review):
+- A final file (`candidate.json`, a stage summary) is judged from Git object
+  IDs: a version whose contents Git cannot read, such as a gitlink, no longer
+  turns a replaced file into a "not verified" note, and a version committed as
+  a gitlink or symbolic link is a problem (INTEGRITY4-1). The history queries
+  pin `log.follow`, `log.diffMerges` and `log.showRoot` and fail loudly on an
+  unexpected output form, so a user's Git configuration cannot hide a version
+  or fail a superseding campaign (DISTCI4-2).
+- The skill's drafts under `.mlview/` (SKILL.md's
+  `.mlview/llm/<run-id>/draft.json`) count as evidence that the prompt was
+  sent, in run-finish, `--amend`, `run-prepare --retry` and summarize
+  (INTEGRITY4-2, STATS4-1, SPECDOCS4-1).
+- A Stage 1 summary's `tooling` field no longer switches checks off on its
+  own word: the helper hash must be the candidate's, any other tool hash must
+  be the file committed with the summary, and the run statuses, failures and
+  earlier attempts are compared whatever the tools; `summarize --record`
+  refuses tools that differ from `HEAD` in the checkout, and check-frozen
+  reports a renderer hash that is neither running nor committed with the
+  summary (INTEGRITY4-3, STATS4-2).
+- Owner messages: the restore advice for a changed or missing frozen file
+  names where Git holds exactly the frozen bytes (the index or a commit) and
+  offers no git command when it does not, so it never restores the pending
+  template; the freeze says to commit before editing again (OWNERUX4-1,
+  SPECDOCS4-4). `check` notes a missing or edited `>` proposal line with the
+  ledger's text (INTEGRITY4-4). The high-severity note always names an unused
+  second-review ID (OWNERUX4-2, SPECDOCS4-3). The named-item rule ignores a
+  sentence-final `.` (OWNERUX4-3) and applies only to added items of the same
+  kind, and the first-word rule says which word to change (OWNERUX4-7). An
+  edited or removed frozen second review is handled like a late one
+  (OWNERUX4-4). `# Fact checked` is a comment, not a phantom section
+  (OWNERUX4-5), and an unknown `## ` heading says the lines after it were not
+  read (OWNERUX4-6).
+- The supersede path of the freeze refuses while a committed campaign is
+  missing or off the `supersedes` chain (SPECDOCS4-2).
+- The tests write summary Markdown as bytes, so the Windows job does not see
+  CRLF (DISTCI4-1).
+
+Round 5 review fixes (finding IDs refer to the Campaign 2 round 5 review):
+- A summary's other-tool hashes are bound to Git history instead of one
+  commit: each must be a version of that tool committed in the history of
+  the commit that recorded the summary, so a pull, merge or tool commit
+  between `summarize --record` and the summary's commit no longer wedges an
+  honest summary (a rebase that rewrites the unpushed commit holding those
+  tools still can: drop the summary commit and record again, corrected in
+  the final round); a hash of tools never committed there is still
+  refused. For a superseded campaign the owner invalidated, check-frozen
+  keeps an unbound renderer hash as a note. `--record` says to commit both
+  files at once, before any other commit, pull, merge or rebase
+  (INTEGRITY5-1, DISTCI5-1, SPECDOCS5-1).
+- With other tools, the baselines' statuses, failures, review states and
+  earlier attempts are compared with the re-computation too (INTEGRITY5-2,
+  STATS5-3; narrowed to sealed facts in the final round).
+- Once the Stage 1 summary is recorded (in the working tree or the history),
+  `run-prepare --retry` and `run-finish --amend` refuse Stage 1 runs, which
+  would otherwise stop the recorded go from unlocking Stage 2 (STATS5-1).
+- `summarize --stage all` no longer marks Stage 2 runs invalid, or lists
+  false early-stop indicators, when the Stage 1 re-computation is incomplete
+  only because the corpus is absent or unverified; the summary is
+  incomplete with a note (STATS5-2).
+- An earlier attempt that completed before an amendment says "counted as
+  sent: it completed ..." instead of "prompt never sent" (STATS5-4).
+- Owner messages: after the freeze, the proposal-line and high-severity notes
+  of a frozen file never ask for an edit (OWNERUX5-1); a frozen second review
+  that no longer parses is handled like an edited one (OWNERUX5-2); an
+  unreadable primary is a freeze precondition and a check-frozen restore
+  step instead of a traceback (OWNERUX5-3); a deleted frozen file gets its
+  restore in `check <task>` and `check` (OWNERUX5-4); `# Scenario checked`,
+  `# Task done` and `# Defects none` are comments, and `### Fact checked` says
+  its lines were not read (OWNERUX5-6); the review guide states the adoption
+  rules and the `#` line rules as the check applies them (OWNERUX5-5,
+  SPECDOCS5-2).
+- Differs from the Campaign 2 specification: the binding of a summary's
+  `tooling` field to Git history (section 4.7 names only the hashes), the
+  finality of Stage 1 evidence once its summary is recorded, the
+  environment-incomplete Stage 1 re-computation in the all-stage summary,
+  and the wider `#` comment rule (section 1.3).
+
+Final round review fixes (finding IDs refer to the Campaign 2 final review,
+calibrated to the threat model in the specification's section 1.10):
+- `run-prepare` installs the candidate's skill from its `source.commit`
+  (read through Git), never from the working tree, so a skill change on main
+  during the pilot no longer blocks runs with a dead-end "check out the
+  candidate commit" remedy; a note says when the checkout's skill differs,
+  and `run-finish`'s doctor compares with the candidate's skill too. Without
+  `candidate.json`, the tools say to work on a branch that contains it
+  (HONESTF-1).
+- The Stage 1 gate compares the sealed inputs (records, amendments, earlier
+  attempts) and the decision, no longer the review files' bytes, so a
+  re-save or note that keeps every verdict does no harm. A changed sealed
+  input or a changed verdict names each run and what to restore, and leaves
+  `summarize --stage all` incomplete instead of making Stage 2 runs invalid
+  (HONESTF-2, SPECDOCSF-1, STATSF-2, STATSF-5). With other tools, a
+  baseline's disclosure is its sealed facts (failure and earlier attempts),
+  not its tool-judged status or review state (INTEGRITYF-1). An integrity
+  problem is named with its first example and the summarize command
+  (STATSF-4).
+- The retry rule is shared: `summarize` lists each failure the run policy
+  still lets the operator retry, with its command, the early-stop indicators
+  count it as open, and `--record` refuses until it is retried (INTEGRITYF-3,
+  STATSF-1). After the Stage 1 summary is recorded, `run-prepare` refuses a
+  Stage 1 run before any retry hint, and a refused amendment says to undo an
+  edit to the sealed `session.md` (INTEGRITYF-2). `--record` prints its
+  finality warning after it writes, and the review template says Stage 1
+  reviews are final.
+- An amendment away from `completed` tells the operator to remove
+  `review.md`; `check` of such a review says the same, and summarize names
+  each run's first review problem (STATSF-3). The `--record` baseline rule
+  applies to Stage 1 `go` and `stop` only.
+- Decision files: a second review added after `Review: complete` is a to-do,
+  not an error (HONESTF-3); an unreadable second review is named as such,
+  never as "no second review ... delete this line" (OWNERUXF-1); a frozen file
+  that no longer parses gets its frozen state and restore (OWNERUXF-2); the
+  dropped-anchor note on a frozen file asks for no edit (OWNERUXF-3);
+  `template` refuses to replace a deleted frozen file (OWNERUXF-6); the
+  unbound-renderer error names a next step (OWNERUXF-7); a second review
+  added after the freeze is moved out, never removed (OWNERUXF-8); the freeze
+  `Next:` line names the merge rule (SPECDOCSF-3).
+- Portability: every tool's stdout and stderr fall back to `\` escapes for
+  characters the console encoding lacks, and the Markdown writes `>=`
+  (HONESTF-4, DISTCIF-3); sparse checkouts use `init --no-cone` then
+  `set --`, which git before 2.35 accepts (DISTCIF-2); the helper refuses a
+  cited notebook nested more than 500 levels deep with its own message, so
+  the result no longer depends on the Python version (3.14 parses what
+  3.10-3.13 cannot; DISTCIF-1, N9); the Windows integration job gets 45
+  minutes (DISTCIF-4); a missing Git is
+  named as such (DISTCIF-5); a pilot directory given with `..` is judged by
+  its real parents (HONESTF-5).
+- Docs: squash-merge recovery (SPECDOCSF-2), the corrected rebase caveat
+  (INTEGRITYF-4, SPECDOCSF-4), the review guide's adoption example and `#`
+  rules (OWNERUXF-4, OWNERUXF-5, SPECDOCSF-6), the exact label and
+  `--record` rules (SPECDOCSF-8), VALIDATION's tree ID instead of an
+  unpushed commit (SPECDOCSF-7), and a "Known limits" section in the pilot
+  README: the history checks catch accidents and make tampering visible,
+  and do not stop someone with push access (SPECDOCSF-5).
+- Differs from the Campaign 2 specification: the skill comes from the
+  candidate's source commit rather than the checkout; `--record` refuses
+  while a permitted retry is open; the Stage 1 gate compares review verdicts
+  rather than review bytes; a changed Stage 1 input leaves the all-stage
+  summary incomplete rather than invalid; the Markdown writes `>=`.
+
+Final check fixes (REG IDs refer to the final check of the final round):
+- With a Stage 1 summary recorded by other (Git-bound) tools, a changed
+  Stage 1 verdict or reviewer that keeps the decision at `go` now holds
+  Stage 2 and leaves `summarize --stage all` incomplete, as with the same
+  tools: for each `review.md` whose bytes changed since the record (or that
+  was deleted), the verdict-derived fields (reviewed, reviewer and the review
+  counts of a skill run; the paired row of a baseline) are compared and each
+  run is named. Tool-judged fields are still not compared across tool
+  versions, and a re-save or note that keeps every verdict still does no harm
+  (REG-1).
+- The squash-merge recovery names the commands that report a candidate
+  commit outside `HEAD`'s history (`run-prepare`, `summarize` and
+  `workflow_candidate.py --check`; `check-frozen` does not check it) and
+  confirms the recovery with `workflow_candidate.py --check` (REG-2).
+- `template --init-all` prints each missing frozen file on its own line
+  (REG-3).
+
+Follow-up check fixes (NEW IDs refer to the check of the final check fixes),
+all for a Stage 1 summary recorded by other (Git-bound) tools:
+- A baseline the recording tools judged invalid has no recorded review, so
+  the summary reports none of its verdicts; when later tools judge it valid
+  and read its untouched review, Stage 2 is no longer held with a message
+  that its `review.md` changed (NEW-1).
+- A changed review is compared by what the running tools read from it, so
+  after a tool change that judges or counts it differently even a re-save can
+  hold Stage 2. The message now says so, says when these tools find problems
+  in the review or find it incomplete, and gives the sha256 the summary
+  recorded for each named `review.md`; restoring those exact bytes clears the
+  hold (NEW-2).
+- A changed false accusation in a baseline review now holds Stage 2 too: the
+  summary carries only the baselines' total, which is compared whenever a
+  baseline review changed and is named with each changed baseline (NEW-3).
+- Known limit (RC2-1, left open): because that total covers every baseline,
+  a later tool change in how one baseline's accusations count (including a
+  baseline the recording tools judged invalid, the NEW-1 case), together with
+  a re-save of a different baseline review, holds Stage 2 and names the
+  re-saved review. Restoring that review's exact bytes clears it. Comparing a
+  normalized hash of each Stage 1 review instead of re-derived verdicts would
+  remove this class of case; that is left for a later change.
+
+Not in this version: the owner's reference review and freeze, the development
+adjudication, any native session and the pilot itself (the owner's
+decisions); second-review tooling for run reviews and the development
+adjudication; SKILL-16 (identity framing; `files` is documented as part of the
+identity); DOCS-7/10/17;
+a CI job that fetches the corpus; blinded or randomised review order;
+hash-pinned development dependencies; automatic transcript capture.
+`development/native-reviews/README.md` is a frozen record and still shows
+`review-packet --output` without `--force`, which a regeneration now needs.
+
 ## 0.2.0 — reliability and trust (Campaign 1)
 
 Every manifest now says 0.2.0, the first version number distinct from the
-analyzer-era 0.1.0 that `main` still ships. It is released when PR #9 merges
-(the owner's decision) and also carries the two "Unreleased" native entries
+analyzer-era 0.1.0 that `main` shipped before it. It was released on
+2026-09-25, when the owner squash-merged PR #9 into `main` (`d99904f`), and
+also carries the two "Unreleased" native entries
 below, which never shipped under a version number. Finding IDs refer to the
 2026-09-25 takeover review.
 

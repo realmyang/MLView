@@ -112,4 +112,4 @@ records, and inspects packaged skill ZIPs and the VSIX. On Windows use
 
 See [CONTRIBUTING.md](CONTRIBUTING.md), [current status](docs/STATUS.md),
 [security boundaries](SECURITY.md), and [the documentation index](docs/README.md).
-The CI badge reports the default branch, not this unmerged implementation.
+The CI badge reports the default branch, main.

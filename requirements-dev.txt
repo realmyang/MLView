@@ -1,3 +1,4 @@
 # Development checks only; the installed skill has no Python dependencies.
-pytest>=7,<9
-jsonschema>=4,<5
+# Exact pins keep local and CI evidence on one toolchain (EVAL-12).
+pytest==9.1.1
+jsonschema==4.26.0

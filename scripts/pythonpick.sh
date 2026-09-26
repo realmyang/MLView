@@ -10,9 +10,10 @@
 # per-platform, not universal, and each candidate has to prove it can report a
 # 3.10+ version (the artifact helper requires Python 3.10+) before it is taken.
 #
-# Sets and exports PYTHON, so `sh scripts/build.sh` called from e2e.sh inherits
-# the same interpreter. Returns non-zero with a message on stderr when nothing on
-# PATH qualifies. An explicit `PYTHON=/path/to/python sh scripts/e2e.sh` always
+# Sets and exports PYTHON; build.sh and e2e.sh each source this file and then
+# exec scripts/check.py with that interpreter, and CI runs e2e.sh on Linux and
+# macOS. Returns non-zero with a message on stderr when nothing on PATH
+# qualifies. An explicit `PYTHON=/path/to/python sh scripts/e2e.sh` always
 # wins — it is checked, never second-guessed.
 
 mlview_python_is_usable() {

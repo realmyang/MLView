@@ -28,6 +28,43 @@ interaction need live validation before compatibility is claimed. Latest CI
 results: see [VALIDATION.md](VALIDATION.md) and the repository's
 [Actions page](https://github.com/realmyang/MLView/actions).
 
+Version 0.3.0 adds Campaign 2, "pilot readiness" (see the
+[changelog](../CHANGELOG.md)): owner decision files with a `check` command,
+the campaign freeze and `check-frozen`, the v2 pilot candidate that builds its
+own VSIX, sealed run records, and a `summarize` that verifies every sealed run
+against the frozen campaign and computes the Stage 1 stop/go decision. The
+owner's reference review has not happened and **no reference is frozen**: every
+file in `evals/workflow/decisions/` is a pending template. The pilot has **not
+run**: Stage 1 has 24 skill runs pending and 0 passed, and Stage 2 has 48
+pending. The fixes for the campaign's six reviews (37, 15, 25, 19, 15 and
+36 findings), for the three regressions its final check found and for the
+three a follow-up check found are in:
+among them, a run is retried only if its prompt was never
+sent (`Prompt sent: no` in `session.md`, refused against sealed evidence that
+it was sent, including the skill's drafts under `.mlview/`), every earlier
+attempt stays in the summary, `check-frozen` and `--record` fail when a
+recorded summary or candidate in the history reachable from `HEAD` was
+removed, replaced or recorded twice, merges included, Stage 1 runs and
+reviews are final once the Stage 1 summary is recorded, a summary's own
+`tooling` field never switches a check off (other tools must be versions
+committed in the summary's history), deleting a committed campaign does not
+clear the way for a new one, and `run-prepare` installs the candidate's skill
+from its source commit, so later skill changes on `main` do not block runs.
+Campaign commits reach `main` by a merge commit or fast-forward, never a
+squash or rebase merge. The history checks catch accidents and make changes
+visible; they do not stop someone with push access from rewriting history,
+and commit authorship, `Transcribed by:`, branch protection and the pushed
+candidate tag are the safeguards
+([known limits](../evals/workflow/pilot/README.md#known-limits)). With these
+fixes, the local gate passed on one macOS machine, and all 12 CI jobs
+(Python 3.10–3.14, Node 20.18.1 to 26, macOS and Windows) passed on the
+branch ([details](VALIDATION.md)). One narrow case stays open and documented:
+with a Stage 1 summary recorded by earlier tools, a re-save of one baseline
+review can hold Stage 2 after a tool change in how another baseline's false
+accusations count; restoring the named review's bytes clears it. 0.2.0
+shipped to `main` on 2026-09-25, when PR #9 was squash-merged as `d99904f`;
+the Campaign 2 branch is based on that commit.
+
 Version 0.2.0 adds Campaign 1, "reliability and trust" (see the
 [changelog](../CHANGELOG.md)). An open panel follows the artifact file on disk
 and shows a revision whose sources changed as a historical diagram instead of

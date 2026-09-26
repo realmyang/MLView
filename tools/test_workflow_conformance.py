@@ -53,6 +53,9 @@ REQUIRED_CASES = {
     "freshness-001-crlf-source-raw-hash", "freshness-002-bom-source-fresh",
     "freshness-003-latin1-inspected-with-key-fresh", "freshness-004-owned-key-changed-not-stale",
     "freshness-005-missing-tracked-file-with-key", "freshness-006-missing-inspected-without-key-verified",
+    # Campaign 2 (SPEC 7.1, 7.2): NaN/Infinity and duplicate keys in cited notebooks; publishedAt profile pins.
+    "notebook-009-nan-in-notebook", "notebook-010-duplicate-key-in-notebook", "shape-016-published-at-lowercase-z",
+    "shape-017-published-at-leap-second", "shape-018-published-at-nine-digit-fraction",
 }
 # One case per CONTRACT-9/10/11 item and the CONTRACT-4 follow-up (stream E acceptance).
 REQUIRED_FINDINGS = {"CONTRACT-4", "CONTRACT-9", "CONTRACT-10", "CONTRACT-11"}
