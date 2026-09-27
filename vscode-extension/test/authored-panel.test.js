@@ -663,6 +663,48 @@ test('a changed cited file is named in the banner and only jumps into it are blo
   assert.equal(path.basename(vscode.__recorded.shownDocuments[0].document.uri.fsPath),'other.py');
 });
 
+// Campaign 3, issue 21: a deleted cited file used to be reported as "1 source file(s) changed".
+test('a deleted cited file is reported as missing, not changed, in the banner, the toast and the blocked jump', async () => {
+  const document=helpers.workflow();
+  document.evidence.push({id:'e2',file:'other.py',line:1,endLine:1,quote:'other()'});
+  document.nodes[0].evidence.push('e2');
+  document.coverage.inspectedFiles.push('other.py');
+  helpers.verify(document,{'source.py':'fit()\n','other.py':'other()\n'});
+  const fixture=await openFixture({raw:document,files:{'other.py':'other()\n'}});
+  const banner=helpers.lastBanner(fixture.panel);
+  assert.deepEqual(banner.codes,['stale']);
+  assert.equal(banner.message,'This historical diagram is visible, but 1 source file(s) no longer match revision r1 as published (1 missing): source.py. Jumps into those files are blocked; other evidence still opens. Ask the assistant to publish a fresh revision to update the diagram.');
+  assert.doesNotMatch(banner.message,/changed/);
+  assert.ok(vscode.__recorded.messages.some(m=>m[1]==='MLView: 1 source file(s) no longer match the displayed revision (1 missing).'));
+  fixture.panel.fire({v:1,type:'openLocation',evidenceId:'e'});
+  await helpers.waitFor(()=>vscode.__recorded.messages.some(m=>m[1]==='MLView: evidence e cites source.py, which is missing since revision r1 was published; navigation to it is blocked.'),'missing jump was not blocked with its reason');
+});
+
+test('a mixed stale set counts each reason and marks the files that did not merely change', async () => {
+  const document=helpers.workflow();
+  document.evidence.push({id:'e2',file:'other.py',line:1,endLine:1,quote:'other()'});
+  document.nodes[0].evidence.push('e2');
+  document.coverage.inspectedFiles.push('other.py');
+  helpers.verify(document,{'source.py':'fit()\n','other.py':'other()\n'});
+  const fixture=await openFixture({raw:document,files:{'source.py':'changed()\n'}});
+  const banner=helpers.lastBanner(fixture.panel);
+  assert.equal(banner.message,'This historical diagram is visible, but 2 source file(s) no longer match revision r1 as published (1 changed, 1 missing): other.py (missing), source.py. Jumps into those files are blocked; other evidence still opens. Ask the assistant to publish a fresh revision to update the diagram.');
+  assert.ok(vscode.__recorded.messages.some(m=>m[1]==='MLView: 2 source file(s) no longer match the displayed revision (1 changed, 1 missing).'));
+});
+
+test('stale wording helpers keep the changed-only sentence and count every reason', () => {
+  const list=(names)=>names.join(', ');
+  assert.equal(api.staleBreakdown([{reason:'changed'},{reason:'changed'}]),null,'changed-only keeps the established wording');
+  assert.equal(api.staleBreakdown([]),null);
+  assert.equal(api.staleBreakdown([{reason:'too-large'},{reason:'missing'},{reason:'unreadable'},{reason:'changed'},{reason:'missing'}]),'1 changed, 2 missing, 1 unreadable, 1 too large to check');
+  assert.equal(api.staleBannerText([{rel:'a.py',reason:'changed'}],'r9',list),'This historical diagram is visible, but 1 source file(s) changed after revision r9 was published: a.py. Jumps into those files are blocked; other evidence still opens. Ask the assistant to publish a fresh revision to update the diagram.');
+  assert.match(api.staleBannerText([{rel:'a.py',reason:'unreadable'},{rel:'b.py',reason:'unreadable'}],'r9',list),/no longer match revision r9 as published \(2 unreadable\): a\.py, b\.py\./);
+  assert.equal(api.staleToastText([{reason:'changed'}]),'MLView: 1 source file(s) changed after the displayed revision was published.');
+  assert.equal(api.staleJumpText('e','a.py','changed','r1'),'MLView: evidence e cites a.py, which changed after revision r1 was published; navigation to it is blocked.');
+  assert.match(api.staleJumpText('e','a.py','too-large','r1'),/grown past the size MLView can check since revision r1/);
+  assert.match(api.staleJumpText('e','a.py','unreadable','r1'),/can no longer be read/);
+});
+
 test('an unverified draft keeps its adoption baseline: editing one file blocks only its jumps', async () => {
   const document=helpers.workflow();
   document.evidence.push({id:'e2',file:'other.py',line:1,endLine:1,quote:'other()'});

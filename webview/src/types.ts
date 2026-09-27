@@ -161,6 +161,12 @@ export interface MLEdge {
   /** Renderer-local authored evidence anchors, in document order. */
   evidenceLocs?: Loc[];
   /**
+   * Renderer-local: the kind word the author wrote, when `kind` is the styled
+   * kind it was normalised to (`dataflow` drawn as `data`; Campaign 3, issue 9).
+   * Absent when the two are the same or the author gave no kind.
+   */
+  authoredKind?: string;
+  /**
    * PERF-04. How many document edges this one stands for after the rollup
    * re-pointed edges at surviving ancestors and deduped the parallels. Absent
    * means one, so an uncapped document is byte-for-byte what it always was.

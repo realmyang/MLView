@@ -1,4 +1,4 @@
-export { createNonce, themeKindOf, toEditorLine } from './authoredSupport';
+export { createNonce, themeKindOf, toEditorLine, staleBreakdown, staleBannerText, staleToastText, staleJumpText } from './authoredSupport';
 export {
   decodeExportPayload,
   defaultExportName,

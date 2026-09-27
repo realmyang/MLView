@@ -1,0 +1,87 @@
+{
+  "id": "notebook-011-stray-cell-quote-still-checked",
+  "findings": [
+    "SHAKEDOWN3-2",
+    "CONTRACT-9"
+  ],
+  "description": "A cell index on a .py citation is unexpected_cell, and the quote is still checked against the file's own lines, so a wrong quote on the same record is reported in the same round (previously the quote check was skipped).",
+  "files": {
+    "train.py": {
+      "text": "import torch\n\ndef train(model, data):\n    for batch in data:\n        loss = model(batch)\n        loss.backward()\n    return model\n"
+    }
+  },
+  "artifact": "workflow.mlview.json",
+  "document": {
+    "workflowVersion": "1.0",
+    "title": "Training loop",
+    "producer": {
+      "kind": "host-llm",
+      "host": "codex"
+    },
+    "revision": {
+      "id": "r1"
+    },
+    "request": {
+      "question": "How does train.py train the model?",
+      "scope": "train.py"
+    },
+    "phases": [
+      {
+        "id": "train",
+        "label": "Train"
+      }
+    ],
+    "nodes": [
+      {
+        "id": "loop",
+        "label": "Training loop",
+        "phase": "train",
+        "basis": "observed",
+        "evidence": [
+          "ev-loop"
+        ]
+      }
+    ],
+    "edges": [],
+    "findings": [],
+    "evidence": [
+      {
+        "id": "ev-loop",
+        "file": "train.py",
+        "cell": 0,
+        "line": 4,
+        "endLine": 6,
+        "quote": "    for batch in data:\n        loss = model(batch)\n        loss.backward"
+      }
+    ],
+    "coverage": {
+      "status": "scoped",
+      "summary": "Read the training function.",
+      "inspectedFiles": [
+        "train.py"
+      ],
+      "limitations": []
+    }
+  },
+  "expect": {
+    "schema": "valid",
+    "helper": {
+      "ok": false,
+      "codes": [
+        "quote_mismatch",
+        "unexpected_cell"
+      ],
+      "warnings": [],
+      "fingerprints": null,
+      "stale": []
+    },
+    "extension": {
+      "ok": false,
+      "stale": [],
+      "issuePaths": [
+        "$.evidence[0].cell"
+      ]
+    }
+  },
+  "divergence": null
+}

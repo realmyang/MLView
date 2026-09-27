@@ -1,0 +1,84 @@
+{
+  "id": "evidence-009-long-multiline-difference-past-200-characters",
+  "findings": [
+    "SHAKEDOWN3-2"
+  ],
+  "description": "A six-line quote whose only difference is on its sixth line, past character 200 of the quote, where the old 200-character preview could not show it. quote_mismatch in both layers.",
+  "files": {
+    "build.py": {
+      "text": "def build():\n    step_0 = 0\n    step_1 = 1\n    step_2 = 2\n    step_3 = 3\n    config = dict(option_0=0, option_1=1, option_2=2, option_3=3, option_4=4, option_5=5, option_6=6, option_7=7, option_8=8, option_9=9, option_10=10, option_11=11, option_12=12, option_13=13, option_14=14, option_15=15, option_16=16, option_17=17, option_18=18, option_19=19, option_20=20, option_21=21, option_22=22, option_23=23, option_24=24, option_25=25, option_26=26, option_27=27, option_28=28, option_29=29)\n    return config\n"
+    }
+  },
+  "artifact": "workflow.mlview.json",
+  "document": {
+    "workflowVersion": "1.0",
+    "title": "Training loop",
+    "producer": {
+      "kind": "host-llm",
+      "host": "codex"
+    },
+    "revision": {
+      "id": "r1"
+    },
+    "request": {
+      "question": "How does train.py train the model?",
+      "scope": "train.py"
+    },
+    "phases": [
+      {
+        "id": "train",
+        "label": "Train"
+      }
+    ],
+    "nodes": [
+      {
+        "id": "build",
+        "label": "Build configuration",
+        "phase": "train",
+        "basis": "observed",
+        "evidence": [
+          "ev-build"
+        ]
+      }
+    ],
+    "edges": [],
+    "findings": [],
+    "evidence": [
+      {
+        "id": "ev-build",
+        "file": "build.py",
+        "line": 1,
+        "endLine": 6,
+        "quote": "def build():\n    step_0 = 0\n    step_1 = 1\n    step_2 = 2\n    step_3 = 3\n    config = dict(option_0=0, option_1=1, option_2=2, option_3=3, option_4=4, option_5=5, option_6=6, option_7=7, option_8=8, option_9=9, option_10=10, option_11=11, option_12=12, option_13=13, option_14=14, option_15=15, option_16=16, option_17=17, option_18=18, option_19=19, option_20=20, option_21=21, option_22=22, option_23=23, option_24=24, option_25=52, option_26=26, option_27=27, option_28=28, option_29=29)"
+      }
+    ],
+    "coverage": {
+      "status": "scoped",
+      "summary": "Read the training function.",
+      "inspectedFiles": [
+        "build.py"
+      ],
+      "limitations": []
+    }
+  },
+  "expect": {
+    "schema": "valid",
+    "helper": {
+      "ok": false,
+      "codes": [
+        "quote_mismatch"
+      ],
+      "warnings": [],
+      "fingerprints": null,
+      "stale": []
+    },
+    "extension": {
+      "ok": false,
+      "stale": [],
+      "issuePaths": [
+        "$.evidence[0].quote"
+      ]
+    }
+  },
+  "divergence": null
+}

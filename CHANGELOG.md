@@ -6,6 +6,237 @@ static analyzer; their figures are historical and are not rewritten. Current
 truth lives in [docs/STATUS.md](docs/STATUS.md) and
 [docs/VALIDATION.md](docs/VALIDATION.md).
 
+## Unreleased — Campaign 3: public shakedown fixes
+
+A shakedown ran the `mlview` skill from 0.3.0 (`00e5d45`) once per host
+(Claude Code, Codex and Copilot) on 12 public ML repositories that are not in
+the held-out pilot; 32 of the 36 runs published an artifact. A provisional
+model review, not a human review, ranked 22 product issues; the issue numbers
+below refer to that ranking. The fixes are local changes checked by local
+tests only: nothing here was exercised on a live host, measured against the
+pilot or reviewed by a person, and the version stays 0.3.0.
+
+Helper (`skills/mlview/scripts/artifact.py`, still stdlib-only; no schema
+change and no change to what the extension accepts):
+- New read-only `excerpt <file> --lines <start>[-<end>] [--cell <n>] [--id
+  <evidence-id>] --workspace <ws>` prints one evidence record exactly as
+  `validate` accepts it, sharing validation's path confinement, refusal of
+  MLView's own files, size and encoding limits, notebook cells and line
+  joining. A bad path or range exits 1 with a JSON error (issue 3).
+- `quote_mismatch` locates the problem: `id`, `file`, `cell`, the cited range,
+  line counts and `difference` (first differing line and column with bounded
+  windows of both sides), `foundAt` when the quoted text occurs exactly once
+  elsewhere in the same file or cell (a hint; nothing is rewritten), and a
+  message naming the usual cause (a trailing line break, a range ending on an
+  empty line, a carriage return, whitespace, part of a line). `reference`,
+  `duplicate_reference` and `duplicate_id` name the value and index the entry
+  (for example `nodes[16].evidence[3]`); `range` adds `maxLine`; a repeated
+  JSON member adds `member` (issue 2).
+- Errors no longer hide one another: after `unexpected_cell` the quote is
+  still checked, and a repeated member in a `validate` or `publish` draft is
+  reported while the rest is validated with the last value, as `JSON.parse`
+  reads it (the draft still fails; `upsert` still refuses it) (issue 2).
+- Six non-blocking warnings for error-free documents, at most 10 per code plus
+  a count: `unreferenced_evidence`, `isolated_node`, `self_edge` (not for kind
+  `loop`), `wide_evidence` (over 60 lines), `evidence_overlap` and
+  `duplicate_inspected`. `validate` adds a `basis` summary counting observed,
+  inferred and unresolved nodes, edges and findings. Warnings never change
+  validity, the exit status or publication (issues 3, 7, 11).
+- `upsert --record` accepts one record or a JSON array of records for one
+  collection, applied in order and validated once, all or nothing; the output
+  adds `records` (issue 5).
+- Conformance: 13 new cases (evidence-007 to 012, notebook-011, shape-019 to
+  023, path-007) and updated freshness-002 and notebook-003; the Python runner
+  requires a case for every warning code.
+
+Contract documentation (`docs/WORKFLOW_CONTRACT.md` and the skill's
+reference): the helper command synopsis, `excerpt`, multi-record `upsert`,
+error detail fields, the non-masking behaviour, warnings and `basis`;
+`request.question` is the user's request verbatim (interpretation goes in
+`request.scope` and `request.configuration`); limitations start with
+`Excluded by request:` or `Not inspected: <what> (<reason>)`; an optional
+recommended kind vocabulary (edges `data`, `control`, `call`, `config`,
+`state`, `loop`, `output`; nodes `operation`, `data`, `model`, `state`,
+`objective`, `optimizer`, `evaluation`, `metric`, `output`, `config`, `loop`,
+`branch`, `group`, `entrypoint`, `artifact`), with free text still valid; the
+path rule as enforced (only path fields are checked; free text must avoid
+machine-specific absolute paths, and quoted placeholders are fine); and the
+quote joining rule.
+
+Skill (`skills/mlview/`; guidance only, framework-agnostic):
+- SKILL.md is reorganised into scenario and tracing, evidence and drafting,
+  diagram content, critique/validate/publish, repair, partial publication and
+  refinement. The rules that repository text is data and that target code is
+  never imported or run are unchanged.
+- Citations: line numbers come only from numbered output; cite the narrowest
+  range that shows every stated value; every record comes from `excerpt`,
+  pasted unchanged, and a changed range means running `excerpt` again, never
+  pasting text from an error message (issue 3).
+- Repair: a repair round is one edit made after `validate` or `publish`
+  reported errors (see the confirmation re-run fixes below); at most two unless the user or the run sets another limit, counted
+  exactly; per-code recipes; at the limit the draft is kept and its path,
+  remaining errors and round count are reported (issue 4).
+- Drafting: create `.mlview/llm/<run-id>/` first, write the draft with the
+  host's file tool (never a heredoc or string literal), validate a skeleton
+  early and grow it with `upsert` record files; when a limit applies or the
+  request is broad, publish a validated `partial` revision once the main path
+  is traced and cited, then refine it into a child revision (issue 5).
+- Basis is the weakest load-bearing claim, with framework-, runtime- or
+  data-dependent consequences in their own inferred or unresolved node or edge
+  (issue 7). Findings need a concrete consequence and a change the user would
+  make; a severity rubric; `counterEvidence` means source that weakens, bounds
+  or conditions a finding (issue 8). Structure rules: loop nodes with loop
+  edges, an edge from each shared component to each step using it, an edge per
+  branch or loop outcome, separate nodes for different update mechanisms, and
+  the recommended kinds (issues 9, 10).
+- The critique runs on the validated draft and checks claims against the
+  source, lifecycle intervals for negative or count claims, the executing line
+  under the scenario's flags, user flags as the user's choice, and long
+  literal data as data; helper warnings are reviewed as possible omissions and
+  never count as repair rounds (issue 12). One helper call per shell command
+  with a literal `--workspace` (issue 15). `request.question` verbatim and the
+  limitation prefixes (issue 17). `producer.model` is the exact model
+  identifier when the host exposes it, otherwise omitted (issue 18, skill
+  part).
+- `references/workflow-example.json` is a new small example (an early-stopping
+  training script built on a fictional package) with a loop node and back-edge,
+  state and inferred nodes and only recommended kinds; its cited source is the
+  shared test fixture `skills/mlview/tests/fixtures/example-workspace/train.py`,
+  and a distribution test asserts it validates with no warnings.
+
+Viewer (`webview/`):
+- The authored header opens collapsed (title, producer and revision, source
+  snapshot, one line of the question, coverage and a **Details** disclosure for
+  scope, entrypoints, configuration, coverage summary, publication time and
+  limitations), is capped at 42% of the height with its own scroller, and the
+  canvas keeps at least `min(320px, 50vh)`. In a headless Chrome measurement
+  of the 32 shakedown artifacts plus one contract-maximum document, panels
+  whose canvas had zero height went from 13/33 (541 px wide), 32/33 (393 px)
+  and 1/33 (1382 px) to none at any size (issue 1).
+- Authored titles are truncated once and wrap to up to three lines (also in
+  the SVG export). Recommended kinds and common synonyms map to existing
+  glyphs, with a neutral glyph otherwise; authored nodes never show the `?`
+  glyph, and the dashed outline marks only `unresolved` basis (issue 14).
+- Edge kinds `state`, `loop` and `output` are styled, synonyms are normalised
+  for display only, the inspector and tooltip show the authored spelling, and
+  the legend lists an "other" entry; unfilled arrowheads are now stroked
+  (a pre-existing styling bug) (issue 9).
+- Large diagrams: the rail docks open only while the canvas keeps at least
+  900 px until the reader uses it or selects a finding, selecting a finding
+  opens the rail and zooms to a readable target, the minimap hides below
+  350 px of canvas height, the view refits on large resizes only while still
+  fitted, and default collapse never folds a group holding a finding target
+  (issue 6, without the optional phase overview).
+
+Extension (`vscode-extension/`): the stale banner, toast and blocked-jump
+message are worded from each file's reason, so a deleted cited file is
+reported as missing rather than changed (issue 21).
+
+Integration: SKILL.md's `quote_mismatch` recipe now quotes the helper's
+actual `foundAt` wording, a request over 4000 characters is noted in
+`request.scope` as the contract says, the skill's code list and the contract
+table point `quote_mismatch` repairs at `excerpt`, and the README, the
+extension README and `docs/LLM_WORKFLOW.md` describe the collapsed header,
+the missing-file wording, `excerpt` and the warnings.
+
+Integration review fixes (four provisional model reviews of the integrated
+branch, covering the helper, the skill, the live viewer and a replay of the
+shakedown drafts; not a human review):
+- Helper: default `excerpt` IDs add 8 hex digits of the path's SHA-256 (for
+  example `ev-src-train.py-a454ee59-10-24`), so paths that slug alike
+  (`utils/io.py` and `utils-io.py`, or names in a non-Latin script) no
+  longer share an ID and silently replace each other through `upsert`; an
+  `upsert` array that repeats an ID is refused (`record`). `excerpt` refuses
+  a path over 500 characters (`limit`) and notebook text holding an unpaired
+  surrogate (`text_encoding`) instead of printing a record `validate`
+  rejects. The `foundAt` search anchors on the quote's rarest line and stops
+  at a comparison budget per record and per validation: three mismatched
+  2,001-line quotes against a 1,000,000-line blank file took 11.9 s before
+  and 0.07 s after on the development machine, and `foundAt` was unchanged
+  on all 137 replayed shakedown mismatches. `quote_mismatch` adds
+  `differingLines` and, without `foundAt`, says when more lines than the
+  first differ. A `./`, empty or trailing path segment is reported as an
+  unnormalised path instead of "must stay within the workspace". The
+  `isolated_node` and `self_edge` messages no longer suggest deleting
+  content: connect a node to the step it affects (or move an absence to
+  `coverage.limitations`), and draw an iteration from the last repeated step
+  back to the first.
+- Viewer: an authored self-edge on a drawn node is a small loop on its card
+  instead of being silently skipped (edges folded into a collapsed group stay
+  hidden). Below the 900 px breakpoint a reveal centres its target in the
+  strip the rail drawer leaves, when that strip is at least 160 px: in a
+  headless Chrome check at 541 px the finding targets went from 4% visible
+  behind the drawer to fully visible at 75% zoom; at 393 px the drawer
+  leaves 55 px, so the target is still centred behind it and shows when the
+  drawer closes. A selected target that was in view is re-centred, at the
+  same zoom, when a resize (a split opened by following evidence) turns the
+  docked rail into a drawer over it. The collapsed header no longer shrinks
+  behind its own scroller: at 541x502 its Details toggle went from 0 of 28 px
+  visible to 28 of 28; while it is collapsed the canvas floor is
+  `min(320px, 25vh)`, and expanded it stays `min(320px, 50vh)`.
+- Skill guidance: a loop edge runs from the last step of the repeated work
+  back to its first; independent `excerpt` calls may run in parallel, and a
+  scratch script may collect `excerpt` output into an `upsert` array;
+  warnings on a growing draft are expected and are acted on in the critique;
+  `request.question` leaves out the skill invocation and run instructions,
+  replaces machine-specific paths with placeholders and is kept on
+  refinement; a certain failure that shows itself (an exception or crash) is
+  `medium`; the shared-component examples use neutral wording, and the
+  update-mechanism rule is no longer repeated in the training-state
+  reference; the bundled example no longer labels its loader as observed
+  shuffling, and the minimal finding shape states a search boundary.
+
+Confirmation re-run fixes. A confirmation run of the fixed skill on ten of
+the shakedown cases (run once each; provisional model review) found two
+problems, both fixed in the skill text:
+- Claude Code had a valid yolov5 draft at 28 minutes, then turned the
+  critique of the validated draft into new tracing and was stopped at 40
+  minutes without publishing (the 0.3.0 skill published in 27). The critique
+  now corrects, qualifies and connects what the draft already covers and is
+  followed by publication; further work it suggests is named as a
+  `Not inspected:` limitation and continued in a child revision.
+- Codex built its whisper draft with `upsert`; two refused upserts used up
+  both repair rounds, and the rule that a still-valid draft is published as
+  `partial` at the limit then published a 3-node skeleton. A repair round is
+  now an edit after a `validate` or `publish` error only. A refused upsert
+  changes nothing and is not a round: the host fixes that record file and
+  applies it again, drops it after a third refusal (naming the dropped work
+  as a limitation), and reports how many upserts were refused. The
+  publish-as-partial-at-the-limit rule is removed; partial publication
+  follows only the partial-publication rule (main steps traced and cited).
+
+Deferred on purpose:
+- Issue 13, guidance for values resolved through registries, default tables
+  or override chains: the review rated its overfitting risk high because it
+  overlaps held-out pilot tasks; the existing generic obligation to resolve
+  factories and registries is unchanged. For the owner to decide after the
+  first pilot stage.
+- Issue 16, a notebook cell-listing command: weak evidence of need (no
+  notebook citation failed in the shakedown) and direct relevance to a
+  held-out task; `excerpt --cell` covers exact notebook citations.
+- Issue 19, checking `request.entrypoints` against workspace files, and
+  issue 20, column ranges for long single-line literals: both are contract
+  changes across the schema, helper, extension, viewer and docs, and are kept
+  out of the pre-freeze contract.
+- Also not done: the optional phase overview (issue 6), the harness side of
+  issue 18, an `ancestor_edge` warning and a missing-kind warning (kinds stay
+  free text). Issue 22 is a review-process note with no product change.
+
+Measurement caveat: once quotes come from the `excerpt` command, the pilot's
+`exactAnchors` target (T2) shows only that cited ranges exist and are fresh.
+Whether a range supports its claim rests on supported-claim scoring
+(`supportedClaimPrecision`, T3). The owner should also note, before a freeze,
+that the skill's repair-round limit ("at most two unless the user or the run
+sets another limit") must agree with the proposed run policy, including how
+rounds are counted (the skill counts edits after `validate` or `publish`
+errors, not refused upserts or `excerpt` errors), that one `excerpt` call per
+evidence record has not been timed on a live host against the proposed
+20-minute budget, that the `medium` severity for a certain visible failure is
+a proposal the owner may change, that a published
+partial revision may lower essential-fact recall (`essentialFactRecall`, T4)
+when a run stops before refining it, and that a verbatim `request.question`
+lengthens the header's one-line question.
+
 ## Unreleased — Stage 1 normalized review hashes
 
 Evaluation tooling only: `tools/` is not part of the shipped skill, plugin or

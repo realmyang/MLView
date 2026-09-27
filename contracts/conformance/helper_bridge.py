@@ -8,7 +8,9 @@ into a temporary workspace and reports what two layers say about it:
   skills/mlview/scripts/artifact.py, reduced to ``{ok, codes, warnings,
   fingerprints, stale}`` exactly as the case format defines them. A ``raw``
   case is parsed with ``artifact._parse``, which applies the CLI's rules
-  (unique members, no NaN or Infinity, at most 64 levels of nesting);
+  (unique members, no NaN or Infinity, at most 64 levels of nesting). As in
+  the CLI, a repeated member adds ``invalid_json`` and the last-wins value is
+  still validated;
 * the strict schema layer: contracts/workflow.schema.json under Draft 2020-12
   with full-match ``pattern`` semantics (ECMA-262 for the schema's anchored
   patterns) and a stdlib RFC 3339 ``date-time`` check that mirrors the helper.
@@ -115,18 +117,32 @@ def materialise(case: dict[str, Any], root: Path) -> None:
 
 def helper_result(case: dict[str, Any], root: Path, helper: Any) -> dict[str, Any]:
     """The helper layer of a materialised case, in the case format's terms."""
+    repeated: list[str] = []
     if "raw" in case:
         try:
             doc = helper._parse(case["raw"].encode("utf-8"))
         except (UnicodeError, ValueError, RecursionError):
-            return {"ok": False, "codes": ["invalid_json"], "warnings": [], "fingerprints": None, "stale": []}
+            # Like the CLI: a repeated member is invalid_json, and the value that keeps each member's
+            # last occurrence (as JSON.parse reads it) is still validated; any other parse failure
+            # stops at invalid_json.
+            recorder = helper._MemberRecorder()
+            try:
+                doc = helper._load_json(case["raw"].encode("utf-8").decode("utf-8"), recorder)
+            except (UnicodeError, ValueError, RecursionError):
+                recorder.count = 0
+            if not recorder.count:
+                return {"ok": False, "codes": ["invalid_json"], "warnings": [], "fingerprints": None, "stale": []}
+            repeated = ["invalid_json"]
     else:
         doc = substitute(case["document"])
     warnings: list[dict[str, str]] = []
     errors, hashes = helper.validate(doc, root, warnings=warnings)
+    if repeated:
+        # The CLI prints warnings only for a document without errors.
+        warnings = []
     return {
-        "ok": not errors,
-        "codes": sorted({error["code"] for error in errors}),
+        "ok": not errors and not repeated,
+        "codes": sorted({error["code"] for error in errors} | set(repeated)),
         "warnings": sorted({warning["code"] for warning in warnings}),
         "fingerprints": hashes,
         "stale": sorted({error["file"] for error in errors if error["code"] == "stale_source"}),

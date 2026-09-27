@@ -28,6 +28,12 @@ export const HOVER_CLOSE_MS = 120;
 /** The graph size at which an overview earns the corner it occupies (UX_DESIGN §1). */
 export const MINIMAP_MIN_NODES = 30;
 
+/**
+ * Below this canvas height the minimap is not drawn (Campaign 3, issue 6): at
+ * 270-310 px its 200x132 panel covered the lower right of the diagram.
+ */
+export const MINIMAP_MIN_CANVAS_H = 350;
+
 export interface CanvasHost {
   /** The App's issue filter — a marker is drawn only for issues this keeps. */
   keep(issue: Issue): boolean;
@@ -54,6 +60,13 @@ export interface CanvasHost {
   clearScope(): void;
   /** The active scope's selector, or null — drives the scope-empty state. */
   scopeSpec(): string | null;
+  /**
+   * Campaign 3 review (VL-1): how many pixels at the canvas's right edge the open rail covers.
+   * Docked beside the canvas it covers none; below the 900 px breakpoint it is a drawer over it.
+   */
+  coveredRight(): number;
+  /** The node or connection the current selection points at, kept in view across a resize. */
+  keptTarget(): { kind: 'node' | 'edge'; id: string } | null;
 }
 
 export interface NextSelection {

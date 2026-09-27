@@ -56,7 +56,18 @@ REQUIRED_CASES = {
     # Campaign 2 (SPEC 7.1, 7.2): NaN/Infinity and duplicate keys in cited notebooks; publishedAt profile pins.
     "notebook-009-nan-in-notebook", "notebook-010-duplicate-key-in-notebook", "shape-016-published-at-lowercase-z",
     "shape-017-published-at-leap-second", "shape-018-published-at-nine-digit-fraction",
+    # Campaign 3 (shakedown issues 2, 3 and 11): quote diagnostics that no longer hide other errors,
+    # and one case per non-blocking hygiene warning.
+    "evidence-007-quote-trailing-newline", "evidence-008-quote-end-line-off-by-one",
+    "evidence-009-long-multiline-difference-past-200-characters", "notebook-011-stray-cell-quote-still-checked",
+    "shape-019-duplicate-member-with-quote-mismatch-raw", "evidence-010-wide-evidence-warning",
+    "evidence-011-sixty-line-evidence-no-warning", "evidence-012-unreferenced-evidence-warning",
+    "shape-020-isolated-node-warning", "shape-021-self-edge-warning", "shape-022-self-edge-with-loop-kind-no-warning",
+    "shape-023-evidence-overlap-warning", "path-007-duplicate-inspected-warning",
 }
+# Every helper warning code has at least one conformance case that expects it.
+WARNING_CODES = {"excluded_inspected", "not_fingerprinted", "unreferenced_evidence", "isolated_node", "self_edge",
+                 "wide_evidence", "evidence_overlap", "duplicate_inspected"}
 # One case per CONTRACT-9/10/11 item and the CONTRACT-4 follow-up (stream E acceptance).
 REQUIRED_FINDINGS = {"CONTRACT-4", "CONTRACT-9", "CONTRACT-10", "CONTRACT-11"}
 
@@ -94,6 +105,8 @@ class CorpusFormatTests(unittest.TestCase):
                 findings.update(case["findings"])
         self.assertLessEqual(REQUIRED_CASES, {path.stem for path in CASES})
         self.assertLessEqual(REQUIRED_FINDINGS, findings)
+        expected_warnings = {code for path in CASES for code in load(path)["expect"]["helper"]["warnings"]}
+        self.assertEqual(WARNING_CODES, expected_warnings)
 
     def test_staging_locations_are_gone(self):
         for staged in ("skills/mlview/tests/conformance", "skills/mlview/tests/test_conformance_cases.py",

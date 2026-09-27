@@ -17,11 +17,15 @@ Build two separate records before writing the diagram:
   clipping, and reset calls. A component may receive or transmit gradients even
   when no optimizer steps its parameters.
 
+Draw what these records show with the structure rules in SKILL.md.
+
 Reread the complete interval from reset through objective construction,
 backward, transforms of gradients, and step. Describe ordering explicitly when
 multiple optimizers share a forward value or one update happens before another
 objective is computed. Qualify framework autograd behavior as inferred unless
-the inspected project source establishes it directly.
+the inspected project source establishes it directly. When a count or a
+"never" claim depends on schedule arithmetic or an assumed data size, check
+each lifecycle interval separately and mark derived counts inferred.
 
 ## Output expressions
 

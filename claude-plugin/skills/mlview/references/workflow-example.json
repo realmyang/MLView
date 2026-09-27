@@ -1,16 +1,54 @@
 {
   "workflowVersion": "1.0",
-  "title": "Example training workflow",
+  "title": "Example early-stopping training script",
   "producer": {"kind": "host-llm", "host": "unknown", "model": "example-model"},
   "revision": {"id": "rev-1"},
-  "request": {"question": "Explain training", "scope": "Selected training entrypoint", "entrypoints": ["train.py"], "configuration": "train.py defaults; no command-line overrides selected"},
-  "phases": [{"id": "train", "label": "Training"}],
-  "nodes": [
-    {"id": "loop", "label": "Training loop", "phase": "train", "kind": "group", "detail": "Groups the steps of one training run.", "basis": "inferred", "evidence": []},
-    {"id": "step", "label": "Run training step", "phase": "train", "parent": "loop", "kind": "operation", "detail": "Entry function of the training script.", "basis": "observed", "evidence": ["ev-1"]}
+  "request": {"question": "Explain how train.py trains the model and when it stops.", "scope": "train.py run as a script, from the entry block to the result file.", "entrypoints": ["train.py"], "configuration": "Config JSON named by the first command-line argument; the file is not in the workspace, so its values are unresolved."},
+  "phases": [
+    {"id": "setup", "label": "Setup"},
+    {"id": "train", "label": "Training"},
+    {"id": "output", "label": "Output"}
   ],
-  "edges": [],
+  "nodes": [
+    {"id": "main", "label": "Load config file and call train", "phase": "setup", "kind": "entrypoint", "detail": "Reads the JSON config named by the first command-line argument.", "basis": "observed", "evidence": ["ev-main"]},
+    {"id": "model", "label": "Build model", "phase": "setup", "kind": "model", "detail": "Model(width) from the external toolkit package.", "basis": "observed", "evidence": ["ev-model"]},
+    {"id": "loader", "label": "Batch loader", "phase": "setup", "kind": "data", "detail": "Loader over the configured data with the configured batch size, called with shuffle=True; what the toolkit does with that flag is not read.", "basis": "observed", "evidence": ["ev-loader"]},
+    {"id": "best", "label": "Best score and wait counter", "phase": "train", "kind": "state", "detail": "Starts at infinity and 0; set to the new score and 0 on improvement, otherwise the counter grows by one.", "basis": "observed", "evidence": ["ev-best", "ev-track"]},
+    {"id": "epochs", "label": "Epoch loop", "phase": "train", "kind": "loop", "detail": "Runs at most the configured number of epochs and leaves early when patience is exhausted.", "basis": "observed", "evidence": ["ev-loop", "ev-stop"]},
+    {"id": "update", "label": "Update model on each batch", "phase": "train", "parent": "epochs", "kind": "operation", "detail": "Calls model.update(x, y, lr) for every batch of the epoch.", "basis": "observed", "evidence": ["ev-loop", "ev-update"]},
+    {"id": "params", "label": "Parameters change in place", "phase": "train", "parent": "epochs", "kind": "state", "detail": "model.update is library code outside the workspace. That it changes the parameters later batches and validation use is inferred from how the model object is reused, not read.", "basis": "inferred", "evidence": ["ev-update"]},
+    {"id": "score", "label": "Compute val_loss on validation data", "phase": "train", "parent": "epochs", "kind": "evaluation", "detail": "Once per epoch, after all batches; a lower value counts as an improvement.", "basis": "observed", "evidence": ["ev-score", "ev-track"]},
+    {"id": "check", "label": "Track best, test patience", "phase": "train", "parent": "epochs", "kind": "branch", "detail": "Updates the best score and wait counter, then breaks when the counter reaches the configured patience.", "basis": "observed", "evidence": ["ev-track", "ev-stop"]},
+    {"id": "result", "label": "Write best score and epoch count", "phase": "output", "kind": "output", "detail": "JSON file at the configured output path with the best val_loss and the number of epochs run.", "basis": "observed", "evidence": ["ev-write"]}
+  ],
+  "edges": [
+    {"id": "cfg-model", "source": "main", "target": "model", "label": "width", "kind": "config", "basis": "observed", "evidence": ["ev-model"]},
+    {"id": "cfg-loader", "source": "main", "target": "loader", "label": "data path, batch size", "kind": "config", "basis": "observed", "evidence": ["ev-loader"]},
+    {"id": "batches", "source": "loader", "target": "update", "label": "batches", "kind": "data", "basis": "observed", "evidence": ["ev-loop"]},
+    {"id": "model-updated", "source": "model", "target": "update", "label": "model object", "kind": "data", "basis": "observed", "evidence": ["ev-update"]},
+    {"id": "model-scored", "source": "model", "target": "score", "label": "same model object", "kind": "data", "basis": "observed", "evidence": ["ev-score"]},
+    {"id": "mutate", "source": "update", "target": "params", "label": "in-place update", "kind": "state", "basis": "inferred", "evidence": ["ev-update"]},
+    {"id": "params-scored", "source": "params", "target": "score", "label": "updated parameters", "kind": "state", "basis": "inferred", "evidence": ["ev-score"]},
+    {"id": "loss", "source": "score", "target": "check", "label": "val_loss score", "kind": "data", "basis": "observed", "evidence": ["ev-track"]},
+    {"id": "state-read", "source": "best", "target": "check", "label": "best score, wait counter", "kind": "state", "basis": "observed", "evidence": ["ev-track"]},
+    {"id": "state-write", "source": "check", "target": "best", "label": "new best and counter 0, or counter + 1", "kind": "state", "basis": "observed", "evidence": ["ev-track"]},
+    {"id": "next-epoch", "source": "check", "target": "update", "label": "patience left: next epoch; best score, counter and model object carry over", "kind": "loop", "basis": "observed", "evidence": ["ev-loop", "ev-stop"]},
+    {"id": "stop", "source": "check", "target": "result", "label": "patience exhausted: break", "kind": "control", "basis": "observed", "evidence": ["ev-stop"]},
+    {"id": "done", "source": "epochs", "target": "result", "label": "all epochs run", "kind": "control", "basis": "observed", "evidence": ["ev-loop"]},
+    {"id": "best-out", "source": "best", "target": "result", "label": "best score", "kind": "output", "basis": "observed", "evidence": ["ev-write"]}
+  ],
   "findings": [],
-  "evidence": [{"id": "ev-1", "file": "train.py", "line": 1, "endLine": 1, "quote": "def train():"}],
-  "coverage": {"status": "scoped", "summary": "Selected entrypoint inspected.", "inspectedFiles": ["train.py"], "limitations": []}
+  "evidence": [
+    {"id": "ev-main", "file": "train.py", "line": 25, "endLine": 26, "quote": "if __name__ == \"__main__\":\n    train(json.load(open(sys.argv[1])))"},
+    {"id": "ev-model", "file": "train.py", "line": 8, "endLine": 8, "quote": "    model = Model(width=cfg[\"width\"])"},
+    {"id": "ev-loader", "file": "train.py", "line": 9, "endLine": 9, "quote": "    loader = Loader(cfg[\"data\"], batch_size=cfg[\"batch\"], shuffle=True)"},
+    {"id": "ev-best", "file": "train.py", "line": 10, "endLine": 10, "quote": "    best, waited = float(\"inf\"), 0"},
+    {"id": "ev-loop", "file": "train.py", "line": 11, "endLine": 12, "quote": "    for epoch in range(cfg[\"epochs\"]):\n        for x, y in loader:"},
+    {"id": "ev-update", "file": "train.py", "line": 13, "endLine": 13, "quote": "            model.update(x, y, lr=cfg[\"lr\"])"},
+    {"id": "ev-score", "file": "train.py", "line": 14, "endLine": 14, "quote": "        score = val_loss(model, cfg[\"val\"])"},
+    {"id": "ev-track", "file": "train.py", "line": 15, "endLine": 18, "quote": "        if score < best:\n            best, waited = score, 0\n        else:\n            waited += 1"},
+    {"id": "ev-stop", "file": "train.py", "line": 19, "endLine": 20, "quote": "        if waited >= cfg[\"patience\"]:\n            break"},
+    {"id": "ev-write", "file": "train.py", "line": 21, "endLine": 22, "quote": "    with open(cfg[\"out\"], \"w\") as f:\n        json.dump({\"best\": best, \"epochs\": epoch + 1}, f)"}
+  ],
+  "coverage": {"status": "scoped", "summary": "train.py traced from the entry block through the epoch loop to the result file.", "inspectedFiles": ["train.py"], "limitations": ["Not inspected: the toolkit package (not in the workspace); what Model, Loader, update and val_loss do internally is inferred from names and use.", "Not inspected: the config file (supplied at run time); epoch count, patience and paths are unresolved."]}
 }

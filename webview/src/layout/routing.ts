@@ -256,7 +256,10 @@ export function routeEdges(index: GraphIndex, frame: LayoutFrame, collapsed: Set
   for (const e of index.graph.edges || []) {
     const s = index.visibleRepresentative(e.source, collapsed);
     const t = index.visibleRepresentative(e.target, collapsed);
-    if (s === t) continue;
+    // Two ends folded into one collapsed group are hidden inside it. A document self-edge on a
+    // drawn node is different: the authored contract allows it and it is drawn as a loop on the
+    // card (shakedown issue 11 found such an edge silently dropped).
+    if (s === t && !(e.source === e.target && s === e.source)) continue;
     if (!frame.boxes.has(s) || !frame.boxes.has(t)) continue;
     const key = s + ' ' + t + ' ' + e.kind + ' ' + (e.subkind || '');
     let bucket = groups.get(key);
@@ -287,6 +290,7 @@ export function routeEdges(index: GraphIndex, frame: LayoutFrame, collapsed: Set
 
   const backCounters = new Map<string, number>();
   const gutterCounters = new Map<string, number>();
+  const selfCounters = new Map<string, number>();
   const out: RoutedEdge[] = [];
 
   for (const key of order) {
@@ -302,7 +306,9 @@ export function routeEdges(index: GraphIndex, frame: LayoutFrame, collapsed: Set
 
     let points: Point[];
     let trunk: TrunkRef | undefined;
-    if (back) {
+    if (bucket.s === bucket.t) {
+      points = routeSelf(sBox, bump(selfCounters, bucket.s));
+    } else if (back) {
       const n = bump(backCounters, sBox.laneId);
       points = routeBack(env, index, frame, sBox, tBox, n);
     } else if (tInsideS || sInsideT) {
@@ -543,6 +549,21 @@ function routeBack(
   const tFace = ux >= cx(t) ? t.x + t.w : t.x;
   const detour = dedupe([p(sFace, cy(s)), p(sx, cy(s)), p(sx, y), p(ux, y), p(ux, cy(t)), p(tFace, cy(t))]);
   return pathCrosses(env, detour, s.id, t.id) ? simple : detour;
+}
+
+/**
+ * A self-edge: a small loop off the card's lower-right corner that leaves the right face and
+ * returns up into the bottom face, the way a back-edge rises into its target. It stays inside a
+ * parent group's padding (GROUP_PAD) and the gaps dagre leaves between cards; further self-edges
+ * on the same card (other kinds) nest outward.
+ */
+function routeSelf(b: LayoutBox, n: number): Point[] {
+  const out = 14 + n * 6;
+  const right = b.x + b.w;
+  const bottom = b.y + b.h;
+  const exitY = bottom - Math.min(14 + n * 6, b.h / 2);
+  const entryX = right - Math.min(28 + n * 6, b.w / 2);
+  return [p(right, exitY), p(right + out, exitY), p(right + out, bottom + out), p(entryX, bottom + out), p(entryX, bottom)];
 }
 
 /** Spread parallel connections across the vertical face of a card. */

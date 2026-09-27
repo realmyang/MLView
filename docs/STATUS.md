@@ -28,6 +28,30 @@ interaction need live validation before compatibility is claimed. Latest CI
 results: see [VALIDATION.md](VALIDATION.md) and the repository's
 [Actions page](https://github.com/realmyang/MLView/actions).
 
+Unreleased: Campaign 3 fixes the issues a
+public shakedown found (see the [changelog](../CHANGELOG.md)). The skill ran
+once per host on 12 public repositories outside the held-out pilot, and a
+provisional model review, not a human review, ranked 22 issues. The helper
+adds a read-only `excerpt` command that prints exact evidence records,
+`quote_mismatch` and reference errors that locate the problem, six
+non-blocking hygiene warnings, a `basis` summary and multi-record `upsert`;
+the skill defines repair rounds, early and partial drafts, basis, findings and
+structure rules; the viewer opens the authored header collapsed so the canvas
+keeps its height, wraps titles, drops the `?` glyph for authored nodes and
+styles the recommended edge kinds; and the extension reports deleted cited
+files as missing. Fixes from four model reviews of the integrated branch
+make default excerpt IDs unique per path, bound the `foundAt` search, draw
+authored self-edges as loops, keep a revealed finding target beside the
+narrow-window rail drawer and keep the collapsed header's controls visible on
+short panels. A confirmation run of ten shakedown cases with the fixed skill
+then bounded the critique (correct what the draft covers, then publish) and
+stopped counting refused upserts as repair rounds; that last change has not
+run on a live host ([record](demo-logs/2026-09-26-public-shakedown.md)).
+There is no schema change and no version bump. Issues 13, 16, 19 and 20 are
+deferred on purpose. Local checks and CI: [details](VALIDATION.md); the pilot
+has not run, and once quotes come from `excerpt` the pilot's exact-anchor
+target shows only that cited ranges exist and are fresh.
+
 Version 0.3.0 adds Campaign 2, "pilot readiness" (see the
 [changelog](../CHANGELOG.md)): owner decision files with a `check` command,
 the campaign freeze and `check-frozen`, the v2 pilot candidate that builds its

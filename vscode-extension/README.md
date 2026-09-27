@@ -17,9 +17,9 @@ re-run **MLView: Open Generated Diagram**, which always shows the file as it is.
 
 When cited or inspected files change after a revision was published, the
 diagram stays visible as a historical revision and the status line names the
-changed files; only jumps into those files are blocked. Unsaved editor changes
-never change validation. They are reported separately, and a jump is blocked
-only when the unsaved text no longer contains the cited lines.
+changed or missing files; only jumps into those files are blocked. Unsaved
+editor changes never change validation. They are reported separately, and a
+jump is blocked only when the unsaved text no longer contains the cited lines.
 
 Evidence links open the cited source range or notebook cell. The Refine action
 copies a follow-up prompt for the assistant that authored the diagram, with one

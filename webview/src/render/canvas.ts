@@ -76,6 +76,33 @@ export interface Rect {
   h: number;
 }
 
+/** The zoom at which cards switch to full detail (`data-lod`, UX_DESIGN 4.5). */
+export const LOD_FULL_ZOOM = 0.62;
+
+/**
+ * The zoom a selection from the rail lands at when the diagram is below the
+ * detail threshold (Campaign 3, issue 6): card titles at about 12 px, edge
+ * labels and `file:line` drawn.
+ */
+export const READABLE_ZOOM = 0.9;
+
+/**
+ * A resize this large, in either dimension, refits a viewport the reader has
+ * not moved since the last fit (issue 6): the panel opening narrow beside the
+ * artifact editor and then being widened, a side bar closing, the header
+ * disclosure opening. Smaller changes (a scrollbar, a one-pixel settle) keep
+ * the picture where it is.
+ */
+export const REFIT_MIN_PX = 80;
+export const REFIT_MIN_RATIO = 0.1;
+
+/**
+ * The narrowest strip beside an overlay that a reveal centres in (Campaign 3 review, VL-1): at
+ * 541 px the rail drawer leaves 181 px, enough for a card at a readable zoom; in a 393 px panel it
+ * leaves 55 px, so the reveal uses the whole canvas and the target shows when the drawer closes.
+ */
+export const REVEAL_MIN_STRIP = 160;
+
 export class ViewportController {
   readonly canvas: HTMLElement;
   readonly world: HTMLElement;
@@ -86,6 +113,21 @@ export class ViewportController {
   private lod = 'full';
   /** True while the document is a PROJECTION (`graph.view` present). */
   private projected = false;
+  /**
+   * True while the transform is exactly what the last fit produced — nothing
+   * the reader did (pan, zoom, a jump, a restored viewport) has moved it since.
+   * Only such a viewport is refitted on resize, and only it lets Fit re-run the
+   * first-paint plan instead of the whole-document fit (issue 6, HOSTS-UX-FITZOOM).
+   */
+  private fitted = false;
+  /** The canvas size the last fit was computed for, and how (whole or first-paint). */
+  private fitSize: { w: number; h: number; whole: boolean; padding: number } | null = null;
+  /**
+   * How many pixels at the canvas's right edge an overlay covers: the rail, which below the
+   * 900 px breakpoint is a drawer over the canvas rather than a column beside it. Set by the view;
+   * 0 when nothing covers the canvas (and in jsdom, which measures nothing).
+   */
+  coveredRight: () => number = () => 0;
 
   constructor(canvas: HTMLElement, world: HTMLElement, onChange: (vp: Viewport) => void) {
     this.canvas = canvas;
@@ -112,7 +154,7 @@ export class ViewportController {
   apply(): void {
     const { x, y, zoom } = this.vp;
     this.world.style.transform = 'translate(' + x + 'px,' + y + 'px) scale(' + zoom + ')';
-    const lod = zoom < 0.62 ? 'compact' : 'full';
+    const lod = zoom < LOD_FULL_ZOOM ? 'compact' : 'full';
     if (lod !== this.lod) {
       this.lod = lod;
       this.canvas.setAttribute('data-lod', lod);
@@ -121,6 +163,7 @@ export class ViewportController {
   }
 
   set(vp: Partial<Viewport>): void {
+    this.fitted = false;
     if (typeof vp.x === 'number' && isFinite(vp.x)) this.vp.x = vp.x;
     if (typeof vp.y === 'number' && isFinite(vp.y)) this.vp.y = vp.y;
     if (typeof vp.zoom === 'number' && isFinite(vp.zoom)) this.vp.zoom = clamp(vp.zoom, MIN_ZOOM, MAX_ZOOM);
@@ -128,6 +171,7 @@ export class ViewportController {
   }
 
   panBy(dx: number, dy: number): void {
+    this.fitted = false;
     this.vp.x += dx;
     this.vp.y += dy;
     this.apply();
@@ -135,6 +179,7 @@ export class ViewportController {
 
   /** Zoom about a point in canvas-local coordinates. */
   zoomAt(factor: number, px: number, py: number): void {
+    this.fitted = false;
     const next = clamp(this.vp.zoom * factor, MIN_ZOOM, MAX_ZOOM);
     const k = next / this.vp.zoom;
     this.vp.x = px - (px - this.vp.x) * k;
@@ -180,7 +225,16 @@ export class ViewportController {
     // 53 inside; one press of Fit -> back to 50 % and 10 of 53, with no toast
     // and nothing announced. So below the floor Fit means what Overview already
     // means — the WHOLE document — and above it nothing changes.
-    this.applyFit(padding, this.vp.zoom < MIN_FIT_ZOOM);
+    //
+    // Campaign 3, issue 6: that reasoning is about a reader who ZOOMED OUT. A
+    // viewport nobody has moved since the last fit came from the first-paint
+    // plan, and after the panel is widened Fit has to re-run that plan for the
+    // new size — the whole-document branch made it zoom OUT (codex yolov5:
+    // 0.388 -> 0.283 in a 1022x431 canvas where a first paint gives 0.5). A
+    // fitted viewport therefore re-runs the kind of fit that produced it: the
+    // first-paint plan, or the whole document after Overview.
+    const whole = this.fitted && this.fitSize ? this.fitSize.whole : this.vp.zoom < MIN_FIT_ZOOM;
+    this.applyFit(padding, whole);
   }
 
   /**
@@ -206,11 +260,67 @@ export class ViewportController {
     this.vp.zoom = zoom;
     this.vp.x = (w - this.contentW * zoom) / 2;
     this.vp.y = tall ? padding : Math.max(padding, (h - this.contentH * zoom) / 2);
+    this.fitted = true;
+    this.fitSize = { w, h, whole, padding };
     this.apply();
   }
 
-  centerOn(rect: Rect, zoom?: number): void {
+  /** True while nothing has moved the viewport since the last fit. */
+  get isFitted(): boolean {
+    return this.fitted;
+  }
+
+  /**
+   * Re-run the last fit for the canvas's CURRENT size, if the reader has not
+   * moved the viewport since and the size changed at all. Used after the app
+   * adds chrome above the canvas once the first fit has already run (the
+   * authored header is built after the document is laid out).
+   */
+  refitIfFitted(): boolean {
+    if (!this.fitted || !this.fitSize) return false;
     const { w, h } = this.size();
+    if (w === this.fitSize.w && h === this.fitSize.h) return false;
+    this.applyFit(this.fitSize.padding, this.fitSize.whole);
+    return true;
+  }
+
+  /**
+   * A resized canvas (issue 6). A fitted viewport is refitted when the size
+   * changed by at least REFIT_MIN_PX and REFIT_MIN_RATIO in either dimension;
+   * anything else only refreshes the derived chrome (zoom readout, minimap
+   * rectangle) without moving what the reader is looking at.
+   */
+  onResize(): boolean {
+    if (this.fitted && this.fitSize) {
+      const { w, h } = this.size();
+      const dw = Math.abs(w - this.fitSize.w);
+      const dh = Math.abs(h - this.fitSize.h);
+      const large = (dw >= REFIT_MIN_PX && dw >= this.fitSize.w * REFIT_MIN_RATIO) || (dh >= REFIT_MIN_PX && dh >= this.fitSize.h * REFIT_MIN_RATIO);
+      if (large) {
+        this.applyFit(this.fitSize.padding, this.fitSize.whole);
+        return true;
+      }
+    }
+    this.apply();
+    return false;
+  }
+
+  /**
+   * The part of the canvas a reveal can use (VL-1): the strip left of an overlay while it is at
+   * least REVEAL_MIN_STRIP wide, otherwise the whole canvas. Fit is unaffected: it lays the whole
+   * document out for the canvas, drawer or not.
+   */
+  visibleArea(): { w: number; h: number } {
+    const size = this.size();
+    const covered = this.coveredRight();
+    if (!(covered > 0)) return size;
+    const w = size.w - covered;
+    return w >= REVEAL_MIN_STRIP ? { w, h: size.h } : size;
+  }
+
+  centerOn(rect: Rect, zoom?: number): void {
+    this.fitted = false;
+    const { w, h } = this.visibleArea();
     if (typeof zoom === 'number') this.vp.zoom = clamp(zoom, MIN_ZOOM, MAX_ZOOM);
     const z = this.vp.zoom;
     this.vp.x = w / 2 - (rect.x + rect.w / 2) * z;
@@ -219,14 +329,14 @@ export class ViewportController {
   }
 
   zoomToBox(rect: Rect, padding = 80): void {
-    const { w, h } = this.size();
+    const { w, h } = this.visibleArea();
     const z = clamp(Math.min((w - padding) / Math.max(rect.w, 1), (h - padding) / Math.max(rect.h, 1)), MIN_ZOOM, MAX_ZOOM);
     this.centerOn(rect, z);
   }
 
-  /** True when the rect is fully inside the visible area. */
-  isVisible(rect: Rect): boolean {
-    const { w, h } = this.size();
+  /** True when the rect is fully inside the visible area (by default the current one). */
+  isVisible(rect: Rect, area: { w: number; h: number } = this.visibleArea()): boolean {
+    const { w, h } = area;
     const x = rect.x * this.vp.zoom + this.vp.x;
     const y = rect.y * this.vp.zoom + this.vp.y;
     return x >= 0 && y >= 0 && x + rect.w * this.vp.zoom <= w && y + rect.h * this.vp.zoom <= h;

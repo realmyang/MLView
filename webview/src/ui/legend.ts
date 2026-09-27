@@ -35,16 +35,22 @@ export interface LegendSection {
 const EDGE_DETAIL: Record<string, string> = {
   data: 'A value produced here is consumed there.',
   call: 'This step calls that definition.',
-  control: 'Loop or ordering, not a value.',
+  control: 'Ordering or a branch decision, not a value.',
   config: 'A setting reaches this step.',
-  unknown: 'A connection kind this renderer does not know.',
+  state: 'Reads or updates persistent state (parameters, optimizer or scheduler state, buffers).',
+  loop: 'Repetition: the next iteration, epoch or step.',
+  output: 'Something written or returned: a file, a log, a checkpoint, a result.',
+  unknown: 'Any other kind the author wrote, or none. Hover or select the connection to read the authored kind.',
 };
+
+/** The legend's own word for the catch-all row: `unknown` read as an error. */
+const EDGE_LABEL: Record<string, string> = { unknown: 'other' };
 
 /** WorkflowDocument 1.0's three authored evidence bases. */
 const BASIS_ROWS: LegendRow[] = [
   { group: 'basis', key: 'observed', label: 'Observed', detail: 'Directly supported by cited workspace source.' },
   { group: 'basis', key: 'inferred', label: 'Inferred', detail: 'Reasoned from cited source and stated assumptions; it was not directly observed at run time.' },
-  { group: 'basis', key: 'unresolved', label: 'Unresolved', detail: 'The available evidence does not settle this claim. It does not mean the step is absent.' },
+  { group: 'basis', key: 'unresolved', label: 'Unresolved', detail: 'The available evidence does not settle this claim. It does not mean the step is absent. Its card draws a dashed icon outline.' },
 ];
 
 const FRESHNESS_ROWS: LegendRow[] = [
@@ -76,7 +82,7 @@ export function legendModel(): LegendSection[] {
       rows: KNOWN_EDGE_KINDS.concat(['unknown']).map((kind) => ({
         group: 'edge',
         key: kind,
-        label: kind,
+        label: EDGE_LABEL[kind] || kind,
         detail: EDGE_DETAIL[kind] || '',
       })).concat([
         { group: 'edge', key: 'back', label: 'loop back', detail: 'The return leg of a loop, marked with a chevron.' },
@@ -107,7 +113,7 @@ function edgeSwatch(kind: string): SVGElement {
   const path = svg('path', { class: 'mlv-legend__edge', d: 'M2 7 H 33' });
   g.appendChild(path);
   const head = ARROW_HEADS[known] || ARROW_HEADS.unknown;
-  const arrow = svg('path', { class: 'mlv-arrow mlv-arrow--' + known, d: head.d, transform: 'translate(31,2)' });
+  const arrow = svg('path', { class: 'mlv-arrow mlv-arrow--' + known + (head.filled ? '' : ' mlv-arrow--open'), d: head.d, transform: 'translate(31,2)' });
   if (!head.filled) arrow.setAttribute('fill', 'none');
   g.appendChild(arrow);
   if (kind === 'back') {
@@ -192,6 +198,27 @@ export class Legend {
 
   get open(): boolean {
     return this.openState;
+  }
+
+  /**
+   * Campaign 3, issue 9: name the authored kind words this diagram draws with
+   * the catch-all stroke, so the key says what they are instead of "unknown".
+   * `unspecified` counts the connections that carry no kind at all.
+   */
+  setOtherKinds(kinds: string[], unspecified: number): void {
+    const desc = this.root.querySelector('[data-legend-row="edge:unknown"]');
+    const dd = desc && desc.nextElementSibling;
+    if (!dd) return;
+    const prior = dd.querySelector('.mlv-legend__authored');
+    if (prior) prior.remove();
+    const parts: string[] = [];
+    if (kinds.length) {
+      const shown = kinds.slice(0, 8).join(', ');
+      parts.push('In this diagram: ' + shown + (kinds.length > 8 ? ', and ' + (kinds.length - 8) + ' more' : '') + '.');
+    }
+    if (unspecified > 0) parts.push(unspecified + (unspecified === 1 ? ' connection has' : ' connections have') + ' no kind.');
+    if (!parts.length) return;
+    add(dd, el('span', 'mlv-legend__authored', ' ' + parts.join(' ')));
   }
 
   setOpen(next: boolean): void {

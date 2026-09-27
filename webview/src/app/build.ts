@@ -145,8 +145,8 @@ export function buildAppUi(app: App): void {
     onTab: (tab) => app.setRailTab(tab),
     onClearFilters: () => app.clearFilters(),
     onSelectIssue: (id) => app.focusIssue(id),
-    onSelectNode: (id) => app.select({ kind: 'node', id }, { center: true }),
-    onSelectEdge: (id) => app.select({ kind: 'edge', id }, { tab: 'inspector' }),
+    onSelectNode: (id) => app.select({ kind: 'node', id }, { center: true, reveal: true }),
+    onSelectEdge: (id) => app.select({ kind: 'edge', id }, { tab: 'inspector', reveal: true }),
     onChallenge: () => {
       const refine = app.root.querySelector<HTMLButtonElement>('.mlv-workflow__refine');
       const composer = app.root.querySelector<HTMLFormElement>('.mlv-workflow__composer');
@@ -179,6 +179,11 @@ export function buildAppUi(app: App): void {
     onApplyFix: (id) => app.applyFix(id),
   });
   shell.body.appendChild(app.rail.root);
+  // Campaign 3, issue 6: a reader working IN the rail has chosen it. Following
+  // an evidence link opens the source in a split that narrows this panel, and
+  // the width rule (`App.autoRail`) must not then close the finding being read.
+  on(app.rail.root, 'pointerdown', () => { app.railChosen = true; });
+  on(app.rail.root, 'keydown', () => { app.railChosen = true; });
 
   // Anchored inside the canvas, beside the minimap, so the key sits with the
   // picture it explains rather than in a modal over it (VIEW-10).
@@ -236,7 +241,31 @@ export function canvasHost(app: App): CanvasHost {
     widenScope: () => stepDepth(app, 1),
     clearScope: () => app.setScope(null),
     scopeSpec: () => app.scopes.spec,
+    coveredRight: () => railOverlap(app),
+    keptTarget: () => {
+      const sel = app.selection;
+      if (!sel) return null;
+      if (sel.kind !== 'issue') return { kind: sel.kind, id: sel.id };
+      const issue = app.index ? app.index.issueById.get(sel.id) : undefined;
+      if (!issue) return null;
+      if (issue.nodeIds[0]) return { kind: 'node', id: issue.nodeIds[0] };
+      return issue.edgeIds.length ? { kind: 'edge', id: issue.edgeIds[0] } : null;
+    },
   };
+}
+
+/**
+ * How many pixels of the canvas's right side the open rail covers (Campaign 3 review, VL-1).
+ * Measured rather than inferred from the 900 px breakpoint: docked, the rail's left edge is the
+ * canvas's right edge; as the narrow-window drawer it lies over the canvas.
+ */
+function railOverlap(app: App): number {
+  if (!app.railOpen || !app.view || !app.rail || app.rail.root.hidden) return 0;
+  const canvas = app.view.canvasEl.getBoundingClientRect();
+  const rail = app.rail.root.getBoundingClientRect();
+  if (!(rail.width > 0) || !(canvas.width > 0)) return 0;
+  if (rail.left >= canvas.right - 1 || rail.right <= canvas.left || rail.bottom <= canvas.top || rail.top >= canvas.bottom) return 0;
+  return Math.max(0, canvas.right - Math.max(canvas.left, rail.left));
 }
 
 /**

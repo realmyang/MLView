@@ -8,6 +8,126 @@ Run `sh scripts/e2e.sh` with Python 3.10+ and Node 20.18.1+ on PATH. On Windows
 use `powershell -File scripts/e2e.ps1`. The [script guide](../scripts/README.md)
 explains each gate and explicit skip options.
 
+## Campaign 3 integration local checks — 2026-09-26
+
+Campaign 3 (public shakedown fixes, unreleased) at `0641c85` on the
+`campaign3-shakedown` branch: the no-fast-forward merges of the `c3-helper`,
+`c3-skill` and `c3-viewer` streams onto 0.3.0 (`00e5d45`), the integration
+wording fixes and the changelog and status entries; this record is the only
+later change. **These are local automated checks only.** CI has not run on
+these commits, so the Python 3.10–3.14 and Node 20.18.1–26 matrix, Windows and
+the PowerShell drivers are unverified here. The tests check structure,
+contracts and viewer mechanics; they are not semantic accuracy, human review
+or live-host validation, and no native session, live VS Code check or pilot
+run happened in this integration.
+
+- Machine: the same macOS machine as below, Node 26.4.0 (npm 11.17.0), Python
+  3.13.15 in a virtualenv with `pytest==9.1.1` and `jsonschema==4.26.0`,
+  `PYTHONDONTWRITEBYTECODE=1`.
+- `sh scripts/e2e.sh --skip-npm-install` on `0641c85`: **all 15 exercised
+  gates passed** (`E2E OK: 15 exercised gates`).
+  - Python helper, distribution and evaluation tests: **887 passed, 626
+    subtests passed**, none skipped.
+  - Viewer: **96 passed**, 0 failed, 0 skipped. Extension: **266 passed**,
+    0 failed, 0 skipped.
+  - The actual VSIX: 11 files, 160,627 bytes.
+  - An earlier run of the same gate, on the merge commit `7dcb6a0` with most
+    of the integration wording fixes applied but not yet committed, also
+    passed all 15 gates with the same test counts (VSIX 160,628 bytes).
+- After the gate's rebuild (viewer build, asset and skill sync, extension
+  compile), `git diff --exit-code` was clean over `webview/dist`,
+  `vscode-extension/media`, the extension's notices and
+  `claude-plugin/skills/mlview`.
+- `python tools/verify.py --all`: OK. `python tools/evidence_lock.py`: 95
+  files match the lock. `python scripts/check_docs.py`: OK, 40 documents.
+- Under a Python 3.10.21 interpreter, `python3.10 -m unittest discover -s
+  skills/mlview/tests -p 'test_artifact*.py'` ran 113 tests, OK.
+- The skill's bundled example validates with the merged helper on a scratch
+  workspace holding its fixture source (`ok`, no warnings), and the SKILL.md
+  `excerpt`, `validate`, multi-record `upsert` and `publish` commands ran as
+  documented on a scratch workspace.
+- The streams' own measurements (a headless Chrome layout measurement of the
+  32 shakedown artifacts, an Extension Development Host layout check, a
+  2,000-node jsdom benchmark and a read-only `validate` of all 32 artifacts
+  with the new warnings) were made on their branches and were not repeated
+  here. They are scratch evidence, not committed records.
+
+### Integration review fixes — 2026-09-26
+
+Four provisional model reviews of `c67e000` (helper, skill, live viewer and a
+replay of the shakedown drafts; not a human review) reported 18 findings,
+some overlapping. The fixes are commit `428b9ad`; this addition to the record
+is the only later change. **These are local automated checks only**, with
+the same caveats as above: CI has not run on these commits, and nothing here
+is semantic accuracy, human review, a live-host run of the skill or a pilot
+run.
+
+- `sh scripts/e2e.sh --skip-npm-install` on `428b9ad`: **all 15 exercised
+  gates passed** (`E2E OK: 15 exercised gates`).
+  - Python helper, distribution and evaluation tests: **892 passed, 630
+    subtests passed**, none skipped.
+  - Viewer: **100 passed**, 0 failed, 0 skipped. Extension: **266 passed**,
+    0 failed, 0 skipped.
+  - The actual VSIX: 11 files, 161,147 bytes.
+  - The same gate on the uncommitted tree just before the commit (identical
+    apart from one rewrapped paragraph in the skill's contract reference)
+    also passed all 15 gates with the same counts.
+- After the gate's rebuild, `git status` was clean, so `webview/dist`,
+  `vscode-extension/media`, the extension's notices and
+  `claude-plugin/skills/mlview` match their sources.
+- `python tools/verify.py --all`: OK. `python tools/evidence_lock.py`: 95
+  files match the lock. `python scripts/check_docs.py`: OK, 40 documents.
+- Under Python 3.10.21, `python3.10 -m unittest discover -s
+  skills/mlview/tests -p 'test_artifact*.py'` ran 118 tests, OK.
+- Scratch measurements, not committed records: a read-only `validate` of the
+  32 published shakedown artifacts with the fixed helper (32 valid); the
+  helper's `foundAt` hint compared before and after the bounded search on
+  the 137 `quote_mismatch` errors of the replayed shakedown drafts (all
+  identical); three mismatched 2,001-line quotes against a 1,000,000-line
+  blank file (11.9 s before, 0.07 s after); and a headless Chrome check of
+  the built viewer bundle before and after the fixes. In that check, at
+  541x502 and 541x450 the collapsed header's Details toggle went from 0 of
+  28 px visible to 28 of 28, with the status bar visible in every measured
+  size; at 541x798 the finding targets of two artifacts went from 4% visible
+  behind the rail drawer to fully visible at 75% zoom (at 393 px they stay
+  behind the drawer by design); a target selected with the rail docked at
+  1382 px stayed fully visible after the panel narrowed to 691 px (0% before);
+  and a fixture's two self-edges were drawn (none before). This is a layout
+  check in headless Chrome, not a VS Code live check.
+
+### Post-review changes, CI and confirmation run — 2026-09-27
+
+Later commits on the branch: `590c97d` (the documented default `excerpt` ID
+and one error-list entry), `c2182e7` (a test expectation for Windows
+absolute paths), `c37a275` (the skill's critique is bounded) and `577a381`
+(refused upserts are not repair rounds; no partial publication at the
+limit), plus this record and the dated shakedown record.
+
+- CI at `590c97d` ([run 36271081599](https://github.com/realmyang/MLView/actions/runs/36271081599)):
+  11 of 12 jobs passed; the Windows job failed on one test that expected
+  the POSIX error code for an absolute path (`c2182e7` fixes the test; the
+  helper was right). CI at `c37a275` ([run 36273489712](https://github.com/realmyang/MLView/actions/runs/36273489712)):
+  **all 12 jobs passed**, including Windows.
+- `sh scripts/e2e.sh --skip-npm-install` on `577a381`, in a separate
+  worktree without the public corpus checkout: **all 15 exercised gates
+  passed**. Python: **875 passed, 17 skipped** (the corpus tests), 630
+  subtests passed. Viewer: **100 passed**. Extension: **266 passed**. The
+  actual VSIX: 11 files, 161,147 bytes. The worktree stayed clean.
+- A confirmation run of ten shakedown cases with the fixed skill on live
+  hosts, and a re-run of one case after `c37a275`, are recorded in
+  [2026-09-26-public-shakedown.md](demo-logs/2026-09-26-public-shakedown.md):
+  four cases stopped on account quotas, and `577a381` has not run on a live
+  host. That record is a provisional model review, not human review,
+  semantic accuracy or a pilot result.
+- After `main` gained PR #11 (Stage 1 normalized review hashes), it was
+  merged into this branch (conflicts only where both added an "Unreleased"
+  section to CHANGELOG.md and this file; both kept, newest first). On the
+  merged tree, in the main checkout with the public corpus:
+  `sh scripts/e2e.sh --skip-npm-install` passed **all 15 exercised gates**;
+  Python **915 passed**, none skipped, 630 subtests passed; viewer **100**;
+  extension **266**; VSIX 11 files, 161,147 bytes. `verify.py --all`, the
+  evidence lock (95 files) and the docs check passed.
+
 ## Stage 1 normalized review hashes — 2026-09-26
 
 The change in the "Unreleased — Stage 1 normalized review hashes" entry of

@@ -1000,9 +1000,9 @@ def eval_records_codes(case: dict, helper) -> dict[int, set[str]]:
         if notebook and not (isinstance(cell, int) and not isinstance(cell, bool) and cell >= 0):
             codes[index] = {"notebook_cell"}
             continue
-        if not notebook and "cell" in ev:
-            codes[index] = {"unexpected_cell"}
-            continue
+        # The helper reports a cell on a file that is not a notebook and still checks the range and
+        # quote against the file's own lines (Campaign 3).
+        stray = {"unexpected_cell"} if not notebook and "cell" in ev else set()
         try:
             lines = er.source_lines(data, cell if notebook else None, helper)
         except ValueError:
@@ -1011,10 +1011,10 @@ def eval_records_codes(case: dict, helper) -> dict[int, set[str]]:
         try:
             er.excerpt(lines, ev.get("line"), ev.get("endLine"))
         except ValueError:
-            codes[index] = {"range"}
+            codes[index] = stray | {"range"}
             continue
         matches = er.quote_matches(ev.get("quote"), lines, ev["line"], ev["endLine"], helper)
-        codes[index] = set() if matches else {"quote_mismatch"}
+        codes[index] = stray | (set() if matches else {"quote_mismatch"})
     return codes
 
 

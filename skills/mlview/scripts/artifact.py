@@ -52,6 +52,25 @@ _ASCII_LOWER = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrst
 _OWNED_FOLD = str.maketrans({**{chr(c): chr(c + 32) for c in range(0x41, 0x5B)}, "\u017f": "s", "\u212a": "k"})
 EXCLUDED_EVIDENCE_MESSAGE = "evidence must cite project files, not an MLView artifact, draft or installed MLView skill file"
 EXCLUDED_INSPECTED_MESSAGE = "MLView-owned file is listed but not fingerprinted; list only project files"
+MAX_QUOTE = 16000
+MAX_EVIDENCE_PATH = 500
+# Non-blocking hygiene warnings list at most WARNING_CAP entries per code, then one entry that
+# counts the rest, so a large draft cannot flood the output. Evidence wider than WIDE_EVIDENCE_LINES
+# lines is reported as wide_evidence.
+WARNING_CAP = 10
+WIDE_EVIDENCE_LINES = 60
+# quote_mismatch shows at most QUOTE_WINDOW characters of each side of the first differing line,
+# starting QUOTE_CONTEXT characters before the difference, so every message stays bounded.
+QUOTE_WINDOW = 80
+QUOTE_CONTEXT = 30
+# At most this many repeated JSON members are listed individually.
+MAX_DUPLICATE_MEMBERS = 20
+# foundAt compares at most FIND_BUDGET source lines per quote, and FIND_TOTAL_BUDGET per validation,
+# before giving up, so mismatched quotes of repeated lines (blank lines, say) cannot make validate
+# quadratic in the file size.
+FIND_BUDGET = 200_000
+FIND_TOTAL_BUDGET = 5_000_000
+LINES_RE = re.compile(r"(\d+)(?:-(\d+))?", re.ASCII)
 
 _UMASK: int | None = None
 
@@ -137,14 +156,45 @@ def _strip_bom(text: str) -> str:
     return text[1:] if text.startswith("\ufeff") else text
 
 
+def _is_int(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _json_type(value: Any) -> str:
+    if isinstance(value, dict): return "object"
+    if isinstance(value, list): return "array"
+    if isinstance(value, bool): return "boolean"
+    if isinstance(value, (int, float)): return "number"
+    return "null" if value is None else "string"
+
+
+def _shown(value: str, limit: int = 200) -> str:
+    """A string as a JSON literal (so tabs, CR, a BOM and trailing spaces are visible), bounded."""
+    return json.dumps(value[:limit])
+
+
+def _unknown(noun: str, value: Any) -> str:
+    if isinstance(value, str): return f"unknown {noun} {_shown(value)}"
+    if value is None: return f"unknown {noun}"
+    return f"unknown {noun}: expected an ID string, found a {_json_type(value)}"
+
+
+def _value(value: Any) -> dict[str, str]:
+    """The structured ``value`` field of a reference error (strings only, bounded)."""
+    return {"value": value[:200]} if isinstance(value, str) else {}
+
+
 def _path_syntax(value: Any) -> tuple[str, str] | None:
     """Return the lexical problem of a workspace-relative path, or None."""
     if not isinstance(value, str) or not value or "\\" in value or "\0" in value:
         return "invalid_path", "must be a non-empty slash-separated relative path"
     if DRIVE_RE.match(value):
         return "invalid_path", DRIVE_MESSAGE
-    if PurePosixPath(value).is_absolute() or any(part in {"", ".", ".."} for part in value.split("/")):
+    parts = value.split("/")
+    if PurePosixPath(value).is_absolute() or ".." in parts:
         return "path_outside_workspace", "must stay within the workspace"
+    if any(part in {"", "."} for part in parts):
+        return "path_outside_workspace", 'must be a normalised relative path such as src/train.py, without "./", empty or trailing segments'
     return None
 
 
@@ -213,60 +263,202 @@ def _parse_notebook(text: str) -> Any:
     return _read_notebook(text)[0]
 
 
+def _cited_text(cited: Any, cell: Any, has_cell: bool, root: Path, problems: Problems, file_at: str, cell_at: str,
+                owned: set[tuple[int, int]] | frozenset, cache: dict[str, tuple[bytes, str]], notebooks: dict[str, Any],
+                hashes: dict[str, str] | None = None) -> tuple[str, str, bool] | None:
+    """The text a citation addresses, as (rel, text, is_notebook), or None after reporting why not.
+
+    validate and excerpt share it, so both apply the same workspace confinement, the same refusal
+    of MLView's own files, the same size and UTF-8 rules and the same notebook-cell addressing.
+    A ``cell`` on a file that is not a notebook is reported (unexpected_cell) and the file's own
+    text is still returned, so the quote is checked in the same round."""
+    if isinstance(cited, str) and is_owned_path(cited):
+        problems.add("excluded_evidence", file_at, EXCLUDED_EVIDENCE_MESSAGE)
+        return None
+    located = _relative(cited, root, problems, file_at)
+    if not located:
+        return None
+    rel, source_path = located
+    if _owned_target(source_path, root, owned):
+        problems.add("excluded_evidence", file_at, EXCLUDED_EVIDENCE_MESSAGE)
+        return None
+    content = cache.get(rel)
+    if content is None:
+        content = _read_source(source_path, problems, file_at)
+        if content is None:
+            return None
+        cache[rel] = content
+    raw, text = content
+    if hashes is not None:
+        hashes[rel] = hashlib.sha256(raw).hexdigest()
+    if source_path.suffix.lower() == ".ipynb":
+        if not _is_int(cell) or cell < 0:
+            problems.add("notebook_cell", cell_at, "notebook evidence requires a zero-based cell index")
+            return None
+        if rel not in notebooks:
+            notebooks[rel] = _read_notebook(text)
+        notebook, unreadable = notebooks[rel]
+        if notebook is None:
+            problems.add("notebook_cell", cell_at, unreadable)
+            return None
+        try:
+            cells = notebook["cells"]
+            source = cells[cell]["source"]
+            text = "".join(source) if isinstance(source, list) else source
+            if not isinstance(text, str):
+                raise TypeError
+        except (ValueError, KeyError, IndexError, TypeError):
+            problems.add("notebook_cell", cell_at, "cell does not identify valid notebook source")
+            return None
+        return rel, text, True
+    if has_cell:
+        problems.add("unexpected_cell", cell_at, "cell is only valid for .ipynb evidence")
+    return rel, text, False
+
+
+def _span(first: int, last: int) -> str:
+    return f"line {first}" if first == last else f"lines {first}-{last}"
+
+
+def _range_message(maximum: int) -> str:
+    return f"line range is invalid for the cited source: line and endLine must be integers with 1 <= line <= endLine <= {maximum}"
+
+
+def _find_quote(lines: list[str], quote_lines: list[str], positions: dict[str, list[int]], spent: list[int]) -> tuple[int, int] | None:
+    """(line, endLine) of the one place where the quote's lines occur exactly, or None when they occur
+    nowhere, more than once, or only past the comparison budget. A diagnostic only: the helper never
+    rewrites a range.
+
+    The search anchors on the quote line that occurs least often in the source and compares line by
+    line with an early exit, spending at most FIND_BUDGET comparisons (and what is left of the
+    validation's FIND_TOTAL_BUDGET, counted in ``spent``), so its cost stays bounded whatever the
+    quote and the file hold."""
+    budget = min(FIND_BUDGET, FIND_TOTAL_BUDGET - spent[0])
+    if budget <= 0:
+        return None
+    wanted = [_strip_bom(quote_lines[0])] + quote_lines[1:]
+    count = len(wanted)
+    anchor = min(range(count), key=lambda i: len(positions.get(wanted[i], ())))
+    found = None
+    for position in positions.get(wanted[anchor], ()):
+        start = position - anchor
+        if start < 0:
+            continue
+        if start + count > len(lines):
+            break
+        k = 0
+        while k < count and lines[start + k] == wanted[k]:
+            k += 1
+        budget -= k + 1
+        spent[0] += k + 1
+        if k == count:
+            if found is not None:
+                return None
+            found = start
+        if budget < 0:
+            return None
+    return None if found is None else (found + 1, found + count)
+
+
+def _quote_mismatch(ev: dict[str, Any], rel: str, cell: Any, lines: list[str], line: int, end: int, expected: str,
+                    positions: Any, spent: list[int]) -> tuple[str, dict[str, Any]]:
+    """The message and structured fields of a quote_mismatch: which record and range, the first
+    differing line and column with both sides shown, the line counts, and where the quoted text
+    occurs when it occurs exactly once elsewhere in the same file or cell."""
+    quote = ev.get("quote")
+    details: dict[str, Any] = {"file": rel, "line": line, "endLine": end, "citedLines": end - line + 1}
+    if isinstance(ev.get("id"), str):
+        details["id"] = ev["id"][:200]
+    if cell is not None:
+        details["cell"] = cell
+    record = f"evidence {_shown(ev['id'])}" if isinstance(ev.get("id"), str) else "this evidence"
+    place = f"{rel}{f' cell {cell}' if cell is not None else ''}, {_span(line, end)}"
+    head = f"quote does not exactly match the cited lines of {record} ({place})."
+    if not isinstance(quote, str):
+        return f"{head} The quote must be a string.", details
+    # Line 1 accepts a quote with or without a leading byte-order mark, so neither side keeps one here.
+    q, e = (_strip_bom(quote), _strip_bom(expected)) if line == 1 else (quote, expected)
+    quote_lines, cited_lines = q.split("\n"), e.split("\n")
+    details["quoteLines"] = len(quote_lines)
+    shared = min(len(quote_lines), len(cited_lines))
+    k = next((i for i in range(shared) if quote_lines[i] != cited_lines[i]), shared)
+    ours = quote_lines[k] if k < len(quote_lines) else None
+    theirs = cited_lines[k] if k < len(cited_lines) else None
+    column = 0
+    if ours is not None and theirs is not None:
+        column = next((i for i, (a, b) in enumerate(zip(ours, theirs)) if a != b), min(len(ours), len(theirs)))
+    start = max(0, column - QUOTE_CONTEXT)
+    difference: dict[str, Any] = {"rangeLine": k + 1, "line": line + k, "column": column + 1, "startColumn": start + 1,
+                                  "quote": None if ours is None else ours[start:start + QUOTE_WINDOW],
+                                  "cited": None if theirs is None else theirs[start:start + QUOTE_WINDOW]}
+    details["difference"] = difference
+    # Every position where the two sides differ, counting lines only one side has.
+    differing = sum(1 for i in range(max(len(quote_lines), len(cited_lines)))
+                    if i >= shared or quote_lines[i] != cited_lines[i])
+    details["differingLines"] = differing
+    parts = [head]
+    found = _find_quote(lines, quote.split("\n"), positions(), spent) if quote else None
+    if found is not None and found != (line, end):
+        details["foundAt"] = {"line": found[0], "endLine": found[1]}
+        parts.append(f"The quoted text occurs exactly once, at {_span(*found)}{' of this cell' if cell is not None else ''}: "
+                     "if that is the code you meant, set line and endLine to that range.")
+    ours_shown = "nothing (the quote has ended)" if ours is None else json.dumps(difference["quote"])
+    theirs_shown = "nothing (the cited range has ended)" if theirs is None else json.dumps(difference["cited"])
+    window = f" (both shown from column {start + 1})" if start else ""
+    parts.append(f"First difference at line {k + 1} of the quote (source line {line + k}), column {column + 1}: "
+                 f"the quote has {ours_shown} where the cited lines have {theirs_shown}{window}.")
+    if q == e + "\n":
+        parts.append("The quote ends with a line break: cited lines are joined with LF and have none after the last line.")
+    elif e == q + "\n":
+        parts.append("The cited range ends on an empty line that the quote leaves out; end the range one line earlier.")
+    elif "\r" in q:
+        parts.append("The quote contains a carriage return; the source is compared with CRLF and CR read as LF, so quote with LF only.")
+    elif q.split() == e.split():
+        parts.append("Only whitespace differs (indentation, tabs, or spaces at the end of a line).")
+    elif q and q in e:
+        parts.append("The quote is only part of the cited lines; quote complete lines exactly, or narrow the range to the lines you quote.")
+    if len(quote_lines) != len(cited_lines):
+        parts.append(f"The quote has {len(quote_lines)} lines; the cited range has {len(cited_lines)}.")
+    # With foundAt the whole fix is the range; otherwise say that patching the first line is not enough.
+    if differing > 1 and "foundAt" not in details:
+        parts.append(f"In all, {differing} lines of the quote differ from the cited lines, not only this one: "
+                     "rerun excerpt for the range and replace the whole record rather than editing a line.")
+    return " ".join(parts), details
+
+
 def _validate_evidence(doc: dict[str, Any], root: Path, problems: Problems, owned: set[tuple[int, int]] = frozenset()) -> dict[str, str]:
     hashes: dict[str, str] = {}
     cache: dict[str, tuple[bytes, str]] = {}
     notebooks: dict[str, Any] = {}
+    sources: dict[tuple[str, Any], list[str]] = {}
+    indexes: dict[tuple[str, Any], dict[str, list[int]]] = {}
+    spent = [0]  # foundAt comparisons so far in this validation
+
+    def positions(key: tuple[str, Any]):
+        def build() -> dict[str, list[int]]:
+            if key not in indexes:
+                index: dict[str, list[int]] = {}
+                for number, text in enumerate(sources[key]):
+                    index.setdefault(text, []).append(number)
+                indexes[key] = index
+            return indexes[key]
+        return build
+
     for index, ev in enumerate(doc.get("evidence", [])):
         at = f"evidence[{index}]"
         if not isinstance(ev, dict):
             continue
-        cited = ev.get("file")
-        if isinstance(cited, str) and is_owned_path(cited):
-            problems.add("excluded_evidence", f"{at}.file", EXCLUDED_EVIDENCE_MESSAGE)
+        located = _cited_text(ev.get("file"), ev.get("cell"), "cell" in ev, root, problems, f"{at}.file", f"{at}.cell", owned, cache, notebooks, hashes)
+        if located is None:
             continue
-        located = _relative(cited, root, problems, f"{at}.file")
-        if not located:
-            continue
-        rel, source_path = located
-        if _owned_target(source_path, root, owned):
-            problems.add("excluded_evidence", f"{at}.file", EXCLUDED_EVIDENCE_MESSAGE)
-            continue
-        content = cache.get(rel)
-        if content is None:
-            content = _read_source(source_path, problems, f"{at}.file")
-            if content is None:
-                continue
-            cache[rel] = content
-        raw, text = content
-        hashes[rel] = hashlib.sha256(raw).hexdigest()
-        if source_path.suffix.lower() == ".ipynb":
-            cell = ev.get("cell")
-            if not isinstance(cell, int) or isinstance(cell, bool) or cell < 0:
-                problems.add("notebook_cell", f"{at}.cell", "notebook evidence requires a zero-based cell index")
-                continue
-            if rel not in notebooks:
-                notebooks[rel] = _read_notebook(text)
-            notebook, unreadable = notebooks[rel]
-            if notebook is None:
-                problems.add("notebook_cell", f"{at}.cell", unreadable)
-                continue
-            try:
-                cells = notebook["cells"]
-                source = cells[cell]["source"]
-                text = "".join(source) if isinstance(source, list) else source
-                if not isinstance(text, str):
-                    raise TypeError
-            except (ValueError, KeyError, IndexError, TypeError):
-                problems.add("notebook_cell", f"{at}.cell", "cell does not identify valid notebook source")
-                continue
-        elif "cell" in ev:
-            problems.add("unexpected_cell", f"{at}.cell", "cell is only valid for .ipynb evidence")
-            continue
+        rel, text, notebook = located
+        key = (rel, ev.get("cell") if notebook else None)
+        if key not in sources:
+            sources[key] = _lines(text)
+        lines = sources[key]
         line, end = ev.get("line"), ev.get("endLine")
-        lines = _lines(text)
-        if not isinstance(line, int) or isinstance(line, bool) or not isinstance(end, int) or isinstance(end, bool) or line < 1 or end < line or end > len(lines):
-            problems.add("range", at, "line range is invalid for the cited source")
+        if not _is_int(line) or not _is_int(end) or line < 1 or end < line or end > len(lines):
+            problems.add("range", at, _range_message(len(lines)), maxLine=len(lines))
             continue
         expected = "\n".join(lines[line - 1:end])
         quote = ev.get("quote")
@@ -274,8 +466,8 @@ def _validate_evidence(doc: dict[str, Any], root: Path, problems: Problems, owne
         # quote with or without it, and compare every other quote exactly.
         matches = _strip_bom(quote) == _strip_bom(expected) if line == 1 and isinstance(quote, str) else quote == expected
         if not matches:
-            shown = json.dumps(expected[:200], ensure_ascii=False)
-            problems.add("quote_mismatch", f"{at}.quote", f"quote does not exactly match the cited lines; the cited lines are: {shown}")
+            message, details = _quote_mismatch(ev, rel, key[1], lines, line, end, expected, positions(key), spent)
+            problems.add("quote_mismatch", f"{at}.quote", message, **details)
     return dict(sorted(hashes.items()))
 
 
@@ -480,13 +672,14 @@ def _references(doc: dict[str, Any], p: Problems) -> None:
     collections = {name: doc.get(name, []) for name in ("phases", "nodes", "edges", "findings", "evidence")}
     ids: dict[str, set[str]] = {}
     for name, items in collections.items():
-        seen: set[str] = set()
+        first: dict[str, int] = {}
         for i, item in enumerate(items if isinstance(items, list) else []):
             value = item.get("id") if isinstance(item, dict) else None
             if not _id(value): p.add("id", f"{name}[{i}].id", "must be a valid ID")
-            elif value in seen: p.add("duplicate_id", f"{name}[{i}].id", "ID is duplicated in this collection")
-            else: seen.add(value)
-        ids[name] = seen
+            elif value in first:
+                p.add("duplicate_id", f"{name}[{i}].id", f"ID {_shown(value)} is already used by {name}[{first[value]}]; IDs are unique within a collection", value=value, firstIndex=first[value])
+            else: first[value] = i
+        ids[name] = set(first)
     for i, phase in enumerate(collections["phases"] if isinstance(collections["phases"], list) else []):
         phase = _object(phase, f"phases[{i}]", {"id", "label"}, {"id", "label"}, p)
         if phase is None or not isinstance(phase.get("label"), str) or not phase.get("label"):
@@ -497,7 +690,7 @@ def _references(doc: dict[str, Any], p: Problems) -> None:
         if ev is None: continue
         if not isinstance(ev.get("quote"), str): p.add("type", f"evidence[{i}].quote", "must be a string")
         elif len(ev["quote"]) > 16000: p.add("limit", f"evidence[{i}].quote", "must contain at most 16000 characters")
-        if isinstance(ev.get("file"), str) and len(ev["file"]) > 500: p.add("limit", f"evidence[{i}].file", "must contain at most 500 characters")
+        if isinstance(ev.get("file"), str) and len(ev["file"]) > MAX_EVIDENCE_PATH: p.add("limit", f"evidence[{i}].file", f"must contain at most {MAX_EVIDENCE_PATH} characters")
     children: set[str] = set()
     parent_of: dict[str, str] = {}
     for i, node in enumerate(collections["nodes"] if isinstance(collections["nodes"], list) else []):
@@ -505,7 +698,7 @@ def _references(doc: dict[str, Any], p: Problems) -> None:
         if node is None: continue
         if not isinstance(node.get("label"), str) or not node.get("label"): p.add("type", f"nodes[{i}].label", "must be a non-empty string")
         elif len(node["label"]) > 300: p.add("limit", f"nodes[{i}].label", "must contain at most 300 characters")
-        if not isinstance(node.get("phase"), str) or node.get("phase") not in ids["phases"]: p.add("reference", f"nodes[{i}].phase", "unknown phase ID")
+        if not isinstance(node.get("phase"), str) or node.get("phase") not in ids["phases"]: p.add("reference", f"nodes[{i}].phase", _unknown("phase ID", node.get("phase")), **_value(node.get("phase")))
         _optional_text(node, "kind", f"nodes[{i}]", 100, p)
         _optional_text(node, "detail", f"nodes[{i}]", 8000, p, allow_empty=True)
         if "parent" in node:
@@ -533,7 +726,7 @@ def _references(doc: dict[str, Any], p: Problems) -> None:
         elif len(edge["label"]) > 300: p.add("limit", f"edges[{i}].label", "must contain at most 300 characters")
         _optional_text(edge, "kind", f"edges[{i}]", 100, p)
         for key in ("source", "target"):
-            if not isinstance(edge.get(key), str) or edge.get(key) not in ids["nodes"]: p.add("reference", f"edges[{i}].{key}", "unknown node ID")
+            if not isinstance(edge.get(key), str) or edge.get(key) not in ids["nodes"]: p.add("reference", f"edges[{i}].{key}", _unknown("node ID", edge.get(key)), **_value(edge.get(key)))
         _claim(edge, f"edges[{i}]", ids["evidence"], p)
         if not edge.get("evidence") and edge.get("basis") != "unresolved": p.add("evidence_required", f"edges[{i}].evidence", "empty evidence requires unresolved basis")
     for i, finding in enumerate(collections["findings"] if isinstance(collections["findings"], list) else []):
@@ -544,13 +737,11 @@ def _references(doc: dict[str, Any], p: Problems) -> None:
         _max_text(finding, "title", f"findings[{i}]", 300, p); _max_text(finding, "message", f"findings[{i}]", 8000, p)
         _claim(finding, f"findings[{i}]", ids["evidence"], p)
         if not isinstance(finding.get("severity"), str) or finding.get("severity") not in {"low", "medium", "high"}: p.add("severity", f"findings[{i}].severity", "must be low, medium, or high")
-        for key, valid in (("nodeIds", ids["nodes"]), ("edgeIds", ids["edges"]), ("counterEvidence", ids["evidence"])):
+        for key, valid, noun in (("nodeIds", ids["nodes"], "node ID"), ("edgeIds", ids["edges"], "edge ID"), ("counterEvidence", ids["evidence"], "evidence ID")):
             refs = finding.get(key, [])
             if not isinstance(refs, list): p.add("type", f"findings[{i}].{key}", "must be an array"); continue
             if len(refs) > 100: p.add("limit", f"findings[{i}].{key}", "must contain at most 100 references")
-            if len(refs) != len({ref for ref in refs if isinstance(ref, str)}): p.add("duplicate_reference", f"findings[{i}].{key}", "references must be unique strings")
-            for ref in refs:
-                if not isinstance(ref, str) or ref not in valid: p.add("reference", f"findings[{i}].{key}", f"unknown {key} reference")
+            _reference_list(refs, f"findings[{i}].{key}", valid, noun, p)
         _optional_text(finding, "suggestion", f"findings[{i}]", 4000, p, allow_empty=True)
         if not finding.get("evidence") and finding.get("basis") != "unresolved": p.add("evidence_required", f"findings[{i}].evidence", "empty evidence requires unresolved basis")
 
@@ -559,10 +750,83 @@ def _claim(item: dict[str, Any], at: str, evidence_ids: set[str], p: Problems) -
     if not isinstance(item.get("basis"), str) or item.get("basis") not in BASES: p.add("basis", f"{at}.basis", "must be observed, inferred, or unresolved")
     refs = item.get("evidence")
     if not isinstance(refs, list): p.add("type", f"{at}.evidence", "must be an array"); return
-    for ref in refs:
-        if not isinstance(ref, str) or ref not in evidence_ids: p.add("reference", f"{at}.evidence", "unknown evidence ID")
-    if isinstance(refs, list) and len(refs) != len({ref for ref in refs if isinstance(ref, str)}): p.add("duplicate_reference", f"{at}.evidence", "references must be unique strings")
-    if isinstance(refs, list) and len(refs) > 100: p.add("limit", f"{at}.evidence", "must contain at most 100 references")
+    _reference_list(refs, f"{at}.evidence", evidence_ids, "evidence ID", p)
+    if len(refs) > 100: p.add("limit", f"{at}.evidence", "must contain at most 100 references")
+
+
+def _reference_list(refs: list[Any], at: str, valid: set[str], noun: str, p: Problems) -> None:
+    """Report every unresolved reference and every repeat at its own index, naming the value."""
+    first: dict[str, int] = {}
+    repeated = False
+    for j, ref in enumerate(refs):
+        if not isinstance(ref, str) or ref not in valid:
+            p.add("reference", f"{at}[{j}]", _unknown(noun, ref), index=j, **_value(ref))
+        if isinstance(ref, str):
+            if ref in first:
+                repeated = True
+                p.add("duplicate_reference", f"{at}[{j}]", f"{noun} {_shown(ref)} is already listed at {at}[{first[ref]}]; list each ID once", index=j, firstIndex=first[ref], value=ref[:200])
+            else:
+                first[ref] = j
+    if not repeated and any(not isinstance(ref, str) for ref in refs):
+        p.add("duplicate_reference", at, "references must be unique strings")
+
+
+def _capped(items: list[tuple[str, str]], collection: str, noun: str) -> list[tuple[str, str]]:
+    """At most WARNING_CAP (path, message) pairs, then one pair at the collection counting the rest."""
+    if len(items) <= WARNING_CAP:
+        return items
+    return items[:WARNING_CAP] + [(collection, f"{len(items) - WARNING_CAP} more {noun} are not listed ({len(items)} in all)")]
+
+
+def _hygiene(doc: dict[str, Any], warnings: list[dict[str, str]]) -> None:
+    """Non-blocking checks of a document that has no errors, in document order. They never change
+    validity, exit codes or publication."""
+    nodes, edges, findings, evidence = doc["nodes"], doc["edges"], doc["findings"], doc["evidence"]
+    cited: set[str] = set()
+    for item in nodes + edges + findings:
+        cited.update(item["evidence"])
+    for finding in findings:
+        cited.update(finding.get("counterEvidence", []))
+    unreferenced = [(f"evidence[{i}]", f"evidence {_shown(ev['id'])} is not cited by any node, edge or finding; cite it where it supports a claim, or remove it")
+                    for i, ev in enumerate(evidence) if ev["id"] not in cited]
+    for path, message in _capped(unreferenced, "evidence", "uncited evidence records"):
+        _warn(warnings, "unreferenced_evidence", path, message)
+    connected = {edge["source"] for edge in edges} | {edge["target"] for edge in edges}
+    connected |= {node["parent"] for node in nodes if "parent" in node} | {node["id"] for node in nodes if "parent" in node}
+    # A one-node diagram has nothing to connect to.
+    isolated = [(f"nodes[{i}]", f"node {_shown(node['id'])} has no edge, parent or child; connect it to the step it affects or nest it under a group node "
+                 "(a node that only records an absence or an external unknown can become a coverage limitation instead)")
+                for i, node in enumerate(nodes) if len(nodes) > 1 and node["id"] not in connected]
+    for path, message in _capped(isolated, "nodes", "isolated nodes"):
+        _warn(warnings, "isolated_node", path, message)
+    looped = [(f"edges[{i}]", f"edge {_shown(edge['id'])} connects node {_shown(edge['source'])} to itself; for an iteration, draw the loop edge from the last "
+               "step of the repeated work back to its first step (or give a one-step repetition kind \"loop\"), otherwise connect two different nodes")
+              for i, edge in enumerate(edges) if edge["source"] == edge["target"] and not (isinstance(edge.get("kind"), str) and edge["kind"].strip().lower() == "loop")]
+    for path, message in _capped(looped, "edges", "self-edges"):
+        _warn(warnings, "self_edge", path, message)
+    wide = [(f"evidence[{i}]", f"evidence {_shown(ev['id'])} spans {ev['endLine'] - ev['line'] + 1} lines (more than {WIDE_EVIDENCE_LINES}); cite the narrowest range that contains the claim, or split it into several records")
+            for i, ev in enumerate(evidence) if ev["endLine"] - ev["line"] + 1 > WIDE_EVIDENCE_LINES]
+    for path, message in _capped(wide, "evidence", "wide evidence records"):
+        _warn(warnings, "wide_evidence", path, message)
+    overlap = [(f"findings[{i}].counterEvidence[{j}]", f"finding {_shown(finding['id'])} lists evidence {_shown(ref)} in both evidence and counterEvidence; keep it on the side it supports")
+               for i, finding in enumerate(findings) for j, ref in enumerate(finding.get("counterEvidence", [])) if ref in finding["evidence"]]
+    for path, message in _capped(overlap, "findings", "overlapping evidence references"):
+        _warn(warnings, "evidence_overlap", path, message)
+    first: dict[str, int] = {}
+    repeated: list[tuple[str, str]] = []
+    for i, value in enumerate(doc["coverage"]["inspectedFiles"]):
+        if value in first:
+            repeated.append((f"coverage.inspectedFiles[{i}]", f"{_shown(value, 500)} is already listed at coverage.inspectedFiles[{first[value]}]; list each file once"))
+        else:
+            first[value] = i
+    for path, message in _capped(repeated, "coverage.inspectedFiles", "repeated inspected files"):
+        _warn(warnings, "duplicate_inspected", path, message)
+
+
+def basis_summary(doc: dict[str, Any]) -> dict[str, dict[str, int]]:
+    """How many nodes, edges and findings are observed, inferred and unresolved (a valid document)."""
+    return {name: {basis: sum(1 for item in doc[name] if item["basis"] == basis) for basis in ("observed", "inferred", "unresolved")}
+            for name in ("nodes", "edges", "findings")}
 
 
 def validate(doc: Any, workspace: Path, *, warnings: list[dict[str, str]] | None = None, owned_files: Any = ()) -> tuple[list[dict[str, Any]], dict[str, str]]:
@@ -592,6 +856,8 @@ def validate(doc: Any, workspace: Path, *, warnings: list[dict[str, str]] | None
                 current = hashes.get(rel)
                 if current is not None and isinstance(digest, str) and DIGEST_RE.fullmatch(digest) and digest != current:
                     p.add("stale_source", "verification.files", f"{rel} changed after this fingerprint was taken; re-read it, update claims that depend on it, then delete the draft's verification block", file=rel)
+    if not p.items:
+        _hygiene(doc, notes)
     return p.items, hashes
 
 
@@ -623,6 +889,11 @@ def _read_bounded(path: Path) -> bytes:
     return raw
 
 
+class _TooDeep(ValueError):
+    def __init__(self) -> None:
+        super().__init__("nesting is too deep")
+
+
 def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for key, value in pairs:
@@ -632,13 +903,59 @@ def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return result
 
 
+class _MemberRecorder:
+    """An object_pairs_hook that keeps the last value of a repeated member, as JSON.parse does, and
+    records each repeat (at most MAX_DUPLICATE_MEMBERS) with the object that holds it."""
+
+    def __init__(self) -> None:
+        self.count = 0
+        self.repeats: list[tuple[str, dict[str, Any]]] = []
+
+    def __call__(self, pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in result:
+                self.count += 1
+                if len(self.repeats) < MAX_DUPLICATE_MEMBERS:
+                    self.repeats.append((key, result))
+            result[key] = value
+        return result
+
+
+def _load_json(text: str, recorder: _MemberRecorder | None = None) -> Any:
+    """json.loads with the helper's rules: no NaN or Infinity and at most MAX_JSON_DEPTH levels.
+    Members must be unique unless ``recorder`` is given, which keeps the last value and records the
+    repeats. Raises ValueError (or RecursionError on very deep input)."""
+    value = json.loads(text, object_pairs_hook=recorder if recorder is not None else _unique_object, parse_constant=_reject_constant)
+    if _json_depth(value) > MAX_JSON_DEPTH:
+        raise _TooDeep()
+    return value
+
+
 def _parse(raw: bytes) -> Any:
     """Parse a document with the CLI's rules (strict UTF-8, unique members, no NaN or Infinity, at
     most MAX_JSON_DEPTH levels), raising ValueError. Tests and the conformance bridge use it."""
-    value = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique_object, parse_constant=_reject_constant)
-    if _json_depth(value) > MAX_JSON_DEPTH:
-        raise ValueError("nesting is too deep")
-    return value
+    return _load_json(raw.decode("utf-8"))
+
+
+def _member_paths(value: Any, repeats: list[tuple[str, dict[str, Any]]]) -> list[str | None]:
+    """The document path of each repeated member (None when its object was itself overwritten)."""
+    wanted = {id(holder) for _, holder in repeats}
+    found: dict[int, str] = {}
+    pending: list[tuple[Any, str]] = [(value, "")]
+    while pending:
+        current, at = pending.pop()
+        if isinstance(current, dict):
+            if id(current) in wanted:
+                found.setdefault(id(current), at)
+            pending.extend((child, f"{at}.{key}" if at else key) for key, child in current.items() if isinstance(child, (dict, list)))
+        elif isinstance(current, list):
+            pending.extend((child, f"{at}[{index}]") for index, child in enumerate(current) if isinstance(child, (dict, list)))
+    paths: list[str | None] = []
+    for key, holder in repeats:
+        at = found.get(id(holder))
+        paths.append(None if at is None else (f"{at}.{key}" if at else key)[:500])
+    return paths
 
 
 _INVALID = object()
@@ -662,27 +979,41 @@ def _read_input(path: Path, problems: Problems, label: str, relative: bool = Fal
     return None
 
 
-def _parse_input(raw: bytes, problems: Problems, label: str, at: str) -> Any:
+def _parse_input(raw: bytes, problems: Problems, label: str, at: str, *, last_wins: bool = False) -> Any:
+    """Parse a draft or record, reporting each problem. A repeated member is always an error
+    (invalid_json naming its location); with ``last_wins`` the value that keeps each member's last
+    occurrence, which is how JSON.parse reads it, is still returned so the caller can report every
+    other problem in the same round. Otherwise the result is _INVALID after any problem."""
     try:
         text = raw.decode("utf-8")
     except UnicodeDecodeError:
         problems.add("draft_encoding", label, f"{label} file must be UTF-8 JSON")
         return _INVALID
+    recorder = _MemberRecorder()
     try:
-        value = json.loads(text, object_pairs_hook=_unique_object, parse_constant=_reject_constant)
-        if _json_depth(value) > MAX_JSON_DEPTH:
-            problems.add("invalid_json", at, "nesting is too deep")
-            return _INVALID
-        return value
+        value = _load_json(text, recorder)
     except json.JSONDecodeError as exc:
         problems.add("invalid_json", at, f"{exc.msg} at line {exc.lineno}, column {exc.colno}", line=exc.lineno, column=exc.colno)
-    except (_DuplicateMember, _NotJsonConstant) as exc:
-        problems.add("invalid_json", at, str(exc))
-    except RecursionError:
+        return _INVALID
+    except (_TooDeep, RecursionError):
         problems.add("invalid_json", at, "nesting is too deep")
+        return _INVALID
+    except _NotJsonConstant as exc:
+        problems.add("invalid_json", at, str(exc))
+        return _INVALID
     except ValueError:
         problems.add("invalid_json", at, "the document is not valid JSON")
-    return _INVALID
+        return _INVALID
+    if not recorder.count:
+        return value
+    continued = f"; the rest of the {label} was validated with its last value, as JSON.parse reads it" if last_wins else ""
+    for (key, _holder), member in zip(recorder.repeats, _member_paths(value, recorder.repeats)):
+        located = f" (at {member})" if member is not None and member != key else ""
+        extra = {"member": member} if member is not None else {}
+        problems.add("invalid_json", at, f"duplicate JSON member: {key[:200]}{located}{continued}", **extra)
+    if recorder.count > len(recorder.repeats):
+        problems.add("invalid_json", at, f"{recorder.count - len(recorder.repeats)} more duplicate JSON members are not listed")
+    return value if last_wins else _INVALID
 
 
 def _input_path(value: str, root: Path, problems: Problems) -> Path | None:
@@ -762,19 +1093,38 @@ def _upsert_draft(draft: Path, collection: str, record: Any, root: Path) -> int:
     before_errors, _ = validate(checkpoint, root, owned_files=(draft,))
     if before_errors:
         print(json.dumps({"ok": False, "errors": [{"code": "checkpoint_invalid", "path": "$", "message": "existing draft must validate before an incremental edit"}] + before_errors}, sort_keys=True)); return 1
-    if not isinstance(record, dict) or not _id(record.get("id")):
-        print(json.dumps({"ok": False, "errors": [{"code": "record", "path": "record.id", "message": "record must be an object with a valid ID"}]})); return 1
+    # --record holds one record, or an array of records for the same collection that are applied in
+    # order and validated once as a whole: all of them are written, or none.
+    batch = record if isinstance(record, list) else [record]
+    if not batch:
+        print(json.dumps({"ok": False, "errors": [{"code": "record", "path": "record", "message": "record file must hold one record object or a non-empty array of records"}]})); return 1
+    invalid = [{"code": "record", "path": f"record[{index}].id" if isinstance(record, list) else "record.id", "message": "record must be an object with a valid ID"}
+               for index, item in enumerate(batch) if not isinstance(item, dict) or not _id(item.get("id"))]
+    # One array lists each ID once: a repeat would silently replace a record the same batch added.
+    seen_ids: dict[str, int] = {}
+    for index, item in enumerate(batch):
+        if isinstance(item, dict) and _id(item.get("id")):
+            if item["id"] in seen_ids:
+                invalid.append({"code": "record", "path": f"record[{index}].id",
+                                "message": f"record ID {_shown(item['id'])} is already used by record[{seen_ids[item['id']]}]; list each ID once per record file"})
+            else:
+                seen_ids[item["id"]] = index
+    if invalid:
+        print(json.dumps({"ok": False, "errors": invalid}, sort_keys=True)); return 1
     edited = dict(doc)
     records = list(doc[collection])
-    matches = [index for index, item in enumerate(records) if isinstance(item, dict) and item.get("id") == record["id"]]
-    if len(matches) > 1:
-        print(json.dumps({"ok": False, "errors": [{"code": "checkpoint_invalid", "path": collection, "message": "existing draft contains duplicate record IDs"}]})); return 1
-    action = "replaced" if matches else "inserted"
-    if matches: records[matches[0]] = record
-    else: records.append(record)
+    applied: list[dict[str, str]] = []
+    for item in batch:
+        matches = [index for index, existing in enumerate(records) if isinstance(existing, dict) and existing.get("id") == item["id"]]
+        if len(matches) > 1:
+            print(json.dumps({"ok": False, "errors": [{"code": "checkpoint_invalid", "path": collection, "message": "existing draft contains duplicate record IDs"}]})); return 1
+        if matches: records[matches[0]] = item
+        else: records.append(item)
+        applied.append({"id": item["id"], "action": "replaced" if matches else "inserted"})
     edited[collection] = records
     edited.pop("verification", None)
-    after_errors, _ = validate(edited, root, owned_files=(draft,))
+    warnings: list[dict[str, str]] = []
+    after_errors, _ = validate(edited, root, warnings=warnings, owned_files=(draft,))
     if after_errors:
         print(json.dumps({"ok": False, "errors": after_errors}, sort_keys=True)); return 1
     serialized = (json.dumps(edited, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8")
@@ -792,7 +1142,12 @@ def _upsert_draft(draft: Path, collection: str, record: Any, root: Path) -> int:
         os.replace(temp_name, draft)
     finally:
         if os.path.exists(temp_name): os.unlink(temp_name)
-    print(json.dumps({"ok": True, "errors": [], "draft": draft.relative_to(root).as_posix(), "collection": collection, "id": record["id"], "action": action}, sort_keys=True)); return 0
+    result: dict[str, Any] = {"ok": True, "errors": [], "draft": draft.relative_to(root).as_posix(), "collection": collection, "records": applied}
+    if not isinstance(record, list):
+        result.update(applied[0])
+    if warnings:
+        result["warnings"] = warnings
+    print(json.dumps(result, sort_keys=True)); return 0
 
 
 def _published_invalid(output_name: str, message: str) -> int:
@@ -864,8 +1219,11 @@ def _publish_locked(doc: dict[str, Any], hashes: dict[str, str], root: Path, out
 
 def _output_problem(value: str) -> str | None:
     pure = PurePosixPath(value)
-    if not value or "\\" in value or "\0" in value or pure.is_absolute() or any(part in {"", ".", ".."} for part in value.split("/")):
+    parts = value.split("/")
+    if not value or "\\" in value or "\0" in value or pure.is_absolute() or ".." in parts:
         return "must stay within the workspace"
+    if any(part in {"", "."} for part in parts):
+        return 'must be a normalised workspace-relative path such as workflow.mlview.json, without "./", empty or trailing segments'
     if DRIVE_RE.match(value):
         return DRIVE_MESSAGE
     if not value.translate(_ASCII_LOWER).endswith(ARTIFACT_SUFFIX):
@@ -873,16 +1231,71 @@ def _output_problem(value: str) -> str | None:
     return None
 
 
+def _default_evidence_id(rel: str, cell: int | None, start: int, end: int) -> str:
+    """A valid evidence ID derived from the path and range, for example ev-src-train.py-a454ee59-10-24.
+    The slug keeps it readable; the first 8 hex digits of the path's SHA-256 keep apart paths whose
+    slugs coincide (src/io.py and src-io.py, names in a non-Latin script, a truncated long path)."""
+    digest = hashlib.sha256(rel.encode("utf-8", "surrogatepass")).hexdigest()[:8]
+    suffix = f"-{digest}" + (f"-c{cell}" if cell is not None else "") + f"-{start}" + (f"-{end}" if end != start else "")
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "-", rel).strip("-.") or "file"
+    return "ev-" + slug[-(128 - len("ev-") - len(suffix)):] + suffix
+
+
+def _excerpt(value: str, lines_arg: str | None, cell: int | None, evidence_id: str | None, root: Path) -> int:
+    """Print the evidence record validate would accept for a cited range. Read-only: it reads the
+    cited file with validate's own rules and never writes, imports or runs anything."""
+    p = Problems()
+    match = LINES_RE.fullmatch(lines_arg) if lines_arg is not None else None
+    if match is None:
+        p.add("arguments", "--lines", "excerpt requires --lines START or START-END (one-based, inclusive)")
+    if evidence_id is not None and not _id(evidence_id):
+        p.add("id", "--id", "must match ^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+    located = _cited_text(value, cell, cell is not None, root, p, "file", "--cell", frozenset(), {}, {}) if not p.items else None
+    if Path(value).is_absolute() or DRIVE_RE.match(value):
+        for problem in p.items:
+            if problem["path"] == "file":
+                problem["message"] += "; pass the path relative to --workspace, as evidence[].file records it"
+    if located is None or p.items or match is None:
+        print(json.dumps({"ok": False, "errors": p.items}, sort_keys=True)); return 1
+    rel, text, notebook = located
+    lines = _lines(text)
+    start = int(match.group(1)); end = int(match.group(2)) if match.group(2) is not None else start
+    if start < 1 or end < start or end > len(lines):
+        p.add("range", "--lines", f"line range is invalid for the cited source: need 1 <= START <= END <= {len(lines)}", maxLine=len(lines))
+        print(json.dumps({"ok": False, "errors": p.items}, sort_keys=True)); return 1
+    quote = "\n".join(lines[start - 1:end])
+    # The record-level checks validate applies to evidence, so the printed record is accepted as printed.
+    if len(rel) > MAX_EVIDENCE_PATH:
+        p.add("limit", "file", f"must contain at most {MAX_EVIDENCE_PATH} characters, the longest evidence path a document may record")
+    elif not _encodable(rel):
+        p.add("text_encoding", "file", "the path contains an unpaired surrogate (bytes that are not UTF-8), which a document cannot record")
+    if len(quote) > MAX_QUOTE:
+        p.add("limit", "--lines", f"the excerpt has {len(quote)} characters; a quote holds at most {MAX_QUOTE}, so cite a narrower range")
+    elif not _encodable(quote):
+        p.add("text_encoding", "--lines", "the cited lines contain an unpaired surrogate, which validate refuses in a quote; cite lines without it")
+    if p.items:
+        print(json.dumps({"ok": False, "errors": p.items}, sort_keys=True)); return 1
+    record: dict[str, Any] = {"id": evidence_id or _default_evidence_id(rel, cell if notebook else None, start, end), "file": rel}
+    if notebook:
+        record["cell"] = cell
+    record.update({"line": start, "endLine": end, "quote": quote})
+    print(json.dumps(record)); return 0
+
+
 def _main(argv: list[str] | None) -> int:
     global _UMASK
     if sys.version_info < (3, 10):
         print(json.dumps({"ok": False, "errors": [{"code": "python_version", "path": "$", "message": "Python 3.10 or newer is required"}]})); return 1
     parser = argparse.ArgumentParser()
-    parser.add_argument("command", choices=("validate", "publish", "upsert")); parser.add_argument("draft")
+    parser.add_argument("command", choices=("validate", "publish", "upsert", "excerpt"))
+    parser.add_argument("draft", metavar="path", help="the draft (validate, publish, upsert) or the cited project file (excerpt)")
     parser.add_argument("--workspace", default="."); parser.add_argument("--output", default="workflow.mlview.json")
     parser.add_argument("--include-document", action="store_true", help="include the draft in successful validate output")
     parser.add_argument("--collection", choices=sorted(EDITABLE_COLLECTIONS))
-    parser.add_argument("--record", help="JSON file containing one ID-bearing record for upsert")
+    parser.add_argument("--record", help="JSON file holding one ID-bearing record, or an array of records for the same collection, for upsert")
+    parser.add_argument("--lines", help="excerpt: one-based inclusive line range, START or START-END")
+    parser.add_argument("--cell", type=int, help="excerpt: zero-based notebook cell index (.ipynb only)")
+    parser.add_argument("--id", dest="evidence_id", help="excerpt: evidence ID for the printed record (default: derived from the path and range)")
     args = parser.parse_args(argv)
     # Read the process umask once; replacement files are given the mode a
     # plain write would have produced.
@@ -890,6 +1303,8 @@ def _main(argv: list[str] | None) -> int:
     root = Path(args.workspace).resolve()
     if not root.is_dir():
         print(json.dumps({"ok": False, "errors": [{"code": "workspace_path", "path": "--workspace", "message": "must be an existing directory (the VS Code workspace folder that will contain the artifact)"}]})); return 1
+    if args.command == "excerpt":
+        return _excerpt(args.draft, args.lines, args.cell, args.evidence_id, root)
     if args.command == "upsert":
         p = Problems(); draft_path = _draft_path(args.draft, root, p)
         if draft_path is None or args.collection is None or args.record is None:
@@ -923,8 +1338,10 @@ def _main(argv: list[str] | None) -> int:
     p = Problems()
     draft = _input_path(args.draft, root, p)
     raw_draft = _read_input(draft, p, "draft", relative=not Path(args.draft).is_absolute()) if draft is not None else None
-    doc = _parse_input(raw_draft, p, "draft", "$") if raw_draft is not None else _INVALID
-    if p.items:
+    # A repeated member is an error, but the draft is still validated with each member's last value
+    # (as JSON.parse reads it), so every other problem is reported in the same round.
+    doc = _parse_input(raw_draft, p, "draft", "$", last_wins=True) if raw_draft is not None else _INVALID
+    if doc is _INVALID:
         print(json.dumps({"ok": False, "errors": p.items}, sort_keys=True)); return 1
     # The draft and the artifact are MLView files under any name.
     owned_files: list[Path] = [draft]
@@ -932,9 +1349,10 @@ def _main(argv: list[str] | None) -> int:
         owned_files.append(root.joinpath(*PurePosixPath(args.output).parts))
     warnings: list[dict[str, str]] = []
     errors, hashes = validate(doc, root, warnings=warnings, owned_files=owned_files)
+    errors = p.items + errors
     if errors: print(json.dumps({"ok": False, "errors": errors}, sort_keys=True)); return 1
     if args.command == "validate":
-        result: dict[str, Any] = {"ok": True, "errors": [], "revision": doc["revision"]["id"], "files": hashes}
+        result: dict[str, Any] = {"ok": True, "errors": [], "revision": doc["revision"]["id"], "files": hashes, "basis": basis_summary(doc)}
         if warnings: result["warnings"] = warnings
         if args.include_document: result["document"] = doc
         print(json.dumps(result, sort_keys=True)); return 0

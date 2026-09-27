@@ -1,9 +1,10 @@
 {
   "id": "notebook-003-cell-on-non-notebook",
   "findings": [
-    "CONTRACT-9"
+    "CONTRACT-9",
+    "SHAKEDOWN3-2"
   ],
-  "description": "A cell index is only valid for .ipynb evidence, even when the cited JSON file happens to contain notebook-like cells.",
+  "description": "A cell index is only valid for .ipynb evidence, even when the cited JSON file happens to contain notebook-like cells. The helper still checks the quote against the file's own lines, so the mismatching quote is reported in the same round.",
   "files": {
     "data.json": {
       "text": "{\"cells\": [{\"source\": \"fit(x)\"}]}\n"
@@ -67,6 +68,7 @@
     "helper": {
       "ok": false,
       "codes": [
+        "quote_mismatch",
         "unexpected_cell"
       ],
       "warnings": [],

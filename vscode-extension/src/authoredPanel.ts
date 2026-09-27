@@ -1,7 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
-import { createNonce, themeKindOf, toEditorLine } from './authoredSupport';
+import { createNonce, staleBannerText, staleJumpText, staleToastText, themeKindOf, toEditorLine } from './authoredSupport';
 import { MAX_EXPORT_BYTES, parseExportFileMessage, saveExportedFile } from './exportDiagram';
 import { DependencySet, identity } from './fileIdentity';
 import type { Logger } from './log';
@@ -479,11 +479,11 @@ class AuthoredPanel implements vscode.Disposable {
                 this.post({ v: 1, type: 'workflow', document });
                 this.lastPostedFull = candidate.full;
             }
-            const stale = this.lastValid.stale.map(s => s.rel);
-            const toastKey = `${document.revision.id}\n${stale.join('\n')}`;
-            if (stale.length && toastKey !== this.lastStaleToast) {
+            const staleFiles = this.lastValid.stale;
+            const toastKey = `${document.revision.id}\n${staleFiles.map(s => `${s.reason}:${s.rel}`).join('\n')}`;
+            if (staleFiles.length && toastKey !== this.lastStaleToast) {
                 this.lastStaleToast = toastKey;
-                void vscode.window.showWarningMessage(`MLView: ${stale.length} source file(s) changed after the displayed revision was published.`);
+                void vscode.window.showWarningMessage(staleToastText(staleFiles));
             }
         }
         else if (verdict === 'refresh' && this.lastValid && candidate.kind === 'json' && this.ready && candidate.full !== this.lastPostedFull) {
@@ -553,9 +553,11 @@ class AuthoredPanel implements vscode.Disposable {
                 items.push(this.rejection);
             if (this.lineageNote)
                 items.push(this.lineageNote);
-            const stale = this.lastValid?.stale.map(s => s.rel) ?? [];
+            // Campaign 3, issue 21: worded from each file's reason ("1 changed, 1 missing"), so a
+            // deleted cited file is no longer reported as "changed".
+            const stale = this.lastValid?.stale ?? [];
             if (displayed && stale.length)
-                items.push({ code: 'stale', text: `This historical diagram is visible, but ${stale.length} source file(s) changed after revision ${displayed.id} was published: ${listFiles(stale)}. Jumps into those files are blocked; other evidence still opens. Ask the assistant to publish a fresh revision to update the diagram.` });
+                items.push({ code: 'stale', text: staleBannerText(stale, displayed.id, listFiles) });
             if (this.dirty.length)
                 items.push({ code: 'dirty', text: `Unsaved editor changes in ${listFiles(this.dirty)} are not checked; freshness uses the saved files. A jump is blocked when the unsaved text no longer contains the cited lines.` });
         }
@@ -781,8 +783,9 @@ class AuthoredPanel implements vscode.Disposable {
             void vscode.window.showWarningMessage(`MLView: evidence ${evidence.id} could not be checked (${first ? displayIssue(first) : 'unknown problem'}); source navigation was stopped.`);
             return;
         }
-        if (fresh.value.stale.some(s => s.rel === evidence.file)) {
-            void vscode.window.showWarningMessage(`MLView: evidence ${evidence.id} cites ${displayText(evidence.file, 200)}, which changed after revision ${revision} was published; navigation to it is blocked.`);
+        const staleFile = fresh.value.stale.find(s => s.rel === evidence.file);
+        if (staleFile) {
+            void vscode.window.showWarningMessage(staleJumpText(evidence.id, displayText(evidence.file, 200), staleFile.reason, revision));
             return;
         }
         const open = await this.findOpenDocument(evidence);

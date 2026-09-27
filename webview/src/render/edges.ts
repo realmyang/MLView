@@ -20,12 +20,47 @@ import type { RoutedEdge } from '../layout/routing.js';
 import type { Severity } from '../types.js';
 
 /**
- * The four contracted edge kinds. Exported because the legend (VIEW-10) is
+ * The styled edge kinds: the four the renderer always drew plus `state`,
+ * `loop` and `output` (Campaign 3, issue 9), which are the contract's
+ * recommended edge vocabulary. Exported because the legend (VIEW-10) is
  * GENERATED from this table and `buildDefs`'s arrowheads rather than
  * hand-written, so a key can never describe a stroke the renderer stopped
  * drawing.
  */
-export const KNOWN_EDGE_KINDS = ['data', 'call', 'control', 'config'];
+export const KNOWN_EDGE_KINDS = ['data', 'call', 'control', 'config', 'state', 'loop', 'output'];
+
+/**
+ * Authored edge kind words (normalised: lower case, `-`/`_`/spaces collapsed
+ * to one space) that mean one of the styled kinds. The kind field is optional
+ * free text, and the Campaign 3 shakedown used 43 spellings for 1067 edges;
+ * these are the common synonyms. Anything else keeps its authored text.
+ */
+const EDGE_SYNONYMS: Record<string, string> = {
+  data: 'data', dataflow: 'data', 'data flow': 'data', flow: 'data',
+  control: 'control', 'control flow': 'control', branch: 'control', 'conditional call': 'control', decision: 'control',
+  state: 'state', 'state update': 'state', update: 'state', 'state read': 'state', 'state copy': 'state',
+  gradient: 'state', 'gradient flow': 'state', optimizes: 'state', ownership: 'state', 'state ownership': 'state',
+  config: 'config', configuration: 'config', 'configuration flow': 'config',
+  call: 'call', calls: 'call', loop: 'loop', loops: 'loop', output: 'output', outputs: 'output',
+};
+
+/**
+ * The kind a WorkflowDocument edge is drawn as: a styled kind when the authored
+ * word is one or a synonym of one, the authored text itself otherwise (shown in
+ * the tooltip, the inspector and the legend instead of `unknown`), and
+ * `unknown` only when the author gave no kind at all.
+ */
+export function normalizeEdgeKind(kind: string | undefined): string {
+  const raw = String(kind || '').trim();
+  if (!raw) return 'unknown';
+  const key = raw.toLowerCase().replace(/[\s_-]+/g, ' ');
+  return EDGE_SYNONYMS[key] || raw;
+}
+
+/** What a reader is told an edge's kind is: never the adapter's `unknown`. */
+export function edgeKindText(kind: string): string {
+  return kind && kind !== 'unknown' ? kind : 'kind not specified';
+}
 
 /**
  * One serial per MOUNTED view, handed out here because this is where the ids it
@@ -77,18 +112,20 @@ function marker(id: string, cls: string, d: string, filled: boolean): SVGElement
     markerUnits: 'userSpaceOnUse',
     orient: 'auto',
   });
-  const p = svg('path', { class: cls, d });
+  const p = svg('path', { class: cls + (filled ? '' : ' mlv-arrow--open'), d });
   if (!filled) setAttrs(p, { fill: 'none' });
   m.appendChild(p);
   return m;
 }
 
 /**
- * Arrowheads: filled triangle for data, open chevrons for call and control.
+ * Arrowheads: filled triangle for data, open chevrons for call, control and
+ * loop, a filled diamond for state and a hollow triangle for output.
  *
  * One table, two consumers: `buildDefs()` turns it into the scene's <marker>
  * elements, and the legend (VIEW-10) draws the same paths inline — a <marker>
  * id may exist only once per document, so the key cannot reuse the scene's.
+ * An unfilled head is stroked (`.mlv-arrow--open`, edge.css).
  */
 export const ARROW_HEADS: Record<string, { d: string; filled: boolean }> = {
   data: { d: 'M0.5 1 L9 5 L0.5 9 Z', filled: true },
@@ -96,6 +133,9 @@ export const ARROW_HEADS: Record<string, { d: string; filled: boolean }> = {
   call: { d: 'M1 1.2 L8.4 5 L1 8.8', filled: false },
   control: { d: 'M2 2 L7.6 5 L2 8', filled: false },
   config: { d: 'M2 2 L7.6 5 L2 8', filled: false },
+  state: { d: 'M0.6 5 L4.8 1.4 L9 5 L4.8 8.6 Z', filled: true },
+  loop: { d: 'M1.4 1.6 L8 5 L1.4 8.4', filled: false },
+  output: { d: 'M1.2 1.6 L8.6 5 L1.2 8.4 Z', filled: false },
 };
 
 export function buildDefs(): SVGElement {
@@ -287,7 +327,7 @@ function round(value: number): number {
  * unreachable and undescribed from the keyboard before this (FEATURES 2.2, 2.10).
  */
 export function edgeAria(r: RoutedEdge, sourceLabel?: string, targetLabel?: string, weight = 1): string {
-  const kind = r.back ? 'loop back edge' : r.kind + ' edge';
+  const kind = r.back ? 'loop back edge' : r.kind && r.kind !== 'unknown' ? r.kind + ' edge' : 'edge';
   const label = r.label ? ' labelled ' + r.label : '';
   const flows = sourceLabel && targetLabel ? ', flows from ' + sourceLabel + ' to ' + targetLabel : '';
   const merged = r.count > 1 ? ', ' + r.count + ' merged connections' : '';

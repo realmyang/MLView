@@ -1,6 +1,8 @@
 /** Adapter from the host-LLM contract to the renderer's private view model. */
 import { add, clear, el, on } from './dom.js';
+import { uiIcon } from './icons.js';
 import { emptyCounts } from './markers.js';
+import { normalizeEdgeKind } from './render/edges.js';
 import type { App } from './app.js';
 import type { ActionResult, ComposerState, Issue, Loc, MLGraph, RefineIntent, WorkflowDocument, WorkflowEvidence } from './types.js';
 
@@ -47,7 +49,10 @@ export function normalizeWorkflow(document: WorkflowDocument): MLGraph {
     };
   });
   const edges = (document.edges || []).map((edge) => ({
-    id: edge.id, kind: edge.kind || 'unknown', source: edge.source, target: edge.target,
+    // Issue 9: common synonyms are drawn as the styled kind they mean; any
+    // other authored word is kept as written and shown as written.
+    id: edge.id, kind: normalizeEdgeKind(edge.kind), source: edge.source, target: edge.target,
+    ...(edge.kind && normalizeEdgeKind(edge.kind) !== edge.kind.trim() ? { authoredKind: edge.kind } : {}),
     label: edge.label + ' · ' + edge.basis,
     loc: evidenceLoc(evidence, edge.evidence), tags: [edge.basis], confidence: Number.NaN, basis: edge.basis,
     evidenceLocs: edge.evidence.map((id) => evidenceLoc(evidence, [id])).filter((loc) => !!loc.file),
@@ -214,6 +219,76 @@ function onRefineResult(app: App, result: ActionResult): void {
   app.saveSoon();
 }
 
+let summarySeq = 0;
+
+/**
+ * The request line and its disclosure (Campaign 3, issue 1).
+ *
+ * The header used to print the question, scope, entrypoints, configuration and
+ * coverage summary in full. The contract allows 4000 + 2000 + 2000 + 4000
+ * characters there, and `.mlv-root` is `overflow: hidden`, so a Claude Code
+ * artifact with 1-3.6k characters of request text drew a 736-915 px header and
+ * a 0 px canvas in the default 541x798 panel beside the artifact editor.
+ *
+ * Collapsed (the default): one ellipsised line of the question, the coverage
+ * status and a disclosure button. Expanded: the whole question plus scope,
+ * entrypoints, configuration, the coverage summary and its limitations, inside
+ * a height-capped header that scrolls on its own (styles/workflow.css). Every
+ * word stays in the DOM either way, so search, copy and assistive technology
+ * lose nothing; only the pixels are deferred.
+ */
+function buildRequestSummary(app: App, panel: HTMLElement, document: WorkflowDocument, expanded: boolean): void {
+  const detailsId = 'mlv-workflow-details-' + ++summarySeq;
+  const summary = add(panel, el('div', 'mlv-workflow__summary'));
+  const toggle = add(summary, el('button', 'mlv-btn mlv-workflow__toggle')) as HTMLButtonElement;
+  toggle.type = 'button';
+  toggle.setAttribute('aria-controls', detailsId);
+  // A stable name; `aria-expanded` says which way it points.
+  toggle.setAttribute('aria-label', 'Request and coverage details');
+  const chevron = uiIcon('chevron', 12);
+  chevron.setAttribute('class', 'mlv-uicon mlv-workflow__chevron');
+  toggle.appendChild(chevron);
+  add(toggle, el('span', 'mlv-workflow__toggle-label', 'Details'));
+  const status = document.coverage.status;
+  const coverageChip = add(summary, el('span', 'mlv-chip mlv-workflow__coverage-chip mlv-workflow__coverage--' + status, status));
+  coverageChip.title = 'Coverage: ' + status + '. Open Details for the coverage summary and its limitations.';
+  const question = add(summary, el('p', 'mlv-workflow__question', document.request.question));
+  question.title = document.request.question;
+
+  const details = add(panel, el('div', 'mlv-workflow__details'));
+  details.id = detailsId;
+  details.setAttribute('role', 'region');
+  details.setAttribute('aria-label', 'Request scope, configuration and coverage');
+  const meta = add(details, el('div', 'mlv-workflow__meta'));
+  add(meta, el('span', '', 'Scope: ' + document.request.scope));
+  add(meta, el('span', '', 'Entrypoints: ' + (document.request.entrypoints?.join(', ') || 'not specified')));
+  add(meta, el('span', '', 'Configuration: ' + (document.request.configuration || 'not specified')));
+  add(meta, el('span', 'mlv-workflow__coverage mlv-workflow__coverage--' + status, status + ' · ' + document.coverage.summary));
+  if (document.verification) add(meta, el('span', 'mlv-workflow__published', 'Published: ' + document.verification.publishedAt));
+  if (document.coverage.limitations.length) {
+    const limits = add(details, el('details', 'mlv-workflow__limitations')) as HTMLDetailsElement;
+    add(limits, el('summary', '', document.coverage.limitations.length + ' coverage limitation' + (document.coverage.limitations.length === 1 ? '' : 's')));
+    const list = add(limits, el('ul'));
+    for (const limitation of document.coverage.limitations) add(list, el('li', '', limitation));
+  }
+
+  const setExpanded = (open: boolean) => {
+    panel.setAttribute('data-expanded', open ? 'true' : 'false');
+    toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    toggle.title = open ? 'Hide the request details and coverage' : 'Show the full request, scope, configuration and coverage';
+    details.hidden = !open;
+  };
+  setExpanded(expanded);
+  on(toggle, 'click', () => {
+    const open = panel.getAttribute('data-expanded') !== 'true';
+    setExpanded(open);
+    // A collapsed header scrolled down while expanded would otherwise reopen
+    // mid-way through the configuration text.
+    if (!open) panel.scrollTop = 0;
+    app.announce(open ? 'Request and coverage details shown.' : 'Request and coverage details hidden.');
+  });
+}
+
 /**
  * Add authored provenance and coverage above the existing diagram surface.
  * `restored` is the composer a remounted viewer saved for this same revision.
@@ -231,18 +306,28 @@ export function decorateWorkflow(app: App, document: WorkflowDocument, restored?
   const prior: ComposerSnapshot | null = captured
     ?? (restored ? { revision: document.revision.id, open: restored.open, intent: restored.intent, custom: restored.custom, focus: null, selection: undefined } : null);
   const fromRestore = !captured && !!restored;
+  // Issue 1 (Campaign 3): the reader's disclosure choice survives a rebuild of
+  // the same panel (a re-posted or refreshed revision), and nothing else.
+  const wasExpanded = panel.getAttribute('data-expanded') === 'true';
   clear(panel);
   panel.setAttribute('data-revision', document.revision.id);
+  panel.setAttribute('aria-label', 'Authored request and coverage');
   const heading = add(panel, el('div', 'mlv-workflow__heading'));
-  add(heading, el('h2', 'mlv-workflow__title', document.title));
-  add(heading, el('span', 'mlv-chip', document.producer.host + (document.producer.model ? ' · ' + document.producer.model : '')));
-  add(heading, el('span', 'mlv-chip', 'revision ' + document.revision.id));
+  const title = add(heading, el('h2', 'mlv-workflow__title', document.title));
+  title.title = document.title;
+  const producer = document.producer.host + (document.producer.model ? ' · ' + document.producer.model : '');
+  add(heading, el('span', 'mlv-chip mlv-workflow__producer', producer)).title = producer;
+  const revisionText = 'revision ' + document.revision.id;
+  add(heading, el('span', 'mlv-chip mlv-workflow__revision', revisionText)).title = revisionText;
+  // The publication time is in the detail region and on the chip's hover: a
+  // 27-character timestamp in the always-visible row cost a whole chip row at
+  // the default panel width.
   const verification = document.verification
-    ? 'Source snapshot · ' + Object.keys(document.verification.files || {}).length + ' files · ' + document.verification.publishedAt
+    ? 'Source snapshot · ' + Object.keys(document.verification.files || {}).length + ' files'
     : 'Draft · source freshness not verified';
   const verificationChip = add(heading, el('span', 'mlv-chip mlv-workflow__verification', verification));
   verificationChip.title = document.verification
-    ? 'File hashes record source freshness; they do not verify the model-authored interpretation.'
+    ? 'Published ' + document.verification.publishedAt + '. File hashes record source freshness; they do not verify the model-authored interpretation.'
     : 'No source hashes were published with this revision.';
   const refine = el('button', 'mlv-btn mlv-workflow__refine', 'Refine') as HTMLButtonElement;
   refine.type = 'button';
@@ -322,18 +407,7 @@ export function decorateWorkflow(app: App, document: WorkflowDocument, restored?
     else if (prior.focus === 'custom' && !composer.hidden && !custom.hidden) custom.focus();
     else if (prior.focus === 'submit' && !composer.hidden) submit.focus();
   }
-  add(panel, el('p', 'mlv-workflow__question', document.request.question));
-  const meta = add(panel, el('div', 'mlv-workflow__meta'));
-  add(meta, el('span', '', 'Scope: ' + document.request.scope));
-  add(meta, el('span', '', 'Entrypoints: ' + (document.request.entrypoints?.join(', ') || 'not specified')));
-  add(meta, el('span', '', 'Configuration: ' + (document.request.configuration || 'not specified')));
-  add(meta, el('span', 'mlv-workflow__coverage mlv-workflow__coverage--' + document.coverage.status, document.coverage.status + ' · ' + document.coverage.summary));
-  if (document.coverage.limitations.length) {
-    const details = add(panel, el('details', 'mlv-workflow__limitations')) as HTMLDetailsElement;
-    add(details, el('summary', '', document.coverage.limitations.length + ' coverage limitation' + (document.coverage.limitations.length === 1 ? '' : 's')));
-    const list = add(details, el('ul'));
-    for (const limitation of document.coverage.limitations) add(list, el('li', '', limitation));
-  }
+  buildRequestSummary(app, panel, document, wasExpanded);
   const issueTab = app.root.querySelector<HTMLElement>('[role="tab"][aria-controls$="-panel-issues"]');
   if (issueTab) issueTab.textContent = 'Findings';
   const search = app.root.querySelector<HTMLInputElement>('.mlv-search input[type="search"]');
