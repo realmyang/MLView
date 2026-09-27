@@ -1,0 +1,319 @@
+{
+  "campaign": "pilot-01",
+  "candidate": {
+    "path": "evals/workflow/reference-candidates/pilot-sklearn.json",
+    "sha256": "42c00471070b91c8d5c4208d64e6fce942742d921e7e6a384aa733ed3083f676"
+  },
+  "counts": {
+    "defects": 0,
+    "essential": 9,
+    "facts": 11,
+    "nonDefects": 3,
+    "runsMustState": 0
+  },
+  "defects": [],
+  "disputes": [],
+  "essentialFactIds": [
+    "sklearn-f01",
+    "sklearn-f02",
+    "sklearn-f04",
+    "sklearn-f05",
+    "sklearn-f06",
+    "sklearn-f07",
+    "sklearn-f08",
+    "sklearn-f09",
+    "sklearn-f10"
+  ],
+  "facts": [
+    {
+      "anchors": [
+        {
+          "endLine": 11,
+          "file": "examples/model_selection/plot_nested_cross_validation_iris.py",
+          "id": "sklearn-a01",
+          "line": 6
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "The example's stated purpose is to compare non-nested and nested cross-validation on Iris.",
+      "changed": [],
+      "claim": "The example's stated purpose is to compare non-nested and nested cross-validation on Iris.",
+      "decision": "accept",
+      "essential": true,
+      "id": "sklearn-f01",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 26,
+          "file": "examples/model_selection/plot_nested_cross_validation_iris.py",
+          "id": "sklearn-a02",
+          "line": 19
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "The source explains that inner GridSearchCV selects hyperparameters while outer cross_val_score estimates generalization over held-out folds.",
+      "changed": [],
+      "claim": "The source explains that inner GridSearchCV selects hyperparameters while outer cross_val_score estimates generalization over held-out folds.",
+      "decision": "accept",
+      "essential": true,
+      "id": "sklearn-f02",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 58,
+          "file": "examples/model_selection/plot_nested_cross_validation_iris.py",
+          "id": "sklearn-a03",
+          "line": 57
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "The comparison repeats for 30 trials.",
+      "changed": [],
+      "claim": "The comparison repeats for 30 trials.",
+      "decision": "accept",
+      "essential": false,
+      "id": "sklearn-f03",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 63,
+          "file": "examples/model_selection/plot_nested_cross_validation_iris.py",
+          "id": "sklearn-a04",
+          "line": 60
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "Features and labels come from sklearn's Iris dataset loader.",
+      "changed": [],
+      "claim": "Features and labels come from sklearn's Iris dataset loader.",
+      "decision": "accept",
+      "essential": true,
+      "id": "sklearn-f04",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 66,
+          "file": "examples/model_selection/plot_nested_cross_validation_iris.py",
+          "id": "sklearn-a05",
+          "line": 65
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "Grid search considers C values 1, 10, and 100 and gamma values 0.01 and 0.1.",
+      "changed": [],
+      "claim": "Grid search considers C values 1, 10, and 100 and gamma values 0.01 and 0.1.",
+      "decision": "accept",
+      "essential": true,
+      "id": "sklearn-f05",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 69,
+          "file": "examples/model_selection/plot_nested_cross_validation_iris.py",
+          "id": "sklearn-a06",
+          "line": 68
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "The estimator is an SVC with an RBF kernel.",
+      "changed": [],
+      "claim": "The estimator is an SVC with an RBF kernel.",
+      "decision": "accept",
+      "essential": true,
+      "id": "sklearn-f06",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 81,
+          "file": "examples/model_selection/plot_nested_cross_validation_iris.py",
+          "id": "sklearn-a07",
+          "line": 75
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "Each trial constructs separate shuffled four-fold inner and outer KFold objects, both seeded by the trial index.",
+      "changed": [],
+      "claim": "Each trial constructs separate shuffled four-fold inner and outer KFold objects, both seeded by the trial index.",
+      "decision": "accept",
+      "essential": true,
+      "id": "sklearn-f07",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 86,
+          "file": "examples/model_selection/plot_nested_cross_validation_iris.py",
+          "id": "sklearn-a08",
+          "line": 83
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "The non-nested score is GridSearchCV.best_score_ after fitting the search over the full Iris inputs with outer_cv as its CV splitter.",
+      "changed": [],
+      "claim": "The non-nested score is GridSearchCV.best_score_ after fitting the search over the full Iris inputs with outer_cv as its CV splitter.",
+      "decision": "accept",
+      "essential": true,
+      "id": "sklearn-f08",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 91,
+          "file": "examples/model_selection/plot_nested_cross_validation_iris.py",
+          "id": "sklearn-a09",
+          "line": 88
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "The nested score wraps the inner GridSearchCV in cross_val_score using outer_cv, then averages the outer scores.",
+      "changed": [],
+      "claim": "The nested score wraps the inner GridSearchCV in cross_val_score using outer_cv, then averages the outer scores.",
+      "decision": "accept",
+      "essential": true,
+      "id": "sklearn-f09",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 99,
+          "file": "examples/model_selection/plot_nested_cross_validation_iris.py",
+          "id": "sklearn-a10",
+          "line": 93
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "The reported comparison is non-nested score minus nested score, summarized by mean and standard deviation.",
+      "changed": [],
+      "claim": "The reported comparison is non-nested score minus nested score, summarized by mean and standard deviation.",
+      "decision": "accept",
+      "essential": true,
+      "id": "sklearn-f10",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 105,
+          "file": "examples/model_selection/plot_nested_cross_validation_iris.py",
+          "id": "sklearn-a11",
+          "line": 101
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "The visualization shows both score sequences and a bar chart of their per-trial difference.",
+      "changed": [],
+      "claim": "The visualization shows both score sequences and a bar chart of their per-trial difference.",
+      "decision": "accept",
+      "essential": false,
+      "id": "sklearn-f11",
+      "origin": "candidate",
+      "reason": null
+    }
+  ],
+  "format": "mlview-frozen-reference/1",
+  "knownUnresolved": [
+    {
+      "candidateText": "No target code was executed, so numerical score differences and plot contents are not candidate facts.",
+      "decision": "accept",
+      "id": "sklearn-u01",
+      "origin": "candidate",
+      "reason": null,
+      "runsMustState": false,
+      "text": "No target code was executed, so numerical score differences and plot contents are not candidate facts."
+    },
+    {
+      "candidateText": "The implementation details of GridSearchCV, KFold, cross_val_score, and SVC are outside this inspected example.",
+      "decision": "accept",
+      "id": "sklearn-u02",
+      "origin": "candidate",
+      "reason": null,
+      "runsMustState": false,
+      "text": "The implementation details of GridSearchCV, KFold, cross_val_score, and SVC are outside this inspected example."
+    }
+  ],
+  "nonDefects": [
+    {
+      "candidateText": "The non-nested reuse of CV for selection and scoring is intentional because the example demonstrates its optimistic bias.",
+      "decision": "accept",
+      "id": "sklearn-n01",
+      "reason": null,
+      "text": "The non-nested reuse of CV for selection and scoring is intentional because the example demonstrates its optimistic bias."
+    },
+    {
+      "candidateText": "Using the same trial index to seed separate inner and outer splitter objects is explicit example behavior and is not, by itself, evidence of leakage.",
+      "decision": "accept",
+      "id": "sklearn-n02",
+      "reason": null,
+      "text": "Using the same trial index to seed separate inner and outer splitter objects is explicit example behavior and is not, by itself, evidence of leakage."
+    },
+    {
+      "candidateText": "The script compares evaluation strategies; it does not produce a final deployed estimator.",
+      "decision": "accept",
+      "id": "sklearn-n03",
+      "reason": null,
+      "text": "The script compares evaluation strategies; it does not produce a final deployed estimator."
+    }
+  ],
+  "rejectedFacts": [],
+  "rejectedNonDefects": [],
+  "rejectedUnknowns": [
+    {
+      "candidateText": "A human reviewer must decide whether to label non-nested selection bias as a demonstrated methodological pitfall rather than a defect in this educational example.",
+      "id": "sklearn-u03",
+      "reason": "Settled by accepting sklearn-n01: the non-nested selection bias is the example's intended demonstration, not a defect."
+    }
+  ],
+  "repository": "scikit-learn",
+  "repositoryCommit": "dd3ca57300e14d45b7a34fccd0165d143c7a364c",
+  "reviews": [
+    {
+      "date": "2026-09-27",
+      "path": "evals/workflow/decisions/pilot-sklearn.md",
+      "reviewer": "realmyang",
+      "role": "primary",
+      "sha256": "80f9c031f463fd74f4cdc3dde9b89f36f05545d2e28316beae70f50784bce0d9",
+      "transcribedBy": "Claude Code (Opus 5.5), from the owner's decisions given in conversation on 2026-09-27"
+    }
+  ],
+  "scenario": {
+    "arguments": [],
+    "decision": "accept",
+    "description": "Inspect the example as written: compare non-nested parameter selection with nested outer-fold evaluation across repeated Iris trials.",
+    "entrypoints": [
+      "examples/model_selection/plot_nested_cross_validation_iris.py"
+    ],
+    "reason": null
+  },
+  "sourceFiles": {
+    "examples/model_selection/plot_nested_cross_validation_iris.py": {
+      "blob": "15082123761afffc97bdc992316705b388ac0850",
+      "sha256": "322ec4d26e1f8b3f2e7567c42671541531a88de81e5c9f8f3d3aa373f6868e52"
+    }
+  },
+  "task": "pilot-sklearn"
+}

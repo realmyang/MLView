@@ -7,99 +7,105 @@
 > To change a proposed Basis, Essential flag or Anchors, add that line and a "Reason:". Anchors: replaces the proposed list; repeat each proposed anchor you keep.
 
 Candidate: pilot-flax.json 161f674e64f6b8a6e94a33eb25d8ea47b8736147de2497a82908430cb911cfac
-Reviewer:
-Date:
-Transcribed by:
+Reviewer: realmyang
+Date: 2026-09-27
+Transcribed by: Claude Code (Opus 5.5), from the owner's decisions given in conversation on 2026-09-27
 
 ## Scenario
 > Proposed: Run the MNIST example through main.py with examples/mnist/configs/default.py and a reviewer-selected work directory.
 > Entrypoints: examples/mnist/main.py; examples/mnist/train.py; examples/mnist/configs/default.py
 > Arguments: --config=examples/mnist/configs/default.py; --workdir=<reviewer-selected-directory>
 > accept, or replace and also write Description, Entrypoints, Arguments and Reason
-Decision: pending
+Decision: replace
+Description: Run the MNIST example through main.py with examples/mnist/configs/default.py and the work directory
+  /tmp/mnist.
+Entrypoints: examples/mnist/main.py; examples/mnist/train.py; examples/mnist/configs/default.py
+Arguments: --config=examples/mnist/configs/default.py; --workdir=/tmp/mnist
+Reason: The proposal leaves the work directory to the reviewer; /tmp/mnist is the example README's own value
+  (examples/mnist/README.md:28). Nothing is executed, so it only names where summaries and the export would be written.
 
 ## Fact flax-config
 > Claim: The selected config sets learning rate 0.1, momentum 0.9, batch size 128, and 10 epochs.
 > Basis: observed. Essential: yes. Anchors: examples/mnist/configs/default.py:24-27
-Decision: pending
+Decision: accept
 
 ## Fact flax-invocation
 > Claim: main.py requires config and workdir flags and passes both to train_and_evaluate.
 > Basis: observed. Essential: yes. Anchors: examples/mnist/main.py:64-68
-Decision: pending
+Decision: accept
 
 ## Fact flax-data-splits
 > Claim: The workflow loads the TensorFlow Datasets MNIST train and test splits separately.
 > Basis: observed. Essential: yes. Anchors: examples/mnist/train.py:91-94
-Decision: pending
+Decision: accept
 
 ## Fact flax-preprocessing
 > Claim: Both splits cast images to float32 and divide by 255; only training is shuffled.
 > Basis: observed. Essential: yes. Anchors: examples/mnist/train.py:96-111
-Decision: pending
+Decision: accept
 
 ## Fact flax-batching
 > Claim: Both datasets use fixed-size batches with incomplete batches dropped and prefetch one batch.
 > Basis: observed. Essential: no. Anchors: examples/mnist/train.py:112-117
-Decision: pending
+Decision: accept
 
 ## Fact flax-loss
 > Claim: The loss is mean softmax cross-entropy from integer labels, and logits are returned for metrics.
 > Basis: observed. Essential: yes. Anchors: examples/mnist/train.py:63-68
-Decision: pending
+Decision: accept
 
 ## Fact flax-update
 > Claim: Each jitted training step differentiates loss_fn, updates metrics, and applies gradients to the model through the NNX optimizer.
 > Basis: observed. Essential: yes. Anchors: examples/mnist/train.py:71-77
-Decision: pending
+Decision: accept
 
 ## Fact flax-param-filter
 > Claim: The SGD optimizer is attached to the model with wrt=nnx.Param, limiting optimization to parameter variables.
 > Basis: observed. Essential: yes. Anchors: examples/mnist/train.py:140-142
-Decision: pending
+Decision: accept
 
 ## Fact flax-evaluation
 > Claim: After every epoch, the model switches to eval mode and eval_step accumulates loss and accuracy over the test dataset without an optimizer update.
 > Basis: observed. Essential: yes. Anchors: examples/mnist/train.py:163-170
-Decision: pending
+Decision: accept
 
 ## Fact flax-metrics
 > Claim: The tracked metrics are accuracy and average loss, reset between training and test accumulation.
 > Basis: observed. Essential: no. Anchors: examples/mnist/train.py:143-146; examples/mnist/train.py:159-161
-Decision: pending
+Decision: accept
 
 ## Fact flax-summaries
 > Claim: Per-epoch train/test loss and accuracy are written to TensorBoard and flushed after training.
 > Basis: observed. Essential: no. Anchors: examples/mnist/train.py:184-190
-Decision: pending
+Decision: accept
 
 ## Fact flax-export
 > Claim: After training, the eval-mode model is exported under workdir/mnist_export with a 1x28x28x1 float32 serving signature.
 > Basis: observed. Essential: no. Anchors: examples/mnist/train.py:198-206
-Decision: pending
+Decision: accept
 
 ## Unknown flax-u01
 > Dataset availability and exact downloaded contents are external to the inspected source.
-Decision: pending
-Runs must state:
+Decision: accept
+Runs must state: no
 
 ## Unknown flax-u02
 > The internal semantics of NNX transforms, Optax SGD, TensorBoard writing, and Orbax export are not established beyond these call sites.
-Decision: pending
-Runs must state:
+Decision: accept
+Runs must state: no
 
 ## Unknown flax-u03
 > The reviewer must choose the concrete work directory.
-Decision: pending
-Runs must state:
+Decision: reject
+Reason: Settled: the scenario sets --workdir=/tmp/mnist.
 
 ## Non-defect flax-n01
 > In-place NNX model, optimizer, and metric updates are the explicit API style used by this example; they are not evidence of missing functional state handling.
-Decision: pending
+Decision: accept
 
 ## Non-defect flax-n02
 > Dropping incomplete train and test batches is explicit configuration, not an inferred defect.
-Decision: pending
+Decision: accept
 
 > Omitted fact: add "## Added fact flax-h01" with Wording, Basis, Essential, Anchors and Reason.
 > Omitted unknown: add "## Added unknown flax-hu01" with Wording, Runs must state and Reason.
@@ -110,4 +116,4 @@ Decision: pending
 
 ## Task
 > Write "Review: complete" when every decision above is final.
-Review: pending
+Review: complete

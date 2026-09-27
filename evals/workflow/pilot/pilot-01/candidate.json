@@ -1,0 +1,133 @@
+{
+  "campaign": "pilot-01",
+  "components": [
+    {
+      "bytes": 5428,
+      "path": "contracts/workflow.schema.json",
+      "sha256": "caacd61a5c1b05a9da3b52b56f4941611029243a74e85bdefc94445899ab63fe"
+    },
+    {
+      "bytes": 9141,
+      "path": "evals/workflow/tasks.json",
+      "sha256": "6d344ccaaa2b54fb366527f4aa1aa3d990130aa81540c0a3bdcc11a1c2418b73"
+    },
+    {
+      "bytes": 2450,
+      "path": "evals/workflow/repositories.json",
+      "sha256": "40d5986647766c2ace2300b27f68f627a56644a48fdfebaad7545376cf2e8aaa"
+    },
+    {
+      "bytes": 347458,
+      "path": "webview/dist/mlview.js",
+      "sha256": "14057ccf6c07bad51261e6d2b2b51b17e28bd358d8def9d490168be6137fd345"
+    },
+    {
+      "bytes": 78882,
+      "path": "webview/dist/mlview.css",
+      "sha256": "2505724d1325b2c7f6cf716339a179f253a18e5aa3ea32d7668d118a68acf56d"
+    },
+    {
+      "bytes": 2890,
+      "path": "vscode-extension/package.json",
+      "sha256": "a4b348e10e53be07857d6ee50c24d8ff48d80bddd6f940c8cb503d3dd2f0025c"
+    },
+    {
+      "bytes": 11099,
+      "path": "evals/workflow/pilot/pilot-01/freeze.json",
+      "sha256": "ded6ab05ec2804dd74b51761b02dd82adc657c77ae5ae9619e03ed6ba5c24380"
+    }
+  ],
+  "kind": "pilot-candidate",
+  "note": "This record identifies the candidate's bytes and binds the frozen campaign through freeze.json. It does not authenticate the capture, establish semantic quality or host discovery, or record human review or pilot approval.",
+  "pilotApproved": false,
+  "referenceRevision": "sha256:2088ea445d9cbe00c0f8dfdcd0b5fbc6b3f5fc6c1b0efe04e5f7e1d084e31399",
+  "remainingGates": [
+    "Stage 1 skill runs (and any planned baselines) prepared and sealed with run-prepare and run-finish",
+    "A named human review of every completed run",
+    "The Stage 1 stop/go computation by summarize against the predefined targets",
+    "Stage 2 repeats only after a committed Stage 1 go",
+    "The owner's pilot decision"
+  ],
+  "skill": {
+    "algorithm": "sha256-sorted-path-nul-bytes-nul",
+    "files": [
+      {
+        "bytes": 1066,
+        "path": "LICENSE",
+        "sha256": "9222e4f44e05b9da173ef78adaf1011f52680cff5a8a4114231fcb788bff8752"
+      },
+      {
+        "bytes": 17345,
+        "path": "SKILL.md",
+        "sha256": "7661e976fb7e23109a6d3f2a38eb5224558b378f297327142fda80b8b2e951c8"
+      },
+      {
+        "bytes": 13841,
+        "path": "references/WORKFLOW_CONTRACT.md",
+        "sha256": "0f5d0e19c4a274083dd7313884203ebd1349ca6f95aed578b2994cc5fda67f89"
+      },
+      {
+        "bytes": 6738,
+        "path": "references/coverage-obligations.md",
+        "sha256": "c71c8fca4e117eabcf9024af250a492c4ad266ec98a2104946963d2ccffdbe6c"
+      },
+      {
+        "bytes": 2370,
+        "path": "references/notebooks-and-configuration.md",
+        "sha256": "c0eb04e48bf11d2d7af6ece1e25d1b487dd178ffcf2a059e71f86fd7d16bb3b3"
+      },
+      {
+        "bytes": 1996,
+        "path": "references/training-state.md",
+        "sha256": "a4f306eb57e8d82b1e808a77a1cfbde77d83d27748313f45ef1ee5af62a83433"
+      },
+      {
+        "bytes": 7549,
+        "path": "references/workflow-example.json",
+        "sha256": "36ebb9c64e20075ff396afa78d5b379e68694193b8bac67fa1363324a74f3f70"
+      },
+      {
+        "bytes": 81970,
+        "path": "scripts/artifact.py",
+        "sha256": "3f14d35e8a07a949782dde7ae22cfa809d9752659ad4803c59dac156b6deba67"
+      }
+    ],
+    "sha256": "6497e418f51309eacba1ce60b1d2d8a1844497fc26fb4661ce2232a1f733980f"
+  },
+  "source": {
+    "capturedAt": "2026-09-27T20:29:17Z",
+    "clean": true,
+    "commit": "faf9e21e820097f69824a21c78658ff0428afaac",
+    "tree": "016f36a9f3595ba992bbec661c17f625e4290f41"
+  },
+  "version": 2,
+  "vsix": {
+    "builtByCapture": true,
+    "bytes": 161147,
+    "entries": [
+      {
+        "bytes": 78882,
+        "path": "extension/media/mlview.css",
+        "sha256": "2505724d1325b2c7f6cf716339a179f253a18e5aa3ea32d7668d118a68acf56d"
+      },
+      {
+        "bytes": 347458,
+        "path": "extension/media/mlview.js",
+        "sha256": "14057ccf6c07bad51261e6d2b2b51b17e28bd358d8def9d490168be6137fd345"
+      },
+      {
+        "bytes": 97886,
+        "path": "extension/out/extension.js",
+        "sha256": "c7344ce8396a5ba882e83407d9862d2d1315105b5690ba9d120f0e8c6116e1b1"
+      },
+      {
+        "bytes": 2890,
+        "path": "extension/package.json",
+        "sha256": "a4b348e10e53be07857d6ee50c24d8ff48d80bddd6f940c8cb503d3dd2f0025c"
+      }
+    ],
+    "file": "mlview-0.3.0.vsix",
+    "sha256": "c3b67fe2c672bf0f532d02d4682a0c926efee22e0d8c376d3fabc0ff80e9ef7a",
+    "version": "0.3.0"
+  }
+}

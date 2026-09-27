@@ -1,0 +1,8 @@
+Explain the end-to-end housing workflow, split/preprocessing/tuning/evaluation boundaries, with notebook cell evidence and execution-order limitations.
+
+Selected scenario:
+Description: Inspect the California housing main narrative through persistence, using notebook source order and excluding the exercise solutions beginning at cell 221; do not execute cells.
+Entrypoints: 02_end_to_end_machine_learning_project.ipynb
+Arguments: source-order-only cells-0-through-220 no-cell-execution
+
+Inspect source without importing or executing target code. Read only this workspace and the installed skill; do not inspect parent folders, other workspaces or earlier artifacts. Use this assistant as the interpretation backend; do not delegate to subagents. Publish one WorkflowDocument to pilot.mlview.json using the installed helper, then report its path, revision, unresolved cases and repair rounds. You have 30 active minutes for this task, including critique and repair.

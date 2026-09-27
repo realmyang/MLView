@@ -1,0 +1,308 @@
+{
+  "campaign": "pilot-01",
+  "candidate": {
+    "path": "evals/workflow/reference-candidates/pilot-nanogpt.json",
+    "sha256": "9dded969253eab56a4f8de522a41a2ca3c8c41051d57faa0d0499d6c6c83b163"
+  },
+  "counts": {
+    "defects": 0,
+    "essential": 8,
+    "facts": 10,
+    "nonDefects": 3,
+    "runsMustState": 1
+  },
+  "defects": [],
+  "disputes": [],
+  "essentialFactIds": [
+    "nanogpt-f01",
+    "nanogpt-f02",
+    "nanogpt-f03",
+    "nanogpt-f04",
+    "nanogpt-f05",
+    "nanogpt-f07",
+    "nanogpt-f09",
+    "nanogpt-f10"
+  ],
+  "facts": [
+    {
+      "anchors": [
+        {
+          "endLine": 33,
+          "file": "train.py",
+          "id": "nanogpt-a01",
+          "line": 33
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "The declared defaults target a 124M-parameter GPT-2 configuration on OpenWebText.",
+      "changed": [],
+      "claim": "The declared defaults target a 124M-parameter GPT-2 configuration on OpenWebText.",
+      "decision": "accept",
+      "essential": true,
+      "id": "nanogpt-f01",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 41,
+          "file": "train.py",
+          "id": "nanogpt-a02",
+          "line": 41
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "The selected no-override scenario initializes from scratch.",
+      "changed": [],
+      "claim": "The selected no-override scenario initializes from scratch.",
+      "decision": "accept",
+      "essential": true,
+      "id": "nanogpt-f02",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 54,
+          "file": "train.py",
+          "id": "nanogpt-a03",
+          "line": 52
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "The default model has 12 layers, 12 attention heads, and embedding width 768.",
+      "changed": [],
+      "claim": "The default model has 12 layers, 12 attention heads, and embedding width 768.",
+      "decision": "accept",
+      "essential": true,
+      "id": "nanogpt-f03",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 125,
+          "file": "train.py",
+          "id": "nanogpt-a04",
+          "line": 119
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "Training batches are sampled independently from train.bin or val.bin and targets are the same token windows shifted by one position.",
+      "changed": [],
+      "claim": "Training batches are sampled independently from train.bin or val.bin and targets are the same token windows shifted by one position.",
+      "decision": "accept",
+      "essential": true,
+      "id": "nanogpt-f04",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 49,
+          "file": "train.py",
+          "id": "nanogpt-a05",
+          "line": 48
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "The default accumulation count is 40 micro-steps and the per-device micro-batch size is 12.",
+      "changed": [],
+      "claim": "The default accumulation count is 40 micro-steps and the per-device micro-batch size is 12.",
+      "decision": "accept",
+      "essential": true,
+      "id": "nanogpt-f05",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 101,
+          "file": "train.py",
+          "id": "nanogpt-a06",
+          "line": 94
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "In DDP, accumulation steps are divided by world size so the global tokens-per-iteration calculation retains the world-size factor.",
+      "changed": [],
+      "claim": "In DDP, accumulation steps are divided by world size so the global tokens-per-iteration calculation retains the world-size factor.",
+      "decision": "accept",
+      "essential": false,
+      "id": "nanogpt-f06",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 228,
+          "file": "train.py",
+          "id": "nanogpt-a07",
+          "line": 218
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "Loss estimation switches to evaluation mode, averages 200 sampled batches for each of the train and validation splits, then restores training mode.",
+      "changed": [],
+      "claim": "Loss estimation switches to evaluation mode, averages 200 sampled batches for each of the train and validation splits, then restores training mode.",
+      "decision": "accept",
+      "essential": true,
+      "id": "nanogpt-f07",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 242,
+          "file": "train.py",
+          "id": "nanogpt-a08",
+          "line": 231
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "The learning-rate policy linearly warms up, then cosine-decays, and floors at min_lr after the decay horizon.",
+      "changed": [],
+      "claim": "The learning-rate policy linearly warms up, then cosine-decays, and floors at min_lr after the decay horizon.",
+      "decision": "accept",
+      "essential": false,
+      "id": "nanogpt-f08",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 314,
+          "file": "train.py",
+          "id": "nanogpt-a09",
+          "line": 292
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "Each optimizer update accumulates scaled loss over the configured micro-steps, clips gradients when enabled, steps the optimizer/scaler, and clears gradients.",
+      "changed": [],
+      "claim": "Each optimizer update accumulates scaled loss over the configured micro-steps, clips gradients when enabled, steps the optimizer/scaler, and clears gradients.",
+      "decision": "accept",
+      "essential": true,
+      "id": "nanogpt-f09",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 40,
+          "file": "train.py",
+          "id": "nanogpt-a10a",
+          "line": 40
+        },
+        {
+          "endLine": 286,
+          "file": "train.py",
+          "id": "nanogpt-a10b",
+          "line": 274
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "At evaluation intervals, the master process saves model and optimizer state, model arguments, iteration, best validation loss, and config to out/ckpt.pt after iteration zero; the default always_save_checkpoint makes every such later interval eligible.",
+      "changed": [],
+      "claim": "At evaluation intervals, the master process saves model and optimizer state, model arguments, iteration, best validation loss, and config to out/ckpt.pt after iteration zero; the default always_save_checkpoint makes every such later interval eligible.",
+      "decision": "accept",
+      "essential": true,
+      "id": "nanogpt-f10",
+      "origin": "candidate",
+      "reason": null
+    }
+  ],
+  "format": "mlview-frozen-reference/1",
+  "knownUnresolved": [
+    {
+      "candidateText": "The contents and provenance of local data/openwebtext files are not established by train.py.",
+      "decision": "accept",
+      "id": "nanogpt-u01",
+      "origin": "candidate",
+      "reason": null,
+      "runsMustState": false,
+      "text": "The contents and provenance of local data/openwebtext files are not established by train.py."
+    },
+    {
+      "candidateText": "Runtime hardware, DDP environment variables, dtype branch, and whether torch.compile succeeds are unknown without execution.",
+      "decision": "accept",
+      "id": "nanogpt-u02",
+      "origin": "candidate",
+      "reason": null,
+      "runsMustState": false,
+      "text": "Runtime hardware, DDP environment variables, dtype branch, and whether torch.compile succeeds are unknown without execution."
+    },
+    {
+      "candidateText": "configurator.py can change every declared default when config-file or CLI overrides are allowed; this candidate excludes those overrides.",
+      "decision": "accept",
+      "id": "nanogpt-u03",
+      "origin": "candidate",
+      "reason": null,
+      "runsMustState": true,
+      "text": "configurator.py can change every declared default when config-file or CLI overrides are allowed; this candidate excludes those overrides."
+    }
+  ],
+  "nonDefects": [
+    {
+      "candidateText": "Dividing each micro-step loss by gradient_accumulation_steps is intentional accumulation scaling.",
+      "decision": "accept",
+      "id": "nanogpt-n01",
+      "reason": null,
+      "text": "Dividing each micro-step loss by gradient_accumulation_steps is intentional accumulation scaling."
+    },
+    {
+      "candidateText": "Suppressing DDP gradient synchronization until the final micro-step is an explicit optimization.",
+      "decision": "accept",
+      "id": "nanogpt-n02",
+      "reason": null,
+      "text": "Suppressing DDP gradient synchronization until the final micro-step is an explicit optimization."
+    },
+    {
+      "candidateText": "Not saving a checkpoint at iteration zero is guarded intentionally by iter_num > 0.",
+      "decision": "accept",
+      "id": "nanogpt-n03",
+      "reason": null,
+      "text": "Not saving a checkpoint at iteration zero is guarded intentionally by iter_num > 0."
+    }
+  ],
+  "rejectedFacts": [],
+  "rejectedNonDefects": [],
+  "rejectedUnknowns": [],
+  "repository": "nanoGPT",
+  "repositoryCommit": "3adf61e154c3fe3fca428ad6bc3818b27a3b8291",
+  "reviews": [
+    {
+      "date": "2026-09-27",
+      "path": "evals/workflow/decisions/pilot-nanogpt.md",
+      "reviewer": "realmyang",
+      "role": "primary",
+      "sha256": "d8835f47dbb4de38cb327da18ee66235efb94fda9f18b838810ecae0f7d145c9",
+      "transcribedBy": "Claude Code (Opus 5.5), from the owner's decisions given in conversation on 2026-09-27"
+    }
+  ],
+  "scenario": {
+    "arguments": [],
+    "decision": "accept",
+    "description": "Inspect train.py with its source defaults and no config-file or CLI overrides.",
+    "entrypoints": [
+      "train.py"
+    ],
+    "reason": null
+  },
+  "sourceFiles": {
+    "train.py": {
+      "blob": "de5785051050d64bbda37a4964c2c079f0739b2b",
+      "sha256": "413bd97b40bb400a2a0d01230e2946f056c263ebac1b7281c2367d964a123085"
+    }
+  },
+  "task": "pilot-nanogpt"
+}

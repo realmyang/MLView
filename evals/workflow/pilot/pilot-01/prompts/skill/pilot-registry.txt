@@ -1,0 +1,8 @@
+Trace the config-driven training entrypoint through available registry/runner source. State the selected configuration or unresolved alternatives; do not invent unavailable base configs.
+
+Selected scenario:
+Description: Candidate invocation with configs/faster_rcnn/faster-rcnn_r50_fpn_1x_coco.py and no optional overrides, resolved through its four pinned base configs.
+Entrypoints: tools/train.py, configs/faster_rcnn/faster-rcnn_r50_fpn_1x_coco.py
+Arguments: configs/faster_rcnn/faster-rcnn_r50_fpn_1x_coco.py
+
+Inspect source without importing or executing target code. Read only this workspace and the installed skill; do not inspect parent folders, other workspaces or earlier artifacts. Use this assistant as the interpretation backend; do not delegate to subagents. Publish one WorkflowDocument to pilot.mlview.json using the installed helper, then report its path, revision, unresolved cases and repair rounds. You have 30 active minutes for this task, including critique and repair.

@@ -1,0 +1,337 @@
+{
+  "campaign": "pilot-01",
+  "candidate": {
+    "path": "evals/workflow/reference-candidates/pilot-rl.json",
+    "sha256": "725cea6cd067cbc10f2c38fa2386adc1896c48f95cdf830d11314125668b932c"
+  },
+  "counts": {
+    "defects": 0,
+    "essential": 10,
+    "facts": 12,
+    "nonDefects": 1,
+    "runsMustState": 1
+  },
+  "defects": [],
+  "disputes": [],
+  "essentialFactIds": [
+    "rl-default-scenario",
+    "rl-batch-derived",
+    "rl-rollout-storage",
+    "rl-interaction-cycle",
+    "rl-termination-truncation-mask",
+    "rl-gae-mask-semantics",
+    "rl-flatten-and-shuffle",
+    "rl-clipped-policy-loss",
+    "rl-value-and-total-loss",
+    "rl-gradient-update"
+  ],
+  "facts": [
+    {
+      "anchors": [
+        {
+          "endLine": 46,
+          "file": "cleanrl/ppo.py",
+          "id": "rl-a01",
+          "line": 37
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "The declared defaults select CartPole-v1, 500,000 total timesteps, four environments, and 128 rollout steps.",
+      "changed": [],
+      "claim": "The declared defaults select CartPole-v1, 500,000 total timesteps, four environments, and 128 rollout steps.",
+      "decision": "accept",
+      "essential": true,
+      "id": "rl-default-scenario",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 133,
+          "file": "cleanrl/ppo.py",
+          "id": "rl-a02",
+          "line": 130
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "Batch size is num_envs times num_steps; minibatch size divides that batch by four default minibatches, and iteration count divides total timesteps by batch size.",
+      "changed": [],
+      "claim": "Batch size is num_envs times num_steps; minibatch size divides that batch by four default minibatches, and iteration count divides total timesteps by batch size.",
+      "decision": "accept",
+      "essential": true,
+      "id": "rl-batch-derived",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 126,
+          "file": "cleanrl/ppo.py",
+          "id": "rl-a03",
+          "line": 121
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "The agent samples from a categorical actor and returns the action, its log probability, entropy, and critic value.",
+      "changed": [],
+      "claim": "The agent samples from a categorical actor and returns the action, its log probability, entropy, and critic value.",
+      "decision": "accept",
+      "essential": false,
+      "id": "rl-agent-outputs",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 176,
+          "file": "cleanrl/ppo.py",
+          "id": "rl-a04",
+          "line": 170
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "Rollout storage keeps observations, actions, log probabilities, rewards, done flags, and values for every rollout step and environment.",
+      "changed": [],
+      "claim": "Rollout storage keeps observations, actions, log probabilities, rewards, done flags, and values for every rollout step and environment.",
+      "decision": "accept",
+      "essential": true,
+      "id": "rl-rollout-storage",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 208,
+          "file": "cleanrl/ppo.py",
+          "id": "rl-a05",
+          "line": 192
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "Each rollout step stores the current observation and prior done flag, samples an action without gradients, steps the vector environment, and stores the reward.",
+      "changed": [],
+      "claim": "Each rollout step stores the current observation and prior done flag, samples an action without gradients, steps the vector environment, and stores the reward.",
+      "decision": "accept",
+      "essential": true,
+      "id": "rl-interaction-cycle",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 208,
+          "file": "cleanrl/ppo.py",
+          "id": "rl-a06",
+          "line": 204
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "The code combines termination and truncation with logical OR into one done flag; it does not preserve separate flags in rollout storage.",
+      "changed": [],
+      "claim": "The code combines termination and truncation with logical OR into one done flag; it does not preserve separate flags in rollout storage.",
+      "decision": "accept",
+      "essential": true,
+      "id": "rl-termination-truncation-mask",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 231,
+          "file": "cleanrl/ppo.py",
+          "id": "rl-a07",
+          "line": 217
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "GAE uses one minus the combined done flag as nextnonterminal, so both a termination and a truncation make the recurrence and bootstrap multiplier zero at that boundary.",
+      "changed": [],
+      "claim": "GAE uses one minus the combined done flag as nextnonterminal, so both a termination and a truncation make the recurrence and bootstrap multiplier zero at that boundary.",
+      "decision": "accept",
+      "essential": true,
+      "id": "rl-gae-mask-semantics",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 248,
+          "file": "cleanrl/ppo.py",
+          "id": "rl-a08",
+          "line": 233
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "After advantage estimation, rollout tensors are flattened and their indices are shuffled for each update epoch before minibatch selection.",
+      "changed": [],
+      "claim": "After advantage estimation, rollout tensors are flattened and their indices are shuffled for each update epoch before minibatch selection.",
+      "decision": "accept",
+      "essential": true,
+      "id": "rl-flatten-and-shuffle",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 267,
+          "file": "cleanrl/ppo.py",
+          "id": "rl-a09",
+          "line": 250
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "The policy objective uses the larger loss between the unclipped probability-ratio term and a ratio clipped to one plus or minus clip_coef.",
+      "changed": [],
+      "claim": "The policy objective uses the larger loss between the unclipped probability-ratio term and a ratio clipped to one plus or minus clip_coef.",
+      "decision": "accept",
+      "essential": true,
+      "id": "rl-clipped-policy-loss",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 285,
+          "file": "cleanrl/ppo.py",
+          "id": "rl-a10",
+          "line": 269
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "By default, value loss is clipped relative to stored values; the total loss combines policy loss, a negative entropy bonus, and value loss weighted by vf_coef.",
+      "changed": [],
+      "claim": "By default, value loss is clipped relative to stored values; the total loss combines policy loss, a negative entropy bonus, and value loss weighted by vf_coef.",
+      "decision": "accept",
+      "essential": true,
+      "id": "rl-value-and-total-loss",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 290,
+          "file": "cleanrl/ppo.py",
+          "id": "rl-a11",
+          "line": 287
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "Each minibatch clears gradients, backpropagates the combined loss, clips gradients across all agent parameters, and steps Adam.",
+      "changed": [],
+      "claim": "Each minibatch clears gradients, backpropagates the combined loss, clips gradients across all agent parameters, and steps Adam.",
+      "decision": "accept",
+      "essential": true,
+      "id": "rl-gradient-update",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 215,
+          "file": "cleanrl/ppo.py",
+          "id": "rl-a12",
+          "line": 210
+        },
+        {
+          "endLine": 309,
+          "file": "cleanrl/ppo.py",
+          "id": "rl-a13",
+          "line": 299
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "Episode return and length come from final_info, while learning rate, losses, KL estimates, clip fraction, explained variance, and throughput are written to TensorBoard.",
+      "changed": [],
+      "claim": "Episode return and length come from final_info, while learning rate, losses, KL estimates, clip fraction, explained variance, and throughput are written to TensorBoard.",
+      "decision": "accept",
+      "essential": false,
+      "id": "rl-logging",
+      "origin": "candidate",
+      "reason": null
+    }
+  ],
+  "format": "mlview-frozen-reference/1",
+  "knownUnresolved": [
+    {
+      "candidateText": "The exact runtime autoreset and final-observation behavior supplied by the installed Gymnasium version was not inspected or executed.",
+      "decision": "accept",
+      "id": "rl-u02",
+      "origin": "candidate",
+      "reason": null,
+      "runsMustState": true,
+      "text": "The exact runtime autoreset and final-observation behavior supplied by the installed Gymnasium version was not inspected or executed."
+    },
+    {
+      "candidateText": "CLI overrides, runtime device selection, generated trajectories, metrics, and output files are unknown because the target was not run.",
+      "decision": "accept",
+      "id": "rl-u03",
+      "origin": "candidate",
+      "reason": null,
+      "runsMustState": false,
+      "text": "CLI overrides, runtime device selection, generated trajectories, metrics, and output files are unknown because the target was not run."
+    }
+  ],
+  "nonDefects": [
+    {
+      "candidateText": "Policy and value clipping, advantage normalization, entropy regularization, gradient clipping, and learning-rate annealing are explicit configurable PPO choices; this draft does not label them defects.",
+      "decision": "accept",
+      "id": "rl-n01",
+      "reason": null,
+      "text": "Policy and value clipping, advantage normalization, entropy regularization, gradient clipping, and learning-rate annealing are explicit configurable PPO choices; this draft does not label them defects."
+    }
+  ],
+  "rejectedFacts": [],
+  "rejectedNonDefects": [
+    {
+      "candidateText": "This draft records the combined termination/truncation mask as observed behavior and leaves defect adjudication to human review.",
+      "id": "rl-n02",
+      "reason": "Neutral: the owner classifies the combined termination/truncation mask neither as intended behaviour nor as a defect, so a run that calls it a defect is not a false accusation, and no run is required to call it one."
+    }
+  ],
+  "rejectedUnknowns": [
+    {
+      "candidateText": "Whether a human reviewer classifies masking truncations like terminations as a defect for this CartPole scenario.",
+      "id": "rl-u01",
+      "reason": "Settled as neutral: the pilot neither requires nor penalises calling the combined mask a defect; the essential facts rl-termination-truncation-mask and rl-gae-mask-semantics require the behaviour itself."
+    }
+  ],
+  "repository": "cleanrl",
+  "repositoryCommit": "fe8d8a03c41a7ef5b523e2e354bd01c363e786bb",
+  "reviews": [
+    {
+      "date": "2026-09-27",
+      "path": "evals/workflow/decisions/pilot-rl.md",
+      "reviewer": "realmyang",
+      "role": "primary",
+      "sha256": "102db6b77a0642d88ae1c3bc072d0bc9e073ae1f375862c14f8ee161b2f6b0fe",
+      "transcribedBy": "Claude Code (Opus 5.5), from the owner's decisions given in conversation on 2026-09-27"
+    }
+  ],
+  "scenario": {
+    "arguments": [],
+    "decision": "accept",
+    "description": "Inspect cleanrl/ppo.py using its declared defaults, without executing or importing the target.",
+    "entrypoints": [
+      "cleanrl/ppo.py"
+    ],
+    "reason": null
+  },
+  "sourceFiles": {
+    "cleanrl/ppo.py": {
+      "blob": "edde76baef51f05a8654160dfb19a4fdb34d14d3",
+      "sha256": "d8dfbb7ac0b21e747b77d6e6673e566db4d6cdacc83bcebcd19cf87ad0e459ae"
+    }
+  },
+  "task": "pilot-rl"
+}

@@ -1,0 +1,8 @@
+Explain rollout collection, advantage estimation, minibatch optimization and logging. Preserve the interaction/optimization cycle and distinguish episode truncation from termination.
+
+Selected scenario:
+Description: Inspect cleanrl/ppo.py using its declared defaults, without executing or importing the target.
+Entrypoints: cleanrl/ppo.py
+Arguments: none
+
+Inspect source without importing or executing target code. Read only this workspace; do not inspect parent folders or other workspaces. Do not delegate to subagents. Answer in this conversation: describe the workflow, the unresolved cases, and the files you inspected. You have 30 active minutes for this task.

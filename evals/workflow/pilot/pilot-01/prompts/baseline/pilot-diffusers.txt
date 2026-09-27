@@ -1,0 +1,8 @@
+Explain one explicitly selected text-to-image fine-tuning scenario. Trace conditioning, noise/target construction, updated versus frozen components, evaluation and saving.
+
+Selected scenario:
+Description: Use the README's Stable Diffusion v1-4 Naruto full fine-tuning command.
+Entrypoints: examples/text_to_image/README.md, examples/text_to_image/train_text_to_image.py
+Arguments: --mixed_precision=fp16 --pretrained_model_name_or_path=CompVis/stable-diffusion-v1-4 --dataset_name=lambdalabs/naruto-blip-captions --use_ema --resolution=512 --center_crop --random_flip --train_batch_size=1 --gradient_accumulation_steps=4 --gradient_checkpointing --max_train_steps=15000 --learning_rate=1e-05 --max_grad_norm=1 --lr_scheduler=constant --lr_warmup_steps=0 --output_dir=sd-naruto-model
+
+Inspect source without importing or executing target code. Read only this workspace; do not inspect parent folders or other workspaces. Do not delegate to subagents. Answer in this conversation: describe the workflow, the unresolved cases, and the files you inspected. You have 30 active minutes for this task.

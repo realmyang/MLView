@@ -1,0 +1,72 @@
+{
+  "campaign": "pilot-01",
+  "format": "mlview-reference-set/1",
+  "frozenAt": "2026-09-27T20:18:03Z",
+  "note": "Frozen from named human decisions; hashes identify bytes, not approval.",
+  "tasks": [
+    {
+      "essential": 8,
+      "path": "reference/pilot-nanogpt.json",
+      "runsMustState": 1,
+      "sha256": "e3098b9e694292fe7c7a8679c487cc0b80e131f0d9584fa76c46c15f5466c11c",
+      "task": "pilot-nanogpt"
+    },
+    {
+      "essential": 9,
+      "path": "reference/pilot-transformers.json",
+      "runsMustState": 1,
+      "sha256": "e823d63ed8dafc7ca3bff264d135a7e59de3c562bee460e374fbbdbad23d87d1",
+      "task": "pilot-transformers"
+    },
+    {
+      "essential": 9,
+      "path": "reference/pilot-sklearn.json",
+      "runsMustState": 0,
+      "sha256": "de7d716edd2c92446a960ecdfbaf2fc25657cc734e602d1f6983170fa2cfe4ee",
+      "task": "pilot-sklearn"
+    },
+    {
+      "essential": 8,
+      "path": "reference/pilot-flax.json",
+      "runsMustState": 0,
+      "sha256": "3a9fb0b596581e6e5eb919288bc1a430a396aa1b5a52e290b0ca0d3e27f97be3",
+      "task": "pilot-flax"
+    },
+    {
+      "essential": 11,
+      "path": "reference/pilot-diffusers.json",
+      "runsMustState": 1,
+      "sha256": "6e61f680242d3e39143de1606d0fb6e73f1ebb03bd2d287bb78c01331a2b21b0",
+      "task": "pilot-diffusers"
+    },
+    {
+      "essential": 10,
+      "path": "reference/pilot-registry.json",
+      "runsMustState": 1,
+      "sha256": "3f081a0091efcd271764366d980a7da221648b630a92226396643ca5b5321c24",
+      "task": "pilot-registry"
+    },
+    {
+      "essential": 10,
+      "path": "reference/pilot-rl.json",
+      "runsMustState": 1,
+      "sha256": "5dda9aeaa634ec237af9be62eb17e0f123e56af1655d3ef8e47cd6ff87bf8ac7",
+      "task": "pilot-rl"
+    },
+    {
+      "essential": 9,
+      "path": "reference/pilot-notebook.json",
+      "runsMustState": 1,
+      "sha256": "125f559ee6803a754a910ef948df1fe354d959f6e533352133234dadefae96e6",
+      "task": "pilot-notebook"
+    }
+  ],
+  "totals": {
+    "defects": 0,
+    "essential": 74,
+    "facts": 93,
+    "nonDefects": 19,
+    "runsMustState": 6,
+    "tasks": 8
+  }
+}

@@ -1,0 +1,204 @@
+{
+  "campaign": "pilot-01",
+  "candidateLedgers": {
+    "evals/workflow/reference-candidates/pilot-diffusers.json": "515f2356689f971ca06985157529adf60777d95fd852c520968570c330737b5b",
+    "evals/workflow/reference-candidates/pilot-flax.json": "161f674e64f6b8a6e94a33eb25d8ea47b8736147de2497a82908430cb911cfac",
+    "evals/workflow/reference-candidates/pilot-nanogpt.json": "9dded969253eab56a4f8de522a41a2ca3c8c41051d57faa0d0499d6c6c83b163",
+    "evals/workflow/reference-candidates/pilot-notebook.json": "89009872b31f86de28a8db6faf2c7edcb9c9807be3d9f913b17dfe7036613e0a",
+    "evals/workflow/reference-candidates/pilot-registry.json": "c21a4cab74cbf85ac6f01dd577499aec5694fa5a4059339e286d929b13f3c3d0",
+    "evals/workflow/reference-candidates/pilot-rl.json": "725cea6cd067cbc10f2c38fa2386adc1896c48f95cdf830d11314125668b932c",
+    "evals/workflow/reference-candidates/pilot-sklearn.json": "42c00471070b91c8d5c4208d64e6fce942742d921e7e6a384aa733ed3083f676",
+    "evals/workflow/reference-candidates/pilot-transformers.json": "ca15e10f8c7b066bf5d0b813131536ce326d17e9bfa2920d96851cbfe796025c"
+  },
+  "decisionFiles": {
+    "evals/workflow/decisions/pilot-diffusers.md": "cbb34950820ab204f1120d6906a9a47745bc68c9214a5afebc5f4c2e64f36758",
+    "evals/workflow/decisions/pilot-flax.md": "6ada5627c0219ea96a4c37f25906dad80763d30f93ebf13413d118319584dfe1",
+    "evals/workflow/decisions/pilot-nanogpt.md": "d8835f47dbb4de38cb327da18ee66235efb94fda9f18b838810ecae0f7d145c9",
+    "evals/workflow/decisions/pilot-notebook.md": "13158e7507b1127d0cec8a081b4bcd2d8d6e6b79a5909d9aaeebca5e82f85c59",
+    "evals/workflow/decisions/pilot-registry.md": "8709ff583aefdcc2da0903ba444c0f51fd1dafa0711799c33383723625c7ecc5",
+    "evals/workflow/decisions/pilot-rl.md": "102db6b77a0642d88ae1c3bc072d0bc9e073ae1f375862c14f8ee161b2f6b0fe",
+    "evals/workflow/decisions/pilot-sklearn.md": "80f9c031f463fd74f4cdc3dde9b89f36f05545d2e28316beae70f50784bce0d9",
+    "evals/workflow/decisions/pilot-transformers.md": "c949d43e1a87f1a84300900de1df53eb4f17a2cfef9876fe059381f858f8669a",
+    "evals/workflow/decisions/run-policy.md": "31ee8fd0caa4e4d5deb8c40e315eb336a106f11bfcd927cfe47f9cb18f0b3c0b"
+  },
+  "developmentAdjudication": {
+    "complete": false,
+    "path": "evals/workflow/decisions/development-adjudication.md",
+    "sha256": "17bd6e2bb33a08736fd37bf1735316167a459c7bdfd2656514abf794f2c7281a"
+  },
+  "files": {
+    "policy.json": "dd65d6652c2ae671f3fce0a0bafc12a12e09960e3465a81f8460d3761934f885",
+    "prompts/baseline/pilot-diffusers.txt": "d19111d0588ebed244ca3a07366b85d8f087a6f1e83e73af0d6099c8f34447f1",
+    "prompts/baseline/pilot-flax.txt": "f3c8f5f74205930574712dacad4a7170461c2d3aebeb9f3064139767fabe243b",
+    "prompts/baseline/pilot-nanogpt.txt": "7320e606f27533d0f3afbec68b3f9346c370d045653d683605a10d63d9ffbb16",
+    "prompts/baseline/pilot-notebook.txt": "77355019e72a18e9dd10ef2e856d21ae3f99a990605c8d9fd635402ada24231c",
+    "prompts/baseline/pilot-registry.txt": "518dcb1ae686273a4d75f20eb77fde7547194ddcb0e5fa307c48f4d2672b6e27",
+    "prompts/baseline/pilot-rl.txt": "9684813ee05351b9506baf1ab352ab87aa62a7d018f45fd6f5071efdbe5f6f54",
+    "prompts/baseline/pilot-sklearn.txt": "d2de2718d6bc2c33cebe2c905fb7d8a6f592a1a125720cba9117f78097b1b725",
+    "prompts/baseline/pilot-transformers.txt": "9b508057a9e38d199f54419428b77737ac22598ee8b903b2553271d8783c5b9e",
+    "prompts/skill/pilot-diffusers.txt": "f620d4e1af423afa7b91fb00d5c7f70c8bce6c66ad6e227ab2ddbe959fde00c9",
+    "prompts/skill/pilot-flax.txt": "232b9a28f2e188eb974a654909b882b197b34e222608c3c2a394e1aea984aca8",
+    "prompts/skill/pilot-nanogpt.txt": "46e3177e72dc10721d1e92f3050508359c999a744e0f0cd80b2c63e7fd66d9f8",
+    "prompts/skill/pilot-notebook.txt": "0166f4593a0669ad6b1cc9e99cd0473f06d017dd65e1ebbe1b86b91c3cb0d4be",
+    "prompts/skill/pilot-registry.txt": "4bf00febe0e5726e9a739da44bfffe8b4eb8dd79ad54cee9fb72f3b97c0f9733",
+    "prompts/skill/pilot-rl.txt": "2829f28d6f759b6d9c5104ae81f69538dffa98acb13e4a56f41cb96858ddb10e",
+    "prompts/skill/pilot-sklearn.txt": "20bc3d1c06c3dc2a2bd84117b4e72034c398c878198c45fecb53f7e2645f4ff0",
+    "prompts/skill/pilot-transformers.txt": "3121b2709fa8610ed02b3b15cffd2a18ed2befb4ca41a076094688094b339391",
+    "reference-set.json": "2088ea445d9cbe00c0f8dfdcd0b5fbc6b3f5fc6c1b0efe04e5f7e1d084e31399",
+    "reference/pilot-diffusers.json": "6e61f680242d3e39143de1606d0fb6e73f1ebb03bd2d287bb78c01331a2b21b0",
+    "reference/pilot-flax.json": "3a9fb0b596581e6e5eb919288bc1a430a396aa1b5a52e290b0ca0d3e27f97be3",
+    "reference/pilot-nanogpt.json": "e3098b9e694292fe7c7a8679c487cc0b80e131f0d9584fa76c46c15f5466c11c",
+    "reference/pilot-notebook.json": "125f559ee6803a754a910ef948df1fe354d959f6e533352133234dadefae96e6",
+    "reference/pilot-registry.json": "3f081a0091efcd271764366d980a7da221648b630a92226396643ca5b5321c24",
+    "reference/pilot-rl.json": "5dda9aeaa634ec237af9be62eb17e0f123e56af1655d3ef8e47cd6ff87bf8ac7",
+    "reference/pilot-sklearn.json": "de7d716edd2c92446a960ecdfbaf2fc25657cc734e602d1f6983170fa2cfe4ee",
+    "reference/pilot-transformers.json": "e823d63ed8dafc7ca3bff264d135a7e59de3c562bee460e374fbbdbad23d87d1"
+  },
+  "format": "mlview-freeze/1",
+  "frozenAt": "2026-09-27T20:18:03Z",
+  "note": "Frozen from named human decisions; hashes identify bytes, not approval.",
+  "referenceRevision": "sha256:2088ea445d9cbe00c0f8dfdcd0b5fbc6b3f5fc6c1b0efe04e5f7e1d084e31399",
+  "repositories": {
+    "sha256": "40d5986647766c2ace2300b27f68f627a56644a48fdfebaad7545376cf2e8aaa",
+    "sparse": {
+      "cleanrl": [
+        "cleanrl"
+      ],
+      "diffusers": [
+        "examples"
+      ],
+      "flax": [
+        "examples"
+      ],
+      "handson-ml3": [
+        "/*.ipynb"
+      ],
+      "mmdetection": [
+        "tools",
+        "mmdet/apis",
+        "mmdet/engine",
+        "mmdet/models/detectors",
+        "configs/common",
+        "/configs/_base_/datasets/coco_detection.py",
+        "/configs/_base_/default_runtime.py",
+        "/configs/_base_/models/faster-rcnn_r50_fpn.py",
+        "/configs/_base_/schedules/schedule_1x.py",
+        "/configs/faster_rcnn/faster-rcnn_r50_fpn_1x_coco.py"
+      ],
+      "nanoGPT": [],
+      "scikit-learn": [
+        "examples"
+      ],
+      "transformers": [
+        "examples/pytorch"
+      ]
+    }
+  },
+  "supersedes": null,
+  "tasksManifest": {
+    "heldOut": {
+      "hosts": [
+        "copilot",
+        "codex",
+        "claude-code"
+      ],
+      "pilotTargets": {
+        "essentialFactRecall": 0.85,
+        "exactAnchors": 1.0,
+        "highSeverityFalseAccusations": 0,
+        "knownUnresolvedQualified": 1.0,
+        "structurallyValid": 1.0,
+        "supportedClaimPrecision": 0.95
+      },
+      "repetitions": 3,
+      "tasks": [
+        {
+          "commit": "3adf61e154c3fe3fca428ad6bc3818b27a3b8291",
+          "entrypoints": [
+            "train.py"
+          ],
+          "id": "pilot-nanogpt",
+          "prompt": "Explain the training scenario selected by this entrypoint and its default configuration. Show data, model initialization choices, gradient accumulation, evaluation, and checkpointing; qualify CLI overrides.",
+          "repository": "nanoGPT",
+          "url": "https://github.com/karpathy/nanoGPT"
+        },
+        {
+          "commit": "a2c15b30764b7c6cb0632ac6aed6eac227edc674",
+          "entrypoints": [
+            "examples/pytorch/text-classification/run_glue.py"
+          ],
+          "id": "pilot-transformers",
+          "prompt": "Explain a GLUE text-classification workflow using this entrypoint. Select and state one scenario, trace preprocessing, Trainer integration, metrics and output, and qualify uninspected framework behavior.",
+          "repository": "transformers",
+          "url": "https://github.com/huggingface/transformers"
+        },
+        {
+          "commit": "dd3ca57300e14d45b7a34fccd0165d143c7a364c",
+          "entrypoints": [
+            "examples/model_selection/plot_nested_cross_validation_iris.py"
+          ],
+          "id": "pilot-sklearn",
+          "prompt": "Explain the nested and non-nested cross-validation comparison, preserving tuning versus held-out evaluation boundaries.",
+          "repository": "scikit-learn",
+          "url": "https://github.com/scikit-learn/scikit-learn"
+        },
+        {
+          "commit": "01854da11286b4109c59d7fd9205f3822fe807d6",
+          "entrypoints": [
+            "examples/mnist/train.py"
+          ],
+          "id": "pilot-flax",
+          "prompt": "Explain this MNIST training workflow, parameter/state updates, evaluation and configuration. Preserve the functional training semantics.",
+          "repository": "flax",
+          "url": "https://github.com/google/flax"
+        },
+        {
+          "commit": "c419dac0152186060246c93a095bc1bfaea342b3",
+          "entrypoints": [
+            "examples/text_to_image/train_text_to_image.py"
+          ],
+          "id": "pilot-diffusers",
+          "prompt": "Explain one explicitly selected text-to-image fine-tuning scenario. Trace conditioning, noise/target construction, updated versus frozen components, evaluation and saving.",
+          "repository": "diffusers",
+          "url": "https://github.com/huggingface/diffusers"
+        },
+        {
+          "commit": "cfd5d3a985b0249de009b67d04f37263e11cdf3d",
+          "entrypoints": [
+            "tools/train.py"
+          ],
+          "id": "pilot-registry",
+          "prompt": "Trace the config-driven training entrypoint through available registry/runner source. State the selected configuration or unresolved alternatives; do not invent unavailable base configs.",
+          "repository": "mmdetection",
+          "url": "https://github.com/open-mmlab/mmdetection"
+        },
+        {
+          "commit": "fe8d8a03c41a7ef5b523e2e354bd01c363e786bb",
+          "entrypoints": [
+            "cleanrl/ppo.py"
+          ],
+          "id": "pilot-rl",
+          "prompt": "Explain rollout collection, advantage estimation, minibatch optimization and logging. Preserve the interaction/optimization cycle and distinguish episode truncation from termination.",
+          "repository": "cleanrl",
+          "url": "https://github.com/vwxyzjn/cleanrl"
+        },
+        {
+          "commit": "e707c2d659abafb9b1f9fd927907619a128db8d7",
+          "entrypoints": [
+            "02_end_to_end_machine_learning_project.ipynb"
+          ],
+          "id": "pilot-notebook",
+          "prompt": "Explain the end-to-end housing workflow, split/preprocessing/tuning/evaluation boundaries, with notebook cell evidence and execution-order limitations.",
+          "repository": "handson-ml3",
+          "url": "https://github.com/ageron/handson-ml3"
+        }
+      ]
+    },
+    "sha256": "6d344ccaaa2b54fb366527f4aa1aa3d990130aa81540c0a3bdcc11a1c2418b73"
+  },
+  "tooling": {
+    "skills/mlview/scripts/artifact.py": "3f14d35e8a07a949782dde7ae22cfa809d9752659ad4803c59dac156b6deba67",
+    "tools/eval_records.py": "2787678728912e7884c8ed8bfb087efe5cfb431939a6ff2afbc8e7ad37ac77d8",
+    "tools/workflow_decisions.py": "dabbfc8d0bf8355ec246cb29a752e69fb7b8fe480d271cfefaa310f223fd4bfd"
+  }
+}

@@ -1,0 +1,401 @@
+{
+  "campaign": "pilot-01",
+  "candidate": {
+    "path": "evals/workflow/reference-candidates/pilot-diffusers.json",
+    "sha256": "515f2356689f971ca06985157529adf60777d95fd852c520968570c330737b5b"
+  },
+  "counts": {
+    "defects": 0,
+    "essential": 11,
+    "facts": 13,
+    "nonDefects": 2,
+    "runsMustState": 1
+  },
+  "defects": [],
+  "disputes": [],
+  "essentialFactIds": [
+    "diff-scenario",
+    "diff-components",
+    "diff-optimizer",
+    "diff-preprocess",
+    "diff-latents",
+    "diff-noising",
+    "diff-conditioning",
+    "diff-target",
+    "diff-loss-update",
+    "diff-ema",
+    "diff-save"
+  ],
+  "facts": [
+    {
+      "anchors": [
+        {
+          "endLine": 74,
+          "file": "examples/text_to_image/README.md",
+          "id": "diff-scenario-a",
+          "line": 59
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "The selected README command fine-tunes CompVis/stable-diffusion-v1-4 on lambdalabs/naruto-blip-captions with EMA and writes sd-naruto-model.",
+      "changed": [],
+      "claim": "The selected README command fine-tunes CompVis/stable-diffusion-v1-4 on lambdalabs/naruto-blip-captions with EMA and writes sd-naruto-model.",
+      "decision": "accept",
+      "essential": true,
+      "id": "diff-scenario",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 631,
+          "file": "examples/text_to_image/train_text_to_image.py",
+          "id": "diff-components-a",
+          "line": 628
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "The VAE and text encoder are frozen while the UNet is put in training mode.",
+      "changed": [],
+      "claim": "The VAE and text encoder are frozen while the UNet is put in training mode.",
+      "decision": "accept",
+      "essential": true,
+      "id": "diff-components",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 730,
+          "file": "examples/text_to_image/train_text_to_image.py",
+          "id": "diff-optimizer-a",
+          "line": 720
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "The selected default optimizer path constructs AdamW over UNet parameters only.",
+      "changed": [],
+      "claim": "The selected default optimizer path constructs AdamW over UNet parameters only.",
+      "decision": "accept",
+      "essential": true,
+      "id": "diff-optimizer",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 66,
+          "file": "examples/text_to_image/train_text_to_image.py",
+          "id": "diff-columns-a",
+          "line": 64
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "For the selected Naruto dataset, source maps the image and caption columns to image and text.",
+      "changed": [],
+      "claim": "For the selected Naruto dataset, source maps the image and caption columns to image and text.",
+      "decision": "accept",
+      "essential": false,
+      "id": "diff-columns",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 815,
+          "file": "examples/text_to_image/train_text_to_image.py",
+          "id": "diff-preprocess-a",
+          "line": 794
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "Images are resized to 512, center-cropped, randomly flipped, converted to tensors, and normalized; captions are tokenized to fixed model maximum length.",
+      "changed": [],
+      "claim": "Images are resized to 512, center-cropped, randomly flipped, converted to tensors, and normalized; captions are tokenized to fixed model maximum length.",
+      "decision": "accept",
+      "essential": true,
+      "id": "diff-preprocess",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 969,
+          "file": "examples/text_to_image/train_text_to_image.py",
+          "id": "diff-latents-a",
+          "line": 967
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "The VAE encodes pixel tensors to sampled latents and scales them by the VAE scaling factor.",
+      "changed": [],
+      "claim": "The VAE encodes pixel tensors to sampled latents and scales them by the VAE scaling factor.",
+      "decision": "accept",
+      "essential": true,
+      "id": "diff-latents",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 990,
+          "file": "examples/text_to_image/train_text_to_image.py",
+          "id": "diff-noising-a",
+          "line": 971
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "Training samples Gaussian noise and random scheduler timesteps, then adds that noise to latents through the scheduler.",
+      "changed": [],
+      "claim": "Training samples Gaussian noise and random scheduler timesteps, then adds that noise to latents through the scheduler.",
+      "decision": "accept",
+      "essential": true,
+      "id": "diff-noising",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 993,
+          "file": "examples/text_to_image/train_text_to_image.py",
+          "id": "diff-conditioning-a",
+          "line": 992
+        },
+        {
+          "endLine": 1020,
+          "file": "examples/text_to_image/train_text_to_image.py",
+          "id": "diff-conditioning-b",
+          "line": 1019
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "The frozen text encoder produces hidden states from token IDs, and the UNet receives noisy latents, timesteps, and those hidden states.",
+      "changed": [],
+      "claim": "The frozen text encoder produces hidden states from token IDs, and the UNet receives noisy latents, timesteps, and those hidden states.",
+      "decision": "accept",
+      "essential": true,
+      "id": "diff-conditioning",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 1005,
+          "file": "examples/text_to_image/train_text_to_image.py",
+          "id": "diff-target-a",
+          "line": 995
+        }
+      ],
+      "basis": "unresolved",
+      "candidateClaim": "Because the command does not set prediction_type and the pretrained scheduler config is not present locally, whether the target is epsilon noise or scheduler velocity remains unresolved; the source supports both branches.",
+      "changed": [],
+      "claim": "Because the command does not set prediction_type and the pretrained scheduler config is not present locally, whether the target is epsilon noise or scheduler velocity remains unresolved; the source supports both branches.",
+      "decision": "accept",
+      "essential": true,
+      "id": "diff-target",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 1023,
+          "file": "examples/text_to_image/train_text_to_image.py",
+          "id": "diff-loss-update-a",
+          "line": 1022
+        },
+        {
+          "endLine": 1051,
+          "file": "examples/text_to_image/train_text_to_image.py",
+          "id": "diff-loss-update-b",
+          "line": 1045
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "The default loss is mean MSE; Accelerate backpropagates it, clips synchronized UNet gradients, and steps optimizer and learning-rate scheduler.",
+      "changed": [],
+      "claim": "The default loss is mean MSE; Accelerate backpropagates it, clips synchronized UNet gradients, and steps optimizer and learning-rate scheduler.",
+      "decision": "accept",
+      "essential": true,
+      "id": "diff-loss-update",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 1058,
+          "file": "examples/text_to_image/train_text_to_image.py",
+          "id": "diff-ema-a",
+          "line": 1053
+        },
+        {
+          "endLine": 1123,
+          "file": "examples/text_to_image/train_text_to_image.py",
+          "id": "diff-ema-b",
+          "line": 1120
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "After synchronized optimizer updates, EMA is advanced from UNet parameters; final saving copies EMA parameters into the UNet.",
+      "changed": [],
+      "claim": "After synchronized optimizer updates, EMA is advanced from UNet parameters; final saving copies EMA parameters into the UNet.",
+      "decision": "accept",
+      "essential": true,
+      "id": "diff-ema",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 1100,
+          "file": "examples/text_to_image/train_text_to_image.py",
+          "id": "diff-validation-a",
+          "line": 1098
+        },
+        {
+          "endLine": 1138,
+          "file": "examples/text_to_image/train_text_to_image.py",
+          "id": "diff-validation-b",
+          "line": 1135
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "This selected command supplies no validation_prompts, so periodic validation and final inference branches are skipped.",
+      "changed": [],
+      "claim": "This selected command supplies no validation_prompts, so periodic validation and final inference branches are skipped.",
+      "decision": "accept",
+      "essential": false,
+      "id": "diff-validation",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 1133,
+          "file": "examples/text_to_image/train_text_to_image.py",
+          "id": "diff-save-a",
+          "line": 1125
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "The final artifact is a StableDiffusionPipeline assembled with the text encoder, VAE, and trained UNet and saved to output_dir.",
+      "changed": [],
+      "claim": "The final artifact is a StableDiffusionPipeline assembled with the text encoder, VAE, and trained UNet and saved to output_dir.",
+      "decision": "accept",
+      "essential": true,
+      "id": "diff-save",
+      "origin": "candidate",
+      "reason": null
+    }
+  ],
+  "format": "mlview-frozen-reference/1",
+  "knownUnresolved": [
+    {
+      "candidateText": "The pinned source does not contain the external CompVis/stable-diffusion-v1-4 scheduler config, so its prediction_type is unresolved.",
+      "decision": "accept",
+      "id": "diffusers-u01",
+      "origin": "candidate",
+      "reason": null,
+      "runsMustState": true,
+      "text": "The pinned source does not contain the external CompVis/stable-diffusion-v1-4 scheduler config, so its prediction_type is unresolved."
+    },
+    {
+      "candidateText": "Dataset contents, pretrained weights/configs, downloads, and framework internals are external and uninspected.",
+      "decision": "accept",
+      "id": "diffusers-u02",
+      "origin": "candidate",
+      "reason": null,
+      "runsMustState": false,
+      "text": "Dataset contents, pretrained weights/configs, downloads, and framework internals are external and uninspected."
+    },
+    {
+      "candidateText": "No runtime outputs or generated images were inspected.",
+      "decision": "accept",
+      "id": "diffusers-u03",
+      "origin": "candidate",
+      "reason": null,
+      "runsMustState": false,
+      "text": "No runtime outputs or generated images were inspected."
+    }
+  ],
+  "nonDefects": [
+    {
+      "candidateText": "Absence of validation output in this scenario follows from omitting validation_prompts in the selected README command.",
+      "decision": "accept",
+      "id": "diffusers-n01",
+      "reason": null,
+      "text": "Absence of validation output in this scenario follows from omitting validation_prompts in the selected README command."
+    },
+    {
+      "candidateText": "Frozen VAE and text encoder are intentional; the optimizer targets the UNet.",
+      "decision": "accept",
+      "id": "diffusers-n02",
+      "reason": null,
+      "text": "Frozen VAE and text encoder are intentional; the optimizer targets the UNet."
+    }
+  ],
+  "rejectedFacts": [],
+  "rejectedNonDefects": [],
+  "rejectedUnknowns": [],
+  "repository": "diffusers",
+  "repositoryCommit": "c419dac0152186060246c93a095bc1bfaea342b3",
+  "reviews": [
+    {
+      "date": "2026-09-27",
+      "path": "evals/workflow/decisions/pilot-diffusers.md",
+      "reviewer": "realmyang",
+      "role": "primary",
+      "sha256": "cbb34950820ab204f1120d6906a9a47745bc68c9214a5afebc5f4c2e64f36758",
+      "transcribedBy": "Claude Code (Opus 5.5), from the owner's decisions given in conversation on 2026-09-27"
+    }
+  ],
+  "scenario": {
+    "arguments": [
+      "--mixed_precision=fp16",
+      "--pretrained_model_name_or_path=CompVis/stable-diffusion-v1-4",
+      "--dataset_name=lambdalabs/naruto-blip-captions",
+      "--use_ema",
+      "--resolution=512",
+      "--center_crop",
+      "--random_flip",
+      "--train_batch_size=1",
+      "--gradient_accumulation_steps=4",
+      "--gradient_checkpointing",
+      "--max_train_steps=15000",
+      "--learning_rate=1e-05",
+      "--max_grad_norm=1",
+      "--lr_scheduler=constant",
+      "--lr_warmup_steps=0",
+      "--output_dir=sd-naruto-model"
+    ],
+    "decision": "accept",
+    "description": "Use the README's Stable Diffusion v1-4 Naruto full fine-tuning command.",
+    "entrypoints": [
+      "examples/text_to_image/README.md",
+      "examples/text_to_image/train_text_to_image.py"
+    ],
+    "reason": null
+  },
+  "sourceFiles": {
+    "examples/text_to_image/README.md": {
+      "blob": "d51a04414137270f2acdc985f82453d80e15b16a",
+      "sha256": "3dcb54729d7608b0a8c7c1acb937cc17ccf45b55397aea6e6dac10b50aa1c320"
+    },
+    "examples/text_to_image/train_text_to_image.py": {
+      "blob": "35b7c469c40f2cdc13d6fb1486c509b2260fce43",
+      "sha256": "9e0fffea95e39ee3abea683b810c41a7a97e9ccdf331a97011d64640c4ac19a8"
+    }
+  },
+  "task": "pilot-diffusers"
+}
