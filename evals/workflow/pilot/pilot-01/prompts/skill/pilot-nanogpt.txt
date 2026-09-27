@@ -1,0 +1,8 @@
+Explain the training scenario selected by this entrypoint and its default configuration. Show data, model initialization choices, gradient accumulation, evaluation, and checkpointing; qualify CLI overrides.
+
+Selected scenario:
+Description: Inspect train.py with its source defaults and no config-file or CLI overrides.
+Entrypoints: train.py
+Arguments: none
+
+Inspect source without importing or executing target code. Read only this workspace and the installed skill; do not inspect parent folders, other workspaces or earlier artifacts. Use this assistant as the interpretation backend; do not delegate to subagents. Publish one WorkflowDocument to pilot.mlview.json using the installed helper, then report its path, revision, unresolved cases and repair rounds. You have 30 active minutes for this task, including critique and repair.

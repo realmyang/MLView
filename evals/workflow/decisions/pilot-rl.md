@@ -7,99 +7,102 @@
 > To change a proposed Basis, Essential flag or Anchors, add that line and a "Reason:". Anchors: replaces the proposed list; repeat each proposed anchor you keep.
 
 Candidate: pilot-rl.json 725cea6cd067cbc10f2c38fa2386adc1896c48f95cdf830d11314125668b932c
-Reviewer:
-Date:
-Transcribed by:
+Reviewer: realmyang
+Date: 2026-09-27
+Transcribed by: Claude Code (Opus 5.5), from the owner's decisions given in conversation on 2026-09-27
 
 ## Scenario
 > Proposed: Inspect cleanrl/ppo.py using its declared defaults, without executing or importing the target.
 > Entrypoints: cleanrl/ppo.py
 > Arguments: none
 > accept, or replace and also write Description, Entrypoints, Arguments and Reason
-Decision: pending
+Decision: accept
 
 ## Fact rl-default-scenario
 > Claim: The declared defaults select CartPole-v1, 500,000 total timesteps, four environments, and 128 rollout steps.
 > Basis: observed. Essential: yes. Anchors: cleanrl/ppo.py:37-46
-Decision: pending
+Decision: accept
 
 ## Fact rl-batch-derived
 > Claim: Batch size is num_envs times num_steps; minibatch size divides that batch by four default minibatches, and iteration count divides total timesteps by batch size.
 > Basis: observed. Essential: yes. Anchors: cleanrl/ppo.py:130-133
-Decision: pending
+Decision: accept
 
 ## Fact rl-agent-outputs
 > Claim: The agent samples from a categorical actor and returns the action, its log probability, entropy, and critic value.
 > Basis: observed. Essential: no. Anchors: cleanrl/ppo.py:121-126
-Decision: pending
+Decision: accept
 
 ## Fact rl-rollout-storage
 > Claim: Rollout storage keeps observations, actions, log probabilities, rewards, done flags, and values for every rollout step and environment.
 > Basis: observed. Essential: yes. Anchors: cleanrl/ppo.py:170-176
-Decision: pending
+Decision: accept
 
 ## Fact rl-interaction-cycle
 > Claim: Each rollout step stores the current observation and prior done flag, samples an action without gradients, steps the vector environment, and stores the reward.
 > Basis: observed. Essential: yes. Anchors: cleanrl/ppo.py:192-208
-Decision: pending
+Decision: accept
 
 ## Fact rl-termination-truncation-mask
 > Claim: The code combines termination and truncation with logical OR into one done flag; it does not preserve separate flags in rollout storage.
 > Basis: observed. Essential: yes. Anchors: cleanrl/ppo.py:204-208
-Decision: pending
+Decision: accept
 
 ## Fact rl-gae-mask-semantics
 > Claim: GAE uses one minus the combined done flag as nextnonterminal, so both a termination and a truncation make the recurrence and bootstrap multiplier zero at that boundary.
 > Basis: observed. Essential: yes. Anchors: cleanrl/ppo.py:217-231
-Decision: pending
+Decision: accept
 
 ## Fact rl-flatten-and-shuffle
 > Claim: After advantage estimation, rollout tensors are flattened and their indices are shuffled for each update epoch before minibatch selection.
 > Basis: observed. Essential: yes. Anchors: cleanrl/ppo.py:233-248
-Decision: pending
+Decision: accept
 
 ## Fact rl-clipped-policy-loss
 > Claim: The policy objective uses the larger loss between the unclipped probability-ratio term and a ratio clipped to one plus or minus clip_coef.
 > Basis: observed. Essential: yes. Anchors: cleanrl/ppo.py:250-267
-Decision: pending
+Decision: accept
 
 ## Fact rl-value-and-total-loss
 > Claim: By default, value loss is clipped relative to stored values; the total loss combines policy loss, a negative entropy bonus, and value loss weighted by vf_coef.
 > Basis: observed. Essential: yes. Anchors: cleanrl/ppo.py:269-285
-Decision: pending
+Decision: accept
 
 ## Fact rl-gradient-update
 > Claim: Each minibatch clears gradients, backpropagates the combined loss, clips gradients across all agent parameters, and steps Adam.
 > Basis: observed. Essential: yes. Anchors: cleanrl/ppo.py:287-290
-Decision: pending
+Decision: accept
 
 ## Fact rl-logging
 > Claim: Episode return and length come from final_info, while learning rate, losses, KL estimates, clip fraction, explained variance, and throughput are written to TensorBoard.
 > Basis: observed. Essential: no. Anchors: cleanrl/ppo.py:210-215; cleanrl/ppo.py:299-309
-Decision: pending
+Decision: accept
 
 ## Unknown rl-u01
 > Whether a human reviewer classifies masking truncations like terminations as a defect for this CartPole scenario.
-Decision: pending
-Runs must state:
+Decision: reject
+Reason: Settled as neutral: the pilot neither requires nor penalises calling the combined mask a defect; the essential facts
+  rl-termination-truncation-mask and rl-gae-mask-semantics require the behaviour itself.
 
 ## Unknown rl-u02
 > The exact runtime autoreset and final-observation behavior supplied by the installed Gymnasium version was not inspected or executed.
-Decision: pending
-Runs must state:
+Decision: accept
+Runs must state: yes
 
 ## Unknown rl-u03
 > CLI overrides, runtime device selection, generated trajectories, metrics, and output files are unknown because the target was not run.
-Decision: pending
-Runs must state:
+Decision: accept
+Runs must state: no
 
 ## Non-defect rl-n01
 > Policy and value clipping, advantage normalization, entropy regularization, gradient clipping, and learning-rate annealing are explicit configurable PPO choices; this draft does not label them defects.
-Decision: pending
+Decision: accept
 
 ## Non-defect rl-n02
 > This draft records the combined termination/truncation mask as observed behavior and leaves defect adjudication to human review.
-Decision: pending
+Decision: reject
+Reason: Neutral: the owner classifies the combined termination/truncation mask neither as intended behaviour nor as a
+  defect, so a run that calls it a defect is not a false accusation, and no run is required to call it one.
 
 > Omitted fact: add "## Added fact rl-h01" with Wording, Basis, Essential, Anchors and Reason.
 > Omitted unknown: add "## Added unknown rl-hu01" with Wording, Runs must state and Reason.
@@ -110,4 +113,4 @@ Decision: pending
 
 ## Task
 > Write "Review: complete" when every decision above is final.
-Review: pending
+Review: complete

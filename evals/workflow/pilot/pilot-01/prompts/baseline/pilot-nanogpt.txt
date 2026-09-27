@@ -1,0 +1,8 @@
+Explain the training scenario selected by this entrypoint and its default configuration. Show data, model initialization choices, gradient accumulation, evaluation, and checkpointing; qualify CLI overrides.
+
+Selected scenario:
+Description: Inspect train.py with its source defaults and no config-file or CLI overrides.
+Entrypoints: train.py
+Arguments: none
+
+Inspect source without importing or executing target code. Read only this workspace; do not inspect parent folders or other workspaces. Do not delegate to subagents. Answer in this conversation: describe the workflow, the unresolved cases, and the files you inspected. You have 30 active minutes for this task.

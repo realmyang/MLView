@@ -1,0 +1,8 @@
+Explain a GLUE text-classification workflow using this entrypoint. Select and state one scenario, trace preprocessing, Trainer integration, metrics and output, and qualify uninspected framework behavior.
+
+Selected scenario:
+Description: Use the pinned README's MRPC GLUE example with BERT and both training and evaluation enabled.
+Entrypoints: examples/pytorch/text-classification/run_glue.py, examples/pytorch/text-classification/README.md
+Arguments: --model_name_or_path google-bert/bert-base-cased --task_name mrpc --do_train --do_eval --max_seq_length 128 --per_device_train_batch_size 32 --learning_rate 2e-5 --num_train_epochs 3 --output_dir /tmp/mrpc/
+
+Inspect source without importing or executing target code. Read only this workspace; do not inspect parent folders or other workspaces. Do not delegate to subagents. Answer in this conversation: describe the workflow, the unresolved cases, and the files you inspected. You have 30 active minutes for this task.

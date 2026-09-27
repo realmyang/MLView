@@ -1,0 +1,349 @@
+{
+  "campaign": "pilot-01",
+  "candidate": {
+    "path": "evals/workflow/reference-candidates/pilot-flax.json",
+    "sha256": "161f674e64f6b8a6e94a33eb25d8ea47b8736147de2497a82908430cb911cfac"
+  },
+  "counts": {
+    "defects": 0,
+    "essential": 8,
+    "facts": 12,
+    "nonDefects": 2,
+    "runsMustState": 0
+  },
+  "defects": [],
+  "disputes": [],
+  "essentialFactIds": [
+    "flax-config",
+    "flax-invocation",
+    "flax-data-splits",
+    "flax-preprocessing",
+    "flax-loss",
+    "flax-update",
+    "flax-param-filter",
+    "flax-evaluation"
+  ],
+  "facts": [
+    {
+      "anchors": [
+        {
+          "endLine": 27,
+          "file": "examples/mnist/configs/default.py",
+          "id": "flax-config-a",
+          "line": 24
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "The selected config sets learning rate 0.1, momentum 0.9, batch size 128, and 10 epochs.",
+      "changed": [],
+      "claim": "The selected config sets learning rate 0.1, momentum 0.9, batch size 128, and 10 epochs.",
+      "decision": "accept",
+      "essential": true,
+      "id": "flax-config",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 68,
+          "file": "examples/mnist/main.py",
+          "id": "flax-invocation-a",
+          "line": 64
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "main.py requires config and workdir flags and passes both to train_and_evaluate.",
+      "changed": [],
+      "claim": "main.py requires config and workdir flags and passes both to train_and_evaluate.",
+      "decision": "accept",
+      "essential": true,
+      "id": "flax-invocation",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 94,
+          "file": "examples/mnist/train.py",
+          "id": "flax-data-splits-a",
+          "line": 91
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "The workflow loads the TensorFlow Datasets MNIST train and test splits separately.",
+      "changed": [],
+      "claim": "The workflow loads the TensorFlow Datasets MNIST train and test splits separately.",
+      "decision": "accept",
+      "essential": true,
+      "id": "flax-data-splits",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 111,
+          "file": "examples/mnist/train.py",
+          "id": "flax-preprocessing-a",
+          "line": 96
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "Both splits cast images to float32 and divide by 255; only training is shuffled.",
+      "changed": [],
+      "claim": "Both splits cast images to float32 and divide by 255; only training is shuffled.",
+      "decision": "accept",
+      "essential": true,
+      "id": "flax-preprocessing",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 117,
+          "file": "examples/mnist/train.py",
+          "id": "flax-batching-a",
+          "line": 112
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "Both datasets use fixed-size batches with incomplete batches dropped and prefetch one batch.",
+      "changed": [],
+      "claim": "Both datasets use fixed-size batches with incomplete batches dropped and prefetch one batch.",
+      "decision": "accept",
+      "essential": false,
+      "id": "flax-batching",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 68,
+          "file": "examples/mnist/train.py",
+          "id": "flax-loss-a",
+          "line": 63
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "The loss is mean softmax cross-entropy from integer labels, and logits are returned for metrics.",
+      "changed": [],
+      "claim": "The loss is mean softmax cross-entropy from integer labels, and logits are returned for metrics.",
+      "decision": "accept",
+      "essential": true,
+      "id": "flax-loss",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 77,
+          "file": "examples/mnist/train.py",
+          "id": "flax-update-a",
+          "line": 71
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "Each jitted training step differentiates loss_fn, updates metrics, and applies gradients to the model through the NNX optimizer.",
+      "changed": [],
+      "claim": "Each jitted training step differentiates loss_fn, updates metrics, and applies gradients to the model through the NNX optimizer.",
+      "decision": "accept",
+      "essential": true,
+      "id": "flax-update",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 142,
+          "file": "examples/mnist/train.py",
+          "id": "flax-param-filter-a",
+          "line": 140
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "The SGD optimizer is attached to the model with wrt=nnx.Param, limiting optimization to parameter variables.",
+      "changed": [],
+      "claim": "The SGD optimizer is attached to the model with wrt=nnx.Param, limiting optimization to parameter variables.",
+      "decision": "accept",
+      "essential": true,
+      "id": "flax-param-filter",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 170,
+          "file": "examples/mnist/train.py",
+          "id": "flax-evaluation-a",
+          "line": 163
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "After every epoch, the model switches to eval mode and eval_step accumulates loss and accuracy over the test dataset without an optimizer update.",
+      "changed": [],
+      "claim": "After every epoch, the model switches to eval mode and eval_step accumulates loss and accuracy over the test dataset without an optimizer update.",
+      "decision": "accept",
+      "essential": true,
+      "id": "flax-evaluation",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 146,
+          "file": "examples/mnist/train.py",
+          "id": "flax-metrics-a",
+          "line": 143
+        },
+        {
+          "endLine": 161,
+          "file": "examples/mnist/train.py",
+          "id": "flax-metrics-b",
+          "line": 159
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "The tracked metrics are accuracy and average loss, reset between training and test accumulation.",
+      "changed": [],
+      "claim": "The tracked metrics are accuracy and average loss, reset between training and test accumulation.",
+      "decision": "accept",
+      "essential": false,
+      "id": "flax-metrics",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 190,
+          "file": "examples/mnist/train.py",
+          "id": "flax-summaries-a",
+          "line": 184
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "Per-epoch train/test loss and accuracy are written to TensorBoard and flushed after training.",
+      "changed": [],
+      "claim": "Per-epoch train/test loss and accuracy are written to TensorBoard and flushed after training.",
+      "decision": "accept",
+      "essential": false,
+      "id": "flax-summaries",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 206,
+          "file": "examples/mnist/train.py",
+          "id": "flax-export-a",
+          "line": 198
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "After training, the eval-mode model is exported under workdir/mnist_export with a 1x28x28x1 float32 serving signature.",
+      "changed": [],
+      "claim": "After training, the eval-mode model is exported under workdir/mnist_export with a 1x28x28x1 float32 serving signature.",
+      "decision": "accept",
+      "essential": false,
+      "id": "flax-export",
+      "origin": "candidate",
+      "reason": null
+    }
+  ],
+  "format": "mlview-frozen-reference/1",
+  "knownUnresolved": [
+    {
+      "candidateText": "Dataset availability and exact downloaded contents are external to the inspected source.",
+      "decision": "accept",
+      "id": "flax-u01",
+      "origin": "candidate",
+      "reason": null,
+      "runsMustState": false,
+      "text": "Dataset availability and exact downloaded contents are external to the inspected source."
+    },
+    {
+      "candidateText": "The internal semantics of NNX transforms, Optax SGD, TensorBoard writing, and Orbax export are not established beyond these call sites.",
+      "decision": "accept",
+      "id": "flax-u02",
+      "origin": "candidate",
+      "reason": null,
+      "runsMustState": false,
+      "text": "The internal semantics of NNX transforms, Optax SGD, TensorBoard writing, and Orbax export are not established beyond these call sites."
+    }
+  ],
+  "nonDefects": [
+    {
+      "candidateText": "In-place NNX model, optimizer, and metric updates are the explicit API style used by this example; they are not evidence of missing functional state handling.",
+      "decision": "accept",
+      "id": "flax-n01",
+      "reason": null,
+      "text": "In-place NNX model, optimizer, and metric updates are the explicit API style used by this example; they are not evidence of missing functional state handling."
+    },
+    {
+      "candidateText": "Dropping incomplete train and test batches is explicit configuration, not an inferred defect.",
+      "decision": "accept",
+      "id": "flax-n02",
+      "reason": null,
+      "text": "Dropping incomplete train and test batches is explicit configuration, not an inferred defect."
+    }
+  ],
+  "rejectedFacts": [],
+  "rejectedNonDefects": [],
+  "rejectedUnknowns": [
+    {
+      "candidateText": "The reviewer must choose the concrete work directory.",
+      "id": "flax-u03",
+      "reason": "Settled: the scenario sets --workdir=/tmp/mnist."
+    }
+  ],
+  "repository": "flax",
+  "repositoryCommit": "01854da11286b4109c59d7fd9205f3822fe807d6",
+  "reviews": [
+    {
+      "date": "2026-09-27",
+      "path": "evals/workflow/decisions/pilot-flax.md",
+      "reviewer": "realmyang",
+      "role": "primary",
+      "sha256": "6ada5627c0219ea96a4c37f25906dad80763d30f93ebf13413d118319584dfe1",
+      "transcribedBy": "Claude Code (Opus 5.5), from the owner's decisions given in conversation on 2026-09-27"
+    }
+  ],
+  "scenario": {
+    "arguments": [
+      "--config=examples/mnist/configs/default.py",
+      "--workdir=/tmp/mnist"
+    ],
+    "decision": "replace",
+    "description": "Run the MNIST example through main.py with examples/mnist/configs/default.py and the work directory /tmp/mnist.",
+    "entrypoints": [
+      "examples/mnist/main.py",
+      "examples/mnist/train.py",
+      "examples/mnist/configs/default.py"
+    ],
+    "reason": "The proposal leaves the work directory to the reviewer; /tmp/mnist is the example README's own value (examples/mnist/README.md:28). Nothing is executed, so it only names where summaries and the export would be written."
+  },
+  "sourceFiles": {
+    "examples/mnist/configs/default.py": {
+      "blob": "eeebf43c6fbffd333016c21ed432b79a4897e7c0",
+      "sha256": "1c1559b9ac19efb388eedc09f29112345d45b882ccf944b5cda1c8ba0fc9713d"
+    },
+    "examples/mnist/main.py": {
+      "blob": "fe500cb96fa9dd3351799b0cf3bd6db135332d46",
+      "sha256": "4628366719d8a642e867af74d1c8564f9a9ae876a6757b17092604455eebf5c8"
+    },
+    "examples/mnist/train.py": {
+      "blob": "a603e70699c6f0952bc86d7bbeedffe8d450548e",
+      "sha256": "0d7d381ac7d9378edfe60b1c4a5476cfbc557b7f380f64e7e69b5288ca38182c"
+    }
+  },
+  "task": "pilot-flax"
+}

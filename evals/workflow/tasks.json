@@ -119,7 +119,7 @@
         "train.py"
       ],
       "prompt": "Explain the training scenario selected by this entrypoint and its default configuration. Show data, model initialization choices, gradient accumulation, evaluation, and checkpointing; qualify CLI overrides.",
-      "referenceStatus": "needs-human-review"
+      "referenceStatus": "frozen"
     },
     {
       "id": "pilot-transformers",
@@ -132,7 +132,7 @@
         "examples/pytorch/text-classification/run_glue.py"
       ],
       "prompt": "Explain a GLUE text-classification workflow using this entrypoint. Select and state one scenario, trace preprocessing, Trainer integration, metrics and output, and qualify uninspected framework behavior.",
-      "referenceStatus": "needs-human-review"
+      "referenceStatus": "frozen"
     },
     {
       "id": "pilot-sklearn",
@@ -145,7 +145,7 @@
         "examples/model_selection/plot_nested_cross_validation_iris.py"
       ],
       "prompt": "Explain the nested and non-nested cross-validation comparison, preserving tuning versus held-out evaluation boundaries.",
-      "referenceStatus": "needs-human-review"
+      "referenceStatus": "frozen"
     },
     {
       "id": "pilot-flax",
@@ -158,7 +158,7 @@
         "examples/mnist/train.py"
       ],
       "prompt": "Explain this MNIST training workflow, parameter/state updates, evaluation and configuration. Preserve the functional training semantics.",
-      "referenceStatus": "needs-human-review"
+      "referenceStatus": "frozen"
     },
     {
       "id": "pilot-diffusers",
@@ -171,7 +171,7 @@
         "examples/text_to_image/train_text_to_image.py"
       ],
       "prompt": "Explain one explicitly selected text-to-image fine-tuning scenario. Trace conditioning, noise/target construction, updated versus frozen components, evaluation and saving.",
-      "referenceStatus": "needs-human-review"
+      "referenceStatus": "frozen"
     },
     {
       "id": "pilot-registry",
@@ -184,7 +184,7 @@
         "tools/train.py"
       ],
       "prompt": "Trace the config-driven training entrypoint through available registry/runner source. State the selected configuration or unresolved alternatives; do not invent unavailable base configs.",
-      "referenceStatus": "needs-human-review"
+      "referenceStatus": "frozen"
     },
     {
       "id": "pilot-rl",
@@ -197,7 +197,7 @@
         "cleanrl/ppo.py"
       ],
       "prompt": "Explain rollout collection, advantage estimation, minibatch optimization and logging. Preserve the interaction/optimization cycle and distinguish episode truncation from termination.",
-      "referenceStatus": "needs-human-review"
+      "referenceStatus": "frozen"
     },
     {
       "id": "pilot-notebook",
@@ -210,7 +210,12 @@
         "02_end_to_end_machine_learning_project.ipynb"
       ],
       "prompt": "Explain the end-to-end housing workflow, split/preprocessing/tuning/evaluation boundaries, with notebook cell evidence and execution-order limitations.",
-      "referenceStatus": "needs-human-review"
+      "referenceStatus": "frozen"
     }
-  ]
+  ],
+  "pilotFreeze": {
+    "campaign": "pilot-01",
+    "freeze": "pilot/pilot-01/freeze.json",
+    "referenceRevision": "sha256:2088ea445d9cbe00c0f8dfdcd0b5fbc6b3f5fc6c1b0efe04e5f7e1d084e31399"
+  }
 }

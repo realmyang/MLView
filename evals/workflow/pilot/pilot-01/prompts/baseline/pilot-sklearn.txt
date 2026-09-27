@@ -1,0 +1,8 @@
+Explain the nested and non-nested cross-validation comparison, preserving tuning versus held-out evaluation boundaries.
+
+Selected scenario:
+Description: Inspect the example as written: compare non-nested parameter selection with nested outer-fold evaluation across repeated Iris trials.
+Entrypoints: examples/model_selection/plot_nested_cross_validation_iris.py
+Arguments: none
+
+Inspect source without importing or executing target code. Read only this workspace; do not inspect parent folders or other workspaces. Do not delegate to subagents. Answer in this conversation: describe the workflow, the unresolved cases, and the files you inspected. You have 30 active minutes for this task.

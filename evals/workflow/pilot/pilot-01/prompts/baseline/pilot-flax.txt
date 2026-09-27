@@ -1,0 +1,8 @@
+Explain this MNIST training workflow, parameter/state updates, evaluation and configuration. Preserve the functional training semantics.
+
+Selected scenario:
+Description: Run the MNIST example through main.py with examples/mnist/configs/default.py and the work directory /tmp/mnist.
+Entrypoints: examples/mnist/main.py, examples/mnist/train.py, examples/mnist/configs/default.py
+Arguments: --config=examples/mnist/configs/default.py --workdir=/tmp/mnist
+
+Inspect source without importing or executing target code. Read only this workspace; do not inspect parent folders or other workspaces. Do not delegate to subagents. Answer in this conversation: describe the workflow, the unresolved cases, and the files you inspected. You have 30 active minutes for this task.

@@ -1,0 +1,60 @@
+{
+  "budget": {
+    "activeMinutes": 30,
+    "infrastructureRetries": 0,
+    "repairRounds": 2
+  },
+  "campaign": "pilot-01",
+  "conditions": {
+    "baselineSessions": 0,
+    "developmentAdjudicationBeforeStage1": "not-required"
+  },
+  "environment": {
+    "helperPython": "python3 resolves to Python 3.12 or newer in each host's terminal, login shells included: a 3.12+ installation comes first on PATH in the shell profile, and the version is checked in each host before its first run."
+  },
+  "format": "mlview-run-policy/1",
+  "hosts": {
+    "claude-code": {
+      "invocation": "/mlview before the prompt text",
+      "model": "Opus 5.5 (claude-opus-5-5)",
+      "reasoning": "high"
+    },
+    "codex": {
+      "invocation": "the $mlview prefix before the prompt text",
+      "model": "gpt-6-luna",
+      "reasoning": "high"
+    },
+    "copilot": {
+      "invocation": "the line \"Use the mlview skill.\" before the prompt text",
+      "model": "gpt-6-luna, selected explicitly (not Auto)",
+      "reasoning": "high"
+    }
+  },
+  "privacy": {
+    "publication": "nothing else; committed summaries contain counts, statuses and hashes only."
+  },
+  "prompts": {
+    "artifactPath": "pilot.mlview.json",
+    "baselineTemplateSha256": "8ffeac74e59d49dd82a39794ec7de79e339d91b6fd6d2d792077cf35285e063e",
+    "skillTemplateSha256": "448cc54c153f29a4518ab742580208dff714a4f5848e797aa1d23cbd0de1e203"
+  },
+  "scoring": {
+    "perHostTargets": true,
+    "qualifiedClaims": "supported"
+  },
+  "source": {
+    "date": "2026-09-27",
+    "path": "evals/workflow/decisions/run-policy.md",
+    "reviewer": "realmyang",
+    "sha256": "31ee8fd0caa4e4d5deb8c40e315eb336a106f11bfcd927cfe47f9cb18f0b3c0b",
+    "transcribedBy": "Claude Code (Opus 5.5), from the owner's decisions given in conversation on 2026-09-27"
+  },
+  "targets": {
+    "essentialFactRecall": 0.85,
+    "exactAnchors": 1.0,
+    "highSeverityFalseAccusations": 0,
+    "knownUnresolvedQualified": 1.0,
+    "structurallyValid": 1.0,
+    "supportedClaimPrecision": 0.95
+  }
+}

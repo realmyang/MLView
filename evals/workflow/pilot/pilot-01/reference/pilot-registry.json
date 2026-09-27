@@ -1,0 +1,382 @@
+{
+  "campaign": "pilot-01",
+  "candidate": {
+    "path": "evals/workflow/reference-candidates/pilot-registry.json",
+    "sha256": "c21a4cab74cbf85ac6f01dd577499aec5694fa5a4059339e286d929b13f3c3d0"
+  },
+  "counts": {
+    "defects": 0,
+    "essential": 10,
+    "facts": 12,
+    "nonDefects": 2,
+    "runsMustState": 1
+  },
+  "defects": [],
+  "disputes": [],
+  "essentialFactIds": [
+    "registry-config-required",
+    "registry-scenario-config",
+    "registry-config-load",
+    "registry-model",
+    "registry-data-eval",
+    "registry-schedule-runtime",
+    "registry-runner-choice",
+    "registry-default-runner",
+    "registry-train",
+    "registry-external"
+  ],
+  "facts": [
+    {
+      "anchors": [
+        {
+          "endLine": 16,
+          "file": "tools/train.py",
+          "id": "registry-config-required-a",
+          "line": 13
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "The training entrypoint requires a positional config path; it supplies no default config.",
+      "changed": [],
+      "claim": "The training entrypoint requires a positional config path; it supplies no default config.",
+      "decision": "accept",
+      "essential": true,
+      "id": "registry-config-required",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 5,
+          "file": "configs/faster_rcnn/faster-rcnn_r50_fpn_1x_coco.py",
+          "id": "registry-scenario-config-a",
+          "line": 1
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "The selected config inherits the Faster R-CNN R50 FPN model, COCO detection dataset, 1x schedule, and default runtime bases.",
+      "changed": [],
+      "claim": "The selected config inherits the Faster R-CNN R50 FPN model, COCO detection dataset, 1x schedule, and default runtime bases.",
+      "decision": "accept",
+      "essential": true,
+      "id": "registry-scenario-config",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 71,
+          "file": "tools/train.py",
+          "id": "registry-config-load-a",
+          "line": 67
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "The entrypoint loads the selected file through external mmengine Config.fromfile and records the launcher in the resulting config.",
+      "changed": [],
+      "claim": "The entrypoint loads the selected file through external mmengine Config.fromfile and records the launcher in the resulting config.",
+      "decision": "accept",
+      "essential": true,
+      "id": "registry-config-load",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 71,
+          "file": "tools/train.py",
+          "id": "registry-no-overrides-a",
+          "line": 69
+        }
+      ],
+      "basis": "inferred",
+      "candidateClaim": "With the selected no-override invocation, cfg-options merging is not requested.",
+      "changed": [],
+      "claim": "With the selected no-override invocation, cfg-options merging is not requested.",
+      "decision": "accept",
+      "essential": false,
+      "id": "registry-no-overrides",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 80,
+          "file": "tools/train.py",
+          "id": "registry-workdir-a",
+          "line": 73
+        }
+      ],
+      "basis": "inferred",
+      "candidateClaim": "Without a CLI or config work_dir, the entrypoint derives ./work_dirs/faster-rcnn_r50_fpn_1x_coco from the config filename.",
+      "changed": [],
+      "claim": "Without a CLI or config work_dir, the entrypoint derives ./work_dirs/faster-rcnn_r50_fpn_1x_coco from the config filename.",
+      "decision": "accept",
+      "essential": false,
+      "id": "registry-workdir",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 24,
+          "file": "configs/_base_/models/faster-rcnn_r50_fpn.py",
+          "id": "registry-model-a",
+          "line": 1
+        },
+        {
+          "endLine": 53,
+          "file": "configs/_base_/models/faster-rcnn_r50_fpn.py",
+          "id": "registry-model-b",
+          "line": 48
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "The resolved model is FasterRCNN with a pretrained ResNet-50 backbone and FPN neck; its RoI box head has 80 classes.",
+      "changed": [],
+      "claim": "The resolved model is FasterRCNN with a pretrained ResNet-50 backbone and FPN neck; its RoI box head has 80 classes.",
+      "decision": "accept",
+      "essential": true,
+      "id": "registry-model",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 64,
+          "file": "configs/_base_/datasets/coco_detection.py",
+          "id": "registry-data-eval-a",
+          "line": 37
+        },
+        {
+          "endLine": 73,
+          "file": "configs/_base_/datasets/coco_detection.py",
+          "id": "registry-data-eval-b",
+          "line": 67
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "The resolved workflow trains on COCO train2017 with shuffled batches of two and evaluates bounding boxes on val2017 with unshuffled batches of one.",
+      "changed": [],
+      "claim": "The resolved workflow trains on COCO train2017 with shuffled batches of two and evaluates bounding boxes on val2017 with unshuffled batches of one.",
+      "decision": "accept",
+      "essential": true,
+      "id": "registry-data-eval",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 22,
+          "file": "configs/_base_/schedules/schedule_1x.py",
+          "id": "registry-schedule-runtime-a",
+          "line": 1
+        },
+        {
+          "endLine": 9,
+          "file": "configs/_base_/default_runtime.py",
+          "id": "registry-schedule-runtime-b",
+          "line": 3
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "The resolved schedule runs 12 epochs with validation every epoch, SGD at learning rate 0.02, and learning-rate milestones at epochs 8 and 11; runtime checkpointing occurs every epoch.",
+      "changed": [],
+      "claim": "The resolved schedule runs 12 epochs with validation every epoch, SGD at learning rate 0.02, and learning-rate milestones at epochs 8 and 11; runtime checkpointing occurs every epoch.",
+      "decision": "accept",
+      "essential": true,
+      "id": "registry-schedule-runtime",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 114,
+          "file": "tools/train.py",
+          "id": "registry-runner-choice-a",
+          "line": 107
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "The entrypoint uses Runner.from_cfg when runner_type is absent and RUNNERS.build when runner_type is present.",
+      "changed": [],
+      "claim": "The entrypoint uses Runner.from_cfg when runner_type is absent and RUNNERS.build when runner_type is present.",
+      "decision": "accept",
+      "essential": true,
+      "id": "registry-runner-choice",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 5,
+          "file": "configs/faster_rcnn/faster-rcnn_r50_fpn_1x_coco.py",
+          "id": "registry-default-runner-a",
+          "line": 1
+        },
+        {
+          "endLine": 114,
+          "file": "tools/train.py",
+          "id": "registry-default-runner-b",
+          "line": 107
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "None of the selected config or four bases defines runner_type, so the entrypoint selects Runner.from_cfg.",
+      "changed": [],
+      "claim": "None of the selected config or four bases defines runner_type, so the entrypoint selects Runner.from_cfg.",
+      "decision": "accept",
+      "essential": true,
+      "id": "registry-default-runner",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 117,
+          "file": "tools/train.py",
+          "id": "registry-train-a",
+          "line": 116
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "After runner construction, the entrypoint invokes runner.train().",
+      "changed": [],
+      "claim": "After runner construction, the entrypoint invokes runner.train().",
+      "decision": "accept",
+      "essential": true,
+      "id": "registry-train",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 8,
+          "file": "tools/train.py",
+          "id": "registry-external-a",
+          "line": 6
+        }
+      ],
+      "basis": "unresolved",
+      "candidateClaim": "Config parsing, base inheritance, runner construction, registry lookup, and training lifecycle semantics are provided by external mmengine call sites and are not established by tools/train.py alone.",
+      "changed": [],
+      "claim": "Config parsing, base inheritance, runner construction, registry lookup, and training lifecycle semantics are provided by external mmengine call sites and are not established by tools/train.py alone.",
+      "decision": "accept",
+      "essential": true,
+      "id": "registry-external",
+      "origin": "candidate",
+      "reason": null
+    }
+  ],
+  "format": "mlview-frozen-reference/1",
+  "knownUnresolved": [
+    {
+      "candidateText": "External mmengine Config inheritance, registry construction, Runner construction, and lifecycle behavior were not inspected beyond the pinned configuration and entrypoint call sites.",
+      "decision": "accept",
+      "id": "registry-u01",
+      "origin": "candidate",
+      "reason": null,
+      "runsMustState": true,
+      "text": "External mmengine Config inheritance, registry construction, Runner construction, and lifecycle behavior were not inspected beyond the pinned configuration and entrypoint call sites."
+    },
+    {
+      "candidateText": "COCO data, pretrained torchvision ResNet-50 weights, and runtime environment availability remain external.",
+      "decision": "accept",
+      "id": "registry-u02",
+      "origin": "candidate",
+      "reason": null,
+      "runsMustState": false,
+      "text": "COCO data, pretrained torchvision ResNet-50 weights, and runtime environment availability remain external."
+    },
+    {
+      "candidateText": "No target imports, config execution, or training were performed.",
+      "decision": "accept",
+      "id": "registry-u03",
+      "origin": "candidate",
+      "reason": null,
+      "runsMustState": false,
+      "text": "No target imports, config execution, or training were performed."
+    }
+  ],
+  "nonDefects": [
+    {
+      "candidateText": "Config-driven behavior and the alternative registered-runner branch are intentional entrypoint design, not evidence of hidden training logic.",
+      "decision": "accept",
+      "id": "registry-n01",
+      "reason": null,
+      "text": "Config-driven behavior and the alternative registered-runner branch are intentional entrypoint design, not evidence of hidden training logic."
+    },
+    {
+      "candidateText": "Omitted AMP, auto-scale-LR, resume, and cfg-options reflect the selected scenario.",
+      "decision": "accept",
+      "id": "registry-n02",
+      "reason": null,
+      "text": "Omitted AMP, auto-scale-LR, resume, and cfg-options reflect the selected scenario."
+    }
+  ],
+  "rejectedFacts": [],
+  "rejectedNonDefects": [],
+  "rejectedUnknowns": [],
+  "repository": "mmdetection",
+  "repositoryCommit": "cfd5d3a985b0249de009b67d04f37263e11cdf3d",
+  "reviews": [
+    {
+      "date": "2026-09-27",
+      "path": "evals/workflow/decisions/pilot-registry.md",
+      "reviewer": "realmyang",
+      "role": "primary",
+      "sha256": "8709ff583aefdcc2da0903ba444c0f51fd1dafa0711799c33383723625c7ecc5",
+      "transcribedBy": "Claude Code (Opus 5.5), from the owner's decisions given in conversation on 2026-09-27"
+    }
+  ],
+  "scenario": {
+    "arguments": [
+      "configs/faster_rcnn/faster-rcnn_r50_fpn_1x_coco.py"
+    ],
+    "decision": "accept",
+    "description": "Candidate invocation with configs/faster_rcnn/faster-rcnn_r50_fpn_1x_coco.py and no optional overrides, resolved through its four pinned base configs.",
+    "entrypoints": [
+      "tools/train.py",
+      "configs/faster_rcnn/faster-rcnn_r50_fpn_1x_coco.py"
+    ],
+    "reason": null
+  },
+  "sourceFiles": {
+    "configs/_base_/datasets/coco_detection.py": {
+      "blob": "fdf8dfad9476b1d7b7a4e8c3e2832f115a1ea7f2",
+      "sha256": "331362fd27f59bc08d911eb8bd959a14dd8ed8fd8b048d7e11ec692ebd7ae985"
+    },
+    "configs/_base_/default_runtime.py": {
+      "blob": "870e5614c86d7e1bbdad13d77a0db03a46ce717a",
+      "sha256": "f4ed2ce5d49aadf0f14f13e7726ac79fda698e8312242ed70add4420ea2a69df"
+    },
+    "configs/_base_/models/faster-rcnn_r50_fpn.py": {
+      "blob": "31aa1461799a988a11adb901306a063fd3f0b951",
+      "sha256": "025daaa58d8ff8ccec7c10a8779a6307a1eb1fb67316f4312027350959a99d16"
+    },
+    "configs/_base_/schedules/schedule_1x.py": {
+      "blob": "95f30be74ff37080ba0d227d55bbd587feeaa892",
+      "sha256": "29c25800f6a955f137dcd301f559deff3dc37363ae31cbdfedd1df7665f6f23e"
+    },
+    "configs/faster_rcnn/faster-rcnn_r50_fpn_1x_coco.py": {
+      "blob": "8a45417fdd4566241114e20275990a5729486932",
+      "sha256": "0a6f25c90df0393e48f4a4749b54df4ec3c01b26ecf9bb882d13cb0d92b338f4"
+    },
+    "tools/train.py": {
+      "blob": "7e5b71fbcaeb6c78c131f3229de7255bb07712a3",
+      "sha256": "5f55afe19febf1c9c20d50204492f7f83e021f0f17c57609e7b265d45af92cf0"
+    }
+  },
+  "task": "pilot-registry"
+}

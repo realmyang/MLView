@@ -1,0 +1,340 @@
+{
+  "campaign": "pilot-01",
+  "candidate": {
+    "path": "evals/workflow/reference-candidates/pilot-transformers.json",
+    "sha256": "ca15e10f8c7b066bf5d0b813131536ce326d17e9bfa2920d96851cbfe796025c"
+  },
+  "counts": {
+    "defects": 0,
+    "essential": 9,
+    "facts": 11,
+    "nonDefects": 3,
+    "runsMustState": 1
+  },
+  "defects": [],
+  "disputes": [],
+  "essentialFactIds": [
+    "transformers-f01",
+    "transformers-f03",
+    "transformers-f05",
+    "transformers-f06",
+    "transformers-f07",
+    "transformers-f08",
+    "transformers-f09",
+    "transformers-f10",
+    "transformers-f11"
+  ],
+  "facts": [
+    {
+      "anchors": [
+        {
+          "endLine": 39,
+          "file": "examples/pytorch/text-classification/README.md",
+          "id": "transformers-a01",
+          "line": 31
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "The selected scenario is the README's MRPC command using google-bert/bert-base-cased with training and evaluation enabled.",
+      "changed": [],
+      "claim": "The selected scenario is the README's MRPC command using google-bert/bert-base-cased with training and evaluation enabled.",
+      "decision": "accept",
+      "essential": true,
+      "id": "transformers-f01",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 42,
+          "file": "examples/pytorch/text-classification/README.md",
+          "id": "transformers-a02",
+          "line": 40
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "The scenario fixes learning rate 2e-5, three epochs, and /tmp/mrpc/ as output directory.",
+      "changed": [],
+      "claim": "The scenario fixes learning rate 2e-5, three epochs, and /tmp/mrpc/ as output directory.",
+      "decision": "accept",
+      "essential": false,
+      "id": "transformers-f02",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 289,
+          "file": "examples/pytorch/text-classification/run_glue.py",
+          "id": "transformers-a03",
+          "line": 282
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "For a named GLUE task, the script loads that task from nyu-mll/glue.",
+      "changed": [],
+      "claim": "For a named GLUE task, the script loads that task from nyu-mll/glue.",
+      "decision": "accept",
+      "essential": true,
+      "id": "transformers-f03",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 346,
+          "file": "examples/pytorch/text-classification/run_glue.py",
+          "id": "transformers-a04",
+          "line": 339
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "The script derives label count from the GLUE training split and marks only STS-B as regression.",
+      "changed": [],
+      "claim": "The script derives label count from the GLUE training split and marks only STS-B as regression.",
+      "decision": "accept",
+      "essential": false,
+      "id": "transformers-f04",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 381,
+          "file": "examples/pytorch/text-classification/run_glue.py",
+          "id": "transformers-a05",
+          "line": 363
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "Configuration, tokenizer, and sequence-classification model are loaded from the selected pretrained model unless separate config or tokenizer names override it.",
+      "changed": [],
+      "claim": "Configuration, tokenizer, and sequence-classification model are loaded from the selected pretrained model unless separate config or tokenizer names override it.",
+      "decision": "accept",
+      "essential": true,
+      "id": "transformers-f05",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 393,
+          "file": "examples/pytorch/text-classification/run_glue.py",
+          "id": "transformers-a06a",
+          "line": 391
+        },
+        {
+          "endLine": 451,
+          "file": "examples/pytorch/text-classification/run_glue.py",
+          "id": "transformers-a06b",
+          "line": 444
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "The task selects its sentence columns from task_to_keys and tokenization truncates to the lesser of requested and tokenizer maximum length.",
+      "changed": [],
+      "claim": "The task selects its sentence columns from task_to_keys and tokenization truncates to the lesser of requested and tokenizer maximum length.",
+      "decision": "accept",
+      "essential": true,
+      "id": "transformers-f06",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 485,
+          "file": "examples/pytorch/text-classification/run_glue.py",
+          "id": "transformers-a07",
+          "line": 473
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "Training uses the train split and evaluation uses validation for MRPC.",
+      "changed": [],
+      "claim": "Training uses the train split and evaluation uses validation for MRPC.",
+      "decision": "accept",
+      "essential": true,
+      "id": "transformers-f07",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 525,
+          "file": "examples/pytorch/text-classification/run_glue.py",
+          "id": "transformers-a08",
+          "line": 505
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "For GLUE, metrics come from evaluate.load('glue', task_name); classification predictions use argmax and multi-valued metrics also receive a combined mean score.",
+      "changed": [],
+      "claim": "For GLUE, metrics come from evaluate.load('glue', task_name); classification predictions use argmax and multi-valued metrics also receive a combined mean score.",
+      "decision": "accept",
+      "essential": true,
+      "id": "transformers-f08",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 545,
+          "file": "examples/pytorch/text-classification/run_glue.py",
+          "id": "transformers-a09",
+          "line": 536
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "Trainer receives the model, training arguments, selected train/eval datasets, metric function, tokenizer processing class, and collator.",
+      "changed": [],
+      "claim": "Trainer receives the model, training arguments, selected train/eval datasets, metric function, tokenizer processing class, and collator.",
+      "decision": "accept",
+      "essential": true,
+      "id": "transformers-f09",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 563,
+          "file": "examples/pytorch/text-classification/run_glue.py",
+          "id": "transformers-a10",
+          "line": 547
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "The training branch calls Trainer.train, then saves the model, training metrics, and trainer state.",
+      "changed": [],
+      "claim": "The training branch calls Trainer.train, then saves the model, training metrics, and trainer state.",
+      "decision": "accept",
+      "essential": true,
+      "id": "transformers-f10",
+      "origin": "candidate",
+      "reason": null
+    },
+    {
+      "anchors": [
+        {
+          "endLine": 595,
+          "file": "examples/pytorch/text-classification/run_glue.py",
+          "id": "transformers-a11",
+          "line": 581
+        }
+      ],
+      "basis": "observed",
+      "candidateClaim": "The evaluation branch calls Trainer.evaluate on the selected validation dataset and saves evaluation metrics.",
+      "changed": [],
+      "claim": "The evaluation branch calls Trainer.evaluate on the selected validation dataset and saves evaluation metrics.",
+      "decision": "accept",
+      "essential": true,
+      "id": "transformers-f11",
+      "origin": "candidate",
+      "reason": null
+    }
+  ],
+  "format": "mlview-frozen-reference/1",
+  "knownUnresolved": [
+    {
+      "candidateText": "Dataset and pretrained-model contents are external to the pinned checkout and were not downloaded or inspected.",
+      "decision": "accept",
+      "id": "transformers-u01",
+      "origin": "candidate",
+      "reason": null,
+      "runsMustState": false,
+      "text": "Dataset and pretrained-model contents are external to the pinned checkout and were not downloaded or inspected."
+    },
+    {
+      "candidateText": "Trainer's optimizer, scheduling, checkpoint cadence, and distributed behavior live outside this entrypoint and require separately anchored library inspection if treated as reference facts.",
+      "decision": "accept",
+      "id": "transformers-u02",
+      "origin": "candidate",
+      "reason": null,
+      "runsMustState": true,
+      "text": "Trainer's optimizer, scheduling, checkpoint cadence, and distributed behavior live outside this entrypoint and require separately anchored library inspection if treated as reference facts."
+    }
+  ],
+  "nonDefects": [
+    {
+      "candidateText": "Using the validation split for --do_eval is the intended GLUE evaluation path in this example.",
+      "decision": "accept",
+      "id": "transformers-n01",
+      "reason": null,
+      "text": "Using the validation split for --do_eval is the intended GLUE evaluation path in this example."
+    },
+    {
+      "candidateText": "The MRPC scenario does not enter the MNLI matched/mismatched special case.",
+      "decision": "accept",
+      "id": "transformers-n02",
+      "reason": null,
+      "text": "The MRPC scenario does not enter the MNLI matched/mismatched special case."
+    },
+    {
+      "candidateText": "Creating a local model card when push_to_hub is false is intended output behavior.",
+      "decision": "accept",
+      "id": "transformers-n03",
+      "reason": null,
+      "text": "Creating a local model card when push_to_hub is false is intended output behavior."
+    }
+  ],
+  "rejectedFacts": [],
+  "rejectedNonDefects": [],
+  "rejectedUnknowns": [
+    {
+      "candidateText": "The README output path is platform-specific and the pilot must decide whether to preserve it literally or substitute a recorded workspace-safe path.",
+      "id": "transformers-u03",
+      "reason": "Settled: the accepted scenario keeps the README's --output_dir /tmp/mrpc/ literally; nothing is executed."
+    }
+  ],
+  "repository": "transformers",
+  "repositoryCommit": "a2c15b30764b7c6cb0632ac6aed6eac227edc674",
+  "reviews": [
+    {
+      "date": "2026-09-27",
+      "path": "evals/workflow/decisions/pilot-transformers.md",
+      "reviewer": "realmyang",
+      "role": "primary",
+      "sha256": "c949d43e1a87f1a84300900de1df53eb4f17a2cfef9876fe059381f858f8669a",
+      "transcribedBy": "Claude Code (Opus 5.5), from the owner's decisions given in conversation on 2026-09-27"
+    }
+  ],
+  "scenario": {
+    "arguments": [
+      "--model_name_or_path google-bert/bert-base-cased",
+      "--task_name mrpc",
+      "--do_train",
+      "--do_eval",
+      "--max_seq_length 128",
+      "--per_device_train_batch_size 32",
+      "--learning_rate 2e-5",
+      "--num_train_epochs 3",
+      "--output_dir /tmp/mrpc/"
+    ],
+    "decision": "accept",
+    "description": "Use the pinned README's MRPC GLUE example with BERT and both training and evaluation enabled.",
+    "entrypoints": [
+      "examples/pytorch/text-classification/run_glue.py",
+      "examples/pytorch/text-classification/README.md"
+    ],
+    "reason": null
+  },
+  "sourceFiles": {
+    "examples/pytorch/text-classification/README.md": {
+      "blob": "f426824b5104c092a81e64c25f340f3e33fb0242",
+      "sha256": "2051c2261276139e0c70f191e47057e8cb92070f2394b2c55f14b2756aee7c22"
+    },
+    "examples/pytorch/text-classification/run_glue.py": {
+      "blob": "77e4193e7a3c6d5499d85491126047d62462e98f",
+      "sha256": "483b2d0d65433017422dca6f41939f621636a80f43053ee42cc1f9b65dd5a495"
+    }
+  },
+  "task": "pilot-transformers"
+}
