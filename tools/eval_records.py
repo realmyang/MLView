@@ -44,6 +44,10 @@ The grammar of every human-authored file (Campaign 2 specification, section 1.3)
   other line are errors that name the line and the section. A line without a key after a stored
   value (usually a wrapped sentence, even when a blank or ``>`` line comes between) gets the hint to
   indent it by two spaces.
+
+Review normalization v1 (``normalized_review_sha256``) hashes a run review without what this
+grammar ignores; it is defined on its own, next to ``sha256_bytes``, so a parser change never
+changes it.
 """
 from __future__ import annotations
 
@@ -646,6 +650,57 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: stream.read(1 << 20), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+# Review normalization v1. A Stage 1 summary records, for every review.md it read, the SHA-256 of
+# the review normalized this way, and the Stage 2 gate compares those hashes whichever tools
+# recorded the summary. v1 is fixed: it never calls the review parser, and its own constants below
+# never follow a parser change. A different normalization gets a new version number, and tools keep
+# v1 as written for every summary that names it.
+#
+#   1. Decode the bytes as UTF-8 (strict; bytes that are not UTF-8 have no v1 hash).
+#   2. Strip one leading BOM (U+FEFF).
+#   3. Split into lines at CRLF, CR or LF.
+#   4. Strip trailing whitespace from every line (the 29 characters of _V1_SPACE).
+#   5. Drop every line that is then empty, and every line whose first non-whitespace character is
+#      ">" (a note). Leading indentation is kept, since a continuation line depends on it.
+#   6. SHA-256 of the remaining lines, each followed by LF, encoded as UTF-8.
+#
+# Steps 2-5 drop exactly what the review grammar ignores (the module docstring): the parser skips a
+# line when str.strip() leaves it empty or starting with ">", and it ignores trailing spaces, a
+# BOM and the line-ending style. _V1_SPACE is the set str.strip() removes in Python 3.10 to 3.14 (a
+# test compares it with the running interpreter). A review.md takes no fenced block (one is an
+# error), so a line is a note exactly when the parser skips it as one. A re-save, a note, trailing
+# spaces or blank lines therefore keep the hash; any other change, including a change of leading
+# indentation, changes it.
+REVIEW_NORMALIZATION_VERSION = 1
+_V1_SPACE = ("\t\n\x0b\x0c\r\x1c\x1d\x1e\x1f \x85\xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005"
+             "\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000")
+_V1_LINE_BREAK = re.compile(r"\r\n|\r|\n")
+
+
+def normalized_review_bytes(raw: bytes) -> bytes:
+    """The bytes review normalization v1 hashes (see above); ValueError when ``raw`` is not UTF-8."""
+    try:
+        text = bytes(raw).decode("utf-8")
+    except UnicodeDecodeError:
+        raise ValueError("the file is not valid UTF-8") from None
+    if text.startswith("\ufeff"):
+        text = text[1:]
+    kept = []
+    for line in _V1_LINE_BREAK.split(text):
+        line = line.rstrip(_V1_SPACE)
+        if line and not line.lstrip(_V1_SPACE).startswith(">"):
+            kept.append(line + "\n")
+    return "".join(kept).encode("utf-8")
+
+
+def normalized_review_sha256(raw: bytes) -> str | None:
+    """The v1 normalized hash of a review.md (see above), or None when its bytes are not UTF-8."""
+    try:
+        return sha256_bytes(normalized_review_bytes(raw))
+    except ValueError:
+        return None
 
 
 def git_blob_oid(data: bytes) -> str:

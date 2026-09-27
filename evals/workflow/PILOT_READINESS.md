@@ -181,7 +181,9 @@ or transcribed at the owner's dictation with `Transcribed by:` filled.
    `--record` writes the summary for `go`, `stop` or `invalid` (it refuses
    while a failure the run policy lets you retry is still open), and from
    then on Stage 1 runs can no longer be retried or amended, and no Stage 1
-   review may change a verdict; keep a copy of the evidence directory. Commit
+   review may change except for `>` notes, line endings, trailing spaces and
+   blank lines (the summary records each review's normalized hash, and the
+   Stage 2 gate compares it); keep a copy of the evidence directory. Commit
    both summary files at once, right away, before any other commit, pull,
    merge or rebase, and merge that commit without squashing or rebasing it.
 
@@ -195,7 +197,9 @@ or transcribed at the owner's dictation with `Transcribed by:` filled.
     review them the same way, then report complete 72-run per-host/task
     numerators and denominators with
     `python tools/workflow_eval.py summarize --campaign pilot-01 --stage all --record`,
-    and commit that summary the same way.
+    and commit that summary the same way. A tools change during the pilot
+    must not reject a recorded Stage 1 review: the gate then holds Stage 2
+    until that change is reverted ([known limits](pilot/README.md#known-limits)).
     Stage 1 success is permission to collect more evidence, not a completed
     or passed pilot.
 
