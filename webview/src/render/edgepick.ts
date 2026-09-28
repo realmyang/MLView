@@ -72,3 +72,32 @@ export function nearestRoute(routes: RoutedEdge[], p: Point, maxDistance: number
   }
   return best;
 }
+
+/**
+ * The route whose severity marker covers `p`, or null. `markers` maps a route
+ * id to the centre of the disc drawn on it; `radius` is that disc's radius in
+ * world units.
+ *
+ * The disc is centred ON its route (the midpoint, or a point VIEW-03 walked
+ * along the polyline), but its 8.5 px radius grows on screen with the zoom
+ * while `EDGE_PICK_PX` does not: above ~1.2x the rim of a visible marker lay
+ * outside every cable's pick distance, and hovering it opened nothing. A
+ * marker is drawn over the cables under it, so it owns its whole disc. The
+ * nearest centre wins; ties keep the earlier route.
+ */
+export function markerRoute(routes: RoutedEdge[], markers: Map<string, Point>, p: Point, radius: number): RoutedEdge | null {
+  let best: RoutedEdge | null = null;
+  let bestDist = radius * radius;
+  for (const route of routes) {
+    const at = markers.get(route.id);
+    if (!at) continue;
+    const dx = p.x - at.x;
+    const dy = p.y - at.y;
+    const d2 = dx * dx + dy * dy;
+    if (d2 < bestDist) {
+      bestDist = d2;
+      best = route;
+    }
+  }
+  return best;
+}

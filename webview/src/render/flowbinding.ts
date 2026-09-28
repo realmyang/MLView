@@ -23,6 +23,7 @@ import { MotionWatcher } from '../motion.js';
 import type { MotionMode } from '../motion.js';
 import type { RoutedEdge } from '../layout/routing.js';
 import type { GraphIndex } from '../layout/model.js';
+import type { TraceReach } from './trace.js';
 
 /** Everything the flow needs from the canvas view, and nothing more. */
 export interface FlowBindingHost {
@@ -33,7 +34,7 @@ export interface FlowBindingHost {
   index(): GraphIndex | null;
   /** The card the pointer has settled on, or null (interaction table row 5). */
   hoverNodeId(): string | null;
-  /** The node whose stream focus mode has latched, or null (row 7). */
+  /** The node whose lineage stream focus mode has latched, or null (row 7). */
   lockedNodeId(): string | null;
   /** The cable the pointer owns right now, or null — the cascade's last rung. */
   hoverEdgeId(): string | null;
@@ -46,7 +47,17 @@ export interface FlowBindingHost {
  * that says how to get the animation back. Without it the headline gesture of
  * Feature 1 simply stops working on any real repo, silently.
  */
-export function cappedTraceMessage(edges: number, motion: MotionMode = 'full'): string {
+export function cappedTraceMessage(edges: number, motion: MotionMode = 'full', reach: TraceReach = 'lineage'): string {
+  // A hover streams only the card's own connections, so its copy names the
+  // card. Scoping to the card keeps every one of those connections, so its
+  // remedy is the single-connection hover, which pulses any drawn cable
+  // (11.14 C3); focus mode streams the whole lineage, which scoping does cut.
+  if (reach === 'direct') {
+    const lead = 'This card has ' + edges + ' connections, ';
+    return motion === 'reduced'
+      ? lead + 'more than the ' + FLOW.MAX_EDGES + ' that can be marked at once. Hover a single connection to see its direction.'
+      : lead + 'past the ' + FLOW.MAX_EDGES + ' the animation can carry. Hover a single connection to see its flow.';
+  }
   // "298 of 120 connections" is a subset construction, and it read as a bug at
   // exactly the moment the feature stopped working (R2-FLOW-06). And under
   // `reduce` nothing was ever going to animate, so the copy names what that
@@ -76,8 +87,12 @@ export class FlowBinding {
   private motionWatch: MotionWatcher;
   /** The edge whose pulse is LATCHED by the selection (interaction row 4). */
   private latchedEdgeId: string | null = null;
-  /** The node the capped message was last raised for; a sweep may not spam it. */
-  private cappedNodeId: string | null = null;
+  /**
+   * The node and reach the capped message was last raised for; a sweep may not
+   * spam it. The reach is part of the key because a hover and focus mode on the
+   * same card quote different counts.
+   */
+  private cappedKey: string | null = null;
 
   constructor(host: FlowBindingHost) {
     this.host = host;
@@ -108,7 +123,7 @@ export class FlowBinding {
     this.motionWatch = new MotionWatcher((mode) => {
       this.controller.setMotion(mode);
       this.controller.syncCanvas();
-      this.cappedNodeId = null;
+      this.cappedKey = null;
       this.stop();
     });
     this.controller.setMotion(this.motionWatch.mode);
@@ -144,7 +159,7 @@ export class FlowBinding {
 
   /** Idempotent, and the only thing the re-projection path needs (11.14 C1). */
   clear(): void {
-    this.cappedNodeId = null;
+    this.cappedKey = null;
     this.controller.clear();
   }
 
@@ -156,15 +171,17 @@ export class FlowBinding {
   }
 
   /**
-   * A lineage stream, plus the one thing the animation cannot say for itself:
-   * that it was suppressed for density and that scoping brings it back.
+   * A stream — a hovered card's direct routes, or a focused node's lineage —
+   * plus the one thing the animation cannot say for itself: that it was
+   * suppressed for density and that scoping brings it back.
    */
-  stream(nodeId: string): void {
-    const result = this.controller.stream(nodeId);
+  stream(nodeId: string, reach: TraceReach): void {
+    const result = this.controller.stream(nodeId, reach);
     if (!result.capped) return;
-    if (this.cappedNodeId === nodeId) return; // a hover sweep may not spam it
-    this.cappedNodeId = nodeId;
-    this.host.toast(cappedTraceMessage(result.edges, this.controller.motion));
+    const key = reach + ':' + nodeId;
+    if (this.cappedKey === key) return; // a hover sweep may not spam it
+    this.cappedKey = key;
+    this.host.toast(cappedTraceMessage(result.edges, this.controller.motion, reach));
   }
 
   /**
@@ -172,10 +189,12 @@ export class FlowBinding {
    * order, and only when all three are absent does the layer go dark:
    *
    *  1. a SELECTED edge keeps its pulse with the pointer anywhere (row 4);
-   *  2. focus mode keeps its stream, so a pipeline can be read at leisure (row 7);
-   *  3. the card the pointer is STILL resting on keeps its stream — clicking the
-   *     card you are hovering must not extinguish the hover you already earned
-   *     (row 8 asks that a click start no flow, not that it stop one);
+   *  2. focus mode keeps its lineage stream, so a pipeline can be read at
+   *     leisure (row 7);
+   *  3. the card the pointer is STILL resting on keeps its direct stream —
+   *     clicking the card you are hovering must not extinguish the hover you
+   *     already earned (row 8 asks that a click start no flow, not that it
+   *     stop one);
    *  4. the CABLE the pointer is still resting on keeps its pulse, which is what
    *     lets the toolbar toggle restore a live hover (R2-FLOW-08). It is last so
    *     no earlier rung's behaviour moves; a hover CLOSE has already released the
@@ -191,12 +210,12 @@ export class FlowBinding {
     }
     const locked = this.host.lockedNodeId();
     if (locked) {
-      this.stream(locked);
+      this.stream(locked, 'lineage');
       return;
     }
     const hovered = this.host.hoverNodeId();
     if (hovered) {
-      this.stream(hovered);
+      this.stream(hovered, 'direct');
       return;
     }
     const cable = this.host.hoverEdgeId();

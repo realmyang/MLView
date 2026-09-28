@@ -23,7 +23,7 @@ import type { LayoutFrame, LayoutLane } from '../layout/layout.js';
 import type { RoutedEdge } from '../layout/routing.js';
 import type { EdgeVisual } from './edges.js';
 import type { NodeVisual } from './nodes.js';
-import type { Issue, IssueCounts, MLNode, Severity } from '../types.js';
+import type { IssueCounts, MLNode, Severity } from '../types.js';
 
 /** A swimlane band plus the aggregated counts its header shows. */
 export interface LaneVisual {
@@ -101,8 +101,8 @@ export function planScene(opts: ScenePlanOptions): ScenePlan {
 
   const edges: EdgeVisual[] = [];
   for (const route of routes) {
-    const issues: Issue[] = [];
-    for (const id of route.ids) for (const issue of index.issuesOfEdge(id, keep)) issues.push(issue);
+    // Each finding once, however many of the merged members name it.
+    const issues = index.issuesOfEdges(route.ids, keep);
     const src = index.nodeById.get(route.source);
     const dst = index.nodeById.get(route.target);
     edges.push({

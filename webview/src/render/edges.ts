@@ -5,7 +5,7 @@
  */
 
 import { svg, setAttrs } from '../dom.js';
-import { edgeMarker } from '../markers.js';
+import { edgeMarker, edgeMarkerRadius } from '../markers.js';
 import {
   WEIGHT_BADGE_H,
   WEIGHT_MIN,
@@ -16,7 +16,7 @@ import {
 } from '../rollup/rolled.js';
 import { labelTextOf } from '../layout/labels.js';
 import type { LabelPlacement } from '../layout/labels.js';
-import type { RoutedEdge } from '../layout/routing.js';
+import type { Point, RoutedEdge } from '../layout/routing.js';
 import type { Severity } from '../types.js';
 
 /**
@@ -184,6 +184,19 @@ export interface EdgeVisual {
   weight?: number;
 }
 
+/** The glyph size of a cable's severity marker, and the radius of its disc. */
+export const EDGE_MARKER_SIZE = 14;
+export const EDGE_MARKER_R = edgeMarkerRadius(EDGE_MARKER_SIZE);
+
+/**
+ * Where this cable's severity marker (or loop chevron) is drawn: the VIEW-03
+ * nudged point, else the route midpoint. The hover resolver reads the same
+ * point, so the disc it answers to is the disc on screen.
+ */
+export function markerPoint(v: Pick<EdgeVisual, 'route' | 'placement'>): Point {
+  return v.placement ? v.placement.marker : v.route.mid;
+}
+
 export function buildEdge(v: EdgeVisual): SVGElement {
   const r = v.route;
   const kind = edgeKindClass(r.kind);
@@ -251,9 +264,9 @@ export function buildEdge(v: EdgeVisual): SVGElement {
 
   // The severity marker rides the nudged point, so a glyph and a name never sit
   // centred on each other (VIEW-03).
-  const mark = placement ? placement.marker : r.mid;
+  const mark = markerPoint(v);
   if (v.severity) {
-    const m = edgeMarker(v.severity, 14);
+    const m = edgeMarker(v.severity, EDGE_MARKER_SIZE);
     m.setAttribute('transform', 'translate(' + mark.x + ',' + mark.y + ')');
     g.appendChild(m);
   } else if (r.back) {

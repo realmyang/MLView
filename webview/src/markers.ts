@@ -126,12 +126,17 @@ export function severityCluster(counts: IssueCounts, size = 14): HTMLElement | n
   return wrap;
 }
 
+/** Radius of the disc `edgeMarker` draws behind a glyph of `size`. */
+export function edgeMarkerRadius(size: number): number {
+  return size / 2 + 1.5;
+}
+
 /** Edge marker: the glyph on a surface-coloured disc at the path midpoint. */
 export function edgeMarker(severity: string, size = 16): SVGElement {
   const sev = normalizeSeverity(severity);
   const g = svg('g', { class: 'mlv-edge-marker mlv-edge-marker--' + sev, role: 'img' });
   g.setAttribute('aria-label', SEVERITY_WORD[sev] + ' severity issue on this connection');
-  const disc = svg('circle', { class: 'mlv-edge-marker__disc', r: size / 2 + 1.5, cx: 0, cy: 0 });
+  const disc = svg('circle', { class: 'mlv-edge-marker__disc', r: edgeMarkerRadius(size), cx: 0, cy: 0 });
   g.appendChild(disc);
   const inner = severityGlyph(sev, size, '');
   inner.setAttribute('x', String(-size / 2));

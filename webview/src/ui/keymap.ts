@@ -60,7 +60,9 @@ export const KEYMAP: KeyBinding[] = [
   { keys: ['+', '='], action: 'zoomIn', description: 'Zoom in' },
   { keys: ['-', '_'], action: 'zoomOut', description: 'Zoom out' },
   { keys: ['z'], action: 'zoomToSelection', description: 'Zoom to the selection' },
-  { keys: ['f'], action: 'focusMode', description: 'Focus mode on the selection' },
+  // Hovering a card lights only its direct connections; the sheet is where a
+  // reader learns that `f` shows the whole lineage.
+  { keys: ['f'], action: 'focusMode', description: 'Focus mode: light the full lineage of the selection' },
   { keys: ['l'], action: 'legend', description: 'Show or hide the legend' },
   { keys: ['a'], action: 'flow', description: 'Turn the connection flow animation on or off' },
   { keys: ['e', 'Shift+E'], action: 'cycleConnections', description: 'Next / previous connection of the selected node' },

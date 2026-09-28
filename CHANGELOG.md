@@ -6,6 +6,48 @@ static analyzer; their figures are historical and are not rewritten. Current
 truth lives in [docs/STATUS.md](docs/STATUS.md) and
 [docs/VALIDATION.md](docs/VALIDATION.md).
 
+## Unreleased — viewer fixes from the Stage 1 review
+
+Two viewer defects the owner reported while reading pilot diagrams in VS Code,
+the related gaps that model reviews of the fix found, and a narrower node
+hover the owner asked for in the same review. The changes are checked by local
+tests only (`webview/test/finding-counts.test.mjs` and new cases in
+`webview/test/hover.test.mjs`); the version is unchanged.
+
+Viewer (`webview/`, rebuilt into `vscode-extension/media/`):
+- Phase and group badges count each finding once. A phase header and its
+  Outline row added up the findings of every step and every connection in the
+  phase, so one finding that named three steps and two connections showed 5
+  there while the toolbar and status bar said 1. A group's badge did the same
+  for a finding naming the group and its children. A finding that touches two
+  phases still counts once in each of them. A collapsed group also counts the
+  findings of the connections it hides (both ends inside it), which used to
+  vanish from the canvas when the reader folded the group.
+- Hovering a connection, or the severity marker on it, lists the connection's
+  findings in the hover card (severity, id and title, as a step's card does).
+  A merged connection lists each finding once, in document order, and findings
+  hidden by the severity or phase filters are left out. The card sits above
+  the marker instead of over it. The whole marker now opens the card: when
+  zoomed in past about 120%, pointing at the edge of the marker used to open
+  nothing. A connection's Inspector lists its findings too, so they are not
+  reachable only by pointer.
+- Hovering a group lists the same findings its badge counts; a collapsed
+  group's card listed only the group's own findings, usually none.
+- Hovering a step or group lights only its direct connections (the
+  connections that start or end at it, and the cards at their other ends) and
+  runs the flow animation along those connections only. It used to light the
+  whole upstream and downstream lineage, which on a loop or a long chain lit
+  most of the diagram. A collapsed group counts as the steps it hides. Focus
+  mode (select a step, press F) still lights and animates the full lineage,
+  and the shortcut sheet now says so. A bundled trunk that a hover or focus
+  mode opened folds again when it ends; it used to stay open. Cards a hover
+  dims can still be hovered and clicked (only focus mode makes dimmed cards
+  inert), so the cards two hops away stay reachable. Turning focus mode off
+  with the pointer on a card brings back that card's hover. When a hovered
+  card has more connections than the animation can carry, the message now
+  suggests hovering a single connection, since scoping to the card keeps all
+  of them.
+
 ## Unreleased — Campaign 3: public shakedown fixes
 
 A shakedown ran the `mlview` skill from 0.3.0 (`00e5d45`) once per host

@@ -232,7 +232,7 @@
  * The layer draws one trunk per (source lane, target lane) pair with splayed
  * spurs and a count badge; the cables it stands for stay in the DOM, keep their
  * own `d` and their own motion-path id, and are merely made transparent while
- * the trunk is collapsed. Hover, focus, selection or a lineage highlight puts
+ * the trunk is collapsed. Hover, focus, selection or a node highlight puts
  * `.is-expanded` on the trunk and takes `.is-bundled` off its members, and the
  * picture is exactly the pre-VIEW-04 one again.
  */

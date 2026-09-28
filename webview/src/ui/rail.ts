@@ -300,7 +300,7 @@ export class Rail {
     add(panel, el('h3', 'mlv-sr', 'Inspector'));
     const node = s.selectedNode;
     if (s.selectedEdge && s.index) {
-      this.renderEdgeInspector(panel, s.selectedEdge, s.index);
+      this.renderEdgeInspector(panel, s.selectedEdge, s.index, s);
       return;
     }
     if (s.selectedIssue && s.index) {
@@ -430,18 +430,20 @@ export class Rail {
       }
     }
 
-    const issues = s.index.issuesOf(node.id, s.keep);
-    if (issues.length) {
-      panel.appendChild(this.heading('Findings'));
-      for (const issue of issues) {
-        const box = this.inspectorIssue(issue, s);
-        if (s.selectedIssueId === issue.id) box.classList.add('is-selected');
-        panel.appendChild(box);
-      }
+    this.appendIssues(panel, s.index.issuesOf(node.id, s.keep), s);
+  }
+
+  private appendIssues(panel: HTMLElement, issues: Issue[], s: RailState): void {
+    if (!issues.length) return;
+    panel.appendChild(this.heading('Findings'));
+    for (const issue of issues) {
+      const box = this.inspectorIssue(issue, s);
+      if (s.selectedIssueId === issue.id) box.classList.add('is-selected');
+      panel.appendChild(box);
     }
   }
 
-  private renderEdgeInspector(panel: HTMLElement, edge: MLEdge, index: GraphIndex): void {
+  private renderEdgeInspector(panel: HTMLElement, edge: MLEdge, index: GraphIndex, s: RailState): void {
     add(panel, el('h4', 'mlv-insp__title', edge.label || edgeKindText(edge.kind) || 'Connection'));
     const source = index.nodeById.get(edge.source);
     const target = index.nodeById.get(edge.target);
@@ -456,6 +458,9 @@ export class Rail {
     this.appendChallenge(actions);
     this.renderEvidenceLocations(panel, edge.evidenceLocs || (edge.loc.file ? [edge.loc] : []));
     this.renderWorkflowLimitations(panel, index);
+    // The connection's hover card lists these too; this is the keyboard's and
+    // the screen reader's way to them, as the Findings block is for a step.
+    this.appendIssues(panel, index.issuesOfEdge(edge.id, s.keep), s);
   }
 
   private renderWorkflowLimitations(panel: HTMLElement, index: GraphIndex): void {

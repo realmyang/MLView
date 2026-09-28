@@ -52,6 +52,16 @@ deferred on purpose. Local checks and CI: [details](VALIDATION.md); the pilot
 has not run, and once quotes come from `excerpt` the pilot's exact-anchor
 target shows only that cited ranges exist and are fresh.
 
+Unreleased viewer fixes from the Stage 1 review: phase and group badges and
+the Outline's rows count each finding once, so they agree with the toolbar,
+and a collapsed group counts the findings of the connections it hides.
+Hovering a connection or its severity marker lists its findings, as hovering a
+step does, and the connection's Inspector lists them too. Hovering a step
+lights and animates only its direct connections, and the cards it dims stay
+clickable; focus mode (select, then F) keeps the full upstream and downstream
+lineage. These are checked by local jsdom tests only, not in live VS Code
+([changelog](../CHANGELOG.md)).
+
 Version 0.3.0 adds Campaign 2, "pilot readiness" (see the
 [changelog](../CHANGELOG.md)): owner decision files with a `check` command,
 the campaign freeze and `check-frozen`, the v2 pilot candidate that builds its

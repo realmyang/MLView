@@ -168,6 +168,13 @@
 .mlv-canvas.is-focusing .mlv-node:not(.is-lit) {
   opacity: 0.22;
   filter: saturate(0.3);
+}
+
+/* Only latched focus mode makes dimmed cards inert. A hover lights one hop, so
+ * most cards are dim while it is up; they must still take the pointer, to start
+ * their own hover, to be clicked, and to keep the cable picker off the
+ * connections under them (`render/edgehover.ts`). */
+.mlv-canvas.is-focusing .mlv-node:not(.is-lit) {
   pointer-events: none;
 }
 
