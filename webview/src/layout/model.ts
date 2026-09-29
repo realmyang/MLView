@@ -7,7 +7,7 @@
  */
 
 import type { IssueCounts, Issue, MLEdge, MLGraph, MLNode, Severity, Stage } from '../types.js';
-import { addCounts, emptyCounts, normalizeSeverity } from '../markers.js';
+import { emptyCounts, normalizeSeverity } from '../markers.js';
 
 export const CANONICAL_STAGES: { id: string; label: string }[] = [
   { id: 'config', label: 'Configuration' },
@@ -29,6 +29,8 @@ export class GraphIndex {
   readonly nodeById = new Map<string, MLNode>();
   readonly edgeById = new Map<string, MLEdge>();
   readonly issueById = new Map<string, Issue>();
+  /** Each finding's position in the document, so a union of lists keeps document order. */
+  private readonly issueRank = new Map<string, number>();
   /** Hierarchy children as the DOCUMENT declares them, in document order. */
   readonly childrenOf = new Map<string, string[]>();
   /** The document's own `parent` field, cycle-guarded. Rarely what you want. */
@@ -60,7 +62,10 @@ export class GraphIndex {
     this.graph = graph;
     for (const n of graph.nodes || []) this.nodeById.set(n.id, n);
     for (const e of graph.edges || []) this.edgeById.set(e.id, e);
-    for (const i of graph.issues || []) this.issueById.set(i.id, i);
+    for (const i of graph.issues || []) {
+      this.issueById.set(i.id, i);
+      if (!this.issueRank.has(i.id)) this.issueRank.set(i.id, this.issueRank.size);
+    }
 
     for (const n of graph.nodes || []) {
       const parent = n.parent && this.nodeById.has(n.parent) ? n.parent : null;
@@ -188,6 +193,23 @@ export class GraphIndex {
     return out;
   }
 
+  /**
+   * The findings of several edges — a merged route's members — each listed
+   * ONCE, in document order. Members of one route often share a finding, and
+   * listing it per member repeated it on the hover card.
+   */
+  issuesOfEdges(ids: string[], keep: IssuePredicate): Issue[] {
+    if (ids.length === 1) return this.issuesOfEdge(ids[0], keep);
+    const seen = new Set<string>();
+    const out: Issue[] = [];
+    for (const id of ids) addDistinct(out, seen, this.issuesOfEdge(id, keep));
+    return this.inDocumentOrder(out);
+  }
+
+  private inDocumentOrder(issues: Issue[]): Issue[] {
+    return issues.sort((a, b) => (this.issueRank.get(a.id) ?? 0) - (this.issueRank.get(b.id) ?? 0));
+  }
+
   countsFor(issues: Issue[]): IssueCounts {
     const c = emptyCounts();
     for (const i of issues) c[normalizeSeverity(i.severity) as Severity]++;
@@ -200,14 +222,40 @@ export class GraphIndex {
   }
 
   /**
-   * Own counts plus every CONTAINED descendant's — what a collapsed group shows.
-   * Walks the lane hierarchy: a child drawn in another lane carries its own
-   * badge there, so counting it here too would double-count it.
+   * The DISTINCT findings of a box and every CONTAINED descendant, in document
+   * order — what a collapsed group stands for. A finding that names the group
+   * and a child, or two children, is one finding. Walks the lane hierarchy: a
+   * child drawn in another lane carries its own badge there, so counting it
+   * here too would double-count it.
+   *
+   * A connection with both ends inside is hidden when the box is collapsed
+   * (`routeEdges`), so its findings are the box's too, or they vanished from
+   * the canvas. The box's own self-loop stays drawn on the card, as a step's
+   * does, and is left to its own marker.
    */
+  subtreeIssues(id: string, keep: IssuePredicate): Issue[] {
+    const inside: string[] = [];
+    const walk = (at: string) => {
+      inside.push(at);
+      for (const child of this.laneChildren(at)) walk(child);
+    };
+    walk(id);
+    const members = new Set(inside);
+    const seen = new Set<string>();
+    const out: Issue[] = [];
+    for (const at of inside) {
+      addDistinct(out, seen, this.issuesOf(at, keep));
+      for (const e of this.outEdges.get(at) || []) {
+        if (!members.has(e.target) || (at === id && e.target === id)) continue;
+        addDistinct(out, seen, this.issuesOfEdge(e.id, keep));
+      }
+    }
+    return this.inDocumentOrder(out);
+  }
+
+  /** What a group's badge counts: `subtreeIssues`, each finding once. */
   subtreeCounts(id: string, keep: IssuePredicate): IssueCounts {
-    const total = this.ownCounts(id, keep);
-    for (const child of this.laneChildren(id)) addCounts(total, this.subtreeCounts(child, keep));
-    return total;
+    return this.countsFor(this.subtreeIssues(id, keep));
   }
 
   /** How many boxes this one contains — i.e. how many collapsing it hides. */
@@ -217,18 +265,26 @@ export class GraphIndex {
     return n;
   }
 
+  /**
+   * The DISTINCT findings attached to a node of the lane or to an edge the lane
+   * owns (an edge belongs to its source node's lane). Summing per-node and
+   * per-edge counts drew 5 on a lane header for one finding that named three
+   * steps and two connections, while the toolbar said 1. A finding that touches
+   * two lanes is still counted in both: each header says what concerns it.
+   */
   laneCounts(laneId: string, keep: IssuePredicate): IssueCounts {
-    const total = emptyCounts();
+    const seen = new Set<string>();
+    const out: Issue[] = [];
     for (const n of this.graph.nodes || []) {
       if (n.stage !== laneId) continue;
-      addCounts(total, this.ownCounts(n.id, keep));
+      addDistinct(out, seen, this.issuesOf(n.id, keep));
     }
     for (const e of this.graph.edges || []) {
       const src = this.nodeById.get(e.source);
       if (!src || src.stage !== laneId) continue;
-      addCounts(total, this.countsFor(this.issuesOfEdge(e.id, keep)));
+      addDistinct(out, seen, this.issuesOfEdge(e.id, keep));
     }
-    return total;
+    return this.countsFor(out);
   }
 
   /** True when a collapsed box CONTAINS `id`, so it is not drawn. */
@@ -288,6 +344,15 @@ export class GraphIndex {
     const out = new Set<string>();
     for (const id of targets) for (const ancestor of this.ancestors(id)) out.add(ancestor);
     return out;
+  }
+}
+
+/** Append each finding in `issues` that `seen` has not met yet. */
+function addDistinct(into: Issue[], seen: Set<string>, issues: Issue[]): void {
+  for (const issue of issues) {
+    if (seen.has(issue.id)) continue;
+    seen.add(issue.id);
+    into.push(issue);
   }
 }
 

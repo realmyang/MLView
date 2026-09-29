@@ -1,6 +1,12 @@
 /**
- * The TRANSIENT states of the diagram surface: selection, hover, the lineage
- * trace and focus mode.
+ * The TRANSIENT states of the diagram surface: selection, hover, the hover
+ * highlight and focus mode.
+ *
+ * Hover and focus mode light different reaches (`render/trace.ts`). A settled
+ * hover on a card lights only its DIRECT connections — the routes whose source
+ * or target is the card, and the cards at their other ends — and streams along
+ * exactly those routes. Focus mode (`f` on a selected node) lights and streams
+ * the node's full upstream + downstream lineage.
  *
  * Layout depends only on (graph, collapsed), so none of this moves a box: every
  * state here is a class toggle over the scene DOM the canvas last rendered, plus
@@ -16,6 +22,7 @@
 
 import { clear } from '../dom.js';
 import { applyTrace } from '../render/trace.js';
+import type { TraceReach } from '../render/trace.js';
 import { drawIssueConnectors } from '../render/connectors.js';
 import { HOVER_CLOSE_MS, HOVER_OPEN_MS } from './host.js';
 import type { FlowBinding } from '../render/flowbinding.js';
@@ -85,10 +92,10 @@ export class Emphasis {
    *
    * RENDER-1: the hover's VISIBLE state goes too. `is-tracing` sits on the
    * persistent canvas element, so leaving it there dims every card of the new
-   * scene (with `pointer-events: none`) and nothing could clear it; the tooltip
-   * of a node from the old scene is hidden; a pending hover timer is dropped;
-   * and focus mode is re-lit from its own node (or unlocks when the new scene
-   * has no card for it), because the new cards arrive without `is-lit`.
+   * scene and nothing could clear it; the tooltip of a node from the old scene
+   * is hidden; a pending hover timer is dropped; and focus mode is re-lit from
+   * its own node (or unlocks when the new scene has no card for it), because
+   * the new cards arrive without `is-lit`.
    */
   resetHover(): void {
     if (this.hoverTimer !== null) {
@@ -97,7 +104,7 @@ export class Emphasis {
     }
     this.pendingHover = null;
     this.hoverId = null;
-    this.trace(null, 'is-tracing');
+    this.trace(null, 'is-tracing', 'direct');
     this.ctx.tooltip.hide();
     this.retraceFocus();
   }
@@ -118,14 +125,14 @@ export class Emphasis {
     if (shown && ctx.nodeEls().has(shown)) {
       this.focusShown = shown;
       ctx.canvas.classList.remove('is-tracing');
-      this.trace(shown, 'is-focusing');
+      this.trace(shown, 'is-focusing', 'lineage');
       return;
     }
     this.focusLocked = false;
     this.focusNodeId = null;
     this.focusShown = null;
     ctx.canvas.classList.remove('is-focusing');
-    this.trace(null, 'is-focusing');
+    this.trace(null, 'is-focusing', 'lineage');
     ctx.announce('Focus mode off.');
   }
 
@@ -141,8 +148,9 @@ export class Emphasis {
       ctx.canvas.removeAttribute('aria-activedescendant');
       // Deselecting (a background click) leaves focus mode latched on its node.
       this.retraceFocus();
-      ctx.syncBundles();
       ctx.flow.stop();
+      // After the stop, so the trunks follow the flow it left running (VIEW-04).
+      ctx.syncBundles();
       return;
     }
     if (sel.kind === 'node') {
@@ -163,9 +171,11 @@ export class Emphasis {
       this.focusNodeId = sel.id;
       this.retraceFocus();
     }
-    else if (this.focusLocked) this.trace(null, 'is-focusing');
-    ctx.syncBundles();
+    else if (this.focusLocked) this.trace(null, 'is-focusing', 'lineage');
     ctx.flow.stop();
+    // After the stop: syncing first left a trunk the replaced stream had opened
+    // expanded with nothing lit or flowing on it (VIEW-04).
+    ctx.syncBundles();
   }
 
   private highlightIssue(issueId: string): void {
@@ -228,15 +238,22 @@ export class Emphasis {
     if (this.focusLocked) return;
     const ctx = this.ctx;
     if (!id) {
-      this.trace(null, 'is-tracing');
+      this.trace(null, 'is-tracing', 'direct');
       ctx.tooltip.hide();
       ctx.flow.stop();
+      // The trace's sync ran while the stream still marked its cables
+      // `.is-flowing`; sync again now the stream is gone, or a trunk the hover
+      // opened stays open after the pointer leaves (VIEW-04).
+      ctx.syncBundles();
       return;
     }
-    this.trace(id, 'is-tracing');
-    // Upstream edges flow inward and downstream outward with no reversal logic:
-    // every route's points already run source -> target (FEATURES 2.2).
-    ctx.flow.stream(id);
+    // A hover lights only the card's direct connections (routed, so a collapsed
+    // group stands in for what it hides); the full lineage is focus mode's job.
+    this.trace(id, 'is-tracing', 'direct');
+    // The stream runs along the same direct routes the trace lit. Incoming edges
+    // flow inward and outgoing outward with no reversal logic: every route's
+    // points already run source -> target (FEATURES 2.2).
+    ctx.flow.stream(id, 'direct');
     // A charge on a cable inside a collapsed trunk would be a charge on an
     // invisible cable, so the trunk opens with the stream (VIEW-04).
     ctx.syncBundles();
@@ -247,10 +264,14 @@ export class Emphasis {
     if (box) ctx.tooltip.showNode(index, id, box, (issue) => ctx.keep(issue));
   }
 
-  /** Lineage highlight: upstream + downstream over the routed edges. */
-  private trace(id: string | null, cls: string): void {
+  /**
+   * Light what `id` reaches over the routed edges — its direct connections for
+   * a hover, its upstream + downstream lineage for focus mode — and open the
+   * bundles whose members that lit (VIEW-04).
+   */
+  private trace(id: string | null, cls: string, reach: TraceReach): void {
     const ctx = this.ctx;
-    applyTrace({ nodes: ctx.nodeEls(), edges: ctx.edgeEls(), canvas: ctx.canvas }, ctx.routes(), id, cls);
+    applyTrace({ nodes: ctx.nodeEls(), edges: ctx.edgeEls(), canvas: ctx.canvas }, ctx.routes(), id, cls, reach);
     ctx.syncBundles();
   }
 
@@ -261,9 +282,17 @@ export class Emphasis {
       this.focusNodeId = null;
       this.focusShown = null;
       ctx.canvas.classList.remove('is-focusing');
-      this.trace(null, 'is-focusing');
+      this.trace(null, 'is-focusing', 'lineage');
       ctx.flow.clear();
+      ctx.syncBundles(); // the stream is gone, so its trunks fold again (VIEW-04)
       ctx.announce('Focus mode off.');
+      // The card still under the pointer gets its hover back, lit and streaming,
+      // so the stop cascade's hover rung never streams cables nothing lit.
+      const hovered = this.hoverId;
+      if (hovered) {
+        this.hoverId = null;
+        this.setHover(hovered);
+      }
       return;
     }
     if (!sel || sel.kind !== 'node') {
@@ -274,8 +303,8 @@ export class Emphasis {
     this.focusNodeId = sel.id;
     this.retraceFocus();
     if (!this.focusLocked) return;
-    // The same stream, latched, so a pipeline can be read at leisure (row 7).
-    ctx.flow.stream(this.focusShown ?? sel.id);
+    // The full lineage stream, latched, so a pipeline can be read at leisure (row 7).
+    ctx.flow.stream(this.focusShown ?? sel.id, 'lineage');
     ctx.announce('Focus mode on.');
   }
 

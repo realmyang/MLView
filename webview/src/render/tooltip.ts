@@ -6,11 +6,11 @@
 
 import { add, clear, el, locSpan } from '../dom.js';
 import { severityGlyph } from '../markers.js';
-import { edgeKindText } from './edges.js';
+import { EDGE_MARKER_R, edgeKindText } from './edges.js';
 import type { GraphIndex, IssuePredicate } from '../layout/model.js';
 import type { LayoutBox } from '../layout/layout.js';
-import type { RoutedEdge } from '../layout/routing.js';
-import type { Viewport } from '../types.js';
+import type { Point, RoutedEdge } from '../layout/routing.js';
+import type { Issue, Viewport } from '../types.js';
 
 export interface Size {
   w: number;
@@ -86,15 +86,22 @@ export class Tooltip {
     if (node.fqn) add(this.root, el('div', 'mlv-tooltip__row', node.fqn));
     if (node.ghost) add(this.root, el('div', 'mlv-tooltip__row', node.basis === 'unresolved' ? 'Basis · unresolved' : 'This step is missing from the code.'));
     if (node.loc.file) add(this.root, locSpan('mlv-tooltip__loc', node.loc, 'div'));
-    for (const issue of index.issuesOf(id, keep)) {
-      const row = add(this.root, el('div', 'mlv-tooltip__row'));
-      row.appendChild(severityGlyph(issue.severity, 12, ''));
-      add(row, el('span', '', ' ' + issue.code + ' ' + issue.title));
-    }
+    // A group's badge counts what it contains (`planScene`), so its card lists
+    // the same findings: a collapsed group listed only its own, often none.
+    const aggregate = box.isGroup || box.collapsed;
+    this.issueRows(aggregate ? index.subtreeIssues(id, keep) : index.issuesOf(id, keep));
     this.placeAt(box.x + box.w / 2, box.y, box.y + box.h);
   }
 
-  showEdge(index: GraphIndex, route: RoutedEdge): void {
+  /**
+   * A connection's hover card lists its findings exactly as a step's does. It
+   * listed none, so hovering the severity marker on a cable showed everything
+   * but the finding the marker stood for. A merged route lists the union of its
+   * members' findings, each once, in document order. `marker` is where the
+   * cable's severity marker is drawn, when it has one: the card sits clear of
+   * that disc rather than over it.
+   */
+  showEdge(index: GraphIndex, route: RoutedEdge, keep: IssuePredicate, marker?: Point): void {
     const edge = index.edgeById.get(route.id);
     clear(this.root);
     add(this.root, el('div', 'mlv-tooltip__title', route.label || edgeKindText(route.kind)));
@@ -104,7 +111,18 @@ export class Tooltip {
     if (edge && edge.basis) add(this.root, el('div', 'mlv-tooltip__row', 'Basis · ' + edge.basis));
     if (edge && edge.loc.file) add(this.root, locSpan('mlv-tooltip__loc', edge.loc, 'div'));
     if (route.count > 1) add(this.root, el('div', 'mlv-tooltip__row', route.count + ' merged connections'));
-    this.placeAt(route.mid.x, route.mid.y, route.mid.y);
+    this.issueRows(index.issuesOfEdges(route.ids, keep));
+    if (marker) this.placeAt(marker.x, marker.y - EDGE_MARKER_R, marker.y + EDGE_MARKER_R);
+    else this.placeAt(route.mid.x, route.mid.y, route.mid.y);
+  }
+
+  /** One row per finding: its severity glyph, code and title. */
+  private issueRows(issues: Issue[]): void {
+    for (const issue of issues) {
+      const row = add(this.root, el('div', 'mlv-tooltip__row'));
+      row.appendChild(severityGlyph(issue.severity, 12, ''));
+      add(row, el('span', '', ' ' + issue.code + ' ' + issue.title));
+    }
   }
 
   /**

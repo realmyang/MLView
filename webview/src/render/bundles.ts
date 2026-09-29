@@ -11,10 +11,10 @@
  * exactly the diagram that shipped before the item.
  *
  * Expansion is a class, not a stylesheet trick, because it has four triggers —
- * pointer, keyboard focus, selection and a lineage highlight — and `:hover`
- * only knows about one of them. `BundleBinding.sync()` reads the state off the
- * member elements themselves, so it can never disagree with what the rest of the
- * viewer already decided.
+ * pointer, keyboard focus, selection and a node highlight (hover or focus mode)
+ * — and `:hover` only knows about one of them. `BundleBinding.sync()` reads the
+ * state off the member elements themselves, so it can never disagree with what
+ * the rest of the viewer already decided.
  */
 
 import { svg } from '../dom.js';

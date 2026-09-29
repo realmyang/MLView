@@ -6,8 +6,8 @@
  * The App owns the chrome, the rail, the filters and the host protocol, and
  * drives this class through the `CanvasHost` callbacks.
  *
- * Layout depends only on (graph, collapsed). Selection, hover, focus and the
- * lineage trace are pure class toggles here, so they never trigger a re-render.
+ * Layout depends only on (graph, collapsed). Selection, hover, focus and their
+ * highlights are pure class toggles here, so they never trigger a re-render.
  *
  * Three neighbours hold the parts that are not geometry, and this class is what
  * composes them:
@@ -20,11 +20,12 @@
 import { GraphIndex } from './layout/model.js';
 import { layoutGraph, LayoutFrame } from './layout/layout.js';
 import { routeEdges, RoutedEdge } from './layout/routing.js';
+import type { Point } from './layout/routing.js';
 import { planLabels, LabelPlan } from './layout/labels.js';
 import { firstBox, nextBox } from './layout/navigate.js';
 import { minimapDots, renderScene } from './render/scene.js';
 import { planScene, ScenePlan, ScenePlanOptions } from './render/plan.js';
-import { nextMountSerial } from './render/edges.js';
+import { markerPoint, nextMountSerial } from './render/edges.js';
 import { BundleBinding } from './render/bundles.js';
 import { LOD_FULL_ZOOM, Minimap, READABLE_ZOOM, ViewportController } from './render/canvas.js';
 import { FlowBinding } from './render/flowbinding.js';
@@ -69,6 +70,8 @@ export class CanvasView {
   private staleFiles: string[] = [];
   private nodeEls = new Map<string, HTMLElement>();
   private edgeEls = new Map<string, SVGElement>();
+  /** Route id -> where its severity marker is drawn, for the edge hover resolver. */
+  private markerPoints = new Map<string, Point>();
   /** VIEW-04: which cross-lane trunks are drawn, and which cables they hold. */
   private bundles = new BundleBinding();
   /**
@@ -187,9 +190,10 @@ export class CanvasView {
       viewport: this.viewport,
       routes: () => this.routes,
       edges: () => this.edgeEls,
+      markers: () => this.markerPoints,
       open: (route) => {
         if (!this.index) return;
-        this.tooltip.showEdge(this.index, route);
+        this.tooltip.showEdge(this.index, route, (issue) => this.host.keep(issue), this.markerPoints.get(route.id));
         this.flow.pulse(route);
       },
       close: () => {
@@ -315,6 +319,8 @@ export class CanvasView {
     );
     this.nodeEls = scene.nodeEls;
     this.edgeEls = scene.edgeEls;
+    this.markerPoints = new Map();
+    for (const visual of scene.plan.edges) if (visual.severity) this.markerPoints.set(visual.route.id, markerPoint(visual));
     this.bundles.adopt(scene.bundleEls, scene.plan.bundles.map((v) => v.bundle));
     this.syncBundles();
     // Every card and cable the pointer was over went with the old DOM, so no

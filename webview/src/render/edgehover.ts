@@ -17,8 +17,9 @@
  */
 
 import { on } from '../dom.js';
-import { nearestRoute } from './edgepick.js';
-import type { RoutedEdge } from '../layout/routing.js';
+import { markerRoute, nearestRoute } from './edgepick.js';
+import { EDGE_MARKER_R } from './edges.js';
+import type { Point, RoutedEdge } from '../layout/routing.js';
 import type { ViewportController } from './canvas.js';
 
 /**
@@ -36,6 +37,12 @@ export interface EdgeHoverHost {
   viewport: ViewportController;
   routes(): RoutedEdge[];
   edges(): Map<string, SVGElement>;
+  /**
+   * Route id -> centre of the severity marker drawn on it, for the cables that
+   * carry one. A pointer on a marker's disc belongs to that cable even where
+   * the disc reaches past `EDGE_PICK_PX` (`markerRoute`).
+   */
+  markers?(): Map<string, Point>;
   /** The pointer settled on a cable: show its card and run the charge. */
   open(route: RoutedEdge): void;
   /** The pointer settled on nothing: hide and stop, honouring the latches. */
@@ -113,7 +120,9 @@ export class EdgeHover {
     const vp = this.host.viewport.vp;
     const zoom = vp.zoom > 0 ? vp.zoom : 1;
     const point = { x: (ev.clientX - rect.left - vp.x) / zoom, y: (ev.clientY - rect.top - vp.y) / zoom };
-    this.set(nearestRoute(routes, point, EDGE_PICK_PX / zoom));
+    const markers = this.host.markers ? this.host.markers() : null;
+    const onMarker = markers && markers.size ? markerRoute(routes, markers, point, EDGE_MARKER_R) : null;
+    this.set(onMarker || nearestRoute(routes, point, EDGE_PICK_PX / zoom));
   }
 
   /** The one place `.is-hover` moves between cables. Idempotent per edge id. */

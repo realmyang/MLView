@@ -4,8 +4,10 @@
  *
  * An edge is a cable: an OUTLET on the producer, an INLET on the consumer, and a
  * CHARGE that travels between them. Hovering one cable runs a single charge
- * along it (pulse); hovering a card runs a train of charges along everything the
- * card is wired to, hop by hop (stream).
+ * along it (pulse); hovering a card runs a train of charges along the cables
+ * wired directly to it, and focus mode runs one along the card's whole lineage,
+ * hop by hop (stream). The flowing set is always a subset of the lit set
+ * (`render/trace.ts`), at the same reach.
  *
  * Three properties make this cheap, and none of them may be given up:
  *
@@ -48,6 +50,8 @@
 import { svg, XLINK_NS } from '../dom.js';
 import type { MotionMode } from '../motion.js';
 import type { Point, RoutedEdge } from '../layout/routing.js';
+import { neighboursOf } from './trace.js';
+import type { TraceReach } from './trace.js';
 
 /**
  * Every number the animation depends on, in one frozen table. Exported through
@@ -95,7 +99,8 @@ export const FLOW = {
 export type FlowMode = 'motion' | 'static' | 'off';
 
 /**
- * What a lineage stream actually did, so the VIEW can speak for it.
+ * What a stream (a hover's direct routes or a focused lineage) actually did, so
+ * the VIEW can speak for it.
  * `capped` is the one branch a user cannot see for themselves: the trace was
  * suppressed because it is denser than `FLOW.MAX_EDGES`, and scoping the
  * diagram is the way to get the animation back (CONTRACTS 11.14 C5).
@@ -104,7 +109,7 @@ export interface StreamResult {
   mode: FlowMode;
   /** True only when DENSITY is the reason nothing was decorated. */
   capped: boolean;
-  /** Lit edges in the lineage — the number the capped copy quotes. */
+  /** Lit edges in the stream's reach — the number the capped copy quotes. */
   edges: number;
 }
 
@@ -165,10 +170,10 @@ export function streamsInLineage(route: RoutedEdge): boolean {
 }
 
 /**
- * Lineage with a HOP COUNT per edge, so a node hover streams outward and inward
- * in order instead of lighting everything at once. Same traversal as
- * `render/trace.ts` — forward-reachable union backward-reachable — so the
- * flowing set is always a subset of the lit set.
+ * Lineage with a HOP COUNT per edge, so a focused lineage streams outward and
+ * inward in order instead of lighting everything at once. Same traversal as
+ * `lineageOf` in `render/trace.ts` — forward-reachable union backward-reachable
+ * — so the flowing set is always a subset of the lit set.
  */
 export function lineageHops(routes: RoutedEdge[], id: string): { nodes: Map<string, number>; edges: Map<string, number> } {
   const nodes = new Map<string, number>([[id, 0]]);
@@ -199,6 +204,22 @@ export function lineageHops(routes: RoutedEdge[], id: string): { nodes: Map<stri
   };
   walk(true);
   walk(false);
+  return { nodes, edges };
+}
+
+/**
+ * The hop map a stream uses at `reach`. A node hover (`direct`) streams exactly
+ * the routes its trace lights — `neighboursOf`, every one at hop 1 — so the
+ * charge never runs along a cable the hover left dim; focus mode (`lineage`)
+ * keeps the full radiating wave of `lineageHops`.
+ */
+export function streamHops(routes: RoutedEdge[], id: string, reach: TraceReach): { nodes: Map<string, number>; edges: Map<string, number> } {
+  if (reach === 'lineage') return lineageHops(routes, id);
+  const direct = neighboursOf(routes, id);
+  const nodes = new Map<string, number>();
+  for (const nodeId of direct.nodes) nodes.set(nodeId, nodeId === id ? 0 : 1);
+  const edges = new Map<string, number>();
+  for (const edgeId of direct.edges) edges.set(edgeId, 1);
   return { nodes, edges };
 }
 
@@ -330,8 +351,10 @@ export class FlowController {
   }
 
   /**
-   * A train of charges along the lineage of one node, hop by hop. The lit set is
-   * the trace's; the FLOWING set is the flow-eligible subset of it.
+   * A train of charges from one node, hop by hop: along its direct routes for a
+   * hover (`direct`), along its whole lineage for focus mode (`lineage`). The
+   * lit set is the trace's at the same reach; the FLOWING set is the
+   * flow-eligible subset of it.
    *
    * Two branches decorate nothing, for different reasons, and the difference is
    * reported back so the view can say which happened:
@@ -347,10 +370,10 @@ export class FlowController {
    * the static substitute of FEATURES 2.8: ports and a chevron per eligible
    * edge. Motion is optional; the direction it carries is not (goal G4).
    */
-  stream(nodeId: string): StreamResult {
+  stream(nodeId: string, reach: TraceReach): StreamResult {
     this.clear();
     const routes = this.host.routes();
-    const hops = lineageHops(routes, nodeId);
+    const hops = streamHops(routes, nodeId, reach);
     const count = hops.edges.size;
     const mode = this.modeFor(count);
     this.host.canvas.setAttribute('data-flow', mode);
