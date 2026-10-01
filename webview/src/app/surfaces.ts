@@ -1,18 +1,15 @@
 /**
- * The three surfaces outside the diagram — the chrome, the diff band and the
- * side rail — repainted from the App's state.
+ * The two surfaces outside the diagram — the chrome and the side rail —
+ * repainted from the App's state.
  *
- * All three are pure functions of (document, scope, filters, selection): none
+ * Both are pure functions of (document, scope, filters, selection): none
  * of them decides anything, and none of them may disagree with another about
  * the same number. That is why the toolbar's counts are computed here, next to
  * the rail's, rather than inside the chrome.
  */
 
 import { emptyCounts, normalizeSeverity } from '../markers.js';
-import { CHROME_CROWDED_PX } from '../ui/chromenotes.js';
 import { isSetAside } from '../types.js';
-import { CHANGED_SPEC } from '../diff/changed.js';
-import { drawnNamed, drawnRemoved } from '../diff/adopt.js';
 import { railScopeCounts } from '../scope/session.js';
 import { freshnessSummary } from '../freshness.js';
 import type { App } from '../app.js';
@@ -43,20 +40,13 @@ export function visibleCounts(app: App): IssueCounts {
 export function renderChrome(app: App): void {
   const summary = app.scopes.summary();
   const view = app.graph ? app.graph.view || null : null;
-  // VIEW-08. The breadcrumb is the SCOPE's chip. A diff projection with no
-  // scope under it puts a `view` on the document without the user ever having
-  // picked a selector, and drawing "Scoped to Changed in this diff · Copy
-  // scope" over it would offer a selector that does not parse and an [x] that
-  // clears nothing. The diff band owns that state instead.
-  const diffOnlyView = !!view && view.scope === CHANGED_SPEC;
   app.scopeBar.update(
-    diffOnlyView ? null : view,
+    view,
     app.scopes.full,
     app.scopes.spec,
     app.scopes.depth,
     !!(app.graph && app.graph.stats.truncated),
   );
-  renderDiffBar(app);
   app.chrome.update({
     graph: app.graph,
     scopeLabel: summary.label,
@@ -67,55 +57,16 @@ export function renderChrome(app: App): void {
     outOfScopeStages: app.index ? app.index.outOfScopeStages : [],
     hasSelection: !!app.selection,
     filters: app.filters.value,
-    capabilities: app.caps,
-    stale: app.stale,
-    error: app.error,
-    dismissed: app.dismissed,
     visibleCounts: visibleCounts(app),
-    dynamicNodes: app.graph ? app.graph.nodes.filter((n) => n.dynamic).length : 0,
     minimapCollapsed: app.view.minimapCollapsed,
     freshness: freshnessSummary(app.workflowDocument, app.freshness),
     checking: app.freshness.checking,
   });
-  // R2-06: the card's default is decided once per DRAWN DOCUMENT, off the
-  // bands the chrome just drew — never on every render. Re-deciding on every
-  // render would make dismissing a banner reopen the card, so the reader
-  // would hand back 165 px for the 53 px they had just reclaimed.
-  //
-  // A projection replaces `app.graph` (`applyProjection`), so a scope change
-  // does re-decide it: the bands really are different under a scope, and the
-  // decision is a pure function of the document, so clearing the scope
-  // returns the same answer it gave at first paint.
-  if (app.graph && app.graph !== app.answersDoc) {
-    app.answersDoc = app.graph;
-    app.answersYielded = app.chrome.bandHeight() >= CHROME_CROWDED_PX;
-    if (!app.answersChosen) app.answersOpen = !app.answersYielded;
-  }
-  // MLV-P1: hidden outright when the document carries no `answers` block.
-  app.answers.update(app.graph ? app.graph.answers : undefined, app.answersOpen, app.answersYielded);
   // VIEW-07: "Current scope" is offered only while there IS a projection.
   app.exportMenu.setScopeAvailable(!!view);
 }
 
-/** VIEW-08: the comparison's own band, under the chip row. */
-export function renderDiffBar(app: App): void {
-  const diff = app.scopes.diff;
-  app.diffBar.update({
-    diff,
-    changedOnly: app.scopes.changedOnly,
-    ghostsDrawn: diff && app.graph ? drawnRemoved(app.graph, diff) : 0,
-    namedDrawn: diff && app.graph ? drawnNamed(app.graph) : 0,
-    shown: app.graph ? app.graph.nodes.length : 0,
-    of: app.scopes.full ? app.scopes.full.nodes.length : 0,
-    changedEmpty: app.scopes.changedOnly && !app.scopes.changedActive,
-    baseLabel: app.diffBaseLabel,
-  });
-}
-
 export function renderRail(app: App): void {
-  // VIEWUI-12: a `rule` grouping (restored, or asked for) is not offered for an
-  // authored document, so it falls back to none.
-  if (app.railGroupBy === 'rule' && app.graph && app.graph.schemaVersion === 'workflow-view/1') app.railGroupBy = 'none';
   const sel = app.selection;
   // An issue selection resolves to its primary node, so the Inspector is never
   // empty just because the user clicked the issue row instead of the card
@@ -135,11 +86,7 @@ export function renderRail(app: App): void {
     selectedIssue,
     collapsed: app.view.collapsed,
     keep: app.filters.keep,
-    keepBase: app.filters.keepBase,
     scope: railScopeCounts(app.graph),
-    groupBy: app.railGroupBy,
-    diff: app.scopes.diff,
-    canApplyFix: app.canApplyFix(),
     staleReason: (file) => app.freshness.reasonOf(file),
   });
 }

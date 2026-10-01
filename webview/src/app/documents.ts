@@ -1,24 +1,18 @@
 /**
- * The DOCUMENT and what narrows it: the whole-workspace graph, the scope, the
- * diff overlay and the pipeline chooser.
+ * The DOCUMENT and what narrows it: the whole graph and the scope.
  *
  * One rule runs through all of it (CONTRACTS 11.8): narrowing is LOCAL. A scope
- * change, a depth step, "changed only" and a dismissed comparison never post
- * `requestRefresh`, never reach the analyzer and never throw — an unresolvable
- * selector is a no-op plus a toast. `setGraph` owns the full graph and the
+ * change and a depth step never post a request to the host and never throw — an
+ * unresolvable selector is a no-op plus a toast. `setGraph` owns the full graph and the
  * collapse set; `applyProjection` draws whatever the scope currently selects, so
  * chrome, rail, outline, minimap and layout are scoped with no further edits —
  * they all read only the index (FEATURES 5.1).
  */
 
 import { GraphIndex } from '../layout/model.js';
-import { adoptDiff } from '../diff/adopt.js';
 import { adoptCellMap } from '../notebook.js';
 import { mergeCollapsed, sameScope } from '../scope/session.js';
-import { pipelineRows } from '../scope/catalog.js';
-import { chooserRows, shouldAskPipeline } from '../ui/pipelinechooser.js';
 import { renderChrome, renderRail } from './surfaces.js';
-import type { DiffIndex } from '../diff/overlay.js';
 import type { App } from '../app.js';
 import type { MLGraph, ScopeSummary, ViewState, Viewport } from '../types.js';
 
@@ -42,13 +36,6 @@ export function setGraph(app: App, graph: MLGraph, preserve?: Partial<ViewState>
   // them has to know where the analyzer keeps its provenance. A `.py`
   // document, and a notebook node the ingest could not map, are untouched.
   adoptCellMap(graph.nodes);
-  app.rawGraph = graph;
-  // VIEW-08. The overlay is lifted onto a COPY: `diffStatus` lands on the
-  // nodes it describes and the removed ones come back as ghosts in place, so
-  // every drawing surface below keeps reading a plain document (11.38, and the
-  // same shape as `adoptCellMap` above).
-  const diff = app.scopes.diff;
-  if (diff) graph = adoptDiff(graph, diff);
   app.scopes.setGraph(graph);
   app.fullIndex = new GraphIndex(graph);
   // The collapse set is held against the FULL id space and filtered at
@@ -68,9 +55,6 @@ export function setGraph(app: App, graph: MLGraph, preserve?: Partial<ViewState>
   // VIEWUI-3) belongs to the scoped view, so the drain applies it too.
   if (pending && drainScope(app, pending, preserve && preserve.viewport ? preserve.viewport : undefined)) return;
   if (before && !sameScope(before, app.scopes.summary())) postScopeChanged(app);
-  // MLV-P12: after the document is drawn and any pending scope has drained,
-  // so a reader who already has a scope is never asked which pipeline to open.
-  maybeOpenPipelineChooser(app);
 }
 
 /**
@@ -104,11 +88,7 @@ export function applyProjection(app: App, preserve?: Partial<ViewState>, announc
   if (!doc) return;
   const graph = doc;
   app.graph = graph;
-  // Reuse the full index only when the document really IS the full one. The
-  // test used to be `spec === null`, which VIEW-08 made wrong: a diff
-  // projection narrows the document without any selector being set, and
-  // indexing the whole graph for it drew every node the projection had just
-  // removed.
+  // Reuse the full index only when the document really IS the full one.
   const index = graph === app.scopes.full && app.fullIndex ? app.fullIndex : new GraphIndex(graph);
   app.index = index;
   app.error = null;
@@ -252,111 +232,4 @@ function postScopeChanged(app: App): ScopeSummary {
     of: summary.of,
   });
   return summary;
-}
-
-/* ── the pipeline chooser (MLV-P12) ──────────────────────────────────── */
-
-/**
- * Open the chooser on a workspace with two or more pipelines — once.
- *
- * A reader who arrived with a scope already applied (a restored `ViewState`,
- * the report's `data-mlview-scope`, a host `setScope`) has ALREADY answered
- * the question, so they are not asked; nor is anyone who answered it before,
- * which `ViewState.pipelineChosen` remembers. The relation is computed here,
- * never read off the emitted `pipelines[]` block (CONTRACTS 11.47 A).
- */
-function maybeOpenPipelineChooser(app: App): void {
-  if (app.pipelineChosen || app.chooser.open) return;
-  const graph = app.scopes.full;
-  if (!graph || app.scopes.spec || app.pendingScope) return;
-  // VIEWUI-5. Authored entrypoints are chosen by the user, not ranked by a
-  // heuristic, and pipelines are not part of the WorkflowDocument contract, so
-  // an authored document never gets the chooser or its analyzer caveats.
-  if (graph.schemaVersion === 'workflow-view/1') return;
-  const rows = pipelineRows(graph);
-  // VIEW-R5. Two or more rows is not enough to earn a modal over the first
-  // paint: `workspace.entrypoints` is a ranked heuristic, so on the 54-node
-  // demo it offered a one-node `config.py` as a pipeline and covered the one
-  // screen VIEW-01 exists to protect. `shouldAskPipeline` owns the floor, and
-  // the chooser itself draws only the rows that clear it.
-  if (!shouldAskPipeline(graph, rows)) return;
-  app.chooser.show(graph, rows);
-  app.announce(
-    'This workspace has ' + chooserRows(rows).length + ' pipelines. Choose one, or show everything.',
-  );
-}
-
-/**
- * The chooser's one exit. Every answer — a pipeline, "everything", Escape —
- * is recorded, so the question is asked once per viewer and never again.
- */
-export function answerPipelineChooser(app: App, spec: string | null): void {
-  app.chooser.hide();
-  app.pipelineChosen = true;
-  if (spec) app.setScope(spec);
-  else app.announce('Showing the whole workspace, every pipeline at once.');
-  // VIEW-R7. The chooser opens by itself, so there is no invoking element to
-  // restore to and `hide()` alone drops focus onto <body> — a keyboard reader
-  // would have to tab from the top of the document to reach the diagram they
-  // just chose. Hand focus to the canvas, which owns the roving tab stop, the
-  // same way the shortcuts sheet does when it closes.
-  try {
-    app.view.canvasEl.focus();
-  } catch (_e) {
-    /* a host may have torn the canvas down under us */
-  }
-  app.saveSoon();
-}
-
-/* ── the diff overlay (VIEW-08) ──────────────────────────────────────── */
-
-/**
- * Install, replace or clear the overlay. It is a SIBLING document: nothing is
- * re-analysed, nothing is posted, and the graph the host gave us is re-adopted
- * from the pristine copy so dismissing a diff really does put the diagram back
- * exactly as it was.
- */
-export function setDiff(app: App, diff: DiffIndex | null): void {
-  if (!diff) app.diffBaseLabel = '';
-  app.scopes.setDiff(diff);
-  const graph = app.rawGraph;
-  if (graph) {
-    setGraph(app, graph, {
-      viewport: { ...app.viewportState },
-      selection: app.selection,
-      collapsed: app.collapsedState.slice(),
-    });
-  } else {
-    renderChrome(app);
-  }
-  app.announce(
-    diff
-      ? 'Comparison loaded: ' + diff.headline() + '.'
-      : 'Comparison cleared; showing this analysis on its own.',
-  );
-  app.saveSoon();
-}
-
-/**
- * "Changed only" — the diff as a PROJECTION (ROADMAP VIEW-08). Local, like
- * every scope change: it never posts `requestRefresh` and never re-analyses.
- */
-export function setChangedOnly(app: App, next: boolean): void {
-  const ok = app.scopes.setChangedOnly(next);
-  syncCollapsed(app);
-  applyProjection(app);
-  if (!ok) {
-    app.view.toast('Nothing that changed is in this view');
-    app.announce('Changed only: nothing that changed is in this view.');
-    app.saveSoon();
-    return;
-  }
-  const shown = app.graph ? app.graph.nodes.length : 0;
-  const of = app.scopes.full ? app.scopes.full.nodes.length : 0;
-  app.announce(
-    next
-      ? 'Showing what changed: ' + shown + ' of ' + of + ' nodes, plus one hop.'
-      : 'Changed-only view off, showing all ' + of + ' nodes.',
-  );
-  app.saveSoon();
 }

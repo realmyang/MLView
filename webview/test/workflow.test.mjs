@@ -67,7 +67,7 @@ test('mountWorkflow identifies authored provenance and accepts revision updates 
   assert.match(root.querySelector('.mlv-workflow').textContent, /Training and review/);
   assert.match(root.querySelector('.mlv-workflow').textContent, /codex · gpt-test/);
   assert.match(root.querySelector('.mlv-workflow').textContent, /partial · Core training path inspected/);
-  assert.doesNotMatch(root.querySelector('.mlv-banners').textContent, /Graph truncated|graph was truncated/i);
+  assert.doesNotMatch(root.textContent, /Graph truncated|graph was truncated/i);
   assert.match(root.querySelector('.mlv-workflow__verification').textContent, /Draft · source freshness not verified/);
   assert.equal(root.querySelector('[role="tab"][aria-controls$="-panel-issues"]').textContent, 'Findings');
   const search = root.querySelector('.mlv-search input[type="search"]');
@@ -359,7 +359,7 @@ test('challenge replaces an older composer selection with the current claim', as
   app.destroy();
 });
 
-test('authored help and grouping avoid retired rule terminology', async () => {
+test('authored help avoids retired rule terminology and offers no finding grouping', async () => {
   const ctx = await loadBundle();
   const root = ctx.document.getElementById('mlview-root');
   const app = ctx.MLView.mountWorkflow(root, workflow(), recordingBridge(ctx.window, 'vscode'));
@@ -369,11 +369,10 @@ test('authored help and grouping avoid retired rule terminology', async () => {
   assert.match(sheet, /Next \/ previous finding \(document order\)/);
   assert.match(sheet, /Findings \/ Inspector \/ Outline/);
   assert.doesNotMatch(sheet, /rule codes|issue by severity/i);
-  // VIEWUI-12: finding IDs are unique, so grouping by them is not offered and
-  // a requested or restored `rule` grouping falls back to none.
-  app.setRailGroupBy('rule');
-  assert.equal(root.querySelector('[data-group-mode="rule"]'), null);
-  assert.ok(root.querySelector('[data-group-mode="file"]'));
+  // Viewer M1: the analyzer-era "Group by" control (rule / file) is gone, and a restored
+  // grouping is ignored rather than written back.
+  assert.equal(root.querySelector('[data-group-mode]'), null);
+  assert.equal(typeof app.setRailGroupBy, 'undefined');
   assert.equal(app.getState().railGroupBy, undefined);
   assert.equal(root.querySelector('[data-disable-rule]'), null);
   app.destroy();

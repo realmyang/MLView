@@ -156,46 +156,6 @@ export function utf8Bytes(text: string): Uint8Array {
   return new Uint8Array(out);
 }
 
-/** UTF-8 decode without TextDecoder. Malformed sequences become U+FFFD. */
-export function utf8Text(bytes: Uint8Array): string {
-  let out = '';
-  for (let i = 0; i < bytes.length; ) {
-    const b = bytes[i];
-    let code: number;
-    let size: number;
-    if (b < 0x80) {
-      code = b;
-      size = 1;
-    } else if ((b & 0xe0) === 0xc0) {
-      code = b & 0x1f;
-      size = 2;
-    } else if ((b & 0xf0) === 0xe0) {
-      code = b & 0x0f;
-      size = 3;
-    } else if ((b & 0xf8) === 0xf0) {
-      code = b & 0x07;
-      size = 4;
-    } else {
-      out += '�';
-      i++;
-      continue;
-    }
-    if (i + size > bytes.length) {
-      out += '�';
-      break;
-    }
-    for (let k = 1; k < size; k++) code = (code << 6) | (bytes[i + k] & 63);
-    i += size;
-    if (code > 0xffff) {
-      code -= 0x10000;
-      out += String.fromCharCode(0xd800 + (code >> 10), 0xdc00 + (code & 1023));
-    } else {
-      out += String.fromCharCode(code);
-    }
-  }
-  return out;
-}
-
 export function bytesToBase64(bytes: Uint8Array): string {
   const g: any = typeof globalThis === 'undefined' ? {} : globalThis;
   if (typeof g.btoa === 'function') {
@@ -247,11 +207,6 @@ export function base64ToBytes(base64: string): Uint8Array {
     if (at < size) out[at++] = n & 0xff;
   }
   return out;
-}
-
-/** base64 of UTF-8 text → the text again, for the standalone copy fallback. */
-export function base64ToUtf8(base64: string): string {
-  return utf8Text(base64ToBytes(base64));
 }
 
 export const MIME = { svg: SVG_MIME, png: PNG_MIME };

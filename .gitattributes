@@ -5,13 +5,12 @@
 #
 # `-text` above turns off conversion but leaves git's own binary heuristic on,
 # and that heuristic calls any file with a NUL byte in its first 8000 bytes
-# binary. Two viewer sources build map keys out of `'\0'`-joined fields and
-# carry the separator as a literal NUL - `webview/src/diff/adopt.ts`
-# (`adoptionKey`) and `webview/src/layout/routing.ts` (`routeEdges`) - so
-# without this line `git diff`, `git blame` and GitHub's file view all report
-# "Binary file ... differ" on a TypeScript module anyone can read. The `diff`
-# attribute says "this is text" and costs nothing for the files that already
-# were.
+# binary. A viewer source builds map keys out of `'\0'`-joined fields and
+# carries the separator as a literal NUL - `webview/src/layout/routing.ts`
+# (`routeEdges`) - so without this line `git diff`, `git blame` and GitHub's
+# file view all report "Binary file ... differ" on a TypeScript module anyone
+# can read. The `diff` attribute says "this is text" and costs nothing for the
+# files that already were.
 *.ts   diff
 *.tsx  diff
 *.mts  diff

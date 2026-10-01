@@ -10,8 +10,8 @@
  * in `app/`, as free functions over this object:
  *
  *   `app/build.ts`      the shell, every panel, and what the canvas may ask
- *   `app/documents.ts`  the document, the scope, the diff and the chooser
- *   `app/surfaces.ts`   repaint the chrome, the diff band and the rail
+ *   `app/documents.ts`  the document and the scope
+ *   `app/surfaces.ts`   repaint the chrome and the rail
  *   `app/actions.ts`    the one-shot requests posted to the host
  *   `app/exporting.ts`  VIEW-07's picture, gathered at the moment it is asked for
  *   `app/keys.ts`       the keyboard binding
@@ -30,8 +30,6 @@ import { FilterModel } from './filters.js';
 import { Chrome } from './ui/chrome.js';
 import { Rail } from './ui/rail.js';
 import { Legend } from './ui/legend.js';
-import { AnswersCard } from './ui/answers.js';
-import { sanitizeGroupBy } from './ui/railgroup.js';
 import { LoadingState } from './ui/states.js';
 import { ShortcutSheet } from './ui/shortcuts.js';
 import { ExportMenu } from './ui/exportmenu.js';
@@ -39,8 +37,6 @@ import { ThemeController } from './ui/theme.js';
 import { SearchController } from './ui/searchcontroller.js';
 import { ScopeSession } from './scope/session.js';
 import { ScopeBar } from './ui/scopebar.js';
-import { PipelineChooser } from './ui/pipelinechooser.js';
-import { DiffBar } from './ui/diffbar.js';
 import { decorateWorkflow, normalizeWorkflow, sanitizeComposer } from './workflow.js';
 import { FreshnessState } from './freshness.js';
 import { HostNotice } from './ui/hostnotice.js';
@@ -48,7 +44,7 @@ import { KNOWN_EDGE_KINDS } from './render/edges.js';
 import { buildAppUi } from './app/build.js';
 import { scopeToNode, setGraph, setScope } from './app/documents.js';
 import { renderChrome, renderRail } from './app/surfaces.js';
-import { applyFix, askAssistant, copyIgnore, disableRule, onAction, openLocation } from './app/actions.js';
+import { askAssistant, onAction, openLocation } from './app/actions.js';
 import { onCanvasKey } from './app/keys.js';
 import { onHostMessage } from './app/messages.js';
 import { applyState, safeLoad, snapshotState } from './app/state.js';
@@ -64,7 +60,6 @@ import type {
   Loc,
   MLGraph,
   MLViewApp,
-  RailGroupBy,
   RailTab,
   RelatedLoc,
   Sel,
@@ -134,58 +129,20 @@ export class App implements MLViewApp {
    */
   pendingScope: { spec: string; depth?: number } | null = null;
   flowOn = true;
-  /**
-   * VIEW-08. The host's document, EXACTLY as it arrived. `adoptDiff` stamps the
-   * overlay onto a copy and resurrects the removed nodes as ghosts, so the
-   * original has to survive somewhere: an overlay can arrive after the graph,
-   * be replaced, or be dismissed, and each of those has to be re-derivable
-   * without asking the analyzer for anything.
-   */
-  rawGraph: MLGraph | null = null;
-  /** VIEW-08: the HOST's name for what the comparison is against (11.43 D). */
-  diffBaseLabel = '';
   caps: Capabilities;
-  /**
-   * VW-05. `ThemeController` is the ONE place a theme is decided: the standalone
-   * report's own Auto / Light / Dark / High contrast switch calls it directly,
-   * so a copy of the value on the app went stale the moment a reader touched
-   * that switch — and the export stamped the stale one on every picture. There
-   * is no copy any more; `this.themes.kind` is the answer, always.
-   */
+  /* VW-05: `this.themes.kind` is the one answer to "which theme"; the app keeps no copy. */
 
   filters = new FilterModel();
   viewportState: Viewport = { x: 0, y: 0, zoom: 1 };
   selection: Sel | null = null;
   collapsedState: string[] = [];
   railTab: RailTab = 'issues';
-  railGroupBy: RailGroupBy = 'none';
   legendOpen = false;
-  /** MLV-P12: the pipeline chooser is asked once per viewer, then remembered. */
-  pipelineChosen = false;
-  /**
-   * MLV-P1: the answer card starts open, so the four answers are the first
-   * read — except on a document whose chrome already fills the top of the
-   * window (HOSTS-UX-R2-06), where it yields its 165 px to the diagram.
-   */
-  answersOpen = true;
-  /**
-   * R2-06. The reader has pressed the disclosure (or the host restored a
-   * stored `answersOpen`), so the per-document default no longer applies: their
-   * choice follows them to the next report, which is what `ViewState` is for.
-   */
-  answersChosen = false;
-  /** The document the default was last decided for; identity, not a copy. */
-  answersDoc: MLGraph | null = null;
-  /** Whether THIS document's default is "closed", for the header's tooltip. */
-  answersYielded = false;
 
-  /** Legacy analyzer banner input; authored freshness lives in `freshness`. */
-  stale: string[] = [];
   /** Viewer M1: the displayed revision's stale files, from the host's `stale` frame. */
   freshness = new FreshnessState();
   /** Whether this viewer has said once where an opened source goes. */
   openHintShown = false;
-  dismissed = new Set<string>();
   error: { message: string; detail?: string; actions?: { id: string; label: string }[] } | null = null;
   railOpen = true;
   /**
@@ -221,10 +178,7 @@ export class App implements MLViewApp {
   sheet!: ShortcutSheet;
   exportMenu!: ExportMenu;
   legend!: Legend;
-  answers!: AnswersCard;
   scopeBar!: ScopeBar;
-  diffBar!: DiffBar;
-  chooser!: PipelineChooser;
   scrim!: HTMLElement;
   releasePage: () => void = () => undefined;
   themes!: ThemeController;
@@ -239,7 +193,7 @@ export class App implements MLViewApp {
     this.root = root;
     this.bridge = bridge;
     this.caps = bridge.capabilities;
-    this.themes = new ThemeController(root, bridge.theme || 'light', bridge.themePreference);
+    this.themes = new ThemeController(root, bridge.theme || 'light');
     buildAppUi(this);
     const restored = safeLoad(bridge);
     if (restored) applyState(this, restored, false);
@@ -331,23 +285,6 @@ export class App implements MLViewApp {
     handler(result);
   }
 
-  /** True only where the HOST can actually make an edit behind a preview. */
-  canApplyFix(): boolean {
-    return this.bridge.host === 'vscode' && this.caps.canOpenSource;
-  }
-
-  applyFix(issueId: string): void {
-    applyFix(this, issueId);
-  }
-
-  copyIgnore(code: string): void {
-    copyIgnore(this, code);
-  }
-
-  disableRule(code: string): void {
-    disableRule(this, code);
-  }
-
   askAssistant(nodeId: string): void {
     askAssistant(this, nodeId);
   }
@@ -402,23 +339,6 @@ export class App implements MLViewApp {
     renderChrome(this);
     this.saveSoon();
     this.announce('Overview minimap ' + (next ? 'hidden' : 'shown') + '.');
-  }
-
-  /** MLV-P1: the card's disclosure, persisted as ViewState.answersOpen. */
-  setAnswersOpen(open: boolean): void {
-    this.answersOpen = open;
-    // R2-06: an explicit press outranks this document's default from now on.
-    this.answersChosen = true;
-    this.answers.update(this.graph ? this.graph.answers : undefined, open, this.answersYielded);
-    this.saveSoon();
-  }
-
-  /** The rail's "Group by" control (RAIL-GROUP). Persisted like `railTab`. */
-  setRailGroupBy(mode: RailGroupBy): void {
-    this.railGroupBy = sanitizeGroupBy(mode);
-    renderRail(this);
-    this.saveSoon();
-    this.announce('Findings grouped by ' + this.railGroupBy + '.');
   }
 
   setLegend(next: boolean): void {

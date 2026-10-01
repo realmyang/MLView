@@ -103,7 +103,7 @@ test('three authored entrypoints open no pipeline chooser, and the picker offers
   doc.nodes.push({ id: 'concept', label: 'Concept group', phase: 'train', kind: 'group', basis: 'unresolved', evidence: [] });
   doc.nodes.push({ id: 'child', label: 'Concept child', phase: 'train', parent: 'concept', basis: 'unresolved', evidence: [] });
   const ctx = await mount(doc);
-  assert.equal(ctx.root.querySelector('.mlv-pipechooser').hidden, true, 'no pipeline modal over an authored document');
+  assert.equal(ctx.root.querySelector('.mlv-pipechooser'), null, 'no pipeline chooser is built');
   ctx.root.querySelector('.mlv-btn--scope').click();
   const picker = ctx.root.querySelector('.mlv-scopepicker');
   const headings = Array.from(picker.querySelectorAll('.mlv-scopepicker__heading'), (h) => h.textContent);
@@ -179,22 +179,6 @@ test('search finds stable ids and cited text, and shows no fake location', async
   const epoch = search('Epoch').find((row) => /Epoch/.test(row.textContent));
   assert.ok(epoch);
   assert.doesNotMatch(epoch.textContent, /:1\b/, 'an evidence-less step has no location');
-  ctx.app.destroy();
-});
-
-test('file groups report the weakest authored basis', async () => {
-  const doc = workflow({
-    findings: [
-      { id: 'f-observed', title: 'Observed', message: 'm', severity: 'medium', nodeIds: ['step'], basis: 'observed', evidence: ['ev-step'] },
-      { id: 'f-unresolved', title: 'Unresolved', message: 'm', severity: 'medium', nodeIds: ['step'], basis: 'unresolved', evidence: ['ev-loss'] },
-    ],
-  });
-  const ctx = await mount(doc);
-  ctx.app.setRailGroupBy('file');
-  const chip = ctx.root.querySelector('.mlv-railgroup[data-group-key="src/train.py"] .mlv-chip--conf');
-  assert.ok(chip, 'the two findings in one file form a group');
-  assert.equal(chip.textContent, 'unresolved');
-  assert.equal(chip.title, 'Weakest basis in this group: unresolved');
   ctx.app.destroy();
 });
 

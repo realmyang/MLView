@@ -8,18 +8,14 @@
 import { add, button, clear, el, fileLine, on } from '../dom.js';
 import { cellRef, locTitle } from '../notebook.js';
 import { severityGlyph } from '../markers.js';
-import { appendTrustSections, confidenceChip } from './evidence.js';
+import { confidenceChip } from './evidence.js';
 import { issueStaleReasons, renderIssuePanel, staleChipText, suggestionBlock, wireOpenControl } from './issuelist.js';
 import { staleQuotes, STALE_TEXT } from '../freshness.js';
 import { uiIcon } from '../icons.js';
 import { renderOutlineTree } from './outline.js';
 import type { RelationMode } from './outline.js';
-import { appendSuppressActions, stateChip } from './suppress.js';
-import { appendFixSection, hasFix } from './fixes.js';
-import { alternativeCount, isAlternatives, resolvedConfig } from '../config/resolved.js';
 import { edgeKindText } from '../render/edges.js';
-import type { DiffIndex } from '../diff/overlay.js';
-import type { Issue, Loc, MLEdge, MLNode, RailGroupBy, RailTab, RelatedLoc, StaleReason } from '../types.js';
+import type { Issue, Loc, MLEdge, MLNode, RailTab, RelatedLoc, StaleReason } from '../types.js';
 import type { GraphIndex } from '../layout/model.js';
 
 export interface RailCallbacks {
@@ -45,14 +41,6 @@ export interface RailCallbacks {
   onClearScope(): void;
   /** Inspector: scope the diagram to the selected unit or step. */
   onScopeToNode(nodeId: string): void;
-  /** The Issues rail's "Group by" control; persisted as ViewState.railGroupBy. */
-  onGroupBy(mode: RailGroupBy): void;
-  /** MLV-P10: copy `# mlview: ignore[CODE]` through the host's clipboard. */
-  onCopyIgnore(code: string): void;
-  /** MLV-P10: ask the host to turn this rule off for the workspace. */
-  onDisableRule(code: string): void;
-  /** H5: ask the host to apply `Issue.fix`, or copy it where it cannot. */
-  onApplyFix(issueId: string): void;
   /** Viewer M1: open the header's Details at the document-wide limitations, which are listed there once. */
   onShowLimitations(): void;
 }
@@ -87,20 +75,12 @@ export interface RailState {
   /** The canvas's collapsed groups — the Outline mirrors them (MLV-R2-W08). */
   collapsed: Set<string>;
   keep(issue: Issue): boolean;
-  /** `keep` without the suppression and baseline tests (MLV-P10). */
-  keepBase(issue: Issue): boolean;
   /**
    * Present only under a scope. `total` is PROJECT-LEVEL: the rail must always
    * be able to say how many findings live outside the current view, or a scope
    * reads as a clean bill of health (FEATURES 3.7).
    */
   scope: { shown: number; hidden: number; total: number; where: string } | null;
-  /** How the Issues tab groups its rows (RAIL-GROUP). */
-  groupBy: RailGroupBy;
-  /** VIEW-08: the diff overlay, when one is loaded. */
-  diff: DiffIndex | null;
-  /** H5: true in a host that can actually make an edit. */
-  canApplyFix: boolean;
   /** Viewer M1: why a cited file no longer matches the published revision, if it does not. */
   staleReason?(file: string): StaleReason | undefined;
 }
@@ -112,13 +92,6 @@ export class Rail {
   private tabs = new Map<RailTab, HTMLButtonElement>();
   private panels = new Map<RailTab, HTMLElement>();
   private cb: RailCallbacks;
-  /**
-   * Which rule / file groups the user has opened. Session-local by design: only
-   * the MODE is persisted (§11.9's pattern), because a group set is derived from
-   * a document that the next analysis may not contain.
-   */
-  private expanded = new Set<string>();
-  private lastState: RailState | null = null;
   private relationMode: RelationMode = 'outgoing';
   private relationNodeId: string | null = null;
 
@@ -221,7 +194,6 @@ export class Rail {
   }
 
   update(s: RailState): void {
-    this.lastState = s;
     // Every render replaces the panel's DOM, so a row the user is standing on
     // would take the keyboard focus down with it. Put it back on the same row.
     const restoreFocus = this.captureFocus();
@@ -283,13 +255,8 @@ export class Rail {
       index: s.index,
       issues: s.issues,
       keep: s.keep,
-      keepBase: s.keepBase,
       selectedIssueId: s.selectedIssueId,
       scope: s.scope,
-      groupBy: s.groupBy,
-      expanded: this.expanded,
-      diff: s.diff,
-      canApplyFix: s.canApplyFix,
       staleReason: s.staleReason,
     }, {
       onSelectIssue: (id) => this.cb.onSelectIssue(id),
@@ -297,43 +264,7 @@ export class Rail {
       onOpen: (loc, focusEditor) => this.cb.onOpen(loc, focusEditor),
       onClearFilters: () => this.cb.onClearFilters(),
       onClearScope: () => this.cb.onClearScope(),
-      onGroupBy: (mode) => this.cb.onGroupBy(mode),
-      onToggleGroup: (key) => this.toggleGroup(key),
-      onCopyIgnore: (code) => this.cb.onCopyIgnore(code),
-      onDisableRule: (code) => this.cb.onDisableRule(code),
-      onApplyFix: (id) => this.cb.onApplyFix(id),
     });
-  }
-
-  /**
-   * Expand or collapse one rule / file group. A group that is open BY DEFAULT
-   * (fewer than three occurrences) is closed by remembering its negation, so the
-   * two states are both reachable without persisting a whole open-set.
-   */
-  private toggleGroup(key: string): void {
-    const negated = '!' + key;
-    if (this.expanded.has(key)) {
-      this.expanded.delete(key);
-      this.expanded.add(negated);
-    } else if (this.expanded.has(negated)) {
-      this.expanded.delete(negated);
-      this.expanded.add(key);
-    } else {
-      this.expanded.add(key);
-    }
-    if (this.lastState) this.renderIssues(this.lastState);
-    // The panel's DOM was just replaced, so the header the user activated went
-    // with it. Put the focus back on its replacement, exactly as `captureFocus`
-    // does for a row -- a keyboard user must not be dumped on <body> for
-    // opening a group.
-    const back = this.root.querySelector('[data-group-toggle="' + key + '"]') as HTMLElement | null;
-    if (back) {
-      try {
-        back.focus();
-      } catch (_e) {
-        /* a host may have detached the panel already */
-      }
-    }
   }
 
   private renderInspector(s: RailState): void {
@@ -376,17 +307,6 @@ export class Rail {
     // VIEW-08: a resurrected ghost is a REMOVED node, not a missing step.
     if (node.ghost) add(meta, el('span', 'mlv-chip', 'removed from current revision'));
     if (node.dynamic) add(meta, el('span', 'mlv-chip', 'dynamic scope'));
-    if (node.diffStatus && node.diffStatus !== 'unchanged') {
-      const chip = stateChip(
-        meta,
-        'mlv-chip--diff mlv-chip--diff-' + node.diffStatus,
-        node.diffStatus,
-        (node.diffChanged || []).length
-          ? 'Changed against the earlier analysis: ' + (node.diffChanged || []).join(', ')
-          : 'Against the earlier analysis',
-      );
-      chip.setAttribute('data-diff-chip', node.diffStatus);
-    }
 
     // Viewer M1: the mono line only when it says something the title does not. For an authored
     // step it was `qualname`, which the projection sets to the label: the title twice.
@@ -428,24 +348,6 @@ export class Rail {
     this.appendIssues(panel, s.index.issuesOf(node.id, s.keep), s);
     this.renderEvidenceLocations(panel, node.evidenceLocs || (node.loc.file ? [node.loc] : []), s);
     this.renderWorkflowLimitations(panel, s.index);
-
-    // ANA-10. The resolved value, and — where the analyzer could not choose —
-    // ALL N alternatives, named. The card has room for three; this is where the
-    // rest live, and where "not resolved" gets its reason.
-    this.renderResolvedConfig(panel, node);
-
-    // VIEW-08. A removed node has no attributes, ports or evidence to show, so
-    // say what it IS rather than drawing four empty sections under it.
-    if (node.diffStatus === 'removed') {
-      add(
-        panel,
-        el(
-          'div',
-          'mlv-empty-note',
-          'This node is in the EARLIER analysis and not in this one. It is drawn from the diff overlay alone, so it carries no findings, ports or evidence here.',
-        ),
-      );
-    }
 
     // An authored step's only attribute is its basis (the card chip row), already in the meta row.
     const attrKeys = node.authored ? [] : Object.keys(node.attrs || {});
@@ -624,58 +526,6 @@ export class Rail {
   }
 
   /**
-   * ANA-10 — "where does this value come from", answered in the Inspector.
-   *
-   * The one-of-N case is a TABLE and not a sentence on purpose: the analyzer
-   * resolved a `getattr` registry to several candidate symbols and genuinely
-   * does not know which one runs, so the honest rendering names all of them and
-   * says which is which. It used to draw two `unknown` boxes.
-   */
-  private renderResolvedConfig(panel: HTMLElement, node: MLNode): void {
-    const info = resolvedConfig(node);
-    if (!info) return;
-    panel.appendChild(this.heading('Resolved value'));
-    const table = add(panel, el('table', 'mlv-table mlv-table--config'));
-    table.setAttribute('data-config-table', '1');
-    const tbody = add(table, el('tbody'));
-    if (isAlternatives(info)) {
-      const head = add(tbody, el('tr'));
-      add(head, el('th', '', 'one of'));
-      add(head, el('td', '', String(alternativeCount(info))));
-      for (const name of info.alternatives) {
-        const tr = add(tbody, el('tr'));
-        tr.setAttribute('data-config-alternative', name);
-        add(tr, el('th', '', '·'));
-        add(tr, el('td', 'mlv-mono', name));
-      }
-    } else if (info.unresolved) {
-      const tr = add(tbody, el('tr'));
-      add(tr, el('th', '', 'value'));
-      add(tr, el('td', '', 'not resolved' + (info.reason ? ' — ' + info.reason : '')));
-    } else {
-      const tr = add(tbody, el('tr'));
-      add(tr, el('th', '', 'value'));
-      add(tr, el('td', 'mlv-mono', info.value));
-    }
-    if (info.from) {
-      const tr = add(tbody, el('tr'));
-      add(tr, el('th', '', isAlternatives(info) ? 'defined in' : 'read from'));
-      add(tr, el('td', '', info.from));
-    }
-    if (isAlternatives(info)) {
-      add(
-        panel,
-        el(
-          'div',
-          'mlv-empty-note mlv-insp__altnote',
-          'MLView could not tell which of these runs — the name is chosen at run time — so it drew one node for all ' +
-            alternativeCount(info) + ' rather than guessing.',
-        ),
-      );
-    }
-  }
-
-  /**
    * One finding. `standalone` is the finding's own Inspector, where its evidence heading carries
    * the caption; inside a step's or connection's Inspector the step's own evidence carries it.
    */
@@ -687,39 +537,11 @@ export class Rail {
     add(head, el('span', 'mlv-mono', issue.code));
     add(head, el('span', '', issue.title));
     head.appendChild(confidenceChip(issue));
-    if (issue.suppressed) stateChip(head, 'mlv-chip--suppressed', 'suppressed');
-    if (issue.baselined) stateChip(head, 'mlv-chip--baselined', 'baselined');
-    // VIEW-08: how this finding stands against the earlier analysis.
-    const diffStatus = s.diff ? s.diff.issueStatusOf(issue.id) : null;
-    if (diffStatus === 'new' || diffStatus === 'persisting') {
-      stateChip(
-        head,
-        'mlv-chip--diff mlv-chip--diff-' + diffStatus,
-        diffStatus === 'new' ? 'new vs base' : 'still there',
-        diffStatus === 'new'
-          ? 'The earlier analysis did not report this finding'
-          : 'Both analyses report this finding',
-      ).setAttribute('data-diff-issue', diffStatus);
-    }
     add(box, el('p', 'mlv-insp__line', issue.message));
     // Viewer M1: the author's suggestion, labelled as the skill words it. An analyzer-era rule
     // hid it, under a "Suggested check" heading that stayed visible over nothing.
     const suggestion = suggestionBlock(issue, 'h5');
     if (suggestion) box.appendChild(suggestion);
-    // H5. The Inspector is where a reader who has just read the evidence decides
-    // what to do, so the computed edit — its title, its safety and the snippet —
-    // goes here in full, above the two suppression actions.
-    if (s.index?.graph.schemaVersion !== 'workflow-view/1') {
-      if (hasFix(issue)) {
-        appendFixSection(box, issue, { onApplyFix: (id) => this.cb.onApplyFix(id) }, { canApply: s.canApplyFix });
-      }
-      appendTrustSections(box, issue);
-      const actions = add(box, el('div', 'mlv-insp__suppress'));
-      appendSuppressActions(actions, issue.code, {
-        onCopyIgnore: (code) => this.cb.onCopyIgnore(code),
-        onDisableRule: (code) => this.cb.onDisableRule(code),
-      });
-    }
     if ((issue.relatedLocs || []).length) {
       box.appendChild(this.heading('Evidence review'));
       if (standalone) this.appendEvidenceCaption(box, s);

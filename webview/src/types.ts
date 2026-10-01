@@ -116,41 +116,10 @@ export interface MLNode {
   /** Viewer M1: the authored label of the node's phase (`stage` is its id). */
   phaseLabel?: string;
   /**
-   * PERF-04 (CONTRACTS 11.46 B1). How many nodes `--max-nodes` folded INTO this
-   * one, counted transitively; absent when none were. The children are not in
-   * the document at all — this is not a collapsed group and there is nothing to
-   * expand — which is why the card borrows the collapsed-group VISUAL and none
-   * of its interaction.
-   *
-   * Read through `rollup/rolled.ts`, never directly: that module is the one
-   * place the renderer knows this field's name, and it refuses a value that is
-   * not a positive integer rather than drawing `-3 rolled up`.
-   */
-  rolledUp?: number;
-  /**
    * Present ONLY in a projected document (one carrying `view`). Absent means
    * "this document is not a projection" (CONTRACTS 11.3).
    */
   viewRole?: ViewRole;
-  /**
-   * VIEW-08, RENDERER-LOCAL and never on the wire. The diff overlay is a
-   * SEPARATE document (CONTRACTS 11.38 B) whose `nodes[]` is keyed on the same
-   * stable ids, and `diff/adopt.ts` lifts each entry's `status` onto the node it
-   * describes — exactly as `adoptCellMap` lifts the notebook cell map off
-   * `attrs` — so every drawing surface keeps reading a plain `MLNode` and none
-   * of them has to know the overlay exists. Absent means "no overlay is loaded",
-   * which is not the same as `unchanged`.
-   */
-  diffStatus?: string;
-  /** VIEW-08, renderer-local: the overlay's `changed[]` field names, if any. */
-  diffChanged?: string[];
-  /**
-   * VIEW-08, renderer-local: this card was SYNTHESISED from the overlay by
-   * `diff/adopt.ts` and is not in the emitted document (VIEW-R6). Anything that
-   * counts "how big is this document" must skip it — the analyzer's own
-   * sentences describe the document it wrote, not the one the overlay decorated.
-   */
-  diffGhost?: boolean;
 }
 
 export interface MLEdge {
@@ -179,59 +148,6 @@ export interface MLEdge {
    * which still carries the " · basis" suffix until the card re-record (M2).
    */
   authoredLabel?: string;
-  /**
-   * PERF-04. How many document edges this one stands for after the rollup
-   * re-pointed edges at surviving ancestors and deduped the parallels. Absent
-   * means one, so an uncapped document is byte-for-byte what it always was.
-   *
-   * It counts CONNECTIONS, not call sites: see `rollup/rolled.ts`, which is the
-   * only reader and which says so in the banner as well as in the hover.
-   */
-  weight?: number;
-}
-
-/**
- * H5. One edit an opted-in rule computed FROM THE AST.
- *
- * `newText` replaces the half-open range `[line:col, endLine:endCol)`, so an
- * insertion is an empty range and a deletion an empty `newText`. Lines are
- * 1-based and columns 0-based, exactly like `Loc` (§0): these are the analyzer's
- * own coordinates and the host boundary is the only place they are converted.
- *
- * The viewer NEVER applies one. It draws it, and it posts `applyFix` — the host
- * owns the edit, behind a preview, which is what keeps "never auto-applied" a
- * property of the system rather than a promise in a comment.
- */
-export interface FixEdit {
-  file: string;
-  absFile: string;
-  line: number;
-  col: number;
-  endLine: number;
-  endCol: number;
-  newText: string;
-}
-
-/**
- * H5. The structured fix a rule OPTED IN to, absent on every rule that did not —
- * which is what stops the field from ever being a lie. `fixHint` is prose on all
- * 36 rules; `fix` exists only where an edit was actually computed.
- *
- * `safety` is typed `string` like every other enum-ish field here (invariant
- * 1.1/6): an unknown value renders as the cautious form, never as `mechanical`.
- */
-export interface IssueFix {
-  title: string;
-  safety: string;
-  edits: FixEdit[];
-}
-
-/** The two safety words the renderer draws specially. Anything else is cautious. */
-export const KNOWN_FIX_SAFETY = ['mechanical', 'needs-review'] as const;
-
-/** True only for the word that means "one unambiguous slot, nothing to judge". */
-export function isMechanicalFix(fix: IssueFix | undefined): boolean {
-  return !!fix && fix.safety === 'mechanical';
 }
 
 export interface Issue {
@@ -276,80 +192,12 @@ export interface Issue {
    * auditable.
    */
   baselined?: boolean;
-  /**
-   * H5. Present only where the rule opted in AND the analyzer was at least
-   * `likely` about the finding. Absent everywhere else, including on every rule
-   * that ships prose only.
-   */
-  fix?: IssueFix;
-}
-
-/**
- * The three attributions CI-ADOPT emits. `Issue.change` stays `string`; this is
- * the list the renderer draws a chip for, and anything else falls through
- * unchipped rather than throwing.
- */
-export const KNOWN_ISSUE_CHANGES = ['new', 'touched', 'existing'] as const;
-
-export type IssueChange = (typeof KNOWN_ISSUE_CHANGES)[number];
-
-export function isKnownIssueChange(value: unknown): value is IssueChange {
-  return typeof value === 'string' && (KNOWN_ISSUE_CHANGES as readonly string[]).indexOf(value) >= 0;
 }
 
 /** True when a finding is hidden from the main list but still auditable. */
 export function isSetAside(issue: Issue): boolean {
   return !!issue.suppressed || !!issue.baselined;
 }
-
-/**
- * A citation inside an answer sentence.
- *
- * The emitter writes `{file, line}` and nothing else — an answer cites a place
- * to look, not a range to select — so this is a `Loc` with everything but those
- * two optional. `app.ts` completes it against `workspace.root` before posting
- * `openLocation`, which is what keeps the deep link working from a citation.
- */
-export interface AnswerLoc {
-  file: string;
-  line: number;
-  absFile?: string;
-  col?: number;
-  endLine?: number;
-  endCol?: number;
-}
-
-/**
- * MLV-P1. One of the four answers, composed deterministically from the graph by
- * `analyzer/src/mlview/emit/answers.py` — no model, so it is identical in all
- * three hosts and stays offline.
- */
-export interface Answer {
-  sentence: string;
-  nodeIds?: string[];
-  locs?: AnswerLoc[];
-  confidence?: number;
-}
-
-/**
- * MLV-P1. The optional `answers` block: the product's four headline questions,
- * answered in words. Every field is optional — an absent one is an answer the
- * emitter could not compose, and the card simply does not draw that row.
- */
-export interface Answers {
-  dataEntry?: Answer;
-  objective?: Answer;
-  evaluation?: Answer;
-  verdict?: Answer;
-}
-
-/** The four answers in the order the card lists them, with their questions. */
-export const ANSWER_ROWS: { key: keyof Answers; question: string }[] = [
-  { key: 'dataEntry', question: 'Where does the data come in?' },
-  { key: 'objective', question: 'What is being optimised?' },
-  { key: 'evaluation', question: 'How is it evaluated?' },
-  { key: 'verdict', question: 'What should I look at first?' },
-];
 
 /**
  * Every `Diagnostic.kind` the analyzer is known to emit today.
@@ -491,11 +339,6 @@ export interface MLGraph {
   issues: Issue[];
   diagnostics: Diagnostic[];
   stats: Stats;
-  /**
-   * MLV-P1. Optional four-sentence summary of the pipeline. Absent means the
-   * emitter wrote none — the card is not drawn at all rather than drawn empty.
-   */
-  answers?: Answers;
   /** Appended as the LAST key by a projection; absent in a whole-workspace document. */
   view?: View;
   /**
@@ -558,9 +401,6 @@ export interface Filters {
 
 export type RailTab = 'issues' | 'inspector' | 'outline';
 
-/** How the Issues rail groups its rows (RAIL-GROUP). `none` is the default. */
-export type RailGroupBy = 'none' | 'rule' | 'file';
-
 export interface ViewState {
   viewport: Viewport;
   selection: Sel | null;
@@ -573,34 +413,8 @@ export interface ViewState {
   scope?: { spec: string; depth: number };
   /** Optional: flow animation on/off, like `minimapCollapsed`. Absent = on. */
   flow?: boolean;
-  /** Optional: the Issues rail's grouping. Absent = 'none' (RAIL-GROUP). */
-  railGroupBy?: RailGroupBy;
   /** Optional: the legend panel's open state, remembered per viewer (VIEW-10). */
   legendOpen?: boolean;
-  /**
-   * Optional: whether the Pipeline Answer Card is expanded (MLV-P1). Absent =
-   * open, so a document that carries `answers` answers its four questions on
-   * the first screen without anyone opening anything.
-   */
-  answersOpen?: boolean;
-  /**
-   * VIEW-08. Optional, absent at its default (off) exactly as `flow`, `scope`
-   * and `legendOpen` are: an older host round-trips a state it has never seen.
-   * On, the diagram is projected down to the diff's changed set plus one hop.
-   * Restoring it with no overlay loaded is a NO-OP, never an empty diagram.
-   */
-  diffOnly?: boolean;
-  /**
-   * MLV-P12. True once the reader has answered the pipeline chooser — by
-   * picking a pipeline, by asking for everything, or by dismissing it, all three
-   * of which are answers. Absent at its default (not asked yet), exactly as
-   * `flow`, `scope`, `legendOpen` and `diffOnly` are absent at theirs, so an
-   * older host round-trips a state it has never seen (CONTRACTS 11.9).
-   *
-   * It records only THAT the question was answered, never which pipeline was
-   * chosen: that is a scope, and `scope` above already persists it.
-   */
-  pipelineChosen?: boolean;
   /**
    * The authored revision id the viewport belongs to. Written only for a
    * `workflow-view/1` graph and absent otherwise, like every optional field
@@ -696,23 +510,6 @@ export type HostToUi =
    * `scope` is the host's vocabulary: `all` is this renderer's `diagram`.
    */
   | { v: 1; type: 'requestExport'; kind: 'svg' | 'png'; scope?: 'view' | 'all' | 'scope' }
-  /**
-   * VIEW-08. The diff overlay `mlview diff` writes, handed over as an OPTIONAL
-   * SIBLING of the graph (CONTRACTS 11.38 B): it is a separate document with its
-   * own `kind` and `diffVersion`, it never changes a byte of the graph, and a
-   * host that never sends one leaves the viewer exactly as it was.
-   *
-   * `overlay: null` clears it. The payload is typed `unknown` on purpose — it
-   * arrives from a host, is validated by `diff/overlay.ts` before anything is
-   * drawn, and a malformed one degrades to "no overlay" rather than throwing.
-   *
-   * `baseLabel` is the host's name for what the comparison is AGAINST — a git
-   * ref, a saved run, a file it picked. The overlay itself only knows the two
-   * workspace roots, which are the same string when both sides came from one
-   * checkout, so without this the banner would read "base X → head X". Optional
-   * everywhere: absent, the banner falls back to the root's last segment.
-   */
-  | { v: 1; type: 'diffOverlay'; overlay: unknown; baseLabel?: string }
   /** A new or refreshed authored revision. The host never sends `preserve`. */
   | { v: 1; type: 'workflow'; document: WorkflowDocument }
   /**
@@ -840,13 +637,6 @@ export type UiToHost =
 export interface HostBridge {
   host: HostKind;
   theme: ThemeKind;
-  /**
-   * OPTIONAL, viewer-internal. `theme` is always a resolved kind (CONTRACTS
-   * section 8); a bridge that was asked for 'auto' may additionally report that
-   * here so the standalone theme switch can pre-select Auto and keep following
-   * the OS. Hosts may omit it — nothing in the frozen protocol depends on it.
-   */
-  themePreference?: 'auto' | ThemeKind;
   capabilities: Capabilities;
   post(msg: UiToHost): void;
   onMessage(cb: (msg: HostToUi) => void): () => void;

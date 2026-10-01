@@ -9,7 +9,6 @@
  */
 
 import { sanitizeScope } from '../protocol.js';
-import { sanitizeGroupBy } from '../ui/railgroup.js';
 import { syncCollapsed } from './documents.js';
 import { composerViewState } from '../workflow.js';
 import { renderChrome, renderRail } from './surfaces.js';
@@ -28,21 +27,9 @@ export function applyState(app: App, state: ViewState, rerender: boolean): void 
   if (state.selection) app.selection = state.selection;
   if (typeof state.minimapCollapsed === 'boolean') app.view.setMinimapCollapsed(state.minimapCollapsed);
   if (typeof state.flow === 'boolean') app.setFlow(state.flow);
-  if (state.railGroupBy) app.railGroupBy = sanitizeGroupBy(state.railGroupBy);
   if (typeof state.legendOpen === 'boolean') app.setLegend(state.legendOpen);
-  // R2-06: a stored value is a choice the reader already made, so it wins
-  // over this document's default in both directions.
-  if (typeof state.answersOpen === 'boolean') {
-    app.answersOpen = state.answersOpen;
-    app.answersChosen = true;
-  }
-  // MLV-P12: the question has been answered before, so it is not asked again.
-  if (state.pipelineChosen === true) app.pipelineChosen = true;
-  // VIEW-08: restoring "changed only" with no overlay loaded is a NO-OP, never
-  // an empty diagram — `ScopeSession.setChangedOnly` refuses without a diff,
-  // and the flag is dropped rather than left standing for an overlay that may
-  // never arrive.
-  if (state.diffOnly === true && app.scopes.diff) app.scopes.setChangedOnly(true);
+  // Keys this viewer no longer writes (`railGroupBy`, `answersOpen`, `diffOnly`,
+  // `pipelineChosen` from the analyzer-era viewer) are ignored, never an error.
   const scope = sanitizeScope(state.scope);
   // No graph yet? The host mounts the viewer empty and restores state before
   // it posts one, so applying here would drop the scope on the floor (R2H-03).
@@ -70,23 +57,10 @@ export function snapshotState(app: App): ViewState {
   const spec = app.scopes.spec;
   if (spec) state.scope = { spec, depth: app.scopes.depth };
   if (!app.flowOn) state.flow = false;
-  // Both absent at their defaults, like `scope` and `flow`: an older host
-  // round-trips a state it has never seen, and a newer one restores to the
-  // documented default rather than to whatever `undefined` renders as.
-  if (app.railGroupBy !== 'none') state.railGroupBy = app.railGroupBy;
+  // Absent at its default, like `scope` and `flow`: an older host round-trips
+  // a state it has never seen, and a newer one restores to the documented
+  // default rather than to whatever `undefined` renders as.
   if (app.legendOpen) state.legendOpen = true;
-  // Absent at its default, exactly as `flow` is absent while on: an older
-  // host round-trips a state it has never seen (CONTRACTS 11.9). R2-06 makes
-  // that default depend on the document, so the field is written whenever the
-  // reader has chosen — including `true`, which is the case the old rule
-  // could not express: a card opened on a crowded report would otherwise be
-  // closed again by the default the next time the report was opened.
-  if (app.answersChosen) state.answersOpen = app.answersOpen;
-  // Absent at its default (off), exactly as `flow`, `scope` and `legendOpen`
-  // are: an older host round-trips a state it has never seen (11.9).
-  if (app.scopes.changedOnly) state.diffOnly = true;
-  // MLV-P12, and the same rule again: absent means "not asked yet".
-  if (app.pipelineChosen) state.pipelineChosen = true;
   // VIEWUI-3: which authored revision the viewport belongs to, so a remount
   // restores it only for that revision. Absent for any other graph.
   if (app.graph && app.graph.schemaVersion === 'workflow-view/1' && app.workflowRevision) {

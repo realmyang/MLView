@@ -13,7 +13,7 @@ import {
   weightBadgeText,
   weightBadgeWidth,
   weightStroke,
-} from '../rollup/rolled.js';
+} from './weight.js';
 import { labelTextOf } from '../layout/labels.js';
 import type { LabelPlacement } from '../layout/labels.js';
 import type { Point, RoutedEdge } from '../layout/routing.js';
@@ -177,9 +177,8 @@ export interface EdgeVisual {
    */
   filtered?: boolean;
   /**
-   * PERF-04: how many DOCUMENT edges this cable stands for, summed by
-   * `render/plan.ts` over the route's own merge and the analyzer's rollup
-   * dedupe. Absent or 1 draws exactly what it always drew.
+   * How many connections this cable stands for (`render/plan.ts`, from the route's own merge).
+   * Absent or 1 draws an ordinary connection.
    */
   weight?: number;
   /**
@@ -323,7 +322,7 @@ function staleEdgeMark(at: Point, occupied: boolean): SVGElement {
  * it collides (VIEW-03) and the number of connections a merged cable stands for
  * is not something the picture may quietly drop.
  *
- * Its geometry comes from `rollup/rolled.ts`, so the SVG export puts the same
+ * Its geometry comes from `render/weight.ts`, so the SVG export puts the same
  * pill in the same place (VIEW-07: the two renderers must not be able to
  * disagree about the picture).
  */

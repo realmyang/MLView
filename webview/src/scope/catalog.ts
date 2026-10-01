@@ -9,9 +9,7 @@
  */
 
 import { CONCERNS, CONCERN_LABELS, CONCERN_NAMES, parseScope } from './selector.js';
-import { PipelineIndex } from './pipelines.js';
-import { project, projectedNodeCount } from './project.js';
-import type { PipelineRow } from './pipelines.js';
+import { projectedNodeCount } from './project.js';
 import type { IssueCounts, Loc, MLGraph, MLNode, Severity } from '../types.js';
 
 const SEVERITIES: Severity[] = ['high', 'medium', 'low'];
@@ -155,76 +153,8 @@ export function concernRows(graph: MLGraph): ScopeGroup[] {
 }
 
 /**
- * MLV-P12. The pipelines of one document, computed ONCE per document object.
- *
- * The picker re-renders on every keystroke in its search box and the chooser
- * asks for the same rows a moment later, so a relation that is O(entrypoints ×
- * (V + E)) is memoised against the document's identity rather than recomputed.
- * A new document is a new object, so the cache can never be stale; it holds one
- * entry, because there is only ever one document on screen.
- *
- * Nothing here reads the emitted `pipelines[]` block — 11.47 A is explicit that
- * both ports compute the relation and neither trusts the block, so a stale or
- * hand-edited block can never change what the picker offers or what is drawn.
- */
-let cachedGraph: MLGraph | null = null;
-let cachedIndex: PipelineIndex | null = null;
-
-export function pipelineIndexOf(graph: MLGraph): PipelineIndex {
-  if (cachedGraph === graph && cachedIndex) return cachedIndex;
-  cachedGraph = graph;
-  cachedIndex = new PipelineIndex(graph);
-  return cachedIndex;
-}
-
-/**
- * The picker's and the chooser's rows, in the analyzer's ranked order.
- *
- * HOSTS-UX-PIPELINECOUNT. Each row also carries `viewCount`: the number of
- * cards the click actually draws, obtained by running the SAME `project()` the
- * click runs rather than by re-deriving the projection's rules here. `nodeCount`
- * is left alone — it is 11.47 A's relation, `exclusiveCount + sharedCount`, and
- * what the emitted block reports — so the two numbers stay separate facts and
- * only the one a row PROMISES changes.
- *
- * Memoised beside the relation, against the document's identity, because the
- * picker re-renders on every keystroke in its search box and a projection per
- * entrypoint per keystroke is not free. A projection that throws — a document
- * whose `workspace.entrypoints` no longer resolves — leaves `viewCount` unset
- * and the row falls back to `nodeCount`: a picker must never be the thing that
- * takes the report down.
- */
-export function pipelineRows(graph: MLGraph | null): PipelineRow[] {
-  if (!graph) return [];
-  const rows = pipelineIndexOf(graph).rows();
-  const drawn = viewCountsOf(graph, rows);
-  return rows.map((row) => {
-    const count = drawn.get(row.entrypoint);
-    return count === undefined ? row : { ...row, viewCount: count };
-  });
-}
-
-let cachedCountGraph: MLGraph | null = null;
-let cachedCounts: Map<string, number> | null = null;
-
-function viewCountsOf(graph: MLGraph, rows: PipelineRow[]): Map<string, number> {
-  if (cachedCountGraph === graph && cachedCounts) return cachedCounts;
-  const out = new Map<string, number>();
-  for (const row of rows) {
-    try {
-      out.set(row.entrypoint, project(graph, parseScope('pipeline:' + row.entrypoint)).nodes.length);
-    } catch (_e) {
-      /* an entrypoint this document can no longer resolve keeps its own count */
-    }
-  }
-  cachedCountGraph = graph;
-  cachedCounts = out;
-  return out;
-}
-
-/**
  * HOSTS-UX-ROWCOUNT. The number of cards a row's own click draws, for ANY
- * selector — the generalisation of `pipelineRows`' `viewCount` above.
+ * selector.
  *
  * `ScopeUnit.nodeCount` and `ScopeGroup.nodes` are relation facts: the subtree,
  * or the nodes carrying that stage. The CLICK runs `project()`, which applies
@@ -236,8 +166,8 @@ function viewCountsOf(graph: MLGraph, rows: PipelineRow[]): Map<string, number> 
  * here instead.
  *
  * It runs the same `project()` the click runs rather than re-deriving the
- * projection's rules, for the reason round 1 gave about the pipeline rows: a
- * second copy of the rules is a second set of numbers to keep in step.
+ * projection's rules: a second copy of the rules is a second set of numbers to
+ * keep in step.
  *
  * Memoised per `(document identity, spec)` because the picker re-renders on
  * every keystroke in its search box and lists up to 200 units. A selector this
