@@ -108,6 +108,14 @@ export interface MLNode {
   /** Renderer-local authored evidence anchors, in document order. */
   evidenceLocs?: Loc[];
   /**
+   * Viewer M1: the authored `detail`, verbatim, or absent when the author wrote
+   * none. Read by the Inspector and the card's accessible name only; the card
+   * itself still draws `sublabel`, so layout does not depend on it.
+   */
+  detail?: string;
+  /** Viewer M1: the authored label of the node's phase (`stage` is its id). */
+  phaseLabel?: string;
+  /**
    * PERF-04 (CONTRACTS 11.46 B1). How many nodes `--max-nodes` folded INTO this
    * one, counted transitively; absent when none were. The children are not in
    * the document at all — this is not a collapsed group and there is nothing to
@@ -166,6 +174,11 @@ export interface MLEdge {
    * Absent when the two are the same or the author gave no kind.
    */
   authoredKind?: string;
+  /**
+   * Viewer M1: the authored label, verbatim. `label` is what the canvas draws,
+   * which still carries the " · basis" suffix until the card re-record (M2).
+   */
+  authoredLabel?: string;
   /**
    * PERF-04. How many document edges this one stands for after the rollup
    * re-pointed edges at surviving ancestors and deduped the parallels. Absent

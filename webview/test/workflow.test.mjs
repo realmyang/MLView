@@ -272,18 +272,23 @@ test('outline enumerates textual relationships by direction and preserves basis'
   app.destroy();
 });
 
-test('finding inspector keeps claim, supporting evidence, counter-evidence, and suggested check together', async () => {
+test('finding inspector keeps claim, supporting evidence, counter-evidence, and what to change together', async () => {
   const ctx = await loadBundle();
   const root = ctx.document.getElementById('mlview-root');
   const app = ctx.MLView.mountWorkflow(root, workflow(), recordingBridge(ctx.window, 'vscode'));
   app.focusNode('step');
   const issue = root.querySelector('.mlv-insp__issue[data-issue-id="loss-risk"]');
   assert.match(issue.textContent, /The update uses a delayed aggregate/);
-  assert.match(issue.textContent, /Suggested check.*Verify the intended reduction/);
+  // Viewer M1: the suggestion is labelled as the skill words it (visibility is checked in
+  // inspector-content.test.mjs; textContent alone cannot see a display:none rule).
+  assert.match(issue.textContent, /What to change.*Verify the intended reduction/);
   assert.match(issue.textContent, /Evidence review.*Supporting evidence.*Counter-evidence/);
   assert.deepEqual(Array.from(issue.querySelectorAll('[data-evidence-id]'), (row) => row.getAttribute('data-evidence-id')), ['ev-step', 'ev-loss', 'ev-load']);
   assert.match(issue.textContent, /optimizer\.step\(\).*loss\.mean\(\).*load\(\)/s);
-  assert.match(root.querySelector('.mlv-rail__panel:not([hidden])').textContent, /Coverage limitations.*Approval implementation was not found/s);
+  // Viewer M1: the limitations are listed once, in the header Details; the Inspector links to them.
+  const inspector = root.querySelector('.mlv-rail__panel:not([hidden])');
+  assert.match(inspector.textContent, /1 document-wide limitation applies\. Show/);
+  assert.doesNotMatch(inspector.textContent, /Approval implementation was not found/);
   app.destroy();
 });
 

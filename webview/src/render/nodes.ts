@@ -16,7 +16,8 @@ import { chipCandidates, titleLines } from '../layout/cardmetrics.js';
 /**
  * An authored sublabel is the model's `detail`, up to 8000 characters. The card
  * shows one ellipsised line of it (CSS), so the DOM keeps only a prefix far
- * longer than any card can draw; the inspector has the whole text.
+ * longer than any card can draw; the Inspector shows the whole text (viewer M1,
+ * `MLNode.detail`), and the card's accessible name its first sentence.
  */
 const SUB_DOM_CHARS = 240;
 
@@ -206,7 +207,8 @@ export function ariaLabelFor(v: NodeVisual): string {
   else if (n.ghost && n.basis === 'unresolved') bits.push('Unresolved: ' + n.label);
   else if (n.ghost) bits.push('Missing step: ' + n.label);
   else bits.push(kindSpoken(n) + ' ' + n.label);
-  bits.push(stageOf(n) + ' stage');
+  // Viewer M1: an authored step names its phase by label, as the lane does; the id is internal.
+  bits.push(n.authored && n.phaseLabel ? n.phaseLabel + ' phase' : stageOf(n) + ' stage');
   if (n.loc.file) bits.push(locSpoken(n.loc));
   if (n.basis) bits.push('basis ' + n.basis);
   // ANA-10: the resolved value, spoken. A config card that reads "batch_size"
@@ -230,7 +232,29 @@ export function ariaLabelFor(v: NodeVisual): string {
   if (v.stale) bits.push(staleWords(v));
   if (n.dynamic) bits.push('partially resolved');
   if (n.viewRole === 'boundary') bits.push('outside the current scope');
-  return bits.join(', ') + '.';
+  // Viewer M1: the claim's first sentence, so the name says what the step does. The Inspector
+  // has the whole text.
+  const claim = n.authored && n.detail ? detailSpoken(n.detail) : '';
+  return bits.join(', ') + '.' + (claim ? ' ' + claim : '');
+}
+
+/** Longest spoken claim before it is cut at a word boundary. */
+const DETAIL_SPOKEN_CHARS = 160;
+
+/**
+ * Viewer M1: a short form of an authored `detail` for an accessible name. The first sentence
+ * when it ends within 160 characters; otherwise the first 160 characters, cut at a word and
+ * ended with an ellipsis. Whitespace runs read as one space.
+ */
+function detailSpoken(detail: string): string {
+  const text = detail.replace(/\s+/g, ' ').trim();
+  if (!text) return '';
+  const end = /[.!?](?=\s|$)/.exec(text);
+  if (end && end.index < DETAIL_SPOKEN_CHARS) return text.slice(0, end.index + 1);
+  if (text.length <= DETAIL_SPOKEN_CHARS) return text;
+  const cut = text.slice(0, DETAIL_SPOKEN_CHARS);
+  const space = cut.lastIndexOf(' ');
+  return (space > DETAIL_SPOKEN_CHARS / 2 ? cut.slice(0, space) : cut).replace(/[\s,;:]+$/, '') + '…';
 }
 
 /** A full node card, positioned absolutely inside the world layer. */

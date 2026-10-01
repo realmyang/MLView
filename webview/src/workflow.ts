@@ -32,8 +32,13 @@ export function normalizeWorkflow(document: WorkflowDocument): MLGraph {
   for (const finding of document.findings || []) for (const id of finding.edgeIds || []) {
     const list = edgeIssueIds.get(id) || []; list.push(finding.id); edgeIssueIds.set(id, list);
   }
+  const phaseLabels = new Map((document.phases || []).map((phase) => [phase.id, phase.label]));
   const nodes = (document.nodes || []).map((node) => {
     return {
+      // Viewer M1: what the Inspector and the accessible name read. The card's own inputs
+      // below (sublabel, attrs) are unchanged, so the layout is too.
+      ...(typeof node.detail === 'string' && node.detail.trim() ? { detail: node.detail } : {}),
+      ...(phaseLabels.has(node.phase) ? { phaseLabel: phaseLabels.get(node.phase) } : {}),
       id: node.id, kind: node.kind || 'unknown', level: node.parent ? 'op' : 'unit', stage: node.phase,
       label: node.label, sublabel: node.detail || node.basis, qualname: node.label, loc: evidenceLoc(evidence, node.evidence),
       // `unresolved` is an authored epistemic basis: the step may exist while
@@ -53,7 +58,7 @@ export function normalizeWorkflow(document: WorkflowDocument): MLGraph {
     // other authored word is kept as written and shown as written.
     id: edge.id, kind: normalizeEdgeKind(edge.kind), source: edge.source, target: edge.target,
     ...(edge.kind && normalizeEdgeKind(edge.kind) !== edge.kind.trim() ? { authoredKind: edge.kind } : {}),
-    label: edge.label + ' · ' + edge.basis,
+    label: edge.label + ' · ' + edge.basis, authoredLabel: edge.label,
     loc: evidenceLoc(evidence, edge.evidence), tags: [edge.basis], confidence: Number.NaN, basis: edge.basis,
     evidenceLocs: edge.evidence.map((id) => evidenceLoc(evidence, [id])).filter((loc) => !!loc.file),
     issueIds: edgeIssueIds.get(edge.id) || [],
@@ -287,6 +292,29 @@ function buildRequestSummary(app: App, panel: HTMLElement, document: WorkflowDoc
     if (!open) panel.scrollTop = 0;
     app.announce(open ? 'Request and coverage details shown.' : 'Request and coverage details hidden.');
   });
+}
+
+/**
+ * Viewer M1: the Inspector's "N document-wide limitations apply. Show" link. The limitations
+ * are listed once, in the header's Details; this opens Details and the list, and moves the focus
+ * to the list's summary so the reader lands on them. False when there is no list to show.
+ */
+export function revealWorkflowLimitations(app: App): boolean {
+  const panel = app.root.querySelector<HTMLElement>('.mlv-workflow');
+  const toggle = panel ? panel.querySelector<HTMLButtonElement>('.mlv-workflow__toggle') : null;
+  const limits = panel ? panel.querySelector<HTMLDetailsElement>('.mlv-workflow__limitations') : null;
+  if (!panel || !toggle || !limits) return false;
+  if (panel.getAttribute('data-expanded') !== 'true') toggle.click();
+  limits.open = true;
+  const summary = limits.querySelector<HTMLElement>('summary');
+  const target = summary || limits;
+  if (typeof target.scrollIntoView === 'function') target.scrollIntoView({ block: 'nearest' });
+  try {
+    target.focus();
+  } catch (_e) {
+    /* a host may have detached the header already */
+  }
+  return true;
 }
 
 /**

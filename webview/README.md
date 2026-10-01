@@ -46,3 +46,21 @@ Viewer M1 protocol details:
   (Alt+Enter, Alt+click) asks the host to move focus to the editor.
 - A click selects only. Enter, a double-click and the Inspector's Open links
   open the cited range.
+
+Viewer M1 Inspector content (no protocol change):
+
+- `normalizeWorkflow` adds `MLNode.detail` (the authored detail, verbatim),
+  `MLNode.phaseLabel` and `MLEdge.authoredLabel`. The Inspector and the card's
+  accessible name read them; the card itself still draws `sublabel`, the
+  `attrs={basis}` chip row and the edge label with its ` · basis` suffix, so
+  the layout and the geometry golden are unchanged until the M2 re-record.
+- The Inspector shows the title, the phase label and kind, one basis chip, a
+  sentence for an inferred or unresolved basis, the full detail, the findings
+  on the item with **What to change** (the finding's `suggestion`), the source
+  quotes under a caption saying that a matching quote does not show support,
+  and one line linking to the document-wide limitations in the header Details.
+- Authored notebook cells print as recorded, counted from 0
+  (`nb.ipynb › cell 7, line 3`).
+- `test/inspector-content.test.mjs` injects the shipped stylesheet into jsdom,
+  so the detail, the suggestion, the caption and the limitations line are
+  checked by computed visibility, not by `textContent`.

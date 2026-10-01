@@ -105,15 +105,24 @@ range, and keeps focus in the diagram so the keyboard keeps working. Alt+Enter
 citation selects its cell; the cell's lines are highlighted when VS Code has
 that cell's editor ready. Supporting and
 counter-evidence remain separate. Notebook anchors name a zero-based cell and
-one-based lines inside that cell. Reading a notebook does not establish its
+one-based lines inside that cell. The viewer prints the cell number as
+recorded: `cell 7, line 3` is the cell the helper's `--cell 7` names (the
+eighth, counting markdown cells), so it matches the model's own labels.
+Reading a notebook does not establish its
 execution order. Unresolved steps and conceptual groups can lack navigation
 targets; MLView does not invent locations for them.
 
-The Inspector displays every authored source quote and keeps finding support
-and counter-evidence distinct. Previous/Next evidence opens adjacent anchors;
-source-less items explain why navigation is unavailable. **Challenge this claim**
-opens the refinement composer for the current item; you still decide whether to
-send the copied request.
+The Inspector shows the item's title, phase and kind, its basis once (with a
+one-line note for inferred or unresolved claims), the full authored detail,
+the findings on the item with their suggestion under **What to change**, and
+then every authored source quote, keeping finding support and counter-evidence
+distinct. A caption over the quotes says that a matching quote shows the
+lines are unchanged since publishing, not that they support the claim.
+Document-wide limitations are listed once in the header's **Details**; the
+Inspector says how many apply and links there. Previous/Next evidence opens
+adjacent anchors; source-less items explain why navigation is unavailable.
+**Challenge this claim** opens the refinement composer for the current item;
+you still decide whether to send the copied request.
 
 Use **Outline → Text relationships** to enumerate connections without relying
 on the canvas. All shows relationships in the current scope; Incoming and

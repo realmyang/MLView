@@ -62,6 +62,46 @@ Wrong workspace root (`vscode-extension/`):
   extension never resolves a citation against another folder by itself; the
   panel rechecks whenever the workspace folders change.
 
+Step 2: the Inspector shows the claim (`webview/`, rebuilt into
+`vscode-extension/media/`). Checked by local jsdom tests only
+(`webview/test/inspector-content.test.mjs`, which loads the shipped
+stylesheet and checks visibility, plus updated cases in `authored-ui` and
+`workflow`); not tried in live VS Code. The cards, the chip row and the edge
+labels are unchanged, so the geometry golden is byte-identical.
+
+- The Inspector shows a step's full authored detail as a paragraph under the
+  title, the phase label (never the phase id) and the kind. Before, the detail
+  was only in the hover card.
+- The monospace line that repeated the title is gone. The basis appears once,
+  as a chip: the Attributes table no longer repeats it, and a connection's
+  title is its authored label without the " · basis" suffix. An inferred or
+  unresolved claim gets one sentence saying what that means; observed gets
+  none.
+- A finding's suggestion is shown, labelled "What to change", in the Inspector
+  and in the expanded Findings row. A rule left from the static analyzer had
+  hidden every suggestion while the "Suggested check" heading stayed visible;
+  a finding without a suggestion now shows no label. In a step's Inspector
+  its findings come before its quotes.
+- Document-wide limitations are listed once, in the header's Details. Every
+  Inspector used to repeat all of them; it now shows one line, for example
+  "6 document-wide limitations apply. Show", and Show opens Details at the
+  list.
+- Under the evidence heading a caption says: "A matching quote shows these
+  lines exist unchanged since publishing. Whether they support the claim is
+  for you to judge."
+- A card's accessible name, and the announcement when you select it, end with
+  the first sentence of its claim (cut at 160 characters) and name the phase
+  by its label.
+- Notebook cells print as the artifact records them, counted from 0
+  (`train.ipynb › cell 34, line 2`). The viewer used to add one, so a step the
+  model labelled "(cell 34)" showed "cell 35"; the skill, the helper's
+  `--cell` and the extension already count from 0. Authored labels are not
+  changed.
+- The phase chip's tooltip says what a click does ("Hide the Data preparation
+  phase" or "Show …"); it used to say "Show only the … stage".
+- A connection's hover card is titled with its authored label, so the basis
+  appears once there too.
+
 ## Unreleased — viewer fixes from the Stage 1 review
 
 Two viewer defects the owner reported while reading pilot diagrams in VS Code,

@@ -392,7 +392,10 @@ export class Chrome {
       chip.setAttribute('data-stage', stage.id);
       chip.setAttribute('data-stage-filter', stage.id);
       chip.setAttribute('aria-pressed', on_ ? 'true' : 'false');
-      chip.title = 'Show only the ' + (stage.label || stage.id) + ' stage';
+      // Viewer M1: say what a click does. A click hides a shown phase and shows a hidden one;
+      // the old "Show only the X stage" described the opposite.
+      const phaseWord = g.schemaVersion === 'workflow-view/1' ? ' phase' : ' stage';
+      chip.title = (on_ ? 'Hide the ' : 'Show the ') + (stage.label || stage.id) + phaseWord;
       add(chip, el('span', '', stage.label || stage.id));
       on(chip, 'click', () => this.cb.onStage(stage.id));
       this.filterRow.appendChild(chip);

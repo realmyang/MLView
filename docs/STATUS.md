@@ -76,6 +76,18 @@ folder instead of calling the files changed. No contract change and no new
 setting. Checked by local tests only (jsdom and the mock `vscode` module), not
 in live VS Code ([changelog](../CHANGELOG.md)).
 
+Unreleased viewer M1, step 2 (the Inspector shows the claim): the Inspector
+shows a step's full authored detail under its title, phase label and kind; the
+basis once, with a one-line note for inferred and unresolved claims; the
+findings on the item with their suggestion, labelled "What to change" (an old
+analyzer rule had hidden every suggestion); a caption over the quotes saying
+a matching quote does not show that the lines support the claim; and one line
+linking to the document-wide limitations, now listed only in the header
+Details. A card's accessible name carries the first sentence of its claim.
+Notebook cells print as the artifact records them, counted from 0, so they
+match the model's own labels. Layout and geometry golden unchanged. Checked by
+local jsdom tests only, not in live VS Code ([changelog](../CHANGELOG.md)).
+
 Version 0.3.0 adds Campaign 2, "pilot readiness" (see the
 [changelog](../CHANGELOG.md)): owner decision files with a `check` command,
 the campaign freeze and `check-frozen`, the v2 pilot candidate that builds its

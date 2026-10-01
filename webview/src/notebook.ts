@@ -136,10 +136,15 @@ export function cellRef(loc: LocLike | null | undefined): CellRef | null {
 /**
  * The cell of an AUTHORED notebook citation, or `null` (VIEWUI-8).
  *
- * WorkflowDocument evidence carries `cell` as a zero-based index and `line` as
- * a line within that cell. That is not the analyzer's mapping above, so it has
- * its own label: `nb.ipynb › cell <index + 1> : <line>`, with the zero-based
- * index spelled out in the title.
+ * WorkflowDocument evidence carries `cell` as a zero-based index into the
+ * notebook's cells (markdown included) and `line` as a line within that cell.
+ * That is not the analyzer's mapping above, so it has its own label:
+ * `nb.ipynb › cell <index>, line <line>`.
+ *
+ * Viewer M1: the index is printed as recorded, counted from 0. It used to be
+ * printed plus one, so a step the model labelled "(cell 34)" (the skill, the
+ * helper's `--cell` and the extension all count from 0) showed "cell 35" beside
+ * its own label. The title says how the cells are counted.
  */
 export function authoredCell(loc: LocLike | null | undefined): CellRef | null {
   if (!loc || typeof loc.evidenceId !== 'string') return null;
@@ -179,7 +184,7 @@ export function locLabel(loc: LocLike): string {
  */
 export function locParts(loc: LocLike): { head: string; tail: string } {
   const authored = authoredCell(loc);
-  if (authored) return { head: loc.file, tail: ' › cell ' + (authored.cell + 1) + ' : ' + authored.line };
+  if (authored) return { head: loc.file, tail: ' › cell ' + authored.cell + ', line ' + authored.line };
   const ref = cellRef(loc);
   return ref ? { head: loc.file, tail: ' > cell ' + ref.cell + ' : ' + ref.line } : { head: loc.file, tail: ':' + loc.line };
 }
@@ -190,7 +195,7 @@ export function locParts(loc: LocLike): { head: string; tail: string } {
  */
 export function locSpoken(loc: LocLike): string {
   const authored = authoredCell(loc);
-  if (authored) return loc.file + ' cell ' + (authored.cell + 1) + ' line ' + authored.line;
+  if (authored) return loc.file + ' cell ' + authored.cell + ' line ' + authored.line;
   const ref = cellRef(loc);
   if (!ref) return loc.file + ' line ' + loc.line;
   return loc.file + ' cell ' + ref.cell + ' line ' + ref.line;
@@ -203,7 +208,7 @@ export function locSpoken(loc: LocLike): string {
  */
 export function locTitle(loc: LocLike): string {
   const authored = authoredCell(loc);
-  if (authored) return 'cell index ' + authored.cell + ' (zero-based), line ' + authored.line + ' of that cell';
+  if (authored) return 'cell ' + authored.cell + ', counted from 0 as the artifact records it (markdown cells count too); line ' + authored.line + ' of that cell';
   const ref = cellRef(loc);
   if (!ref) return '';
   return locSpoken(loc) + ' — line ' + loc.line + ' of the concatenated code cells';

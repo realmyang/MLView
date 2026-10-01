@@ -9,7 +9,7 @@ import { add, button, clear, el, fileLine, on } from '../dom.js';
 import { cellRef, locTitle } from '../notebook.js';
 import { severityGlyph } from '../markers.js';
 import { appendTrustSections, confidenceChip } from './evidence.js';
-import { issueStaleReasons, renderIssuePanel, staleChipText, wireOpenControl } from './issuelist.js';
+import { issueStaleReasons, renderIssuePanel, staleChipText, suggestionBlock, wireOpenControl } from './issuelist.js';
 import { staleQuotes, STALE_TEXT } from '../freshness.js';
 import { uiIcon } from '../icons.js';
 import { renderOutlineTree } from './outline.js';
@@ -53,6 +53,26 @@ export interface RailCallbacks {
   onDisableRule(code: string): void;
   /** H5: ask the host to apply `Issue.fix`, or copy it where it cannot. */
   onApplyFix(issueId: string): void;
+  /** Viewer M1: open the header's Details at the document-wide limitations, which are listed there once. */
+  onShowLimitations(): void;
+}
+
+/**
+ * Viewer M1: what a matching quote does and does not show (automation-bias research: readers
+ * take a citation as support unless told otherwise). Shown once per Inspector, under the
+ * evidence heading.
+ */
+const EVIDENCE_CAPTION =
+  'A matching quote shows these lines exist unchanged since publishing. Whether they support the claim is for you to judge.';
+
+/**
+ * Viewer M1: a short sentence for the two bases that need one. `observed` needs no explanation.
+ * Worded like the legend's basis rows (ui/legend.ts).
+ */
+function basisNote(basis: string | undefined, noun: 'step' | 'connection'): string {
+  if (basis === 'inferred') return 'Reasoned from the cited code and stated assumptions; the quotes do not show all of it directly.';
+  if (basis === 'unresolved') return 'The evidence does not settle this claim. It does not mean the ' + noun + ' is missing.';
+  return '';
 }
 
 export interface RailState {
@@ -327,7 +347,7 @@ export class Rail {
     }
     if (s.selectedIssue && s.index) {
       add(panel, el('h4', 'mlv-insp__title', s.selectedIssue.title));
-      panel.appendChild(this.inspectorIssue(s.selectedIssue, s));
+      panel.appendChild(this.inspectorIssue(s.selectedIssue, s, true));
       this.appendChallenge(panel);
       this.renderWorkflowLimitations(panel, s.index);
       return;
@@ -338,15 +358,21 @@ export class Rail {
     }
     // h4 under the panel's h3 (VIEW-12): this used to be an `h2` inside a
     // document whose first heading was an `h3`.
-    add(panel, el('h4', 'mlv-insp__title', node.label || node.qualname));
+    const title = node.label || node.qualname;
+    add(panel, el('h4', 'mlv-insp__title', title));
     const meta = add(panel, el('div', 'mlv-insp__meta'));
-    const stageChip = add(meta, el('span', 'mlv-chip mlv-chip--stage', node.stage));
+    // Viewer M1: the phase's authored label, never its id (the id stays on `data-stage`).
+    const phase = node.phaseLabel || stageLabel(s.index, node.stage);
+    const stageChip = add(meta, el('span', 'mlv-chip mlv-chip--stage', phase));
     stageChip.setAttribute('data-stage', node.stage);
+    stageChip.title = 'Phase: ' + phase;
     // VIEWUI-14: an absent kind reads as `unknown` and the level is the
     // adapter's `unit`/`op`, neither of which the author wrote.
     if (node.kind && node.kind !== 'unknown') add(meta, el('span', 'mlv-chip', node.kind));
     if (node.framework) add(meta, el('span', 'mlv-chip', node.framework));
-    add(meta, el('span', 'mlv-chip', node.basis ? 'basis · ' + node.basis : node.confidenceBucket));
+    // Viewer M1: the basis once (the Attributes table no longer repeats it for an authored step).
+    const basisChip = add(meta, el('span', 'mlv-chip mlv-insp__basis-chip', node.basis ? 'basis · ' + node.basis : node.confidenceBucket));
+    if (node.basis) basisChip.setAttribute('data-basis', node.basis);
     // VIEW-08: a resurrected ghost is a REMOVED node, not a missing step.
     if (node.ghost) add(meta, el('span', 'mlv-chip', 'removed from current revision'));
     if (node.dynamic) add(meta, el('span', 'mlv-chip', 'dynamic scope'));
@@ -362,7 +388,13 @@ export class Rail {
       chip.setAttribute('data-diff-chip', node.diffStatus);
     }
 
-    add(panel, el('div', 'mlv-insp__fqn', node.fqn || node.qualname));
+    // Viewer M1: the mono line only when it says something the title does not. For an authored
+    // step it was `qualname`, which the projection sets to the label: the title twice.
+    const fqn = node.fqn || node.qualname;
+    if (fqn && fqn !== title) add(panel, el('div', 'mlv-insp__fqn', fqn));
+    this.appendBasisNote(panel, node.basis, 'step');
+    // Viewer M1: the claim itself, in full, before anything else. It was only in the hover card.
+    if (node.detail) add(panel, el('p', 'mlv-insp__detail', node.detail));
 
     const actions = add(panel, el('div', 'mlv-insp__actions'));
     // Legacy nodes have one canonical location and retain their established
@@ -392,6 +424,8 @@ export class Rail {
     actions.appendChild(scopeBtn);
     this.appendChallenge(actions);
 
+    // Viewer M1: claim, then the findings on this step (with what to change), then the evidence.
+    this.appendIssues(panel, s.index.issuesOf(node.id, s.keep), s);
     this.renderEvidenceLocations(panel, node.evidenceLocs || (node.loc.file ? [node.loc] : []), s);
     this.renderWorkflowLimitations(panel, s.index);
 
@@ -413,7 +447,8 @@ export class Rail {
       );
     }
 
-    const attrKeys = Object.keys(node.attrs || {});
+    // An authored step's only attribute is its basis (the card chip row), already in the meta row.
+    const attrKeys = node.authored ? [] : Object.keys(node.attrs || {});
     if (attrKeys.length) {
       panel.appendChild(this.heading('Attributes'));
       const table = add(panel, el('table', 'mlv-table'));
@@ -451,8 +486,14 @@ export class Rail {
         add(tr, el('td', '', e.detail));
       }
     }
+  }
 
-    this.appendIssues(panel, s.index.issuesOf(node.id, s.keep), s);
+  /** Viewer M1: one sentence under the meta row for an inferred or unresolved claim; nothing for observed. */
+  private appendBasisNote(panel: HTMLElement, basis: string | undefined, noun: 'step' | 'connection'): void {
+    const note = basisNote(basis, noun);
+    if (!note) return;
+    const p = add(panel, el('p', 'mlv-insp__basis', note));
+    p.setAttribute('data-basis', basis || '');
   }
 
   private appendIssues(panel: HTMLElement, issues: Issue[], s: RailState): void {
@@ -466,7 +507,9 @@ export class Rail {
   }
 
   private renderEdgeInspector(panel: HTMLElement, edge: MLEdge, index: GraphIndex, s: RailState): void {
-    add(panel, el('h4', 'mlv-insp__title', edge.label || edgeKindText(edge.kind) || 'Connection'));
+    // Viewer M1: the label as authored. The canvas label still ends in " · <basis>" until the
+    // card re-record (M2); here the basis chip says it once.
+    add(panel, el('h4', 'mlv-insp__title', edge.authoredLabel || edge.label || edgeKindText(edge.kind) || 'Connection'));
     const source = index.nodeById.get(edge.source);
     const target = index.nodeById.get(edge.target);
     const meta = add(panel, el('div', 'mlv-insp__meta'));
@@ -474,24 +517,39 @@ export class Rail {
     // normalised synonym names what the author wrote as well.
     const kindChip = add(meta, el('span', 'mlv-chip mlv-insp__edgekind', edgeKindText(edge.kind) + (edge.authoredKind ? ' · authored as ' + edge.authoredKind : '')));
     kindChip.setAttribute('data-edge-kind', edge.kind);
-    if (edge.basis) add(meta, el('span', 'mlv-chip mlv-chip--basis', 'basis · ' + edge.basis));
-    add(panel, el('div', 'mlv-insp__fqn', (source?.label || edge.source) + ' → ' + (target?.label || edge.target)));
+    if (edge.basis) {
+      const basisChip = add(meta, el('span', 'mlv-chip mlv-chip--basis mlv-insp__basis-chip', 'basis · ' + edge.basis));
+      basisChip.setAttribute('data-basis', edge.basis);
+    }
+    // Where it runs from and to: the one thing the title does not say.
+    add(panel, el('div', 'mlv-insp__fqn mlv-insp__ends', (source?.label || edge.source) + ' → ' + (target?.label || edge.target)));
+    this.appendBasisNote(panel, edge.basis, 'connection');
     const actions = add(panel, el('div', 'mlv-insp__actions'));
     this.appendChallenge(actions);
-    this.renderEvidenceLocations(panel, edge.evidenceLocs || (edge.loc.file ? [edge.loc] : []), s);
-    this.renderWorkflowLimitations(panel, index);
     // The connection's hover card lists these too; this is the keyboard's and
     // the screen reader's way to them, as the Findings block is for a step.
     this.appendIssues(panel, index.issuesOfEdge(edge.id, s.keep), s);
+    this.renderEvidenceLocations(panel, edge.evidenceLocs || (edge.loc.file ? [edge.loc] : []), s);
+    this.renderWorkflowLimitations(panel, index);
   }
 
+  /**
+   * Viewer M1: the document-wide limitations are listed once, in the header's Details. Every
+   * Inspector repeated all of them (7 of 7 on a connection); now it says how many apply and
+   * links to them.
+   */
   private renderWorkflowLimitations(panel: HTMLElement, index: GraphIndex): void {
     if (index.graph.schemaVersion !== 'workflow-view/1') return;
-    const limitations = (index.graph.diagnostics || []).filter((item) => item.kind === 'workflow_limitation');
-    if (!limitations.length) return;
-    panel.appendChild(this.heading('Coverage limitations'));
-    const list = add(panel, el('ul', 'mlv-insp__related mlv-insp__limitations'));
-    for (const limitation of limitations) add(list, el('li', '', limitation.message));
+    const count = (index.graph.diagnostics || []).filter((item) => item.kind === 'workflow_limitation').length;
+    if (!count) return;
+    const line = add(panel, el('p', 'mlv-insp__limits'));
+    line.setAttribute('data-limitations', String(count));
+    const words = count === 1 ? '1 document-wide limitation applies.' : count + ' document-wide limitations apply.';
+    add(line, el('span', '', words + ' '));
+    const show = button('mlv-link mlv-link--inline mlv-insp__limits-show', 'Show', 'Show the coverage limitations in the header Details');
+    show.setAttribute('aria-label', count === 1 ? 'Show the document-wide limitation' : 'Show the ' + count + ' document-wide limitations');
+    on(show, 'click', () => this.cb.onShowLimitations());
+    line.appendChild(show);
   }
 
   private renderEvidenceLocations(panel: HTMLElement, locations: Loc[], s: RailState): void {
@@ -500,6 +558,7 @@ export class Rail {
       return;
     }
     panel.appendChild(this.heading('Source evidence'));
+    this.appendEvidenceCaption(panel, s);
     const reasonOf = (loc: Loc): StaleReason | undefined => (s.staleReason && loc.file ? s.staleReason(loc.file) : undefined);
     const quotes = staleQuotes(locations, (file) => !!(s.staleReason && s.staleReason(file)));
     if (quotes.stale) {
@@ -550,6 +609,12 @@ export class Rail {
       if (reason) li.appendChild(staleBadge(reason));
       if (loc.snippet) add(li, el('pre', 'mlv-banner__detail', loc.snippet));
     }
+  }
+
+  /** Viewer M1: the one-line caption under the evidence heading (see `EVIDENCE_CAPTION`). */
+  private appendEvidenceCaption(parent: HTMLElement, s: RailState): void {
+    if (s.index?.graph.schemaVersion !== 'workflow-view/1') return;
+    add(parent, el('p', 'mlv-insp__caption', EVIDENCE_CAPTION));
   }
 
   private appendChallenge(parent: HTMLElement): void {
@@ -610,7 +675,11 @@ export class Rail {
     }
   }
 
-  private inspectorIssue(issue: Issue, s: RailState): HTMLElement {
+  /**
+   * One finding. `standalone` is the finding's own Inspector, where its evidence heading carries
+   * the caption; inside a step's or connection's Inspector the step's own evidence carries it.
+   */
+  private inspectorIssue(issue: Issue, s: RailState, standalone = false): HTMLElement {
     const box = el('div', 'mlv-insp__issue');
     box.setAttribute('data-issue-id', issue.id);
     const head = add(box, el('div', 'mlv-insp__issue-head'));
@@ -633,10 +702,10 @@ export class Rail {
       ).setAttribute('data-diff-issue', diffStatus);
     }
     add(box, el('p', 'mlv-insp__line', issue.message));
-    if (issue.fixHint) {
-      box.appendChild(this.heading('Suggested check'));
-      add(box, el('div', 'mlv-insp__fix', issue.fixHint));
-    }
+    // Viewer M1: the author's suggestion, labelled as the skill words it. An analyzer-era rule
+    // hid it, under a "Suggested check" heading that stayed visible over nothing.
+    const suggestion = suggestionBlock(issue, 'h5');
+    if (suggestion) box.appendChild(suggestion);
     // H5. The Inspector is where a reader who has just read the evidence decides
     // what to do, so the computed edit — its title, its safety and the snippet —
     // goes here in full, above the two suppression actions.
@@ -653,6 +722,7 @@ export class Rail {
     }
     if ((issue.relatedLocs || []).length) {
       box.appendChild(this.heading('Evidence review'));
+      if (standalone) this.appendEvidenceCaption(box, s);
       const stale = issueStaleReasons(issue, s.staleReason);
       if (stale.length) {
         box.classList.add('is-stale');
@@ -719,6 +789,12 @@ export class Rail {
       },
     );
   }
+}
+
+/** A phase's label from the graph's stage list, or its id when it has none. */
+function stageLabel(index: GraphIndex, id: string): string {
+  const stage = (index.graph.stages || []).find((item) => item.id === id);
+  return (stage && stage.label) || id;
 }
 
 /** `target.closest(selector)` for any event target, or null. */

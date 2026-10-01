@@ -28,6 +28,7 @@ import { ScopeBar } from '../ui/scopebar.js';
 import { PipelineChooser } from '../ui/pipelinechooser.js';
 import { DiffBar } from '../ui/diffbar.js';
 import { HostNotice } from '../ui/hostnotice.js';
+import { revealWorkflowLimitations } from '../workflow.js';
 import { runExport } from './exporting.js';
 import { renderChrome, renderRail } from './surfaces.js';
 import {
@@ -184,6 +185,7 @@ export function buildAppUi(app: App): void {
     onCopyIgnore: (code) => app.copyIgnore(code),
     onDisableRule: (code) => app.disableRule(code),
     onApplyFix: (id) => app.applyFix(id),
+    onShowLimitations: () => { revealWorkflowLimitations(app); },
   });
   shell.body.appendChild(app.rail.root);
   // Campaign 3, issue 6: a reader working IN the rail has chosen it. Following

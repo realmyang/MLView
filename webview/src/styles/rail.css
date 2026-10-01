@@ -273,8 +273,59 @@
 }
 
 .mlv-insp__fix {
+  margin: 0 0 var(--mlv-s3);
   padding-left: var(--mlv-s4);
   border-left: 3px solid var(--mlv-accent);
+  font-size: var(--mlv-fs-11);
+}
+
+/* Viewer M1: "What to change", the label over the author's suggestion. */
+.mlv-insp__fix-label {
+  margin: 0 0 2px;
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-10);
+  font-weight: var(--mlv-fw-semi);
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.mlv-insp__fix-text {
+  margin: 0;
+  color: var(--mlv-text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Viewer M1: the authored claim, in full, near the top of the Inspector. */
+.mlv-insp__detail {
+  margin: 0 0 var(--mlv-s4);
+  color: var(--mlv-text);
+  font-size: var(--mlv-fs-12);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+/* Viewer M1: what an inferred or unresolved basis means; observed gets no sentence. */
+.mlv-insp__basis {
+  margin: 0 0 var(--mlv-s3);
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-11);
+  font-style: italic;
+}
+
+/* Viewer M1: under the evidence heading, what a matching quote does and does not show. */
+.mlv-insp__caption {
+  margin: 0 0 var(--mlv-s3);
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-11);
+}
+
+/* Viewer M1: "6 document-wide limitations apply. Show" (they are listed in the header Details). */
+.mlv-insp__limits {
+  margin: var(--mlv-s4) 0 0;
+  color: var(--mlv-text-2);
   font-size: var(--mlv-fs-11);
 }
 

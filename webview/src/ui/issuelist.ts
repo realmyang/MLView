@@ -86,6 +86,22 @@ export function staleChipText(reasons: StaleReason[]): string {
 }
 
 /**
+ * Viewer M1: a finding's `suggestion`, labelled "What to change" (the skill's own words for it),
+ * or null when the author wrote none, so no label ever stands over nothing. The Inspector passes
+ * `h5` so the label is a heading among the finding's other sections; the Findings list uses a
+ * plain label inside the expanded row.
+ */
+export function suggestionBlock(issue: Issue, labelTag: 'h5' | 'div' = 'div'): HTMLElement | null {
+  const text = (issue.fixHint || '').trim();
+  if (!text) return null;
+  const box = el('div', 'mlv-insp__fix');
+  box.setAttribute('data-suggestion', issue.id);
+  add(box, el(labelTag, 'mlv-insp__fix-label', 'What to change'));
+  add(box, el('p', 'mlv-insp__fix-text', issue.fixHint));
+  return box;
+}
+
+/**
  * An Open / Go to control (viewer M1). A click opens beside the panel with focus kept here;
  * Alt+click and Alt+Enter move focus to the editor. A quote whose file is stale gets a disabled
  * control that says why instead.
@@ -496,7 +512,8 @@ function issueDetail(issue: Issue, s: IssueListState, cb: IssueListCallbacks): H
   box.setAttribute('data-issue-detail', issue.id);
   if (issue.message) add(box, el('p', 'mlv-insp__line', issue.message));
   if (issue.why) add(box, el('p', 'mlv-insp__line mlv-insp__why', issue.why));
-  if (issue.fixHint) add(box, el('div', 'mlv-insp__fix', issue.fixHint));
+  const suggestion = suggestionBlock(issue);
+  if (suggestion) box.appendChild(suggestion);
   // H5: the prose hint stays — it is what all 36 rules carry — and the computed
   // edit goes UNDER it, so the reader sees the advice before the diff of it.
   if (s.index?.graph.schemaVersion !== 'workflow-view/1') {

@@ -30,6 +30,9 @@ instead of calling the files changed, and offers **Add folder to workspace**
 or **Open folder**. The panel checks again whenever workspace folders change.
 
 A click on a step, connection or finding selects it and shows its claim.
+The Inspector shows the full claim, the findings on it with **What to change**,
+and its quotes; document-wide limitations are listed once, under the header's
+**Details**. Notebook cells are numbered from 0, as the artifact records them.
 Enter, a double-click or an Inspector **Open** link opens the cited range
 beside the diagram: the whole range is selected and highlighted, and focus
 stays in the diagram. Alt+Enter (or Alt+click on an Open link) also moves
