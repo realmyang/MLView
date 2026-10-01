@@ -31,3 +31,18 @@ mount format.
 The bundle has no network references. The host sends revised workflow documents
 through the `workflow` message and receives source-navigation, export, saved
 state, and `refineWorkflow` messages through the bridge.
+
+Viewer M1 protocol details:
+
+- `stale` carries `files: [{ path, reason }]`, where `reason` is `changed`,
+  `missing`, `unreadable` or `too-large`. The viewer marks the cards,
+  connections, findings and quotes that cite those paths, disables their Open
+  links and counts them in the status bar. An empty list clears the marks.
+- `workflowError` after the mount is drawn as a notice under the header. The
+  `checking` code goes to the status bar instead; the `root-hint` code adds
+  **Add folder to workspace** and **Open folder**, which post
+  `{ type: 'workspaceHint', action: 'add' | 'open' }`. The host picks the folder.
+- `openLocation` opens beside the panel with focus kept there; `focus: true`
+  (Alt+Enter, Alt+click) asks the host to move focus to the editor.
+- A click selects only. Enter, a double-click and the Inspector's Open links
+  open the cited range.

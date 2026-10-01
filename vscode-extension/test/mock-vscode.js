@@ -29,7 +29,23 @@ class Range {
   }
 }
 
-class Selection extends Range {}
+class Selection extends Range {
+  /** Like VS Code: `anchor` is where the selection starts, `active` where the cursor is. */
+  get anchor() {
+    return this.start;
+  }
+  get active() {
+    return this.end;
+  }
+}
+
+/** A range of notebook cells, end exclusive. */
+class NotebookRange {
+  constructor(start, end) {
+    this.start = start;
+    this.end = end;
+  }
+}
 
 /**
  * EXT-8: real `Uri.fsPath` lower-cases a Windows drive letter while Node's realpath keeps the
@@ -268,6 +284,16 @@ const recorded = {
   notebookChangeListeners: [],
   /** CFG-ONE: every workspace.getConfiguration(...).update() call. */
   configUpdates: [],
+  /** Every createTextEditorDecorationType: {options, disposed}. */
+  decorationTypes: [],
+  /** Every showNotebookDocument call: {notebook, options, editor}. */
+  shownNotebooks: [],
+  /** window.onDidChangeVisibleTextEditors listeners. */
+  visibleEditorListeners: [],
+  /** Every workspace.updateWorkspaceFolders(start, deleteCount, ...folders) call. */
+  workspaceFolderUpdates: [],
+  /** Every commands.executeCommand(id, ...args) call. */
+  executedCommands: [],
   /** H10: every languages.registerCodeLensProvider registration. */
   codeLensProviders: []
 };
@@ -313,6 +339,28 @@ function docKey(fsPath) {
 let notebookDocuments = [];
 let visibleTextEditors = [];
 let visibleNotebookEditors = [];
+/** Whether showNotebookDocument makes the selected cells' editors visible (as VS Code does once it draws them). */
+let notebookCellEditors = true;
+
+/** A text editor stub that records its selection, reveals and decorations. */
+function makeTextEditor(document, viewColumn) {
+  const editor = {
+    document,
+    viewColumn,
+    /** Every setDecorations(type, ranges) call, in order. */
+    decorations: [],
+    setDecorations(type, ranges) {
+      editor.decorations.push({ type, ranges });
+    },
+    /** EXT-8: every revealRange(range, revealType) call, in order. */
+    revealed: [],
+    revealRange(range, revealType) {
+      editor.revealed.push({ range, revealType });
+    },
+    selection: undefined
+  };
+  return editor;
+}
 
 const NotebookCellKind = { Markup: 1, Code: 2 };
 
@@ -450,6 +498,10 @@ const vscode = {
   LanguageModelTextPart,
   LanguageModelToolResult,
   ViewColumn: { One: 1, Two: 2, Beside: -2 },
+  NotebookRange,
+  NotebookEditorRevealType: { Default: 0, InCenter: 1, InCenterIfOutsideViewport: 2, AtTop: 3 },
+  OverviewRulerLane: { Left: 1, Center: 2, Right: 4, Full: 7 },
+  DecorationRangeBehavior: { OpenOpen: 0, ClosedClosed: 1, OpenClosed: 2, ClosedOpen: 3 },
   StatusBarAlignment: { Left: 1, Right: 2 },
   ColorThemeKind: { Light: 1, Dark: 2, HighContrast: 3, HighContrastLight: 4 },
   TextEditorRevealType: { Default: 0, InCenter: 1, InCenterIfOutsideViewport: 2, AtTop: 3 },
@@ -491,8 +543,16 @@ const vscode = {
       recorded.statusBarItems.push(item);
       return item;
     },
-    createTextEditorDecorationType() {
-      return { dispose() {} };
+    createTextEditorDecorationType(options) {
+      const type = {
+        options,
+        disposed: false,
+        dispose() {
+          type.disposed = true;
+        }
+      };
+      recorded.decorationTypes.push(type);
+      return type;
     },
     createWebviewPanel: makeWebviewPanel,
     registerWebviewPanelSerializer: (viewType, serializer) => {
@@ -525,20 +585,42 @@ const vscode = {
       return saveDialogAnswers.length ? saveDialogAnswers.shift() : undefined;
     },
     showTextDocument: async (document, options) => {
-      const editor = {
-        document,
-        viewColumn: options && options.viewColumn,
-        setDecorations() {},
-        /** EXT-8: every revealRange(range, revealType) call, in order. */
-        revealed: [],
-        revealRange(range, revealType) {
-          editor.revealed.push({ range, revealType });
-        },
-        selection: undefined
-      };
+      const editor = makeTextEditor(document, options && options.viewColumn);
       recorded.shownDocuments.push({ document, options, editor });
       return editor;
     },
+    /**
+     * Records the call and returns a notebook editor stub. When `notebookCellEditors` is on, the
+     * selected cells' editors become visible on the next turn and the visible-editors event fires,
+     * the way VS Code creates a cell's editor once it draws the cell.
+     */
+    showNotebookDocument: async (notebook, options) => {
+      const editor = {
+        notebook,
+        viewColumn: options && options.viewColumn,
+        selections: (options && options.selections) || [],
+        revealed: [],
+        revealRange(range, revealType) {
+          editor.revealed.push({ range, revealType });
+        }
+      };
+      recorded.shownNotebooks.push({ notebook, options, editor });
+      if (notebookCellEditors) {
+        setImmediate(() => {
+          for (const range of editor.selections) {
+            for (let index = range.start; index < range.end; index++) {
+              const cell = notebook.cellAt(index);
+              if (!visibleTextEditors.some((e) => e.document === cell.document)) {
+                visibleTextEditors = [...visibleTextEditors, makeTextEditor(cell.document, editor.viewColumn)];
+              }
+            }
+          }
+          for (const listener of [...recorded.visibleEditorListeners]) listener(visibleTextEditors);
+        });
+      }
+      return editor;
+    },
+    onDidChangeVisibleTextEditors: recordingEvent(recorded.visibleEditorListeners),
     setStatusBarMessage: () => ({ dispose() {} }),
     withProgress: async (_options, task) => task({ report() {} }, { isCancellationRequested: false }),
     createTerminal: () => ({ show() {}, sendText() {}, dispose() {} })
@@ -626,6 +708,21 @@ const vscode = {
     onDidChangeTextDocument: recordingEvent(recorded.changeListeners),
     onDidChangeNotebookDocument: recordingEvent(recorded.notebookChangeListeners),
     onDidChangeWorkspaceFolders: recordingEvent(recorded.folderListeners),
+    /**
+     * Like VS Code: splice the folder list, then fire onDidChangeWorkspaceFolders on a later turn.
+     * Returns true when the call was accepted.
+     */
+    updateWorkspaceFolders(start, deleteCount, ...folders) {
+      recorded.workspaceFolderUpdates.push({ start, deleteCount, folders });
+      const current = workspaceFolders ? workspaceFolders.slice() : [];
+      const removed = current.splice(start, deleteCount || 0, ...folders.map((f) => ({ uri: f.uri, name: f.name || path.basename(f.uri.fsPath), index: 0 })));
+      workspaceFolders = current.map((folder, index) => ({ ...folder, index }));
+      const added = workspaceFolders.slice(start, start + folders.length);
+      setImmediate(() => {
+        for (const listener of [...recorded.folderListeners]) listener({ added, removed });
+      });
+      return true;
+    },
     onDidChangeConfiguration: recordingEvent(recorded.configListeners),
     createFileSystemWatcher: (glob) => {
       const watcher = { glob, change: [], create: [], delete: [] };
@@ -684,7 +781,10 @@ const vscode = {
       recorded.commands.set(id, handler);
       return { dispose: () => recorded.commands.delete(id) };
     },
-    executeCommand: async () => undefined
+    executeCommand: async (id, ...args) => {
+      recorded.executedCommands.push({ id, args });
+      return undefined;
+    }
   },
   env: {
     clipboard: { writeText: async (value) => void recorded.clipboardWrites.push(value) },
@@ -735,6 +835,10 @@ const vscode = {
       viewColumn: spec.viewColumn
     }));
     return visibleNotebookEditors;
+  },
+  /** Whether showNotebookDocument makes the selected cells' editors visible (default true). */
+  __setNotebookCellEditors(enabled) {
+    notebookCellEditors = !!enabled;
   },
   /** Give `openTextDocument` real text for one absolute path. */
   __setDocument(fsPath, text) {
@@ -822,6 +926,12 @@ const vscode = {
     recorded.clipboardWrites.length = 0;
     recorded.configUpdates.length = 0;
     recorded.codeLensProviders.length = 0;
+    recorded.decorationTypes.length = 0;
+    recorded.shownNotebooks.length = 0;
+    recorded.visibleEditorListeners.length = 0;
+    recorded.workspaceFolderUpdates.length = 0;
+    recorded.executedCommands.length = 0;
+    notebookCellEditors = true;
     saveDialogAnswers.length = 0;
     quickPickAnswers.length = 0;
     fsWriteError = undefined;

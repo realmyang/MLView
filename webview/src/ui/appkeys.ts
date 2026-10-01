@@ -36,7 +36,7 @@ export interface KeyContext {
   focusSearch(): void;
   visibleIssues(): Issue[];
   focusIssue(id: string): void;
-  openSelection(): boolean;
+  openSelection(focusEditor: boolean): boolean;
   zoomToSelection(): void;
   move(key: string): void;
   /** VIEW-10: the legend panel and the flow animation, both keyboard-reachable. */
@@ -108,7 +108,7 @@ export function commandPortFor(ctx: KeyContext): CommandPort {
       return true;
     },
 
-    openSelection: () => ctx.openSelection(),
+    openSelection: (focusEditor) => ctx.openSelection(focusEditor),
     move: (key) => ctx.move(key),
     toggleSeverity: (sev) => ctx.toggleSeverity(sev),
     toggleRail: () => ctx.toggleRail(),

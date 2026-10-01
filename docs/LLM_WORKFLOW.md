@@ -97,7 +97,13 @@ Diagram**. With several artifacts in the workspace, select the intended one.
 The owning workspace folder supplies the citation root. The artifact cannot
 select another folder or supply absolute source paths.
 
-Select a node or edge to inspect its basis and evidence. Supporting and
+Click a node, edge or finding to select it and inspect its basis and evidence;
+a click never opens source. Enter, a double-click or an Inspector **Open** link
+opens the cited range beside the diagram, selects and highlights the whole
+range, and keeps focus in the diagram so the keyboard keeps working. Alt+Enter
+(or Alt+click on an Open link) also moves focus to the editor. A notebook
+citation selects its cell; the cell's lines are highlighted when VS Code has
+that cell's editor ready. Supporting and
 counter-evidence remain separate. Notebook anchors name a zero-based cell and
 one-based lines inside that cell. Reading a notebook does not establish its
 execution order. Unresolved steps and conceptual groups can lack navigation
@@ -210,9 +216,19 @@ dependencies, not every file the model could have read through opaque host
 tools.
 
 When a saved source file changes after publication, the diagram stays visible
-as a historical diagram. The banner names the changed or missing files; jumps
-into those files are blocked, and evidence in unchanged files still opens.
-Ask the assistant to publish a fresh revision to update the diagram.
+as a historical diagram. The banner names the changed or missing files, and the
+diagram marks the steps, connections and findings that cite them; the status
+bar counts them. Each stale quote says why its Open link is disabled; evidence
+in unchanged files still opens. The marks do not say whether a claim is still
+right. Ask the assistant to publish a fresh revision to update the diagram.
+
+If most tracked files are missing from the workspace root but exist, with
+their published hashes, under the artifact's folder or a folder between it and
+the root, the source did not change: the workspace root is wrong. The banner
+says "These files exist under ./<folder>/ but the workspace root is <root>"
+and offers **Add folder to workspace** and **Open folder**. MLView never
+resolves citations against another folder on its own; the panel checks again
+when the workspace folders change.
 
 Unsaved editor changes do not make a diagram stale, because freshness uses the
 saved files. The banner lists files with unsaved changes, and a jump is
@@ -221,9 +237,10 @@ source changes before asking for a new analysis: the assistant and its helper
 read the files on disk.
 
 During edit bursts, the viewer marks freshness as pending immediately and
-coalesces validation work. Navigation rechecks the displayed revision before
-jumping, and an obsolete validation result cannot replace a newer revision or
-clear its warning.
+coalesces validation work. Navigation checks the cited file before jumping:
+when its saved bytes still match the last check the jump goes ahead, and
+otherwise the displayed revision is validated again first. An obsolete
+validation result cannot replace a newer revision or clear its warning.
 
 If validation fails, read the reported field/error, repair the draft, and try
 again. Do not overwrite the prior artifact with a static fallback. Cancellation,

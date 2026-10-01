@@ -14,6 +14,7 @@ import { isSetAside } from '../types.js';
 import { CHANGED_SPEC } from '../diff/changed.js';
 import { drawnNamed, drawnRemoved } from '../diff/adopt.js';
 import { railScopeCounts } from '../scope/session.js';
+import { freshnessSummary } from '../freshness.js';
 import type { App } from '../app.js';
 import type { IssueCounts, Severity } from '../types.js';
 
@@ -73,6 +74,8 @@ export function renderChrome(app: App): void {
     visibleCounts: visibleCounts(app),
     dynamicNodes: app.graph ? app.graph.nodes.filter((n) => n.dynamic).length : 0,
     minimapCollapsed: app.view.minimapCollapsed,
+    freshness: freshnessSummary(app.workflowDocument, app.freshness),
+    checking: app.freshness.checking,
   });
   // R2-06: the card's default is decided once per DRAWN DOCUMENT, off the
   // bands the chrome just drew — never on every render. Re-deciding on every
@@ -137,5 +140,6 @@ export function renderRail(app: App): void {
     groupBy: app.railGroupBy,
     diff: app.scopes.diff,
     canApplyFix: app.canApplyFix(),
+    staleReason: (file) => app.freshness.reasonOf(file),
   });
 }

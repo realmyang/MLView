@@ -415,6 +415,7 @@ export class CanvasView {
       toggleCollapse: (id: string) => this.toggleCollapse(id),
       hoverIntent: (id: string | null) => this.emphasis.hoverIntent(id),
       activateNode: (id: string) => this.host.activateNode(id),
+      openNode: (id: string, focusEditor: boolean) => this.host.openNode(id, focusEditor),
       addDisposer: (dispose: () => void) => this.disposers.push(dispose),
     };
   }
@@ -422,6 +423,7 @@ export class CanvasView {
   private edgeWiring() {
     return {
       activateEdge: (id: string) => this.host.activateEdge(id),
+      openEdge: (id: string, focusEditor: boolean) => this.host.openEdge(id, focusEditor),
       enterEdge: (route: RoutedEdge) => this.edgeHover.enter(route),
       leaveEdge: (route: RoutedEdge) => this.edgeHover.leave(route),
       syncBundles: () => this.syncBundles(),
@@ -578,6 +580,43 @@ export class CanvasView {
     }
     this.viewport.centerOn(box, Math.max(this.viewport.vp.zoom, this.readableZoomFor(box)));
     if (pulse) this.pulseNode(this.index.visibleRepresentative(id, this.collapsedSet));
+  }
+
+  /**
+   * Pan, never zoom, so the target lies in the visible area (viewer M1): a click that opens the
+   * rail drawer over the card it selected keeps that card in the strip the drawer leaves.
+   */
+  keepInView(target: { kind: 'node' | 'edge'; id: string }): void {
+    const rect = this.targetRect(target);
+    if (rect && !this.viewport.isVisible(rect)) this.viewport.centerOn(rect);
+  }
+
+  /**
+   * Rebuild the scene for new marks (viewer M1: stale files) and give the keyboard back: a card,
+   * group header or connection that had focus is focused again in the new DOM, so the diagram's
+   * keys keep working.
+   */
+  refresh(sel: Sel | null): void {
+    const doc = this.canvasEl.ownerDocument;
+    const active = doc ? (doc.activeElement as HTMLElement | null) : null;
+    const inside = !!active && active !== this.canvasEl && this.canvasEl.contains(active) && typeof active.closest === 'function';
+    const nodeId = inside ? active!.closest('[data-node-id]')?.getAttribute('data-node-id') || null : null;
+    const edgeId = inside && !nodeId && active!.classList.contains('mlv-edge__hit') ? active!.closest('[data-edge-id]')?.getAttribute('data-edge-id') || null : null;
+    this.render();
+    this.applySelection(sel);
+    let next: Element | null | undefined = null;
+    if (nodeId) {
+      const element = this.nodeEls.get(nodeId);
+      next = element && element.classList.contains('mlv-group') ? element.querySelector('.mlv-group__header') : element;
+    } else if (edgeId) {
+      next = this.edgeEls.get(edgeId)?.querySelector('.mlv-edge__hit');
+    }
+    if (!next) return;
+    try {
+      (next as HTMLElement).focus();
+    } catch (_e) {
+      /* a detached scene cannot take focus */
+    }
   }
 
   /** Issue 6: bring a connection's two ends into view, zooming in when below the detail threshold. */

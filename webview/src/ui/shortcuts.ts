@@ -38,6 +38,11 @@ export class ShortcutSheet {
       onClose();
     });
 
+    // Viewer M1: the pointer gestures, which KEYMAP (keys only) cannot list.
+    add(panel, el('p', 'mlv-sheet__note',
+      'Click a card, connection, finding or Outline row to select it and read its claim. ' +
+      'Double-click it, or press Enter, to open the cited source beside the diagram; focus stays here. ' +
+      'Alt+click an Open link, or press Alt+Enter, to move focus to the editor.'));
     const list = add(panel, el('dl', 'mlv-sheet__list'));
     for (const binding of KEYMAP) {
       const keys = add(list, el('dt', 'mlv-sheet__keys'));

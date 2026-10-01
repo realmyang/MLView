@@ -17,11 +17,25 @@ re-run **MLView: Open Generated Diagram**, which always shows the file as it is.
 
 When cited or inspected files change after a revision was published, the
 diagram stays visible as a historical revision and the status line names the
-changed or missing files; only jumps into those files are blocked. Unsaved
-editor changes never change validation. They are reported separately, and a
-jump is blocked only when the unsaved text no longer contains the cited lines.
+changed or missing files. The steps, connections, findings and quotes that
+cite them carry a warning mark, the status bar counts them, and only jumps
+into those files are blocked. Unsaved editor changes never change validation.
+They are reported separately, and a jump is blocked only when the unsaved text
+no longer contains the cited lines.
 
-Evidence links open the cited source range or notebook cell. The Refine action
+If the workspace root is a parent of the folder the diagram cites from (most
+tracked files are missing from the root but exist, with the published hashes,
+under the artifact's folder or a folder above it), the status line says so
+instead of calling the files changed, and offers **Add folder to workspace**
+or **Open folder**. The panel checks again whenever workspace folders change.
+
+A click on a step, connection or finding selects it and shows its claim.
+Enter, a double-click or an Inspector **Open** link opens the cited range
+beside the diagram: the whole range is selected and highlighted, and focus
+stays in the diagram. Alt+Enter (or Alt+click on an Open link) also moves
+focus to the editor. For a notebook citation the cell is selected and
+revealed; its lines are highlighted when VS Code has the cell's editor ready.
+The Refine action
 copies a follow-up prompt for the assistant that authored the diagram, with one
 of five intents (Explain, Expand, Challenge, Trace, or a custom request).
 Explain never asks for a new revision. The prompt names the revision currently

@@ -23,7 +23,7 @@ import type { LayoutFrame, LayoutLane } from '../layout/layout.js';
 import type { RoutedEdge } from '../layout/routing.js';
 import type { EdgeVisual } from './edges.js';
 import type { NodeVisual } from './nodes.js';
-import type { IssueCounts, MLNode, Severity } from '../types.js';
+import type { IssueCounts, Loc, MLNode, Severity } from '../types.js';
 
 /** A swimlane band plus the aggregated counts its header shows. */
 export interface LaneVisual {
@@ -46,6 +46,7 @@ export interface ScenePlanOptions {
   /** This view's serial — it qualifies every edge path id (CONTRACTS 11.13.1). */
   mountSerial: number;
   keep: IssuePredicate;
+  /** Viewer M1: workspace-relative paths the host reported stale. Empty draws no mark. */
   staleFiles: string[];
   isFilteredOut(node: MLNode): boolean;
 }
@@ -93,7 +94,7 @@ export function planScene(opts: ScenePlanOptions): ScenePlan {
         box,
         counts,
         descendants: index.descendantCount(box.id),
-        stale: opts.staleFiles.indexOf(node.loc.file) >= 0,
+        ...staleOf(node.evidenceLocs, node.loc, opts.staleFiles),
         filteredOut: opts.isFilteredOut(node),
       },
     });
@@ -123,6 +124,8 @@ export function planScene(opts: ScenePlanOptions): ScenePlan {
       // for. Decided here, in the plan, so the DOM and the SVG export cannot
       // draw two different numbers on the same cable.
       weight: routeWeight(route.ids, index.edgeById),
+      // Viewer M1: a cable is marked when any connection it stands for cites a stale file.
+      ...staleOfRoute(route.ids, index, opts.staleFiles),
     });
   }
 
@@ -156,4 +159,25 @@ export function planScene(opts: ScenePlanOptions): ScenePlan {
 
 function compare(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
+}
+
+/**
+ * Viewer M1. Whether an item's evidence cites a stale file, and how many of its quotes do. An
+ * authored item has `evidenceLocs` (possibly empty); anything else falls back to its one `loc`.
+ */
+function staleOf(locs: Loc[] | undefined, loc: Loc, staleFiles: string[]): { stale: boolean; staleQuotes?: { stale: number; total: number } } {
+  if (!staleFiles.length) return { stale: false };
+  const list = locs || (loc.file ? [loc] : []);
+  let stale = 0;
+  for (const item of list) if (item.file && staleFiles.indexOf(item.file) >= 0) stale++;
+  return stale ? { stale: true, staleQuotes: { stale, total: list.length } } : { stale: false };
+}
+
+function staleOfRoute(ids: string[], index: GraphIndex, staleFiles: string[]): { stale?: boolean } {
+  if (!staleFiles.length) return {};
+  for (const id of ids) {
+    const edge = index.edgeById.get(id);
+    if (edge && staleOf(edge.evidenceLocs, edge.loc, staleFiles).stale) return { stale: true };
+  }
+  return {};
 }

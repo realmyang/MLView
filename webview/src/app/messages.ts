@@ -34,6 +34,8 @@ export function onHostMessage(app: App, msg: HostToUi): void {
       app.setWorkflow(document);
     },
     workflowStatus: (codes) => onWorkflowStatus(app, codes),
+    hostNotice: (message, codes) => app.showHostNotice(message, codes),
+    stale: (files) => app.setStale(files),
     actionResult: (result) => app.onActionResult(result),
     theme: (kind) => app.setTheme(kind),
     revealNode: (nodeId, center) => app.focusNode(nodeId, { center, pulse: true }),

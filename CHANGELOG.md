@@ -6,6 +6,62 @@ static analyzer; their figures are historical and are not rewritten. Current
 truth lives in [docs/STATUS.md](docs/STATUS.md) and
 [docs/VALIDATION.md](docs/VALIDATION.md).
 
+## Unreleased — viewer M1: verification loop and cleanup
+
+Step 1 of the viewer's first milestone: check a claim against its source
+without losing your place in the diagram, and see where a cited file changed
+on the diagram itself. These changes are checked by local tests only (jsdom
+and the mock `vscode` module in `vscode-extension/test/verification-loop.test.js`
+and `webview/test/verification-loop.test.mjs`); none of it has been tried in a
+live VS Code window. No contract change, no new setting, and the version is
+unchanged. The diagram's layout is unchanged (the geometry golden is
+byte-identical).
+
+Opening source (`vscode-extension/`):
+- A jump opens the cited file beside the diagram and leaves focus in the
+  diagram, so the arrow keys and Enter keep working. The whole cited range is
+  selected and highlighted in the theme's range-highlight colour; the
+  highlight moves to the next jump and is removed when the panel closes.
+- Alt+Enter (or Alt+click on an Open link) opens the same range and moves
+  focus to the editor. VS Code binds Alt+Enter only in editors, notebooks,
+  chat, search, testing and the terminal, not in a focused webview.
+- A notebook citation opens the notebook beside the diagram with the cited
+  cell selected and revealed. Its lines are highlighted when VS Code has the
+  cell's editor ready within about half a second; otherwise only the cell is
+  selected.
+- A jump into a file whose saved bytes match the last check no longer
+  revalidates the whole revision first. A file that changed is still checked
+  before the jump, and the jump is refused if it went stale.
+
+Clicking (`webview/`):
+- A click on a card, connection, finding or Outline row selects it and shows
+  its claim in the Inspector; it no longer opens source. Enter, a
+  double-click and the Inspector's Open links open the cited range. Space
+  selects a finding row without opening it. The shortcut sheet, the legend
+  and the docs say so.
+
+Freshness on the diagram:
+- The extension's `stale` message now lists each stale file with its reason
+  (changed, missing, unreadable, too large). Cards, connections and findings
+  that cite such a file get a warning mark whose tooltip and screen-reader
+  label say how many quotes are affected. In the Inspector each stale quote
+  says why and its Open link is disabled. The status bar shows a short count,
+  for example "1 of 4 cited files changed". Unchanged files get no mark and no
+  colour.
+- Once the diagram is shown, the extension's banner is drawn under the header
+  with an icon instead of as plain text above the diagram. "Checking source
+  freshness" goes to the status bar, so the layout does not jump on each save.
+  The plain-text banner remains only for errors before anything can be shown.
+
+Wrong workspace root (`vscode-extension/`):
+- When most tracked files are missing from the workspace root but exist, with
+  the published hashes, under the artifact's folder or a folder between it and
+  the root, the banner says "These files exist under ./<folder>/ but the
+  workspace root is <root>" instead of saying the files no longer match. It
+  offers **Add folder to workspace** and **Open folder** (a new window). The
+  extension never resolves a citation against another folder by itself; the
+  panel rechecks whenever the workspace folders change.
+
 ## Unreleased — viewer fixes from the Stage 1 review
 
 Two viewer defects the owner reported while reading pilot diagrams in VS Code,

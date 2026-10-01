@@ -62,6 +62,20 @@ clickable; focus mode (select, then F) keeps the full upstream and downstream
 lineage. These are checked by local jsdom tests only, not in live VS Code
 ([changelog](../CHANGELOG.md)).
 
+Unreleased viewer M1, step 1 (the verification loop): a click on a step,
+connection, finding or Outline row only selects it. Enter, a double-click or
+an Inspector Open link opens the cited range beside the diagram, selected and
+highlighted, with focus kept in the diagram; Alt+Enter moves focus to the
+editor. A notebook citation selects its cell, and highlights the cell's lines
+when VS Code has its editor ready. Steps, connections, findings and quotes
+that cite a changed or missing file are marked where they are drawn, their
+jumps are blocked, and the status bar counts the files. When the workspace
+root is a parent of the folder the diagram cites from, and the files there
+match the published hashes, the banner says so and offers to add or open that
+folder instead of calling the files changed. No contract change and no new
+setting. Checked by local tests only (jsdom and the mock `vscode` module), not
+in live VS Code ([changelog](../CHANGELOG.md)).
+
 Version 0.3.0 adds Campaign 2, "pilot readiness" (see the
 [changelog](../CHANGELOG.md)): owner decision files with a `check` command,
 the campaign freeze and `check-frozen`, the v2 pilot candidate that builds its

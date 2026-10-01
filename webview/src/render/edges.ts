@@ -182,6 +182,11 @@ export interface EdgeVisual {
    * dedupe. Absent or 1 draws exactly what it always drew.
    */
   weight?: number;
+  /**
+   * Viewer M1: a connection this cable stands for cites a file the host reported stale. Drawn
+   * as a small warning mark with a title; the DOM only (the SVG export is a snapshot without it).
+   */
+  stale?: boolean;
 }
 
 /** The glyph size of a cable's severity marker, and the radius of its disc. */
@@ -226,10 +231,14 @@ export function buildEdge(v: EdgeVisual): SVGElement {
     g.setAttribute('data-sev', v.severity);
     g.classList.add('has-issue');
   }
+  if (v.stale) {
+    g.classList.add('is-stale');
+    g.setAttribute('data-stale', '1');
+  }
   const hit = svg('path', { class: 'mlv-edge__hit', d: r.d });
   hit.setAttribute('tabindex', '-1');
   hit.setAttribute('role', 'button');
-  hit.setAttribute('aria-label', edgeAria(r, v.sourceLabel, v.targetLabel, weight));
+  hit.setAttribute('aria-label', edgeAria(r, v.sourceLabel, v.targetLabel, weight) + (v.stale ? ' Its evidence cites a changed or missing file.' : ''));
   g.appendChild(hit);
 
   const path = svg('path', { class: 'mlv-edge__path', d: r.d });
@@ -288,6 +297,23 @@ export function buildEdge(v: EdgeVisual): SVGElement {
   // occupied by a severity glyph or a loop chevron — a number drawn on top of a
   // severity marker is two facts and one readable glyph.
   if (weighted) g.appendChild(weightBadge(weight, mark, r.midAngle, !!v.severity || r.back));
+  if (v.stale) g.appendChild(staleEdgeMark(mark, !!v.severity || r.back || weighted));
+  return g;
+}
+
+/**
+ * Viewer M1: the stale mark on a cable, beside the severity marker when there is one. A warning
+ * shape on a disc, with a title that says what it means.
+ */
+function staleEdgeMark(at: Point, occupied: boolean): SVGElement {
+  const x = at.x + (occupied ? EDGE_MARKER_R + 10 : 0);
+  const g = svg('g', { class: 'mlv-edge__stale', transform: 'translate(' + round(x) + ',' + round(at.y) + ')' });
+  g.setAttribute('data-stale', '1');
+  g.appendChild(svg('circle', { class: 'mlv-edge__stalebg', r: 7.5 }));
+  g.appendChild(svg('path', { class: 'mlv-edge__staleicon', d: 'M0 -4.6 4.9 3.9H-4.9ZM0 -1.5v2.6M0 2.7v.1', fill: 'none' }));
+  const title = svg('title');
+  title.textContent = 'This connection cites a file that changed or is missing since publishing. Its jumps are blocked.';
+  g.appendChild(title);
   return g;
 }
 
@@ -349,7 +375,7 @@ export function edgeAria(r: RoutedEdge, sourceLabel?: string, targetLabel?: stri
   // only the first would understate the cable to the one reader who cannot see
   // how thick it is.
   const weighted = weight > 1 ? ', weight ' + weight + ' — ' + weight + ' connections in one cable' : '';
-  return kind + label + flows + merged + weighted + '. Activate to open the call site.';
+  return kind + label + flows + merged + weighted + '. Press Enter to open the cited source.';
 }
 
 /** The dotted numbered connectors drawn for a selected issue's relatedLocs. */

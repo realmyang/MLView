@@ -56,6 +56,8 @@ const BASIS_ROWS: LegendRow[] = [
 const FRESHNESS_ROWS: LegendRow[] = [
   { group: 'freshness', key: 'verified', label: 'Source snapshot', detail: 'Published file hashes can detect later source changes; they do not prove the interpretation.' },
   { group: 'freshness', key: 'draft', label: 'Draft', detail: 'This revision has no published source hashes, so freshness is not verified.' },
+  // Viewer M1: the only freshness mark on the diagram. Unchanged files get none.
+  { group: 'freshness', key: 'stale', label: 'Changed or missing', detail: 'A cited file no longer matches the published revision. Cards, connections, findings and quotes that cite it carry this mark, and their jumps are blocked. It does not say whether the claim is still right.' },
 ];
 
 /** The legend's content, derived from the drawing tables. */
@@ -143,6 +145,12 @@ function swatchFor(row: LegendRow): Node {
   if (row.group === 'severity') return severityGlyph(row.key, 14, '');
   if (row.group === 'edge') return edgeSwatch(row.key);
   if (row.group === 'basis') return basisSwatch(row.key);
+  if (row.key === 'stale') {
+    const chip = el('span', 'mlv-chip mlv-chip--stale');
+    chip.appendChild(uiIcon('warning', 11));
+    add(chip, el('span', '', 'changed'));
+    return chip;
+  }
   return el('span', 'mlv-chip', row.key === 'verified' ? 'hashes' : 'no hashes');
 }
 

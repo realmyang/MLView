@@ -647,6 +647,15 @@ export interface ActionResult {
   name?: string;
 }
 
+/** Why a cited or inspected file no longer matches the published revision (the host's hash check). */
+export type StaleReason = 'changed' | 'missing' | 'unreadable' | 'too-large';
+
+/** One stale file, workspace-relative, as the host's `stale` frame carries it. */
+export interface StaleFile {
+  path: string;
+  reason: StaleReason;
+}
+
 export type HostToUi =
   | { v: 1; type: 'init'; theme: ThemeKind; capabilities: Capabilities; artifact?: string; schemaVersion?: string; host?: HostKind }
   | { v: 1; type: 'graph'; requestId: string; graph: MLGraph; preserve?: { viewport?: Viewport; selection?: Sel | null; collapsed?: string[] } }
@@ -658,7 +667,11 @@ export type HostToUi =
   | { v: 1; type: 'revealIssue'; issueId: string }
   | { v: 1; type: 'cursorHint'; file: string; line: number }
   | { v: 1; type: 'setFilter'; severities?: Severity[]; codes?: string[]; query?: string }
-  | { v: 1; type: 'stale'; changedFiles: string[] }
+  /**
+   * Viewer M1. The displayed revision's stale files, each with its reason, posted after the
+   * `workflow` frame whenever the set changes (an empty list clears the marks).
+   */
+  | { v: 1; type: 'stale'; files: StaleFile[] }
   | { v: 1; type: 'restoreState'; state: ViewState }
   /** `spec: null` clears the scope. Never triggers a re-analysis (CONTRACTS 11.7). */
   | { v: 1; type: 'setScope'; spec: string | null; depth?: number }
@@ -699,7 +712,13 @@ export type HostToUi =
 
 export type UiToHost =
   | { v: 1; type: 'ready' }
-  | { v: 1; type: 'openLocation'; file: string; absFile: string; line: number; col: number; endLine: number; endCol: number; preview?: boolean; evidenceId?: string; cell?: number }
+  /**
+   * `focus: true` (viewer M1) is the explicit open-and-focus gesture (Alt+Enter, Alt+click); every
+   * other open keeps the keyboard on the diagram.
+   */
+  | { v: 1; type: 'openLocation'; file: string; absFile: string; line: number; col: number; endLine: number; endCol: number; preview?: boolean; evidenceId?: string; cell?: number; focus?: boolean }
+  /** Viewer M1: the workspace-root hint's two actions. The host owns the folder. */
+  | { v: 1; type: 'workspaceHint'; action: 'add' | 'open' }
   | { v: 1; type: 'selectNode'; nodeId: string | null }
   /**
    * `customText` is sent only, and then required, when `intent` is `custom`.

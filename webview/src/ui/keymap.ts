@@ -25,7 +25,8 @@ export interface KeyCommands {
   /** `a`: turn the connection-flow animation on or off. */
   toggleFlow(): void;
   toggleCollapse(): boolean;
-  openSelection(): boolean;
+  /** Enter: open beside the panel, focus kept; Alt+Enter (`focusEditor`): open and move focus there. */
+  openSelection(focusEditor: boolean): boolean;
   move(key: string): void;
   /** 0 = high, 1 = medium, 2 = low. */
   toggleSeverity(index: number): void;
@@ -52,7 +53,9 @@ export interface KeyBinding {
 export const KEYMAP: KeyBinding[] = [
   { keys: ['Ctrl/Cmd+K', '/'], action: 'focusSearch', description: 'Search steps, findings, IDs, or cited text' },
   { keys: ['n', 'p'], action: 'cycleIssue', description: 'Next / previous finding (document order)' },
-  { keys: ['Enter'], action: 'open', description: 'Open the selection in the editor' },
+  // Viewer M1: a click selects and shows the claim; opening the source is Enter (or a double-click).
+  { keys: ['Enter'], action: 'open', description: 'Open the cited source beside the diagram; focus stays here' },
+  { keys: ['Alt+Enter'], action: 'openFocus', description: 'Open the cited source and move focus to the editor' },
   { keys: ['Space'], action: 'collapse', description: 'Collapse or expand the selected group' },
   { keys: ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'], action: 'move', description: 'Move the selection' },
   { keys: ['0'], action: 'fit', description: 'Fit the whole diagram' },
@@ -107,6 +110,14 @@ export function handleCanvasKey(ev: KeyboardEvent, cmd: KeyCommands): boolean {
       return consume();
     }
     return false;
+  }
+
+  // Alt+Enter is the one Alt chord the canvas answers (viewer M1). VS Code binds Alt+Enter only
+  // in the editor find widget, notebooks, chat input, the search and testing views and terminal
+  // chat, never in a focused webview panel.
+  if (ev.altKey && key === 'Enter' && !ev.shiftKey) {
+    if (!cmd.openSelection(true)) return false;
+    return consume();
   }
 
   if (ev.altKey) return false;
@@ -185,7 +196,7 @@ export function handleCanvasKey(ev: KeyboardEvent, cmd: KeyCommands): boolean {
     return consume();
   }
   if (key === 'Enter') {
-    if (!cmd.openSelection()) return false;
+    if (!cmd.openSelection(false)) return false;
     return consume();
   }
   if (key.indexOf('Arrow') === 0) {

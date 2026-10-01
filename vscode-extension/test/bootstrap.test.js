@@ -123,3 +123,21 @@ test('bootstrap creates, updates and removes the banner', async () => {
   env.deliver({ v: 1, type: 'workflowError', message: '', retained: true, codes: [] });
   assert.equal(env.root.children.length, 0);
 });
+
+// M1: once the viewer is mounted it draws the host's banner itself (as a notice under the
+// header), so the bootstrap's <pre> is only the fallback for errors before the mount.
+test('after the mount the bootstrap draws no banner and removes a leftover one', async () => {
+  const source = await bootstrapSource();
+  const env = stubEnvironment();
+  vm.runInNewContext(source, { window: env.window, document: env.document, Object });
+  env.deliver({ v: 1, type: 'workflowError', message: 'Generated diagram update rejected; nothing valid can be displayed yet.', retained: false, codes: ['invalid'] });
+  assert.ok(env.document.getElementById('mlview-authored-error'), 'before the mount the <pre> fallback is drawn');
+  env.deliver({ v: 1, type: 'workflow', document: { revision: { id: 'r1' } } });
+  assert.equal(env.mounts.length, 1);
+  env.deliver({ v: 1, type: 'workflowError', message: 'This historical diagram is visible, but 1 source file(s) changed', retained: true, codes: ['stale'] });
+  assert.equal(env.document.getElementById('mlview-authored-error'), null, 'after the mount the App owns the banner');
+  assert.equal(env.root.children.length, 0);
+  env.deliver({ v: 1, type: 'stale', files: [{ path: 'source.py', reason: 'changed' }] });
+  assert.equal(env.root.children.length, 0, 'the bootstrap ignores the stale frame');
+  assert.equal(env.bridge.posted.length, 1, 'only the bootstrap ready is ever posted');
+});

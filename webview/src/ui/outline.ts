@@ -24,8 +24,13 @@ import type { Severity } from '../types.js';
 import type { GraphIndex, IssuePredicate } from '../layout/model.js';
 
 export interface OutlineCallbacks {
-  /** A node row was activated: select it and centre the canvas on it. */
+  /** A node row was clicked or Space was pressed: select it and centre the canvas on it. */
   onSelectNode(id: string): void;
+  /**
+   * Enter on a node row (viewer M1): select it and open its cited source beside the panel, focus
+   * kept here; `focusEditor` (Alt+Enter) moves focus to the editor.
+   */
+  onOpenNode(id: string, focusEditor: boolean): void;
   /** A textual relationship row was activated. */
   onSelectEdge(id: string): void;
   onRelationMode(mode: RelationMode): void;
@@ -303,6 +308,11 @@ function wireTree(tree: HTMLElement, cb: OutlineCallbacks): void {
         else focusItem(tree, parentItem(tree, item));
         return;
       case 'Enter':
+        if (ev.ctrlKey || ev.metaKey || ev.shiftKey) return;
+        ev.preventDefault();
+        if (nodeId) cb.onOpenNode(nodeId, ev.altKey);
+        else activate(item, cb);
+        return;
       case ' ':
         ev.preventDefault();
         activate(item, cb);

@@ -11,6 +11,8 @@
 
 import { ignoreComment } from '../ui/suppress.js';
 import { runFixAction } from '../ui/fixes.js';
+import { STALE_TEXT } from '../freshness.js';
+import { fileLine } from '../dom.js';
 import type { App } from '../app.js';
 import type { Loc, RelatedLoc } from '../types.js';
 
@@ -81,8 +83,21 @@ export function askAssistant(app: App, nodeId: string): void {
   app.bridge.post({ v: 1, type: 'askAssistant', nodeId, prompt });
 }
 
-export function openLocation(app: App, loc: Loc | RelatedLoc): void {
+/**
+ * Ask the host to open a cited range beside the panel (viewer M1). The host selects and
+ * highlights the whole range and keeps focus here; `focusEditor` (Alt+Enter, Alt+click) asks it
+ * to move focus to the editor. A quote whose file the host reported stale is not sent: the reason
+ * is said here instead, and the host would refuse the jump anyway.
+ */
+export function openLocation(app: App, loc: Loc | RelatedLoc, focusEditor = false): void {
   if (!app.caps.canOpenSource) return;
+  const reason = loc.evidenceId ? app.freshness.reasonOf(loc.file) : undefined;
+  if (reason) {
+    const text = loc.file + ': ' + STALE_TEXT[reason] + '. Not opened; the cited lines may no longer be there.';
+    app.view.toast(text);
+    app.announce(text);
+    return;
+  }
   // VS Code may tear down a hidden webview as soon as opening source changes
   // the active editor. Persist synchronously before handing control to the
   // host; the ordinary debounced save can be lost with the document.
@@ -102,7 +117,17 @@ export function openLocation(app: App, loc: Loc | RelatedLoc): void {
   // identifiers only when it actually has them.
   if (loc.evidenceId) message.evidenceId = loc.evidenceId;
   if (loc.evidenceId && loc.cell !== undefined) message.cell = loc.cell;
+  if (focusEditor) message.focus = true;
   app.bridge.post(message);
+  // What the host is asked to do, not a claim that it did it (VW-10).
+  const where = fileLine(loc);
+  app.announce(focusEditor
+    ? 'Opening ' + where + ' in the editor.'
+    : 'Opening ' + where + ' beside the diagram. Focus stays here; Alt+Enter moves it to the editor.');
+  if (!focusEditor && !app.openHintShown) {
+    app.openHintShown = true;
+    app.view.toast('Opening the cited lines beside the diagram. Focus stays here; Alt+Enter moves it to the editor.');
+  }
 }
 
 export function onAction(app: App, id: string): void {

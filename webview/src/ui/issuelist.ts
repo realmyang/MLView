@@ -20,11 +20,16 @@ import type { IssueGroup } from './railgroup.js';
 import type { GraphIndex } from '../layout/model.js';
 import type { DiffIndex, DiffIssueEntry } from '../diff/overlay.js';
 import { isKnownIssueChange, isSetAside } from '../types.js';
-import type { Issue, Loc, RailGroupBy, RelatedLoc } from '../types.js';
+import { STALE_TEXT } from '../freshness.js';
+import type { Issue, Loc, RailGroupBy, RelatedLoc, StaleReason } from '../types.js';
 
 export interface IssueListCallbacks {
+  /** A click or Space on a row: select the finding (viewer M1: never opens the source). */
   onSelectIssue(id: string): void;
-  onOpen(loc: Loc | RelatedLoc): void;
+  /** Enter on a row, or a double-click: select and open its first cited range; Alt moves focus. */
+  onOpenIssue(id: string, focusEditor: boolean): void;
+  /** An Open / Go to control; `focusEditor` for Alt+click or Alt+Enter. */
+  onOpen(loc: Loc | RelatedLoc, focusEditor?: boolean): void;
   onClearFilters(): void;
   onClearScope(): void;
   onGroupBy(mode: RailGroupBy): void;
@@ -58,6 +63,53 @@ export interface IssueListState {
    * there.
    */
   keepBase(issue: Issue): boolean;
+  /** Viewer M1: why a cited file no longer matches the published revision, if it does not. */
+  staleReason?(file: string): StaleReason | undefined;
+}
+
+/** The stale reasons among a finding's cited files (supporting and counter-evidence). */
+export function issueStaleReasons(issue: Issue, staleReason: ((file: string) => StaleReason | undefined) | undefined): StaleReason[] {
+  if (!staleReason) return [];
+  const out: StaleReason[] = [];
+  for (const loc of [issue.loc as Loc].concat(issue.relatedLocs || [])) {
+    const reason = loc && loc.file ? staleReason(loc.file) : undefined;
+    if (reason && out.indexOf(reason) < 0) out.push(reason);
+  }
+  return out;
+}
+
+/** "cites a changed file", "cites a missing file" or "cites changed or missing files". */
+export function staleChipText(reasons: StaleReason[]): string {
+  if (reasons.length === 1 && reasons[0] === 'changed') return 'cites a changed file';
+  if (reasons.indexOf('changed') < 0) return reasons.length === 1 ? 'cites a missing file' : 'cites missing files';
+  return 'cites changed or missing files';
+}
+
+/**
+ * An Open / Go to control (viewer M1). A click opens beside the panel with focus kept here;
+ * Alt+click and Alt+Enter move focus to the editor. A quote whose file is stale gets a disabled
+ * control that says why instead.
+ */
+export function wireOpenControl(control: HTMLButtonElement, loc: Loc | RelatedLoc, onOpen: (loc: Loc | RelatedLoc, focusEditor?: boolean) => void, staleReason?: StaleReason): void {
+  if (staleReason) {
+    control.disabled = true;
+    control.classList.add('is-stale');
+    control.setAttribute('data-stale', staleReason);
+    const why = fileLine(loc) + ': ' + STALE_TEXT[staleReason] + '. Not opened.';
+    control.title = why;
+    control.setAttribute('aria-label', why);
+    return;
+  }
+  on(control, 'click', (ev: MouseEvent) => {
+    ev.stopPropagation();
+    onOpen(loc, ev.altKey);
+  });
+  on(control, 'keydown', (ev: KeyboardEvent) => {
+    if (ev.key !== 'Enter' || !ev.altKey) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    onOpen(loc, true);
+  });
 }
 
 export function renderIssuePanel(panel: HTMLElement, s: IssueListState, cb: IssueListCallbacks): void {
@@ -351,6 +403,12 @@ function issueRow(issue: Issue, s: IssueListState, cb: IssueListCallbacks): HTML
   );
   if (selected) row.classList.add('is-selected');
   if (issue.suppressed) row.classList.add('is-suppressed');
+  const stale = issueStaleReasons(issue, s.staleReason);
+  if (stale.length) {
+    row.classList.add('is-stale');
+    row.setAttribute('data-stale', stale.join(' '));
+    row.setAttribute('aria-label', row.getAttribute('aria-label') + ', ' + staleChipText(stale) + ' since publishing');
+  }
   row.appendChild(severityGlyph(issue.severity, 14, ''));
   const text = add(row, el('div', 'mlv-issue__text'));
   add(text, el('div', 'mlv-issue__title', issue.title));
@@ -362,6 +420,7 @@ function issueRow(issue: Issue, s: IssueListState, cb: IssueListCallbacks): HTML
   // reviewer most needs — and made a missing chip ambiguous between "sure" and
   // "the renderer forgot".
   meta.appendChild(confidenceChip(issue));
+  if (stale.length) meta.appendChild(staleChip(stale));
   if (issue.suppressed) stateChip(meta, 'mlv-chip--suppressed', 'suppressed', 'Silenced by a comment or by .mlview.toml');
   // CI-ADOPT: baselined is MARKED, never deleted.
   if (issue.baselined) stateChip(meta, 'mlv-chip--baselined', 'baselined', 'Already in the baseline file, so it does not fail the build');
@@ -396,10 +455,7 @@ function issueRow(issue: Issue, s: IssueListState, cb: IssueListCallbacks): HTML
   if (issue.loc.file) {
     const open = iconButton('mlv-btn mlv-btn--icon mlv-issue__open', 'Open ' + fileLine(issue.loc));
     open.appendChild(uiIcon('open', 12));
-    on(open, 'click', (ev: Event) => {
-      ev.stopPropagation();
-      cb.onOpen(issue.loc);
-    });
+    wireOpenControl(open, issue.loc, cb.onOpen, s.staleReason ? s.staleReason(issue.loc.file) : undefined);
     li.appendChild(open);
   }
 
@@ -415,6 +471,16 @@ function issueRow(issue: Issue, s: IssueListState, cb: IssueListCallbacks): HTML
   // product used to be unreachable from the Issues tab entirely (MLV-R1-006).
   if (selected) li.appendChild(issueDetail(issue, s, cb));
   return li;
+}
+
+/** A finding's freshness chip: an icon and words, so it never relies on colour alone. */
+function staleChip(reasons: StaleReason[]): HTMLElement {
+  const chip = el('span', 'mlv-chip mlv-chip--stale');
+  chip.appendChild(uiIcon('warning', 11));
+  add(chip, el('span', '', staleChipText(reasons)));
+  chip.setAttribute('data-stale', reasons.join(' '));
+  chip.title = 'A file this finding cites no longer matches the published revision. Its jump is blocked.';
+  return chip;
 }
 
 /** What each CI-ADOPT attribution means, in the reader's words. */
@@ -440,19 +506,13 @@ function issueDetail(issue: Issue, s: IssueListState, cb: IssueListCallbacks): H
   const actions = add(box, el('div', 'mlv-issue__goto'));
   if (issue.loc.file) {
     const primary = button('mlv-btn', 'Go to ' + fileLine(issue.loc));
-    on(primary, 'click', (ev: Event) => {
-      ev.stopPropagation();
-      cb.onOpen(issue.loc);
-    });
+    wireOpenControl(primary, issue.loc, cb.onOpen, s.staleReason ? s.staleReason(issue.loc.file) : undefined);
     actions.appendChild(primary);
   }
   for (const rel of issue.relatedLocs || []) {
     const label = 'Go to ' + (rel.message || rel.role.replace(/_/g, ' ')) + ' — ' + fileLine(rel);
     const b = button('mlv-btn', label);
-    on(b, 'click', (ev: Event) => {
-      ev.stopPropagation();
-      cb.onOpen(rel);
-    });
+    wireOpenControl(b, rel, cb.onOpen, s.staleReason ? s.staleReason(rel.file) : undefined);
     actions.appendChild(b);
   }
   return box;
@@ -483,7 +543,15 @@ function wireListbox(list: HTMLElement, cb: IssueListCallbacks): void {
     else if (ev.key === 'ArrowUp') next = items[Math.max(0, at - 1)];
     else if (ev.key === 'Home') next = items[0];
     else if (ev.key === 'End') next = items[items.length - 1];
-    else if (ev.key === 'Enter' || ev.key === ' ') {
+    else if (ev.key === 'Enter') {
+      // Viewer M1: Enter opens the finding's first cited range beside the panel (Alt+Enter moves
+      // focus to the editor); Space only selects.
+      if (ev.ctrlKey || ev.metaKey || ev.shiftKey) return;
+      ev.preventDefault();
+      const id = option.getAttribute('data-issue-id');
+      if (id) cb.onOpenIssue(id, ev.altKey);
+      return;
+    } else if (ev.key === ' ') {
       ev.preventDefault();
       const id = option.getAttribute('data-issue-id');
       if (id) cb.onSelectIssue(id);

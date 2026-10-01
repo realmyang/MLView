@@ -48,8 +48,20 @@ export interface NodeVisual {
   box: LayoutBox;
   counts: IssueCounts;
   descendants: number;
+  /** Viewer M1: some of this item's evidence cites a file the host reported stale. */
   stale: boolean;
+  /** How many of its quotes do, for the words beside the mark. */
+  staleQuotes?: { stale: number; total: number };
   filteredOut: boolean;
+}
+
+/** "1 of 2 quotes cite a changed or missing file" — what a stale mark means, in words. */
+export function staleWords(v: Pick<NodeVisual, 'stale' | 'staleQuotes'>): string {
+  if (!v.stale) return '';
+  const q = v.staleQuotes;
+  return q
+    ? q.stale + ' of ' + q.total + (q.total === 1 ? ' quote cites' : ' quotes cite') + ' a changed or missing file'
+    : 'cites a changed or missing file';
 }
 
 /**
@@ -215,6 +227,7 @@ export function ariaLabelFor(v: NodeVisual): string {
   // VIEWUI-14: the same "finding" wording as the card's own severity badge.
   if (total > 0) bits.push(total + (total === 1 ? ' finding' : ' findings') + ', highest severity ' + top);
   if (v.descendants > 0) bits.push(v.descendants + ' nested nodes');
+  if (v.stale) bits.push(staleWords(v));
   if (n.dynamic) bits.push('partially resolved');
   if (n.viewRole === 'boundary') bits.push('outside the current scope');
   return bits.join(', ') + '.';
@@ -380,6 +393,9 @@ export function buildNodeCard(v: NodeVisual, collapsedGroup: boolean): HTMLEleme
     ledge.setAttribute('aria-hidden', 'true');
   }
 
+  // Viewer M1: a corner mark with its meaning in words (title and accessible name), never colour alone.
+  if (v.stale) card.appendChild(staleMark(v));
+
   if (groupLike) {
     const cluster = severityCluster(v.counts, 14);
     if (cluster) {
@@ -475,8 +491,22 @@ export function buildGroupBox(v: NodeVisual): HTMLElement {
   }
   const cluster = boundary ? null : severityCluster(v.counts, 13);
   if (cluster) header.appendChild(cluster);
+  if (v.stale) {
+    box.classList.add('is-stale');
+    header.appendChild(staleMark(v));
+  }
   box.appendChild(header);
   return box;
+}
+
+/** The stale mark (viewer M1): a warning icon whose title says what it means. */
+function staleMark(v: NodeVisual): HTMLElement {
+  const mark = el('span', 'mlv-node__stale');
+  mark.setAttribute('data-stale', '1');
+  mark.setAttribute('aria-hidden', 'true');
+  mark.title = staleWords(v) + ' since publishing. Its jumps are blocked.';
+  mark.appendChild(uiIcon('warning', 12));
+  return mark;
 }
 
 export function buildLane(lane: LayoutLane, counts: IssueCounts, absent: boolean): HTMLElement {

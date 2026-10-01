@@ -5,8 +5,8 @@
  * The host is the compiled extension (`vscode-extension/out/test-entry.cjs` over the mock `vscode`
  * module); the page is `panel.webview.html` evaluated in JSDOM with `dist/mlview.js`. Every frame in
  * both directions is recorded, so the assertions cover the wire protocol as the two sides actually
- * speak it: one `ready` per page load, `init` → `workflow` → `workflowError`, one render per
- * later revision, `actionResult` answers, and the fenced refinement prompt.
+ * speak it: one `ready` per page load, `init` → `workflow` → `stale` → `workflowError`, one render
+ * per later revision, `actionResult` answers, and the fenced refinement prompt.
  */
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
@@ -206,7 +206,10 @@ export async function authoredHandshake() {
     assert.equal($(page, '#mlview-authored-error'), null, 'no banner for a fresh revision');
 
     // ── Evidence citation opens the cited source through the host. ──
+    // Viewer M1: a click on the card only selects it; the Inspector's Open link opens the source.
     $(page, '[data-node-id="loss"]').dispatchEvent(new page.window.MouseEvent('click', { bubbles: true }));
+    await sleep(20);
+    assert.equal(page.outgoing.some((m) => m.type === 'openLocation'), false, 'a card click selects without opening');
     const open = [...page.window.document.querySelectorAll('button')].find((button) => button.textContent === 'Open source.py:1');
     assert.ok(open, 'the inspector offers the evidence link');
     open.click();
@@ -214,6 +217,8 @@ export async function authoredHandshake() {
       () => 'source click lost canOpenSource or evidence identity: ' + JSON.stringify(page.outgoing));
     assert.equal(vscode.__recorded.shownDocuments[0].document.uri.fsPath, join(wire.root, 'source.py'));
     assert.equal(page.outgoing.find((m) => m.type === 'openLocation').evidenceId, 'e1');
+    assert.equal(page.outgoing.find((m) => m.type === 'openLocation').focus, undefined, 'an Open link keeps focus in the diagram');
+    assert.equal(vscode.__recorded.shownDocuments[0].options.preserveFocus, true, 'the host opens beside without taking focus');
 
     assert.match($(page, '.mlv-workflow__meta').textContent, /Entrypoints: source.py/);
     assert.match($(page, '.mlv-workflow__meta').textContent, /Configuration: training mode/);
@@ -239,6 +244,8 @@ export async function authoredHandshake() {
     assert.equal(nodeData.request.configuration, 'training mode');
 
     // ── Change the viewport, then hand off to source from an edge: the state is persisted first. ──
+    // Viewer M1 (updated deliberately): a click on a connection selects it; the handoff is the
+    // double-click (or Enter), which selects and opens the cited source beside the panel.
     const fitted = plain(page.app.getState().viewport);
     page.window.document.querySelector('button[aria-label="Zoom in"]').click();
     await sleep(20);
@@ -246,7 +253,9 @@ export async function authoredHandshake() {
     assert.notDeepEqual(zoomed, fitted, 'the toolbar zoom changed the viewport');
     wire.closeOnOpenLocation = true;
     $(page, '[data-edge-id="step"] .mlv-edge__hit').dispatchEvent(new page.window.MouseEvent('click', { bubbles: true }));
-    assert.equal(wire.closedAtOpenLocation, true, 'edge activation exercises the immediate source handoff');
+    assert.equal(wire.closedAtOpenLocation, false, 'a connection click selects without opening');
+    $(page, '[data-edge-id="step"] .mlv-edge__hit').dispatchEvent(new page.window.MouseEvent('dblclick', { bubbles: true }));
+    assert.equal(wire.closedAtOpenLocation, true, 'edge double-click exercises the immediate source handoff');
     assert.equal(wire.state?.selection?.kind, 'edge', 'the edge selection is persisted before the handoff');
     assert.equal(wire.state?.selection?.id, 'step');
     assert.equal(wire.state?.workflowRevision, 'r1', 'the saved viewport names its revision');
@@ -328,43 +337,60 @@ export async function authoredHandshake() {
   }
 }
 
-/** A verified revision whose cited source changed after publication shows the historical banner. */
+/**
+ * A verified revision whose cited source changed after publication shows the historical notice.
+ * Viewer M1 (updated deliberately): after the mount the host's banner is drawn by the viewer as
+ * `.mlv-hostnotice` under the header instead of the bootstrap's `<pre>`, the host's `stale` frame
+ * marks the cards that cite the file, and the checking status goes to the status bar.
+ */
 export async function authoredStaleHandshake() {
   const document = { ...baseDocument(), verification: { files: { 'source.py': sha256(SOURCE) }, publishedAt: '2026-09-25T00:00:00Z' } };
   const edited = SOURCE + '# edited after publication\n';
   const wire = await openWire(document, { 'source.py': edited });
   try {
     const page = mountPage(wire);
-    await waitFor(() => $(page, '[data-node-id="loss"]') && $(page, '#mlview-authored-error'),
-      'the stale revision did not mount with its banner');
+    const notice = () => $(page, '.mlv-hostnotice');
+    await waitFor(() => $(page, '[data-node-id="loss"]') && notice() && !notice().hidden,
+      'the stale revision did not mount with its notice');
     await sleep(30);
     assert.equal(page.outgoing.filter((m) => m.type === 'ready').length, 1);
-    assert.deepEqual(types(wire.hostPosts), ['init', 'workflow', 'workflowError'], 'the banner follows the workflow');
-    assert.deepEqual(wire.hostPosts[2].codes, ['stale']);
-    assert.equal(wire.hostPosts[2].retained, true);
+    assert.deepEqual(types(wire.hostPosts), ['init', 'workflow', 'stale', 'workflowError'],
+      'the stale files and then the banner follow the workflow');
+    assert.deepEqual(wire.hostPosts[2].files, [{ path: 'source.py', reason: 'changed' }]);
+    assert.deepEqual(wire.hostPosts[3].codes, ['stale']);
+    assert.equal(wire.hostPosts[3].retained, true);
     assert.equal(page.mounts.length, 1);
     const root = page.window.document.getElementById('mlview-root');
-    const banner = $(page, '#mlview-authored-error');
-    assert.equal(banner.parentElement, root, 'the banner sits inside the mounted root');
-    assert.ok(root.querySelector('[data-node-id="loss"]'), 'the historical diagram stays visible under the banner');
-    assert.equal(banner.getAttribute('role'), 'status');
-    assert.match(banner.textContent, /historical diagram is visible/);
-    assert.match(banner.textContent, /source\.py/);
+    assert.equal($(page, '#mlview-authored-error'), null, 'no bootstrap <pre> once the viewer is mounted');
+    assert.ok(root.contains(notice()), 'the notice sits inside the mounted root');
+    assert.ok(root.querySelector('[data-node-id="loss"]'), 'the historical diagram stays visible under the notice');
+    assert.equal(notice().getAttribute('role'), 'status');
+    assert.match(notice().className, /mlv-hostnotice--warn/);
+    assert.match(notice().textContent, /historical diagram is visible/);
+    assert.match(notice().textContent, /source\.py/);
+    assert.ok($(page, '[data-node-id="loss"]').classList.contains('is-stale'), 'the card citing the changed file is marked');
+    assert.ok($(page, '[data-edge-id="step"]').classList.contains('is-stale'), 'the connection citing it is marked');
+    assert.match($(page, '[data-freshness="stale"]')?.textContent || '', /1 of 1 cited files changed/);
 
-    // A disk change updates the banner to the checking status; a fresh child revision removes it.
+    // A disk change shows the checking status in the status bar and leaves the notice as it was;
+    // a fresh child revision removes the notice and the marks.
     const child = { ...baseDocument(), title: 'Fresh child', revision: { id: 'r2', parent: 'r1' } };
     writeFileSync(wire.artifact, JSON.stringify(child));
     vscode.__fireWatcher('change', wire.artifact);
     await sleep(0);
-    assert.match($(page, '#mlview-authored-error')?.textContent || '', /checking diagram freshness/,
-      'the banner updates while the change is checked');
+    assert.match($(page, '[data-freshness="checking"]')?.textContent || '', /Checking source freshness/,
+      'the status bar says the change is being checked');
+    assert.equal(notice().hidden, false, 'the notice does not jump while the change is checked');
     await waitFor(() => $(page, '[data-workflow-revision="r2"]'), 'the fresh child revision did not render');
-    await waitFor(() => $(page, '#mlview-authored-error') === null, 'the banner was not removed after a fresh adoption');
+    await waitFor(() => notice().hidden, 'the notice was not hidden after a fresh adoption');
+    await waitFor(() => !$(page, '[data-freshness]'), 'the status bar still shows a freshness item after a fresh adoption');
+    assert.equal($(page, '.mlv-node.is-stale'), null, 'no stale marks after a fresh adoption');
+    assert.equal($(page, '#mlview-authored-error'), null);
     await sleep(50);
     assert.deepEqual(page.renders, ['r2']);
     assert.equal(page.mounts.length, 1);
     assertNoLegacyFrames(wire);
-    process.stdout.write('  PASS  stale verified revision → historical banner in the mounted root → cleared by a fresh child\n');
+    process.stdout.write('  PASS  stale verified revision → notice and marks in the mounted root → cleared by a fresh child\n');
   } finally {
     wire.controller.dispose();
     for (const page of wire.pages) page.window.close();

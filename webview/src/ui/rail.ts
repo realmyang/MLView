@@ -9,7 +9,9 @@ import { add, button, clear, el, fileLine, on } from '../dom.js';
 import { cellRef, locTitle } from '../notebook.js';
 import { severityGlyph } from '../markers.js';
 import { appendTrustSections, confidenceChip } from './evidence.js';
-import { renderIssuePanel } from './issuelist.js';
+import { issueStaleReasons, renderIssuePanel, staleChipText, wireOpenControl } from './issuelist.js';
+import { staleQuotes, STALE_TEXT } from '../freshness.js';
+import { uiIcon } from '../icons.js';
 import { renderOutlineTree } from './outline.js';
 import type { RelationMode } from './outline.js';
 import { appendSuppressActions, stateChip } from './suppress.js';
@@ -17,17 +19,21 @@ import { appendFixSection, hasFix } from './fixes.js';
 import { alternativeCount, isAlternatives, resolvedConfig } from '../config/resolved.js';
 import { edgeKindText } from '../render/edges.js';
 import type { DiffIndex } from '../diff/overlay.js';
-import type { Issue, Loc, MLEdge, MLNode, RailGroupBy, RailTab, RelatedLoc } from '../types.js';
+import type { Issue, Loc, MLEdge, MLNode, RailGroupBy, RailTab, RelatedLoc, StaleReason } from '../types.js';
 import type { GraphIndex } from '../layout/model.js';
 
 export interface RailCallbacks {
   onTab(tab: RailTab): void;
   onClearFilters(): void;
+  /** Viewer M1: a click selects; Enter and a double-click open (see `onOpenIssue`, `onOpenNode`). */
   onSelectIssue(id: string): void;
+  onOpenIssue(id: string, focusEditor: boolean): void;
   onSelectNode(id: string): void;
+  onOpenNode(id: string, focusEditor: boolean): void;
   onSelectEdge(id: string): void;
   onChallenge(): void;
-  onOpen(loc: Loc | RelatedLoc): void;
+  /** Open a cited range beside the panel; `focusEditor` (Alt) moves focus to the editor. */
+  onOpen(loc: Loc | RelatedLoc, focusEditor?: boolean): void;
   onResize(width: number): void;
   onToggleRail(): void;
   onAsk(nodeId: string): void;
@@ -75,6 +81,8 @@ export interface RailState {
   diff: DiffIndex | null;
   /** H5: true in a host that can actually make an edit. */
   canApplyFix: boolean;
+  /** Viewer M1: why a cited file no longer matches the published revision, if it does not. */
+  staleReason?(file: string): StaleReason | undefined;
 }
 
 let railSeq = 0;
@@ -151,6 +159,18 @@ export class Rail {
       this.root.appendChild(panel);
       this.panels.set(d.id, panel);
     }
+    // Viewer M1: a double-click on a finding or an Outline step opens its cited source. Listened
+    // for on the panels, which outlive the rows: the first click re-renders the list.
+    on(this.panels.get('issues')!, 'dblclick', (ev: MouseEvent) => {
+      const row = closestFrom(ev.target, '[data-issue-id][role="option"]');
+      const id = row ? row.getAttribute('data-issue-id') : null;
+      if (id) cb.onOpenIssue(id, false);
+    });
+    on(this.panels.get('outline')!, 'dblclick', (ev: MouseEvent) => {
+      const row = closestFrom(ev.target, '[data-outline-id]');
+      const id = row ? row.getAttribute('data-outline-id') : null;
+      if (id) cb.onOpenNode(id, false);
+    });
   }
 
   private wireResize(grip: HTMLElement): void {
@@ -250,9 +270,11 @@ export class Rail {
       expanded: this.expanded,
       diff: s.diff,
       canApplyFix: s.canApplyFix,
+      staleReason: s.staleReason,
     }, {
       onSelectIssue: (id) => this.cb.onSelectIssue(id),
-      onOpen: (loc) => this.cb.onOpen(loc),
+      onOpenIssue: (id, focusEditor) => this.cb.onOpenIssue(id, focusEditor),
+      onOpen: (loc, focusEditor) => this.cb.onOpen(loc, focusEditor),
       onClearFilters: () => this.cb.onClearFilters(),
       onClearScope: () => this.cb.onClearScope(),
       onGroupBy: (mode) => this.cb.onGroupBy(mode),
@@ -353,7 +375,7 @@ export class Rail {
         openBtn.setAttribute('data-cell', String(nbCell.cell));
         openBtn.title = locTitle(node.loc);
       }
-      on(openBtn, 'click', () => this.cb.onOpen(node.loc));
+      wireOpenControl(openBtn, node.loc, this.cb.onOpen);
       actions.appendChild(openBtn);
     }
     if (s.canAskAssistant) {
@@ -370,7 +392,7 @@ export class Rail {
     actions.appendChild(scopeBtn);
     this.appendChallenge(actions);
 
-    this.renderEvidenceLocations(panel, node.evidenceLocs || (node.loc.file ? [node.loc] : []));
+    this.renderEvidenceLocations(panel, node.evidenceLocs || (node.loc.file ? [node.loc] : []), s);
     this.renderWorkflowLimitations(panel, s.index);
 
     // ANA-10. The resolved value, and — where the analyzer could not choose —
@@ -456,7 +478,7 @@ export class Rail {
     add(panel, el('div', 'mlv-insp__fqn', (source?.label || edge.source) + ' → ' + (target?.label || edge.target)));
     const actions = add(panel, el('div', 'mlv-insp__actions'));
     this.appendChallenge(actions);
-    this.renderEvidenceLocations(panel, edge.evidenceLocs || (edge.loc.file ? [edge.loc] : []));
+    this.renderEvidenceLocations(panel, edge.evidenceLocs || (edge.loc.file ? [edge.loc] : []), s);
     this.renderWorkflowLimitations(panel, index);
     // The connection's hover card lists these too; this is the keyboard's and
     // the screen reader's way to them, as the Findings block is for a step.
@@ -472,12 +494,21 @@ export class Rail {
     for (const limitation of limitations) add(list, el('li', '', limitation.message));
   }
 
-  private renderEvidenceLocations(panel: HTMLElement, locations: Loc[]): void {
+  private renderEvidenceLocations(panel: HTMLElement, locations: Loc[], s: RailState): void {
     if (!locations.length) {
       add(panel, el('div', 'mlv-empty-note mlv-insp__no-evidence', 'No source evidence was authored for this item. Its basis and coverage limitations describe what remains uncertain.'));
       return;
     }
     panel.appendChild(this.heading('Source evidence'));
+    const reasonOf = (loc: Loc): StaleReason | undefined => (s.staleReason && loc.file ? s.staleReason(loc.file) : undefined);
+    const quotes = staleQuotes(locations, (file) => !!(s.staleReason && s.staleReason(file)));
+    if (quotes.stale) {
+      // Viewer M1: what the marks below mean, in words, before the list.
+      const note = add(panel, el('p', 'mlv-insp__stale-note'));
+      note.appendChild(uiIcon('warning', 12));
+      add(note, el('span', '', quotes.stale + ' of ' + quotes.total + (quotes.total === 1 ? ' quote cites' : ' quotes cite') +
+        ' a file that no longer matches the published revision. Those jumps are blocked; the claim was not re-checked.'));
+    }
     const nav = add(panel, el('div', 'mlv-insp__evidence-nav'));
     const previous = button('mlv-btn', 'Previous evidence');
     const next = button('mlv-btn', 'Next evidence');
@@ -495,6 +526,7 @@ export class Rail {
     const list = add(panel, el('ul', 'mlv-insp__related mlv-insp__source-evidence'));
     for (const loc of locations) {
       const li = add(list, el('li'));
+      const reason = reasonOf(loc);
       const openBtn = button('mlv-link', 'Open ' + fileLine(loc));
       openBtn.setAttribute('data-evidence-id', loc.evidenceId || '');
       const nbCell = cellRef(loc);
@@ -505,12 +537,17 @@ export class Rail {
         // VIEWUI-8: an authored notebook citation names its zero-based cell.
         openBtn.title = locTitle(loc);
       }
-      on(openBtn, 'click', () => {
+      if (reason) {
+        li.classList.add('is-stale');
+        li.setAttribute('data-stale', reason);
+      }
+      wireOpenControl(openBtn, loc, (target, focusEditor) => {
         active = locations.indexOf(loc);
         update();
-        this.cb.onOpen(loc);
-      });
+        this.cb.onOpen(target, focusEditor);
+      }, reason);
       li.appendChild(openBtn);
+      if (reason) li.appendChild(staleBadge(reason));
       if (loc.snippet) add(li, el('pre', 'mlv-banner__detail', loc.snippet));
     }
   }
@@ -616,14 +653,27 @@ export class Rail {
     }
     if ((issue.relatedLocs || []).length) {
       box.appendChild(this.heading('Evidence review'));
+      const stale = issueStaleReasons(issue, s.staleReason);
+      if (stale.length) {
+        box.classList.add('is-stale');
+        const note = add(box, el('p', 'mlv-insp__stale-note'));
+        note.appendChild(uiIcon('warning', 12));
+        add(note, el('span', '', 'This finding ' + staleChipText(stale) + ' since publishing; those jumps are blocked.'));
+      }
       const list = add(box, el('ul', 'mlv-insp__related'));
       for (const rel of issue.relatedLocs) {
         const li = add(list, el('li'));
-        const link = el('button', 'mlv-link', (rel.message || rel.role) + ' — ' + fileLine(rel));
+        const reason = s.staleReason && rel.file ? s.staleReason(rel.file) : undefined;
+        const link = el('button', 'mlv-link', (rel.message || rel.role) + ' — ' + fileLine(rel)) as HTMLButtonElement;
         link.type = 'button';
         link.setAttribute('data-evidence-id', rel.evidenceId || '');
-        on(link, 'click', () => this.cb.onOpen(rel));
+        if (reason) {
+          li.classList.add('is-stale');
+          li.setAttribute('data-stale', reason);
+        }
+        wireOpenControl(link, rel, (target, focusEditor) => this.cb.onOpen(target, focusEditor), reason);
         li.appendChild(link);
+        if (reason) li.appendChild(staleBadge(reason));
         if (rel.snippet) add(li, el('pre', 'mlv-banner__detail', rel.snippet));
       }
     }
@@ -661,6 +711,7 @@ export class Rail {
       },
       {
         onSelectNode: (id) => this.cb.onSelectNode(id),
+        onOpenNode: (id, focusEditor) => this.cb.onOpenNode(id, focusEditor),
         onSelectEdge: (id) => this.cb.onSelectEdge(id),
         onRelationMode: (mode) => { this.relationMode = mode; },
         onSelectLane: (laneId) => this.cb.onSelectLane(laneId),
@@ -668,4 +719,19 @@ export class Rail {
       },
     );
   }
+}
+
+/** `target.closest(selector)` for any event target, or null. */
+function closestFrom(target: EventTarget | null, selector: string): Element | null {
+  const element = target as Element | null;
+  return element && typeof element.closest === 'function' ? element.closest(selector) : null;
+}
+
+/** Why a quote cannot be opened, as an icon and words beside its disabled link (viewer M1). */
+function staleBadge(reason: StaleReason): HTMLElement {
+  const badge = el('span', 'mlv-insp__stale');
+  badge.setAttribute('data-stale', reason);
+  badge.appendChild(uiIcon('warning', 12));
+  add(badge, el('span', '', STALE_TEXT[reason]));
+  return badge;
 }

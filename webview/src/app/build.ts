@@ -27,6 +27,7 @@ import { SearchController } from '../ui/searchcontroller.js';
 import { ScopeBar } from '../ui/scopebar.js';
 import { PipelineChooser } from '../ui/pipelinechooser.js';
 import { DiffBar } from '../ui/diffbar.js';
+import { HostNotice } from '../ui/hostnotice.js';
 import { runExport } from './exporting.js';
 import { renderChrome, renderRail } from './surfaces.js';
 import {
@@ -114,6 +115,10 @@ export function buildAppUi(app: App): void {
   // path to the canvas nothing (VIEW-12). Same pixels, same order.
   app.root.appendChild(app.diffBar.root);
   app.root.appendChild(app.chrome.banners);
+  // Viewer M1: the host's banner after the mount (stale files, the root hint, a refused update).
+  // It moves under the authored header when it is first shown (App.showHostNotice).
+  app.notice = new HostNotice({ onWorkspaceHint: (action) => app.bridge.post({ v: 1, type: 'workspaceHint', action }) });
+  app.root.appendChild(app.notice.root);
   app.root.appendChild(shell.body);
   shell.body.appendChild(shell.main);
 
@@ -145,7 +150,9 @@ export function buildAppUi(app: App): void {
     onTab: (tab) => app.setRailTab(tab),
     onClearFilters: () => app.clearFilters(),
     onSelectIssue: (id) => app.focusIssue(id),
+    onOpenIssue: (id, focusEditor) => app.openIssue(id, focusEditor),
     onSelectNode: (id) => app.select({ kind: 'node', id }, { center: true, reveal: true }),
+    onOpenNode: (id, focusEditor) => app.select({ kind: 'node', id }, { center: true, reveal: true, open: true, focusEditor }),
     onSelectEdge: (id) => app.select({ kind: 'edge', id }, { tab: 'inspector', reveal: true }),
     onChallenge: () => {
       const refine = app.root.querySelector<HTMLButtonElement>('.mlv-workflow__refine');
@@ -158,7 +165,7 @@ export function buildAppUi(app: App): void {
       intent.value = 'challenge';
       intent.dispatchEvent(new Event('change', { bubbles: true }));
     },
-    onOpen: (loc) => app.openLocation(loc),
+    onOpen: (loc, focusEditor) => app.openLocation(loc, focusEditor),
     onResize: (w) => app.setRailWidth(w),
     onToggleRail: () => app.toggleRail(),
     onAsk: (id) => app.askAssistant(id),
@@ -214,8 +221,12 @@ export function canvasHost(app: App): CanvasHost {
   return {
     keep: app.filters.keep,
     isFilteredOut: (node) => app.filters.hidesNode(node),
-    activateNode: (id) => app.select({ kind: 'node', id }, { open: true, tab: 'inspector' }),
-    activateEdge: (id) => app.select({ kind: 'edge', id }, { open: true, tab: 'inspector' }),
+    // Viewer M1: a click selects and shows the claim; Enter and a double-click open the cited
+    // source beside the panel with focus kept here; Alt+Enter moves focus to the editor.
+    activateNode: (id) => app.select({ kind: 'node', id }, { tab: 'inspector', showClaim: true }),
+    activateEdge: (id) => app.select({ kind: 'edge', id }, { tab: 'inspector', showClaim: true }),
+    openNode: (id, focusEditor) => app.select({ kind: 'node', id }, { tab: 'inspector', showClaim: true, open: true, focusEditor }),
+    openEdge: (id, focusEditor) => app.select({ kind: 'edge', id }, { tab: 'inspector', showClaim: true, open: true, focusEditor }),
     clearFilters: () => app.clearFilters(),
     canReanalyze: () => false,
     requestRefresh: () => undefined,

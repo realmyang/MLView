@@ -70,6 +70,10 @@ export interface ChromeState {
   outOfScopeStages: Stage[];
   /** Whether the minimap is collapsed, for the toolbar's toggle (VIEW-12). */
   minimapCollapsed: boolean;
+  /** Viewer M1: the stale-file count, or null when every file is unchanged (nothing is shown). */
+  freshness?: { text: string; title: string } | null;
+  /** Viewer M1: the host is checking a change on disk. */
+  checking?: boolean;
 }
 
 let chromeSeq = 0;
@@ -547,5 +551,18 @@ export class Chrome {
     }
     const notes = (g.diagnostics || []).length;
     if (notes) add(this.status, el('span', '', notes + (notes === 1 ? ' note' : ' notes')));
+    // Viewer M1: freshness in place. Nothing when every cited file is unchanged; a warning icon
+    // and words (never colour alone) when some are not; muted text while a change is checked.
+    if (s.freshness) {
+      const item = add(this.status, el('span', 'mlv-status__fresh is-warn'));
+      item.appendChild(uiIcon('warning', 12));
+      add(item, el('span', '', s.freshness.text));
+      item.title = s.freshness.title;
+      item.setAttribute('data-freshness', 'stale');
+    }
+    if (s.checking) {
+      const item = add(this.status, el('span', 'mlv-status__fresh is-checking', 'Checking source freshness…'));
+      item.setAttribute('data-freshness', 'checking');
+    }
   }
 }

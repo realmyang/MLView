@@ -39,10 +39,17 @@ export interface CanvasHost {
   keep(issue: Issue): boolean;
   /** True when the stage filters exclude this node (dimmed, not removed). */
   isFilteredOut(node: MLNode): boolean;
-  /** A node card was clicked or activated with Enter. */
+  /** A node card was clicked: select it and show its claim (viewer M1: a click never opens the source). */
   activateNode(id: string): void;
-  /** An edge was clicked or activated with Enter. */
+  /** A connection was clicked: select it and show its claim. */
   activateEdge(id: string): void;
+  /**
+   * Enter or a double-click on a card: select it and open its cited source beside the panel,
+   * keeping focus on the diagram; `focusEditor` (Alt+Enter) moves focus to the editor instead.
+   */
+  openNode(id: string, focusEditor: boolean): void;
+  /** The same for a connection. */
+  openEdge(id: string, focusEditor: boolean): void;
   /** The "clear all filters" affordance of the filtered-empty state. */
   clearFilters(): void;
   canReanalyze(): boolean;

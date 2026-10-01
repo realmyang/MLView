@@ -6,7 +6,8 @@
  * crashing. Malformed frames (no object, wrong `v`) are dropped silently.
  */
 
-import type { ActionResult, Capabilities, Filters, HostToUi, Severity, ThemeKind, ViewState, WorkflowDocument } from './types.js';
+import { sanitizeStaleFiles } from './freshness.js';
+import type { ActionResult, Capabilities, Filters, HostToUi, Severity, StaleFile, ThemeKind, ViewState, WorkflowDocument } from './types.js';
 
 export interface ProtocolHandlers {
   init(theme: ThemeKind, capabilities: Capabilities | undefined): void;
@@ -17,6 +18,13 @@ export interface ProtocolHandlers {
    * when the frame carried no code list.
    */
   workflowStatus(codes: string[] | undefined): void;
+  /**
+   * The same banner's text, which the mounted App draws as a notice under the header (viewer M1).
+   * Before the mount the host bootstrap draws it in a `<pre>` instead.
+   */
+  hostNotice(message: string, codes: string[] | undefined): void;
+  /** Viewer M1: the displayed revision's stale files, each with its reason (`[]` clears). */
+  stale(files: StaleFile[]): void;
   /** The answer to a request that carried a `requestId` (§1e). */
   actionResult(result: ActionResult): void;
   theme(kind: ThemeKind): void;
@@ -40,10 +48,15 @@ export function dispatchHostMessage(msg: HostToUi, h: ProtocolHandlers): void {
     case 'workflow':
       h.workflow(msg.document);
       return;
-    case 'workflowError':
-      // The host bootstrap owns the banner element, which lives outside the
-      // App's shell; the App only reads the codes.
-      h.workflowStatus(Array.isArray(msg.codes) ? msg.codes.filter((code): code is string => typeof code === 'string') : undefined);
+    case 'workflowError': {
+      // Before the mount the host bootstrap draws the banner; after it, the App does.
+      const codes = Array.isArray(msg.codes) ? msg.codes.filter((code): code is string => typeof code === 'string') : undefined;
+      h.workflowStatus(codes);
+      h.hostNotice(typeof msg.message === 'string' ? msg.message : '', codes);
+      return;
+    }
+    case 'stale':
+      h.stale(sanitizeStaleFiles(msg.files));
       return;
     case 'actionResult':
       h.actionResult(msg);

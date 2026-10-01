@@ -42,6 +42,8 @@ import { ScopeBar } from './ui/scopebar.js';
 import { PipelineChooser } from './ui/pipelinechooser.js';
 import { DiffBar } from './ui/diffbar.js';
 import { decorateWorkflow, normalizeWorkflow, sanitizeComposer } from './workflow.js';
+import { FreshnessState } from './freshness.js';
+import { HostNotice } from './ui/hostnotice.js';
 import { KNOWN_EDGE_KINDS } from './render/edges.js';
 import { buildAppUi } from './app/build.js';
 import { scopeToNode, setGraph, setScope } from './app/documents.js';
@@ -66,6 +68,7 @@ import type {
   RailTab,
   RelatedLoc,
   Sel,
+  StaleFile,
   ThemeKind,
   UiToHost,
   ViewState,
@@ -87,7 +90,15 @@ export const RAIL_MIN_CANVAS_W = 900;
 type RequestFrame = UiToHost & { requestId?: string };
 
 export interface SelectOptions {
+  /** Open the selection's cited source beside the panel (Enter, double-click). Focus stays here. */
   open?: boolean;
+  /** With `open`: move focus to the editor (Alt+Enter). */
+  focusEditor?: boolean;
+  /**
+   * A gesture on the canvas (viewer M1): the claim is shown, so a rail that the width rule closed
+   * opens on the Inspector, unless the reader closed it; the target stays in view.
+   */
+  showClaim?: boolean;
   center?: boolean;
   tab?: RailTab;
   pulse?: boolean;
@@ -168,7 +179,12 @@ export class App implements MLViewApp {
   /** Whether THIS document's default is "closed", for the header's tooltip. */
   answersYielded = false;
 
+  /** Legacy analyzer banner input; authored freshness lives in `freshness`. */
   stale: string[] = [];
+  /** Viewer M1: the displayed revision's stale files, from the host's `stale` frame. */
+  freshness = new FreshnessState();
+  /** Whether this viewer has said once where an opened source goes. */
+  openHintShown = false;
   dismissed = new Set<string>();
   error: { message: string; detail?: string; actions?: { id: string; label: string }[] } | null = null;
   railOpen = true;
@@ -215,6 +231,7 @@ export class App implements MLViewApp {
   search!: SearchController;
   loading!: LoadingState;
   liveEl!: HTMLElement;
+  notice!: HostNotice;
 
   saveSoon = debounce(() => this.bridge.saveState(this.getState()), 250);
 
@@ -335,8 +352,40 @@ export class App implements MLViewApp {
     askAssistant(this, nodeId);
   }
 
-  openLocation(loc: Loc | RelatedLoc): void {
-    openLocation(this, loc);
+  /** Ask the host to open `loc` beside the panel; `focusEditor` (Alt+Enter) moves focus there. */
+  openLocation(loc: Loc | RelatedLoc, focusEditor = false): void {
+    openLocation(this, loc, focusEditor);
+  }
+
+  /**
+   * Viewer M1: the host's stale files. Cards, connections, findings and quotes that cite them are
+   * marked, their Open links are disabled with the reason, and the status bar counts them.
+   */
+  setStale(files: StaleFile[]): void {
+    if (!this.freshness.set(files)) return;
+    this.view.setStale(this.freshness.paths());
+    if (this.index) this.view.refresh(this.selection);
+    renderChrome(this);
+    renderRail(this);
+  }
+
+  /**
+   * Viewer M1: the host's banner, drawn under the header once the viewer is mounted. A banner that
+   * only says a change is being checked goes to the status bar instead and leaves the notice as
+   * it was, so the layout does not jump on every save of a cited file.
+   */
+  showHostNotice(message: string, codes: string[] | undefined): void {
+    const checking = !!codes && codes.length === 1 && codes[0] === 'checking';
+    if (this.freshness.checking !== checking) {
+      this.freshness.checking = checking;
+      renderChrome(this);
+    }
+    if (checking) return;
+    const before = this.notice.root.hidden;
+    this.notice.update(message, codes);
+    const body = this.root.querySelector('.mlv-body');
+    if (body && this.notice.root.nextSibling !== body) this.root.insertBefore(this.notice.root, body);
+    if (this.graph && before !== this.notice.root.hidden) this.view.afterChromeChange();
   }
 
   onAction(id: string): void {
@@ -473,18 +522,31 @@ export class App implements MLViewApp {
     this.selection = sel;
     if (opts && opts.tab) this.railTab = opts.tab;
     if (sel.kind === 'issue') this.showRailForFinding();
+    const openedRail = !!(opts && opts.showClaim) && this.showRailForClaim();
     this.view.applySelection(sel);
     renderRail(this);
     if (sel.kind === 'node') this.bridge.post({ v: 1, type: 'selectNode', nodeId: sel.id });
     if (opts && opts.reveal && sel.kind === 'edge') this.view.revealEdge(sel.id);
     else if (opts && opts.center && opts.reveal) this.view.revealNode(sel.id, !!opts.pulse);
     else if (opts && opts.center) this.view.centerOnNode(sel.id, !!opts.pulse);
+    else if (openedRail && sel.kind !== 'issue') this.view.keepInView({ kind: sel.kind, id: sel.id });
+    this.announceSelection();
     if (opts && opts.open) {
       const loc = this.locOf(sel);
-      if (loc) this.openLocation(loc);
+      if (loc) this.openLocation(loc, !!opts.focusEditor);
     }
-    this.announceSelection();
     this.saveSoon();
+  }
+
+  /**
+   * Viewer M1: a click shows the claim, which lives in the rail. A rail the width rule closed
+   * opens (true); one the reader closed stays closed (they have the hover card and Ctrl+B).
+   */
+  private showRailForClaim(): boolean {
+    if (this.railOpen || this.railChosen) return false;
+    this.railChosen = true;
+    this.setRailOpen(true);
+    return true;
   }
 
   clearSelection(): void {
@@ -658,6 +720,14 @@ export class App implements MLViewApp {
     // connections only reveals its first connection.
     if (primary) this.view.revealNode(primary, true);
     else if (issue.edgeIds.length) this.view.revealEdge(issue.edgeIds[0]);
+  }
+
+  /** Viewer M1: Enter (or a double-click) on a finding row selects it and opens its first cited range. */
+  openIssue(id: string, focusEditor = false): void {
+    this.focusIssue(id);
+    if (!this.selection || this.selection.kind !== 'issue' || this.selection.id !== id) return;
+    const loc = this.locOf({ kind: 'issue', id });
+    if (loc) this.openLocation(loc, focusEditor);
   }
 
   setFilters(f: Partial<Filters>): void {
