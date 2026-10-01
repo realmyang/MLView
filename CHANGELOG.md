@@ -133,6 +133,28 @@ by local tests only; not tried in live VS Code.
   report the weakest authored basis", which tested the removed grouping);
   extension tests: 281.
 
+Screenshot harness (`webview/tools/screenshots/`): an opt-in script that opens
+documents in the built viewer in headless Chrome and saves one PNG per state
+plus an `index.json` of what was clicked, what the page posted and what it
+showed. It is not part of `npm test`, CI or the e2e gates and needs a local
+Chrome or Chromium (`CHROME` overrides the lookup).
+
+- The host is simulated: VS Code theme colours for Dark Modern, Light Modern
+  and Dark High Contrast, a stub `acquireVsCodeApi`, the panel's own inline
+  bootstrap, and the frames the extension posts (`init`, `workflow`, and for
+  the stale states `stale` and the stale banner). No validation, no editor.
+- States: initial, step selected, hover on a step and on a connection, focus
+  mode, a severity filter, search, a finding with its suggestion, a stale
+  file (with and without a step selected) and a 900x800 panel.
+- Inputs: the repository's sample and a synthetic 120-step document by
+  default, or your own artifact and workspace. `--viewer` loads another
+  checkout's build for before/after pictures.
+- It runs on Node 20: Chrome is driven over `--remote-debugging-pipe`, not a
+  WebSocket. `webview/test/screenshot-pipe.test.mjs` checks the pipe framing
+  and the Chrome lookup without Chrome.
+- The pictures are a rendering check only. They are not live VS Code
+  validation, usability evidence or a semantic review.
+
 ## Unreleased — viewer fixes from the Stage 1 review
 
 Two viewer defects the owner reported while reading pilot diagrams in VS Code,

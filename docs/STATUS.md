@@ -97,6 +97,14 @@ bundle from 365 KB to 286 KB (stylesheet 82 KB to 62 KB). Layout and geometry
 golden unchanged. Checked by local tests only, not in live VS Code
 ([changelog](../CHANGELOG.md)).
 
+Unreleased viewer M1, screenshot harness: `webview/tools/screenshots/capture.mjs`
+saves headless-Chrome screenshots of the viewer with a simulated host (VS Code
+theme colours, the panel's own bootstrap, the extension's `init`, `workflow`
+and `stale` frames), with `--viewer` for before/after pictures of another
+checkout. It is opt-in, outside CI and the e2e gates, and needs a local
+Chrome. Its pictures are a rendering check, not live VS Code validation or
+usability evidence ([details](../webview/README.md#screenshots-opt-in)).
+
 Version 0.3.0 adds Campaign 2, "pilot readiness" (see the
 [changelog](../CHANGELOG.md)): owner decision files with a `check` command,
 the campaign freeze and `check-frozen`, the v2 pilot candidate that builds its

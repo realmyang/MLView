@@ -80,3 +80,46 @@ Viewer M1 cleanup (no contract change):
   retired analyzer graph (ghost, confidence, suppression, ports, diff and
   rollup data) and the `concern:` scope presets are gone.
 - The stylesheet is 14 files concatenated in the order `build.mjs` lists.
+
+## Screenshots (opt-in)
+
+`node tools/screenshots/capture.mjs` (from `webview/`) opens documents in the
+built viewer in headless Chrome and saves one PNG per state plus `index.json`.
+It is not part of `npm test`, CI or the e2e gates, and it needs a local Chrome
+or Chromium (set `CHROME` if it is not in the usual place). Node 20 is enough:
+it talks to Chrome over `--remote-debugging-pipe`, not a WebSocket.
+
+```sh
+node tools/screenshots/capture.mjs                    # sample + synthetic, dark theme
+node tools/screenshots/capture.mjs --theme all --scale 2
+node tools/screenshots/capture.mjs --artifact ~/repo/run.mlview.json --workspace ~/repo
+node tools/screenshots/capture.mjs --viewer /path/to/main-worktree --out /tmp/shots-before
+```
+
+- States: `initial`, `select-node`, `hover-node`, `hover-connection`,
+  `focus-mode`, `filter`, `search`, `finding` (a finding with its suggestion),
+  `stale`, `stale-selected` and `narrow-selected` (900x800). Pick some with
+  `--states`.
+- Inputs: by default `samples/configured_training.mlview.json` (read only)
+  and a synthetic 120-step document built from `tools/benchmark-model.mjs`.
+  `--artifact` and `--workspace` open your own; with a workspace, cited files
+  are hashed against the published hashes and real stale files are posted.
+  When no file is really stale, the stale states mark one file cited by the
+  clicked step as changed, and `index.json` says it was simulated.
+- The page plays the VS Code side: VS Code theme colours (Dark Modern, Light
+  Modern, Dark High Contrast), a stub `acquireVsCodeApi`, and the panel's own
+  inline bootstrap read from `vscode-extension/src/authoredPanel.ts`. It
+  posts what the extension posts: `init`, `workflow`, and for the stale states
+  `stale` and the stale banner. Nothing answers the viewer's requests;
+  `index.json` records what it posted (for example `openLocation`).
+- `--viewer <checkout>` loads another checkout's `webview/dist` and
+  bootstrap, for before/after pictures of the same documents.
+- Output goes to `.mlview/screenshots/<time>/` (gitignored) unless you pass
+  `--out`. Do not commit screenshots of third-party code.
+
+It lives here, next to the benchmark tools, because it serves `dist/` and
+reuses `tools/benchmark-model.mjs`, and nothing under `webview/tools/` is
+packaged into the VSIX. `test/screenshot-pipe.test.mjs` checks its pipe
+framing and Chrome lookup without Chrome. The host is simulated, so the
+pictures are a rendering check: they are not live VS Code validation,
+usability evidence or a semantic review.
