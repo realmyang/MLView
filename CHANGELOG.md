@@ -102,6 +102,37 @@ labels are unchanged, so the geometry golden is byte-identical.
 - A connection's hover card is titled with its authored label, so the basis
   appears once there too.
 
+Steps 3 and 4: the code left from the static analyzer's viewer is removed
+(`webview/`, rebuilt into `vscode-extension/media/`). The viewer only ever
+shows a model-authored document, so this code could not be reached. Checked
+by local tests only; not tried in live VS Code.
+
+- Removed: the diff overlay, the pipeline chooser, the answer card, the
+  config, fix, suppression and rule-doc panels, the banners, the Findings
+  tab's hidden "Group by" control, the loading skeleton, the standalone
+  report's bridge and theme switch, the `concern:` scope presets, and the
+  fields, messages and styles only that viewer used. The viewer no longer
+  posts `selectNode`, `scopeChanged`, `askAssistant` or `action`, which the
+  extension never handled, and no longer accepts `setFilter`, `setScope`,
+  `requestExport` or `cursorHint`, which the extension never sends.
+- Kept: everything steps 1 and 2 added, the scope picker and phase chips
+  (to be reworked in M2), and `revealNode` / `revealIssue` for the planned
+  "Reveal in Diagram". A saved view state with old keys still loads; the
+  old keys are ignored.
+- Two small visible changes: a merged connection's tooltip now reads
+  "3 connections merged into this edge." (it described the retired rollup),
+  and its screen-reader name states the count once.
+- Size: TypeScript in `webview/src` went from 26,061 to 18,499 lines and the
+  stylesheets from 5,428 to 3,986 lines; `mlview.js` from 364,619 to 286,353
+  bytes and `mlview.css` from 82,027 to 61,726 bytes.
+- Checks: the geometry golden is byte-identical. A jsdom tour of 39 authored
+  documents (6,454 steps) gave the same page, saved state, posted messages
+  and SVG export before and after each code batch, apart from the retired
+  messages, the ignored old keys and the tooltip changes above. Computed styles at 195 points of a shorter tour are unchanged after
+  the stylesheet cleanup. Webview tests: 142 (one removed, "file groups
+  report the weakest authored basis", which tested the removed grouping);
+  extension tests: 281.
+
 ## Unreleased — viewer fixes from the Stage 1 review
 
 Two viewer defects the owner reported while reading pilot diagrams in VS Code,

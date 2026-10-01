@@ -64,3 +64,19 @@ Viewer M1 Inspector content (no protocol change):
 - `test/inspector-content.test.mjs` injects the shipped stylesheet into jsdom,
   so the detail, the suggestion, the caption and the limitations line are
   checked by computed visibility, not by `textContent`.
+
+Viewer M1 cleanup (no contract change):
+
+- The bundle contains only the authored path. Inbound, the viewer handles
+  `init`, `theme`, `workflow`, `workflowError`, `stale` and `actionResult`,
+  plus `revealNode` and `revealIssue` (kept for the planned "Reveal in
+  Diagram") and `restoreState` (the tests drive collapse with it); any other
+  type is answered with a `log` frame and ignored. Outbound it posts
+  `openLocation`, `workspaceHint`, `refineWorkflow`, `copy`, `exportFile` and
+  `log`; the host bootstrap posts `ready`.
+- A saved `ViewState` with keys the viewer no longer writes (for example
+  `showSuppressed` or `railGroupBy`) still loads; those keys are ignored.
+- `MLGraph` carries only what an authored document fills in. Fields of the
+  retired analyzer graph (ghost, confidence, suppression, ports, diff and
+  rollup data) and the `concern:` scope presets are gone.
+- The stylesheet is 14 files concatenated in the order `build.mjs` lists.

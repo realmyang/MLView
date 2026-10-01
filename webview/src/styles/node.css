@@ -129,11 +129,6 @@
   border-color: color-mix(in srgb, var(--mlv-sev) 55%, var(--mlv-border));
 }
 
-.mlv-node.is-lowconf {
-  border-style: dashed;
-  opacity: 0.85;
-}
-
 /*
  * Viewer M1: a card whose evidence cites a file that changed or went missing since publishing.
  * Dashed border plus a corner warning mark, so the state never rests on colour alone.
@@ -163,30 +158,6 @@
   position: static;
   box-shadow: none;
   flex: none;
-}
-
-.mlv-node.is-ghost {
-  background: transparent;
-  border: 1.5px dashed color-mix(in srgb, var(--mlv-sev, var(--mlv-text-3)) 70%, transparent);
-  box-shadow: none;
-}
-
-.mlv-node.is-ghost .mlv-node__title {
-  color: var(--mlv-text-2);
-  font-weight: var(--mlv-fw-medium);
-}
-
-.mlv-node.is-ghost .mlv-node__sub {
-  font-style: italic;
-}
-
-.mlv-node.is-ghost .mlv-node__rail {
-  opacity: 0.5;
-}
-
-.mlv-node.is-dynamic .mlv-node__iconbox {
-  outline: 1px dashed var(--mlv-text-3);
-  outline-offset: 1px;
 }
 
 .mlv-node.is-pulse {

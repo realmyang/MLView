@@ -1,0 +1,60 @@
+/* PERF-04 — the weighted cable: one drawn route that stands for several
+ * authored connections (`render/weight.ts`).
+ *
+ * NEVER WEIGHT ALONE. A thicker stroke says "more than one" to a sighted reader
+ * at a glance and to nobody else: every weighted cable also carries a `×7`
+ * pill, an accessible name that counts the merged connections, and a `<title>`.
+ * NOTHING HERE CHANGES GEOMETRY: the pill is an SVG child of the edge group.
+ */
+
+/* ── the weighted cable ─────────────────────────────────────────────── */
+
+/*
+ * `--mlv-edge-w` is set on the <g> by `render/edges.ts`. This rule sits AFTER
+ * every per-kind rule in `edge.css` and has the same specificity, so it wins on
+ * source order; the hover, lit and selected rules are one class more specific,
+ * so a heavy cable still lights up under the pointer instead of freezing at its
+ * resting width.
+ */
+.mlv-edge--weighted .mlv-edge__path {
+  stroke-width: var(--mlv-edge-w, 2px);
+}
+
+.mlv-edge__weight {
+  pointer-events: none;
+}
+
+.mlv-edge__weightbg {
+  fill: var(--mlv-surface);
+  stroke: var(--mlv-border-strong);
+  stroke-width: 1;
+}
+
+.mlv-edge__weighttext {
+  fill: var(--mlv-text-2);
+  font-family: var(--mlv-font-mono);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  text-anchor: middle;
+  dominant-baseline: middle;
+}
+
+.mlv-edge.has-issue .mlv-edge__weightbg {
+  stroke: var(--mlv-sev, var(--mlv-border-strong));
+}
+
+/*
+ * At the compact LOD the cards themselves lose their chip rows, and a field of
+ * pills over a dense graph is noise — but the STROKE stays thick, which is the
+ * cue that survives zooming out. The number comes back on the way in.
+ */
+.mlv-canvas[data-lod="compact"] .mlv-edge__weight {
+  display: none;
+}
+
+/* ── high contrast ──────────────────────────────────────────────────── */
+
+:root[data-theme="hc"] .mlv-edge__weightbg,
+.mlv-root[data-theme="hc"] .mlv-edge__weightbg {
+  stroke: currentColor;
+}

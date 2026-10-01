@@ -252,8 +252,7 @@ html.mlv-fills-page > body > .mlv-root {
   top: var(--mlv-s4);
 }
 
-/* VIEW-12: the <main> landmark around the diagram. A column, because the
- * Pipeline Answer Card (MLV-P1) shares it with the canvas. */
+/* VIEW-12: the <main> landmark around the diagram, laid out as a column. */
 .mlv-main {
   position: relative;
   display: flex;

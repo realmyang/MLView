@@ -246,18 +246,6 @@
   white-space: nowrap;
 }
 
-/*
- * Rule configuration and static-analyzer answers have no meaning for authored findings.
- * `.mlv-insp__fix` is no longer listed (viewer M1): it holds the author's `suggestion`, shown as
- * "What to change" (webview/test/inspector-content.test.mjs checks that it is visible).
- */
-.mlv-root--workflow .mlv-rail__groupby,
-.mlv-root--workflow [data-copy-ignore],
-.mlv-root--workflow [data-disable-rule],
-.mlv-root--workflow [data-apply-fix],
-.mlv-root--workflow [data-rule-doc],
-.mlv-root--workflow .mlv-answers { display: none !important; }
-
 /* Issue 6: a canvas too short for the minimap to summarise anything (canvasview.ts). */
 .mlv-minimap.is-short {
   display: none;

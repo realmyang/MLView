@@ -88,6 +88,15 @@ Notebook cells print as the artifact records them, counted from 0, so they
 match the model's own labels. Layout and geometry golden unchanged. Checked by
 local jsdom tests only, not in live VS Code ([changelog](../CHANGELOG.md)).
 
+Unreleased viewer M1, steps 3 and 4 (cleanup): the code and styles left from
+the static analyzer's viewer are removed, since the viewer only shows authored
+documents. Nothing you can use changes, apart from a merged connection's
+tooltip and screen-reader name, which no longer describe the retired rollup
+weight. The webview's TypeScript went from 26,061 to 18,499 lines and its
+bundle from 365 KB to 286 KB (stylesheet 82 KB to 62 KB). Layout and geometry
+golden unchanged. Checked by local tests only, not in live VS Code
+([changelog](../CHANGELOG.md)).
+
 Version 0.3.0 adds Campaign 2, "pilot readiness" (see the
 [changelog](../CHANGELOG.md)): owner decision files with a `check` command,
 the campaign freeze and `check-frozen`, the v2 pilot candidate that builds its
