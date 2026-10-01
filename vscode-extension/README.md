@@ -29,10 +29,20 @@ under the artifact's folder or a folder above it), the notice names the files
 and the folder that holds them, unchanged, and offers **Add folder to
 workspace** or **Open folder**. The marks, the status bar, the Inspector and a
 blocked jump say "in another folder" instead of calling the files changed or
-missing. The panel checks again whenever workspace folders change. In a
-single-folder window, adding the folder makes VS Code turn the window into an
-untitled multi-root workspace and restart its extensions; MLView then closes
-the old diagram tab and opens the diagram again in the same place.
+missing. The panel checks again whenever workspace folders change. The two
+actions are only in the panel's notice; there is no separate notification.
+
+When VS Code restarts its extensions inside the same window, MLView puts each
+open diagram back in its tab's place, checked against the workspace as it is
+then. That covers **Developer: Restart Extension Host**, an extension install
+or update that restarts extensions, **Save Workspace As...**, and adding a
+folder to a single-folder window (the notice's **Add folder to workspace** or
+VS Code's **Add Folder to Workspace...**), which turns the window into an
+untitled multi-root workspace. A diagram in front of its editor group comes
+back at once. A diagram tab behind other tabs comes back when you bring it to
+the front, after a blank half second: until then MLView cannot tell it from a
+tab VS Code restored at startup and has not shown yet, which must be left
+alone. **Developer: Reload Window** restores diagrams as before.
 
 A click on a step, connection or finding selects it and shows its claim.
 The Inspector shows the full claim, the findings on it with **What to change**,

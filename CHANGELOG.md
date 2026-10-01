@@ -253,6 +253,74 @@ Diagram** gave a second panel beside the dead one.
   a multi-root window the panel revalidates in place. This was a check of
   these paths only, not a usability study or a review.
 
+Live check follow-up (`vscode-extension/`): an independent check found that
+only the root hint's own button saved the reopen note above, so every other
+extension restart in a window still left a dead diagram tab: VS Code's
+**Workspaces: Add Folder to Workspace...**, **Save Workspace As...**,
+**Developer: Restart Extension Host**, and an extension install or update that
+restarts extensions. The root hint's notification also outlived the restart,
+with its old text and buttons that did nothing.
+
+- The one-minute note is gone. Each extension host keeps a registry of its
+  open panels in the global state (`mlview.openPanels`): per window session
+  (`vscode.env.sessionId`), each panel's artifact, tab title and editor group.
+  It is written when a panel opens, changes title or group, or closes, and not
+  when the host shuts down, so it outlives the host. After a restart in the
+  same window the new host replaces each dead tab with a new panel for its
+  artifact in the same group, checked against the workspace as it is then.
+  The root hint's **Add folder** now only makes sure the registry is stored
+  before VS Code adds the folder.
+- The tabs API shows a dead tab and a tab VS Code restored at startup but has
+  not shown yet the same way (same title, view type and flags; checked live).
+  A restored tab comes to life through the serializer as soon as it comes to
+  the front of its group, so only front tabs are judged, half a second after
+  activation or after a tab change: a diagram tab in front that no panel of
+  the new host shows by then is dead. VS Code revives a restored panel with
+  column 0 and reports its group about 20 ms later (live), so until then a
+  visible panel with the tab's title counts as showing it. A dead tab behind
+  other tabs is therefore replaced only when it is brought to the front,
+  after showing a blank page for about half a second. A dead tab takes the
+  registry entry with its title, in its own group first, so two diagrams with
+  the same title in one group can come back in each other's places. A front
+  tab with no entry is left as it is (Reload Window still revives it). If its
+  diagram was opened again since the restart, the dead tab is only closed.
+  Entries whose title is on no tab are dropped. Other windows' and earlier
+  sessions' entries (each reload leaves one) are pruned after 14 days, and at
+  most 20 are kept. The recovery shows no UI beyond a log line.
+- The root hint no longer shows a VS Code notification. The panel's notice,
+  drawn by the live host, carries both actions. Showing the notification only
+  while the panel is hidden was the other option; it would still leave dead
+  buttons after a restart and needs visibility tracking.
+- Tests: `vscode-extension/test/host-restart.test.js` (17 cases) replaces
+  `folder-add-restart.test.js`. Its two-diagram decoy test passed for the
+  wrong reason: both decoys were behind the front tab, so the "front tabs
+  first" ordering never reached them. The new cases bring a restored tab with
+  the same title and group as a pending entry to the front and revive it, and
+  cover the dedupe against an open panel, a column VS Code has not reported,
+  shutdown, pruning, malformed values, the hint's write before the folder is
+  added, and title, group and close updates. The mock gains `Disposable`, tab
+  change events, `TabGroup.activeTab`, tabs linked to panels and view state
+  changes. A mutation check (19 mutations of the new logic, each rebuilt and
+  run against the restart and verification-loop tests) was caught 19 times
+  out of 19. Extension tests: 299.
+- Checked in an isolated VS Code 1.139 Extension Development Host (throwaway
+  profiles, driven over the DevTools protocol): the root hint's **Add folder**
+  and VS Code's **Add Folder to Workspace...** in a single-folder window,
+  **Save Workspace As...**, **Developer: Restart Extension Host** with the
+  diagram in front, behind a text tab (left alone, then replaced when brought
+  to the front) and with two diagrams of the same title in two groups (each
+  came back in its group with its own artifact), **Reload Window** with the
+  diagram in front and behind, a restart while a restored tab was still
+  unshown (left alone, then revived when shown), a dead duplicate of a revived
+  diagram (closed, no second panel), and a multi-root window (revalidated in
+  place). Each ended with one panel per artifact whose card opened the cited
+  source on Enter, and no dead tab. A restored tab brought to the front while
+  an entry with its title was pending (revived, not closed) and the dead
+  duplicate were checked with the build before the column 0 rule, which only
+  adds a case where a tab counts as shown; the other paths ran on the final
+  code. An extension install or update was not tried. This was a check of
+  these paths only, not a usability study or a review.
+
 ## Unreleased — viewer fixes from the Stage 1 review
 
 Two viewer defects the owner reported while reading pilot diagrams in VS Code,

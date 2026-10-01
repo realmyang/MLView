@@ -207,6 +207,23 @@ class EventEmitter {
   }
 }
 
+/** `vscode.Disposable`: `from` combines several disposables into one. */
+class Disposable {
+  constructor(callOnDispose) {
+    this.callOnDispose = callOnDispose;
+  }
+  static from(...items) {
+    return new Disposable(() => {
+      for (const item of items) if (item) item.dispose();
+    });
+  }
+  dispose() {
+    const call = this.callOnDispose;
+    this.callOnDispose = undefined;
+    if (call) call();
+  }
+}
+
 class LanguageModelTextPart {
   constructor(value) {
     this.value = value;
@@ -440,16 +457,25 @@ function makeDocument(uri) {
 
 /**
  * A stand-in for a `WebviewPanel`: it records everything the host posts (`panel.posted`) and
- * lets a test play the webview's part with `panel.fire(message)`.
+ * lets a test play the webview's part with `panel.fire(message)`. When `window.tabGroups` has a
+ * group in the panel's column, the panel gets a tab there, in front, like a new editor in VS Code
+ * (`panel.tab`); closing that tab disposes the panel, and disposing the panel removes the tab.
+ * `existingTab` links the panel to a tab that is already open instead (a restored tab revived by
+ * the serializer, see `__reviveTab`).
  */
-function makeWebviewPanel(viewType, title, showOptions, options) {
+function makeWebviewPanel(viewType, title, showOptions, options, existingTab) {
   const messages = new EventEmitter();
   const disposal = new EventEmitter();
+  const viewState = new EventEmitter();
   const panel = {
     viewType,
     title,
     options,
     viewColumn: typeof showOptions === 'object' ? showOptions.viewColumn : showOptions,
+    /** VS Code's `visible`: the panel is the editor its group shows. */
+    visible: true,
+    active: false,
+    tab: undefined,
     posted: [],
     revealed: 0,
     disposed: false,
@@ -471,12 +497,38 @@ function makeWebviewPanel(viewType, title, showOptions, options) {
       panel.revealed += 1;
     },
     onDidDispose: disposal.event,
+    onDidChangeViewState: viewState.event,
+    /** Play VS Code's view state change: assign `{ viewColumn?, visible?, active? }` and fire the event. */
+    __setViewState(state) {
+      Object.assign(panel, state);
+      viewState.fire({ webviewPanel: panel });
+    },
     dispose() {
       if (panel.disposed) return;
       panel.disposed = true;
+      const tab = panel.tab;
+      if (tab && tab.group.tabs.includes(tab)) {
+        tab.group.tabs = tab.group.tabs.filter((other) => other !== tab);
+        tabEvents.fire({ opened: [], closed: [tab], changed: [] });
+      }
       disposal.fire();
     }
   };
+  if (existingTab) {
+    linkTab(existingTab, panel);
+    panel.viewColumn = existingTab.group.viewColumn;
+    panel.visible = existingTab.isActive;
+  } else {
+    const group = tabGroups.find((candidate) => candidate.viewColumn === panel.viewColumn);
+    if (group) {
+      const tab = makeTab(group, { label: title, viewType: `mainThreadWebview-${viewType}`, isActive: true });
+      linkTab(tab, panel);
+      const changed = group.tabs.filter((other) => other.isActive);
+      for (const other of changed) setTabActive(other, false);
+      group.tabs.push(tab);
+      tabEvents.fire({ opened: [tab], closed: [], changed });
+    }
+  }
   recorded.panels.push(panel);
   return panel;
 }
@@ -497,10 +549,32 @@ class TabInputText {
 
 /**
  * The editor tab groups (`window.tabGroups`), set by `__setTabGroups`. Each group is
- * `{ viewColumn, tabs }` and each tab `{ label, input, isActive, group }`, like VS Code's.
- * `close` records the call and removes the tabs, the way closing an editor does.
+ * `{ viewColumn, tabs, activeTab }` and each tab `{ label, input, isActive, group }`, like VS
+ * Code's. `close` records the call, removes the tabs (disposing a panel whose tab it is) and fires
+ * `onDidChangeTabs`. It does not bring another tab to the front: a test does that with
+ * `__activateTab`.
  */
 let tabGroups = [];
+const tabEvents = new EventEmitter();
+const tabGroupEvents = new EventEmitter();
+function makeTab(group, spec) {
+  return {
+    label: spec.label,
+    input: spec.viewType !== undefined ? new TabInputWebview(spec.viewType) : new TabInputText(Uri.file(spec.uri || '/untitled')),
+    isActive: !!spec.isActive,
+    group
+  };
+}
+/** The tab shows `panel`: its label is the panel's title, and its front state is the panel's visibility. */
+function linkTab(tab, panel) {
+  Object.defineProperty(tab, 'label', { get: () => panel.title, configurable: true, enumerable: true });
+  tab.panel = panel;
+  panel.tab = tab;
+}
+function setTabActive(tab, active) {
+  tab.isActive = active;
+  if (tab.panel && !tab.panel.disposed && tab.panel.visible !== active) tab.panel.__setViewState({ visible: active });
+}
 
 const vscode = {
   version: '1.136.0-mock',
@@ -526,6 +600,7 @@ const vscode = {
   NotebookRange,
   TabInputWebview,
   TabInputText,
+  Disposable,
   NotebookEditorRevealType: { Default: 0, InCenter: 1, InCenterIfOutsideViewport: 2, AtTop: 3 },
   OverviewRulerLane: { Left: 1, Center: 2, Right: 4, Full: 7 },
   DecorationRangeBehavior: { OpenOpen: 0, ClosedClosed: 1, OpenClosed: 2, ClosedOpen: 3 },
@@ -591,8 +666,12 @@ const vscode = {
         // `panels`: how many panels had been created when the tabs were closed.
         recorded.closedTabs.push({ tabs: list, preserveFocus, panels: recorded.panels.length });
         for (const group of tabGroups) group.tabs = group.tabs.filter((tab) => !list.includes(tab));
+        for (const tab of list) if (tab.panel) tab.panel.dispose();
+        tabEvents.fire({ opened: [], closed: list, changed: [] });
         return true;
-      }
+      },
+      onDidChangeTabs: tabEvents.event,
+      onDidChangeTabGroups: tabGroupEvents.event
     },
     registerWebviewPanelSerializer: (viewType, serializer) => {
       recorded.serializers.set(viewType, serializer);
@@ -939,29 +1018,59 @@ const vscode = {
    */
   __setTabGroups(specs) {
     tabGroups = (specs || []).map((spec) => {
-      const group = { viewColumn: spec.viewColumn, isActive: !!spec.isActive, tabs: [] };
-      group.tabs = (spec.tabs || []).map((tab) => ({
-        label: tab.label,
-        input: tab.viewType !== undefined ? new TabInputWebview(tab.viewType) : new TabInputText(Uri.file(tab.uri || '/untitled')),
-        isActive: !!tab.isActive,
-        group
-      }));
+      const group = {
+        viewColumn: spec.viewColumn,
+        isActive: !!spec.isActive,
+        tabs: [],
+        get activeTab() {
+          return group.tabs.find((tab) => tab.isActive);
+        }
+      };
+      group.tabs = (spec.tabs || []).map((tab) => makeTab(group, tab));
       return group;
     });
     return tabGroups;
   },
-  /** A Memento like `ExtensionContext.globalState`: `values` is the store, `updates` every update call. */
-  __memento(initial) {
+  /** Bring `tab` to the front of its group (the others in it go behind) and fire `onDidChangeTabs`. */
+  __activateTab(tab) {
+    const changed = tab.group.tabs.filter((other) => other.isActive !== (other === tab));
+    for (const other of changed) setTabActive(other, other === tab);
+    tabEvents.fire({ opened: [], closed: [], changed });
+  },
+  /**
+   * VS Code revives a restored tab through the serializer: a new panel for the tab that is
+   * already open (its title, its column, visible when the tab is in front). The test then passes
+   * it to the serializer's `deserializeWebviewPanel`.
+   */
+  __reviveTab(tab, viewType = 'mlview.authoredDiagram') {
+    return makeWebviewPanel(viewType, tab.label, { viewColumn: tab.group.viewColumn }, {}, tab);
+  },
+  /** How many listeners `window.tabGroups` events have (a finished recovery leaves none). */
+  __tabListeners() {
+    return tabEvents.listeners.size + tabGroupEvents.listeners.size;
+  },
+  /**
+   * A Memento like `ExtensionContext.globalState`: `values` is the store, `updates` every update
+   * call. Like VS Code's, `get` sees an update at once and the promise resolves once the window
+   * has stored it; `persisted` is what the window has stored, which outlives the extension host.
+   * `delayMs` makes that store take a while.
+   */
+  __memento(initial, { delayMs = 0 } = {}) {
     const values = new Map(Object.entries(initial || {}));
     const memento = {
       values,
+      persisted: new Map(values),
       updates: [],
       keys: () => [...values.keys()],
       get: (key, fallback) => (values.has(key) ? values.get(key) : fallback),
       async update(key, value) {
         memento.updates.push({ key, value });
-        if (value === undefined) values.delete(key);
-        else values.set(key, JSON.parse(JSON.stringify(value)));
+        const copy = value === undefined ? undefined : JSON.parse(JSON.stringify(value));
+        if (copy === undefined) values.delete(key);
+        else values.set(key, copy);
+        if (delayMs) await new Promise((resolve) => setTimeout(resolve, delayMs));
+        if (copy === undefined) memento.persisted.delete(key);
+        else memento.persisted.set(key, copy);
       }
     };
     return memento;
@@ -1015,6 +1124,8 @@ const vscode = {
     recorded.executedCommands.length = 0;
     recorded.closedTabs.length = 0;
     tabGroups = [];
+    tabEvents.dispose();
+    tabGroupEvents.dispose();
     workspaceFile = undefined;
     vscode.env.sessionId = 'mock-session';
     notebookCellEditors = true;

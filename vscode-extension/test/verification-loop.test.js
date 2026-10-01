@@ -230,10 +230,9 @@ test('root hint: files that exist under the artifact folder with the published h
   // The product still validates against the real root: the file is missing there and its jump is
   // blocked. COPY-1: the webview is told why, so it does not call the file changed or missing.
   assert.deepEqual(staleFrames(panel).at(-1).files, [{ path: 'source.py', reason: 'elsewhere' }]);
-  const hint = vscode.__recorded.messages.find((m) => m[0] === 'info' && /^MLView: source\.py is not in the workspace root/.test(m[1]));
-  assert.ok(hint, 'the notification is the hint');
-  assert.deepEqual(hint.slice(2), ['Add Folder to Workspace', 'Open Folder']);
-  assert.equal(vscode.__recorded.messages.some((m) => m[0] === 'warn' && /no longer match the displayed revision/.test(m[1])), false, 'no stale warning');
+  // No notification: the panel's notice carries the two actions, and a notification would outlive
+  // an extension host restart with dead buttons.
+  assert.deepEqual(vscode.__recorded.messages, [], 'no notification, and no stale warning');
   panel.fire({ v: 1, type: 'openLocation', evidenceId: 'e' });
   await h.waitFor(() => vscode.__recorded.messages.some((m) => /cites source\.py, which is not in the workspace root/.test(m[1])), 'the jump was not blocked');
   const refusal = vscode.__recorded.messages.find((m) => /cites source\.py/.test(m[1]))[1];

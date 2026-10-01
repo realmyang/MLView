@@ -121,15 +121,25 @@ The Inspector's stale note no longer says "the claim was not re-checked".
 Checked by local tests only (jsdom and the mock `vscode` module), not in live
 VS Code ([changelog](../CHANGELOG.md)).
 
-Unreleased viewer M1, live check fix: **Add folder to workspace** in a
-single-folder window no longer leaves a dead diagram tab. VS Code restarts its
-extensions when it turns the window into a multi-root workspace and does not
-revive the panel, so MLView saves a one-minute note first and, after the
-restart, closes the dead tab and opens the diagram again in the same group,
-checked against the added folder. Multi-root windows still recheck in place;
-Reload Window already revived the panel. Checked by mock `vscode` tests and in
-an isolated VS Code 1.139 Extension Development Host
-([changelog](../CHANGELOG.md)).
+Unreleased viewer M1, live check fixes: an extension restart inside a window
+no longer leaves a dead diagram tab. VS Code restarts its extensions for
+**Developer: Restart Extension Host**, an extension install or update that
+restarts extensions, **Save Workspace As...** and adding a folder to a
+single-folder window (the root hint's **Add folder to workspace** or VS Code's
+**Add Folder to Workspace...**), and it never revives a live panel afterwards.
+Each window's open diagrams are kept in the extension's global state under the
+window's session, and the next extension host puts each one back in its tab's
+place, checked against the workspace as it is then. A tab in front of its
+group comes back at once; a tab behind others comes back when it is brought to
+the front (blank for about half a second), since until then it cannot be told
+from a restored tab not yet shown. The root hint no longer also shows a VS Code
+notification, which outlived a restart with dead buttons; the panel's notice
+carries both actions. Multi-root windows recheck in place; Reload Window
+revives panels through the serializer. Checked by mock `vscode` tests (with a
+mutation check) and in an isolated VS Code 1.139 Extension Development Host for
+the hint's and VS Code's Add Folder, Save Workspace As, Restart Extension Host,
+Reload Window and the multi-root case; an extension install or update was not
+tried ([changelog](../CHANGELOG.md)).
 
 Version 0.3.0 adds Campaign 2, "pilot readiness" (see the
 [changelog](../CHANGELOG.md)): owner decision files with a `check` command,

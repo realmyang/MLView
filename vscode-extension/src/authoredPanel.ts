@@ -19,8 +19,6 @@ const TRANSIENT_CODES = new Set(['EBUSY', 'EAGAIN', 'EPERM', 'EACCES', 'EMFILE',
 const REQUEST_ID = /^[A-Za-z0-9_-]{1,64}$/;
 /** How long a jump into a notebook waits for VS Code to create the cited cell's editor. */
 const CELL_EDITOR_WAIT_MS = 500;
-const ADD_FOLDER = 'Add Folder to Workspace';
-const OPEN_FOLDER = 'Open Folder';
 /**
  * The cited range in the editor beside the panel: the theme's range highlight on every cited
  * line plus a mark in the overview ruler, so the lines stay visible while focus stays on the
@@ -43,59 +41,98 @@ interface SavedState {
     artifact?: string;
 }
 /**
- * The root hint's "Add folder" in a single-folder window: VS Code turns the window into an
- * untitled multi-root workspace and restarts every extension host, so this extension restarts
- * too. The panels the old host drew keep their tabs, but nothing answers them any more. VS Code
- * calls the panel serializer only for tabs it restores when a window loads, never after an
- * extension host restart (checked live in VS Code 1.139). So before it adds the folder, the host
- * saves this note, and the next host closes the dead tabs and opens the diagrams again
- * (`recoverAfterRestart`).
+ * Extension host restarts. VS Code restarts the extension host inside the same window for
+ * "Developer: Restart Extension Host", for an extension install, update or removal that needs it,
+ * when a single-folder window becomes an untitled multi-root workspace (the root hint's "Add
+ * folder", "Workspaces: Add Folder to Workspace...") and when an untitled workspace is saved
+ * ("Save Workspace As..."). The panels the old host drew keep their tabs, but nothing answers
+ * them any more: VS Code calls a panel serializer only for the tabs it restores when a window
+ * loads, never for a live panel after a restart (checked live in VS Code 1.139).
  *
- * The note lives in the global state: the new workspace starts with an empty workspace state
- * (VS Code 1.139 does not copy it). The global state is shared by every window, so the note
- * carries `vscode.env.sessionId`, which stays the same across an extension host restart and
- * differs between windows and after a window reload.
+ * So each host keeps a registry of the panels it has open, and the next host in the same window
+ * puts each diagram back in its dead tab's place (`recoverAfterRestart`). The registry lives in
+ * the global state, because a workspace change starts the new host with an empty workspace
+ * state. The global state is shared by every window, so the registry is keyed by
+ * `vscode.env.sessionId`, which stays the same across an extension host restart and changes when
+ * the window reloads (a reload goes through the serializer instead) and between windows:
+ * `{ [sessionId]: { at, panels: [{ artifact, title, column? }] } }`.
  */
-export const REOPEN_STATE_KEY = 'mlview.reopenAfterFolderAdd';
-/** A note older than this is ignored: VS Code restarts the extension host within about a second. */
-export const REOPEN_WINDOW_MS = 60_000;
+export const OPEN_PANELS_KEY = 'mlview.openPanels';
+/** Other sessions' entries unchanged for this long are dropped (a window reload leaves one behind). */
+export const OPEN_PANELS_TTL_MS = 14 * 24 * 60 * 60 * 1000;
+/** At most this many other sessions are kept, the most recently changed first. */
+export const MAX_OTHER_SESSIONS = 20;
+const MAX_RECORDED_PANELS = 50;
+/**
+ * How long the recovery waits, after activation and after a diagram tab comes to the front of its
+ * group, before it calls that front tab dead: by then VS Code has revived a restored tab through
+ * the serializer, and the panels' view states have caught up with the tabs.
+ */
+export const RECOVERY_SETTLE_MS = 500;
 /**
  * The view type the tabs API reports for a panel tab. VS Code 1.139 reports it with a
  * `mainThreadWebview-` prefix; the bare form is accepted too, in case a later release drops it.
  */
 const AUTHORED_TAB_VIEW_TYPES = new Set([AUTHORED_VIEW_TYPE, `mainThreadWebview-${AUTHORED_VIEW_TYPE}`]);
-interface ReopenNote {
-    /** When the note was saved (ms since the epoch). */
-    at: number;
-    /** The window's `vscode.env.sessionId`. */
-    session: string;
-    /** The folder being added. */
-    added: string;
-    /** Every open diagram: its artifact and its tab's title. */
-    panels: { artifact: string; title: string }[];
+/** One open panel in the registry: its artifact, its tab's title and its editor group's column. */
+interface PanelRecord {
+    artifact: string;
+    title: string;
+    column?: number;
 }
-/** The note read back from storage, or undefined when it is malformed. */
-function parseReopenNote(value: unknown): ReopenNote | undefined {
+interface SessionRecord {
+    /** When this session's entry last changed (ms since the epoch). */
+    at: number;
+    panels: PanelRecord[];
+}
+function parsePanelRecord(value: unknown): PanelRecord | undefined {
     if (!value || typeof value !== 'object')
         return undefined;
-    const note = value as Record<string, unknown>;
-    if (typeof note.at !== 'number' || !Number.isFinite(note.at) || typeof note.session !== 'string' || typeof note.added !== 'string' || !path.isAbsolute(note.added) || !Array.isArray(note.panels))
+    const item = value as Record<string, unknown>;
+    if (typeof item.artifact !== 'string' || typeof item.title !== 'string')
         return undefined;
-    const panels: ReopenNote['panels'] = [];
-    for (const entry of note.panels.slice(0, 50)) {
-        const item = entry as Record<string, unknown> | null;
-        if (item && typeof item.artifact === 'string' && typeof item.title === 'string')
-            panels.push({ artifact: item.artifact, title: item.title });
-    }
-    return { at: note.at, session: note.session, added: note.added, panels };
+    return typeof item.column === 'number' && Number.isInteger(item.column) && item.column > 0
+        ? { artifact: item.artifact, title: item.title, column: item.column }
+        : { artifact: item.artifact, title: item.title };
 }
-/** The note belongs to this window. */
-const ownNote = (value: unknown): boolean => parseReopenNote(value)?.session === vscode.env.sessionId;
-const isAuthoredTab = (tab: vscode.Tab): boolean => tab.input instanceof vscode.TabInputWebview && AUTHORED_TAB_VIEW_TYPES.has(tab.input.viewType);
-/** Saves and withdraws the reopen note (see `REOPEN_STATE_KEY`); the controller owns it. */
-interface RestartNotes {
-    note(added: string): Promise<void>;
-    forget(): Promise<void>;
+/** The registry read back from storage; malformed sessions and records are left out. */
+function parseRegistry(value: unknown): Map<string, SessionRecord> {
+    const registry = new Map<string, SessionRecord>();
+    if (!value || typeof value !== 'object' || Array.isArray(value))
+        return registry;
+    for (const [session, raw] of Object.entries(value as Record<string, unknown>)) {
+        const entry = raw as Record<string, unknown> | null;
+        if (!entry || typeof entry !== 'object' || typeof entry.at !== 'number' || !Number.isFinite(entry.at) || !Array.isArray(entry.panels))
+            continue;
+        const panels = entry.panels.slice(0, MAX_RECORDED_PANELS).map(parsePanelRecord).filter((record): record is PanelRecord => record !== undefined);
+        registry.set(session, { at: entry.at, panels });
+    }
+    return registry;
+}
+/**
+ * Drop the other sessions' entries that have not changed for `OPEN_PANELS_TTL_MS` (or are dated
+ * that far ahead, after a clock change), then all but the `MAX_OTHER_SESSIONS` most recent.
+ */
+function pruneRegistry(registry: Map<string, SessionRecord>, own: string, now: number): void {
+    const others = [...registry].filter(([session, entry]) => {
+        if (session === own)
+            return false;
+        if (Math.abs(now - entry.at) <= OPEN_PANELS_TTL_MS)
+            return true;
+        registry.delete(session);
+        return false;
+    });
+    others.sort((a, b) => b[1].at - a[1].at);
+    for (const [session] of others.slice(MAX_OTHER_SESSIONS))
+        registry.delete(session);
+}
+const isAuthoredTab = (tab: vscode.Tab | undefined): tab is vscode.Tab => tab !== undefined && tab.input instanceof vscode.TabInputWebview && AUTHORED_TAB_VIEW_TYPES.has(tab.input.viewType);
+/** What a panel tells its controller (see `OPEN_PANELS_KEY`). */
+interface PanelHooks {
+    /** The panel's title or column changed: update the registry. */
+    changed(): void;
+    /** Write the registry now; resolves once it is stored. */
+    flush(): Promise<void>;
 }
 /**
  * One source jump: the revision and freshness it was decided against, and its place in the order
@@ -146,7 +183,7 @@ const defaultIo: AuthoredPanelIo = { readArtifact: readArtifactFile };
 const asciiLower = (value: string): string => value.replace(/[A-Z]/g, c => String.fromCharCode(c.charCodeAt(0) + 32));
 const isArtifactPath = (value: string): boolean => asciiLower(value).endsWith('.mlview.json');
 /**
- * An artifact path read back from storage (the webview state or the reopen note): accepted only
+ * An artifact path read back from storage (the webview state or the registry): accepted only
  * as an absolute *.mlview.json inside a workspace folder.
  */
 function savedArtifact(value: unknown): ReturnType<typeof workspaceArtifact> {
@@ -273,7 +310,17 @@ export class ValidationScheduler implements vscode.Disposable {
 export class AuthoredDiagramController implements vscode.Disposable {
     private readonly panels = new Map<string, AuthoredPanel>();
     private readonly disposables: vscode.Disposable[] = [];
-    constructor(private readonly ctx: vscode.ExtensionContext, private readonly log: Logger, private readonly validator: typeof validateWorkflow = validateWorkflow, private readonly io: AuthoredPanelIo = defaultIo) { }
+    private disposed = false;
+    /** The previous host's panels whose dead tab has not been found yet (see `recoverAfterRestart`). */
+    private pending: PanelRecord[] = [];
+    private registryWrites: Promise<void> = Promise.resolve();
+    private tabWatch: vscode.Disposable | undefined;
+    private sweepTimer: TimerHandle | undefined;
+    private sweepWaiters: ((opened: number) => void)[] = [];
+    private sweeps: Promise<number> = Promise.resolve(0);
+    /** Front tabs already reported as dead without a registry entry, so each is logged once. */
+    private readonly unmatched = new WeakSet<vscode.Tab>();
+    constructor(private readonly ctx: vscode.ExtensionContext, private readonly log: Logger, private readonly validator: typeof validateWorkflow = validateWorkflow, private readonly io: AuthoredPanelIo = defaultIo, private readonly settleMs: number = RECOVERY_SETTLE_MS) { }
     register(): vscode.Disposable[] {
         const watcher = vscode.workspace.createFileSystemWatcher('**/*');
         const registered = [
@@ -337,17 +384,23 @@ export class AuthoredDiagramController implements vscode.Disposable {
     private adopt(panel: vscode.WebviewPanel, target: NonNullable<ReturnType<typeof workspaceArtifact>>): AuthoredPanel {
         const { uri, folder, key } = target;
         const authored: AuthoredPanel = new AuthoredPanel(panel, uri, folder, this.ctx, this.log, () => {
-            if (this.panels.get(key) === authored)
+            if (this.panels.get(key) === authored) {
                 this.panels.delete(key);
-        }, this.restartNotes, this.validator, this.io);
+                // A closed tab leaves the registry. When the host shuts down (`dispose`), the
+                // panels stay registered: their tabs stay open for the next host.
+                void this.recordPanels();
+            }
+        }, this.hooks, this.validator, this.io);
         this.panels.set(key, authored);
+        void this.recordPanels();
         return authored;
     }
     private async restore(panel: vscode.WebviewPanel, state: unknown): Promise<void> {
         // The saved state comes from the webview: accept only an absolute *.mlview.json inside a workspace folder.
         const target = savedArtifact(state && typeof state === 'object' ? (state as SavedState).artifact : undefined);
         // One panel per artifact: a revived tab whose diagram is already shown (opened, or reopened
-        // after a restart, before VS Code revived this tab) is closed.
+        // in a dead tab's place after an extension host restart, before VS Code revived this tab)
+        // is closed.
         if (!target || this.panels.has(target.key)) {
             panel.dispose();
             return;
@@ -355,92 +408,156 @@ export class AuthoredDiagramController implements vscode.Disposable {
         panel.webview.options = { enableScripts: true, localResourceRoots: [vscode.Uri.joinPath(this.ctx.extensionUri, 'media')] };
         await this.adopt(panel, target).reload();
     }
-    private readonly restartNotes: RestartNotes = {
-        note: added => this.noteReopen(added),
-        forget: () => this.forgetReopen()
+    private readonly hooks: PanelHooks = {
+        changed: () => { void this.recordPanels(); },
+        flush: () => this.recordPanels()
     };
-    /** Save the reopen note for the next extension host, listing every open diagram (see `REOPEN_STATE_KEY`). */
-    private async noteReopen(added: string): Promise<void> {
-        const note: ReopenNote = { at: Date.now(), session: vscode.env.sessionId, added, panels: [...this.panels.values()].map(panel => panel.reopenEntry()) };
-        try {
-            await this.ctx.globalState.update(REOPEN_STATE_KEY, note);
-        }
-        catch (error) {
-            this.log.warn(`could not save the reopen note: ${error instanceof Error ? error.message : String(error)}`);
-        }
+    /**
+     * Queue a write of this window's registry entry (see `OPEN_PANELS_KEY`): every open panel,
+     * then the previous host's panels whose dead tab is still to be replaced. Writes run one at a
+     * time, each from the state at its turn. Nothing is written once the controller is disposed,
+     * which is how the extension host shuts down: the entry must outlive it.
+     */
+    private recordPanels(): Promise<void> {
+        if (this.disposed)
+            return this.registryWrites;
+        this.registryWrites = this.registryWrites.then(() => this.writeRegistry()).catch((error: unknown) => {
+            this.log.warn(`could not save the open diagrams: ${error instanceof Error ? error.message : String(error)}`);
+        });
+        return this.registryWrites;
     }
-    /** Delete the reopen note: only this window's note, unless `any`. */
-    private async forgetReopen(any = false): Promise<void> {
-        const raw = this.ctx.globalState.get<unknown>(REOPEN_STATE_KEY);
-        if (raw === undefined || (!any && !ownNote(raw)))
+    private async writeRegistry(): Promise<void> {
+        if (this.disposed)
             return;
-        try {
-            await this.ctx.globalState.update(REOPEN_STATE_KEY, undefined);
-        }
-        catch (error) {
-            this.log.warn(`could not clear the reopen note: ${error instanceof Error ? error.message : String(error)}`);
-        }
+        const session = vscode.env.sessionId;
+        const now = Date.now();
+        // Read again before each write: other windows write their own entries.
+        const raw = this.ctx.globalState.get<unknown>(OPEN_PANELS_KEY);
+        const registry = parseRegistry(raw);
+        pruneRegistry(registry, session, now);
+        const panels = [...[...this.panels.values()].map(panel => panel.record()), ...this.pending].slice(0, MAX_RECORDED_PANELS);
+        const previous = registry.get(session);
+        if (!panels.length)
+            registry.delete(session);
+        else if (!previous || JSON.stringify(previous.panels) !== JSON.stringify(panels))
+            registry.set(session, { at: now, panels });
+        const value = registry.size ? Object.fromEntries(registry) : undefined;
+        if (JSON.stringify(value) === JSON.stringify(raw))
+            return;
+        await this.ctx.globalState.update(OPEN_PANELS_KEY, value);
     }
     /**
-     * Run once at activation. When the root hint's "Add folder" made VS Code restart the extension
-     * host (see `REOPEN_STATE_KEY`), close the dead tabs the old host left and open each diagram
-     * again in the same editor group. The new panel validates against the workspace as it is now,
-     * so the artifact belongs to the added folder. Another window's note is left alone until it
-     * expires; this window's note is deleted whatever it held, and ignored when it is older than a
-     * minute or the folder it names is not in the workspace. Only one diagram tab per noted panel,
-     * titled like it, is closed; other tabs are left alone. Returns how many diagrams were opened.
+     * Run once at activation (see `OPEN_PANELS_KEY`). When the registry lists panels for this
+     * window's session, an earlier extension host in this window had them open and VS Code
+     * restarted it: their tabs are still open, dead. Each is replaced by a new panel for the same
+     * artifact in the same editor group, which validates against the workspace as it is now (for
+     * the root hint's "Add folder", against the added folder).
+     *
+     * A dead tab cannot be told from a tab VS Code restored at window load and has not shown yet:
+     * the tabs API gives both the same title and view type. But a restored tab comes to life
+     * through the serializer as soon as it comes to the front of its group, so only front tabs
+     * are judged, and only after `RECOVERY_SETTLE_MS`: a diagram tab in front of its group that no
+     * panel of this host shows by then is dead. A tab behind others is left alone until it comes
+     * to the front. A dead tab takes the registry entry with its title, in its group if there is
+     * one; a front tab no entry matches is left alone (Reload Window still revives it). An entry
+     * whose title is on no diagram tab is dropped: the reader closed that tab.
+     *
+     * Returns how many diagrams the first check opened again.
      */
-    async recoverAfterRestart(now: number = Date.now()): Promise<number> {
-        const raw = this.ctx.globalState.get<unknown>(REOPEN_STATE_KEY);
+    async recoverAfterRestart(): Promise<number> {
+        const raw = this.ctx.globalState.get<unknown>(OPEN_PANELS_KEY);
         if (raw === undefined)
             return 0;
-        // Taken before anything else can run: no panel of this host exists yet, so every diagram
-        // tab now open was drawn by the old host or is a restored tab not yet shown.
-        const tabs = vscode.window.tabGroups.all.flatMap(group => group.tabs).filter(isAuthoredTab);
-        const note = parseReopenNote(raw);
-        const expired = !note || now < note.at || now - note.at > REOPEN_WINDOW_MS;
-        if (!expired && note.session !== vscode.env.sessionId)
+        this.pending = parseRegistry(raw).get(vscode.env.sessionId)?.panels.slice() ?? [];
+        // Also prunes the other sessions' old entries and repairs a malformed value.
+        void this.recordPanels();
+        if (!this.pending.length)
             return 0;
-        await this.forgetReopen(true);
-        if (expired) {
-            this.log.info('ignored an expired or malformed reopen note');
+        this.log.info(`an earlier extension host in this window had ${this.pending.length} diagram(s) open; replacing their dead tabs`);
+        const changed = (): void => { void this.scheduleSweep(); };
+        this.tabWatch = vscode.Disposable.from(vscode.window.tabGroups.onDidChangeTabs(changed), vscode.window.tabGroups.onDidChangeTabGroups(changed));
+        return this.scheduleSweep();
+    }
+    /** Check the front tabs `settleMs` after the last tab change (see `recoverAfterRestart`). */
+    private scheduleSweep(): Promise<number> {
+        if (this.disposed || !this.tabWatch)
+            return Promise.resolve(0);
+        if (this.sweepTimer !== undefined)
+            clearTimeout(this.sweepTimer);
+        const done = new Promise<number>(resolve => this.sweepWaiters.push(resolve));
+        this.sweepTimer = setTimeout(() => {
+            this.sweepTimer = undefined;
+            const waiters = this.sweepWaiters.splice(0);
+            this.sweeps = this.sweeps.then(() => this.sweep()).catch((error: unknown) => {
+                this.log.warn(`replacing the dead diagram tabs failed: ${error instanceof Error ? error.message : String(error)}`);
+                return 0;
+            });
+            void this.sweeps.then(opened => waiters.forEach(resolve => resolve(opened)));
+        }, this.settleMs);
+        return done;
+    }
+    /** Some panel of this host shows `tab`, the front tab of the group in `column`. */
+    private showsIn(tab: vscode.Tab, column: vscode.ViewColumn): boolean {
+        return [...this.panels.values()].some(panel => panel.showsIn(column, tab.label));
+    }
+    private async sweep(): Promise<number> {
+        if (this.disposed || !this.tabWatch)
             return 0;
-        }
-        const added = path.resolve(note.added);
-        if (!(vscode.workspace.workspaceFolders ?? []).some(folder => path.resolve(folder.uri.fsPath) === added)) {
-            this.log.info('ignored a reopen note: its folder is not in the workspace');
-            return 0;
-        }
-        // One tab per noted panel, the front tab of a group first: a restored tab that was never
-        // shown (and so is not dead) is never in front, since VS Code revives the front tab at once.
-        tabs.sort((a, b) => Number(b.isActive) - Number(a.isActive));
-        const dead = new Set<vscode.Tab>();
-        const plans: { target: NonNullable<ReturnType<typeof workspaceArtifact>>; column: vscode.ViewColumn; active: boolean }[] = [];
-        for (const entry of note.panels) {
-            const tab = tabs.find(candidate => !dead.has(candidate) && candidate.label === entry.title);
-            // No tab left for it: the reader closed it, so there is nothing to replace.
-            if (!tab)
+        const groups = vscode.window.tabGroups.all;
+        const titles = new Set(groups.flatMap(group => group.tabs).filter(isAuthoredTab).map(tab => tab.label));
+        const before = this.pending.length;
+        this.pending = this.pending.filter(entry => titles.has(entry.title));
+        const dead: { tab: vscode.Tab; entry: PanelRecord; column: vscode.ViewColumn }[] = [];
+        for (const group of groups) {
+            const tab = group.activeTab;
+            if (!isAuthoredTab(tab) || this.showsIn(tab, group.viewColumn))
                 continue;
-            dead.add(tab);
-            const target = savedArtifact(entry.artifact);
-            if (target && !plans.some(plan => plan.target.key === target.key))
-                plans.push({ target, column: tab.group.viewColumn, active: tab.isActive });
+            const sameTitle = (entry: PanelRecord): boolean => entry.title === tab.label;
+            let index = this.pending.findIndex(entry => sameTitle(entry) && entry.column === group.viewColumn);
+            if (index < 0)
+                index = this.pending.findIndex(sameTitle);
+            if (index < 0) {
+                if (!this.unmatched.has(tab)) {
+                    this.unmatched.add(tab);
+                    this.log.info('a diagram tab in front of its group has no panel and matches no open diagram of the earlier extension host; left as it is');
+                }
+                continue;
+            }
+            dead.push({ tab, entry: this.pending.splice(index, 1)[0]!, column: group.viewColumn });
         }
-        // The diagram that was in front of its group is opened last, so it is in front again.
-        plans.sort((a, b) => Number(a.active) - Number(b.active));
-        // Open the new panels next to the dead tabs before closing those, so their groups stay.
-        const opened = plans.filter(plan => !this.panels.has(plan.target.key)).map(plan => this.create(plan.target, plan.column));
-        if (dead.size) {
+        const opened: AuthoredPanel[] = [];
+        if (dead.length) {
+            // Open the new panels beside the dead tabs before closing those, so their groups stay.
+            // An artifact already shown (opened again since the restart) gets no second panel.
+            for (const { entry, column } of dead) {
+                const target = savedArtifact(entry.artifact);
+                if (target && !this.panels.has(target.key))
+                    opened.push(this.create(target, column));
+            }
             try {
-                await vscode.window.tabGroups.close([...dead], true);
+                await vscode.window.tabGroups.close(dead.map(item => item.tab), true);
             }
             catch (error) {
-                this.log.warn(`could not close the diagram tabs left by the restart: ${error instanceof Error ? error.message : String(error)}`);
+                this.log.warn(`could not close the dead diagram tabs: ${error instanceof Error ? error.message : String(error)}`);
             }
+            this.log.info(`VS Code restarted the extension host: closed ${dead.length} dead diagram tab(s) and opened ${opened.length} diagram(s) again`);
         }
-        this.log.info(`VS Code restarted the extension host to add a workspace folder: closed ${dead.size} dead diagram tab(s) and opened ${opened.length} diagram(s) again`);
+        if (dead.length || this.pending.length !== before)
+            void this.recordPanels();
+        if (!this.pending.length)
+            this.stopRecovery();
         await Promise.all(opened.map(panel => panel.reload()));
         return opened.length;
+    }
+    /** No dead tab is left to find: stop watching the tabs. */
+    private stopRecovery(): void {
+        this.tabWatch?.dispose();
+        this.tabWatch = undefined;
+        if (this.sweepTimer !== undefined) {
+            clearTimeout(this.sweepTimer);
+            this.sweepTimer = undefined;
+        }
+        this.sweepWaiters.splice(0).forEach(resolve => resolve(0));
     }
     private diskChanged(uri: vscode.Uri): void {
         for (const panel of this.panels.values())
@@ -453,13 +570,13 @@ export class AuthoredDiagramController implements vscode.Disposable {
                 panel.bufferChanged();
     }
     private foldersChanged(): void {
-        // This host saw the change, so it was not restarted: no tab needs replacing. (In a
-        // single-folder window VS Code stops the old host before it changes the folders.)
-        void this.forgetReopen();
         for (const panel of this.panels.values())
             panel.foldersChanged();
     }
     dispose(): void {
+        // First, so the panels disposed below stay in the registry for the next host.
+        this.disposed = true;
+        this.stopRecovery();
         for (const p of this.panels.values())
             p.dispose();
         this.panels.clear();
@@ -532,23 +649,39 @@ class AuthoredPanel implements vscode.Disposable {
     private lastPostedStale: string | undefined;
     /** Where the missing cited files exist with their published hashes, when the root is wrong. */
     private rootHint: RootHint | undefined;
-    private lastHintToast: string | undefined;
     /** The whole-range highlight of the last source jump; disposing it clears it from every editor. */
     private highlight: vscode.TextEditorDecorationType | undefined;
     /** The number of the latest source jump (see `Jump`). */
     private jumpSeq = 0;
-    constructor(private readonly panel: vscode.WebviewPanel, private readonly artifact: vscode.Uri, private folder: vscode.WorkspaceFolder, private readonly ctx: vscode.ExtensionContext, private readonly log: Logger, private readonly onDispose: () => void, private readonly restartNotes: RestartNotes, private readonly validator: typeof validateWorkflow, private readonly io: AuthoredPanelIo) {
+    constructor(private readonly panel: vscode.WebviewPanel, private readonly artifact: vscode.Uri, private folder: vscode.WorkspaceFolder, private readonly ctx: vscode.ExtensionContext, private readonly log: Logger, private readonly onDispose: () => void, private readonly hooks: PanelHooks, private readonly validator: typeof validateWorkflow, private readonly io: AuthoredPanelIo) {
         this.artifactRel = toPosixRelative(folder.uri.fsPath, artifact.fsPath);
         this.dependencies.addPath(artifact.fsPath);
         this.scheduler = new ValidationScheduler(() => this.runReload(), RELOAD_DEBOUNCE_MS, systemTimers, error => this.log.warn(`authored reload failed: ${error instanceof Error ? error.message : String(error)}`));
         this.render();
         panel.onDidDispose(() => this.dispose(), null, this.disposables);
+        // A tab moved to another group: the registry keeps each panel's column.
+        panel.onDidChangeViewState(() => this.hooks.changed(), null, this.disposables);
         panel.webview.onDidReceiveMessage((m: unknown) => { void this.message(m).catch(error => this.log.warn(`authored message failed: ${error instanceof Error ? error.message : String(error)}`)); }, null, this.disposables);
         this.disposables.push(vscode.window.onDidChangeActiveColorTheme(theme => this.post({ v: 1, type: 'theme', kind: themeKindOf(theme.kind) })));
     }
     reveal(): void { this.panel.reveal(vscode.ViewColumn.Beside, true); }
-    /** This panel in the reopen note: the artifact and the tab title (see `REOPEN_STATE_KEY`). */
-    reopenEntry(): { artifact: string; title: string } { return { artifact: this.artifact.fsPath, title: this.panel.title }; }
+    /** This panel in the registry: the artifact, the tab title and the group's column (see `OPEN_PANELS_KEY`). */
+    record(): PanelRecord {
+        const column = this.panel.viewColumn;
+        return typeof column === 'number' && column > 0 ? { artifact: this.artifact.fsPath, title: this.panel.title, column } : { artifact: this.artifact.fsPath, title: this.panel.title };
+    }
+    /**
+     * This panel is the visible editor of the group in `column`, whose front tab is titled
+     * `title`. VS Code revives a restored panel with column 0 and reports its group a moment
+     * later (20 ms in a live VS Code 1.139 check); until then a visible panel with the tab's title
+     * counts.
+     */
+    showsIn(column: vscode.ViewColumn, title: string): boolean {
+        if (this.disposed || !this.panel.visible)
+            return false;
+        const own = this.panel.viewColumn;
+        return own === column || (!(typeof own === 'number' && own > 0) && this.panel.title === title);
+    }
     /** MLView: Open Generated Diagram for an already-open artifact. */
     async reopen(): Promise<void> {
         this.lineage.reset();
@@ -730,7 +863,11 @@ class AuthoredPanel implements vscode.Disposable {
             return;
         if (verdict === 'adopt' && this.lastValid && candidate.kind === 'json') {
             const document = this.lastValid.document;
-            this.panel.title = `MLView: ${document.title}`;
+            const title = `MLView: ${document.title}`;
+            if (this.panel.title !== title) {
+                this.panel.title = title;
+                this.hooks.changed();
+            }
             if (this.ready) {
                 this.postBanner(true, true);
                 this.post({ v: 1, type: 'workflow', document });
@@ -738,9 +875,9 @@ class AuthoredPanel implements vscode.Disposable {
             }
             const staleFiles = this.lastValid.stale;
             const toastKey = `${document.revision.id}\n${staleFiles.map(s => `${s.reason}:${s.rel}`).join('\n')}`;
-            if (this.rootHint)
-                this.showRootHintToast(this.rootHint, document.revision.id);
-            else if (staleFiles.length && toastKey !== this.lastStaleToast) {
+            // The root hint has no notification: the panel's notice carries its two actions, and a
+            // notification would outlive an extension host restart with dead buttons.
+            if (!this.rootHint && staleFiles.length && toastKey !== this.lastStaleToast) {
                 this.lastStaleToast = toastKey;
                 void vscode.window.showWarningMessage(staleToastText(staleFiles));
             }
@@ -796,25 +933,11 @@ class AuthoredPanel implements vscode.Disposable {
             return undefined;
         }
     }
-    /** Once per revision and folder: the hint as a notification with the same two actions as the panel. */
-    private showRootHintToast(hint: RootHint, revisionId: string): void {
-        const key = `${revisionId}\n${hint.base}\n${hint.root}`;
-        if (key === this.lastHintToast)
-            return;
-        this.lastHintToast = key;
-        void Promise.resolve(vscode.window.showInformationMessage(`MLView: ${rootHintText(hint, listFiles)}`, ADD_FOLDER, OPEN_FOLDER)).then(choice => {
-            if (choice === ADD_FOLDER)
-                return this.workspaceHintAction('add');
-            if (choice === OPEN_FOLDER)
-                return this.workspaceHintAction('open');
-            return undefined;
-        }).catch(error => this.log.warn(`root hint action failed: ${error instanceof Error ? error.message : String(error)}`));
-    }
     /**
-     * The root hint's two actions. The folder comes from the host's own hint, never from the
-     * webview message, and nothing here changes what validation reads: a new folder takes effect
-     * through `foldersChanged`, in the panel reopened after an extension host restart, or in the
-     * new window.
+     * The root hint's two actions, from the panel's notice. The folder comes from the host's own
+     * hint, never from the webview message, and nothing here changes what validation reads: a new
+     * folder takes effect through `foldersChanged`, in the panel reopened after an extension host
+     * restart, or in the new window.
      */
     private async workspaceHintAction(action: 'add' | 'open'): Promise<void> {
         const hint = this.rootHint;
@@ -831,18 +954,13 @@ class AuthoredPanel implements vscode.Disposable {
             return;
         }
         // A single-folder window becomes an untitled multi-root workspace, and VS Code restarts the
-        // extension host (this extension too) and leaves this panel's tab dead: save the reopen
-        // note first (see `REOPEN_STATE_KEY`). A multi-root window keeps its extension host, and
-        // `foldersChanged` validates in place.
-        const restarts = vscode.workspace.workspaceFile === undefined;
-        if (restarts)
-            await this.restartNotes.note(hint.base);
+        // extension host, which leaves this panel's tab dead until the next host replaces it from
+        // the registry (see `OPEN_PANELS_KEY`): store the registry before the folder is added. A
+        // multi-root window keeps its extension host, and `foldersChanged` validates in place.
+        await this.hooks.flush();
         // Appended, so the first folder is left alone.
-        if (!vscode.workspace.updateWorkspaceFolders(folders.length, 0, { uri })) {
-            if (restarts)
-                await this.restartNotes.forget();
+        if (!vscode.workspace.updateWorkspaceFolders(folders.length, 0, { uri }))
             void vscode.window.showWarningMessage('MLView: VS Code did not add the folder to the workspace.');
-        }
     }
     private scheduleRetry(): void {
         if (this.disposed || this.retryTimer !== undefined || this.retryCount >= RETRY_DELAYS_MS.length)

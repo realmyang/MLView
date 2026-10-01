@@ -28,9 +28,11 @@ function context(globalState = vscode.__memento()) {
   const extensionPath = path.join(__dirname, '..');
   return { extensionPath, extensionUri: vscode.Uri.file(extensionPath), subscriptions: [], globalState };
 }
+/** A logger that keeps the warnings in `lines` and the info lines in `infos`. */
 function log() {
   const lines = [];
-  return { lines, info() {}, warn(m) { lines.push(m); }, error() {}, debug() {}, trace() {}, raw() {}, show() {}, dispose() {} };
+  const infos = [];
+  return { lines, infos, info(m) { infos.push(m); }, warn(m) { lines.push(m); }, error() {}, debug() {}, trace() {}, raw() {}, show() {}, dispose() {} };
 }
 /** A small valid document citing `fit()` on line 1 of `file`. */
 function workflow(file = 'source.py', revision = { id: 'r1' }) {

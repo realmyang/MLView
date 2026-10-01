@@ -241,10 +241,19 @@ workspace** and **Open folder**. The marks, the status bar, the Inspector and
 a blocked jump say the file is "in another folder" and point to that notice,
 not that it changed or went missing. MLView never resolves citations against
 another folder on its own; the panel checks again when the workspace folders
-change. In a single-folder window, adding the folder makes VS Code turn the
-window into an untitled multi-root workspace and restart its extensions;
-MLView then closes the old diagram tab and opens the diagram again in the same
-editor group, where it is checked against the added folder.
+change. The two actions are only in the panel's notice, not in a notification.
+
+In a single-folder window, adding the folder makes VS Code turn the window into
+an untitled multi-root workspace and restart its extensions. MLView handles
+every extension restart inside a window the same way, whatever caused it
+(**Developer: Restart Extension Host**, an extension install or update that
+restarts extensions, **Save Workspace As...**, the notice's **Add folder to
+workspace** or VS Code's **Add Folder to Workspace...**): each open diagram
+comes back in its tab's place and is checked against the workspace as it is
+then, here against the added folder. A diagram in front of its editor group
+comes back at once; one behind other tabs comes back when it is brought to the
+front, after a blank half second, because until then it cannot be told from a
+tab VS Code restored at startup and has not shown yet.
 
 Unsaved editor changes do not make a diagram stale, because freshness uses the
 saved files. The banner lists files with unsaved changes, and a jump is
