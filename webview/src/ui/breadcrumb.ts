@@ -34,7 +34,7 @@ export class Breadcrumb {
   }
 
   /** `view` null means the whole workspace: the chip disappears entirely. */
-  update(view: View | null, truncated: boolean): void {
+  update(view: View | null): void {
     clear(this.root);
     if (!view) {
       this.root.hidden = true;
@@ -53,16 +53,10 @@ export class Breadcrumb {
     add(this.root, el('span', 'mlv-breadcrumb__sep', ' · '));
     add(this.root, el('span', 'mlv-breadcrumb__depth', 'depth ' + view.depth));
     add(this.root, el('span', 'mlv-breadcrumb__sep', ' · '));
-    // Under truncation the denominator is the CAPPED graph, and the truncation
-    // banner stays up beside it, so neither number can be read as the project.
     const total = view.of.nodes;
     add(
       this.root,
-      el(
-        'span',
-        'mlv-breadcrumb__count',
-        view.counts.core + view.counts.boundary + view.counts.context + ' of ' + total + (truncated ? ' shown' : ' nodes'),
-      ),
+      el('span', 'mlv-breadcrumb__count', view.counts.core + view.counts.boundary + view.counts.context + ' of ' + total + ' nodes'),
     );
 
     const steppers = add(this.root, el('div', 'mlv-breadcrumb__steppers'));

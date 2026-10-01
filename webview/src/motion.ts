@@ -26,10 +26,6 @@ export function motionMode(): MotionMode {
   return matches(REDUCED_MOTION_QUERY) ? 'reduced' : 'full';
 }
 
-export function prefersReducedMotion(): boolean {
-  return motionMode() === 'reduced';
-}
-
 function matches(query: string): boolean {
   try {
     if (typeof window === 'undefined' || !window.matchMedia) return false;

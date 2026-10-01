@@ -65,12 +65,6 @@ export class SearchController {
     return this.result.hits;
   }
 
-  /** Set the box's text and run it — used by the host's `setFilter` message. */
-  setQuery(query: string): void {
-    this.input.value = query;
-    this.run(query);
-  }
-
   /** Empty the box and the hit list without announcing a query change. */
   clear(): void {
     this.input.value = '';

@@ -9,44 +9,23 @@
  */
 
 import { emptyCounts, normalizeSeverity } from '../markers.js';
-import { isSetAside } from '../types.js';
 import { railScopeCounts } from '../scope/session.js';
 import { freshnessSummary } from '../freshness.js';
 import type { App } from '../app.js';
 import type { IssueCounts, Severity } from '../types.js';
 
-/**
- * Counts for the toolbar chips: severity filters do not hide their own count.
- *
- * VW-04. "Visible" here means exactly what `Filters.keep` means everywhere
- * else — `isSetAside`, i.e. suppressed OR BASELINED. It used to test
- * `issue.suppressed` alone, so the moment a repo adopted `--baseline` the
- * most prominent number on the page (5 / 6 / 3) disagreed with the rail
- * ('high · 4', 'medium · 4'), with the MLV-P1 answer card ('8 finding(s)')
- * and with `mlview issues` ('8 issue(s) ... 6 baselined'), and the chip
- * labelled 5 hid four rows when clicked. The netting is now also SAID:
- * `chrome.update` draws the set-aside button as '1 suppressed · 6 baselined'.
- */
+/** Counts for the toolbar chips: every finding in view, so a severity filter never hides its own count. */
 export function visibleCounts(app: App): IssueCounts {
   const counts = emptyCounts();
   if (!app.graph) return counts;
-  for (const issue of app.graph.issues) {
-    if (!app.filters.value.showSuppressed && isSetAside(issue)) continue;
-    counts[normalizeSeverity(issue.severity) as Severity]++;
-  }
+  for (const issue of app.graph.issues) counts[normalizeSeverity(issue.severity) as Severity]++;
   return counts;
 }
 
 export function renderChrome(app: App): void {
   const summary = app.scopes.summary();
   const view = app.graph ? app.graph.view || null : null;
-  app.scopeBar.update(
-    view,
-    app.scopes.full,
-    app.scopes.spec,
-    app.scopes.depth,
-    !!(app.graph && app.graph.stats.truncated),
-  );
+  app.scopeBar.update(view, app.scopes.full, app.scopes.spec, app.scopes.depth);
   app.chrome.update({
     graph: app.graph,
     scopeLabel: summary.label,
@@ -77,7 +56,6 @@ export function renderRail(app: App): void {
   const selectedIssue = sel && sel.kind === 'issue' && app.index ? app.index.issueById.get(sel.id) || null : null;
   app.rail.update({
     index: app.index,
-    canAskAssistant: app.caps.canAskAssistant,
     tab: app.railTab,
     issues: app.graph ? app.graph.issues : [],
     selectedNode,

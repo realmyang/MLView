@@ -3,7 +3,7 @@
  * document.createElement / createElementNS and filled with textContent.
  */
 
-import { el, add, middleTruncate, locSpan } from '../dom.js';
+import { el, add, locSpan } from '../dom.js';
 import { locSpoken } from '../notebook.js';
 import { kindIcon, uiIcon, isKnownKind, nodeGlyphKind } from '../icons.js';
 import { severityBadge, severityCluster, highestSeverity, countsTotal } from '../markers.js';
@@ -164,23 +164,21 @@ export function chipsFor(node: MLNode, metrics?: ChipMetrics | null, budget = 26
 }
 
 /**
- * The kind word a screen reader hears before the label. An authored node
- * without a kind the renderer knows is a "step": the adapter's `unknown`
- * default is not something the author wrote (VIEWUI-14).
+ * The kind word a screen reader hears before the label. A node without a kind
+ * the renderer knows is a "step": the adapter's `unknown` default is not
+ * something the author wrote (VIEWUI-14).
  */
 function kindSpoken(n: NodeVisual['node']): string {
-  if (n.authored && (n.kind === 'unknown' || !isKnownKind(n.kind))) return 'step';
-  return isKnownKind(n.kind) ? n.kind.replace(/_/g, ' ') : 'node';
+  if (n.kind === 'unknown' || !isKnownKind(n.kind)) return 'step';
+  return n.kind.replace(/_/g, ' ');
 }
 
 export function ariaLabelFor(v: NodeVisual): string {
   const n = v.node;
   const bits: string[] = [];
-  if (n.ghost && n.basis === 'unresolved') bits.push('Unresolved: ' + n.label);
-  else if (n.ghost) bits.push('Missing step: ' + n.label);
-  else bits.push(kindSpoken(n) + ' ' + n.label);
-  // Viewer M1: an authored step names its phase by label, as the lane does; the id is internal.
-  bits.push(n.authored && n.phaseLabel ? n.phaseLabel + ' phase' : stageOf(n) + ' stage');
+  bits.push(kindSpoken(n) + ' ' + n.label);
+  // Viewer M1: a step names its phase by label, as the lane does; the id is internal.
+  bits.push(n.phaseLabel ? n.phaseLabel + ' phase' : stageOf(n) + ' stage');
   if (n.loc.file) bits.push(locSpoken(n.loc));
   if (n.basis) bits.push('basis ' + n.basis);
   const total = countsTotal(v.counts);
@@ -189,11 +187,10 @@ export function ariaLabelFor(v: NodeVisual): string {
   if (total > 0) bits.push(total + (total === 1 ? ' finding' : ' findings') + ', highest severity ' + top);
   if (v.descendants > 0) bits.push(v.descendants + ' nested nodes');
   if (v.stale) bits.push(staleWords(v));
-  if (n.dynamic) bits.push('partially resolved');
   if (n.viewRole === 'boundary') bits.push('outside the current scope');
   // Viewer M1: the claim's first sentence, so the name says what the step does. The Inspector
   // has the whole text.
-  const claim = n.authored && n.detail ? detailSpoken(n.detail) : '';
+  const claim = n.detail ? detailSpoken(n.detail) : '';
   return bits.join(', ') + '.' + (claim ? ' ' + claim : '');
 }
 
@@ -230,7 +227,7 @@ export function buildNodeCard(v: NodeVisual, collapsedGroup: boolean): HTMLEleme
   card.setAttribute('data-level', n.level);
   // Issue 14: the uncertainty treatment belongs to the authored basis, not to
   // an unfamiliar kind word (node.css `[data-basis="unresolved"]`).
-  if (n.authored && n.basis) card.setAttribute('data-basis', n.basis);
+  if (n.basis) card.setAttribute('data-basis', n.basis);
   const top = highestSeverity(v.counts);
   // A BOUNDARY stub carries no severity badge: its findings are out of scope,
   // and a badge you cannot open is a lie (FEATURES 3.7).
@@ -250,9 +247,6 @@ export function buildNodeCard(v: NodeVisual, collapsedGroup: boolean): HTMLEleme
   // and `.mlv-node__text` clips, exactly as the SVG export already did.
   card.style.height = v.box.h + 'px';
 
-  if (n.ghost) card.classList.add('is-ghost');
-  if (n.dynamic) card.classList.add('is-dynamic');
-  if (typeof n.confidence === 'number' && n.confidence < 0.6) card.classList.add('is-lowconf');
   if (top && !boundary) card.classList.add('has-issues');
   if (v.stale) card.classList.add('is-stale');
   if (v.filteredOut) card.classList.add('is-filtered');
@@ -265,27 +259,22 @@ export function buildNodeCard(v: NodeVisual, collapsedGroup: boolean): HTMLEleme
 
   const text = add(main, el('div', 'mlv-node__text'));
   const label = n.label || n.qualname || n.id;
-  if (n.authored) {
-    // Campaign 3, issue 14: truncated ONCE. The title used to be cut to 34
-    // characters in the middle and then again by the CSS end ellipsis
-    // ("Acquire the dataset ......"); 723 of 865 shakedown labels were longer.
-    // Now the whole label is in the DOM and wraps to the lines the layout
-    // reserved (`cardmetrics.titleLines`), clamped with one ellipsis. The full
-    // label is in the hover card and the accessible name.
-    // `data-lines` (1-3) selects the clamp in node.css; an attribute rather
-    // than a custom property, because a style write per card is the slow path
-    // on a 2000-node document.
-    const title = add(text, el('div', 'mlv-node__title mlv-node__title--wrap', label));
-    title.setAttribute('data-lines', String(titleLines(n, v.box.w)));
-  } else {
-    add(text, el('div', 'mlv-node__title', middleTruncate(label, 34)));
-  }
-  const sub = n.sublabel || (n.fqn ? n.fqn : n.kind);
-  // Issue 14: an authored sublabel is prose, cut once by the CSS end ellipsis.
-  add(text, el('div', 'mlv-node__sub', n.authored ? sub.slice(0, SUB_DOM_CHARS) : middleTruncate(sub, 40)));
-  // NB. `notebooks/leak.ipynb > cell 3 : 4` on the card, with the flat line it
-  // was translated from in the hover. `locSpan` splits the path from the cell so
-  // a card too narrow for both loses the path, never the cell.
+  // Campaign 3, issue 14: truncated ONCE. The title used to be cut to 34
+  // characters in the middle and then again by the CSS end ellipsis
+  // ("Acquire the dataset ......"); 723 of 865 shakedown labels were longer.
+  // Now the whole label is in the DOM and wraps to the lines the layout
+  // reserved (`cardmetrics.titleLines`), clamped with one ellipsis. The full
+  // label is in the hover card and the accessible name.
+  // `data-lines` (1-3) selects the clamp in node.css; an attribute rather
+  // than a custom property, because a style write per card is the slow path
+  // on a 2000-node document.
+  const title = add(text, el('div', 'mlv-node__title mlv-node__title--wrap', label));
+  title.setAttribute('data-lines', String(titleLines(n, v.box.w)));
+  const sub = n.sublabel || n.kind;
+  // Issue 14: the sublabel is prose, cut once by the CSS end ellipsis.
+  add(text, el('div', 'mlv-node__sub', sub.slice(0, SUB_DOM_CHARS)));
+  // `notebooks/leak.ipynb › cell 3, line 4` on the card. `locSpan` splits the
+  // path from the cell so a card too narrow for both loses the path, never the cell.
   if (n.loc.file) add(text, locSpan('mlv-node__loc', n.loc, 'div'));
 
   // The collapsed-group count chip is PREPENDED after budgeting, so it can never
@@ -358,8 +347,8 @@ export function buildGroupBox(v: NodeVisual): HTMLElement {
   chevBtn.appendChild(chev);
   header.appendChild(chevBtn);
   header.appendChild(kindIcon(nodeGlyphKind(n, false), 14));
-  // Issue 14: an authored group name is cut once, by the CSS end ellipsis.
-  add(header, el('span', 'mlv-group__name', n.authored ? n.label || n.qualname : middleTruncate(n.label || n.qualname, 42)));
+  // Issue 14: a group name is cut once, by the CSS end ellipsis.
+  add(header, el('span', 'mlv-group__name', n.label || n.qualname));
   if (n.basis) add(header, el('span', 'mlv-chip mlv-chip--basis', n.basis));
   add(header, el('span', 'mlv-group__count', String(v.descendants)));
   const cluster = boundary ? null : severityCluster(v.counts, 13);

@@ -1,21 +1,20 @@
 /**
- * The scopable-unit catalogue: what the scope picker lists and what
- * `mlview_graph {scope:"units"}` returns on the analyzer side.
+ * The scopable-unit catalogue: what the scope picker lists.
  *
- * A "unit" is a node worth scoping TO: anything with children, or anything the
- * analyzer already calls a definition (`level` in {stage, unit}). Counts are
- * computed the way `project()` computes core, so the number beside a row is the
- * number of cards the user will actually get.
+ * A "unit" is a node worth scoping TO: anything with children, or any
+ * top-level step (`level: 'unit'`). Counts are computed the way `project()`
+ * computes core, so the number beside a row is the number of cards the user
+ * will actually get.
  */
 
-import { CONCERNS, CONCERN_LABELS, CONCERN_NAMES, parseScope } from './selector.js';
+import { parseScope } from './selector.js';
 import { projectedNodeCount } from './project.js';
 import type { IssueCounts, Loc, MLGraph, MLNode, Severity } from '../types.js';
 
 const SEVERITIES: Severity[] = ['high', 'medium', 'low'];
 
 export interface ScopeUnit {
-  /** The selector to hand to `setScope` — a qualname, so it survives an edit. */
+  /** The selector to hand to `setScope`: the node's stable id (VIEWUI-7). */
   spec: string;
   nodeId: string;
   label: string;
@@ -30,7 +29,7 @@ export interface ScopeUnit {
 }
 
 export interface ScopeGroup {
-  /** A concern preset or a stage: a whole region, drawn at depth 0. */
+  /** A stage: a whole region, drawn at depth 0. */
   spec: string;
   label: string;
   nodes: number;
@@ -71,7 +70,6 @@ function subtreeSize(children: Map<string, string[]>, id: string): number {
 function severityOf(graph: MLGraph, ids: Set<string>): Severity | null {
   const counts: IssueCounts = { low: 0, medium: 0, high: 0 };
   for (const issue of graph.issues || []) {
-    if (issue.suppressed) continue;
     if (!issue.nodeIds.some((n) => ids.has(n))) continue;
     const sev = issue.severity as Severity;
     if (counts[sev] !== undefined) counts[sev]++;
@@ -96,7 +94,7 @@ function subtreeIds(children: Map<string, string[]>, id: string): Set<string> {
 }
 
 export function isScopableUnit(node: MLNode, children: Map<string, string[]>): boolean {
-  return (children.get(node.id) || []).length > 0 || node.level === 'stage' || node.level === 'unit';
+  return (children.get(node.id) || []).length > 0 || node.level === 'unit';
 }
 
 /** Sorted `(-nodeCount, file, line, qualname)` — the biggest handles first. */
@@ -106,8 +104,8 @@ export function scopeCatalog(graph: MLGraph, limit = 40): ScopeUnit[] {
   for (const node of graph.nodes || []) {
     if (!isScopableUnit(node, children)) continue;
     rows.push({
-      // VIEWUI-7: authored nodes by id, so two steps with one label stay apart.
-      spec: 'unit:' + (node.authored ? node.id : node.qualname),
+      // VIEWUI-7: by id, so two steps with one label stay apart.
+      spec: 'unit:' + node.id,
       nodeId: node.id,
       label: node.label || node.qualname,
       qualname: node.qualname,
@@ -128,30 +126,6 @@ export function scopeCatalog(graph: MLGraph, limit = 40): ScopeUnit[] {
   return rows.slice(0, limit);
 }
 
-/** The four presets with LIVE counts, so a concern that matches nothing says so. */
-export function concernRows(graph: MLGraph): ScopeGroup[] {
-  return CONCERN_NAMES.map((name) => {
-    const stages = CONCERNS[name] || [];
-    const ids = new Set<string>();
-    for (const node of graph.nodes || []) {
-      if (stages.indexOf(node.stage) >= 0) ids.add(node.id);
-    }
-    const counts: IssueCounts = { low: 0, medium: 0, high: 0 };
-    for (const issue of graph.issues || []) {
-      if (issue.suppressed) continue;
-      if (!issue.nodeIds.some((n) => ids.has(n))) continue;
-      const sev = issue.severity as Severity;
-      if (counts[sev] !== undefined) counts[sev]++;
-    }
-    // The FROZEN name, not the slug: the breadcrumb, the toolbar button and the
-    // accessible name all read CONCERN_LABELS, so a picker row saying
-    // 'optimization' renamed itself 'Model & optimization' one click later
-    // (MLV-R3-005).
-    const label = CONCERN_LABELS[name] || name;
-    return { spec: 'concern:' + name, label, nodes: ids.size, issues: counts, present: ids.size > 0 };
-  });
-}
-
 /**
  * HOSTS-UX-ROWCOUNT. The number of cards a row's own click draws, for ANY
  * selector.
@@ -159,8 +133,8 @@ export function concernRows(graph: MLGraph): ScopeGroup[] {
  * `ScopeUnit.nodeCount` and `ScopeGroup.nodes` are relation facts: the subtree,
  * or the nodes carrying that stage. The CLICK runs `project()`, which applies
  * the kind's default depth and keeps the `context` ancestors that hold the
- * containment tree together (11.2), so the two numbers differ — on the frozen
- * golden `unit:model.SmallNet` matched 1 and drew 5. Both numbers are correct
+ * containment tree together (11.2), so the two numbers differ (a unit that
+ * matched 1 node could draw 5). Both numbers are correct
  * about different things; only the one a MENU PROMISES has to be the one the
  * click delivers, so the relation counts are left alone and the picker asks
  * here instead.

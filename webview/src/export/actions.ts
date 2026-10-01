@@ -6,14 +6,10 @@
  * the bytes leave the viewer through exactly two doors:
  *
  *   - `exportFile` — the host writes the file. The VS Code webview cannot open
- *     a save dialog and must not try; the standalone bridge answers the same
- *     message with a download and falls back to the copy toast (CONTRACTS
- *     11.17.1 already owns that toast, so a blocked download still tells the
- *     truth instead of silently doing nothing).
- *   - the async clipboard API, attempted here because it is the one path that
- *     works identically in both hosts. Every failure — no API, a denied
- *     permission, an image type the host will not take — falls back to the
- *     `copy` message, which each host already implements.
+ *     a save dialog and must not try.
+ *   - the async clipboard API, attempted here first. Every failure — no API, a
+ *     denied permission, an image type the host will not take — falls back to
+ *     the `copy` message.
  *
  * Nothing here throws at a caller: an export that could not happen says so in
  * the toast and the live region, which is the whole difference between this and
@@ -104,14 +100,6 @@ function clampTo(rect: Rect, whole: Rect): Rect {
   return { x, y, w, h };
 }
 
-/** True when the `scope` region has a subject of its own to offer. */
-export function hasScopeRegion(plan: ScenePlan | null): boolean {
-  if (!plan) return false;
-  for (const planned of plan.nodes) {
-    if (planned.visual.node.viewRole === 'core') return true;
-  }
-  return false;
-}
 
 export function regionLabel(kind: ExportRegionKind): string {
   if (kind === 'view') return 'current view';
@@ -128,13 +116,6 @@ export function hostRegionWord(kind: ExportRegionKind): 'view' | 'all' | 'scope'
   return kind === 'diagram' ? 'all' : kind;
 }
 
-/** The inverse, for a `requestExport` frame. Anything unknown means the whole. */
-export function regionFromHostWord(word: string | undefined): ExportRegionKind {
-  if (word === 'view') return 'view';
-  if (word === 'scope') return 'scope';
-  return 'diagram';
-}
-
 /** Build the picture. Everything downstream is a delivery of this one result. */
 export function renderExport(request: ExportRequest): ExportSvgResult {
   const graph = request.graph;
@@ -143,9 +124,7 @@ export function renderExport(request: ExportRequest): ExportSvgResult {
     'MLView — ' + subjectOf(graph) + (scope ? ' — ' + scope : '') + ' — ' + regionLabel(request.regionKind);
   const desc =
     graph.nodes.length + ' nodes, ' + graph.edges.length + ' edges · schema ' + graph.schemaVersion +
-    (graph.schemaVersion === 'workflow-view/1'
-      ? ' · authored by ' + graph.generator.name + ' · model ' + graph.generator.version + ' · revision ' + graph.generator.rendererSha
-      : ' · mlview ' + graph.generator.version) +
+    ' · authored by ' + graph.generator.name + ' · model ' + graph.generator.version + ' · revision ' + graph.generator.rendererSha +
     (request.generatedAt ? ' · exported ' + request.generatedAt : '');
   return buildExportSvg({
     plan: request.plan,
@@ -167,19 +146,11 @@ export function exportFileName(request: ExportRequest, ext: string): string {
 }
 
 /**
- * What the picture is of. An authored document carries its TITLE where the
- * analyzer kept a workspace path, and a title such as `Train/eval loop` is not
- * a path: it is used whole (RENDER-8). An analyzer root is still reduced to its
- * last segment.
+ * What the picture is of: the document's TITLE, used whole. A title such as
+ * `Train/eval loop` is not a path (RENDER-8).
  */
 function subjectOf(graph: MLGraph): string {
-  if (graph.schemaVersion === 'workflow-view/1') return String(graph.workspace.root || '') || 'workflow';
-  return baseName(graph.workspace.root);
-}
-
-function baseName(root: string): string {
-  const parts = String(root || '').split(/[\\/]+/).filter((p) => !!p);
-  return parts.length ? parts[parts.length - 1] : 'workspace';
+  return String(graph.workspace.root || '') || 'workflow';
 }
 
 function slug(value: string): string {

@@ -2,8 +2,8 @@
  * The legend (VIEW-10).
  *
  * No legend existed anywhere in `webview/src`: a first-time reader got severity
- * glyphs, four edge kinds, ghost cards, back-edge chevrons, collapsed-group
- * count badges and confidence buckets with nothing explaining any of them. The
+ * glyphs, edge kinds, back-edge chevrons, collapsed-group count badges and
+ * bases with nothing explaining any of them. The
  * stage chip row is a FILTER, not a key, and the `?` sheet is a shortcut list.
  *
  * Every row here is GENERATED from what actually draws it — `markers.ts` for the

@@ -109,7 +109,6 @@ export function planScene(opts: ScenePlanOptions): ScenePlan {
     edges.push({
       route,
       severity: highestSeverity(index.countsFor(issues)),
-      suppressed: false,
       // Back-edges always carry their label; data-edge labels come in with the
       // `full` LOD class, driven from CSS so zooming never re-renders (MLV-R1-012).
       labelVisible: route.back,

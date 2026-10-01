@@ -118,16 +118,10 @@ export function authoredGlyphKind(kind: string | undefined): string {
   return 'step';
 }
 
-/**
- * The glyph a card or group header draws. A collapsed authored group is still
- * a group; a legacy collapsed unit keeps the artifact cube it always drew.
- */
-export function nodeGlyphKind(node: Pick<MLNode, 'kind' | 'authored'>, groupLike: boolean): string {
-  if (node.authored) return groupLike ? 'group' : authoredGlyphKind(node.kind);
-  return groupLike ? 'artifact' : node.kind;
+/** The glyph a card or group header draws. A collapsed group is still a group. */
+export function nodeGlyphKind(node: Pick<MLNode, 'kind'>, groupLike: boolean): string {
+  return groupLike ? 'group' : authoredGlyphKind(node.kind);
 }
-
-export const KNOWN_KINDS = Object.keys(KIND_PATHS).sort();
 
 export function kindPath(kind: string): string {
   return KIND_PATHS[kind] || AUTHORED_PATHS[kind] || KIND_PATHS.unknown;

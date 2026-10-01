@@ -7,7 +7,7 @@
  */
 
 import { sanitizeStaleFiles } from './freshness.js';
-import type { ActionResult, Capabilities, Filters, HostToUi, Severity, StaleFile, ThemeKind, ViewState, WorkflowDocument } from './types.js';
+import type { ActionResult, Capabilities, Filters, HostToUi, StaleFile, ThemeKind, ViewState, WorkflowDocument } from './types.js';
 
 export interface ProtocolHandlers {
   init(theme: ThemeKind, capabilities: Capabilities | undefined): void;
@@ -28,14 +28,12 @@ export interface ProtocolHandlers {
   /** The answer to a request that carried a `requestId` (§1e). */
   actionResult(result: ActionResult): void;
   theme(kind: ThemeKind): void;
+  /** Not sent by the host today; kept for the planned "Reveal in Diagram" (M3). */
   revealNode(nodeId: string, center: boolean): void;
+  /** Not sent by the host today; kept for the planned "Reveal in Diagram" (M3). */
   revealIssue(issueId: string): void;
-  setFilter(severities: Severity[] | undefined, codes: string[] | undefined, query: string | undefined): void;
+  /** Applies a saved `ViewState` (the geometry golden and the protocol tests drive collapse with it). */
   restoreState(state: ViewState): void;
-  /** `spec: null` clears the scope. NEVER triggers a re-analysis (11.7). */
-  setScope(spec: string | null, depth: number | undefined): void;
-  /** VIEW-07: draw the diagram and answer with one `exportFile`. */
-  requestExport(kind: 'svg' | 'png', scope: 'view' | 'all' | 'scope' | undefined): void;
   onUnknown(type: string): void;
 }
 
@@ -70,20 +68,8 @@ export function dispatchHostMessage(msg: HostToUi, h: ProtocolHandlers): void {
     case 'revealIssue':
       h.revealIssue(msg.issueId);
       return;
-    case 'setFilter':
-      h.setFilter(msg.severities, msg.codes, msg.query);
-      return;
     case 'restoreState':
       h.restoreState(msg.state);
-      return;
-    case 'setScope':
-      h.setScope(msg.spec, msg.depth);
-      return;
-    case 'requestExport':
-      h.requestExport(msg.kind === 'png' ? 'png' : 'svg', msg.scope);
-      return;
-    case 'cursorHint':
-      // followCursor is designed but out of scope for the prototype (A6).
       return;
     default:
       h.onUnknown(String((msg as any).type));
@@ -91,9 +77,8 @@ export function dispatchHostMessage(msg: HostToUi, h: ProtocolHandlers): void {
 }
 
 /**
- * Coerce a restored scope into something safe. A host predating this feature
- * round-trips the field untouched; a host that mangles it gets no scope rather
- * than a crash (CONTRACTS 11.9).
+ * Coerce a restored scope into something safe: a mangled one gives no scope
+ * rather than a crash (CONTRACTS 11.9).
  */
 export function sanitizeScope(scope: any): { spec: string; depth: number } | null {
   if (!scope || typeof scope !== 'object') return null;
@@ -103,17 +88,15 @@ export function sanitizeScope(scope: any): { spec: string; depth: number } | nul
   return { spec: scope.spec, depth };
 }
 
-/** Coerce whatever the host handed back into a ViewState we can trust. */
+/**
+ * Coerce saved filters into filters we can trust. Keys this viewer no longer
+ * writes (`showSuppressed`, `changedOnly`) are ignored.
+ */
 export function sanitizeFilters(filters: any, fallback: Filters): Filters {
   if (!filters || typeof filters !== 'object') return { ...fallback, severities: fallback.severities.slice() };
-  const out: Filters = {
+  return {
     severities: Array.isArray(filters.severities) ? filters.severities.slice() : fallback.severities.slice(),
     stages: Array.isArray(filters.stages) ? filters.stages.slice() : [],
-    showSuppressed: !!filters.showSuppressed,
     query: typeof filters.query === 'string' ? filters.query : '',
   };
-  // Written only when it is ON, so a restored state keeps the exact key set an
-  // older host round-trips (CI-ADOPT, and the same rule as `flow` in 11.9).
-  if (filters.changedOnly) out.changedOnly = true;
-  return out;
 }

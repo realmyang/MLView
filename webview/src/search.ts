@@ -71,7 +71,7 @@ export function searchGraphDetailed(index: GraphIndex, query: string, limit = 40
     const node = nodes[i];
     // VIEWUI-11: the stable id and every cited file and quote are searchable,
     // so the handles the refinement workflow uses can be found.
-    const fields = [node.id, node.label, node.qualname, node.fqn, node.sublabel, node.loc.file, node.var, node.kind];
+    const fields = [node.id, node.label, node.qualname, node.sublabel, node.loc.file, node.kind];
     for (const loc of node.evidenceLocs || []) fields.push(loc.file, loc.snippet);
     const score = fieldScore(fields, q);
     if (score < 0) continue;

@@ -84,8 +84,6 @@ export class Tooltip {
     clear(this.root);
     add(this.root, el('div', 'mlv-tooltip__title', node.label || node.qualname));
     if (node.sublabel) add(this.root, el('div', 'mlv-tooltip__row', node.sublabel));
-    if (node.fqn) add(this.root, el('div', 'mlv-tooltip__row', node.fqn));
-    if (node.ghost) add(this.root, el('div', 'mlv-tooltip__row', node.basis === 'unresolved' ? 'Basis · unresolved' : 'This step is missing from the code.'));
     if (node.loc.file) add(this.root, locSpan('mlv-tooltip__loc', node.loc, 'div'));
     // A group's badge counts what it contains (`planScene`), so its card lists
     // the same findings: a collapsed group listed only its own, often none.

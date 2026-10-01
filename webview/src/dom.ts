@@ -6,7 +6,7 @@
  * `test/bundle.test.mjs` checks the built bundle for both rules.
  */
 
-import { authoredCell, cellRef, locLabel, locParts, locTitle } from './notebook.js';
+import { authoredCell, locLabel, locParts, locTitle } from './notebook.js';
 import type { LocLike } from './notebook.js';
 
 export const SVG_NS = ['http', '//www.w3.org/2000/svg'].join(':');
@@ -77,15 +77,6 @@ export function on<K extends keyof HTMLElementEventMap>(
   return () => target.removeEventListener(type as string, handler as EventListener, opts as any);
 }
 
-/** Middle-truncate long qualified names so both ends stay readable. */
-export function middleTruncate(text: string, max: number): string {
-  if (text.length <= max) return text;
-  const keep = max - 1;
-  const head = Math.ceil(keep * 0.6);
-  const tail = keep - head;
-  return text.slice(0, head) + '…' + text.slice(text.length - tail);
-}
-
 export function debounce<T extends (...args: any[]) => void>(fn: T, ms: number): T & { cancel(): void } {
   let handle: any = null;
   const wrapped = ((...args: any[]) => {
@@ -105,9 +96,9 @@ export function debounce<T extends (...args: any[]) => void>(fn: T, ms: number):
 /**
  * Where something is, in one string, for every surface that shows a location.
  *
- * `train.py:27` as it always was — and `notebooks/leak.ipynb > cell 3 : 4` when
- * the location carries a cell mapping (NB). The translation itself lives in
- * `notebook.ts`; this stays the name the twelve call sites already import.
+ * `train.py:27`, or `notebooks/leak.ipynb › cell 3, line 4` for an authored
+ * notebook citation. The translation itself lives in `notebook.ts`; this stays
+ * the name the call sites already import.
  */
 export function fileLine(loc: LocLike): string {
   return locLabel(loc);
@@ -115,9 +106,9 @@ export function fileLine(loc: LocLike): string {
 
 /**
  * A `<span>` carrying that label, plus the two things a test and a hover need:
- * `data-cell` when the location is inside a notebook cell, and a `title` naming
- * the flat line the label was translated from. For a `.py` location this is
- * exactly `el('span', cls, file + ':' + line)` and nothing more.
+ * `data-cell` when the location is an authored notebook cell, and a `title`
+ * saying how cells are counted. For a `.py` location this is exactly
+ * `el('span', cls, file + ':' + line)` and nothing more.
  */
 export function locSpan(cls: string, loc: LocLike, tag: 'span' | 'div' = 'span'): HTMLElement {
   const span = el(tag, cls + (cls ? ' ' : '') + 'mlv-loc');
@@ -128,13 +119,8 @@ export function locSpan(cls: string, loc: LocLike, tag: 'span' | 'div' = 'span')
   // element's textContent is still exactly `locLabel(loc)`.
   add(span, el('span', 'mlv-loc__file', parts.head));
   add(span, el('span', 'mlv-loc__at', parts.tail));
-  const ref = cellRef(loc);
-  const authored = ref ? null : authoredCell(loc);
-  if (ref) {
-    span.setAttribute('data-cell', String(ref.cell));
-    span.setAttribute('data-cell-line', String(ref.line));
-    span.title = locTitle(loc);
-  } else if (authored) {
+  const authored = authoredCell(loc);
+  if (authored) {
     // VIEWUI-8: the zero-based index the contract carries.
     span.setAttribute('data-cell', String(authored.cell));
     span.title = locTitle(loc);

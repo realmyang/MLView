@@ -3,7 +3,7 @@
  *
  * The measured cost of reaching the diagram from the top of the document was
  * **22 Tab presses**: the scope button, the search box, three severity chips,
- * the suppressed chip, the flow toggle, the legend toggle, four viewport
+ * the flow toggle, the legend toggle, four viewport
  * buttons, refresh, export, the rail toggle, four theme chips and seven stage
  * chips, each its own tab stop, all of them before the canvas.
  *

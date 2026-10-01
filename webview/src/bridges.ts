@@ -43,12 +43,7 @@ function listenToWindow(cb: (msg: HostToUi) => void): () => void {
 
 export function vscodeBridge(): HostBridge {
   const api = acquireOnce();
-  const capabilities: Capabilities = {
-    canOpenSource: true,
-    canReanalyze: true,
-    canExport: true,
-    canAskAssistant: false,
-  };
+  const capabilities: Capabilities = { canOpenSource: true };
   return {
     host: 'vscode',
     theme: detectVsCodeTheme(),

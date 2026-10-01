@@ -7,7 +7,6 @@ import { add, button, clear, el, iconButton, on } from '../dom.js';
 import { uiIcon } from '../icons.js';
 import { severityGlyph, SEVERITY_ORDER } from '../markers.js';
 import { RovingGroup } from './roving.js';
-import { stat } from './chromenotes.js';
 import { MAX_CHIPS, chipTitle, collectChips } from './chromechips.js';
 import type { ChipSpec } from './chromechips.js';
 import { UNSPECIFIED_MODEL } from '../workflow.js';
@@ -37,7 +36,6 @@ export interface ChromeCallbacks {
    */
   onToggleMinimap(next: boolean): void;
   /** CI-ADOPT: "only changed" — drops findings attributed `existing`. */
-  onChangedOnly(next: boolean): void;
 }
 
 export interface ChromeState {
@@ -321,22 +319,6 @@ export class Chrome {
       this.filterRow.hidden = true;
       return;
     }
-    // CI-ADOPT: offered only when the run was actually attributed against a
-    // base revision. An unattributed document must not grow a filter that can
-    // only ever hide nothing.
-    const attributed = (g.issues || []).some((i) => typeof i.change === 'string' && i.change);
-    if (attributed) {
-      const changed = el('button', 'mlv-chip mlv-chip--btn mlv-chip--changed') as HTMLButtonElement;
-      changed.type = 'button';
-      changed.textContent = 'only changed';
-      changed.setAttribute('data-changed-filter', '1');
-      const on_ = !!s.filters.changedOnly;
-      changed.setAttribute('aria-pressed', on_ ? 'true' : 'false');
-      changed.title = 'Show only findings on lines this change touched';
-      changed.setAttribute('aria-label', changed.title);
-      on(changed, 'click', () => this.cb.onChangedOnly(!s.filters.changedOnly));
-      this.filterRow.appendChild(changed);
-    }
     add(this.filterRow, el('span', 'mlv-chiprow__label', 'stages'));
     const active = s.filters.stages;
     for (const stage of stages) {
@@ -348,18 +330,12 @@ export class Chrome {
       chip.setAttribute('aria-pressed', on_ ? 'true' : 'false');
       // Viewer M1: say what a click does. A click hides a shown phase and shows a hidden one;
       // the old "Show only the X stage" described the opposite.
-      const phaseWord = g.schemaVersion === 'workflow-view/1' ? ' phase' : ' stage';
-      chip.title = (on_ ? 'Hide the ' : 'Show the ') + (stage.label || stage.id) + phaseWord;
+      chip.title = (on_ ? 'Hide the ' : 'Show the ') + (stage.label || stage.id) + ' phase';
       add(chip, el('span', '', stage.label || stage.id));
       on(chip, 'click', () => this.cb.onStage(stage.id));
       this.filterRow.appendChild(chip);
     }
-    const dirty =
-      active.length > 0 ||
-      s.filters.severities.length < 3 ||
-      s.filters.showSuppressed ||
-      !!s.filters.changedOnly ||
-      s.filters.query.length > 0;
+    const dirty = active.length > 0 || s.filters.severities.length < 3 || s.filters.query.length > 0;
     if (dirty) {
       const clearBtn = button('mlv-btn', 'Clear filters');
       on(clearBtn, 'click', () => this.cb.onClearFilters());
@@ -369,18 +345,9 @@ export class Chrome {
   }
 
   /**
-   * The chip row, in three steps: COLLECT, FOLD, CAP (HOSTS-UX-CHIPWALL).
-   *
-   * It used to be one step — one chip per `graph.diagnostics` entry, appended
-   * straight to the row. Measured on the pinned public corpus at 1600x1000,
-   * that made `.mlv-chiprow` 2132 px tall on ultralytics/yolov5, 3765 px on
-   * huggingface/pytorch-image-models — and `.mlv-canvas` 0 px on both, because
-   * `.mlv-body` is the `flex: 1 1 auto; min-height: 0` item that absorbs
-   * whatever the rows above it take. Seven of sixteen public repositories drew
-   * a zero-pixel canvas that way, with every card in the DOM and none on
-   * screen, while the toolbar went on reading `400 nodes · 813 edges`. Of
-   * yolov5's 70 chips only 49 were distinct: one sentence was drawn 8 times
-   * verbatim, and `analyzer/tests/fixtures` drew `1 value not traced` 36 times.
+   * The chip row, in three steps: COLLECT, FOLD, CAP (HOSTS-UX-CHIPWALL), so
+   * the row can never outgrow the canvas under it (`.mlv-body` absorbs
+   * whatever the rows above it take).
    *
    * Nothing is deleted here. A fold carries its count, the cap carries a chip
    * that lists the rest, and every message stays on a `title`.
@@ -407,9 +374,9 @@ export class Chrome {
     for (const spec of shown) {
       if (spec.label && spec.label !== label) add(this.chipScroll, el('span', 'mlv-chiprow__label', spec.label));
       if (spec.label) label = spec.label;
-      // TAB2-10. A chip is a label, and three diagnostic kinds carry a
-      // SENTENCE. The text goes in its own element so the stylesheet can bound
-      // it to one ellipsised line (`.mlv-chiprow .mlv-chip__text`, CHIP_TEXT_CH)
+      // TAB2-10. A chip is a label, and a scope note carries a SENTENCE. The
+      // text goes in its own element so the stylesheet can bound it to one
+      // ellipsised line (`.mlv-chiprow .mlv-chip__text`)
       // while the `×N` count beside it stays whole. Nothing is removed: the
       // element holds every character, so `textContent`, the exported HTML and
       // every screen reader still get the sentence, and the `title` below
@@ -478,17 +445,10 @@ export class Chrome {
       wrap.appendChild(severityGlyph(s2, 11, s2 + ' severity'));
       add(wrap, el('span', 'mlv-stat__value', String(s.visibleCounts[s2])));
     }
-    if (g.workspace.frameworks && g.workspace.frameworks.length) {
-      add(this.status, el('span', '', g.workspace.frameworks.join(', ')));
-    }
-    // VIEWUI-13: an authored document's provenance is its revision, host and
-    // model; `generator.version` holds the MODEL there, never an MLView version.
-    if (g.schemaVersion === 'workflow-view/1') {
-      const model = g.generator.version && g.generator.version !== UNSPECIFIED_MODEL ? ' · ' + g.generator.version : '';
-      add(this.status, el('span', '', 'revision ' + g.generator.rendererSha + ' · ' + g.generator.name + model));
-    } else {
-      add(this.status, el('span', '', 'schema ' + g.schemaVersion + ' · mlview ' + g.generator.version));
-    }
+    // VIEWUI-13: the provenance is the revision, host and model; `generator.version`
+    // holds the MODEL, never an MLView version.
+    const model = g.generator.version && g.generator.version !== UNSPECIFIED_MODEL ? ' · ' + g.generator.version : '';
+    add(this.status, el('span', '', 'revision ' + g.generator.rendererSha + ' · ' + g.generator.name + model));
     const notes = (g.diagnostics || []).length;
     if (notes) add(this.status, el('span', '', notes + (notes === 1 ? ' note' : ' notes')));
     // Viewer M1: freshness in place. Nothing when every cited file is unchanged; a warning icon
@@ -505,4 +465,12 @@ export class Chrome {
       item.setAttribute('data-freshness', 'checking');
     }
   }
+}
+
+/** One `12 nodes` pill for the toolbar's stat row. */
+function stat(value: string, label: string): HTMLElement {
+  const wrap = el('span', 'mlv-stat');
+  add(wrap, el('span', 'mlv-stat__value', value));
+  add(wrap, el('span', '', label));
+  return wrap;
 }

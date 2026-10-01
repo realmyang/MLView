@@ -1,11 +1,8 @@
 /**
  * The scope picker: the one place that answers "which part of this codebase?".
  *
- * It lists, in this order: Everything · the four Concerns with LIVE counts · the
- * stages the document declares · every scopable unit, searchable and labelled
- * `baseline() · sklearn_baseline.py:18 · 13 nodes`. A concern that matches
- * nothing renders disabled as "not detected in this project" — itself a finding,
- * exactly as an absent stage already is elsewhere in the product.
+ * It lists, in this order: Everything · the phases that have steps · every
+ * scopable unit, searchable and labelled `Train the model · train.py:18 · 13 nodes`.
  *
  * Depth lives here too (0 / 1 / 2), because "how much of the neighbourhood" is
  * part of choosing a scope rather than a separate idea.
@@ -13,7 +10,7 @@
 
 import { add, button, clear, el, iconButton, on } from '../dom.js';
 import { uiIcon } from '../icons.js';
-import { concernRows, scopeCatalog, stageRows, viewCountOf } from '../scope/catalog.js';
+import { scopeCatalog, stageRows, viewCountOf } from '../scope/catalog.js';
 import type { ScopeGroup, ScopeUnit } from '../scope/catalog.js';
 import { locLabel, locTitle } from '../notebook.js';
 import type { MLGraph } from '../types.js';
@@ -117,15 +114,6 @@ export class ScopePicker {
     const everything = this.row('Everything', graph.nodes.length + ' nodes', null, this.state.spec === null);
     this.body.appendChild(everything);
 
-    // VIEWUI-6: an authored document does not have the analyzer's fixed concern
-    // stages, so that section is not offered (it would claim that MLView looked
-    // for something and found nothing).
-    const authored = graph.schemaVersion === 'workflow-view/1';
-    if (!authored) {
-      this.body.appendChild(this.heading('Concerns'));
-      for (const row of concernRows(graph)) this.body.appendChild(this.groupRow(row));
-    }
-
     this.body.appendChild(this.heading('Depth'));
     const depths = add(this.body, el('div', 'mlv-scopepicker__depths'));
     depths.setAttribute('role', 'group');
@@ -194,12 +182,9 @@ export class ScopePicker {
   /**
    * HOSTS-UX-ROWCOUNT: the number the CLICK delivers, not the relation's.
    *
-   * Round 1 fixed this for the pipeline rows and left the other three kinds
-   * promising their match set, so a unit row under-counted by the kind's
-   * default depth and a stage or concern row by the `context` ancestors the
-   * projection keeps: on the frozen golden `unit:train.train` offered 4 and
-   * drew 9, and on `analyzer/tests/clean` `stage:objective` offered 5 and drew
-   * 10 at depth 0, where no depth is involved at all.
+   * A unit row's match set under-counts by the kind's default depth, and a
+   * stage row's by the `context` ancestors the projection keeps, so each row
+   * asks the projection itself.
    */
   private drawn(spec: string, relation: number): number {
     const graph = this.state.graph;
@@ -208,15 +193,10 @@ export class ScopePicker {
     return count === null ? relation : count;
   }
 
+  /** A phase row. Only phases with steps are listed (`render`). */
   private groupRow(row: ScopeGroup): HTMLElement {
     const drawn = this.drawn(row.spec, row.nodes);
-    const detail = row.present ? drawn + (drawn === 1 ? ' node' : ' nodes') : 'not detected in this project';
-    const el_ = this.row(row.label, detail, row.spec, this.state.spec === row.spec);
-    if (!row.present) {
-      el_.setAttribute('aria-disabled', 'true');
-      (el_ as HTMLButtonElement).disabled = true;
-    }
-    return el_;
+    return this.row(row.label, drawn + (drawn === 1 ? ' node' : ' nodes'), row.spec, this.state.spec === row.spec);
   }
 
   private unitRow(unit: ScopeUnit): HTMLElement {

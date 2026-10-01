@@ -391,9 +391,7 @@ export class CanvasView {
     if (graph.nodes.length === 0) {
       // "Nothing analyzed" and "nothing in this scope" are different findings.
       const scoped = this.scopeEmptyState();
-      this.stateHost.appendChild(
-        scoped || buildEmptyState(graph, this.host.canReanalyze() ? () => this.host.requestRefresh() : null),
-      );
+      this.stateHost.appendChild(scoped || buildEmptyState(graph));
     } else if (this.frameData && this.frameData.boxes.size === 0) {
       this.stateHost.appendChild(buildFilterEmptyState(() => this.host.clearFilters()));
     }

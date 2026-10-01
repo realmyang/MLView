@@ -127,12 +127,10 @@ function wrapUncached(label: string, width: number, maxLines: number): string[] 
 }
 
 /**
- * How many title lines the card reserves. Authored cards wrap (issue 14: 723
- * of 865 shakedown labels were longer than the old 34-character cut); legacy
- * cards keep their single middle-truncated line.
+ * How many title lines the card reserves. Titles wrap (issue 14: 723 of 865
+ * shakedown labels were longer than the old 34-character cut).
  */
 export function titleLines(node: MLNode, width: number): number {
-  if (!node.authored) return 1;
   return wrapTitle(node.label || node.qualname || node.id, width).length;
 }
 

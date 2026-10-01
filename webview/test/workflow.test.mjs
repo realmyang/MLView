@@ -42,17 +42,18 @@ test('normalizes authored phases, hierarchy, cycles, evidence, and findings with
   assert.equal(graph.schemaVersion, 'workflow-view/1');
   assert.deepEqual(Array.from(graph.stages, (s) => s.id), ['load', 'loop', 'review']);
   assert.equal(graph.nodes.find((n) => n.id === 'step').parent, 'epoch');
-  assert.equal(graph.nodes.find((n) => n.id === 'gate').ghost, false,
-    'unresolved is uncertainty, never a claim that the step is missing');
+  const gate = graph.nodes.find((n) => n.id === 'gate');
+  assert.equal(gate.basis, 'unresolved');
+  assert.equal('ghost' in gate, false, 'unresolved is uncertainty, never a claim that the step is missing');
   assert.equal(graph.edges.find((e) => e.id === 'cycle').target, 'epoch');
   assert.match(graph.edges.find((e) => e.id === 'cycle').label, /inferred/);
   assert.equal(graph.issues[0].code, 'loss-risk');
   assert.equal(graph.issues[0].relatedLocs.length, 3);
   assert.deepEqual(Array.from(graph.issues[0].relatedLocs, (loc) => loc.role), ['Supporting evidence', 'Supporting evidence', 'Counter-evidence']);
   assert.equal(graph.issues[0].loc.evidenceId, 'ev-step');
-  assert.equal(graph.issues[0].confidenceBucket, 'inferred');
-  assert.equal(Number.isNaN(graph.issues[0].confidence), true, 'authored basis must not invent a numeric confidence');
-  assert.equal(graph.stats.truncated, false, 'authored partial coverage is not legacy node-cap truncation');
+  assert.equal(graph.issues[0].basis, 'inferred');
+  assert.equal('confidence' in graph.issues[0], false, 'authored basis must not invent a numeric confidence');
+  assert.equal('truncated' in graph.stats, false, 'authored partial coverage is not a node-cap truncation');
   assert.equal(graph.nodes.find((n) => n.id === 'epoch').loc.absFile, '');
   assert.deepEqual(Array.from(graph.nodes.find((n) => n.id === 'step').evidenceLocs, (loc) => loc.evidenceId), ['ev-step', 'ev-loss']);
   assert.deepEqual(Array.from(graph.edges.find((e) => e.id === 'cycle').evidenceLocs, (loc) => loc.evidenceId), ['ev-step', 'ev-load']);
@@ -418,5 +419,10 @@ test('authored scope and selection survive a revision update', async () => {
   assert.deepEqual(JSON.parse(JSON.stringify(app.getState().selection)), { kind: 'node', id: 'step' });
   assert.ok(ctx.document.querySelector('[data-node-id="step"]'));
   assert.equal(ctx.document.querySelector('[data-node-id="dataset"]'), null);
+  // Selecting and scoping are local: the host has no handler for the retired
+  // `selectNode` and `scopeChanged` frames, so the viewer no longer posts them.
+  app.setScope(null);
+  app.focusNode('dataset');
+  assert.deepEqual(bridge.posted.filter((m) => m.type === 'selectNode' || m.type === 'scopeChanged'), []);
   app.destroy();
 });

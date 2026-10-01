@@ -84,9 +84,9 @@ export function buildShell(root: HTMLElement, theme: ThemeKind): Shell {
 
   // VIEW-12. THE FIRST TAB STOP, appended before anything the App adds. It is a
   // real anchor so assistive tech announces it as a link, but the click is
-  // handled here and the default prevented: the standalone report must never
-  // navigate its own document (CONTRACTS 11.17), not even to a fragment, and a
-  // hash would also push a history entry a reader never asked for.
+  // handled here and the default prevented: the webview must never navigate its
+  // own document (CONTRACTS 11.17), not even to a fragment, and a hash would
+  // also push a history entry a reader never asked for.
   const skip = el('a', 'mlv-skiplink', 'Skip to diagram');
   skip.href = '#' + canvas.id;
   on(skip, 'click', (ev: MouseEvent) => {

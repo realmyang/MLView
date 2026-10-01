@@ -1,39 +1,12 @@
 /**
- * Designed states: the loading skeleton, the empty state and the toast stack.
+ * Designed states: the empty states and the toast stack.
  * Never a blank canvas (R4.5).
  */
 
 import { add, button, clear, el, on } from '../dom.js';
 import type { Diagnostic, MLGraph } from '../types.js';
 
-export class LoadingState {
-  readonly root: HTMLElement;
-  private barEl: HTMLElement;
-  private textEl: HTMLElement;
-
-  constructor(onCancel: () => void) {
-    this.root = el('div', 'mlv-state mlv-state--loading');
-    this.root.setAttribute('role', 'status');
-    const inner = add(this.root, el('div', 'mlv-state__inner'));
-    const skeleton = add(inner, el('div', 'mlv-skeleton'));
-    for (let i = 0; i < 9; i++) add(skeleton, el('div', 'mlv-skeleton__card'));
-    const progress = add(inner, el('div', 'mlv-progress'));
-    this.barEl = add(progress, el('div', 'mlv-progress__bar'));
-    this.textEl = add(inner, el('p', 'mlv-state__body', 'Analyzing the workspace…'));
-    const actions = add(inner, el('div', 'mlv-state__actions'));
-    const cancel = button('mlv-btn', 'Cancel');
-    on(cancel, 'click', onCancel);
-    actions.appendChild(cancel);
-  }
-
-  progress(done: number, total: number, file?: string): void {
-    const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-    this.barEl.style.width = pct + '%';
-    this.textEl.textContent = total > 0 ? 'Parsing ' + done + ' of ' + total + ' files…' + (file ? ' ' + file : '') : 'Analyzing…';
-  }
-}
-
-export function buildEmptyState(graph: MLGraph | null, onRefresh: (() => void) | null): HTMLElement {
+export function buildEmptyState(graph: MLGraph | null): HTMLElement {
   const root = el('div', 'mlv-state mlv-state--empty');
   root.setAttribute('role', 'status');
   const inner = add(root, el('div', 'mlv-state__inner'));
@@ -50,7 +23,7 @@ export function buildEmptyState(graph: MLGraph | null, onRefresh: (() => void) |
   if (diags.length) {
     const list = add(inner, el('ul', 'mlv-state__list'));
     for (const d of diags.slice(0, 8)) {
-      add(list, el('li', '', (d.file ? d.file + ': ' : '') + d.kind + ' — ' + d.message));
+      add(list, el('li', '', d.kind + ' — ' + d.message));
     }
   } else if (graph) {
     add(inner, el('p', 'mlv-state__body', 'The author inspected ' + graph.workspace.filesAnalyzed + ' files.'));
@@ -100,8 +73,8 @@ export class Toasts {
 
   constructor() {
     this.root = el('div', 'mlv-toasts');
-    // Several messages exist ONLY as a toast ("Node not found in this graph",
-    // "Error details copied"). An aria-hidden stack made them invisible to
+    // Several messages exist ONLY as a toast ("Node not found in this graph").
+    // An aria-hidden stack made them invisible to
     // assistive tech with no other surface to fall back on (MLV-R2-W10).
     // role="status" IS a polite live region; the explicit aria-live is left off
     // so the app's own announcer stays the only [aria-live] element.

@@ -52,8 +52,6 @@ export interface CanvasHost {
   openEdge(id: string, focusEditor: boolean): void;
   /** The "clear all filters" affordance of the filtered-empty state. */
   clearFilters(): void;
-  canReanalyze(): boolean;
-  requestRefresh(): void;
   announce(text: string): void;
   /** After a collapse/expand: the App re-applies selection, rail and state. */
   afterCollapse(): void;

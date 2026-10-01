@@ -39,8 +39,8 @@ export class ScopeBar {
     return this.picker.open;
   }
 
-  update(view: View | null, graph: MLGraph | null, spec: string | null, depth: number, truncated: boolean): void {
-    this.breadcrumb.update(view, truncated);
+  update(view: View | null, graph: MLGraph | null, spec: string | null, depth: number): void {
+    this.breadcrumb.update(view);
     this.picker.update({ graph, spec, depth });
   }
 

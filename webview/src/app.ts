@@ -30,7 +30,6 @@ import { FilterModel } from './filters.js';
 import { Chrome } from './ui/chrome.js';
 import { Rail } from './ui/rail.js';
 import { Legend } from './ui/legend.js';
-import { LoadingState } from './ui/states.js';
 import { ShortcutSheet } from './ui/shortcuts.js';
 import { ExportMenu } from './ui/exportmenu.js';
 import { ThemeController } from './ui/theme.js';
@@ -44,7 +43,7 @@ import { KNOWN_EDGE_KINDS } from './render/edges.js';
 import { buildAppUi } from './app/build.js';
 import { scopeToNode, setGraph, setScope } from './app/documents.js';
 import { renderChrome, renderRail } from './app/surfaces.js';
-import { askAssistant, onAction, openLocation } from './app/actions.js';
+import { openLocation } from './app/actions.js';
 import { onCanvasKey } from './app/keys.js';
 import { onHostMessage } from './app/messages.js';
 import { applyState, safeLoad, snapshotState } from './app/state.js';
@@ -117,15 +116,10 @@ export class App implements MLViewApp {
   /** The node `e` / Shift+E are cycling the connections of. */
   edgeAnchor: string | null = null;
   /**
-   * A restored or attribute-borne scope that arrived BEFORE any graph did.
-   *
-   * In the VS Code host the viewer is mounted with no graph at all
-   * (`panel.ts`: "Mount immediately with no graph") and the host posts
-   * `init` -> `restoreState` -> `graph`, so both restore routes ran while
-   * `scopes.full` was still null and `ViewState.scope` — alone among every
-   * field of the state — was silently thrown away (R2H-03). It is stashed here
-   * and drained by `setGraph`, through the same `setScope` call, so the
-   * re-resolve and the `scopeChanged` post still happen exactly once.
+   * A restored scope that arrived BEFORE any graph did: the constructor reads
+   * the saved state before the first document is applied, so `ViewState.scope`
+   * is stashed here and drained by `setGraph`, through the same `setScope`
+   * call (R2H-03).
    */
   pendingScope: { spec: string; depth?: number } | null = null;
   flowOn = true;
@@ -143,7 +137,6 @@ export class App implements MLViewApp {
   freshness = new FreshnessState();
   /** Whether this viewer has said once where an opened source goes. */
   openHintShown = false;
-  error: { message: string; detail?: string; actions?: { id: string; label: string }[] } | null = null;
   railOpen = true;
   /**
    * The reader has shown or hidden the rail themselves, selected a finding
@@ -183,7 +176,6 @@ export class App implements MLViewApp {
   releasePage: () => void = () => undefined;
   themes!: ThemeController;
   search!: SearchController;
-  loading!: LoadingState;
   liveEl!: HTMLElement;
   notice!: HostNotice;
 
@@ -204,14 +196,6 @@ export class App implements MLViewApp {
     if (restored && composer) this.restoredComposer = { revision: restored.workflowRevision as string, composer };
     this.disposers.push(bridge.onMessage((msg) => this.onMessage(msg)));
     if (typeof window !== 'undefined') this.disposers.push(on(window, 'resize', () => this.autoRail()));
-    // The initial scope travels as an attribute on the root element the report
-    // already emits, so `mount(root, graph, bridge)` keeps its exact frozen
-    // three-argument signature (CONTRACTS 11.8). It outranks a restored scope,
-    // so it is stashed LAST — either way `setGraph` drains exactly one.
-    const attrSpec = root.getAttribute('data-mlview-scope');
-    const attrDepth = root.getAttribute('data-mlview-depth');
-    if (attrSpec) this.pendingScope = { spec: attrSpec, depth: attrDepth ? Number(attrDepth) : undefined };
-    this.showLoading(true);
     // No `ready` here: the host bootstrap posts the one `ready` of a page load
     // and mounts this App on the first `workflow` (§1e). A second `ready`
     // would make the host replay the whole handshake and render it again.
@@ -285,10 +269,6 @@ export class App implements MLViewApp {
     handler(result);
   }
 
-  askAssistant(nodeId: string): void {
-    askAssistant(this, nodeId);
-  }
-
   /** Ask the host to open `loc` beside the panel; `focusEditor` (Alt+Enter) moves focus there. */
   openLocation(loc: Loc | RelatedLoc, focusEditor = false): void {
     openLocation(this, loc, focusEditor);
@@ -323,10 +303,6 @@ export class App implements MLViewApp {
     const body = this.root.querySelector('.mlv-body');
     if (body && this.notice.root.nextSibling !== body) this.root.insertBefore(this.notice.root, body);
     if (this.graph && before !== this.notice.root.hidden) this.view.afterChromeChange();
-  }
-
-  onAction(id: string): void {
-    onAction(this, id);
   }
 
   scopeToNode(nodeId: string): void {
@@ -445,7 +421,6 @@ export class App implements MLViewApp {
     const openedRail = !!(opts && opts.showClaim) && this.showRailForClaim();
     this.view.applySelection(sel);
     renderRail(this);
-    if (sel.kind === 'node') this.bridge.post({ v: 1, type: 'selectNode', nodeId: sel.id });
     if (opts && opts.reveal && sel.kind === 'edge') this.view.revealEdge(sel.id);
     else if (opts && opts.center && opts.reveal) this.view.revealNode(sel.id, !!opts.pulse);
     else if (opts && opts.center) this.view.centerOnNode(sel.id, !!opts.pulse);
@@ -474,7 +449,6 @@ export class App implements MLViewApp {
     this.selection = null;
     this.view.applySelection(null);
     renderRail(this);
-    this.bridge.post({ v: 1, type: 'selectNode', nodeId: null });
     this.saveSoon();
   }
 
@@ -573,10 +547,6 @@ export class App implements MLViewApp {
     this.liveEl.textContent = text;
   }
 
-  showLoading(on: boolean): void {
-    this.loading.root.hidden = !on;
-  }
-
   activateHit(hit: SearchHit): void {
     if (hit.kind === 'node') this.focusNode(hit.id, { center: true, pulse: true });
     else this.focusIssue(hit.id);
@@ -593,9 +563,8 @@ export class App implements MLViewApp {
   /* ── public API ────────────────────────────────────────────────────── */
 
   /**
-   * Re-project and relayout LOCALLY. Never posts `requestRefresh`, never touches
-   * the analyzer, and never throws: an unresolvable spec is a no-op plus a toast
-   * (CONTRACTS 11.8).
+   * Re-project and relayout LOCALLY. Never posts to the host and never throws:
+   * an unresolvable spec is a no-op plus a toast (CONTRACTS 11.8).
    */
   setScope(spec: string | null, opts?: { depth?: number }): void {
     setScope(this, spec, opts);

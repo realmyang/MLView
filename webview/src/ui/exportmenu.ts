@@ -331,6 +331,3 @@ function viewportWidth(): number {
   }
   return 1280;
 }
-
-/** Exported so a gate can state the menu's contents rather than re-typing them. */
-export const EXPORT_ACTIONS = ACTIONS;

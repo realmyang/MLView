@@ -9,8 +9,7 @@ import { add, button, clear, el, fileLine, locSpan, iconButton, on } from '../do
 import { locSpoken } from '../notebook.js';
 import { uiIcon } from '../icons.js';
 import { severityGlyph, SEVERITY_ORDER, normalizeSeverity } from '../markers.js';
-import { confidenceChip } from './evidence.js';
-import { blindSpots, coverageHeadline } from './chromenotes.js';
+import { basisChip } from './evidence.js';
 import type { GraphIndex } from '../layout/model.js';
 import { STALE_TEXT } from '../freshness.js';
 import type { Issue, Loc, RelatedLoc, StaleReason } from '../types.js';
@@ -110,15 +109,14 @@ export function renderIssuePanel(panel: HTMLElement, s: IssueListState, cb: Issu
   const visible = s.issues.filter(s.keep);
   if (s.scope) panel.appendChild(scopeLine(s.scope, cb));
   if (!visible.length) {
-    // Very different results, told apart: nothing was analysed, nothing was
-    // recorded, the filters excluded everything, or the SCOPE excludes them
-    // (MLV-R1-013, MLV-R2-W05, FEATURES 3.7). Getting these apart is what stops
-    // a scope from reading as a clean bill of health.
+    // Different results, told apart: there are no steps, nothing was recorded,
+    // the filters excluded everything, or the SCOPE excludes them (MLV-R1-013,
+    // MLV-R2-W05, FEATURES 3.7). Getting these apart is what stops a scope from
+    // reading as a clean bill of health.
     if (s.scope && s.scope.hidden > 0) panel.appendChild(scopeEmptyState(s.scope, cb));
     else if (s.issues.length) panel.appendChild(filteredEmptyState(cb));
     else if ((s.index.graph.nodes || []).length === 0) panel.appendChild(nothingAnalyzedState(s));
-    else if (s.index.graph.schemaVersion === 'workflow-view/1') panel.appendChild(noFindingsRecordedState(s));
-    else panel.appendChild(cleanState(s));
+    else panel.appendChild(noFindingsRecordedState(s));
     return;
   }
   for (const sev of SEVERITY_ORDER) {
@@ -163,7 +161,7 @@ function issueRow(issue: Issue, s: IssueListState, cb: IssueListCallbacks): HTML
     'aria-label',
     issue.code + ' ' + issue.severity + ' severity, ' + issue.title +
       (issue.loc.file ? ', ' + locSpoken(issue.loc) : '') +
-      (issue.basis ? ', basis ' + issue.basis : ', confidence ' + issue.confidenceBucket),
+      (issue.basis ? ', basis ' + issue.basis : ''),
   );
   if (selected) row.classList.add('is-selected');
   const stale = issueStaleReasons(issue, s.staleReason);
@@ -178,11 +176,8 @@ function issueRow(issue: Issue, s: IssueListState, cb: IssueListCallbacks): HTML
   const meta = add(text, el('div', 'mlv-issue__meta'));
   add(meta, el('span', '', issue.code));
   if (issue.loc.file) meta.appendChild(locSpan('', issue.loc));
-  // MLV-P6: on EVERY row, styled by bucket. Drawing it only for `possible` and
-  // `speculative` made `certain` and `likely` look identical — the distinction a
-  // reviewer most needs — and made a missing chip ambiguous between "sure" and
-  // "the renderer forgot".
-  meta.appendChild(confidenceChip(issue));
+  // MLV-P6: on EVERY row, so a missing chip never reads as "sure".
+  meta.appendChild(basisChip(issue));
   if (stale.length) meta.appendChild(staleChip(stale));
   on(row, 'click', () => cb.onSelectIssue(issue.id));
   li.appendChild(row);
@@ -195,8 +190,8 @@ function issueRow(issue: Issue, s: IssueListState, cb: IssueListCallbacks): HTML
     li.appendChild(open);
   }
 
-  // The selected row expands in place with the message, the why line, the fix
-  // hint and a Go to button per location — the most valuable content in the
+  // The selected row expands in place with the message, the suggestion and a
+  // Go to button per location — the most valuable content in the
   // product used to be unreachable from the Issues tab entirely (MLV-R1-006).
   if (selected) li.appendChild(issueDetail(issue, s, cb));
   return li;
@@ -217,7 +212,6 @@ function issueDetail(issue: Issue, s: IssueListState, cb: IssueListCallbacks): H
   const box = el('div', 'mlv-issue__detail');
   box.setAttribute('data-issue-detail', issue.id);
   if (issue.message) add(box, el('p', 'mlv-insp__line', issue.message));
-  if (issue.why) add(box, el('p', 'mlv-insp__line mlv-insp__why', issue.why));
   const suggestion = suggestionBlock(issue);
   if (suggestion) box.appendChild(suggestion);
   const actions = add(box, el('div', 'mlv-issue__goto'));
@@ -284,50 +278,6 @@ function wireListbox(list: HTMLElement, cb: IssueListCallbacks): void {
 /* ── the four zeros ────────────────────────────────────────────────────── */
 
 /**
- * The zero-issue result: good news, stated as good news — and only when it IS
- * good news.
- *
- * HOSTS-UX-CLEANSTATE. The standing criterion is *never look clean when you
- * were blind*, and this was the last surface breaking it. On `karpathy/nanoGPT`
- * the same document carries `untagged_dataflow` x2, `unresolved_callee` and
- * `notebook_skipped`; the two banners say so, the answer card's verdict says so
- * (11.60 A2), and the Issues rail — the panel a reviewer reads first — said
- * *"No issues found · 213 nodes across 8 stages checked — nothing to flag."*
- * with nothing beside it.
- *
- * The caveat is the SAME sentence the coverage banner draws, from the same
- * function, over the wider set `blindSpots()` selects: two surfaces agreeing
- * because they call one thing, rather than because someone kept them in step.
- * A document with no coverage diagnostic at all is untouched — an unqualified
- * clean result is still allowed to be an unqualified clean result.
- */
-function cleanState(s: IssueListState): HTMLElement {
-  const box = el('div', 'mlv-clean');
-  box.setAttribute('role', 'status');
-  box.appendChild(uiIcon('check', 20));
-  add(box, el('div', 'mlv-clean__title', 'No issues found'));
-  const index = s.index;
-  if (index) {
-    const nodes = (index.graph.nodes || []).length;
-    const stages = (index.graph.stages || []).filter((st) => st.present).length;
-    add(
-      box,
-      el(
-        'div',
-        'mlv-clean__detail',
-        nodes + (nodes === 1 ? ' node' : ' nodes') + ' across ' + stages + (stages === 1 ? ' stage' : ' stages') + ' checked — nothing to flag.',
-      ),
-    );
-    const blind = blindSpots(index.graph.diagnostics || []);
-    if (blind.length) {
-      const caveat = add(box, el('div', 'mlv-clean__caveat', coverageHeadline(blind)));
-      caveat.setAttribute('data-clean-coverage', String(blind.length));
-    }
-  }
-  return box;
-}
-
-/**
  * VIEWUI-1. Zero findings in an authored revision means only that the
  * assistant wrote none, which is common for "explain this pipeline"
  * questions. MLView checked nothing, so this state never says "checked",
@@ -376,7 +326,7 @@ function nothingAnalyzedState(s: IssueListState): HTMLElement {
   if (diags.length) {
     const list = add(box, el('ul', 'mlv-state__list'));
     for (const d of diags.slice(0, 5)) {
-      add(list, el('li', '', (d.file ? d.file + ': ' : '') + d.kind + ' — ' + d.message));
+      add(list, el('li', '', d.kind + ' — ' + d.message));
     }
   }
   return box;

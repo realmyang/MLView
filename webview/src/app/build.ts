@@ -17,7 +17,6 @@ import { CanvasView } from '../canvasview.js';
 import { Chrome } from '../ui/chrome.js';
 import { Rail } from '../ui/rail.js';
 import { Legend } from '../ui/legend.js';
-import { LoadingState } from '../ui/states.js';
 import { buildShell, claimPage } from '../ui/shell.js';
 import { ShortcutSheet } from '../ui/shortcuts.js';
 import { ExportMenu } from '../ui/exportmenu.js';
@@ -54,7 +53,6 @@ export function buildAppUi(app: App): void {
     onToggleFlow: (next) => app.setFlow(next),
     onToggleLegend: (next) => app.setLegend(next),
     onToggleMinimap: (next) => app.setMinimapCollapsed(next),
-    onChangedOnly: (next) => app.setFilters({ changedOnly: next }),
   });
 
   app.scopeBar = new ScopeBar({
@@ -102,10 +100,6 @@ export function buildAppUi(app: App): void {
     blurToCanvas: () => app.view.canvasEl.focus(),
   });
 
-  app.loading = new LoadingState(() => app.onAction('mlview.cancelAnalysis'));
-  app.loading.root.hidden = true;
-  shell.stateHost.appendChild(app.loading.root);
-
   app.rail = new Rail({
     onTab: (tab) => app.setRailTab(tab),
     onClearFilters: () => app.clearFilters(),
@@ -128,7 +122,6 @@ export function buildAppUi(app: App): void {
     onOpen: (loc, focusEditor) => app.openLocation(loc, focusEditor),
     onResize: (w) => app.setRailWidth(w),
     onToggleRail: () => app.toggleRail(),
-    onAsk: (id) => app.askAssistant(id),
     onSelectLane: (laneId) => app.selectLane(laneId),
     onToggleCollapse: (id) => {
       if (app.index && app.index.isGroup(id)) app.view.toggleCollapse(id);
@@ -172,8 +165,6 @@ export function canvasHost(app: App): CanvasHost {
     openNode: (id, focusEditor) => app.select({ kind: 'node', id }, { tab: 'inspector', showClaim: true, open: true, focusEditor }),
     openEdge: (id, focusEditor) => app.select({ kind: 'edge', id }, { tab: 'inspector', showClaim: true, open: true, focusEditor }),
     clearFilters: () => app.clearFilters(),
-    canReanalyze: () => false,
-    requestRefresh: () => undefined,
     announce: (text) => app.announce(text),
     afterCollapse: () => {
       syncCollapsed(app);

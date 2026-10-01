@@ -30,7 +30,7 @@
  * VS Code webview, the standalone report and a headless gate.
  */
 
-import { SVG_NS, middleTruncate } from '../dom.js';
+import { SVG_NS } from '../dom.js';
 import { locParts } from '../notebook.js';
 import { kindPath, nodeGlyphKind } from '../icons.js';
 import { countsTotal, highestSeverity, normalizeSeverity } from '../markers.js';
@@ -73,7 +73,7 @@ import { NODE_H, NODE_CHIP_ROW_H, NODE_TITLE_LINE_H } from '../layout/constants.
 import { wrapTitle } from '../layout/cardmetrics.js';
 import type { Point } from '../layout/routing.js';
 import type { Rect } from '../render/canvas.js';
-import type { IssueCounts, ThemeKind } from '../types.js';
+import type { IssueCounts, MLNode, ThemeKind } from '../types.js';
 
 /* ── the three offers (VIEW-07) ─────────────────────────────────────────── */
 
@@ -304,7 +304,7 @@ function laneBand(
 /* ── nodes ──────────────────────────────────────────────────────────────── */
 
 function nodeCard(
-  visual: { node: any; box: LayoutBox; counts: IssueCounts; descendants: number; stale: boolean; filteredOut: boolean },
+  visual: { node: MLNode; box: LayoutBox; counts: IssueCounts; descendants: number; stale: boolean; filteredOut: boolean },
   colour: string,
   palette: Palette,
   hc: boolean,
@@ -314,31 +314,27 @@ function nodeCard(
   const groupLike = box.collapsed;
   const boundary = n.viewRole === 'boundary';
   const top = boundary ? null : highestSeverity(visual.counts);
-  const ghost = !!n.ghost;
-  const lowConf = typeof n.confidence === 'number' && n.confidence < 0.6;
-  const dashed = ghost || lowConf || visual.stale;
+  const dashed = visual.stale;
 
   const attrs =
     ' data-node-id="' + esc(n.id) + '" data-stage="' + esc(n.stage || 'unknown') +
     '" data-kind="' + esc(n.kind) + '"' + (top ? ' data-sev="' + esc(top) + '"' : '') +
     (n.viewRole ? ' data-view-role="' + esc(n.viewRole) + '"' : '') +
-    (visual.filteredOut ? ' opacity="0.18"' : ghost ? ' opacity="0.92"' : '');
+    (visual.filteredOut ? ' opacity="0.18"' : '');
   const out: string[] = ['<g' + attrs + '>'];
   out.push('<title>' + esc(ariaLabelFor(visual as any)) + '</title>');
 
-  const stroke = top ? severityColor(palette, top) : ghost ? severityColor(palette, top) : palette.border;
+  const stroke = top ? severityColor(palette, top) : palette.border;
   out.push(
     '<rect x="' + num(box.x) + '" y="' + num(box.y) + '" width="' + num(box.w) + '" height="' + num(box.h) +
-      '" rx="' + CARD_R + '" fill="' + (ghost ? 'none' : esc(palette.surface)) + '" stroke="' + esc(stroke) +
-      '" stroke-width="' + (ghost ? 1.5 : 1) + '"' + (top ? ' stroke-opacity="0.75"' : '') +
+      '" rx="' + CARD_R + '" fill="' + esc(palette.surface) + '" stroke="' + esc(stroke) +
+      '" stroke-width="1"' + (top ? ' stroke-opacity="0.75"' : '') +
       (dashed ? ' stroke-dasharray="5 4"' : '') + '/>',
   );
-  if (!ghost) {
-    out.push(
-      '<rect x="' + num(box.x + 0.5) + '" y="' + num(box.y + 1) + '" width="' + RAIL_W +
-        '" height="' + num(box.h - 2) + '" rx="2" fill="' + esc(colour) + '"/>',
-    );
-  }
+  out.push(
+    '<rect x="' + num(box.x + 0.5) + '" y="' + num(box.y + 1) + '" width="' + RAIL_W +
+      '" height="' + num(box.h - 2) + '" rx="2" fill="' + esc(colour) + '"/>',
+  );
 
   /* icon tile + kind glyph */
   const iconX = box.x + RAIL_W + PAD_L;
@@ -353,20 +349,17 @@ function nodeCard(
   const tx = box.x + TEXT_X;
   const tw = Math.max(24, box.w - TEXT_X - PAD_R);
   const label = n.label || n.qualname || n.id;
-  // Campaign 3, issue 14: an authored title is the same wrapped lines the
-  // layout reserved (`cardmetrics.wrapTitle`), and the rows below move down
-  // by the extra lines, as the DOM card's flex column does.
-  const titleRows = n.authored ? wrapTitle(label, box.w) : [ellipsise(middleTruncate(label, 34), tw, FS_TITLE, false, true)];
+  // Campaign 3, issue 14: the title is the same wrapped lines the layout
+  // reserved (`cardmetrics.wrapTitle`), and the rows below move down by the
+  // extra lines, as the DOM card's flex column does.
+  const titleRows = wrapTitle(label, box.w);
   titleRows.forEach((row, i) => {
-    out.push(text(n.authored ? ellipsise(row, tw, FS_TITLE, false, true) : row, tx, box.y + Y_TITLE + i * NODE_TITLE_LINE_H, { size: FS_TITLE, fill: ghost ? palette.text2 : palette.text, weight: 650 }));
+    out.push(text(ellipsise(row, tw, FS_TITLE, false, true), tx, box.y + Y_TITLE + i * NODE_TITLE_LINE_H, { size: FS_TITLE, fill: palette.text, weight: 650 }));
   });
   const shift = (titleRows.length - 1) * NODE_TITLE_LINE_H;
-  const subRaw = n.sublabel || (n.fqn ? n.fqn : n.kind);
-  const sub = ellipsise(n.authored ? subRaw : middleTruncate(subRaw, 40), tw, FS_SUB, false, false);
-  out.push(
-    text(sub, tx, box.y + Y_SUB + shift, { size: FS_SUB, fill: palette.text2, italic: ghost }),
-  );
-  // NB. The cell reference (or, on a `.py` path, the line number) is reserved
+  const sub = ellipsise(n.sublabel || n.kind, tw, FS_SUB, false, false);
+  out.push(text(sub, tx, box.y + Y_SUB + shift, { size: FS_SUB, fill: palette.text2 }));
+  // The cell reference (or, on a `.py` path, the line number) is reserved
   // out of the budget first, so a path too long for the card loses the
   // directory rather than the answer — the DOM card does the same in CSS.
   const locBits = locParts(n.loc);
@@ -401,7 +394,7 @@ function nodeCard(
 }
 
 function groupFrame(
-  visual: { node: any; box: LayoutBox; counts: IssueCounts; descendants: number },
+  visual: { node: MLNode; box: LayoutBox; counts: IssueCounts; descendants: number },
   colour: string,
   palette: Palette,
   hc: boolean,
@@ -429,7 +422,7 @@ function groupFrame(
   // name's budget shrinks when there is one — measured against the flagship,
   // where `for images, labels in …` sat under its own "❗2 ⚠2".
   const nameBudget = Math.max(40, box.w - (top ? 170 : 96));
-  const name = ellipsise(n.authored ? n.label || n.qualname : middleTruncate(n.label || n.qualname, 42), nameBudget, FS_GROUP, false, true);
+  const name = ellipsise(n.label || n.qualname, nameBudget, FS_GROUP, false, true);
   out.push(text(name, nameX, baseline, { size: FS_GROUP, fill: palette.text, weight: 650 }));
   const countText = String(visual.descendants);
   const countW = width(countText, FS_COUNT, false, false) + 12;

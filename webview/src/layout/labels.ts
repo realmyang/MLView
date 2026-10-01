@@ -84,20 +84,6 @@ export const MARKER_R = 7;
 /** Bucket size for the collision grid — a few label widths. */
 export const GRID = 96;
 
-export const LABEL_METRICS = {
-  LABEL_CHAR_W,
-  LABEL_H,
-  LABEL_RISE,
-  LABEL_PAD_X,
-  LABEL_GAP,
-  LABEL_CLEAR,
-  MAX_DECLUTTER_TRIES,
-  TRIES_PER_RUN,
-  RUNS_PER_LABEL,
-  MIN_RUN,
-  MARKER_R,
-  LANE_PAD,
-};
 
 export interface LabelRect {
   x: number;

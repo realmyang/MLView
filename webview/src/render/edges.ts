@@ -150,7 +150,6 @@ export function buildDefs(): SVGElement {
 export interface EdgeVisual {
   route: RoutedEdge;
   severity: Severity | null;
-  suppressed: boolean;
   labelVisible: boolean;
   /**
    * The SOURCE node's stage, stamped on the <g> as `data-stage`. It makes
@@ -237,7 +236,7 @@ export function buildEdge(v: EdgeVisual): SVGElement {
   const hit = svg('path', { class: 'mlv-edge__hit', d: r.d });
   hit.setAttribute('tabindex', '-1');
   hit.setAttribute('role', 'button');
-  hit.setAttribute('aria-label', edgeAria(r, v.sourceLabel, v.targetLabel, weight) + (v.stale ? ' Its evidence cites a changed or missing file.' : ''));
+  hit.setAttribute('aria-label', edgeAria(r, v.sourceLabel, v.targetLabel) + (v.stale ? ' Its evidence cites a changed or missing file.' : ''));
   g.appendChild(hit);
 
   const path = svg('path', { class: 'mlv-edge__path', d: r.d });
@@ -349,9 +348,7 @@ function weightBadge(weight: number, at: { x: number; y: number }, angle: number
   label.textContent = text;
   g.appendChild(label);
   const title = svg('title');
-  title.textContent =
-    weight + ' connections merged into this edge. It counts connections, not call sites: the rollup ' +
-    're-pointed edges from folded children at the card that swallowed them.';
+  title.textContent = weight + ' connections merged into this edge.';
   g.appendChild(title);
   return g;
 }
@@ -364,17 +361,13 @@ function round(value: number): number {
  * The accessible name carries the DIRECTION in words — a connection was
  * unreachable and undescribed from the keyboard before this (FEATURES 2.2, 2.10).
  */
-export function edgeAria(r: RoutedEdge, sourceLabel?: string, targetLabel?: string, weight = 1): string {
+export function edgeAria(r: RoutedEdge, sourceLabel?: string, targetLabel?: string): string {
   const kind = r.back ? 'loop back edge' : r.kind && r.kind !== 'unknown' ? r.kind + ' edge' : 'edge';
   const label = r.label ? ' labelled ' + r.label : '';
   const flows = sourceLabel && targetLabel ? ', flows from ' + sourceLabel + ' to ' + targetLabel : '';
+  // The merged count is also the cable's drawn weight (`render/weight.ts`).
   const merged = r.count > 1 ? ', ' + r.count + ' merged connections' : '';
-  // PERF-04. `count` is what THIS renderer merged; `weight` is what the rollup
-  // merged before the document was written, and it is the larger number. Saying
-  // only the first would understate the cable to the one reader who cannot see
-  // how thick it is.
-  const weighted = weight > 1 ? ', weight ' + weight + ' — ' + weight + ' connections in one cable' : '';
-  return kind + label + flows + merged + weighted + '. Press Enter to open the cited source.';
+  return kind + label + flows + merged + '. Press Enter to open the cited source.';
 }
 
 /** The dotted numbered connectors drawn for a selected issue's relatedLocs. */

@@ -13,27 +13,6 @@ import { fileLine } from '../dom.js';
 import type { App } from '../app.js';
 import type { Loc, RelatedLoc } from '../types.js';
 
-/** Composes the prompt described in UX_DESIGN section 7; hidden unless the host offers it. */
-export function askAssistant(app: App, nodeId: string): void {
-  if (!app.caps.canAskAssistant || !app.index) return;
-  const node = app.index.nodeById.get(nodeId);
-  if (!node) return;
-  const codes = app.index.issuesOf(nodeId, app.filters.keep).map((i) => i.code);
-  const prompt =
-    'Explain the MLView node ' +
-    (node.fqn || node.qualname) +
-    ' at ' +
-    node.loc.file +
-    ':' +
-    node.loc.line +
-    ' in the ' +
-    node.stage +
-    ' stage' +
-    (codes.length ? ', and the findings ' + codes.join(', ') : '') +
-    '.';
-  app.bridge.post({ v: 1, type: 'askAssistant', nodeId, prompt });
-}
-
 /**
  * Ask the host to open a cited range beside the panel (viewer M1). The host selects and
  * highlights the whole range and keeps focus here; `focusEditor` (Alt+Enter, Alt+click) asks it
@@ -79,17 +58,4 @@ export function openLocation(app: App, loc: Loc | RelatedLoc, focusEditor = fals
     app.openHintShown = true;
     app.view.toast('Opening the cited lines beside the diagram. Focus stays here; Alt+Enter moves it to the editor.');
   }
-}
-
-export function onAction(app: App, id: string): void {
-  if (id === 'mlview.copyErrorDetails' && app.error) {
-    app.bridge.post({
-      v: 1,
-      type: 'copy',
-      text: app.error.message + (app.error.detail ? '\n' + app.error.detail : ''),
-    });
-    app.view.toast('Error details copied');
-    return;
-  }
-  app.bridge.post({ v: 1, type: 'action', id });
 }

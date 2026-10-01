@@ -6,9 +6,9 @@
  */
 
 import { add, button, clear, el, fileLine, on } from '../dom.js';
-import { cellRef, locTitle } from '../notebook.js';
+import { locTitle } from '../notebook.js';
 import { severityGlyph } from '../markers.js';
-import { confidenceChip } from './evidence.js';
+import { basisChip } from './evidence.js';
 import { issueStaleReasons, renderIssuePanel, staleChipText, suggestionBlock, wireOpenControl } from './issuelist.js';
 import { staleQuotes, STALE_TEXT } from '../freshness.js';
 import { uiIcon } from '../icons.js';
@@ -32,7 +32,6 @@ export interface RailCallbacks {
   onOpen(loc: Loc | RelatedLoc, focusEditor?: boolean): void;
   onResize(width: number): void;
   onToggleRail(): void;
-  onAsk(nodeId: string): void;
   /** The Outline's lane rows jump to a stage. */
   onSelectLane(laneId: string): void;
   /** Left/Right in the Outline collapses the same group the canvas draws. */
@@ -65,7 +64,6 @@ function basisNote(basis: string | undefined, noun: 'step' | 'connection'): stri
 
 export interface RailState {
   index: GraphIndex | null;
-  canAskAssistant: boolean;
   tab: RailTab;
   issues: Issue[];
   selectedNode: MLNode | null;
@@ -300,44 +298,17 @@ export class Rail {
     // VIEWUI-14: an absent kind reads as `unknown` and the level is the
     // adapter's `unit`/`op`, neither of which the author wrote.
     if (node.kind && node.kind !== 'unknown') add(meta, el('span', 'mlv-chip', node.kind));
-    if (node.framework) add(meta, el('span', 'mlv-chip', node.framework));
-    // Viewer M1: the basis once (the Attributes table no longer repeats it for an authored step).
-    const basisChip = add(meta, el('span', 'mlv-chip mlv-insp__basis-chip', node.basis ? 'basis · ' + node.basis : node.confidenceBucket));
+    // Viewer M1: the basis once.
+    const basisChip = add(meta, el('span', 'mlv-chip mlv-insp__basis-chip', node.basis ? 'basis · ' + node.basis : ''));
     if (node.basis) basisChip.setAttribute('data-basis', node.basis);
-    // VIEW-08: a resurrected ghost is a REMOVED node, not a missing step.
-    if (node.ghost) add(meta, el('span', 'mlv-chip', 'removed from current revision'));
-    if (node.dynamic) add(meta, el('span', 'mlv-chip', 'dynamic scope'));
-
-    // Viewer M1: the mono line only when it says something the title does not. For an authored
-    // step it was `qualname`, which the projection sets to the label: the title twice.
-    const fqn = node.fqn || node.qualname;
-    if (fqn && fqn !== title) add(panel, el('div', 'mlv-insp__fqn', fqn));
     this.appendBasisNote(panel, node.basis, 'step');
     // Viewer M1: the claim itself, in full, before anything else. It was only in the hover card.
     if (node.detail) add(panel, el('p', 'mlv-insp__detail', node.detail));
 
     const actions = add(panel, el('div', 'mlv-insp__actions'));
-    // Legacy nodes have one canonical location and retain their established
-    // primary action. Authored nodes carry `evidenceLocs` (including an empty
-    // array for a conceptual group) and use the complete evidence list below.
-    if (node.evidenceLocs === undefined && node.loc.file) {
-      const openBtn = button('mlv-btn mlv-btn--primary', 'Open ' + fileLine(node.loc));
-      const nbCell = cellRef(node.loc);
-      if (nbCell) {
-        openBtn.setAttribute('data-cell', String(nbCell.cell));
-        openBtn.title = locTitle(node.loc);
-      }
-      wireOpenControl(openBtn, node.loc, this.cb.onOpen);
-      actions.appendChild(openBtn);
-    }
-    if (s.canAskAssistant) {
-      const ask = button('mlv-btn', 'Ask about this node');
-      on(ask, 'click', () => this.cb.onAsk(node.id));
-      actions.appendChild(ask);
-    }
-    // "unit" for a definition, "step" for a call-site op: the word has to match
+    // "unit" for a top-level step, "step" for a child: the word has to match
     // what the user is looking at, or the button reads as a different feature.
-    const scopeWord = node.level === 'unit' || node.level === 'stage' ? 'unit' : 'step';
+    const scopeWord = node.level === 'unit' ? 'unit' : 'step';
     const scopeBtn = button('mlv-btn mlv-btn--scope-node', 'Scope to this ' + scopeWord);
     scopeBtn.setAttribute('data-scope-node', node.id);
     on(scopeBtn, 'click', () => this.cb.onScopeToNode(node.id));
@@ -346,48 +317,8 @@ export class Rail {
 
     // Viewer M1: claim, then the findings on this step (with what to change), then the evidence.
     this.appendIssues(panel, s.index.issuesOf(node.id, s.keep), s);
-    this.renderEvidenceLocations(panel, node.evidenceLocs || (node.loc.file ? [node.loc] : []), s);
+    this.renderEvidenceLocations(panel, node.evidenceLocs || [], s);
     this.renderWorkflowLimitations(panel, s.index);
-
-    // An authored step's only attribute is its basis (the card chip row), already in the meta row.
-    const attrKeys = node.authored ? [] : Object.keys(node.attrs || {});
-    if (attrKeys.length) {
-      panel.appendChild(this.heading('Attributes'));
-      const table = add(panel, el('table', 'mlv-table'));
-      const tbody = add(table, el('tbody'));
-      for (const k of attrKeys) {
-        const tr = add(tbody, el('tr'));
-        add(tr, el('th', '', k));
-        add(tr, el('td', '', node.attrs[k]));
-      }
-    }
-
-    if ((node.consumes || []).length || (node.produces || []).length) {
-      panel.appendChild(this.heading('Ports'));
-      const table = add(panel, el('table', 'mlv-table'));
-      const tbody = add(table, el('tbody'));
-      for (const p of node.consumes || []) {
-        const tr = add(tbody, el('tr'));
-        add(tr, el('th', '', 'in · ' + p.name));
-        add(tr, el('td', '', (p.tags || []).join(', ')));
-      }
-      for (const p of node.produces || []) {
-        const tr = add(tbody, el('tr'));
-        add(tr, el('th', '', 'out · ' + p.name));
-        add(tr, el('td', '', (p.tags || []).join(', ')));
-      }
-    }
-
-    if ((node.stageEvidence || []).length) {
-      panel.appendChild(this.heading('Why this stage'));
-      const table = add(panel, el('table', 'mlv-table'));
-      const tbody = add(table, el('tbody'));
-      for (const e of node.stageEvidence) {
-        const tr = add(tbody, el('tr'));
-        add(tr, el('th', '', e.kind));
-        add(tr, el('td', '', e.detail));
-      }
-    }
   }
 
   /** Viewer M1: one sentence under the meta row for an inferred or unresolved claim; nothing for observed. */
@@ -431,7 +362,7 @@ export class Rail {
     // The connection's hover card lists these too; this is the keyboard's and
     // the screen reader's way to them, as the Findings block is for a step.
     this.appendIssues(panel, index.issuesOfEdge(edge.id, s.keep), s);
-    this.renderEvidenceLocations(panel, edge.evidenceLocs || (edge.loc.file ? [edge.loc] : []), s);
+    this.renderEvidenceLocations(panel, edge.evidenceLocs || [], s);
     this.renderWorkflowLimitations(panel, index);
   }
 
@@ -441,7 +372,6 @@ export class Rail {
    * links to them.
    */
   private renderWorkflowLimitations(panel: HTMLElement, index: GraphIndex): void {
-    if (index.graph.schemaVersion !== 'workflow-view/1') return;
     const count = (index.graph.diagnostics || []).filter((item) => item.kind === 'workflow_limitation').length;
     if (!count) return;
     const line = add(panel, el('p', 'mlv-insp__limits'));
@@ -460,7 +390,7 @@ export class Rail {
       return;
     }
     panel.appendChild(this.heading('Source evidence'));
-    this.appendEvidenceCaption(panel, s);
+    this.appendEvidenceCaption(panel);
     const reasonOf = (loc: Loc): StaleReason | undefined => (s.staleReason && loc.file ? s.staleReason(loc.file) : undefined);
     const quotes = staleQuotes(locations, (file) => !!(s.staleReason && s.staleReason(file)));
     if (quotes.stale) {
@@ -490,11 +420,7 @@ export class Rail {
       const reason = reasonOf(loc);
       const openBtn = button('mlv-link', 'Open ' + fileLine(loc));
       openBtn.setAttribute('data-evidence-id', loc.evidenceId || '');
-      const nbCell = cellRef(loc);
-      if (nbCell) {
-        openBtn.setAttribute('data-cell', String(nbCell.cell));
-        openBtn.title = locTitle(loc);
-      } else if (loc.cell !== undefined && locTitle(loc)) {
+      if (loc.cell !== undefined && locTitle(loc)) {
         // VIEWUI-8: an authored notebook citation names its zero-based cell.
         openBtn.title = locTitle(loc);
       }
@@ -514,8 +440,7 @@ export class Rail {
   }
 
   /** Viewer M1: the one-line caption under the evidence heading (see `EVIDENCE_CAPTION`). */
-  private appendEvidenceCaption(parent: HTMLElement, s: RailState): void {
-    if (s.index?.graph.schemaVersion !== 'workflow-view/1') return;
+  private appendEvidenceCaption(parent: HTMLElement): void {
     add(parent, el('p', 'mlv-insp__caption', EVIDENCE_CAPTION));
   }
 
@@ -536,7 +461,7 @@ export class Rail {
     head.appendChild(severityGlyph(issue.severity, 14, ''));
     add(head, el('span', 'mlv-mono', issue.code));
     add(head, el('span', '', issue.title));
-    head.appendChild(confidenceChip(issue));
+    head.appendChild(basisChip(issue));
     add(box, el('p', 'mlv-insp__line', issue.message));
     // Viewer M1: the author's suggestion, labelled as the skill words it. An analyzer-era rule
     // hid it, under a "Suggested check" heading that stayed visible over nothing.
@@ -544,7 +469,7 @@ export class Rail {
     if (suggestion) box.appendChild(suggestion);
     if ((issue.relatedLocs || []).length) {
       box.appendChild(this.heading('Evidence review'));
-      if (standalone) this.appendEvidenceCaption(box, s);
+      if (standalone) this.appendEvidenceCaption(box);
       const stale = issueStaleReasons(issue, s.staleReason);
       if (stale.length) {
         box.classList.add('is-stale');

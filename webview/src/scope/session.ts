@@ -139,16 +139,6 @@ export class ScopeSession {
 }
 
 /**
- * Has anything the HOST displays about the scope moved? Both the selector and
- * the counts matter: `4 of 45` beside a diagram drawing `6 of 61` is as stale a
- * panel description as a title naming a unit that no longer exists
- * (CONTRACTS 11.11).
- */
-export function sameScope(a: ScopeSummary, b: ScopeSummary): boolean {
-  return a.spec === b.spec && a.label === b.label && a.depth === b.depth && a.nodes === b.nodes && a.of === b.of;
-}
-
-/**
  * "3 of 15 findings shown · 12 outside this scope" — the rail's scope line.
  * `total` is PROJECT-LEVEL truth (`view.of`), so a scope can never be read as a
  * clean bill of health. Null when the document is not a projection.
@@ -157,7 +147,7 @@ export function railScopeCounts(
   graph: MLGraph | null,
 ): { shown: number; hidden: number; total: number; where: string } | null {
   if (!graph || !graph.view) return null;
-  const shown = (graph.issues || []).filter((i) => !i.suppressed).length;
+  const shown = (graph.issues || []).length;
   const of = graph.view.of.issues;
   const total = of.low + of.medium + of.high;
   return { shown, hidden: Math.max(0, total - shown), total, where: 'outside this scope' };

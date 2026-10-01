@@ -42,13 +42,6 @@ export function emptyCounts(): IssueCounts {
   return { low: 0, medium: 0, high: 0 };
 }
 
-export function addCounts(into: IssueCounts, from: IssueCounts): IssueCounts {
-  into.low += from.low;
-  into.medium += from.medium;
-  into.high += from.high;
-  return into;
-}
-
 export function countsTotal(c: IssueCounts): number {
   return c.low + c.medium + c.high;
 }

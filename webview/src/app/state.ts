@@ -62,8 +62,8 @@ export function snapshotState(app: App): ViewState {
   // default rather than to whatever `undefined` renders as.
   if (app.legendOpen) state.legendOpen = true;
   // VIEWUI-3: which authored revision the viewport belongs to, so a remount
-  // restores it only for that revision. Absent for any other graph.
-  if (app.graph && app.graph.schemaVersion === 'workflow-view/1' && app.workflowRevision) {
+  // restores it only for that revision.
+  if (app.graph && app.workflowRevision) {
     state.workflowRevision = app.workflowRevision;
     // VIEWUI-4: the Refine composer of that revision, absent at its default.
     const composer = composerViewState(app.root);

@@ -1,9 +1,9 @@
 /**
- * The scope selector grammar (CONTRACTS 11.1), ported so the viewer, the
- * standalone report and the analyzer all accept the same strings.
+ * The scope selector grammar (CONTRACTS 11.1): the strings the scope picker
+ * writes and a saved `ViewState.scope` carries.
  *
  *   SPEC  := "all" | KIND ":" TARGET
- *   KIND  := "unit" | "stage" | "file" | "concern" | "node" | "symbol"
+ *   KIND  := "unit" | "stage" | "file" | "node" | "symbol"
  *   DEPTH := 0..2, a SEPARATE parameter — never packed into SPEC
  *
  * One `kind`, one `target`, split on the FIRST colon only, because a node id
@@ -11,58 +11,27 @@
  * `~direction`, no `+pin`.
  *
  * Only the error CODE, the offending TERM and a sorted, <=10-entry candidate
- * list are contractual — the prose is free, so nobody maintains two English
- * strings in two languages. This file began as a line-for-line port of the
- * retired analyzer's `core/project.py`; the analyzer and the parity test that
- * compared the two were removed on 2026-09-18, so nothing compares them now.
+ * list are contractual. This file began as a port of the retired analyzer's
+ * selector grammar; the analyzer and its parity test were removed on
+ * 2026-09-18, and so were its fixed `concern:` presets, which an authored
+ * document's phases do not have.
  */
 
 import type { MLGraph } from '../types.js';
 
 /** The selector kinds. Extending this list extends the `bad_selector` candidate set too. */
-export const SCOPE_KINDS = ['unit', 'stage', 'file', 'concern', 'node'];
-
-export const STAGE_IDS = ['config', 'data', 'preprocess', 'model', 'objective', 'train', 'eval', 'deliver'];
-
-/** FROZEN. The four presets PARTITION all eight stages: none unreachable, none shared. */
-export const CONCERNS: Record<string, string[]> = {
-  config: ['config'],
-  data: ['data', 'preprocess'],
-  optimization: ['model', 'objective', 'train'],
-  evaluation: ['eval', 'deliver'],
-};
-
-/** Resolved BEFORE validation, so two spellings produce identical documents. */
-export const CONCERN_ALIASES: Record<string, string> = {
-  setup: 'config',
-  preprocessing: 'data',
-  dataset: 'data',
-  training: 'optimization',
-  inference: 'evaluation',
-  eval: 'evaluation',
-};
-
-export const CONCERN_NAMES = ['config', 'data', 'evaluation', 'optimization'];
-
-/** FROZEN breadcrumb names for the four concerns. Both ports must agree. */
-export const CONCERN_LABELS: Record<string, string> = {
-  config: 'Configuration',
-  data: 'Data & preprocessing',
-  optimization: 'Model & optimization',
-  evaluation: 'Evaluation & inference',
-};
+export const SCOPE_KINDS = ['unit', 'stage', 'file', 'node'];
 
 /** Everything a user may type in the kind slot — the `bad_selector` candidates. */
 export const SCOPE_SPELLINGS = SCOPE_KINDS.concat(['symbol', 'all']).sort();
 
-/** A point (`unit`, `node`) shows its interface; a region (`stage`, `file`, `concern`) does not. */
+/** A point (`unit`, `node`) shows its interface; a region (`stage`, `file`) does not. */
 const DEFAULT_DEPTH: Record<string, number> = {
   all: 0,
   unit: 1,
   node: 1,
   stage: 0,
   file: 0,
-  concern: 0,
 };
 
 export const MAX_DEPTH = 2;
@@ -72,7 +41,6 @@ const DEPTHS = ['0', '1', '2'];
 export type ScopeErrorCode =
   | 'bad_selector'
   | 'unknown_stage'
-  | 'unknown_concern'
   | 'unknown_node'
   | 'unknown_file'
   | 'bad_depth';
@@ -131,9 +99,9 @@ export function formatScope(scope: Scope): string {
 }
 
 /**
- * Parse and normalize. Raises `bad_selector`, `unknown_stage`,
- * `unknown_concern` and `bad_depth`; `unknown_node` and `unknown_file` need the
- * document and are raised by `resolveScope`, and a `unit:` that resolves to
+ * Parse and normalize. Raises `bad_selector` and `bad_depth`; `unknown_stage`,
+ * `unknown_node` and `unknown_file` need the document and are raised by
+ * `resolveScope`, and a `unit:` that resolves to
  * nothing is an EMPTY SCOPE, never an error.
  */
 export function parseScope(spec: string | null | undefined, depth?: number | string | null): Scope {
@@ -155,23 +123,14 @@ export function parseScope(spec: string | null | undefined, depth?: number | str
     // an error — which would turn a typo into a silent zero-node document — so
     // its empty target is rejected here, with `term: ""`.
     //
-    // This used to reject an empty target for EVERY kind, which was a silent
-    // divergence from `core/selectors.py` that no frozen case covered:
     // `node:` and `file:` fall through to the resolver on purpose, because only
     // it can name this graph's node ids and files as the candidate list.
     throw new ScopeError('bad_selector', '', SCOPE_SPELLINGS);
   }
   // A Windows-style path spelling resolves.
   if (kind === 'file') target = target.replace(/\\/g, '/');
-  if (kind === 'concern') {
-    // The alias resolves BEFORE validation, so `concern:inference` and
-    // `concern:evaluation` produce byte-identical documents.
-    target = CONCERN_ALIASES[target] || target;
-    if (!CONCERNS[target]) throw new ScopeError('unknown_concern', target, CONCERN_NAMES);
-  }
-  // Stage ids are document-authored. Legacy graphs use STAGE_IDS, while a
-  // workflow-view document may declare any ordered phase id; resolveScope has
-  // the document and validates against its actual stages.
+  // Stage ids are the document's authored phase ids; resolveScope has the
+  // document and validates against them.
   return { kind, target, depth: parseDepth(depth, kind), spec: kind + ':' + target };
 }
 
@@ -193,16 +152,12 @@ function parseDepth(depth: number | string | null | undefined, kind: string): nu
   return value;
 }
 
-/**
- * The FROZEN breadcrumb name for `view.label`. Both ports must agree on it
- * byte-for-byte: the parity gate deep-compares the whole `view` object.
- */
+/** The breadcrumb name for `view.label`. */
 export function viewLabel(scope: Scope, graph: MLGraph, anchorLabels: string[]): string {
   if (scope.kind === 'stage') {
     const row = (graph.stages || []).filter((s) => s.id === scope.target)[0];
     return (row && row.label) || scope.target;
   }
-  if (scope.kind === 'concern') return CONCERN_LABELS[scope.target] || scope.target;
   if (scope.kind === 'file') return scope.target;
   if (anchorLabels.length === 1) return anchorLabels[0] || scope.target;
   if (anchorLabels.length > 1) return scope.target + ' (' + anchorLabels.length + ' matches)';
