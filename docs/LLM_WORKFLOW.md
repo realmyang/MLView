@@ -253,7 +253,9 @@ comes back in its tab's place and is checked against the workspace as it is
 then, here against the added folder. A diagram in front of its editor group
 comes back at once; one behind other tabs comes back when it is brought to the
 front, after a blank half second, because until then it cannot be told from a
-tab VS Code restored at startup and has not shown yet.
+tab VS Code restored at startup and has not shown yet. A diagram put back this
+way starts with a fresh view (the selection and zoom start over); Reload Window
+keeps them.
 
 Unsaved editor changes do not make a diagram stale, because freshness uses the
 saved files. The banner lists files with unsaved changes, and a jump is

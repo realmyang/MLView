@@ -132,7 +132,8 @@ window's session, and the next extension host puts each one back in its tab's
 place, checked against the workspace as it is then. A tab in front of its
 group comes back at once; a tab behind others comes back when it is brought to
 the front (blank for about half a second), since until then it cannot be told
-from a restored tab not yet shown. The root hint no longer also shows a VS Code
+from a restored tab not yet shown. A diagram put back this way starts with a
+fresh view (selection and zoom reset); Reload Window keeps them. The root hint no longer also shows a VS Code
 notification, which outlived a restart with dead buttons; the panel's notice
 carries both actions. Multi-root windows recheck in place; Reload Window
 revives panels through the serializer. Checked by mock `vscode` tests (with a

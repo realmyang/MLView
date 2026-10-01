@@ -431,6 +431,82 @@ test('Reload Window: the new session finds no entry and closes nothing; the seri
   assert.ok(h.banners(revived).some((m) => (m.codes || [])[0] === 'checking'), 'the shown panel no longer gets disk events');
 });
 
+test('the settle delay counts from the latest tab change: a restored tab revived within it is not closed', async () => {
+  const fixture = await parentFolderPanel();
+  const lazyArtifact = (await openCopy(fixture, 'lazy.mlview.json')).file;
+  vscode.__recorded.panels.at(-1).dispose();
+  await settled();
+  // A long delay keeps the timing margins wide on a busy machine.
+  const settleMs = 200;
+  const { controller, tabGroups } = restart(fixture, [
+    { viewColumn: 1, tabs: [deadTab('MLView: Authored', false), textTab(path.join(fixture.root, 'train.py'))] }
+  ], { settleMs });
+  const [lazy] = tabGroups[0].tabs;
+  assert.equal(await controller.recoverAfterRestart(), 0);
+  // The restored tab comes to the front, and a second tab event follows before the delay ends.
+  vscode.__activateTab(lazy);
+  await h.sleep(settleMs * 0.6);
+  vscode.__activateTab(lazy);
+  await h.sleep(settleMs * 0.6);
+  // VS Code revives it after the delay counted from the first event, within the one from the second.
+  const revived = vscode.__reviveTab(lazy);
+  await vscode.__recorded.serializers.get('mlview.authoredDiagram').deserializeWebviewPanel(revived, { artifact: lazyArtifact });
+  await h.sleep(settleMs * 1.5);
+  assert.equal(revived.disposed, false, 'the revived tab is not closed');
+  assert.equal(vscode.__recorded.closedTabs.length, 0, 'no tab was judged dead before the delay from the latest change ended');
+});
+
+test('a front tab is matched by title, never by its group alone', async () => {
+  const fixture = await parentFolderPanel();
+  const other = await openCopy(fixture, 'other.mlview.json', { title: 'Other', column: 1 });
+  assert.deepEqual(entry(fixture.ctx.globalState).panels.map((p) => [p.title, p.column]), [['MLView: Authored', 2], ['MLView: Other', 1]]);
+  const before = created();
+  // Group 2, where the Authored diagram was, now shows the Other diagram's dead tab in front, and
+  // a diagram tab no entry has in front of group 3.
+  const { controller, tabGroups } = restart(fixture, [
+    { viewColumn: 2, tabs: [deadTab('MLView: Authored', false), deadTab('MLView: Other', true)] },
+    { viewColumn: 3, tabs: [deadTab('MLView: Unknown', true)] }
+  ]);
+  const [authoredBehind, otherFront] = tabGroups[0].tabs;
+  const [unknown] = tabGroups[1].tabs;
+  assert.equal(await controller.recoverAfterRestart(), 1);
+  assert.deepEqual(vscode.__recorded.closedTabs.map((c) => c.tabs), [[otherFront]]);
+  const opened = vscode.__recorded.panels.slice(before);
+  assert.equal(opened.length, 1);
+  opened[0].fire({ v: 1, type: 'ready' });
+  assert.equal(initArtifact(opened[0]), other.file, 'the tab gets the entry with its title, not the entry of its group');
+  assert.equal(opened[0].viewColumn, 2);
+  assert.ok(tabGroups[0].tabs.includes(authoredBehind));
+  assert.ok(tabGroups[1].tabs.includes(unknown), 'a front tab with no entry of its title is left alone');
+});
+
+test('a revived panel still at column 0 only covers a tab with its own title', async () => {
+  const fixture = await parentFolderPanel();
+  fixture.panel.__setViewState({ viewColumn: 1 });
+  const third = await openCopy(fixture, 'third.mlview.json', { title: 'Third', column: 2 });
+  const lazyArtifact = (await openCopy(fixture, 'lazy.mlview.json')).file;
+  vscode.__recorded.panels.at(-1).dispose();
+  await settled();
+  const { controller, tabGroups } = restart(fixture, [
+    { viewColumn: 1, tabs: [deadTab('MLView: Authored', true)] },
+    { viewColumn: 2, tabs: [deadTab('MLView: Third', true)] }
+  ], { settleMs: 200 });
+  const [restored] = tabGroups[0].tabs;
+  const [deadThird] = tabGroups[1].tabs;
+  const recovery = controller.recoverAfterRestart();
+  // VS Code revives group 1's tab before the delay ends, with column 0 (live VS Code 1.139).
+  const revived = vscode.__reviveTab(restored);
+  revived.viewColumn = 0;
+  await vscode.__recorded.serializers.get('mlview.authoredDiagram').deserializeWebviewPanel(revived, { artifact: lazyArtifact });
+  assert.equal(await recovery, 1, 'the Third tab is dead: the column-0 panel shows another title');
+  assert.deepEqual(vscode.__recorded.closedTabs.map((c) => c.tabs), [[deadThird]]);
+  const replacement = vscode.__recorded.panels.at(-1);
+  replacement.fire({ v: 1, type: 'ready' });
+  assert.equal(initArtifact(replacement), third.file);
+  assert.equal(replacement.viewColumn, 2);
+  assert.equal(revived.disposed, false, 'the revived tab is not closed');
+});
+
 test('activation runs the recovery', async () => {
   const extension = require(path.join(__dirname, '..', 'out', 'extension.js'));
   const fixture = await parentFolderPanel();

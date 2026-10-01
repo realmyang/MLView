@@ -42,7 +42,9 @@ untitled multi-root workspace. A diagram in front of its editor group comes
 back at once. A diagram tab behind other tabs comes back when you bring it to
 the front, after a blank half second: until then MLView cannot tell it from a
 tab VS Code restored at startup and has not shown yet, which must be left
-alone. **Developer: Reload Window** restores diagrams as before.
+alone. A diagram put back this way starts with a fresh view: the selection
+and zoom start over. **Developer: Reload Window** restores diagrams as before,
+with their selection and zoom.
 
 A click on a step, connection or finding selects it and shows its claim.
 The Inspector shows the full claim, the findings on it with **What to change**,

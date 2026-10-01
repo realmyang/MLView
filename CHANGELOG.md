@@ -320,6 +320,17 @@ with its old text and buttons that did nothing.
   adds a case where a tab counts as shown; the other paths ran on the final
   code. An extension install or update was not tried. This was a check of
   these paths only, not a usability study or a review.
+- A second independent check passed these paths again live and found three
+  guards the tests did not pin: the settle delay restarting at every tab
+  change, matching a front tab by title even when an entry has its group, and
+  a column-0 panel covering only a tab with its own title. Three tests now pin
+  them; removing each guard fails its test. The docs now say that a diagram
+  put back after a restart starts with a fresh view (its selection and zoom
+  reset), while Reload Window keeps them. Known limits: two windows writing
+  the registry within about 40 ms can lose one write, which heals on that
+  window's next panel change; a dead tab closed from behind while its diagram
+  is open again leaves its entry until no tab has that title. Extension
+  tests: 302.
 
 ## Unreleased — viewer fixes from the Stage 1 review
 
