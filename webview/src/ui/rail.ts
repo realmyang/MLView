@@ -10,7 +10,7 @@ import { locTitle } from '../notebook.js';
 import { severityGlyph } from '../markers.js';
 import { basisChip } from './evidence.js';
 import { issueStaleReasons, renderIssuePanel, staleChipText, suggestionBlock, wireOpenControl } from './issuelist.js';
-import { staleQuotes, STALE_TEXT } from '../freshness.js';
+import { allElsewhere, staleQuotes, STALE_TEXT } from '../freshness.js';
 import { uiIcon } from '../icons.js';
 import { renderOutlineTree } from './outline.js';
 import type { RelationMode } from './outline.js';
@@ -21,10 +21,13 @@ import type { GraphIndex } from '../layout/model.js';
 export interface RailCallbacks {
   onTab(tab: RailTab): void;
   onClearFilters(): void;
-  /** Viewer M1: a click selects; Enter and a double-click open (see `onOpenIssue`, `onOpenNode`). */
-  onSelectIssue(id: string): void;
+  /**
+   * Viewer M1: a click selects; Enter and a double-click open (see `onOpenIssue`, `onOpenNode`).
+   * `ev` is the pointer click, which arms the App's double-click opener (ui/doubleclick.ts).
+   */
+  onSelectIssue(id: string, ev?: MouseEvent): void;
   onOpenIssue(id: string, focusEditor: boolean): void;
-  onSelectNode(id: string): void;
+  onSelectNode(id: string, ev?: MouseEvent): void;
   onOpenNode(id: string, focusEditor: boolean): void;
   onSelectEdge(id: string): void;
   onChallenge(): void;
@@ -150,18 +153,6 @@ export class Rail {
       this.root.appendChild(panel);
       this.panels.set(d.id, panel);
     }
-    // Viewer M1: a double-click on a finding or an Outline step opens its cited source. Listened
-    // for on the panels, which outlive the rows: the first click re-renders the list.
-    on(this.panels.get('issues')!, 'dblclick', (ev: MouseEvent) => {
-      const row = closestFrom(ev.target, '[data-issue-id][role="option"]');
-      const id = row ? row.getAttribute('data-issue-id') : null;
-      if (id) cb.onOpenIssue(id, false);
-    });
-    on(this.panels.get('outline')!, 'dblclick', (ev: MouseEvent) => {
-      const row = closestFrom(ev.target, '[data-outline-id]');
-      const id = row ? row.getAttribute('data-outline-id') : null;
-      if (id) cb.onOpenNode(id, false);
-    });
   }
 
   private wireResize(grip: HTMLElement): void {
@@ -257,7 +248,7 @@ export class Rail {
       scope: s.scope,
       staleReason: s.staleReason,
     }, {
-      onSelectIssue: (id) => this.cb.onSelectIssue(id),
+      onSelectIssue: (id, ev) => this.cb.onSelectIssue(id, ev),
       onOpenIssue: (id, focusEditor) => this.cb.onOpenIssue(id, focusEditor),
       onOpen: (loc, focusEditor) => this.cb.onOpen(loc, focusEditor),
       onClearFilters: () => this.cb.onClearFilters(),
@@ -394,11 +385,15 @@ export class Rail {
     const reasonOf = (loc: Loc): StaleReason | undefined => (s.staleReason && loc.file ? s.staleReason(loc.file) : undefined);
     const quotes = staleQuotes(locations, (file) => !!(s.staleReason && s.staleReason(file)));
     if (quotes.stale) {
-      // Viewer M1: what the marks below mean, in words, before the list.
+      // Viewer M1: what the marks below mean, in words, before the list. Nothing in MLView checks
+      // a claim, so the note says what the reader can do, not that a check was skipped (COPY-2).
+      const reasons = locations.map(reasonOf).filter((reason): reason is StaleReason => !!reason);
+      const count = quotes.stale + ' of ' + quotes.total + (quotes.total === 1 ? ' quote cites ' : ' quotes cite ');
       const note = add(panel, el('p', 'mlv-insp__stale-note'));
       note.appendChild(uiIcon('warning', 12));
-      add(note, el('span', '', quotes.stale + ' of ' + quotes.total + (quotes.total === 1 ? ' quote cites' : ' quotes cite') +
-        ' a file that no longer matches the published revision. Those jumps are blocked; the claim was not re-checked.'));
+      add(note, el('span', '', allElsewhere(reasons)
+        ? count + 'a file that is not under the workspace root but is unchanged in another folder; those jumps are blocked. The notice above says which folder to add.'
+        : count + 'a file that changed or went missing since publishing; those jumps are blocked. To compare the claim with the code as it is now, ask the assistant for a fresh revision.'));
     }
     const nav = add(panel, el('div', 'mlv-insp__evidence-nav'));
     const previous = button('mlv-btn', 'Previous evidence');
@@ -475,7 +470,9 @@ export class Rail {
         box.classList.add('is-stale');
         const note = add(box, el('p', 'mlv-insp__stale-note'));
         note.appendChild(uiIcon('warning', 12));
-        add(note, el('span', '', 'This finding ' + staleChipText(stale) + ' since publishing; those jumps are blocked.'));
+        add(note, el('span', '', allElsewhere(stale)
+          ? 'This finding ' + staleChipText(stale) + '; those jumps are blocked. The notice above says which folder to add.'
+          : 'This finding ' + staleChipText(stale) + ' since publishing; those jumps are blocked.'));
       }
       const list = add(box, el('ul', 'mlv-insp__related'));
       for (const rel of issue.relatedLocs) {
@@ -527,7 +524,7 @@ export class Rail {
         relationMode: this.relationMode,
       },
       {
-        onSelectNode: (id) => this.cb.onSelectNode(id),
+        onSelectNode: (id, ev) => this.cb.onSelectNode(id, ev),
         onOpenNode: (id, focusEditor) => this.cb.onOpenNode(id, focusEditor),
         onSelectEdge: (id) => this.cb.onSelectEdge(id),
         onRelationMode: (mode) => { this.relationMode = mode; },
@@ -542,12 +539,6 @@ export class Rail {
 function stageLabel(index: GraphIndex, id: string): string {
   const stage = (index.graph.stages || []).find((item) => item.id === id);
   return (stage && stage.label) || id;
-}
-
-/** `target.closest(selector)` for any event target, or null. */
-function closestFrom(target: EventTarget | null, selector: string): Element | null {
-  const element = target as Element | null;
-  return element && typeof element.closest === 'function' ? element.closest(selector) : null;
 }
 
 /** Why a quote cannot be opened, as an icon and words beside its disabled link (viewer M1). */

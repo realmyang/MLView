@@ -16,6 +16,7 @@
 import { SEVERITY_ORDER, highestSeverity } from '../markers.js';
 import { routeWeight } from './weight.js';
 import { buildBundles } from '../layout/bundles.js';
+import { allElsewhere } from '../freshness.js';
 import type { BundleVisual } from './bundles.js';
 import type { GraphIndex, IssuePredicate } from '../layout/model.js';
 import type { LabelPlacement } from '../layout/labels.js';
@@ -23,7 +24,7 @@ import type { LayoutFrame, LayoutLane } from '../layout/layout.js';
 import type { RoutedEdge } from '../layout/routing.js';
 import type { EdgeVisual } from './edges.js';
 import type { NodeVisual } from './nodes.js';
-import type { IssueCounts, Loc, MLNode, Severity } from '../types.js';
+import type { IssueCounts, Loc, MLNode, Severity, StaleReason } from '../types.js';
 
 /** A swimlane band plus the aggregated counts its header shows. */
 export interface LaneVisual {
@@ -46,8 +47,8 @@ export interface ScenePlanOptions {
   /** This view's serial — it qualifies every edge path id (CONTRACTS 11.13.1). */
   mountSerial: number;
   keep: IssuePredicate;
-  /** Viewer M1: workspace-relative paths the host reported stale. Empty draws no mark. */
-  staleFiles: string[];
+  /** Viewer M1: workspace-relative paths the host reported stale, with the reason. Empty draws no mark. */
+  staleFiles: ReadonlyMap<string, StaleReason>;
   isFilteredOut(node: MLNode): boolean;
 }
 
@@ -158,23 +159,39 @@ function compare(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
+type StaleOf = { stale: boolean; staleQuotes?: { stale: number; total: number }; staleElsewhere?: boolean };
+
 /**
  * Viewer M1. Whether an item's evidence cites a stale file, and how many of its quotes do. An
  * authored item has `evidenceLocs` (possibly empty); anything else falls back to its one `loc`.
+ * `staleElsewhere`: every stale quote cites a file the host found unchanged in another folder
+ * (the root hint), which is worded apart (COPY-1).
  */
-function staleOf(locs: Loc[] | undefined, loc: Loc, staleFiles: string[]): { stale: boolean; staleQuotes?: { stale: number; total: number } } {
-  if (!staleFiles.length) return { stale: false };
+function staleOf(locs: Loc[] | undefined, loc: Loc, staleFiles: ReadonlyMap<string, StaleReason>): StaleOf {
+  if (!staleFiles.size) return { stale: false };
   const list = locs || (loc.file ? [loc] : []);
-  let stale = 0;
-  for (const item of list) if (item.file && staleFiles.indexOf(item.file) >= 0) stale++;
-  return stale ? { stale: true, staleQuotes: { stale, total: list.length } } : { stale: false };
+  const reasons: StaleReason[] = [];
+  for (const item of list) {
+    const reason = item.file ? staleFiles.get(item.file) : undefined;
+    if (reason) reasons.push(reason);
+  }
+  if (!reasons.length) return { stale: false };
+  const out: StaleOf = { stale: true, staleQuotes: { stale: reasons.length, total: list.length } };
+  if (allElsewhere(reasons)) out.staleElsewhere = true;
+  return out;
 }
 
-function staleOfRoute(ids: string[], index: GraphIndex, staleFiles: string[]): { stale?: boolean } {
-  if (!staleFiles.length) return {};
+function staleOfRoute(ids: string[], index: GraphIndex, staleFiles: ReadonlyMap<string, StaleReason>): { stale?: boolean; staleElsewhere?: boolean } {
+  if (!staleFiles.size) return {};
+  let stale = false;
+  let elsewhere = true;
   for (const id of ids) {
     const edge = index.edgeById.get(id);
-    if (edge && staleOf(edge.evidenceLocs, edge.loc, staleFiles).stale) return { stale: true };
+    const of = edge ? staleOf(edge.evidenceLocs, edge.loc, staleFiles) : null;
+    if (!of || !of.stale) continue;
+    stale = true;
+    if (!of.staleElsewhere) elsewhere = false;
   }
-  return {};
+  if (!stale) return {};
+  return elsewhere ? { stale: true, staleElsewhere: true } : { stale: true };
 }

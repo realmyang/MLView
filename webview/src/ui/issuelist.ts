@@ -11,12 +11,15 @@ import { uiIcon } from '../icons.js';
 import { severityGlyph, SEVERITY_ORDER, normalizeSeverity } from '../markers.js';
 import { basisChip } from './evidence.js';
 import type { GraphIndex } from '../layout/model.js';
-import { STALE_TEXT } from '../freshness.js';
+import { allElsewhere, STALE_TEXT } from '../freshness.js';
 import type { Issue, Loc, RelatedLoc, StaleReason } from '../types.js';
 
 export interface IssueListCallbacks {
-  /** A click or Space on a row: select the finding (viewer M1: never opens the source). */
-  onSelectIssue(id: string): void;
+  /**
+   * A click or Space on a row: select the finding (viewer M1: never opens the source). A click
+   * passes its event, so the second click of a double-click can open the finding.
+   */
+  onSelectIssue(id: string, ev?: MouseEvent): void;
   /** Enter on a row, or a double-click: select and open its first cited range; Alt moves focus. */
   onOpenIssue(id: string, focusEditor: boolean): void;
   /** An Open / Go to control; `focusEditor` for Alt+click or Alt+Enter. */
@@ -46,8 +49,12 @@ export function issueStaleReasons(issue: Issue, staleReason: ((file: string) => 
   return out;
 }
 
-/** "cites a changed file", "cites a missing file" or "cites changed or missing files". */
+/**
+ * "cites a changed file", "cites a missing file" or "cites changed or missing files"; "cites a file
+ * in another folder" when the host found every one unchanged elsewhere (the root hint, COPY-1).
+ */
 export function staleChipText(reasons: StaleReason[]): string {
+  if (allElsewhere(reasons)) return 'cites a file in another folder';
   if (reasons.length === 1 && reasons[0] === 'changed') return 'cites a changed file';
   if (reasons.indexOf('changed') < 0) return reasons.length === 1 ? 'cites a missing file' : 'cites missing files';
   return 'cites changed or missing files';
@@ -168,7 +175,7 @@ function issueRow(issue: Issue, s: IssueListState, cb: IssueListCallbacks): HTML
   if (stale.length) {
     row.classList.add('is-stale');
     row.setAttribute('data-stale', stale.join(' '));
-    row.setAttribute('aria-label', row.getAttribute('aria-label') + ', ' + staleChipText(stale) + ' since publishing');
+    row.setAttribute('aria-label', row.getAttribute('aria-label') + ', ' + staleChipText(stale) + (allElsewhere(stale) ? '' : ' since publishing'));
   }
   row.appendChild(severityGlyph(issue.severity, 14, ''));
   const text = add(row, el('div', 'mlv-issue__text'));
@@ -179,7 +186,7 @@ function issueRow(issue: Issue, s: IssueListState, cb: IssueListCallbacks): HTML
   // MLV-P6: on EVERY row, so a missing chip never reads as "sure".
   meta.appendChild(basisChip(issue));
   if (stale.length) meta.appendChild(staleChip(stale));
-  on(row, 'click', () => cb.onSelectIssue(issue.id));
+  on(row, 'click', (ev: MouseEvent) => cb.onSelectIssue(issue.id, ev));
   li.appendChild(row);
 
   // A sibling of the option, never a child of it (MLV-R2-W03).
@@ -203,7 +210,9 @@ function staleChip(reasons: StaleReason[]): HTMLElement {
   chip.appendChild(uiIcon('warning', 11));
   add(chip, el('span', '', staleChipText(reasons)));
   chip.setAttribute('data-stale', reasons.join(' '));
-  chip.title = 'A file this finding cites no longer matches the published revision. Its jump is blocked.';
+  chip.title = allElsewhere(reasons)
+    ? 'A file this finding cites is not under the workspace root; it is unchanged in another folder, which the notice above names. Its jump is blocked.'
+    : 'A file this finding cites no longer matches the published revision. Its jump is blocked.';
   return chip;
 }
 

@@ -54,6 +54,10 @@ test('a jump opens beside the panel, keeps focus on the diagram, selects the who
   const style = vscode.__recorded.decorationTypes[0].options;
   assert.equal(style.isWholeLine, true);
   assert.equal(style.backgroundColor.id, 'editor.rangeHighlightBackground', 'the highlight uses the theme colour');
+  // A11Y-1: High Contrast themes define no range highlight background; they draw this border.
+  assert.equal(style.borderColor.id, 'editor.rangeHighlightBorder', 'the highlight stays visible in High Contrast');
+  assert.equal(style.borderStyle, 'solid');
+  assert.equal(style.borderWidth, '1px');
   assert.equal(style.overviewRulerColor.id, 'editorOverviewRuler.rangeHighlightForeground');
   assert.equal(style.overviewRulerLane, vscode.OverviewRulerLane.Full);
   assert.equal(editor.decorations.length, 1);
@@ -133,6 +137,32 @@ test('when the cell editor does not appear, the cell stays selected and the last
   assert.deepEqual(plain(vscode.__recorded.shownNotebooks[0].options.selections), [{ start: 1, end: 2 }]);
 });
 
+test('a later jump keeps its highlight when an earlier notebook jump stops waiting for its cell editor (M1-R2)', async () => {
+  const { document, files } = notebookDocument();
+  document.evidence.push({ id: 'e2', file: 'source.py', line: 1, endLine: 1, quote: 'fit()' });
+  document.nodes[0].evidence.push('e2');
+  document.coverage.inspectedFiles.push('source.py');
+  const fixture = await open({ raw: document, files: { ...files, 'source.py': 'fit()\n' }, ready: false });
+  vscode.__setNotebooks([{ path: path.join(fixture.root, 'notes.ipynb'), cells: [{ text: 'a()' }, { text: 'x = 1\nfit()\nsave()' }] }]);
+  // A markdown cell in preview, or a slow one: no cell editor appears.
+  vscode.__setNotebookCellEditors(false);
+  fixture.panel.fire({ v: 1, type: 'ready' });
+  await h.tick();
+  // Enter on the notebook-citing step, then Enter on the text-citing one while the first still waits.
+  fixture.panel.fire({ v: 1, type: 'openLocation', evidenceId: 'e' });
+  await h.waitFor(() => vscode.__recorded.shownNotebooks.length === 1, 'the notebook jump did not open');
+  await h.sleep(100);
+  fixture.panel.fire({ v: 1, type: 'openLocation', evidenceId: 'e2' });
+  await h.waitFor(() => shown().length === 1 && vscode.__recorded.decorationTypes.length === 1, 'the text jump did not open and highlight');
+  const textHighlight = vscode.__recorded.decorationTypes[0];
+  assert.equal(textHighlight.disposed, false);
+  // Past the notebook jump's 500 ms wait for its cell editor.
+  await h.sleep(600);
+  assert.equal(textHighlight.disposed, false, 'the overtaken notebook jump left the later highlight alone');
+  assert.equal(vscode.__recorded.decorationTypes.length, 1);
+  assert.deepEqual(shown()[0].editor.decorations[0].ranges.map(range), [[0, 0, 0, 'fit()'.length]]);
+});
+
 test('a jump into an unchanged file reads that file only and skips the full validation', async () => {
   let calls = 0;
   const validator = async (...args) => { calls++; return api.validateWorkflow(...args); };
@@ -193,17 +223,22 @@ test('root hint: files that exist under the artifact folder with the published h
   const { panel, root } = await parentFolderPanel();
   const banner = h.lastBanner(panel);
   assert.deepEqual(banner.codes, ['root-hint']);
-  assert.match(banner.message, /^This file exists under \.\/copy\/ but the workspace root is [^:]+: source\.py\. It matches its published hash/);
-  assert.ok(banner.message.includes(path.basename(root)));
+  // COPY-3: the file leads, and each folder is named once.
+  assert.equal(banner.message, `source.py is not in the workspace root (${path.basename(root)}/). It is in ./copy/, unchanged (it matches its published hash). ` +
+    'Add ./copy/ to the workspace, or open it in its own window.');
   assert.doesNotMatch(banner.message, /no longer match|Ask the assistant/);
-  // The product still validates against the real root: the file is missing there and its jump is blocked.
-  assert.deepEqual(staleFrames(panel).at(-1).files, [{ path: 'source.py', reason: 'missing' }]);
-  const hint = vscode.__recorded.messages.find((m) => m[0] === 'info' && /This file exists under \.\/copy\//.test(m[1]));
+  // The product still validates against the real root: the file is missing there and its jump is
+  // blocked. COPY-1: the webview is told why, so it does not call the file changed or missing.
+  assert.deepEqual(staleFrames(panel).at(-1).files, [{ path: 'source.py', reason: 'elsewhere' }]);
+  const hint = vscode.__recorded.messages.find((m) => m[0] === 'info' && /^MLView: source\.py is not in the workspace root/.test(m[1]));
   assert.ok(hint, 'the notification is the hint');
   assert.deepEqual(hint.slice(2), ['Add Folder to Workspace', 'Open Folder']);
   assert.equal(vscode.__recorded.messages.some((m) => m[0] === 'warn' && /no longer match the displayed revision/.test(m[1])), false, 'no stale warning');
   panel.fire({ v: 1, type: 'openLocation', evidenceId: 'e' });
-  await h.waitFor(() => vscode.__recorded.messages.some((m) => /cites source\.py, which is missing/.test(m[1])), 'the jump was not blocked');
+  await h.waitFor(() => vscode.__recorded.messages.some((m) => /cites source\.py, which is not in the workspace root/.test(m[1])), 'the jump was not blocked');
+  const refusal = vscode.__recorded.messages.find((m) => /cites source\.py/.test(m[1]))[1];
+  assert.match(refusal, /but is unchanged in \.\/copy\/; navigation to it is blocked\. Add \.\/copy\/ to the workspace/);
+  assert.doesNotMatch(refusal, /\bmissing\b|\bchanged\b/, 'the refusal agrees with the notice');
   assert.equal(shown().length, 0, 'the hint never substitutes a path');
 });
 
@@ -255,8 +290,14 @@ test('root hint helpers: candidates stop below the root, and only a strict major
   assert.deepEqual(api.mostlyMissing(['a.py', 'b.py'], published, [{ rel: 'a.py', reason: 'missing' }]), [], 'half is not most');
   const list = (names) => names.join(', ');
   assert.equal(api.rootHintText({ base: path.join(root, 'a'), root, files: ['x.py', 'y.py'] }, list),
-    'These files exist under ./a/ but the workspace root is ws: x.py, y.py. They match their published hashes, so the source did not change; ' +
-    'MLView looks for them in the wrong folder. Add ./a/ to the workspace, or open it in its own window.');
+    'x.py, y.py are not in the workspace root (ws/). They are in ./a/, unchanged (they match their published hashes). ' +
+    'Add ./a/ to the workspace, or open it in its own window.');
+  assert.equal(api.rootHintText({ base: path.join(root, 'a', 'b'), root, files: ['src/x.py'] }, list),
+    'src/x.py is not in the workspace root (ws/). It is in ./a/b/, unchanged (it matches its published hash). ' +
+    'Add ./a/b/ to the workspace, or open it in its own window.');
+  assert.equal(api.rootHintJumpText('e1', 'x.py', { base: path.join(root, 'a'), root, files: ['x.py'] }, list),
+    'MLView: evidence e1 cites x.py, which is not in the workspace root (ws/) but is unchanged in ./a/; navigation to it is blocked. ' +
+    'Add ./a/ to the workspace, or open it in its own window.');
 });
 
 test('a workspace folder change validates every open panel again', async () => {

@@ -39,10 +39,13 @@ export interface CanvasHost {
   keep(issue: Issue): boolean;
   /** True when the stage filters exclude this node (dimmed, not removed). */
   isFilteredOut(node: MLNode): boolean;
-  /** A node card was clicked: select it and show its claim (viewer M1: a click never opens the source). */
-  activateNode(id: string): void;
+  /**
+   * A node card was clicked: select it and show its claim (viewer M1: a click never opens the
+   * source). `ev` is the pointer click, so its second click of a double-click can open it.
+   */
+  activateNode(id: string, ev?: MouseEvent): void;
   /** A connection was clicked: select it and show its claim. */
-  activateEdge(id: string): void;
+  activateEdge(id: string, ev?: MouseEvent): void;
   /**
    * Enter or a double-click on a card: select it and open its cited source beside the panel,
    * keeping focus on the diagram; `focusEditor` (Alt+Enter) moves focus to the editor instead.

@@ -101,9 +101,25 @@ Unreleased viewer M1, screenshot harness: `webview/tools/screenshots/capture.mjs
 saves headless-Chrome screenshots of the viewer with a simulated host (VS Code
 theme colours, the panel's own bootstrap, the extension's `init`, `workflow`
 and `stale` frames), with `--viewer` for before/after pictures of another
-checkout. It is opt-in, outside CI and the e2e gates, and needs a local
-Chrome. Its pictures are a rendering check, not live VS Code validation or
-usability evidence ([details](../webview/README.md#screenshots-opt-in)).
+checkout. The capture is opt-in, outside CI and the e2e gates, and needs a
+local Chrome; its pipe and Chrome-lookup test (`webview/test/screenshot-pipe.test.mjs`)
+does run in `npm test`, CI and both e2e drivers. Its pictures are a rendering
+check, not live VS Code validation or usability evidence
+([details](../webview/README.md#screenshots-opt-in)).
+
+Unreleased viewer M1, review fixes: a real double-click on a finding or an
+Outline step now opens it (the first click rebuilt the rows, so the second
+never arrived), and a double-click opens what its first click selected even
+when that click opened the rail over the canvas or shifted the rows; the
+second click no longer presses whatever lands under it. A notebook jump that
+a later jump overtakes no longer clears the later highlight. The cited-range
+highlight has a border in High Contrast themes. In the wrong-workspace-root
+case every surface says the file is in another folder, matching the notice,
+and the notice leads with the files. The stale marks are darker in light
+themes (at least 4.2:1). A card's spoken claim no longer stops at "i.e.".
+The Inspector's stale note no longer says "the claim was not re-checked".
+Checked by local tests only (jsdom and the mock `vscode` module), not in live
+VS Code ([changelog](../CHANGELOG.md)).
 
 Version 0.3.0 adds Campaign 2, "pilot readiness" (see the
 [changelog](../CHANGELOG.md)): owner decision files with a `check` command,

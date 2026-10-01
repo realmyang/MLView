@@ -1,7 +1,11 @@
 // The screenshot harness's DevTools pipe plumbing (webview/tools/screenshots/cdp.mjs), without Chrome.
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { join } from 'node:path';
 import test from 'node:test';
+import { pathToFileURL } from 'node:url';
 import { createClient, createMessageParser, encodeMessage, findChrome } from '../tools/screenshots/cdp.mjs';
+import { WEBVIEW_ROOT } from './helpers.mjs';
 
 function collect() {
   const seen = [];
@@ -53,4 +57,38 @@ test('findChrome honours CHROME and explains what to do when nothing is found', 
   assert.match(findChrome({ platform: 'linux', env: { PATH: '/usr/bin' }, exists: none }).error, /set CHROME/);
   const mac = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
   assert.deepEqual(findChrome({ platform: 'darwin', env: {}, exists: (p) => p === mac }), { path: mac });
+});
+
+// PRUNE-1: this file runs in `npm test` on the Windows CI runner too, where the host's `node:path`
+// is path.win32. A child Node process stands in for that runner: a loader hook hands cdp.mjs
+// path.win32 as `node:path`, and the macOS and Linux candidates must still be POSIX paths.
+test('the macOS and Linux Chrome candidates are POSIX paths on a Windows host too', () => {
+  const hook = [
+    "import { win32 } from 'node:path';",
+    'const names = Object.keys(win32).filter((name) => /^[A-Za-z_$][\\w$]*$/.test(name));',
+    "const body = 'import { win32 as host } from \"node:path\"; ' + names.map((name) => 'export const ' + name + ' = host.' + name + ';').join(' ') + ' export default host;';",
+    'export async function resolve(specifier, context, next) {',
+    "  if ((specifier === 'node:path' || specifier === 'path') && context.parentURL && context.parentURL.endsWith('/cdp.mjs')) {",
+    "    return { url: 'data:text/javascript,' + encodeURIComponent(body), shortCircuit: true };",
+    '  }',
+    '  return next(specifier, context);',
+    '}',
+  ].join('\n');
+  const register = "import { register } from 'node:module'; register('data:text/javascript,' + encodeURIComponent(" + JSON.stringify(hook) + '));';
+  const cdp = pathToFileURL(join(WEBVIEW_ROOT, 'tools', 'screenshots', 'cdp.mjs')).href;
+  const probe = [
+    "import { sep } from 'node:path';",
+    'const { findChrome } = await import(' + JSON.stringify(cdp) + ');',
+    "const mac = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';",
+    "const linux = '/opt/x/chromium';",
+    'console.log(JSON.stringify({',
+    "  darwin: findChrome({ platform: 'darwin', env: {}, exists: (p) => p === mac }),",
+    "  linux: findChrome({ platform: 'linux', env: { PATH: '/usr/bin:/opt/x' }, exists: (p) => p === linux }),",
+    '}));',
+  ].join('\n');
+  const run = spawnSync(process.execPath, ['--import', 'data:text/javascript,' + encodeURIComponent(register), '--input-type=module', '-e', probe], { encoding: 'utf8' });
+  assert.equal(run.status, 0, run.stderr);
+  const result = JSON.parse(run.stdout.trim().split('\n').pop());
+  assert.deepEqual(result.darwin, { path: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' });
+  assert.deepEqual(result.linux, { path: '/opt/x/chromium' });
 });

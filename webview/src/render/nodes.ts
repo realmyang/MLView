@@ -28,16 +28,22 @@ export interface NodeVisual {
   stale: boolean;
   /** How many of its quotes do, for the words beside the mark. */
   staleQuotes?: { stale: number; total: number };
+  /** Every stale quote cites a file that is unchanged in another folder (the host's root hint). */
+  staleElsewhere?: boolean;
   filteredOut: boolean;
 }
 
-/** "1 of 2 quotes cite a changed or missing file" — what a stale mark means, in words. */
-export function staleWords(v: Pick<NodeVisual, 'stale' | 'staleQuotes'>): string {
+/**
+ * "1 of 2 quotes cite a changed or missing file" — what a stale mark means, in words. In the
+ * root-hint case the files did not change: "… cite a file in another folder" (COPY-1).
+ */
+export function staleWords(v: Pick<NodeVisual, 'stale' | 'staleQuotes' | 'staleElsewhere'>): string {
   if (!v.stale) return '';
   const q = v.staleQuotes;
+  const what = v.staleElsewhere ? 'a file in another folder' : 'a changed or missing file';
   return q
-    ? q.stale + ' of ' + q.total + (q.total === 1 ? ' quote cites' : ' quotes cite') + ' a changed or missing file'
-    : 'cites a changed or missing file';
+    ? q.stale + ' of ' + q.total + (q.total === 1 ? ' quote cites ' : ' quotes cite ') + what
+    : 'cites ' + what;
 }
 
 /**
@@ -198,15 +204,36 @@ export function ariaLabelFor(v: NodeVisual): string {
 const DETAIL_SPOKEN_CHARS = 160;
 
 /**
+ * Words whose closing period does not end a sentence (M1-R4: "per channel, i.e. pixel values …"
+ * was cut after "i.e."). Lower case, without the final period. Dotted initials such as "e.g",
+ * "i.e" or "a.k.a" are recognised by shape in `abbreviationBefore`.
+ */
+const ABBREVIATIONS = new Set(['etc', 'vs', 'cf', 'approx', 'incl', 'esp', 'resp', 'fig', 'figs', 'eq', 'eqs', 'al']);
+
+/** True when the period at `at` closes an abbreviation rather than a sentence. */
+function abbreviationBefore(text: string, at: number): boolean {
+  if (text[at] !== '.') return false;
+  const word = /[A-Za-z.]*$/.exec(text.slice(0, at));
+  const token = (word ? word[0] : '').toLowerCase();
+  if (!token) return false;
+  // Dotted initials: "e.g", "i.e", "a.k.a", "u.s".
+  if (/^(?:[a-z]\.)+[a-z]$/.test(token)) return true;
+  return ABBREVIATIONS.has(token);
+}
+
+/**
  * Viewer M1: a short form of an authored `detail` for an accessible name. The first sentence
  * when it ends within 160 characters; otherwise the first 160 characters, cut at a word and
- * ended with an ellipsis. Whitespace runs read as one space.
+ * ended with an ellipsis. A period after an abbreviation ("e.g.", "i.e.", "etc.") does not end
+ * the sentence. Whitespace runs read as one space.
  */
 function detailSpoken(detail: string): string {
   const text = detail.replace(/\s+/g, ' ').trim();
   if (!text) return '';
-  const end = /[.!?](?=\s|$)/.exec(text);
-  if (end && end.index < DETAIL_SPOKEN_CHARS) return text.slice(0, end.index + 1);
+  const ends = /[.!?](?=\s|$)/g;
+  for (let end = ends.exec(text); end && end.index < DETAIL_SPOKEN_CHARS; end = ends.exec(text)) {
+    if (!abbreviationBefore(text, end.index)) return text.slice(0, end.index + 1);
+  }
   if (text.length <= DETAIL_SPOKEN_CHARS) return text;
   const cut = text.slice(0, DETAIL_SPOKEN_CHARS);
   const space = cut.lastIndexOf(' ');
@@ -366,7 +393,9 @@ function staleMark(v: NodeVisual): HTMLElement {
   const mark = el('span', 'mlv-node__stale');
   mark.setAttribute('data-stale', '1');
   mark.setAttribute('aria-hidden', 'true');
-  mark.title = staleWords(v) + ' since publishing. Its jumps are blocked.';
+  mark.title = staleWords(v) + (v.staleElsewhere
+    ? '. Its jumps are blocked; the notice above says which folder to add.'
+    : ' since publishing. Its jumps are blocked.');
   mark.appendChild(uiIcon('warning', 12));
   return mark;
 }

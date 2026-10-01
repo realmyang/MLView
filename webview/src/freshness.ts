@@ -9,7 +9,7 @@
 
 import type { Loc, StaleFile, StaleReason, WorkflowDocument } from './types.js';
 
-const REASONS: readonly StaleReason[] = ['changed', 'missing', 'unreadable', 'too-large'];
+const REASONS: readonly StaleReason[] = ['changed', 'missing', 'unreadable', 'too-large', 'elsewhere'];
 /** At most this many files are kept from one frame (the contract tracks at most 2000). */
 const MAX_FILES = 2000;
 
@@ -19,7 +19,18 @@ export const STALE_TEXT: Record<StaleReason, string> = {
   missing: 'file missing',
   unreadable: 'file unreadable',
   'too-large': 'file too large to check',
+  elsewhere: 'in another folder; see the notice above',
 };
+
+/**
+ * True when every reason is `elsewhere`: the files did not change, the workspace root is the wrong
+ * folder (the host's root hint). Those items are worded apart, so no surface says "changed" or
+ * "no longer matches" while the notice says the files are unchanged (COPY-1). A mix is worded as
+ * stale, with `elsewhere` counted as missing: from the workspace root, it is.
+ */
+export function allElsewhere(reasons: readonly StaleReason[]): boolean {
+  return reasons.length > 0 && reasons.every((reason) => reason === 'elsewhere');
+}
 
 /** The host's list, kept only where it is well formed: a path, a known reason, each path once. */
 export function sanitizeStaleFiles(value: unknown): StaleFile[] {
@@ -79,8 +90,12 @@ export function staleQuotes(locs: readonly Pick<Loc, 'file'>[] | undefined, isSt
   return { stale, total: list.length };
 }
 
-/** "changed", "missing", or "changed or missing" for a mix (unreadable and too large count as missing). */
+/**
+ * "changed", "missing", or "changed or missing" for a mix (unreadable, too large and elsewhere
+ * count as missing); "in another folder" when every file is elsewhere.
+ */
 function reasonWord(reasons: StaleReason[]): string {
+  if (allElsewhere(reasons)) return 'in another folder';
   const set = new Set(reasons);
   if (set.size === 1 && set.has('changed')) return 'changed';
   if (!set.has('changed')) return 'missing';
@@ -106,6 +121,9 @@ export function freshnessSummary(document: WorkflowDocument | null, state: Fresh
   }
   const lines = state.list().slice(0, 20).map((file) => file.path + ' — ' + STALE_TEXT[file.reason]);
   if (state.size > 20) lines.push('and ' + (state.size - 20) + ' more');
-  const title = 'Source files that no longer match the published revision. Jumps into them are blocked.\n' + lines.join('\n');
+  const head = allElsewhere(state.list().map((file) => file.reason))
+    ? 'Source files that are not under the workspace root but are unchanged in another folder; the notice above names it. Jumps into them are blocked.'
+    : 'Source files that no longer match the published revision. Jumps into them are blocked.';
+  const title = head + '\n' + lines.join('\n');
   return { text, title };
 }

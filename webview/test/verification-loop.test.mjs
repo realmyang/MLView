@@ -57,6 +57,25 @@ const outlineRow = (ctx, id) => $(ctx, `[data-outline-id="${id}"] > .mlv-outline
 const mouse = (ctx, target, type, init = {}) => target.dispatchEvent(new ctx.window.MouseEvent(type, { bubbles: true, cancelable: true, ...init }));
 const key = (ctx, target, keyName, init = {}) => target.dispatchEvent(new ctx.window.KeyboardEvent('keydown', { key: keyName, bubbles: true, cancelable: true, ...init }));
 const stale = (ctx, files) => ctx.bridge.send({ v: 1, type: 'stale', files });
+/**
+ * A real double-click, in Chrome's order: mousedown, click (detail 1) on `first`; then mousedown,
+ * click (detail 2) and dblclick on whatever is under the pointer by then (`second`, looked up
+ * after the first click, which may have rebuilt or moved what was there). A synthetic `dblclick`
+ * alone does not test this: the first click is what changes the page (M1-R1, M1-R3, UX-1).
+ */
+function realDoubleClick(ctx, first, second = first) {
+  const send = (target, type, detail) => target.dispatchEvent(new ctx.window.MouseEvent(type, { bubbles: true, cancelable: true, detail, button: 0 }));
+  const a = first();
+  send(a, 'mousedown', 1);
+  send(a, 'mouseup', 1);
+  send(a, 'click', 1);
+  const b = second();
+  const secondDown = send(b, 'mousedown', 2);
+  send(b, 'mouseup', 2);
+  const secondClick = send(b, 'click', 2);
+  const dbl = send(b, 'dblclick', 2);
+  return { landedOn: b, secondDownDefault: secondDown, secondClickDefault: secondClick, dblclickDefault: dbl };
+}
 const sourceButtons = (ctx) => Array.from(ctx.document.querySelectorAll('.mlv-insp__source-evidence li'));
 
 test('a click on a card, connection, finding or outline row selects it and opens nothing', async () => {
@@ -128,6 +147,98 @@ test('Enter and a double-click open the cited range with focus kept; Alt+Enter a
   }
 });
 
+test('a real double-click on a card or connection opens once', async () => {
+  const ctx = await mount();
+  try {
+    const d = realDoubleClick(ctx, () => card(ctx, 'load'));
+    assert.equal(opens(ctx).length, 1, 'the card opens once (the swallowed dblclick does not open it again)');
+    assert.equal(d.dblclickDefault, false, 'the dblclick of the sequence is swallowed');
+    assert.equal(opens(ctx)[0].evidenceId, 'e1');
+    assert.equal(ctx.app.getState().selection.id, 'load');
+    realDoubleClick(ctx, () => edgeHit(ctx, 'loss-step'));
+    assert.equal(opens(ctx).length, 2);
+    assert.equal(opens(ctx)[1].evidenceId, 'e1');
+    assert.equal(ctx.app.getState().selection.id, 'loss-step');
+  } finally {
+    ctx.app.destroy();
+  }
+});
+
+test('the second click of a double-click opens the card even when the rail now lies under the pointer', async () => {
+  const ctx = await mount();
+  try {
+    // The width rule closed the rail (a narrow panel); the first click opens it over the canvas.
+    ctx.app.setRailOpen(false);
+    const refine = $(ctx, '.mlv-workflow__refine');
+    const composer = $(ctx, '.mlv-workflow__composer');
+    assert.ok(refine && composer && composer.hidden, 'the composer starts closed');
+
+    // M1-R3: the second click lands on an Inspector control. It must not press it.
+    const d = realDoubleClick(ctx, () => card(ctx, 'loss'), () => $(ctx, '.mlv-insp__challenge'));
+    assert.equal(ctx.app.railOpen, true, 'the first click showed the claim');
+    assert.equal(d.landedOn.textContent, 'Challenge this claim');
+    assert.equal(opens(ctx).length, 1, 'the card the first click selected is opened');
+    assert.equal(opens(ctx)[0].evidenceId, 'e2');
+    assert.equal(composer.hidden, true, 'the Inspector control under the second click was not pressed');
+    assert.equal(d.secondDownDefault, false, 'its mousedown is cancelled, so focus does not move to it');
+
+    // UX-1: in a narrow panel the second click hits the drawer's scrim; the drawer stays open.
+    ctx.app.railChosen = false;
+    ctx.app.setRailOpen(false);
+    realDoubleClick(ctx, () => card(ctx, 'step'), () => $(ctx, '.mlv-scrim'));
+    assert.equal(ctx.app.railOpen, true, 'the scrim did not close the drawer');
+    assert.equal(opens(ctx).length, 2);
+    assert.equal(opens(ctx)[1].evidenceId, 'e3');
+
+    // UX-1, docked: the refit moved the card, and the second click hits the canvas background.
+    realDoubleClick(ctx, () => card(ctx, 'load'), () => $(ctx, '.mlv-canvas'));
+    assert.equal(ctx.app.getState().selection.id, 'load', 'the background click did not clear the selection');
+    assert.equal(opens(ctx).length, 3);
+    assert.equal(opens(ctx)[2].evidenceId, 'e1');
+
+    // A later, separate click (a new sequence) works as usual.
+    mouse(ctx, $(ctx, '.mlv-insp__challenge'), 'click', { detail: 1 });
+    assert.equal(composer.hidden, false, 'a single click presses the control');
+    assert.equal(opens(ctx).length, 3);
+  } finally {
+    ctx.app.destroy();
+  }
+});
+
+test('a double-click on a group still collapses it and opens nothing', async () => {
+  const ctx = await mount(doc({
+    nodes: [
+      { id: 'grp', label: 'Training loop', phase: 'train', kind: 'group', basis: 'observed', evidence: ['e1'] },
+      { id: 'load', label: 'Load batch', phase: 'train', parent: 'grp', basis: 'observed', evidence: ['e1'] },
+      { id: 'loss', label: 'Compute loss', phase: 'train', parent: 'grp', basis: 'observed', evidence: ['e2'] },
+      { id: 'step', label: 'Optimizer step', phase: 'train', basis: 'observed', evidence: ['e3', 'e2'] },
+    ],
+  }));
+  try {
+    const header = () => $(ctx, '.mlv-group[data-node-id="grp"] .mlv-group__header');
+    assert.ok(header(), 'the group is drawn');
+    realDoubleClick(ctx, header);
+    await sleep(300);
+    assert.deepEqual(Array.from(ctx.app.getState().collapsed), ['grp'], 'the group collapsed');
+    assert.equal(opens(ctx).length, 0);
+  } finally {
+    ctx.app.destroy();
+  }
+});
+
+test('the shortcut sheet promises only what each target does on a double-click (DOC-1)', async () => {
+  const ctx = await mount();
+  try {
+    ctx.app.toggleShortcuts(true);
+    const note = $(ctx, '.mlv-sheet__note').textContent;
+    assert.match(note, /Double-click a step, connection, finding or Outline step, or press Enter on it, to open the cited source/);
+    assert.match(note, /Double-click a group to collapse it\./);
+    assert.doesNotMatch(note, /Double-click it\b/, 'no blanket promise over every row a click selects');
+  } finally {
+    ctx.app.destroy();
+  }
+});
+
 test('the Inspector Open link opens beside; Alt+click moves focus', async () => {
   const ctx = await mount();
   try {
@@ -158,10 +269,29 @@ test('Enter and a double-click on a finding row open its first quote; Space only
     key(ctx, findingRow(ctx, 'f-loss'), 'Enter');
     assert.equal(opens(ctx).length, 1, 'Enter on a finding row opens');
     assert.equal(opens(ctx)[0].evidenceId, 'e2');
-    mouse(ctx, findingRow(ctx, 'f-load'), 'dblclick');
-    assert.equal(opens(ctx).length, 2, 'a double-click on a finding row opens');
+    // M1-R1: the first click rebuilds the rows, so the second click hits a new row element.
+    realDoubleClick(ctx, () => findingRow(ctx, 'f-load'));
+    assert.equal(opens(ctx).length, 2, 'a real double-click on a finding row opens once');
     assert.equal(opens(ctx)[1].evidenceId, 'e1');
+    assert.equal(opens(ctx)[1].focus, undefined, 'a double-click keeps focus in the diagram');
     assert.equal(ctx.app.getState().selection.id, 'f-load');
+  } finally {
+    ctx.app.destroy();
+  }
+});
+
+test('a double-click on a finding opens it even when the first click shifts the rows under the pointer', async () => {
+  const ctx = await mount();
+  try {
+    ctx.app.setRailTab('issues');
+    mouse(ctx, findingRow(ctx, 'f-load'), 'click', { detail: 1 });
+    assert.ok($(ctx, '[data-issue-detail="f-load"]'), 'f-load is expanded');
+    // Double-click f-loss: its first click collapses f-load above it, so the second click lands
+    // on another row (here f-load, now where f-loss was drawn).
+    realDoubleClick(ctx, () => findingRow(ctx, 'f-loss'), () => findingRow(ctx, 'f-load'));
+    assert.equal(opens(ctx).length, 1);
+    assert.equal(opens(ctx)[0].evidenceId, 'e2', 'the finding the first click selected is opened');
+    assert.equal(ctx.app.getState().selection.id, 'f-loss', 'the second click did not select the other row');
   } finally {
     ctx.app.destroy();
   }
@@ -176,9 +306,13 @@ test('Enter and a double-click on an Outline step open its first quote', async (
     key(ctx, item, 'Enter');
     assert.equal(opens(ctx).length, 1, 'Enter on an Outline step opens');
     assert.equal(opens(ctx)[0].evidenceId, 'e2');
-    mouse(ctx, $(ctx, '[data-outline-id="load"] > .mlv-outline__row'), 'dblclick');
-    assert.equal(opens(ctx).length, 2, 'a double-click on an Outline step opens');
+    realDoubleClick(ctx, () => outlineRow(ctx, 'load'));
+    assert.equal(opens(ctx).length, 2, 'a real double-click on an Outline step opens once');
     assert.equal(opens(ctx)[1].evidenceId, 'e1');
+    assert.equal(ctx.app.getState().selection.id, 'load');
+    // A lane row has no source: its double-click only jumps to the stage, and opens nothing.
+    realDoubleClick(ctx, () => $(ctx, '[data-outline-lane="train"] > .mlv-outline__row'));
+    assert.equal(opens(ctx).length, 2);
   } finally {
     ctx.app.destroy();
   }
@@ -217,7 +351,11 @@ test('the stale frame marks cards, connections, quotes, findings and the status 
     assert.match(rows[0].textContent, /changed since publishing/);
     assert.equal(rows[1].classList.contains('is-stale'), false);
     assert.equal(rows[1].querySelector('button').disabled, false);
-    assert.match($(ctx, '.mlv-insp__stale-note').textContent, /1 of 2 quotes cite a file that no longer matches/);
+    // COPY-2: what the reader can do; nothing in MLView checks claims, so no "not re-checked".
+    assert.equal($(ctx, '.mlv-insp__stale-note').textContent,
+      '1 of 2 quotes cite a file that changed or went missing since publishing; those jumps are blocked. ' +
+      'To compare the claim with the code as it is now, ask the assistant for a fresh revision.');
+    assert.doesNotMatch($(ctx, '.mlv-insp__stale-note').textContent, /checked/);
 
     // Enter on a card whose first quote is stale says why and posts nothing.
     key(ctx, card(ctx, 'load'), 'Enter');
@@ -249,6 +387,47 @@ test('the stale frame marks cards, connections, quotes, findings and the status 
   }
 });
 
+test('a file the root hint found in another folder is worded as such everywhere, never as changed or missing (COPY-1)', async () => {
+  const ctx = await mount();
+  try {
+    stale(ctx, [{ path: 'data.py', reason: 'elsewhere' }]);
+    // The marks and their jump blocks stay: the file is not at the cited path under the root.
+    assert.ok(card(ctx, 'load').classList.contains('is-stale'));
+    const markTitle = card(ctx, 'load').querySelector('.mlv-node__stale').title;
+    assert.equal(markTitle, '1 of 1 quote cites a file in another folder. Its jumps are blocked; the notice above says which folder to add.');
+    assert.match(card(ctx, 'load').getAttribute('aria-label'), /1 of 1 quote cites a file in another folder/);
+    assert.match(edgeHit(ctx, 'loss-step').getAttribute('aria-label'), /Its evidence cites a file in another folder\.$/);
+
+    const status = $(ctx, '[data-freshness="stale"]');
+    assert.equal(status.textContent, '1 of 2 cited files in another folder');
+    assert.match(status.title, /^Source files that are not under the workspace root but are unchanged in another folder; the notice above names it\./);
+    assert.match(status.title, /data\.py — in another folder; see the notice above/);
+
+    mouse(ctx, card(ctx, 'step'), 'click');
+    assert.equal($(ctx, '.mlv-insp__stale-note').textContent,
+      '1 of 2 quotes cite a file that is not under the workspace root but is unchanged in another folder; those jumps are blocked. The notice above says which folder to add.');
+    const row = sourceButtons(ctx)[0];
+    assert.equal(row.getAttribute('data-stale'), 'elsewhere');
+    assert.equal(row.querySelector('button').disabled, true);
+    assert.match(row.textContent, /in another folder; see the notice above/);
+
+    key(ctx, card(ctx, 'load'), 'Enter');
+    assert.equal(opens(ctx).length, 0, 'the jump is still blocked');
+    assert.equal(ctx.app.liveEl.textContent, 'data.py: in another folder; see the notice above. Not opened.');
+
+    ctx.app.setRailTab('issues');
+    assert.equal(findingRow(ctx, 'f-load').querySelector('.mlv-chip--stale').textContent, 'cites a file in another folder');
+    assert.doesNotMatch(findingRow(ctx, 'f-load').getAttribute('aria-label'), /since publishing/);
+
+    // Nowhere says changed, missing or "no longer matches" for this file.
+    const words = [markTitle, status.textContent, status.title, ctx.app.liveEl.textContent,
+      findingRow(ctx, 'f-load').getAttribute('aria-label'), edgeHit(ctx, 'loss-step').getAttribute('aria-label')].join('\n');
+    assert.doesNotMatch(words, /\bchanged\b|\bmissing\b|no longer match/);
+  } finally {
+    ctx.app.destroy();
+  }
+});
+
 test('a malformed stale frame marks nothing', async () => {
   const ctx = await mount();
   try {
@@ -266,7 +445,7 @@ test('after the mount the host banner is a notice under the header; the root hin
   try {
     const notice = () => $(ctx, '.mlv-hostnotice');
     assert.ok(!notice() || notice().hidden, 'no notice for a fresh revision');
-    const hint = 'These files exist under ./copy/ but the workspace root is /work. The diagram cites paths relative to ./copy/.';
+    const hint = 'source.py is not in the workspace root (work/). It is in ./copy/, unchanged (it matches its published hash). Add ./copy/ to the workspace, or open it in its own window.';
     ctx.bridge.send({ v: 1, type: 'workflowError', message: hint, retained: true, codes: ['root-hint'] });
     assert.ok(notice() && !notice().hidden, 'the notice is shown');
     assert.equal(notice().textContent.indexOf(hint) >= 0, true, 'the host text is shown as is');

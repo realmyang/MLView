@@ -158,7 +158,7 @@
 /* Viewer M1: freshness in place — the status bar item, the Inspector's quotes and finding chips. */
 .mlv-status__fresh { display: inline-flex; align-items: center; gap: 4px; }
 .mlv-status__fresh.is-warn { color: var(--mlv-text); }
-.mlv-status__fresh.is-warn .mlv-uicon { color: var(--mlv-sev-medium); }
+.mlv-status__fresh.is-warn .mlv-uicon { color: var(--mlv-stale-ink); }
 .mlv-status__fresh.is-checking { color: var(--mlv-text-2); font-style: italic; }
 .mlv-insp__stale-note {
   display: flex;
@@ -170,7 +170,7 @@
 }
 .mlv-insp__stale-note .mlv-uicon,
 .mlv-insp__stale .mlv-uicon,
-.mlv-chip--stale .mlv-uicon { flex: none; color: var(--mlv-sev-medium); }
+.mlv-chip--stale .mlv-uicon { flex: none; color: var(--mlv-stale-ink); }
 .mlv-insp__stale {
   display: inline-flex;
   align-items: center;

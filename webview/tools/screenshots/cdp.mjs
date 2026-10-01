@@ -10,7 +10,7 @@
 import { spawn } from 'node:child_process';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { delimiter, join } from 'node:path';
+import { join, posix } from 'node:path';
 
 /** One protocol message as Chrome expects it on the pipe: JSON, then NUL. */
 export function encodeMessage(message) {
@@ -42,7 +42,12 @@ export function createMessageParser(onMessage) {
   };
 }
 
-/** Where Chrome usually lives, in the order tried. `CHROME` overrides all of them. */
+/**
+ * Where Chrome usually lives, in the order tried. `CHROME` overrides all of them. The macOS and
+ * Linux candidates are POSIX paths whatever the host is, so they are joined (and `PATH` split)
+ * with `path.posix`, never the host's `path`: on a Windows runner that gave
+ * `\Applications\Google Chrome.app\...` (PRUNE-1).
+ */
 export function chromeCandidates(platform = process.platform, env = process.env) {
   if (platform === 'darwin') {
     const apps = [
@@ -52,8 +57,8 @@ export function chromeCandidates(platform = process.platform, env = process.env)
       'Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary',
       'Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
     ];
-    const roots = ['/Applications', env.HOME ? join(env.HOME, 'Applications') : null].filter(Boolean);
-    return roots.flatMap((root) => apps.map((app) => join(root, app)));
+    const roots = ['/Applications', env.HOME ? posix.join(env.HOME, 'Applications') : null].filter(Boolean);
+    return roots.flatMap((root) => apps.map((app) => posix.join(root, app)));
   }
   if (platform === 'win32') {
     const roots = [env.PROGRAMFILES, env['PROGRAMFILES(X86)'], env.LOCALAPPDATA].filter(Boolean);
@@ -61,8 +66,8 @@ export function chromeCandidates(platform = process.platform, env = process.env)
     return roots.flatMap((root) => exes.map((exe) => `${root}\\${exe}`));
   }
   const names = ['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser', 'chrome', 'microsoft-edge'];
-  const dirs = (env.PATH || '').split(delimiter).filter(Boolean);
-  return [...dirs.flatMap((dir) => names.map((name) => join(dir, name))), '/snap/bin/chromium'];
+  const dirs = (env.PATH || '').split(posix.delimiter).filter(Boolean);
+  return [...dirs.flatMap((dir) => names.map((name) => posix.join(dir, name))), '/snap/bin/chromium'];
 }
 
 /** The Chrome executable to use, or an error message that says how to point at one. */

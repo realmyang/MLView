@@ -17,8 +17,8 @@ export interface NodeWiring {
   isGroup(id: string): boolean;
   toggleCollapse(id: string): void;
   hoverIntent(id: string | null): void;
-  /** A click: select only (viewer M1). */
-  activateNode(id: string): void;
+  /** A click: select only (viewer M1). `ev` lets the second click of a double-click open it. */
+  activateNode(id: string, ev?: MouseEvent): void;
   /** Enter or a double-click: select and open the cited source; `focusEditor` for Alt+Enter. */
   openNode(id: string, focusEditor: boolean): void;
   /** Timers a teardown has to cancel; the canvas owns the list. */
@@ -27,8 +27,8 @@ export interface NodeWiring {
 
 /** What wiring a connection needs from the canvas. */
 export interface EdgeWiring {
-  /** A click: select only (viewer M1). */
-  activateEdge(id: string): void;
+  /** A click: select only (viewer M1). `ev` lets the second click of a double-click open it. */
+  activateEdge(id: string, ev?: MouseEvent): void;
   /** Enter or a double-click: select and open the cited source; `focusEditor` for Alt+Enter. */
   openEdge(id: string, focusEditor: boolean): void;
   enterEdge(route: RoutedEdge): void;
@@ -60,7 +60,9 @@ export function wireNodeEvents(element: HTMLElement, id: string, isGroup: boolea
   // double-click must therefore hold its single-click back long enough to see
   // the second one, or collapsing a group selects it first (MLV-R1-010). A card
   // that is not collapsible answers the double-click by opening its source
-  // (viewer M1); its two clicks only select it, which is harmless.
+  // (viewer M1): its first click selects it and arms the App's double-click
+  // opener (ui/doubleclick.ts), which takes the second click wherever it lands.
+  // The `dblclick` handler below is the fallback for a bare `dblclick`.
   const collapsible = isGroup || port.isGroup(id);
   let pending: ReturnType<typeof setTimeout> | null = null;
   const cancelPending = () => {
@@ -73,7 +75,7 @@ export function wireNodeEvents(element: HTMLElement, id: string, isGroup: boolea
   on(target, 'click', (ev: MouseEvent) => {
     ev.stopPropagation();
     if (!collapsible) {
-      port.activateNode(id);
+      port.activateNode(id, ev);
       return;
     }
     cancelPending();
@@ -110,7 +112,7 @@ export function wireEdgeEvents(g: SVGElement, route: RoutedEdge, port: EdgeWirin
   const element = hit as unknown as HTMLElement;
   on(element, 'click', (ev: MouseEvent) => {
     ev.stopPropagation();
-    port.activateEdge(route.id);
+    port.activateEdge(route.id, ev);
   });
   on(element, 'dblclick', (ev: MouseEvent) => {
     ev.preventDefault();

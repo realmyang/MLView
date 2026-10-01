@@ -56,8 +56,9 @@ Freshness on the diagram:
 Wrong workspace root (`vscode-extension/`):
 - When most tracked files are missing from the workspace root but exist, with
   the published hashes, under the artifact's folder or a folder between it and
-  the root, the banner says "These files exist under ./<folder>/ but the
-  workspace root is <root>" instead of saying the files no longer match. It
+  the root, the banner names that folder and says the files there are
+  unchanged, instead of saying the files no longer match (its wording changed
+  again in the review fixes below). It
   offers **Add folder to workspace** and **Open folder** (a new window). The
   extension never resolves a citation against another folder by itself; the
   panel rechecks whenever the workspace folders change.
@@ -129,15 +130,17 @@ by local tests only; not tried in live VS Code.
   documents (6,454 steps) gave the same page, saved state, posted messages
   and SVG export before and after each code batch, apart from the retired
   messages, the ignored old keys and the tooltip changes above. Computed styles at 195 points of a shorter tour are unchanged after
-  the stylesheet cleanup. Webview tests: 142 (one removed, "file groups
-  report the weakest authored basis", which tested the removed grouping);
-  extension tests: 281.
+  the stylesheet cleanup. Webview tests at that step: 142 (one removed, "file
+  groups report the weakest authored basis", which tested the removed
+  grouping); extension tests: 281.
 
 Screenshot harness (`webview/tools/screenshots/`): an opt-in script that opens
 documents in the built viewer in headless Chrome and saves one PNG per state
 plus an `index.json` of what was clicked, what the page posted and what it
-showed. It is not part of `npm test`, CI or the e2e gates and needs a local
-Chrome or Chromium (`CHROME` overrides the lookup).
+showed. The capture is opt-in: `npm test`, CI and the e2e gates do not run
+it, and it needs a local Chrome or Chromium (`CHROME` overrides the lookup).
+Its plumbing test, `webview/test/screenshot-pipe.test.mjs`, does run in
+`npm test`, so in CI and both e2e drivers (see the review fixes below).
 
 - The host is simulated: VS Code theme colours for Dark Modern, Light Modern
   and Dark High Contrast, a stub `acquireVsCodeApi`, the panel's own inline
@@ -154,6 +157,60 @@ Chrome or Chromium (`CHROME` overrides the lookup).
   and the Chrome lookup without Chrome.
 - The pictures are a rendering check only. They are not live VS Code
   validation, usability evidence or a semantic review.
+
+Review fixes (findings from independent model reviews of this branch). Each
+code fix has a local regression test that fails without it (jsdom, the mock
+`vscode` module, or a child Node process); none of it was tried in live VS
+Code. The geometry golden is byte-identical. Webview tests: 155; extension
+tests: 282.
+
+- Double-click on a finding or an Outline step opened nothing in a real
+  browser: the first click rebuilt the rows, so the second click's
+  `dblclick` went to a detached row. A double-click also failed, once per
+  viewer, when its first click opened the rail (docked, the canvas refit and
+  moved the card; in a narrow panel the drawer and its scrim covered it), and
+  the second click could press an Inspector control such as **Challenge this
+  claim**. Now the first click arms an opener, and the second click of the
+  same double-click (the browser's own count) opens what the first one
+  selected, wherever it lands; the rest of that gesture is swallowed. A
+  finding expanded above the clicked one no longer makes the double-click
+  select another row. The tests send click, click and `dblclick` in Chrome's
+  order instead of a bare `dblclick`.
+- A notebook jump that waited for its cell editor cleared the highlight of a
+  jump made after it (always for a markdown cell in preview). Each jump now
+  has a sequence number, and an overtaken jump stops before it touches the
+  editor or the highlight.
+- The cited-range highlight was invisible in High Contrast themes, which
+  define no `editor.rangeHighlightBackground`. It now also draws
+  `editor.rangeHighlightBorder`, which only High Contrast themes define.
+- Wrong workspace root: the host sends the hinted files with the reason
+  `elsewhere`. Cards, connections, findings, quotes, the status bar ("1 of 1
+  cited files in another folder") and a blocked jump now say the file is in
+  another folder and point to the notice; they used to call it changed or
+  missing while the notice said it was unchanged. The notice leads with the
+  files: "source.py is not in the workspace root (MLView/). It is in ./copy/,
+  unchanged (it matches its published hash). Add ./copy/ to the workspace, or
+  open it in its own window."
+- The Inspector's stale note no longer ends "the claim was not re-checked"
+  (nothing in MLView checks claims). It reads "… cite a file that changed or
+  went missing since publishing; those jumps are blocked. To compare the claim
+  with the code as it is now, ask the assistant for a fresh revision."
+- The stale marks and dashed border use the warning colour mixed 30 % toward
+  the text colour. In Light Modern and 2026 Light they were 2.2 to 3.0:1
+  against the card; now at least 4.2:1 (WCAG 1.4.11 asks 3:1).
+  `webview/test/stale-contrast.test.mjs` checks six default themes.
+- A card's spoken claim stopped at "i.e." or "e.g.". A period after a dotted
+  abbreviation or after etc., vs., cf., approx. and a few others no longer
+  ends the sentence.
+- The shortcut sheet and the docs promised a double-click opens every row a
+  click selects. A double-click on a group collapses it, and the Outline's
+  connection and phase rows only select; the sheet now says which targets
+  open.
+- `findChrome` built the macOS and Linux candidates with the host's `path`,
+  so on Windows it looked for `\Applications\Google Chrome.app\…` and its test
+  would fail the Windows CI job. Those candidates now use `path.posix`; a
+  test runs the lookup in a child Node process whose `node:path` is
+  `path.win32`. The docs no longer say the harness is outside every gate.
 
 ## Unreleased — viewer fixes from the Stage 1 review
 

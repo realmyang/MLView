@@ -103,9 +103,18 @@ export function buildAppUi(app: App): void {
   app.rail = new Rail({
     onTab: (tab) => app.setRailTab(tab),
     onClearFilters: () => app.clearFilters(),
-    onSelectIssue: (id) => app.focusIssue(id),
+    // Viewer M1 review (M1-R1): a row click arms the double-click opener. The click rebuilds the
+    // rows (and can collapse an expanded finding above), so the second click may land on a
+    // detached or different row; the opener opens the row the first click selected.
+    onSelectIssue: (id, ev) => {
+      app.focusIssue(id);
+      app.doubleClick.arm(ev, () => app.openIssue(id, false));
+    },
     onOpenIssue: (id, focusEditor) => app.openIssue(id, focusEditor),
-    onSelectNode: (id) => app.select({ kind: 'node', id }, { center: true, reveal: true }),
+    onSelectNode: (id, ev) => {
+      app.select({ kind: 'node', id }, { center: true, reveal: true });
+      app.doubleClick.arm(ev, () => app.select({ kind: 'node', id }, { center: true, reveal: true, open: true }));
+    },
     onOpenNode: (id, focusEditor) => app.select({ kind: 'node', id }, { center: true, reveal: true, open: true, focusEditor }),
     onSelectEdge: (id) => app.select({ kind: 'edge', id }, { tab: 'inspector', reveal: true }),
     onChallenge: () => {
@@ -155,15 +164,27 @@ export function buildAppUi(app: App): void {
 
 /** What the canvas is allowed to ask of the application. */
 export function canvasHost(app: App): CanvasHost {
+  const openNode = (id: string, focusEditor: boolean) =>
+    app.select({ kind: 'node', id }, { tab: 'inspector', showClaim: true, open: true, focusEditor });
+  const openEdge = (id: string, focusEditor: boolean) =>
+    app.select({ kind: 'edge', id }, { tab: 'inspector', showClaim: true, open: true, focusEditor });
   return {
     keep: app.filters.keep,
     isFilteredOut: (node) => app.filters.hidesNode(node),
     // Viewer M1: a click selects and shows the claim; Enter and a double-click open the cited
-    // source beside the panel with focus kept here; Alt+Enter moves focus to the editor.
-    activateNode: (id) => app.select({ kind: 'node', id }, { tab: 'inspector', showClaim: true }),
-    activateEdge: (id) => app.select({ kind: 'edge', id }, { tab: 'inspector', showClaim: true }),
-    openNode: (id, focusEditor) => app.select({ kind: 'node', id }, { tab: 'inspector', showClaim: true, open: true, focusEditor }),
-    openEdge: (id, focusEditor) => app.select({ kind: 'edge', id }, { tab: 'inspector', showClaim: true, open: true, focusEditor }),
+    // source beside the panel with focus kept here; Alt+Enter moves focus to the editor. The
+    // click arms the double-click opener, so the second click opens even when the first one
+    // moved the card (a rail opening, a refit) or put the drawer under the pointer.
+    activateNode: (id, ev) => {
+      app.select({ kind: 'node', id }, { tab: 'inspector', showClaim: true });
+      app.doubleClick.arm(ev, () => openNode(id, false));
+    },
+    activateEdge: (id, ev) => {
+      app.select({ kind: 'edge', id }, { tab: 'inspector', showClaim: true });
+      app.doubleClick.arm(ev, () => openEdge(id, false));
+    },
+    openNode,
+    openEdge,
     clearFilters: () => app.clearFilters(),
     announce: (text) => app.announce(text),
     afterCollapse: () => {

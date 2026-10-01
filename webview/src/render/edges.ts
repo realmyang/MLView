@@ -185,6 +185,8 @@ export interface EdgeVisual {
    * as a small warning mark with a title; the DOM only (the SVG export is a snapshot without it).
    */
   stale?: boolean;
+  /** Every stale quote cites a file that is unchanged in another folder (the host's root hint). */
+  staleElsewhere?: boolean;
 }
 
 /** The glyph size of a cable's severity marker, and the radius of its disc. */
@@ -236,7 +238,8 @@ export function buildEdge(v: EdgeVisual): SVGElement {
   const hit = svg('path', { class: 'mlv-edge__hit', d: r.d });
   hit.setAttribute('tabindex', '-1');
   hit.setAttribute('role', 'button');
-  hit.setAttribute('aria-label', edgeAria(r, v.sourceLabel, v.targetLabel) + (v.stale ? ' Its evidence cites a changed or missing file.' : ''));
+  const staleText = v.staleElsewhere ? ' Its evidence cites a file in another folder.' : ' Its evidence cites a changed or missing file.';
+  hit.setAttribute('aria-label', edgeAria(r, v.sourceLabel, v.targetLabel) + (v.stale ? staleText : ''));
   g.appendChild(hit);
 
   const path = svg('path', { class: 'mlv-edge__path', d: r.d });

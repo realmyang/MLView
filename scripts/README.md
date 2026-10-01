@@ -20,7 +20,7 @@ which pins the exact `pytest` and `jsonschema` versions CI uses.
 | `python tools/fetch_workflow_repos.py --verify [--json]` | Read-only check of every checkout: pinned HEAD, clean state, sparse patterns and blob-exact files |
 | `python tools/fetch_workflow_repos.py --update-sparse` | Applies changed sparse patterns to clean checkouts at their pins, refusing to drop a covered file; may fetch newly included blobs |
 | `node --expose-gc webview/tools/benchmark-workflow.mjs` | Synthetic scale timings and representation/disposal checks; not browser paint |
-| `node webview/tools/screenshots/capture.mjs` | Opt-in headless-Chrome screenshots of the viewer with a simulated host ([details](../webview/README.md#screenshots-opt-in)); not a CI or e2e gate and not live VS Code validation |
+| `node webview/tools/screenshots/capture.mjs` | Opt-in headless-Chrome screenshots of the viewer with a simulated host ([details](../webview/README.md#screenshots-opt-in)); the capture is not a CI or e2e gate and not live VS Code validation, but `webview/test/screenshot-pipe.test.mjs` (its pipe and Chrome lookup) runs in `npm test`, CI and both e2e drivers |
 
 Both shell drivers delegate to `scripts/check.py` after picking an
 interpreter that reports Python 3.10+: `PYTHON` when set, otherwise

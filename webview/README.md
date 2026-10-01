@@ -35,9 +35,12 @@ state, and `refineWorkflow` messages through the bridge.
 Viewer M1 protocol details:
 
 - `stale` carries `files: [{ path, reason }]`, where `reason` is `changed`,
-  `missing`, `unreadable` or `too-large`. The viewer marks the cards,
-  connections, findings and quotes that cite those paths, disables their Open
-  links and counts them in the status bar. An empty list clears the marks.
+  `missing`, `unreadable`, `too-large` or `elsewhere`. The viewer marks the
+  cards, connections, findings and quotes that cite those paths, disables
+  their Open links and counts them in the status bar. An empty list clears
+  the marks. `elsewhere` is the root-hint case: the file is not under the
+  workspace root but is unchanged in another folder, so every surface says
+  "in another folder" and points to the notice, never "changed" or "missing".
 - `workflowError` after the mount is drawn as a notice under the header. The
   `checking` code goes to the status bar instead; the `root-hint` code adds
   **Add folder to workspace** and **Open folder**, which post
@@ -45,7 +48,11 @@ Viewer M1 protocol details:
 - `openLocation` opens beside the panel with focus kept there; `focus: true`
   (Alt+Enter, Alt+click) asks the host to move focus to the editor.
 - A click selects only. Enter, a double-click and the Inspector's Open links
-  open the cited range.
+  open the cited range of a step, connection, finding or Outline step; a
+  double-click on a group collapses it. The first click of a double-click
+  arms an opener (`src/ui/doubleclick.ts`), and the second click, wherever it
+  lands, opens what the first one selected: the first click can rebuild the
+  rows, collapse a finding above, or open the rail over the canvas.
 
 Viewer M1 Inspector content (no protocol change):
 
@@ -85,9 +92,13 @@ Viewer M1 cleanup (no contract change):
 
 `node tools/screenshots/capture.mjs` (from `webview/`) opens documents in the
 built viewer in headless Chrome and saves one PNG per state plus `index.json`.
-It is not part of `npm test`, CI or the e2e gates, and it needs a local Chrome
-or Chromium (set `CHROME` if it is not in the usual place). Node 20 is enough:
-it talks to Chrome over `--remote-debugging-pipe`, not a WebSocket.
+The capture itself is opt-in: it is not run by `npm test`, CI or the e2e
+gates, and it needs a local Chrome or Chromium (set `CHROME` if it is not in
+the usual place). Its plumbing is tested, though: `test/screenshot-pipe.test.mjs`
+(pipe framing and the Chrome lookup, no Chrome needed) runs in `npm test`, so
+in CI and in both e2e drivers, Windows included, and a change to
+`tools/screenshots/cdp.mjs` can fail those gates. Node 20 is enough: it talks
+to Chrome over `--remote-debugging-pipe`, not a WebSocket.
 
 ```sh
 node tools/screenshots/capture.mjs                    # sample + synthetic, dark theme

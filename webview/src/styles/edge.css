@@ -330,12 +330,12 @@
 /* Viewer M1: a connection whose evidence cites a stale file carries a small warning mark. */
 .mlv-edge__stalebg {
   fill: var(--mlv-surface);
-  stroke: var(--mlv-sev-medium);
+  stroke: var(--mlv-stale-ink);
   stroke-width: 1;
 }
 
 .mlv-edge__staleicon {
-  stroke: var(--mlv-sev-medium);
+  stroke: var(--mlv-stale-ink);
   stroke-width: 1.4;
   stroke-linecap: round;
   stroke-linejoin: round;

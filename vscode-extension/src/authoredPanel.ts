@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
-import { createNonce, findRootHint, rootHintText, staleBannerText, staleJumpText, staleToastText, themeKindOf, toEditorLine, type RootHint } from './authoredSupport';
+import { createNonce, findRootHint, rootHintJumpText, rootHintText, staleBannerText, staleJumpText, staleToastText, themeKindOf, toEditorLine, type RootHint } from './authoredSupport';
 import { MAX_EXPORT_BYTES, parseExportFileMessage, saveExportedFile } from './exportDiagram';
 import { DependencySet, identity } from './fileIdentity';
 import type { Logger } from './log';
@@ -24,17 +24,33 @@ const OPEN_FOLDER = 'Open Folder';
 /**
  * The cited range in the editor beside the panel: the theme's range highlight on every cited
  * line plus a mark in the overview ruler, so the lines stay visible while focus stays on the
- * diagram. Built from theme colours only.
+ * diagram. Built from theme colours only. High Contrast themes leave
+ * `editor.rangeHighlightBackground` undefined and mark a range highlight with
+ * `editor.rangeHighlightBorder` instead (A11Y-1), so the border is set too; outside High Contrast
+ * that colour is undefined and draws nothing.
  */
 const HIGHLIGHT_STYLE = (): vscode.DecorationRenderOptions => ({
     isWholeLine: true,
     backgroundColor: new vscode.ThemeColor('editor.rangeHighlightBackground'),
+    borderColor: new vscode.ThemeColor('editor.rangeHighlightBorder'),
+    borderStyle: 'solid',
+    borderWidth: '1px',
     overviewRulerColor: new vscode.ThemeColor('editorOverviewRuler.rangeHighlightForeground'),
     overviewRulerLane: vscode.OverviewRulerLane.Full,
     rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed
 });
 interface SavedState {
     artifact?: string;
+}
+/**
+ * One source jump: the revision and freshness it was decided against, and its place in the order
+ * of jumps. A jump that a newer one overtook stops before it touches an editor or the highlight
+ * (M1-R2: a notebook jump waiting for its cell editor cleared the highlight of a later jump).
+ */
+interface Jump {
+    revision: string;
+    freshness: number;
+    seq: number;
 }
 /** Outcome of reading the artifact bytes from disk (never from an editor buffer). */
 export type ArtifactRead = { kind: 'bytes'; bytes: Uint8Array } | { kind: 'missing' } | { kind: 'unreadable'; detail: string; transient?: boolean };
@@ -361,6 +377,8 @@ class AuthoredPanel implements vscode.Disposable {
     private lastHintToast: string | undefined;
     /** The whole-range highlight of the last source jump; disposing it clears it from every editor. */
     private highlight: vscode.TextEditorDecorationType | undefined;
+    /** The number of the latest source jump (see `Jump`). */
+    private jumpSeq = 0;
     constructor(private readonly panel: vscode.WebviewPanel, private readonly artifact: vscode.Uri, private folder: vscode.WorkspaceFolder, private readonly ctx: vscode.ExtensionContext, private readonly log: Logger, private readonly onDispose: () => void, private readonly validator: typeof validateWorkflow, private readonly io: AuthoredPanelIo) {
         this.artifactRel = toPosixRelative(folder.uri.fsPath, artifact.fsPath);
         this.dependencies.addPath(artifact.fsPath);
@@ -582,12 +600,15 @@ class AuthoredPanel implements vscode.Disposable {
     /**
      * The stale cited and inspected files of the displayed revision, each with its reason, so the
      * webview can mark the cards, connections, findings and quotes that cite them. Posted after
-     * the workflow frame, only when the set changed for this page.
+     * the workflow frame, only when the set changed for this page. A file the root hint found
+     * unchanged in another folder is sent as `elsewhere`, so the webview does not call it changed
+     * or missing while the notice says it did not change (COPY-1).
      */
     private postStale(): void {
         if (!this.ready || this.disposed)
             return;
-        const files = (this.lastValid?.stale ?? []).map(s => ({ path: s.rel, reason: s.reason }));
+        const elsewhere = new Set(this.rootHint?.files ?? []);
+        const files = (this.lastValid?.stale ?? []).map(s => ({ path: s.rel, reason: elsewhere.has(s.rel) ? 'elsewhere' : s.reason }));
         const key = JSON.stringify(files);
         if (key === (this.lastPostedStale ?? '[]'))
             return;
@@ -936,11 +957,10 @@ class AuthoredPanel implements vscode.Disposable {
         const evidence = shown?.document.evidence.find(x => x.id === id);
         if (!shown || !evidence)
             return;
-        const revision = shown.document.revision.id;
-        const freshness = this.freshnessVersion;
+        const jump: Jump = { revision: shown.document.revision.id, freshness: this.freshnessVersion, seq: ++this.jumpSeq };
         let behind = false;
         try {
-            await this.jumpTo(evidence, shown, revision, freshness, focus, () => { behind = true; });
+            await this.jumpTo(evidence, shown, jump, focus, () => { behind = true; });
         }
         finally {
             // The jump's own check found files the panel has not caught up with (no watcher event
@@ -949,12 +969,12 @@ class AuthoredPanel implements vscode.Disposable {
                 this.sourceChanged();
         }
     }
-    private async jumpTo(evidence: WorkflowEvidence, shown: ValidatedWorkflow, revision: string, freshness: number, focus: boolean, markBehind: () => void): Promise<void> {
+    private async jumpTo(evidence: WorkflowEvidence, shown: ValidatedWorkflow, jump: Jump, focus: boolean, markBehind: () => void): Promise<void> {
         let fresh: ValidatedWorkflow;
         if (await this.unchangedSinceValidation(shown, evidence)) {
             // The cited file's bytes are the ones the displayed revision was validated against, so
             // the quote still matches: no full revalidation for this jump.
-            if (!this.navigationCurrent(revision, freshness))
+            if (!this.navigationCurrent(jump))
                 return;
             fresh = shown;
         }
@@ -967,7 +987,7 @@ class AuthoredPanel implements vscode.Disposable {
             catch {
                 result = { issues: [{ path: '$', message: 'validation failed' }] };
             }
-            if (!result || !this.navigationCurrent(revision, freshness))
+            if (!result || !this.navigationCurrent(jump))
                 return;
             if (!result.value) {
                 const first = result.issues[0];
@@ -980,17 +1000,20 @@ class AuthoredPanel implements vscode.Disposable {
         }
         const staleFile = fresh.stale.find(s => s.rel === evidence.file);
         if (staleFile) {
-            void vscode.window.showWarningMessage(staleJumpText(evidence.id, displayText(evidence.file, 200), staleFile.reason, revision));
+            const hint = this.rootHint;
+            void vscode.window.showWarningMessage(hint && hint.files.includes(evidence.file)
+                ? rootHintJumpText(evidence.id, displayText(evidence.file, 200), hint, listFiles)
+                : staleJumpText(evidence.id, displayText(evidence.file, 200), staleFile.reason, jump.revision));
             return;
         }
         const open = await this.findOpenDocument(evidence);
-        if (!this.navigationCurrent(revision, freshness))
+        if (!this.navigationCurrent(jump))
             return;
         if (!this.unsavedTextStillCites(evidence, open)) {
             void vscode.window.showWarningMessage(`MLView: unsaved changes in ${displayText(evidence.file, 200)} no longer contain the lines cited by evidence ${evidence.id}; save or revert the file, then try again.`);
             return;
         }
-        await this.navigate(evidence, revision, freshness, open, focus);
+        await this.navigate(evidence, jump, open, focus);
     }
     /**
      * True when the cited file is fresh in the displayed revision's last validation and its bytes
@@ -1040,8 +1063,9 @@ class AuthoredPanel implements vscode.Disposable {
         }
         return true;
     }
-    private navigationCurrent(revision: string, freshness: number): boolean {
-        return !this.disposed && this.lastValid?.document.revision.id === revision && this.freshnessVersion === freshness;
+    /** The jump may still act: same revision and freshness, and no newer jump has started. */
+    private navigationCurrent(jump: Jump): boolean {
+        return !this.disposed && this.lastValid?.document.revision.id === jump.revision && this.freshnessVersion === jump.freshness && this.jumpSeq === jump.seq;
     }
     private navigationColumn(document: vscode.TextDocument, notebook?: vscode.NotebookDocument): vscode.ViewColumn {
         const sameUri = (left: vscode.Uri, right: vscode.Uri): boolean => left.toString() === right.toString();
@@ -1059,18 +1083,18 @@ class AuthoredPanel implements vscode.Disposable {
      * Open the cited source beside the panel, select the whole cited range and highlight it.
      * `focus` false (the default gesture) keeps the keyboard on the diagram.
      */
-    private async navigate(e: WorkflowEvidence, revision: string, freshness: number, open: { text?: vscode.TextDocument; notebook?: vscode.NotebookDocument }, focus: boolean): Promise<void> {
+    private async navigate(e: WorkflowEvidence, jump: Jump, open: { text?: vscode.TextDocument; notebook?: vscode.NotebookDocument }, focus: boolean): Promise<void> {
         const uri = open.notebook?.uri ?? open.text?.uri ?? vscode.Uri.file(path.join(this.folder.uri.fsPath, e.file));
         const start = toEditorLine(e.line), end = toEditorLine(e.endLine);
         if (e.cell !== undefined) {
-            await this.navigateCell(e.cell, uri, start, end, revision, freshness, focus);
+            await this.navigateCell(e.cell, uri, start, end, jump, focus);
             return;
         }
         const doc = await vscode.workspace.openTextDocument(uri);
-        if (!this.navigationCurrent(revision, freshness))
+        if (!this.navigationCurrent(jump))
             return;
         const editor = await vscode.window.showTextDocument(doc, { preview: true, preserveFocus: !focus, viewColumn: this.navigationColumn(doc) });
-        if (!this.navigationCurrent(revision, freshness))
+        if (!this.navigationCurrent(jump))
             return;
         this.showRange(editor, citedRange(doc, start, end));
     }
@@ -1080,9 +1104,9 @@ class AuthoredPanel implements vscode.Disposable {
      * only once the cell is drawn; when it does not appear in time, the cell stays selected and
      * revealed without the line highlight.
      */
-    private async navigateCell(index: number, uri: vscode.Uri, start: number, end: number, revision: string, freshness: number, focus: boolean): Promise<void> {
+    private async navigateCell(index: number, uri: vscode.Uri, start: number, end: number, jump: Jump, focus: boolean): Promise<void> {
         const notebook = await vscode.workspace.openNotebookDocument(uri);
-        if (!this.navigationCurrent(revision, freshness))
+        if (!this.navigationCurrent(jump))
             return;
         // VS Code clamps cellAt's index, so a removed cell must be detected by count.
         if (index >= notebook.cellCount) {
@@ -1092,11 +1116,12 @@ class AuthoredPanel implements vscode.Disposable {
         const cell = notebook.cellAt(index);
         const cells = new vscode.NotebookRange(index, index + 1);
         const notebookEditor = await vscode.window.showNotebookDocument(notebook, { preview: true, preserveFocus: !focus, viewColumn: this.navigationColumn(cell.document, notebook), selections: [cells] });
-        if (!this.navigationCurrent(revision, freshness))
+        if (!this.navigationCurrent(jump))
             return;
         notebookEditor.revealRange(cells, vscode.NotebookEditorRevealType.InCenterIfOutsideViewport);
         const cellEditor = await visibleEditorFor(cell.document, CELL_EDITOR_WAIT_MS);
-        if (!this.navigationCurrent(revision, freshness))
+        // A newer jump may have started during the wait: it owns the selection and the highlight.
+        if (!this.navigationCurrent(jump))
             return;
         if (cellEditor)
             this.showRange(cellEditor, citedRange(cell.document, start, end));

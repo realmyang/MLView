@@ -1,4 +1,4 @@
-export { createNonce, themeKindOf, toEditorLine, staleBreakdown, staleBannerText, staleToastText, staleJumpText, rootHintCandidates, mostlyMissing, findRootHint, rootHintText, hintFolderName } from './authoredSupport';
+export { createNonce, themeKindOf, toEditorLine, staleBreakdown, staleBannerText, staleToastText, staleJumpText, rootHintCandidates, mostlyMissing, findRootHint, rootHintText, rootHintJumpText, hintFolderName } from './authoredSupport';
 export {
   decodeExportPayload,
   defaultExportName,

@@ -333,8 +333,12 @@ export interface ActionResult {
   name?: string;
 }
 
-/** Why a cited or inspected file no longer matches the published revision (the host's hash check). */
-export type StaleReason = 'changed' | 'missing' | 'unreadable' | 'too-large';
+/**
+ * Why a cited or inspected file no longer matches the published revision (the host's hash check).
+ * `elsewhere`: missing under the workspace root but present, unchanged, in another folder; the
+ * host's `root-hint` notice names the folder and offers to add it (viewer M1 review, COPY-1).
+ */
+export type StaleReason = 'changed' | 'missing' | 'unreadable' | 'too-large' | 'elsewhere';
 
 /** One stale file, workspace-relative, as the host's `stale` frame carries it. */
 export interface StaleFile {

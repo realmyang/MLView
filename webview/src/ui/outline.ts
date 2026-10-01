@@ -24,8 +24,11 @@ import type { Severity } from '../types.js';
 import type { GraphIndex, IssuePredicate } from '../layout/model.js';
 
 export interface OutlineCallbacks {
-  /** A node row was clicked or Space was pressed: select it and centre the canvas on it. */
-  onSelectNode(id: string): void;
+  /**
+   * A node row was clicked or Space was pressed: select it and centre the canvas on it. A click
+   * passes its event, so the second click of a double-click can open the step.
+   */
+  onSelectNode(id: string, ev?: MouseEvent): void;
   /**
    * Enter on a node row (viewer M1): select it and open its cited source beside the panel, focus
    * kept here; `focusEditor` (Alt+Enter) moves focus to the editor.
@@ -185,7 +188,7 @@ function branch(ids: string[], s: OutlineState, cb: OutlineCallbacks): HTMLEleme
     add(row, el('span', 'mlv-outline__stage', node.basis || node.kind));
     const glyph = severityFor(s, id);
     if (glyph) row.appendChild(glyph);
-    on(row, 'click', () => cb.onSelectNode(id));
+    on(row, 'click', (ev: MouseEvent) => cb.onSelectNode(id, ev));
 
     if (kids.length) {
       const sub = branch(kids, s, cb);

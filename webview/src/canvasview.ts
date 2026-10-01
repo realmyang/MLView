@@ -38,7 +38,7 @@ import { wireEdgeEvents, wireNodeEvents } from './canvas/wiring.js';
 import { HOVER_CLOSE_MS, HOVER_OPEN_MS, MINIMAP_MIN_CANVAS_H, MINIMAP_MIN_NODES } from './canvas/host.js';
 import type { CanvasHost, NextSelection } from './canvas/host.js';
 import type { Shell } from './ui/shell.js';
-import type { Sel } from './types.js';
+import type { Sel, StaleFile, StaleReason } from './types.js';
 
 export type { CanvasHost, NextSelection };
 export { HOVER_CLOSE_MS, HOVER_OPEN_MS };
@@ -67,7 +67,7 @@ export class CanvasView {
   /** VIEW-03: where every edge label and severity marker goes. */
   private labelPlan: LabelPlan | null = null;
   private collapsedSet = new Set<string>();
-  private staleFiles: string[] = [];
+  private staleFiles = new Map<string, StaleReason>();
   private nodeEls = new Map<string, HTMLElement>();
   private edgeEls = new Map<string, SVGElement>();
   /** Route id -> where its severity marker is drawn, for the edge hover resolver. */
@@ -235,8 +235,8 @@ export class CanvasView {
     this.minimap.setCollapsed(collapsed);
   }
 
-  setStale(files: string[]): void {
-    this.staleFiles = files;
+  setStale(files: StaleFile[]): void {
+    this.staleFiles = new Map(files.map((file) => [file.path, file.reason] as [string, StaleReason]));
   }
 
   nodeElement(id: string): HTMLElement | undefined {
@@ -412,7 +412,7 @@ export class CanvasView {
       isGroup: (id: string) => !!this.index && this.index.isGroup(id),
       toggleCollapse: (id: string) => this.toggleCollapse(id),
       hoverIntent: (id: string | null) => this.emphasis.hoverIntent(id),
-      activateNode: (id: string) => this.host.activateNode(id),
+      activateNode: (id: string, ev?: MouseEvent) => this.host.activateNode(id, ev),
       openNode: (id: string, focusEditor: boolean) => this.host.openNode(id, focusEditor),
       addDisposer: (dispose: () => void) => this.disposers.push(dispose),
     };
@@ -420,7 +420,7 @@ export class CanvasView {
 
   private edgeWiring() {
     return {
-      activateEdge: (id: string) => this.host.activateEdge(id),
+      activateEdge: (id: string, ev?: MouseEvent) => this.host.activateEdge(id, ev),
       openEdge: (id: string, focusEditor: boolean) => this.host.openEdge(id, focusEditor),
       enterEdge: (route: RoutedEdge) => this.edgeHover.enter(route),
       leaveEdge: (route: RoutedEdge) => this.edgeHover.leave(route),

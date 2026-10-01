@@ -376,6 +376,28 @@ test('a card\'s accessible name carries the phase label and the claim\'s first s
   }
 });
 
+test('an abbreviation such as "i.e." or "e.g." does not end the spoken claim (M1-R4)', async () => {
+  const ie = 'Applies RandomHorizontalFlip, ToTensor and Normalize per channel, i.e. pixel values end up in [-1, 1]. Labels are left as they are.';
+  const eg = 'Builds the loaders (e.g. train and val) from the config, etc. Each loader shuffles.';
+  const runOn = 'Logs the loss, i.e. the mean over the batch, and keeps going with more words so that no real sentence end falls inside the first one hundred and sixty characters of it';
+  const details = { load: ie, opt: eg, sched: runOn };
+  const nodes = doc().nodes.map((node) => (details[node.id] ? { ...node, detail: details[node.id] } : node));
+  const ctx = await mount(doc({ nodes }));
+  try {
+    const claimOf = (id) => {
+      const name = card(ctx, id).getAttribute('aria-label');
+      return name.slice(name.indexOf('. ') + 2);
+    };
+    assert.equal(claimOf('load'), 'Applies RandomHorizontalFlip, ToTensor and Normalize per channel, i.e. pixel values end up in [-1, 1].');
+    assert.equal(claimOf('opt'), 'Builds the loaders (e.g. train and val) from the config, etc. Each loader shuffles.');
+    const cut = claimOf('sched');
+    assert.ok(cut.endsWith('…'), 'no real sentence end within 160 characters: cut at a word and marked, not stopped at "i.e.": ' + cut);
+    assert.ok(cut.length > 'Logs the loss, i.e.'.length + 10, cut);
+  } finally {
+    ctx.app.destroy();
+  }
+});
+
 test('notebook cells are counted from 0 everywhere, as the evidence records them and the model labels them', async () => {
   const notebook = doc({
     nodes: [

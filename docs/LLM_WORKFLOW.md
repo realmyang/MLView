@@ -98,8 +98,9 @@ The owning workspace folder supplies the citation root. The artifact cannot
 select another folder or supply absolute source paths.
 
 Click a node, edge or finding to select it and inspect its basis and evidence;
-a click never opens source. Enter, a double-click or an Inspector **Open** link
-opens the cited range beside the diagram, selects and highlights the whole
+a click never opens source. Enter, a double-click (on a step, connection,
+finding or Outline step; a double-click on a group collapses it) or an
+Inspector **Open** link opens the cited range beside the diagram, selects and highlights the whole
 range, and keeps focus in the diagram so the keyboard keeps working. Alt+Enter
 (or Alt+click on an Open link) also moves focus to the editor. A notebook
 citation selects its cell; the cell's lines are highlighted when VS Code has
@@ -234,10 +235,13 @@ right. Ask the assistant to publish a fresh revision to update the diagram.
 If most tracked files are missing from the workspace root but exist, with
 their published hashes, under the artifact's folder or a folder between it and
 the root, the source did not change: the workspace root is wrong. The banner
-says "These files exist under ./<folder>/ but the workspace root is <root>"
-and offers **Add folder to workspace** and **Open folder**. MLView never
-resolves citations against another folder on its own; the panel checks again
-when the workspace folders change.
+says "source.py is not in the workspace root (<root>/). It is in ./<folder>/,
+unchanged (it matches its published hash)." and offers **Add folder to
+workspace** and **Open folder**. The marks, the status bar, the Inspector and
+a blocked jump say the file is "in another folder" and point to that notice,
+not that it changed or went missing. MLView never resolves citations against
+another folder on its own; the panel checks again when the workspace folders
+change.
 
 Unsaved editor changes do not make a diagram stale, because freshness uses the
 saved files. The banner lists files with unsaved changes, and a jump is

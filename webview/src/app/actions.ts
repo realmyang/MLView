@@ -23,7 +23,8 @@ export function openLocation(app: App, loc: Loc | RelatedLoc, focusEditor = fals
   if (!app.caps.canOpenSource) return;
   const reason = loc.evidenceId ? app.freshness.reasonOf(loc.file) : undefined;
   if (reason) {
-    const text = loc.file + ': ' + STALE_TEXT[reason] + '. Not opened; the cited lines may no longer be there.';
+    // A file in another folder (the root hint) did not change: the notice says where it is.
+    const text = loc.file + ': ' + STALE_TEXT[reason] + '. Not opened' + (reason === 'elsewhere' ? '.' : '; the cited lines may no longer be there.');
     app.view.toast(text);
     app.announce(text);
     return;

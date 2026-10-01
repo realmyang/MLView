@@ -187,12 +187,27 @@ export function hintFolderName(hint: RootHint): string {
     return './' + rel + '/';
 }
 
-/** The banner and notification text for a root hint. */
+/** The workspace root as the reader sees it in the hint: its folder name with a trailing slash. */
+function hintRootName(hint: RootHint, list: (names: readonly string[]) => string): string {
+    return list([(path.basename(hint.root) || hint.root).replace(/[\\/]+$/, '') + '/']);
+}
+
+/**
+ * The banner and notification text for a root hint. The files lead and each folder is named
+ * once, so the list never reads as a location of the root (COPY-3).
+ */
 export function rootHintText(hint: RootHint, list: (names: readonly string[]) => string): string {
-    const root = list([path.basename(hint.root) || hint.root]);
+    const root = hintRootName(hint, list);
     const folder = list([hintFolderName(hint)]);
     const one = hint.files.length === 1;
-    return `${one ? 'This file exists' : 'These files exist'} under ${folder} but the workspace root is ${root}: ${list(hint.files)}. ` +
-        `${one ? 'It matches its' : 'They match their'} published hash${one ? '' : 'es'}, so the source did not change; MLView looks for ${one ? 'it' : 'them'} in the wrong folder. ` +
+    return `${list(hint.files)} ${one ? 'is' : 'are'} not in the workspace root (${root}). ` +
+        `${one ? 'It is' : 'They are'} in ${folder}, unchanged (${one ? 'it matches its published hash' : 'they match their published hashes'}). ` +
         `Add ${folder} to the workspace, or open it in its own window.`;
+}
+
+/** Why the host blocked a jump into a file the root hint found in another folder. */
+export function rootHintJumpText(evidenceId: string, file: string, hint: RootHint, list: (names: readonly string[]) => string): string {
+    const folder = list([hintFolderName(hint)]);
+    return `MLView: evidence ${evidenceId} cites ${file}, which is not in the workspace root (${hintRootName(hint, list)}) but is unchanged in ${folder}; ` +
+        `navigation to it is blocked. Add ${folder} to the workspace, or open it in its own window.`;
 }

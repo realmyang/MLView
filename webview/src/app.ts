@@ -39,6 +39,7 @@ import { ScopeBar } from './ui/scopebar.js';
 import { decorateWorkflow, normalizeWorkflow, sanitizeComposer } from './workflow.js';
 import { FreshnessState } from './freshness.js';
 import { HostNotice } from './ui/hostnotice.js';
+import { DoubleClickOpener } from './ui/doubleclick.js';
 import { KNOWN_EDGE_KINDS } from './render/edges.js';
 import { buildAppUi } from './app/build.js';
 import { scopeToNode, setGraph, setScope } from './app/documents.js';
@@ -178,6 +179,8 @@ export class App implements MLViewApp {
   search!: SearchController;
   liveEl!: HTMLElement;
   notice!: HostNotice;
+  /** Viewer M1 review: the second click of a double-click opens what the first one selected. */
+  doubleClick: DoubleClickOpener;
 
   saveSoon = debounce(() => this.bridge.saveState(this.getState()), 250);
 
@@ -186,6 +189,8 @@ export class App implements MLViewApp {
     this.bridge = bridge;
     this.caps = bridge.capabilities;
     this.themes = new ThemeController(root, bridge.theme || 'light');
+    this.doubleClick = new DoubleClickOpener(root);
+    this.disposers.push(() => this.doubleClick.dispose());
     buildAppUi(this);
     const restored = safeLoad(bridge);
     if (restored) applyState(this, restored, false);
@@ -280,7 +285,7 @@ export class App implements MLViewApp {
    */
   setStale(files: StaleFile[]): void {
     if (!this.freshness.set(files)) return;
-    this.view.setStale(this.freshness.paths());
+    this.view.setStale(this.freshness.list());
     if (this.index) this.view.refresh(this.selection);
     renderChrome(this);
     renderRail(this);
