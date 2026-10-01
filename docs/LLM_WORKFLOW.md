@@ -241,7 +241,10 @@ workspace** and **Open folder**. The marks, the status bar, the Inspector and
 a blocked jump say the file is "in another folder" and point to that notice,
 not that it changed or went missing. MLView never resolves citations against
 another folder on its own; the panel checks again when the workspace folders
-change.
+change. In a single-folder window, adding the folder makes VS Code turn the
+window into an untitled multi-root workspace and restart its extensions;
+MLView then closes the old diagram tab and opens the diagram again in the same
+editor group, where it is checked against the added folder.
 
 Unsaved editor changes do not make a diagram stale, because freshness uses the
 saved files. The banner lists files with unsaved changes, and a jump is

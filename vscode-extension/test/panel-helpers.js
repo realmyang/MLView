@@ -24,9 +24,9 @@ const sha256 = (value) => crypto.createHash('sha256').update(value).digest('hex'
 function tempRoot(prefix) {
   return fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
 }
-function context() {
+function context(globalState = vscode.__memento()) {
   const extensionPath = path.join(__dirname, '..');
-  return { extensionPath, extensionUri: vscode.Uri.file(extensionPath), subscriptions: [] };
+  return { extensionPath, extensionUri: vscode.Uri.file(extensionPath), subscriptions: [], globalState };
 }
 function log() {
   const lines = [];
@@ -57,7 +57,7 @@ const results = (panel) => panel.posted.filter((m) => m.type === 'actionResult')
 
 /**
  * Open a panel on a fresh realpath'd workspace. `files` maps rel -> text (default source.py = "fit()\n");
- * `raw` is the artifact document (object or string).
+ * `raw` is the artifact document (object or string); `globalState` is the context's memento.
  */
 async function openPanel(options = {}) {
   vscode.__reset();
@@ -72,7 +72,8 @@ async function openPanel(options = {}) {
   fs.writeFileSync(artifact, typeof raw === 'string' ? raw : JSON.stringify(raw));
   vscode.__setWorkspaceFolders([options.folder || root]);
   const logger = log();
-  const controller = new api.AuthoredDiagramController(context(), logger, options.validator, options.io);
+  const ctx = context(options.globalState);
+  const controller = new api.AuthoredDiagramController(ctx, logger, options.validator, options.io);
   controller.register();
   await controller.open(vscode.Uri.file(options.openPath || artifact));
   const panel = vscode.__recorded.panels.at(-1);
@@ -80,7 +81,7 @@ async function openPanel(options = {}) {
     panel.fire({ v: 1, type: 'ready' });
     await tick();
   }
-  return { root, artifact, controller, panel, log: logger };
+  return { root, artifact, controller, panel, log: logger, ctx };
 }
 /** Fire one watcher event and wait until the resulting reload has settled (the checking banner is replaced). */
 async function diskEvent(panel, kind, file, label = 'reload did not settle') {

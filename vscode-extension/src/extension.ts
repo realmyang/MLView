@@ -14,6 +14,8 @@ export function activate(ctx: vscode.ExtensionContext): void {
   authoredController = new AuthoredDiagramController(ctx, log);
   authoredController.register();
   ctx.subscriptions.push(authoredController);
+  // After the root hint's "Add folder" restarted the extension host: replace the dead diagram tabs.
+  void authoredController.recoverAfterRestart().catch((error: unknown) => log.error('reopening diagrams after the restart failed', error));
 }
 
 export function deactivate(): void {

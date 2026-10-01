@@ -121,6 +121,16 @@ The Inspector's stale note no longer says "the claim was not re-checked".
 Checked by local tests only (jsdom and the mock `vscode` module), not in live
 VS Code ([changelog](../CHANGELOG.md)).
 
+Unreleased viewer M1, live check fix: **Add folder to workspace** in a
+single-folder window no longer leaves a dead diagram tab. VS Code restarts its
+extensions when it turns the window into a multi-root workspace and does not
+revive the panel, so MLView saves a one-minute note first and, after the
+restart, closes the dead tab and opens the diagram again in the same group,
+checked against the added folder. Multi-root windows still recheck in place;
+Reload Window already revived the panel. Checked by mock `vscode` tests and in
+an isolated VS Code 1.139 Extension Development Host
+([changelog](../CHANGELOG.md)).
+
 Version 0.3.0 adds Campaign 2, "pilot readiness" (see the
 [changelog](../CHANGELOG.md)): owner decision files with a `check` command,
 the campaign freeze and `check-frozen`, the v2 pilot candidate that builds its

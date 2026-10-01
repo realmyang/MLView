@@ -29,5 +29,7 @@ export {
   readArtifactFile,
   folderSpelling,
   AUTHORED_VIEW_TYPE,
+  REOPEN_STATE_KEY,
+  REOPEN_WINDOW_MS,
   OPEN_AUTHORED_COMMAND
 } from './authoredPanel';

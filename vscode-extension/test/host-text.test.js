@@ -131,7 +131,9 @@ test('SECURITY1-3: restore and open refuse a ".." path that leaves the workspace
   await fixture.controller.open(vscode.Uri.file(sneaky));
   assert.equal(vscode.__recorded.panels.length, panels);
   assert.equal(vscode.__recorded.messages.at(-1)[1], 'MLView: the generated diagram must belong to an open workspace folder.');
-  // A ".." spelling that stays inside the folder opens the normalised artifact.
+  // A ".." spelling that stays inside the folder opens the normalised artifact (one panel per
+  // artifact: the panel already showing it is closed first).
+  fixture.panel.dispose();
   const inside = fixture.root + '/sub/../run.mlview.json';
   const accepted = vscode.window.createWebviewPanel('mlview.authoredDiagram', 'restored', {}, {});
   await serializer.deserializeWebviewPanel(accepted, { artifact: inside });

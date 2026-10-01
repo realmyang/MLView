@@ -212,6 +212,47 @@ tests: 282.
   test runs the lookup in a child Node process whose `node:path` is
   `path.win32`. The docs no longer say the harness is outside every gate.
 
+Live check fix (`vscode-extension/`): **Add folder to workspace** in a
+single-folder window left a dead diagram tab. VS Code turns the window into an
+untitled multi-root workspace and restarts every extension host. The panel
+stayed open, still showing the hint, and its buttons did nothing: VS Code
+1.139 calls a panel serializer only for tabs it restores when a window loads,
+not after an extension host restart. Re-running **MLView: Open Generated
+Diagram** gave a second panel beside the dead one.
+
+- Before it asks VS Code to add the folder in a single-folder window, the
+  extension saves a short note in its global state: the window's session, the
+  folder, and each open diagram's artifact and tab title. The note goes in
+  the global state because VS Code 1.139 starts the new workspace with an
+  empty workspace state. After the restart, the new extension host closes the
+  dead diagram tab (one per noted diagram, matched by title) and opens the
+  diagram again in the same editor group. There it validates against the
+  added folder. The note is used once. It is ignored if it is more than a
+  minute old, belongs to another window, or names a folder the workspace does
+  not contain. Other tabs, including a restored diagram tab never shown, are
+  left alone.
+- A multi-root window keeps its extension host, so the panel still validates
+  again in place and no note is saved. **Developer: Reload Window** already
+  revived the panel through the serializer, with the artifact and view state
+  the webview saves. One change there: a revived tab whose diagram is already
+  shown in another panel is now closed, so each artifact has one panel. Before,
+  the revived panel replaced the other in the extension's list, and the other
+  stopped receiving file changes. Two existing restore tests now close the
+  first panel before restoring the same artifact.
+- Tests: `vscode-extension/test/folder-add-restart.test.js` (11 cases with the
+  mock `vscode` module, which gains `window.tabGroups`, `TabInputWebview`,
+  `workspace.workspaceFile` and `env.sessionId`). Extension tests: 293.
+- Checked in an isolated VS Code 1.139 Extension Development Host (throwaway
+  profile, driven over the DevTools protocol). In a single-folder window on
+  the parent folder, **Add folder to workspace** now ends with one diagram
+  tab, revalidated with no notice, and Enter on a selected card opens the
+  cited range. With two diagrams in two editor groups, both were replaced in
+  their groups (checked with a build from before the one-panel-per-artifact
+  change, which that path does not use). Reload Window revives the panel, both
+  when it is in front and when it is a background tab that is then shown. In
+  a multi-root window the panel revalidates in place. This was a check of
+  these paths only, not a usability study or a review.
+
 ## Unreleased — viewer fixes from the Stage 1 review
 
 Two viewer defects the owner reported while reading pilot diagrams in VS Code,

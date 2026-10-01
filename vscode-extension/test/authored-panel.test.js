@@ -34,7 +34,7 @@ function manualTimers() {
 }
 function context() {
   const extensionPath=path.join(__dirname,'..');
-  return {extensionPath,extensionUri:vscode.Uri.file(extensionPath),subscriptions:[]};
+  return {extensionPath,extensionUri:vscode.Uri.file(extensionPath),subscriptions:[],globalState:vscode.__memento()};
 }
 function log() { return {info(){},warn(){},error(){},dispose(){}}; }
 function workflow(file='source.py') {
@@ -157,6 +157,8 @@ test('initial and restored historical artifacts stay visible when cited source c
   opened.fire({v:1,type:'openLocation',evidenceId:'e'});await new Promise((resolve)=>setTimeout(resolve,20));
   assert.equal(vscode.__recorded.shownDocuments.length,0);
 
+  // One panel per artifact: a revived tab for an artifact already shown is closed, so close it first.
+  opened.dispose();
   const restored=vscode.window.createWebviewPanel('mlview.authoredDiagram','restored',{},{});
   const serializer=vscode.__recorded.serializers.get('mlview.authoredDiagram');
   await serializer.deserializeWebviewPanel(restored,{artifact});

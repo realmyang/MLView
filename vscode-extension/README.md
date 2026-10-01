@@ -29,7 +29,10 @@ under the artifact's folder or a folder above it), the notice names the files
 and the folder that holds them, unchanged, and offers **Add folder to
 workspace** or **Open folder**. The marks, the status bar, the Inspector and a
 blocked jump say "in another folder" instead of calling the files changed or
-missing. The panel checks again whenever workspace folders change.
+missing. The panel checks again whenever workspace folders change. In a
+single-folder window, adding the folder makes VS Code turn the window into an
+untitled multi-root workspace and restart its extensions; MLView then closes
+the old diagram tab and opens the diagram again in the same place.
 
 A click on a step, connection or finding selects it and shows its claim.
 The Inspector shows the full claim, the findings on it with **What to change**,

@@ -294,12 +294,16 @@ const recorded = {
   workspaceFolderUpdates: [],
   /** Every commands.executeCommand(id, ...args) call. */
   executedCommands: [],
+  /** Every window.tabGroups.close(tabs, preserveFocus) call. */
+  closedTabs: [],
   /** H10: every languages.registerCodeLensProvider registration. */
   codeLensProviders: []
 };
 
 const configValues = new Map();
 let workspaceFolders;
+/** `workspace.workspaceFile`, set by `__setWorkspaceFile`. */
+let workspaceFile;
 /** FIFO of answers `show*Message` returns, set by `__answerMessage`. */
 const messageAnswers = [];
 /** VIEW-07: what the next showSaveDialog / showQuickPick returns, queued by the test. */
@@ -477,6 +481,27 @@ function makeWebviewPanel(viewType, title, showOptions, options) {
   return panel;
 }
 
+/** A webview tab's input, as the tabs API reports it (VS Code prefixes the view type). */
+class TabInputWebview {
+  constructor(viewType) {
+    this.viewType = viewType;
+  }
+}
+
+/** A text tab's input. */
+class TabInputText {
+  constructor(uri) {
+    this.uri = uri;
+  }
+}
+
+/**
+ * The editor tab groups (`window.tabGroups`), set by `__setTabGroups`. Each group is
+ * `{ viewColumn, tabs }` and each tab `{ label, input, isActive, group }`, like VS Code's.
+ * `close` records the call and removes the tabs, the way closing an editor does.
+ */
+let tabGroups = [];
+
 const vscode = {
   version: '1.136.0-mock',
   Position,
@@ -499,6 +524,8 @@ const vscode = {
   LanguageModelToolResult,
   ViewColumn: { One: 1, Two: 2, Beside: -2 },
   NotebookRange,
+  TabInputWebview,
+  TabInputText,
   NotebookEditorRevealType: { Default: 0, InCenter: 1, InCenterIfOutsideViewport: 2, AtTop: 3 },
   OverviewRulerLane: { Left: 1, Center: 2, Right: 4, Full: 7 },
   DecorationRangeBehavior: { OpenOpen: 0, ClosedClosed: 1, OpenClosed: 2, ClosedOpen: 3 },
@@ -555,6 +582,18 @@ const vscode = {
       return type;
     },
     createWebviewPanel: makeWebviewPanel,
+    tabGroups: {
+      get all() {
+        return tabGroups;
+      },
+      async close(tabs, preserveFocus) {
+        const list = Array.isArray(tabs) ? tabs : [tabs];
+        // `panels`: how many panels had been created when the tabs were closed.
+        recorded.closedTabs.push({ tabs: list, preserveFocus, panels: recorded.panels.length });
+        for (const group of tabGroups) group.tabs = group.tabs.filter((tab) => !list.includes(tab));
+        return true;
+      }
+    },
     registerWebviewPanelSerializer: (viewType, serializer) => {
       recorded.serializers.set(viewType, serializer);
       return { dispose() {} };
@@ -629,6 +668,10 @@ const vscode = {
     isTrusted: true,
     get workspaceFolders() {
       return workspaceFolders;
+    },
+    /** Undefined in a single-folder window; the workspace file's Uri in a multi-root one. */
+    get workspaceFile() {
+      return workspaceFile;
     },
     getConfiguration(section, resource) {
       // Resource-scoped reads win over the global value, exactly like a folder-level
@@ -788,7 +831,9 @@ const vscode = {
   },
   env: {
     clipboard: { writeText: async (value) => void recorded.clipboardWrites.push(value) },
-    openExternal: async () => true
+    openExternal: async () => true,
+    /** The window session; the same across an extension host restart (set it to play another window). */
+    sessionId: 'mock-session'
   },
   extensions: { getExtension: () => undefined },
   CancellationTokenSource,
@@ -884,6 +929,43 @@ const vscode = {
   __resetConfig() {
     configValues.clear();
   },
+  /** A multi-root window's workspace file (a path, or an `untitled:` string); undefined for a single-folder window. */
+  __setWorkspaceFile(value) {
+    workspaceFile = value === undefined ? undefined : String(value).startsWith('untitled:') ? Uri.parse(String(value)) : Uri.file(value);
+  },
+  /**
+   * Set the editor tab groups. Each spec is `{ viewColumn, tabs: [{ label, viewType?, uri?, isActive? }] }`:
+   * a tab with `viewType` is a webview tab, one with `uri` a text tab. Returns the groups.
+   */
+  __setTabGroups(specs) {
+    tabGroups = (specs || []).map((spec) => {
+      const group = { viewColumn: spec.viewColumn, isActive: !!spec.isActive, tabs: [] };
+      group.tabs = (spec.tabs || []).map((tab) => ({
+        label: tab.label,
+        input: tab.viewType !== undefined ? new TabInputWebview(tab.viewType) : new TabInputText(Uri.file(tab.uri || '/untitled')),
+        isActive: !!tab.isActive,
+        group
+      }));
+      return group;
+    });
+    return tabGroups;
+  },
+  /** A Memento like `ExtensionContext.globalState`: `values` is the store, `updates` every update call. */
+  __memento(initial) {
+    const values = new Map(Object.entries(initial || {}));
+    const memento = {
+      values,
+      updates: [],
+      keys: () => [...values.keys()],
+      get: (key, fallback) => (values.has(key) ? values.get(key) : fallback),
+      async update(key, value) {
+        memento.updates.push({ key, value });
+        if (value === undefined) values.delete(key);
+        else values.set(key, JSON.parse(JSON.stringify(value)));
+      }
+    };
+    return memento;
+  },
   /** Open one or more folders. Paths are forward-slashed absolute paths. */
   __setWorkspaceFolders(roots) {
     workspaceFolders = roots
@@ -931,6 +1013,10 @@ const vscode = {
     recorded.visibleEditorListeners.length = 0;
     recorded.workspaceFolderUpdates.length = 0;
     recorded.executedCommands.length = 0;
+    recorded.closedTabs.length = 0;
+    tabGroups = [];
+    workspaceFile = undefined;
+    vscode.env.sessionId = 'mock-session';
     notebookCellEditors = true;
     saveDialogAnswers.length = 0;
     quickPickAnswers.length = 0;
