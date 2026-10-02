@@ -12,6 +12,7 @@
 
 import { add, el, iconButton, on } from '../dom.js';
 import { uiIcon } from '../icons.js';
+import { keyLabel } from './platform.js';
 
 /** The three exports the menu offers, all of the whole diagram (VIEW-07). */
 export type ExportActionId = 'svg' | 'png' | 'copy-svg';
@@ -44,13 +45,15 @@ interface ItemSpec {
 }
 
 const ITEMS: ItemSpec[] = [
-  { id: 'search', label: 'Search steps and findings', icon: 'search', keys: 'Ctrl+K', folded: true },
+  // Viewer M2 live fix: the find key, printed for the platform (⌘F on macOS); it was Ctrl+K.
+  { id: 'search', label: 'Search steps and findings', icon: 'search', keys: 'Mod+F', folded: true },
   { id: 'about', label: 'About this revision', icon: 'info', folded: true },
   { id: 'exceptions', label: 'Not observed', icon: 'notobserved', check: true, folded: true },
   { id: 'legend', label: 'Legend', icon: 'legend', keys: 'L', check: true, group: true },
   { id: 'flow', label: 'Connection flow animation', icon: 'flow', keys: 'A', check: true },
   { id: 'minimap', label: 'Overview map', icon: 'minimap', check: true },
-  { id: 'rail', label: 'Side panel', icon: 'rail', keys: 'Ctrl+B', check: true },
+  // Viewer M2 live fix: `b` on the canvas; Ctrl/Cmd+B also toggled the workbench's side bar.
+  { id: 'rail', label: 'Side panel', icon: 'rail', keys: 'B', check: true },
   { id: 'fit', label: 'Fit the whole diagram', icon: 'fit', group: true },
   { id: 'zoomsel', label: 'Zoom to the selection', icon: 'target', keys: 'Z' },
   { id: 'svg', label: 'Export SVG…', icon: 'image', group: true },
@@ -76,6 +79,11 @@ export interface MoreMenuState {
   legendOpen: boolean;
   flowOn: boolean;
   minimapShown: boolean;
+  /**
+   * Viewer M2 live fix: why the minimap is not drawn now (too few cards, no room beside the code,
+   * a short canvas), or null. The item is then disabled, unchecked, and says why.
+   */
+  minimapUnavailable: string | null;
   railOpen: boolean;
   /** Viewer M2: the rail item is "Side panel" while docked and "Bottom panel" as a sheet. */
   railMode: 'docked' | 'sheet';
@@ -155,7 +163,8 @@ export class MoreMenu {
       if (spec.folded) item.setAttribute('data-folded', '1');
       item.appendChild(uiIcon(spec.icon, 14));
       add(item, el('span', 'mlv-moremenu__label', spec.label));
-      if (spec.keys) add(item, el('kbd', 'mlv-moremenu__keys', spec.keys)).setAttribute('aria-hidden', 'true');
+      if (spec.id === 'minimap') add(item, el('span', 'mlv-moremenu__note')).hidden = true;
+      if (spec.keys) add(item, el('kbd', 'mlv-moremenu__keys', keyLabel(spec.keys))).setAttribute('aria-hidden', 'true');
       on(item, 'click', (ev: MouseEvent) => {
         ev.preventDefault();
         if (item.disabled) return;
@@ -223,8 +232,18 @@ export class MoreMenu {
         item.title = s.railMode === 'sheet' ? 'Open or collapse the bottom panel' : 'Show or hide the side panel';
       }
       if (spec.check) {
-        const on_ = id === 'legend' ? s.legendOpen : id === 'flow' ? s.flowOn : id === 'minimap' ? s.minimapShown : id === 'exceptions' ? s.exceptionsOn : s.railOpen;
+        const on_ = id === 'legend' ? s.legendOpen : id === 'flow' ? s.flowOn : id === 'minimap' ? s.minimapShown && !s.minimapUnavailable : id === 'exceptions' ? s.exceptionsOn : s.railOpen;
         item.setAttribute('aria-checked', on_ ? 'true' : 'false');
+      }
+      if (id === 'minimap') {
+        // Viewer M2 live fix: never checked while the map is not drawn; the reason is on the item.
+        const note = item.querySelector<HTMLElement>('.mlv-moremenu__note');
+        if (note) {
+          note.textContent = s.minimapUnavailable || '';
+          note.hidden = !s.minimapUnavailable;
+        }
+        item.disabled = !!s.minimapUnavailable;
+        item.title = s.minimapUnavailable ? 'Overview map: ' + s.minimapUnavailable.charAt(0).toLowerCase() + s.minimapUnavailable.slice(1) : 'Show or hide the overview map';
       }
       if (id === 'zoomsel') item.disabled = !s.hasSelection;
       if (EXPORTS.indexOf(id) >= 0) item.disabled = !s.canExport;

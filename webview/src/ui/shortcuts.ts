@@ -6,6 +6,7 @@
 import { add, el, iconButton, on } from '../dom.js';
 import { uiIcon } from '../icons.js';
 import { KEYMAP } from './keymap.js';
+import { isMac, keyLabel } from './platform.js';
 import { restoreFocus, trapTab } from './focustrap.js';
 
 export class ShortcutSheet {
@@ -51,15 +52,18 @@ export class ShortcutSheet {
     // Viewer M1: the pointer gestures, which KEYMAP (keys only) cannot list. Only what each
     // target does (DOC-1): a group's double-click collapses it, and the Outline's connection and
     // phase rows only select.
+    // Viewer M2 live fix: every key is printed for the reader's platform (⌘F, ⌥Enter on macOS).
+    const mac = isMac();
+    const alt = mac ? 'Option' : 'Alt';
     add(panel, el('p', 'mlv-sheet__note',
       'Click a card, connection, finding or Outline row to select it and read its claim. ' +
       'Double-click a step, connection, finding or Outline step, or press Enter on it, to open the cited source beside the diagram; focus stays here. ' +
       'Double-click a group to collapse it. ' +
-      'Alt+click an Open link, or press Alt+Enter, to move focus to the editor.'));
+      alt + '+click an Open link, or press ' + keyLabel('Alt+Enter', mac) + ', to move focus to the editor.'));
     const list = add(panel, el('dl', 'mlv-sheet__list'));
     for (const binding of KEYMAP) {
       const keys = add(list, el('dt', 'mlv-sheet__keys'));
-      for (const k of binding.keys) add(keys, el('kbd', 'mlv-kbd', k));
+      for (const k of binding.keys) add(keys, el('kbd', 'mlv-kbd', keyLabel(k, mac)));
       add(list, el('dd', 'mlv-sheet__desc', binding.description));
     }
   }

@@ -7,7 +7,7 @@
 
 import { SEVERITY_ORDER } from '../markers.js';
 import type { KeyCommands } from './keymap.js';
-import type { Issue, RailTab, Severity } from '../types.js';
+import type { Issue, RailTab, Sel, Severity } from '../types.js';
 
 /** The operations the keyboard is allowed to reach. Implemented by App. */
 export interface CommandPort {
@@ -34,14 +34,25 @@ export interface CommandPort {
   move(key: string): void;
   toggleSeverity(sev: Severity): void;
   toggleRail(): void;
-  /** Viewer M2: Ctrl+1 to Ctrl+4. In the bottom sheet this opens it and focuses the tab. */
-  showRailTab(tab: RailTab): void;
+  /** Viewer M2 live fix: `t`, the panel's current tab gets the focus (the panel opens first). */
+  focusRailTabs(): void;
   toggleShortcuts(): void;
   cycleConnections(backwards: boolean): boolean;
 }
 
-/** Every rail tab, in strip order: Ctrl+1 About, Ctrl+2 Findings, Ctrl+3 Selection, Ctrl+4 Outline (viewer M2). */
+/** Every rail tab, in strip order: About, Findings, Selection, Outline (viewer M2). */
 export const RAIL_TABS: readonly RailTab[] = ['about', 'issues', 'inspector', 'outline'];
+
+/**
+ * Viewer M2 live fix: a saved selection, or null when it is not a step, connection or finding with
+ * a string id (a hand-edited or future state). `setGraph` then drops an id the document lacks.
+ */
+export function sanitizeSelection(value: unknown): Sel | null {
+  if (!value || typeof value !== 'object') return null;
+  const { kind, id } = value as { kind?: unknown; id?: unknown };
+  if ((kind !== 'node' && kind !== 'edge' && kind !== 'issue') || typeof id !== 'string' || !id) return null;
+  return { kind, id };
+}
 
 /** A saved or posted tab, or null when it is not one of ours. */
 export function sanitizeRailTab(value: unknown): RailTab | null {
@@ -77,9 +88,7 @@ export function canvasCommands(port: CommandPort): KeyCommands {
       if (sev) port.toggleSeverity(sev);
     },
     toggleRail: () => port.toggleRail(),
-    selectRailTab: (i) => {
-      if (RAIL_TABS[i]) port.showRailTab(RAIL_TABS[i]);
-    },
+    focusRailTabs: () => port.focusRailTabs(),
     toggleShortcuts: () => port.toggleShortcuts(),
     cycleConnections: (backwards) => port.cycleConnections(backwards),
   };

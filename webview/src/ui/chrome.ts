@@ -37,6 +37,7 @@ import { uiIcon } from '../icons.js';
 import { severityGlyph, SEVERITY_ORDER } from '../markers.js';
 import { RovingGroup } from './roving.js';
 import { MoreMenu } from './moremenu.js';
+import { keyLabel } from './platform.js';
 import type { MoreItemId } from './moremenu.js';
 import type { FreshnessStatus } from '../freshness.js';
 import type { Filters, MLGraph, Severity, WorkflowDocument } from '../types.js';
@@ -93,6 +94,8 @@ export interface ChromeState {
   flowOn: boolean;
   legendOpen: boolean;
   minimapCollapsed: boolean;
+  /** Viewer M2 live fix: why the minimap is not drawn now, or null when it is (the ... menu says it). */
+  minimapUnavailable: string | null;
   railOpen: boolean;
   /** The status bar's freshness item, or null before a document arrives. */
   freshness: FreshnessStatus | null;
@@ -241,7 +244,8 @@ export class Chrome {
       if (!this.searchInput.value) this.setSearchOpen(false);
     });
 
-    this.searchBtn = iconButton('mlv-btn mlv-btn--icon mlv-header__searchbtn', 'Search (Ctrl+K)');
+    // Viewer M2 live fix: the find key for the platform (⌘F on macOS); it said Ctrl+K.
+    this.searchBtn = iconButton('mlv-btn mlv-btn--icon mlv-header__searchbtn', 'Search (' + keyLabel('Mod+F') + ')');
     this.searchBtn.appendChild(uiIcon('search', 16));
     this.searchBtn.setAttribute('aria-controls', this.searchInput.id);
     on(this.searchBtn, 'click', () => cb.onSearchOpen());
@@ -419,6 +423,7 @@ export class Chrome {
       legendOpen: s.legendOpen,
       flowOn: s.flowOn,
       minimapShown: !s.minimapCollapsed,
+      minimapUnavailable: s.minimapUnavailable,
       railOpen: s.railOpen,
       railMode: s.railMode,
       hasSelection: s.hasSelection,

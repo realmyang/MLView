@@ -8,13 +8,6 @@
  * chrome -> chromestates -> chromepanels.
  */
 
-/* A narrow panel has no room for the overview map beside the diagram. */
-@media (max-width: 900px) {
-  .mlv-minimap {
-    display: none;
-  }
-}
-
 /* keyboard shortcut sheet (`?`, UX_DESIGN §9) */
 .mlv-sheet {
   position: absolute;

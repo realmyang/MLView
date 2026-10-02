@@ -163,6 +163,125 @@ test('a later jump keeps its highlight when an earlier notebook jump stops waiti
   assert.deepEqual(shown()[0].editor.decorations[0].ranges.map(range), [[0, 0, 0, 'fit()'.length]]);
 });
 
+/* ── viewer M2 live fix 2: a jump reuses an editor group other than the panel's own ─────────────── */
+
+const DIAGRAM_TAB = 'mainThreadWebview-mlview.authoredDiagram';
+/** The editor groups in `columns`; the panel's group is `panelColumn`, every other one shows a file. */
+function layout(panel, panelColumn, columns) {
+  vscode.__setTabGroups(columns.map((viewColumn) => ({
+    viewColumn,
+    tabs: [viewColumn === panelColumn ? { label: panel.title, viewType: DIAGRAM_TAB, isActive: true } : { label: `code${viewColumn}.py`, uri: `/code${viewColumn}.py`, isActive: true }]
+  })));
+  panel.__setViewState({ viewColumn: panelColumn });
+}
+const groupCount = () => vscode.window.tabGroups.all.length;
+
+/** A .py citation (`e2`, source.py) and a notebook cell citation (`e`, notes.ipynb cell 1). */
+function mixed() {
+  const { document, files } = notebookDocument();
+  document.evidence.push({ id: 'e2', file: 'source.py', line: 1, endLine: 1, quote: 'fit()' });
+  document.nodes[0].evidence.push('e2');
+  document.coverage.inspectedFiles.push('source.py');
+  return { document, files: { ...files, 'source.py': 'fit()\n', 'other.ipynb': files['notes.ipynb'] } };
+}
+async function openMixed() {
+  const { document, files } = mixed();
+  const fixture = await open({ raw: document, files, ready: false });
+  const notebooks = vscode.__setNotebooks([
+    { path: path.join(fixture.root, 'notes.ipynb'), cells: [{ text: 'a()' }, { text: 'x = 1\nfit()\nsave()' }] },
+    { path: path.join(fixture.root, 'other.ipynb'), cells: [{ text: 'a()' }] }
+  ]);
+  fixture.panel.fire({ v: 1, type: 'ready' });
+  await h.tick();
+  return { ...fixture, notebooks };
+}
+
+test('live fix 2: beside a notebook group, a .py jump opens in that group, never a third one', async () => {
+  // MEASURED live before the fix (VS Code 1.139): the diagram at 541 px beside a notebook group;
+  // Enter on a .py citation opened a THIRD group and the diagram dropped to 271 px. A notebook's
+  // cell editors report no column, so the old rule fell through to ViewColumn.Beside.
+  const { panel, root } = await openMixed();
+  layout(panel, 2, [1, 2]);
+  vscode.__setVisibleNotebookEditors([{ path: path.join(root, 'notes.ipynb'), viewColumn: 1 }]);
+  vscode.__setVisibleTextEditors([{ path: path.join(root, 'notes.ipynb') + '#cell0' }]);
+  panel.fire({ v: 1, type: 'openLocation', evidenceId: 'e2' });
+  await h.waitFor(() => shown().length === 1, 'the .py jump did not open');
+  const { options, editor } = shown()[0];
+  assert.equal(options.viewColumn, 1, 'the notebook\'s group, beside the panel');
+  assert.equal(groupCount(), 2, 'no third group');
+  assert.equal(options.preserveFocus, true, 'the diagram keeps the keyboard');
+  assert.deepEqual(editor.decorations[0].ranges.map(range), [[0, 0, 0, 'fit()'.length]], 'the range is still highlighted');
+  // The notebook citation goes to the same group, where its notebook already is.
+  panel.fire({ v: 1, type: 'openLocation', evidenceId: 'e' });
+  await h.waitFor(() => vscode.__recorded.shownNotebooks.length === 1, 'the notebook jump did not open');
+  assert.equal(vscode.__recorded.shownNotebooks[0].options.viewColumn, 1);
+  assert.equal(vscode.__recorded.shownNotebooks[0].options.preserveFocus, true);
+  assert.equal(groupCount(), 2);
+});
+
+test('live fix 2: a notebook jump beside a group showing another notebook reuses that group', async () => {
+  const { panel, root } = await openMixed();
+  layout(panel, 2, [1, 2]);
+  vscode.__setVisibleNotebookEditors([{ path: path.join(root, 'other.ipynb'), viewColumn: 1 }]);
+  vscode.__setVisibleTextEditors([{ path: path.join(root, 'other.ipynb') + '#cell0' }]);
+  panel.fire({ v: 1, type: 'openLocation', evidenceId: 'e' });
+  await h.waitFor(() => vscode.__recorded.decorationTypes.length === 1, 'the cell lines were not highlighted');
+  const { options } = vscode.__recorded.shownNotebooks[0];
+  assert.equal(options.viewColumn, 1, 'the open group beside the panel, not a new one');
+  assert.equal(options.preserveFocus, true);
+  assert.deepEqual(plain(options.selections), [{ start: 1, end: 2 }], 'the cited cell is selected');
+  assert.equal(groupCount(), 2);
+});
+
+test('live fix 2: the previous jump\'s group wins while it exists, then the group the reader used last', async () => {
+  const { document, files } = twoFiles();
+  const { panel } = await open({ raw: document, files });
+  layout(panel, 2, [1, 2, 3]);
+  // The reader last worked in group 3 (a webview taking the focus reports no editor).
+  vscode.__setActiveEditor({ path: '/code3.py', viewColumn: 3 });
+  vscode.__setActiveEditor(undefined);
+  panel.fire({ v: 1, type: 'openLocation', evidenceId: 'e' });
+  await h.waitFor(() => shown().length === 1, 'the first jump did not open');
+  assert.equal(shown()[0].options.viewColumn, 3, 'the group used last, though group 1 is as near');
+  // The reader clicks into group 1, then jumps again: the previous jump's group still wins.
+  vscode.__setActiveEditor({ path: '/code1.py', viewColumn: 1 });
+  panel.fire({ v: 1, type: 'openLocation', evidenceId: 'e2' });
+  await h.waitFor(() => shown().length === 2, 'the second jump did not open');
+  assert.equal(shown()[1].options.viewColumn, 3, 'the previous jump\'s group');
+  // Group 3 is closed: the group used last takes over.
+  layout(panel, 2, [1, 2]);
+  panel.fire({ v: 1, type: 'openLocation', evidenceId: 'e' });
+  await h.waitFor(() => shown().length === 3, 'the third jump did not open');
+  assert.equal(shown()[2].options.viewColumn, 1);
+  assert.equal(groupCount(), 2, 'never a new group while one exists');
+});
+
+test('live fix 2: a panel alone opens one group beside it, and later jumps reuse that group', async () => {
+  const { document, files } = twoFiles();
+  const { panel } = await open({ raw: document, files });
+  layout(panel, 1, [1]);
+  panel.fire({ v: 1, type: 'openLocation', evidenceId: 'e' });
+  await h.waitFor(() => shown().length === 1, 'the first jump did not open');
+  assert.equal(shown()[0].options.viewColumn, vscode.ViewColumn.Beside, 'alone, the source opens beside the panel');
+  assert.equal(groupCount(), 2);
+  panel.fire({ v: 1, type: 'openLocation', evidenceId: 'e2' });
+  await h.waitFor(() => shown().length === 2, 'the second jump did not open');
+  assert.equal(shown()[1].options.viewColumn, 2, 'the group the first jump opened');
+  assert.equal(groupCount(), 2, 'no third group');
+});
+
+test('live fix 2: the panel\'s own group is never chosen, even when an editor there is reported', async () => {
+  const { document, files } = twoFiles();
+  const { panel, root } = await open({ raw: document, files });
+  layout(panel, 2, [1, 2]);
+  // Stale reports from before the diagram took the front of group 2.
+  vscode.__setVisibleTextEditors([{ path: path.join(root, 'source.py'), viewColumn: 2, active: true }]);
+  vscode.__setActiveEditor({ path: path.join(root, 'source.py'), viewColumn: 2 });
+  panel.fire({ v: 1, type: 'openLocation', evidenceId: 'e' });
+  await h.waitFor(() => shown().length === 1, 'the jump did not open');
+  assert.equal(shown()[0].options.viewColumn, 1);
+});
+
 test('a jump into an unchanged file reads that file only and skips the full validation', async () => {
   let calls = 0;
   const validator = async (...args) => { calls++; return api.validateWorkflow(...args); };

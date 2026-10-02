@@ -49,7 +49,7 @@ function commandPort(app: App): CommandPort {
     move: (key) => moveSelection(app, key),
     toggleSeverity: (sev) => app.applyFilters(() => app.filters.toggleSeverity(sev)),
     toggleRail: () => app.toggleRail(),
-    showRailTab: (tab) => app.showRailTab(tab),
+    focusRailTabs: () => app.focusRailTabs(),
     toggleShortcuts: (next) => app.toggleShortcuts(next),
     sheetOpen: () => app.sheet.open,
     closeHeaderPanels: () => app.closeHeaderPanels(),

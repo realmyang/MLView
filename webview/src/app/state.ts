@@ -11,7 +11,7 @@
 import { syncCollapsed } from './documents.js';
 import { composerViewState } from '../workflow.js';
 import { renderChrome, renderRail } from './surfaces.js';
-import { sanitizeRailTab } from '../ui/commands.js';
+import { sanitizeRailTab, sanitizeSelection } from '../ui/commands.js';
 import type { App } from '../app.js';
 import type { HostBridge, ViewState } from '../types.js';
 
@@ -26,7 +26,11 @@ export function applyState(app: App, state: ViewState, rerender: boolean): void 
     const index = app.index;
     if (index) app.view.setCollapsed(state.collapsed.filter((id) => index.isGroup(id)));
   }
-  if (state.selection) app.selection = state.selection;
+  // Viewer M2 live fix: a state the page restores itself (`rerender` false, the App's constructor)
+  // keeps its selection for the first `setWorkflow`, which applies it only for the revision it was
+  // saved with; a state the host posts (`restoreState`) applies at once.
+  const selection = sanitizeSelection(state.selection);
+  if (rerender && selection) app.selection = selection;
   if (typeof state.minimapCollapsed === 'boolean') app.view.setMinimapCollapsed(state.minimapCollapsed);
   if (typeof state.flow === 'boolean') app.setFlow(state.flow);
   if (typeof state.legendOpen === 'boolean') app.setLegend(state.legendOpen);
@@ -64,6 +68,8 @@ export function snapshotState(app: App): ViewState {
     // VIEWUI-4: the Refine composer of that revision, absent at its default.
     const composer = composerViewState(app.root);
     if (composer) state.composer = composer;
+    // Viewer M2 live fix: an open bottom sheet, absent when it is collapsed or the rail is docked.
+    if (app.railMode === 'sheet' && app.railOpen) state.sheetOpen = true;
   }
   return state;
 }

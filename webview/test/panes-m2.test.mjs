@@ -468,16 +468,18 @@ test('the sheet takes the focus only from the keyboard; Escape collapses it and 
     assert.equal(rail(ctx).contains(ctx.document.activeElement), false, 'a pointer selection leaves the focus out of the sheet');
     ctx.app.collapseSheet(false);
     canvas.focus();
-    keydown(ctx, canvas, '3', { ctrlKey: true });
-    assert.equal(rail(ctx).getAttribute('data-expanded'), 'true', 'Ctrl+3 opens the sheet');
-    assert.equal(ctx.document.activeElement, $(ctx, '.mlv-rail__tab[data-tab="inspector"]'), 'and focuses the Selection tab');
+    // Viewer M2 live fix: `t` replaced Ctrl+1 to Ctrl+4 (the workbench binds those chords too).
+    keydown(ctx, canvas, 't');
+    assert.equal(rail(ctx).getAttribute('data-expanded'), 'true', '`t` opens the sheet');
+    assert.equal(ctx.document.activeElement, $(ctx, '.mlv-rail__tab[data-tab="inspector"]'), 'and focuses its current tab, Selection');
     const esc = keydown(ctx, ctx.document.activeElement, 'Escape');
     assert.equal(esc.defaultPrevented, true);
     assert.equal(rail(ctx).getAttribute('data-expanded'), 'false', 'Escape collapses it');
     assert.equal(ctx.document.activeElement, canvas, 'and the canvas has the focus again');
     assert.equal(ctx.app.getState().selection.id, 'load', 'the selection stays');
-    keydown(ctx, canvas, '1', { ctrlKey: true });
-    assert.equal(tab(ctx), 'about');
+    keydown(ctx, canvas, 't');
+    keydown(ctx, ctx.document.activeElement, 'Home');
+    assert.equal(tab(ctx), 'about', 'the tab strip\'s own keys pick a tab');
     assert.equal(ctx.document.activeElement, $(ctx, '.mlv-rail__tab[data-tab="about"]'));
     // Escape from the canvas collapses an open sheet before it clears the selection.
     canvas.focus();
@@ -489,22 +491,24 @@ test('the sheet takes the focus only from the keyboard; Escape collapses it and 
   } finally {
     ctx.app.destroy();
   }
-  // Docked, Ctrl+2 switches the tab and leaves the focus where it was.
+  // Docked, `t` moves the focus to the current tab too, and the arrows switch tabs.
   const wide = await mount(doc(), { width: 1440 });
   try {
     const canvas = $(wide, '.mlv-canvas');
     canvas.focus();
-    keydown(wide, canvas, '2', { ctrlKey: true });
+    keydown(wide, canvas, 't');
+    assert.equal(wide.document.activeElement, $(wide, '.mlv-rail__tab[data-tab="about"]'));
+    keydown(wide, wide.document.activeElement, 'ArrowRight');
     assert.equal(tab(wide), 'issues');
-    assert.equal(wide.document.activeElement, canvas);
-    keydown(wide, canvas, '4', { ctrlKey: true });
-    assert.equal(tab(wide), 'outline', 'Ctrl+4 is the Outline');
-    // A docked rail the reader hid opens on the tab asked for.
-    wide.app.toggleRail();
+    keydown(wide, wide.document.activeElement, 'End');
+    assert.equal(tab(wide), 'outline');
+    // A docked rail the reader hid (`b`, which replaced Ctrl+B) opens on `t`.
+    canvas.focus();
+    keydown(wide, canvas, 'b');
     assert.equal(rail(wide).hidden, true);
-    keydown(wide, canvas, '3', { ctrlKey: true });
+    keydown(wide, canvas, 't');
     assert.equal(rail(wide).hidden, false);
-    assert.equal(tab(wide), 'inspector');
+    assert.equal(wide.document.activeElement, $(wide, '.mlv-rail__tab[data-tab="outline"]'));
   } finally {
     wide.app.destroy();
   }

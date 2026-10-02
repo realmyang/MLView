@@ -117,7 +117,7 @@ const LIGHT: Palette = {
   sevLowInk: '#FFFFFF',
   stageUnknown: '#7A8090',
   nodeEdge: '',
-  phases: ['#00796B', '#6A4FB3', '#8D6E2F', '#B0457E', '#558B2F', '#0B7F99', '#546E7A', '#1F6FB2'],
+  phases: ['#00796B', '#6A4FB3', '#0A693C', '#A0388F', '#558B2F', '#0B7F99', '#546E7A', '#1F6FB2'],
   laneTint: 0.025,
   groupTint: 0,
 };
@@ -142,7 +142,7 @@ const DARK_OVERRIDES: Partial<Palette> = {
   sevMediumInk: '#2A1A00',
   sevLowInk: '#0B1020',
   stageUnknown: '#8B93A7',
-  phases: ['#4DB6AC', '#A48BE0', '#C9A56B', '#D98CB3', '#9CCC65', '#4FC3D9', '#90A4AE', '#6FA8DC'],
+  phases: ['#4DB6AC', '#A48BE0', '#4CA871', '#D684C5', '#9CCC65', '#4FC3D9', '#90A4AE', '#6FA8DC'],
   laneTint: 0.035,
   groupTint: 0,
 };

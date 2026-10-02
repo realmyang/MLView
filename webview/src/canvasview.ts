@@ -35,7 +35,7 @@ import { Toasts, buildEmptyState, buildFilterEmptyState } from './ui/states.js';
 import { wireCanvasGestures } from './ui/shell.js';
 import { Emphasis } from './canvas/emphasis.js';
 import { wireEdgeEvents, wireNodeEvents } from './canvas/wiring.js';
-import { HOVER_CLOSE_MS, HOVER_OPEN_MS, MINIMAP_MIN_CANVAS_H, MINIMAP_MIN_NODES } from './canvas/host.js';
+import { HOVER_CLOSE_MS, HOVER_OPEN_MS, MINIMAP_MIN_CANVAS_H, MINIMAP_MIN_NODES, MINIMAP_NARROW_W } from './canvas/host.js';
 import type { CanvasHost, NextSelection } from './canvas/host.js';
 import type { Shell } from './ui/shell.js';
 import type { Sel, StaleFile, StaleReason } from './types.js';
@@ -234,6 +234,29 @@ export class CanvasView {
     this.minimap.setCollapsed(collapsed);
   }
 
+  /**
+   * Viewer M2 live fix: the panel's width decides whether the minimap has room (`.is-narrow`,
+   * styles/workflow.css; MINIMAP_NARROW_W). An unmeasurable panel (jsdom, a detached mount)
+   * leaves it as it was.
+   */
+  setPanelWidth(width: number): void {
+    if (!(width > 0)) return;
+    this.minimap.root.classList.toggle('is-narrow', width <= MINIMAP_NARROW_W);
+  }
+
+  /**
+   * Viewer M2 live fix: why the minimap is not drawn now, in words for the ... menu, or null when
+   * it is drawn (collapsed to its tab or not). Before, the menu showed "Overview map" checked
+   * while the stylesheet hid the map beside the code.
+   */
+  minimapUnavailable(): string | null {
+    const root = this.minimap.root;
+    if (root.hidden) return 'Shown when ' + MINIMAP_MIN_NODES + ' or more cards are drawn';
+    if (root.classList.contains('is-narrow')) return 'No room in a panel ' + MINIMAP_NARROW_W + ' px wide or narrower';
+    if (root.classList.contains('is-short')) return 'No room in a canvas under ' + MINIMAP_MIN_CANVAS_H + ' px tall';
+    return null;
+  }
+
   setStale(files: StaleFile[]): void {
     this.staleFiles = new Map(files.map((file) => [file.path, file.reason] as [string, StaleReason]));
   }
@@ -344,18 +367,31 @@ export class CanvasView {
   }
 
   /**
-   * The window or the canvas resized (issue 6). Campaign 3 review (VL-1): a selected target that
-   * was in view stays in view. Following evidence from a docked rail opens a split, the panel
-   * narrows, and (viewer M2) the rail the reader is using becomes the bottom sheet under the
-   * canvas; the target is re-centred, at the same zoom, in the canvas left above the sheet.
+   * The window or the canvas resized (issue 6), or the rail changed shape: docked to the bottom
+   * sheet, the sheet opening, collapsing or being dragged. Campaign 3 review (VL-1): a selected
+   * target that was wholly in view stays wholly in view.
+   *
+   * Viewer M2 live fix: such a target is kept by the least pan that brings it back, at the same
+   * zoom, and a fitted viewport is NOT refitted while it holds one. Before, the refit won: a card
+   * selected beside a docked rail at 1430 px, with the first view untouched, was left under the
+   * open sheet or off the canvas when Enter opened the source beside the panel and halved it,
+   * because the readable fit for 715 px anchors on phase 1. A target the reader had already moved
+   * out of view is left where it is, and nothing here runs except on a change of size or layout,
+   * so a reader panning away is never pulled back.
    */
   handleResize(): void {
     const kept = this.host.keptTarget();
     const target = kept ? this.targetRect(kept) : null;
     const before = this.lastArea;
     const wasVisible = !!(target && before && this.viewport.isVisible(target, before));
-    const refitted = this.viewport.onResize();
-    if (!refitted && target && wasVisible && !this.viewport.isVisible(target)) this.viewport.centerOn(target);
+    if (target && wasVisible) {
+      // Keep the picture (no refit) and take the new size as the one a fit would compare against.
+      this.viewport.acceptResize();
+      this.viewport.apply();
+      if (!this.viewport.isVisible(target)) this.viewport.revealRect(target);
+    } else {
+      this.viewport.onResize();
+    }
     this.syncShortCanvas();
   }
 

@@ -319,9 +319,9 @@ test('M2-INT-2 / A11Y-5: the severity numbers and "not observed" name their unit
   }
 });
 
-/* ── M2R-9: Ctrl/Cmd+F and Ctrl/Cmd+K leave a modal surface alone ──────────────────────────── */
+/* ── M2R-9: Ctrl/Cmd+F leaves a modal surface alone (Ctrl/Cmd+K is no longer bound) ───────── */
 
-test('M2R-9: Ctrl+F in the shortcut sheet and Cmd+K in the Refine… popover keep the focus inside them', async () => {
+test('M2R-9: Ctrl+F in the shortcut sheet and Cmd+F in the Refine… popover keep the focus inside them', async () => {
   const ctx = await mount(doc(), { width: 1440 });
   try {
     ctx.app.toggleShortcuts(true);
@@ -337,7 +337,7 @@ test('M2R-9: Ctrl+F in the shortcut sheet and Cmd+K in the Refine… popover kee
     assert.equal(composer.hidden, false);
     const inside = composer.querySelector('select, input, button');
     inside.focus();
-    keydown(ctx, inside, 'k', { metaKey: true });
+    keydown(ctx, inside, 'f', { metaKey: true });
     assert.ok(composer.contains(ctx.document.activeElement), 'the focus stayed in the open popover');
     // Outside any modal the key still focuses the search.
     keydown(ctx, ctx.document.activeElement, 'Escape');

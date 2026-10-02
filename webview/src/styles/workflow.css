@@ -156,7 +156,10 @@
   min-height: min(320px, 50vh);
 }
 
-/* Issue 6: a canvas too short for the minimap to summarise anything (canvasview.ts). */
-.mlv-minimap.is-short {
+/* Issue 6: a canvas too short for the minimap to summarise anything (canvasview.ts). Viewer M2
+ * live fix: a panel 900 px wide or narrower has no room for it beside the diagram either; the App
+ * sets `.is-narrow` from the panel's width (it was an @media rule), so the ... menu says why. */
+.mlv-minimap.is-short,
+.mlv-minimap.is-narrow {
   display: none;
 }

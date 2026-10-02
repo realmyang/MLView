@@ -238,6 +238,75 @@ test('connections, card borders and phase tones reach 3:1 in Dark Modern, Light 
   assert.ok(report.length > 0);
 });
 
+/* ── viewer M2 live fix 3: phase tones keep clear of the warning and error hues ────────────────── */
+
+/** HSL hue in degrees (NaN for a grey). */
+function hslHue([r, g, b]) {
+  const [x, y, z] = [r / 255, g / 255, b / 255];
+  const max = Math.max(x, y, z);
+  const d = max - Math.min(x, y, z);
+  if (!d) return NaN;
+  const h = max === x ? ((y - z) / d) % 6 : max === y ? (z - x) / d + 2 : (x - y) / d + 4;
+  return (h * 60 + 360) % 360;
+}
+
+/** OKLab (Björn Ottosson, 2020) of an sRGB colour, for a perceptual hue and distance. */
+function oklab([r, g, b]) {
+  const lin = (v) => {
+    const s = v / 255;
+    return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  };
+  const [R, G, B] = [lin(r), lin(g), lin(b)];
+  const l = Math.cbrt(0.4122214708 * R + 0.5363325363 * G + 0.0514459929 * B);
+  const m = Math.cbrt(0.2119034982 * R + 0.6806995451 * G + 0.1073969566 * B);
+  const s = Math.cbrt(0.0883024619 * R + 0.2817188376 * G + 0.6299787005 * B);
+  return [0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s, 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s, 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s];
+}
+const okHue = (c) => {
+  const [, a, b] = oklab(c);
+  return ((Math.atan2(b, a) * 180) / Math.PI + 360) % 360;
+};
+const hueGap = (p, q) => {
+  const d = Math.abs(p - q) % 360;
+  return d > 180 ? 360 - d : d;
+};
+
+test('live fix 3: no phase tone is within 30 degrees of hue of the warning, stale or error colour, and the tones stay apart', async () => {
+  // Before the fix, phase 3 (tone 2, #C9A56B dark and #8D6E2F light) was 2-14 degrees of hue (HSL
+  // and OKLCH) from editorWarning.foreground, so a stale card in phase 3 read as one colour; tone 3
+  // (#D98CB3) was 30.4 degrees of HSL hue from Dark Modern's editorError.foreground.
+  const themes = await themeVars();
+  for (const { label, kind, vars } of Object.values(themes)) {
+    const bg = colour('var(--mlv-bg)', vars);
+    const refs = {
+      'editorWarning.foreground': over(colour('var(--vscode-editorWarning-foreground)', vars), bg),
+      'the stale mark (--mlv-stale-ink)': over(colour('var(--mlv-stale-ink)', vars), bg),
+      'editorError.foreground': over(colour('var(--vscode-editorError-foreground)', vars), bg),
+    };
+    const tones = PHASES.map((i) => over(colour(`var(--mlv-phase-${i})`, vars), bg));
+    tones.forEach((tone, i) => {
+      for (const [name, ref] of Object.entries(refs)) {
+        for (const [measure, hue] of [['HSL', hslHue], ['OKLCH', okHue]]) {
+          const gap = hueGap(hue(tone), hue(ref));
+          assert.ok(gap >= 30, `${label}: phase tone ${i} is ${gap.toFixed(1)} degrees of ${measure} hue from ${name}`);
+        }
+      }
+    });
+    if (kind === 'hc') continue;
+    // Distinguishable from each other: no two tones closer in OKLab than 0.06 (the M2 palette's
+    // closest pairs, among the teal, cyan, slate and blue tones, were 0.067-0.069 apart; the moved
+    // tones keep further than that from every other tone).
+    let closest = Infinity;
+    for (let i = 0; i < tones.length; i++) {
+      for (let j = i + 1; j < tones.length; j++) {
+        const [p, q] = [oklab(tones[i]), oklab(tones[j])];
+        closest = Math.min(closest, Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]));
+      }
+    }
+    assert.ok(closest >= 0.06, `${label}: two phase tones are ${closest.toFixed(3)} apart in OKLab`);
+  }
+});
+
 test('exceptions mode fades observed claims through fill and stroke only, so text keeps 4.5:1', async () => {
   const themes = await themeVars();
   const node = await css('node.css');
@@ -435,7 +504,9 @@ test('finding badges use F1..Fn in document order; the real id stays in tooltips
   ctx.app.select({ kind: 'node', id: 'save' }, { tab: 'inspector' });
   const head = ctx.q('.mlv-insp__issue[data-issue-id="f-gamma"] .mlv-insp__issue-head');
   assert.equal(head.querySelector('.mlv-insp__short').textContent, 'F3');
-  assert.equal(head.querySelector('.mlv-mono').textContent, 'f-gamma');
+  // Viewer M2 live fix: the real id is on its own line under the title, not in the head row.
+  assert.equal(head.querySelector('.mlv-mono'), null);
+  assert.equal(ctx.q('.mlv-insp__issue[data-issue-id="f-gamma"] .mlv-insp__issue-id').textContent, 'f-gamma');
   // Refine and Challenge name the finding by its real id, never by the short label.
   ctx.app.select({ kind: 'issue', id: 'f-gamma' }, { tab: 'issues' });
   ctx.q('.mlv-workflow__refine').click();

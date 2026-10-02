@@ -310,9 +310,12 @@ function appendFindings(parent: HTMLElement, issues: Issue[], title: string, s: 
     const title = button('mlv-link mlv-insp__issue-title', issue.title, 'Select finding ' + (issue.short ? issue.short + ', ' : '') + issue.title);
     on(title, 'click', () => cb.onShowIssue(issue.id));
     head.appendChild(title);
-    add(head, el('span', 'mlv-mono', issue.code));
     const chip = basisChip(issue);
     if (chip) head.appendChild(chip);
+    // Viewer M2 live fix: the real id on its own muted line under the title. Set beside the title
+    // in a 360 px rail it had a column a few letters wide and broke letter by letter
+    // ("f-plot-/not-/random").
+    add(box, el('p', 'mlv-insp__issue-id mlv-mono', issue.code));
     if (issue.message) add(box, el('p', 'mlv-insp__line', issue.message));
     const suggestion = suggestionBlock(issue, 'h6');
     if (suggestion) box.appendChild(suggestion);

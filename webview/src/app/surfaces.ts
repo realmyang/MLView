@@ -53,6 +53,7 @@ export function renderChrome(app: App): void {
     filters: app.filters.value,
     visibleCounts: visibleCounts(app),
     minimapCollapsed: app.view.minimapCollapsed,
+    minimapUnavailable: app.view.minimapUnavailable(),
     railOpen: app.railOpen,
     freshness: freshnessStatus(app.workflowDocument, app.freshness),
     checking: app.freshness.checking,

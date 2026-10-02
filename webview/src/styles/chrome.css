@@ -456,6 +456,39 @@
   font-size: var(--mlv-fs-11);
 }
 
+/* Viewer M2 live fix: the overview map's item says why the map is not drawn, on a second line in
+ * the description colour, so the disabled item keeps readable text (no fade) and its check mark
+ * stays on the first line. */
+.mlv-moremenu__item[data-more-item="minimap"] {
+  flex-wrap: wrap;
+  row-gap: 0;
+}
+
+.mlv-moremenu__item[data-more-item="minimap"]::after {
+  order: 2;
+}
+
+.mlv-moremenu__item[data-more-item="minimap"][disabled] {
+  opacity: 1;
+}
+
+.mlv-moremenu__item[data-more-item="minimap"][disabled] .mlv-moremenu__label,
+.mlv-moremenu__note {
+  color: var(--mlv-text-2);
+}
+
+.mlv-moremenu__note {
+  order: 3;
+  flex: 1 0 100%;
+  padding-left: calc(14px + var(--mlv-s4));
+  font-size: var(--mlv-fs-11);
+  white-space: normal;
+}
+
+.mlv-moremenu__note[hidden] {
+  display: none;
+}
+
 /* A cited quote under its Open link (rail.ts). The class name predates the rail. */
 .mlv-banner__detail {
   margin-top: var(--mlv-s2);

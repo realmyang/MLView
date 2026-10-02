@@ -276,8 +276,13 @@ test('each ... item does what it says: legend, flow, overview map, rail, fit, ex
   assert.equal(pick('legend').getAttribute('aria-checked'), 'false');
   assert.equal(pick('flow').getAttribute('aria-checked'), 'false');
   assert.equal(ctx.app.getState().flow, false);
-  assert.equal(pick('minimap').getAttribute('aria-checked'), 'false');
-  assert.equal(ctx.app.getState().minimapCollapsed, true);
+  // Viewer M2 live fix: this small document draws no minimap, so its item is disabled, unchecked,
+  // and says why (m2-live.test.mjs toggles it on a document that has one).
+  const minimap = pick('minimap');
+  assert.equal(minimap.disabled, true);
+  assert.equal(minimap.getAttribute('aria-checked'), 'false');
+  assert.equal(minimap.querySelector('.mlv-moremenu__note').textContent, 'Shown when 30 or more cards are drawn');
+  assert.equal(ctx.app.getState().minimapCollapsed, false, 'a disabled item does nothing');
   assert.equal(pick('rail').getAttribute('aria-checked'), 'false');
   assert.equal($(ctx, '.mlv-rail').hidden, true);
   ctx.app.view.viewport.set({ x: 5, y: 5, zoom: 2 });
@@ -342,7 +347,7 @@ test('a state saved by an older viewer is tolerated: old keys ignored, never wri
 
 /* ── keys ────────────────────────────────────────────────────────────── */
 
-test('Ctrl/Cmd+F and Ctrl/Cmd+K focus the search from the canvas and from the rail, and open a folded field', async () => {
+test('Ctrl/Cmd+F focuses the search from the canvas and from the rail and opens a folded field; Ctrl/Cmd+K is left to the workbench', async () => {
   const ctx = await mount(doc(), { width: 900 });
   const input = $(ctx, '.mlv-search .mlv-input');
   const canvas = $(ctx, '.mlv-canvas');
@@ -356,9 +361,17 @@ test('Ctrl/Cmd+F and Ctrl/Cmd+K focus the search from the canvas and from the ra
   tab.focus();
   keydown(ctx, tab, 'F', { metaKey: true });
   assert.equal(ctx.document.activeElement, input, 'Cmd+F from the rail');
+  // Viewer M2 live fix: the workbench reads Ctrl+K and Cmd+K as a chord prefix, so the viewer
+  // neither answers nor consumes them, from the rail or the canvas.
   tab.focus();
-  keydown(ctx, tab, 'k', { ctrlKey: true });
-  assert.equal(ctx.document.activeElement, input, 'Ctrl+K from the rail');
+  for (const init of [{ ctrlKey: true }, { metaKey: true }]) {
+    const k = keydown(ctx, tab, 'k', init);
+    assert.equal(k.defaultPrevented, false, 'K is not consumed');
+    assert.equal(ctx.document.activeElement, tab, 'K leaves the focus where it was');
+  }
+  canvas.focus();
+  assert.equal(keydown(ctx, canvas, 'k', { metaKey: true }).defaultPrevented, false);
+  assert.equal(ctx.document.activeElement, canvas);
   // Alt+Ctrl+F is not ours.
   tab.focus();
   const alt = keydown(ctx, tab, 'f', { ctrlKey: true, altKey: true });
@@ -381,12 +394,14 @@ test('the scope keys are free: s, Shift+S, [ and ] do nothing and are not consum
   ctx.app.destroy();
 });
 
-test('the shortcut sheet lists Ctrl/Cmd+F and no scope keys', async () => {
+test('the shortcut sheet lists the find key and no scope keys', async () => {
   const ctx = await mount(doc(), { width: 1440 });
   ctx.app.toggleShortcuts(true);
   const rows = $$(ctx, '.mlv-sheet__keys').map((dt) => [Array.from(dt.querySelectorAll('kbd'), (k) => k.textContent).join(' '), dt.nextElementSibling ? dt.nextElementSibling.textContent : '']);
   const keys = rows.map((row) => row[0]);
-  assert.ok(keys.some((k) => /Ctrl\/Cmd\+F/.test(k) && /Ctrl\/Cmd\+K/.test(k)), keys.join(' | '));
+  // Viewer M2 live fix: the find key for the platform (jsdom is not macOS) and `/`; no K.
+  assert.ok(keys.includes('Ctrl+F /'), keys.join(' | '));
+  assert.equal(keys.some((k) => /K$|K /.test(k)), false, 'no Ctrl+K or Cmd+K');
   assert.equal(keys.some((k) => /^s Shift\+S$|^\[ \]$/.test(k)), false, 'the scope keys are gone');
   const sheet = $(ctx, '.mlv-sheet').textContent;
   assert.doesNotMatch(sheet, /scope/i);

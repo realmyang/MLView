@@ -36,9 +36,13 @@ export interface KeyCommands {
   move(key: string): void;
   /** 0 = high, 1 = medium, 2 = low. */
   toggleSeverity(index: number): void;
+  /** `b` (viewer M2 live fix; it was Ctrl+B): show or hide the side panel, open or collapse the bottom one. */
   toggleRail(): void;
-  /** Viewer M2: 0 = About, 1 = Findings, 2 = Selection, 3 = Outline. */
-  selectRailTab(index: number): void;
+  /**
+   * `t` (viewer M2 live fix; it replaced Ctrl+1 to Ctrl+4): move the focus to the panel's current
+   * tab, opening the panel first; the tab strip's arrow keys then pick a tab.
+   */
+  focusRailTabs(): void;
   toggleShortcuts(): void;
   /** `e` / `Shift+E`: walk the selection's connections. */
   cycleConnections(backwards: boolean): boolean;
@@ -51,8 +55,10 @@ export interface KeyBinding {
 }
 
 export const KEYMAP: KeyBinding[] = [
-  // Viewer M2: Ctrl/Cmd+F too, from anywhere in the viewer (app.ts), since the webview has no find bar.
-  { keys: ['Ctrl/Cmd+F', 'Ctrl/Cmd+K', '/'], action: 'focusSearch', description: 'Search steps, findings, IDs, or cited text' },
+  // Viewer M2: the find key too, from anywhere in the viewer (app.ts), since the webview has no find
+  // bar. `Mod+F` is printed Cmd+F (⌘F) on macOS and Ctrl+F elsewhere (ui/platform.ts). Viewer M2
+  // live fix: Ctrl/Cmd+K is gone; the workbench reads Cmd+K (macOS) and Ctrl+K as a chord prefix.
+  { keys: ['Mod+F', '/'], action: 'focusSearch', description: 'Search steps, findings, IDs, or cited text' },
   { keys: ['n', 'p'], action: 'cycleIssue', description: 'Next / previous finding (document order)' },
   // Viewer M1: a click selects and shows the claim; opening the source is Enter (or a double-click).
   { keys: ['Enter'], action: 'open', description: 'Open the cited source beside the diagram; focus stays here' },
@@ -75,8 +81,11 @@ export const KEYMAP: KeyBinding[] = [
   { keys: ['Shift+A'], action: 'replayFlow', description: 'Play the connection flow again (it stops after two passes)' },
   { keys: ['e', 'Shift+E'], action: 'cycleConnections', description: 'Next / previous connection of the selected step' },
   { keys: ['1', '2', '3'], action: 'toggleSeverity', description: 'Toggle the high / medium / low filters' },
-  { keys: ['Ctrl+B'], action: 'toggleRail', description: 'Show or hide the side panel; open or collapse the bottom panel' },
-  { keys: ['Ctrl+1', 'Ctrl+2', 'Ctrl+3', 'Ctrl+4'], action: 'railTab', description: 'About / Findings / Selection / Outline' },
+  // Viewer M2 live fix: plain keys. Ctrl/Cmd+B also toggled the workbench's side bar, Cmd+1 to Cmd+4
+  // (Ctrl on Windows and Linux) focus editor groups, and Ctrl+1 to Ctrl+4 on macOS (Alt elsewhere)
+  // bring the group's Nth tab to the front, hiding the diagram.
+  { keys: ['b'], action: 'toggleRail', description: 'Show or hide the side panel; open or collapse the bottom panel' },
+  { keys: ['t'], action: 'railTab', description: 'Go to the panel tabs, About / Findings / Selection / Outline (opens the panel); ← and → pick a tab' },
   { keys: ['?'], action: 'shortcuts', description: 'Show this shortcut sheet' },
   // The rungs, in the order `dismissTopmost` runs them (CONTRACTS 11.13). The
   // sheet is the only place the cascade is described to the user (MLV-R1-F2-06).
@@ -97,17 +106,11 @@ export function handleCanvasKey(ev: KeyboardEvent, cmd: KeyCommands): boolean {
   // so swallowing it strands keyboard users inside the diagram.
   if (key === 'Tab') return false;
 
+  // Viewer M2 live fix: the find key is the only chord the canvas answers. Every other Ctrl or Cmd
+  // chord is left alone, unconsumed, for the workbench (ui/platform.ts says why).
   if (mod) {
-    if (key === 'k' || key === 'K' || key === 'f' || key === 'F') {
+    if (key === 'f' || key === 'F') {
       cmd.focusSearch();
-      return consume();
-    }
-    if (key === 'b' || key === 'B') {
-      cmd.toggleRail();
-      return consume();
-    }
-    if (key === '1' || key === '2' || key === '3' || key === '4') {
-      cmd.selectRailTab(Number(key) - 1);
       return consume();
     }
     return false;
@@ -187,6 +190,14 @@ export function handleCanvasKey(ev: KeyboardEvent, cmd: KeyCommands): boolean {
   }
   if (key === 'z' || key === 'Z') {
     cmd.zoomToSelection();
+    return consume();
+  }
+  if (key === 'b' || key === 'B') {
+    cmd.toggleRail();
+    return consume();
+  }
+  if (key === 't' || key === 'T') {
+    cmd.focusRailTabs();
     return consume();
   }
   if (key === ' ') {

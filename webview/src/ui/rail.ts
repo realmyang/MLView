@@ -230,7 +230,7 @@ export class Rail {
     }
   }
 
-  /** Move the keyboard focus to a tab (Ctrl+1 to Ctrl+4 in the sheet). */
+  /** Move the keyboard focus to a tab (`t`, and `App.showRailTab` in the sheet). */
   focusTab(tab: RailTab): void {
     const button = this.tabs.get(tab);
     if (!button) return;

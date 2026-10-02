@@ -34,6 +34,13 @@ export const MINIMAP_MIN_NODES = 30;
  */
 export const MINIMAP_MIN_CANVAS_H = 350;
 
+/**
+ * A panel this wide or narrower has no room for the minimap beside the diagram (it was an
+ * `@media (max-width: 900px)` rule). Viewer M2 live fix: the App applies it from the panel's
+ * width (`CanvasView.setPanelWidth`), so the ... menu can say why the map is not shown.
+ */
+export const MINIMAP_NARROW_W = 900;
+
 export interface CanvasHost {
   /** The App's issue filter — a marker is drawn only for issues this keeps. */
   keep(issue: Issue): boolean;

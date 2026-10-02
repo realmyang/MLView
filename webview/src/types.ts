@@ -251,6 +251,12 @@ export interface ViewState {
    * restored on a remount only when `workflowRevision` matches.
    */
   composer?: ComposerState;
+  /**
+   * Viewer M2 live fix: the rail was the bottom sheet and it was open. Absent at its default
+   * (collapsed, or docked), and restored on a remount only when `workflowRevision` matches, like
+   * `railTab` and, since the same fix, `selection`.
+   */
+  sheetOpen?: boolean;
 }
 
 /** A Refine composer's reader-visible state. */

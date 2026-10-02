@@ -258,7 +258,7 @@ test('below 1260 px the rail is a bottom sheet: its tab strip until a selection 
   assert.equal(rail.getAttribute('data-mode'), 'docked', '1260 - 360 = 900: docked');
   width = 1086;
   resize(ctx);
-  // Viewer M2: the rail toggle is in the ... menu (and Ctrl+B), named for the mode.
+  // Viewer M2: the rail toggle is in the ... menu (and `b` since the live fix), named for the mode.
   ctx.document.querySelector('.mlv-btn--more').click();
   const item = ctx.document.querySelector('[data-more-item="rail"]');
   assert.equal(item.querySelector('.mlv-moremenu__label').textContent, 'Bottom panel');

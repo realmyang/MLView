@@ -44,7 +44,7 @@ import { openLocation } from './app/actions.js';
 import { onCanvasKey } from './app/keys.js';
 import { onHostMessage } from './app/messages.js';
 import { applyState, safeLoad, snapshotState } from './app/state.js';
-import { sanitizeRailTab } from './ui/commands.js';
+import { sanitizeRailTab, sanitizeSelection } from './ui/commands.js';
 import { screenReaderActive } from './motion.js';
 import { selectionAnnouncement } from './ui/selection.js';
 import type { SearchHit } from './search.js';
@@ -163,7 +163,7 @@ export class App implements MLViewApp {
    */
   railChosen = false;
   /**
-   * Viewer M2: the reader hid the DOCKED rail (Ctrl+B or the ... menu). Collapsing the bottom sheet
+   * Viewer M2: the reader hid the DOCKED rail (`b` or the ... menu). Collapsing the bottom sheet
    * is not hiding the rail: a panel widened back to docking width shows it again unless this is set.
    */
   dockedHidden = false;
@@ -187,6 +187,12 @@ export class App implements MLViewApp {
   private restoredComposer: { revision: string; composer: ComposerState } | null = null;
   /** Viewer M2: the rail tab a remount restores, only for the revision it was saved with. */
   private restoredTab: { revision: string; tab: RailTab } | null = null;
+  /**
+   * Viewer M2 live fix: the selection and whether the bottom sheet was open, restored by a remount
+   * (VS Code rebuilds a hidden panel's page when it is shown again) under the same rule as the tab.
+   */
+  private restoredSelection: { revision: string; selection: Sel } | null = null;
+  private restoredSheet: string | null = null;
   /**
    * Requests waiting for the host's `actionResult`, oldest first (§1e). No
    * timeout: a save dialog may stay open for as long as the user likes.
@@ -228,20 +234,26 @@ export class App implements MLViewApp {
     if (restored && composer) this.restoredComposer = { revision: restored.workflowRevision as string, composer };
     const tab = restored && typeof restored.workflowRevision === 'string' ? sanitizeRailTab(restored.railTab) : null;
     if (restored && tab) this.restoredTab = { revision: restored.workflowRevision as string, tab };
+    const selection = restored && typeof restored.workflowRevision === 'string' ? sanitizeSelection(restored.selection) : null;
+    if (restored && selection) this.restoredSelection = { revision: restored.workflowRevision as string, selection };
+    if (restored && typeof restored.workflowRevision === 'string' && restored.sheetOpen === true) this.restoredSheet = restored.workflowRevision;
     this.disposers.push(bridge.onMessage((msg) => this.onMessage(msg)));
     if (typeof window !== 'undefined') this.disposers.push(on(window, 'resize', () => this.onResize()));
-    // Viewer M2: Ctrl/Cmd+F and Ctrl/Cmd+K focus the search from anywhere in the viewer, not only
-    // from the canvas (whose keymap answers them first and marks the event handled). Viewer M2
-    // review (M2R-9): not from inside a modal surface (the shortcut sheet, the Refine… popover),
-    // whose focus trap would otherwise lose the focus to a field behind it while it stays open.
+    // Viewer M2: the find key (Cmd+F on macOS, Ctrl+F elsewhere) focuses the search from anywhere
+    // in the viewer, not only from the canvas (whose keymap answers it first and marks the event
+    // handled). Viewer M2 review (M2R-9): not from inside a modal surface (the shortcut sheet, the
+    // Refine… popover), whose focus trap would otherwise lose the focus to a field behind it while
+    // it stays open. Viewer M2 live fix: Ctrl/Cmd+K is no longer one; the workbench reads it as a
+    // chord prefix, so the next key the reader typed into the search went to the chord as well.
     this.disposers.push(on(root, 'keydown', (ev: KeyboardEvent) => {
       if (ev.defaultPrevented || !(ev.ctrlKey || ev.metaKey) || ev.altKey) return;
-      if (ev.key !== 'f' && ev.key !== 'F' && ev.key !== 'k' && ev.key !== 'K') return;
+      if (ev.key !== 'f' && ev.key !== 'F') return;
       if (this.modalOpen(ev.target)) return;
       ev.preventDefault();
       this.focusSearch();
     }));
     this.chrome.setWidth(this.rootWidth());
+    this.view.setPanelWidth(this.rootWidth());
     // No `ready` here: the host bootstrap posts the one `ready` of a page load
     // and mounts this App on the first `workflow` (§1e). A second `ready`
     // would make the host replay the whole handshake and render it again.
@@ -259,6 +271,7 @@ export class App implements MLViewApp {
   private onResize(): void {
     const before = this.chrome.headerLayout;
     if (this.chrome.setWidth(this.rootWidth()) !== before) renderChrome(this);
+    this.view.setPanelWidth(this.rootWidth());
     this.autoRail();
     // The sheet's Selection pane changes between one and two columns at 620 px.
     if (this.paneColumns !== this.selectionColumns()) renderRail(this);
@@ -362,6 +375,19 @@ export class App implements MLViewApp {
       this.railTab = restoredTab || 'about';
     }
     this.restoredTab = null;
+    // Viewer M2 live fix: a remount of the same revision also brings back the selection and an open
+    // bottom sheet (`setGraph` drops a selection the revision does not have). The sheet opens as one
+    // the reader chose, so the width rule keeps it open when it applies below.
+    if (!this.graph) {
+      const same = (saved: string | null | undefined): boolean => saved === document.revision.id;
+      if (this.restoredSelection && same(this.restoredSelection.revision)) this.selection = this.restoredSelection.selection;
+      if (same(this.restoredSheet)) {
+        this.railChosen = true;
+        this.railOpen = true;
+      }
+    }
+    this.restoredSelection = null;
+    this.restoredSheet = null;
     this.workflowDocument = document;
     this.workflowRevision = document.revision.id;
     // Before the first fit, so the fit sees the canvas the rail leaves (issue 6).
@@ -469,9 +495,10 @@ export class App implements MLViewApp {
   }
 
   /**
-   * Viewer M2: Ctrl+1 to Ctrl+4. A rail that is not on screen (a collapsed sheet, a hidden docked
-   * rail) opens on the tab asked for. In the bottom sheet the focus moves to the tab, so the reader
-   * lands in the panel they asked for; the docked rail leaves the focus where it was.
+   * Viewer M2: show a tab. A rail that is not on screen (a collapsed sheet, a hidden docked rail)
+   * opens on the tab asked for. In the bottom sheet the focus moves to the tab, so the reader lands
+   * in the panel they asked for; the docked rail leaves the focus where it was. (Ctrl+1 to Ctrl+4
+   * called this until the viewer M2 live fix; the workbench binds those chords too.)
    */
   showRailTab(tab: RailTab): void {
     this.railTab = tab;
@@ -482,6 +509,20 @@ export class App implements MLViewApp {
     renderRail(this);
     this.saveSoon();
     if (this.railMode === 'sheet') this.rail.focusTab(tab);
+  }
+
+  /**
+   * Viewer M2 live fix: `t` moves the focus to the panel's current tab, opening a collapsed sheet
+   * or a hidden docked rail first; the tab strip's arrow keys then pick a tab, and Escape in the
+   * open sheet gives the focus back to the diagram.
+   */
+  focusRailTabs(): void {
+    if (!this.railOpen) {
+      this.railChosen = true;
+      this.setRailOpen(true);
+    }
+    renderRail(this);
+    this.rail.focusTab(this.railTab);
   }
 
   toggleRail(): void {
@@ -553,6 +594,7 @@ export class App implements MLViewApp {
     this.rail.setMode(mode, this.sheetFraction);
     this.setRailOpen(open, true);
     if (modeChanged) {
+      this.saveSoon();
       // Back beside the canvas the rail takes its docked width again; the menu names the mode.
       if (mode === 'docked') this.setRailWidth(this.railWidth);
       renderRail(this);
@@ -606,6 +648,8 @@ export class App implements MLViewApp {
     if (open && this.railMode === 'docked') this.dockedHidden = false;
     this.rail.setOpen(open);
     if (!changed) return;
+    // Viewer M2 live fix: the open sheet is part of the saved view (`ViewState.sheetOpen`).
+    this.saveSoon();
     // The ... menu's rail item says whether it is shown.
     if (this.chrome) renderChrome(this);
     // Only the visible tab is built: one that opens now is built for the first time.
@@ -685,7 +729,7 @@ export class App implements MLViewApp {
 
   /**
    * Viewer M1: a click shows the claim, which lives in the rail. A docked rail the width rule
-   * closed opens (true); one the reader closed stays closed (they have the hover card and Ctrl+B).
+   * closed opens (true); one the reader closed stays closed (they have the hover card and `b`).
    * Viewer M2: a collapsed bottom sheet opens on every such selection; Escape collapses it again.
    */
   private showRailForClaim(): boolean {

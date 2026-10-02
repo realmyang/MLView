@@ -400,6 +400,15 @@
   color: var(--mlv-text-3);
 }
 
+/* Viewer M2 live fix: a listed finding's real id, under its title, muted; a long id wraps at the
+ * box's edge, not in a narrow column beside the title. */
+.mlv-insp__issue-id {
+  margin: calc(-1 * var(--mlv-s2)) 0 var(--mlv-s3);
+  color: var(--mlv-text-3);
+  font-size: var(--mlv-fs-11);
+  overflow-wrap: anywhere;
+}
+
 .mlv-insp__note,
 .mlv-insp__aside {
   color: var(--mlv-text-2);

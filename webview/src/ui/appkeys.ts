@@ -20,7 +20,7 @@
  */
 
 import type { CommandPort } from './commands.js';
-import type { Issue, RailTab, Sel, Severity } from '../types.js';
+import type { Issue, Sel, Severity } from '../types.js';
 import type { CanvasView } from '../canvasview.js';
 import type { GraphIndex } from '../layout/model.js';
 
@@ -48,7 +48,7 @@ export interface KeyContext {
   toggleFlow(): void;
   toggleSeverity(sev: Severity): void;
   toggleRail(): void;
-  showRailTab(tab: RailTab): void;
+  focusRailTabs(): void;
   toggleShortcuts(next?: boolean): void;
   sheetOpen(): boolean;
   /** Viewer M2: close the Refine… popover; false when it is not open. */
@@ -119,7 +119,7 @@ export function commandPortFor(ctx: KeyContext): CommandPort {
     move: (key) => ctx.move(key),
     toggleSeverity: (sev) => ctx.toggleSeverity(sev),
     toggleRail: () => ctx.toggleRail(),
-    showRailTab: (tab) => ctx.showRailTab(tab),
+    focusRailTabs: () => ctx.focusRailTabs(),
     toggleShortcuts: () => ctx.toggleShortcuts(),
 
     cycleConnections: (backwards) => cycleConnections(ctx, backwards),

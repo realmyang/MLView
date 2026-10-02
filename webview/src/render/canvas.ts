@@ -386,6 +386,27 @@ export class ViewportController {
     this.apply();
   }
 
+  /**
+   * Viewer M2 live fix: pan the least distance that puts `rect` wholly inside the visible area,
+   * keeping the zoom, with `margin` px to spare on the side it comes in from (less when the area is
+   * barely larger than the rect). A rect larger than the area is aligned on its top or left edge,
+   * where a card's title is. Nothing moves when it is already wholly inside.
+   */
+  revealRect(rect: Rect, margin = 16): void {
+    const { w, h } = this.visibleArea();
+    const z = this.vp.zoom;
+    const shift = (start: number, size: number, extent: number): number => {
+      const pad = Math.max(0, Math.min(margin, (extent - size) / 2));
+      if (size > extent) return -start;
+      if (start < 0) return pad - start;
+      if (start + size > extent) return extent - pad - (start + size);
+      return 0;
+    };
+    const dx = shift(rect.x * z + this.vp.x, rect.w * z, w);
+    const dy = shift(rect.y * z + this.vp.y, rect.h * z, h);
+    if (dx || dy) this.panBy(dx, dy);
+  }
+
   zoomToBox(rect: Rect, padding = 80): void {
     const { w, h } = this.visibleArea();
     const z = clamp(Math.min((w - padding) / Math.max(rect.w, 1), (h - padding) / Math.max(rect.h, 1)), MIN_ZOOM, MAX_ZOOM);

@@ -175,11 +175,13 @@
   --mlv-scrim: rgba(16, 18, 24, 0.36);
   /* Viewer M2: phase colour by document ORDER, never by id (render/phase.ts). Eight low-chroma
    * hues that leave red, yellow and orange to severity; used only on the lane's accent rule,
-   * the card's left edge and the phase swatches. */
+   * the card's left edge and the phase swatches. Viewer M2 live fix: tones 2 and 3 moved off the
+   * stale-warning amber and the error red; no tone is within 30 degrees of hue of either
+   * (test/calm-canvas.test.mjs). */
   --mlv-phase-0: #00796B;
   --mlv-phase-1: #6A4FB3;
-  --mlv-phase-2: #8D6E2F;
-  --mlv-phase-3: #B0457E;
+  --mlv-phase-2: #0A693C;
+  --mlv-phase-3: #A0388F;
   --mlv-phase-4: #558B2F;
   --mlv-phase-5: #0B7F99;
   --mlv-phase-6: #546E7A;
@@ -224,8 +226,8 @@
     --mlv-sh-3: 0 20px 48px rgba(0, 0, 0, 0.55), 0 0 0 1px var(--mlv-border-strong);
     --mlv-phase-0: #4DB6AC;
     --mlv-phase-1: #A48BE0;
-    --mlv-phase-2: #C9A56B;
-    --mlv-phase-3: #D98CB3;
+    --mlv-phase-2: #4CA871;
+    --mlv-phase-3: #D684C5;
     --mlv-phase-4: #9CCC65;
     --mlv-phase-5: #4FC3D9;
     --mlv-phase-6: #90A4AE;
@@ -268,8 +270,8 @@ body.vscode-dark,
   --mlv-sh-3: 0 20px 48px rgba(0, 0, 0, 0.55), 0 0 0 1px var(--mlv-border-strong);
   --mlv-phase-0: #4DB6AC;
   --mlv-phase-1: #A48BE0;
-  --mlv-phase-2: #C9A56B;
-  --mlv-phase-3: #D98CB3;
+  --mlv-phase-2: #4CA871;
+  --mlv-phase-3: #D684C5;
   --mlv-phase-4: #9CCC65;
   --mlv-phase-5: #4FC3D9;
   --mlv-phase-6: #90A4AE;
