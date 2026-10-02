@@ -19,11 +19,14 @@ Calmer cards (the one deliberate geometry change):
   longer end in " · observed". The basis is drawn only where a claim is not
   observed (see below). A card without an authored detail shows its kind on
   the second line, never the basis.
-- Each expanded card is 26 px shorter, so documents are more compact. On
-  public shakedown artifacts the canvas went from 2088x2620 to 2132x2480 px
-  (vit, Claude Code) and from 2140x5503 to 2184x5016 px (yolov5); the
-  repository sample went from 956x1735 to 712x1592 px. Collapsed groups keep
-  their count chip, so they are unchanged.
+- Each expanded card is 26 px shorter. Most documents get shorter, but not
+  all: shorter cards change how ranks wrap, so some grow taller. On public
+  shakedown artifacts the canvas went from 2088x2620 to 2132x2480 px (vit,
+  Claude Code) and from 2140x5503 to 2184x5016 px (yolov5); the repository
+  sample went from 956x1735 to 712x1592 px; the synthetic 120-step document
+  went from 2086x3018 to 1354x3514 px and the expanded renderer fixture from
+  954x3112 to 710x3464 px. Collapsed groups keep their count chip, so they are
+  unchanged.
 - The geometry golden (`webview/test/geometry-golden.test.mjs`) was
   re-recorded once for this, in its own commit; nothing else in M2 moves it.
 - `MLEdge.authoredLabel` is gone: `MLEdge.label` is the authored label. The
@@ -50,13 +53,14 @@ A calm canvas (layout unchanged; the geometry golden is byte-identical):
   computed from VS Code 1.139's theme colours. Connections went from 1.86-3.59:1
   (by kind) to 3.97:1 on Dark Modern and from 1.94-4.59:1 to 3.87:1 on Light
   Modern; card borders from 1.27:1 to 3.26:1 and from 1.26:1 to 3.31:1.
-- A toolbar toggle, "N not observed (3 steps, 4 connections, …)", fades the
+- A header toggle, "7 not observed (3 steps, 4 connections)", fades the
   observed claims so the inferred and unresolved ones stand out. It fades
   fills and lines only, so every title stays readable (4.5:1 or better). It is
-  hidden when every claim is observed. Below 1000 px wide the bracket folds
-  away into the tooltip, and below 700 px the toolbar's step and connection
-  counts give way to the status bar, so at 900 and 541 px the toolbar is no
-  taller than before.
+  hidden when every claim is observed. Below 1200 px wide it reads "7 claims
+  not observed" and the breakdown is in its tooltip; when the header row is
+  too full it moves into the ⋯ menu with its count and breakdown (see the
+  header below). This step first added it to the toolbar, which step 10
+  replaced with the header row.
 - Finding badges name findings `F1`, `F2`… in document order (`F2 F5 +1` when a
   step has several). A new revision can renumber them; the hover card, the
   Findings list and the Inspector show the real id beside the number, and
@@ -94,10 +98,10 @@ geometry golden is byte-identical):
   canvas is only about 480 px tall under today's header, so 1 to 6 whole
   cards are in view.
 - Press `0` to come back to that view from any zoom. Before, `0` fitted the
-  whole document once you had zoomed out below 50%. The toolbar's "Fit to
-  view" button is now **Fit the whole diagram** and always shows the whole
-  document with its groups as they are; Shift+0 (Overview) still folds every
-  group first.
+  whole document once you had zoomed out below 50%. The old toolbar's "Fit to
+  view" button is now **Fit the whole diagram**, an item of the header's ⋯
+  menu (step 10), and always shows the whole document with its groups as they
+  are; Shift+0 (Overview) still folds every group first.
 - Zoomed out (below 62%), a card shows only its title, sized to be read:
   about 11 px on screen, on two lines (three for a long title), never spilling
   out of its card or cut through a line; the full title is in the hover card.
@@ -142,21 +146,23 @@ is byte-identical):
   and **Refine…**, which names what it will refine by its label, for example
   "Step: Compute loss" (the prompt still carries the stable id).
 - What the row keeps depends on the panel's width. At 1200 px and wider:
-  everything, with the "not observed" breakdown in brackets. From 1000 px the
-  breakdown moves to the tooltip. From 620 px search folds behind an icon and
-  the chip shows only the revision. Below 620 px (541 px is the measured
-  beside-the-code panel) only the title, the severity toggles, "not
-  observed", ⋯ and **Refine…** stay; search and the revision move into the ⋯
-  menu.
+  everything, with the "not observed" breakdown in brackets. Below 1200 px
+  the breakdown moves to the tooltip ("7 claims not observed"). Below 1000 px
+  search folds behind an icon and the chip shows only the revision. Below
+  620 px (541 px is the measured beside-the-code panel) only the title, the
+  severity toggles, "not observed", ⋯ and **Refine…** stay; search and the
+  revision move into the ⋯ menu. (The review fixes below add a measured fit
+  for rows that are still too full.)
 - The ⋯ menu holds the legend, the connection flow animation, the overview
   map, the side rail, **Fit the whole diagram**, zoom to the selection,
   **Export SVG…**, **Export PNG…**, **Copy SVG** and the shortcut sheet. The
   exports are always the whole diagram: Copy PNG, Print and the choice of
   region went with the old export menu.
 - The request and coverage details (the question, scope, entrypoints,
-  configuration, coverage summary, limitations and provenance) open over the
-  diagram from the revision chip or from the status bar's coverage item, so
-  opening them no longer pushes the canvas down. Escape closes them.
+  configuration, coverage summary, limitations and provenance) no longer sit
+  above the canvas and push it down. This step first opened them over the
+  diagram; steps 5 and 9 replaced that with the rail's About tab, which the
+  revision chip and the status bar's coverage item open (below).
 - The scope picker is gone: its depth and unit lists, **Scope to this unit**
   and **Scope … this codebase**, the breadcrumb and its copy button, and the
   `s`, Shift+S, `[` and `]` keys. So are the phase chips that hid phases. The
@@ -198,9 +204,11 @@ geometry golden is byte-identical):
   Selection is the old Inspector. A new revision opens on About; after that
   the viewer keeps the tab you chose, saves it with the view and restores it
   when the panel is reopened on the same revision. Selecting a card, a
-  connection or a finding switches to Selection, except while you are working
-  in the Findings list or the Outline: there the list keeps its place and the
-  selection is marked in it. A screen reader hears what was selected.
+  connection or a finding switches to Selection; only a selection made from
+  the Findings list or the Outline on screen (a row, or `n`/`p` for findings)
+  keeps that list in place, with the selection marked in it (as corrected by
+  the review fixes below). The live region announces the selection (not
+  tried with a screen reader).
 - About replaces the request and coverage details that opened over the
   diagram. It holds only what the assistant wrote: **Asked** (the question,
   cut after four lines with **Show all**); **What the model traced** (the
@@ -268,6 +276,99 @@ geometry golden is byte-identical):
   The screenshot harness gained `select-connection` and `finding-pane`
   states and records the rail's mode, box and columns and whether the
   selection is inside the canvas.
+
+Review fixes (an independent review of the branch; each fix has a regression
+test in `webview/test/m2-review.test.mjs` or an updated existing test, checked
+to fail on the build before the fix; the header and status-bar numbers come
+from headless-Chrome probes of a simulated host, not a live VS Code window or
+a screen reader; the geometry golden is byte-identical):
+- Tab reaches the header again at every width. Its single tab stop could sit
+  on a control the stylesheet hides (the revision chip beside the code, the
+  search icon at 1000 px and wider), so Tab skipped the whole header at
+  541 px and ArrowRight stopped dead at 1440 px. The roving group now skips
+  controls that are not rendered, and re-derives the stop whenever the row
+  changes shape; search results are reached with the field's arrow keys,
+  never by Tab. Probed at 541, 900 and 1440 px: one shown control holds the
+  stop and the arrows visit only shown controls.
+- The header row always fits, Refine… included. After every change it
+  measures itself and, while it overflows, folds the revision chip (About
+  stays in the ⋯ menu), then "not observed" (into the ⋯ menu as a checkbox
+  item with its count and breakdown), then the title (still read by screen
+  readers); only while the search field is open beside the code are the
+  severity toggles folded too, and they come back when it closes. Probed with
+  four documents from 1440 down to 320 px, search open and closed.
+- Every count on the header names its unit on screen: the severity toggles
+  are followed by "findings", and "not observed" reads "7 claims not
+  observed" below 1200 px and "7 not observed (3 steps, 4 connections)" at
+  1200 px and wider.
+- A severity toggle that is off is struck through with a dashed border, not
+  faded to half opacity, so its count keeps the text colour.
+- **Refine…** draws the theme's button foreground (a reset rule had
+  outranked it, so the label took the header's text colour), and in High
+  Contrast it keeps its border (`button.border`, else `contrastBorder`).
+- Beside the code the status bar keeps a stale-files warning whole ("1 of 18
+  cited files changed"); the coverage item gives way first and drops its
+  "Coverage:" prefix (the full text stays in its name).
+- Ctrl/Cmd+F and Ctrl/Cmd+K no longer pull the focus out of the shortcut
+  sheet or the Refine… popover.
+- Selecting from the canvas shows the claim again, as in M1: a click on a
+  card or connection, a search hit for a step, a link in the Selection pane
+  and the host's reveal all switch the rail to Selection; a click and a
+  search hit also open a collapsed bottom sheet. Only a selection made from
+  the Findings list or the Outline while that list is on screen keeps the
+  list in place; `n` and `p` count as the Findings list.
+- A claim being read in the docked rail stays open when the panel narrows
+  into the bottom sheet.
+- A group's Selection pane lists the findings inside the group ("Findings in
+  this group", as its badge counts them), its steps as links ("Steps in this
+  group", with their count), and the connections that cross its edge ("Comes
+  from … into …", "Feeds … from …"); it says "group", not "step".
+- An observed finding carries no basis mark in the Findings list or the
+  Selection pane; an inferred or unresolved one carries the canvas tag, as
+  visible text.
+- Selecting a finding that cites a step and a connection elsewhere frames
+  the step and both ends of the connection when they fit at 45% zoom;
+  otherwise it frames the steps, as before.
+- The bottom sheet's handle never reports more height than the canvas floor
+  (min(240 px, 45%)) leaves, and a drag that collapses the sheet keeps the
+  height it had for the next time it opens.
+- Announcements and accessible names say steps and connections, never nodes
+  and edges ("Workflow loaded: 31 steps, 41 connections, 7 findings (2 high
+  severity)." with no "0 high severity"); `n` and `p` announce the F label
+  first, then the real id ("Finding F1 (loss-risk), medium severity: …").
+- A lane's per-severity numbers are followed by their total ("· 5 findings
+  touch this phase"); the phrase used to follow the last number, so "1 1
+  findings touch this phase" read as one finding. The SVG export says the
+  same.
+- A card with an authored detail shows two lines of it where the file:line
+  row was; the place stays in the card's accessible name, the hover card and
+  the Selection pane. A card without a detail keeps its file:line row. Card
+  heights are unchanged, and the SVG export draws the same face.
+- A hover no longer dims the other cards: the directly connected cards get a
+  ring and their connections light, and nothing fades. Focus mode (F) still
+  fades the rest and makes it inert, as before, High Contrast included.
+- A lane heading is numbered ("2 Data preparation"), in the text colour at
+  the card title's size, on a tinted plate, and no longer upper case. The
+  Outline numbers its phases the same way ("2 · Data preparation") and puts
+  the phase's finding count on its own line, so the name is not cut.
+- Not changed (deferred): a document whose whole fit is between 62% and
+  about 85% still opens whole at that zoom, where card titles are 8-10 px on
+  screen (dino at 1440x900 opens at 72%). Raising the threshold or applying
+  the compact titles in that band is a first-view design change left for the
+  next step.
+- Cleanup: `STATUS.md` no longer lists scope filters. The benchmark tools
+  (`webview/tools/benchmark-workflow.mjs`, `benchmark-browser.mjs`) ran into
+  the removed scope API and the retired export request; they now time mount,
+  select, SVG export (from the ⋯ menu), update and dispose, and
+  `docs/PERFORMANCE.md` says the dated scope columns are historical. Dead
+  remnants of the scope picker, the phase chips and the export regions are
+  gone: the `.mlv-chip--stage` rules, the `--mlv-fg-boundary` token and its
+  palette field, the always-false node filter and its `.is-filtered` styles,
+  the flow's projection hook, two unused raster exports, and the "current
+  view" export region (`exportFile.scope` is always `all`).
+- Earlier bullets in this section that the later steps superseded now
+  describe what ships, and the compactness claim names the documents that
+  grew taller.
 
 ## Unreleased — viewer M1: verification loop and cleanup
 

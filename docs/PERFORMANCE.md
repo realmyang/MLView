@@ -16,10 +16,16 @@ node --expose-gc tools/benchmark-workflow.mjs
 Pass one or more sizes to isolate their process-level memory samples, for
 example `node --expose-gc tools/benchmark-workflow.mjs 2000`. Set
 `MLVIEW_BENCH_ROUNDS=3` for repeated timing samples. The command emits JSON with
-runtime/platform metadata, fixture composition, operation timings, represented
-node count checks, DOM element count, SVG bytes and process memory snapshots.
-Every authored node ID must be represented; the run fails on hidden truncation
-or incomplete disposal.
+runtime/platform metadata, fixture composition, operation timings (mount,
+select, SVG export, revision update, dispose), represented node count checks,
+DOM element count, SVG bytes and process memory snapshots. Every authored node
+ID must be represented; the run fails on hidden truncation or incomplete
+disposal. The SVG export starts from the header's ⋯ menu, as a reader starts it.
+
+Viewer M2 removed the scope picker and the export request message, so the
+benchmarks no longer time "Scope to 5" or "Reset all". Those columns in the
+dated tables below are historical observations of the earlier viewer; no new
+baseline has been recorded since the change.
 
 The following single-round baseline was recorded on 2026-09-18 using Node
 26.4.0 on macOS 26.6.2 (25G83), arm64, against `webview/dist/mlview.js` SHA-256
@@ -68,9 +74,8 @@ python3 -m http.server 8000 --bind 127.0.0.1
 The browser page keeps the diagram visible in a reproducible 1,200 × 650 CSS
 pixel viewport when page width permits. It records the browser user agent, page
 and diagram viewport, device-pixel ratio and timestamp, and offers the complete
-run as copyable JSON. It checks represented node IDs after mount, reset and
-update, checks the scoped and reset node counts, and requires a real SVG
-`exportFile` payload.
+run as copyable JSON. It checks represented node IDs after mount, selection
+and update, and requires a real SVG `exportFile` payload.
 
 Each browser timing is frame-inclusive elapsed time through two
 `requestAnimationFrame` callbacks. That includes an opportunity for style,

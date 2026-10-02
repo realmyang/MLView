@@ -151,7 +151,8 @@ golden is byte-identical):
   `data-search="open|closed"` folds the field at `mid` and `narrow`. The CSS
   keys on these attributes, so the row never wraps.
 - `MoreMenu` (`src/ui/moremenu.ts`) is a menu button. Items carry
-  `data-more-item` (`search` and `about` only when narrow, `legend`, `flow`,
+  `data-more-item` (`search`, `about` and `exceptions` only while the row has
+  folded them, marked `data-folded`; then `legend`, `flow`,
   `minimap`, `rail`, `fit`, `zoomsel`, `svg`, `png`, `copy-svg`,
   `shortcuts`); the exports also carry `data-export-action`. The panel is
   mounted on the app root and repaints its checkboxes as it opens. The
@@ -194,8 +195,10 @@ change, no geometry change, the golden is byte-identical):
   `railTab = 'about'` for a new revision id; `ViewState.railTab` is saved with
   `workflowRevision`, and a remount restores it only for that revision
   (`sanitizeRailTab` in `src/ui/commands.ts` drops unknown values).
-  `App.select` keeps `issues` or `outline` while the rail is on screen and
-  otherwise shows `inspector`.
+  `App.select` shows `inspector` unless the selection came from the list on
+  screen: `SelectOptions.fromList` (`issues` from a Findings row or `n`/`p`,
+  `outline` from an Outline row) keeps that tab when it is the current tab
+  and the rail is shown (viewer M2 review, M2-INT-1).
 - `src/ui/about.ts` renders About from the document only: `splitSummary`
   (paragraphs at the summary's own run-in heads, only when there are at least
   `MIN_RUN_IN_HEADS` = 3), `configurationRuns` (`k=v` tokens as `code`), the
@@ -208,14 +211,17 @@ change, no geometry change, the golden is byte-identical):
   `selectionAnnouncement` is the live-region text while VS Code's
   `vscode-using-screen-reader` body class is set (`motion.ts` also treats
   that class as reduced motion). `CanvasView.frameIssue` frames the union of
-  a finding's cited cards (`ViewportController.frameRect`, zoom 0.45 to 1).
+  a finding's cited cards and the ends of its cited connections when that
+  fits at `FRAME_MIN_ZOOM` (0.45; `ViewportController.fitsAt`), else the
+  cited cards (`ViewportController.frameRect`, zoom 0.45 to 1).
 - The bottom sheet: `App.autoRail` docks the rail only when
   `width - railWidth >= RAIL_MIN_CANVAS_W` (900); otherwise `Rail.setMode`
   sets `data-mode="sheet"` on the rail and `data-rail="sheet"` on
   `.mlv-body`, which stacks the canvas over it (rail.css). The open sheet is
   `--mlv-sheet-fraction` of the body (0.47; the handle keeps it within 0.25
-  to 0.75), capped so the canvas keeps `min(240px, 45%)`; collapsed it is
-  32 px. `CanvasView.afterSheetToggle` takes the new canvas size as fitted
+  and `App.sheetFractionMax()`, at most 0.75, the share that leaves the canvas
+  `min(240px, 45%)`, which is also its `aria-valuemax`); collapsed it is
+  32 px. A drag that collapses the sheet keeps the fraction it started with. `CanvasView.afterSheetToggle` takes the new canvas size as fitted
   (`ViewportController.acceptResize`) and keeps a visible selection in view.
   The Selection pane has two columns when `App.selectionColumns()` says so
   (sheet and at least 620 px). The drawer, its scrim and
@@ -227,6 +233,61 @@ change, no geometry change, the golden is byte-identical):
   keyboard focus, the Tab budget, the focus traps and the screen-reader
   announcement; `test/viewer-layout.test.mjs` keeps the canvas floor rule and
   checks the sheet CSS.
+
+Viewer M2 review fixes (no contract change, no geometry change; the golden is
+byte-identical):
+
+- `RovingGroup` (`src/ui/roving.ts`) skips controls with no client rects
+  (a stylesheet's `display: none`) while its container is rendered, puts every
+  non-item out of the Tab order, and keeps the stop on the control the user
+  left it on; until the user moves it, the stop is the first item. Search
+  result rows (`role="option"`) are not items and carry `tabindex="-1"`; the
+  field's arrow keys reach them.
+- `Chrome.fitRow()` measures the header after every change of width, search
+  state or content: while `scrollWidth > clientWidth` it raises `data-fit`
+  (0 to `HEADER_FIT_MAX` = 4): 1 hides the revision chip, 2 hides
+  `.mlv-chip--exceptions` (the ⋯ menu's `exceptions` item takes it), 3 makes
+  the title visually hidden and tightens the gaps, 4 (only while the search
+  field is open at `mid` or `narrow`) hides the severity toggles. Hidden
+  controls get the `hidden` attribute, so the roving group drops them. jsdom
+  measures nothing, so `data-fit` stays 0 there.
+- `.mlv-header__unit` prints "findings" after the severity toggles (visual
+  only; each toggle's name has its unit). The exceptions chip reads "N not
+  observed" plus its `.mlv-chip__detail` breakdown at `full`, otherwise
+  `notObservedLead()` ("N claims not observed"). An off toggle
+  (`aria-pressed="false"`) is struck through with a dashed border, never
+  faded. `.mlv-root .mlv-btn--primary` takes `--mlv-on-accent` over the
+  button reset; high contrast gives it `button.border` or `contrastBorder`.
+- `App.modalOpen()` keeps Ctrl/Cmd+F and Ctrl/Cmd+K inside the shortcut sheet
+  and the Refine… popover. `App.activateHit` selects a step with
+  `showClaim`; `showRailForClaim` marks an already-open rail as chosen, so
+  `autoRail` keeps it open into the sheet.
+- The Selection pane has a `group` kind: `subtreeIssues` for "Findings in
+  this group", a `members` section with links to its steps, and "Comes
+  from … into …" / "Feeds … from …" for the connections across its edge.
+  `basisChip()` (`src/ui/evidence.ts`) returns the canvas tag for inferred
+  and unresolved findings and `null` for observed ones.
+- Canvas: a hover (`.is-tracing`) dims nothing and rings the lit cards; only
+  focus mode (`.is-focusing`) fades and disables the rest. A card with an
+  authored detail and a file:line row (`cardDetailLines()` in
+  `render/nodes.ts`) draws `.mlv-node__sub[data-lines="2"]`, two clamped
+  lines, and no `.mlv-node__loc`; the reserved heights are unchanged. A lane
+  header is a plate with the phase swatch, `.mlv-lane__num`, the label in
+  `--mlv-text` at 13 px, the step count, the severity cluster and
+  `.mlv-lane__unit` ("N findings touch this phase", `phaseFindingsText`).
+  The Outline numbers its lanes and puts `.mlv-outline__phasecount` on its
+  own line. `export/svg.ts` draws the same lane plate, unit and card face.
+- Removed as dead: `FilterModel.hidesNode`, `CanvasHost.isFilteredOut` and the
+  `.is-filtered` styles, `FlowHost.streamEligible`, `--mlv-fg-boundary` and
+  `Palette.fgBoundary`, `base64ToBytes` and `MIME` in `export/raster.ts`,
+  `CanvasView.viewportRect` and the `view` export region
+  (`exportFile.scope` is always `all`).
+- `test/helpers.mjs` adds `cascadeWinner(css, element, property)`, which
+  resolves a declaration by specificity and order from the stylesheet text
+  (jsdom's `getComputedStyle` lets the later rule win whatever its
+  specificity). `test/m2-review.test.mjs` holds one regression test per
+  review finding; it models the header's widths and which elements have
+  boxes where jsdom lays nothing out.
 
 Viewer M1 cleanup (no contract change):
 

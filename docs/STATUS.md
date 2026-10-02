@@ -13,7 +13,8 @@ or analyzer GitHub action in the current tree.
 
 The native path includes installed skill ZIPs, a Claude skill plugin, a
 WorkflowDocument contract, source/notebook navigation, evidence and
-counter-evidence, scope filters, refinement prompts and revision watching.
+counter-evidence, severity filters and focus mode, refinement prompts and
+revision watching.
 Malformed revisions retain the last valid diagram. No model runs on open,
 refresh, filtering or source navigation.
 
@@ -141,6 +142,29 @@ mutation check) and in an isolated VS Code 1.139 Extension Development Host for
 the hint's and VS Code's Add Folder, Save Workspace As, Restart Extension Host,
 Reload Window and the multi-root case; an extension install or update was not
 tried ([changelog](../CHANGELOG.md)).
+
+Unreleased viewer M2, review fixes: Tab reaches the header at every width
+(its tab stop skips controls the stylesheet hides) and the header row always
+fits with **Refine…** in view, folding the revision chip, then "not observed"
+(into the ⋯ menu), then the title as it measures an overflow. Header counts
+name their unit on screen ("findings", "7 claims not observed"); an off
+severity toggle is struck through rather than faded; **Refine…** draws the
+button foreground and keeps its High Contrast border; beside the code a
+stale-files warning in the status bar stays whole. A canvas click, a search hit
+for a step, a Selection-pane link or a host reveal shows the claim in Selection
+again (as in M1); only a selection from the Findings list or the Outline on
+screen keeps that list. A group's pane lists its findings, steps and the
+connections across its edge; observed findings carry no basis mark; a lane
+says "· 5 findings touch this phase" after its numbers; cards with a detail
+show two lines of it instead of the file:line row; a hover dims nothing; lane
+headings are numbered, at the title size, on a plate. Announcements say steps
+and connections and lead with the F label. A first view between 62% and about
+85% zoom still opens whole at small text (deferred). Dead scope, phase-chip
+and export-region code is removed and the benchmark tools run again. No
+contract change, no new setting and no geometry change. Checked by local jsdom
+tests and headless-Chrome probes of a simulated host only, not in live VS
+Code, with a screen reader or as a usability check
+([changelog](../CHANGELOG.md)).
 
 Unreleased viewer M2, steps 5 and 9 (About, the Selection pane and the bottom
 sheet): the rail's tabs are About · Findings (n) · Selection · Outline. A new

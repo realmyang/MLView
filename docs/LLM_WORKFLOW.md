@@ -124,8 +124,9 @@ monospace), every cited file with its freshness, and the provenance, with
 "Model-authored; MLView checks citations, not the interpretation." The
 revision chip, **Coverage** in the status bar and the **⋯** menu open it.
 
-Selecting an item shows it in the Selection tab, unless you are working in
-the Findings list or the Outline, which then keep their place. For a step it
+Selecting an item on the diagram, from a search result or from a link shows
+it in the Selection tab; a row chosen in the Findings list or the Outline (or
+`n`/`p` for findings) keeps that list in place. For a step it
 shows, in order: the phase number and name, kind and parent group; the title;
 a one-line basis note only for an inferred or unresolved claim; the full
 authored detail; the findings on the step with their suggestion under **What
@@ -135,8 +136,10 @@ freshness word and **Open**; "Comes from …" and "Feeds …" sentences; then
 document-wide limitations apply, linking to them in About. A connection shows
 its kind in words, label, ends, basis, findings and quotes; a finding shows
 its severity, F-number and real id, title, description, **What to change**,
-the steps it cites (selecting a finding frames all of them) and its
-supporting and counter-evidence. A caption over the quotes says that a
+the steps it cites (selecting a finding frames all of them, with the ends of
+its connections when they fit) and its supporting and counter-evidence. A
+group shows the findings inside it, its steps and the connections that cross
+its edge. A caption over the quotes says that a
 matching quote shows the lines are unchanged since publishing, not that they
 support the claim. Previous/Next evidence opens adjacent anchors; source-less
 items explain why navigation is unavailable. **Challenge this claim** opens
@@ -161,9 +164,13 @@ Selection tab name. The header's **N not observed** toggle fades the observed
 claims so the others stand out. Each phase is coloured by its place in the
 document. Finding badges read F1, F2… in document order; a new revision can
 renumber them, so the Selection tab shows the real id beside the number, and
-Refine and Challenge prompts use the real id. A phase's finding count is the
-findings touching that phase, so a finding that cites two phases counts in
-both. A hover or focus-mode flow runs twice and then stops; Shift+A plays it
+Refine and Challenge prompts use the real id. A lane heading carries the
+phase's number and name, its step count, its findings by severity and their
+total ("5 findings touch this phase"): a finding that cites two phases counts
+in both. A card shows two lines of its authored detail; its file and line are
+in the hover card and the Selection tab. Hovering a card rings its direct
+neighbours and lights its connections without fading anything; focus mode
+(select, then F) fades the rest. A hover or focus-mode flow runs twice and then stops; Shift+A plays it
 again, and VS Code's Reduce Motion setting turns the animation off.
 
 The diagram opens readable: the whole document if it fits at 62% zoom or
@@ -177,7 +184,8 @@ every group. Zoomed out below 62%, cards show only their titles, at about
 The header is one row: the title, the assistant and revision, search, the
 severity toggles (each with its count), **N not observed**, a **⋯** menu and
 **Refine…**. In a panel under 620 px wide, such as beside your code, search
-and the revision move into the **⋯** menu, which also holds the legend, the
+and the revision move into the **⋯** menu; a row still too full folds **N not
+observed** into it as well, so **Refine…** stays in view. The menu also holds the legend, the
 flow animation, the overview map, the side or bottom panel, **Fit the whole diagram**,
 zoom to the selection, the SVG and PNG exports and the shortcut sheet.
 Ctrl/Cmd+F (or Ctrl/Cmd+K, or `/`) focuses search; each result shows its

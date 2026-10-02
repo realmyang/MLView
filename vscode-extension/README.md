@@ -50,9 +50,9 @@ The rail beside the diagram has four tabs: **About**, **Findings (n)**,
 **Selection** and **Outline**. A new revision opens on About (the question,
 what the model traced, coverage with its limitations listed once, scope, run
 configuration, the cited files with their freshness, and provenance); after
-that the tab you choose is kept for that revision. A click on a step,
-connection or finding selects it and shows its claim in Selection, unless you
-are working in Findings or the Outline: the phase, title and full detail, a
+that the tab you choose is kept for that revision. A click on a step or
+connection, or a search result, selects it and shows its claim in Selection
+(a row chosen in Findings or the Outline keeps that list in place): the phase, title and full detail, a
 note only for an inferred or unresolved claim, the findings on it with **What
 to change**, its numbered quotes with line numbers, freshness and **Open**,
 and what it comes from and feeds. Selecting a finding frames every step it
