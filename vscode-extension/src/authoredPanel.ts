@@ -4,10 +4,12 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { blockedOpenText, createNonce, findRootHint, hintFolderName, rootHintJumpText, rootHintText, staleBannerText, staleJumpText, staleToastText, themeKindOf, toEditorLine, type OpenBlockReason, type RootHint } from './authoredSupport';
 import { MAX_EXPORT_BYTES, parseExportFileMessage, saveExportedFile } from './exportDiagram';
+import { CitationIndex, type ClaimRef } from './citationIndex';
 import { DependencySet, identity } from './fileIdentity';
 import type { Logger } from './log';
 import { buildRefinementPrompt, REFINE_INTENTS, toPosixRelative, type RefineIntent, type RefineSelection } from './refinePrompt';
 import { displayIssue, displayText } from './displayText';
+import { RevealInDiagram, type CitationState, type EditorPlace, type RevealPanel } from './revealCommand';
 import { canonicalJson, jsonDepth, lenientRevision, MAX_JSON_DEPTH, RevisionLineage, semanticJson, type Candidate, type Verdict } from './revisionLineage';
 import { ID_PATTERN, MAX_DOCUMENT_BYTES, MAX_SOURCE_BYTES, quoteMatches, readSourceBytes, trackedFiles, validateWorkflow, validateWorkflowStructure, type StaleFile, type ValidatedWorkflow, type ValidationIssue, type WorkflowEvidence } from './workflowDocument';
 export const AUTHORED_VIEW_TYPE = 'mlview.authoredDiagram';
@@ -17,6 +19,11 @@ const DIRTY_THROTTLE_MS = 150;
 const RETRY_DELAYS_MS = [250, 1000, 4000];
 const TRANSIENT_CODES = new Set(['EBUSY', 'EAGAIN', 'EPERM', 'EACCES', 'EMFILE', 'ENFILE']);
 const REQUEST_ID = /^[A-Za-z0-9_-]{1,64}$/;
+/**
+ * Viewer M3 (step 14): a reveal the page may not have received (it was hidden, so VS Code discarded
+ * it, or it was reloading) is posted again after the page's next `ready`, if that comes this soon.
+ */
+export const REVEAL_REPLAY_MS = 5000;
 /** How long a jump into a notebook waits for VS Code to create the cited cell's editor. */
 const CELL_EDITOR_WAIT_MS = 500;
 /**
@@ -133,6 +140,8 @@ interface PanelHooks {
     changed(): void;
     /** Write the registry now; resolves once it is stored. */
     flush(): Promise<void>;
+    /** Viewer M3 (step 14): the panel validated again; the cited-file context key follows. */
+    citationsChanged(): void;
 }
 /**
  * One source jump: the revision and freshness it was decided against, and its place in the order
@@ -343,11 +352,18 @@ export class AuthoredDiagramController implements vscode.Disposable {
     private sweeps: Promise<number> = Promise.resolve(0);
     /** Front tabs already reported as dead without a registry entry, so each is logged once. */
     private readonly unmatched = new WeakSet<vscode.Tab>();
-    constructor(private readonly ctx: vscode.ExtensionContext, private readonly log: Logger, private readonly validator: typeof validateWorkflow = validateWorkflow, private readonly io: AuthoredPanelIo = defaultIo, private readonly settleMs: number = RECOVERY_SETTLE_MS) { }
+    /** Viewer M3 (step 14): MLView: Reveal in Diagram and the `mlview.citedFile` context key. */
+    readonly revealer: RevealInDiagram;
+    constructor(private readonly ctx: vscode.ExtensionContext, private readonly log: Logger, private readonly validator: typeof validateWorkflow = validateWorkflow, private readonly io: AuthoredPanelIo = defaultIo, private readonly settleMs: number = RECOVERY_SETTLE_MS) {
+        this.revealer = new RevealInDiagram(() => [...this.panels.values()], log);
+    }
     register(): vscode.Disposable[] {
         const watcher = vscode.workspace.createFileSystemWatcher('**/*');
         const registered = [
             vscode.commands.registerCommand(OPEN_AUTHORED_COMMAND, (uri?: vscode.Uri) => this.open(uri)),
+            // Viewer M3 (step 14): the way back from the code; its editor listeners and its context
+            // key live only while a panel is open (`panelsChanged`).
+            this.revealer.register(),
             vscode.window.registerWebviewPanelSerializer(AUTHORED_VIEW_TYPE, { deserializeWebviewPanel: async (panel, state: unknown) => this.restore(panel, state) }),
             // Saves and watcher events change the files on disk: revalidate.
             vscode.workspace.onDidSaveTextDocument(doc => this.diskChanged(doc.uri)),
@@ -412,10 +428,13 @@ export class AuthoredDiagramController implements vscode.Disposable {
                 // A closed tab leaves the registry. When the host shuts down (`dispose`), the
                 // panels stay registered: their tabs stay open for the next host.
                 void this.recordPanels();
+                // The last panel takes the reveal command's listeners and context key with it.
+                this.revealer.panelsChanged();
             }
         }, this.hooks, this.validator, this.io);
         this.panels.set(key, authored);
         void this.recordPanels();
+        this.revealer.panelsChanged();
         return authored;
     }
     private async restore(panel: vscode.WebviewPanel, state: unknown): Promise<void> {
@@ -433,7 +452,8 @@ export class AuthoredDiagramController implements vscode.Disposable {
     }
     private readonly hooks: PanelHooks = {
         changed: () => { void this.recordPanels(); },
-        flush: () => this.recordPanels()
+        flush: () => this.recordPanels(),
+        citationsChanged: () => this.revealer.citationsChanged()
     };
     /**
      * Queue a write of this window's registry entry (see `OPEN_PANELS_KEY`): every open panel,
@@ -603,6 +623,7 @@ export class AuthoredDiagramController implements vscode.Disposable {
         for (const p of this.panels.values())
             p.dispose();
         this.panels.clear();
+        this.revealer.dispose();
         for (const d of this.disposables)
             d.dispose();
     }
@@ -643,7 +664,7 @@ function visibleEditorFor(document: vscode.TextDocument, timeoutMs: number): Pro
     });
 }
 const listFiles = (rels: readonly string[]): string => rels.slice(0, 3).map(rel => displayText(rel, 200)).join(', ') + (rels.length > 3 ? `, and ${rels.length - 3} more` : '');
-class AuthoredPanel implements vscode.Disposable {
+class AuthoredPanel implements vscode.Disposable, RevealPanel {
     private disposed = false;
     private ready = false;
     /** The displayed revision's latest validation. */
@@ -687,6 +708,15 @@ class AuthoredPanel implements vscode.Disposable {
     private jumpColumn: vscode.ViewColumn | undefined;
     /** Editor groups the reader used outside the panel, most recent first (`navigationColumn`). */
     private recentColumns: vscode.ViewColumn[] = [];
+    /**
+     * Viewer M3 (step 14): the claims the displayed revision cites, by file and range, for MLView:
+     * Reveal in Diagram. Built from the validated document whenever it changes.
+     */
+    private citations: CitationIndex | undefined;
+    /** The cited files' identities on disk (realpath), for `citations` under the current root; rebuilt after each validation. */
+    private citedIdentities: Promise<Map<string, string>> | undefined;
+    /** A reveal the page may not have received yet (`REVEAL_REPLAY_MS`). */
+    private pendingReveal: { ref: ClaimRef; revision: string; until: number } | undefined;
     constructor(private readonly panel: vscode.WebviewPanel, private readonly artifact: vscode.Uri, private folder: vscode.WorkspaceFolder, private readonly ctx: vscode.ExtensionContext, private readonly log: Logger, private readonly onDispose: () => void, private readonly hooks: PanelHooks, private readonly validator: typeof validateWorkflow, private readonly io: AuthoredPanelIo) {
         this.artifactRel = toPosixRelative(folder.uri.fsPath, artifact.fsPath);
         this.dependencies.addPath(artifact.fsPath);
@@ -885,6 +915,9 @@ class AuthoredPanel implements vscode.Disposable {
         if (verdict === 'adopt' || verdict === 'refresh') {
             this.rejection = undefined;
             this.lastValid = value;
+            // Viewer M3 (step 14): the citation index follows the validated document.
+            if (value && this.citations?.document !== value.document)
+                this.citations = CitationIndex.from(value.document);
         }
         else {
             this.rejection = this.rejectionFor(candidate, verdict);
@@ -895,6 +928,9 @@ class AuthoredPanel implements vscode.Disposable {
                 candidateFiles = value?.files ?? [];
             }
         }
+        // The cited files' identities are looked up again after every validation (a folder change
+        // can move the root, a rename can move a file).
+        this.citedIdentities = undefined;
         await this.rebuildDependencies(candidateTracked, candidateFiles);
         await this.computeDirty();
         this.rootHint = await this.computeRootHint();
@@ -932,6 +968,9 @@ class AuthoredPanel implements vscode.Disposable {
             this.scheduleRetry();
         else
             this.retryCount = 0;
+        // Viewer M3 (step 14): a new revision, or a changed or restored cited file, can turn the
+        // reveal command's context key on or off.
+        this.hooks.citationsChanged();
     }
     /**
      * The stale cited and inspected files of the displayed revision, each with its reason, so the
@@ -1163,6 +1202,8 @@ class AuthoredPanel implements vscode.Disposable {
             this.lastPostedBanner = message;
             if (message)
                 this.post({ v: 1, type: 'workflowError', message, retained: this.lineage.displayed !== null, codes });
+            // Viewer M3 (step 14): a reveal the old page may have missed, after the document.
+            this.replayReveal();
             return;
         }
         if (m.type === 'openLocation') {
@@ -1634,6 +1675,105 @@ class AuthoredPanel implements vscode.Disposable {
         this.highlight?.dispose();
         this.highlight = undefined;
     }
+    /* ── viewer M3 (step 14): MLView: Reveal in Diagram (see revealCommand.ts) ── */
+
+    /** The displayed revision's title, for the diagram picker. */
+    documentTitle(): string {
+        return this.lastValid?.document.title ?? this.panel.title;
+    }
+    artifactPath(): string {
+        return this.artifactRel;
+    }
+    /**
+     * What the displayed revision says about the reader's file: not cited; a cited file found in the
+     * folder the root hint names instead of the workspace root; cited but stale (changed, missing,
+     * unreadable or too large since publishing); cited in the other form (notebook cells
+     * against a text editor); cited, but no range still has its quote at the cited lines of the
+     * editor's text (unsaved edits moved them, or a change nothing reported yet); or cited, with the
+     * ranges that still hold. The file is matched by its workspace-relative path, then by identity
+     * on disk (a symlinked folder, a case alias).
+     */
+    async citationState(place: EditorPlace): Promise<CitationState> {
+        const index = this.citations;
+        const shown = this.lastValid;
+        if (this.disposed || !index || !shown || index.document !== shown.document)
+            return { kind: 'none' };
+        const rel = await this.citedRel(index, place.fsPath);
+        if (this.disposed || this.citations !== index)
+            return { kind: 'none' };
+        if (!rel) {
+            // The parent-folder case: the file is a cited one, unchanged, in the folder the root
+            // hint names, not at the workspace root the diagram is validated against.
+            const hint = this.rootHint;
+            const underHint = hint ? toPosixRelative(hint.base, place.fsPath) : undefined;
+            return hint && underHint && hint.files.includes(underHint) && index.ranges(underHint).length
+                ? { kind: 'elsewhere', rel: underHint, folder: hintFolderName(hint) }
+                : { kind: 'none' };
+        }
+        const stale = shown.stale.find(s => s.rel === rel);
+        if (stale)
+            return { kind: 'stale', rel, reason: stale.reason, revision: index.revision };
+        const ranges = index.ranges(rel);
+        const sameForm = ranges.filter(range => (range.evidence.cell !== undefined) === place.notebook);
+        if (!sameForm.length)
+            return { kind: 'form', rel, cells: ranges.some(range => range.evidence.cell !== undefined) };
+        const holding = sameForm.filter(range => {
+            const lines = place.linesFor(range.evidence);
+            return lines !== undefined && quoteMatches(range.evidence.quote, lines, range.evidence.line, range.evidence.endLine);
+        });
+        if (!holding.length)
+            return { kind: 'moved', rel, dirty: place.dirty };
+        return { kind: 'cited', rel, revision: index.revision, ranges: holding };
+    }
+    /** The cited file `fsPath` is, as the evidence records spell it, or undefined. */
+    private async citedRel(index: CitationIndex, fsPath: string): Promise<string | undefined> {
+        const root = this.folder.uri.fsPath;
+        const lexical = toPosixRelative(root, fsPath);
+        if (index.ranges(lexical).length)
+            return lexical;
+        if (!this.citedIdentities) {
+            const files = index.files();
+            this.citedIdentities = Promise.all(files.map(rel => identity(path.resolve(root, rel)))).then(ids => new Map(ids.map((id, i) => [id, files[i]!])));
+        }
+        const [ids, target] = await Promise.all([this.citedIdentities, identity(fsPath)]);
+        return ids.get(target);
+    }
+    /** A change is waiting to be checked: validate now, so the answer is about the files as they are. */
+    async settle(): Promise<void> {
+        if (this.pendingCheck && !this.disposed)
+            await this.reload();
+    }
+    recheck(): void {
+        this.sourceChanged();
+    }
+    /**
+     * Show the claim in the diagram: post `reveal {kind, id}` (the webview selects it, brings it into
+     * view and shows it in the Selection tab), and move the keyboard focus to this panel, in its own
+     * group. This is the one place the viewer moves the focus by itself: the reader asked for the
+     * diagram. False when the displayed revision is no longer `revision` or lacks the claim.
+     *
+     * VS Code discards a hidden panel's page (this panel does not retain its context), so a page
+     * that was hidden or reloading may miss the frame: it is posted again after the page's next
+     * `ready`, if that comes within REVEAL_REPLAY_MS.
+     */
+    revealClaim(ref: ClaimRef, revision: string): boolean {
+        const index = this.citations;
+        if (this.disposed || !index || index.revision !== revision || this.lastValid?.document !== index.document || !index.claim(ref))
+            return false;
+        this.pendingReveal = { ref: { kind: ref.kind, id: ref.id }, revision, until: Date.now() + REVEAL_REPLAY_MS };
+        if (this.ready)
+            this.post({ v: 1, type: 'reveal', kind: ref.kind, id: ref.id });
+        this.panel.reveal(undefined, false);
+        return true;
+    }
+    /** After a page's `ready`: post the reveal it may have missed, once, while it is recent and its revision is still shown. */
+    private replayReveal(): void {
+        const pending = this.pendingReveal;
+        this.pendingReveal = undefined;
+        if (!pending || Date.now() > pending.until || this.citations?.revision !== pending.revision || !this.citations.claim(pending.ref))
+            return;
+        this.post({ v: 1, type: 'reveal', kind: pending.ref.kind, id: pending.ref.id });
+    }
     private post(message: unknown): void {
         if (!this.disposed)
             void this.panel.webview.postMessage(message);
@@ -1662,6 +1802,9 @@ class AuthoredPanel implements vscode.Disposable {
         this.scheduler.dispose();
         this.cancelRetry();
         this.clearHighlight();
+        this.citations = undefined;
+        this.citedIdentities = undefined;
+        this.pendingReveal = undefined;
         if (this.dirtyTimer !== undefined) {
             clearTimeout(this.dirtyTimer);
             this.dirtyTimer = undefined;

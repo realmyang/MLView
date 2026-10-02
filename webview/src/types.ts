@@ -355,9 +355,17 @@ export interface StaleFile {
 export type HostToUi =
   | { v: 1; type: 'init'; theme: ThemeKind; capabilities: Capabilities; artifact?: string }
   | { v: 1; type: 'theme'; kind: ThemeKind }
-  /** Not sent by the host today; kept for the planned "Reveal in Diagram" (M3). */
+  /**
+   * Viewer M3 (step 14), MLView: Reveal in Diagram: the reader chose this claim from the code in the
+   * editor, and the host moved the keyboard focus to this panel. The viewer selects it, brings it
+   * into view (above the bottom sheet, clear of the phase index), shows it in the Selection tab and
+   * puts the keyboard on it. `issue` is a finding. A frame with another kind, or an id the displayed
+   * revision lacks, changes nothing.
+   */
+  | { v: 1; type: 'reveal'; kind: 'node' | 'edge' | 'issue'; id: string }
+  /** The host sends `reveal`; these older single-kind frames are still answered the same way. */
   | { v: 1; type: 'revealNode'; nodeId: string; center?: boolean }
-  /** Not sent by the host today; kept for the planned "Reveal in Diagram" (M3). */
+  /** The host sends `reveal`; these older single-kind frames are still answered the same way. */
   | { v: 1; type: 'revealIssue'; issueId: string }
   /**
    * Viewer M1. The displayed revision's stale files, each with its reason, posted after the

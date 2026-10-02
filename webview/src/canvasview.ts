@@ -436,6 +436,21 @@ export class CanvasView {
     return this.nodeEls.get(id);
   }
 
+  /**
+   * Viewer M3 (step 14): put the keyboard on a step's card (a group's header), on a connection, or,
+   * with `null` or a target that is not drawn on its own, on the canvas.
+   */
+  focusTarget(target: { kind: 'node' | 'edge'; id: string } | null): void {
+    let element: Element | null | undefined = null;
+    if (target && target.kind === 'node' && this.index) {
+      const card = this.nodeEls.get(this.index.visibleRepresentative(target.id, this.collapsedSet));
+      element = card && card.classList.contains('mlv-group') ? card.querySelector('.mlv-group__header') : card;
+    } else if (target && target.kind === 'edge') {
+      element = this.edgeEls.get(target.id)?.querySelector('.mlv-edge__hit');
+    }
+    this.focusSafely((element as HTMLElement | null) || this.canvasEl);
+  }
+
   /** Re-run layout + routing. The only thing that moves boxes. */
   relayout(): void {
     if (!this.index) return;
@@ -818,6 +833,34 @@ export class CanvasView {
     const target = !steps.length || !ends.length || this.viewport.fitsAt(all, FRAME_MIN_ZOOM) ? all : unionOf(steps);
     this.viewport.frameRect(target, rects[0], READABLE_ZOOM);
     if (issue.nodeIds[0]) this.pulseNode(this.index.visibleRepresentative(issue.nodeIds[0], this.collapsedSet));
+  }
+
+  /**
+   * Viewer M3 (step 14), a connection revealed from the code: frame both its ends as a finding's
+   * cited cards are framed (`ViewportController.frameRect`). At full detail the zoom is kept when
+   * they fit; otherwise it is the largest that fits them, between FRAME_MIN_ZOOM and READABLE_ZOOM;
+   * ends too far apart even at that floor centre on the source card, where the connection starts.
+   * The source card is kept clear of the phase index. When keeping it clear pushed the target card
+   * out of view, the frame zooms out (never below FRAME_MIN_ZOOM) until both ends fit above the
+   * index or beside it.
+   */
+  frameEdge(id: string): void {
+    if (!this.index || !this.frameData) return;
+    const edge = this.index.edgeById.get(id);
+    const union = this.targetRect({ kind: 'edge', id });
+    if (!edge || !union) return;
+    const box = (nodeId: string) => this.frameData!.boxes.get(this.index!.visibleRepresentative(nodeId, this.collapsedSet));
+    const source = box(edge.source);
+    const target = box(edge.target);
+    this.viewport.frameRect(union, source || union, READABLE_ZOOM);
+    const covered = this.viewport.covered();
+    if (!target || !covered || this.viewport.isVisible(target)) return;
+    const margin = 48;
+    const { w, h } = this.viewport.visibleArea();
+    const above = Math.min((w - margin) / Math.max(1, union.w), (h - covered.h - margin) / Math.max(1, union.h));
+    const beside = Math.min((w - covered.w - margin) / Math.max(1, union.w), (h - margin) / Math.max(1, union.h));
+    const zoom = Math.min(this.viewport.vp.zoom, Math.max(above, beside));
+    if (zoom >= FRAME_MIN_ZOOM) this.viewport.centerOn(union, zoom);
   }
 
   /** Issue 6: bring a connection's two ends into view, zooming in when below the detail threshold. */

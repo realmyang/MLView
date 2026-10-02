@@ -33,5 +33,8 @@ export {
   OPEN_PANELS_TTL_MS,
   MAX_OTHER_SESSIONS,
   RECOVERY_SETTLE_MS,
-  OPEN_AUTHORED_COMMAND
+  OPEN_AUTHORED_COMMAND,
+  REVEAL_REPLAY_MS
 } from './authoredPanel';
+export { CitationIndex, claimsAt, nearestClaims, claimPickText, pickText, linesText } from './citationIndex';
+export { RevealInDiagram, editorPlace, selectionLines, REVEAL_COMMAND, CITED_FILE_CONTEXT, CITED_KEY_THROTTLE_MS, NEAREST_LIMIT } from './revealCommand';

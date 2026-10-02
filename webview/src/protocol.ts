@@ -28,9 +28,12 @@ export interface ProtocolHandlers {
   /** The answer to a request that carried a `requestId` (§1e). */
   actionResult(result: ActionResult): void;
   theme(kind: ThemeKind): void;
-  /** Not sent by the host today; kept for the planned "Reveal in Diagram" (M3). */
+  /**
+   * Viewer M3 (step 14), MLView: Reveal in Diagram (the `reveal` frame, and the older `revealNode`
+   * and `revealIssue` frames): show the step, connection or finding the reader chose in the editor.
+   */
   revealNode(nodeId: string, center: boolean): void;
-  /** Not sent by the host today; kept for the planned "Reveal in Diagram" (M3). */
+  revealEdge(edgeId: string): void;
   revealIssue(issueId: string): void;
   /** Applies a saved `ViewState` (the geometry golden and the protocol tests drive collapse with it). */
   restoreState(state: ViewState): void;
@@ -62,11 +65,20 @@ export function dispatchHostMessage(msg: HostToUi, h: ProtocolHandlers): void {
     case 'theme':
       h.theme(msg.kind);
       return;
+    case 'reveal': {
+      // Viewer M3 (step 14): one frame for the three kinds. A malformed one is dropped.
+      const id = (msg as { id?: unknown }).id;
+      if (typeof id !== 'string' || !id) return;
+      if (msg.kind === 'node') h.revealNode(id, true);
+      else if (msg.kind === 'edge') h.revealEdge(id);
+      else if (msg.kind === 'issue') h.revealIssue(id);
+      return;
+    }
     case 'revealNode':
-      h.revealNode(msg.nodeId, msg.center !== false);
+      if (typeof msg.nodeId === 'string' && msg.nodeId) h.revealNode(msg.nodeId, msg.center !== false);
       return;
     case 'revealIssue':
-      h.revealIssue(msg.issueId);
+      if (typeof msg.issueId === 'string' && msg.issueId) h.revealIssue(msg.issueId);
       return;
     case 'restoreState':
       h.restoreState(msg.state);

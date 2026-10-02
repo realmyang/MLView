@@ -105,6 +105,9 @@ export interface ShowAboutOptions {
 
 type RequestFrame = UiToHost & { requestId?: string };
 
+/** Viewer M3 (step 14): how long after a reveal a window focus puts the keyboard back on the claim. */
+export const REVEAL_FOCUS_HOLD_MS = 1500;
+
 export interface SelectOptions {
   /** Open the selection's cited source beside the panel (Enter, double-click). Focus stays here. */
   open?: boolean;
@@ -205,6 +208,8 @@ export class App implements MLViewApp {
   private requestSerial = 0;
   private disposers: (() => void)[] = [];
   private destroyed = false;
+  /** Viewer M3 (step 14): stops putting the keyboard back on a revealed claim (`holdRevealFocus`). */
+  private releaseRevealFocus: (() => void) | null = null;
 
   view!: CanvasView;
   chrome!: Chrome;
@@ -588,6 +593,85 @@ export class App implements MLViewApp {
         /* the canvas may already be torn down */
       }
     }
+  }
+
+  /**
+   * Viewer M3 (step 14), MLView: Reveal in Diagram. The reader chose this claim from the code in the
+   * editor, and VS Code moved the keyboard focus to this panel because they asked for the diagram.
+   * The shortcut sheet, the Refine… popover (its text is kept) and the phase overview close; the
+   * claim's boxes are drawn (a collapsed group around it opens); it is selected and shown in the
+   * Selection tab (a side panel the reader hid opens, as for the walk, and so does a collapsed bottom
+   * sheet); and it is brought into view above the sheet and clear of the phase index: a step is
+   * centred, zoomed to reading size when the diagram is smaller (`center` false: panned the least
+   * distance instead), a connection frames both its ends (or its source, when they are too far
+   * apart), and a finding frames every step it cites.
+   * The keyboard lands on the step's card or the connection (the canvas for a finding), so the
+   * diagram's keys answer at once. A claim the displayed revision lacks changes nothing and says so.
+   * Returns whether the claim was shown.
+   */
+  revealClaim(sel: Sel, opts: { center?: boolean } = {}): boolean {
+    const index = this.index;
+    if (!index) return false;
+    const known = sel.kind === 'node' ? index.nodeById.has(sel.id) : sel.kind === 'edge' ? index.edgeById.has(sel.id) : index.issueById.has(sel.id);
+    if (!known) {
+      const text = 'That claim is not in the revision shown here.';
+      this.view.toast(text);
+      this.announce(text);
+      return false;
+    }
+    if (this.sheet.open) this.sheet.hide(null);
+    closeComposer(this, false);
+    if (this.view.closeOverview(false)) renderChrome(this);
+    const expandEnds = (edgeId: string) => {
+      const edge = index.edgeById.get(edgeId);
+      if (!edge) return;
+      this.view.expandAncestors(edge.source);
+      this.view.expandAncestors(edge.target);
+    };
+    if (sel.kind === 'issue') {
+      const issue = index.issueById.get(sel.id)!;
+      for (const id of issue.nodeIds) this.view.expandAncestors(id);
+      for (const id of issue.edgeIds) expandEnds(id);
+    } else if (sel.kind === 'node') this.view.expandAncestors(sel.id);
+    else expandEnds(sel.id);
+    this.openRailForWalk();
+    const center = opts.center !== false;
+    if (sel.kind === 'node') this.select(sel, { tab: 'inspector', showClaim: true, center, reveal: center, pulse: center });
+    else this.select(sel, { tab: 'inspector', showClaim: true });
+    if (sel.kind === 'issue') this.view.frameIssue(sel.id);
+    else if (sel.kind === 'edge') this.view.frameEdge(sel.id);
+    else if (sel.kind === 'node' && !center) this.view.revealTarget({ kind: 'node', id: sel.id });
+    const target = sel.kind === 'issue' ? null : { kind: sel.kind, id: sel.id };
+    this.view.focusTarget(target);
+    this.holdRevealFocus(target);
+    return true;
+  }
+
+  /**
+   * Viewer M3 (step 14), measured live in VS Code 1.139: the host moves the focus into the panel
+   * just after it posts the reveal, and VS Code hands it over in two steps (the panel's outer frame,
+   * then this page's window), which leaves this page's focus on <body>: the card focused on arrival
+   * lost it 3 ms later, and the window was focused again 50 ms after that with nothing focused in
+   * it. So for REVEAL_FOCUS_HOLD_MS after a reveal, a window focus that finds nothing focused puts
+   * the keyboard back on the revealed claim. A focus the reader moved anywhere else is left alone.
+   */
+  private holdRevealFocus(target: { kind: 'node' | 'edge'; id: string } | null): void {
+    if (this.releaseRevealFocus) this.releaseRevealFocus();
+    const doc = this.root.ownerDocument;
+    const win = doc ? doc.defaultView : null;
+    if (!doc || !win) return;
+    const onFocus = () => {
+      const active = doc.activeElement;
+      if (!active || active === doc.body || active === doc.documentElement) this.view.focusTarget(target);
+    };
+    win.addEventListener('focus', onFocus);
+    const timer = win.setTimeout(() => release(), REVEAL_FOCUS_HOLD_MS);
+    const release = () => {
+      win.removeEventListener('focus', onFocus);
+      win.clearTimeout(timer);
+      if (this.releaseRevealFocus === release) this.releaseRevealFocus = null;
+    };
+    this.releaseRevealFocus = release;
   }
 
   /** Viewer M3: the ... menu shows or hides the phase index (it replaced the minimap). */
@@ -1073,6 +1157,7 @@ export class App implements MLViewApp {
     if (this.destroyed) return;
     this.destroyed = true;
     this.saveSoon.cancel();
+    if (this.releaseRevealFocus) this.releaseRevealFocus();
     this.walk.destroy();
     this.pending.clear();
     for (const dispose of this.disposers) {

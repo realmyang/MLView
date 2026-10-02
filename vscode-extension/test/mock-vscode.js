@@ -317,7 +317,13 @@ const recorded = {
   activeEditorListeners: [],
   activeNotebookListeners: [],
   /** H10: every languages.registerCodeLensProvider registration. */
-  codeLensProviders: []
+  codeLensProviders: [],
+  /**
+   * Viewer M3 (step 14): `setContext` is a built-in command, kept out of `executedCommands`: the
+   * context keys as they are now, and every setContext call, in order.
+   */
+  contexts: new Map(),
+  contextCalls: []
 };
 
 const configValues = new Map();
@@ -397,7 +403,8 @@ function makeTextEditor(document, viewColumn) {
     revealRange(range, revealType) {
       editor.revealed.push({ range, revealType });
     },
-    selection: undefined
+    // Like VS Code, an editor always has a selection: the cursor at the start until something moves it.
+    selection: new Selection(new Position(0, 0), new Position(0, 0))
   };
   return editor;
 }
@@ -497,6 +504,8 @@ function makeWebviewPanel(viewType, title, showOptions, options, existingTab) {
     tab: undefined,
     posted: [],
     revealed: 0,
+    /** Viewer M3 (step 14): every reveal(viewColumn, preserveFocus) call, in order. */
+    revealCalls: [],
     disposed: false,
     webview: {
       html: '',
@@ -512,8 +521,9 @@ function makeWebviewPanel(viewType, title, showOptions, options, existingTab) {
     /** Play the webview's part. */
     fire: (message) => messages.fire(message),
     postedTypes: () => panel.posted.map((m) => m.type),
-    reveal() {
+    reveal(viewColumn, preserveFocus) {
       panel.revealed += 1;
+      panel.revealCalls.push({ viewColumn, preserveFocus });
     },
     onDidDispose: disposal.event,
     onDidChangeViewState: viewState.event,
@@ -926,6 +936,11 @@ const vscode = {
       return { dispose: () => recorded.commands.delete(id) };
     },
     executeCommand: async (id, ...args) => {
+      if (id === 'setContext') {
+        recorded.contexts.set(args[0], args[1]);
+        recorded.contextCalls.push({ key: args[0], value: args[1] });
+        return undefined;
+      }
       recorded.executedCommands.push({ id, args });
       return undefined;
     }
@@ -970,7 +985,8 @@ const vscode = {
   __setVisibleTextEditors(specs) {
     visibleTextEditors = (specs || []).map((spec) => ({
       document: makeDocument(Uri.file(spec.path)),
-      viewColumn: spec.viewColumn
+      viewColumn: spec.viewColumn,
+      selection: new Selection(new Position(0, 0), new Position(0, 0))
     }));
     vscode.window.activeTextEditor = visibleTextEditors.find(editor => editor.viewColumn === specs?.find(spec => spec.active)?.viewColumn);
     return visibleTextEditors;
@@ -994,7 +1010,19 @@ const vscode = {
       for (const listener of [...recorded.activeNotebookListeners]) listener(editor);
       return editor;
     }
-    const editor = spec ? { document: makeDocument(Uri.file(spec.path)), viewColumn: spec.viewColumn } : undefined;
+    // Viewer M3 (step 14): `{ cellOf: notebookPath, cell }` is the editor of one cell of an open
+    // notebook; `selection: [startLine, startChar, endLine, endChar]` (zero-based, default the
+    // start of the document) is its selection.
+    let document;
+    if (spec && spec.cellOf !== undefined) {
+      const notebook = notebookDocuments.find((candidate) => candidate.uri.fsPath === spec.cellOf);
+      if (!notebook) throw new Error(`notebook is not open: ${spec.cellOf}`);
+      document = notebook.cellAt(spec.cell).document;
+    } else if (spec) {
+      document = makeDocument(Uri.file(spec.path));
+    }
+    const [l1, c1, l2, c2] = (spec && spec.selection) || [0, 0, 0, 0];
+    const editor = spec ? { document, viewColumn: spec.viewColumn, selection: new Selection(new Position(l1, c1), new Position(l2 === undefined ? l1 : l2, c2 === undefined ? c1 : c2)) } : undefined;
     vscode.window.activeTextEditor = editor;
     for (const listener of [...recorded.activeEditorListeners]) listener(editor);
     return editor;
@@ -1164,6 +1192,8 @@ const vscode = {
     recorded.closedTabs.length = 0;
     recorded.activeEditorListeners.length = 0;
     recorded.activeNotebookListeners.length = 0;
+    recorded.contexts.clear();
+    recorded.contextCalls.length = 0;
     vscode.window.activeNotebookEditor = undefined;
     tabGroups = [];
     tabEvents.dispose();

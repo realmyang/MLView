@@ -595,3 +595,69 @@ export async function authoredWalkHandshake() {
     rmSync(wire.root, { recursive: true, force: true });
   }
 }
+
+/**
+ * Viewer M3 (step 14): MLView: Reveal in Diagram across the real host, its bootstrap and the built
+ * bundle. The cursor in source.py: the host finds the claims citing the line (one is revealed at
+ * once, several are offered in a QuickPick), posts `reveal {kind, id}` and moves the focus to the
+ * panel; the page selects the claim, shows it and puts the keyboard on it. A page VS Code discarded
+ * while hidden gets the reveal after its next `ready`.
+ */
+export async function authoredRevealHandshake() {
+  const document = { ...baseDocument(), verification: { files: { 'source.py': sha256(SOURCE) }, publishedAt: '2026-09-25T00:00:00Z' } };
+  const wire = await openWire(document, { 'source.py': SOURCE });
+  try {
+    const page = mountPage(wire);
+    await waitFor(() => $(page, '[data-node-id="loss"]'), 'the viewer did not mount');
+    const runReveal = () => vscode.__recorded.commands.get('mlview.revealInDiagram')();
+    const revealFrames = () => wire.hostPosts.filter((m) => m.type === 'reveal');
+    const cursor = (line) => vscode.__setActiveEditor({ path: join(wire.root, 'source.py'), viewColumn: 1, selection: [line, 0, line, 0] });
+    // The context key: on for the cited file.
+    cursor(0);
+    await waitFor(() => vscode.__recorded.contexts.get('mlview.citedFile') === true, 'the cited-file key did not turn on');
+
+    // Line 1: one claim, the step "Compute loss", revealed at once.
+    await runReveal();
+    assert.equal(vscode.__recorded.quickPicks.length, 0);
+    assert.deepEqual(plain(revealFrames()), [{ v: 1, type: 'reveal', kind: 'node', id: 'loss' }]);
+    assert.deepEqual(wire.panel.revealCalls.at(-1), { viewColumn: undefined, preserveFocus: false }, 'the focus moves to the panel');
+    await waitFor(() => page.app.selection && page.app.selection.id === 'loss', 'the page did not select the step');
+    assert.equal(page.window.document.activeElement, $(page, '[data-node-id="loss"]'), 'the keyboard is on the card');
+    assert.equal(page.app.railTab, 'inspector');
+
+    // Line 2: the step, the connection and the finding cite it; the reader chooses the connection.
+    cursor(1);
+    vscode.__answerQuickPick(1);
+    await runReveal();
+    assert.deepEqual(vscode.__recorded.quickPicks[0].items.map((i) => i.label), ['Step: Update weights', 'Connection: Compute loss → Update weights', 'F1 Finding: Update risk']);
+    assert.deepEqual(plain(revealFrames().at(-1)), { v: 1, type: 'reveal', kind: 'edge', id: 'step' });
+    await waitFor(() => page.app.selection && page.app.selection.id === 'step', 'the page did not select the connection');
+    assert.equal(page.window.document.activeElement, $(page, '.mlv-edge[data-edge-id="step"] .mlv-edge__hit'), 'the keyboard is on the connection');
+    assert.equal(page.outgoing.filter((m) => m.type === 'openLocation').length, 0, 'a reveal opens nothing');
+
+    // The panel was hidden, so VS Code discarded its page: the frame never arrives. The new page
+    // gets it after its ready.
+    const deliver = wire.panel.webview.postMessage;
+    wire.panel.webview.postMessage = async (message) => { wire.hostPosts.push(message); return true; };
+    vscode.__answerQuickPick(2);
+    await runReveal();
+    assert.deepEqual(plain(revealFrames().at(-1)), { v: 1, type: 'reveal', kind: 'issue', id: 'risk' });
+    assert.equal(page.app.selection.id, 'step', 'the hidden page did not get it');
+    wire.panel.webview.postMessage = deliver;
+    const reloaded = mountPage(wire);
+    await waitFor(() => reloaded.app && reloaded.app.selection && reloaded.app.selection.id === 'risk', 'the new page did not get the reveal after its ready');
+    assert.deepEqual(plain(reloaded.app.selection), { kind: 'issue', id: 'risk' });
+    const lastLoad = wire.hostPosts.slice(wire.hostPosts.findLastIndex((m) => m.type === 'init')).map((m) => m.type);
+    assert.ok(lastLoad.indexOf('workflow') >= 0 && lastLoad.indexOf('reveal') > lastLoad.indexOf('workflow'), 'posted after the document');
+
+    // The last panel closes: the key goes off.
+    wire.panel.dispose();
+    await waitFor(() => vscode.__recorded.contexts.get('mlview.citedFile') === false, 'the key outlived the last panel');
+    assert.equal(vscode.__recorded.messages.filter((m) => m[0] === 'warn' || m[0] === 'error').length, 0, 'no notification');
+    process.stdout.write('  PASS  Reveal in Diagram → one claim at once, several in a QuickPick → the page selects it with the keyboard on it → a discarded page gets it after ready\n');
+  } finally {
+    wire.controller.dispose();
+    for (const page of wire.pages) page.window.close();
+    rmSync(wire.root, { recursive: true, force: true });
+  }
+}

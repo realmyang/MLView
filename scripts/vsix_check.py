@@ -19,7 +19,8 @@ REQUIRED = {
     "extension/package.json", "extension/out/extension.js", "extension/media/mlview.js",
     "extension/media/mlview.css", "extension/LICENSE.txt", "extension/THIRD_PARTY_NOTICES.md",
 }
-ALLOWED_COMMANDS = {"mlview.openGeneratedDiagram"}
+# Viewer M3 (step 14): the owner approved one widening, MLView: Reveal in Diagram.
+ALLOWED_COMMANDS = {"mlview.openGeneratedDiagram", "mlview.revealInDiagram"}
 # (packaged entry, working-tree source relative to the checkout, label used in messages)
 FRESHNESS = (
     ("extension/LICENSE.txt", "LICENSE", "notice", "LICENSE"),
