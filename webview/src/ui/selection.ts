@@ -117,8 +117,8 @@ export function renderSelectionPane(panel: HTMLElement, s: SelectionPaneState, c
  * (`.mlv-quote.is-walk`, `data-walk-status`) and one line under it saying what the editor beside
  * shows: opening, highlighted, or why it was not opened (the host's reason). Any older mark goes.
  * Updated in place when the host answers, so the pane keeps its scroll and focus. `reveal` (the
- * walk moved to another quote of the same claim, `[` or `]`) scrolls the pane the least distance
- * that shows the marked quote, at once (no smooth scroll, so reduced motion needs nothing more).
+ * walk moved to another claim or, with `[` or `]`, to another quote) brings the marked quote into
+ * view (`revealWalkQuote`), at once: no smooth scroll, so nothing moves under reduced motion.
  */
 export function applyWalkMark(container: HTMLElement | null, mark: WalkMark | null, reveal = false): void {
   if (!container) return;
@@ -143,7 +143,72 @@ export function applyWalkMark(container: HTMLElement | null, mark: WalkMark | nu
     if (head && head.nextSibling) li.insertBefore(line, head.nextSibling);
     else li.appendChild(line);
   }
-  if (reveal && typeof li.scrollIntoView === 'function') li.scrollIntoView({ block: 'nearest' });
+  if (reveal) revealWalkQuote(li);
+}
+
+/** Room kept between a revealed quote (or the title) and the pane's edge. */
+const REVEAL_MARGIN = 8;
+
+/**
+ * Where the pane's scroll should be so the walk's quote shows, moving the least from `current`
+ * (M3 live check, W1). Positions are in the pane's content, in pixels; `view` is the pane's
+ * height. What must show is the quote's file line and the walk's line under it (what the editor
+ * beside shows for it): `quoteTop` to `quoteBottom`, cut to the pane's height. When the claim's
+ * title fits in the pane together with that, the title stays in view too; when they do not fit
+ * together, the quote wins. The quoted lines below may run past the fold: the editor beside shows
+ * them highlighted.
+ */
+export function walkRevealTop(current: number, view: number, quoteTop: number, quoteBottom: number, titleTop: number | null): number {
+  if (!(view > 0)) return current;
+  const bottom = Math.min(quoteBottom, quoteTop + view - 2 * REVEAL_MARGIN);
+  const lowest = bottom + REVEAL_MARGIN - view;
+  let highest = quoteTop - REVEAL_MARGIN;
+  if (titleTop !== null && titleTop - REVEAL_MARGIN >= lowest) highest = Math.min(highest, titleTop - REVEAL_MARGIN);
+  if (highest < lowest) highest = lowest;
+  return Math.max(0, Math.round(Math.min(Math.max(current, lowest), highest)));
+}
+
+/** How long after a reveal a change of the pane's height (a bottom panel still opening) redoes it. */
+const REVEAL_SETTLE_MS = 500;
+
+/**
+ * Scroll the tab panel that holds the walk's quote `li` so its head and walk line show
+ * (`walkRevealTop`), at once. A step can open the bottom panel as it goes; under reduced motion the
+ * stylesheet turns that into a 0.01 ms transition, which the browser starts on the next frame, so
+ * the pane still has its collapsed height when the step measures it (headless Chrome: 16 px
+ * instead of 315). When the pane's height changes soon after, the reveal runs again from where the
+ * pane was.
+ */
+function revealWalkQuote(li: HTMLElement): void {
+  const scroller = li.closest('[role="tabpanel"]') as HTMLElement | null;
+  if (!scroller) return;
+  const origin = scroller.scrollTop;
+  const view = revealFrom(scroller, li, origin);
+  const win = scroller.ownerDocument ? (scroller.ownerDocument.defaultView as (Window & { ResizeObserver?: typeof ResizeObserver }) | null) : null;
+  const RO = win ? win.ResizeObserver : undefined;
+  if (!win || !RO) return;
+  const observer = new RO(() => {
+    if (scroller.clientHeight === view) return;
+    observer.disconnect();
+    if (li.isConnected && li.classList.contains('is-walk')) revealFrom(scroller, li, origin);
+  });
+  observer.observe(scroller);
+  win.setTimeout(() => observer.disconnect(), REVEAL_SETTLE_MS);
+}
+
+/** One reveal of `li` in `scroller`, counted from the scroll offset `from`; the pane height it used. */
+function revealFrom(scroller: HTMLElement, li: HTMLElement, from: number): number {
+  const view = scroller.clientHeight;
+  if (!(view > 0)) return view;
+  const box = scroller.getBoundingClientRect();
+  const at = (r: { top: number }) => r.top - box.top + scroller.scrollTop;
+  const quote = li.getBoundingClientRect();
+  const line = li.querySelector('.mlv-quote__walk') || li.querySelector('.mlv-quote__head');
+  const end = line ? at(line.getBoundingClientRect()) + line.getBoundingClientRect().height : at(quote) + quote.height;
+  const title = scroller.querySelector('.mlv-sel .mlv-insp__title');
+  const next = walkRevealTop(from, view, at(quote), end, title ? at(title.getBoundingClientRect()) : null);
+  if (next !== scroller.scrollTop) scroller.scrollTop = next;
+  return view;
 }
 
 /** The claim column and the evidence column; one container when the pane has one column. */

@@ -43,7 +43,7 @@ import { STALE_TEXT } from '../freshness.js';
 import type { App } from '../app.js';
 import type { GraphIndex } from '../layout/model.js';
 import type { Claim, WalkFilter, WalkOpenStatus } from '../walk.js';
-import type { ActionResult, Loc, Sel, WalkViewState } from '../types.js';
+import type { ActionResult, Loc, OpenBlockReason, Sel, StaleFile, WalkViewState } from '../types.js';
 
 /** The pause after the last step before the walk asks the host to open the cited lines. */
 export const WALK_OPEN_DEBOUNCE_MS = 150;
@@ -64,6 +64,14 @@ export function sanitizeWalk(value: unknown): WalkViewState | null {
   if (typeof quote === 'number' && Number.isInteger(quote) && quote > 0 && quote < MAX_QUOTE) out.quote = quote;
   if (record.active === true) out.active = true;
   return out;
+}
+
+/**
+ * A block the stale list explains: the host's reason is one the stale list carries, or it gave
+ * none (the file was on the list).
+ */
+function staleBlock(reason: OpenBlockReason | undefined): boolean {
+  return !reason || reason === 'changed' || reason === 'missing' || reason === 'unreadable' || reason === 'too-large' || reason === 'elsewhere';
 }
 
 export class ReviewWalk {
@@ -90,6 +98,12 @@ export class ReviewWalk {
   private latestSeq = 0;
   /** Whether that open asked VS Code to move the focus to the editor (Alt+Enter). */
   private latestFocus = false;
+  /**
+   * Why the latest open was not opened: the host's reason, or the stale reason the viewer already
+   * knew when it asked. `onStale` reads it to tell a block that a fixed file ends from one it does
+   * not (unsaved edits that lost the lines, a missing cell).
+   */
+  private blockedReason: OpenBlockReason | undefined;
   private timer: ReturnType<typeof setTimeout> | null = null;
   /** The place the walk resumes from, for `revision` (kept after the walk ends). */
   private remembered: { revision: string; state: WalkViewState } | null = null;
@@ -350,7 +364,8 @@ export class ReviewWalk {
     this.app.bridge.post({ v: 1, type: 'walk', state: 'clear' });
     this.status = this.unansweredStatus('idle');
     this.remember();
-    this.render();
+    // The pane, which the selection started at its top, brings the walk's quote into view.
+    this.render(true);
   }
 
   /* ── host answers and document changes ─────────────────────────────── */
@@ -406,8 +421,15 @@ export class ReviewWalk {
    * opened by itself (the reader may be editing beside the panel); Enter opens it, and the
    * highlight of the claim it left is cleared. A claim not asked for yet is said again, so a quote
    * whose file just went stale says why it will not open (F4).
+   *
+   * A quote the host already answered "not opened" for is said again when the stale list changes
+   * for its file (M3 live check, W2): restored, the bar and the pane said "… changed after revision
+   * … was published; not opened." with the warning mark until Enter. Now they say "Enter shows …"
+   * (nothing is opened by itself); a file that went from changed to missing says so. A block for
+   * another reason (unsaved edits that lost the cited lines, a cell that no longer exists) stays
+   * until the next open. `previous` is the host's stale list before this change.
    */
-  onStale(): void {
+  onStale(previous: readonly StaleFile[] = []): void {
     if (!this.active) return;
     if (this.offered().indexOf(this.filter) < 0) this.filter = 'all';
     const before = this.current();
@@ -423,6 +445,16 @@ export class ReviewWalk {
     }
     if (this.timer !== null) this.status = this.unansweredStatus('opening');
     else if (this.latestSeq === 0 && (this.status.state === 'idle' || this.status.state === 'blocked')) this.status = this.unansweredStatus('idle');
+    else if (this.status.state === 'blocked' && this.status.loc) {
+      const file = this.status.loc.file;
+      const was = previous.find((item) => item.path === file);
+      const now = this.app.freshness.reasonOf(file);
+      // The host's answer is about the file as it was; a later answer to that open is dropped.
+      if ((was ? was.reason : undefined) !== now && (now || staleBlock(this.blockedReason))) {
+        this.latestSeq = 0;
+        this.status = this.unansweredStatus('idle');
+      }
+    }
     this.render();
   }
 
@@ -430,6 +462,7 @@ export class ReviewWalk {
     if (!this.active || seq !== this.latestSeq || result.outcome === 'cancelled') return;
     if (result.outcome === 'done') this.status = this.statusFor('done', undefined, this.latestFocus);
     else {
+      this.blockedReason = result.outcome === 'blocked' ? result.reason : undefined;
       const message = result.message || (result.outcome === 'blocked' ? 'Not opened.' : 'VS Code could not show the file.');
       this.status = this.statusFor(result.outcome, message);
       this.app.announce(walkResultAnnouncement(result.outcome, message));
@@ -533,6 +566,7 @@ export class ReviewWalk {
     if (focusEditor) frame.focus = true;
     this.app.postRequest(frame, (result) => this.onResult(result, seq));
     const local = this.localBlock(loc);
+    this.blockedReason = local ? this.app.freshness.reasonOf(loc.file) : undefined;
     this.status = local ? this.statusFor('blocked', local) : this.statusFor('opening', undefined, focusEditor);
     this.render();
   }
@@ -559,7 +593,9 @@ export class ReviewWalk {
       this.status = this.unansweredStatus('idle');
     }
     this.remember();
-    this.render();
+    // A move to a claim brings its quote into view in the pane, which a new claim starts at its
+    // top (M3 live check, W1). `keep` (a filter on the same claim) leaves the reader's place.
+    this.render(mode !== 'keep');
     this.app.announce(this.announcement());
     this.app.saveSoon();
   }
@@ -570,7 +606,11 @@ export class ReviewWalk {
     return index && claim ? walkAnnouncement(this.position, this.list.length, this.filter, index, claim) : '';
   }
 
-  /** Repaint the bar, the header's Review state and the pane's quote mark (`reveal`: scroll to it). */
+  /**
+   * Repaint the bar, the header's Review state and the pane's quote mark. `reveal`: scroll the pane
+   * the least distance that shows the quote, keeping the claim's title in view when both fit, at
+   * once (`walkRevealTop`).
+   */
   render(reveal = false): void {
     this.app.renderWalkBar();
     applyWalkMark(this.app.rail.root, this.paneMark(), reveal);

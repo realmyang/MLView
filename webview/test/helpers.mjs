@@ -331,3 +331,50 @@ export const YOLO_SHAPE = {
   findings: [{ nodes: 5 }, { nodes: 2, edges: 1 }, { nodes: 2 }, { nodes: 1 }],
   notObserved: { steps: 4, connections: 10, findings: 2 }, emptyEvidence: 2, notebookShare: 0, maxEvidence: 12,
 };
+
+/* ── a stand-in layout for the Selection pane (viewer M3 live check, W1) ─────────────────────── */
+
+/** Where the stand-in pane starts on the page. */
+const PANE_TOP = 400;
+
+/**
+ * jsdom lays nothing out, so the Selection pane's scroll cannot be read from it. This gives the
+ * page a fixed layout instead: the shown tab panel is `paneH` px tall at y = 400 and scrolls (its
+ * `scrollTop` moves everything inside it); the claim's title starts `titleY` px into it; quote i of
+ * the pane's numbered quotes starts at `quoteY + i * quoteStep` and is `quoteH` px tall, its file
+ * line 24 px and the walk's line under it 18 px. Everything else keeps jsdom's empty boxes.
+ * `paneH` may be a function, for a pane whose height changes (a bottom panel still opening).
+ */
+export function stubPaneLayout(window, { paneH = 315, titleY = 30, quoteY = 250, quoteStep = 240, quoteH = 230 } = {}) {
+  const proto = window.HTMLElement.prototype;
+  const original = proto.getBoundingClientRect;
+  const height = () => (typeof paneH === 'function' ? paneH() : paneH);
+  const rect = (top, h) => ({ x: 0, y: top, left: 0, top, width: 300, height: h, right: 300, bottom: top + h });
+  Object.defineProperty(proto, 'clientHeight', {
+    configurable: true,
+    get() { return this.getAttribute('role') === 'tabpanel' && !this.hidden ? height() : 0; },
+  });
+  proto.getBoundingClientRect = function () {
+    const panel = typeof this.closest === 'function' ? this.closest('[role="tabpanel"]') : null;
+    if (!panel) return original.call(this);
+    if (this === panel) return rect(PANE_TOP, height());
+    const at = (offset, h) => rect(PANE_TOP + offset - panel.scrollTop, h);
+    if (this.classList.contains('mlv-insp__title')) return at(titleY, 18);
+    const li = this.closest('.mlv-insp__source-evidence > .mlv-quote');
+    if (!li) return original.call(this);
+    const top = quoteY + Array.from(li.parentElement.children).indexOf(li) * quoteStep;
+    if (this === li) return at(top, quoteH);
+    if (this.classList.contains('mlv-quote__head')) return at(top, 24);
+    if (this.classList.contains('mlv-quote__walk')) return at(top + 24, 18);
+    return original.call(this);
+  };
+}
+
+/** True when `element` lies wholly inside its tab panel's visible box (with `stubPaneLayout`). */
+export function inPane(element) {
+  if (!element) return false;
+  const panel = element.closest('[role="tabpanel"]');
+  const p = panel.getBoundingClientRect();
+  const r = element.getBoundingClientRect();
+  return r.top >= p.top && r.bottom <= p.bottom;
+}

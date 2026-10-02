@@ -31,3 +31,23 @@ export function nextBox(index: GraphIndex, frame: LayoutFrame, currentId: string
   };
   return step(siblings) || step(boxes);
 }
+
+/**
+ * Viewer M3 (live check, W5): from a selected connection, an arrow key moves to whichever of its two
+ * drawn cards lies further that way: → the one further right, ← further left, ↓ lower, ↑ higher,
+ * by their centres. On a tie (both ends in one column for → and ←, one row for ↓ and ↑) → and ↓
+ * take the connection's target and ← and ↑ its source. Both ids are the cards as drawn (a collapsed
+ * group stands for the steps inside it); a card that is not drawn is skipped.
+ */
+export function connectionEnd(frame: LayoutFrame, sourceId: string | null, targetId: string | null, key: string): LayoutBox | null {
+  const source = sourceId ? frame.boxes.get(sourceId) || null : null;
+  const target = targetId ? frame.boxes.get(targetId) || null : null;
+  if (!source || !target) return source || target;
+  const horizontal = key === 'ArrowRight' || key === 'ArrowLeft';
+  const forward = key === 'ArrowRight' || key === 'ArrowDown';
+  const centre = (b: LayoutBox) => (horizontal ? b.x + b.w / 2 : b.y + b.h / 2);
+  const delta = centre(target) - centre(source);
+  if (delta === 0) return forward ? target : source;
+  return (delta > 0) === forward ? target : source;
+}
+

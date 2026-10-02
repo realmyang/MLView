@@ -44,6 +44,12 @@ export class PhaseOverview {
   private layoutData: OverviewLayout | null = null;
   private blockEls: HTMLElement[] = [];
   private active = 0;
+  /**
+   * How much of the overlay's top the sticky header covers while the overview scrolls (0 when the
+   * header is too tall to stick and scrolls with the blocks). A block brought into view is placed
+   * below it.
+   */
+  private covered = 0;
   private disposers: (() => void)[] = [];
 
   constructor(cb: OverviewCallbacks) {
@@ -112,7 +118,7 @@ export class PhaseOverview {
     } catch (_e) {
       /* a host may have detached the overlay mid-gesture */
     }
-    scrollIntoViewIfNeeded(this.root, block);
+    scrollIntoViewIfNeeded(this.root, block, this.covered, i === 0);
   }
 
   private draw(input: OverviewInput, w: number, h: number): void {
@@ -126,9 +132,21 @@ export class PhaseOverview {
     this.content.style.width = layout.width + 'px';
     this.content.style.height = layout.height + 'px';
 
-    // Header: what this is, the way back, the counts and (with room) the key.
+    // Header: what this is, the way back, the counts and (with room) the key. M3 live check, W4: it
+    // sticks to the top of the overlay while the overview scrolls, so Back, the counts and the key
+    // stay on screen when the focused block is low (at 901 and 541 px they scrolled away). It is
+    // the first box of the content, as tall as the space above the first block less the gap, so
+    // nothing below it moves; a header taller than half the overlay scrolls with the blocks.
     const header = add(this.content, el('div', 'mlv-overview__header'));
-    place(header, layout.header);
+    const headerBox = layout.header.y + layout.header.h;
+    const sticky = layout.scrolls && headerBox * 2 <= layout.viewH;
+    this.covered = sticky ? headerBox : 0;
+    header.setAttribute('data-sticky', sticky ? 'true' : 'false');
+    header.style.width = layout.width + 'px';
+    header.style.height = headerBox + 'px';
+    header.style.paddingTop = layout.header.y + 'px';
+    header.style.paddingLeft = layout.header.x + 'px';
+    header.style.paddingRight = Math.max(0, layout.width - layout.header.x - layout.header.w) + 'px';
     const top = add(header, el('div', 'mlv-overview__top'));
     const title = add(top, el('h3', 'mlv-overview__title', 'Phase overview'));
     title.id = this.uid + '-title';
@@ -357,14 +375,23 @@ function place(element: HTMLElement, r: { x: number; y: number; w: number; h: nu
   element.style.height = r.h + 'px';
 }
 
-/** Scroll the overlay so the focused block is wholly in view (it may be taller than the overlay). */
-function scrollIntoViewIfNeeded(scroller: HTMLElement, block: HTMLElement): void {
+/**
+ * Scroll the overlay so the focused block is wholly in view below the sticky header (`covered`
+ * pixels of the top), or shows its top when it is taller than the room. The first block scrolls
+ * the overlay to its top, so the header shows whole even when it does not stick (it used to stop
+ * 12 px above the block, with the header out of view).
+ */
+function scrollIntoViewIfNeeded(scroller: HTMLElement, block: HTMLElement, covered: number, first: boolean): void {
   const top = block.offsetTop;
   const bottom = top + block.offsetHeight;
   const view = scroller.clientHeight;
   if (!(view > 0)) return;
-  if (top < scroller.scrollTop) scroller.scrollTop = Math.max(0, top - 12);
-  else if (bottom > scroller.scrollTop + view) scroller.scrollTop = Math.min(top - 12, bottom - view + 12);
+  let next = scroller.scrollTop;
+  if (top - 12 < next + covered) next = top - 12 - covered;
+  else if (bottom + 12 > next + view) next = Math.min(top - 12 - covered, bottom + 12 - view);
+  if (first && bottom + 12 <= view) next = 0;
+  next = Math.max(0, next);
+  if (next !== scroller.scrollTop) scroller.scrollTop = next;
 }
 
 function round1(v: number): number {

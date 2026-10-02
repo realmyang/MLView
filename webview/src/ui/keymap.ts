@@ -79,7 +79,7 @@ export const KEYMAP: KeyBinding[] = [
   { keys: ['Enter'], action: 'open', description: 'Open the cited source beside the diagram; focus stays here (in the review walk: open the current quote again)' },
   { keys: ['Alt+Enter'], action: 'openFocus', description: 'Open the cited source and move focus to the editor' },
   { keys: ['Space'], action: 'collapse', description: 'Collapse or expand the selected group' },
-  { keys: ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'], action: 'move', description: 'Move the selection (in the review walk, ↓ and ↑ step through the claims)' },
+  { keys: ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'], action: 'move', description: 'Move the selection (from a connection, to its end that lies that way; in the review walk, ↓ and ↑ step through the claims)' },
   // Viewer M3: the review walk. Plain keys only (the M2 key rule): VS Code leaves them to a focused
   // webview. `[` and `]` were the scope keys until viewer M2 removed scoping.
   { keys: ['r'], action: 'review', description: 'Review walk: go claim by claim, each opened and highlighted in the editor beside (starts on the claims not observed; r again or Escape ends it)' },

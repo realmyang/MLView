@@ -18,7 +18,27 @@ import type { Issue } from '../types.js';
 
 export function onCanvasKey(app: App, ev: KeyboardEvent): void {
   const port = commandPort(app);
-  handleCanvasKey(ev, canvasCommands(app.view.overviewOpen ? closingOverview(app, port) : port));
+  handleCanvasKey(ev, canvasCommands(holdingHover(app, app.view.overviewOpen ? closingOverview(app, port) : port)));
+}
+
+/**
+ * Viewer M3 (live check, W3): the keys that move the selection or the view (the arrows, `e` /
+ * Shift+E, `n` / `p`, zoom, fit and `z`). Each first holds the hover back until the pointer moves
+ * (`CanvasView.holdHover`), so a card the diagram pans under a resting pointer shows no hover card.
+ * The review walk's steps do the same in `App.showWalkClaim`.
+ */
+const HOLDS_HOVER: ReadonlySet<string> = new Set(['move', 'cycleConnections', 'focusIssue', 'zoom', 'fit', 'zoomToSelection']);
+
+function holdingHover(app: App, port: CommandPort): CommandPort {
+  const out = { ...port } as Record<string, unknown>;
+  for (const name of HOLDS_HOVER) {
+    const fn = (port as unknown as Record<string, (...a: unknown[]) => unknown>)[name];
+    out[name] = (...args: unknown[]) => {
+      app.view.holdHover();
+      return fn(...args);
+    };
+  }
+  return out as unknown as CommandPort;
 }
 
 /**
@@ -116,7 +136,9 @@ function filteredIssues(app: App): Issue[] {
 
 /**
  * Arrows move the selection among visible siblings, in spatial order. Viewer M3: right after a move
- * to a phase (the overview, the phase index), the first arrow selects that phase's first step.
+ * to a phase (the overview, the phase index), the first arrow selects that phase's first step; from
+ * a connection an arrow selects the end that lies that way, and from a finding it moves as from the
+ * step marked for it (`CanvasView.nextSelection`).
  */
 function moveSelection(app: App, key: string): void {
   const lane = app.view.takeArrowLane();
@@ -128,8 +150,8 @@ function moveSelection(app: App, key: string): void {
     if (element) element.focus();
     return;
   }
-  const sel = app.selection;
-  const next = app.view.nextSelection(sel && sel.kind === 'node' ? sel.id : null, key);
+  // Viewer M3 (live check, W5): from a connection or a finding too, not only from a step.
+  const next = app.view.nextSelection(app.selection, key);
   if (!next) return;
   app.select({ kind: 'node', id: next.id }, { center: !next.visible });
   const element = app.view.nodeElement(next.id);

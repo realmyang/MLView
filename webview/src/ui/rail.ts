@@ -115,6 +115,12 @@ export class Rail {
   private current: RailTab = 'about';
   private mode: 'docked' | 'sheet' = 'docked';
   private open = true;
+  /**
+   * The claim the Selection pane was last built for (kind, id and revision). A new claim starts the
+   * pane at its top, so its title shows: the pane is one scroller kept across claims, and it used to
+   * keep the offset of the claim before (M3 live check, W1).
+   */
+  private selectionKey = '';
 
   constructor(cb: RailCallbacks) {
     this.cb = cb;
@@ -507,6 +513,14 @@ export class Rail {
       onRefine: () => this.cb.onRefine(),
       onShowLimitations: () => this.cb.onShowLimitations(),
     });
+    // The same claim built again (a host answer, a freshness change, a resize) keeps the reader's
+    // place; another claim starts at the top. The walk then brings its quote into view.
+    const claim = s.selectedIssue ? 'issue:' + s.selectedIssue.id : s.selectedEdge ? 'edge:' + s.selectedEdge.id : s.selectedNode ? 'node:' + s.selectedNode.id : '';
+    const key = claim + '@' + (s.document && s.document.revision ? s.document.revision.id : '');
+    if (key !== this.selectionKey) {
+      this.selectionKey = key;
+      panel.scrollTop = 0;
+    }
   }
 
   private renderOutline(s: RailState): void {

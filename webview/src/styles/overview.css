@@ -251,9 +251,23 @@
   position: relative;
 }
 
+/*
+ * The header is the content's first box (ui/overview.ts sets its size and padding from the layout).
+ * M3 live check, W4: while the overview scrolls it sticks to the overlay's top, on the overlay's
+ * own background and above the blocks, links and counts that scroll under it, so Back, the counts
+ * and the key stay on screen. A header taller than half the overlay scrolls with the blocks.
+ */
 .mlv-overview__header {
-  position: absolute;
+  position: relative;
+  z-index: 2;
   box-sizing: border-box;
+  background: var(--mlv-bg);
+}
+
+.mlv-overview__header[data-sticky="true"] {
+  position: sticky;
+  top: 0;
+  box-shadow: 0 1px 0 var(--mlv-border);
 }
 
 .mlv-overview__top {

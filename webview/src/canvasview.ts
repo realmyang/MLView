@@ -18,12 +18,14 @@
  *   `canvas/emphasis.ts`  selection, hover, the lineage trace and focus mode
  */
 
+import { on } from './dom.js';
 import { GraphIndex } from './layout/model.js';
 import { layoutGraph, LayoutFrame } from './layout/layout.js';
+import type { LayoutBox } from './layout/layout.js';
 import { routeEdges, RoutedEdge } from './layout/routing.js';
 import type { Point } from './layout/routing.js';
 import { planLabels, LabelPlan } from './layout/labels.js';
-import { firstBox, nextBox } from './layout/navigate.js';
+import { connectionEnd, firstBox, nextBox } from './layout/navigate.js';
 import { renderScene } from './render/scene.js';
 import { planScene, ScenePlan, ScenePlanOptions } from './render/plan.js';
 import { markerPoint, nextMountSerial } from './render/edges.js';
@@ -74,6 +76,14 @@ export class CanvasView {
   private indexHidden = false;
   /** Viewer M3: the phase a move to a phase landed on, where the next arrow key starts. */
   private arrowLane: string | null = null;
+  /**
+   * Viewer M3 (live check, W3): a keyboard move or a walk step holds the hover back until the
+   * pointer really moves (`holdHover`). `pointerAt` is the pointer's last place over the canvas;
+   * `heldAt` the place it rested at when the hold began, null until it is known.
+   */
+  private hoverHeld = false;
+  private pointerAt: { x: number; y: number } | null = null;
+  private heldAt: { x: number; y: number } | null = null;
 
   private host: CanvasHost;
   private index: GraphIndex | null = null;
@@ -138,7 +148,11 @@ export class CanvasView {
     this.canvasEl.appendChild(this.phaseIndex.root);
     // The phase overview (Shift+0): an overlay over the whole canvas, drawn from its own geometry.
     this.overview = new PhaseOverview({
-      go: (id) => this.goToPhase(id, { focusCanvas: true }),
+      go: (id, byKeyboard) => {
+        // Enter on a block pans the diagram under a pointer that may rest over it.
+        if (byKeyboard) this.holdHover();
+        this.goToPhase(id, { focusCanvas: true });
+      },
       back: () => this.closeOverview(true),
     });
     this.canvasEl.appendChild(this.overview.root);
@@ -199,6 +213,7 @@ export class CanvasView {
       keep: (issue) => this.host.keep(issue),
       announce: (text) => this.host.announce(text),
       toast: (text) => this.toasts.show(text),
+      hoverHeld: () => this.hoverHeld,
     });
 
     // Which cable the pointer owns is decided by geometry, not by document
@@ -224,8 +239,62 @@ export class CanvasView {
       changed: () => this.syncBundles(),
       openDelayMs: HOVER_OPEN_MS,
       closeDelayMs: HOVER_CLOSE_MS,
+      held: () => this.hoverHeld,
     });
+    // Before the cable resolver's own pointermove, so a real move ends a hold before it resolves.
+    this.disposers.push(on(this.canvasEl, 'pointermove', (ev: PointerEvent) => this.trackPointer(ev)));
+    this.disposers.push(on(this.canvasEl, 'pointerdown', () => this.releaseHover()));
     this.disposers.push(this.edgeHover.wire());
+  }
+
+  /* ── the hover hold (viewer M3, live check W3) ────────────────────────── */
+
+  /**
+   * A keyboard move or a walk step is about to pan the diagram, or just did: the hover card goes,
+   * with a card's trace and a cable's highlight, and no card or cable that passes under a resting
+   * pointer takes the hover until the pointer moves again. Measured live (vit-cc, VS Code 1.139):
+   * the walk and the arrow keys panned cards under the resting pointer, whose hover cards then
+   * covered part of the diagram. A click also ends the hold.
+   */
+  holdHover(): void {
+    this.hoverHeld = true;
+    this.heldAt = this.pointerAt;
+    this.emphasis.dropHover();
+    this.edgeHover.drop();
+    this.tooltip.hide();
+  }
+
+  /** True while the hover is held back (tests read it). */
+  get hoverIsHeld(): boolean {
+    return this.hoverHeld;
+  }
+
+  private releaseHover(): void {
+    this.hoverHeld = false;
+    this.heldAt = null;
+  }
+
+  /**
+   * Every pointer move over the canvas. While the hover is held, a move to the place the pointer
+   * rested at is not the reader's (the browser sends one when the picture moves under it); the
+   * first move somewhere else ends the hold, and the card under the pointer gets its hover, whose
+   * own pointerenter came during the hold.
+   */
+  private trackPointer(ev: PointerEvent): void {
+    const at = { x: ev.clientX, y: ev.clientY };
+    this.pointerAt = at;
+    if (!this.hoverHeld) return;
+    if (!this.heldAt) {
+      this.heldAt = at;
+      return;
+    }
+    if (at.x === this.heldAt.x && at.y === this.heldAt.y) return;
+    this.releaseHover();
+    const target = ev.target as Element | null;
+    const hit = target && typeof target.closest === 'function' ? target.closest('.mlv-node[data-node-id], .mlv-group__header') : null;
+    const card = hit && hit.classList.contains('mlv-group__header') ? hit.closest('[data-node-id]') : hit;
+    const id = card ? card.getAttribute('data-node-id') : null;
+    if (id && this.canvasEl.contains(card)) this.emphasis.hoverIntent(id);
   }
 
   /* ── data ──────────────────────────────────────────────────────────── */
@@ -941,11 +1010,39 @@ export class CanvasView {
     if (box) this.viewport.zoomToBox(box);
   }
 
-  /** The next node an arrow key should select, in spatial sibling order. */
-  nextSelection(currentId: string | null, key: string): NextSelection | null {
-    if (!this.index || !this.frameData) return null;
-    const anchored = currentId && this.frameData.boxes.has(currentId) ? currentId : null;
-    const next = anchored ? nextBox(this.index, this.frameData, anchored, key) : firstBox(this.frameData);
+  /**
+   * The card an arrow key selects from `sel`. From a step: the next card that way, in spatial
+   * sibling order (`nextBox`), counted from its drawn card (the collapsed group around it, if any).
+   * Viewer M3 (live check, W5): from a connection, the one of its two cards that lies further that
+   * way (`connectionEnd`); from a finding, as from the step the diagram marks for it (its first
+   * cited step), else as from its first cited connection. Only with nothing to start from (no
+   * selection, or a finding that cites neither) is it the diagram's first card; before, a selected
+   * connection or finding also went there, so → on a connection in vit-cc selected the first step
+   * of phase 1.
+   */
+  nextSelection(sel: Sel | null, key: string): NextSelection | null {
+    const index = this.index;
+    const frame = this.frameData;
+    if (!index || !frame) return null;
+    const drawn = (id: string): string | null => (index.nodeById.has(id) ? index.visibleRepresentative(id, this.collapsedSet) : null);
+    const fromStep = (id: string): LayoutBox | null | undefined => {
+      const card = drawn(id);
+      return card && frame.boxes.has(card) ? nextBox(index, frame, card, key) : undefined;
+    };
+    const fromEdge = (id: string): LayoutBox | null | undefined => {
+      const edge = index.edgeById.get(id);
+      return edge ? connectionEnd(frame, drawn(edge.source), drawn(edge.target), key) || undefined : undefined;
+    };
+    let next: LayoutBox | null | undefined;
+    if (sel && sel.kind === 'node') next = fromStep(sel.id);
+    else if (sel && sel.kind === 'edge') next = fromEdge(sel.id);
+    else if (sel && sel.kind === 'issue') {
+      const issue = index.issueById.get(sel.id);
+      if (issue && issue.nodeIds.length) next = fromStep(issue.nodeIds[0]);
+      if (next === undefined && issue && issue.edgeIds.length) next = fromEdge(issue.edgeIds[0]);
+    }
+    // `undefined`: nothing to count from, so the first card. `null`: no card further that way.
+    if (next === undefined) next = firstBox(frame);
     if (!next) return null;
     return { id: next.id, visible: this.viewport.isVisible(next) };
   }

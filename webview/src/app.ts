@@ -475,13 +475,14 @@ export class App implements MLViewApp {
    * marked, their Open links are disabled with the reason, and the status bar counts them.
    */
   setStale(files: StaleFile[]): void {
+    const previous = this.freshness.list();
     if (!this.freshness.set(files)) return;
     this.view.setStale(this.freshness.list());
     if (this.index) this.view.refresh(this.selection);
     renderChrome(this);
     renderRail(this);
     // Viewer M3: the walk's Changed files filter and the notice's "Review affected claims" follow.
-    this.walk.onStale();
+    this.walk.onStale(previous);
     this.syncNoticeReview();
   }
 
@@ -563,11 +564,14 @@ export class App implements MLViewApp {
    * is brought into view above the sheet: a finding frames every step it cites; a step or a
    * connection is zoomed to reading size when the diagram is below it, else panned the least
    * distance that shows it whole. The keyboard stays on the diagram: a card or connection that
-   * held the focus hands it to the canvas, so the walk's keys keep answering there.
+   * held the focus hands it to the canvas, so the walk's keys keep answering there. The hover card
+   * goes and stays away until the pointer moves (`CanvasView.holdHover`).
    */
   showWalkClaim(claim: Sel): void {
     const index = this.index;
     if (!index) return;
+    // Viewer M3 (live check, W3): no hover card for what the step pans under a resting pointer.
+    this.view.holdHover();
     const expandEnds = (edgeId: string) => {
       const edge = index.edgeById.get(edgeId);
       if (!edge) return;

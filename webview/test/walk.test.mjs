@@ -12,7 +12,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { loadBundle, recordingBridge, shapedWorkflow, VIT_SHAPE, WEBVIEW_ROOT, YOLO_SHAPE } from './helpers.mjs';
+import { inPane, loadBundle, recordingBridge, shapedWorkflow, stubPaneLayout, VIT_SHAPE, WEBVIEW_ROOT, YOLO_SHAPE } from './helpers.mjs';
 
 const CSS = await readFile(join(WEBVIEW_ROOT, 'dist', 'mlview.css'), 'utf8');
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
@@ -287,14 +287,20 @@ test('[ and ] step through the claim\'s quotes; Enter opens the current quote ag
     eq(ctx.app.walk.current(), { kind: 'edge', id: 'c-aug-step' });
     ctx.app.walk.flushOpen();
     assert.equal(opens(ctx).at(-1).evidenceId, 'e2');
-    const scrolled = [];
-    ctx.window.HTMLElement.prototype.scrollIntoView = function (options) { scrolled.push([this, options]); };
+    // The pane is 315 px tall; the second quote starts 490 px into it (helpers.mjs, stubPaneLayout).
+    stubPaneLayout(ctx.window);
+    const pane = $(ctx, '.mlv-rail [role="tabpanel"][data-tab="inspector"]');
+    assert.equal(pane.scrollTop, 0);
     press(ctx, ']');
     assert.equal(live(ctx), 'Quote 2 of 2: train.py · lines 4–5.');
-    // The pane's mark moves to the second quote at once and is scrolled into view (least distance).
+    // The pane's mark moves to the second quote at once and is scrolled into view (least distance):
+    // its file line and the walk's line show, the walk's line 8 px above the pane's foot. (Since
+    // the M3 live check, W1, the same rule brings a new claim's quote into view; it was
+    // scrollIntoView({ block: 'nearest' }) on the whole quote.)
     const marked = $(ctx, '.mlv-quote.is-walk');
     assert.equal(marked, $$(ctx, '.mlv-sel .mlv-insp__source-evidence > .mlv-quote')[1]);
-    eq(scrolled.map(([element, options]) => [element === marked, options]), [[true, { block: 'nearest' }]]);
+    assert.ok(inPane(marked.querySelector('.mlv-quote__head')) && inPane(marked.querySelector('.mlv-quote__walk')), 'the second quote shows');
+    assert.equal(pane.scrollTop, 490 + 24 + 18 + 8 - 315);
     assert.equal($(ctx, '.mlv-walkbar__editor').getAttribute('data-walk-status'), 'opening');
     assert.equal(ctx.app.walk.pendingOpen, true, 'the quote opens after the same pause as a step');
     ctx.app.walk.flushOpen();
