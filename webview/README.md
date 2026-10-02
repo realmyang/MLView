@@ -47,18 +47,18 @@ Viewer M1 protocol details:
   `{ type: 'workspaceHint', action: 'add' | 'open' }`. The host picks the folder.
 - `openLocation` opens beside the panel with focus kept there; `focus: true`
   (Alt+Enter, Alt+click) asks the host to move focus to the editor.
-- A click selects only. Enter, a double-click and the Inspector's Open links
-  open the cited range of a step, connection, finding or Outline step; a
+- A click selects only. Enter, a double-click and the Selection pane's Open
+  links open the cited range of a step, connection, finding or Outline step; a
   double-click on a group collapses it. The first click of a double-click
   arms an opener (`src/ui/doubleclick.ts`), and the second click, wherever it
   lands, opens what the first one selected: the first click can rebuild the
-  rows, collapse a finding above, or open the rail over the canvas.
+  rows, collapse a finding above, or open the bottom sheet under the pointer.
 
-Viewer M1 Inspector content (no protocol change):
+Viewer M1 Inspector content, the Selection pane since viewer M2 (no protocol change):
 
 - `normalizeWorkflow` adds `MLNode.detail` (the authored detail, verbatim)
-  and `MLNode.phaseLabel`. The Inspector and the card's accessible name read
-  them.
+  and `MLNode.phaseLabel`. The Selection pane and the card's accessible name
+  read them.
 - Viewer M2 re-recorded the geometry golden once: the projection no longer
   gives cards an `attrs={basis}` chip row (`MLNode.attrs` is gone) and edge
   labels no longer end in ` · basis` (`MLEdge.label` is the authored label;
@@ -86,8 +86,8 @@ Viewer M1 Inspector content (no protocol change):
     its background (54% / 46% on dark, 64% / 58% on light); export/palette.ts
     recomputes the same mix.
   - `Issue.short` is `F1`…`Fn` in document order. Badges, edge markers and the
-    Findings list print it; tooltips, the Inspector and the refine selection
-    keep `Issue.id`.
+    Findings list print it; tooltips, the Selection pane and the refine
+    selection keep `Issue.id`.
   - `.mlv-canvas[data-exceptions="on"]` (the header's not-observed toggle)
     fades observed cards and connections through fill and stroke only.
   - `motion.ts` reads `body.vscode-reduce-motion` as well as the media query
@@ -129,12 +129,9 @@ Viewer M1 Inspector content (no protocol change):
     over every compact zoom from the shipped stylesheet's numbers and the card
     heights `cardHeight` reserves (10 px or more down to 0.35 for a one-line
     title with a file:line row; never more lines than the box holds).
-- The Inspector shows the title, the phase label and kind, one basis chip, a
-  sentence for an inferred or unresolved basis, the full detail, the findings
-  on the item with **What to change** (the finding's `suggestion`), the source
-  quotes under a caption saying that a matching quote does not show support,
-  and one line linking to the document-wide limitations in the request and
-  coverage details.
+- The Selection pane (viewer M2 below) shows the claim first; its quotes sit
+  under a caption saying that a matching quote does not show support, and one
+  line links to the document-wide limitations in About.
 - Authored notebook cells print as recorded, counted from 0
   (`nb.ipynb › cell 7, line 3`).
 - `test/inspector-content.test.mjs` injects the shipped stylesheet into jsdom,
@@ -154,17 +151,15 @@ golden is byte-identical):
   `data-search="open|closed"` folds the field at `mid` and `narrow`. The CSS
   keys on these attributes, so the row never wraps.
 - `MoreMenu` (`src/ui/moremenu.ts`) is a menu button. Items carry
-  `data-more-item` (`search` and `details` only when narrow, `legend`, `flow`,
+  `data-more-item` (`search` and `about` only when narrow, `legend`, `flow`,
   `minimap`, `rail`, `fit`, `zoomsel`, `svg`, `png`, `copy-svg`,
   `shortcuts`); the exports also carry `data-export-action`. The panel is
   mounted on the app root and repaints its checkboxes as it opens. The
   exports are always the whole diagram; Copy PNG, Print and the region
   choice are gone (`@media print` styles remain for the browser's own print).
-- The request and coverage details (`.mlv-workflow__details`) live in a
-  zero-height `.mlv-workflow` section after the header and open over the
-  canvas; `data-expanded` on the section says whether they are open. The
-  provenance chip, the status bar's `.mlv-status__coverage` and the narrow
-  menu's `details` item open them; Escape closes them.
+- The zero-height `.mlv-workflow` section after the header anchors the
+  Refine… popover. (The request and coverage details that also opened there
+  are the About tab since steps 5 and 9, below.)
 - The Refine… composer names its target by label in
   `.mlv-workflow__selection` ("Step: …", "Connection: …", "Finding: F2 · …",
   "Whole diagram"); `data-selection-kind` and `data-selection-id` on the
@@ -176,7 +171,7 @@ golden is byte-identical):
   and the zoom readout with its buttons (`.mlv-zoom__btn`, hidden when
   narrow).
 - Removed: the scope projection (`src/scope/`, `setScope`, `getScope`,
-  `scopeToNode`), the scope picker, breadcrumb and Inspector scope button, the
+  `scopeToNode`), the scope picker, breadcrumb and the Inspector's scope button, the
   `s`, Shift+S, `[` and `]` keys, the phase chips and `Filters.stages`. A
   saved `ViewState` with `scope` or `filters.stages` still loads; both are
   ignored and not written back.
@@ -189,6 +184,49 @@ golden is byte-identical):
 - `test/header-m2.test.mjs` injects the shipped stylesheet and stubs the root
   width to check the header at 1440, 900 and 541 px, the ⋯ menu, the removed
   controls, an older saved state, the keys and the status bar wording.
+
+Viewer M2 About, Selection pane and bottom sheet (steps 5 and 9; no contract
+change, no geometry change, the golden is byte-identical):
+
+- `Rail` (`src/ui/rail.ts`) has four tabs, `RailTab` `about`, `issues`,
+  `inspector` (labelled Selection; the id is kept for saved states and panel
+  ids) and `outline`, and builds only the visible tab. `App.setWorkflow` sets
+  `railTab = 'about'` for a new revision id; `ViewState.railTab` is saved with
+  `workflowRevision`, and a remount restores it only for that revision
+  (`sanitizeRailTab` in `src/ui/commands.ts` drops unknown values).
+  `App.select` keeps `issues` or `outline` while the rail is on screen and
+  otherwise shows `inspector`.
+- `src/ui/about.ts` renders About from the document only: `splitSummary`
+  (paragraphs at the summary's own run-in heads, only when there are at least
+  `MIN_RUN_IN_HEADS` = 3), `configurationRuns` (`k=v` tokens as `code`), the
+  limitations in one `details`, the cited files with a `[data-fresh]` badge
+  (`unchanged` and `unchecked` muted, `stale` with an icon), and provenance.
+- `src/ui/selection.ts` renders the Selection pane for a step, a connection
+  or a finding (`.mlv-sel[data-kind][data-columns]`), in reading order; the
+  quotes are `ol > li.mlv-quote` with `.mlv-quote__ln` line numbers and a
+  `.mlv-quote__open` button whose accessible name names the place.
+  `selectionAnnouncement` is the live-region text while VS Code's
+  `vscode-using-screen-reader` body class is set (`motion.ts` also treats
+  that class as reduced motion). `CanvasView.frameIssue` frames the union of
+  a finding's cited cards (`ViewportController.frameRect`, zoom 0.45 to 1).
+- The bottom sheet: `App.autoRail` docks the rail only when
+  `width - railWidth >= RAIL_MIN_CANVAS_W` (900); otherwise `Rail.setMode`
+  sets `data-mode="sheet"` on the rail and `data-rail="sheet"` on
+  `.mlv-body`, which stacks the canvas over it (rail.css). The open sheet is
+  `--mlv-sheet-fraction` of the body (0.47; the handle keeps it within 0.25
+  to 0.75), capped so the canvas keeps `min(240px, 45%)`; collapsed it is
+  32 px. `CanvasView.afterSheetToggle` takes the new canvas size as fitted
+  (`ViewportController.acceptResize`) and keeps a visible selection in view.
+  The Selection pane has two columns when `App.selectionColumns()` says so
+  (sheet and at least 620 px). The drawer, its scrim and
+  `CanvasHost.coveredRight` are gone.
+- `src/ui/focustrap.ts` keeps Tab inside the shortcut sheet and the Refine…
+  popover (`role="dialog"`, `aria-modal`) and restores the focus on close.
+- `test/panes-m2.test.mjs` covers the tabs and their memory, the tab rule,
+  About, the three panes, finding framing, the sheet at 1440, 900 and 541 px,
+  keyboard focus, the Tab budget, the focus traps and the screen-reader
+  announcement; `test/viewer-layout.test.mjs` keeps the canvas floor rule and
+  checks the sheet CSS.
 
 Viewer M1 cleanup (no contract change):
 
@@ -226,19 +264,22 @@ node tools/screenshots/capture.mjs --artifact ~/repo/run.mlview.json --workspace
 node tools/screenshots/capture.mjs --viewer /path/to/main-worktree --out /tmp/shots-before
 ```
 
-- States: `initial`, `select-node`, `hover-node`, `hover-connection`,
+- States: `initial` (About, since viewer M2), `select-node`,
+  `select-connection`, `hover-node`, `hover-connection`,
   `focus-mode`, `focus-settled` (focus mode, then 7 s for the flow to
   settle), `exceptions` (the "not observed" toggle on), `legend`, `compact`
   (`-` pressed until the zoom is under 62%), `whole` (**Fit the whole
   diagram**, from the ⋯ menu), `filter` (the lowest severity with findings
   turned off), `search` (through the search icon or the ⋯ menu when the
   field is folded), `finding` (a finding with its suggestion),
-  `stale`, `stale-selected` and `narrow-selected` (900x800). Pick some with
+  `finding-pane` (that finding, then the Selection tab), `stale`, `stale-selected` and `narrow-selected` (900x800). Pick some with
   `--states`. `index.json` records, per shot, how many connections are lit
   and moving, whether the flow has settled, the canvas box, the header and
   status bar heights (`bars`), the chrome above and below the canvas
   (`chrome`), the header's layout, height and the controls it shows
-  (`header`), the search match count (`searchCount`), the zoom, and `titles`: for the step titles wholly in
+  (`header`), the search match count (`searchCount`), the rail's mode,
+  box and Selection columns (`rail`), whether the selected card or
+  connection is wholly inside the canvas (`selectedInCanvas`), the zoom, and `titles`: for the step titles wholly in
   the canvas, their size on screen (computed font size times the canvas
   scale, measured from the box), the lines shown, how many end clamped and
   the share of characters the shown lines hold. Use `--size 541x798` for the

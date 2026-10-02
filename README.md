@@ -56,20 +56,27 @@ prompt into the same assistant. The header is one row: the title, the
 assistant and revision, search, the severity toggles, **N not observed**, a
 **⋯** menu (legend, flow animation, fit, exports, shortcuts) and **Refine…**.
 In a narrow panel, such as beside your code, search and the revision move
-into the **⋯** menu. The revision chip opens the request and coverage details:
-the question, scope, entrypoints, configuration and limitations being
-explained. The status bar counts steps and connections, shows the coverage
-status with its limitations, and says whether the cited files are unchanged
-(in muted text) or changed (with a warning).
+into the **⋯** menu. The status bar counts steps and connections, shows the
+coverage status with its limitations, and says whether the cited files are
+unchanged (in muted text) or changed (with a warning).
 
-The Inspector shows the selected claim in full, its phase and basis (with a
-short note when it is inferred or unresolved), the findings on it with **What
-to change**, and its source quotes and counter-evidence. A matching quote only
-shows that the cited lines are unchanged since publishing; whether they
-support the claim is for you to judge. Document-wide limitations are listed
-once, in the request and coverage details; the Inspector links to them. **Challenge
-this claim** prepares a focused refinement request. The Outline's textual relationships provide All, Incoming, Outgoing
-and Unresolved views alongside the diagram.
+Beside the diagram, the rail has four tabs: **About**, **Findings**,
+**Selection** and **Outline**. A new revision opens on About: the question
+that was asked, what the model says it traced, the coverage with its
+limitations (listed once), the scope, the run configuration, the cited files
+with their freshness, and who wrote it ("Model-authored; MLView checks
+citations, not the interpretation"). Selection shows the selected claim
+first: its phase, title and full detail, a short note when it is inferred or
+unresolved, the findings on it with **What to change**, its numbered source
+quotes with line numbers and **Open**, and what it comes from and feeds. A
+matching quote only shows that the cited lines are unchanged since
+publishing; whether they support the claim is for you to judge. **Challenge
+this claim** prepares a focused refinement request. Selecting a finding
+frames every step it cites. The Outline's textual relationships provide All,
+Incoming, Outgoing and Unresolved views alongside the diagram. In a panel
+narrower than about 1260 px the rail is a bottom sheet under the diagram: a
+tab strip until you select something, then about half the height, with the
+selected card kept in view above it; Escape collapses it.
 
 The workflow supports custom phases, nested groups, branches and cycles,
 notebook cell references, and findings with evidence and counter-evidence.
@@ -78,7 +85,7 @@ inferred (dashed, with an `inferred` tag) and unresolved (dotted, with a
 `? unresolved` tag) ones are marked on the diagram, and the header's
 **N not observed** toggle fades the rest. Each phase is coloured by its place
 in the document; colour is otherwise used only for problems. Finding badges
-read F1, F2… in document order; the Inspector and Refine prompts keep the
+read F1, F2… in document order; the Selection tab and Refine prompts keep the
 real finding id. The diagram opens at a zoom where cards can be read: the
 whole document when it fits at 62% or more, otherwise the first phase at 90%.
 Press `0` to return to that view, or use **Fit the whole diagram** in the

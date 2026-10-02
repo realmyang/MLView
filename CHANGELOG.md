@@ -192,6 +192,83 @@ is byte-identical):
   height and controls, the chrome above and below the canvas, and the search
   match count; its `whole` and `search` states use the ⋯ menu when needed.
 
+About, a claim-first Selection pane and a bottom sheet (layout unchanged; the
+geometry golden is byte-identical):
+- The rail's tabs are now **About · Findings (n) · Selection · Outline**.
+  Selection is the old Inspector. A new revision opens on About; after that
+  the viewer keeps the tab you chose, saves it with the view and restores it
+  when the panel is reopened on the same revision. Selecting a card, a
+  connection or a finding switches to Selection, except while you are working
+  in the Findings list or the Outline: there the list keeps its place and the
+  selection is marked in it. A screen reader hears what was selected.
+- About replaces the request and coverage details that opened over the
+  diagram. It holds only what the assistant wrote: **Asked** (the question,
+  cut after four lines with **Show all**); **What the model traced** (the
+  coverage summary, split into paragraphs at its own run-in heads such as
+  "Data:" and "Model:" when it has at least three, otherwise shown as
+  written); **Coverage** in plain words with the limitations listed once;
+  **Scope** and the entrypoints; **Run configuration**, with `key=value`
+  tokens in monospace; **Cited files**, each with its freshness; and
+  **Provenance** (host, model, revision, publication time) with the line
+  "Model-authored; MLView checks citations, not the interpretation." The
+  revision chip, the status bar's coverage item and the ⋯ menu (below 620 px)
+  open it; from the keyboard they also move the focus into it.
+- The Selection pane reads in this order for a step: phase number and name,
+  kind and parent group; the title; a one-sentence basis note only for an
+  inferred or unresolved claim; the full detail; **Findings on this step**,
+  each with **What to change** (its title opens the finding); the quotes,
+  numbered, with their line numbers, a freshness word each ("unchanged" and
+  "not checked" in muted text, a warning icon and words only for a changed or
+  missing file) and **Open**; "Comes from …" and "Feeds …" as sentences whose
+  steps and labels are links; **Challenge this claim** and **Refine…**; and
+  one line that says how many document-wide limitations apply, linking to
+  them in About. A connection's pane shows its kind in words, its label, from
+  → to, its basis, its findings and its quotes. A finding's pane shows its
+  severity, its F-number and real id, the title, the description, **What to
+  change**, the steps it cites and its quotes (supporting and
+  counter-evidence). Every section count names its unit ("2 quotes",
+  "3 steps"). The basis is said once.
+- Selecting a finding now frames every step it cites, not just the first,
+  zooming between 45% and 100% as needed (a finding that cites no step frames
+  its connections). If the steps are too far apart even at 45%, the view
+  centres on the first one.
+- Below the width where a docked rail would leave the canvas under 900 px
+  (1260 px with the default 360 px rail), the rail is a bottom sheet under the
+  canvas instead of a drawer over it. Collapsed it is a 32 px tab strip; a
+  selection opens it to about 47% of the height (drag the handle, or use its
+  arrow keys, for 25-75%), and the selected card stays in view above it
+  without a refit. The chevron, Escape, or a press on the handle collapses it;
+  Escape returns the focus to the diagram, and from the diagram Escape
+  collapses an open sheet before it clears the selection. The canvas always
+  keeps at least min(240 px, 45%) of the height. In a sheet 620 px or wider
+  the Selection pane has two columns: the claim, its findings and its
+  connections on the left, the quotes and the actions on the right; narrower,
+  one column. The sheet is a labelled region, not a dialog; the diagram stays
+  within four Tab stops of the top. Ctrl+1 to Ctrl+4 pick About, Findings,
+  Selection and Outline; in the sheet they open it and move the focus to the
+  tab. The ⋯ menu's rail item reads "Side panel" or "Bottom panel".
+- Measured with the screenshot harness (headless Chrome, a simulated host,
+  vit from Claude Code and dino from Copilot): at 900x800 and 541x798, a click
+  on a step used to slide a 360 px drawer over the right of the canvas (two
+  thirds of it at 541 px), half covering the card just clicked. Now the sheet
+  opens below: the canvas is 900x393 or 541x392 px above a 349 px sheet, and
+  the selected card or connection was wholly inside the canvas in all 16
+  narrow selection shots. Collapsed, the tab strip costs 32 px of canvas
+  height (900x710 instead of 900x742). At 1440x900 the canvas is 1080x842 px,
+  as before. This is layout, not a usability result.
+- The `?` shortcut sheet and the Refine… popover keep Tab and Shift+Tab inside
+  themselves and give the focus back to what opened them (the Challenge
+  button, Refine…, or the diagram) when they close.
+- With VS Code's screen-reader optimisation on (the
+  `vscode-using-screen-reader` class on the webview), a selection is
+  announced by its claim (the title, the basis when it is not observed, and
+  the first sentence of the detail or the finding's description), and the
+  flow animation and transitions stop, as under Reduce Motion.
+- The empty Findings list now says the limitations are "listed in About".
+  The screenshot harness gained `select-connection` and `finding-pane`
+  states and records the rail's mode, box and columns and whether the
+  selection is inside the canvas.
+
 ## Unreleased — viewer M1: verification loop and cleanup
 
 Step 1 of the viewer's first milestone: check a claim against its source

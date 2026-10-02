@@ -142,6 +142,30 @@ the hint's and VS Code's Add Folder, Save Workspace As, Restart Extension Host,
 Reload Window and the multi-root case; an extension install or update was not
 tried ([changelog](../CHANGELOG.md)).
 
+Unreleased viewer M2, steps 5 and 9 (About, the Selection pane and the bottom
+sheet): the rail's tabs are About · Findings (n) · Selection · Outline. A new
+revision opens on About, which holds only authored text: the question, the
+model's coverage summary (split at its own run-in heads when it has three),
+coverage with the limitations listed once, scope, run configuration, the
+cited files with their freshness, and provenance with "Model-authored; MLView
+checks citations, not the interpretation." Afterwards the reader's tab is
+kept per revision. Selection (the old Inspector) reads claim first: phase,
+kind and parent group, title, a basis note only for an exception, the full
+detail, the findings on the step with What to change, numbered quotes with
+line numbers, a freshness word and Open, "Comes from" and "Feeds" sentences,
+Challenge and Refine…, and one link to the limitations. Selecting a finding
+frames every step it cites. Where a docked rail would leave the canvas under
+900 px (below 1260 px with the default rail), the rail is a bottom sheet under
+the canvas: a 32 px tab strip, about half the height when a selection opens
+it, with the selected card kept in view above it; a drag handle, a chevron and
+Escape collapse it, and it has two columns from 620 px. The shortcut sheet and
+the Refine… popover keep Tab inside and give the focus back; with VS Code's
+screen-reader class a selection is announced by its claim and nothing moves.
+No contract change, no new setting and no geometry change. Checked by local
+jsdom tests and headless-Chrome screenshots of a simulated host at 1440, 900
+and 541 px only, not in live VS Code, with a screen reader or as a usability
+check ([changelog](../CHANGELOG.md)).
+
 Unreleased viewer M2, step 10 (one header row): the brand row, the toolbar,
 the phase chip row and the authored header are now one row of about 36 px:
 the title (cut with an ellipsis, whole on hover), a host · revision chip whose
@@ -150,8 +174,9 @@ dot turns amber only when a cited file is stale, search, the severity toggles
 a ⋯ menu (legend, flow, overview map, side rail, Fit the whole diagram, zoom
 to the selection, Export SVG/PNG, Copy SVG, shortcuts) and **Refine…**, which
 names its target by label. Below 620 px wide only the title, the severity
-toggles, **N not observed**, ⋯ and **Refine…** stay in the row. The request
-and coverage details open over the diagram from the chip or the status bar.
+toggles, **N not observed**, ⋯ and **Refine…** stay in the row. The chip and
+the status bar's coverage item open the request and coverage (the About tab
+since steps 5 and 9).
 The scope picker and the phase chip row are gone, with their keys (`s`,
 Shift+S, `[`, `]`); a view saved by an older viewer still loads, its scope and
 phase filter ignored. Copy PNG, Print and the export region choice went with

@@ -27,7 +27,7 @@ If the workspace root is a parent of the folder the diagram cites from (most
 tracked files are missing from the root but exist, with the published hashes,
 under the artifact's folder or a folder above it), the notice names the files
 and the folder that holds them, unchanged, and offers **Add folder to
-workspace** or **Open folder**. The marks, the status bar, the Inspector and a
+workspace** or **Open folder**. The marks, the status bar, the Selection tab and a
 blocked jump say "in another folder" instead of calling the files changed or
 missing. The panel checks again whenever workspace folders change. The two
 actions are only in the panel's notice; there is no separate notification.
@@ -46,12 +46,23 @@ alone. A diagram put back this way starts with a fresh view: the selection
 and zoom start over. **Developer: Reload Window** restores diagrams as before,
 with their selection and zoom.
 
-A click on a step, connection or finding selects it and shows its claim.
-The Inspector shows the full claim, the findings on it with **What to change**,
-and its quotes; document-wide limitations are listed once, in the request and
-coverage details that the header's revision chip opens. Notebook cells are numbered from 0, as the artifact records them.
-Enter, a double-click (on a step, connection, finding or Outline step) or an
-Inspector **Open** link opens the cited range beside the diagram: the whole range is selected and highlighted, and focus
+The rail beside the diagram has four tabs: **About**, **Findings (n)**,
+**Selection** and **Outline**. A new revision opens on About (the question,
+what the model traced, coverage with its limitations listed once, scope, run
+configuration, the cited files with their freshness, and provenance); after
+that the tab you choose is kept for that revision. A click on a step,
+connection or finding selects it and shows its claim in Selection, unless you
+are working in Findings or the Outline: the phase, title and full detail, a
+note only for an inferred or unresolved claim, the findings on it with **What
+to change**, its numbered quotes with line numbers, freshness and **Open**,
+and what it comes from and feeds. Selecting a finding frames every step it
+cites. Below about 1260 px wide the rail is a bottom sheet under the diagram:
+a 32 px tab strip until a selection opens it to about half the height, with
+the selected card kept in view; drag its handle to resize it, and use the
+chevron or Escape to collapse it. Ctrl+1 to Ctrl+4 choose the tabs. Notebook
+cells are numbered from 0, as the artifact records them.
+Enter, a double-click (on a step, connection, finding or Outline step) or a
+quote's **Open** link opens the cited range beside the diagram: the whole range is selected and highlighted, and focus
 stays in the diagram. Alt+Enter (or Alt+click on an Open link) also moves
 focus to the editor. For a notebook citation the cell is selected and
 revealed; its lines are highlighted when VS Code has the cell's editor ready.
@@ -60,9 +71,9 @@ range-highlight border, since those themes define no highlight background.
 Only inferred (dashed, `inferred` tag) and unresolved (dotted, `? unresolved`
 tag) steps and connections are marked; observed ones carry no mark, and the
 header's **N not observed** toggle fades them. Line style shows certainty,
-not connection kind; the hover card and the Inspector name the kind. Each phase
+not connection kind; the hover card and the Selection tab name the kind. Each phase
 is coloured by its place in the document. Finding badges read F1, F2… in
-document order, with the real id in the Inspector and in Refine prompts. Flow
+document order, with the real id in the Selection tab and in Refine prompts. Flow
 animations stop after two passes (Shift+A replays them) and follow VS Code's
 Reduce Motion setting. The diagram opens at a readable zoom (the whole
 document if it fits at 62% or more, otherwise the first phase at 90%); `0`
@@ -74,10 +85,10 @@ and **Refine…**, which names the step, connection or finding it will refine.
 Below 620 px wide only the title, the severity toggles, **N not observed**,
 **⋯** and **Refine…** stay in the row; search and the revision move into the
 **⋯** menu, which also holds the legend, the flow animation, the overview map,
-the side rail, **Fit the whole diagram**, the exports and the shortcut sheet.
+the side or bottom panel, **Fit the whole diagram**, the exports and the shortcut sheet.
 The status bar reads, for example, "31 steps · 41 connections",
-"Coverage: scoped · 6 limitations" (which opens the request and coverage
-details), the source freshness, and the zoom.
+"Coverage: scoped · 6 limitations" (which opens About), the source
+freshness, and the zoom.
 The Refine action
 copies a follow-up prompt for the assistant that authored the diagram, with one
 of five intents (Explain, Expand, Challenge, Trace, or a custom request).

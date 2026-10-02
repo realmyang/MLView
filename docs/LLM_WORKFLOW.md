@@ -99,8 +99,8 @@ select another folder or supply absolute source paths.
 
 Click a node, edge or finding to select it and inspect its basis and evidence;
 a click never opens source. Enter, a double-click (on a step, connection,
-finding or Outline step; a double-click on a group collapses it) or an
-Inspector **Open** link opens the cited range beside the diagram, selects and highlights the whole
+finding or Outline step; a double-click on a group collapses it) or a quote's
+**Open** link in the Selection tab opens the cited range beside the diagram, selects and highlights the whole
 range, and keeps focus in the diagram so the keyboard keeps working. Alt+Enter
 (or Alt+click on an Open link) also moves focus to the editor. A notebook
 citation selects its cell; the cell's lines are highlighted when VS Code has
@@ -113,27 +113,54 @@ Reading a notebook does not establish its
 execution order. Unresolved steps and conceptual groups can lack navigation
 targets; MLView does not invent locations for them.
 
-The Inspector shows the item's title, phase and kind, its basis once (with a
-one-line note for inferred or unresolved claims), the full authored detail,
-the findings on the item with their suggestion under **What to change**, and
-then every authored source quote, keeping finding support and counter-evidence
-distinct. A caption over the quotes says that a matching quote shows the
-lines are unchanged since publishing, not that they support the claim.
-Document-wide limitations are listed once in the request and coverage details
-(the header's revision chip, or **Coverage** in the status bar, opens them);
-the Inspector says how many apply and links there. Previous/Next evidence opens
-adjacent anchors; source-less items explain why navigation is unavailable.
-**Challenge this claim** opens the refinement composer for the current item;
-you still decide whether to send the copied request.
+The rail's tabs are **About**, **Findings (n)**, **Selection** and
+**Outline**. A new revision opens on About; after that the viewer keeps the
+tab you chose for that revision. About holds only authored text: the question
+(**Asked**), the coverage summary (**What the model traced**, split into
+paragraphs at its own "Data:", "Model:"… heads when it has at least three),
+the coverage status in plain words with the limitations listed once, the
+scope and entrypoints, the run configuration (with `key=value` tokens in
+monospace), every cited file with its freshness, and the provenance, with
+"Model-authored; MLView checks citations, not the interpretation." The
+revision chip, **Coverage** in the status bar and the **⋯** menu open it.
+
+Selecting an item shows it in the Selection tab, unless you are working in
+the Findings list or the Outline, which then keep their place. For a step it
+shows, in order: the phase number and name, kind and parent group; the title;
+a one-line basis note only for an inferred or unresolved claim; the full
+authored detail; the findings on the step with their suggestion under **What
+to change**; every authored quote, numbered, with its line numbers, a
+freshness word and **Open**; "Comes from …" and "Feeds …" sentences; then
+**Challenge this claim** and **Refine…**, and one line saying how many
+document-wide limitations apply, linking to them in About. A connection shows
+its kind in words, label, ends, basis, findings and quotes; a finding shows
+its severity, F-number and real id, title, description, **What to change**,
+the steps it cites (selecting a finding frames all of them) and its
+supporting and counter-evidence. A caption over the quotes says that a
+matching quote shows the lines are unchanged since publishing, not that they
+support the claim. Previous/Next evidence opens adjacent anchors; source-less
+items explain why navigation is unavailable. **Challenge this claim** opens
+the refinement composer for the current item; you still decide whether to
+send the copied request.
+
+When a docked rail would leave the diagram under 900 px wide (below about
+1260 px), the rail is a bottom sheet under the diagram instead: a 32 px tab
+strip until a selection opens it to about half the height, with the selected
+card kept in view above it. Drag its handle to resize it; the chevron or
+Escape collapses it, and Escape gives the focus back to the diagram. From
+620 px wide the Selection tab has two columns (the claim on the left, the
+quotes and actions on the right). Ctrl+1 to Ctrl+4 choose About, Findings,
+Selection and Outline. With VS Code's screen-reader optimisation on, a
+selection is announced by its claim and nothing animates.
 
 On the diagram, observed claims carry no basis mark. An inferred step or
 connection has a dashed border or line and an `inferred` tag; an unresolved
 one has a dotted border or line and a `? unresolved` tag. Line style shows
 this certainty, not the connection's kind, which the hover card and the
-Inspector name. The header's **N not observed** toggle fades the observed
+Selection tab name. The header's **N not observed** toggle fades the observed
 claims so the others stand out. Each phase is coloured by its place in the
 document. Finding badges read F1, F2… in document order; a new revision can
-renumber them, so the Inspector shows the real id beside the number, and
+renumber them, so the Selection tab shows the real id beside the number, and
 Refine and Challenge prompts use the real id. A phase's finding count is the
 findings touching that phase, so a finding that cites two phases counts in
 both. A hover or focus-mode flow runs twice and then stops; Shift+A plays it
@@ -151,7 +178,7 @@ The header is one row: the title, the assistant and revision, search, the
 severity toggles (each with its count), **N not observed**, a **⋯** menu and
 **Refine…**. In a panel under 620 px wide, such as beside your code, search
 and the revision move into the **⋯** menu, which also holds the legend, the
-flow animation, the overview map, the side rail, **Fit the whole diagram**,
+flow animation, the overview map, the side or bottom panel, **Fit the whole diagram**,
 zoom to the selection, the SVG and PNG exports and the shortcut sheet.
 Ctrl/Cmd+F (or Ctrl/Cmd+K, or `/`) focuses search; each result shows its
 title and, under it, where it is cited. The status bar counts steps and
@@ -272,7 +299,7 @@ their published hashes, under the artifact's folder or a folder between it and
 the root, the source did not change: the workspace root is wrong. The banner
 says "source.py is not in the workspace root (<root>/). It is in ./<folder>/,
 unchanged (it matches its published hash)." and offers **Add folder to
-workspace** and **Open folder**. The marks, the status bar, the Inspector and
+workspace** and **Open folder**. The marks, the status bar, the Selection tab and
 a blocked jump say the file is "in another folder" and point to that notice,
 not that it changed or went missing. MLView never resolves citations against
 another folder on its own; the panel checks again when the workspace folders
