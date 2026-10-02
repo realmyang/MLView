@@ -482,12 +482,60 @@ change, no new setting; the golden is byte-identical):
   index (arrows, Outline, search, host reveal, findings, the walk) at
   1440x900, 900x800 and 541x798.
 
+Viewer M3 Reveal in Diagram (roadmap step 14; no contract change, no new
+setting; the golden is byte-identical). The host side lives in
+`vscode-extension/` (`src/revealCommand.ts`, `src/citationIndex.ts`); the
+viewer's part is one inbound frame:
+
+- `reveal {v: 1, kind: 'node' | 'edge' | 'issue', id}` (`src/types.ts`).
+  `src/protocol.ts` checks that `id` is a non-empty string and dispatches to
+  `revealNode(id, true)`, `revealEdge(id)` or `revealIssue(id)`. The older
+  `revealNode {nodeId}` and `revealIssue {issueId}` frames now check their id
+  the same way and take the same path. A frame with a missing or empty id is
+  dropped.
+- `App.revealClaim(sel, {center})` (`src/app.ts`): an id the displayed
+  revision lacks gets a toast and the announcement "That claim is not in the
+  revision shown here." Otherwise it closes the shortcut sheet, the Refine
+  popover (keeping its text) and the phase overview; expands the claim's
+  ancestors (both ends of a connection; the cited steps and connection ends
+  of a finding); opens a hidden docked rail or a collapsed sheet as the walk
+  does (`openRailForWalk`); selects with `showClaim` on the Selection tab; and
+  frames the claim: a step centred with one pulse, a finding through
+  `frameIssue`, a connection through `CanvasView.frameEdge`. A running walk
+  follows the selection (`followSelection`) without opening anything.
+- `CanvasView.frameEdge(id)` frames the union of the connection's route and
+  its two ends at reading size with the source as anchor, so the anchor is
+  panned clear of the phase index. If the target end is then out of view, it
+  zooms out to the larger of the fits above and beside the index, when that
+  zoom is at least `FRAME_MIN_ZOOM` (0.45); otherwise the reading-size frame
+  stays.
+- Focus: `CanvasView.focusTarget(target)` focuses the step's card (a group's
+  header), the connection's `.mlv-edge__hit`, or the canvas for a finding or a
+  bundled connection with no element of its own. The host moves the panel's
+  focus right after posting the frame, and VS Code 1.139 hands it over in two
+  steps that leave the page's `activeElement` on `<body>` (measured live), so
+  `holdRevealFocus` refocuses the claim on a window `focus` that finds nothing
+  focused, for `REVEAL_FOCUS_HOLD_MS` (1500 ms). A focus elsewhere is left
+  alone.
+- The host posts the frame again after the page's next `ready` (within
+  `REVEAL_REPLAY_MS`, 5 s, while the revision is still shown), because VS Code
+  discards a hidden panel's page and the panel does not retain its context.
+- The shortcut sheet's note ends with the command
+  (`src/ui/shortcuts.ts`).
+- `test/reveal.test.mjs` covers the three kinds and the focus each leaves,
+  the focus hold, folded groups, connections and findings, the older frames,
+  malformed frames and unknown ids, the overlays closing, the walk following,
+  a hidden rail opening, and every step and connection on the canvas, above
+  the sheet and clear of the index at 1440x900, 900x800 and 541x798 on the
+  vit-cc and yolov5-cc2 shapes. `authoredRevealHandshake` in
+  `test/authored-handshake.mjs` drives the real host with the built viewer.
+
 Viewer M1 cleanup (no contract change):
 
 - The bundle contains only the authored path. Inbound, the viewer handles
   `init`, `theme`, `workflow`, `workflowError`, `stale` and `actionResult`,
-  plus `revealNode` and `revealIssue` (kept for the planned "Reveal in
-  Diagram") and `restoreState` (the tests drive collapse with it); any other
+  plus `reveal`, `revealNode` and `revealIssue` (Reveal in Diagram, since
+  viewer M3) and `restoreState` (the tests drive collapse with it); any other
   type is answered with a `log` frame and ignored. Outbound it posts
   `openLocation`, `workspaceHint`, `refineWorkflow`, `copy`, `exportFile` and
   `log`, and since viewer M3 `walk` (sent by the review walk); the host

@@ -103,6 +103,15 @@ corner lists every phase with its findings and step count and marks the ones
 in view. Beside the code it shrinks to one line such as "4/6 Objective,
 optimizer & scheduler".
 
+To go the other way, from the code to the diagram, right-click a line in the
+editor and choose **Reveal in Diagram** (also **MLView: Reveal in Diagram** in
+the Command Palette; there is no default keybinding). It is offered only
+while an open diagram cites the file and the file still matches the
+diagram. The claim citing that line, or the selected lines, is selected and
+shown in the diagram, and the keyboard moves there. When several claims cite
+the line, a list asks which; on a line no claim cites, it offers the nearest
+claims in the file. It works in notebook cells too.
+
 The workflow supports custom phases, nested groups, branches and cycles,
 notebook cell references, and findings with evidence and counter-evidence.
 Observed, inferred, and unresolved claims remain distinguishable: only the

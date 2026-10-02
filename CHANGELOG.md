@@ -11,15 +11,17 @@ truth lives in [docs/STATUS.md](docs/STATUS.md) and
 The viewer's third milestone, in progress. So far: the review walk, which goes
 through the diagram claim by claim and opens each one's cited lines beside it
 (roadmap step 11), the host side of that walk (step 12), a fix for Escape, a
-look at the cost of jumping through a large notebook, and the phase overview
-with the labelled phase index that replaced the minimap (step 13). Steps 11
-and 12 were checked by local jsdom and mock `vscode` tests (mutation-checked
-against the fixes) and in an isolated VS Code 1.139 Extension Development Host
-on macOS driven over the DevTools protocol. Step 13 was checked by local jsdom
-tests and headless-Chrome screenshots of a simulated host only, not yet in
-VS Code. Not tried on Windows or Linux, with a screen reader or as a usability
-check. No contract change, no new setting, no geometry change, and the version
-is unchanged.
+look at the cost of jumping through a large notebook, the phase overview
+with the labelled phase index that replaced the minimap (step 13), and
+**Reveal in Diagram**, the way back from a cited line in the editor to the
+claim in the diagram (step 14). Steps 11, 12 and 14 were checked by local
+jsdom and mock `vscode` tests (mutation-checked against the fixes) and in an
+isolated VS Code 1.139 Extension Development Host on macOS driven over the
+DevTools protocol. Step 13 was checked by local jsdom tests and headless-Chrome
+screenshots of a simulated host only, not yet in VS Code. Not tried on Windows
+or Linux, with a screen reader or as a usability check. No contract change, no
+new setting, no geometry change, and the version is unchanged. Step 14 adds
+the extension's second command, with no default keybinding.
 
 The review walk (step 11):
 - Press `r` on the diagram, **Review** in the header or **Review the claims**
@@ -226,6 +228,111 @@ selected card never under the index along each path above, at all three
 sizes. Removing the index's cover rule makes that last check fail. Headless
 Chrome screenshots of vit-cc and yolov5-cc2 at the three sizes were looked at.
 Not tried in VS Code, with a screen reader, on Windows or Linux, or as a
+usability check.
+
+Reveal in Diagram (step 14):
+- Right-click a line in the editor and choose **Reveal in Diagram** to see
+  which claims of the open diagram cite it. The Command Palette has it too, as
+  **MLView: Reveal in Diagram**. There is no default keybinding; you can add
+  one in VS Code's Keyboard Shortcuts. It is the extension's second command,
+  next to **MLView: Open Generated Diagram**.
+- The menu item appears only while an open diagram cites the file and the file
+  still matches it: VS Code has not reported it changed or missing since the
+  revision was published, and the editor's text still has the quoted lines
+  where the diagram cites them. An unsaved edit that moves every quote hides
+  the item until you undo it (checked at most every 150 ms while you type); an
+  edit elsewhere keeps it, and a quote that moved no longer counts. The
+  item's `when` clause is the context key `mlview.citedFile`, which is cleared
+  when the last diagram closes.
+- The cursor's line, or the selected lines, decide the claim. One claim cites
+  them: it is shown at once. Several do: a list asks which, steps first, then
+  connections, then findings, each in document order. Each row gives the kind
+  and title (a finding's F label first, a connection as its two ends), then
+  the connection's label, the finding's severity, the phase and the basis when
+  it is not observed, and where it is cited; a finding's counter-evidence says
+  so. A row from the tests' small document: "F1 Finding: Unverified output",
+  "medium · Train · inferred", "Counter-evidence at lines 2–3".
+- A line no claim cites offers the nearest claims in the file instead (at most
+  30), each with how far it is, such as "Cited at lines 2–3, 1 line above".
+  Choosing one shows it; Escape cancels. A notebook cell's nearest claims come
+  from that cell first, then the nearest cells.
+- The diagram selects the claim, opens a folded group that hides it, brings it
+  into view and shows it in the Selection tab. A connection is framed with
+  both ends where they fit, a finding with the steps it cites. A hidden side
+  panel or a collapsed bottom panel opens, so the claim shows at 541 px as
+  well as at 900 px. The shortcut sheet, the phase overview and the refine
+  box close (the refine box keeps your text). The keyboard moves to the
+  diagram, on the card or connection: the one place the viewer moves the focus
+  by itself, because you asked for the diagram. Nothing is opened in the
+  editor. During the review walk, the walk moves to the claim when its filter
+  holds it.
+- A diagram hidden behind another editor comes to the front. VS Code reloads
+  a hidden panel's page, so the claim is shown again once the page is ready
+  (within 5 seconds). If the diagram moved to another revision while you were
+  choosing, it says so and asks you to run the command again.
+- With several diagrams open, the one that cites the file is used; when more
+  than one does, a list asks which, with the number of claims each has there.
+- Notebooks: it works in a notebook's cell editors, by the cell index the
+  diagram records. A notebook the diagram cites by cell, opened as plain JSON
+  text, gets a message saying to open it in the notebook editor (and the other
+  way round for a notebook cited as text).
+- The menu and the palette hide the command where it does not apply. Run
+  there anyway, from a keybinding of your own or because the file changed
+  after the menu opened, it says why in one line: no diagram is open, the
+  editor is not a cited file or cell, the file changed after the revision was
+  published (ask the assistant for a fresh revision), its unsaved text no
+  longer has the quotes, or the diagram cites the file from a parent folder
+  that is not in the workspace. A changed file is checked again before the
+  answer.
+- How it finds the claims: each open diagram keeps an index of its validated
+  revision's evidence, file by file, with the steps, connections and findings
+  that cite each range. It is rebuilt when a new revision is shown and
+  dropped with the panel. It reads no code and infers nothing: a line counts
+  as cited when it lies inside a quoted range that still matches. No hover,
+  CodeLens or Problems-panel entries are added to your editors.
+- The webview takes one new host frame, `reveal {kind, id}`, for a step, a
+  connection or a finding; the older `revealNode` and `revealIssue` frames go
+  the same way. An id the shown revision lacks gets "That claim is not in the
+  revision shown here." The shortcut sheet's note mentions the command.
+- `scripts/vsix_check.py` now allows the second command in a packaged VSIX.
+
+Checked for step 14: `vscode-extension/test/reveal-host.test.js` (19 tests,
+mock `vscode`) covers the index, the nearest claims and the list's rows, the
+context key for cited, uncited, changed, edited and closed files, the index
+rebuilt on a new revision, one claim shown at once, the list for several and
+for the nearest, the plain messages, the parent-folder case, two diagrams
+citing one file, the reveal sent again after the page's `ready`, a revision
+changing while you choose, notebook cells, and everything disposed with the
+last panel. `packaging.test.js` and `activation.test.js` were changed on
+purpose to name the second command and to check it has no keybinding.
+`webview/test/reveal.test.mjs` (17 tests, jsdom) covers the frames for the
+three kinds and the focus they leave, folded groups, connections and
+findings, the older frames, malformed frames and unknown ids, the overlays
+closing, the walk following, a hidden side panel opening, and, at 1440x900,
+900x800 and 541x798 on the vit-cc and yolov5-cc2 shapes, every step and
+connection revealed on the canvas and clear of the phase index. An
+integration test drives the real host with the built page. Removing the
+stale check, the quote check, the focus move, the replay, the index refresh,
+the diagram list, the connection case or the side panel opening each makes a
+test fail.
+
+It was also tried live in an isolated VS Code 1.139 Extension Development
+Host on macOS, on the vit-cc artifact, driven over the DevTools protocol with
+the window at 1440x900. The menu item showed on the cited `efficient.py` and
+not on `README.md`. A line cited by a step, a connection and a finding gave a
+list of three; choosing the connection selected it and opened the bottom
+sheet with the diagram 541 px wide. A line with one claim showed it at once,
+and Enter on it then opened the code beside with the focus kept. An uncited
+line offered the nearest claims. At 866 px (the narrowest the editor beside
+allowed, not 900) a finding was framed clear of the phase index. In a
+notebook cell the list showed six claims and the step was revealed. A diagram
+hidden behind the code came to the front and showed the claim after its page
+reloaded. An unsaved edit at the top of the file hid the item and undo
+brought it back. After the diagram closed, the item was gone. The live run
+showed that VS Code's hand-over of the focus left it on the page's body, so
+for 1.5 seconds after a reveal the claim takes the focus back if nothing else
+has it; checked live afterwards. A changed file was checked only by the unit
+tests, not live. Not tried with a screen reader, on Windows or Linux, or as a
 usability check.
 
 ## Unreleased — viewer M2: readable at your width

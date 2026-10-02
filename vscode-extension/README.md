@@ -88,6 +88,32 @@ in the diagram's lower right corner lists each phase with its findings and
 step count and marks the phases in view; a row goes to its phase. Below 1000
 px wide it is one line such as "4/6 Objective, optimizer & scheduler" that
 opens the list. It never covers the card you are on.
+**Reveal in Diagram** goes from the code back to the diagram. Right-click a
+line in the editor and choose it, or run **MLView: Reveal in Diagram** from
+the Command Palette; there is no default keybinding, so bind one in Keyboard
+Shortcuts if you want one. It is offered only while an open diagram cites the
+file and the file still matches it: not changed or missing since the revision
+was published, and the editor's text, unsaved edits included, still has a
+quote at its cited lines (the context key is `mlview.citedFile`). The
+cursor's line or the selected lines decide the claim: one claim is shown at
+once; several are listed as steps, then connections, then findings (with the
+F label, severity, phase, a basis other than observed, and where each is
+cited, counter-evidence marked); a line no claim cites lists the nearest
+claims in the file, with how far each is. The diagram selects the claim,
+unfolds its group, brings it into view (a connection with its ends, a finding
+with its steps), shows it in the Selection tab, opening a hidden side panel or
+a collapsed bottom panel, and moves the keyboard to the diagram. That is the
+one time the viewer moves the focus by itself. A diagram hidden behind the
+code comes to the front and shows the claim once VS Code has reloaded its
+page. With several diagrams open, the one citing the file is used, or a list
+asks which. In a notebook it works in the cell editors, by the cell numbers
+the artifact records; a notebook cited by cell and opened as text gets a
+message saying to use the notebook editor. Run where it does not apply (from
+a keybinding of your own, or after the file changed), it says why in one
+line. Each panel keeps an index of its revision's evidence
+(files, lines, and the claims citing them), rebuilt on a new revision and
+dropped with the panel; it reads no code, and adds no hover, CodeLens or
+Problems entries.
 Enter, a double-click (on a step, connection, finding or Outline step) or a
 quote's **Open** link opens the cited range beside the diagram: the whole range is selected and highlighted, and focus
 stays in the diagram. The source goes to an editor group you already have

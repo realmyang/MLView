@@ -232,6 +232,29 @@ arrows, search, the Outline, a finding, the review walk and VS Code's reveal
 all pan the card out from under it. **Phase index** in the **⋯** menu shows or
 hides it, and the panel remembers the choice.
 
+Reveal in Diagram goes from the code back to the diagram. Right-click a line
+in the editor and choose **Reveal in Diagram**, or run **MLView: Reveal in
+Diagram** from the Command Palette. There is no default keybinding. The item
+is offered only while an open diagram cites the file and the file still
+matches it: VS Code has not reported it changed or missing since the revision
+was published, and the editor's text, unsaved edits included, still has a
+quote at its cited lines. The cursor's line, or the selected lines, decide
+the claim. When one claim cites them it is shown at once; when several do, a
+list names each one's kind, title, F label, severity, phase and cited lines,
+steps first, then connections, then findings; on a line no claim cites, the
+list offers the nearest claims in the file. The diagram selects the claim,
+unfolds its group, brings it into view and shows it in the Selection tab
+(opening a hidden side panel or a collapsed bottom panel), and the keyboard
+moves to the diagram. It is the one time the viewer moves the focus by
+itself, because you asked for the diagram; nothing is opened in the editor. A
+diagram hidden behind the code comes to the front. With several diagrams
+open, the one that cites the file is used, or a list asks which. It works in
+notebook cell editors. Run where it does not apply (from a keybinding of your
+own, or after the file changed), it says why, for example that the file
+changed after the revision was published and the assistant should publish a
+fresh one. The claims come from the displayed revision's
+evidence records; MLView reads no code to find them.
+
 On the diagram, observed claims carry no basis mark. An inferred step or
 connection has a dashed border or line and an `inferred` tag; an unresolved
 one has a dotted border or line and a `? unresolved` tag. Line style shows
@@ -447,6 +470,8 @@ Codex, and Claude Code inside VS Code:
 - Discover and invoke the installed skill in the native assistant.
 - Have the model read source and author a diagram without the static analyzer.
 - Open the artifact, inspect node and edge evidence, and navigate to exact lines.
+- Right-click a cited line and choose Reveal in Diagram; verify that the claim
+  citing it is shown and that an uncited file does not offer the command.
 - Exercise a notebook cell and repeated/custom phase names.
 - Request a refinement; verify a new revision and stable unaffected node IDs.
 - Copy a Refine prompt for each intent; verify that Explain answers without

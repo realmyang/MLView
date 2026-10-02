@@ -214,6 +214,35 @@ screenshots of a simulated host at 1440x900, 900x800 and 541x798; not in live
 VS Code, with a screen reader or as a usability check
 ([changelog](../CHANGELOG.md)).
 
+Unreleased viewer M3, step 14 (Reveal in Diagram, from the code back to the
+diagram): right-click a line in the editor and choose **Reveal in Diagram**
+(or run **MLView: Reveal in Diagram** from the Command Palette) to show the
+claim that cites it. This is the extension's second command and has no
+default keybinding. The item appears only while an open diagram cites the
+file and the file still matches it (not changed since the revision was
+published, and the quotes still at their cited lines in the editor's text);
+the `when` clause is the context key `mlview.citedFile`. One claim on the
+cursor's line or the selection is shown at once; several are listed (steps,
+then connections, then findings, with the F label, severity, phase and where
+each is cited); a line no claim cites offers the nearest claims in the file.
+The diagram selects the claim, unfolds its group, brings it into view clear
+of the phase index, shows it in the Selection tab (opening a hidden side
+panel or bottom panel), and takes the keyboard: the one place the viewer
+moves the focus by itself. A diagram hidden behind the code comes to the
+front and shows the claim once its page has reloaded. With several diagrams
+open, the one citing the file is used, or a list asks which. It works in
+notebook cell editors. Each panel keeps an index of its validated revision's
+evidence, rebuilt on a new revision and dropped with the panel; it reads no
+code. The webview gained a `reveal {kind, id}` host frame for steps,
+connections and findings. No hover, CodeLens, diagnostics, contract change,
+new setting or geometry change. Checked by local mock `vscode` and jsdom tests
+(mutation-checked, including 1440x900, 900x800 and 541x798 on the vit-cc and
+yolov5-cc2 shapes) and in an isolated VS Code 1.139 Extension Development
+Host on macOS driven over the DevTools protocol (vit-cc, with the diagram at
+541 and 866 px, a notebook cell, a hidden panel, an unsaved edit); a changed
+file was checked by unit tests only. Not with a screen reader, on Windows or
+Linux, or as a usability check ([changelog](../CHANGELOG.md)).
+
 Unreleased viewer M2, live-check fixes: a live check of the branch found
 seven problems, now fixed. When the panel resizes or the rail changes shape
 and a selection that was in view no longer is, the diagram pans the least
