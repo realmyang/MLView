@@ -77,26 +77,15 @@ export function dispatchHostMessage(msg: HostToUi, h: ProtocolHandlers): void {
 }
 
 /**
- * Coerce a restored scope into something safe: a mangled one gives no scope
- * rather than a crash (CONTRACTS 11.9).
- */
-export function sanitizeScope(scope: any): { spec: string; depth: number } | null {
-  if (!scope || typeof scope !== 'object') return null;
-  if (typeof scope.spec !== 'string' || !scope.spec) return null;
-  const depth = typeof scope.depth === 'number' && isFinite(scope.depth) ? Math.round(scope.depth) : 0;
-  if (depth < 0 || depth > 2) return { spec: scope.spec, depth: 0 };
-  return { spec: scope.spec, depth };
-}
-
-/**
  * Coerce saved filters into filters we can trust. Keys this viewer no longer
- * writes (`showSuppressed`, `changedOnly`) are ignored.
+ * writes (`showSuppressed`, `changedOnly`, and since viewer M2 the phase chips'
+ * `stages`) are ignored: a phase hidden by an older viewer comes back shown,
+ * because nothing on screen could show it again.
  */
 export function sanitizeFilters(filters: any, fallback: Filters): Filters {
   if (!filters || typeof filters !== 'object') return { ...fallback, severities: fallback.severities.slice() };
   return {
     severities: Array.isArray(filters.severities) ? filters.severities.slice() : fallback.severities.slice(),
-    stages: Array.isArray(filters.stages) ? filters.stages.slice() : [],
     query: typeof filters.query === 'string' ? filters.query : '',
   };
 }

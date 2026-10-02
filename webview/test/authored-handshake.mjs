@@ -225,9 +225,11 @@ export async function authoredHandshake() {
 
     // ── Refine a node (explain): the §1f header and fenced data block. ──
     $(page, '.mlv-workflow__refine').click();
-    assert.match($(page, '.mlv-workflow__selection').textContent, /node: loss/);
+    // Viewer M2: the composer names its target by label; the stable id stays on the attribute.
+    assert.equal($(page, '.mlv-workflow__selection').textContent, 'Step: Compute loss');
+    assert.equal($(page, '.mlv-workflow__composer').getAttribute('data-selection-id'), 'loss');
     $(page, '[data-node-id="update"]').click();
-    assert.match($(page, '.mlv-workflow__selection').textContent, /node: loss/,
+    assert.equal($(page, '.mlv-workflow__selection').textContent, 'Step: Compute loss',
       'the composer submits the same selection it displays');
     const nodePrompt = await submitRefine(wire, page, 1);
     assert.match(nodePrompt, /^Intent: explain$/m);
@@ -247,10 +249,10 @@ export async function authoredHandshake() {
     // Viewer M1 (updated deliberately): a click on a connection selects it; the handoff is the
     // double-click (or Enter), which selects and opens the cited source beside the panel.
     const fitted = plain(page.app.getState().viewport);
-    page.window.document.querySelector('button[aria-label="Zoom in"]').click();
+    page.window.document.querySelector('.mlv-status button[aria-label="Zoom in"]').click();
     await sleep(20);
     const zoomed = plain(page.app.getState().viewport);
-    assert.notDeepEqual(zoomed, fitted, 'the toolbar zoom changed the viewport');
+    assert.notDeepEqual(zoomed, fitted, 'the status bar zoom changed the viewport');
     wire.closeOnOpenLocation = true;
     $(page, '[data-edge-id="step"] .mlv-edge__hit').dispatchEvent(new page.window.MouseEvent('click', { bubbles: true }));
     assert.equal(wire.closedAtOpenLocation, false, 'a connection click selects without opening');
@@ -276,7 +278,7 @@ export async function authoredHandshake() {
 
     // ── Refine the edge and the finding. ──
     $(page, '.mlv-workflow__refine').click();
-    assert.match($(page, '.mlv-workflow__selection').textContent, /edge: step/);
+    assert.equal($(page, '.mlv-workflow__selection').textContent, 'Connection: backward');
     const edgePrompt = await submitRefine(wire, page, 2);
     assert.match(edgePrompt, /^Selected item: edge step$/m);
     assert.match(edgePrompt, /"source": \{/);
@@ -286,7 +288,7 @@ export async function authoredHandshake() {
 
     $(page, '.mlv-issue[data-issue-id="risk"]').dispatchEvent(new page.window.MouseEvent('click', { bubbles: true }));
     $(page, '.mlv-workflow__refine').click();
-    assert.match($(page, '.mlv-workflow__selection').textContent, /issue: risk/);
+    assert.equal($(page, '.mlv-workflow__selection').textContent, 'Finding: F1 · Update risk');
     const findingPrompt = await submitRefine(wire, page, 3);
     assert.match(findingPrompt, /^Selected item: finding risk$/m);
     assert.equal(promptData(findingPrompt).selected.title, 'Update risk');
@@ -297,7 +299,7 @@ export async function authoredHandshake() {
       if (message.type === 'actionResult' && message.action === 'exportFile') announcedBeforeResult = target.app.liveEl.textContent;
     };
     vscode.__answerSaveDialog(vscode.Uri.file(join(wire.root, 'diagram.svg')));
-    $(page, '.mlv-btn--exportmenu').click();
+    $(page, '.mlv-btn--more').click();
     $(page, '[data-export-action="svg"]').click();
     await waitFor(() => vscode.__recorded.writtenFiles.length === 1, 'the SVG frame did not reach the guarded host save');
     assert.match(vscode.__recorded.writtenFiles[0].bytes.toString(), /Authored handshake/);
@@ -326,7 +328,7 @@ export async function authoredHandshake() {
     assert.deepEqual(page.renders, ['r2'], 'exactly one setWorkflow call for the r2 frame');
     assert.equal(page.mounts.length, 1, 'the later workflow does not remount');
     assert.equal($(page, '#mlview-authored-error'), null, 'no banner after a fresh adoption');
-    assert.equal(page.window.document.querySelector('.mlv-workflow__title').textContent, 'Refined explanation');
+    assert.equal(page.window.document.querySelector('.mlv-header__title').textContent, 'Refined explanation');
 
     assertNoLegacyFrames(wire);
     process.stdout.write('  PASS  authored bootstrap → citation → refine (node, edge, finding) → remount → SVG → watched revision\n');
@@ -383,7 +385,10 @@ export async function authoredStaleHandshake() {
     assert.equal(notice().hidden, false, 'the notice does not jump while the change is checked');
     await waitFor(() => $(page, '[data-workflow-revision="r2"]'), 'the fresh child revision did not render');
     await waitFor(() => notice().hidden, 'the notice was not hidden after a fresh adoption');
-    await waitFor(() => !$(page, '[data-freshness]'), 'the status bar still shows a freshness item after a fresh adoption');
+    await waitFor(() => !$(page, '[data-freshness="stale"]') && !$(page, '[data-freshness="checking"]'),
+      'the status bar still shows a freshness warning after a fresh adoption');
+    // Viewer M2: the fresh child carries no hashes, so the status bar says so in muted words.
+    assert.equal($(page, '[data-freshness="unverified"]')?.textContent, 'Freshness not checked');
     assert.equal($(page, '.mlv-node.is-stale'), null, 'no stale marks after a fresh adoption');
     assert.equal($(page, '#mlview-authored-error'), null);
     await sleep(50);

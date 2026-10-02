@@ -52,16 +52,22 @@ in the runbook. Only install one copy of the skill in each discovery path.
 
 To refine a particular node, edge, or finding, select it and use **Refine →
 Copy prompt**. Choose an intent or enter a specific question, then paste the
-prompt into the same assistant. The diagram header shows the title, the
-request and the coverage status; its **Details** disclosure shows the scope,
-entrypoints, configuration and limitations being explained.
+prompt into the same assistant. The header is one row: the title, the
+assistant and revision, search, the severity toggles, **N not observed**, a
+**⋯** menu (legend, flow animation, fit, exports, shortcuts) and **Refine…**.
+In a narrow panel, such as beside your code, search and the revision move
+into the **⋯** menu. The revision chip opens the request and coverage details:
+the question, scope, entrypoints, configuration and limitations being
+explained. The status bar counts steps and connections, shows the coverage
+status with its limitations, and says whether the cited files are unchanged
+(in muted text) or changed (with a warning).
 
 The Inspector shows the selected claim in full, its phase and basis (with a
 short note when it is inferred or unresolved), the findings on it with **What
 to change**, and its source quotes and counter-evidence. A matching quote only
 shows that the cited lines are unchanged since publishing; whether they
 support the claim is for you to judge. Document-wide limitations are listed
-once, in the header's **Details**; the Inspector links to them. **Challenge
+once, in the request and coverage details; the Inspector links to them. **Challenge
 this claim** prepares a focused refinement request. The Outline's textual relationships provide All, Incoming, Outgoing
 and Unresolved views alongside the diagram.
 
@@ -69,14 +75,14 @@ The workflow supports custom phases, nested groups, branches and cycles,
 notebook cell references, and findings with evidence and counter-evidence.
 Observed, inferred, and unresolved claims remain distinguishable: only the
 inferred (dashed, with an `inferred` tag) and unresolved (dotted, with a
-`? unresolved` tag) ones are marked on the diagram, and the toolbar's
+`? unresolved` tag) ones are marked on the diagram, and the header's
 **N not observed** toggle fades the rest. Each phase is coloured by its place
 in the document; colour is otherwise used only for problems. Finding badges
 read F1, F2… in document order; the Inspector and Refine prompts keep the
 real finding id. The diagram opens at a zoom where cards can be read: the
 whole document when it fits at 62% or more, otherwise the first phase at 90%.
-Press `0` to return to that view, or use **Fit the whole diagram** to see
-everything; zoomed out, cards show just their titles at about 11 px. Saved source
+Press `0` to return to that view, or use **Fit the whole diagram** in the
+**⋯** menu to see everything; zoomed out, cards show just their titles at about 11 px. Saved source
 edits mark the steps, connections, findings and quotes that cite the changed
 files, and block jumps into those files; malformed updates retain the last
 valid diagram. When the workspace root is a parent of the folder the diagram

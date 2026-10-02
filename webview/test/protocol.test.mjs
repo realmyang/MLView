@@ -105,12 +105,15 @@ test('an open composer keeps its text, focus and selection across re-posts and c
   assert.equal(q('.mlv-workflow__custom').value, 'Why is the loss averaged twice?');
   assert.equal(q('.mlv-workflow__intent').value, 'custom');
   assert.equal(ctx.document.activeElement, q('.mlv-workflow__custom'), 'focus returns to the field being typed in');
-  assert.equal(q('.mlv-workflow__selection').textContent, 'node: step', 'same revision keeps the captured selection');
+  // Viewer M2: the composer names its target by label; the stable id stays on the attribute.
+  assert.equal(q('.mlv-workflow__selection').textContent, 'Step: Update weights', 'same revision keeps the captured selection');
+  assert.equal(q('.mlv-workflow__composer').getAttribute('data-selection-id'), 'step');
 
   ctx.bridge.send({ v: 1, type: 'workflow', document: workflow('r2') });
   assert.equal(q('.mlv-workflow__composer').hidden, false);
   assert.equal(q('.mlv-workflow__custom').value, 'Why is the loss averaged twice?', 'a new revision keeps the text');
-  assert.equal(q('.mlv-workflow__selection').textContent, 'edge: flow', 'a new revision re-captures the selection');
+  assert.equal(q('.mlv-workflow__selection').textContent, 'Connection: batches', 'a new revision re-captures the selection');
+  assert.equal(q('.mlv-workflow__composer').getAttribute('data-selection-id'), 'flow');
 
   q('.mlv-workflow__composer').dispatchEvent(new ctx.window.Event('submit', { bubbles: true, cancelable: true }));
   const first = lastOf(ctx.bridge, 'refineWorkflow');
@@ -142,7 +145,9 @@ test('built-in intents post no customText, and a revision that drops the selecte
   const q = (selector) => ctx.document.querySelector(selector);
   ctx.app.focusIssue('loss-risk');
   q('.mlv-workflow__refine').click();
-  assert.equal(q('.mlv-workflow__selection').textContent, 'issue: loss-risk');
+  assert.equal(q('.mlv-workflow__selection').textContent, 'Finding: F1 · Loss is aggregated late');
+  assert.equal(q('.mlv-workflow__composer').getAttribute('data-selection-kind'), 'issue');
+  assert.equal(q('.mlv-workflow__composer').getAttribute('data-selection-id'), 'loss-risk');
   q('.mlv-workflow__custom').value = 'typed, then switched away';
   q('.mlv-workflow__intent').value = 'expand';
   q('.mlv-workflow__composer').dispatchEvent(new ctx.window.Event('submit', { bubbles: true, cancelable: true }));
@@ -164,7 +169,7 @@ test('SVG export claims nothing before the host answers, then announces each out
   const ctx = await mount();
   const live = ctx.app.liveEl;
   const exportSvg = () => {
-    ctx.document.querySelector('.mlv-btn--exportmenu').click();
+    ctx.document.querySelector('.mlv-btn--more').click();
     ctx.document.querySelector('[data-export-action="svg"]').click();
     return lastOf(ctx.bridge, 'exportFile');
   };
@@ -198,7 +203,7 @@ test('a PNG the browser could not allocate falls back to the SVG and posts nothi
   const seen = [];
   stubCanvas(ctx.window, 'data:,', seen);
   const before = ctx.bridge.posted.length;
-  ctx.document.querySelector('.mlv-btn--exportmenu').click();
+  ctx.document.querySelector('.mlv-btn--more').click();
   ctx.document.querySelector('[data-export-action="png"]').click();
   await tick(20);
   assert.equal(seen.length, 1, 'the stub canvas was drawn');
@@ -211,7 +216,7 @@ test('a tall PNG is drawn at a clamped scale and announces the size actually dra
   const ctx = await mount(benchmarkWorkflow(500));
   const seen = [];
   stubCanvas(ctx.window, 'data:image/png;base64,iVBORw0KGgo=', seen);
-  ctx.document.querySelector('.mlv-btn--exportmenu').click();
+  ctx.document.querySelector('.mlv-btn--more').click();
   ctx.document.querySelector('[data-export-action="png"]').click();
   await tick(20);
   const frame = lastOf(ctx.bridge, 'exportFile');
@@ -225,50 +230,41 @@ test('a tall PNG is drawn at a clamped scale and announces the size actually dra
   ctx.app.destroy();
 });
 
-test('scope and SVG copies toast only when the host reports the clipboard written', async () => {
+test('SVG copies toast only when the host reports the clipboard written', async () => {
   const ctx = await mount();
-  ctx.app.setScope('stage:loop');
-  ctx.document.querySelector('.mlv-breadcrumb__copy').click();
-  const copy = lastOf(ctx.bridge, 'copy');
-  assert.equal(copy.text, 'stage:loop');
-  assert.match(copy.requestId, /^[A-Za-z0-9_-]{1,64}$/);
-  assert.equal(toasts(ctx).some((t) => /Scope copied/.test(t)), false, 'no toast before the result');
-  reply(ctx, copy, 'done');
-  assert.ok(toasts(ctx).includes('Scope copied: stage:loop'));
-  ctx.document.querySelector('.mlv-breadcrumb__copy').click();
-  reply(ctx, lastOf(ctx.bridge, 'copy'), 'failed', { message: 'the clipboard refused the text' });
-  assert.ok(toasts(ctx).includes('Could not copy the scope.'));
-
-  ctx.app.setScope(null);
-  ctx.document.querySelector('.mlv-btn--exportmenu').click();
-  ctx.document.querySelector('[data-export-action="copy-svg"]').click();
-  await tick(0);
-  const svgCopy = lastOf(ctx.bridge, 'copy');
+  const copySvg = async () => {
+    ctx.document.querySelector('.mlv-btn--more').click();
+    ctx.document.querySelector('[data-export-action="copy-svg"]').click();
+    await tick(0);
+    return lastOf(ctx.bridge, 'copy');
+  };
+  const svgCopy = await copySvg();
   assert.match(svgCopy.text, /^<svg|<\?xml/);
-  assert.equal(toasts(ctx).some((t) => /SVG copied/.test(t)), false);
+  assert.match(svgCopy.requestId, /^[A-Za-z0-9_-]{1,64}$/);
+  assert.equal(toasts(ctx).some((t) => /SVG copied/.test(t)), false, 'no toast before the result');
   reply(ctx, svgCopy, 'done');
   assert.ok(toasts(ctx).includes('SVG copied — 2 cards, 1 connections.'));
-  ctx.document.querySelector('.mlv-btn--exportmenu').click();
-  ctx.document.querySelector('[data-export-action="copy-svg"]').click();
-  await tick(0);
-  reply(ctx, lastOf(ctx.bridge, 'copy'), 'failed', { message: 'the text is too large to copy' });
+  reply(ctx, await copySvg(), 'failed', { message: 'the text is too large to copy' });
   assert.equal(ctx.app.liveEl.textContent, 'The SVG could not be copied.');
+  // Viewer M2 removed the scope breadcrumb and its "copy the scope" button.
+  assert.equal(ctx.document.querySelector('.mlv-breadcrumb__copy'), null);
   ctx.app.destroy();
 });
 
 test('at most 32 requests wait for a result, and the oldest is forgotten first', async () => {
   const ctx = await mount();
-  ctx.app.setScope('stage:loop');
   const ids = [];
   for (let i = 0; i < 33; i++) {
-    ctx.document.querySelector('.mlv-breadcrumb__copy').click();
+    ctx.document.querySelector('.mlv-btn--more').click();
+    ctx.document.querySelector('[data-export-action="copy-svg"]').click();
+    await tick(0);
     ids.push(lastOf(ctx.bridge, 'copy').requestId);
   }
   assert.equal(new Set(ids).size, 33, 'request ids are unique');
   ctx.bridge.send({ v: 1, type: 'actionResult', requestId: ids[0], action: 'copy', outcome: 'done' });
-  assert.equal(toasts(ctx).some((t) => /Scope copied/.test(t)), false, 'the evicted request is not answered');
+  assert.equal(toasts(ctx).some((t) => /SVG copied/.test(t)), false, 'the evicted request is not answered');
   ctx.bridge.send({ v: 1, type: 'actionResult', requestId: ids[32], action: 'copy', outcome: 'done' });
-  assert.ok(toasts(ctx).includes('Scope copied: stage:loop'));
+  assert.ok(toasts(ctx).includes('SVG copied — 2 cards, 1 connections.'));
   ctx.app.destroy();
 });
 
@@ -288,26 +284,25 @@ test('a theme word outside light, dark and hc keeps the current theme', async ()
 
 // ---- Review round 1 ----
 
-test('a remount with a saved scope restores the scoped viewport instead of refitting (WEBVIEW1-1)', async () => {
+test('a remount with an old saved scope draws the whole document at the saved viewport (WEBVIEW1-1, viewer M2)', async () => {
+  // Viewer M2 removed the scope picker. A state saved before it still carries `scope` (and the
+  // phase chips' `filters.stages`); both are ignored, never an error, and the viewport restores.
   const saved = { x: -123, y: -45, zoom: 1.7 };
-  const ctx = await mount(workflow('r1'), { viewport: saved, workflowRevision: 'r1', scope: { spec: 'stage:loop', depth: 0 } });
-  assert.equal(ctx.app.getScope().spec, 'stage:loop');
+  const ctx = await mount(workflow('r1'), {
+    viewport: saved, workflowRevision: 'r1', scope: { spec: 'stage:loop', depth: 0 },
+    filters: { severities: ['high', 'medium'], stages: ['loop'], query: '' },
+  });
+  assert.equal(typeof ctx.app.getScope, 'undefined');
   assert.deepEqual(JSON.parse(JSON.stringify(ctx.app.getState().viewport)), saved);
+  assert.deepEqual(Array.from(ctx.document.querySelectorAll('[data-node-id]'), (n) => n.getAttribute('data-node-id')).sort(), ['dataset', 'step']);
+  const state = JSON.parse(JSON.stringify(ctx.app.getState()));
+  assert.equal('scope' in state, false, 'the old key is not written back');
+  assert.deepEqual(state.filters, { severities: ['high', 'medium'], query: '' }, 'the severities survive; the phase filter is dropped');
   ctx.app.destroy();
-  // The full round trip: scope, pan, snapshot, remount.
-  const first = await mount();
-  first.app.setScope('stage:loop');
-  first.bridge.send({ v: 1, type: 'restoreState', state: { viewport: { x: -300, y: -200, zoom: 2 } } });
-  const state = JSON.parse(JSON.stringify(first.app.getState()));
-  first.app.destroy();
-  const second = await mount(workflow('r1'), state);
-  assert.equal(second.app.getScope().spec, 'stage:loop');
-  assert.deepEqual(JSON.parse(JSON.stringify(second.app.getState().viewport)), { x: -300, y: -200, zoom: 2 });
-  second.app.destroy();
-  // Without a restored viewport a drained scope still fits the scoped view.
+  // Without a restored viewport the old scope still fits the whole diagram.
   const fitted = await mount(workflow('r1'), { scope: { spec: 'stage:loop', depth: 0 } });
-  assert.equal(fitted.app.getScope().spec, 'stage:loop');
   assert.notDeepEqual(JSON.parse(JSON.stringify(fitted.app.getState().viewport)), saved);
+  assert.equal(fitted.document.querySelectorAll('[data-node-id]').length, 2);
   fitted.app.destroy();
 });
 

@@ -11,7 +11,6 @@
 import { handleCanvasKey } from '../ui/keymap.js';
 import { canvasCommands } from '../ui/commands.js';
 import { commandPortFor } from '../ui/appkeys.js';
-import { scopeToNode, setScope, stepDepth, toggleScopePicker } from './documents.js';
 import type { CommandPort } from '../ui/commands.js';
 import type { App } from '../app.js';
 import type { Issue } from '../types.js';
@@ -32,7 +31,7 @@ function commandPort(app: App): CommandPort {
     },
     select: (sel) => app.select(sel),
     clearSelection: () => app.clearSelection(),
-    focusSearch: () => app.search.focus(),
+    focusSearch: () => app.focusSearch(),
     visibleIssues: () => filteredIssues(app),
     focusIssue: (id) => app.focusIssue(id),
     // Viewer M1: Enter opens beside the panel and keeps focus here, so the keys keep working;
@@ -51,13 +50,7 @@ function commandPort(app: App): CommandPort {
     setRailTab: (tab) => app.setRailTab(tab),
     toggleShortcuts: (next) => app.toggleShortcuts(next),
     sheetOpen: () => app.sheet.open,
-    closeScopePicker: () => app.scopeBar.closePicker(),
-    scopeSpec: () => app.scopes.spec,
-    setScope: (spec) => setScope(app, spec),
-    stepDepth: (delta) => stepDepth(app, delta),
-    scopeToNode: (id) => scopeToNode(app, id),
-    openScopePicker: () => toggleScopePicker(app),
-    selectedNodeId: () => app.selectedNodeId(),
+    closeHeaderPanels: () => app.closeHeaderPanels(),
     announce: (text) => app.announce(text),
     toggleLegend: () => app.setLegend(!app.legendOpen),
     legendOpen: () => app.legendOpen,

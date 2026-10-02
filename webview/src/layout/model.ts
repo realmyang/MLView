@@ -52,15 +52,8 @@ export class GraphIndex {
   readonly lanes: Stage[] = [];
   readonly absentStages: Stage[] = [];
   /**
-   * Stages the FULL analysis has but this PROJECTION does not draw. Only ever
-   * populated while `graph.view` is present; `ui/chrome.ts` renders them as a
-   * "not in this scope" chip row beside the existing "not detected" one, so the
-   * information is not lost — it is correctly labelled (CONTRACTS 11.4 F3).
-   */
-  readonly outOfScopeStages: Stage[] = [];
-  /**
    * Viewer M2: each phase's position in the document (0-based), the key of its colour. Taken
-   * from the declared phases in authored order, so it does not shift when a scope hides a lane;
+   * from the declared phases in authored order, so it does not shift when a lane is not drawn;
    * a stage id that only appears on nodes comes after them.
    */
   private readonly phaseOrder = new Map<string, number>();
@@ -102,16 +95,9 @@ export class GraphIndex {
     const declared = new Map<string, Stage>();
     for (const s of graph.stages || []) declared.set(s.id, s);
     const ordered = (graph.stages || []).slice().sort((a, b) => a.order - b.order || cmp(a.id, b.id));
-    // `stage.present` is PROJECT-LEVEL truth and a projection carries it through
-    // verbatim, so under a scope it no longer implies "this lane has content":
-    // a narrow scope leaves other phases present at nodeCount 0, and admitting
-    // them here drew empty swimlane bands. While a view is present a lane is
-    // admitted ONLY when it has drawn roots (CONTRACTS 11.4 F3).
-    const projected = !!graph.view;
     for (const s of ordered) {
       const drawn = (this.rootsByLane.get(s.id) || []).length > 0;
-      if (drawn || (!projected && s.present)) this.lanes.push(s);
-      else if (projected && s.present) this.outOfScopeStages.push(s);
+      if (drawn || s.present) this.lanes.push(s);
       else this.absentStages.push(s);
     }
     // Forward compatibility: a stage id that only appears on nodes still gets a lane.

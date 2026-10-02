@@ -63,11 +63,6 @@ export interface CanvasHost {
   onMinimapCollapsed(collapsed: boolean): void;
   onKeyDown(ev: KeyboardEvent): void;
   onBackgroundClick(): void;
-  /** The empty scope's two ways out (FEATURES 3.7). */
-  widenScope(): void;
-  clearScope(): void;
-  /** The active scope's selector, or null — drives the scope-empty state. */
-  scopeSpec(): string | null;
   /**
    * Campaign 3 review (VL-1): how many pixels at the canvas's right edge the open rail covers.
    * Docked beside the canvas it covers none; below the 900 px breakpoint it is a drawer over it.

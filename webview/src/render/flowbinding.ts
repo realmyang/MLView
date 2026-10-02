@@ -42,16 +42,16 @@ export interface FlowBindingHost {
 }
 
 /**
- * The capped-trace copy (CONTRACTS 11.14 C5). `FLOW_MAX_EDGES` and scoping are
- * complements, so the message that says nothing will animate is also the message
- * that says how to get the animation back. Without it the headline gesture of
- * Feature 1 simply stops working on any real repo, silently.
+ * The capped-trace copy (CONTRACTS 11.14 C5). The message that says nothing will
+ * animate is also the message that says how to get the animation back. Without it
+ * the headline gesture of Feature 1 simply stops working on any real repo, silently.
+ * Viewer M2 removed the scope picker, so the remedy for a long lineage is a single
+ * connection (hovered, or walked with `e`), as it always was for a busy card.
  */
 export function cappedTraceMessage(edges: number, motion: MotionMode = 'full', reach: TraceReach = 'lineage'): string {
   // A hover streams only the card's own connections, so its copy names the
-  // card. Scoping to the card keeps every one of those connections, so its
-  // remedy is the single-connection hover, which pulses any drawn cable
-  // (11.14 C3); focus mode streams the whole lineage, which scoping does cut.
+  // card. The remedy is the single-connection hover, which pulses any drawn
+  // cable (11.14 C3).
   if (reach === 'direct') {
     const lead = 'This card has ' + edges + ' connections, ';
     return motion === 'reduced'
@@ -62,14 +62,14 @@ export function cappedTraceMessage(edges: number, motion: MotionMode = 'full', r
   // exactly the moment the feature stopped working (R2-FLOW-06). And under
   // `reduce` nothing was ever going to animate, so the copy names what that
   // reader actually loses — the per-edge marks — rather than the animation
-  // (R2-FLOW-03 / R2-FLOW-07). Both halves still name scoping (11.14 C5).
+  // (R2-FLOW-03 / R2-FLOW-07).
   if (motion === 'reduced') {
     return (
       'This lineage has ' +
       edges +
       ' connections, more than the ' +
       FLOW.MAX_EDGES +
-      ' that can be marked at once. Press s to scope the diagram and the direction marks return.'
+      ' that can be marked at once. Hover a single connection, or walk them with e, to see each direction.'
     );
   }
   return (
@@ -77,7 +77,7 @@ export function cappedTraceMessage(edges: number, motion: MotionMode = 'full', r
     edges +
     ' connections, past the ' +
     FLOW.MAX_EDGES +
-    ' the animation can carry. Press s to scope the diagram and the flow returns.'
+    ' the animation can carry. Hover a single connection, or walk them with e, to see each flow.'
   );
 }
 
@@ -101,7 +101,8 @@ export class FlowBinding {
       edges: () => host.edges(),
       nodes: () => host.nodes(),
       routes: () => host.routes(),
-      streamEligible: (route) => this.streamEligible(route),
+      // Composition rule C2 limited streams to a projection's core; viewer M2 removed projections.
+      streamEligible: () => true,
     });
     // Re-read the preference when the OS flips it mid-session: the charge must
     // stop being BUILT, not merely be frozen by the blanket clamp (11.13 rule 3).
@@ -302,20 +303,5 @@ export class FlowBinding {
 
   destroy(): void {
     this.motionWatch.destroy();
-  }
-
-  /**
-   * Composition rule C2: in a PROJECTION a charge streams only between two
-   * `core` nodes. A boundary or context card's other connections are cut, so a
-   * charge animating into it would lie about where the value goes; the edge is
-   * still lit, because it is real and it is drawn.
-   */
-  private streamEligible(route: RoutedEdge): boolean {
-    const index = this.host.index();
-    if (!index) return false;
-    if (!index.graph.view) return true;
-    const src = index.nodeById.get(route.source);
-    const dst = index.nodeById.get(route.target);
-    return !!src && !!dst && src.viewRole === 'core' && dst.viewRole === 'core';
   }
 }

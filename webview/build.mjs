@@ -23,9 +23,9 @@ const dist = join(here, 'dist');
 const CSS_FILES = [
   'tokens.css',
   'base.css',
-  // The chrome is three layers, in this order and no other: the toolbar and
-  // its bands, then the transient toast and empty-state surfaces, then the
-  // panels.
+  // The chrome is three layers, in this order and no other: the header row,
+  // the menu, search and the status bar, then the transient toast and
+  // empty-state surfaces, then the panels.
   'chrome.css',
   'chromestates.css',
   'chromepanels.css',
@@ -33,7 +33,6 @@ const CSS_FILES = [
   'node.css',
   'edge.css',
   'flow.css',
-  'scope.css',
   'rail.css',
   // PERF-04. After `edge.css`, because `.mlv-edge--weighted .mlv-edge__path`
   // has the same specificity as the per-kind stroke rules and has to win on

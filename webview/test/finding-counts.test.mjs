@@ -57,7 +57,8 @@ function cluster(element) {
 
 const laneCluster = (ctx, lane) => ctx.document.querySelector(`.mlv-lane[data-lane-id="${lane}"] .mlv-cluster`);
 const headerCount = (ctx, sev) => Number(ctx.document.querySelector(`.mlv-chip--btn[data-severity="${sev}"] .mlv-chip__count`).textContent);
-const statusCounts = (ctx) => Array.from(ctx.document.querySelectorAll('.mlv-status .mlv-stat__value'), (v) => Number(v.textContent));
+/** Viewer M2: the findings are counted once, on the header's severity toggles; the status bar never repeats them. */
+const statusFindingText = (ctx) => /finding/.test(ctx.document.querySelector('.mlv-status').textContent);
 
 /** The Outline lane row's count. Viewer M2: it names its unit ("2 findings touch this phase"). */
 function outlineLaneCount(ctx, lane) {
@@ -71,8 +72,8 @@ function outlineLaneCount(ctx, lane) {
 
 test('one finding on three steps and two connections of a phase counts once on the lane badge and the outline row', async () => {
   const ctx = await mount(doc());
-  assert.equal(headerCount(ctx, 'medium'), 1, 'precondition: the toolbar counts one finding');
-  assert.deepEqual(statusCounts(ctx), [0, 1, 0], 'precondition: so does the status bar (high, medium, low)');
+  assert.equal(headerCount(ctx, 'medium'), 1, 'precondition: the header counts one finding');
+  assert.equal(statusFindingText(ctx), false, 'precondition: the status bar does not count them a second time');
   const lane = laneCluster(ctx, 'persist');
   assert.deepEqual(cluster(lane), { medium: 1 }, 'the lane header agrees with the toolbar');
   // Viewer M2: the lane says what it counts, and that this is not a partition (PR #14 rule).

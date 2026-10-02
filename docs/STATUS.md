@@ -53,7 +53,7 @@ has not run, and once quotes come from `excerpt` the pilot's exact-anchor
 target shows only that cited ranges exist and are fresh.
 
 Unreleased viewer fixes from the Stage 1 review: phase and group badges and
-the Outline's rows count each finding once, so they agree with the toolbar,
+the Outline's rows count each finding once, so they agree with the header,
 and a collapsed group counts the findings of the connections it hides.
 Hovering a connection or its severity marker lists its findings, as hovering a
 step does, and the connection's Inspector lists them too. Hovering a step
@@ -142,6 +142,28 @@ the hint's and VS Code's Add Folder, Save Workspace As, Restart Extension Host,
 Reload Window and the multi-root case; an extension install or update was not
 tried ([changelog](../CHANGELOG.md)).
 
+Unreleased viewer M2, step 10 (one header row): the brand row, the toolbar,
+the phase chip row and the authored header are now one row of about 36 px:
+the title (cut with an ellipsis, whole on hover), a host · revision chip whose
+dot turns amber only when a cited file is stale, search, the severity toggles
+(each counted once; a severity with no findings has none), **N not observed**,
+a ⋯ menu (legend, flow, overview map, side rail, Fit the whole diagram, zoom
+to the selection, Export SVG/PNG, Copy SVG, shortcuts) and **Refine…**, which
+names its target by label. Below 620 px wide only the title, the severity
+toggles, **N not observed**, ⋯ and **Refine…** stay in the row. The request
+and coverage details open over the diagram from the chip or the status bar.
+The scope picker and the phase chip row are gone, with their keys (`s`,
+Shift+S, `[`, `]`); a view saved by an older viewer still loads, its scope and
+phase filter ignored. Copy PNG, Print and the export region choice went with
+the old export menu. The status bar (about 22 px) reads "N steps · M
+connections", "Coverage: scoped · K limitations", the source freshness (muted
+unless a cited file changed or went missing) and the zoom. Ctrl/Cmd+F focuses
+search. In the screenshot harness the chrome around the canvas went from 203,
+201-244 and 299-348 px to 58 px at 1440, 900 and 541 px wide. No contract
+change, no new setting and no geometry change. Checked by local jsdom tests
+and headless-Chrome screenshots of a simulated host only, not in live VS Code
+([changelog](../CHANGELOG.md)).
+
 Unreleased viewer M2, steps 7 and 8 (a calm canvas): cards lost the
 `basis=observed` chip row and connection labels the " · observed" suffix (the
 one deliberate geometry change of M2; cards are 26 px shorter). Only inferred
@@ -151,7 +173,7 @@ not connection kind, and the kind is written in the hover card and the
 Inspector. Each phase is coloured by its place in the document. Connections
 and card borders reach at least 3:1 against the canvas in Dark Modern, Light
 Modern and Dark High Contrast (computed from theme colours, not measured on
-screen). A toolbar toggle fades the observed claims. Finding badges read
+screen). A header toggle fades the observed claims. Finding badges read
 `F1`, `F2`… in document order, with the real id kept in the hover card, the
 Inspector and Refine prompts. Every count names its unit, and phase counts say
 "findings touch this phase" (a finding in two phases counts in both). Flow
@@ -167,7 +189,8 @@ first phase when that fits at 75% or more); a view saved for the same revision
 still wins. On the public shakedown artifacts the first paint went from
 17-59% (2.1-7.1 px titles) to 84-90% (11.0-11.7 px titles) at 541, 900 and
 1440 px, measured with the screenshot harness. Key `0` returns to that view;
-the toolbar's Fit button is now **Fit the whole diagram**. Zoomed out below
+the Fit button is now **Fit the whole diagram** (in the header's ⋯ menu since
+step 10). Zoomed out below
 62%, cards show only their title at about 11 px, capped to fit the card,
 which keeps titles at 10 px or more down to about 35% without laying the
 diagram out again. No contract change, no new setting and no geometry change.

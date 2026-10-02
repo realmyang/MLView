@@ -134,7 +134,6 @@ export function ariaLabelFor(v: NodeVisual): string {
   if (total > 0) bits.push(total + (total === 1 ? ' finding' : ' findings') + ', highest severity ' + top);
   if (v.descendants > 0) bits.push(v.descendants + ' nested nodes');
   if (v.stale) bits.push(staleWords(v));
-  if (n.viewRole === 'boundary') bits.push('outside the current scope');
   // Viewer M1: the claim's first sentence, so the name says what the step does. The Inspector
   // has the whole text.
   const claim = n.detail ? detailSpoken(n.detail) : '';
@@ -198,11 +197,7 @@ export function buildNodeCard(v: NodeVisual, collapsedGroup: boolean): HTMLEleme
   if (n.basis) card.setAttribute('data-basis', n.basis);
   if (v.phase !== undefined) stampPhase(card, v.phase);
   const top = highestSeverity(v.counts);
-  // A BOUNDARY stub carries no severity badge: its findings are out of scope,
-  // and a badge you cannot open is a lie (FEATURES 3.7).
-  const boundary = n.viewRole === 'boundary';
-  if (top && !boundary) card.setAttribute('data-sev', top);
-  if (n.viewRole) card.setAttribute('data-view-role', n.viewRole);
+  if (top) card.setAttribute('data-sev', top);
   card.setAttribute('aria-label', ariaLabelFor(v));
   card.style.left = v.box.x + 'px';
   card.style.top = v.box.y + 'px';
@@ -216,7 +211,7 @@ export function buildNodeCard(v: NodeVisual, collapsedGroup: boolean): HTMLEleme
   // and `.mlv-node__text` clips, exactly as the SVG export already did.
   card.style.height = v.box.h + 'px';
 
-  if (top && !boundary) card.classList.add('has-issues');
+  if (top) card.classList.add('has-issues');
   if (v.stale) card.classList.add('is-stale');
   if (v.filteredOut) card.classList.add('is-filtered');
   if (groupLike) card.classList.add('is-collapsed-group');
@@ -270,7 +265,7 @@ export function buildNodeCard(v: NodeVisual, collapsedGroup: boolean): HTMLEleme
       cluster.style.boxShadow = 'var(--mlv-sh-1)';
       card.appendChild(cluster);
     }
-  } else if (!boundary) {
+  } else {
     const badge = severityBadge(v.counts, 18, v.findings || []);
     if (badge) card.appendChild(badge);
   }
@@ -310,11 +305,7 @@ export function buildGroupBox(v: NodeVisual): HTMLElement {
   if (v.phase !== undefined) stampPhase(box, v.phase);
   if (n.basis) box.setAttribute('data-basis', n.basis);
   box.setAttribute('data-depth', String(Math.min(2, v.box.depth)));
-  if (n.viewRole) box.setAttribute('data-view-role', n.viewRole);
-  // A boundary FRAME is as badge-free as a boundary card: what it contains is
-  // outside the scope, so an aggregated count would point at nothing openable.
-  const boundary = n.viewRole === 'boundary';
-  const top = boundary ? null : highestSeverity(v.counts);
+  const top = highestSeverity(v.counts);
   if (top) box.setAttribute('data-sev', top);
   box.style.left = v.box.x + 'px';
   box.style.top = v.box.y + 'px';
@@ -344,7 +335,7 @@ export function buildGroupBox(v: NodeVisual): HTMLElement {
   const tag = basisTag(n.basis, 'group');
   if (tag) header.appendChild(tag);
   add(header, el('span', 'mlv-group__count', stepsText(v.descendants)));
-  const cluster = boundary ? null : severityCluster(v.counts, 13);
+  const cluster = severityCluster(v.counts, 13);
   if (cluster) header.appendChild(cluster);
   if (v.stale) {
     box.classList.add('is-stale');

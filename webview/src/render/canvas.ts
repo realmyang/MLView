@@ -170,8 +170,6 @@ export class ViewportController {
   private lod = 'full';
   /** The `--mlv-z` bucket last written onto the canvas (viewer M2). */
   private zBucket = 0;
-  /** True while the document is a PROJECTION (`graph.view` present). */
-  private projected = false;
   /**
    * True while the transform is exactly what the last fit produced — nothing
    * the reader did (pan, zoom, a jump, a restored viewport) has moved it since.
@@ -200,17 +198,6 @@ export class ViewportController {
     this.contentW = Math.max(1, w);
     this.contentH = Math.max(1, h);
     this.frame = frame;
-  }
-
-  /**
-   * A scoped document fits WHOLE (MLV-R3-001). The tall-scene branch in `fit`
-   * was written for the whole-workspace pipeline, which really is far taller
-   * than it is wide; a scope is small by construction, so the same branch merely
-   * opened a report scoped to `concern:evaluation` with the evaluation lane 351
-   * px below the last visible pixel — a scope that does not show its subject.
-   */
-  setProjected(projected: boolean): void {
-    this.projected = projected;
   }
 
   apply(): void {
@@ -276,9 +263,6 @@ export class ViewportController {
    * old floor (50 %) who pressed Fit got the whole document instead
    * (HOSTS-UX-FITZOOM), because a control named "Fit to view" that zooms IN
    * shows less; that control is now named for what it does, and fits the whole.
-   *
-   * A PROJECTION (a scope) still fits whole: the reader asked for one part of
-   * the pipeline, and the answer must open showing it (MLV-R3-001).
    */
   fit(padding = 24): void {
     this.applyFit(padding, false);
@@ -296,7 +280,7 @@ export class ViewportController {
 
   private applyFit(padding: number, whole: boolean): void {
     const { w, h } = this.size();
-    if (whole || this.projected || !this.frame) {
+    if (whole || !this.frame) {
       const { zoom } = fitPlan(this.contentW, this.contentH, w, h, padding);
       this.vp.zoom = zoom;
       this.vp.x = (w - this.contentW * zoom) / 2;

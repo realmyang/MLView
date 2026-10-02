@@ -1,5 +1,5 @@
 /*
- * Toolbar, chip row, status bar, search box, minimap.
+ * The header row, the ... menu, the search box and the status bar (viewer M2), then the minimap.
  *
  * The first of three `chrome*.css` layers: the toasts and the empty states
  * are in `chromestates.css`, the sheet and legend in `chromepanels.css`.
@@ -7,84 +7,114 @@
  */
 
 /*
- * The toolbar WRAPS (MLV-R1-009). It used to be a single nowrap row inside an
- * `overflow: hidden` shell, so below ~1100 px the zoom, fit, export and rail
- * controls were silently cut off with no scroll and no overflow menu — the only
- * affordances for zooming and for hiding the rail simply ceased to exist.
+ * ONE row, about 36 px, that never wraps (ui/chrome.ts). The title gives up its width first, with
+ * an ellipsis; what else stays depends on `data-layout`, which the App sets from the panel's
+ * width: full >= 1200 px, wide >= 1000, mid >= 620, narrow below (541 px is the measured
+ * beside-the-code panel). Hidden controls are in the ... menu, so nothing is lost, only moved.
  */
-.mlv-toolbar {
+.mlv-header {
+  position: relative;
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: var(--mlv-s5);
-  row-gap: var(--mlv-s2);
+  gap: var(--mlv-s4);
   flex: none;
   min-width: 0;
-  min-height: var(--mlv-toolbar-h);
-  padding: var(--mlv-s2) var(--mlv-s5);
+  height: var(--mlv-header-h);
+  padding: 0 var(--mlv-s4) 0 var(--mlv-s5);
   border-bottom: 1px solid var(--mlv-border);
   background: var(--mlv-surface);
+  white-space: nowrap;
 }
 
-.mlv-brand {
-  display: flex;
-  align-items: baseline;
-  gap: var(--mlv-s4);
+.mlv-header__title {
   flex: 0 1 auto;
-  min-width: 0;
-}
-
-.mlv-brand__name {
-  flex: none;
-}
-
-.mlv-brand__name {
-  font-size: var(--mlv-fs-14);
-  font-weight: var(--mlv-fw-semi);
-  letter-spacing: var(--mlv-track-caps);
-}
-
-.mlv-brand__root {
-  flex: 0 1 auto;
-  min-width: 0;
-  max-width: 320px;
+  min-width: 48px;
+  margin: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--mlv-text-2);
-  font-family: var(--mlv-font-mono);
-  font-size: var(--mlv-fs-11);
+  font-size: var(--mlv-fs-13);
+  font-weight: var(--mlv-fw-semi);
+  line-height: 1.3;
 }
 
-.mlv-toolbar__spacer {
-  flex: 1 1 auto;
-}
-
-.mlv-stats {
+.mlv-header__bar {
   display: flex;
   align-items: center;
   gap: var(--mlv-s3);
-  flex-wrap: nowrap;
+  flex: 1 0 auto;
+  min-width: 0;
 }
 
-.mlv-stat {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--mlv-s2);
+.mlv-header__spacer {
+  flex: 1 1 0;
+  min-width: var(--mlv-s2);
+}
+
+/* Provenance: host · revision, with a dot that turns amber only for stale evidence. */
+.mlv-header__prov {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 38ch;
+  height: 22px;
+  gap: 5px;
+  overflow: hidden;
+  cursor: pointer;
   color: var(--mlv-text-2);
   font-size: var(--mlv-fs-11);
-  font-variant-numeric: tabular-nums;
+  font-weight: var(--mlv-fw-regular);
+  background: transparent;
 }
 
-.mlv-stat__value {
+.mlv-header__prov:hover {
   color: var(--mlv-text);
-  font-weight: var(--mlv-fw-medium);
+  border-color: var(--mlv-border-strong);
 }
 
-/* Viewer M2: the unit the severity numbers in the status bar count. */
-.mlv-stats__label {
-  color: var(--mlv-text-2);
-  font-size: var(--mlv-fs-11);
+.mlv-header__prov[aria-expanded="true"] {
+  color: var(--mlv-text);
+  border-color: var(--mlv-border-strong);
+  background: var(--mlv-surface-2);
+}
+
+.mlv-header__rev {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mlv-header__host {
+  flex: none;
+}
+
+.mlv-header__dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--mlv-text-3);
+  opacity: 0.6;
+}
+
+/* Colour only for a problem: a stale cited file. The words are in the tooltip and the name. */
+.mlv-header__prov[data-stale="true"] .mlv-header__dot {
+  background: var(--mlv-stale-ink);
+  opacity: 1;
+}
+
+/* The severity toggles and "N not observed": plain counts in the text colour, glyphs carry hue. */
+.mlv-header .mlv-chip--btn {
+  height: 24px;
+  gap: var(--mlv-s2);
+  padding: 0 var(--mlv-s3);
+  color: var(--mlv-text);
+  font-size: var(--mlv-fs-12);
+  font-variant-numeric: tabular-nums;
+  background: transparent;
+}
+
+.mlv-header .mlv-chip--btn:hover {
+  background: var(--mlv-surface-2);
 }
 
 /* Viewer M2: "7 not observed (…)" — a toggle; plain text in the text colour, no hue. */
@@ -96,6 +126,10 @@
   display: none;
 }
 
+.mlv-chip--exceptions .mlv-uicon {
+  color: var(--mlv-text-2);
+}
+
 /* A toggle, not a filter: off is the normal state, never struck through (base.css). */
 .mlv-chip--exceptions[aria-pressed="false"] {
   opacity: 1;
@@ -105,45 +139,121 @@
 .mlv-chip--exceptions[aria-pressed="true"] {
   border-color: var(--mlv-text-2);
   color: var(--mlv-text);
+  background: var(--mlv-surface-2);
 }
 
-/* Beside the code (900 px in the design, 541 px measured live) the toolbar must wrap no deeper
- * than it did before these counts gained their units. Under 1000 px the breakdown in brackets
- * folds away (the tooltip and the accessible name keep it); under 700 px the toolbar's step and
- * connection counts also give way to the status bar, which says the same. */
-@media (max-width: 1000px) {
-  .mlv-chip--exceptions .mlv-chip__detail {
-    display: none;
-  }
+.mlv-chip--exceptions .mlv-chip__detail {
+  color: var(--mlv-text-2);
 }
 
-@media (max-width: 700px) {
-  .mlv-toolbar > .mlv-stats {
-    display: none;
-  }
+/* The breakdown in brackets shows only at the full width; the tooltip and the name keep it. */
+.mlv-header:not([data-layout="full"]) .mlv-chip--exceptions .mlv-chip__detail {
+  display: none;
 }
 
+.mlv-header .mlv-btn--icon {
+  width: 26px;
+  height: 26px;
+  min-height: 0;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  color: var(--mlv-text-2);
+}
+
+.mlv-header .mlv-btn--icon:hover,
+.mlv-header .mlv-btn--icon[aria-expanded="true"] {
+  border-color: transparent;
+  background: var(--mlv-surface-2);
+  color: var(--mlv-text);
+}
+
+.mlv-header__refine {
+  display: inline-flex;
+  flex: none;
+}
+
+.mlv-header .mlv-workflow__refine {
+  height: 24px;
+  min-height: 0;
+  padding: 0 var(--mlv-s4);
+  font-weight: var(--mlv-fw-medium);
+}
+
+.mlv-header__searchbtn {
+  display: none;
+}
+
+/* Before the layout rules below, which hide it: a later rule of the same weight would win in a
+ * cascade that ignores specificity (jsdom's, which the tests use). */
 .mlv-search {
-  position: relative;
   display: flex;
   align-items: center;
-  gap: var(--mlv-s3);
-  flex: 1 1 200px;
-  min-width: 140px;
+  flex: 0 1 260px;
+  min-width: 150px;
+  height: 24px;
+}
+
+/* mid: search behind an icon until opened; the chip shows the revision only. */
+.mlv-header[data-layout="mid"] .mlv-header__host,
+.mlv-header[data-layout="narrow"] .mlv-header__host {
+  display: none;
+}
+
+.mlv-header[data-layout="mid"][data-search="closed"] .mlv-search {
+  display: none;
+}
+
+.mlv-header[data-layout="mid"][data-search="closed"] .mlv-header__searchbtn {
+  display: inline-flex;
+}
+
+/* narrow: the title, severity, "not observed", ... and Refine… stay; search and the revision
+ * are in the ... menu. An open search takes the title's place. */
+.mlv-header[data-layout="narrow"] .mlv-header__prov,
+.mlv-header[data-layout="narrow"][data-search="closed"] .mlv-search {
+  display: none;
+}
+
+.mlv-header[data-layout="narrow"][data-search="open"] .mlv-header__title {
+  display: none;
+}
+
+.mlv-header[data-layout="narrow"][data-search="open"] .mlv-header__spacer {
+  display: none;
+}
+
+.mlv-header[data-layout="narrow"] .mlv-search {
+  flex: 1 1 auto;
+  min-width: 120px;
+}
+
+.mlv-search__glyph {
+  position: relative;
+  left: 22px;
+  margin-left: -16px;
+  color: var(--mlv-text-3);
+  pointer-events: none;
 }
 
 .mlv-search .mlv-input {
   flex: 1 1 auto;
+  height: 24px;
+  padding-left: 26px;
 }
 
+/*
+ * The results drop from the header's right edge (`.mlv-search` is not positioned, so `.mlv-header`
+ * is the containing block), always inside the panel: at 900 px the old 420 px list anchored on the
+ * field's left edge ran off the right side.
+ */
 .mlv-search__results {
   position: absolute;
-  top: calc(100% + 6px);
-  left: 0;
-  z-index: 40;
-  width: 420px;
-  max-width: 70vw;
-  max-height: 340px;
+  top: calc(100% + 2px);
+  right: var(--mlv-s4);
+  z-index: 50;
+  width: min(460px, calc(100% - 2 * var(--mlv-s4)));
+  max-height: min(380px, 60vh);
   overflow-y: auto;
   padding: var(--mlv-s2);
   border: 1px solid var(--mlv-border-strong);
@@ -152,16 +262,27 @@
   box-shadow: var(--mlv-sh-3);
   list-style: none;
   margin: 0;
+  white-space: normal;
 }
 
 .mlv-search__results[hidden] {
   display: none;
 }
 
+/* "12 matches: 9 steps, 3 findings" above the rows. */
+.mlv-result__count {
+  padding: var(--mlv-s2) var(--mlv-s4) var(--mlv-s3);
+  color: var(--mlv-text-2);
+  font-size: var(--mlv-fs-11);
+}
+
+/* Two lines: the title first (up to two lines), then the location, cut from its start. */
 .mlv-result {
-  display: flex;
-  align-items: center;
-  gap: var(--mlv-s4);
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  column-gap: var(--mlv-s3);
+  row-gap: 1px;
+  align-items: start;
   width: 100%;
   padding: var(--mlv-s3) var(--mlv-s4);
   border: 0;
@@ -171,24 +292,43 @@
   text-align: left;
 }
 
+.mlv-result > .mlv-sev-glyph,
+.mlv-result > svg {
+  grid-column: 1;
+  margin-top: 2px;
+}
+
 .mlv-result:hover,
 .mlv-result[aria-selected="true"] {
   background: var(--mlv-surface-2);
 }
 
 .mlv-result__label {
-  flex: 1 1 auto;
+  grid-column: 2;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
   font-size: var(--mlv-fs-12);
+  line-height: 1.35;
 }
 
 .mlv-result__meta {
-  flex: none;
-  color: var(--mlv-text-3);
+  grid-column: 2;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--mlv-text-2);
   font-family: var(--mlv-font-mono);
   font-size: var(--mlv-fs-10);
+}
+
+.mlv-result__jump {
+  grid-column: 2;
+  justify-self: start;
 }
 
 .mlv-result__empty {
@@ -197,138 +337,93 @@
   font-size: var(--mlv-fs-12);
 }
 
-/* chip row */
-.mlv-chiprow,
-.mlv-filterrow {
+/* The ... menu: a VS Code-style context menu, mounted on the app root (ui/moremenu.ts). */
+.mlv-moremenu {
+  position: fixed;
+  z-index: 60;
   display: flex;
-  align-items: center;
-  gap: var(--mlv-s4);
-  flex: none;
-  flex-wrap: wrap;
-  min-height: var(--mlv-chips-h);
-  padding: var(--mlv-s2) var(--mlv-s5);
-  border-bottom: 1px solid var(--mlv-border);
-  background: var(--mlv-bg);
-  font-size: var(--mlv-fs-11);
-  color: var(--mlv-text-2);
+  flex-direction: column;
+  min-width: 240px;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  padding: var(--mlv-s2);
+  border: 1px solid var(--mlv-border-strong);
+  border-radius: var(--mlv-r-panel);
+  background: var(--vscode-menu-background, var(--mlv-surface));
+  box-shadow: var(--mlv-sh-3);
+  color: var(--vscode-menu-foreground, var(--mlv-text));
 }
 
-.mlv-chiprow[hidden],
-.mlv-filterrow[hidden] {
+.mlv-moremenu[hidden],
+.mlv-moremenu__item[hidden],
+.mlv-moremenu__sep[hidden] {
   display: none;
 }
 
-/*
- * HOSTS-UX-CHIPWALL — the chip row may not starve the diagram.
- *
- * `.mlv-body` is `flex: 1 1 auto; min-height: 0`, so it is the item that
- * absorbs whatever the bands above it take. A row with no bound once drew a
- * zero-pixel canvas, every card in the DOM and none of them on screen, so the
- * row is capped and scrolls inside its cap. `ui/chrome.ts` folds and caps the
- * chips themselves, so the cap here is the floor under a pathological document
- * rather than the everyday shape. The print stylesheet hides the row outright.
- */
-.mlv-chiprow {
-  max-height: 14vh;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  align-items: flex-start;
-  /*
-   * The row is two items now — the scroller and the opener — and it must not
-   * wrap: a wrapped opener goes below the fold, which is exactly where the one
-   * control the fold cannot do without may not be.
-   */
-  flex-wrap: nowrap;
+.mlv-moremenu__sep {
+  height: 1px;
+  margin: var(--mlv-s2) var(--mlv-s3);
+  background: var(--vscode-menu-separatorBackground, var(--mlv-border));
 }
 
-/*
- * The chips scroll; the opener beside them does not. A 12vh row holds four of
- * `config_unresolved`'s sentence chips at 1600x1000, so a trailing opener
- * inside the scroller was measured below the fold on every public-repo report
- * that had one.
- */
-.mlv-chiprow__chips {
+.mlv-moremenu__item {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
   gap: var(--mlv-s4);
+  width: 100%;
+  min-height: 26px;
+  padding: 2px var(--mlv-s4);
+  border: 0;
+  border-radius: var(--mlv-r-btn);
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: var(--mlv-fs-12);
+  text-align: left;
+}
+
+.mlv-moremenu__item .mlv-uicon {
+  color: var(--mlv-text-2);
+}
+
+.mlv-moremenu__item:hover,
+.mlv-moremenu__item:focus-visible {
+  background: var(--vscode-menu-selectionBackground, var(--mlv-surface-2));
+  color: var(--vscode-menu-selectionForeground, var(--mlv-text));
+  outline-offset: -2px;
+}
+
+.mlv-moremenu__item[disabled] {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.mlv-moremenu__label {
   flex: 1 1 auto;
   min-width: 0;
-  max-height: 12vh;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  scrollbar-gutter: stable;
-}
-
-.mlv-chiprow > .mlv-chip--more {
-  flex: none;
-}
-
-/*
- * The one chip that stands for the folded tail. It is a DISCLOSURE, not a
- * filter, so it never carries `aria-pressed` — `.mlv-chip--btn[aria-pressed="false"]`
- * is struck through, which would read as "these notes are switched off".
- */
-.mlv-chip--more {
-  border-style: dashed;
-  color: var(--mlv-text);
-}
-
-/* The count a folded chip carries: `scope matched no nodes  ×2`. */
-.mlv-chiprow .mlv-chip__count {
-  color: var(--mlv-text-3);
-  font-variant-numeric: tabular-nums;
-}
-
-/*
- * VW-08. A diagnostic chip is sometimes a SENTENCE. `.mlv-chip` is
- * `white-space: nowrap` — right for `12 nodes`, wrong for CI-ADOPT's baseline
- * and --changed-paths warnings, which carry an absolute path and an
- * instruction: measured at a 1600 px window the --changed-paths chip was
- * 1779 px wide and ended 191 px off the page, mid-sentence, with no scrollbar
- * to reach the rest. The row already wraps; the chips inside it now may too,
- * and they never exceed the row's width. The full text is on `title` as well,
- * so nothing depends on the wrap.
- */
-.mlv-chiprow .mlv-chip {
-  max-width: 100%;
-  white-space: normal;
-}
-
-/*
- * TAB2-10 — and a sentence chip is still a CHIP, not a paragraph.
- *
- * VW-08's wrap stopped a sentence running off the page; it did not stop one
- * filling the row. MEASURED on `tabular_survival_cox`: `unresolved_callee` drew
- * two chips of 262 and 238 characters ("MLView has no knowledge table for
- * `lifelines`, so it read 3 calls into it (…) without understanding what they
- * do. Those calls draw no node, and any stage they belong to may be present
- * without being detected - a gap in coverage, not a clean result.") beside two
- * three-word stage chips, and with `white-space: normal` those two wrapped to
- * fill the whole 12vh scroller — so the honest disclosure was the least
- * readable thing on the page, and the reader had to scroll a chip row to find
- * out that two stage chips were there at all. yolov5 drew four of
- * `config_unresolved`'s sentences the same way.
- *
- * The text is bounded to one ellipsised line; the chip's `×N` count sits
- * OUTSIDE this element, so a fold never loses its number to the clip. Nothing
- * is removed — the element holds every character, `ui/chrome.ts` puts the whole
- * string on the chip's `title`. 48ch is about 290 px at this row's 11 px type,
- * so four chips take a 1240 px line.
- */
-.mlv-chiprow .mlv-chip__text {
-  display: block;
-  max-width: 48ch;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.mlv-chiprow__label {
-  color: var(--mlv-text-3);
-  text-transform: uppercase;
-  letter-spacing: var(--mlv-track-caps);
-  font-size: var(--mlv-fs-10);
+/* A checked toggle: a check mark drawn in the text colour (not a success mark). */
+.mlv-moremenu__item[role="menuitemcheckbox"]::after {
+  content: "";
+  flex: none;
+  width: 14px;
+  text-align: center;
+}
+
+.mlv-moremenu__item[aria-checked="true"]::after {
+  content: "\2713";
+}
+
+.mlv-moremenu__keys {
+  flex: none;
+  color: var(--mlv-text-2);
+  font-family: inherit;
+  font-size: var(--mlv-fs-11);
 }
 
 /* A cited quote under its Open link (rail.ts). The class name predates the rail. */
@@ -342,18 +437,88 @@
   overflow: auto;
 }
 
-/* status bar */
+/*
+ * The status bar: counts, coverage, freshness and zoom, on one line that never wraps. Each item
+ * gives up width with an ellipsis; a stale-file warning never does.
+ */
 .mlv-status {
   display: flex;
   align-items: center;
   gap: var(--mlv-s5);
   flex: none;
-  min-height: var(--mlv-status-h);
-  padding: 0 var(--mlv-s5);
+  min-width: 0;
+  height: var(--mlv-status-h);
+  padding: 0 var(--mlv-s3) 0 var(--mlv-s5);
   border-top: 1px solid var(--mlv-border);
   background: var(--mlv-surface);
   color: var(--mlv-text-2);
-  font-size: var(--mlv-fs-10);
+  font-size: var(--mlv-fs-11);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.mlv-status__counts {
+  flex: 0 0 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mlv-status__coverage {
+  flex: 0 1 auto;
+  min-width: 0;
+  height: 18px;
+  padding: 0 var(--mlv-s2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border: 0;
+  border-radius: var(--mlv-r-btn);
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
+
+.mlv-status__coverage[hidden] {
+  display: none;
+}
+
+.mlv-status__coverage:hover,
+.mlv-status__coverage[aria-expanded="true"] {
+  background: var(--mlv-surface-2);
+  color: var(--mlv-text);
+}
+
+.mlv-status__spacer {
+  flex: 1 1 0;
+}
+
+.mlv-status__freshness {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--mlv-s4);
+  flex: 0 100 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.mlv-status__fresh {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mlv-status__fresh.is-warn {
+  flex: none;
+}
+
+/* Beside the code the zoom keeps its readout; + and - (and the wheel) still zoom. */
+.mlv-status[data-layout="narrow"] {
+  gap: var(--mlv-s4);
+}
+
+.mlv-status[data-layout="narrow"] .mlv-zoom__btn {
+  display: none;
 }
 
 /* minimap */

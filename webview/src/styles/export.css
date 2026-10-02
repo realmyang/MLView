@@ -1,6 +1,7 @@
-/* Export (VIEW-07): the menu beside Fit, and the print stylesheet.
+/* Export (VIEW-07): the print stylesheet. The export items are in the header's ... menu
+ * (chrome.css, ui/moremenu.ts).
  *
- * The print half is the fourth output. `grep '@media print' webview/src` found
+ * `grep '@media print' webview/src` found
  * nothing before this file, so Ctrl+P gave the current VIEWPORT at the current
  * ZOOM with the fixed toolbar, rail, minimap and zoom cluster painted over it —
  * a page of chrome and a corner of diagram. Here the chrome is removed, the
@@ -11,90 +12,6 @@
  * free — the same picture the SVG export emits, on paper.
  */
 
-.mlv-exportmenu {
-  position: fixed;
-  z-index: 60;
-  display: flex;
-  flex-direction: column;
-  gap: var(--mlv-s2);
-  width: 268px;
-  max-width: calc(100vw - 16px);
-  padding: var(--mlv-s3);
-  border: 1px solid var(--mlv-border-strong);
-  border-radius: var(--mlv-r-panel);
-  background: var(--mlv-surface);
-  box-shadow: var(--mlv-sh-3);
-  color: var(--mlv-text);
-}
-
-.mlv-exportmenu[hidden] {
-  display: none;
-}
-
-.mlv-exportmenu__group {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-
-.mlv-exportmenu__label {
-  padding: var(--mlv-s2) var(--mlv-s3) var(--mlv-s1);
-  color: var(--mlv-text-3);
-  font-size: var(--mlv-fs-10);
-  font-weight: var(--mlv-fw-semi);
-  text-transform: uppercase;
-  letter-spacing: var(--mlv-track-caps);
-}
-
-.mlv-exportmenu__sep {
-  height: 1px;
-  margin: var(--mlv-s2) var(--mlv-s3);
-  background: var(--mlv-border);
-}
-
-.mlv-exportmenu__item {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  padding: var(--mlv-s3) var(--mlv-s4);
-  border: 0;
-  border-radius: var(--mlv-r-btn);
-  background: none;
-  color: inherit;
-  cursor: pointer;
-  text-align: left;
-}
-
-.mlv-exportmenu__item:hover,
-.mlv-exportmenu__item:focus-visible {
-  background: var(--mlv-surface-2);
-}
-
-.mlv-exportmenu__item[disabled] {
-  cursor: default;
-  opacity: 0.45;
-}
-
-.mlv-exportmenu__item[aria-checked="true"] {
-  background: color-mix(in srgb, var(--mlv-accent) 14%, transparent);
-}
-
-.mlv-exportmenu__item[aria-checked="true"] .mlv-exportmenu__name::before {
-  content: "✓ ";
-  color: var(--mlv-accent-solid);
-}
-
-.mlv-exportmenu__name {
-  font-size: var(--mlv-fs-12);
-  font-weight: var(--mlv-fw-medium);
-}
-
-.mlv-exportmenu__hint {
-  color: var(--mlv-text-3);
-  font-size: var(--mlv-fs-10);
-  line-height: var(--mlv-lh-tight);
-}
-
 /* ── print ─────────────────────────────────────────────────────────────── */
 
 @page {
@@ -103,8 +20,9 @@
 
 @media print {
   /* Chrome, overlays and every affordance that cannot be clicked on paper. */
-  .mlv-chromebar,
-  .mlv-chiprow,
+  .mlv-header,
+  .mlv-workflow,
+  .mlv-hostnotice,
   .mlv-status,
   .mlv-rail,
   .mlv-minimap,
@@ -112,12 +30,11 @@
   .mlv-scrim,
   .mlv-skiplink,
   .mlv-legend,
-  .mlv-exportmenu,
+  .mlv-moremenu,
   .mlv-statehost,
   .mlv-tooltip,
   .mlv-toasts,
-  .mlv-shortcuts,
-  .mlv-scopepicker {
+  .mlv-shortcuts {
     display: none !important;
   }
 

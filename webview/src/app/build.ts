@@ -19,14 +19,12 @@ import { Rail } from '../ui/rail.js';
 import { Legend } from '../ui/legend.js';
 import { buildShell, claimPage } from '../ui/shell.js';
 import { ShortcutSheet } from '../ui/shortcuts.js';
-import { ExportMenu } from '../ui/exportmenu.js';
 import { SearchController } from '../ui/searchcontroller.js';
-import { ScopeBar } from '../ui/scopebar.js';
 import { HostNotice } from '../ui/hostnotice.js';
-import { revealWorkflowLimitations } from '../workflow.js';
+import { detailsOpen, revealWorkflowLimitations, setDetailsOpen } from '../workflow.js';
 import { runExport } from './exporting.js';
 import { renderChrome, renderRail } from './surfaces.js';
-import { stepDepth, syncCollapsed, toggleScopePicker } from './documents.js';
+import { syncCollapsed } from './documents.js';
 import type { CanvasHost } from '../canvas/host.js';
 import type { App } from '../app.js';
 
@@ -39,57 +37,50 @@ export function buildAppUi(app: App): void {
   on(app.scrim, 'click', () => app.toggleRail());
   app.view = new CanvasView(shell, canvasHost(app));
 
+  // Viewer M2: ONE header row (title, provenance, search, severity, not observed, ..., Refine…)
+  // and a status bar. Every control the old toolbar carried is in the header or its ... menu.
   app.chrome = new Chrome({
     onQuery: (q) => app.search.run(q),
     onSearchKey: (ev) => app.search.handleKey(ev),
-    onToggleRail: () => app.toggleRail(),
+    onSearchOpen: () => app.focusSearch(),
     onSeverity: (sev) => app.applyFilters(() => app.filters.toggleSeverity(sev)),
-    onFitWhole: () => app.view.fitWhole(),
-    onZoom: (dir) => app.view.zoomStep(dir),
-    onStage: (stageId) => app.toggleStage(stageId),
-    onClearFilters: () => app.clearFilters(),
-    onZoomToSelection: () => app.zoomToSelection(),
-    onScope: () => toggleScopePicker(app),
-    onToggleFlow: (next) => app.setFlow(next),
-    onToggleLegend: (next) => app.setLegend(next),
     onToggleExceptions: (next) => app.setExceptions(next),
-    onToggleMinimap: (next) => app.setMinimapCollapsed(next),
-  });
+    onDetails: () => app.toggleDetails(),
+    onZoom: (dir) => app.view.zoomStep(dir),
+    onToggleLegend: (next) => app.setLegend(next),
+    onToggleFlow: (next) => app.setFlow(next),
+    onToggleMinimap: (collapsed) => app.setMinimapCollapsed(collapsed),
+    onToggleRail: () => app.toggleRail(),
+    onFitWhole: () => app.view.fitWhole(),
+    onZoomToSelection: () => app.zoomToSelection(),
+    onExport: (action) => runExport(app, action),
+    onShortcuts: () => app.toggleShortcuts(true),
+    // The menu reads the state as it opens (the selection changes without a chrome repaint).
+    onMenuOpen: () => renderChrome(app),
+  }, shell.zoomBar);
 
-  app.scopeBar = new ScopeBar({
-    onPick: (spec, depth) => {
-      app.setScope(spec, depth === undefined ? undefined : { depth });
-      app.scopeBar.closePicker();
-    },
-    onClear: () => app.setScope(null),
-    onDepth: (delta) => stepDepth(app, delta),
-    // VIEWUI-10: the host writes the clipboard and answers; the toast waits
-    // for that answer instead of claiming a copy nobody made.
-    onCopy: (spec) => {
-      app.postRequest({ v: 1, type: 'copy', text: spec }, (answer) => {
-        app.view.toast(answer.outcome === 'done' ? 'Scope copied: ' + spec : 'Could not copy the scope.');
-      });
-    },
-  });
-  app.chrome.scopeSlot.appendChild(app.scopeBar.breadcrumb.root);
-
-  // VIEW-07. The trigger goes in the toolbar beside Fit; the popup goes on the
-  // app root, so the roving toolbar (VIEW-12) keeps its single tab stop.
-  app.exportMenu = new ExportMenu({
-    onRegion: () => undefined,
-    onAction: (action) => runExport(app, action),
-  });
-  app.chrome.exportSlot.appendChild(app.exportMenu.button);
-
-  // One roving `role="toolbar"` over the toolbar row and the stage-filter row
-  // (VIEW-12), so the whole control strip is a single tab stop.
-  app.root.appendChild(app.chrome.bar);
+  // The header is the first thing after the skip link; the ... menu's panel goes on the app root,
+  // so the header's roving toolbar (VIEW-12) keeps its single tab stop.
+  app.root.appendChild(app.chrome.header);
   // Viewer M1: the host's banner after the mount (stale files, the root hint, a refused update).
-  // It moves under the authored header when it is first shown (App.showHostNotice).
+  // It moves under the header when it is first shown (App.showHostNotice).
   app.notice = new HostNotice({ onWorkspaceHint: (action) => app.bridge.post({ v: 1, type: 'workspaceHint', action }) });
   app.root.appendChild(app.notice.root);
   app.root.appendChild(shell.body);
   shell.body.appendChild(shell.main);
+
+  // The request and coverage details open over the diagram; a press anywhere else closes them,
+  // except on the controls that open them (they toggle).
+  if (typeof document !== 'undefined') {
+    const openers = '.mlv-workflow__details, .mlv-header__prov, .mlv-status__coverage, .mlv-moremenu, .mlv-insp__limits-show';
+    const off = on(document, 'pointerdown', (ev: PointerEvent) => {
+      if (!detailsOpen(app)) return;
+      const target = ev.target as HTMLElement | null;
+      if (target && typeof target.closest === 'function' && target.closest(openers)) return;
+      setDetailsOpen(app, false);
+    });
+    app.releasePage = chain(app.releasePage, off);
+  }
 
   app.search = new SearchController(app.chrome.searchInput, app.chrome.results, {
     index: () => app.index,
@@ -136,8 +127,6 @@ export function buildAppUi(app: App): void {
     onToggleCollapse: (id) => {
       if (app.index && app.index.isGroup(id)) app.view.toggleCollapse(id);
     },
-    onClearScope: () => app.setScope(null),
-    onScopeToNode: (id) => app.scopeToNode(id),
     onShowLimitations: () => { revealWorkflowLimitations(app); },
   });
   shell.body.appendChild(app.rail.root);
@@ -154,8 +143,7 @@ export function buildAppUi(app: App): void {
 
   app.sheet = new ShortcutSheet(() => app.toggleShortcuts(false));
   app.root.appendChild(app.sheet.root);
-  app.root.appendChild(app.exportMenu.panel);
-  app.root.appendChild(app.scopeBar.picker.root);
+  app.root.appendChild(app.chrome.more.panel);
 
   app.root.appendChild(app.chrome.status);
   app.root.appendChild(app.liveEl);
@@ -206,9 +194,6 @@ export function canvasHost(app: App): CanvasHost {
     },
     onKeyDown: (ev) => app.onKeyDown(ev),
     onBackgroundClick: () => app.clearSelection(),
-    widenScope: () => stepDepth(app, 1),
-    clearScope: () => app.setScope(null),
-    scopeSpec: () => app.scopes.spec,
     coveredRight: () => railOverlap(app),
     keptTarget: () => {
       const sel = app.selection;
@@ -234,4 +219,12 @@ function railOverlap(app: App): number {
   if (!(rail.width > 0) || !(canvas.width > 0)) return 0;
   if (rail.left >= canvas.right - 1 || rail.right <= canvas.left || rail.bottom <= canvas.top || rail.top >= canvas.bottom) return 0;
   return Math.max(0, canvas.right - Math.max(canvas.left, rail.left));
+}
+
+/** Two disposers as one. */
+function chain(first: () => void, second: () => void): () => void {
+  return () => {
+    first();
+    second();
+  };
 }

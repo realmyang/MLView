@@ -37,9 +37,6 @@ export interface CommandPort {
   setRailTab(tab: RailTab): void;
   toggleShortcuts(): void;
   cycleConnections(backwards: boolean): boolean;
-  scopeToSelection(): boolean;
-  clearScope(): boolean;
-  stepDepth(delta: number): boolean;
 }
 
 const RAIL_TABS: RailTab[] = ['issues', 'inspector', 'outline'];
@@ -78,8 +75,5 @@ export function canvasCommands(port: CommandPort): KeyCommands {
     },
     toggleShortcuts: () => port.toggleShortcuts(),
     cycleConnections: (backwards) => port.cycleConnections(backwards),
-    scopeToSelection: () => port.scopeToSelection(),
-    clearScope: () => port.clearScope(),
-    stepDepth: (delta) => port.stepDepth(delta),
   };
 }

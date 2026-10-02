@@ -40,9 +40,9 @@ const STATES = {
   'exceptions': 'turned on the "not observed" toggle, which fades the observed claims',
   'legend': 'pressed L to open the legend',
   'compact': 'pressed - until the zoom was under 62 % (the compact level of detail)',
-  'whole': 'clicked "Fit the whole diagram"',
-  'filter': 'turned off the lowest severity that has findings (a phase chip when there are none)',
-  'search': 'typed a word from a step label into the search box',
+  'whole': 'chose "Fit the whole diagram" (in the ... menu since viewer M2)',
+  'filter': 'turned off the lowest severity that has findings (a phase chip in a viewer older than M2)',
+  'search': 'opened the search (the field, its icon or the ... menu) and typed a word from a step label',
   'finding': 'clicked a finding with a suggestion in the Findings list',
   'stale': 'opened with a stale frame for one cited file',
   'stale-selected': 'opened with a stale frame, then clicked a step that cites that file',
@@ -386,7 +386,19 @@ function pageHelpers() {
       return {
         viewport: `${innerWidth}x${innerHeight}`,
         canvasBox: (() => { const m = main(); return `${Math.round(m.x)},${Math.round(m.y)} ${Math.round(m.w)}x${Math.round(m.h)}`; })(),
-        bars: Object.fromEntries(['.mlv-toolbar', '.mlv-status'].map((sel) => { const e = document.querySelector(sel); return [sel.slice(5), e && shown(e) ? Math.round(rect(e).h) : 0]; })),
+        bars: Object.fromEntries(['.mlv-header', '.mlv-toolbar', '.mlv-status'].map((sel) => { const e = document.querySelector(sel); return [sel.slice(5), e && shown(e) ? Math.round(rect(e).h) : 0]; })),
+        // Everything above and below the canvas, in CSS px: the chrome the diagram does not get.
+        chrome: (() => { const m = main(); return { above: Math.round(m.y), below: Math.round(innerHeight - (m.y + m.h)) }; })(),
+        // Viewer M2: which header controls are on screen, in order, and the header's layout.
+        header: (() => {
+          const h = document.querySelector('.mlv-header');
+          if (!h) return null;
+          const names = [['.mlv-header__title', 'title'], ['.mlv-header__prov', 'provenance'], ['.mlv-search', 'search'], ['.mlv-header__searchbtn', 'search icon'],
+            ['.mlv-chip--btn[data-severity]', 'severity'], ['.mlv-chip--exceptions', 'not observed'], ['.mlv-btn--more', 'more'], ['.mlv-workflow__refine', 'refine']];
+          const items = [];
+          for (const [sel, name] of names) for (const e of h.querySelectorAll(sel)) if (shown(e)) items.push(name === 'severity' ? 'severity:' + e.getAttribute('data-severity') : name);
+          return { layout: h.getAttribute('data-layout'), height: Math.round(rect(h).h), items, provenance: txt(h.querySelector('.mlv-header__prov')) || null };
+        })(),
         zoom: txt(document.querySelector('.mlv-zoom__level')) || null,
         selected: [...document.querySelectorAll('.is-selected[data-node-id], .is-selected[data-edge-id], .mlv-issue.is-selected')]
           .map((e) => e.getAttribute('data-node-id') || e.getAttribute('data-edge-id') || e.getAttribute('data-issue-id')),
@@ -414,6 +426,7 @@ function pageHelpers() {
         titles: this.titles(),
         searchQuery: (document.querySelector('.mlv-search input') || {}).value || null,
         searchResults: [...document.querySelectorAll('.mlv-search__results [role="option"]')].filter(shown).length,
+        searchCount: txt(document.querySelector('.mlv-result__count')) || null,
       };
     },
   };
@@ -629,11 +642,23 @@ try {
     async 'whole'(input, theme, size) {
       const frames = await open(input, theme, size, input.freshness.stale);
       const button = await evaluate(`window.__shots.pointOf('button[aria-label="Fit the whole diagram"]')`);
-      if (!button) return { skip: 'no "Fit the whole diagram" button (the viewer predates it)' };
-      await click(button.x, button.y);
+      if (button) {
+        await click(button.x, button.y);
+        await sleep(600);
+        await rest();
+        return { frames, did: 'clicked "Fit the whole diagram"' };
+      }
+      // Viewer M2: the item is in the header's ... menu.
+      const more = await evaluate(`window.__shots.pointOf('.mlv-btn--more')`);
+      if (!more) return { skip: 'no "Fit the whole diagram" control (the viewer predates it)' };
+      await click(more.x, more.y);
+      await sleep(300);
+      const item = await evaluate(`window.__shots.pointOf('[data-more-item="fit"]')`);
+      if (!item) return { skip: 'the ... menu has no "Fit the whole diagram"' };
+      await click(item.x, item.y);
       await sleep(600);
       await rest();
-      return { frames, did: 'clicked "Fit the whole diagram"' };
+      return { frames, did: 'chose "Fit the whole diagram" in the ... menu' };
     },
     async 'exceptions'(input, theme, size) {
       const frames = await open(input, theme, size, input.freshness.stale);
@@ -655,8 +680,8 @@ try {
         await rest();
         return { frames, did: `turned off ${pick.severity} severity findings (${pick.count} findings)` };
       }
-      const chip = await evaluate(`window.__shots.pointOf('.mlv-chip--stage:not(:first-child)')`);
-      if (!chip) return { skip: 'no finding severity or phase chip to click' };
+      const chip = await evaluate(`window.__shots.pointOf('.mlv-chip--stage[data-stage-filter]:not(:first-child)')`);
+      if (!chip) return { skip: 'no finding severity to turn off (and no phase chips, which viewer M2 removed)' };
       await click(chip.x, chip.y);
       await sleep(700);
       await rest();
@@ -664,12 +689,31 @@ try {
     },
     async 'search'(input, theme, size) {
       const frames = await open(input, theme, size, input.freshness.stale);
-      const box = await evaluate(`window.__shots.pointOf('.mlv-search input')`);
-      if (!box) return { skip: 'no search box' };
-      await click(box.x, box.y);
+      let how = 'clicked the search field';
+      let box = await evaluate(`window.__shots.pointOf('.mlv-search input')`);
+      if (!box) {
+        // Viewer M2: below 1000 px the field is behind an icon, below 620 px in the ... menu.
+        const icon = await evaluate(`window.__shots.pointOf('.mlv-header__searchbtn')`);
+        if (icon) {
+          await click(icon.x, icon.y);
+          how = 'clicked the search icon';
+        } else {
+          const more = await evaluate(`window.__shots.pointOf('.mlv-btn--more')`);
+          if (!more) return { skip: 'no search box' };
+          await click(more.x, more.y);
+          await sleep(300);
+          const item = await evaluate(`window.__shots.pointOf('[data-more-item="search"]')`);
+          if (!item) return { skip: 'no search box or menu item' };
+          await click(item.x, item.y);
+          how = 'chose Search in the ... menu';
+        }
+        await sleep(300);
+        box = await evaluate(`window.__shots.pointOf('.mlv-search input')`);
+        if (!box) return { skip: 'the search field did not open' };
+      } else await click(box.x, box.y);
       await page.send('Input.insertText', { text: input.search });
       await sleep(900);
-      return { frames, did: `typed "${input.search}"` };
+      return { frames, did: `${how}, typed "${input.search}"` };
     },
     async 'finding'(input, theme, size) {
       if (!input.findingOrder.length) return { skip: 'the document has no findings' };

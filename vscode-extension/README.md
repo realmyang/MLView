@@ -48,8 +48,8 @@ with their selection and zoom.
 
 A click on a step, connection or finding selects it and shows its claim.
 The Inspector shows the full claim, the findings on it with **What to change**,
-and its quotes; document-wide limitations are listed once, under the header's
-**Details**. Notebook cells are numbered from 0, as the artifact records them.
+and its quotes; document-wide limitations are listed once, in the request and
+coverage details that the header's revision chip opens. Notebook cells are numbered from 0, as the artifact records them.
 Enter, a double-click (on a step, connection, finding or Outline step) or an
 Inspector **Open** link opens the cited range beside the diagram: the whole range is selected and highlighted, and focus
 stays in the diagram. Alt+Enter (or Alt+click on an Open link) also moves
@@ -59,7 +59,7 @@ In High Contrast themes the highlighted lines are outlined with the theme's
 range-highlight border, since those themes define no highlight background.
 Only inferred (dashed, `inferred` tag) and unresolved (dotted, `? unresolved`
 tag) steps and connections are marked; observed ones carry no mark, and the
-toolbar's **N not observed** toggle fades them. Line style shows certainty,
+header's **N not observed** toggle fades them. Line style shows certainty,
 not connection kind; the hover card and the Inspector name the kind. Each phase
 is coloured by its place in the document. Finding badges read F1, F2… in
 document order, with the real id in the Inspector and in Refine prompts. Flow
@@ -68,6 +68,16 @@ Reduce Motion setting. The diagram opens at a readable zoom (the whole
 document if it fits at 62% or more, otherwise the first phase at 90%); `0`
 returns there, and **Fit the whole diagram** shows everything. Zoomed out,
 cards show only their titles, at about 11 px.
+The header is one row of about 36 px: the title, the assistant and revision,
+search (Ctrl/Cmd+F), the severity toggles, **N not observed**, a **⋯** menu
+and **Refine…**, which names the step, connection or finding it will refine.
+Below 620 px wide only the title, the severity toggles, **N not observed**,
+**⋯** and **Refine…** stay in the row; search and the revision move into the
+**⋯** menu, which also holds the legend, the flow animation, the overview map,
+the side rail, **Fit the whole diagram**, the exports and the shortcut sheet.
+The status bar reads, for example, "31 steps · 41 connections",
+"Coverage: scoped · 6 limitations" (which opens the request and coverage
+details), the source freshness, and the zoom.
 The Refine action
 copies a follow-up prompt for the assistant that authored the diagram, with one
 of five intents (Explain, Expand, Challenge, Trace, or a custom request).

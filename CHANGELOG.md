@@ -130,6 +130,68 @@ geometry golden is byte-identical):
   (Fit the whole diagram) states and a `titles` fact: on-screen title size,
   lines shown and how many titles end clamped.
 
+One header row and a quiet status bar (layout unchanged; the geometry golden
+is byte-identical):
+- The brand row, the toolbar of 21 controls, the phase chip row and the
+  authored header are now one row about 36 px tall. In order: the title (cut
+  with an ellipsis, the whole title on hover); a chip with the assistant and
+  the revision, whose dot turns amber only when a cited file changed or went
+  missing; search; the severity toggles, each with its count (a severity with
+  no findings has no toggle, and the counts are no longer repeated in the
+  status bar); "N not observed", which fades the observed claims; a ⋯ menu;
+  and **Refine…**, which names what it will refine by its label, for example
+  "Step: Compute loss" (the prompt still carries the stable id).
+- What the row keeps depends on the panel's width. At 1200 px and wider:
+  everything, with the "not observed" breakdown in brackets. From 1000 px the
+  breakdown moves to the tooltip. From 620 px search folds behind an icon and
+  the chip shows only the revision. Below 620 px (541 px is the measured
+  beside-the-code panel) only the title, the severity toggles, "not
+  observed", ⋯ and **Refine…** stay; search and the revision move into the ⋯
+  menu.
+- The ⋯ menu holds the legend, the connection flow animation, the overview
+  map, the side rail, **Fit the whole diagram**, zoom to the selection,
+  **Export SVG…**, **Export PNG…**, **Copy SVG** and the shortcut sheet. The
+  exports are always the whole diagram: Copy PNG, Print and the choice of
+  region went with the old export menu.
+- The request and coverage details (the question, scope, entrypoints,
+  configuration, coverage summary, limitations and provenance) open over the
+  diagram from the revision chip or from the status bar's coverage item, so
+  opening them no longer pushes the canvas down. Escape closes them.
+- The scope picker is gone: its depth and unit lists, **Scope to this unit**
+  and **Scope … this codebase**, the breadcrumb and its copy button, and the
+  `s`, Shift+S, `[` and `]` keys. So are the phase chips that hid phases. The
+  whole document is always drawn; collapse groups or use focus mode (F) to
+  narrow what you look at. A view saved by an older viewer still opens: its
+  scope and phase filter are ignored and not saved again.
+- The status bar is about 22 px: "31 steps · 41 connections", then
+  "Coverage: scoped · 6 limitations" (which opens the details), then the
+  source freshness, then the zoom with − and + (beside the code only the
+  readout; the keys and the wheel still zoom). Freshness is muted text when
+  nothing is stale ("2 cited files unchanged", or "Freshness not checked" for
+  a revision published without hashes) and a warning icon with words only for
+  changed or missing files. "Unchanged" means the quoted lines still exist as
+  published, not that they support the claims. The old chip row's folded
+  "notes about this run" are gone; the limitations are counted here, once.
+- Ctrl/Cmd+F, as well as Ctrl/Cmd+K and `/`, focuses search from anywhere in
+  the viewer and opens a folded field. Results show the title first and the
+  location under it (cut from the start, so the file name and line stay),
+  headed by a count with its units ("2 matches: 1 step, 1 finding"). A
+  finding's Inspector shows its title once. The shortcut sheet and the legend
+  say all this.
+- The chrome's 19 icons are inline SVGs drawn for MLView in the style of VS
+  Code's codicons. There is no icon font, so the webview's
+  `default-src 'none'` policy is unchanged.
+- Measured with the screenshot harness (headless Chrome, a simulated host,
+  the five harness documents, initial state): the chrome above and below the
+  canvas went from 203 px to 58 px at 1440x900, from 201-244 px to 58 px at
+  900x800 and from 299-348 px to 58 px at 541x798, so the canvas went from
+  77% to 94%, from 69-75% to 93% and from 56-63% to 93% of the panel height.
+  This is layout, not a usability result.
+- Removed from the API: `setScope`, `getScope`, `scopeToNode` and
+  `Filters.stages`. The screenshot harness records the header's layout,
+  height and controls, the chrome above and below the canvas, and the search
+  match count; its `whole` and `search` states use the ⋯ menu when needed.
+
 ## Unreleased — viewer M1: verification loop and cleanup
 
 Step 1 of the viewer's first milestone: check a claim against its source

@@ -429,13 +429,14 @@ test('a hover denser than the flow cap names the card, and focus mode names the 
   ctx.app.view.setHover('hub');
   assert.equal(ctx.litEdges().length, 121);
   assert.deepEqual(ctx.flowing(), [], 'over the cap nothing animates');
-  // Scoping to the card keeps every one of its connections, so the hover copy
-  // names the single-connection hover instead of scoping.
+  // The hover copy names the single-connection hover.
   assert.deepEqual(ctx.toasts(), ['This card has 121 connections, past the 120 the animation can carry. Hover a single connection to see its flow.']);
   ctx.app.view.setHover(null);
   ctx.app.select({ kind: 'node', id: 'hub' });
   ctx.app.view.toggleFocusMode(ctx.app.selection);
-  assert.equal(ctx.toasts().at(-1), 'This lineage has 121 connections, past the 120 the animation can carry. Press s to scope the diagram and the flow returns.');
+  assert.equal(ctx.toasts().at(-1), 'This lineage has 121 connections, past the 120 the animation can carry. Hover a single connection, or walk them with e, to see each flow.');
+  // Viewer M2 removed scoping, so the copy no longer offers the s key.
+  assert.doesNotMatch(ctx.toasts().join(' '), /Press s|scope/);
   ctx.app.destroy();
 });
 

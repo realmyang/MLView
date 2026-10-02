@@ -40,11 +40,7 @@ export interface RailCallbacks {
   onSelectLane(laneId: string): void;
   /** Left/Right in the Outline collapses the same group the canvas draws. */
   onToggleCollapse(nodeId: string): void;
-  /** "Show all" — clears the scope. Filters are a separate control. */
-  onClearScope(): void;
-  /** Inspector: scope the diagram to the selected unit or step. */
-  onScopeToNode(nodeId: string): void;
-  /** Viewer M1: open the header's Details at the document-wide limitations, which are listed there once. */
+  /** Viewer M1: open the request and coverage details at the document-wide limitations, which are listed there once. */
   onShowLimitations(): void;
 }
 
@@ -77,12 +73,6 @@ export interface RailState {
   /** The canvas's collapsed groups — the Outline mirrors them (MLV-R2-W08). */
   collapsed: Set<string>;
   keep(issue: Issue): boolean;
-  /**
-   * Present only under a scope. `total` is PROJECT-LEVEL: the rail must always
-   * be able to say how many findings live outside the current view, or a scope
-   * reads as a clean bill of health (FEATURES 3.7).
-   */
-  scope: { shown: number; hidden: number; total: number; where: string } | null;
   /** Viewer M1: why a cited file no longer matches the published revision, if it does not. */
   staleReason?(file: string): StaleReason | undefined;
 }
@@ -117,7 +107,7 @@ export class Rail {
     const strip = add(this.root, el('div', 'mlv-rail__tabs'));
     strip.setAttribute('role', 'tablist');
     const defs: { id: RailTab; label: string }[] = [
-      { id: 'issues', label: 'Issues' },
+      { id: 'issues', label: 'Findings' },
       { id: 'inspector', label: 'Inspector' },
       { id: 'outline', label: 'Outline' },
     ];
@@ -246,14 +236,12 @@ export class Rail {
       issues: s.issues,
       keep: s.keep,
       selectedIssueId: s.selectedIssueId,
-      scope: s.scope,
       staleReason: s.staleReason,
     }, {
       onSelectIssue: (id, ev) => this.cb.onSelectIssue(id, ev),
       onOpenIssue: (id, focusEditor) => this.cb.onOpenIssue(id, focusEditor),
       onOpen: (loc, focusEditor) => this.cb.onOpen(loc, focusEditor),
       onClearFilters: () => this.cb.onClearFilters(),
-      onClearScope: () => this.cb.onClearScope(),
     });
   }
 
@@ -267,6 +255,8 @@ export class Rail {
       return;
     }
     if (s.selectedIssue && s.index) {
+      // The title once, as the heading; the finding's own head row below carries its label, id and
+      // basis but not the title again.
       add(panel, el('h4', 'mlv-insp__title', s.selectedIssue.title));
       panel.appendChild(this.inspectorIssue(s.selectedIssue, s, true));
       this.appendChallenge(panel);
@@ -299,13 +289,6 @@ export class Rail {
     if (node.detail) add(panel, el('p', 'mlv-insp__detail', node.detail));
 
     const actions = add(panel, el('div', 'mlv-insp__actions'));
-    // "unit" for a top-level step, "step" for a child: the word has to match
-    // what the user is looking at, or the button reads as a different feature.
-    const scopeWord = node.level === 'unit' ? 'unit' : 'step';
-    const scopeBtn = button('mlv-btn mlv-btn--scope-node', 'Scope to this ' + scopeWord);
-    scopeBtn.setAttribute('data-scope-node', node.id);
-    on(scopeBtn, 'click', () => this.cb.onScopeToNode(node.id));
-    actions.appendChild(scopeBtn);
     this.appendChallenge(actions);
 
     // Viewer M1: claim, then the findings on this step (with what to change), then the evidence.
@@ -359,7 +342,7 @@ export class Rail {
   }
 
   /**
-   * Viewer M1: the document-wide limitations are listed once, in the header's Details. Every
+   * Viewer M1: the document-wide limitations are listed once, in the request and coverage details. Every
    * Inspector repeated all of them (7 of 7 on a connection); now it says how many apply and
    * links to them.
    */
@@ -370,7 +353,7 @@ export class Rail {
     line.setAttribute('data-limitations', String(count));
     const words = count === 1 ? '1 document-wide limitation applies.' : count + ' document-wide limitations apply.';
     add(line, el('span', '', words + ' '));
-    const show = button('mlv-link mlv-link--inline mlv-insp__limits-show', 'Show', 'Show the coverage limitations in the header Details');
+    const show = button('mlv-link mlv-link--inline mlv-insp__limits-show', 'Show', 'Show the coverage limitations in the request and coverage details');
     show.setAttribute('aria-label', count === 1 ? 'Show the document-wide limitation' : 'Show the ' + count + ' document-wide limitations');
     on(show, 'click', () => this.cb.onShowLimitations());
     line.appendChild(show);
@@ -458,7 +441,9 @@ export class Rail {
     // Viewer M2: the short label the badges print, beside the real id that Refine uses.
     if (issue.short) add(head, el('span', 'mlv-insp__short', issue.short)).title = issue.short + ' is this finding\'s number in this revision; its id is ' + issue.code + '.';
     add(head, el('span', 'mlv-mono', issue.code));
-    add(head, el('span', '', issue.title));
+    // Its own Inspector already has the title as the heading above; a finding listed under a step
+    // or connection needs it here.
+    if (!standalone) add(head, el('span', 'mlv-insp__issue-title', issue.title));
     head.appendChild(basisChip(issue));
     add(box, el('p', 'mlv-insp__line', issue.message));
     // Viewer M1: the author's suggestion, labelled as the skill words it. An analyzer-era rule

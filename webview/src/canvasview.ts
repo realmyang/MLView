@@ -31,7 +31,7 @@ import { LOD_FULL_ZOOM, Minimap, READABLE_ZOOM, ViewportController } from './ren
 import { FlowBinding } from './render/flowbinding.js';
 import { EdgeHover } from './render/edgehover.js';
 import { Tooltip } from './render/tooltip.js';
-import { Toasts, buildEmptyState, buildFilterEmptyState, buildScopeEmptyState } from './ui/states.js';
+import { Toasts, buildEmptyState, buildFilterEmptyState } from './ui/states.js';
 import { wireCanvasGestures } from './ui/shell.js';
 import { Emphasis } from './canvas/emphasis.js';
 import { wireEdgeEvents, wireNodeEvents } from './canvas/wiring.js';
@@ -253,11 +253,6 @@ export class CanvasView {
     this.labelPlan = planLabels(this.frameData, this.routes);
     // Viewer M2: the frame too, so the readable first view can anchor on phase 1.
     this.viewport.setContent(this.frameData.width, this.frameData.height, this.frameData);
-    // A SCOPE is small by construction, so the "fit the width and let them pan
-    // down" rule written for a whole workspace does not apply to it: it opened a
-    // report scoped to evaluation with the evaluation lane below the fold
-    // (MLV-R3-001).
-    this.viewport.setProjected(!!this.index.graph.view);
     this.render();
   }
 
@@ -390,20 +385,10 @@ export class CanvasView {
     if (!this.index) return;
     const graph = this.index.graph;
     if (graph.nodes.length === 0) {
-      // "Nothing analyzed" and "nothing in this scope" are different findings.
-      const scoped = this.scopeEmptyState();
-      this.stateHost.appendChild(scoped || buildEmptyState(graph));
+      this.stateHost.appendChild(buildEmptyState(graph));
     } else if (this.frameData && this.frameData.boxes.size === 0) {
       this.stateHost.appendChild(buildFilterEmptyState(() => this.host.clearFilters()));
     }
-  }
-
-  /** The scope resolved to nothing: its OWN state, not the filter-empty one. */
-  private scopeEmptyState(): HTMLElement | null {
-    const spec = this.host.scopeSpec();
-    if (!spec || !this.index) return null;
-    if ((this.index.graph.nodes || []).length > 0) return null;
-    return buildScopeEmptyState(spec, () => this.host.widenScope(), () => this.host.clearScope());
   }
 
   /* ── event wiring (canvas/wiring.ts) ───────────────────────────────── */

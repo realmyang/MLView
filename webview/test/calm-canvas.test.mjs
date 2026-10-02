@@ -373,7 +373,7 @@ test('every phase gets a colour by its place in the document, not by its id', as
 
 test('the SVG export draws the same marks and the same phase tones as the screen', async () => {
   const ctx = await mount();
-  ctx.q('.mlv-btn--exportmenu').click();
+  ctx.q('.mlv-btn--more').click();
   ctx.q('[data-export-action="svg"]').click();
   const frame = ctx.bridge.posted.findLast((item) => item.type === 'exportFile' && item.kind === 'svg');
   const svg = Buffer.from(frame.base64, 'base64').toString('utf8');
@@ -429,17 +429,17 @@ test('finding badges use F1..Fn in document order; the real id stays in tooltips
 test('every count names its unit', async () => {
   const ctx = await mount();
   const text = (selector) => ctx.q(selector).textContent.replace(/\s+/g, ' ').trim();
-  const stats = Array.from(ctx.document.querySelectorAll('.mlv-toolbar .mlv-stats .mlv-stat'), (stat) => Array.from(stat.children, (c) => c.textContent).join(' '));
-  assert.deepEqual(stats, ['6 steps', '4 connections']);
   // Inferred or unresolved claims, by unit: split, loop, eval; two connections; two findings.
   assert.equal(text('.mlv-chip--exceptions'), '7 not observed (3 steps, 2 connections, 2 findings)');
   // Under 1000 px the bracket folds away (chrome.css); the accessible name keeps the whole count.
   assert.equal(ctx.q('.mlv-chip--exceptions').getAttribute('aria-label'), '7 not observed (3 steps, 2 connections, 2 findings)');
   assert.equal(ctx.q('.mlv-chip--exceptions .mlv-chip__detail').textContent, ' (3 steps, 2 connections, 2 findings)');
-  const status = text('.mlv-status');
-  assert.match(status, /6 steps · 4 connections/);
-  assert.match(status, /3 findings/);
-  assert.match(status, /1 coverage limitation\b/);
+  // Viewer M2: the status bar counts steps and connections once, and the limitations with the
+  // coverage status; the findings are counted on the severity toggles only.
+  assert.equal(text('.mlv-status__counts'), '6 steps · 4 connections');
+  assert.match(text('.mlv-status__coverage'), /^Coverage: \w+ · 1 limitation$/);
+  assert.doesNotMatch(text('.mlv-status'), /findings?\b/);
+  assert.equal(text('.mlv-chip--btn[data-severity="high"] .mlv-chip__count'), '1');
   assert.equal(text('.mlv-lane[data-lane-id="ingest"] .mlv-lane__count'), '2 steps');
   assert.equal(text('.mlv-lane[data-lane-id="report"] .mlv-lane__count'), '1 step');
   assert.equal(text('.mlv-group[data-node-id="loop"] .mlv-group__count'), '2 steps');

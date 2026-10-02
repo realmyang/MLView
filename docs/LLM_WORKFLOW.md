@@ -119,8 +119,9 @@ the findings on the item with their suggestion under **What to change**, and
 then every authored source quote, keeping finding support and counter-evidence
 distinct. A caption over the quotes says that a matching quote shows the
 lines are unchanged since publishing, not that they support the claim.
-Document-wide limitations are listed once in the header's **Details**; the
-Inspector says how many apply and links there. Previous/Next evidence opens
+Document-wide limitations are listed once in the request and coverage details
+(the header's revision chip, or **Coverage** in the status bar, opens them);
+the Inspector says how many apply and links there. Previous/Next evidence opens
 adjacent anchors; source-less items explain why navigation is unavailable.
 **Challenge this claim** opens the refinement composer for the current item;
 you still decide whether to send the copied request.
@@ -129,7 +130,7 @@ On the diagram, observed claims carry no basis mark. An inferred step or
 connection has a dashed border or line and an `inferred` tag; an unresolved
 one has a dotted border or line and a `? unresolved` tag. Line style shows
 this certainty, not the connection's kind, which the hover card and the
-Inspector name. The toolbar's **N not observed** toggle fades the observed
+Inspector name. The header's **N not observed** toggle fades the observed
 claims so the others stand out. Each phase is coloured by its place in the
 document. Finding badges read F1, F2… in document order; a new revision can
 renumber them, so the Inspector shows the real id beside the number, and
@@ -141,17 +142,29 @@ again, and VS Code's Reduce Motion setting turns the animation off.
 The diagram opens readable: the whole document if it fits at 62% zoom or
 more, otherwise the first phase at 90% (or all of the first phase, when it
 fits at 75% or more). Reopening the same revision keeps where you were. Press
-`0` to return to that first view from any zoom; the toolbar's **Fit the whole
-diagram** shows everything, and Shift+0 (Overview) also folds every group.
-Zoomed out below 62%, cards show only their titles, at about 11 px on screen
-down to about 35% zoom; the full title is in the hover card.
+`0` to return to that first view from any zoom; **Fit the whole diagram** in
+the header's **⋯** menu shows everything, and Shift+0 (Overview) also folds
+every group. Zoomed out below 62%, cards show only their titles, at about
+11 px on screen down to about 35% zoom; the full title is in the hover card.
+
+The header is one row: the title, the assistant and revision, search, the
+severity toggles (each with its count), **N not observed**, a **⋯** menu and
+**Refine…**. In a panel under 620 px wide, such as beside your code, search
+and the revision move into the **⋯** menu, which also holds the legend, the
+flow animation, the overview map, the side rail, **Fit the whole diagram**,
+zoom to the selection, the SVG and PNG exports and the shortcut sheet.
+Ctrl/Cmd+F (or Ctrl/Cmd+K, or `/`) focuses search; each result shows its
+title and, under it, where it is cited. The status bar counts steps and
+connections, shows the coverage status with its limitations, and says
+whether the cited files are unchanged (muted text) or changed or missing (a
+warning). The whole document is always drawn; to narrow what you look at,
+collapse groups or use focus mode (select, then F).
 
 Use **Outline → Text relationships** to enumerate connections without relying
-on the canvas. All shows relationships in the current scope; Incoming and
-Outgoing use the selected node, and Unresolved shows relationships involving
-an unresolved edge or endpoint. These are direct connections, not a claim of
-complete transitive change impact. Clear the scope to return to the whole
-authored workflow.
+on the canvas. All shows every relationship; Incoming and Outgoing use the
+selected node, and Unresolved shows relationships involving an unresolved edge
+or endpoint. These are direct connections, not a claim of complete transitive
+change impact.
 
 Refine in the same assistant, for example:
 
@@ -161,9 +174,10 @@ Refine in the same assistant, for example:
 Each update uses a new revision ID and names the revision currently in the
 artifact file as its parent.
 
-For a focused change, select a node, edge, or finding, click **Refine**, choose
-an intent, then click **Copy prompt**. The composer shows the selected item
-captured when it opens. Reopen it after changing the selection to target a
+For a focused change, select a node, edge, or finding, click **Refine…**,
+choose an intent, then click **Copy prompt**. The composer names the item it
+captured when it opened by its label (for example "Step: Compute loss"); the
+prompt carries its stable id. Reopen it after changing the selection to target a
 different item. With no selection it targets the whole diagram. Paste the
 prompt into the same assistant conversation; copying it never starts model
 work.

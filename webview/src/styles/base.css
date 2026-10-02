@@ -194,6 +194,17 @@ html.mlv-fills-page > body > .mlv-root {
   text-underline-offset: 2px;
 }
 
+/* A link inside a sentence (the search footer, the Inspector's limitations line). */
+.mlv-link--inline {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--mlv-link);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
 .mlv-input {
   min-width: 0;
   padding: 3px var(--mlv-s4);

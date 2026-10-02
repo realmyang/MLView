@@ -1,8 +1,8 @@
 # MLView authored workflow renderer
 
 This package renders model-authored `WorkflowDocument` artifacts in the VS Code
-webview. It provides interactive layout, scope projection, source navigation,
-finding inspection, refinement requests, and SVG/PNG export.
+webview. It provides interactive layout, source navigation, finding
+inspection, refinement requests, and SVG/PNG export.
 
 ## Commands
 
@@ -68,7 +68,7 @@ Viewer M1 Inspector content (no protocol change):
   - Phase colour by document order. `GraphIndex.phaseIndexOf(id)` is the
     phase's position among the declared phases; `render/phase.ts` stamps
     `data-phase-index` and `data-phase-tone` (index mod 8) on lanes, cards,
-    groups, connections, trunks, minimap dots and phase chips, and node.css
+    groups, connections, trunks and minimap dots, and node.css
     binds `--mlv-stage` from the tone (`--mlv-phase-0` … `--mlv-phase-7` in
     tokens.css, eight literals per theme kind, the contrast border in high
     contrast). `data-stage` stays, because the golden hashes it.
@@ -88,7 +88,7 @@ Viewer M1 Inspector content (no protocol change):
   - `Issue.short` is `F1`…`Fn` in document order. Badges, edge markers and the
     Findings list print it; tooltips, the Inspector and the refine selection
     keep `Issue.id`.
-  - `.mlv-canvas[data-exceptions="on"]` (the toolbar's not-observed toggle)
+  - `.mlv-canvas[data-exceptions="on"]` (the header's not-observed toggle)
     fades observed cards and connections through fill and stroke only.
   - `motion.ts` reads `body.vscode-reduce-motion` as well as the media query
     and watches the body class. A flow runs `FLOW.SETTLE_PASSES` (2) passes:
@@ -109,8 +109,8 @@ Viewer M1 Inspector content (no protocol change):
     `PHASE_FIT_MIN_ZOOM` (0.75) or more, capped at `READABLE_ZOOM` (0.9), else
     anchored top-left at 0.9. A document narrower or shorter than the canvas
     at that zoom is centred on that axis. `ViewportController.fit()` runs it
-    (first paint, key 0, a refit on resize); `fitWhole()` is the toolbar's
-    **Fit the whole diagram** and Overview. A projection still fits whole.
+    (first paint, key 0, a refit on resize); `fitWhole()` is the ⋯ menu's
+    **Fit the whole diagram** and Overview.
     The old top-anchored tall branch (`TALL_SCREENS`, `MIN_FIT_ZOOM`) is gone.
     `App.setWorkflow` still restores a viewport saved for the same revision.
   - Compact level (`data-lod="compact"`, below 0.62): node.css hides the icon
@@ -133,12 +133,62 @@ Viewer M1 Inspector content (no protocol change):
   sentence for an inferred or unresolved basis, the full detail, the findings
   on the item with **What to change** (the finding's `suggestion`), the source
   quotes under a caption saying that a matching quote does not show support,
-  and one line linking to the document-wide limitations in the header Details.
+  and one line linking to the document-wide limitations in the request and
+  coverage details.
 - Authored notebook cells print as recorded, counted from 0
   (`nb.ipynb › cell 7, line 3`).
 - `test/inspector-content.test.mjs` injects the shipped stylesheet into jsdom,
   so the detail, the suggestion, the caption and the limitations line are
   checked by computed visibility, not by `textContent`.
+
+Viewer M2 header and status bar (no contract change, no geometry change; the
+golden is byte-identical):
+
+- `Chrome` (`src/ui/chrome.ts`) builds one `.mlv-header` row (the `h1` title,
+  the `.mlv-header__prov` host · revision chip, search, the severity toggles,
+  `.mlv-chip--exceptions`, the ⋯ button and the Refine… slot, one
+  `role="toolbar"` tab stop) and the `.mlv-status` bar. The App sets
+  `data-layout` on both from the root's width on mount and on resize:
+  `headerLayout(width)` returns `full` (1200 px and up), `wide` (1000),
+  `mid` (620) or `narrow`; an unmeasurable width (jsdom) is `full`.
+  `data-search="open|closed"` folds the field at `mid` and `narrow`. The CSS
+  keys on these attributes, so the row never wraps.
+- `MoreMenu` (`src/ui/moremenu.ts`) is a menu button. Items carry
+  `data-more-item` (`search` and `details` only when narrow, `legend`, `flow`,
+  `minimap`, `rail`, `fit`, `zoomsel`, `svg`, `png`, `copy-svg`,
+  `shortcuts`); the exports also carry `data-export-action`. The panel is
+  mounted on the app root and repaints its checkboxes as it opens. The
+  exports are always the whole diagram; Copy PNG, Print and the region
+  choice are gone (`@media print` styles remain for the browser's own print).
+- The request and coverage details (`.mlv-workflow__details`) live in a
+  zero-height `.mlv-workflow` section after the header and open over the
+  canvas; `data-expanded` on the section says whether they are open. The
+  provenance chip, the status bar's `.mlv-status__coverage` and the narrow
+  menu's `details` item open them; Escape closes them.
+- The Refine… composer names its target by label in
+  `.mlv-workflow__selection` ("Step: …", "Connection: …", "Finding: F2 · …",
+  "Whole diagram"); `data-selection-kind` and `data-selection-id` on the
+  composer keep the stable id the request posts.
+- The status bar shows `.mlv-status__counts` ("31 steps · 41 connections"),
+  `.mlv-status__coverage` ("Coverage: scoped · 6 limitations"), a
+  `[data-freshness]` item (`stale` with an icon, `checking`, or muted
+  `unchanged` / `unverified` from `freshnessStatus()` in `src/freshness.ts`)
+  and the zoom readout with its buttons (`.mlv-zoom__btn`, hidden when
+  narrow).
+- Removed: the scope projection (`src/scope/`, `setScope`, `getScope`,
+  `scopeToNode`), the scope picker, breadcrumb and Inspector scope button, the
+  `s`, Shift+S, `[` and `]` keys, the phase chips and `Filters.stages`. A
+  saved `ViewState` with `scope` or `filters.stages` still loads; both are
+  ignored and not written back.
+- Ctrl/Cmd+F, like Ctrl/Cmd+K and `/`, focuses search from anywhere in the
+  root (the extension sets no `enableFindWidget`, so the webview has no find
+  bar of its own). Search rows print the title first and the location under
+  it, cut from the start; `.mlv-result__count` heads the list.
+- Chrome icons are 19 inline SVG paths in `src/icons.ts` (`uiIcon`), drawn in
+  the codicon style; there is no icon font, so the CSP is unchanged.
+- `test/header-m2.test.mjs` injects the shipped stylesheet and stubs the root
+  width to check the header at 1440, 900 and 541 px, the ⋯ menu, the removed
+  controls, an older saved state, the keys and the status bar wording.
 
 Viewer M1 cleanup (no contract change):
 
@@ -154,7 +204,8 @@ Viewer M1 cleanup (no contract change):
 - `MLGraph` carries only what an authored document fills in. Fields of the
   retired analyzer graph (ghost, confidence, suppression, ports, diff and
   rollup data) and the `concern:` scope presets are gone.
-- The stylesheet is 14 files concatenated in the order `build.mjs` lists.
+- The stylesheet is 13 files concatenated in the order `build.mjs` lists
+  (viewer M2 removed `scope.css`).
 
 ## Screenshots (opt-in)
 
@@ -179,11 +230,15 @@ node tools/screenshots/capture.mjs --viewer /path/to/main-worktree --out /tmp/sh
   `focus-mode`, `focus-settled` (focus mode, then 7 s for the flow to
   settle), `exceptions` (the "not observed" toggle on), `legend`, `compact`
   (`-` pressed until the zoom is under 62%), `whole` (**Fit the whole
-  diagram**), `filter`, `search`, `finding` (a finding with its suggestion),
+  diagram**, from the ⋯ menu), `filter` (the lowest severity with findings
+  turned off), `search` (through the search icon or the ⋯ menu when the
+  field is folded), `finding` (a finding with its suggestion),
   `stale`, `stale-selected` and `narrow-selected` (900x800). Pick some with
   `--states`. `index.json` records, per shot, how many connections are lit
-  and moving, whether the flow has settled, the canvas box, the toolbar and
-  status bar heights, the zoom, and `titles`: for the step titles wholly in
+  and moving, whether the flow has settled, the canvas box, the header and
+  status bar heights (`bars`), the chrome above and below the canvas
+  (`chrome`), the header's layout, height and the controls it shows
+  (`header`), the search match count (`searchCount`), the zoom, and `titles`: for the step titles wholly in
   the canvas, their size on screen (computed font size times the canvas
   scale, measured from the box), the lines shown, how many end clamped and
   the share of characters the shown lines hold. Use `--size 541x798` for the

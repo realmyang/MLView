@@ -30,6 +30,8 @@ export interface Shell {
   edgeGroup: SVGElement;
   connectorLayer: SVGElement;
   nodesLayer: HTMLElement;
+  /** The status bar's zoom control (viewer M2); the readout inside it is `zoomLevel`. */
+  zoomBar: HTMLElement;
   zoomLevel: HTMLElement;
   stateHost: HTMLElement;
   live: HTMLElement;
@@ -112,8 +114,10 @@ export function buildShell(root: HTMLElement, theme: ThemeKind): Shell {
   world.appendChild(edgesSvg);
   const nodesLayer = add(world, el('div', 'mlv-layer mlv-layer--nodes'));
 
-  const zoomBar = add(canvas, el('div', 'mlv-zoom'));
+  // Viewer M2: the zoom readout lives in the status bar (ui/chrome.ts adds its two buttons).
+  const zoomBar = el('div', 'mlv-zoom');
   const zoomLevel = add(zoomBar, el('span', 'mlv-zoom__level', '100%'));
+  zoomLevel.setAttribute('aria-label', 'Zoom level');
 
   const stateHost = add(canvas, el('div', 'mlv-statehost'));
 
@@ -133,6 +137,7 @@ export function buildShell(root: HTMLElement, theme: ThemeKind): Shell {
     edgeGroup,
     connectorLayer,
     nodesLayer,
+    zoomBar,
     zoomLevel,
     stateHost,
     live,

@@ -10,7 +10,7 @@
 // visible in the Inspector and the Findings list, and absent when there is no suggestion;
 // document-wide limitations listed once, in the header Details, with one line and a Show link in
 // the Inspector; the evidence caption; the claim in the card's accessible name; notebook cells
-// counted from 0 as the artifact records them; the phase chip's tooltip; the connection hover.
+// counted from 0 as the artifact records them; a finding's title once in its Inspector; the connection hover.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
@@ -436,15 +436,22 @@ test('notebook cells are counted from 0 everywhere, as the evidence records them
   }
 });
 
-test('the phase chip\'s tooltip says what a click does', async () => {
+test('a finding Inspector shows its title once; a finding listed under a step keeps it', async () => {
   const ctx = await mount();
   try {
-    const chip = () => $(ctx, '.mlv-chip--stage[data-stage-filter="ph-data-x"]');
-    assert.equal(chip().getAttribute('aria-pressed'), 'true');
-    assert.equal(chip().title, 'Hide the Data preparation phase');
-    chip().click();
-    assert.equal(chip().getAttribute('aria-pressed'), 'false');
-    assert.equal(chip().title, 'Show the Data preparation phase');
+    ctx.app.focusIssue('f-sched');
+    ctx.app.setRailTab('inspector');
+    const panel = inspector(ctx);
+    assert.equal(panel.querySelector('.mlv-insp__title').textContent, 'Scheduler never stepped');
+    assert.equal((panel.textContent.match(/Scheduler never stepped/g) || []).length, 1, 'viewer M2: the title appears once');
+    assert.equal(panel.querySelector('.mlv-insp__issue-title'), null);
+    assert.equal(panel.querySelector('.mlv-insp__issue-head .mlv-mono').textContent, 'f-sched', 'the id stays beside the label');
+    // Under a step, the finding's head row is the only place its title is printed.
+    clickCard(ctx, 'opt');
+    const listed = inspector(ctx).querySelector('.mlv-insp__issue[data-issue-id="f-sched"] .mlv-insp__issue-title');
+    assert.equal(listed.textContent, 'Scheduler never stepped');
+    // Viewer M2 removed the phase chip row and its tooltip; nothing filters by phase.
+    assert.equal($(ctx, '[data-stage-filter]'), null);
   } finally {
     ctx.app.destroy();
   }

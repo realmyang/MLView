@@ -10,7 +10,7 @@
  * in `app/`, as free functions over this object:
  *
  *   `app/build.ts`      the shell, every panel, and what the canvas may ask
- *   `app/documents.ts`  the document and the scope
+ *   `app/documents.ts`  the document and its collapse set
  *   `app/surfaces.ts`   repaint the chrome and the rail
  *   `app/actions.ts`    the one-shot requests posted to the host
  *   `app/exporting.ts`  VIEW-07's picture, gathered at the moment it is asked for
@@ -31,17 +31,14 @@ import { Chrome } from './ui/chrome.js';
 import { Rail } from './ui/rail.js';
 import { Legend } from './ui/legend.js';
 import { ShortcutSheet } from './ui/shortcuts.js';
-import { ExportMenu } from './ui/exportmenu.js';
 import { ThemeController } from './ui/theme.js';
 import { SearchController } from './ui/searchcontroller.js';
-import { ScopeSession } from './scope/session.js';
-import { ScopeBar } from './ui/scopebar.js';
-import { decorateWorkflow, normalizeWorkflow, sanitizeComposer } from './workflow.js';
+import { closeComposer, composerOpen, decorateWorkflow, detailsOpen, normalizeWorkflow, sanitizeComposer, setDetailsOpen } from './workflow.js';
 import { FreshnessState } from './freshness.js';
 import { HostNotice } from './ui/hostnotice.js';
 import { DoubleClickOpener } from './ui/doubleclick.js';
 import { buildAppUi } from './app/build.js';
-import { scopeToNode, setGraph, setScope } from './app/documents.js';
+import { setGraph } from './app/documents.js';
 import { renderChrome, renderRail } from './app/surfaces.js';
 import { openLocation } from './app/actions.js';
 import { onCanvasKey } from './app/keys.js';
@@ -52,7 +49,6 @@ import type {
   ActionResult,
   Capabilities,
   ComposerState,
-  ScopeSummary,
   Filters,
   HostBridge,
   HostToUi,
@@ -108,20 +104,8 @@ export class App implements MLViewApp {
   bridge: HostBridge;
   graph: MLGraph | null = null;
   index: GraphIndex | null = null;
-  /** The whole-workspace document. `graph` is its projection while scoped. */
-  scopes = new ScopeSession();
-  fullIndex: GraphIndex | null = null;
-  /** Restored by the breadcrumb's [x], so clearing feels like a back button. */
-  preScope: { viewport: Viewport; selection: Sel | null } | null = null;
   /** The node `e` / Shift+E are cycling the connections of. */
   edgeAnchor: string | null = null;
-  /**
-   * A restored scope that arrived BEFORE any graph did: the constructor reads
-   * the saved state before the first document is applied, so `ViewState.scope`
-   * is stashed here and drained by `setGraph`, through the same `setScope`
-   * call (R2H-03).
-   */
-  pendingScope: { spec: string; depth?: number } | null = null;
   flowOn = true;
   /** Viewer M2: whether the observed claims are faded (the toolbar's "not observed" toggle). */
   exceptionsOn = false;
@@ -171,9 +155,7 @@ export class App implements MLViewApp {
   chrome!: Chrome;
   rail!: Rail;
   sheet!: ShortcutSheet;
-  exportMenu!: ExportMenu;
   legend!: Legend;
-  scopeBar!: ScopeBar;
   scrim!: HTMLElement;
   releasePage: () => void = () => undefined;
   themes!: ThemeController;
@@ -201,7 +183,16 @@ export class App implements MLViewApp {
     const composer = restored && typeof restored.workflowRevision === 'string' ? sanitizeComposer(restored.composer) : null;
     if (restored && composer) this.restoredComposer = { revision: restored.workflowRevision as string, composer };
     this.disposers.push(bridge.onMessage((msg) => this.onMessage(msg)));
-    if (typeof window !== 'undefined') this.disposers.push(on(window, 'resize', () => this.autoRail()));
+    if (typeof window !== 'undefined') this.disposers.push(on(window, 'resize', () => this.onResize()));
+    // Viewer M2: Ctrl/Cmd+F and Ctrl/Cmd+K focus the search from anywhere in the viewer, not only
+    // from the canvas (whose keymap answers them first and marks the event handled).
+    this.disposers.push(on(root, 'keydown', (ev: KeyboardEvent) => {
+      if (ev.defaultPrevented || !(ev.ctrlKey || ev.metaKey) || ev.altKey) return;
+      if (ev.key !== 'f' && ev.key !== 'F' && ev.key !== 'k' && ev.key !== 'K') return;
+      ev.preventDefault();
+      this.focusSearch();
+    }));
+    this.chrome.setWidth(this.rootWidth());
     // No `ready` here: the host bootstrap posts the one `ready` of a page load
     // and mounts this App on the first `workflow` (§1e). A second `ready`
     // would make the host replay the whole handshake and render it again.
@@ -209,8 +200,52 @@ export class App implements MLViewApp {
 
   /* ── chrome + rail ─────────────────────────────────────────────────── */
 
-  laneIds(): string[] {
-    return this.index ? this.index.lanes.map((l) => l.id) : [];
+  /** The panel's width, or 0 when it cannot be measured (jsdom, a detached mount). */
+  rootWidth(): number {
+    const width = this.root.getBoundingClientRect().width;
+    return width > 0 ? width : 0;
+  }
+
+  /** The panel was resized: the header's shape and the rail's width rule follow it. */
+  private onResize(): void {
+    const before = this.chrome.headerLayout;
+    if (this.chrome.setWidth(this.rootWidth()) !== before) renderChrome(this);
+    this.autoRail();
+  }
+
+  /** Repaint the header and the status bar (for modules that change what they show). */
+  refreshChrome(): void {
+    renderChrome(this);
+  }
+
+  /**
+   * Viewer M2: focus the search field from a key, the header's search icon or the ... menu. Below
+   * 1000 px the field is folded behind the icon, so it is opened first.
+   */
+  focusSearch(): void {
+    this.chrome.setSearchOpen(true);
+    this.search.focus();
+  }
+
+  /** The provenance chip and the status bar's coverage item: open or close the details. */
+  toggleDetails(): void {
+    setDetailsOpen(this, !detailsOpen(this), detailsOpen(this));
+  }
+
+  /**
+   * Escape's rung for the panels that open over the diagram from the header: the request and
+   * coverage details, then the Refine… popover. True when one was closed.
+   */
+  closeHeaderPanels(): boolean {
+    if (detailsOpen(this)) {
+      setDetailsOpen(this, false);
+      return true;
+    }
+    return closeComposer(this);
+  }
+
+  headerPanelOpen(): boolean {
+    return detailsOpen(this) || composerOpen(this);
   }
 
   /**
@@ -311,10 +346,6 @@ export class App implements MLViewApp {
     if (this.graph && before !== this.notice.root.hidden) this.view.afterChromeChange();
   }
 
-  scopeToNode(nodeId: string): void {
-    scopeToNode(this, nodeId);
-  }
-
   /** VIEW-12: the toolbar's copy of the minimap chevron. */
   setMinimapCollapsed(next: boolean): void {
     this.view.setMinimapCollapsed(next);
@@ -368,7 +399,7 @@ export class App implements MLViewApp {
   private legendOtherKinds(): void {
     const kinds = new Map<string, number>();
     let unspecified = 0;
-    for (const edge of (this.scopes.full || this.graph)?.edges || []) {
+    for (const edge of this.graph?.edges || []) {
       if (edge.kind === 'unknown') unspecified++;
       else {
         const word = edge.authoredKind || edge.kind;
@@ -390,11 +421,14 @@ export class App implements MLViewApp {
   }
 
   setRailOpen(open: boolean): void {
+    const changed = this.railOpen !== open;
     this.railOpen = open;
     this.rail.root.hidden = !open;
     // The scrim only paints below the 900 px breakpoint (see chrome.css), but its
     // hidden state must track the drawer at every width.
     this.scrim.hidden = !open;
+    // The ... menu's "Side rail" item says whether it is shown.
+    if (changed && this.chrome) renderChrome(this);
   }
 
   toggleShortcuts(next?: boolean): void {
@@ -527,26 +561,6 @@ export class App implements MLViewApp {
     this.saveSoon();
   }
 
-  /**
-   * A stage chip (HOSTS-UX-STAGERESET).
-   *
-   * The chips dim rather than hide, and with six of seven off the demo shows 45
-   * of 53 cards dimmed, 0 issues in the rail and its "No issues match these
-   * filters" empty state — all correct. Pressing the SEVENTH used to turn every
-   * filter back on with nothing said: the gesture was "hide this one too" and
-   * what happened was "show everything again". The model still resets (an empty
-   * selection is the only resting state it has), and now the viewer says so.
-   */
-  toggleStage(stageId: string): void {
-    let reset = false;
-    this.applyFilters(() => {
-      reset = this.filters.toggleStage(stageId, this.laneIds());
-    });
-    if (!reset) return;
-    this.view.toast('All stages hidden — showing everything again');
-    this.announce('All stages were hidden, so every stage is shown again.');
-  }
-
   clearFilters(): void {
     this.search.clear();
     this.applyFilters(() => this.filters.reset());
@@ -587,30 +601,9 @@ export class App implements MLViewApp {
 
   /* ── public API ────────────────────────────────────────────────────── */
 
-  /**
-   * Re-project and relayout LOCALLY. Never posts to the host and never throws:
-   * an unresolvable spec is a no-op plus a toast (CONTRACTS 11.8).
-   */
-  setScope(spec: string | null, opts?: { depth?: number }): void {
-    setScope(this, spec, opts);
-  }
-
-  getScope(): ScopeSummary {
-    return this.scopes.summary();
-  }
-
   focusNode(id: string, opts?: { center?: boolean; pulse?: boolean }): void {
     if (!this.index) return;
     if (!this.index.nodeById.has(id)) {
-      // An EXPLICIT navigation beats a scope set two minutes ago: clear it and
-      // land on the node. Saying "not found" here would be a false statement
-      // about a node the project certainly has (FEATURES 3.5).
-      if (this.fullIndex && this.fullIndex.nodeById.has(id) && this.scopes.spec) {
-        this.setScope(null);
-        this.view.toast('Scope cleared to reveal this node');
-        this.focusNode(id, opts);
-        return;
-      }
       this.view.toast('Node not found in this graph');
       return;
     }
@@ -671,7 +664,6 @@ export class App implements MLViewApp {
     this.disposers = [];
     this.themes.destroy();
     this.chrome.destroy();
-    this.exportMenu.destroy();
     this.view.destroy();
     this.releasePage();
     clear(this.root);

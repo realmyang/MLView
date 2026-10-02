@@ -150,9 +150,9 @@
   --mlv-rail-w: 4px;
   --mlv-group-header-h: 34px;
   --mlv-lane-pad: 20px;
-  --mlv-toolbar-h: 48px;
-  --mlv-chips-h: 28px;
-  --mlv-status-h: 24px;
+  /* Viewer M2: one header row and a status bar (ui/chrome.ts). */
+  --mlv-header-h: 36px;
+  --mlv-status-h: 22px;
   --mlv-rail-width: 360px;
 
   /* light surfaces */

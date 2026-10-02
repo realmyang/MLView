@@ -60,7 +60,7 @@ export interface MLNode {
   label: string;
   /** What the card's second line draws: the authored detail ('' when there is none). */
   sublabel?: string;
-  /** The authored label again (the scope resolver and the outline read it). */
+  /** The authored label again (search and the outline read it). */
   qualname: string;
   loc: Loc;
   parent: string | null;
@@ -77,11 +77,6 @@ export interface MLNode {
   detail?: string;
   /** Viewer M1: the authored label of the node's phase (`stage` is its id). */
   phaseLabel?: string;
-  /**
-   * Present ONLY in a projected document (one carrying `view`). Absent means
-   * "this document is not a projection" (CONTRACTS 11.3).
-   */
-  viewRole?: ViewRole;
 }
 
 export interface MLEdge {
@@ -131,10 +126,7 @@ export interface Issue {
   basis?: WorkflowBasis;
 }
 
-/**
- * A document-level note: `workflow_limitation` (one per authored coverage
- * limitation) or `config_warning` (a scope note the projection appends).
- */
+/** A document-level note: `workflow_limitation`, one per authored coverage limitation. */
 export interface Diagnostic {
   kind: string;
   message: string;
@@ -162,43 +154,6 @@ export interface Generator {
   generatedAt: string;
 }
 
-/**
- * A node's role in a PROJECTION (CONTRACTS 11.3).
- *
- * `core` is the scope itself and the only role an issue may be retained
- * through; `boundary` was pulled in by `view.depth` edge hops and is drawn as a
- * faded, dashed stub with NO severity badge (its findings are out of scope, and
- * a badge you cannot open is a lie); `context` is an ancestor kept so `parent`
- * still forms a forest, drawn as an empty frame.
- */
-export type ViewRole = 'core' | 'boundary' | 'context';
-
-export interface ViewAnchor {
-  id: string;
-  qualname: string;
-  label: string;
-  file: string;
-  line: number;
-}
-
-/**
- * Present ONLY when this document is a PROJECTION of a whole-workspace
- * analysis. A projection never restates project-level truth: `workspace`,
- * `generator`, `diagnostics` and every `stage.present` still describe the FULL
- * analysis, while `stats` and the stage counts describe the projection.
- */
-export interface View {
-  scope: string;
-  label: string;
-  depth: number;
-  counts: { core: number; boundary: number; context: number };
-  of: { nodes: number; edges: number; issues: IssueCounts };
-  hidden: { nodes: number; edges: number; inboundEdges: number; outboundEdges: number };
-  resolvedTo: ViewAnchor[];
-  ambiguous?: boolean;
-  empty?: boolean;
-}
-
 export interface MLGraph {
   schemaVersion: string;
   generator: Generator;
@@ -209,8 +164,6 @@ export interface MLGraph {
   issues: Issue[];
   diagnostics: Diagnostic[];
   stats: Stats;
-  /** Appended as the LAST key by a projection; absent in a whole-workspace document. */
-  view?: View;
   /**
    * Renderer-local, set only by the WorkflowDocument adapter: the authored
    * coverage status and how many limitations the author listed, so the
@@ -254,9 +207,12 @@ export interface Sel {
   id: string;
 }
 
+/**
+ * Viewer M2: the severity toggles and the search query. The phase chips are gone; a saved
+ * `stages` list from an older viewer is ignored when it is restored (protocol.ts).
+ */
 export interface Filters {
   severities: Severity[];
-  stages: string[];
   query: string;
 }
 
@@ -270,8 +226,6 @@ export interface ViewState {
   railTab: RailTab;
   /** Optional: the minimap's collapsed tab survives a reload the way `collapsed` does. */
   minimapCollapsed?: boolean;
-  /** Optional: the active scope, as one canonical selector string (CONTRACTS 11.9). */
-  scope?: { spec: string; depth: number };
   /** Optional: flow animation on/off, like `minimapCollapsed`. Absent = on. */
   flow?: boolean;
   /** Optional: the legend panel's open state, remembered per viewer (VIEW-10). */
@@ -429,22 +383,7 @@ export interface HostBridge {
   loadState(): ViewState | null;
 }
 
-export interface ScopeSummary {
-  spec: string | null;
-  label: string;
-  depth: number;
-  nodes: number;
-  of: number;
-}
-
 export interface MLViewApp {
-  /**
-   * Re-project and relayout LOCALLY; nothing is posted to the host. An
-   * unresolvable spec is a no-op plus a toast; it
-   * never throws out of `mount` or `setScope` (CONTRACTS 11.8).
-   */
-  setScope(spec: string | null, opts?: { depth?: number }): void;
-  getScope(): ScopeSummary;
   focusNode(id: string, opts?: { center?: boolean; pulse?: boolean }): void;
   focusIssue(id: string): void;
   setFilters(f: Partial<Filters>): void;

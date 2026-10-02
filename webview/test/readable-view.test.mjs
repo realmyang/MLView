@@ -155,7 +155,9 @@ test('"Fit the whole diagram" fits the whole document with its groups as they ar
   const ctx = await mount(rendererRegressionWorkflow(48));
   const { fitPlan } = await source();
   const collapsed = ctx.app.getState().collapsed.slice();
-  ctx.document.querySelector('button[aria-label="Fit the whole diagram"]').click();
+  // Viewer M2: the fit lives in the header's ... menu.
+  ctx.document.querySelector('.mlv-btn--more').click();
+  ctx.document.querySelector('[data-more-item="fit"]').click();
   const f = ctx.app.view.frameData;
   const zoom = fitPlan(f.width, f.height, 1200, 800).zoom;
   assert.deepEqual(viewport(ctx), { x: (1200 - f.width * zoom) / 2, y: Math.max(24, (800 - f.height * zoom) / 2), zoom });

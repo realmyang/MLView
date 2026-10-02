@@ -155,40 +155,42 @@ export function kindIcon(kind: string, size = 16): SVGElement {
   return root;
 }
 
-/* Small chrome glyphs, all single-path, 16x16. */
+/*
+ * Chrome glyphs (viewer M2): drawn for MLView in the codicon style — a 16 px grid, one stroked
+ * path, round joins — and inlined, because the webview's CSP (`default-src 'none'`) admits no
+ * icon font. They are original drawings, not copies of the codicon set.
+ */
 const UI_PATHS: Record<string, string> = {
-  search: 'M7.2 2.4a4.8 4.8 0 1 0 0 9.6 4.8 4.8 0 0 0 0-9.6ZM10.8 10.8 14 14',
-  refresh: 'M13.2 8A5.2 5.2 0 1 1 11.5 4.1M13.6 2.6v3.2h-3.2',
-  export: 'M8 10.6V2.4M5.2 5.2 8 2.4l2.8 2.8M2.8 10.4v2.8h10.4v-2.8',
+  search: 'M7 2.6a4.4 4.4 0 1 0 0 8.8 4.4 4.4 0 0 0 0-8.8ZM10.2 10.2 13.6 13.6',
+  /** The ... menu: three dots (tiny stroked circles read as filled dots). */
+  more: 'M3.4 7.4a.6.6 0 1 0 0 1.2.6.6 0 0 0 0-1.2ZM8 7.4a.6.6 0 1 0 0 1.2.6.6 0 0 0 0-1.2ZM12.6 7.4a.6.6 0 1 0 0 1.2.6.6 0 0 0 0-1.2Z',
   close: 'M3.6 3.6 12.4 12.4M12.4 3.6 3.6 12.4',
   chevron: 'M6 3.6 10.4 8 6 12.4',
   plus: 'M8 3.2v9.6M3.2 8h9.6',
   minus: 'M3.2 8h9.6',
+  /** Fit the whole diagram: four corners. */
   fit: 'M2.6 6V2.6H6M10 2.6h3.4V6M13.4 10v3.4H10M6 13.4H2.6V10',
+  /** The side rail: a window with its right column. */
   rail: 'M2.4 3h11.2v10H2.4ZM9.6 3v10',
   open: 'M9 2.8h4.2V7M13.2 2.8 7.4 8.6M11.6 9.4v3.8H2.8V4.4h3.8',
-  filter: 'M2.4 3.4h11.2L9.2 8.4v4.2L6.8 13.6V8.4Z',
+  /** Zoom to the selection: a crosshair. */
   target: 'M8 2.6v2.2M8 11.2v2.2M2.6 8h2.2M11.2 8h2.2M8 5.2A2.8 2.8 0 1 0 8 10.8 2.8 2.8 0 0 0 8 5.2Z',
-  check: 'M3 8.4 6.4 11.8 13 5.2',
   // Viewer M1: a source file no longer matches its published hash (with text beside it, never alone).
   warning: 'M8 2.2 14.4 13.4H1.6ZM8 6.4v3.4M8 11.6v.1',
-  scope: 'M2.4 3.2h11.2v9.6H2.4ZM5.6 6.2h4.8v3.6H5.6Z',
+  /** The request and coverage details. */
+  info: 'M8 2.2a5.8 5.8 0 1 0 0 11.6A5.8 5.8 0 0 0 8 2.2ZM8 7.2v4M8 5v.1',
+  /** Viewer M2: "not observed" — a dashed square, the mark an inferred card carries. */
+  notobserved: 'M2.6 5V2.6H5M7 2.6h2M11 2.6h2.4V5M13.4 7v2M13.4 11v2.4H11M9 13.4H7M5 13.4H2.6V11M2.6 9V7',
   flow: 'M2.4 8h8.4M8.4 5.2 11.6 8l-3.2 2.8M13.2 6.4v3.2',
   /** The legend key (VIEW-10): a list with a swatch beside each row. */
   legend: 'M2.4 3.6h2.4v2.4H2.4ZM2.4 10h2.4v2.4H2.4ZM6.8 4.8h6.8M6.8 11.2h6.8',
-  /** MLV-P10: two sheets — "copy the ignore comment". */
   copy: 'M5.8 5.8h7.6v7.6H5.8ZM2.6 10.2V2.6h7.6v3.2',
-  /** MLV-P10: a struck-through disc — "disable this rule". */
-  mute: 'M8 2.4a5.6 5.6 0 1 0 0 11.2 5.6 5.6 0 0 0 0-11.2ZM4 12 12 4',
-  /** VIEW-12: the keyboard's copy of the minimap's pointer-only chevron. */
+  /** The overview minimap: a frame with its viewport. */
   minimap: 'M2.4 3.6h11.2v8.8H2.4ZM8.4 7.4h4.4v4.4H8.4Z',
-  /** VIEW-07: a picture in a frame — "export the diagram", not the HTML report. */
+  /** VIEW-07: a picture in a frame — "export the diagram". */
   image: 'M2.4 3.4h11.2v9.2H2.4ZM2.4 10.6 5.8 7.4l2.4 2.2 2.2-2 3.2 3M10.3 5.3a1.05 1.05 0 1 0 0 2.1 1.05 1.05 0 0 0 0-2.1Z',
-  /** H5: a spanner — "a fix was computed", never "a fix was applied". */
-  wrench:
-    'M10.2 2.2a3.6 3.6 0 0 0-3.3 5l-4.3 4.3 1.9 1.9 4.3-4.3a3.6 3.6 0 0 0 4.6-4.7L11.6 6.3 9.7 4.4Z',
-  /** VIEW-08: two rows, one gained and one lost — the diff overlay. */
-  diff: 'M2.6 4.8h5.2M5.2 2.2v5.2M8.2 11.2h5.2M2.4 13.6 13.6 2.4',
+  /** The shortcut sheet: a keyboard. */
+  keyboard: 'M1.8 4.2h12.4v7.6H1.8ZM4.2 6.6h.1M6.7 6.6h.1M9.2 6.6h.1M11.7 6.6h.1M4.8 9.4h6.4',
 };
 
 export function uiIcon(name: string, size = 14): SVGElement {

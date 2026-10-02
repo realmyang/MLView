@@ -9,7 +9,7 @@
  * `<path data-edge-id>` per planned route and know the two renderers agree.
  *
  * Four hard rules. `test/renderer-regression.test.mjs` checks part of rules 1
- * and 2 on a full and a scoped export (no `<foreignObject>`, no absolute URL
+ * and 2 on a full and a collapsed export (no `<foreignObject>`, no absolute URL
  * other than the SVG namespace) and `test/authored-ui.test.mjs` parses an export
  * as XML; nothing checks the rest automatically:
  *
@@ -75,15 +75,13 @@ import type { Point } from '../layout/routing.js';
 import type { Rect } from '../render/canvas.js';
 import type { IssueCounts, MLNode, ThemeKind } from '../types.js';
 
-/* ── the three offers (VIEW-07) ─────────────────────────────────────────── */
+/* ── the regions (VIEW-07) ──────────────────────────────────────────────── */
 
-export type ExportRegionKind = 'view' | 'diagram' | 'scope';
-
-export const EXPORT_REGIONS: { id: ExportRegionKind; label: string; hint: string }[] = [
-  { id: 'view', label: 'Current view', hint: 'Exactly what is on screen right now.' },
-  { id: 'diagram', label: 'Whole diagram', hint: 'Every lane and every card, at natural size.' },
-  { id: 'scope', label: 'Current scope', hint: 'The scoped subject only — the shareable artifact.' },
-];
+/**
+ * `diagram` is every lane and card at natural size, the one region the ... menu exports since
+ * viewer M2; `view` is the visible canvas rectangle. The scope region went with the scope picker.
+ */
+export type ExportRegionKind = 'view' | 'diagram';
 
 /* ── geometry, transcribed from styles/node.css and styles/canvas.css ───── */
 
@@ -335,8 +333,7 @@ function nodeCard(
   const n = visual.node;
   const box = visual.box;
   const groupLike = box.collapsed;
-  const boundary = n.viewRole === 'boundary';
-  const top = boundary ? null : highestSeverity(visual.counts);
+  const top = highestSeverity(visual.counts);
   // Viewer M2: only inferred and unresolved cards are marked, by a dashed or dotted border and a
   // tag. The canvas also hatches an unresolved card; a standalone SVG cannot without a pattern
   // reference, so the export keeps the border and the tag.
@@ -347,7 +344,6 @@ function nodeCard(
     '" data-kind="' + esc(n.kind) + '"' + (top ? ' data-sev="' + esc(top) + '"' : '') +
     (visual.phase !== undefined ? ' data-phase-index="' + visual.phase + '"' : '') +
     (n.basis ? ' data-basis="' + esc(n.basis) + '"' : '') +
-    (n.viewRole ? ' data-view-role="' + esc(n.viewRole) + '"' : '') +
     (visual.filteredOut ? ' opacity="0.18"' : '');
   const out: string[] = ['<g' + attrs + '>'];
   out.push('<title>' + esc(ariaLabelFor(visual as any)) + '</title>');
@@ -447,8 +443,7 @@ function groupFrame(
 ): string {
   const n = visual.node;
   const box = visual.box;
-  const boundary = n.viewRole === 'boundary';
-  const top = boundary ? null : highestSeverity(visual.counts);
+  const top = highestSeverity(visual.counts);
   const dash = basisDash(n.basis);
   const out: string[] = [
     '<g data-node-id="' + esc(n.id) + '" data-group="1" data-stage="' + esc(n.stage || 'unknown') + '"' +

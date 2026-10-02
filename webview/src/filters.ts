@@ -1,5 +1,5 @@
 /**
- * The filter model: which findings and which lanes are currently in view.
+ * The filter model: which findings are currently in view (the severity toggles and the query).
  *
  * It owns the `Filters` half of the ViewState. Filtering never relayouts — the
  * predicates here only decide which markers are drawn and which cards are dimmed.
@@ -13,7 +13,7 @@ export const ALL_SEVERITIES: Severity[] = ['low', 'medium', 'high'];
 
 /** A fresh default Filters — never a shared array, so a merge cannot alias it. */
 export function defaultFilters(): Filters {
-  return { severities: ALL_SEVERITIES.slice(), stages: [], query: '' };
+  return { severities: ALL_SEVERITIES.slice(), query: '' };
 }
 
 export class FilterModel {
@@ -35,7 +35,6 @@ export class FilterModel {
   patch(f: Partial<Filters>): void {
     const next: Filters = this.snapshot();
     if (f.severities !== undefined) next.severities = f.severities.slice();
-    if (f.stages !== undefined) next.stages = f.stages.slice();
     if (f.query !== undefined) next.query = String(f.query);
     this.current = next;
   }
@@ -53,25 +52,19 @@ export class FilterModel {
   snapshot(): Filters {
     return {
       severities: this.current.severities.slice(),
-      stages: this.current.stages.slice(),
       query: this.current.query,
     };
   }
 
   /** True when this finding should be counted, listed and marked. */
-  keep = (issue: Issue): boolean => {
-    const f = this.current;
-    if (f.severities.indexOf(normalizeSeverity(issue.severity)) < 0) return false;
-    // CRIT-3: a workflow-level finding (no nodes, so no stage) belongs to
-    // every phase; a phase filter must not hide it.
-    if (f.stages.length && issue.stage !== '' && f.stages.indexOf(issue.stage) < 0) return false;
-    return true;
-  };
+  keep = (issue: Issue): boolean => this.current.severities.indexOf(normalizeSeverity(issue.severity)) >= 0;
 
-  /** True when the stage chips exclude this node — dimmed, never removed. */
-  hidesNode(node: MLNode): boolean {
-    const f = this.current;
-    return f.stages.length > 0 && f.stages.indexOf(node.stage) < 0;
+  /**
+   * True when the filters exclude this node — dimmed, never removed. Viewer M2 removed the phase
+   * chips, the only filter that dimmed cards, so nothing does; the canvas still asks.
+   */
+  hidesNode(_node: MLNode): boolean {
+    return false;
   }
 
   toggleSeverity(sev: Severity): void {
@@ -80,28 +73,5 @@ export class FilterModel {
     if (at >= 0) next.splice(at, 1);
     else next.push(sev);
     this.patch({ severities: next });
-  }
-
-  /**
-   * `laneIds` is every drawn lane; "everything on" is stored as the empty list.
-   *
-   * HOSTS-UX-STAGERESET: that encoding has one gesture it cannot express. Turn
-   * the last remaining lane OFF and `next` is empty, which means "everything
-   * on" — so the chips all flip back. The model keeps that behaviour (an empty
-   * selection is the only sane resting state), and the RETURN VALUE is what
-   * makes it explicable: true when the reader turned the last lane off and got
-   * everything back, so the caller can say so instead of leaving it observed.
-   */
-  toggleStage(stageId: string, laneIds: string[]): boolean {
-    let next = this.current.stages.slice();
-    if (next.length === 0) next = laneIds.slice();
-    const at = next.indexOf(stageId);
-    if (at >= 0) next.splice(at, 1);
-    else next.push(stageId);
-    // Emptied by a removal, not by a lane list that was empty to begin with.
-    const emptied = next.length === 0 && laneIds.length > 0;
-    if (next.length === laneIds.length) next = [];
-    this.patch({ stages: next });
-    return emptied;
   }
 }

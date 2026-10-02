@@ -1,7 +1,8 @@
 /**
- * What the export menu actually does (VIEW-07).
+ * What the export items of the ... menu actually do (VIEW-07).
  *
- * Three regions × four outputs, plus print. The region is pure geometry over
+ * Save SVG, save PNG and copy SVG, of the whole diagram (viewer M2 dropped the
+ * region choice, Copy PNG and Print from the menu). The region is pure geometry over
  * the `LayoutFrame`, the outputs all descend from ONE `buildExportSvg` call, and
  * the bytes leave the viewer through exactly two doors:
  *
@@ -17,14 +18,11 @@
  */
 
 import { buildExportSvg, ExportRegionKind, ExportSvgResult } from './svg.js';
-import { MIME, base64ToBytes, rasterize, utf8ToBase64 } from './raster.js';
+import { rasterize, utf8ToBase64 } from './raster.js';
 import type { Palette } from './palette.js';
 import type { ScenePlan } from '../render/plan.js';
 import type { Rect } from '../render/canvas.js';
 import type { ActionResult, MLGraph, ThemeKind, UiToHost } from '../types.js';
-
-/** How much world margin a cropped region keeps around its content. */
-const REGION_PAD = 24;
 
 /** The PNG is drawn at twice the SVG's user units (VIEW-07). */
 export const PNG_SCALE = 2;
@@ -38,8 +36,6 @@ export interface ExportHost {
   request(msg: UiToHost, onResult: (result: ActionResult) => void): void;
   toast(text: string): void;
   announce(text: string): void;
-  /** `window.print()`, injected so a gate can observe the call. */
-  print(): void;
 }
 
 export interface ExportRequest {
@@ -50,46 +46,15 @@ export interface ExportRequest {
   regionKind: ExportRegionKind;
   /** The visible canvas rectangle in world coordinates. */
   viewRect: Rect;
-  /** A human name for the active scope, or null when nothing is scoped. */
-  scopeLabel: string | null;
   generatedAt?: string;
 }
 
-/**
- * The world rectangle a region names.
- *
- * `scope` is the bounding box of the CORE nodes — the scope's actual subject —
- * rather than the whole projection, because a projection also carries boundary
- * stubs and context frames that the reader did not ask to share. With no
- * projection there is no core, and it degrades to the whole diagram rather than
- * exporting an empty rectangle.
- */
+/** The world rectangle a region names: the whole frame, or the visible part of it. */
 export function regionRect(request: ExportRequest): Rect {
   const frame = request.plan.frame;
   const whole: Rect = { x: 0, y: 0, w: frame.width, h: frame.height };
-  if (request.regionKind === 'diagram') return whole;
   if (request.regionKind === 'view') return clampTo(request.viewRect, whole);
-  const boxes: Rect[] = [];
-  for (const planned of request.plan.nodes) {
-    if (planned.visual.node.viewRole !== 'core') continue;
-    const box = planned.visual.box;
-    boxes.push({ x: box.x, y: box.y, w: box.w, h: box.h });
-  }
-  if (!boxes.length) return whole;
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-  for (const box of boxes) {
-    minX = Math.min(minX, box.x);
-    minY = Math.min(minY, box.y);
-    maxX = Math.max(maxX, box.x + box.w);
-    maxY = Math.max(maxY, box.y + box.h);
-  }
-  return clampTo(
-    { x: minX - REGION_PAD, y: minY - REGION_PAD, w: maxX - minX + REGION_PAD * 2, h: maxY - minY + REGION_PAD * 2 },
-    whole,
-  );
+  return whole;
 }
 
 function clampTo(rect: Rect, whole: Rect): Rect {
@@ -102,9 +67,7 @@ function clampTo(rect: Rect, whole: Rect): Rect {
 
 
 export function regionLabel(kind: ExportRegionKind): string {
-  if (kind === 'view') return 'current view';
-  if (kind === 'scope') return 'current scope';
-  return 'whole diagram';
+  return kind === 'view' ? 'current view' : 'whole diagram';
 }
 
 /**
@@ -112,16 +75,14 @@ export function regionLabel(kind: ExportRegionKind): string {
  * calls the whole diagram `all`, this renderer calls it `diagram`. One mapping,
  * stated once, rather than two words drifting apart in five call sites.
  */
-export function hostRegionWord(kind: ExportRegionKind): 'view' | 'all' | 'scope' {
-  return kind === 'diagram' ? 'all' : kind;
+export function hostRegionWord(kind: ExportRegionKind): 'view' | 'all' {
+  return kind === 'diagram' ? 'all' : 'view';
 }
 
 /** Build the picture. Everything downstream is a delivery of this one result. */
 export function renderExport(request: ExportRequest): ExportSvgResult {
   const graph = request.graph;
-  const scope = request.scopeLabel;
-  const title =
-    'MLView — ' + subjectOf(graph) + (scope ? ' — ' + scope : '') + ' — ' + regionLabel(request.regionKind);
+  const title = 'MLView — ' + subjectOf(graph) + ' — ' + regionLabel(request.regionKind);
   const desc =
     graph.nodes.length + ' nodes, ' + graph.edges.length + ' edges · schema ' + graph.schemaVersion +
     ' · authored by ' + graph.generator.name + ' · model ' + graph.generator.version + ' · revision ' + graph.generator.rendererSha +
@@ -140,7 +101,6 @@ export function renderExport(request: ExportRequest): ExportSvgResult {
 /** `mlview-vision_pipeline-evaluation-diagram.svg`, and nothing a shell hates. */
 export function exportFileName(request: ExportRequest, ext: string): string {
   const bits = ['mlview', subjectOf(request.graph)];
-  if (request.scopeLabel) bits.push(request.scopeLabel);
   bits.push(request.regionKind);
   return bits.map(slug).filter((s) => !!s).join('-') + '.' + ext;
 }
@@ -260,24 +220,6 @@ export async function copySvgText(host: ExportHost, result: ExportSvgResult): Pr
   return false;
 }
 
-export async function copyPngImage(host: ExportHost, result: ExportSvgResult): Promise<boolean> {
-  const raster = await safeRasterize(result);
-  if (raster && (await writeImage(raster.base64))) {
-    const said = 'PNG copied at ' + raster.width + '×' + raster.height + '.';
-    host.toast(said);
-    host.announce(said);
-    return true;
-  }
-  host.toast('The clipboard would not take an image — copying the SVG instead.');
-  await copySvgText(host, result);
-  return false;
-}
-
-export function printDiagram(host: ExportHost): void {
-  host.announce('Opening the print dialog. The toolbar, rail and minimap are not printed.');
-  host.print();
-}
-
 async function safeRasterize(result: ExportSvgResult) {
   try {
     return await rasterize(result.svg, result.width, result.height, PNG_SCALE);
@@ -291,20 +233,6 @@ async function writeText(value: string): Promise<boolean> {
   if (!nav || !nav.clipboard || typeof nav.clipboard.writeText !== 'function') return false;
   try {
     await nav.clipboard.writeText(value);
-    return true;
-  } catch (_e) {
-    return false;
-  }
-}
-
-async function writeImage(base64: string): Promise<boolean> {
-  const g: any = typeof globalThis === 'undefined' ? {} : globalThis;
-  const nav: any = typeof navigator !== 'undefined' ? navigator : null;
-  if (!nav || !nav.clipboard || typeof nav.clipboard.write !== 'function') return false;
-  if (typeof g.ClipboardItem !== 'function' || typeof g.Blob !== 'function') return false;
-  try {
-    const blob = new g.Blob([base64ToBytes(base64)], { type: MIME.png });
-    await nav.clipboard.write([new g.ClipboardItem({ [MIME.png]: blob })]);
     return true;
   } catch (_e) {
     return false;

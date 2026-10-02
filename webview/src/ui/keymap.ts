@@ -42,12 +42,6 @@ export interface KeyCommands {
   toggleShortcuts(): void;
   /** `e` / `Shift+E`: walk the selection's connections. */
   cycleConnections(backwards: boolean): boolean;
-  /** `s`: scope the diagram to the selection. */
-  scopeToSelection(): boolean;
-  /** `Shift+S`: clear the scope. False when there is none. */
-  clearScope(): boolean;
-  /** `[` / `]`: step the scope depth. False when there is no scope. */
-  stepDepth(delta: number): boolean;
 }
 
 export interface KeyBinding {
@@ -57,15 +51,16 @@ export interface KeyBinding {
 }
 
 export const KEYMAP: KeyBinding[] = [
-  { keys: ['Ctrl/Cmd+K', '/'], action: 'focusSearch', description: 'Search steps, findings, IDs, or cited text' },
+  // Viewer M2: Ctrl/Cmd+F too, from anywhere in the viewer (app.ts), since the webview has no find bar.
+  { keys: ['Ctrl/Cmd+F', 'Ctrl/Cmd+K', '/'], action: 'focusSearch', description: 'Search steps, findings, IDs, or cited text' },
   { keys: ['n', 'p'], action: 'cycleIssue', description: 'Next / previous finding (document order)' },
   // Viewer M1: a click selects and shows the claim; opening the source is Enter (or a double-click).
   { keys: ['Enter'], action: 'open', description: 'Open the cited source beside the diagram; focus stays here' },
   { keys: ['Alt+Enter'], action: 'openFocus', description: 'Open the cited source and move focus to the editor' },
   { keys: ['Space'], action: 'collapse', description: 'Collapse or expand the selected group' },
   { keys: ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'], action: 'move', description: 'Move the selection' },
-  // Viewer M2: key 0 is the readable first view; the whole document is the toolbar's "Fit the whole
-  // diagram" button (and Shift+0, which also folds the groups).
+  // Viewer M2: key 0 is the readable first view; the whole document is the ... menu's "Fit the
+  // whole diagram" (and Shift+0, which also folds the groups).
   { keys: ['0'], action: 'fit', description: 'Readable view: the whole diagram if it fits at reading size, otherwise phase 1' },
   { keys: ['Shift+0'], action: 'overview', description: 'Overview: collapse every group and fit the whole diagram' },
   { keys: ['+', '='], action: 'zoomIn', description: 'Zoom in' },
@@ -79,17 +74,13 @@ export const KEYMAP: KeyBinding[] = [
   // Viewer M2: a flow stops after two passes, so nothing moves while you read.
   { keys: ['Shift+A'], action: 'replayFlow', description: 'Play the connection flow again (it stops after two passes)' },
   { keys: ['e', 'Shift+E'], action: 'cycleConnections', description: 'Next / previous connection of the selected node' },
-  { keys: ['s', 'Shift+S'], action: 'scope', description: 'Scope the diagram to the selection / clear the scope' },
-  { keys: ['[', ']'], action: 'scopeDepth', description: 'Narrow / widen the scope by one hop' },
   { keys: ['1', '2', '3'], action: 'toggleSeverity', description: 'Toggle the high / medium / low filters' },
   { keys: ['Ctrl+B'], action: 'toggleRail', description: 'Show or hide the side rail' },
   { keys: ['Ctrl+1', 'Ctrl+2', 'Ctrl+3'], action: 'railTab', description: 'Findings / Inspector / Outline' },
   { keys: ['?'], action: 'shortcuts', description: 'Show this shortcut sheet' },
   // The rungs, in the order `dismissTopmost` runs them (CONTRACTS 11.13). The
-  // sheet is the only place the cascade is described to the user, and a scoped
-  // diagram is exactly where someone presses Escape expecting the selection to
-  // go and loses the scope instead (MLV-R1-F2-06).
-  { keys: ['Escape'], action: 'escape', description: 'Close the picker, sheet or legend, exit focus mode, clear the scope, clear the selection, leave the canvas' },
+  // sheet is the only place the cascade is described to the user (MLV-R1-F2-06).
+  { keys: ['Escape'], action: 'escape', description: 'Close the menu, sheet, details, Refine popover or legend, exit focus mode, clear the selection, leave the canvas' },
   { keys: ['Tab', 'Shift+Tab'], action: 'browser', description: 'Move focus out of the diagram (never intercepted)' },
 ];
 
@@ -107,7 +98,7 @@ export function handleCanvasKey(ev: KeyboardEvent, cmd: KeyCommands): boolean {
   if (key === 'Tab') return false;
 
   if (mod) {
-    if (key === 'k' || key === 'K') {
+    if (key === 'k' || key === 'K' || key === 'f' || key === 'F') {
       cmd.focusSearch();
       return consume();
     }
@@ -192,15 +183,6 @@ export function handleCanvasKey(ev: KeyboardEvent, cmd: KeyCommands): boolean {
   // Shift+E would be indistinguishable from `e` (CONTRACTS 11.13).
   if (key === 'e' || key === 'E') {
     if (!cmd.cycleConnections(ev.shiftKey)) return false;
-    return consume();
-  }
-  if (key === 's' || key === 'S') {
-    const done = ev.shiftKey ? cmd.clearScope() : cmd.scopeToSelection();
-    if (!done) return false;
-    return consume();
-  }
-  if (key === '[' || key === ']') {
-    if (!cmd.stepDepth(key === ']' ? 1 : -1)) return false;
     return consume();
   }
   if (key === 'z' || key === 'Z') {

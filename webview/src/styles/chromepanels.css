@@ -133,38 +133,6 @@
   font-weight: var(--mlv-fw-medium);
 }
 
-/* ── VIEW-10: the labelled flow toggle ─────────────────────────────────── */
-
-/*
- * The marquee feature of the product shipped behind an icon-only button with no
- * visible label and no keyboard binding. It carries both now; the label folds
- * away below 1280 px, where the toolbar genuinely has no room for it, and the
- * title and aria-label carry the state at every width.
- */
-.mlv-btn--flow,
-.mlv-btn--legend {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--mlv-s2);
-}
-
-.mlv-btn--flow[aria-pressed="false"] {
-  color: var(--mlv-text-3);
-}
-
-.mlv-btn--flow[aria-pressed="true"],
-.mlv-btn--legend[aria-pressed="true"] {
-  border-color: var(--mlv-accent);
-  color: var(--mlv-accent);
-}
-
-@media (max-width: 1280px) {
-  .mlv-btn--flow .mlv-btn__label,
-  .mlv-btn--legend .mlv-btn__label {
-    display: none;
-  }
-}
-
 /* ── VIEW-10: the legend ───────────────────────────────────────────────── */
 
 .mlv-legend {
@@ -331,27 +299,6 @@
     bottom: var(--mlv-s3);
     width: calc(100% - 2 * var(--mlv-s3));
   }
-}
-
-/*
- * VIEW-12: the two chrome rows as ONE `role="toolbar"`.
- *
- * Purely structural — both rows keep the exact box model they had, and the
- * wrapper only exists so the roving tabindex has a single container to own.
- */
-.mlv-chromebar {
-  display: flex;
-  flex: none;
-  flex-direction: column;
-  min-width: 0;
-}
-
-/* The brand is now the document's only <h1> (VIEW-12): reset the UA heading
- * box, keep the type it always had. */
-h1.mlv-brand {
-  margin: 0;
-  font-size: var(--mlv-fs-11);
-  font-weight: var(--mlv-fw-regular);
 }
 
 /*

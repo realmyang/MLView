@@ -8,7 +8,6 @@
  * therefore treat a missing field as the default, never as "off".
  */
 
-import { sanitizeScope } from '../protocol.js';
 import { syncCollapsed } from './documents.js';
 import { composerViewState } from '../workflow.js';
 import { renderChrome, renderRail } from './surfaces.js';
@@ -29,12 +28,8 @@ export function applyState(app: App, state: ViewState, rerender: boolean): void 
   if (typeof state.flow === 'boolean') app.setFlow(state.flow);
   if (typeof state.legendOpen === 'boolean') app.setLegend(state.legendOpen);
   // Keys this viewer no longer writes (`railGroupBy`, `answersOpen`, `diffOnly`,
-  // `pipelineChosen` from the analyzer-era viewer) are ignored, never an error.
-  const scope = sanitizeScope(state.scope);
-  // No graph yet? The host mounts the viewer empty and restores state before
-  // it posts one, so applying here would drop the scope on the floor (R2H-03).
-  if (scope && app.scopes.full) app.setScope(scope.spec, { depth: scope.depth });
-  else if (scope) app.pendingScope = { spec: scope.spec, depth: scope.depth };
+  // `pipelineChosen` from the analyzer-era viewer; since viewer M2 the scope picker's `scope` and
+  // the phase chips' `filters.stages`) are ignored, never an error: the whole document is drawn.
   if (rerender && app.index) {
     app.view.relayout();
     renderChrome(app);
@@ -54,10 +49,8 @@ export function snapshotState(app: App): ViewState {
     railTab: app.railTab,
     minimapCollapsed: app.view.minimapCollapsed,
   };
-  const spec = app.scopes.spec;
-  if (spec) state.scope = { spec, depth: app.scopes.depth };
   if (!app.flowOn) state.flow = false;
-  // Absent at its default, like `scope` and `flow`: an older host round-trips
+  // Absent at its default, like `flow`: an older host round-trips
   // a state it has never seen, and a newer one restores to the documented
   // default rather than to whatever `undefined` renders as.
   if (app.legendOpen) state.legendOpen = true;

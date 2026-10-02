@@ -267,27 +267,36 @@
   color: var(--mlv-text-3);
 }
 
+/* Viewer M2: the zoom lives at the right end of the status bar: − 90% + (ui/chrome.ts). */
 .mlv-zoom {
-  position: absolute;
-  left: var(--mlv-s5);
-  bottom: var(--mlv-s5);
-  z-index: 20;
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: var(--mlv-s2);
-  padding: var(--mlv-s2);
-  border: 1px solid var(--mlv-border);
-  border-radius: var(--mlv-r-btn);
-  background: var(--mlv-surface);
-  box-shadow: var(--mlv-sh-1);
+  flex: none;
+  gap: 1px;
 }
 
 .mlv-zoom__level {
-  min-width: 42px;
+  min-width: 38px;
   text-align: center;
   color: var(--mlv-text-2);
-  font-size: var(--mlv-fs-10);
+  font-size: var(--mlv-fs-11);
   font-variant-numeric: tabular-nums;
+}
+
+.mlv-zoom .mlv-zoom__btn {
+  width: 20px;
+  height: 18px;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  color: var(--mlv-text-2);
+}
+
+.mlv-zoom .mlv-zoom__btn:hover {
+  background: var(--mlv-surface-2);
+  color: var(--mlv-text);
 }
 
 /* Pointer routing: the bands and group boxes are backdrop, only their headers

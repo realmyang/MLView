@@ -87,93 +87,105 @@ function declarationsFor(css, selector) {
   return out;
 }
 
-/* ── issue 1: the header ──────────────────────────────────────────────── */
+/* ── issue 1: the header (viewer M2: one row; the request details open over the diagram) ── */
 
-test('the authored header opens collapsed: title, provenance chips, one question line and a disclosure', async () => {
+test('the request and coverage details start closed, hold every authored word, and open over the diagram', async () => {
   const ctx = await mount(doc());
   const panel = ctx.document.querySelector('.mlv-workflow');
-  assert.equal(panel.getAttribute('data-expanded'), 'false');
-  const toggle = panel.querySelector('.mlv-workflow__toggle');
   const details = panel.querySelector('.mlv-workflow__details');
-  assert.equal(toggle.getAttribute('aria-expanded'), 'false');
-  assert.equal(toggle.getAttribute('aria-controls'), details.id);
-  assert.equal(details.hidden, true, 'scope, configuration and coverage wait behind the disclosure');
-  assert.match(panel.querySelector('.mlv-workflow__title').textContent, /Layout fixture/);
-  assert.equal(panel.querySelector('.mlv-workflow__producer').textContent, 'claude-code · fixture-model');
-  assert.equal(panel.querySelector('.mlv-workflow__revision').textContent, 'revision r1');
-  const question = panel.querySelector('.mlv-workflow__question');
-  assert.equal(question.textContent, 'How does the loop update state?');
-  assert.equal(question.title, 'How does the loop update state?', 'the whole question is on hover');
-  assert.equal(question.closest('.mlv-workflow__details'), null, 'the question line is outside the collapsed region');
-  assert.equal(panel.querySelector('.mlv-workflow__coverage-chip').textContent, 'partial');
+  const chip = ctx.document.querySelector('.mlv-header__prov');
+  assert.equal(panel.getAttribute('data-expanded'), 'false');
+  assert.equal(details.hidden, true, 'the question, scope, configuration and coverage wait behind the chip');
+  assert.equal(chip.getAttribute('aria-expanded'), 'false');
+  assert.equal(chip.getAttribute('aria-haspopup'), 'dialog');
+  // The header row carries the title (whole on hover) and host · revision, nothing else of the request.
+  const title = ctx.document.querySelector('.mlv-header__title');
+  assert.equal(title.tagName, 'H1');
+  assert.equal(title.textContent, 'Layout fixture');
+  assert.equal(title.title, 'Layout fixture', 'the whole title is on hover');
+  assert.equal(chip.textContent, 'claude-code · r1');
+  assert.doesNotMatch(ctx.document.querySelector('.mlv-header').textContent, /How does the loop update state/);
   // Everything is still in the DOM for search, copy and assistive technology.
+  assert.equal(details.querySelector('.mlv-workflow__question').textContent, 'How does the loop update state?');
   assert.match(details.textContent, /Scope: src\//);
   assert.match(details.textContent, /Configuration: defaults/);
-  assert.match(details.textContent, /partial · Core path/);
+  assert.match(details.textContent, /Coverage: partial · Core path/);
   assert.match(details.textContent, /1 coverage limitation/);
+  assert.match(details.textContent, /Revision r1 · claude-code · fixture-model\./);
+  // The details live in a zero-height section after the header, so opening them moves no canvas.
+  assert.equal(panel.previousElementSibling, ctx.document.querySelector('.mlv-header'));
   ctx.app.destroy();
 });
 
-test('the disclosure expands and collapses the request details and survives a same-panel rebuild', async () => {
+test('the provenance chip and the coverage item open the details; Escape and the close button shut them; a rebuild keeps them', async () => {
   const ctx = await mount(doc());
   const panel = () => ctx.document.querySelector('.mlv-workflow');
-  panel().querySelector('.mlv-workflow__toggle').click();
+  const chip = () => ctx.document.querySelector('.mlv-header__prov');
+  chip().click();
   assert.equal(panel().getAttribute('data-expanded'), 'true');
-  assert.equal(panel().querySelector('.mlv-workflow__toggle').getAttribute('aria-expanded'), 'true');
+  assert.equal(chip().getAttribute('aria-expanded'), 'true');
   assert.equal(panel().querySelector('.mlv-workflow__details').hidden, false);
+  assert.equal(ctx.document.activeElement, panel().querySelector('.mlv-workflow__details'), 'the focus moves into the panel');
   assert.match(ctx.document.querySelector('[aria-live="polite"]').textContent, /details shown/);
   ctx.bridge.send({ v: 1, type: 'workflow', document: doc() });
   assert.equal(panel().getAttribute('data-expanded'), 'true', 'a re-posted revision keeps the reader\'s choice');
-  panel().querySelector('.mlv-workflow__toggle').click();
+  panel().querySelector('.mlv-workflow__details').dispatchEvent(new ctx.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
   assert.equal(panel().getAttribute('data-expanded'), 'false');
   assert.equal(panel().querySelector('.mlv-workflow__details').hidden, true);
+  assert.equal(ctx.document.activeElement, chip(), 'the focus goes back to the chip');
+  // The status bar's coverage item is the other way in (the About view replaces it in a later step).
+  const coverage = ctx.document.querySelector('.mlv-status__coverage');
+  assert.equal(coverage.textContent, 'Coverage: partial · 1 limitation');
+  coverage.click();
+  assert.equal(panel().getAttribute('data-expanded'), 'true');
+  assert.equal(coverage.getAttribute('aria-expanded'), 'true');
+  panel().querySelector('.mlv-workflow__close').click();
+  assert.equal(panel().getAttribute('data-expanded'), 'false');
   ctx.app.destroy();
 });
 
-test('a contract-maximum header stays collapsed to its one-line form with every word in the DOM', async () => {
+test('a contract-maximum document keeps the header to its one row with every word in the DOM', async () => {
   const max = contractMaxHeader();
   const ctx = await mount(max);
+  const header = ctx.document.querySelector('.mlv-header');
   const panel = ctx.document.querySelector('.mlv-workflow');
   assert.equal(panel.getAttribute('data-expanded'), 'false');
   assert.equal(panel.querySelector('.mlv-workflow__details').hidden, true);
-  assert.equal(panel.querySelector('.mlv-workflow__title').title, max.title);
-  assert.equal(panel.querySelector('.mlv-workflow__producer').title, 'claude-code · ' + 'M'.repeat(200));
+  assert.equal(header.querySelector('.mlv-header__title').title, max.title);
+  assert.equal(header.querySelector('.mlv-header__title').textContent, max.title, 'the CSS ellipsis cuts it, not the DOM');
+  assert.match(header.querySelector('.mlv-header__prov').title, new RegExp('by claude-code \\(' + 'M'.repeat(200) + '\\)'));
   assert.equal(panel.querySelector('.mlv-workflow__question').textContent.length, 4000);
   assert.equal(panel.querySelectorAll('.mlv-workflow__limitations li').length, 500);
-  // The visible (not hidden) header holds the title, the chips and ONE question element.
-  const visibleText = [...panel.children].filter((child) => !child.hidden).map((child) => child.className).join(' ');
-  assert.doesNotMatch(visibleText, /mlv-workflow__details/);
+  assert.equal(ctx.document.querySelector('.mlv-status__coverage').textContent, 'Coverage: partial · 500 limitations');
+  // The header holds no request text and no phase chip row, whatever the document's size.
+  assert.doesNotMatch(header.textContent, /question0|scope0|summary0|lim0w|phase0w/);
+  assert.equal(ctx.document.querySelector('.mlv-filterrow, .mlv-chiprow'), null);
   ctx.app.destroy();
 });
 
-test('the shipped CSS caps the header, lets it shrink, and gives the authored canvas a floor', async () => {
+test('the shipped CSS keeps the header to one row, caps the details, and gives the authored canvas a floor', async () => {
   const css = await readFile(join(WEBVIEW_ROOT, 'dist', 'mlview.css'), 'utf8');
-  const header = declarationsFor(css, '.mlv-workflow');
-  assert.equal(header.flex, '0 1 auto', 'the header may shrink when the canvas floor needs the room');
-  assert.equal(header['min-height'], '0', 'without min-height:0 a flex item never shrinks below its content');
-  assert.match(header['max-height'] || '', /^\d+vh$/, 'the expanded header is height-capped');
-  assert.ok(parseInt(header['max-height'], 10) <= 45, 'at most 45vh');
-  assert.equal(header['overflow-y'], 'auto', 'and scrolls inside its cap');
-  const body = declarationsFor(css, '.mlv-root--workflow>.mlv-body');
-  assert.equal(body.flex, '1 1 0', 'basis 0: the body takes free space and never out-shrinks the header');
-  assert.match(body['min-height'] || '', /^min\(320px,\s*50vh\)$/, 'the canvas keeps at least 320 px (half a short panel)');
-  const title = declarationsFor(css, '.mlv-workflow__title');
-  assert.equal(title['-webkit-line-clamp'], '2', 'the title is two lines at most');
-  const question = declarationsFor(css, '.mlv-workflow__question');
-  assert.equal(question['white-space'], 'nowrap', 'collapsed, the question is one line');
-  assert.equal(question['text-overflow'], 'ellipsis');
+  const header = declarationsFor(css, '.mlv-header');
+  assert.equal(header.flex, 'none', 'the header never grows or shrinks');
+  assert.equal(header.height, 'var(--mlv-header-h)');
+  assert.equal(header['white-space'], 'nowrap', 'one row: nothing wraps');
+  assert.equal(declarationsFor(css, '.mlv-header__bar')['flex-wrap'] || 'nowrap', 'nowrap');
+  assert.match(css, /--mlv-header-h:\s*36px/, 'about 36 px');
+  assert.match(css, /--mlv-status-h:\s*22px/, 'and the status bar about 22 px');
+  const title = declarationsFor(css, '.mlv-header__title');
+  assert.equal(title['text-overflow'], 'ellipsis', 'the title gives up its width first, with an ellipsis');
+  assert.equal(title['white-space'], 'nowrap');
+  assert.equal(title.overflow, 'hidden');
+  const section = declarationsFor(css, '.mlv-workflow');
+  assert.equal(section.height, '0', 'the details anchor adds no height under the header');
+  const details = declarationsFor(css, '.mlv-workflow__details');
+  assert.equal(details.position, 'absolute', 'the details open over the diagram');
+  assert.match(details['max-height'] || '', /^min\(70vh,\s*560px\)$/, 'the contract-maximum text is height-capped');
+  assert.equal(details['overflow-y'], 'auto', 'and scrolls inside its cap');
   assert.equal(declarationsFor(css, '.mlv-workflow__details[hidden]').display, 'none');
-  const chips = declarationsFor(css, '.mlv-workflow__heading>.mlv-chip');
-  assert.equal(chips.display, 'block', 'a flex chip cannot ellipsise its text');
-  assert.equal(chips['text-overflow'], 'ellipsis');
-  assert.equal(chips['max-width'], '100%');
-  // Campaign 3 review (VL-2): collapsed, the bounded header never shrinks behind its own scroller
-  // (a 541x502 panel hid the Details toggle and Refine); the canvas floor yields instead.
-  assert.equal(declarationsFor(css, '.mlv-workflow:not([data-expanded=true])')['flex-shrink'], '0');
-  assert.match(declarationsFor(css, '.mlv-workflow:not([data-expanded=true])~.mlv-body')['min-height'] || '', /^min\(320px,\s*25vh\)$/);
-  const stages = declarationsFor(css, '.mlv-root--workflow .mlv-filterrow');
-  assert.match(stages['max-height'] || '', /vh$/, '100 authored phases cannot push the canvas off the page');
-  assert.equal(stages['overflow-y'], 'auto');
+  const body = declarationsFor(css, '.mlv-root--workflow>.mlv-body');
+  assert.equal(body.flex, '1 1 0', 'basis 0: the body takes the free space');
+  assert.match(body['min-height'] || '', /^min\(320px,\s*50vh\)$/, 'the canvas keeps at least 320 px (half a short panel)');
   const banner = declarationsFor(css, '#mlview-authored-error');
   assert.match(banner['max-height'] || '', /vh$/);
   assert.equal(declarationsFor(css, '.mlv-minimap.is-short').display, 'none');
@@ -192,7 +204,11 @@ test('the rail starts closed when the canvas beside it would be under 900 px, an
   width = 1086;
   resize(ctx);
   assert.equal(rail.hidden, true, '1086 - 360 leaves a canvas under 900 px');
-  ctx.document.querySelector('button[aria-label="Toggle side rail"]').click();
+  // Viewer M2: the rail toggle is in the ... menu (and Ctrl+B).
+  ctx.document.querySelector('.mlv-btn--more').click();
+  const item = ctx.document.querySelector('[data-more-item="rail"]');
+  assert.equal(item.getAttribute('aria-checked'), 'false');
+  item.click();
   assert.equal(rail.hidden, false, 'the reader opened it');
   width = 541;
   resize(ctx);
@@ -268,13 +284,17 @@ test('a large resize refits a viewport nobody moved, and never one the reader mo
 test('key 0 re-runs the readable view for the canvas it has now; "Fit the whole diagram" fits the whole', async () => {
   // Viewer M2. Before, one control ("Fit to view", and key 0) re-ran the first paint, or fitted the
   // whole document once the reader had zoomed out below 50 % (HOSTS-UX-FITZOOM). Key 0 is now the
-  // readable view from any zoom, and the toolbar button is named for the whole-document fit.
+  // readable view from any zoom, and the menu item is named for the whole-document fit.
   const ctx = await mount(rendererRegressionWorkflow(48));
   const canvas = ctx.document.querySelector('.mlv-canvas');
   const press = (key) => canvas.dispatchEvent(new ctx.window.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
-  const fitWhole = () => ctx.document.querySelector('button[aria-label="Fit the whole diagram"]');
+  // Viewer M2: the whole-diagram fit is an item of the header's ... menu.
+  const fitWhole = () => {
+    ctx.document.querySelector('.mlv-btn--more').click();
+    return ctx.document.querySelector('[data-more-item="fit"]');
+  };
   assert.equal(ctx.document.querySelector('button[aria-label="Fit to view"]'), null, 'the old name is gone');
-  assert.match(fitWhole().title, /press 0 for the readable view/);
+  assert.equal(ctx.document.querySelector('[data-more-item="fit"] .mlv-moremenu__label').textContent, 'Fit the whole diagram');
   sizeCanvas(ctx, { w: 400, h: 300 });
   ctx.app.view.fit();
   assert.equal(ctx.app.getState().viewport.zoom, 0.9, 'phase 1 does not fit at 0.75 here, so it opens at READABLE_ZOOM');
@@ -468,7 +488,7 @@ test('an authored title is truncated once: whole label in the DOM, wrapped to th
 
   assert.equal(parseFloat(card.style.height) - parseFloat(short.style.height), 36, 'two extra 18 px title lines are reserved');
   // The SVG export draws the same lines.
-  ctx.document.querySelector('.mlv-btn--exportmenu').click();
+  ctx.document.querySelector('.mlv-btn--more').click();
   ctx.document.querySelector('[data-export-action="svg"]').click();
   const frame = ctx.bridge.posted.findLast((item) => item.type === 'exportFile' && item.kind === 'svg');
   const svg = Buffer.from(frame.base64, 'base64').toString('utf8');

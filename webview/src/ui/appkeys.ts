@@ -8,8 +8,8 @@
  * Two behaviours live here in full because they are keyboard behaviours and
  * nothing else calls them:
  *
- *  - THE Escape cascade, in this exact order — shortcut sheet -> legend ->
- *    focus mode -> scope -> selection -> blur. One owner writes that order ONCE
+ *  - THE Escape cascade, in this exact order — shortcut sheet -> the details or
+ *    Refine… panel -> legend -> focus mode -> selection -> blur. One owner writes that order ONCE
  *    (CONTRACTS v1.1 §10.1, which is where v1.0 §11.13 now lives); whichever
  *    rung fires also stops the flow it owned.
  *  - `e` / `Shift+E`, which walk the selection's connections over the LIVE
@@ -50,13 +50,8 @@ export interface KeyContext {
   setRailTab(tab: RailTab): void;
   toggleShortcuts(next?: boolean): void;
   sheetOpen(): boolean;
-  closeScopePicker(): boolean;
-  scopeSpec(): string | null;
-  setScope(spec: string | null): void;
-  stepDepth(delta: number): void;
-  scopeToNode(id: string): void;
-  openScopePicker(): void;
-  selectedNodeId(): string | null;
+  /** Viewer M2: close the request and coverage details or the Refine… popover; false when neither is open. */
+  closeHeaderPanels(): boolean;
   announce(text: string): void;
 }
 
@@ -65,15 +60,15 @@ export function commandPortFor(ctx: KeyContext): CommandPort {
     focusSearch: () => ctx.focusSearch(),
 
     dismissTopmost: () => {
-      if (ctx.closeScopePicker()) return;
       if (ctx.sheetOpen()) ctx.toggleShortcuts(false);
+      // The panels that open over the diagram from the header, before anything on the canvas.
+      else if (ctx.closeHeaderPanels()) return;
       // The legend is a PANEL over the diagram, opened with `l` and closed with
       // its own [x] — and Escape is what a reader presses at a panel. It sits
       // above focus mode because it is the shallower thing on screen: dismissing
-      // it must never also throw away the focus, scope or selection underneath.
+      // it must never also throw away the focus or selection underneath.
       else if (ctx.legendOpen()) ctx.closeLegend();
       else if (ctx.view().isFocusLocked) ctx.view().toggleFocusMode(ctx.selection());
-      else if (ctx.scopeSpec()) ctx.setScope(null);
       else if (ctx.selection()) {
         // A connection reached with `e` still holds DOM focus, and focus alone
         // is a flow trigger (interaction table row 3). Clearing the selection
@@ -122,28 +117,6 @@ export function commandPortFor(ctx: KeyContext): CommandPort {
     toggleShortcuts: () => ctx.toggleShortcuts(),
 
     cycleConnections: (backwards) => cycleConnections(ctx, backwards),
-
-    scopeToSelection: () => {
-      const id = ctx.selectedNodeId();
-      if (!id) {
-        ctx.openScopePicker();
-        return true;
-      }
-      ctx.scopeToNode(id);
-      return true;
-    },
-
-    clearScope: () => {
-      if (!ctx.scopeSpec()) return false;
-      ctx.setScope(null);
-      return true;
-    },
-
-    stepDepth: (delta) => {
-      if (!ctx.scopeSpec()) return false;
-      ctx.stepDepth(delta);
-      return true;
-    },
   };
 }
 

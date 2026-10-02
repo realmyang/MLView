@@ -53,8 +53,9 @@ const PHASE_ROWS: LegendRow[] = [
 ];
 
 const FRESHNESS_ROWS: LegendRow[] = [
-  { group: 'freshness', key: 'verified', label: 'Source snapshot', detail: 'Published file hashes can detect later source changes; they do not prove the interpretation.' },
-  { group: 'freshness', key: 'draft', label: 'Draft', detail: 'This revision has no published source hashes, so freshness is not verified.' },
+  // Viewer M2: the status bar says it in muted words; there is no mark for it, and no green.
+  { group: 'freshness', key: 'verified', label: 'Unchanged', detail: 'The status bar counts the cited files that still match the hashes published with this revision. Unchanged means the quoted lines still exist; it does not prove the interpretation.' },
+  { group: 'freshness', key: 'draft', label: 'Not checked', detail: 'This revision has no published source hashes, so the status bar says freshness is not checked.' },
   // Viewer M1: the only freshness mark on the diagram. Unchanged files get none.
   { group: 'freshness', key: 'stale', label: 'Changed or missing', detail: 'A cited file no longer matches the published revision. Cards, connections, findings and quotes that cite it carry this mark and a border in the warning colour, and their jumps are blocked. It does not say whether the claim is still right. When the notice above says the workspace root is the wrong folder, the mark means the file is unchanged in another folder.' },
 ];

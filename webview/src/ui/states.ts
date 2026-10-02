@@ -16,7 +16,7 @@ export function buildEmptyState(graph: MLGraph | null): HTMLElement {
     el(
       'p',
       'mlv-state__body',
-      'This authored workflow does not contain any steps in the current scope.',
+      'This authored workflow does not contain any steps.',
     ),
   );
   const diags: Diagnostic[] = graph ? graph.diagnostics || [] : [];
@@ -28,30 +28,6 @@ export function buildEmptyState(graph: MLGraph | null): HTMLElement {
   } else if (graph) {
     add(inner, el('p', 'mlv-state__body', 'The author inspected ' + graph.workspace.filesAnalyzed + ' files.'));
   }
-  return root;
-}
-
-/**
- * The FOURTH empty state (FEATURES 3.7): the scope resolved to nothing.
- *
- * The filter-empty state would say the wrong thing here — the filters are fine,
- * the selector simply named a part of the pipeline this codebase does not have,
- * which is itself a finding. Two ways out, both one click.
- */
-export function buildScopeEmptyState(spec: string, onWiden: () => void, onClear: () => void): HTMLElement {
-  const root = el('div', 'mlv-state mlv-state--empty mlv-state--scope');
-  root.setAttribute('role', 'status');
-  root.setAttribute('data-scope-empty', spec);
-  const inner = add(root, el('div', 'mlv-state__inner'));
-  add(inner, el('h2', 'mlv-state__title', 'Nothing in this scope'));
-  add(inner, el('p', 'mlv-state__body', spec + ' matched no nodes in this analysis.'));
-  const actions = add(inner, el('div', 'mlv-state__actions'));
-  const widen = button('mlv-btn', 'Widen (+1 hop)');
-  on(widen, 'click', onWiden);
-  actions.appendChild(widen);
-  const clearBtn = button('mlv-btn mlv-btn--primary', 'Clear scope');
-  on(clearBtn, 'click', onClear);
-  actions.appendChild(clearBtn);
   return root;
 }
 
