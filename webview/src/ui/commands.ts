@@ -12,8 +12,8 @@ import type { Issue, RailTab, Sel, Severity } from '../types.js';
 /** The operations the keyboard is allowed to reach. Implemented by App. */
 export interface CommandPort {
   focusSearch(): void;
-  /** Escape's cascade, innermost first. Returns once something was dismissed. */
-  dismissTopmost(): void;
+  /** Escape's cascade, innermost first. Returns once something was dismissed; false when nothing was. */
+  dismissTopmost(): boolean;
   visibleIssues(): Issue[];
   selectedIssueId(): string | null;
   focusIssue(id: string): void;

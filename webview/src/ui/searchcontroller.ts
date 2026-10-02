@@ -85,6 +85,8 @@ export class SearchController {
 
   handleKey(ev: KeyboardEvent): void {
     if (ev.key === 'Escape') {
+      // Viewer M3: marked handled, so the panel's bootstrap keeps VS Code from also acting on it.
+      ev.preventDefault();
       this.clear();
       this.host.onQueryChanged('');
       this.host.blurToCanvas();

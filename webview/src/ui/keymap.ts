@@ -12,7 +12,8 @@
 
 export interface KeyCommands {
   focusSearch(): void;
-  escape(): void;
+  /** The Escape cascade; false when nothing was left to dismiss, so the key is not consumed. */
+  escape(): boolean;
   cycleIssue(backwards: boolean): boolean;
   zoom(direction: number): void;
   /** `0`: the readable view (viewer M2), the first paint again. */
@@ -134,8 +135,12 @@ export function handleCanvasKey(ev: KeyboardEvent, cmd: KeyCommands): boolean {
     cmd.toggleShortcuts();
     return consume();
   }
+  // Viewer M3: an Escape that dismissed nothing (the focus is already off the canvas and nothing is
+  // open or selected) is left unconsumed, so VS Code can use it, for example to hide a notification.
+  // An Escape the cascade used is consumed, and the panel's bootstrap then keeps VS Code from also
+  // acting on it.
   if (key === 'Escape') {
-    cmd.escape();
+    if (!cmd.escape()) return false;
     return consume();
   }
   if (key === 'n' || key === 'N' || key === 'p' || key === 'P') {

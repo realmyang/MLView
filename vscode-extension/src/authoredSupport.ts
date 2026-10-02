@@ -84,6 +84,33 @@ export function staleJumpText(evidenceId: string, file: string, reason: StaleRea
     return `MLView: evidence ${evidenceId} cites ${file}, ${why}; navigation to it is blocked.`;
 }
 
+/**
+ * Why the host did not open a cited range (viewer M3): a stale reason, the root hint's `elsewhere`,
+ * unsaved text that lost the cited lines, a notebook cell that no longer exists, a file that could
+ * not be checked, or evidence the displayed revision does not have.
+ */
+export type OpenBlockReason = StaleReasonWord | 'elsewhere' | 'unsaved' | 'cell-missing' | 'unchecked' | 'unknown';
+
+/**
+ * The short sentence a blocked open answers with (`actionResult.message`), for the review walk's
+ * bar: what is wrong with the file and that nothing was opened. `file` is already bounded and
+ * escaped (displayText); the cell index is the contract's zero-based one, as the viewer shows it.
+ */
+export function blockedOpenText(reason: OpenBlockReason, file: string, detail: { revisionId?: string; folder?: string; cell?: number; issue?: string } = {}): string {
+    const revision = detail.revisionId ? `revision ${detail.revisionId}` : 'the revision';
+    switch (reason) {
+        case 'changed': return `${file} changed after ${revision} was published; not opened.`;
+        case 'missing': return `${file} is missing since ${revision} was published; not opened.`;
+        case 'unreadable': return `${file} can no longer be read; not opened.`;
+        case 'too-large': return `${file} has grown past the size MLView can check; not opened.`;
+        case 'elsewhere': return `${file} is not in the workspace root; it is unchanged in ${detail.folder ?? 'another folder'}. Not opened.`;
+        case 'unsaved': return `Unsaved changes in ${file} no longer contain the cited lines; not opened. Save or revert the file.`;
+        case 'cell-missing': return `Cell ${detail.cell ?? '?'} of ${file} no longer exists; not opened.`;
+        case 'unchecked': return `${file} could not be checked (${detail.issue ?? 'unknown problem'}); not opened.`;
+        default: return 'This evidence is not in the displayed revision; not opened.';
+    }
+}
+
 /** A folder under the workspace root where the missing cited files exist with their published hashes. */
 export interface RootHint {
     /** Absolute path of the folder the citations resolve against. */

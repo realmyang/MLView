@@ -65,7 +65,7 @@ export function commandPortFor(ctx: KeyContext): CommandPort {
     dismissTopmost: () => {
       if (ctx.sheetOpen()) ctx.toggleShortcuts(false);
       // The panels that open over the diagram from the header, before anything on the canvas.
-      else if (ctx.closeHeaderPanels()) return;
+      else if (ctx.closeHeaderPanels()) return true;
       // The legend is a PANEL over the diagram, opened with `l` and closed with
       // its own [x] — and Escape is what a reader presses at a panel. It sits
       // above focus mode because it is the shallower thing on screen: dismissing
@@ -73,7 +73,7 @@ export function commandPortFor(ctx: KeyContext): CommandPort {
       else if (ctx.legendOpen()) ctx.closeLegend();
       // Viewer M2: the open bottom panel collapses to its tab strip before anything on the canvas
       // is undone: the selection it shows stays selected.
-      else if (ctx.collapseSheet()) return;
+      else if (ctx.collapseSheet()) return true;
       else if (ctx.view().isFocusLocked) ctx.view().toggleFocusMode(ctx.selection());
       else if (ctx.selection()) {
         // A connection reached with `e` still holds DOM focus, and focus alone
@@ -82,7 +82,15 @@ export function commandPortFor(ctx: KeyContext): CommandPort {
         // port and charge (MLV-R1-FLOW-011).
         ctx.view().blurFocusedEdge();
         ctx.clearSelection();
-      } else ctx.view().canvasEl.blur();
+      } else {
+        // Leave the canvas. Viewer M3: when the focus is already off it, there is nothing left for
+        // this Escape to do here, and the key goes on to VS Code.
+        const canvas = ctx.view().canvasEl;
+        const active = canvas.ownerDocument ? canvas.ownerDocument.activeElement : null;
+        if (!active || !canvas.contains(active)) return false;
+        canvas.blur();
+      }
+      return true;
     },
 
     visibleIssues: () => ctx.visibleIssues(),

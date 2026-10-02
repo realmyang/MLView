@@ -2,14 +2,14 @@ import { createHash } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
-import { createNonce, findRootHint, rootHintJumpText, rootHintText, staleBannerText, staleJumpText, staleToastText, themeKindOf, toEditorLine, type RootHint } from './authoredSupport';
+import { blockedOpenText, createNonce, findRootHint, hintFolderName, rootHintJumpText, rootHintText, staleBannerText, staleJumpText, staleToastText, themeKindOf, toEditorLine, type OpenBlockReason, type RootHint } from './authoredSupport';
 import { MAX_EXPORT_BYTES, parseExportFileMessage, saveExportedFile } from './exportDiagram';
 import { DependencySet, identity } from './fileIdentity';
 import type { Logger } from './log';
 import { buildRefinementPrompt, REFINE_INTENTS, toPosixRelative, type RefineIntent, type RefineSelection } from './refinePrompt';
 import { displayIssue, displayText } from './displayText';
 import { canonicalJson, jsonDepth, lenientRevision, MAX_JSON_DEPTH, RevisionLineage, semanticJson, type Candidate, type Verdict } from './revisionLineage';
-import { ID_PATTERN, MAX_DOCUMENT_BYTES, MAX_SOURCE_BYTES, quoteMatches, readSourceBytes, trackedFiles, validateWorkflow, validateWorkflowStructure, type ValidatedWorkflow, type ValidationIssue, type WorkflowEvidence } from './workflowDocument';
+import { ID_PATTERN, MAX_DOCUMENT_BYTES, MAX_SOURCE_BYTES, quoteMatches, readSourceBytes, trackedFiles, validateWorkflow, validateWorkflowStructure, type StaleFile, type ValidatedWorkflow, type ValidationIssue, type WorkflowEvidence } from './workflowDocument';
 export const AUTHORED_VIEW_TYPE = 'mlview.authoredDiagram';
 export const OPEN_AUTHORED_COMMAND = 'mlview.openGeneratedDiagram';
 const RELOAD_DEBOUNCE_MS = 120;
@@ -143,6 +143,29 @@ interface Jump {
     revision: string;
     freshness: number;
     seq: number;
+    /** The webview's own sequence number for this open, when it sent one (the review walk does). */
+    openSeq?: number;
+}
+/**
+ * What became of one source jump (viewer M3): opened; dropped because a newer jump, a new revision
+ * or a freshness change overtook it; or blocked, with the reason, the short sentence the webview
+ * shows and the warning an ordinary (non-walk) open still raises as a notification.
+ */
+type JumpOutcome =
+    | { outcome: 'done' }
+    | { outcome: 'cancelled' }
+    | { outcome: 'blocked'; reason: OpenBlockReason; message: string; warning: string };
+const CANCELLED: JumpOutcome = { outcome: 'cancelled' };
+/**
+ * The jump checks of one revision and freshness version (viewer M3, KI-09): per cited file, the
+ * file's identity on disk when it was checked (device, inode, size and change times) and whether it
+ * was stale then. A walk that steps through 27 citations of one notebook reads and hashes it once,
+ * and runs at most one full validation, instead of once per step.
+ */
+interface JumpChecks {
+    revision: string;
+    freshness: number;
+    files: Map<string, { signature: string; stale: StaleFile | undefined }>;
 }
 /** Outcome of reading the artifact bytes from disk (never from an editor buffer). */
 export type ArtifactRead = { kind: 'bytes'; bytes: Uint8Array } | { kind: 'missing' } | { kind: 'unreadable'; detail: string; transient?: boolean };
@@ -653,6 +676,13 @@ class AuthoredPanel implements vscode.Disposable {
     private highlight: vscode.TextEditorDecorationType | undefined;
     /** The number of the latest source jump (see `Jump`). */
     private jumpSeq = 0;
+    /**
+     * The highest `seq` the webview page sent with an open (viewer M3); an open with a lower or equal
+     * one is superseded. A new page starts again from 0 (`ready`).
+     */
+    private lastOpenSeq = 0;
+    /** The cached checks behind source jumps, for the current revision and freshness (`JumpChecks`). */
+    private jumpChecks: JumpChecks | undefined;
     /** The editor group the last jump showed its source in (`navigationColumn`). */
     private jumpColumn: vscode.ViewColumn | undefined;
     /** Editor groups the reader used outside the panel, most recent first (`navigationColumn`). */
@@ -1091,7 +1121,7 @@ class AuthoredPanel implements vscode.Disposable {
         if (version === this.dirtyVersion)
             this.dirty = result;
     }
-    private actionResult(requestId: string | undefined, action: 'exportFile' | 'copy' | 'refineWorkflow', outcome: 'done' | 'cancelled' | 'failed', extra: { message?: string; name?: string } = {}): void {
+    private actionResult(requestId: string | undefined, action: 'exportFile' | 'copy' | 'refineWorkflow' | 'openLocation', outcome: 'done' | 'cancelled' | 'failed' | 'blocked', extra: { message?: string; name?: string; reason?: OpenBlockReason; seq?: number } = {}): void {
         if (requestId)
             this.post({ v: 1, type: 'actionResult', requestId, action, outcome, ...extra });
     }
@@ -1104,6 +1134,8 @@ class AuthoredPanel implements vscode.Disposable {
         const requestId = typeof m.requestId === 'string' && REQUEST_ID.test(m.requestId) ? m.requestId : undefined;
         if (m.type === 'ready') {
             this.ready = true;
+            // A new page numbers its opens from the start again.
+            this.lastOpenSeq = 0;
             this.post({
                 v: 1,
                 type: 'init',
@@ -1134,7 +1166,14 @@ class AuthoredPanel implements vscode.Disposable {
             return;
         }
         if (m.type === 'openLocation') {
-            await this.openEvidence(m);
+            await this.openEvidence(m, requestId);
+            return;
+        }
+        // Viewer M3: the review walk ended. Its highlight goes, and a walk open still on its way
+        // (a notebook waiting for its cell editor) no longer lands.
+        if (m.type === 'walk') {
+            if (m.state === 'end')
+                this.endWalk();
             return;
         }
         if (m.type === 'workspaceHint') {
@@ -1246,19 +1285,50 @@ class AuthoredPanel implements vscode.Disposable {
         void vscode.window.showInformationMessage(`MLView refinement prompt copied. Paste it into the assistant that authored this diagram.${note}`);
         this.actionResult(requestId, 'refineWorkflow', 'done');
     }
-    private async openEvidence(m: Record<string, unknown>): Promise<void> {
+    /**
+     * One `openLocation` request. `focus: true` is the explicit "open and go to the editor" gesture;
+     * every other open keeps the keyboard on the diagram. Viewer M3, for the review walk: `seq`
+     * (a positive integer, increasing per page) drops an open that a later one already replaced;
+     * `requestId` asks for one `actionResult` (`done`, `blocked` with the reason, `cancelled` when it
+     * was superseded, `failed` when VS Code could not show the file); `walk: true` raises no
+     * notification for a blocked open, whose reason goes back to the webview instead; `highlight:
+     * false` selects and reveals the range without the whole-range decoration.
+     */
+    private async openEvidence(m: Record<string, unknown>, requestId: string | undefined): Promise<void> {
         const id = typeof m.evidenceId === 'string' ? m.evidenceId : undefined;
-        // `focus: true` is the explicit "open and go to the editor" gesture; every other open keeps
-        // the keyboard on the diagram.
         const focus = m.focus === true;
+        const walk = m.walk === true;
+        const highlight = m.highlight !== false;
+        const seq = typeof m.seq === 'number' && Number.isSafeInteger(m.seq) && m.seq > 0 ? m.seq : undefined;
+        const answer = (outcome: JumpOutcome | { outcome: 'failed'; message: string }): void => {
+            const extra = outcome.outcome === 'blocked' ? { message: outcome.message, reason: outcome.reason } : outcome.outcome === 'failed' ? { message: outcome.message } : {};
+            this.actionResult(requestId, 'openLocation', outcome.outcome, seq === undefined ? extra : { ...extra, seq });
+        };
+        if (seq !== undefined) {
+            // Superseded: the page already sent a later open (messages can overtake one another
+            // across a page reload, never within one page, but the order is the page's to decide).
+            if (seq <= this.lastOpenSeq) {
+                answer(CANCELLED);
+                return;
+            }
+            this.lastOpenSeq = seq;
+        }
         const shown = this.lastValid;
         const evidence = shown?.document.evidence.find(x => x.id === id);
-        if (!shown || !evidence)
+        if (!shown || !evidence) {
+            answer({ outcome: 'blocked', reason: 'unknown', message: blockedOpenText('unknown', ''), warning: '' });
             return;
-        const jump: Jump = { revision: shown.document.revision.id, freshness: this.freshnessVersion, seq: ++this.jumpSeq };
+        }
+        const jump: Jump = { revision: shown.document.revision.id, freshness: this.freshnessVersion, seq: ++this.jumpSeq, ...(seq !== undefined ? { openSeq: seq } : {}) };
         let behind = false;
+        let outcome: JumpOutcome;
         try {
-            await this.jumpTo(evidence, shown, jump, focus, () => { behind = true; });
+            outcome = await this.jumpTo(evidence, shown, jump, { focus, highlight }, () => { behind = true; });
+        }
+        catch (error) {
+            this.log.warn(`source navigation failed: ${error instanceof Error ? error.message : String(error)}`);
+            answer({ outcome: 'failed', message: `VS Code could not show ${displayText(evidence.file, 200)}.` });
+            return;
         }
         finally {
             // The jump's own check found files the panel has not caught up with (no watcher event
@@ -1266,52 +1336,113 @@ class AuthoredPanel implements vscode.Disposable {
             if (behind)
                 this.sourceChanged();
         }
+        // Viewer M3: an open from the review walk raises no notification (no toast storm while
+        // stepping through changed files); the webview shows the reason in its walk bar instead.
+        if (outcome.outcome === 'blocked' && !walk && outcome.warning)
+            void vscode.window.showWarningMessage(outcome.warning);
+        answer(outcome);
     }
-    private async jumpTo(evidence: WorkflowEvidence, shown: ValidatedWorkflow, jump: Jump, focus: boolean, markBehind: () => void): Promise<void> {
-        let fresh: ValidatedWorkflow;
+    private async jumpTo(evidence: WorkflowEvidence, shown: ValidatedWorkflow, jump: Jump, options: { focus: boolean; highlight: boolean }, markBehind: () => void): Promise<JumpOutcome> {
+        const checked = await this.checkCitedFile(evidence, shown, jump, markBehind);
+        if ('outcome' in checked)
+            return checked;
+        const file = displayText(evidence.file, 200);
+        const staleFile = checked.stale;
+        if (staleFile) {
+            const hint = this.rootHint;
+            if (hint && hint.files.includes(evidence.file))
+                return { outcome: 'blocked', reason: 'elsewhere', message: blockedOpenText('elsewhere', file, { folder: listFiles([hintFolderName(hint)]) }), warning: rootHintJumpText(evidence.id, file, hint, listFiles) };
+            return { outcome: 'blocked', reason: staleFile.reason, message: blockedOpenText(staleFile.reason, file, { revisionId: jump.revision }), warning: staleJumpText(evidence.id, file, staleFile.reason, jump.revision) };
+        }
+        const open = await this.findOpenDocument(evidence);
+        if (!this.navigationCurrent(jump))
+            return CANCELLED;
+        if (!this.unsavedTextStillCites(evidence, open))
+            return { outcome: 'blocked', reason: 'unsaved', message: blockedOpenText('unsaved', file), warning: `MLView: unsaved changes in ${file} no longer contain the lines cited by evidence ${evidence.id}; save or revert the file, then try again.` };
+        return this.navigate(evidence, jump, open, options);
+    }
+    /**
+     * Whether the cited file is stale, decided once per revision, freshness version and file
+     * identity (`JumpChecks`): from the cache while the file's identity on disk is unchanged; else
+     * by hashing that one file when the displayed revision's validation read it fresh; else by a
+     * full validation, whose verdicts are cached for every cited file. The identities are taken
+     * before the file is read, so a cached verdict is never newer than the bytes it was decided on.
+     */
+    private async checkCitedFile(evidence: WorkflowEvidence, shown: ValidatedWorkflow, jump: Jump, markBehind: () => void): Promise<JumpOutcome | { stale: StaleFile | undefined }> {
+        const signature = await this.fileSignature(evidence.file);
+        const cached = this.cachedCheck(jump, evidence.file, signature);
+        if (cached) {
+            if (!this.navigationCurrent(jump))
+                return CANCELLED;
+            return { stale: cached.stale };
+        }
+        if (!this.navigationCurrent(jump))
+            return CANCELLED;
         if (await this.unchangedSinceValidation(shown, evidence)) {
             // The cited file's bytes are the ones the displayed revision was validated against, so
             // the quote still matches: no full revalidation for this jump.
             if (!this.navigationCurrent(jump))
-                return;
-            fresh = shown;
+                return CANCELLED;
+            this.storeChecks(jump, new Map([[evidence.file, signature]]), shown.stale);
+            return { stale: undefined };
         }
-        else {
-            const displayed = this.lineage.displayed;
-            let result: ValidationResult | undefined;
-            try {
-                result = await this.validate(shown.document, displayed && !displayed.verified ? displayed.baseline : undefined);
-            }
-            catch {
-                result = { issues: [{ path: '$', message: 'validation failed' }] };
-            }
-            if (!result || !this.navigationCurrent(jump))
-                return;
-            if (!result.value) {
-                const first = result.issues[0];
-                void vscode.window.showWarningMessage(`MLView: evidence ${evidence.id} could not be checked (${first ? displayIssue(first) : 'unknown problem'}); source navigation was stopped.`);
-                return;
-            }
-            fresh = result.value;
-            if (JSON.stringify(fresh.stale) !== JSON.stringify(shown.stale))
-                markBehind();
+        const cited = [...new Set(shown.document.evidence.map(e => e.file))];
+        const signatures = new Map(await Promise.all(cited.map(async rel => [rel, rel === evidence.file ? signature : await this.fileSignature(rel)] as const)));
+        const displayed = this.lineage.displayed;
+        let result: ValidationResult | undefined;
+        try {
+            result = await this.validate(shown.document, displayed && !displayed.verified ? displayed.baseline : undefined);
         }
-        const staleFile = fresh.stale.find(s => s.rel === evidence.file);
-        if (staleFile) {
-            const hint = this.rootHint;
-            void vscode.window.showWarningMessage(hint && hint.files.includes(evidence.file)
-                ? rootHintJumpText(evidence.id, displayText(evidence.file, 200), hint, listFiles)
-                : staleJumpText(evidence.id, displayText(evidence.file, 200), staleFile.reason, jump.revision));
+        catch {
+            result = { issues: [{ path: '$', message: 'validation failed' }] };
+        }
+        if (!result || !this.navigationCurrent(jump))
+            return CANCELLED;
+        if (!result.value) {
+            const first = result.issues[0];
+            const issue = first ? displayIssue(first) : 'unknown problem';
+            return { outcome: 'blocked', reason: 'unchecked', message: blockedOpenText('unchecked', displayText(evidence.file, 200), { issue }), warning: `MLView: evidence ${evidence.id} could not be checked (${issue}); source navigation was stopped.` };
+        }
+        const fresh = result.value;
+        // The panel is behind (no watcher event yet): it validates again and moves to a new
+        // freshness version, so these verdicts are not kept.
+        if (JSON.stringify(fresh.stale) !== JSON.stringify(shown.stale))
+            markBehind();
+        else
+            this.storeChecks(jump, signatures, fresh.stale);
+        return { stale: fresh.stale.find(s => s.rel === evidence.file) };
+    }
+    /** A cited file's identity on disk, or why it has none; any change to the file changes it. */
+    private async fileSignature(rel: string): Promise<string> {
+        try {
+            const stat = await fs.stat(path.resolve(this.folder.uri.fsPath, rel), { bigint: true });
+            return `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}`;
+        }
+        catch (error) {
+            const code = (error as NodeJS.ErrnoException | undefined)?.code;
+            return `error:${typeof code === 'string' ? code : 'unknown'}`;
+        }
+    }
+    private cachedCheck(jump: Jump, rel: string, signature: string): { stale: StaleFile | undefined } | undefined {
+        const checks = this.jumpChecks;
+        if (!checks || checks.revision !== jump.revision || checks.freshness !== jump.freshness)
+            return undefined;
+        const entry = checks.files.get(rel);
+        return entry && entry.signature === signature ? { stale: entry.stale } : undefined;
+    }
+    /** Keep the verdicts for `signatures` while the jump's revision and freshness are still current. */
+    private storeChecks(jump: Jump, signatures: ReadonlyMap<string, string>, stale: readonly StaleFile[]): void {
+        if (this.disposed || this.lastValid?.document.revision.id !== jump.revision || this.freshnessVersion !== jump.freshness)
             return;
-        }
-        const open = await this.findOpenDocument(evidence);
-        if (!this.navigationCurrent(jump))
-            return;
-        if (!this.unsavedTextStillCites(evidence, open)) {
-            void vscode.window.showWarningMessage(`MLView: unsaved changes in ${displayText(evidence.file, 200)} no longer contain the lines cited by evidence ${evidence.id}; save or revert the file, then try again.`);
-            return;
-        }
-        await this.navigate(evidence, jump, open, focus);
+        if (!this.jumpChecks || this.jumpChecks.revision !== jump.revision || this.jumpChecks.freshness !== jump.freshness)
+            this.jumpChecks = { revision: jump.revision, freshness: jump.freshness, files: new Map() };
+        for (const [rel, signature] of signatures)
+            this.jumpChecks.files.set(rel, { signature, stale: stale.find(s => s.rel === rel) });
+    }
+    /** Viewer M3: the walk ended. Its highlight is cleared and an open still on its way is dropped. */
+    private endWalk(): void {
+        this.jumpSeq++;
+        this.clearHighlight();
     }
     /**
      * True when the cited file is fresh in the displayed revision's last validation and its bytes
@@ -1361,9 +1492,13 @@ class AuthoredPanel implements vscode.Disposable {
         }
         return true;
     }
-    /** The jump may still act: same revision and freshness, and no newer jump has started. */
+    /**
+     * The jump may still act: same revision and freshness, no newer jump has started, and (for an
+     * open the webview numbered) the page has sent no later open (viewer M3).
+     */
     private navigationCurrent(jump: Jump): boolean {
-        return !this.disposed && this.lastValid?.document.revision.id === jump.revision && this.freshnessVersion === jump.freshness && this.jumpSeq === jump.seq;
+        return !this.disposed && this.lastValid?.document.revision.id === jump.revision && this.freshnessVersion === jump.freshness && this.jumpSeq === jump.seq
+            && (jump.openSeq === undefined || jump.openSeq === this.lastOpenSeq);
     }
     /**
      * The panel's own editor group. VS Code revives a restored panel with column 0 and reports its
@@ -1426,23 +1561,23 @@ class AuthoredPanel implements vscode.Disposable {
     }
     /**
      * Open the cited source beside the panel, select the whole cited range and highlight it.
-     * `focus` false (the default gesture) keeps the keyboard on the diagram.
+     * `focus` false (the default gesture) keeps the keyboard on the diagram; `highlight` false
+     * leaves the whole-range decoration off.
      */
-    private async navigate(e: WorkflowEvidence, jump: Jump, open: { text?: vscode.TextDocument; notebook?: vscode.NotebookDocument }, focus: boolean): Promise<void> {
+    private async navigate(e: WorkflowEvidence, jump: Jump, open: { text?: vscode.TextDocument; notebook?: vscode.NotebookDocument }, options: { focus: boolean; highlight: boolean }): Promise<JumpOutcome> {
         const uri = open.notebook?.uri ?? open.text?.uri ?? vscode.Uri.file(path.join(this.folder.uri.fsPath, e.file));
         const start = toEditorLine(e.line), end = toEditorLine(e.endLine);
-        if (e.cell !== undefined) {
-            await this.navigateCell(e.cell, uri, start, end, jump, focus);
-            return;
-        }
+        if (e.cell !== undefined)
+            return this.navigateCell(e.cell, displayText(e.file, 200), uri, start, end, jump, options);
         const doc = await vscode.workspace.openTextDocument(uri);
         if (!this.navigationCurrent(jump))
-            return;
-        const editor = await vscode.window.showTextDocument(doc, { preview: true, preserveFocus: !focus, viewColumn: this.navigationColumn(doc) });
+            return CANCELLED;
+        const editor = await vscode.window.showTextDocument(doc, { preview: true, preserveFocus: !options.focus, viewColumn: this.navigationColumn(doc) });
         this.noteJumpColumn(editor.viewColumn);
         if (!this.navigationCurrent(jump))
-            return;
-        this.showRange(editor, citedRange(doc, start, end));
+            return CANCELLED;
+        this.showRange(editor, citedRange(doc, start, end), options.highlight);
+        return { outcome: 'done' };
     }
     /**
      * A notebook citation: show the notebook with the cited cell selected and revealed, then
@@ -1450,36 +1585,37 @@ class AuthoredPanel implements vscode.Disposable {
      * only once the cell is drawn; when it does not appear in time, the cell stays selected and
      * revealed without the line highlight.
      */
-    private async navigateCell(index: number, uri: vscode.Uri, start: number, end: number, jump: Jump, focus: boolean): Promise<void> {
+    private async navigateCell(index: number, file: string, uri: vscode.Uri, start: number, end: number, jump: Jump, options: { focus: boolean; highlight: boolean }): Promise<JumpOutcome> {
         const notebook = await vscode.workspace.openNotebookDocument(uri);
         if (!this.navigationCurrent(jump))
-            return;
+            return CANCELLED;
         // VS Code clamps cellAt's index, so a removed cell must be detected by count.
-        if (index >= notebook.cellCount) {
-            void vscode.window.showWarningMessage(`MLView: notebook cell ${index} no longer exists.`);
-            return;
-        }
+        if (index >= notebook.cellCount)
+            return { outcome: 'blocked', reason: 'cell-missing', message: blockedOpenText('cell-missing', file, { cell: index }), warning: `MLView: notebook cell ${index} no longer exists.` };
         const cell = notebook.cellAt(index);
         const cells = new vscode.NotebookRange(index, index + 1);
-        const notebookEditor = await vscode.window.showNotebookDocument(notebook, { preview: true, preserveFocus: !focus, viewColumn: this.navigationColumn(cell.document, notebook), selections: [cells] });
+        const notebookEditor = await vscode.window.showNotebookDocument(notebook, { preview: true, preserveFocus: !options.focus, viewColumn: this.navigationColumn(cell.document, notebook), selections: [cells] });
         this.noteJumpColumn(notebookEditor.viewColumn);
         if (!this.navigationCurrent(jump))
-            return;
+            return CANCELLED;
         notebookEditor.revealRange(cells, vscode.NotebookEditorRevealType.InCenterIfOutsideViewport);
         const cellEditor = await visibleEditorFor(cell.document, CELL_EDITOR_WAIT_MS);
         // A newer jump may have started during the wait: it owns the selection and the highlight.
         if (!this.navigationCurrent(jump))
-            return;
+            return CANCELLED;
         if (cellEditor)
-            this.showRange(cellEditor, citedRange(cell.document, start, end));
+            this.showRange(cellEditor, citedRange(cell.document, start, end), options.highlight);
         else
             this.clearHighlight();
+        return { outcome: 'done' };
     }
-    /** Select the whole range, reveal it, and move the highlight to it. */
-    private showRange(editor: vscode.TextEditor, range: vscode.Range): void {
+    /** Select the whole range, reveal it, and move the highlight to it (`highlight` false: only clear the old one). */
+    private showRange(editor: vscode.TextEditor, range: vscode.Range, highlight = true): void {
         editor.selection = new vscode.Selection(range.start, range.end);
         editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
         this.clearHighlight();
+        if (!highlight)
+            return;
         this.highlight = vscode.window.createTextEditorDecorationType(HIGHLIGHT_STYLE());
         editor.setDecorations(this.highlight, [range]);
     }
@@ -1496,8 +1632,18 @@ class AuthoredPanel implements vscode.Disposable {
      * theme and capabilities on the bridge before the viewer mounts, mounts on the first
      * `workflow`, and shows `workflowError` banners until then, in a `<pre>`. After the mount the
      * viewer's own listener applies every later frame, and draws the banner itself.
+     *
+     * Viewer M3: VS Code's webview host forwards every keydown to the workbench from a listener on
+     * the page's window, even a key the page already handled, and the workbench runs any keybinding
+     * that matches. MEASURED live (VS Code 1.139): one Escape on a card collapsed the bottom sheet
+     * and also dismissed a VS Code notification. An Escape the viewer acted on (it collapsed the
+     * sheet, closed the legend, cleared the selection) marks the event handled, and a listener on
+     * the document stops it there, before it reaches the window: one Escape, one action. It is added
+     * once the viewer has mounted, so it runs after the viewer's own document listeners. (A listener
+     * on the window would come too late: VS Code's forwarder is attached to that window before this
+     * page's scripts run, and it stays attached; checked live.)
      */
-    private render(): void { const nonce = createNonce(); const script = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(this.ctx.extensionUri, 'media', 'mlview.js')); const style = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(this.ctx.extensionUri, 'media', 'mlview.css')); this.panel.webview.html = `<!doctype html><html><head><meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${this.panel.webview.cspSource} data:; style-src ${this.panel.webview.cspSource}; script-src 'nonce-${nonce}' ${this.panel.webview.cspSource};"><link rel="stylesheet" href="${style}"></head><body><div id="mlview-root"></div><script nonce="${nonce}" src="${script}"></script><script nonce="${nonce}">(function(){var root=document.getElementById('mlview-root');var bridge=window.MLView.bridges.vscode();var save=bridge.saveState.bind(bridge);var artifact=null;bridge.saveState=function(state){save(Object.assign({},state,{artifact:artifact}));};var app=null;bridge.onMessage(function(m){if(!m||m.v!==1)return;if(m.type==='init'){if(typeof m.artifact==='string'){artifact=m.artifact;bridge.saveState(bridge.loadState()||{});}if(!app){if(m.theme)bridge.theme=m.theme;if(m.capabilities)bridge.capabilities=m.capabilities;}return;}if(m.type==='theme'){if(!app&&m.kind)bridge.theme=m.kind;return;}if(m.type==='workflow'){if(!app&&m.document)app=window.MLView.mountWorkflow(root,m.document,bridge);return;}if(m.type==='workflowError'){var e=document.getElementById('mlview-authored-error');if(app||!m.message){if(e)e.remove();return;}if(!e){e=document.createElement('pre');e.id='mlview-authored-error';e.setAttribute('role','status');root.prepend(e);}e.textContent=m.message;}});bridge.post({v:1,type:'ready'});}());</script></body></html>`; }
+    private render(): void { const nonce = createNonce(); const script = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(this.ctx.extensionUri, 'media', 'mlview.js')); const style = this.panel.webview.asWebviewUri(vscode.Uri.joinPath(this.ctx.extensionUri, 'media', 'mlview.css')); this.panel.webview.html = `<!doctype html><html><head><meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${this.panel.webview.cspSource} data:; style-src ${this.panel.webview.cspSource}; script-src 'nonce-${nonce}' ${this.panel.webview.cspSource};"><link rel="stylesheet" href="${style}"></head><body><div id="mlview-root"></div><script nonce="${nonce}" src="${script}"></script><script nonce="${nonce}">(function(){var root=document.getElementById('mlview-root');var bridge=window.MLView.bridges.vscode();var save=bridge.saveState.bind(bridge);var artifact=null;bridge.saveState=function(state){save(Object.assign({},state,{artifact:artifact}));};var app=null;bridge.onMessage(function(m){if(!m||m.v!==1)return;if(m.type==='init'){if(typeof m.artifact==='string'){artifact=m.artifact;bridge.saveState(bridge.loadState()||{});}if(!app){if(m.theme)bridge.theme=m.theme;if(m.capabilities)bridge.capabilities=m.capabilities;}return;}if(m.type==='theme'){if(!app&&m.kind)bridge.theme=m.kind;return;}if(m.type==='workflow'){if(!app&&m.document){app=window.MLView.mountWorkflow(root,m.document,bridge);document.addEventListener('keydown',function(e){if(e.key==='Escape'&&e.defaultPrevented)e.stopPropagation();});}return;}if(m.type==='workflowError'){var e=document.getElementById('mlview-authored-error');if(app||!m.message){if(e)e.remove();return;}if(!e){e=document.createElement('pre');e.id='mlview-authored-error';e.setAttribute('role','status');root.prepend(e);}e.textContent=m.message;}});bridge.post({v:1,type:'ready'});}());</script></body></html>`; }
     dispose(): void {
         if (this.disposed)
             return;

@@ -282,22 +282,36 @@ export interface Capabilities {
 export type RefineIntent = 'explain' | 'expand' | 'challenge' | 'trace' | 'custom';
 
 /** The requests that carry a `requestId` and are answered by one `actionResult`. */
-export type ResultAction = 'exportFile' | 'copy' | 'refineWorkflow';
+export type ResultAction = 'exportFile' | 'copy' | 'refineWorkflow' | 'openLocation';
 
 /**
- * The host's single answer to an `exportFile`, `copy` or `refineWorkflow`
- * request that carried a valid `requestId` (§1e). `message` is host-authored
+ * Why the host did not open a cited range (viewer M3): a stale reason, `elsewhere` (the root
+ * hint), unsaved text that lost the cited lines, a removed notebook cell, a file that could not be
+ * checked, or evidence the displayed revision does not have.
+ */
+export type OpenBlockReason = 'changed' | 'missing' | 'unreadable' | 'too-large' | 'elsewhere' | 'unsaved' | 'cell-missing' | 'unchecked' | 'unknown';
+
+/**
+ * The host's single answer to an `exportFile`, `copy`, `refineWorkflow` or (viewer M3)
+ * `openLocation` request that carried a valid `requestId` (§1e). `message` is host-authored
  * and never contains an absolute path; `name` is the saved basename and is sent
  * only for a completed export.
+ *
+ * For `openLocation`: `done` (shown beside the panel), `blocked` (not opened; `reason` and a short
+ * `message` such as "train.py changed after revision r3 was published; not opened."), `cancelled`
+ * (a later open, a new revision or a freshness change overtook it) or `failed` (VS Code could not
+ * show the file). `seq` repeats the request's own `seq` when it had one.
  */
 export interface ActionResult {
   v: 1;
   type: 'actionResult';
   requestId: string;
   action: ResultAction;
-  outcome: 'done' | 'cancelled' | 'failed';
+  outcome: 'done' | 'cancelled' | 'failed' | 'blocked';
   message?: string;
   name?: string;
+  reason?: OpenBlockReason;
+  seq?: number;
 }
 
 /**
@@ -342,8 +356,17 @@ export type UiToHost =
   /**
    * `focus: true` (viewer M1) is the explicit open-and-focus gesture (Alt+Enter, Alt+click); every
    * other open keeps the keyboard on the diagram.
+   *
+   * Viewer M3, for the review walk (the host side; the walk debounces its opens about 150 ms):
+   * `seq` is a positive integer that increases with every numbered open of a page (the host drops
+   * an open whose `seq` is not above the last one it saw, and one a later open overtook);
+   * `requestId` asks for one `actionResult`; `walk: true` marks an open from the walk, which never
+   * raises a VS Code notification when it is blocked (the reason comes back in the result
+   * instead); `highlight: false` selects the range without the whole-range decoration.
    */
-  | { v: 1; type: 'openLocation'; file: string; absFile: string; line: number; col: number; endLine: number; endCol: number; preview?: boolean; evidenceId?: string; cell?: number; focus?: boolean }
+  | { v: 1; type: 'openLocation'; file: string; absFile: string; line: number; col: number; endLine: number; endCol: number; preview?: boolean; evidenceId?: string; cell?: number; focus?: boolean; seq?: number; requestId?: string; walk?: boolean; highlight?: boolean }
+  /** Viewer M3: the review walk ended; the host clears the cited-range highlight and drops a walk open still on its way. */
+  | { v: 1; type: 'walk'; state: 'end' }
   /** Viewer M1: the workspace-root hint's two actions. The host owns the folder. */
   | { v: 1; type: 'workspaceHint'; action: 'add' | 'open' }
   /**

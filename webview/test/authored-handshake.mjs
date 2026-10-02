@@ -98,8 +98,12 @@ async function openWire(document, files) {
   return wire;
 }
 
-/** Load the panel's HTML as a fresh webview page: the built bundle, then the host's inline bootstrap. */
-function mountPage(wire) {
+/**
+ * Load the panel's HTML as a fresh webview page: the built bundle, then the host's inline bootstrap.
+ * `beforeScripts(window)` runs first, the way VS Code's webview host attaches its own listeners to
+ * the page's window before the page's scripts run.
+ */
+function mountPage(wire, beforeScripts) {
   const dom = new JSDOM(wire.panel.webview.html, {
     runScripts: 'outside-only', pretendToBeVisual: true,
     url: 'https://authored.mlview.test/', virtualConsole: new VirtualConsole()
@@ -122,6 +126,7 @@ function mountPage(wire) {
     setState: (value) => { wire.state = value; },
     getState: () => wire.state
   });
+  if (beforeScripts) beforeScripts(window);
   // These are MLView's trusted built bundle and host-generated bootstrap, never target source.
   // Strict eval scopes `var`; a real script element exposes the IIFE global.
   window.eval(BUNDLE + '\nwindow.MLView = MLView;');
@@ -402,6 +407,67 @@ export async function authoredStaleHandshake() {
     assert.equal(page.mounts.length, 1);
     assertNoLegacyFrames(wire);
     process.stdout.write('  PASS  stale verified revision → notice and marks in the mounted root → cleared by a fresh child\n');
+  } finally {
+    wire.controller.dispose();
+    for (const page of wire.pages) page.window.close();
+    rmSync(wire.root, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Viewer M3: one Escape, one action. VS Code's webview host forwards every keydown to the
+ * workbench from a listener on the page's window, attached before the page's scripts run (checked
+ * live with DOMDebugger.getEventListeners in VS Code 1.139), and the workbench runs any Escape
+ * keybinding that matches (MEASURED live: one Escape on a card collapsed the bottom sheet and also
+ * dismissed a VS Code notification). The page here is the real host bootstrap plus the built
+ * viewer, with a stand-in forwarder attached first, as VS Code's is. An Escape the viewer acted on
+ * never reaches it; an Escape with nothing left to dismiss does, and so does every other key.
+ */
+export async function authoredEscapeHandshake() {
+  const wire = await openWire(baseDocument(), { 'source.py': SOURCE });
+  try {
+    const forwarded = [];
+    const page = mountPage(wire, (win) => win.addEventListener('keydown', (ev) => forwarded.push(ev.key)));
+    await waitFor(() => $(page, '[data-node-id="loss"]'), 'the viewer did not mount');
+    const { window } = page;
+    const press = (target, key) => {
+      const event = new window.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+      target.dispatchEvent(event);
+      return event;
+    };
+    const card = $(page, '[data-node-id="loss"]');
+    card.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }));
+    await waitFor(() => page.app.selection && page.app.selection.id === 'loss', 'the click did not select the card');
+    card.focus();
+    assert.equal(window.document.activeElement, card);
+
+    press(card, 'l');
+    assert.equal(page.app.legendOpen, true, 'l opened the legend');
+    assert.deepEqual(forwarded, ['l'], 'a key other than Escape still reaches VS Code');
+
+    let event = press(card, 'Escape');
+    assert.equal(page.app.legendOpen, false, 'Escape closed the legend');
+    assert.equal(event.defaultPrevented, true);
+    event = press(card, 'Escape');
+    assert.equal(page.app.selection, null, 'the next Escape cleared the selection');
+    assert.deepEqual(forwarded, ['l'], 'neither Escape the viewer used reached VS Code');
+
+    // Escape in the search box clears it and returns to the diagram; VS Code does not see it either.
+    const search = $(page, 'input[type="search"]');
+    search.focus();
+    search.value = 'loss';
+    search.dispatchEvent(new window.Event('input', { bubbles: true }));
+    event = press(search, 'Escape');
+    assert.equal(event.defaultPrevented, true, 'the search box used the Escape');
+    assert.equal(search.value, '', 'and cleared the query');
+    assert.deepEqual(forwarded, ['l'], 'the search box Escape did not reach VS Code');
+
+    // Nothing open, nothing selected and the focus off the canvas: nothing left for the viewer.
+    window.document.activeElement.blur();
+    event = press(window.document.body, 'Escape');
+    assert.equal(event.defaultPrevented, false, 'an Escape with nothing to dismiss is left unconsumed');
+    assert.deepEqual(forwarded, ['l', 'Escape'], 'and it reaches VS Code');
+    process.stdout.write('  PASS  an Escape the viewer used stops at the page; one with nothing to dismiss reaches VS Code\n');
   } finally {
     wire.controller.dispose();
     for (const page of wire.pages) page.window.close();
